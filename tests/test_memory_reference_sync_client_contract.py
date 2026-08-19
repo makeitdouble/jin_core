@@ -13,6 +13,7 @@ MEMORY_MODEL_JS = (
 )
 RUNTIME_JS = ROOT / "ui" / "static" / "js" / "runtime" / "runtime.js"
 CHAT_JS = ROOT / "ui" / "static" / "js" / "chat.js"
+INPUT_JS = ROOT / "ui" / "static" / "js" / "socket" / "input.js"
 LOGGER_JS = ROOT / "ui" / "static" / "js" / "logger" / "logger.js"
 RUNTIME_MEMORY_CSS = ROOT / "ui" / "static" / "css" / "runtime-memory.css"
 INDEX_HTML = ROOT / "ui" / "templates" / "index.html"
@@ -43,23 +44,44 @@ class MemoryReferenceSyncClientContractTests(unittest.TestCase):
             handler,
         )
 
-    def test_chat_reference_highlight_is_persistent_per_jin_turn(self):
+    def test_chat_reference_highlight_resets_at_new_user_turn(self):
         source = CHAT_JS.read_text(encoding="utf-8")
+        input_source = INPUT_JS.read_text(encoding="utf-8")
 
         self.assertIn(
             '"jin:memory-reference-highlight"',
             source,
         )
         self.assertIn(
+            'function clearLatestJinMemoryReferenceText()',
+            source,
+        )
+        self.assertIn(
+            'window.JinThinkCitations.resetThinkCitationHighlightTurn();',
+            source,
+        )
+        self.assertIn(
+            'dispatchJinMemoryReferenceHighlight(\n    "persistent",\n    "",\n    false',
+            source,
+        )
+        self.assertIn(
             'setLatestJinMemoryReferenceText(',
             source,
         )
-        self.assertNotIn(
-            'function bindJinMemoryReferenceBubble(',
-            source,
+        self.assertIn(
+            'window.clearLatestJinMemoryReferenceText();',
+            input_source,
+        )
+        self.assertLess(
+            input_source.index('window.clearLatestJinMemoryReferenceText();'),
+            input_source.index('window.prepareJinAttachments'),
+        )
+        self.assertLess(
+            input_source.index('window.clearLatestJinMemoryReferenceText();'),
+            input_source.index('appendChatMessage('),
         )
         self.assertNotIn(
-            'clearJinMemoryReferenceHighlights();',
+            'function bindJinMemoryReferenceBubble(',
             source,
         )
         self.assertNotIn(

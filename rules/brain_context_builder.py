@@ -201,6 +201,8 @@ def _append_L1_runtime_memory(
     from runtime.L1_memory_utils import (
         build_runtime_memory_context_text,
         canonicalize_runtime_memory_text,
+        format_runtime_memory_snapshot_timestamp,
+        get_runtime_memory_snapshot_datetime,
     )
     from utils.brain_client_utils import (
         indent_xml,
@@ -323,8 +325,44 @@ def _append_L1_runtime_memory(
             )
 
     if runtime_memory.strip():
+        snapshots = getattr(
+            context,
+            "runtime_memory_snapshots",
+            [],
+        )
+        latest_snapshot = (
+            snapshots[-1]
+            if isinstance(snapshots, list) and snapshots
+            else None
+        )
+
+        snapshot_timestamp = ""
+        if isinstance(latest_snapshot, dict):
+            snapshot_timestamp = str(
+                latest_snapshot.get(
+                    "timestamp",
+                    "",
+                )
+                or ""
+            ).strip()
+
+            snapshot_created_at = latest_snapshot.get(
+                "created_at",
+            )
+            if not snapshot_timestamp and snapshot_created_at:
+                snapshot_timestamp = format_runtime_memory_snapshot_timestamp(
+                    snapshot_created_at
+                )
+
+        if not snapshot_timestamp:
+            snapshot_timestamp = format_runtime_memory_snapshot_timestamp(
+                get_runtime_memory_snapshot_datetime(
+                    context
+                )
+            )
+
         parts.append(
-            "<RUNTIME_MEMORY>\n"
+            f'<RUNTIME_MEMORY ts="{escape(snapshot_timestamp)}">\n'
             f"{indent_xml(escape(canonicalize_runtime_memory_text(runtime_memory)))}\n"
             "</RUNTIME_MEMORY>"
         )
@@ -924,6 +962,9 @@ def build_brain_context(
     crop_previous_reasoning: bool = True,
 ) -> str:
 
+    from utils.context.current_concerns import (
+        build_current_concerns_context,
+    )
     from utils.context.messages import (
         build_previous_chat_messages_context,
     )
@@ -967,7 +1008,16 @@ def build_brain_context(
         runtime_actions
     )
 
-    # Tool results block: places recent tool/action outputs at the very top.
+    # Current concerns is an always-present live interrupt summary. Keep it
+    # immediately above tool results so every normal prompt exposes the
+    # current active-memory and pinned-resource pressure in one fixed place.
+    prompt_parts.append(
+        build_current_concerns_context(
+            context
+        )
+    )
+
+    # Tool results block: places recent tool/action outputs near the top.
     tool_results_context = build_tool_results_context(
         context
     )

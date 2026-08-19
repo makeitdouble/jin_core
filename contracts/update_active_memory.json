@@ -1,0 +1,27 @@
+{
+  "update_active_memory": {
+    "version": 1,
+    "description": "Allows the model to update state fields already fixed on an active memory record.",
+    "runtime_action": "UPDATE_ACTIVE_MEMORY",
+    "private_marker": "<UPDATE_ACTIVE_MEMORY: active_memory_id >",
+    "triggers": [],
+    "blockers": [],
+    "effects": {
+      "emit_followup": false
+    },
+    "rules": [
+      "Use UPDATE_ACTIVE_MEMORY only to change values of custom state fields that already exist on the target active memory record.",
+      "Never create, rename, or delete fields during UPDATE_ACTIVE_MEMORY. The field schema is fixed when SAVE_ACTIVE_MEMORY creates the record.",
+      "Never update runtime-owned fields such as active_memory_id, conditions, status, creation_time, updated_at, elapsed_time, session ids, or message counters.",
+      "Emit using exactly this schema:",
+      "<UPDATE_ACTIVE_MEMORY: active_memory_id >",
+      "field_name: NEW_VALUE",
+      "another_existing_field: NEW_VALUE",
+      "</UPDATE_ACTIVE_MEMORY>",
+      "active_memory_id is a placeholder; replace it with the exact six-character id from <ACTIVE_MEMORY>.",
+      "Each body line must contain one existing custom field name and its new value. Update only fields that actually changed. Keep each new value concise (maximum 256 characters)."
+    ],
+    "close_tag": true,
+    "body_placeholder": "field_name: NEW_VALUE"
+  }
+}

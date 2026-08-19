@@ -19,6 +19,7 @@ from contracts.rules_assembler import (
     RUNTIME_ACTION_SAVE_DELAYED_MEMORY_CONTENT,
     RUNTIME_ACTION_SAVE_SESSION,
     RUNTIME_ACTION_RESOLVE_ACTIVE_MEMORY,
+    RUNTIME_ACTION_UPDATE_ACTIVE_MEMORY,
     RUNTIME_ACTION_DEEP_WEB_SEARCH,
     RUNTIME_ACTION_WEB_SEARCH,
     build_runtime_action_display_text,
@@ -38,6 +39,7 @@ from utils.actions import (
     normalize_jin_size_dict,
     normalize_jin_size_payload,
     parse_idle_seconds,
+    parse_update_active_memory_payload,
 )
 from utils.skills_asset_utils import (
     normalize_skill_name,
@@ -53,6 +55,7 @@ from utils.runtime_action_abort import (
 from utils.actions.active_memory_actions import (
     apply_save_active_memory_actions,
     apply_resolve_active_memory_actions,
+    apply_update_active_memory_actions,
     emit_rejected_active_memory_results,
 )
 from utils.actions.asset_actions import (
@@ -894,6 +897,32 @@ async def apply_runtime_action_calls(
             )
             continue
 
+        if action.name == RUNTIME_ACTION_UPDATE_ACTIVE_MEMORY:
+            active_memory_id, update_fields = parse_update_active_memory_payload(
+                action.payload
+            )
+
+            if not active_memory_id or not update_fields:
+                continue
+
+            update_key = (
+                active_memory_id,
+                tuple(update_fields),
+            )
+            if not accept_runtime_action_once_per_message(
+                action,
+                update_key,
+            ):
+                continue
+
+            accepted_action_names.add(
+                action_event_name
+            )
+            filtered_actions.append(
+                action
+            )
+            continue
+
         if action.name == RUNTIME_ACTION_RESOLVE_ACTIVE_MEMORY:
             active_memory_id = extract_active_memory_resolve_slot_id(
                 action.payload,
@@ -1517,6 +1546,12 @@ async def apply_runtime_action_calls(
         save_active_memory_actions
     )
 
+    update_active_memory_actions = [
+        action
+        for action in filtered_actions
+        if action.name == RUNTIME_ACTION_UPDATE_ACTIVE_MEMORY
+    ]
+
     resolve_active_memory_actions = [
         action
         for action in filtered_actions
@@ -1870,6 +1905,13 @@ async def apply_runtime_action_calls(
         with_action_context=with_action_context,
     )
 
+    updated_active_memory_count = await apply_update_active_memory_actions(
+        context,
+        update_active_memory_actions,
+        log_runtime=log_runtime,
+        with_action_context=with_action_context,
+    )
+
     resolved_active_memory_count = await apply_resolve_active_memory_actions(
         context,
         resolve_active_memory_actions,
@@ -1921,6 +1963,7 @@ async def apply_runtime_action_calls(
         + len(
             attachment_results
         )
+        + updated_active_memory_count
         + resolved_active_memory_count
     )
 

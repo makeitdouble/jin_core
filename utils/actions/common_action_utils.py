@@ -10,6 +10,7 @@ from contracts.rules_assembler import (
     RUNTIME_ACTION_ATTACH_FILE,
     RUNTIME_ACTION_LIST_FILES,
     RUNTIME_ACTION_RESOLVE_ACTIVE_MEMORY,
+    RUNTIME_ACTION_UPDATE_ACTIVE_MEMORY,
     RUNTIME_ACTION_SAVE_ACTIVE_MEMORY,
     RUNTIME_ACTION_ASSET_ACTION,
     RUNTIME_ACTION_CHECK_TODO,
@@ -51,6 +52,7 @@ from .idle_utils import build_idle_payload
 from .jin_color_utils import build_jin_color_payload
 from .jin_size_utils import build_jin_size_payload
 from .update_l4_facts_utils import build_update_l4_facts_payload
+from .update_active_memory_utils import build_update_active_memory_payload
 from .resolve_action_utils import build_resolve_action_payload
 from .regexp_utils import (
     RuntimeActionRegexpMatch,
@@ -497,6 +499,9 @@ def normalize_runtime_action_names(
             normalized_names.append(
                 RUNTIME_ACTION_RESOLVE_ACTIVE_MEMORY
             )
+            normalized_names.append(
+                RUNTIME_ACTION_UPDATE_ACTIVE_MEMORY
+            )
 
         if normalized_name == RUNTIME_ACTION_SAVE_DELAYED_MEMORY_CONTENT:
             normalized_names.append(
@@ -554,6 +559,7 @@ _ACTION_PAYLOAD_BUILDERS = {
     RUNTIME_ACTION_WEB_SEARCH: build_web_search_payload,
     RUNTIME_ACTION_SAVE_ACTIVE_MEMORY: build_save_active_memory_payload,
     RUNTIME_ACTION_RESOLVE_ACTIVE_MEMORY: build_resolve_action_payload,
+    RUNTIME_ACTION_UPDATE_ACTIVE_MEMORY: build_update_active_memory_payload,
     RUNTIME_ACTION_CREATE_TODO_LIST: build_create_todo_list_payload,
     RUNTIME_ACTION_RESOLVE_TODO: build_resolve_action_payload,
     RUNTIME_ACTION_CHECK_TODO: build_check_todo_payload,

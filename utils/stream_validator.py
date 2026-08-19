@@ -4,6 +4,7 @@ from contracts.rules_assembler import (
 from config_loader import config
 
 import re
+import unicodedata
 
 # ---------------------------------------------------------
 # STREAM VALIDATOR
@@ -96,6 +97,17 @@ MAX_REPEAT_SENTENCES = configured_int(
     5,
     minimum=2,
     zero_disables=True,
+)
+MAX_REPEAT_SYMBOLIC_MOTIFS = configured_int(
+    "STREAM_VALIDATOR_MAX_REPEAT_SYMBOLIC_MOTIFS",
+    4,
+    minimum=3,
+    zero_disables=True,
+)
+SYMBOLIC_MOTIF_HISTORY_LINES = configured_int(
+    "STREAM_VALIDATOR_SYMBOLIC_MOTIF_HISTORY_LINES",
+    48,
+    minimum=8,
 )
 MAX_SENTENCE_LOOP_SEQUENCE_SIZE = configured_int(
     "STREAM_VALIDATOR_MAX_SENTENCE_LOOP_SEQUENCE_SIZE",
@@ -235,6 +247,13 @@ class StreamValidator:
         # ``F`` + ``5,`` are validated as ``F5`` instead of eight fake
         # repeated ``F`` words.
         self.word_fragment = ""
+        # Symbol-only reasoning loops are invisible to the lexical guards.
+        # Keep a physical-line window so a recurring visual motif such as
+        # ``(😼) ⚡`` is still detectable when prose and code fences are
+        # interleaved between occurrences.
+        self.symbolic_line_fragment = ""
+        self.symbolic_line_index = 0
+        self.symbolic_motif_history = []
         self.validation_marker_buffer = ""
         self.validation_excluded_block_name = ""
 
@@ -757,6 +776,154 @@ class StreamValidator:
         return True
 
     # -----------------------------------------------------
+    # VALIDATE SYMBOLIC / EMOJI MOTIF LOOPS
+    # -----------------------------------------------------
+
+    @staticmethod
+    def normalize_symbolic_motif(
+        line: str,
+    ) -> str:
+        stripped = str(line or "").strip()
+
+        if not stripped:
+            return ""
+
+        # This guard is intentionally narrow. Ordinary prose containing
+        # emoji belongs to the word/sentence validators, not here.
+        if any(
+            char.isalnum()
+            for char in stripped
+        ):
+            return ""
+
+        symbol_chars = [
+            char
+            for char in stripped
+            if (
+                unicodedata.category(char).startswith("S")
+                and char not in "`*_~"
+            )
+        ]
+
+        if len(symbol_chars) < 2:
+            return ""
+
+        # Two bare emoji are common conversational punctuation and are not
+        # enough evidence of a loop. Require either a richer 3+ symbol motif
+        # or real structural punctuation such as parentheses/brackets.
+        structural_punctuation = [
+            char
+            for char in stripped
+            if (
+                unicodedata.category(char).startswith("P")
+                and char not in "`*_~"
+            )
+        ]
+
+        if (
+            len(symbol_chars) < 3
+            and not structural_punctuation
+        ):
+            return ""
+
+        # Ignore spacing/markdown wrappers while preserving the actual
+        # visual motif order. ZWJ/variation selectors are deliberately not
+        # required for equality; the visible base symbols are enough.
+        return "".join(
+            char
+            for char in stripped
+            if (
+                (
+                    unicodedata.category(char).startswith("S")
+                    and char not in "`*_~"
+                )
+                or (
+                    unicodedata.category(char).startswith("P")
+                    and char not in "`*_~"
+                )
+            )
+        )
+
+    def validate_symbolic_motif_loops(
+        self,
+        chunk: str,
+    ) -> bool:
+        if MAX_REPEAT_SYMBOLIC_MOTIFS <= 0:
+            return True
+
+        text = self.symbolic_line_fragment + chunk
+        lines = text.split("\n")
+
+        if text.endswith("\n"):
+            complete_lines = lines[:-1]
+            self.symbolic_line_fragment = ""
+        else:
+            complete_lines = lines[:-1]
+            self.symbolic_line_fragment = lines[-1]
+
+        for raw_line in complete_lines:
+            self.symbolic_line_index += 1
+
+            line = raw_line.rstrip("\r")
+            motif_key = self.normalize_symbolic_motif(
+                line
+            )
+
+            min_line_index = (
+                self.symbolic_line_index
+                - SYMBOLIC_MOTIF_HISTORY_LINES
+            )
+            self.symbolic_motif_history = [
+                item
+                for item in self.symbolic_motif_history
+                if item[0] >= min_line_index
+            ]
+
+            if not motif_key:
+                continue
+
+            self.symbolic_motif_history.append((
+                self.symbolic_line_index,
+                motif_key,
+                line.strip(),
+            ))
+
+            matching = [
+                item
+                for item in self.symbolic_motif_history
+                if item[1] == motif_key
+            ]
+
+            if (
+                len(matching)
+                < MAX_REPEAT_SYMBOLIC_MOTIFS
+            ):
+                continue
+
+            matching = matching[
+                -MAX_REPEAT_SYMBOLIC_MOTIFS:
+            ]
+            loop_text = matching[-1][2]
+            preview = "\n".join(
+                item[2]
+                for item in matching
+            )
+
+            self.last_failure_reason = (
+                "Repeated symbolic motif loop detected."
+            )
+            self.last_failure_preview = build_preview(
+                preview
+            )
+            self.last_failure_loop_preview = build_loop_preview(
+                loop_text
+            )
+
+            return False
+
+        return True
+
+    # -----------------------------------------------------
     # VALIDATE WORD LOOPS
     # -----------------------------------------------------
 
@@ -1015,6 +1182,11 @@ class StreamValidator:
             return True
 
         if not self.validate_l4_fact_ids(
+            validation_chunk
+        ):
+            return False
+
+        if not self.validate_symbolic_motif_loops(
             validation_chunk
         ):
             return False

@@ -239,6 +239,21 @@ function dispatchJinMemoryReferenceHighlight(
   );
 }
 
+function clearLatestJinMemoryReferenceText() {
+  if (
+    window.JinThinkCitations
+    && typeof window.JinThinkCitations.resetThinkCitationHighlightTurn === "function"
+  ) {
+    window.JinThinkCitations.resetThinkCitationHighlightTurn();
+  }
+
+  dispatchJinMemoryReferenceHighlight(
+    "persistent",
+    "",
+    false
+  );
+}
+
 function setLatestJinMemoryReferenceText(
   role,
   text
@@ -247,12 +262,6 @@ function setLatestJinMemoryReferenceText(
     return;
   }
 
-  if (
-    window.JinThinkCitations
-    && typeof window.JinThinkCitations.resetThinkCitationHighlightTurn === "function"
-  ) {
-    window.JinThinkCitations.resetThinkCitationHighlightTurn();
-  }
   dispatchJinMemoryReferenceHighlight(
     "persistent",
     text,
@@ -794,6 +803,16 @@ function flushStreamFrame() {
       updateThinkExpandedHeight(
         stream.group.thinkContent
       );
+
+      if (
+        window.JinThinkCitations
+        && typeof window.JinThinkCitations.updateStreamingRuntimeCitationHighlights === "function"
+      ) {
+        window.JinThinkCitations.updateStreamingRuntimeCitationHighlights(
+          stream.messageId,
+          stream
+        );
+      }
 
       stream.pendingThinking =
         "";
@@ -1658,6 +1677,10 @@ function releaseActiveStreamAvatar() {
     activeStreamAvatarStream;
 
   if (stream) {
+    stopStreamRuntimeAvatarReasoning(
+      stream
+    );
+
     const group = stream.group || {};
     const hasVisibleStreamContent =
       Boolean(
@@ -2090,6 +2113,89 @@ function ensureStreamGroup(
 }
 
 
+function getRuntimeAvatarMotionController() {
+
+  return (
+    window.JinRuntime
+    && window.JinRuntime.avatar
+  ) || null;
+
+}
+
+function startStreamRuntimeAvatarReasoning(
+  stream
+) {
+
+  if (
+    !stream
+    || stream.runtimeAvatarReasoningActive
+  ) {
+    return;
+  }
+
+  const avatar =
+    getRuntimeAvatarMotionController();
+
+  stream.runtimeAvatarReasoningActive = true;
+
+  if (
+    avatar
+    && typeof avatar.beginReasoning === "function"
+  ) {
+    avatar.beginReasoning(
+      stream.messageId
+    );
+  }
+
+}
+
+function stopStreamRuntimeAvatarReasoning(
+  stream
+) {
+
+  if (
+    !stream
+    || !stream.runtimeAvatarReasoningActive
+  ) {
+    return;
+  }
+
+  stream.runtimeAvatarReasoningActive = false;
+
+  const avatar =
+    getRuntimeAvatarMotionController();
+
+  if (
+    avatar
+    && typeof avatar.endReasoning === "function"
+  ) {
+    avatar.endReasoning(
+      stream.messageId
+    );
+  }
+
+}
+
+function markStreamAnswerPhase(
+  messageId
+) {
+
+  const stream =
+    streamMessages.get(
+      messageId
+    );
+
+  if (!stream) {
+    return false;
+  }
+
+  stopStreamRuntimeAvatarReasoning(
+    stream
+  );
+
+  return true;
+}
+
 // STREAM START
 
 function startStreamMessage(
@@ -2120,6 +2226,7 @@ function startStreamMessage(
     answer: "",
     pendingThinking: "",
     pendingAnswer: "",
+    runtimeAvatarReasoningActive: false,
   };
 
   streamMessages.set(
@@ -2237,6 +2344,10 @@ function appendThinkingChunk(
 
   }
 
+  startStreamRuntimeAvatarReasoning(
+    stream
+  );
+
   stream.thinking += chunk;
   stream.pendingThinking += chunk;
 
@@ -2252,20 +2363,24 @@ function appendStreamChunk(
   chunk
 ) {
 
-  if (
-    chunk === null
-    || chunk === undefined
-    || chunk === ""
-  ) {
-    return;
-  }
-
   const stream =
     streamMessages.get(
       messageId
     );
 
   if (!stream) {
+    return;
+  }
+
+  stopStreamRuntimeAvatarReasoning(
+    stream
+  );
+
+  if (
+    chunk === null
+    || chunk === undefined
+    || chunk === ""
+  ) {
     return;
   }
 
@@ -2323,6 +2438,10 @@ function finishStreamMessage(
     );
 
   if (stream) {
+
+    stopStreamRuntimeAvatarReasoning(
+      stream
+    );
 
     flushStreamFrame();
 
@@ -2410,6 +2529,10 @@ window.updateJinInputLoopCounter =
   updateJinInputLoopCounter;
 window.appendChatMessage =
   appendChatMessage;
+window.clearLatestJinMemoryReferenceText =
+  clearLatestJinMemoryReferenceText;
+window.markStreamAnswerPhase =
+  markStreamAnswerPhase;
 window.prepareLiveUserTurnViewport =
   prepareLiveUserTurnViewport;
 window.activateLiveUserTurnViewport =

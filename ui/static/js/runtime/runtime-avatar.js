@@ -63,6 +63,14 @@
   const SNAPSHOT_GLOW_CLEAR_DELAY_MS = 360;
   const CENTER_COLOR_STEP_MS = 120;
   const MEMORY_LAYERS_HIDDEN_CLASS = "is-memory-layers-hidden";
+  const MEMORY_LAYERS_DORMANT_CLASS = "is-memory-layers-dormant";
+  const MEMORY_LAYERS_FADE_MS = 420;
+  const REASONING_MOTION_CLASS = "is-reasoning";
+  const REASONING_WHISPER_CLASS = "is-reasoning-whispering";
+  const REASONING_WHISPER_ANIMATION = "jin-avatar-reasoning-whisper";
+  const REASONING_ROTATION_STOP_MS = 1080;
+  const REASONING_ROTATION_RESUME_MS = 1480;
+  const REASONING_LAYER_SETTLE_MS = 1180;
 
   // 0 = no scene recolor, 1 = current full-strength scene recolor.
   const JIN_SCENE_COLOR_INTENSITY = 0.40;
@@ -127,6 +135,17 @@
   let centerColor = DEFAULT_CENTER_COLOR;
   let centerColorTransitionQueue = [];
   let centerColorTransitionTimer = null;
+  const reasoningMotionSources = new Set();
+  const requestedAnimationPlaybackRates = new WeakMap();
+  let avatarRotationAnimationsCache = null;
+  let reasoningMotionActive = false;
+  let reasoningWhisperActive = false;
+  let avatarRotationPlaybackRate = 1;
+  let reasoningRotationRampTimer = null;
+  let reasoningMutationTimer = null;
+  let reasoningLayerSettleTimer = null;
+  let reasoningLayerSettleActive = false;
+  let memoryLayersDormantTimer = null;
   const memoryReferenceHighlightState = {
     persistentText: "",
   };
@@ -273,6 +292,663 @@
     });
 
     return node;
+  }
+
+  function createReasoningMotionLayer(seedValue, intensity = 1) {
+    const random = createRandom(`reasoning-motion:${seedValue}`);
+    const strength = clamp(intensity, 0.08, 1);
+    const frontBase = (0.016 + random() * 0.030) * strength;
+    const backBase = (0.012 + random() * 0.024) * strength;
+    const anisotropy = (0.002 + random() * 0.007) * strength;
+    const drift = (0.25 + random() * 1.25) * strength;
+    const duration = 3.6 + random() * 3.8;
+    const delay = 0.10 + random() * 0.72;
+    const frontX = 1 + frontBase + anisotropy;
+    const frontY = 1 + frontBase - anisotropy;
+    const backX = 1 - backBase - anisotropy * 0.72;
+    const backY = 1 - backBase + anisotropy * 0.72;
+    const motion = createSvgElement("g", {
+      class: "jin-avatar-reasoning-motion",
+    });
+    const twitch = createSvgElement("g", {
+      class: "jin-avatar-reasoning-twitch",
+    });
+
+    motion.style.setProperty(
+      "--jin-avatar-whisper-front-x",
+      frontX.toFixed(4)
+    );
+    motion.style.setProperty(
+      "--jin-avatar-whisper-front-y",
+      frontY.toFixed(4)
+    );
+    motion.style.setProperty(
+      "--jin-avatar-whisper-back-x",
+      backX.toFixed(4)
+    );
+    motion.style.setProperty(
+      "--jin-avatar-whisper-back-y",
+      backY.toFixed(4)
+    );
+    motion.style.setProperty(
+      "--jin-avatar-whisper-drift-x",
+      `${((random() - 0.5) * drift * 2).toFixed(3)}px`
+    );
+    motion.style.setProperty(
+      "--jin-avatar-whisper-drift-y",
+      `${((random() - 0.5) * drift * 2).toFixed(3)}px`
+    );
+    motion.style.setProperty(
+      "--jin-avatar-whisper-return-x",
+      `${((random() - 0.5) * drift * 1.3).toFixed(3)}px`
+    );
+    motion.style.setProperty(
+      "--jin-avatar-whisper-return-y",
+      `${((random() - 0.5) * drift * 1.3).toFixed(3)}px`
+    );
+    motion.style.setProperty(
+      "--jin-avatar-whisper-duration",
+      `${duration.toFixed(3)}s`
+    );
+    motion.style.setProperty(
+      "--jin-avatar-whisper-delay",
+      `${delay.toFixed(3)}s`
+    );
+    motion.style.setProperty(
+      "--jin-avatar-whisper-depth-opacity",
+      (1 - (0.018 + random() * 0.045) * strength).toFixed(3)
+    );
+
+    motion.appendChild(twitch);
+
+    return {
+      layer: motion,
+      content: twitch,
+    };
+  }
+
+  function invalidateAvatarRotationAnimationsCache() {
+    avatarRotationAnimationsCache = null;
+  }
+
+  function getAvatarRotationAnimations() {
+    if (avatarRotationAnimationsCache !== null) {
+      return avatarRotationAnimationsCache;
+    }
+
+    const nodes = avatarRoot.querySelectorAll(
+      ".jin-avatar-orbit, .jin-avatar-counter-orbit"
+    );
+    const animations = [];
+
+    nodes.forEach((node) => {
+      if (typeof node.getAnimations !== "function") {
+        return;
+      }
+
+      node.getAnimations().forEach((animation) => {
+        const animationName = String(animation.animationName || "");
+
+        if (
+          animationName === "jin-avatar-orbit-rotation"
+          || animationName === "jin-avatar-counter-rotation"
+        ) {
+          animations.push(animation);
+        }
+      });
+    });
+
+    // Discover rotation handles once and reuse them for every frame of the
+    // reasoning ramp. Orbit DOM rebuilds explicitly invalidate this cache,
+    // so a replacement SVG is picked up on the next sync without rescanning
+    // the whole avatar on every requestAnimationFrame.
+    avatarRotationAnimationsCache = animations;
+    return avatarRotationAnimationsCache;
+  }
+
+  function setAnimationPlaybackRate(animation, rate) {
+    if (!animation) {
+      return;
+    }
+
+    const nextRate = Math.max(0, Number(rate) || 0);
+    const requestedRate = requestedAnimationPlaybackRates.get(animation);
+    const currentRate = Number(animation.playbackRate);
+    const previousRate = Number.isFinite(requestedRate)
+      ? requestedRate
+      : currentRate;
+
+    // Do not enqueue a Web Animations update when the requested speed did not
+    // actually change. In particular, reasoning starts from the current 1.0
+    // orbit rate; touching every orbit with a redundant 1 -> 1 update created
+    // a visible compositor stall before the deceleration began.
+    if (
+      Number.isFinite(previousRate)
+      && Math.abs(previousRate - nextRate) < 0.0005
+    ) {
+      return;
+    }
+
+    requestedAnimationPlaybackRates.set(animation, nextRate);
+
+    try {
+      // Preserve the current visual phase while changing speed. In Chromium,
+      // updatePlaybackRate() avoids a timing rebase at the full-stop boundary;
+      // direct assignment remains the fallback for older implementations.
+      if (typeof animation.updatePlaybackRate === "function") {
+        animation.updatePlaybackRate(nextRate);
+      } else {
+        animation.playbackRate = nextRate;
+      }
+    } catch (error) {
+      // A detached animation can disappear while the SVG is being rebuilt.
+    }
+  }
+  function getAvatarRotationAnimation(node) {
+    if (!node || typeof node.getAnimations !== "function") {
+      return null;
+    }
+
+    return node.getAnimations().find((animation) => {
+      const animationName = String(animation.animationName || "");
+
+      return (
+        animationName === "jin-avatar-orbit-rotation"
+        || animationName === "jin-avatar-counter-rotation"
+      );
+    }) || null;
+  }
+
+  function normalizeAvatarRotationAngle(angle) {
+    const normalized = Number(angle);
+
+    if (!Number.isFinite(normalized)) {
+      return null;
+    }
+
+    return ((normalized % 360) + 360) % 360;
+  }
+
+  function getAvatarRotationVisualAngle(node) {
+    if (!node) {
+      return null;
+    }
+
+    try {
+      const transform = window.getComputedStyle(node).transform;
+
+      if (!transform || transform === "none") {
+        return 0;
+      }
+
+      const matrixMatch = transform.match(/^matrix\(([^)]+)\)$/);
+      const matrix3dMatch = transform.match(/^matrix3d\(([^)]+)\)$/);
+      const values = String(
+        matrixMatch?.[1] || matrix3dMatch?.[1] || ""
+      )
+        .split(",")
+        .map(value => Number(value.trim()));
+
+      if (values.length < 2 || !values.every(Number.isFinite)) {
+        return null;
+      }
+
+      return normalizeAvatarRotationAngle(
+        Math.atan2(values[1], values[0]) * 180 / Math.PI
+      );
+    } catch (error) {
+      return null;
+    }
+  }
+
+  function captureAvatarRotationPhase(node) {
+    const angle = getAvatarRotationVisualAngle(node);
+
+    return angle === null
+      ? null
+      : { angle };
+  }
+
+  function captureAvatarRotationPhases(scope = avatarRoot) {
+    const phases = new Map();
+
+    scope
+      .querySelectorAll(
+        ".jin-avatar-orbit[data-avatar-rotation-key], .jin-avatar-counter-orbit[data-avatar-rotation-key]"
+      )
+      .forEach((node) => {
+        const key = String(node.dataset.avatarRotationKey || "").trim();
+
+        if (!key || phases.has(key)) {
+          return;
+        }
+
+        const phase = captureAvatarRotationPhase(node);
+
+        if (phase) {
+          phases.set(key, phase);
+        }
+      });
+
+    return phases;
+  }
+
+  function getAvatarRotationAnimationDirection(animation) {
+    if (!animation) {
+      return 1;
+    }
+
+    const animationName = String(animation.animationName || "");
+    let direction = animationName === "jin-avatar-counter-rotation"
+      ? -1
+      : 1;
+
+    try {
+      const timing = animation.effect?.getTiming?.();
+
+      if (timing && timing.direction === "reverse") {
+        direction *= -1;
+      }
+    } catch (error) {
+      // Keep the animation-name direction when timing is unavailable.
+    }
+
+    return direction;
+  }
+
+  function restoreAvatarRotationPhase(node, phase) {
+    if (!node || !phase) {
+      return false;
+    }
+
+    const animation = getAvatarRotationAnimation(node);
+    const angle = normalizeAvatarRotationAngle(phase.angle);
+
+    if (!animation || angle === null) {
+      return false;
+    }
+
+    try {
+      const timing = animation.effect?.getTiming?.();
+      const duration = Number(timing && timing.duration);
+
+      if (!Number.isFinite(duration) || duration <= 0) {
+        return false;
+      }
+
+      const angleRatio = angle / 360;
+      const progress = getAvatarRotationAnimationDirection(animation) >= 0
+        ? angleRatio
+        : ((1 - angleRatio) % 1);
+
+      animation.currentTime = progress * duration;
+      return true;
+    } catch (error) {
+      // The replacement animation can disappear during another immediate sync.
+      return false;
+    }
+  }
+
+  function restoreAvatarRotationPhases(phases, scope = avatarRoot) {
+    if (!(phases instanceof Map) || !phases.size) {
+      return;
+    }
+
+    scope
+      .querySelectorAll(
+        ".jin-avatar-orbit[data-avatar-rotation-key], .jin-avatar-counter-orbit[data-avatar-rotation-key]"
+      )
+      .forEach((node) => {
+        const key = String(node.dataset.avatarRotationKey || "").trim();
+        const phase = phases.get(key);
+
+        if (phase) {
+          restoreAvatarRotationPhase(node, phase);
+        }
+      });
+  }
+
+  function stopReasoningRotationRamp() {
+    if (!reasoningRotationRampTimer) {
+      return;
+    }
+
+    window.cancelAnimationFrame(reasoningRotationRampTimer);
+    reasoningRotationRampTimer = null;
+  }
+
+  function setReasoningWhisperActive(active) {
+    reasoningWhisperActive = Boolean(active);
+
+    if (avatarShell) {
+      avatarShell.classList.toggle(
+        REASONING_WHISPER_CLASS,
+        reasoningWhisperActive
+      );
+    }
+  }
+
+  function syncAvatarRotationPlaybackRate() {
+    getAvatarRotationAnimations().forEach((animation) => {
+      setAnimationPlaybackRate(
+        animation,
+        avatarRotationPlaybackRate
+      );
+    });
+  }
+
+  function rampAvatarRotationPlaybackRate(
+    targetRate,
+    durationMs,
+    onComplete = null
+  ) {
+    stopReasoningRotationRamp();
+
+    const target = clamp(targetRate, 0, 1);
+    const duration = Math.max(0, Number(durationMs) || 0);
+    const startRate = clamp(
+      avatarRotationPlaybackRate,
+      0,
+      1
+    );
+    const complete = () => {
+      if (typeof onComplete === "function") {
+        onComplete();
+      }
+    };
+
+    if (duration <= 0 || Math.abs(target - startRate) < 0.0005) {
+      avatarRotationPlaybackRate = target;
+      syncAvatarRotationPlaybackRate();
+      complete();
+      return;
+    }
+
+    // The original reasoning transition stayed continuous because the orbit
+    // was allowed to paint before its speed changed. Keep that property: do
+    // the ramp on paint-aligned frames instead of a 24 ms interval and avoid
+    // a synchronous animation update burst in the class-switching task.
+    const startedAt = window.performance && typeof window.performance.now === "function"
+      ? window.performance.now()
+      : Date.now();
+
+    const apply = (frameTime) => {
+      const now = Number.isFinite(Number(frameTime))
+        ? Number(frameTime)
+        : Date.now();
+      const elapsed = Math.max(0, now - startedAt);
+      const ratio = clamp(elapsed / duration, 0, 1);
+      const eased = ratio * ratio * (3 - 2 * ratio);
+
+      avatarRotationPlaybackRate =
+        startRate + (target - startRate) * eased;
+      syncAvatarRotationPlaybackRate();
+
+      if (ratio >= 1) {
+        reasoningRotationRampTimer = null;
+        avatarRotationPlaybackRate = target;
+        complete();
+        return;
+      }
+
+      reasoningRotationRampTimer = window.requestAnimationFrame(apply);
+    };
+
+    reasoningRotationRampTimer = window.requestAnimationFrame(apply);
+  }
+
+  function clearReasoningLayerSettleStyles() {
+    if (!reasoningLayerSettleActive && !reasoningLayerSettleTimer) {
+      return;
+    }
+
+    if (reasoningLayerSettleTimer) {
+      clearTimeout(reasoningLayerSettleTimer);
+      reasoningLayerSettleTimer = null;
+    }
+
+    reasoningLayerSettleActive = false;
+
+    avatarRoot
+      .querySelectorAll(".jin-avatar-reasoning-motion")
+      .forEach((layer) => {
+        layer.style.removeProperty("animation");
+        layer.style.removeProperty("transition");
+        layer.style.removeProperty("transform");
+        layer.style.removeProperty("opacity");
+      });
+  }
+
+  function settleReasoningLayersToIdle() {
+    const layers = Array.from(
+      avatarRoot.querySelectorAll(".jin-avatar-reasoning-motion")
+    );
+
+    if (!layers.length) {
+      reasoningLayerSettleActive = false;
+      reasoningWhisperActive = false;
+      if (avatarShell) {
+        avatarShell.classList.remove(
+          REASONING_MOTION_CLASS,
+          REASONING_WHISPER_CLASS
+        );
+      }
+      return;
+    }
+
+    reasoningLayerSettleActive = true;
+
+    layers.forEach((layer) => {
+      const computed = window.getComputedStyle(layer);
+      const transform = computed.transform === "none"
+        ? "matrix(1, 0, 0, 1, 0, 0)"
+        : computed.transform;
+      const opacity = computed.opacity || "1";
+
+      layer.style.setProperty("animation", "none");
+      layer.style.setProperty("transition", "none");
+      layer.style.setProperty("transform", transform);
+      layer.style.setProperty("opacity", opacity);
+    });
+
+    reasoningWhisperActive = false;
+
+    if (avatarShell) {
+      avatarShell.classList.remove(
+        REASONING_MOTION_CLASS,
+        REASONING_WHISPER_CLASS
+      );
+    }
+
+    // Force the captured in-between whisper pose to become the transition start.
+    void avatarRoot.getBoundingClientRect();
+
+    layers.forEach((layer) => {
+      layer.style.setProperty(
+        "transition",
+        `transform ${REASONING_LAYER_SETTLE_MS}ms cubic-bezier(0.16, 0.84, 0.22, 1), opacity 760ms ease-out`
+      );
+      layer.style.setProperty(
+        "transform",
+        "matrix(1, 0, 0, 1, 0, 0)"
+      );
+      layer.style.setProperty("opacity", "1");
+    });
+
+    reasoningLayerSettleTimer = setTimeout(() => {
+      reasoningLayerSettleTimer = null;
+      clearReasoningLayerSettleStyles();
+    }, REASONING_LAYER_SETTLE_MS + 80);
+  }
+
+  function getReasoningWhisperAnimation(layer) {
+    if (!layer || typeof layer.getAnimations !== "function") {
+      return null;
+    }
+
+    return layer.getAnimations().find((animation) => (
+      String(animation.animationName || "") === REASONING_WHISPER_ANIMATION
+    )) || null;
+  }
+
+  function runReasoningUncertaintyMutation() {
+    if (!reasoningMotionActive || !reasoningWhisperActive) {
+      return;
+    }
+
+    const layers = Array.from(
+      avatarRoot.querySelectorAll(".jin-avatar-reasoning-motion")
+    );
+
+    if (!layers.length) {
+      return;
+    }
+
+    const layer = layers[Math.floor(Math.random() * layers.length)];
+    const twitch = layer.querySelector(".jin-avatar-reasoning-twitch");
+    const whisperAnimation = getReasoningWhisperAnimation(layer);
+
+    if (
+      twitch
+      && typeof twitch.animate === "function"
+      && Math.random() < 0.58
+    ) {
+      const dx = (Math.random() - 0.5) * 1.35;
+      const dy = (Math.random() - 0.5) * 1.35;
+      const scale = 1 + (Math.random() - 0.5) * 0.009;
+
+      twitch.animate(
+        [
+          { transform: "translate(0px, 0px) scale(1)" },
+          { transform: `translate(${dx.toFixed(3)}px, ${dy.toFixed(3)}px) scale(${scale.toFixed(4)})`, offset: 0.44 },
+          { transform: "translate(0px, 0px) scale(1)" },
+        ],
+        {
+          duration: 230 + Math.round(Math.random() * 260),
+          easing: "cubic-bezier(0.22, 0.61, 0.36, 1)",
+        }
+      );
+    }
+
+    if (whisperAnimation && Math.random() < 0.72) {
+      const temporaryRate = 0.76 + Math.random() * 0.54;
+      setAnimationPlaybackRate(whisperAnimation, temporaryRate);
+
+      setTimeout(() => {
+        if (
+          reasoningMotionActive
+          && reasoningWhisperActive
+          && layer.isConnected
+          && getReasoningWhisperAnimation(layer) === whisperAnimation
+        ) {
+          setAnimationPlaybackRate(whisperAnimation, 1);
+        }
+      }, 520 + Math.round(Math.random() * 760));
+    }
+  }
+
+  function scheduleReasoningUncertaintyMutation() {
+    if (reasoningMutationTimer) {
+      clearTimeout(reasoningMutationTimer);
+      reasoningMutationTimer = null;
+    }
+
+    if (!reasoningMotionActive || !reasoningWhisperActive) {
+      return;
+    }
+
+    reasoningMutationTimer = setTimeout(() => {
+      reasoningMutationTimer = null;
+      runReasoningUncertaintyMutation();
+      scheduleReasoningUncertaintyMutation();
+    }, 1900 + Math.round(Math.random() * 3100));
+  }
+
+  function activateReasoningMotion() {
+    if (reasoningMotionActive) {
+      return;
+    }
+
+    reasoningMotionActive = true;
+    setReasoningWhisperActive(false);
+    clearReasoningLayerSettleStyles();
+
+    if (avatarShell) {
+      avatarShell.classList.add(REASONING_MOTION_CLASS);
+      avatarShell.dataset.motionMode = "reasoning";
+    }
+
+    rampAvatarRotationPlaybackRate(
+      0,
+      REASONING_ROTATION_STOP_MS,
+      () => {
+        if (!reasoningMotionActive) {
+          return;
+        }
+
+        // Rotation has reached a true full stop. Hand off to the
+        // reasoning whisper immediately in the same frame so there is no
+        // blank paint between the stopped orbit and the pulse/depth motion.
+        setReasoningWhisperActive(true);
+        scheduleReasoningUncertaintyMutation();
+      }
+    );
+  }
+
+  function deactivateReasoningMotion() {
+    if (!reasoningMotionActive) {
+      return;
+    }
+
+    reasoningMotionActive = false;
+    if (reasoningMutationTimer) {
+      clearTimeout(reasoningMutationTimer);
+      reasoningMutationTimer = null;
+    }
+
+    if (avatarShell) {
+      delete avatarShell.dataset.motionMode;
+    }
+
+    if (reasoningWhisperActive) {
+      settleReasoningLayersToIdle();
+    } else {
+      setReasoningWhisperActive(false);
+      if (avatarShell) {
+        avatarShell.classList.remove(REASONING_MOTION_CLASS);
+      }
+    }
+
+    rampAvatarRotationPlaybackRate(
+      1,
+      REASONING_ROTATION_RESUME_MS
+    );
+  }
+
+  function beginReasoningMotion(sourceId) {
+    const key = String(sourceId || "default-reasoning");
+    const wasEmpty = reasoningMotionSources.size === 0;
+
+    reasoningMotionSources.add(key);
+
+    if (wasEmpty) {
+      activateReasoningMotion();
+    }
+  }
+
+  function endReasoningMotion(sourceId) {
+    const key = String(sourceId || "default-reasoning");
+
+    reasoningMotionSources.delete(key);
+
+    if (reasoningMotionSources.size === 0) {
+      deactivateReasoningMotion();
+    }
+  }
+
+  function clearReasoningMotion() {
+    reasoningMotionSources.clear();
+    deactivateReasoningMotion();
   }
 
   function appendTitle(node, text) {
@@ -589,6 +1265,28 @@
       : "";
   }
 
+  function getActiveMemoryAvatarRecordStatus(value) {
+    let source = String(value || "").trimEnd();
+
+    while (source.endsWith("]")) {
+      const match = source.match(
+        /\[\s*([\w.-]+)\s*:\s*([^\[\]]*)\s*\]\s*$/
+      );
+
+      if (!match) {
+        break;
+      }
+
+      if (String(match[1] || "").trim().toLowerCase() === "status") {
+        return String(match[2] || "").trim().toLowerCase();
+      }
+
+      source = source.slice(0, match.index).trimEnd();
+    }
+
+    return "";
+  }
+
   function getRuntimeChangeMarkerStatus(line) {
     const statuses = [
       line && line.status,
@@ -651,6 +1349,14 @@
     const sourceLines = snapshot && Array.isArray(snapshot.lines)
       ? snapshot.lines
       : parseRawMemory(snapshot && snapshot.raw_memory);
+    const activeMemoryIdsByKey = new Map(
+      getActiveMemoryAvatarRecords()
+        .filter(record => record && record.id && record.key)
+        .map(record => [
+          String(record.key).trim().toLowerCase(),
+          String(record.id).trim().toLowerCase(),
+        ])
+    );
 
     return sourceLines
       .map((line, index) => {
@@ -660,7 +1366,13 @@
         const lineId =
           String(line && line.id || "").trim();
         const activeMemoryId =
-          String(line && line.active_memory_id || "").trim();
+          String(
+            line && line.active_memory_id
+            || extractActiveMemoryId(value)
+            || extractActiveMemoryId(text)
+            || activeMemoryIdsByKey.get(key.toLowerCase())
+            || ""
+          ).trim().toLowerCase();
         const status =
           String(line && line.status || "").trim().toLowerCase();
         const keyStatus =
@@ -1022,6 +1734,11 @@
           String(parsed.key || `active_memory_${index + 1}`).trim();
         const value =
           String(parsed.value || text).trim();
+        const activeMemoryId =
+          extractActiveMemoryId(text);
+
+        const paused =
+          getActiveMemoryAvatarRecordStatus(value) === "paused";
         const lineText =
           `${key}: ${value}`.trim();
 
@@ -1030,24 +1747,33 @@
         }
 
         return {
+          id: activeMemoryId,
           index,
           key,
           value,
+          paused,
           text: lineText,
           avatarMemoryHoverId:
             buildAvatarMemoryHoverId(
               "active",
-              extractActiveMemoryId(text)
+              activeMemoryId
                 || `record-${index}`
             ),
           referenceAliases:
             normalizeMemoryReferenceAliases([
               key,
               getAvatarMemoryReferenceDisplayKey(key),
+              activeMemoryId,
               ...collectMemoryMetadataReferenceAliases(value),
             ]),
           citationText:
             normalizeRuntimeCitationIdentity(lineText),
+          citationIdentity:
+            activeMemoryId
+              ? normalizeRuntimeCitationIdentity(
+                  `active:${activeMemoryId}`
+                )
+              : "",
         };
       })
       .filter(record => record && record.citationText);
@@ -1352,6 +2078,7 @@
       "data-runtime-line-key": options.citationKey || null,
       "data-runtime-line-text": options.citationText || null,
       "data-runtime-line-identity": options.citationIdentity || null,
+      "data-active-memory-id": options.activeMemoryId || null,
       "data-delayed-memory-id": options.delayedMemoryId || null,
       "data-delayed-memory-fact-ids":
         serializeL4FactIds(options.delayedMemoryFactIds),
@@ -1507,6 +2234,7 @@
         `jin-avatar-memory-ring-${kind}`,
         "jin-avatar-orbit",
       ].join(" "),
+      "data-avatar-rotation-key": `memory:${kind}`,
       fill: "none",
       "pointer-events": "none",
       style: [
@@ -1515,6 +2243,11 @@
         "--jin-avatar-play-state:running",
       ].join(";"),
     });
+    const reasoningMotion = createReasoningMotionLayer(
+      `memory-ring:${kind}:${records.length}`,
+      kind === "delayed" ? 0.94 : 0.82
+    );
+    ring.appendChild(reasoningMotion.layer);
     const slotDegrees = 360 / records.length;
     const arcDegrees =
       getMemoryDashArcDegrees(
@@ -1526,6 +2259,10 @@
       const angle = layout.startAngle + slotDegrees * index;
 
       if (kind === "active") {
+        if (record.paused) {
+          return;
+        }
+
         const color =
           mixColors(
             ACTIVE_MEMORY_RING_COLOR,
@@ -1534,7 +2271,7 @@
           );
 
         appendMemoryDashSegment(
-          ring,
+          reasoningMotion.content,
           layout,
           {
             kind,
@@ -1544,11 +2281,13 @@
             glowColor: ACTIVE_MEMORY_RING_COLOR,
             opacity: 0.76,
             avatarMemoryHoverId: record.avatarMemoryHoverId,
+            activeMemoryId: record.id,
             citationKey:
               normalizeRuntimeCitationIdentity(record.key),
             citationText: record.citationText,
+            citationIdentity: record.citationIdentity,
             referenceAliases: record.referenceAliases,
-            title: `Active memory ${index + 1}: ${record.value || record.text}`,
+            title: `Active memory ${record.index + 1}: ${record.value || record.text}`,
           }
         );
         return;
@@ -1563,7 +2302,7 @@
           );
 
         appendMemoryDashSegment(
-          ring,
+          reasoningMotion.content,
           layout,
           {
             kind,
@@ -1596,7 +2335,7 @@
         : mixColors(DELAYED_MEMORY_RING_COLOR, overallColor, 0.12);
 
       appendMemoryDashSegment(
-        ring,
+        reasoningMotion.content,
         layout,
         {
           kind,
@@ -1639,6 +2378,7 @@
         "jin-avatar-file-ring",
         "jin-avatar-counter-orbit",
       ].join(" "),
+      "data-avatar-rotation-key": "files",
       fill: "none",
       "pointer-events": "none",
       style: [
@@ -1647,6 +2387,11 @@
         "--jin-avatar-play-state:running",
       ].join(";"),
     });
+    const reasoningMotion = createReasoningMotionLayer(
+      `file-ring:${records.map(record => record.id).join("|")}`,
+      0.72
+    );
+    ring.appendChild(reasoningMotion.layer);
     const slotDegrees = 360 / records.length;
 
     records.forEach((record, index) => {
@@ -1701,7 +2446,7 @@
         fill: color,
         "fill-opacity": opacity.toFixed(2),
       }));
-      ring.appendChild(dotGroup);
+      reasoningMotion.content.appendChild(dotGroup);
     });
 
     const centerNode = svg.querySelector(".jin-avatar-center");
@@ -1777,6 +2522,13 @@
       return false;
     }
 
+    const previousRing =
+      svg.querySelector(`.jin-avatar-memory-ring-${kind}`);
+    const previousRotationPhase =
+      captureAvatarRotationPhase(previousRing);
+
+    invalidateAvatarRotationAnimationsCache();
+
     svg.querySelectorAll(
       `.jin-avatar-memory-ring-${kind}`
     ).forEach(ring => ring.remove());
@@ -1807,6 +2559,15 @@
         getMemorySignalInsertionReference(svg, kind)
       );
     }
+
+    if (previousRotationPhase) {
+      restoreAvatarRotationPhase(
+        svg.querySelector(`.jin-avatar-memory-ring-${kind}`),
+        previousRotationPhase
+      );
+    }
+
+    syncAvatarRotationPlaybackRate();
 
     if (options.applyGlows !== false) {
       applyAvatarReactiveGlows();
@@ -2268,7 +3029,7 @@
     return true;
   }
 
-  function syncFilesState() {
+  function syncFilesState(options = {}) {
     const svg = avatarRoot.querySelector("svg");
 
     if (!svg) {
@@ -2276,10 +3037,18 @@
     }
 
     const records = getPersistentFileAvatarRecords();
+    let previousRotationPhase = null;
+    let fileRingRebuilt = false;
 
     // State-only changes stay in place so pinning cannot restart the rotating
     // ring animation. Rebuild only when the actual file set changes.
     if (!syncFileSignalRingState(svg, records)) {
+      previousRotationPhase = captureAvatarRotationPhase(
+        svg.querySelector(".jin-avatar-file-ring")
+      );
+      fileRingRebuilt = true;
+      invalidateAvatarRotationAnimationsCache();
+
       svg.querySelectorAll(
         ".jin-avatar-file-ring"
       ).forEach((ring) => ring.remove());
@@ -2289,8 +3058,19 @@
       }
     }
 
-    applyAvatarReactiveGlows();
-    applyDelayedMemoryFileLinkGlow();
+    if (fileRingRebuilt && previousRotationPhase) {
+      restoreAvatarRotationPhase(
+        svg.querySelector(".jin-avatar-file-ring"),
+        previousRotationPhase
+      );
+    }
+
+    syncAvatarRotationPlaybackRate();
+
+    if (options.applyGlows !== false) {
+      applyAvatarReactiveGlows();
+      applyDelayedMemoryFileLinkGlow();
+    }
 
     return true;
   }
@@ -2396,6 +3176,12 @@
       fill: "none",
       "pointer-events": "none",
     });
+    const reasoningMotion = createReasoningMotionLayer(
+      `scaffold:${overallColor}:${currentCenterColor}`,
+      0.34
+    );
+    scaffold.appendChild(reasoningMotion.layer);
+    const scaffoldContent = reasoningMotion.content;
     const diffRatio =
       clamp(Number(diffPercent || 0) / 100, 0, 1);
     const rayEnergy =
@@ -2414,7 +3200,7 @@
       );
     }
 
-    scaffold.appendChild(createSvgElement("circle", {
+    scaffoldContent.appendChild(createSvgElement("circle", {
       cx: CENTER,
       cy: CENTER,
       r: 168,
@@ -2422,7 +3208,7 @@
     }));
 
     STATIC_SCAFFOLD_RADII.forEach((radius, index) => {
-      scaffold.appendChild(createSvgElement("circle", {
+      scaffoldContent.appendChild(createSvgElement("circle", {
         cx: CENTER,
         cy: CENTER,
         r: radius,
@@ -2473,7 +3259,7 @@
             : 0.54 + (1 - rayEnergy) * 0.10
         );
 
-      scaffold.appendChild(createSvgElement("line", {
+      scaffoldContent.appendChild(createSvgElement("line", {
         class: [
           "jin-avatar-scaffold-ray",
           "is-jin-avatar-ray-breathing",
@@ -2644,8 +3430,14 @@
     const effectiveSpeed = baseSpeed * (diffPercent / 100);
     const duration = effectiveSpeed > 0.05 ? 360 / effectiveSpeed : 9999;
     const direction = random() > 0.5 ? "normal" : "reverse";
+    const rotationKey = record.id
+      ? `runtime:id:${record.id}`
+      : record.activeMemoryId
+        ? `runtime:active:${record.activeMemoryId}`
+        : `runtime:index:${record.index}`;
     const orbitGroup = createSvgElement("g", {
       class: random() > 0.46 ? "jin-avatar-orbit" : "jin-avatar-counter-orbit",
+      "data-avatar-rotation-key": rotationKey,
       style: [
         `--jin-avatar-duration:${duration.toFixed(2)}s`,
         `--jin-avatar-direction:${direction}`,
@@ -2671,6 +3463,11 @@
       class: "jin-avatar-orbit-entry",
     });
 
+    const reasoningMotion = createReasoningMotionLayer(
+      `runtime-orbit:${record.index}:${record.key}`,
+      0.88
+    );
+
     orbitGroup.dataset.runtimeLineIndex = String(record.index);
     if (record.avatarMemoryHoverId) {
       orbitGroup.dataset.avatarMemoryHoverId =
@@ -2680,6 +3477,10 @@
       normalizeRuntimeCitationIdentity(record.key);
     orbitGroup.dataset.runtimeLineText =
       normalizeRuntimeCitationIdentity(record.text);
+    if (record.activeMemoryId) {
+      orbitGroup.dataset.activeMemoryId =
+        String(record.activeMemoryId).trim().toLowerCase();
+    }
     setAvatarMemoryReferenceAliases(
       orbitGroup,
       record.referenceAliases
@@ -2733,7 +3534,8 @@
       ringColor
     );
 
-    entryGroup.appendChild(orbitGroup);
+    reasoningMotion.content.appendChild(orbitGroup);
+    entryGroup.appendChild(reasoningMotion.layer);
     svg.appendChild(entryGroup);
   }
 
@@ -3117,6 +3919,18 @@
 
     const sourceId =
       String(detail.sourceId || "unknown-think");
+    const activeMemoryIds =
+      new Set(
+        normalizeShortRuntimeIds(
+          detail.activeMemoryIds || []
+        )
+      );
+    const activeMemoryKeys =
+      new Set(
+        (Array.isArray(detail.activeMemoryKeys) ? detail.activeMemoryKeys : [])
+          .map(normalizeRuntimeCitationIdentity)
+          .filter(key => /^active_memory(?:_\d+)?$/.test(key))
+      );
     const lineIdentities =
       new Set(
         (Array.isArray(detail.lineIdentities) ? detail.lineIdentities : [])
@@ -3137,7 +3951,9 @@
       );
 
     if (
-      !lineIdentities.size
+      !activeMemoryIds.size
+      && !activeMemoryKeys.size
+      && !lineIdentities.size
       && !lineKeys.size
       && !lineTexts.size
     ) {
@@ -3146,6 +3962,8 @@
 
     return {
       sourceId,
+      activeMemoryIds,
+      activeMemoryKeys,
       lineIdentities,
       lineKeys,
       lineTexts,
@@ -3153,17 +3971,23 @@
   }
 
   function getActiveThinkRuntimeCitationIdentitySets() {
+    const activeMemoryIds = new Set();
+    const activeMemoryKeys = new Set();
     const lineIdentities = new Set();
     const lineKeys = new Set();
     const lineTexts = new Set();
 
     activeThinkRuntimeCitationSources.forEach((state) => {
+      state.activeMemoryIds.forEach(id => activeMemoryIds.add(id));
+      state.activeMemoryKeys.forEach(key => activeMemoryKeys.add(key));
       state.lineIdentities.forEach(identity => lineIdentities.add(identity));
       state.lineKeys.forEach(key => lineKeys.add(key));
       state.lineTexts.forEach(line => lineTexts.add(line));
     });
 
     return {
+      activeMemoryIds,
+      activeMemoryKeys,
       lineIdentities,
       lineKeys,
       lineTexts,
@@ -3208,6 +4032,10 @@
         normalizeRuntimeCitationIdentity(
           orbitGroup.dataset.runtimeLineIdentity
         );
+      const activeMemoryId =
+        normalizeShortRuntimeIds(
+          orbitGroup.dataset.activeMemoryId
+        )[0] || "";
       const lineKey =
         normalizeRuntimeCitationIdentity(
           orbitGroup.dataset.runtimeLineKey
@@ -3225,10 +4053,23 @@
         && Number(lineKeyUsage.get(lineKey) || 0) === 1
         && activeIdentities.lineKeys.has(lineKey)
       );
+      const activeMemoryNode =
+        orbitGroup.classList.contains(
+          "jin-avatar-memory-dash-active"
+        );
       const cited =
-        lineIdentity
-          ? activeIdentities.lineIdentities.has(lineIdentity)
-          : (exactTextMatch || uniqueKeyMatch);
+        activeMemoryNode
+          ? Boolean(
+              activeMemoryId
+                ? activeIdentities.activeMemoryIds.has(activeMemoryId)
+                : (
+                  lineKey
+                  && activeIdentities.activeMemoryKeys.has(lineKey)
+                )
+            )
+          : lineIdentity
+            ? activeIdentities.lineIdentities.has(lineIdentity)
+            : (exactTextMatch || uniqueKeyMatch);
 
       orbitGroup.classList.toggle(
         "is-runtime-cited",
@@ -3242,10 +4083,77 @@
     return memoryReferenceHighlightState.persistentText || "";
   }
 
+  function getAvatarMemoryReferenceTargetIdentity(node) {
+    if (!node || !node.dataset) {
+      return "";
+    }
+
+    const activeMemoryId =
+      normalizeShortRuntimeIds(
+        node.dataset.activeMemoryId
+      )[0] || "";
+
+    if (activeMemoryId) {
+      return `active:${activeMemoryId}`;
+    }
+
+    const delayedMemoryId =
+      normalizeShortRuntimeIds(
+        node.dataset.delayedMemoryId
+      )[0] || "";
+
+    if (delayedMemoryId) {
+      return `delayed:${delayedMemoryId}`;
+    }
+
+    const l4FactId =
+      String(node.dataset.l4FactId || "")
+        .trim()
+        .toUpperCase();
+
+    if (l4FactId) {
+      return `l4:${l4FactId}`;
+    }
+
+    const fileId =
+      normalizeShortRuntimeIds(
+        node.dataset.fileId
+      )[0] || "";
+
+    if (fileId) {
+      return `file:${fileId}`;
+    }
+
+    const lineIdentity =
+      normalizeRuntimeCitationIdentity(
+        node.dataset.runtimeLineIdentity
+      );
+
+    if (lineIdentity) {
+      return `line:${lineIdentity}`;
+    }
+
+    return [
+      node.dataset.runtimeLineKey,
+      node.dataset.runtimeLineText,
+      node.dataset.avatarMemoryHoverId,
+    ]
+      .map(normalizeRuntimeCitationIdentity)
+      .filter(Boolean)
+      .join("|");
+  }
+
   function buildAvatarMemoryReferenceAliasUsage(nodes) {
-    const usage = new Map();
+    const targetsByAlias = new Map();
 
     nodes.forEach((node) => {
+      const targetIdentity =
+        getAvatarMemoryReferenceTargetIdentity(node);
+
+      if (!targetIdentity) {
+        return;
+      }
+
       getAvatarMemoryReferenceAliases(node).forEach((alias) => {
         const identity =
           normalizeRuntimeCitationIdentity(alias);
@@ -3254,11 +4162,17 @@
           return;
         }
 
-        usage.set(
-          identity,
-          Number(usage.get(identity) || 0) + 1
-        );
+        const targets =
+          targetsByAlias.get(identity) || new Set();
+
+        targets.add(targetIdentity);
+        targetsByAlias.set(identity, targets);
       });
+    });
+
+    const usage = new Map();
+    targetsByAlias.forEach((targets, alias) => {
+      usage.set(alias, targets.size);
     });
 
     return usage;
@@ -3277,10 +4191,31 @@
     );
     const aliasUsage =
       buildAvatarMemoryReferenceAliasUsage(recordNodes);
+    const canonicalActiveMemoryIds = new Set(
+      Array.from(
+        svg.querySelectorAll(
+          ".jin-avatar-memory-dash-active[data-active-memory-id]"
+        )
+      )
+        .map(node => normalizeShortRuntimeIds(node.dataset.activeMemoryId)[0] || "")
+        .filter(Boolean)
+    );
 
     recordNodes.forEach((recordNode) => {
+        const activeMemoryId =
+          normalizeShortRuntimeIds(
+            recordNode.dataset.activeMemoryId
+          )[0] || "";
+        const mirroredActiveRuntimeNode = Boolean(
+          activeMemoryId
+          && canonicalActiveMemoryIds.has(activeMemoryId)
+          && !recordNode.classList.contains(
+            "jin-avatar-memory-dash-active"
+          )
+        );
         const matched = Boolean(
-          sourceText
+          !mirroredActiveRuntimeNode
+          && sourceText
           && getAvatarMemoryReferenceAliases(recordNode)
             .some(alias => (
               Number(
@@ -3318,18 +4253,23 @@
     applyMemoryReferenceGlow();
     applyThinkRuntimeCitationGlow();
   }
-  function buildRenderSignature(
+  function buildRuntimeRenderSignature(
     snapshot,
     lines,
-    activeMemoryRecords = [],
-    delayedMemoryRecords = [],
-    l4MemoryRecords = [],
-    fileRecords = []
+    snapshotIndex = null,
+    seedNonce = 0
   ) {
+    const normalizedSnapshotIndex =
+      Number.isInteger(Number(snapshotIndex))
+        ? Number(snapshotIndex)
+        : "";
+
     return [
       snapshot && snapshot.runtime_memory_id,
       snapshot && snapshot.index,
       snapshot && snapshot.total_diff,
+      snapshotHasRuntimeChange(snapshot) ? "changed" : "stable",
+      normalizedSnapshotIndex,
       lines.map(line => [
         line.key,
         line.value,
@@ -3338,8 +4278,21 @@
         line.valueStatus,
         line.changeRatio,
       ].join("␟")).join("␞"),
-      activeMemoryRecords.map(record => record.text).join("␞"),
-      delayedMemoryRecords.map(record => [
+      seedNonce,
+    ].join("␝");
+  }
+
+  function buildAuxiliaryRenderSignatures(
+    activeMemoryRecords = [],
+    delayedMemoryRecords = [],
+    l4MemoryRecords = [],
+    fileRecords = []
+  ) {
+    return {
+      active: activeMemoryRecords
+        .map(record => record.text)
+        .join("␞"),
+      delayed: delayedMemoryRecords.map(record => [
         record.id,
         record.title,
         record.summary,
@@ -3348,41 +4301,167 @@
         record.anchorFactIds.join(","),
         record.factIds.join(","),
       ].join("␟")).join("␞"),
-      l4MemoryRecords.map(record => [
+      l4: l4MemoryRecords.map(record => [
         record.id,
         record.key,
         record.value,
         record.archived ? "archived" : "visible",
         record.l4FactIds.join(","),
       ].join("␟")).join("␞"),
-      fileRecords.map(record => [
+      files: fileRecords.map(record => [
         record.id,
         record.name,
         record.pinned ? "pinned" : "idle",
         record.contextLoaded ? "context" : "stored",
         record.linkedReportIds.join(","),
       ].join("␟")).join("␞"),
-    ].join("␝");
+    };
   }
 
-  let lastRenderSignature = null;
+  let lastRuntimeRenderSignature = null;
+  let lastAuxiliaryRenderSignatures = null;
   let avatarRefreshNonce = 0;
   let suppressedMemoryLayer = null;
+
+  function auxiliaryRenderSignaturesEqual(first, second) {
+    return Boolean(first && second)
+      && first.active === second.active
+      && first.delayed === second.delayed
+      && first.l4 === second.l4
+      && first.files === second.files;
+  }
+
+  function syncAuxiliaryAvatarLayers(
+    nextSignatures,
+    previousSignatures
+  ) {
+    let synced = true;
+
+    const syncMemoryLayer = (key, kind) => {
+      if (
+        previousSignatures
+        && nextSignatures[key] === previousSignatures[key]
+      ) {
+        return;
+      }
+
+      if (!syncMemorySignalLayer(kind, { applyGlows: false })) {
+        synced = false;
+      }
+    };
+
+    syncMemoryLayer("active", "active");
+    syncMemoryLayer("delayed", "delayed");
+    syncMemoryLayer("l4", "l4");
+
+    if (
+      !previousSignatures
+      || nextSignatures.files !== previousSignatures.files
+    ) {
+      if (!syncFilesState({ applyGlows: false })) {
+        synced = false;
+      }
+    }
+
+    if (synced) {
+      applyAvatarReactiveGlows();
+    }
+
+    return synced;
+  }
+
+  function keepReasoningMotionApplied() {
+    if (!reasoningMotionActive) {
+      return;
+    }
+
+    if (avatarShell) {
+      avatarShell.classList.add(REASONING_MOTION_CLASS);
+      avatarShell.classList.toggle(
+        REASONING_WHISPER_CLASS,
+        reasoningWhisperActive
+      );
+      avatarShell.dataset.motionMode = "reasoning";
+    }
+
+    // Preserve the in-flight reasoning deceleration across avatar sync/rebuilds.
+    // Forcing rate 0 here can race the active ramp and cause a stop/resume jerk.
+  }
 
   function renderAvatar(snapshot, options = {}) {
     const sourceLines = getSnapshotLines(snapshot);
     const lines = sourceLines.length ? sourceLines : [];
+    const seedNonce =
+      options.seedNonce !== undefined
+        ? options.seedNonce
+        : avatarRefreshNonce;
+    const snapshotIndex =
+      Number.isInteger(Number(options.snapshotIndex))
+        ? Number(options.snapshotIndex)
+        : null;
+    const activeMemoryRecords = getActiveMemoryAvatarRecords();
+    const delayedMemoryRecords = getDelayedMemoryAvatarRecords();
+    const l4MemoryRecords = getL4MemoryAvatarRecords();
+    const fileRecords = getPersistentFileAvatarRecords();
+    const runtimeSignature =
+      buildRuntimeRenderSignature(
+        snapshot,
+        lines,
+        snapshotIndex,
+        seedNonce
+      );
+    const auxiliarySignatures =
+      buildAuxiliaryRenderSignatures(
+        activeMemoryRecords,
+        delayedMemoryRecords,
+        l4MemoryRecords,
+        fileRecords
+      );
+    const existingSvg =
+      avatarRoot.querySelector("svg");
+    const runtimeGeometryUnchanged =
+      Boolean(existingSvg)
+      && options.forceRebuild !== true
+      && runtimeSignature === lastRuntimeRenderSignature;
+
+    if (runtimeGeometryUnchanged) {
+      let auxiliarySynced = true;
+
+      if (
+        !auxiliaryRenderSignaturesEqual(
+          auxiliarySignatures,
+          lastAuxiliaryRenderSignatures
+        )
+      ) {
+        auxiliarySynced =
+          syncAuxiliaryAvatarLayers(
+            auxiliarySignatures,
+            lastAuxiliaryRenderSignatures
+          );
+      } else {
+        applyAvatarReactiveGlows();
+      }
+
+      if (auxiliarySynced) {
+        keepReasoningMotionApplied();
+        lastAuxiliaryRenderSignatures = auxiliarySignatures;
+        return;
+      }
+    }
+
+    const previousRotationPhases =
+      captureAvatarRotationPhases();
     const seed = [
       snapshot && snapshot.runtime_memory_id,
       snapshot && snapshot.index,
       lines.map(line => line.text).join("|"),
-      options.seedNonce || avatarRefreshNonce,
+      seedNonce,
     ].join(":");
     const random = createRandom(seed || "jin-avatar");
     const changeMarkers =
       resolveRuntimeChangeMarkers(
         snapshot,
-        options.snapshotIndex
+        snapshotIndex
       );
     const records =
       lines.length
@@ -3392,26 +4471,16 @@
           changeMarkers
         )
         : [];
-    const activeMemoryRecords = getActiveMemoryAvatarRecords();
-    const delayedMemoryRecords = getDelayedMemoryAvatarRecords();
-    const l4MemoryRecords = getL4MemoryAvatarRecords();
-    const fileRecords = getPersistentFileAvatarRecords();
     const overallColor = lines.length
       ? computeOverallColor(lines, records)
       : DEFAULT_RING_COLOR;
     const diffPercent = lines.length
       ? getSnapshotDiff(snapshot, lines)
       : 0;
-    const signature =
-      buildRenderSignature(
-        snapshot,
-        lines,
-        activeMemoryRecords,
-        delayedMemoryRecords,
-        l4MemoryRecords,
-        fileRecords
-      ) + `:${options.seedNonce || avatarRefreshNonce}`;
-    const shouldAnimate = Boolean(lastRenderSignature) && signature !== lastRenderSignature;
+    const shouldAnimate =
+      !reasoningMotionActive
+      && Boolean(lastRuntimeRenderSignature)
+      && runtimeSignature !== lastRuntimeRenderSignature;
 
     const svg = createSvgElement("svg", {
       viewBox: "0 0 360 360",
@@ -3444,10 +4513,9 @@
 
     appendCenter(svg, overallColor, centerColor);
 
+    invalidateAvatarRotationAnimationsCache();
     avatarRoot.replaceChildren(svg);
-    currentRenderedSnapshotIndex = Number.isInteger(Number(options.snapshotIndex))
-      ? Number(options.snapshotIndex)
-      : null;
+    currentRenderedSnapshotIndex = snapshotIndex;
     avatarRoot.dataset.diff = String(Math.round(diffPercent));
     if (currentRenderedSnapshotIndex !== null) {
       avatarRoot.dataset.snapshotIndex = String(currentRenderedSnapshotIndex);
@@ -3456,10 +4524,13 @@
     }
     avatarRoot.style.setProperty("--jin-avatar-overall-color", overallColor);
     avatarRoot.style.setProperty("--jin-avatar-center-color", centerColor);
-    applyThinkRuntimeCitationGlow();
-    applyMemoryReferenceGlow();
-    applyMemoryRowAvatarHoverGlow();
-    lastRenderSignature = signature;
+    applyAvatarReactiveGlows();
+    restoreAvatarRotationPhases(previousRotationPhases);
+    syncAvatarRotationPlaybackRate();
+    keepReasoningMotionApplied();
+
+    lastRuntimeRenderSignature = runtimeSignature;
+    lastAuxiliaryRenderSignatures = auxiliarySignatures;
   }
 
   function applyCenterColor(color) {
@@ -3573,8 +4644,52 @@
       memoryLayersHidden ? "true" : "false";
   }
 
+  function clearMemoryLayersDormantTimer() {
+    if (!memoryLayersDormantTimer) {
+      return;
+    }
+
+    clearTimeout(memoryLayersDormantTimer);
+    memoryLayersDormantTimer = null;
+  }
+
+  function setMemoryLayersDormant(dormant) {
+    const nextDormant = Boolean(dormant);
+    const wasDormant = avatarRoot.classList.contains(
+      MEMORY_LAYERS_DORMANT_CLASS
+    );
+
+    if (wasDormant !== nextDormant) {
+      // Dormant mode removes CSS orbit animations with animation:none.
+      // Showing the layers creates fresh Animation objects.
+      invalidateAvatarRotationAnimationsCache();
+    }
+
+    avatarRoot.classList.toggle(
+      MEMORY_LAYERS_DORMANT_CLASS,
+      nextDormant
+    );
+
+    if (avatarShell) {
+      avatarShell.classList.toggle(
+        MEMORY_LAYERS_DORMANT_CLASS,
+        nextDormant
+      );
+    }
+  }
+
   function setMemoryLayersHidden(hidden) {
     const nextHidden = Boolean(hidden);
+
+    clearMemoryLayersDormantTimer();
+
+    if (!nextHidden) {
+      // Recreate the visual layers while they are still fully transparent, then
+      // let the existing opacity transitions handle the soft fade-in.
+      setMemoryLayersDormant(false);
+      avatarRoot.getBoundingClientRect();
+      syncAvatarRotationPlaybackRate();
+    }
 
     avatarRoot.classList.toggle(
       MEMORY_LAYERS_HIDDEN_CLASS,
@@ -3590,6 +4705,16 @@
       );
       avatarShell.dataset.memoryLayersHidden =
         nextHidden ? "true" : "false";
+    }
+
+    if (nextHidden) {
+      memoryLayersDormantTimer = setTimeout(() => {
+        memoryLayersDormantTimer = null;
+
+        if (avatarRoot.classList.contains(MEMORY_LAYERS_HIDDEN_CLASS)) {
+          setMemoryLayersDormant(true);
+        }
+      }, MEMORY_LAYERS_FADE_MS);
     }
 
     syncMemoryLayersToggleLabel(nextHidden);
@@ -3625,6 +4750,7 @@
     renderAvatar(getLatestSnapshot(), {
       seedNonce: avatarRefreshNonce,
       snapshotIndex: getLatestSnapshotIndex(),
+      forceRebuild: true,
     });
   }
 
@@ -3849,6 +4975,12 @@
     render: renderAvatar,
     refresh: reinitializeAvatar,
     repaint: repaintAvatar,
+    beginReasoning: beginReasoningMotion,
+    endReasoning: endReasoningMotion,
+    clearReasoning: clearReasoningMotion,
+    get isReasoning() {
+      return reasoningMotionActive;
+    },
     setCenterColor,
     setMemoryLayersHidden,
     toggleMemoryLayers,

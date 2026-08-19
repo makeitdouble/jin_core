@@ -1,6 +1,6 @@
 {
   "save_active_memory": {
-    "version": 2,
+    "version": 3,
     "description": "Allows the model to autonomously save active memory.",
     "runtime_action": "SAVE_ACTIVE_MEMORY",
     "private_marker": "<SAVE_ACTIVE_MEMORY>",
@@ -17,6 +17,8 @@
       "<SAVE_ACTIVE_MEMORY> CONDITIONS </SAVE_ACTIVE_MEMORY>",
       "CONDITIONS is a placeholder word; replace it with the concrete pending item to preserve.",
       "Write the concrete pending item as plain text inside the tag body. Do not put the payload in the opening tag and do not use the legacy <SAVE_ACTIVE_MEMORY: ...> form.",
+      "When this active memory needs small mutable local state, append up to three custom fields at the end of the body using trailing parenthesized snake_case pairs, for example (last_photo_id: qamzck) (current_photo_count: 1).",
+      "Custom field names must be simple snake_case identifiers. The runtime converts accepted custom fields into hidden square-bracket suffixes and fixes that field schema to this specific active memory record. Do not declare more than three custom fields. Keep each state value concise (maximum 256 characters).",
       "After emitting the marker, briefly notify the user in natural text that the active memory was saved; never expose marker syntax in visible text.",
       "Do not save trivial exchanges, unstable ideas, identity anchors, broad user preferences, core project rules, or facts that should remain useful across unrelated topics as active memory."
     ],

@@ -186,6 +186,12 @@ function handleMessageChunk(
   data
 ) {
 
+  if (window.markStreamAnswerPhase) {
+    window.markStreamAnswerPhase(
+      data.message_id
+    );
+  }
+
   const filteredChunk =
     filterDelayedMemoryContentFromChunk(
       data.message_id,

@@ -71,7 +71,7 @@ exactly one operation for each of them.
 Both existing facts and pending candidates are provisional. Existing memory is
 not evidence merely because it already exists. The input may also contain
 protected_fact_ids: committed facts explicitly edited by JIN in the current
-turn. Never update or reinforce those IDs during this merge pass. If a pending
+turn. Never update or merge those IDs during this merge pass. If a pending
 candidate overlaps a protected fact, ignore that pending candidate instead of
 rewriting the protected fact or creating a duplicate.
 
@@ -85,31 +85,29 @@ Keep memory minimal, accurate, atomic, useful, and free of semantic duplicates.
 Compare candidates against all existing facts by meaning, not only by key,
 wording, category, visibility, or report coverage.
 
-Return exactly one operation for every pending_id, using only IDs from the
-input.
-
-Actions:
+Use exactly one of four actions for every pending_id:
 - create: add a genuinely new durable fact not already represented;
-- update: correct an existing fact or add durable information to the same atomic
-  fact;
-- reinforce: the candidate restates the same durable fact without changing its
-  meaning;
-- ignore: the candidate is temporary, incidental, speculative, too weak, or adds
-  no valid long-term information.
+- update: correct or materially extend exactly one existing atomic fact while
+  preserving that target fact's committed ID;
+- merge: combine two or more existing committed facts into one better canonical
+  fact. A merge retires every listed fact_id and creates a replacement with a
+  NEW committed ID. The retired IDs are preserved in source_fact_ids;
+- ignore: consume the pending candidate without changing committed memory when
+  it is temporary, incidental, speculative, weaker, redundant, or already fully
+  represented.
 
-Merge order:
-1. Find any existing fact with the same or overlapping meaning.
-2. If the candidate is a paraphrase of the same durable fact, reinforce it.
-3. If it corrects or materially extends the same atomic fact, update it.
-4. If it is only a weaker, temporary, or incomplete echo, ignore it.
+Decision order:
+1. Find existing facts with the same or overlapping meaning.
+2. If the candidate adds no durable information, ignore it.
+3. If exactly one existing atomic fact should change, update it.
+4. If two or more existing facts should become one canonical fact, merge them.
 5. Create only when no existing fact already represents the candidate.
 
 Rules:
 - Different wording or keys do not make a fact new.
 - Hidden or report-covered facts are still existing facts for merge purposes.
-- Reinforce or update a matching covered fact; never create a visible duplicate.
 - Do not update an existing fact merely to replace it with a weaker restatement.
-- A new independent durable detail should remain atomic rather than being merged
+- A new independent durable detail should remain atomic rather than being folded
   into an unrelated or overly broad fact.
 - A mention is not a relationship or role.
 - Discussion, exploration, or a proposal is not an accepted decision.
@@ -118,27 +116,31 @@ Rules:
 - Presence at a location is not residence.
 - Unknown details must remain unknown, not be guessed.
 - Direct user corrections override incompatible existing facts.
-- Prefer updating an existing fact over creating a semantic duplicate.
 - A key must describe the final supported meaning, not preserve an older claim.
 - Never invent facts, IDs, relationships, or source metadata.
+- exact_key_conflicts in the user payload are deterministic runtime hints. A
+  create must not reuse an occupied key. An update may keep its target's key but
+  must not collide with another committed fact. A merge may reuse a key only
+  when every committed fact currently owning that key is included in fact_ids.
 
-For update and reinforce, target_id must identify an existing fact.
-For create and update, return the final canonical key and value.
+Required fields by action:
+- create: pending_id, key, value, category.
+- update: pending_id, target_id, key, value, category.
+- merge: pending_id, fact_ids (at least two existing F<number> IDs), key, value,
+  category. Optional comment may briefly say what meaning is kept/discarded.
+- ignore: pending_id. Optional comment may briefly explain why.
 
-Return JSON only:
-{
-  "operations": [
-    {
-      "action": "reinforce",
-      "pending_id": "PF3",
-      "target_id": "F12"
-    }
-  ]
-}
+Examples:
+{"operations":[{"action":"ignore","pending_id":"PF3","comment":"Already represented by F12."}]}
 
-Do not omit pending facts.
-Do not return multiple operations for the same pending_id.
-Do not add fields outside the existing contract.
+{"operations":[{"action":"update","pending_id":"PF8","target_id":"F12","key":"user.preference.response_language","value":"The user prefers Russian replies unless explicitly requesting another language.","category":"user_preference"}]}
+
+{"operations":[{"action":"merge","pending_id":"PF21","fact_ids":["F12","F44"],"key":"project.operational_modes","value":"JIN uses the consolidated operational-mode model described by the current project definition.","category":"project_fact","comment":"Keep the compatible mode distinctions; retire the two overlapping old formulations."}]}
+
+{"operations":[{"action":"create","pending_id":"PF31","key":"user.preference.response_language","value":"The user prefers Russian replies.","category":"user_preference"}]}
+
+Return JSON only. Do not omit pending facts. Do not return multiple operations
+for the same pending_id. Do not add fields outside this contract.
 """.strip()
 
 
@@ -167,8 +169,9 @@ Rules:
   new durable fact. Only do this when the message itself clearly says to create
   that additional fact; never infer extra new facts on your own.
 - For update, preserve the selected committed fact ID exactly.
-- For merge, preserve the first selected committed fact ID as the replacement ID;
-  only the other explicitly selected IDs may be retired.
+- For merge, retire every explicitly selected committed fact and allocate one
+  NEW committed replacement ID. Preserve every retired F<number> ID in the new
+  fact's source_fact_ids lineage.
 - For update and merge, return new_facts only when the message explicitly asks
   for an additional new fact; otherwise return no new_facts.
 - Unselected facts are read-only context.
@@ -235,8 +238,9 @@ or:
   ]
 }
 
-For update and merge, replacement_facts becomes the complete current
-representation for the selected facts. For create, new_facts contains only
+For update, replacement_facts becomes the complete current representation for
+the selected fact. For merge, replacement_facts contains the new canonical fact
+that replaces all selected facts with a new committed ID. For create, new_facts contains only
 independent new durable facts. If the note explicitly requests both an
 update/merge and creation, use update or merge and include both replacement_facts
 and new_facts. Do not return IDs or fields outside this contract.

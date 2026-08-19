@@ -32,6 +32,22 @@ class RuntimePanelClientContractTests(unittest.TestCase):
             source,
         )
 
+    def test_runtime_counter_uses_live_total_during_reasoning(self):
+        source = RUNTIME_PANEL_JS.read_text(encoding="utf-8")
+
+        self.assertIn(
+            "used: getRuntimeUsageAmount(",
+            source,
+        )
+        self.assertIn(
+            "const used = totalUsed;",
+            source,
+        )
+        self.assertIn(
+            "const totalUsed =\n      runtimeInfo\n        ? getRuntimeUsageAmount(",
+            source,
+        )
+
     def test_submit_focuses_brain_context_tab(self):
         panel_source = RUNTIME_PANEL_JS.read_text(encoding="utf-8")
         input_source = SOCKET_INPUT_JS.read_text(encoding="utf-8")
@@ -158,7 +174,7 @@ class RuntimePanelClientContractTests(unittest.TestCase):
         source = INDEX_HTML.read_text(encoding="utf-8")
 
         self.assertIn(
-            "/static/js/runtime/runtime-panel.js?v=runtime-panel-service-usage-1",
+            "/static/js/runtime/runtime-panel.js?v=live-reasoning-tokens-1",
             source,
         )
         self.assertIn(

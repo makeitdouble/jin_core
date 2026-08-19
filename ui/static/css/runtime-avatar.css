@@ -226,10 +226,125 @@
     to { transform: rotate(0deg); }
 }
 
+/* Reasoning mode: rotation gives way to a layered depth whisper.
+   Each ring keeps its own phase, depth and tiny perspective skew; JS only
+   nudges an occasional layer so the uncertainty never becomes a metronome. */
+.jin-avatar-reasoning-motion,
+.jin-avatar-reasoning-twitch {
+    transform-origin: 180px 180px;
+    transform-box: view-box;
+}
+
+.jin-avatar-reasoning-twitch {
+    will-change: transform;
+}
+
+.jin-runtime-avatar-shell.is-reasoning-whispering .jin-avatar-reasoning-motion {
+    animation-name: jin-avatar-reasoning-whisper;
+    animation-duration: var(--jin-avatar-whisper-duration, 5.4s);
+    animation-delay: var(--jin-avatar-whisper-delay, 0.2s);
+    animation-timing-function: cubic-bezier(0.37, 0.06, 0.23, 0.98);
+    animation-iteration-count: infinite;
+    animation-fill-mode: both;
+    will-change: transform, opacity;
+}
+
+.jin-runtime-avatar-shell.is-reasoning-whispering::before {
+    --jin-avatar-aura-opacity-low: 0.30;
+    --jin-avatar-aura-opacity-high: 0.54;
+    --jin-avatar-aura-scale-low: 0.975;
+    --jin-avatar-aura-scale-high: 1.055;
+    animation-duration: 6.8s;
+}
+
+.jin-runtime-avatar-shell.is-reasoning-whispering::after {
+    opacity: 0.64;
+    transform: scale(1.012);
+}
+
+.jin-runtime-avatar-shell.is-reasoning-whispering .jin-avatar-center-soft {
+    animation: jin-avatar-reasoning-core-whisper 4.6s ease-in-out infinite;
+}
+
+@keyframes jin-avatar-reasoning-whisper {
+    0%, 8%, 100% {
+        opacity: 1;
+        transform: translate(0px, 0px) scaleX(1) scaleY(1);
+    }
+
+    27% {
+        opacity: 1;
+        transform:
+            translate(
+                var(--jin-avatar-whisper-drift-x, 0px),
+                var(--jin-avatar-whisper-drift-y, 0px)
+            )
+            scaleX(var(--jin-avatar-whisper-front-x, 1.025))
+            scaleY(var(--jin-avatar-whisper-front-y, 1.020));
+    }
+
+    49% {
+        opacity: var(--jin-avatar-whisper-depth-opacity, 0.965);
+        transform:
+            translate(
+                var(--jin-avatar-whisper-return-x, 0px),
+                var(--jin-avatar-whisper-return-y, 0px)
+            )
+            scaleX(var(--jin-avatar-whisper-back-x, 0.978))
+            scaleY(var(--jin-avatar-whisper-back-y, 0.982));
+    }
+
+    68% {
+        opacity: 0.995;
+        transform:
+            translate(
+                var(--jin-avatar-whisper-return-x, 0px),
+                var(--jin-avatar-whisper-drift-y, 0px)
+            )
+            scaleX(var(--jin-avatar-whisper-front-y, 1.020))
+            scaleY(var(--jin-avatar-whisper-front-x, 1.025));
+    }
+
+    86% {
+        opacity: 0.985;
+        transform:
+            translate(
+                var(--jin-avatar-whisper-drift-x, 0px),
+                var(--jin-avatar-whisper-return-y, 0px)
+            )
+            scaleX(var(--jin-avatar-whisper-back-y, 0.982))
+            scaleY(var(--jin-avatar-whisper-back-x, 0.978));
+    }
+}
+
+@keyframes jin-avatar-reasoning-core-whisper {
+    0%, 100% {
+        fill-opacity: 0.30;
+        transform: scale(0.96);
+        transform-origin: 180px 180px;
+    }
+
+    52% {
+        fill-opacity: 0.42;
+        transform: scale(1.055);
+        transform-origin: 180px 180px;
+    }
+}
+
+.jin-runtime-avatar-shell::before {
+    transition:
+        opacity 0.38s cubic-bezier(0.22, 0.61, 0.36, 1),
+        transform 0.38s cubic-bezier(0.22, 0.61, 0.36, 1);
+}
+
 .jin-runtime-avatar-shell.is-memory-layers-hidden::before {
     opacity: 0 !important;
-    visibility: hidden;
-    animation-play-state: paused;
+}
+
+.jin-runtime-avatar-shell.is-memory-layers-dormant::before {
+    content: none;
+    animation: none !important;
+    will-change: auto;
 }
 
 @keyframes jin-avatar-shell-aura-breathe {
@@ -306,16 +421,43 @@
         opacity 0.28s cubic-bezier(0.22, 0.61, 0.36, 1);
 }
 
+/* The hide phase keeps the layers alive just long enough for a soft fade. */
 .jin-runtime-avatar.is-memory-layers-hidden .jin-avatar-scaffold,
-.jin-runtime-avatar.is-memory-layers-hidden .jin-avatar-orbit-entry,
-.jin-runtime-avatar.is-memory-layers-hidden .jin-avatar-memory-ring,
+.jin-runtime-avatar.is-memory-layers-hidden .jin-avatar-orbit,
+.jin-runtime-avatar.is-memory-layers-hidden .jin-avatar-counter-orbit,
 .jin-runtime-avatar.is-memory-layers-hidden .jin-avatar-memory-dash,
 .jin-runtime-avatar.is-memory-layers-hidden .jin-avatar-file-ring,
 .jin-runtime-avatar.is-memory-layers-hidden .jin-avatar-file-dot,
 .jin-runtime-avatar.is-memory-layers-hidden .jin-avatar-center-ring {
     opacity: 0 !important;
-    visibility: hidden;
     pointer-events: none;
+}
+
+.jin-avatar-scaffold,
+.jin-avatar-file-ring,
+.jin-avatar-center-ring {
+    transition: opacity 0.38s cubic-bezier(0.22, 0.61, 0.36, 1);
+}
+
+/* After the soft fade finishes, fully detach the hidden visual layers from
+   painting/compositing and stop their infinite SVG animations. */
+.jin-runtime-avatar.is-memory-layers-dormant .jin-avatar-scaffold,
+.jin-runtime-avatar.is-memory-layers-dormant .jin-avatar-orbit-entry,
+.jin-runtime-avatar.is-memory-layers-dormant .jin-avatar-memory-ring,
+.jin-runtime-avatar.is-memory-layers-dormant .jin-avatar-memory-dash,
+.jin-runtime-avatar.is-memory-layers-dormant .jin-avatar-file-ring,
+.jin-runtime-avatar.is-memory-layers-dormant .jin-avatar-file-dot,
+.jin-runtime-avatar.is-memory-layers-dormant .jin-avatar-center-ring {
+    display: none !important;
+}
+
+.jin-runtime-avatar.is-memory-layers-dormant .jin-avatar-orbit,
+.jin-runtime-avatar.is-memory-layers-dormant .jin-avatar-counter-orbit,
+.jin-runtime-avatar.is-memory-layers-dormant .jin-avatar-orbit-entry,
+.jin-runtime-avatar.is-memory-layers-dormant .jin-avatar-reasoning-motion,
+.jin-runtime-avatar.is-memory-layers-dormant .jin-avatar-reasoning-twitch {
+    animation: none !important;
+    will-change: auto !important;
 }
 
 .jin-avatar-memory-dash path {
@@ -460,10 +602,18 @@
         drop-shadow(0 0 11px var(--jin-avatar-memory-glow-mid, rgba(239, 255, 255, 0.54)));
 }
 
-.jin-avatar-memory-dash-l4 {
+/* L4 has many tiny segments. Keep the same ambient treatment on the shared
+   rotating ring so Chromium composites one filtered surface instead of one
+   filter surface per fact. Per-dash citation/hover/link filters below still
+   layer on top when a specific fact needs emphasis. */
+.jin-avatar-memory-ring-l4 {
     filter:
         brightness(1.06)
-        drop-shadow(0 0 4px var(--jin-avatar-memory-glow-mid, rgba(147, 197, 253, 0.30)));
+        drop-shadow(0 0 4px rgba(147, 197, 253, 0.30));
+}
+
+.jin-avatar-memory-dash-l4 {
+    filter: none;
 }
 
 .jin-avatar-memory-dash-delayed.is-delayed-memory-secondary-linked {
@@ -781,6 +931,9 @@ body.theme-win95 #memory-panel.panel-collapsed .jin-runtime-avatar-core-button {
     .jin-avatar-orbit,
     .jin-avatar-counter-orbit,
     .jin-avatar-orbit-entry,
+    .jin-avatar-reasoning-motion,
+    .jin-avatar-reasoning-twitch,
+    .jin-avatar-center-soft,
     .jin-avatar-field-stripe,
     .jin-avatar-scaffold-ray {
         animation: none !important;

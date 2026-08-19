@@ -307,9 +307,11 @@ function normalizeSessionActionItems(
 
       return {
         text,
-        parts: normalizeSessionActionParts(
-          item.parts,
-          text
+        parts: expandSessionActionDisplayParts(
+          normalizeSessionActionParts(
+            item.parts,
+            text
+          )
         ),
         createdAt:
           Number.isFinite(createdAt)
@@ -411,6 +413,34 @@ function buildSessionActionColorSwatches(
   });
 
   return swatches;
+}
+
+
+function expandSessionActionDisplayParts(
+  parts,
+) {
+  return parts.flatMap((part) => {
+    if (
+      normalizeSessionActionName(part.text)
+        !== "JIN_COLOR"
+    ) {
+      return [part];
+    }
+
+    if (!part.colors.length) {
+      return [{
+        ...part,
+        count: 0,
+      }];
+    }
+
+    return part.colors.map((color) => ({
+      ...part,
+      colors: [color],
+      count: 0,
+      detail: color,
+    }));
+  });
 }
 
 

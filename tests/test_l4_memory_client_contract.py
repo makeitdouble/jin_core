@@ -22,6 +22,22 @@ class L4MemoryClientContractTests(unittest.TestCase):
             source,
         )
 
+    def test_idle_l4_waits_a_full_minute_and_resets_while_user_idle_is_paused(self):
+        source = (
+            ROOT
+            / "ui"
+            / "static"
+            / "js"
+            / "runtime"
+            / "runtime-l4-memory.js"
+        ).read_text(encoding="utf-8")
+
+        self.assertIn("const idleTickIntervalMs = 60000;", source)
+        self.assertIn("const idleMinimumSeconds = 60;", source)
+        self.assertIn("if (idleContext.user_idle_paused)", source)
+        self.assertIn("lastIdleTickAt = now;", source)
+        self.assertIn("if (userIdleSeconds < idleMinimumSeconds)", source)
+
     def test_equal_revision_update_cannot_replace_larger_local_snapshot(self):
         source = (
             ROOT

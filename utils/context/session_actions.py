@@ -529,6 +529,7 @@ def strip_actions_history_context(
 
     for tag_name in (
         "SESSION_ACTIONS_HISTORY",
+        "CURRENT_CONCERNS",
         "CURREN_USER_INPUT",
         "CURRENT_RUNTIME",
         "CURRENT_SEQUENCE",

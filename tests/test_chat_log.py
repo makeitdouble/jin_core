@@ -9,6 +9,8 @@ from config_loader import config
 from utils.chat_log import (
     append_chat_log_entry,
     build_chat_log_entry,
+    create_chat_log_bootstrap_reference,
+    find_chat_log_session_date,
     extract_active_memory_ids,
     get_chat_bootstrap_context_path,
     get_chat_log_path,
@@ -41,6 +43,35 @@ class ChatLogTests(unittest.TestCase):
             )
         else:
             config.LOG_CHAT = self.original_log_chat
+
+    def test_restore_bootstrap_reference_stays_in_fresh_session_directory(self):
+        root = Path(tempfile.mkdtemp())
+        source_id = "82ba259d-6260-45f6-9717-b70b7fa2a224"
+        current_id = "fresh-session-id"
+        (root / "2026-08-18" / source_id).mkdir(parents=True)
+        context = SimpleNamespace(session_id=current_id)
+        now = datetime(2026, 8, 19, 15, 10, tzinfo=timezone.utc)
+
+        marker = create_chat_log_bootstrap_reference(
+            context,
+            source_id,
+            now=now,
+            root=root,
+        )
+
+        self.assertEqual(
+            find_chat_log_session_date(source_id, root=root),
+            "2026-08-18",
+        )
+        self.assertEqual(
+            marker,
+            root
+            / "2026-08-19"
+            / current_id
+            / f"2026-08-18.{source_id}.bootstrap",
+        )
+        self.assertTrue(marker.is_file())
+        self.assertEqual(marker.read_bytes(), b"")
 
     def test_extract_active_memory_ids_prefers_explicit_ids(self):
 

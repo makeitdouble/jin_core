@@ -12,6 +12,15 @@ function handleRuntimeActionGuardConfirmation(
   data
 ) {
 
+  const runtimeMessageId =
+    getRuntimeActionMessageId(data);
+
+  if (runtimeMessageId && window.markStreamAnswerPhase) {
+    window.markStreamAnswerPhase(
+      runtimeMessageId
+    );
+  }
+
   const action =
     String(
       data.action || ""
@@ -51,8 +60,7 @@ function handleRuntimeActionGuardConfirmation(
           || "",
         runtimeTurnId:
           data.runtime_turn_id || "",
-        runtimeMessageId:
-          getRuntimeActionMessageId(data),
+        runtimeMessageId,
         color:
           data.color
           || data.payload
@@ -368,6 +376,40 @@ function buildRuntimeActionDetail(
 
 }
 
+function formatActiveMemoryUpdateDetail(
+  data
+) {
+
+  const changes = Array.isArray(
+    data && data.active_memory_changes
+  )
+    ? data.active_memory_changes
+    : [];
+
+  return changes
+    .map((change) => {
+      const field = String(
+        change && change.field || ""
+      ).trim();
+      const before = String(
+        change && change.before || ""
+      ).trim();
+      const after = String(
+        change && change.after || ""
+      ).trim();
+
+      if (!field) {
+        return "";
+      }
+
+      return `${field}: ${before} → ${after}`;
+    })
+    .filter(Boolean)
+    .join("\n");
+
+}
+
+
 function buildRuntimeActionDisplayText(
   data,
   action,
@@ -646,6 +688,7 @@ function isGenericAssetActionDisplayText(
 
 const PAYLOAD_DISTINCT_RUNTIME_ACTIONS = new Set([
   "save_active_memory",
+  "update_active_memory",
   "resolve_active_memory",
   "save_delayed_memory_content",
   "load_delayed_memory",
@@ -888,6 +931,13 @@ function handleRuntimeAction(
 
   const runtimeMessageId =
     getRuntimeActionMessageId(data);
+
+  if (runtimeMessageId && window.markStreamAnswerPhase) {
+    window.markStreamAnswerPhase(
+      runtimeMessageId
+    );
+  }
+
   const delayedMemoryPreview =
     getDelayedMemoryRuntimeActionPreview(
       data,
@@ -998,8 +1048,25 @@ function handleRuntimeAction(
       ? getUpdateL4FactsMessage(data)
       : "";
 
+  const activeMemoryUpdateTitle =
+    action === "update_active_memory"
+      ? String(
+        data.active_memory_title
+        || (
+          data.active_memory_result
+          && data.active_memory_result.title
+        )
+        || ""
+      ).trim()
+      : "";
+
   const displayText =
-    updateL4FactsMessage
+    activeMemoryUpdateTitle
+      ? (
+        `${getRuntimeActionDisplayName(data, action)}: `
+        + activeMemoryUpdateTitle
+      )
+      : updateL4FactsMessage
       ? (
         `${getRuntimeActionDisplayName(data, action)}: `
         + updateL4FactsMessage
@@ -1053,7 +1120,12 @@ function handleRuntimeAction(
     );
 
   const runtimeDetail =
-    updateL4FactsMessage
+    (
+      action === "update_active_memory"
+        ? formatActiveMemoryUpdateDetail(data)
+        : ""
+    )
+      || updateL4FactsMessage
       || buildRuntimeActionDetail(
         data,
         closeTag
@@ -1455,6 +1527,20 @@ function handleRuntimeAction(
       data.active_memory
     ]);
 
+  }
+
+  if (
+    action === "update_active_memory"
+    && data.active_memory
+    && (data.active_memory_id || data.id)
+    && window.JinRuntime
+    && window.JinRuntime.runtime
+    && window.JinRuntime.runtime.replaceActiveMemoryRecordById
+  ) {
+    window.JinRuntime.runtime.replaceActiveMemoryRecordById(
+      data.active_memory_id || data.id,
+      data.active_memory
+    );
   }
 
   if (

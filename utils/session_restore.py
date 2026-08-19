@@ -146,7 +146,7 @@ def _load_dialog(path: Path) -> list[dict]:
 
 
 def _recent_restored_dialog_pairs(entries: list[dict]) -> list[tuple[dict, dict]]:
-    """Return the newest complete USER/JIN pairs, newest pair first."""
+    """Return the newest complete USER/JIN pairs in chronological order."""
     turns: dict[object, dict[str, dict]] = {}
     ordered_keys: list[object] = []
 
@@ -186,7 +186,7 @@ def _recent_restored_dialog_pairs(entries: list[dict]) -> list[tuple[dict, dict]
         for key in ordered_keys
         if "user" in turns[key] and "jin" in turns[key]
     ]
-    return list(reversed(complete_pairs[-RECENT_MESSAGES_MAX_PAIRS:]))
+    return complete_pairs[-RECENT_MESSAGES_MAX_PAIRS:]
 
 
 def _append_restored_dialog_entry(lines: list[str], entry: dict) -> None:
@@ -204,7 +204,7 @@ def _build_restored_dialog_context(
 ) -> str:
     lines = [
         f'<RESTORED_SESSION_DIALOG session_id="{escape(session_id)}">',
-        "This is the exact visible dialogue restored from the archived session. The three newest complete USER/JIN pairs are shown newest-first; continue from this interaction state and do not summarize or re-introduce it unless the user asks.",
+        "This is the exact visible dialogue restored from the archived session. The three newest complete USER/JIN pairs are shown in chronological order, ending at the latest archived JIN response; continue from that interaction state and do not summarize or re-introduce it unless the user asks.",
     ]
 
     for user_entry, jin_entry in _recent_restored_dialog_pairs(entries):
@@ -852,6 +852,7 @@ def build_archived_session_restore_payload(
     return {
         "ok": True,
         "source_session_id": _clean_session_id(session_id),
+        "source_session_date": session_directory.parent.name,
         "dialog_file": dialog_path.name,
         "context_file": context_path.name if context_path.is_file() else "",
         "messages": ui_messages,

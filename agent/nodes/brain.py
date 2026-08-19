@@ -33,6 +33,8 @@ from contracts.rules_assembler import (
     RUNTIME_ACTION_ATTACH_FILE,
     RUNTIME_ACTION_DEEP_WEB_SEARCH,
     RUNTIME_ACTION_IDLE,
+    RUNTIME_ACTION_JIN_COLOR,
+    RUNTIME_ACTION_JIN_SIZE,
     RUNTIME_ACTION_LOAD_DELAYED_MEMORY,
     RUNTIME_ACTION_SAVE_SESSION,
     RUNTIME_ACTION_WEB_SEARCH,
@@ -162,12 +164,28 @@ async def replay_session_restore_resource_actions(
         file_seen.add(file_id)
         file_ids.append(file_id)
 
+    jin_color = str(
+        getattr(
+            context,
+            "runtime_session_restore_pending_jin_color",
+            "",
+        )
+        or ""
+    ).strip()
+    jin_size = getattr(
+        context,
+        "runtime_session_restore_pending_jin_size",
+        None,
+    )
+
     # Consume the restoration envelope before any possible contract-driven
     # follow-up. The initial answer was generated with metadata only; from
     # this point forward the normal runtime action pipeline owns the loaded
     # resources and any follow-up sees their real context.
     context.runtime_session_restore_pending_loaded_memory_ids = []
     context.runtime_session_restore_pending_attached_file_ids = []
+    context.runtime_session_restore_pending_jin_color = ""
+    context.runtime_session_restore_pending_jin_size = None
     context.runtime_session_restore_priming = False
     context.runtime_session_restore_reasoning_dump = ""
     context.runtime_session_restore_l4_fact_ids = []
@@ -189,6 +207,18 @@ async def replay_session_restore_resource_actions(
             )
             for file_id in file_ids
         ]
+        + ([
+            RuntimeActionCall(
+                name=RUNTIME_ACTION_JIN_COLOR,
+                payload=jin_color,
+            )
+        ] if jin_color else [])
+        + ([
+            RuntimeActionCall(
+                name=RUNTIME_ACTION_JIN_SIZE,
+                payload=jin_size,
+            )
+        ] if jin_size else [])
     )
 
     if not actions:
@@ -780,18 +810,26 @@ def rename_runtime_memory_for_followup(
         system_prompt
         or ""
     )
-    opening_tag = "<RUNTIME_MEMORY>"
+    opening_tag_prefix = "<RUNTIME_MEMORY"
     closing_tag = "</RUNTIME_MEMORY>"
     opening_index = prompt.find(
-        opening_tag
+        opening_tag_prefix
     )
 
     if opening_index < 0:
         return prompt
 
+    opening_end_index = prompt.find(
+        ">",
+        opening_index + len(opening_tag_prefix),
+    )
+
+    if opening_end_index < 0:
+        return prompt
+
     closing_index = prompt.find(
         closing_tag,
-        opening_index + len(opening_tag),
+        opening_end_index + 1,
     )
 
     if closing_index < 0:
@@ -805,7 +843,7 @@ def rename_runtime_memory_for_followup(
     return (
         prompt[:opening_index]
         + previous_opening_tag
-        + prompt[opening_index + len(opening_tag):closing_index]
+        + prompt[opening_end_index + 1:closing_index]
         + "</PREVIOUS_RUNTIME_STATE>"
         + prompt[closing_index + len(closing_tag):]
     )
@@ -1009,6 +1047,9 @@ class BrainNode(BaseNode):
             build_session_actions_history_context,
             strip_actions_history_context,
         )
+        from utils.context.current_concerns import (
+            build_current_concerns_context,
+        )
         from utils.session_actions_history import (
             get_current_action_sequence_started_at,
             mark_current_action_sequence,
@@ -1178,6 +1219,14 @@ class BrainNode(BaseNode):
             sections.append(
                 current_runtime_context
             )
+
+        # Rebuild this live block on every internal follow-up instead of
+        # inheriting the stale snapshot from the initial prompt.
+        sections.append(
+            build_current_concerns_context(
+                context
+            )
+        )
 
         sections.append(
             build_tools_results_context(

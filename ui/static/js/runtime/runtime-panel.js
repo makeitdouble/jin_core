@@ -295,7 +295,12 @@
     }
 
     return {
-      used: runtimeInfo.used_tokens || 0,
+      // The headline is live occupancy, not prompt-only context.
+      // `used_tokens` / `total_tokens` continue growing while reasoning
+      // streams, whereas `context_tokens` is the fixed prompt baseline.
+      used: getRuntimeUsageAmount(
+        runtimeInfo
+      ),
       max: runtimeInfo.max_tokens || 0,
     };
 
@@ -758,11 +763,6 @@
     const runtimeInfo =
       runtime;
 
-    const used =
-      runtimeInfo
-        ? Number(runtimeInfo.used_tokens || 0)
-        : 0;
-
     const contextUsed =
       runtimeInfo
         ? Number(
@@ -774,15 +774,15 @@
 
     const totalUsed =
       runtimeInfo
-        ? Math.max(
-            contextUsed,
-            Number(
-              runtimeInfo.total_tokens
-              || runtimeInfo.used_tokens
-              || 0
-            )
+        ? getRuntimeUsageAmount(
+            runtimeInfo
           )
         : 0;
+
+    // Drive the visible counter/percentage from the live total. During
+    // reasoning the prompt baseline stays fixed, but total usage keeps
+    // increasing chunk by chunk.
+    const used = totalUsed;
 
     const max =
       runtimeInfo

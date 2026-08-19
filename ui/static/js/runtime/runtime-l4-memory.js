@@ -11,7 +11,8 @@
   }
 
   const longTermFactsStorageKey = "jin.longTermFacts.v1";
-  const idleTickIntervalMs = 15000;
+  const idleTickIntervalMs = 60000;
+  const idleMinimumSeconds = 60;
 
   let lastIdleTickAt = 0;
   let idleTimer = null;
@@ -635,15 +636,29 @@
     }
 
     const now = Date.now();
+    const userIdleSeconds = Math.floor(
+      Number(idleContext.user_idle_seconds || 0)
+    );
+
+    // While the user is actively typing/interacting, the shared idle clock is
+    // paused. Reset the L4 cadence too: when activity stops, background L4
+    // maintenance must earn a fresh full idle minute before it can run again.
+    if (idleContext.user_idle_paused) {
+      lastIdleTickAt = now;
+      return false;
+    }
+
+    if (userIdleSeconds < idleMinimumSeconds) {
+      return false;
+    }
+
     if (now - lastIdleTickAt < idleTickIntervalMs) {
       return false;
     }
 
     const sent = sendIfOpen({
       type: "l4_memory_idle_tick",
-      user_idle_seconds: Math.floor(
-        Number(idleContext.user_idle_seconds || 0)
-      ),
+      user_idle_seconds: userIdleSeconds,
       records: storage.collectFactsMemoryRecords
         ? storage.collectFactsMemoryRecords()
         : [],

@@ -51,11 +51,38 @@ class BrainPromptMemoryTests(
             )
 
             self.assertIn(
-                "<RUNTIME_MEMORY>",
+                "<RUNTIME_MEMORY ",
                 prompt,
             )
             self.assertIn(
                 DEFAULT_RUNTIME_MEMORY,
+                prompt,
+            )
+
+    def test_runtime_memory_tag_uses_snapshot_timestamp(self):
+
+            context = RuntimeContext(
+                websocket=object(),
+                emitter=object(),
+                logger=object(),
+                clients={},
+            )
+            context.runtime_memory = "topic: timestamped snapshot"
+            context.runtime_memory_snapshots = [
+                {
+                    "timestamp": "2026-08-18T23:12:31+03:00",
+                }
+            ]
+
+            prompt = build_brain_context(
+                context=context,
+                runtime_actions={
+                    "CAN_WEB_SEARCH": False,
+                },
+            )
+
+            self.assertIn(
+                '<RUNTIME_MEMORY ts="2026-08-18T23:12:31+03:00">',
                 prompt,
             )
 
@@ -81,7 +108,7 @@ class BrainPromptMemoryTests(
                 prompt,
             )
             self.assertIn(
-                "<RUNTIME_MEMORY>",
+                "<RUNTIME_MEMORY ",
                 prompt,
             )
             self.assertIn(
@@ -190,7 +217,7 @@ class BrainPromptMemoryTests(
             )
 
             self.assertIn(
-                "<RUNTIME_MEMORY>",
+                "<RUNTIME_MEMORY ",
                 prompt,
             )
             self.assertIn(
@@ -319,7 +346,7 @@ class BrainPromptMemoryTests(
 
             self.assertTrue(
                 prompt.startswith(
-                    "<TOOLS_RESULTS>"
+                    "<CURRENT_CONCERNS>"
                 ),
             )
             self.assertLess(
@@ -332,10 +359,10 @@ class BrainPromptMemoryTests(
             )
             self.assertLess(
                 prompt.index("<LOADED_SKILLS_CONTENT>"),
-                prompt.index("<RUNTIME_MEMORY>"),
+                prompt.index("<RUNTIME_MEMORY "),
             )
             self.assertLess(
-                prompt.index("<RUNTIME_MEMORY>"),
+                prompt.index("<RUNTIME_MEMORY "),
                 prompt.index("<CURRENT_TRUSTED_RUNTIME_VARIABLES>"),
             )
             self.assertLess(
@@ -1077,7 +1104,7 @@ class BrainPromptMemoryTests(
             )
 
             self.assertIn(
-                "<RUNTIME_MEMORY>",
+                "<RUNTIME_MEMORY ",
                 prompt,
             )
             self.assertIn(
@@ -1124,7 +1151,10 @@ class BrainPromptMemoryTests(
                 1,
             )[0]
             runtime_memory = prompt.split(
-                "<RUNTIME_MEMORY>",
+                "<RUNTIME_MEMORY ",
+                1,
+            )[1].split(
+                ">",
                 1,
             )[1].split(
                 "</RUNTIME_MEMORY>",
@@ -1138,7 +1168,7 @@ class BrainPromptMemoryTests(
             )
             self.assertTrue(
                 prompt.startswith(
-                    "<TOOLS_RESULTS>"
+                    "<CURRENT_CONCERNS>"
                 ),
             )
             self.assertLess(
@@ -1149,10 +1179,10 @@ class BrainPromptMemoryTests(
             )
             self.assertLess(
                 prompt.index("<LATEST_USER_FEEDBACK priority=HIGH_PRIORITY>"),
-                prompt.index("<RUNTIME_MEMORY>"),
+                prompt.index("<RUNTIME_MEMORY "),
             )
             self.assertLess(
-                prompt.index("<RUNTIME_MEMORY>"),
+                prompt.index("<RUNTIME_MEMORY "),
                 prompt.index("<CURRENT_TRUSTED_RUNTIME_VARIABLES>"),
             )
             self.assertNotIn(
@@ -1213,7 +1243,7 @@ class BrainPromptMemoryTests(
             )
             self.assertLess(
                 prompt.index(
-                    "<RUNTIME_MEMORY>"
+                    "<RUNTIME_MEMORY "
                 ),
                 prompt.index(
                     "<PREVIOUS_SESSION_STATE"
@@ -1238,7 +1268,7 @@ class BrainPromptMemoryTests(
             )
 
             self.assertIn(
-                "<RUNTIME_MEMORY>",
+                "<RUNTIME_MEMORY ",
                 prompt,
             )
             self.assertIn(

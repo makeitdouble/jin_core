@@ -143,6 +143,11 @@ const runtimeActionIconDefinitions = {
     tone: "memory",
     svg: '<path d="M7 5h10v15l-5-3-5 3z"></path><path d="M12 8v5"></path><path d="M9.5 10.5h5"></path>',
   },
+  update_active_memory: {
+    title: "update active memory",
+    tone: "memory",
+    svg: '<path d="M7 5h10v15l-5-3-5 3z"></path><path d="M9 10h6"></path><path d="m13 8 2 2-2 2"></path>',
+  },
   resolve_active_memory: {
     title: "resolve active memory",
     tone: "resolve",
@@ -1371,9 +1376,13 @@ function readRuntimeActionAggregateSizes(
 }
 
 function shouldAggregateRuntimeAction(
-  _action,
+  action,
   options = {}
 ) {
+
+  if (action === "jin_color") {
+    return false;
+  }
 
   const markerCount = Math.max(
     0,
@@ -1778,18 +1787,17 @@ function renderRuntimeActionLabel(
           .map(normalizeRuntimeActionColor)
           .filter(Boolean)
       : [];
-    const colors = explicitColors.length
-      ? explicitColors
-      : [
-          normalizeRuntimeActionColor(
-            options.color
-            || options.payload
-            || options.detail
-          )
-          || textColor,
-        ].filter(Boolean);
+    const color =
+      normalizeRuntimeActionColor(
+        options.color
+        || options.payload
+        || options.detail
+      )
+      || textColor
+      || explicitColors[explicitColors.length - 1]
+      || "";
 
-    colors.forEach((color) => {
+    if (color) {
       const swatch =
         document.createElement("span");
 
@@ -1805,7 +1813,7 @@ function renderRuntimeActionLabel(
       label.appendChild(
         swatch
       );
-    });
+    }
 
     const name =
       document.createElement("span");
@@ -1823,34 +1831,20 @@ function renderRuntimeActionLabel(
       name
     );
 
-    const payloadColor =
-      colors.length
-        ? colors[colors.length - 1]
-        : normalizeRuntimeActionColor(
-          options.color
-          || options.payload
-          || options.detail
-        )
-        || textColor;
-
-    if (payloadColor) {
+    if (color) {
       const payload =
         document.createElement("span");
 
       payload.className =
         "jin-runtime-action-payload";
       payload.textContent =
-        `: ${payloadColor}`;
+        `: ${color}`;
 
       label.appendChild(
         payload
       );
     }
 
-    appendRuntimeActionMarkerCount(
-      label,
-      options.markerCount
-    );
     return;
   }
 

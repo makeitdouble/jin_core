@@ -429,6 +429,11 @@
           payload.source_session_id
           || sourceSessionId
         ).trim(),
+      source_session_date:
+        String(
+          payload.source_session_date
+          || ""
+        ).trim(),
       archived_session_restore: true,
       restore_reasoning_dump:
         String(
@@ -524,6 +529,16 @@
           payload.assistant_message_count
           || 0
         ),
+      current_jin_color:
+        String(
+          payload.current_jin_color
+          || ""
+        ).trim(),
+      current_jin_size:
+        payload.current_jin_size
+        && typeof payload.current_jin_size === "object"
+          ? payload.current_jin_size
+          : null,
     };
   }
 

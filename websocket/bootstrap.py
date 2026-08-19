@@ -32,6 +32,7 @@ from utils.actions import (
     remove_active_memory_entries,
 )
 from utils.chat_log import (
+    create_chat_log_bootstrap_reference,
     resume_chat_log_session,
 )
 from utils.attached_files_store import (
@@ -128,20 +129,26 @@ def apply_archived_session_continuation_state(
     )
 
     if source_session_id:
+        # Restoring an archive starts a fresh runtime/logging session. Keep the
+        # archived id only as lineage metadata; never checkout the old log
+        # directory or overwrite the fresh browser/client session id.
         context.runtime_archived_session_id = source_session_id
-        context.session_id = source_session_id
-        context.runtime_chat_log_session_id = source_session_id
         context.runtime_session_restore_priming = bool(
             message_data.get(
                 "archived_session_restore",
                 True,
             )
         )
-
-        # Checkout the original log path so the restore greeting and every
-        # following turn continue in the same archived session directory.
-        resume_chat_log_session(
-            context
+        create_chat_log_bootstrap_reference(
+            context,
+            source_session_id,
+            source_session_date=clean_bootstrap_memory(
+                message_data.get(
+                    "source_session_date",
+                    "",
+                ),
+                limit=10,
+            ),
         )
 
     restore_reasoning_dump = clean_bootstrap_memory(
@@ -365,8 +372,14 @@ def apply_archived_session_continuation_state(
             context,
             message_data,
         )
+        stage_session_restore_visual_state(
+            context,
+            message_data,
+        )
     else:
         context.runtime_session_restore_pending_attached_file_ids = []
+        context.runtime_session_restore_pending_jin_color = ""
+        context.runtime_session_restore_pending_jin_size = None
         attached_file_ids = [
             str(file_id or "").strip()
             for file_id in message_data.get(
@@ -517,6 +530,26 @@ def apply_loaded_delayed_memory_ids(
 
     return loaded_ids
 
+
+
+
+def stage_session_restore_visual_state(
+    context,
+    message_data: dict,
+) -> None:
+
+    color = clean_bootstrap_memory(
+        message_data.get("current_jin_color", ""),
+        limit=32,
+    ).strip()
+    size = message_data.get("current_jin_size")
+
+    context.runtime_session_restore_pending_jin_color = color
+    context.runtime_session_restore_pending_jin_size = (
+        dict(size)
+        if isinstance(size, dict)
+        else None
+    )
 
 def stage_session_restore_attached_file_ids(
     context,
@@ -1109,18 +1142,9 @@ def get_or_create_connection_context(
             websocket,
             logger,
         )
-        archived_session_id = str(
-            getattr(
-                existing_context,
-                "runtime_archived_session_id",
-                "",
-            )
-            or ""
-        ).strip()
-        existing_context.session_id = (
-            archived_session_id
-            or client_id
-        )
+        # A reconnect resumes the current runtime session, not the archived
+        # parent that may have bootstrapped it.
+        existing_context.session_id = client_id
         hydrate_delayed_memory_reports_from_files(
             existing_context
         )
@@ -2023,6 +2047,8 @@ def enrich_session_bootstrap_from_archive(
                 enriched[field] = value
 
     enriched["source_session_id"] = source_session_id
+    if archived.get("source_session_date"):
+        enriched["source_session_date"] = archived["source_session_date"]
     enriched["archived_session_restore"] = True
     return enriched
 

@@ -18,6 +18,7 @@ from runtime.L1_memory_utils import (
 from runtime.L4_memory import (
     apply_facts_memory_store_sync,
     apply_l4_memory_store_sync,
+    cancel_l4_memory_idle_update,
     delete_l4_memory_fact,
     emit_facts_memory_store_update,
     restore_l4_memory_fact,
@@ -402,6 +403,15 @@ async def websocket_endpoint(
                 continue
 
             if message_type == "l4_memory_idle_tick":
+                # Never begin background L4 work while a foreground turn is
+                # running or already queued. Browser idle checks normally avoid
+                # this too; the server guard keeps foreground priority strict.
+                if (
+                    (current_task is not None and not current_task.done())
+                    or not pending_requests.empty()
+                ):
+                    continue
+
                 if "records" in message_data:
                     apply_facts_memory_store_sync(
                         context,
@@ -680,6 +690,15 @@ async def websocket_endpoint(
                 )
 
                 continue
+
+            # Foreground conversation always wins over idle L4 maintenance.
+            # Cancelling here aborts the in-flight background model request
+            # before this user turn enters the generation queue; pending L4
+            # facts remain in their stores for the next true idle window.
+            await cancel_l4_memory_idle_update(
+                context,
+                reason="user_message",
+            )
 
             if await reject_when_all_models_offline(
                 context

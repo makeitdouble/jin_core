@@ -70,6 +70,7 @@
   let delayedMemoryModalDeleteButton = null;
   let delayedMemoryModalReport = null;
   let delayedMemoryModalTitleEditor = null;
+  let delayedMemoryModalDetailsTitle = null;
   let delayedMemoryModalSummaryEditor = null;
   let delayedMemoryModalBodyEditor = null;
   let delayedMemoryModalEditSaveTimer = null;
@@ -163,7 +164,7 @@
     }
   }
 
-  function isMemoryReferenceTokenCharacter(character) {
+  function isMemoryReferenceCoreTokenCharacter(character) {
     const value = String(character || "");
 
     if (!value) {
@@ -171,9 +172,37 @@
     }
 
     return (
-      /[0-9_.-]/.test(value)
+      /[0-9_]/.test(value)
       || value.toLocaleLowerCase()
         !== value.toLocaleUpperCase()
+    );
+  }
+
+  function isMemoryReferenceTokenJoiner(character) {
+    return character === "." || character === "-";
+  }
+
+  function isMemoryReferenceBoundaryBlocked(
+    source,
+    boundaryIndex,
+    direction
+  ) {
+    const character = source[boundaryIndex] || "";
+
+    if (isMemoryReferenceCoreTokenCharacter(character)) {
+      return true;
+    }
+
+    if (!isMemoryReferenceTokenJoiner(character)) {
+      return false;
+    }
+
+    const neighborIndex = direction === "before"
+      ? boundaryIndex - 1
+      : boundaryIndex + 1;
+
+    return isMemoryReferenceCoreTokenCharacter(
+      source[neighborIndex] || ""
     );
   }
 
@@ -190,21 +219,23 @@
     let index = haystack.indexOf(needle);
 
     while (index >= 0) {
-      const before =
+      const afterIndex = index + needle.length;
+      const beforeBlocked =
           index > 0
-            ? haystack[index - 1]
-            : "";
-      const afterIndex =
-          index + needle.length;
-      const after =
+          && isMemoryReferenceBoundaryBlocked(
+            haystack,
+            index - 1,
+            "before"
+          );
+      const afterBlocked =
           afterIndex < haystack.length
-            ? haystack[afterIndex]
-            : "";
+          && isMemoryReferenceBoundaryBlocked(
+            haystack,
+            afterIndex,
+            "after"
+          );
 
-      if (
-          !isMemoryReferenceTokenCharacter(before)
-          && !isMemoryReferenceTokenCharacter(after)
-      ) {
+      if (!beforeBlocked && !afterBlocked) {
         return true;
       }
 
@@ -277,7 +308,16 @@
           );
 
     return match
-      ? String(match[1] || "").trim().toLowerCase()
+      ? normalizeActiveMemoryId(match[1])
+      : "";
+  }
+
+  function normalizeActiveMemoryId(value) {
+    const normalized =
+        String(value || "").trim().toLowerCase();
+
+    return /^[a-z0-9]{6}$/.test(normalized)
+      ? normalized
       : "";
   }
 
@@ -780,17 +820,23 @@
   }
 
   function getActiveThinkMemoryCitationIdentitySets() {
+    const activeMemoryIds = new Set();
+    const activeMemoryKeys = new Set();
     const lineIdentities = new Set();
     const lineKeys = new Set();
     const lineTexts = new Set();
 
     activeThinkMemoryCitationSources.forEach((state) => {
+      state.activeMemoryIds.forEach(id => activeMemoryIds.add(id));
+      state.activeMemoryKeys.forEach(key => activeMemoryKeys.add(key));
       state.lineIdentities.forEach(identity => lineIdentities.add(identity));
       state.lineKeys.forEach(key => lineKeys.add(key));
       state.lineTexts.forEach(text => lineTexts.add(text));
     });
 
     return {
+      activeMemoryIds,
+      activeMemoryKeys,
       lineIdentities,
       lineKeys,
       lineTexts,
@@ -840,6 +886,10 @@
         normalizeRuntimeCitationIdentity(
           row.dataset.runtimeMemoryLineIdentity
         );
+      const activeMemoryId =
+        normalizeActiveMemoryId(
+          row.dataset.activeMemoryId
+        );
       const lineKey =
         normalizeRuntimeCitationIdentity(
           row.dataset.runtimeMemoryLineKey
@@ -857,10 +907,23 @@
         && Number(lineKeyUsage.get(lineKey) || 0) === 1
         && activeIdentities.lineKeys.has(lineKey)
       );
+      const activeMemoryRow = Boolean(
+        activeMemoryId
+        || /^active_memory(?:_\d+)?$/.test(lineKey)
+      );
       const matched =
-        lineIdentity
-          ? activeIdentities.lineIdentities.has(lineIdentity)
-          : (exactTextMatch || uniqueKeyMatch);
+        activeMemoryRow
+          ? Boolean(
+              activeMemoryId
+                ? activeIdentities.activeMemoryIds.has(activeMemoryId)
+                : (
+                  lineKey
+                  && activeIdentities.activeMemoryKeys.has(lineKey)
+                )
+            )
+          : lineIdentity
+            ? activeIdentities.lineIdentities.has(lineIdentity)
+            : (exactTextMatch || uniqueKeyMatch);
 
       row.classList.toggle(
         "runtime-memory-citation-hit",
@@ -882,6 +945,16 @@
       return;
     }
 
+    const activeMemoryIds = new Set(
+      (Array.isArray(detail.activeMemoryIds) ? detail.activeMemoryIds : [])
+        .map(normalizeActiveMemoryId)
+        .filter(Boolean)
+    );
+    const activeMemoryKeys = new Set(
+      (Array.isArray(detail.activeMemoryKeys) ? detail.activeMemoryKeys : [])
+        .map(normalizeRuntimeCitationIdentity)
+        .filter(key => /^active_memory(?:_\d+)?$/.test(key))
+    );
     const lineIdentities = new Set(
       (Array.isArray(detail.lineIdentities) ? detail.lineIdentities : [])
         .map(normalizeRuntimeCitationIdentity)
@@ -899,7 +972,9 @@
     );
 
     if (
-      !lineIdentities.size
+      !activeMemoryIds.size
+      && !activeMemoryKeys.size
+      && !lineIdentities.size
       && !lineKeys.size
       && !lineTexts.size
     ) {
@@ -907,7 +982,7 @@
     } else {
       activeThinkMemoryCitationSources.set(
         sourceId,
-        { lineIdentities, lineKeys, lineTexts }
+        { activeMemoryIds, activeMemoryKeys, lineIdentities, lineKeys, lineTexts }
       );
     }
 
@@ -2575,6 +2650,15 @@
       if (lineIdentity) {
         row.dataset.runtimeMemoryLineIdentity =
             lineIdentity;
+      }
+      const activeMemoryId =
+          normalizeActiveMemoryId(
+            line && line.active_memory_id
+          );
+
+      if (activeMemoryId) {
+        row.dataset.activeMemoryId =
+            activeMemoryId;
       }
       row.dataset.runtimeMemoryLineKey =
           normalizeRuntimeCitationIdentity(
@@ -4909,9 +4993,11 @@
     clearDelayedMemoryModalEditSaveTimer();
 
     let title =
-        readDelayedMemoryModalEditorText(
-            delayedMemoryModalTitleEditor
-        ).trim();
+        delayedMemoryModalTitleEditor
+          ? String(
+              delayedMemoryModalTitleEditor.textContent || ""
+            ).trim()
+          : "";
     const summary =
         readDelayedMemoryModalEditorText(
             delayedMemoryModalSummaryEditor
@@ -4937,8 +5023,16 @@
       body,
     };
 
-    if (delayedMemoryModalTitle) {
+    if (
+        delayedMemoryModalTitle
+        && delayedMemoryModalTitle !== delayedMemoryModalTitleEditor
+    ) {
       delayedMemoryModalTitle.textContent =
+          title || "Delayed memory";
+    }
+
+    if (delayedMemoryModalDetailsTitle) {
+      delayedMemoryModalDetailsTitle.textContent =
           title || "Delayed memory";
     }
 
@@ -5006,7 +5100,11 @@
     );
 
     editor.addEventListener("input", () => {
-      if (options.title && delayedMemoryModalTitle) {
+      if (
+          options.title
+          && delayedMemoryModalTitle
+          && editor !== delayedMemoryModalTitle
+      ) {
         delayedMemoryModalTitle.textContent =
             readDelayedMemoryModalEditorText(editor).trim()
             || "Delayed memory";
@@ -5118,6 +5216,7 @@
     );
     delayedMemoryModalReport = null;
     delayedMemoryModalTitleEditor = null;
+    delayedMemoryModalDetailsTitle = null;
     delayedMemoryModalSummaryEditor = null;
     delayedMemoryModalBodyEditor = null;
   }
@@ -5150,6 +5249,14 @@
 
     delayedMemoryModalTitle.className =
         "min-w-0 truncate text-xs uppercase tracking-widest text-zinc-300";
+
+    bindDelayedMemoryModalEditor(
+        delayedMemoryModalTitle,
+        {
+          title: true,
+          singleLine: true,
+        }
+    );
 
     const headerActions =
         document.createElement("div");
@@ -6674,6 +6781,8 @@
     delayedMemoryModalTitle.textContent =
         normalizeDelayedMemoryDisplayText(delayedMemoryModalReport.title)
         || "Delayed memory";
+    delayedMemoryModalTitleEditor =
+        delayedMemoryModalTitle;
 
     delayedMemoryModalContent.innerHTML = "";
 
@@ -6682,24 +6791,13 @@
             delayedMemoryModalReport.title
             || "Delayed memory"
         );
+    delayedMemoryModalDetailsTitle =
+        detailsCard.title;
     const fields =
         document.createElement("section");
 
     fields.className =
         "delayed-memory-modal-fields";
-
-    delayedMemoryModalTitleEditor =
-        detailsCard.title;
-    delayedMemoryModalTitleEditor.classList.add(
-        "delayed-memory-modal-card-title-editor"
-    );
-    bindDelayedMemoryModalEditor(
-        delayedMemoryModalTitleEditor,
-        {
-          title: true,
-          singleLine: true,
-        }
-    );
 
     delayedMemoryModalSummaryEditor =
         appendDelayedMemoryModalEditableField(
@@ -7016,15 +7114,27 @@
       );
 
       appendRuntimeMemoryLineRows(
-          records.map((record, index) => ({
-            ...memoryModel.parseRuntimeMemoryLine(record),
-            avatar_memory_hover_id:
-              buildAvatarMemoryHoverId(
-                "active",
-                extractActiveMemoryId(record)
-                  || `record-${index}`
-              ),
-          })),
+          records.map((record, index) => {
+            const parsed =
+              memoryModel.parseRuntimeMemoryLine(record);
+            const activeMemoryId =
+              extractActiveMemoryId(record);
+
+            return {
+              ...parsed,
+              active_memory_id: activeMemoryId,
+              citation_identity:
+                activeMemoryId
+                  ? `active:${activeMemoryId}`
+                  : "",
+              avatar_memory_hover_id:
+                buildAvatarMemoryHoverId(
+                  "active",
+                  activeMemoryId
+                    || `record-${index}`
+                ),
+            };
+          }),
           false,
           {
             interactiveActiveMemory: true,

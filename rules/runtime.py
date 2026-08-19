@@ -43,7 +43,7 @@ SESSION_RESTORE_MESSAGE = (
     "<CONVERSATION_CONTINUE_RULES>\n"
     "This is a conversation restoration bootstrap information block.\n"
     "Now derive user language and conversation tone from a context.\n"
-    "Think deep and fresh, exctract all vibe and re-enable the archived conversation as fluently as possible.\n"
+    "Think deep and fresh, extract all vibe and re-enable the archived conversation as fluently as possible.\n"
     "Keep the established tone, cadence, assumptions, unresolved "
     "thread and established conversational vibe instead of summarizing or re-explaining them.\n"
     "Skip all done topics or  performed actions as past and done and do not rise up them.\n"
@@ -66,9 +66,11 @@ RUNTIME_ACTION_INJECTION_RULES = (
     "Runtime markers or actions can trigger follow up tick.\n"
     "You can emit any amount of markers in one message.\n"
 )
+ACTIVE_MEMORY_PROTOCOL = "JIN must proactively inspect the active_memory during every reasoning phase and verify that all instructions, conditions, and pending actions contained within it are being actively satisfied. If any condition is unmet, JIN must interrupt any ongoing flow or conversation as fluently as possible, but must not ignore or postpone it. Active memory must be treated as a persistent nagging obligation until JIN confirms that everything is either fully resolved and the memory can be removed, or resolved as far as currently possible and must remain active for future enforcement. This is the Active Memory Enforcement Protocol."
 DELAYED_MEMORY_PROTOCOL = "JIN must proactively scan the `delayed_memory` during the reasoning phase. If a report is identified as contextually relevant to the current topic, JIN must load it immediately to ensure readiness for the next turn. If a report is identified but deemed irrelevant or redundant to the current topic, JIN must ensure it is NOT loaded to maintain context density and prevent noise. This is the 'Proactive Context Management Protocol'."
 RUNTIME_ACTIONS_RULES = (
 #    f"{RUNTIME_ACTION_INJECTION_RULES}\n"
+    f"{ACTIVE_MEMORY_PROTOCOL}\n"
     f"{DELAYED_MEMORY_PROTOCOL}\n"
     "RUNTIME ACTION EXECUTION RULES:\n"
     "Use follow-up system ticks in sequence for multi-step tasks.\n"

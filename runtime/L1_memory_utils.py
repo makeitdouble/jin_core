@@ -1112,6 +1112,22 @@ def format_runtime_memory_lifecycle_timestamp(
     ).isoformat()
 
 
+def format_runtime_memory_snapshot_timestamp(
+        value,
+) -> str:
+
+    parsed = parse_runtime_memory_lifecycle_datetime(
+        value
+    )
+
+    if parsed is None:
+        parsed = get_runtime_memory_snapshot_datetime()
+
+    return parsed.astimezone().replace(
+        microsecond=0
+    ).isoformat()
+
+
 def parse_runtime_memory_lifecycle_datetime(
         value,
 ) -> datetime | None:
@@ -3298,6 +3314,9 @@ def build_runtime_memory_snapshot(
         "created_at": format_runtime_memory_lifecycle_timestamp(
             snapshot_time
         ),
+        "timestamp": format_runtime_memory_snapshot_timestamp(
+            snapshot_time
+        ),
         "raw_memory": display_memory,
         "annotated_memory": build_runtime_memory_annotated_text(
             lines,
@@ -3461,6 +3480,13 @@ def rebuild_latest_runtime_memory_snapshot(
             "created_at",
         ) or format_runtime_memory_lifecycle_timestamp(
             snapshot_time
+        ),
+        "timestamp": latest_snapshot.get(
+            "timestamp",
+        ) or format_runtime_memory_snapshot_timestamp(
+            latest_snapshot.get(
+                "created_at",
+            ) or snapshot_time
         ),
         "raw_memory": display_memory,
         "annotated_memory": build_runtime_memory_annotated_text(

@@ -322,7 +322,98 @@ function buildMatch(
     sourceLineKey: fragment.sourceLineKey,
     sourceLineText: fragment.sourceLineText,
     sourceLineIdentity: fragment.sourceLineIdentity,
+    activeMemoryId: fragment.activeMemoryId,
   };
+}
+
+function findActiveMemoryContiguousMatches(
+  fragment,
+  thinkTokens,
+  originalText
+) {
+  const sourceTokens = tokenizeNormalizedText(
+    normalizeText(fragment.sourceText)
+  );
+  const ratio = Math.max(
+    0.25,
+    Number(fragment.activeContiguousRatio || 0.25)
+  );
+  const minTokens = Math.max(
+    MIN_MATCH_TOKENS,
+    Math.ceil(sourceTokens.length * ratio)
+  );
+
+  if (
+    sourceTokens.length < minTokens
+    || sourceTokens.join(" ").length < MIN_MATCH_CHARS
+  ) {
+    return [];
+  }
+
+  const sourcePositions = new Map();
+  sourceTokens.forEach((token, index) => {
+    const positions = sourcePositions.get(token) || [];
+    positions.push(index);
+    sourcePositions.set(token, positions);
+  });
+
+  const matches = [];
+
+  thinkTokens.forEach((thinkToken, thinkStart) => {
+    const positions = sourcePositions.get(thinkToken.text) || [];
+
+    positions.forEach((sourceStart) => {
+      if (
+        thinkStart > 0
+        && sourceStart > 0
+        && thinkTokens[thinkStart - 1].text === sourceTokens[sourceStart - 1]
+      ) {
+        return;
+      }
+
+      let length = 0;
+      while (
+        sourceStart + length < sourceTokens.length
+        && thinkStart + length < thinkTokens.length
+        && sourceTokens[sourceStart + length]
+          === thinkTokens[thinkStart + length].text
+      ) {
+        length += 1;
+      }
+
+      if (length < minTokens) {
+        return;
+      }
+
+      const sourcePhrase = sourceTokens
+        .slice(sourceStart, sourceStart + length)
+        .join(" ");
+
+      if (sourcePhrase.length < MIN_MATCH_CHARS) {
+        return;
+      }
+
+      const startToken = thinkTokens[thinkStart];
+      const endToken = thinkTokens[thinkStart + length - 1];
+
+      matches.push(
+        buildMatch(
+          fragment,
+          expandMatchedRange(
+            originalText,
+            {
+              start: startToken.start,
+              end: endToken.end,
+            }
+          ),
+          Number((length / sourceTokens.length).toFixed(2)),
+          "exact"
+        )
+      );
+    });
+  });
+
+  return matches;
 }
 
 function sourcePriority(
@@ -821,6 +912,20 @@ function analyzeThinkRules(
       const fragment =
         fragments[index];
 
+      if (
+        fragment.sourceType === "active"
+        && Number(fragment.activeContiguousRatio || 0) > 0
+      ) {
+        batchMatches.push(
+          ...findActiveMemoryContiguousMatches(
+            fragment,
+            thinkTokens,
+            text
+          )
+        );
+        continue;
+      }
+
       batchMatches.push(
         ...findExactMatches(
           fragment,
@@ -829,13 +934,15 @@ function analyzeThinkRules(
         )
       );
 
-      batchMatches.push(
-        ...findTokenWindowMatches(
-          fragment,
-          thinkTokens,
-          text
-        )
-      );
+      if (fragment.activeExactOnly !== true) {
+        batchMatches.push(
+          ...findTokenWindowMatches(
+            fragment,
+            thinkTokens,
+            text
+          )
+        );
+      }
     }
 
     const resolvedMatches =

@@ -94,6 +94,105 @@ def _context_session_id(
     return generated
 
 
+def find_chat_log_session_date(
+    session_id: str,
+    *,
+    root: Path | str | None = None,
+) -> str:
+
+    root_path = Path(
+        root
+        if root is not None
+        else CHAT_LOG_ROOT
+    )
+    normalized = _clean_session_id(
+        session_id
+    )
+
+    if not normalized or not root_path.is_dir():
+        return ""
+
+    dates = []
+    for date_directory in root_path.iterdir():
+        if (
+            not date_directory.is_dir()
+            or not re.fullmatch(
+                r"\d{4}-\d{2}-\d{2}",
+                date_directory.name,
+            )
+        ):
+            continue
+
+        if (date_directory / normalized).is_dir():
+            dates.append(date_directory.name)
+
+    return sorted(dates)[-1] if dates else ""
+
+
+def create_chat_log_bootstrap_reference(
+    context,
+    source_session_id: str,
+    *,
+    source_session_date: str = "",
+    now: datetime | None = None,
+    root: Path | str | None = None,
+) -> Path | None:
+
+    if not chat_logging_enabled():
+        return None
+
+    source_id = _clean_session_id(
+        source_session_id
+    )
+    if not source_id:
+        return None
+
+    source_date = str(
+        source_session_date
+        or find_chat_log_session_date(
+            source_id,
+            root=root,
+        )
+        or ""
+    ).strip()
+    if not re.fullmatch(
+        r"\d{4}-\d{2}-\d{2}",
+        source_date,
+    ):
+        source_date = "unknown-date"
+
+    timestamp = now or _now()
+    root_path = Path(
+        root
+        if root is not None
+        else CHAT_LOG_ROOT
+    )
+    session_id = _context_session_id(
+        context
+    )
+    session_directory = (
+        root_path
+        / f"{timestamp:%Y-%m-%d}"
+        / session_id
+    )
+    session_directory.mkdir(
+        parents=True,
+        exist_ok=True,
+    )
+    marker_path = (
+        session_directory
+        / f"{source_date}.{source_id}.bootstrap"
+    )
+    marker_path.touch(
+        exist_ok=True,
+    )
+    context.runtime_chat_log_bootstrap_reference_path = str(
+        marker_path
+    )
+
+    return marker_path
+
+
 def _public_project_path(
     path: Path | str,
 ) -> str:

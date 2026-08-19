@@ -6,14 +6,20 @@ from .action_counter_utils import (
 )
 from .active_memory_utils import (
     collect_active_memory_slot_ids,
+    collect_active_memory_custom_fields,
+    extract_active_memory_creation_custom_fields,
+    get_active_memory_record_title,
     generate_active_memory_slot_key,
     generate_short_runtime_id,
     is_active_memory_key,
     is_active_memory_record_paused,
+    normalize_active_memory_custom_field_name,
+    normalize_active_memory_custom_field_value,
     refresh_active_memory_runtime_metadata,
     remove_active_memory_entries,
     strip_active_memory_managed_suffixes,
     strip_active_memory_runtime_metadata,
+    set_active_memory_suffix_value,
 )
 from .common_action_utils import (
     RuntimeActionCall,
@@ -39,6 +45,7 @@ from .delayed_memory_utils import (
 )
 from .idle_utils import parse_idle_seconds
 from .update_l4_facts_utils import parse_update_l4_facts_payload
+from .update_active_memory_utils import parse_update_active_memory_payload
 from .jin_color_utils import (
     get_applied_jin_color,
     is_noop_jin_color_action,
@@ -81,8 +88,10 @@ __all__ = [
     "REGEXP_TEMPLATES",
     "build_runtime_action_id",
     "collect_active_memory_slot_ids",
+    "collect_active_memory_custom_fields",
     "compile_runtime_action_regexp",
     "extract_active_memory_resolve_slot_id",
+    "extract_active_memory_creation_custom_fields",
     "extract_runtime_actions",
     "emit_runtime_action_counter_updates",
     "extract_search_query",
@@ -95,6 +104,7 @@ __all__ = [
     "generate_short_runtime_id",
     "get_applied_jin_color",
     "get_applied_jin_size",
+    "get_active_memory_record_title",
     "get_save_active_memory_marker_fields",
     "get_save_active_memory_placeholder_payload",
     "is_active_memory_key",
@@ -105,10 +115,13 @@ __all__ = [
     "match_regexp",
     "match_regexp_templates",
     "normalize_active_memory_marker_field",
+    "normalize_active_memory_custom_field_name",
+    "normalize_active_memory_custom_field_value",
     "normalize_jin_color_payload",
     "normalize_jin_size_dict",
     "normalize_jin_size_payload",
     "parse_update_l4_facts_payload",
+    "parse_update_active_memory_payload",
     "normalize_runtime_action_name",
     "normalize_runtime_action_names",
     "collect_anchor_fact_report_ids",
@@ -125,5 +138,6 @@ __all__ = [
     "slugify_delayed_memory_title",
     "strip_active_memory_managed_suffixes",
     "strip_active_memory_runtime_metadata",
+    "set_active_memory_suffix_value",
     "format_jin_size_payload",
 ]

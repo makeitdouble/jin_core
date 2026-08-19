@@ -221,6 +221,12 @@ class RuntimeContext:
     runtime_l4_merge_batch_limit: int = 0
     runtime_l4_merge_truncation_streak: int = 0
     runtime_l4_merge_retry_not_before: float = 0.0
+    runtime_l4_merge_deferred_pending_until: dict[str, float] = field(
+        default_factory=dict
+    )
+    runtime_l4_merge_force_single_batch_once: bool = False
+    runtime_l4_memory_update_kind: str = ""
+    runtime_l4_idle_last_started_at: float = 0.0
 
     runtime_usage_events: list[dict] = field(
         default_factory=list
@@ -344,6 +350,13 @@ class RuntimeContext:
     runtime_session_restore_pending_attached_file_ids: list[str] = field(
         default_factory=list
     )
+
+    # Archived avatar state is replayed through the normal runtime-action
+    # pipeline after the hidden restore greeting, exactly like restored files
+    # and delayed memory. This keeps visual restoration visible as action bubbles
+    # instead of silently mutating the browser before JIN resumes.
+    runtime_session_restore_pending_jin_color: str = ""
+    runtime_session_restore_pending_jin_size: object | None = None
 
     runtime_memory_update_task: object | None = None
 

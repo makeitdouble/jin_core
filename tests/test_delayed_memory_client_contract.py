@@ -802,7 +802,19 @@ class DelayedMemoryClientContractTests(unittest.TestCase):
             view_source,
         )
         self.assertIn(
-            'delayedMemoryModalTitleEditor =\n        detailsCard.title;',
+            'delayedMemoryModalDetailsTitle =\n        detailsCard.title;',
+            view_source,
+        )
+        self.assertIn(
+            "bindDelayedMemoryModalEditor(\n        delayedMemoryModalTitle,",
+            view_source,
+        )
+        self.assertIn(
+            "delayedMemoryModalTitleEditor =\n        delayedMemoryModalTitle;",
+            view_source,
+        )
+        self.assertNotIn(
+            "delayed-memory-modal-card-title-editor",
             view_source,
         )
         self.assertNotIn(
@@ -826,7 +838,11 @@ class DelayedMemoryClientContractTests(unittest.TestCase):
             css_source,
         )
         self.assertIn(
-            ".delayed-memory-modal-card-header,",
+            ".delayed-memory-modal-card-header {",
+            css_source,
+        )
+        self.assertNotIn(
+            ".delayed-memory-modal-card-title-editor",
             css_source,
         )
         self.assertIn(

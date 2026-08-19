@@ -11,10 +11,46 @@ from rules.runtime import SESSION_RESTORE_MESSAGE
 from runtime.client import RuntimeClient
 from runtime.runtime_context import RuntimeContext
 from utils.session_restore import build_archived_session_restore_payload
-from websocket.bootstrap import apply_session_bootstrap
+from websocket.bootstrap import (
+    apply_archived_session_continuation_state,
+    apply_session_bootstrap,
+)
 
 
 class ArchivedSessionRestoreTests(unittest.TestCase):
+
+    def test_archived_restore_keeps_fresh_runtime_session_identity(self):
+        context = RuntimeContext(
+            websocket=None,
+            emitter=None,
+            logger=None,
+            clients={},
+            session_id="fresh-session",
+        )
+
+        with patch(
+            "websocket.bootstrap.create_chat_log_bootstrap_reference"
+        ) as create_reference:
+            apply_archived_session_continuation_state(
+                context,
+                {
+                    "source_session_id": "archived-session",
+                    "source_session_date": "2026-08-18",
+                    "archived_session_restore": True,
+                },
+            )
+
+        self.assertEqual(context.session_id, "fresh-session")
+        self.assertEqual(
+            context.runtime_archived_session_id,
+            "archived-session",
+        )
+        self.assertTrue(context.runtime_session_restore_priming)
+        create_reference.assert_called_once_with(
+            context,
+            "archived-session",
+            source_session_date="2026-08-18",
+        )
 
     def _build_fixture(self):
         root = Path(tempfile.mkdtemp())
@@ -162,7 +198,7 @@ open_question: wrong bootstrap question
         self.assertNotIn("WRONG BOOTSTRAP VALUE", payload["runtime_memory"])
         self.assertEqual(payload["context_file"], "222828.txt")
 
-    def test_restored_dialog_keeps_three_newest_complete_pairs_newest_first(self):
+    def test_restored_dialog_keeps_three_newest_complete_pairs_chronological(self):
         root = Path(tempfile.mkdtemp())
         session_id = "reverse-three-pairs"
         session_dir = root / "2026-08-17" / session_id
@@ -209,9 +245,10 @@ open_question: wrong bootstrap question
         dialog = payload["dialog_context"]
         self.assertNotIn("question 1", dialog)
         self.assertNotIn("answer 1", dialog)
+        self.assertLess(dialog.index("question 2"), dialog.index("answer 2"))
+        self.assertLess(dialog.index("answer 2"), dialog.index("question 3"))
+        self.assertLess(dialog.index("answer 3"), dialog.index("question 4"))
         self.assertLess(dialog.index("question 4"), dialog.index("answer 4"))
-        self.assertLess(dialog.index("answer 4"), dialog.index("question 3"))
-        self.assertLess(dialog.index("answer 3"), dialog.index("question 2"))
 
     def test_payload_recovers_adjacent_json_objects_and_skips_empty_restore_rows(self):
         root = Path(tempfile.mkdtemp())
@@ -499,6 +536,11 @@ open_question: continue
             "file001",
             "file001",
         ]
+        context.runtime_session_restore_pending_jin_color = "#9370db"
+        context.runtime_session_restore_pending_jin_size = {
+            "width": 333,
+            "height": 333,
+        }
         context.runtime_session_restore_reasoning_dump = "reasoning"
         context.runtime_session_restore_l4_fact_ids = ["F7"]
         context.runtime_session_restore_delayed_memory_metadata = [
@@ -532,14 +574,24 @@ open_question: continue
                 )
             )
 
-        self.assertEqual(applied, 2)
+        self.assertEqual(applied, 4)
         self.assertEqual(
             [action.name for action in captured["actions"]],
-            ["LOAD_DELAYED_MEMORY", "ATTACH_FILE"],
+            [
+                "LOAD_DELAYED_MEMORY",
+                "ATTACH_FILE",
+                "JIN_COLOR",
+                "JIN_SIZE",
+            ],
         )
         self.assertEqual(
             [action.payload for action in captured["actions"]],
-            ["abc123", "file001"],
+            [
+                "abc123",
+                "file001",
+                "#9370db",
+                {"width": 333, "height": 333},
+            ],
         )
         self.assertEqual(
             captured["kwargs"]["assistant_message"],
@@ -557,6 +609,13 @@ open_question: continue
         self.assertEqual(
             context.runtime_session_restore_pending_attached_file_ids,
             [],
+        )
+        self.assertEqual(
+            context.runtime_session_restore_pending_jin_color,
+            "",
+        )
+        self.assertIsNone(
+            context.runtime_session_restore_pending_jin_size
         )
         self.assertEqual(context.runtime_session_restore_reasoning_dump, "")
         self.assertEqual(context.runtime_session_restore_l4_fact_ids, [])

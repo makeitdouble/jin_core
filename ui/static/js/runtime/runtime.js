@@ -84,6 +84,45 @@ if (!memoryView) {
 
 const DELAYED_MEMORY_STORE_CHANGED_EVENT =
   "jin:delayed-memory-store-changed";
+const ACTIVE_MEMORY_RECORDS_CHANGED_EVENT =
+  "jin:active-memory-records-changed";
+
+function getActiveMemoryRecordIds(records) {
+  return Array.from(
+    new Set(
+      (Array.isArray(records) ? records : [])
+        .map((record) => {
+          const match = String(record || "").match(
+            /\[\s*active_memory_id\s*:\s*([a-z0-9]{6})\s*\]/i
+          );
+
+          return match
+            ? String(match[1] || "").trim().toLowerCase()
+            : "";
+        })
+        .filter(Boolean)
+    )
+  );
+}
+
+function dispatchActiveMemoryRecordsChanged(reason = "") {
+  const records = readActiveMemoryRecords();
+
+  window.dispatchEvent(
+    new CustomEvent(
+      ACTIVE_MEMORY_RECORDS_CHANGED_EVENT,
+      {
+        detail: {
+          reason: String(reason || ""),
+          records: [...records],
+          ids: getActiveMemoryRecordIds(records),
+        },
+      }
+    )
+  );
+
+  return records;
+}
 
 function dispatchDelayedMemoryStoreChanged(
   reason = "",
@@ -142,6 +181,7 @@ const {
   writeActiveMemoryRecords,
   clearActiveMemoryRecords,
   appendActiveMemoryRecords: appendStoredActiveMemoryRecords,
+  replaceActiveMemoryRecordById: replaceStoredActiveMemoryRecordById,
   removeActiveMemoryRecordById: removeStoredActiveMemoryRecordById,
   normalizeDelayedMemoryReports,
   readDelayedMemoryReports,
@@ -972,7 +1012,9 @@ function writeActiveMemoryRecordsAndRefresh(
     refreshRuntimeAvatar();
   }
 
-  return readActiveMemoryRecords();
+  return dispatchActiveMemoryRecordsChanged(
+    "replace-from-memory-view"
+  );
 }
 
 function showLatestRuntimeMemorySnapshot() {
@@ -1136,6 +1178,10 @@ function appendActiveMemoryRecordsAndRender(
     refreshRuntimeAvatar();
   }
 
+  dispatchActiveMemoryRecordsChanged(
+    "append"
+  );
+
   return nextRecords;
 
 }
@@ -1156,7 +1202,36 @@ function replaceActiveMemoryRecordsAndRender(
     refreshRuntimeAvatar();
   }
 
-  return readActiveMemoryRecords();
+  return dispatchActiveMemoryRecordsChanged(
+    "replace"
+  );
+
+}
+
+
+function replaceActiveMemoryRecordByIdAndRender(
+  activeMemoryId,
+  record
+) {
+
+  const nextRecords =
+    replaceStoredActiveMemoryRecordById(
+      activeMemoryId,
+      record
+    );
+
+  showLatestRuntimeMemorySnapshot();
+  renderRuntimeMemorySnapshot();
+
+  if (!syncActiveMemoryStateToAvatar()) {
+    refreshRuntimeAvatar();
+  }
+
+  dispatchActiveMemoryRecordsChanged(
+    "update"
+  );
+
+  return nextRecords;
 
 }
 
@@ -1176,6 +1251,10 @@ function removeActiveMemoryRecordByIdAndRender(
   if (!syncActiveMemoryStateToAvatar()) {
     refreshRuntimeAvatar();
   }
+
+  dispatchActiveMemoryRecordsChanged(
+    "remove"
+  );
 
   return nextRecords;
 
@@ -2221,6 +2300,7 @@ function replaceDelayedMemoryReportsAndRender(
 
 const ACTIVE_MEMORY_RUNTIME_ACTIONS_TO_SILENCE_ON_L1 = [
   "save_active_memory",
+  "update_active_memory",
   "resolve_active_memory",
 ];
 
@@ -2434,10 +2514,15 @@ window.JinRuntime.runtime = {
       refreshRuntimeAvatar();
     }
 
+    dispatchActiveMemoryRecordsChanged(
+      "clear"
+    );
+
     return records;
   },
   replaceActiveMemoryRecords: replaceActiveMemoryRecordsAndRender,
   appendActiveMemoryRecords: appendActiveMemoryRecordsAndRender,
+  replaceActiveMemoryRecordById: replaceActiveMemoryRecordByIdAndRender,
   removeActiveMemoryRecordById: removeActiveMemoryRecordByIdAndRender,
   getDelayedMemoryReports: readDelayedMemoryReports,
   getLoadedDelayedMemoryReportIds,

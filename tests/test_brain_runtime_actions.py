@@ -3445,7 +3445,7 @@ class BrainRuntimeActionTests(unittest.TestCase):
             },
         )
 
-        self.assertTrue(prompt.startswith("<TOOLS_RESULTS>"))
+        self.assertTrue(prompt.startswith("<CURRENT_CONCERNS>"))
         self.assertLess(
             prompt.index('<TOOL_RESULT name="ASSETS"'),
             prompt.index("<SESSION_ACTIONS_HISTORY>"),
@@ -3460,7 +3460,7 @@ class BrainRuntimeActionTests(unittest.TestCase):
         )
         self.assertLess(
             prompt.index("<LOADED_SKILLS_CONTENT>"),
-            prompt.index("<RUNTIME_MEMORY>"),
+            prompt.index("<RUNTIME_MEMORY "),
         )
         self.assertIn("asset result", prompt)
         self.assertIn("first line\n", prompt)
@@ -3804,7 +3804,7 @@ class BrainRuntimeActionTests(unittest.TestCase):
         )
         self.assertTrue(
             prompt.startswith(
-                "<TOOLS_RESULTS>"
+                "<CURRENT_CONCERNS>"
             )
         )
         self.assertLess(
@@ -3815,19 +3815,22 @@ class BrainRuntimeActionTests(unittest.TestCase):
         )
         self.assertLess(
             prompt.index("<ACTIVE_MEMORY"),
-            prompt.index("<RUNTIME_MEMORY>"),
+            prompt.index("<RUNTIME_MEMORY "),
         )
         self.assertLess(
-            prompt.index("<RUNTIME_MEMORY>"),
+            prompt.index("<RUNTIME_MEMORY "),
             prompt.index("<CURRENT_TRUSTED_RUNTIME_VARIABLES>"),
         )
         self.assertLess(
             runtime_context.index("<ACTIVE_MEMORY"),
-            runtime_context.index("<RUNTIME_MEMORY>"),
+            runtime_context.index("<RUNTIME_MEMORY "),
         )
 
         runtime_memory_block = runtime_context.split(
-            "<RUNTIME_MEMORY>",
+            "<RUNTIME_MEMORY ",
+            1,
+        )[1].split(
+            ">",
             1,
         )[1].split(
             "</RUNTIME_MEMORY>",

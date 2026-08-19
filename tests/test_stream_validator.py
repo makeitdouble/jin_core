@@ -10,6 +10,7 @@ import utils.stream_validator as stream_validator_module
 
 from utils.stream_validator import (
     INCORRECT_L4_FACT_IDS_HALLUCINATION_REASON,
+    MAX_REPEAT_SYMBOLIC_MOTIFS,
     MAX_REPEAT_SENTENCES,
     SAME_ANSWER_OUTPUT_REASON,
     StreamValidator,
@@ -318,6 +319,86 @@ def test_stream_validator_stops_repeated_short_word_sequence():
         "Repeated word sequence loop detected."
     )
     assert validator.last_failure_loop_preview == "запиши or"
+
+
+def test_stream_validator_stops_repeated_complex_symbolic_motif_in_mixed_reasoning():
+    validator = StreamValidator()
+
+    blocks = [
+        "Wait, I'll do:\n```\n  (😼) ⚡\n```\nLet's go.\n",
+        "*Final decision:*\n```\n  (😼) ⚡\n```\nActually, I'll do it.\n",
+        "Let's inspect one more thing.\n```\n  (😼) ⚡\n```\nThen continue.\n",
+        "*Actually, I'll do:*\n```\n  (😼) ⚡\n```\nLet's go.\n",
+    ]
+
+    assert len(blocks) == MAX_REPEAT_SYMBOLIC_MOTIFS
+
+    for repeat_index, block in enumerate(blocks):
+        clean, is_valid = validator.filter_chunk(
+            block
+        )
+
+        if repeat_index < MAX_REPEAT_SYMBOLIC_MOTIFS - 1:
+            assert clean == block
+            assert is_valid
+            continue
+
+        assert clean == ""
+        assert not is_valid
+
+    assert validator.last_failure_reason == (
+        "Repeated symbolic motif loop detected."
+    )
+    assert validator.last_failure_loop_preview == "(😼) ⚡"
+
+
+def test_stream_validator_allows_bare_two_emoji_lines_even_when_repeated():
+    validator = StreamValidator()
+    line = "😂 ⚡\n"
+
+    text = collect(
+        validator,
+        [
+            line
+            for _ in range(
+                MAX_REPEAT_SYMBOLIC_MOTIFS + 4
+            )
+        ],
+    )
+
+    assert text == line * (
+        MAX_REPEAT_SYMBOLIC_MOTIFS + 4
+    )
+    assert validator.last_failure_reason is None
+
+
+def test_stream_validator_symbolic_motif_survives_provider_chunk_splits():
+    validator = StreamValidator()
+
+    for repeat_index in range(
+        MAX_REPEAT_SYMBOLIC_MOTIFS
+    ):
+        clean, is_valid = validator.filter_chunk(
+            "```\n  (😼"
+        )
+        assert clean == "```\n  (😼"
+        assert is_valid
+
+        clean, is_valid = validator.filter_chunk(
+            ") ⚡\n```\n"
+        )
+
+        if repeat_index < MAX_REPEAT_SYMBOLIC_MOTIFS - 1:
+            assert clean == ") ⚡\n```\n"
+            assert is_valid
+            continue
+
+        assert clean == ""
+        assert not is_valid
+
+    assert validator.last_failure_reason == (
+        "Repeated symbolic motif loop detected."
+    )
 
 
 def test_stream_validator_allows_repeated_numeric_stream_fragments():

@@ -101,23 +101,29 @@ for (const [input, expected] of cases) {
         source = INDEX_HTML.read_text(encoding="utf-8")
 
         self.assertIn(
-            '/static/js/chat.js?v=jin-size-1',
+            '/static/js/chat.js?v=',
             source,
         )
 
-        self.assertIn(
-            '/static/js/chat-runtime-actions.js?v=active-hotpath-1',
-            source,
-        )
+        for script_path in (
+            '/static/js/runtime/runtime-storage.js?',
+            '/static/js/runtime/runtime.js?',
+            '/static/js/chat-runtime-actions.js?',
+            '/static/js/socket/runtime-actions.js?',
+        ):
+            matching_line = next(
+                (
+                    line
+                    for line in source.splitlines()
+                    if script_path in line
+                ),
+                "",
+            )
+            self.assertIn(
+                'active-memory-state=1',
+                matching_line,
+            )
 
-        self.assertIn(
-            '/static/js/socket/runtime-actions.js?v=active-hotpath-1',
-            source,
-        )
-        self.assertIn(
-            '/static/css/chat-runtime-action.css?v=deep-search-stack-2',
-            source,
-        )
 
     def test_save_active_memory_does_not_add_second_token_hot_path_parser(self):
         runtime_stream_source = RUNTIME_STREAM_PY.read_text(
@@ -161,6 +167,7 @@ for (const [input, expected] of cases) {
             "save_delayed_memory_content",
             "load_delayed_memory",
             "save_active_memory",
+            "update_active_memory",
             "resolve_active_memory",
             "unload_delayed_memory",
             "clean_tool_results",
@@ -195,6 +202,41 @@ for (const [input, expected] of cases) {
                 encoding="utf-8"
             ),
         )
+
+    def test_update_active_memory_bubble_uses_title_and_before_after_hover(self):
+        socket_runtime_source = SOCKET_RUNTIME_ACTIONS_JS.read_text(
+            encoding="utf-8"
+        )
+        runtime_storage_source = (
+            ROOT
+            / "ui"
+            / "static"
+            / "js"
+            / "runtime"
+            / "runtime-storage.js"
+        ).read_text(encoding="utf-8")
+
+        self.assertIn(
+            "formatActiveMemoryUpdateDetail",
+            socket_runtime_source,
+        )
+        self.assertIn(
+            "`${field}: ${before} → ${after}`",
+            socket_runtime_source,
+        )
+        self.assertIn(
+            "data.active_memory_title",
+            socket_runtime_source,
+        )
+        self.assertIn(
+            "replaceActiveMemoryRecordById",
+            socket_runtime_source,
+        )
+        self.assertIn(
+            "function replaceActiveMemoryRecordById",
+            runtime_storage_source,
+        )
+
 
     def test_deep_search_runtime_actions_use_stacked_child_bubbles(self):
         chat_runtime_source = CHAT_RUNTIME_ACTIONS_JS.read_text(

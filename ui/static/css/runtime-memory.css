@@ -125,7 +125,6 @@
 .runtime-memory-l4-row .runtime-memory-fact-number {
     display: inline-block;
     min-width: 3ch;
-    margin-right: 0.25ch;
     color: rgba(161, 161, 170, 0.68);
     font-variant-numeric: tabular-nums;
     text-align: right;
@@ -557,18 +556,12 @@
     padding-bottom: 3px;
 }
 
-.delayed-memory-modal-card-header,
-.delayed-memory-modal-card-title-editor {
+.delayed-memory-modal-card-header {
     cursor: pointer;
 }
 
 .delayed-memory-modal-card .jin-context-card-title {
     color: rgba(186, 230, 253, 0.90);
-}
-
-.delayed-memory-modal-card-title-editor {
-    min-width: 0;
-    max-width: 100%;
 }
 
 .delayed-memory-modal-body {

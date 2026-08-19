@@ -580,6 +580,47 @@
   }
 
 
+  function replaceActiveMemoryRecordById(
+    activeMemoryId,
+    record
+  ) {
+
+    const needle =
+      String(activeMemoryId || "")
+        .trim()
+        .toLowerCase();
+    const nextRecord = String(record || "").trim();
+
+    if (!needle || !nextRecord) {
+      return readActiveMemoryRecords();
+    }
+
+    let replaced = false;
+    const nextRecords = readActiveMemoryRecords()
+      .map((currentRecord) => {
+        const text = String(currentRecord || "");
+
+        if (
+          replaced
+          || !text.toLowerCase().includes(needle)
+        ) {
+          return currentRecord;
+        }
+
+        replaced = true;
+        return nextRecord;
+      });
+
+    if (!replaced) {
+      nextRecords.push(nextRecord);
+    }
+
+    writeActiveMemoryRecords(nextRecords);
+    return readActiveMemoryRecords();
+
+  }
+
+
   function removeActiveMemoryRecordById(
     activeMemoryId
   ) {
@@ -2069,6 +2110,7 @@
     writeActiveMemoryRecords,
     clearActiveMemoryRecords,
     appendActiveMemoryRecords,
+    replaceActiveMemoryRecordById,
     removeActiveMemoryRecordById,
     getFactsMemoryStorageKey,
     isFactsMemoryStorageKey,

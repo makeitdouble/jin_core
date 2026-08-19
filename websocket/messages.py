@@ -1086,16 +1086,12 @@ async def process_message(
             + 1
         )
         context.runtime_current_turn_id = (
-            f"restore_{context.runtime_turn_counter:06d}"
-            if is_session_restore_resume
+            f"idle_{context.runtime_turn_counter:06d}"
+            if is_idle_followup
             else (
-                f"idle_{context.runtime_turn_counter:06d}"
-                if is_idle_followup
-                else (
-                    f"retry_{context.runtime_turn_counter:06d}"
-                    if is_action_guard_retry
-                    else f"turn_{context.runtime_turn_counter:06d}"
-                )
+                f"retry_{context.runtime_turn_counter:06d}"
+                if is_action_guard_retry
+                else f"turn_{context.runtime_turn_counter:06d}"
             )
         )
 

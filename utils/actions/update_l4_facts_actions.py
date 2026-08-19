@@ -71,6 +71,7 @@ async def _run_update_l4_facts_action(
     payload: str,
     note: dict,
     previous_l4_task,
+    previous_l4_kind: str,
     log_runtime,
     with_action_context,
 ) -> None:
@@ -82,6 +83,10 @@ async def _run_update_l4_facts_action(
             and previous_l4_task is not current_task
             and not previous_l4_task.done()
         ):
+            # An explicit JIN note is foreground memory work. It must not wait
+            # behind an idle consolidation that is using the same model.
+            if previous_l4_kind == "idle":
+                previous_l4_task.cancel()
             try:
                 await previous_l4_task
             except asyncio.CancelledError:
@@ -90,6 +95,9 @@ async def _run_update_l4_facts_action(
                 # The note still gets its own attempt after a failed previous
                 # background consolidation.
                 pass
+
+        if getattr(context, "runtime_l4_memory_update_task", None) is current_task:
+            context.runtime_l4_memory_update_kind = "jin_note"
 
         result = await run_l4_jin_note(
             context=context,
@@ -141,6 +149,8 @@ async def _run_update_l4_facts_action(
         )
         if getattr(context, "runtime_l4_memory_update_task", None) is current_task:
             context.runtime_l4_memory_update_task = None
+            if str(getattr(context, "runtime_l4_memory_update_kind", "") or "") == "jin_note":
+                context.runtime_l4_memory_update_kind = ""
 
 
 def schedule_update_l4_facts_actions(
@@ -166,6 +176,9 @@ def schedule_update_l4_facts_actions(
             "runtime_l4_memory_update_task",
             None,
         )
+        previous_l4_kind = str(
+            getattr(context, "runtime_l4_memory_update_kind", "") or ""
+        )
         task = asyncio.create_task(
             _run_update_l4_facts_action(
                 context,
@@ -173,11 +186,13 @@ def schedule_update_l4_facts_actions(
                 payload=action.payload,
                 note=note,
                 previous_l4_task=previous_l4_task,
+                previous_l4_kind=previous_l4_kind,
                 log_runtime=log_runtime,
                 with_action_context=with_action_context,
             )
         )
         context.runtime_l4_memory_update_task = task
+        context.runtime_l4_memory_update_kind = "jin_note"
 
         background_tasks = getattr(context, "background_tasks", None)
         if background_tasks is None:

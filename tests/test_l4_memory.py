@@ -7,11 +7,14 @@ from datetime import datetime, timezone
 from runtime.L4_memory import (
     apply_l4_memory_store_sync,
     build_runtime_l4_memory_context,
+    cancel_l4_memory_idle_update,
     delete_l4_memory_fact,
     ensure_runtime_l4_state,
     maybe_update_runtime_l4_memory,
+    remap_delayed_memory_l4_fact_ids,
     restore_l4_memory_fact,
     runtime_l4_memory_update_running,
+    schedule_l4_memory_idle_update,
 )
 from runtime.L4_memory_utils import (
     add_l4_pending_candidates,
@@ -574,6 +577,7 @@ class L4MemoryTests(unittest.IsolatedAsyncioTestCase):
                 "target_id": "F167",
                 "key": "jin_identity",
                 "value": "Pending identity restatement.",
+                "category": "other",
             }],
             pending_ids=["PF354"],
             now="2026-08-14T17:00:00Z",
@@ -582,6 +586,16 @@ class L4MemoryTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(change["valid"])
         self.assertEqual(change["reason"], "update_key_matches_other_fact")
         self.assertEqual([fact["id"] for fact in after["facts"]], ["F100", "F167"])
+
+    def test_merge_protocol_exposes_only_create_update_ignore_merge_actions(self):
+        prompt = build_l4_merge_system_prompt()
+
+        for action in ("create", "update", "ignore", "merge"):
+            self.assertIn(action, prompt)
+        self.assertNotIn("reinforce", prompt.casefold())
+        self.assertIn("NEW committed ID", prompt)
+        self.assertIn("source_fact_ids", prompt)
+        self.assertIn("Optional comment", prompt)
 
     def test_merge_prompt_uses_slim_model_view_without_provenance_metadata(self):
         prompt = build_l4_merge_user_prompt(
@@ -613,6 +627,8 @@ class L4MemoryTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertIn('"id":"F2"', prompt)
         self.assertIn('"id":"PF1"', prompt)
+        self.assertIn('"exact_key_conflicts"', prompt)
+        self.assertIn('"existing_fact_ids":["F2"]', prompt)
         self.assertNotIn("source_session_ids", prompt)
         self.assertNotIn("source_runtime_snapshot_ids", prompt)
         self.assertNotIn("source_fact_ids", prompt)
@@ -792,7 +808,7 @@ class L4MemoryTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("after:    user.hardware.main_gpu", detail_text)
         self.assertIn("IGNORE", detail_text)
 
-    def test_merge_reinforce_tracks_pending_fact_source_id(self):
+    def test_merge_ignore_consumes_redundant_pending_fact_without_mutating_committed_fact(self):
         existing = normalize_l4_store({
             "facts": [
                 {
@@ -820,9 +836,9 @@ class L4MemoryTests(unittest.IsolatedAsyncioTestCase):
         operations = normalize_l4_merge_operations({
             "operations": [
                 {
-                    "action": "reinforce",
+                    "action": "ignore",
                     "pending_id": pending["id"],
-                    "target_id": "F2",
+                    "comment": "Already represented by F2.",
                 },
             ],
         })
@@ -834,73 +850,77 @@ class L4MemoryTests(unittest.IsolatedAsyncioTestCase):
         )
 
         self.assertTrue(change["valid"])
-        self.assertEqual(change["reinforced_ids"], ["F2"])
-        self.assertEqual(len(change["operation_details"]), 1)
-        reinforce_detail = change["operation_details"][0]
-        self.assertEqual(reinforce_detail["action"], "reinforce")
-        self.assertEqual(reinforce_detail["pending_id"], pending["id"])
-        self.assertEqual(reinforce_detail["target_id"], "F2")
-        self.assertEqual(
-            reinforce_detail["pending_fact"]["value"],
-            "The user prefers Russian replies.",
-        )
-        self.assertEqual(
-            reinforce_detail["target_before"]["value"],
-            "The user prefers Russian replies.",
-        )
-        self.assertEqual(
-            reinforce_detail["target_after"]["mention_count"],
-            2,
-        )
+        self.assertEqual(change["ignored_pending_ids"], [pending["id"]])
+        self.assertEqual(merged["pending_facts"], [])
+        self.assertEqual(merged["facts"][0]["source_fact_ids"], ["F9"])
+        detail = change["operation_details"][0]
+        self.assertEqual(detail["action"], "ignore")
+        self.assertEqual(detail["comment"], "Already represented by F2.")
         detail_text = format_l4_merge_operation_details(change)
-        self.assertIn("REINFORCE", detail_text)
-        self.assertIn("confirmation: user.preference.response_language", detail_text)
-        self.assertIn("existing:     user.preference.response_language", detail_text)
-        self.assertEqual(
-            merged["facts"][0]["source_fact_ids"],
-            [
-                "F9",
-                "F10",
-                pending["id"],
-            ],
-        )
+        self.assertIn("IGNORE", detail_text)
 
-    async def test_same_turn_explicit_update_is_not_rewritten_by_idle_merge(self):
+    def test_merge_retires_old_facts_and_creates_new_canonical_id_with_lineage(self):
         store = normalize_l4_store({
             "facts": [
-                {"id": "F167", "key": "user.identity", "value": "JIN persists across model substrates."},
+                {
+                    "id": "F1",
+                    "key": "user.social_connections",
+                    "value": "Taras is a close friend.",
+                    "category": "user_fact",
+                    "source_fact_ids": ["F8"],
+                },
+                {
+                    "id": "F2",
+                    "key": "user.stakeholder_profile",
+                    "value": "Taras is a key technical stakeholder.",
+                    "category": "user_fact",
+                },
             ],
             "pending_facts": [
-                {"id": "PF354", "key": "jin_identity", "value": "A redundant identity restatement."},
+                {
+                    "id": "PF1",
+                    "key": "user.relationship.taras",
+                    "value": "Taras is both a close friend and technical stakeholder.",
+                    "category": "user_fact",
+                },
             ],
         })
-        service_client = FakeServiceClient(json.dumps({
+        operations = normalize_l4_merge_operations({
             "operations": [
-                {"action": "update", "pending_id": "PF354", "target_id": "F167"},
+                {
+                    "action": "merge",
+                    "pending_id": "PF1",
+                    "fact_ids": ["F1", "F2"],
+                    "key": "user.relationship.taras",
+                    "value": "Taras is both a close friend and an active technical stakeholder.",
+                    "category": "user_fact",
+                    "comment": "Keep both relationship roles in one canonical fact.",
+                },
             ],
-        }))
-        context = RuntimeContext(
-            websocket=None,
-            emitter=FakeEmitter(),
-            logger=FakeLogger(),
-            clients={"service": service_client},
+        })
+
+        merged, change = apply_l4_merge_operations(
+            store,
+            operations,
+            pending_ids=["PF1"],
+            now="2026-08-02T12:01:00Z",
         )
-        context.runtime_l4_file_store_enabled = False
-        context.runtime_long_term_memory_store = store
-        context.runtime_current_turn_id = "turn-167"
-        context.runtime_l4_explicit_edit_turn_id = "turn-167"
-        context.runtime_l4_explicit_edit_fact_ids = {"F167"}
 
-        result = await maybe_update_runtime_l4_memory(context=context, user_idle_seconds=61)
-
-        self.assertEqual(result["phase"], "merge")
-        self.assertEqual(result["merge_change"]["protected_pending_ids"], ["PF354"])
-        self.assertEqual(context.runtime_long_term_memory_store["pending_facts"], [])
+        self.assertTrue(change["valid"])
+        self.assertEqual(change["removed_fact_ids"], ["F1", "F2"])
+        self.assertEqual(change["replacement_fact_ids"], ["F9"])
+        self.assertEqual(change["merged_ids"], ["F9"])
+        self.assertEqual(merged["deleted_fact_ids"], ["F1", "F2"])
+        self.assertEqual([fact["id"] for fact in merged["facts"]], ["F9"])
+        self.assertEqual(merged["pending_facts"], [])
         self.assertEqual(
-            [fact["id"] for fact in context.runtime_long_term_memory_store["facts"]],
-            ["F167"],
+            merged["facts"][0]["source_fact_ids"],
+            ["F8", "F1", "F2", "PF1"],
         )
-        self.assertEqual(context.runtime_long_term_memory_store["facts"][0]["key"], "user.identity")
+        detail = change["operation_details"][0]
+        self.assertEqual(detail["action"], "merge")
+        self.assertEqual(detail["comment"], "Keep both relationship roles in one canonical fact.")
+        self.assertEqual([fact["id"] for fact in detail["merged_facts"]], ["F1", "F2"])
 
     async def test_merge_phase_logs_concrete_operation_details(self):
         existing = normalize_l4_store({
@@ -947,9 +967,9 @@ class L4MemoryTests(unittest.IsolatedAsyncioTestCase):
               "category": "environment"
             }},
             {{
-              "action": "reinforce",
+              "action": "ignore",
               "pending_id": "{language_pending["id"]}",
-              "target_id": "F2"
+              "comment": "Already represented by F2."
             }}
           ]
         }}''')
@@ -979,9 +999,256 @@ class L4MemoryTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("UPDATE", detail_text)
         self.assertIn("before:   user.hardware.main_gpu", detail_text)
         self.assertIn("after:    user.hardware.main_gpu", detail_text)
-        self.assertIn("REINFORCE", detail_text)
-        self.assertIn("confirmation: user.preference.response_language", detail_text)
-        self.assertIn("existing:     user.preference.response_language", detail_text)
+        self.assertIn("IGNORE", detail_text)
+        self.assertIn("Already represented by F2.", detail_text)
+
+    def test_delayed_memory_remap_uses_per_merge_replacement_mapping(self):
+        context = RuntimeContext(
+            websocket=None,
+            emitter=FakeEmitter(),
+            logger=FakeLogger(),
+            clients={},
+        )
+        context.delayed_memory_file_store_enabled = False
+        context.delayed_memory_reports = {
+            "left": {"facts_ids": ["F1"]},
+            "right": {"facts_ids": ["F3"]},
+            "both": {"facts_ids": ["F2", "F4"]},
+        }
+
+        change = remap_delayed_memory_l4_fact_ids(
+            context,
+            removed_fact_ids=["F1", "F2", "F3", "F4"],
+            replacement_fact_ids=["F5", "F6"],
+            replacement_fact_id_map={
+                "F1": ["F5"],
+                "F2": ["F5"],
+                "F3": ["F6"],
+                "F4": ["F6"],
+            },
+        )
+
+        self.assertTrue(change["changed"])
+        self.assertEqual(context.delayed_memory_reports["left"]["facts_ids"], ["F5"])
+        self.assertEqual(context.delayed_memory_reports["right"]["facts_ids"], ["F6"])
+        self.assertEqual(
+            context.delayed_memory_reports["both"]["facts_ids"],
+            ["F5", "F6"],
+        )
+
+    async def test_merge_validation_failure_gets_one_structured_repair_pass(self):
+        store = normalize_l4_store({
+            "facts": [
+                {
+                    "id": "F1",
+                    "key": "project.operational_modes",
+                    "value": "Architect / Explorer / Observer.",
+                    "category": "project_fact",
+                },
+            ],
+            "pending_facts": [
+                {
+                    "id": "PF1",
+                    "key": "project.operational_modes",
+                    "value": "Semantic Flow / Compression / Drift.",
+                    "category": "project_fact",
+                },
+            ],
+        })
+        service_client = FakeServiceClient([
+            json.dumps({
+                "operations": [
+                    {
+                        "action": "create",
+                        "pending_id": "PF1",
+                        "key": "project.operational_modes",
+                        "value": "Semantic Flow / Compression / Drift.",
+                        "category": "project_fact",
+                    },
+                ],
+            }),
+            json.dumps({
+                "operations": [
+                    {
+                        "action": "create",
+                        "pending_id": "PF1",
+                        "key": "project.cognitive_operational_states",
+                        "value": "Semantic Flow / Compression / Drift.",
+                        "category": "project_fact",
+                    },
+                ],
+            }),
+        ])
+        context = RuntimeContext(
+            websocket=None,
+            emitter=FakeEmitter(),
+            logger=FakeLogger(),
+            clients={"service": service_client},
+        )
+        context.runtime_long_term_memory_store = store
+
+        result = await maybe_update_runtime_l4_memory(
+            context=context,
+            user_idle_seconds=61,
+        )
+
+        self.assertEqual(result["status"], "completed")
+        self.assertEqual(len(service_client.calls), 2)
+        self.assertTrue(result["merge_change"]["repaired"])
+        self.assertEqual(
+            result["merge_change"]["initial_validation_error"],
+            "create_key_already_exists",
+        )
+        repair_prompt = service_client.calls[1]["user_prompt"]
+        self.assertIn('"repair"', repair_prompt)
+        self.assertIn("create_key_already_exists", repair_prompt)
+        self.assertIn("already owned by F1", repair_prompt)
+        self.assertEqual(context.runtime_long_term_memory_store["pending_facts"], [])
+        self.assertEqual(
+            {fact["key"] for fact in context.runtime_long_term_memory_store["facts"]},
+            {"project.operational_modes", "project.cognitive_operational_states"},
+        )
+
+    async def test_failed_batch_isolated_then_poison_pending_is_deferred_without_blocking_queue(self):
+        store = normalize_l4_store({
+            "pending_facts": [
+                {
+                    "id": "PF1",
+                    "key": "project.poison",
+                    "value": "Difficult pending fact.",
+                    "category": "project_fact",
+                },
+                {
+                    "id": "PF2",
+                    "key": "project.good",
+                    "value": "Independent pending fact.",
+                    "category": "project_fact",
+                },
+            ],
+        })
+        invalid = json.dumps({"operations": []})
+        valid_second = json.dumps({
+            "operations": [
+                {
+                    "action": "ignore",
+                    "pending_id": "PF2",
+                    "comment": "Test consumes the later pending fact.",
+                },
+            ],
+        })
+        service_client = FakeServiceClient([
+            invalid,
+            invalid,
+            invalid,
+            invalid,
+            valid_second,
+        ])
+        context = RuntimeContext(
+            websocket=None,
+            emitter=FakeEmitter(),
+            logger=FakeLogger(),
+            clients={"service": service_client},
+        )
+        context.runtime_long_term_memory_store = store
+
+        first = await maybe_update_runtime_l4_memory(
+            context=context,
+            user_idle_seconds=61,
+        )
+        self.assertEqual(first["status"], "skipped")
+        self.assertTrue(context.runtime_l4_merge_force_single_batch_once)
+        self.assertEqual(len(service_client.calls), 2)
+
+        # Simulate the next one-minute idle tick after the validation backoff.
+        context.runtime_l4_merge_retry_not_before = 0.0
+        second = await maybe_update_runtime_l4_memory(
+            context=context,
+            user_idle_seconds=121,
+        )
+        self.assertEqual(second["status"], "skipped")
+        self.assertEqual(len(service_client.calls), 4)
+        self.assertIn("PF1", context.runtime_l4_merge_deferred_pending_until)
+
+        # The poison PF stays pending, but it no longer owns the FIFO head.
+        third = await maybe_update_runtime_l4_memory(
+            context=context,
+            user_idle_seconds=181,
+        )
+        self.assertEqual(third["status"], "completed")
+        self.assertEqual(len(service_client.calls), 5)
+        self.assertEqual(
+            [fact["id"] for fact in context.runtime_long_term_memory_store["pending_facts"]],
+            ["PF1"],
+        )
+
+    async def test_idle_scheduler_enforces_server_side_minute_cadence(self):
+        context = RuntimeContext(
+            websocket=None,
+            emitter=FakeEmitter(),
+            logger=FakeLogger(),
+            clients={},
+        )
+
+        first = schedule_l4_memory_idle_update(
+            context=context,
+            user_idle_seconds=61,
+        )
+        self.assertIsNotNone(first)
+        await first
+
+        second = schedule_l4_memory_idle_update(
+            context=context,
+            user_idle_seconds=62,
+        )
+        self.assertIsNone(second)
+
+        # A foreground turn resets the server cadence too, even when no idle
+        # task is currently in flight.
+        await cancel_l4_memory_idle_update(context, reason="user_message")
+        third = schedule_l4_memory_idle_update(
+            context=context,
+            user_idle_seconds=1,
+        )
+        self.assertIsNone(third)
+
+    async def test_user_activity_preempts_idle_l4_task_without_consuming_pending(self):
+        context = RuntimeContext(
+            websocket=None,
+            emitter=FakeEmitter(),
+            logger=FakeLogger(),
+            clients={},
+        )
+        context.runtime_long_term_memory_store = normalize_l4_store({
+            "pending_facts": [
+                {
+                    "id": "PF1",
+                    "key": "project.pending",
+                    "value": "Still pending.",
+                    "category": "project_fact",
+                },
+            ],
+        })
+
+        async def idle_work():
+            await asyncio.sleep(10)
+
+        task = asyncio.create_task(idle_work())
+        context.runtime_l4_memory_update_task = task
+        context.runtime_l4_memory_update_kind = "idle"
+
+        cancelled = await cancel_l4_memory_idle_update(
+            context,
+            reason="user_message",
+        )
+
+        self.assertTrue(cancelled)
+        self.assertTrue(task.cancelled())
+        self.assertIsNone(context.runtime_l4_memory_update_task)
+        self.assertEqual(context.runtime_l4_memory_update_kind, "")
+        self.assertEqual(
+            [fact["id"] for fact in context.runtime_long_term_memory_store["pending_facts"]],
+            ["PF1"],
+        )
 
     async def test_merge_phase_logs_skip_reason(self):
         store, _ = add_l4_pending_candidates(
@@ -1157,7 +1424,7 @@ class L4MemoryTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(skip_logs[0]["kind"], "l4_skip")
         self.assertEqual(skip_logs[0]["finish_reason"], "length")
         self.assertEqual(skip_logs[0]["adaptive_batch_limit"], 1)
-        self.assertEqual(skip_logs[0]["retry_after_seconds"], 30)
+        self.assertEqual(skip_logs[0]["retry_after_seconds"], 60)
         self.assertNotIn("reasoning_content", skip_logs[0])
         self.assertNotIn("Internal analysis", json.dumps(skip_logs[0]))
 
@@ -1439,7 +1706,7 @@ class L4MemoryTests(unittest.IsolatedAsyncioTestCase):
         )
         self.assertEqual(next_store["deleted_fact_ids"], [])
 
-    def test_jin_note_merge_preserves_first_selected_fact_id(self):
+    def test_jin_note_merge_allocates_new_fact_id_and_preserves_old_ids_as_sources(self):
         store = normalize_l4_store({
             "facts": [
                 {
@@ -1478,16 +1745,16 @@ class L4MemoryTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(change["valid"])
         self.assertTrue(change["changed"])
         self.assertEqual(change["action"], "merge")
-        self.assertEqual(change["replacement_fact_ids"], ["F1"])
-        self.assertEqual(change["removed_fact_ids"], ["F2"])
-        self.assertEqual(next_store["deleted_fact_ids"], ["F2"])
+        self.assertEqual(change["replacement_fact_ids"], ["F3"])
+        self.assertEqual(change["removed_fact_ids"], ["F1", "F2"])
+        self.assertEqual(next_store["deleted_fact_ids"], ["F1", "F2"])
         self.assertEqual(
             [fact["id"] for fact in next_store["facts"]],
-            ["F1"],
+            ["F3"],
         )
         self.assertEqual(
             next_store["facts"][0]["source_fact_ids"],
-            ["F2"],
+            ["F1", "F2"],
         )
 
     def test_delayed_report_anchor_stays_visible_with_report_suffix(self):

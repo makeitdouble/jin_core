@@ -99,6 +99,9 @@ from utils.skills_asset_utils import (
 from utils.actions import (
     build_runtime_action_id,
     collect_active_memory_slot_ids,
+    collect_active_memory_custom_fields,
+    extract_active_memory_creation_custom_fields,
+    get_active_memory_record_title,
     extract_active_memory_resolve_slot_id,
     extract_search_query,
     extract_runtime_actions,
@@ -108,7 +111,10 @@ from utils.actions import (
     get_save_active_memory_marker_fields,
     is_delayed_memory_report_id,
     is_active_memory_record_paused,
+    normalize_active_memory_custom_field_name,
+    normalize_active_memory_custom_field_value,
     parse_delayed_memory_content_payload,
+    parse_update_active_memory_payload,
     parse_idle_seconds,
     normalize_jin_color_payload,
     normalize_delayed_memory_attachment_ids,
@@ -116,6 +122,7 @@ from utils.actions import (
     refresh_active_memory_runtime_metadata,
     strip_active_memory_runtime_metadata,
     strip_active_memory_managed_suffixes,
+    set_active_memory_suffix_value,
 )
 from utils.session_actions_history import (
     build_active_memory_resolve_failed_history_text,
@@ -852,10 +859,51 @@ def build_active_memory_runtime_line(
     if not suffix_values:
         return ""
 
-    visible_value = suffix_values[0][1]
+    raw_visible_value = suffix_values[0][1]
+
+    # Custom state schema is created only from trailing parenthesized
+    # declarations. A model-authored square suffix would otherwise be
+    # indistinguishable from a runtime-owned field after persistence.
+    if collect_active_memory_custom_fields(raw_visible_value):
+        return ""
+
+    visible_value, custom_fields = (
+        extract_active_memory_creation_custom_fields(
+            raw_visible_value
+        )
+    )
+
+    if not visible_value:
+        return ""
+
+    # A trailing custom-field declaration is all-or-nothing. If custom-looking
+    # syntax was present but could not be accepted (duplicate/reserved/over the
+    # three-field limit), keep the save conservative instead of silently
+    # creating a schema the model did not actually request.
+    original_visible_value = suffix_values[0][1].strip()
+    custom_declaration_present = bool(
+        re.search(
+            r"\(\s*[A-Za-z][A-Za-z0-9_]{0,31}\s*:\s*[^()]+\)\s*$",
+            original_visible_value,
+        )
+    )
+    if (
+        custom_declaration_present
+        and visible_value == original_visible_value
+        and not custom_fields
+    ):
+        return ""
+
+    suffix_items = [
+        (
+            suffix_values[0][0],
+            visible_value,
+        ),
+        *custom_fields,
+    ]
     suffix_text = " ".join(
         f"[ {field}: {field_value} ]"
-        for field, field_value in suffix_values
+        for field, field_value in suffix_items
     )
     active_memory_id = generate_active_memory_slot_id(
         existing_ids
@@ -896,7 +944,7 @@ def normalize_active_memory_content_for_duplicate_check(
         (
             r"\s*\[\s*(?:active_memory_id|creation_time|"
             r"created_session_id|created_jin_message_number|"
-            r"elapsed_time|elapsed_jin_message_number|status)"
+            r"elapsed_time|elapsed_jin_message_number|updated_at|status)"
             r"\s*:\s*[^\]]*\]\s*"
         ),
         " ",
@@ -1232,6 +1280,239 @@ def flush_pending_active_memory_resolve_failure_history(
         )
 
     pending.clear()
+
+
+def _update_active_memory_line_fields(
+    line: str,
+    changes: tuple[tuple[str, str], ...],
+    *,
+    updated_at: str,
+) -> tuple[str, tuple[dict, ...]]:
+
+    text = str(line or "").strip()
+    if ":" not in text:
+        return text, ()
+
+    key, value = text.split(":", 1)
+    value = value.strip()
+    allowed_fields = dict(
+        collect_active_memory_custom_fields(
+            value
+        )
+    )
+
+    if not changes or any(
+        field_name not in allowed_fields
+        for field_name, _ in changes
+    ):
+        return text, ()
+
+    change_results = []
+
+    for field_name, field_value in changes:
+        value, did_update, previous_value = set_active_memory_suffix_value(
+            value,
+            field_name,
+            field_value,
+            require_existing=True,
+        )
+        if not did_update:
+            return text, ()
+
+        change_results.append({
+            "field": field_name,
+            "before": previous_value,
+            "after": field_value,
+        })
+
+    value, did_set_updated_at, _ = set_active_memory_suffix_value(
+        value,
+        "updated_at",
+        updated_at,
+        require_existing=False,
+    )
+    if not did_set_updated_at:
+        return text, ()
+
+    return (
+        f"{key.strip()}: {value}".strip(),
+        tuple(change_results),
+    )
+
+
+def _update_active_memory_slot_in_text(
+    memory: str,
+    active_memory_id: str,
+    changes: tuple[tuple[str, str], ...],
+    *,
+    updated_at: str,
+) -> tuple[str, bool]:
+
+    lines = str(memory or "").splitlines()
+    if not lines:
+        return str(memory or ""), False
+
+    updated_lines = []
+    changed = False
+
+    for line in lines:
+        if (
+            ACTIVE_MEMORY_RUNTIME_LINE_RE.match(line)
+            and active_memory_id in collect_active_memory_slot_ids(line)
+        ):
+            updated_line, applied_changes = _update_active_memory_line_fields(
+                line,
+                changes,
+                updated_at=updated_at,
+            )
+            if applied_changes:
+                line = updated_line
+                changed = True
+
+        updated_lines.append(line)
+
+    return "\n".join(updated_lines).strip(), changed
+
+
+async def update_active_memory_runtime_record(
+    context,
+    payload: str,
+) -> dict:
+
+    result = {
+        "ok": False,
+        "action": "update_active_memory",
+        "error": "invalid_update_active_memory_payload",
+    }
+
+    if context is None:
+        return result
+
+    active_memory_id, changes = parse_update_active_memory_payload(
+        payload
+    )
+    result["id"] = active_memory_id
+
+    if not active_memory_id or not changes:
+        return result
+
+    current_record = find_active_memory_slot_record(
+        context,
+        active_memory_id,
+    )
+    if not current_record:
+        result["error"] = "active_memory_not_found"
+        return result
+
+    current_fields = dict(
+        collect_active_memory_custom_fields(
+            current_record
+        )
+    )
+    result["available_fields"] = list(current_fields)
+
+    requested_fields = [
+        field_name
+        for field_name, _ in changes
+    ]
+    unknown_fields = [
+        field_name
+        for field_name in requested_fields
+        if field_name not in current_fields
+    ]
+    if unknown_fields:
+        result["error"] = "active_memory_field_not_declared"
+        result["unknown_fields"] = unknown_fields
+        return result
+
+    effective_changes = tuple(
+        (field_name, field_value)
+        for field_name, field_value in changes
+        if current_fields.get(field_name) != field_value
+    )
+    if not effective_changes:
+        result["error"] = "active_memory_update_no_changes"
+        return result
+
+    updated_at = str(
+        getattr(
+            context,
+            "timestamp",
+            "",
+        )
+        or datetime.now().isoformat()
+    )
+    updated_record, change_results = _update_active_memory_line_fields(
+        current_record,
+        effective_changes,
+        updated_at=updated_at,
+    )
+    if not change_results:
+        result["error"] = "active_memory_update_failed"
+        return result
+
+    for attr_name in (
+        "runtime_memory",
+        "runtime_memory_stable",
+    ):
+        current_memory = getattr(
+            context,
+            attr_name,
+            "",
+        )
+        updated_memory, did_update = _update_active_memory_slot_in_text(
+            current_memory,
+            active_memory_id,
+            effective_changes,
+            updated_at=updated_at,
+        )
+        if did_update:
+            setattr(
+                context,
+                attr_name,
+                updated_memory,
+            )
+
+    records = list(
+        getattr(
+            context,
+            "active_memory_records",
+            [],
+        )
+        or []
+    )
+    records_changed = False
+
+    for index, record in enumerate(records):
+        if active_memory_id not in collect_active_memory_slot_ids(record):
+            continue
+
+        next_record, applied_changes = _update_active_memory_line_fields(
+            record,
+            effective_changes,
+            updated_at=updated_at,
+        )
+        if not applied_changes:
+            continue
+
+        records[index] = next_record
+        updated_record = next_record
+        records_changed = True
+
+    if records_changed:
+        context.active_memory_records = records
+        context.runtime_active_memory_records_dirty = True
+
+    result.update({
+        "ok": True,
+        "error": "",
+        "id": active_memory_id,
+        "title": get_active_memory_record_title(updated_record),
+        "record": updated_record,
+        "changes": list(change_results),
+        "updated_at": updated_at,
+    })
+    return result
 
 
 async def resolve_active_memory_runtime_record(

@@ -189,14 +189,18 @@ class RuntimeUpdateL4FactsTests(unittest.IsolatedAsyncioTestCase):
 
         facts = context.runtime_long_term_memory_store["facts"]
         self.assertEqual(len(facts), 1)
-        self.assertEqual(facts[0]["id"], "F1")
+        self.assertEqual(facts[0]["id"], "F3")
         self.assertEqual(facts[0]["key"], "user.relationship.taras")
         self.assertIn("close friend", facts[0]["value"])
-        self.assertNotIn("F2", [fact["id"] for fact in facts])
+        self.assertEqual(facts[0]["source_fact_ids"], ["F1", "F2"])
+        self.assertEqual(
+            context.runtime_long_term_memory_store["deleted_fact_ids"],
+            ["F1", "F2"],
+        )
 
         self.assertEqual(
             context.delayed_memory_reports["abc123"]["facts_ids"],
-            ["F1"],
+            ["F3"],
         )
         self.assertNotIn(
             "absorbed_fact_ids",

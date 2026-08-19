@@ -76,7 +76,12 @@ class RuntimeAvatarL4RingClientContractTests(unittest.TestCase):
         self.assertIn("degreesFromArcPixels(\n        layout.arcTrimPixels,", source)
         self.assertNotIn("MEMORY_DASH_LENS_", source)
         self.assertNotIn("syncMemoryDashEmphasisGeometry", source)
-        self.assertNotIn("requestAnimationFrame", source)
+        l4_sync_start = source.index("function syncMemorySignalLayer(kind")
+        l4_sync_end = source.index("function setDelayedMemoryDashPinned(", l4_sync_start)
+        self.assertNotIn(
+            "requestAnimationFrame",
+            source[l4_sync_start:l4_sync_end],
+        )
 
         css_source = AVATAR_CSS.read_text(encoding="utf-8")
         self.assertIn(".jin-avatar-memory-dash-l4", css_source)
@@ -178,6 +183,34 @@ class RuntimeAvatarL4RingClientContractTests(unittest.TestCase):
             css_source,
         )
 
+    def test_paused_active_memory_keeps_its_ring_slot_but_draws_no_dash(self):
+        source = AVATAR_JS.read_text(encoding="utf-8")
+
+        self.assertIn(
+            "function getActiveMemoryAvatarRecordStatus(value)",
+            source,
+        )
+        self.assertIn(
+            'getActiveMemoryAvatarRecordStatus(value) === "paused";',
+            source,
+        )
+        self.assertIn(
+            "paused,\n          text: lineText,",
+            source,
+        )
+        self.assertIn(
+            'if (record.paused) {\n          return;\n        }',
+            source,
+        )
+        self.assertIn(
+            "const slotDegrees = 360 / records.length;",
+            source,
+        )
+        self.assertIn(
+            "title: `Active memory ${record.index + 1}: ${record.value || record.text}`",
+            source,
+        )
+
     def test_memory_ring_changes_can_sync_without_avatar_refresh(self):
         source = RUNTIME_JS.read_text(encoding="utf-8")
 
@@ -273,7 +306,11 @@ class RuntimeAvatarL4RingClientContractTests(unittest.TestCase):
         )
         self.assertIn("toggleMemoryLayers,", avatar_source)
         self.assertIn(
-            ".jin-runtime-avatar.is-memory-layers-hidden .jin-avatar-memory-ring",
+            ".jin-runtime-avatar.is-memory-layers-hidden .jin-avatar-orbit",
+            css_source,
+        )
+        self.assertIn(
+            ".jin-runtime-avatar.is-memory-layers-hidden .jin-avatar-counter-orbit",
             css_source,
         )
         self.assertIn(
@@ -281,7 +318,7 @@ class RuntimeAvatarL4RingClientContractTests(unittest.TestCase):
             css_source,
         )
         self.assertIn(
-            ".jin-runtime-avatar.is-memory-layers-hidden .jin-avatar-orbit-entry",
+            ".jin-runtime-avatar.is-memory-layers-dormant .jin-avatar-orbit-entry",
             css_source,
         )
         self.assertIn(
@@ -300,6 +337,22 @@ class RuntimeAvatarL4RingClientContractTests(unittest.TestCase):
             ".jin-runtime-avatar-shell.is-memory-layers-hidden::before",
             css_source,
         )
+        self.assertIn(
+            'const MEMORY_LAYERS_DORMANT_CLASS = "is-memory-layers-dormant";',
+            avatar_source,
+        )
+        self.assertIn("const MEMORY_LAYERS_FADE_MS = 420;", avatar_source)
+        self.assertIn("function setMemoryLayersDormant(dormant)", avatar_source)
+        self.assertIn(
+            "setMemoryLayersDormant(true);",
+            avatar_source,
+        )
+        self.assertIn(
+            ".jin-runtime-avatar.is-memory-layers-dormant .jin-avatar-orbit",
+            css_source,
+        )
+        self.assertIn("display: none !important;", css_source)
+        self.assertIn("animation: none !important;", css_source)
         self.assertIn(
             'const avatarShell = avatarRoot?.closest(".jin-runtime-avatar-shell") || null;',
             avatar_source,
@@ -350,11 +403,11 @@ class RuntimeAvatarL4RingClientContractTests(unittest.TestCase):
         source = INDEX_HTML.read_text(encoding="utf-8")
 
         self.assertIn(
-            "/static/css/runtime-avatar.css?v=jin-glow-2",
+            "/static/css/runtime-avatar.css?v=memory-layers-dormant-1&reasoning-whisper=3",
             source,
         )
         self.assertIn(
-            "/static/js/runtime/runtime-avatar.js?v=punctuation-stripes-2",
+            "/static/js/runtime/runtime-avatar.js?v=memory-layers-dormant-1&reasoning-whisper=3&stable-render=2",
             source,
         )
         self.assertIn(

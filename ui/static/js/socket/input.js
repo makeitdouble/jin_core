@@ -238,6 +238,10 @@ chatForm.addEventListener(
 
     }
 
+    if (window.clearLatestJinMemoryReferenceText) {
+      window.clearLatestJinMemoryReferenceText();
+    }
+
     if (window.focusBrainContextTab) {
       window.focusBrainContextTab();
     }

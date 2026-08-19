@@ -39,6 +39,7 @@ ACTION_CONFIG_KEYS = (
     ("UNLOAD_DELAYED_MEMORY", "CAN_SAVE_DELAYED_MEMORY"),
     ("SAVE_ACTIVE_MEMORY", "CAN_SAVE_ACTIVE_MEMORY"),
     ("RESOLVE_ACTIVE_MEMORY", "CAN_SAVE_ACTIVE_MEMORY"),
+    ("UPDATE_ACTIVE_MEMORY", "CAN_SAVE_ACTIVE_MEMORY"),
 )
 
 
@@ -549,8 +550,7 @@ def build_runtime_action_instructions(
         return "No runtime actions are currently enabled."
 
     instructions: list[str] = [
-        RUNTIME_ACTIONS_RULES,
-        PROPOSAL_RULES,
+        RUNTIME_ACTIONS_RULES
     ]
     def append_rules(action_name: str) -> None:
         action_instructions = build_runtime_action_contract_instructions(
@@ -570,7 +570,7 @@ def build_runtime_action_instructions(
         ):
             continue
 
-        if normalized_name == "RESOLVE_ACTIVE_MEMORY" and not _context_has_active_memory(context):
+        if normalized_name in {"RESOLVE_ACTIVE_MEMORY", "UPDATE_ACTIVE_MEMORY"} and not _context_has_active_memory(context):
             continue
 
         if normalized_name in {
@@ -615,6 +615,9 @@ RUNTIME_ACTION_SAVE_ACTIVE_MEMORY = get_runtime_action_name(
 )
 RUNTIME_ACTION_RESOLVE_ACTIVE_MEMORY = get_runtime_action_name(
     "resolve_active_memory"
+)
+RUNTIME_ACTION_UPDATE_ACTIVE_MEMORY = get_runtime_action_name(
+    "update_active_memory"
 )
 RUNTIME_ACTION_CLEAN_TOOL_RESULTS = get_runtime_action_name(
     "clean_tool_results"
