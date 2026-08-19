@@ -36,11 +36,9 @@ from rules.signal import (
     RUNTIME_RESPONSE_FEEDBACK_LIKED_VALUE,
     RUNTIME_RESPONSE_FEEDBACK_NEUTRAL_VALUE,
 )
-from runtime.L2_memory_utils import (
-    extract_runtime_l2_pattern_evidence_lines,
-)
 from runtime.memory_common import (
     change_ratio,
+    log_memory_event,
     safe_call,
 )
 
@@ -157,7 +155,7 @@ def _escape_multiline_runtime_memory_entries(
     L1 sometimes copies markdown/code/ascii into a value after a real
     ``key: value`` prefix.  Physical continuation lines must stay inside
     that value as escaped ``\n`` text; otherwise the generic parser turns
-    every ascii line into a separate ``session memory`` entry.
+    every ascii line into a separate fallback runtime-memory entry.
     """
 
     escaped_lines: list[str] = []
@@ -1519,19 +1517,6 @@ def build_runtime_memory_context_text(
             line
         )
 
-    if context is not None:
-        for evidence_line in extract_runtime_l2_pattern_evidence_lines(
-                getattr(
-                    context,
-                    "runtime_l2_memory",
-                    "",
-                )
-        ):
-            if evidence_line not in lines:
-                lines.append(
-                    evidence_line
-                )
-
     user_idle_text = get_user_idle_context_text(
         context
     )
@@ -1966,6 +1951,52 @@ def compute_line_strength(
         ),
         4,
     )
+
+
+def apply_metabolic_runtime_memory_salience(
+        lines: list[dict],
+        context=None,
+) -> list[dict]:
+    """Apply the silent homeostat as a small L1 encoding-strength bias.
+
+    This never adds/rewrites memory content. It only reuses the existing
+    ``strength`` metadata that the runtime already visualizes.
+    """
+
+    if context is None:
+        return lines
+
+    try:
+        from runtime.metabolism import metabolic_memory_strength_boost
+    except Exception:
+        return lines
+
+    for line in lines:
+        if not isinstance(line, dict):
+            continue
+
+        try:
+            boost, salience, channel = metabolic_memory_strength_boost(
+                context,
+                key=line.get("key", ""),
+                value=line.get("value", ""),
+                status=line.get("status", "same"),
+            )
+        except Exception:
+            continue
+
+        base_strength = float(line.get("strength", 0.0) or 0.0)
+        line["strength"] = round(
+            min(1.0, max(0.0, base_strength + boost)),
+            4,
+        )
+        line["metabolic_salience"] = salience
+        if channel:
+            line["metabolic_channel"] = channel
+        else:
+            line.pop("metabolic_channel", None)
+
+    return lines
 
 
 def runtime_memory_line_identity(
@@ -2807,7 +2838,10 @@ def apply_runtime_memory_diff(
                 quote_boost=quote_boost,
             )
 
-        return current_lines
+        return apply_metabolic_runtime_memory_salience(
+            current_lines,
+            context,
+        )
 
     previous_lines = (
             previous_snapshot.get(
@@ -2998,7 +3032,10 @@ def apply_runtime_memory_diff(
             quote_boost=quote_boost,
         )
 
-    return current_lines
+    return apply_metabolic_runtime_memory_salience(
+        current_lines,
+        context,
+    )
 
 
 def build_runtime_memory_patch(
@@ -3328,25 +3365,356 @@ def build_runtime_memory_snapshot(
     }
 
 
-# Runtime L1 memory emit/update helpers.
-def _average_diff(values: list[float]) -> float:
-    from runtime.L2_memory import (
-        average_diff,
+def build_runtime_session_checkpoint(
+        context,
+) -> dict:
+
+    def _dict_list(value, *, limit: int | None = None) -> list[dict]:
+        source = value if isinstance(value, list) else []
+        if limit is not None:
+            source = source[-limit:]
+        return [
+            dict(item)
+            for item in source
+            if isinstance(item, dict)
+        ]
+
+    reasoning = str(
+        getattr(
+            context,
+            "runtime_turn_reasoning_content",
+            "",
+        )
+        or getattr(
+            context,
+            "runtime_previous_reasoning_content",
+            "",
+        )
+        or ""
+    ).strip()
+
+    loaded_memory_ids = [
+        str(item or "").strip()
+        for item in getattr(
+            context,
+            "runtime_loaded_delayed_memory_ids",
+            [],
+        ) or []
+        if str(item or "").strip()
+    ]
+
+    attached_file_ids = [
+        str(item or "").strip()
+        for item in getattr(
+            context,
+            "runtime_attached_file_ids",
+            [],
+        ) or []
+        if str(item or "").strip()
+    ]
+
+    active_memory_records = [
+        str(item or "").strip()
+        for item in getattr(
+            context,
+            "active_memory_records",
+            [],
+        ) or []
+        if str(item or "").strip()
+    ]
+
+    current_size = getattr(
+        context,
+        "runtime_avatar_current_size",
+        {},
     )
 
-    return average_diff(
-        values
+    return {
+        "session_id": str(
+            getattr(
+                context,
+                "session_id",
+                "",
+            )
+            or ""
+        ).strip(),
+        "previous_session_id": str(
+            getattr(
+                context,
+                "previous_session_id",
+                "",
+            )
+            or ""
+        ).strip(),
+        "recent_turns": _dict_list(
+            getattr(
+                context,
+                "runtime_recent_turns",
+                [],
+            ),
+            limit=3,
+        ),
+        "previous_reasoning": reasoning,
+        "session_actions": _dict_list(
+            getattr(
+                context,
+                "runtime_session_action_history",
+                [],
+            ),
+            limit=200,
+        ),
+        "runtime_turn_counter": int(
+            getattr(
+                context,
+                "runtime_turn_counter",
+                0,
+            )
+            or 0
+        ),
+        "turn_number": int(
+            getattr(
+                context,
+                "turn_number",
+                0,
+            )
+            or 0
+        ),
+        "user_message_count": int(
+            getattr(
+                context,
+                "user_message_count",
+                0,
+            )
+            or 0
+        ),
+        "assistant_message_count": int(
+            getattr(
+                context,
+                "assistant_message_count",
+                0,
+            )
+            or 0
+        ),
+        "runtime_memory_updates": int(
+            getattr(
+                context,
+                "runtime_memory_updates",
+                0,
+            )
+            or 0
+        ),
+        "loaded_memory_ids": loaded_memory_ids,
+        "attached_file_ids": attached_file_ids,
+        "active_memory_records": active_memory_records,
+        "metabolism_levels": dict(
+            getattr(
+                context,
+                "runtime_metabolism_levels",
+                {},
+            )
+            or {}
+        ),
+        "metabolism_updated_at": float(
+            getattr(
+                context,
+                "runtime_metabolism_last_tick_at",
+                0.0,
+            )
+            or 0.0
+        ),
+        "metabolism_associations": _dict_list(
+            getattr(
+                context,
+                "runtime_metabolism_associations",
+                [],
+            ),
+            limit=96,
+        ),
+        "metabolism_last_committed_l1_id": str(
+            getattr(
+                context,
+                "runtime_metabolism_last_committed_l1_id",
+                "",
+            )
+            or ""
+        ).strip(),
+        "current_jin_color": str(
+            getattr(
+                context,
+                "jin_color",
+                "",
+            )
+            or ""
+        ).strip(),
+        "current_jin_size": (
+            dict(current_size)
+            if isinstance(current_size, dict)
+            else None
+        ),
+    }
+
+
+# Runtime L1 memory emit/update helpers.
+def _average_diff(values: list[float]) -> float:
+    if not values:
+        return 0
+
+    return round(
+        sum(values) / len(values),
+        2,
     )
 
 
 def _diff_value_range(values: list[float]) -> float:
-    from runtime.L2_memory import (
-        diff_value_range,
+    if not values:
+        return 0
+
+    return round(
+        max(values) - min(values),
+        2,
     )
 
-    return diff_value_range(
-        values
+
+def _format_diff_value(value: float) -> str:
+    return (
+        f"{value:.2f}"
+        .rstrip("0")
+        .rstrip(".")
     )
+
+
+def _runtime_l1_patch_total_diff(patch: dict) -> float:
+    total_diff = 0
+
+    total_diff += 30 * len(
+        patch.get("added", []) or []
+    )
+    total_diff += 20 * len(
+        patch.get("removed", []) or []
+    )
+
+    for entry in patch.get("changed", []) or []:
+        total_diff += round(
+            (
+                entry.get("key_change_ratio", 0)
+                + entry.get("value_change_ratio", 0)
+            )
+            * 50,
+            2,
+        )
+
+    return total_diff
+
+
+def _compact_runtime_user_message(
+        value,
+        *,
+        limit: int = 240,
+) -> str:
+    text = " ".join(
+        str(value or "").strip().split()
+    )
+
+    if len(text) <= limit:
+        return text
+
+    return text[:limit].rstrip()
+
+
+async def record_runtime_l1_diff(
+        context,
+        snapshot: dict,
+        turns: list[dict] | None = None,
+) -> None:
+    patch = snapshot.get("patch", {}) or {}
+    total_diff = (
+        _runtime_l1_patch_total_diff(patch)
+        if patch
+        else snapshot.get("total_diff", 0)
+    )
+    context.runtime_conversation_activity_diff = total_diff
+
+    observed_turns = list(turns or [])
+    observed_user_messages = [
+        _compact_runtime_user_message(
+            turn.get("user_message", "")
+        )
+        for turn in observed_turns
+        if _compact_runtime_user_message(
+            turn.get("user_message", "")
+        )
+    ]
+    latest_user_message = (
+        observed_user_messages[-1]
+        if observed_user_messages
+        else ""
+    )
+    user_turn_count = int(
+        getattr(context, "user_message_count", 0)
+        or 0
+    )
+
+    diff_entry = {
+        "turn_number": user_turn_count,
+        "snapshot_index": snapshot.get("index", 0),
+        "total_diff": total_diff,
+        "changes": patch,
+        "user_message": latest_user_message,
+        "user_messages": observed_user_messages[-3:],
+    }
+
+    if not hasattr(context, "runtime_l1_diff_history"):
+        context.runtime_l1_diff_history = []
+
+    context.runtime_l1_diff_history.append({
+        **diff_entry,
+        "history_index": len(context.runtime_l1_diff_history),
+    })
+
+    if total_diff == 0:
+        latest_turn = (
+            observed_turns[-1]
+            if observed_turns
+            else {}
+        )
+        context.runtime_zero_diff_alert = {
+            "turn_number": user_turn_count,
+            "user_message": latest_turn.get("user_message", ""),
+            "assistant_message": latest_turn.get("assistant_message", ""),
+            "reason": "Previous L1 memory update produced total_diff 0.",
+        }
+
+    await log_memory_event(
+        context,
+        level="L1",
+        message=(
+            "L1 diff "
+            f"+{_format_diff_value(total_diff)}"
+        ),
+        details=getattr(
+            context,
+            "runtime_l1_last_summarizer_response_details",
+            None,
+        ),
+        fallback_channel="service",
+        event="summarizer_response",
+    )
+
+    await emit_runtime_l1_diff_update(context)
+
+    # Semantic metabolism is committed at the same cadence as L1, not chat.
+    # One successful L1 batch -> at most one debounced SERVICE integration.
+    try:
+        from runtime.metabolism import schedule_metabolism_update
+
+        schedule_metabolism_update(
+            context,
+            committed_snapshot=snapshot,
+            committed_turns=observed_turns,
+        )
+    except Exception:
+        # Metabolism is ambient and must never invalidate a committed L1 batch.
+        pass
 
 
 async def emit_runtime_memory_update(
@@ -3390,6 +3758,9 @@ async def emit_runtime_memory_update(
             "memory": display_memory,
             "updates": getattr(context, "runtime_memory_updates", 0),
             "snapshot": snapshot,
+            "session_snapshot": build_runtime_session_checkpoint(
+                context
+            ),
             "snapshots_count": len(context.runtime_memory_snapshots),
             "snapshot_index": context.runtime_memory_snapshot_index,
         },
@@ -3539,6 +3910,9 @@ async def emit_runtime_memory_snapshot_refresh(
                 0,
             ),
             "snapshot": snapshot,
+            "session_snapshot": build_runtime_session_checkpoint(
+                context
+            ),
             "snapshots_count": len(
                 getattr(
                     context,
@@ -3612,63 +3986,6 @@ async def emit_runtime_l1_diff_update(
             "strength_zones": get_strength_zones(
                 latest_lines
             ),
-        },
-    )
-
-
-async def emit_runtime_session_memory_update(
-        context,
-        *,
-        persist_browser: bool = False,
-) -> None:
-
-    emitter = getattr(
-        context,
-        "emitter",
-        None,
-    )
-
-    emit = getattr(
-        emitter,
-        "emit",
-        None,
-    )
-
-    memory = getattr(
-        context,
-        "runtime_l3_session_memory",
-        "",
-    ) or getattr(
-        context,
-        "session_memory",
-        "",
-    )
-    await safe_call(
-        emit,
-        {
-            "type": "runtime_session_memory_update",
-            "memory": memory,
-            "updates": getattr(
-                context,
-                "runtime_session_memory_updates",
-                0,
-            ),
-            "source": getattr(
-                context,
-                "session_memory_source",
-                "",
-            ),
-            "session_first_turn": getattr(
-                context,
-                "runtime_l3_session_first_turn",
-                None,
-            ),
-            "session_last_turn": getattr(
-                context,
-                "runtime_l3_session_last_turn",
-                None,
-            ),
-            "persist": persist_browser,
         },
     )
 

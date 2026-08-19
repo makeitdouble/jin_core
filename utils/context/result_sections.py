@@ -1,4 +1,4 @@
-# Formats non-asset recorded tool result sections such as active memory and session saves.
+# Formats non-asset recorded tool result sections such as active memory actions.
 from .formatting import (
     format_tool_result_payload,
 )
@@ -45,42 +45,6 @@ def format_active_memory_result_sections(
                     ),
                 )
             )
-
-    return [
-        section
-        for section in sections
-        if section[1]
-    ]
-
-
-def format_session_result_sections(
-    payload,
-) -> list[tuple[str, str]]:
-
-    sections = []
-
-    for result in payload:
-        if not isinstance(
-            result,
-            dict,
-        ):
-            continue
-
-        if str(
-            result.get(
-                "action",
-                "",
-            )
-            or ""
-        ) != "save_session":
-            continue
-
-        sections.append((
-            "SAVE_SESSION",
-            format_tool_result_payload(
-                result
-            ),
-        ))
 
     return [
         section

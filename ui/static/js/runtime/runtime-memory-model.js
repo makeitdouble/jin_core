@@ -523,7 +523,7 @@
 
     if (separatorIndex <= 0) {
       return {
-        key: "session memory",
+        key: "runtime memory",
         value: line,
         status: "same",
         key_status: "same",

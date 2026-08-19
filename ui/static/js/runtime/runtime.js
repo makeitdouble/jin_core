@@ -168,8 +168,6 @@ const {
   removeBrowserMemory,
   readLatestRuntimeMemory,
   writeLatestRuntimeMemory,
-  readLatestSavedSessionMemory,
-  writeLatestSavedSessionMemory,
   readLatestSavedRuntimeMemory,
   writeLatestSavedRuntimeMemory,
   buildPersistedRuntimeSnapshot,
@@ -213,7 +211,6 @@ const runtimeMemoryHistory = {
 };
 
 let runtimeMemoryDisplayMode = "runtime";
-let restoredSessionMemorySnapshot = null;
 const loadedDelayedMemoryReportIds = new Set();
 
 feedback.init({
@@ -470,6 +467,15 @@ function persistRuntimeMemorySnapshot(
   }
 
   if (Number(data.updates || 0) <= 0) {
+    if (
+        session
+        && typeof session.persistLiveSessionCheckpoint === "function"
+    ) {
+      session.persistLiveSessionCheckpoint(
+        data
+      );
+    }
+
     return;
   }
 
@@ -510,6 +516,15 @@ function persistRuntimeMemorySnapshot(
       persistedSnapshot
     ),
   });
+
+  if (
+      session
+      && typeof session.persistLiveSessionCheckpoint === "function"
+  ) {
+    session.persistLiveSessionCheckpoint(
+      data
+    );
+  }
 
 }
 
@@ -607,13 +622,8 @@ session.init({
   runtimeMemoryCount,
   defaultRuntimeMemoryText,
   sessionStartedRuntimeMemoryText,
-  getRuntimeMemoryDisplayMode: () => runtimeMemoryDisplayMode,
   setRuntimeMemoryDisplayMode: (value) => {
     runtimeMemoryDisplayMode = value;
-  },
-  getRestoredSessionMemorySnapshot: () => restoredSessionMemorySnapshot,
-  setRestoredSessionMemorySnapshot: (value) => {
-    restoredSessionMemorySnapshot = value;
   },
   renderRuntimeMemorySnapshot,
   persistRuntimeMemorySnapshot,
@@ -2353,14 +2363,6 @@ function handleRuntimeMemoryMessage(data) {
     return;
   }
 
-  if (data.type === "runtime_session_memory_update") {
-    session.persistSessionMemory(
-      data
-    );
-
-    return;
-  }
-
   if (data.type !== "runtime_memory_update") {
     return;
   }
@@ -2370,6 +2372,9 @@ function handleRuntimeMemoryMessage(data) {
   }
 
   if (session.isLatestRuntimeMemoryDuplicate(data)) {
+    session.persistLiveSessionCheckpoint(
+      data
+    );
     return;
   }
 
@@ -2378,16 +2383,9 @@ function handleRuntimeMemoryMessage(data) {
   }
 
   if (session.isBootstrapRuntimeMemoryDuplicate(data)) {
-    return;
-  }
-
-  if (
-      session.shouldIgnoreInitialSessionModeUpdate(data)
-  ) {
-    persistRuntimeMemorySnapshot(
+    session.persistLiveSessionCheckpoint(
       data
     );
-
     return;
   }
 
@@ -2468,10 +2466,6 @@ function handleRuntimeMemoryMessage(data) {
 
   persistRuntimeMemorySnapshot(
     data
-  );
-
-  session.captureSessionSaveRuntimeSnapshot(
-    clientSnapshot
   );
 
   renderRuntimeMemorySnapshot();

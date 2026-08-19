@@ -18,13 +18,6 @@ from runtime.L1_memory_rules import (
 from rules.signal import (
     RUNTIME_RESPONSE_FEEDBACK_RATINGS,
 )
-from runtime.L2_memory import (
-    maybe_summarize_runtime_l2_memory,
-    record_runtime_l1_diff,
-)
-from runtime.L3_memory import (
-    maybe_summarize_runtime_session_memory,
-)
 from runtime.memory_common import (
     build_memory_failure_details,
     build_memory_update_skip_details,
@@ -42,6 +35,7 @@ from runtime.memory_common import (
 )
 from runtime.L1_memory_utils import (
     emit_runtime_memory_update,
+    record_runtime_l1_diff,
 )
 from runtime.L1_memory_utils import (
     build_empty_assistant_message,
@@ -762,12 +756,6 @@ async def summarize_runtime_memory(
                     },
                 ],
             )
-            await maybe_summarize_runtime_l2_memory(
-                context=context,
-            )
-            await maybe_summarize_runtime_session_memory(
-                context=context,
-            )
 
         return getattr(
             context,
@@ -987,12 +975,6 @@ async def summarize_runtime_memory_pending_turns(
                 snapshot,
                 turns=turns,
             )
-            await maybe_summarize_runtime_l2_memory(
-                context=context,
-            )
-            await maybe_summarize_runtime_session_memory(
-                context=context,
-            )
 
         return getattr(
             context,
@@ -1045,8 +1027,8 @@ def schedule_runtime_memory_update(
         assistant_message: str,
 ) -> asyncio.Task | None:
 
-    # Normal turns without a visible assistant answer, a confirmed
-    # session-save request, or a created active-memory record carry no
+    # Normal turns without a visible assistant answer or a created
+    # active-memory record carry no
     # textual signal of their own. Previously such turns were skipped
     # outright — but "the model produced nothing" is itself a fact
     # (e.g. the user explicitly asked for a blank/empty reply and got
@@ -1056,11 +1038,6 @@ def schedule_runtime_memory_update(
     # L1 records the exchange as resolved rather than losing it.
     if (
             not assistant_message.strip()
-            and not getattr(
-                context,
-                "runtime_save_session_requested",
-                False,
-            )
             and not getattr(
                 context,
                 "runtime_active_memory_saved_this_turn",

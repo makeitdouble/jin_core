@@ -16,7 +16,6 @@ from utils.tool_results import (
     TOOL_RESULT_KIND_DELAYED_MEMORY,
     TOOL_RESULT_KIND_DEEP_SEARCH,
     TOOL_RESULT_KIND_SEARCH,
-    TOOL_RESULT_KIND_SESSION,
     TOOL_RESULT_KIND_FILES,
     get_runtime_tool_result_created_at,
     get_runtime_tool_results,
@@ -36,7 +35,6 @@ from .formatting import (
 )
 from .result_sections import (
     format_active_memory_result_sections,
-    format_session_result_sections,
 )
 
 
@@ -292,27 +290,6 @@ def _append_recorded_tool_results(
 
         if kind == TOOL_RESULT_KIND_ACTIVE_MEMORY:
             sections = format_active_memory_result_sections(
-                [result]
-            )
-            if not sections:
-                continue
-
-            blocks = []
-            for name, payload in sections:
-                attrs = f'name="{escape(name)}"'
-                blocks.append(
-                    f"{_build_tool_result_open_tag(attrs, created_at=created_at, now=now)}\n"
-                    f"{indent_xml(escape(payload))}\n"
-                    "    </TOOL_RESULT>"
-                )
-            parts.extend(
-                blocks
-            )
-            appended = True
-            continue
-
-        if kind == TOOL_RESULT_KIND_SESSION:
-            sections = format_session_result_sections(
                 [result]
             )
             if not sections:

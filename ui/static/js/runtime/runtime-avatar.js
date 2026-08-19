@@ -127,6 +127,12 @@
     typeof memoryReferenceHelpers.collectMetadataAliases === "function"
       ? memoryReferenceHelpers.collectMetadataAliases
       : () => [];
+  const metabolismApi =
+    window.JinRuntime.metabolism || null;
+  const METABOLISM_UPDATE_EVENT =
+    metabolismApi && metabolismApi.UPDATE_EVENT
+      ? metabolismApi.UPDATE_EVENT
+      : "jin:metabolism-update";
 
   if (!avatarRoot) {
     return;
@@ -152,6 +158,81 @@
 
   function clamp(value, min, max) {
     return Math.max(min, Math.min(max, Number(value) || 0));
+  }
+
+  function getMetabolismChannel() {
+    // Metabolism is a single ambient layer over memory, not a semantic label
+    // assigned to individual records. Keep one marker only so already-rendered
+    // SVG nodes can be refreshed when the five-channel state changes.
+    return metabolismApi ? "ambient" : "";
+  }
+
+  function getMetabolismTintedColor(baseColor, channel) {
+    if (
+        metabolismApi
+        && typeof metabolismApi.tintColor === "function"
+        && channel
+    ) {
+      return metabolismApi.tintColor(
+        baseColor
+      );
+    }
+
+    return baseColor;
+  }
+
+  function getActiveMemoryMetabolicOpacity(activeMemoryId) {
+    if (
+      !metabolismApi
+      || typeof metabolismApi.getActiveMemorySalience !== "function"
+    ) {
+      return 0.76;
+    }
+
+    const salience = metabolismApi.getActiveMemorySalience(
+      activeMemoryId
+    );
+
+    if (!Number.isFinite(Number(salience))) {
+      return 0.76;
+    }
+
+    // Salience only breathes inside the established opacity language. A
+    // reasoning citation/hover still owns the strong highlight on top.
+    return clamp(
+      0.70 + Number(salience) * 0.16,
+      0.70,
+      0.86
+    );
+  }
+
+  function refreshActiveMemoryMetabolicOpacity() {
+    avatarRoot.querySelectorAll(
+      ".jin-avatar-memory-dash-active[data-active-memory-id]"
+    ).forEach((dashGroup) => {
+      const opacity = getActiveMemoryMetabolicOpacity(
+        dashGroup.dataset.activeMemoryId
+      );
+      const path = dashGroup.querySelector("path");
+      const dot = dashGroup.querySelector(".jin-avatar-memory-dot");
+
+      if (path) {
+        path.setAttribute(
+          "stroke-opacity",
+          opacity.toFixed(3)
+        );
+      }
+      if (dot) {
+        dot.setAttribute(
+          "fill-opacity",
+          opacity.toFixed(3)
+        );
+      }
+      dashGroup.style.setProperty(
+        "--jin-avatar-memory-dot-opacity",
+        opacity.toFixed(3)
+      );
+    });
   }
 
   function degreesFromArcPixels(pixels, radius) {
@@ -2046,6 +2127,18 @@
     const endAngle = options.angle + arcDegrees / 2;
     const color = options.color;
     const glowColor = options.glowColor || color;
+    const metabolismChannel =
+      String(options.metabolismChannel || "").trim();
+    const renderedColor =
+      getMetabolismTintedColor(
+        color,
+        metabolismChannel
+      );
+    const renderedGlowColor =
+      getMetabolismTintedColor(
+        glowColor,
+        metabolismChannel
+      );
     const isDot = Boolean(options.dot);
     const dotRadius =
       isDot
@@ -2087,6 +2180,9 @@
       "data-l4-fact-id": options.l4FactId || null,
       "data-l4-fact-ids": serializeL4FactIds(options.l4FactIds),
       "data-avatar-memory-angle": options.angle,
+      "data-metabolism-channel": metabolismChannel || null,
+      "data-metabolism-base-color": color,
+      "data-metabolism-glow-color": glowColor,
     });
 
     setAvatarMemoryReferenceAliases(
@@ -2096,7 +2192,7 @@
 
     setMemoryDashGlowVariables(
       dashGroup,
-      glowColor,
+      renderedGlowColor,
       layout.strokeWidth + 0.75,
       dotRadius
     );
@@ -2110,7 +2206,7 @@
       class: isDot ? "jin-avatar-memory-dash-arc" : null,
       d: describeArcPath(layout.radius, startAngle, endAngle),
       fill: "none",
-      stroke: color,
+      stroke: renderedColor,
       "stroke-width": layout.strokeWidth,
       "stroke-opacity": options.opacity,
       "stroke-linecap": "round",
@@ -2128,7 +2224,7 @@
         cx: dotPoint.x.toFixed(3),
         cy: dotPoint.y.toFixed(3),
         r: dotRadius.toFixed(2),
-        fill: color,
+        fill: renderedColor,
         "fill-opacity": options.opacity,
       }));
     }
@@ -2196,6 +2292,113 @@
       "--jin-avatar-file-glow-far",
       `rgba(${glowRgb.r},${glowRgb.g},${glowRgb.b},0.24)`
     );
+  }
+
+  function refreshRenderedMetabolismTints() {
+    avatarRoot.querySelectorAll(
+      ".jin-avatar-memory-dash[data-metabolism-channel]"
+    ).forEach((dashGroup) => {
+      const channel =
+        String(dashGroup.dataset.metabolismChannel || "").trim();
+      const baseColor =
+        String(dashGroup.dataset.metabolismBaseColor || "").trim();
+      const glowColor =
+        String(dashGroup.dataset.metabolismGlowColor || baseColor).trim();
+
+      if (!channel || !baseColor) {
+        return;
+      }
+
+      const renderedColor =
+        getMetabolismTintedColor(
+          baseColor,
+          channel
+        );
+      const renderedGlowColor =
+        getMetabolismTintedColor(
+          glowColor || baseColor,
+          channel
+        );
+      const path =
+        dashGroup.querySelector("path");
+
+      if (path) {
+        path.setAttribute(
+          "stroke",
+          renderedColor
+        );
+      }
+
+      dashGroup.querySelectorAll(
+        ".jin-avatar-memory-dot"
+      ).forEach((dot) => {
+        dot.setAttribute(
+          "fill",
+          renderedColor
+        );
+      });
+
+      let layout = MEMORY_RING_LAYOUT.active;
+      if (dashGroup.classList.contains("jin-avatar-memory-dash-delayed")) {
+        layout = MEMORY_RING_LAYOUT.delayed;
+      } else if (dashGroup.classList.contains("jin-avatar-memory-dash-l4")) {
+        layout = MEMORY_RING_LAYOUT.l4;
+      }
+
+      const dotRadius =
+        dashGroup.classList.contains("is-memory-dot")
+          ? getMemoryDotRadius(layout)
+          : 0;
+
+      setMemoryDashGlowVariables(
+        dashGroup,
+        renderedGlowColor,
+        layout.strokeWidth + 0.75,
+        dotRadius
+      );
+    });
+
+    avatarRoot.querySelectorAll(
+      ".jin-avatar-file-dot[data-metabolism-channel]"
+    ).forEach((dotGroup) => {
+      const channel =
+        String(dotGroup.dataset.metabolismChannel || "").trim();
+      const baseColor =
+        String(dotGroup.dataset.metabolismBaseColor || "").trim();
+      const glowColor =
+        String(dotGroup.dataset.metabolismGlowColor || baseColor).trim();
+
+      if (!channel || !baseColor) {
+        return;
+      }
+
+      const renderedColor =
+        getMetabolismTintedColor(
+          baseColor,
+          channel
+        );
+      const renderedGlowColor =
+        getMetabolismTintedColor(
+          glowColor || baseColor,
+          channel
+        );
+      const core =
+        dotGroup.querySelector(
+          ".jin-avatar-file-dot-core"
+        );
+
+      if (core) {
+        core.setAttribute(
+          "fill",
+          renderedColor
+        );
+      }
+
+      setFileDotGlowVariables(
+        dotGroup,
+        renderedGlowColor
+      );
+    });
   }
 
   function getMemoryRingAnimation(records, kind) {
@@ -2277,9 +2480,10 @@
             kind,
             angle,
             arcDegrees,
+            metabolismChannel: getMetabolismChannel(index, kind),
             color,
             glowColor: ACTIVE_MEMORY_RING_COLOR,
-            opacity: 0.76,
+            opacity: getActiveMemoryMetabolicOpacity(record.id),
             avatarMemoryHoverId: record.avatarMemoryHoverId,
             activeMemoryId: record.id,
             citationKey:
@@ -2308,6 +2512,7 @@
             kind,
             angle,
             arcDegrees,
+            metabolismChannel: getMetabolismChannel(index, kind),
             color,
             glowColor: L4_MEMORY_RING_COLOR,
             opacity: record.archived ? 0.26 : 0.52,
@@ -2341,6 +2546,7 @@
           kind,
           angle,
           arcDegrees,
+          metabolismChannel: getMetabolismChannel(index, kind),
           color,
           glowColor: active
             ? DELAYED_MEMORY_RING_ACTIVE_COLOR
@@ -2403,6 +2609,21 @@
       const color = record.pinned
         ? FILE_RING_ACTIVE_COLOR
         : FILE_RING_COLOR;
+      const glowColor = record.pinned
+        ? FILE_RING_ACTIVE_COLOR
+        : FILE_RING_LAYOUT.glowColor;
+      const metabolismChannel =
+        getMetabolismChannel(index, "file");
+      const renderedColor =
+        getMetabolismTintedColor(
+          color,
+          metabolismChannel
+        );
+      const renderedGlowColor =
+        getMetabolismTintedColor(
+          glowColor,
+          metabolismChannel
+        );
       const dotGroup = createSvgElement("g", {
         class: "jin-avatar-file-dot",
         "data-avatar-memory-hover-id": record.avatarMemoryHoverId || null,
@@ -2410,6 +2631,9 @@
         "data-linked-delayed-memory-ids": serializeShortRuntimeIds(record.linkedReportIds),
         "data-runtime-line-key": normalizeRuntimeCitationIdentity(record.id),
         "data-runtime-line-text": normalizeRuntimeCitationIdentity([record.name, record.contextPath].filter(Boolean).join(" · ")),
+        "data-metabolism-channel": metabolismChannel || null,
+        "data-metabolism-base-color": color,
+        "data-metabolism-glow-color": glowColor,
       });
 
       if (record.pinned) {
@@ -2430,9 +2654,7 @@
       );
       setFileDotGlowVariables(
         dotGroup,
-        record.pinned
-          ? FILE_RING_ACTIVE_COLOR
-          : FILE_RING_LAYOUT.glowColor
+        renderedGlowColor
       );
       appendTitle(
         dotGroup,
@@ -2443,7 +2665,7 @@
         cx: point.x.toFixed(3),
         cy: point.y.toFixed(3),
         r: FILE_RING_LAYOUT.dotRadius,
-        fill: color,
+        fill: renderedColor,
         "fill-opacity": opacity.toFixed(2),
       }));
       reasoningMotion.content.appendChild(dotGroup);
@@ -2613,18 +2835,36 @@
       "is-memory-pinned",
       nextPinned
     );
-    setMemoryDashGlowVariables(
-      dashGroup,
+    const metabolismChannel =
+      String(dashGroup.dataset.metabolismChannel || "").trim();
+    const nextGlowColor =
       nextActive
         ? DELAYED_MEMORY_RING_ACTIVE_COLOR
-        : nextColor,
+        : nextColor;
+    const renderedColor =
+      getMetabolismTintedColor(
+        nextColor,
+        metabolismChannel
+      );
+    const renderedGlowColor =
+      getMetabolismTintedColor(
+        nextGlowColor,
+        metabolismChannel
+      );
+
+    dashGroup.dataset.metabolismBaseColor = nextColor;
+    dashGroup.dataset.metabolismGlowColor = nextGlowColor;
+
+    setMemoryDashGlowVariables(
+      dashGroup,
+      renderedGlowColor,
       MEMORY_RING_LAYOUT.delayed.strokeWidth + 0.75
     );
 
     if (path) {
       path.setAttribute(
         "stroke",
-        nextColor
+        renderedColor
       );
       path.setAttribute(
         "stroke-opacity",
@@ -2706,9 +2946,25 @@
       nextArchived
     );
 
+    const metabolismChannel =
+      String(dashGroup.dataset.metabolismChannel || "").trim();
+    const renderedColor =
+      getMetabolismTintedColor(
+        nextColor,
+        metabolismChannel
+      );
+    const renderedGlowColor =
+      getMetabolismTintedColor(
+        L4_MEMORY_RING_COLOR,
+        metabolismChannel
+      );
+
+    dashGroup.dataset.metabolismBaseColor = nextColor;
+    dashGroup.dataset.metabolismGlowColor = L4_MEMORY_RING_COLOR;
+
     setMemoryDashGlowVariables(
       dashGroup,
-      L4_MEMORY_RING_COLOR,
+      renderedGlowColor,
       MEMORY_RING_LAYOUT.l4.strokeWidth + 0.75,
       nextArchived ? dotRadius : 0
     );
@@ -2719,7 +2975,7 @@
     );
     path.setAttribute(
       "stroke",
-      nextColor
+      renderedColor
     );
     path.setAttribute(
       "stroke-opacity",
@@ -2757,7 +3013,7 @@
     dot.setAttribute("cx", dotPoint.x.toFixed(3));
     dot.setAttribute("cy", dotPoint.y.toFixed(3));
     dot.setAttribute("r", dotRadius.toFixed(2));
-    dot.setAttribute("fill", nextColor);
+    dot.setAttribute("fill", renderedColor);
     dot.setAttribute("fill-opacity", nextOpacity.toFixed(2));
 
     return true;
@@ -2993,11 +3249,33 @@
         dotGroup,
         record.referenceAliases
       );
-      setFileDotGlowVariables(
-        dotGroup,
+      const baseColor =
         active
           ? FILE_RING_ACTIVE_COLOR
-          : FILE_RING_LAYOUT.glowColor
+          : FILE_RING_COLOR;
+      const glowColor =
+        active
+          ? FILE_RING_ACTIVE_COLOR
+          : FILE_RING_LAYOUT.glowColor;
+      const metabolismChannel =
+        String(dotGroup.dataset.metabolismChannel || "").trim();
+      const renderedColor =
+        getMetabolismTintedColor(
+          baseColor,
+          metabolismChannel
+        );
+      const renderedGlowColor =
+        getMetabolismTintedColor(
+          glowColor,
+          metabolismChannel
+        );
+
+      dotGroup.dataset.metabolismBaseColor = baseColor;
+      dotGroup.dataset.metabolismGlowColor = glowColor;
+
+      setFileDotGlowVariables(
+        dotGroup,
+        renderedGlowColor
       );
 
       const title = dotGroup.querySelector("title");
@@ -3008,9 +3286,7 @@
       if (core) {
         core.setAttribute(
           "fill",
-          active
-            ? FILE_RING_ACTIVE_COLOR
-            : FILE_RING_COLOR
+          renderedColor
         );
         core.setAttribute(
           "fill-opacity",
@@ -4899,6 +5175,14 @@
       : null;
     scheduleSnapshotRender(snapshot, snapshotIndex);
   });
+
+  window.addEventListener(
+    METABOLISM_UPDATE_EVENT,
+    function () {
+      refreshRenderedMetabolismTints();
+      refreshActiveMemoryMetabolicOpacity();
+    }
+  );
 
   window.addEventListener(
     MEMORY_REFERENCE_HIGHLIGHT_EVENT,

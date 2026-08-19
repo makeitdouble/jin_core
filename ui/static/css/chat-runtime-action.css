@@ -338,14 +338,6 @@
     filter: brightness(1.08) saturate(1.08);
 }
 
-.jin-runtime-action-pending-l3:not(.jin-runtime-action-cancelled) {
-    opacity: 1 !important;
-}
-
-.jin-runtime-action-pending-l3[data-runtime-action-completion-deferred="true"] {
-    opacity: 1;
-}
-
 .jin-runtime-action-cancelled .jin-runtime-action-label {
     border-color: rgba(63, 63, 70, 0.55) !important;
     background: rgba(24, 24, 27, 0.30) !important;

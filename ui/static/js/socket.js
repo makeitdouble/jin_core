@@ -374,12 +374,6 @@ function clearInterruptedRuntimeGlow() {
     window.cancelPanelGlows();
   }
 
-  if (window.clearPendingRuntimeActionGlow) {
-    window.clearPendingRuntimeActionGlow(
-      "save_session"
-    );
-  }
-
 }
 
 window.clearInterruptedRuntimeGlow =
@@ -631,7 +625,7 @@ async function handleSocketOpen() {
 
     appendLog(
       "[SYSTEM]",
-      "Browser session memory sent."
+      "Browser session snapshot sent."
     );
 
     if (

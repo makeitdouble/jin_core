@@ -187,7 +187,6 @@ ACTION_DISPLAY_ALIASES = {
     "run_python_skill": "Ran Python skill",
     "sample_wildcard": "Sampled wildcard",
     "save_delayed_memory_content": "Saved delayed memory",
-    "save_session": "Saved session",
 }
 
 
@@ -823,6 +822,13 @@ def _format_session_action_display_part(
 
     if message:
         text = f"{text}: {message}"
+    elif (
+        detail
+        and text.upper() == "UPDATE_ACTIVE_MEMORY:FAILED"
+    ):
+        # Failed action reasons stay in detail so the logger can expose
+        # them on hover without duplicating them in the visible action.
+        pass
     elif detail:
         text = f"{text} - {detail}"
 
@@ -1266,9 +1272,15 @@ def _build_payload_distinct_session_action_parts(
         "UNLOAD_SKILLS",
     }
 
+    attachment_marker_action = action_name in {
+        "ATTACH_FILE",
+        "DETACH_FILE",
+    }
+
     if (
         len(payload_groups) <= 1
         and not skill_marker_action
+        and not attachment_marker_action
     ):
         return []
 
@@ -1308,6 +1320,8 @@ def _build_payload_distinct_session_action_parts(
             action_name in {
                 "LOAD_DELAYED_MEMORY",
                 "UNLOAD_DELAYED_MEMORY",
+                "ATTACH_FILE",
+                "DETACH_FILE",
             }
             and payload_key
             and payload_key != part.get(
@@ -1342,6 +1356,8 @@ def _build_formatted_session_action_marker_parts(
         marker_identity_aware = False
         marker_colors = []
         marker_sizes = []
+        marker_status = ""
+        marker_failure_reason = ""
 
         if isinstance(
             marker_action,
@@ -1378,6 +1394,24 @@ def _build_formatted_session_action_marker_parts(
                     [],
                 )
             )
+            marker_status = str(
+                marker_action.get(
+                    "status",
+                    "",
+                )
+                or ""
+            ).strip().casefold()
+            marker_failure_reason = str(
+                marker_action.get(
+                    "failure_reason",
+                    "",
+                )
+                or marker_action.get(
+                    "error",
+                    "",
+                )
+                or ""
+            ).strip()
 
             if isinstance(
                 raw_payloads,
@@ -1486,8 +1520,24 @@ def _build_formatted_session_action_marker_parts(
         if not normalized_name:
             continue
 
-        group = action_groups.setdefault(
+        group_key = (
             normalized_name,
+            (
+                marker_status
+                if normalized_name == "UPDATE_ACTIVE_MEMORY"
+                else ""
+            ),
+            (
+                marker_failure_reason
+                if (
+                    normalized_name == "UPDATE_ACTIVE_MEMORY"
+                    and marker_status == "failed"
+                )
+                else ""
+            ),
+        )
+        group = action_groups.setdefault(
+            group_key,
             {
                 "action_name": normalized_name,
                 "count": 0,
@@ -1497,6 +1547,8 @@ def _build_formatted_session_action_marker_parts(
                 "colors": [],
                 "sizes": [],
                 "details": [],
+                "status": marker_status,
+                "failure_reason": marker_failure_reason,
             },
         )
         group["count"] += marker_count
@@ -1640,6 +1692,32 @@ def _build_formatted_session_action_marker_parts(
         part = {
             "text": action_name,
         }
+
+        if (
+            action_name == "UPDATE_ACTIVE_MEMORY"
+            and group.get(
+                "status"
+            ) == "failed"
+        ):
+            part["text"] = (
+                f"{action_name}:failed"
+            )
+            failure_reason = str(
+                group.get(
+                    "failure_reason",
+                    "",
+                )
+                or ""
+            ).strip()
+            if failure_reason:
+                part["detail"] = failure_reason
+            formatted_parts.append(
+                _with_session_action_marker_count(
+                    part,
+                    count,
+                )
+            )
+            continue
 
         if colors:
             part["colors"] = colors
@@ -1819,8 +1897,6 @@ def _build_session_action_marker_history_items(
             # Multiple SAVE_ACTIVE_MEMORY payloads in one model message
             # must stay individually addressable, but a heterogeneous
             # action set from the same message is one sequence step.
-            # Example: SAVE_ACTIVE_MEMORY + SAVE_SESSION should render as
-            # one "JIN message N executed: ..." entry, not two turns.
             has_same_action = any(
                 str(
                     grouped_part.get(
@@ -1929,6 +2005,201 @@ def attach_session_action_jin_message_since(
     return False
 
 
+def _apply_session_action_runtime_outcomes(
+    context,
+    marker_actions,
+):
+
+    normalized_actions = [
+        (
+            dict(action)
+            if isinstance(
+                action,
+                dict,
+            )
+            else action
+        )
+        for action in (
+            marker_actions
+            or []
+        )
+    ]
+
+    if context is None:
+        return normalized_actions
+
+    events = getattr(
+        context,
+        "runtime_action_events",
+        None,
+    )
+    if not isinstance(
+        events,
+        list,
+    ):
+        return normalized_actions
+
+    runtime_turn_id = (
+        get_current_action_sequence_turn_id(
+            context
+        )
+    )
+    outcome_events = []
+
+    for event in events:
+        if not isinstance(
+            event,
+            dict,
+        ):
+            continue
+
+        if str(
+            event.get(
+                "name",
+                "",
+            )
+            or ""
+        ).strip().casefold() != "update_active_memory":
+            continue
+
+        status = str(
+            event.get(
+                "status",
+                "",
+            )
+            or ""
+        ).strip().casefold()
+        if status not in {
+            "completed",
+            "failed",
+        }:
+            continue
+
+        event_turn_id = str(
+            event.get(
+                "runtime_turn_id",
+                "",
+            )
+            or ""
+        ).strip()
+        if (
+            runtime_turn_id
+            and event_turn_id
+            and event_turn_id != runtime_turn_id
+        ):
+            continue
+
+        outcome_events.append(
+            event
+        )
+
+    if not outcome_events:
+        return normalized_actions
+
+    for marker_action in normalized_actions:
+        if not isinstance(
+            marker_action,
+            dict,
+        ):
+            continue
+
+        if str(
+            marker_action.get(
+                "name",
+                "",
+            )
+            or ""
+        ).strip().upper() != "UPDATE_ACTIVE_MEMORY":
+            continue
+
+        raw_payloads = marker_action.get(
+            "raw_payloads",
+            marker_action.get(
+                "payloads",
+                [],
+            ),
+        )
+        if isinstance(
+            raw_payloads,
+            (str, bytes),
+        ):
+            marker_payloads = {
+                str(
+                    raw_payloads
+                ).strip()
+            }
+        elif isinstance(
+            raw_payloads,
+            (list, tuple, set),
+        ):
+            marker_payloads = {
+                str(payload or "").strip()
+                for payload in raw_payloads
+                if str(payload or "").strip()
+            }
+        else:
+            marker_payloads = set()
+
+        marker_payload = str(
+            marker_action.get(
+                "payload",
+                "",
+            )
+            or ""
+        ).strip()
+        if marker_payload:
+            marker_payloads.add(
+                marker_payload
+            )
+
+        matching_event = None
+        for event in reversed(
+            outcome_events
+        ):
+            event_payload = str(
+                event.get(
+                    "payload",
+                    "",
+                )
+                or ""
+            ).strip()
+            if (
+                marker_payloads
+                and event_payload
+                and event_payload not in marker_payloads
+            ):
+                continue
+            matching_event = event
+            break
+
+        if matching_event is None:
+            continue
+
+        status = str(
+            matching_event.get(
+                "status",
+                "",
+            )
+            or ""
+        ).strip().casefold()
+        marker_action["status"] = status
+
+        if status == "failed":
+            marker_action["failure_reason"] = str(
+                matching_event.get(
+                    "failure_reason",
+                    "",
+                )
+                or matching_event.get(
+                    "error",
+                    "",
+                )
+                or "update failed"
+            ).strip()
+
+    return normalized_actions
+
+
 def replace_session_action_history_since(
     context,
     start_index: int,
@@ -1938,6 +2209,12 @@ def replace_session_action_history_since(
     if context is None:
         return
 
+    marker_actions = (
+        _apply_session_action_runtime_outcomes(
+            context,
+            marker_actions,
+        )
+    )
     formatted_marker_parts = (
         _build_formatted_session_action_marker_parts(
             marker_actions
@@ -2013,6 +2290,12 @@ def upsert_session_action_marker_history_since(
     if context is None:
         return False
 
+    marker_actions = (
+        _apply_session_action_runtime_outcomes(
+            context,
+            marker_actions,
+        )
+    )
     formatted_marker_parts = (
         _build_formatted_session_action_marker_parts(
             marker_actions

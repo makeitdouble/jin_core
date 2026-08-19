@@ -950,9 +950,30 @@ body.theme-win95 #attached-files .jin-context-card-chevron {
     color: rgba(48, 48, 48, 0.74);
 }
 
-body.theme-win95 .jin-attached-files-title {
+body.theme-win95 .jin-attached-files-header.has-files {
     border-bottom-color: rgba(108, 108, 108, 0.52);
+}
+
+body.theme-win95 .jin-attached-files-title {
     color: rgba(44, 44, 44, 0.88);
+}
+
+body.theme-win95 .jin-attached-files-attach-button {
+    border-top: 2px solid var(--win95-light);
+    border-left: 2px solid var(--win95-light);
+    border-right: 2px solid var(--win95-shadow);
+    border-bottom: 2px solid var(--win95-shadow);
+    border-radius: 0;
+    background: var(--win95-face);
+    color: var(--win95-text);
+    box-shadow: none;
+}
+
+body.theme-win95 .jin-attached-files-attach-button:active {
+    border-top-color: var(--win95-shadow);
+    border-left-color: var(--win95-shadow);
+    border-right-color: var(--win95-light);
+    border-bottom-color: var(--win95-light);
 }
 
 body.theme-win95 .jin-attached-files-name,

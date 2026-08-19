@@ -173,6 +173,20 @@ if (memoryLayersToggle) {
     (event) => {
       event.preventDefault();
       event.stopPropagation();
+
+      const avatar =
+        window.JinRuntime
+        && window.JinRuntime.avatar;
+
+      if (
+        generationRunning
+        && avatar
+        && avatar.isReasoning
+      ) {
+        abortGeneration();
+        return;
+      }
+
       toggleRuntimeAvatarMemoryLayers();
     }
   );
@@ -250,12 +264,6 @@ chatForm.addEventListener(
       window.prepareJinAttachments
         ? await window.prepareJinAttachments()
         : [];
-
-    if (window.prepareRuntimeMemoryForUserMessage) {
-      window.prepareRuntimeMemoryForUserMessage(
-        text
-      );
-    }
 
     if (window.startJinAnswerRatingL1GateForTurn) {
       window.startJinAnswerRatingL1GateForTurn();

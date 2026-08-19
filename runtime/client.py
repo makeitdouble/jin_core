@@ -829,7 +829,7 @@ class RuntimeClient:
         )
 
         if explicit_limit > 0:
-            # Specialized calls (translation, L3, document result caps, etc.)
+            # Specialized calls (translation, document result caps, etc.)
             # keep their smaller cap, while an explicit provider output ceiling
             # still wins if LM Studio reports one.
             if detected_max_tokens:

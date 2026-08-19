@@ -16,7 +16,6 @@ from contracts.rules_assembler import (
     RUNTIME_ACTION_UPDATE_L4_FACTS,
     RUNTIME_ACTION_UNLOAD_DELAYED_MEMORY,
     RUNTIME_ACTION_SAVE_DELAYED_MEMORY_CONTENT,
-    RUNTIME_ACTION_SAVE_SESSION,
     RUNTIME_ACTION_SAVE_ACTIVE_MEMORY,
     RUNTIME_ACTION_RESOLVE_ACTIVE_MEMORY,
     RUNTIME_ACTION_WEB_SEARCH,
@@ -42,11 +41,13 @@ from utils.brain_client_utils import (
     flush_pending_active_memory_resolve_failure_history,
     log_runtime_action_marker_removals,
     should_execute_save_delayed_memory,
-    should_execute_save_session,
 )
 from runtime.action_guard import (
     confirm_runtime_action_guards,
     get_action_guard_display_id,
+)
+from runtime.metabolism import (
+    resolve_metabolism_temperature,
 )
 from utils.session_actions_history import (
     attach_session_action_jin_message_since,
@@ -121,17 +122,6 @@ def get_response_enabled_runtime_actions(
             runtime_actions
         )
     )
-
-    if (
-        RUNTIME_ACTION_SAVE_SESSION
-        in enabled_actions
-        and not should_execute_save_session(
-            user_message
-        )
-    ):
-        enabled_actions.remove(
-            RUNTIME_ACTION_SAVE_SESSION
-        )
 
     if (
         RUNTIME_ACTION_SAVE_DELAYED_MEMORY_CONTENT
@@ -388,8 +378,9 @@ async def ask_brain(
                 client=client,
                 user_prompt=model_user_prompt,
                 system_prompt=system_prompt,
-                temperature=(
-                    config.BRAIN_TEMPERATURE
+                temperature=resolve_metabolism_temperature(
+                    config.BRAIN_TEMPERATURE,
+                    context,
                 ),
                 max_tokens=None,
             )
@@ -480,9 +471,9 @@ async def ask_brain(
         result = await client.ask(
             system_prompt=system_prompt,
             user_prompt=model_user_prompt,
-            temperature=(
-                config
-                .BRAIN_TEMPERATURE
+            temperature=resolve_metabolism_temperature(
+                config.BRAIN_TEMPERATURE,
+                context,
             ),
             max_tokens=None,
         )
@@ -2035,9 +2026,9 @@ async def ask_brain_stream(
                     system_prompt=(
                         resolved_system_prompt
                     ),
-                    temperature=(
-                        config
-                        .BRAIN_TEMPERATURE
+                    temperature=resolve_metabolism_temperature(
+                        config.BRAIN_TEMPERATURE,
+                        context,
                     ),
                     max_tokens=None,
                 )
@@ -2143,9 +2134,9 @@ async def ask_brain_stream(
                     resolved_system_prompt
                 ),
                 user_prompt=model_user_prompt,
-                temperature=(
-                    config
-                    .BRAIN_TEMPERATURE
+                temperature=resolve_metabolism_temperature(
+                    config.BRAIN_TEMPERATURE,
+                    context,
                 ),
                 max_tokens=None,
             )

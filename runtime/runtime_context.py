@@ -248,37 +248,13 @@ class RuntimeContext:
 
     runtime_memory_updates: int = 0
 
-    runtime_l2_memory: str = ""
-
     runtime_pattern_counter: int = 0
 
     runtime_repeated_input_count: int = 0
 
-    session_memory: str = ""
-
-    session_memory_source: str = ""
-
-    runtime_l3_session_memory: str = ""
-
-    runtime_session_memory_updates: int = 0
-
-    runtime_l3_session_first_turn: int | None = None
-
-    runtime_l3_session_last_turn: int | None = None
-
-    runtime_l3_saved_runtime_snapshot_index: int | None = None
-
-    runtime_session_memory_update_task: object | None = None
-
-    runtime_save_session_armed: bool = False
-
-    runtime_save_session_requested: bool = False
-
     runtime_l1_diff_history: list[dict] = field(
         default_factory=list
     )
-
-    runtime_l2_last_turn: int = 0
 
     runtime_zero_diff_alert: dict | None = None
 
@@ -380,6 +356,8 @@ class RuntimeContext:
 
     session_id: str = ""
 
+    previous_session_id: str = ""
+
     background_tasks: set = field(
         default_factory=set
     )
@@ -387,12 +365,6 @@ class RuntimeContext:
     runtime_turn_user_message: str = ""
 
     runtime_turn_memory_user_message: str = ""
-
-    runtime_save_session_memory_committed_this_turn: bool = False
-
-    runtime_save_session_result: dict = field(
-        default_factory=dict
-    )
 
     runtime_attached_file_ids: list[str] = field(
         default_factory=list
@@ -443,6 +415,44 @@ class RuntimeContext:
     runtime_user_idle_paused: bool = False
 
     runtime_last_response_feedback: dict | None = None
+
+    runtime_metabolism_levels: dict = field(
+        default_factory=lambda: {
+            "dopamine": 0.42,
+            "serotonin": 0.58,
+            "oxytocin": 0.46,
+            "norepinephrine": 0.38,
+            "cortisol": 0.24,
+        }
+    )
+
+    runtime_metabolism_recent_turns: list[dict] = field(
+        default_factory=list
+    )
+
+    runtime_metabolism_task: object | None = None
+
+    runtime_metabolism_last_tick_at: float = 0.0
+
+    runtime_metabolism_last_delta: dict = field(
+        default_factory=dict
+    )
+
+    runtime_metabolism_last_event: str = ""
+
+    runtime_metabolism_active_memory_salience: dict = field(
+        default_factory=dict
+    )
+
+    runtime_metabolism_policy: dict = field(
+        default_factory=dict
+    )
+
+    runtime_metabolism_associations: list[dict] = field(
+        default_factory=list
+    )
+
+    runtime_metabolism_last_committed_l1_id: str = ""
 
     runtime_avatar_panel_collapsed: bool = False
 
@@ -563,7 +573,6 @@ class ContextContract:
     jin_size_context: str = ""
     can_web_search: bool = True
     can_use_assets: bool = False
-    can_save_session: bool = False
     can_save_active_memory: bool = False
 
     timestamp: str = field(default_factory=lambda: datetime.now().isoformat())

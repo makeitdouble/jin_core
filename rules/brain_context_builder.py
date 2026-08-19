@@ -20,7 +20,6 @@ SERVICE_AS_BRAIN_RUNTIME_ACTIONS = {
     "CAN_DEEP_WEB_SEARCH": True,
     "CAN_WEB_SEARCH": True,
     "CAN_USE_ASSETS": True,
-    "CAN_SAVE_SESSION": True,
     "CAN_SAVE_DELAYED_MEMORY": True,
     "CAN_SAVE_ACTIVE_MEMORY": True,
     "CAN_RUNTIME_TODO": False,
@@ -35,7 +34,6 @@ BRAIN_RUNTIME_ACTIONS = {
     "CAN_DEEP_WEB_SEARCH": True,
     "CAN_WEB_SEARCH": True,
     "CAN_USE_ASSETS": True,
-    "CAN_SAVE_SESSION": True,
     "CAN_SAVE_DELAYED_MEMORY": True,
     "CAN_SAVE_ACTIVE_MEMORY": True,
     "CAN_RUNTIME_TODO": False,
@@ -195,6 +193,7 @@ def _append_L1_runtime_memory(
     parts: list[str],
     context=None,
     *,
+    user_input: str = "",
     commit_active_memory_refresh: bool = False,
 ) -> None:
 
@@ -309,12 +308,29 @@ def _append_L1_runtime_memory(
                 context.active_memory_records = refreshed_records
                 context.runtime_active_memory_records_dirty = True
 
-        active_memory_context_text = "\n".join(
+        active_memory_context_records = [
             line
             for line in active_memory_text.splitlines()
             if not is_active_memory_record_paused(
                 line
             )
+        ]
+
+        # Metabolism changes attention, not the persistent record order. The
+        # prompt gets a salience-ranked view while storage/UI stay canonical.
+        try:
+            from runtime.metabolism import rank_active_memory_records
+
+            active_memory_context_records = rank_active_memory_records(
+                active_memory_context_records,
+                context=context,
+                user_input=user_input,
+            )
+        except Exception:
+            pass
+
+        active_memory_context_text = "\n".join(
+            active_memory_context_records
         ).strip()
 
         if active_memory_context_text:
@@ -366,66 +382,6 @@ def _append_L1_runtime_memory(
             f"{indent_xml(escape(canonicalize_runtime_memory_text(runtime_memory)))}\n"
             "</RUNTIME_MEMORY>"
         )
-
-
-def _append_L3_session_memory(
-    parts: list[str],
-    context=None,
-) -> None:
-
-    from utils.brain_client_utils import (
-        indent_xml,
-    )
-
-    if context is None:
-        return
-
-    session_memory = getattr(
-        context,
-        "runtime_l3_session_memory",
-        "",
-    ) or getattr(
-        context,
-        "session_memory",
-        "",
-    )
-
-    if not session_memory.strip():
-        return
-
-    parts.append(
-        "<PREVIOUS_SESSION_STATE priority=\"higher_than_runtime_memory\">\n"
-        f"{indent_xml(escape(session_memory))}\n"
-        "</PREVIOUS_SESSION_STATE>"
-    )
-
-
-def _append_L2_runtime_memory(
-    parts: list[str],
-    context=None,
-) -> None:
-
-    from utils.brain_client_utils import (
-        indent_xml,
-    )
-
-    if context is None:
-        return
-
-    runtime_l2_memory = getattr(
-        context,
-        "runtime_l2_memory",
-        "",
-    )
-
-    if not runtime_l2_memory.strip():
-        return
-
-    parts.append(
-        "<RUNTIME_PATTERN_MEMORY>\n"
-        f"{indent_xml(escape(runtime_l2_memory))}\n"
-        "</RUNTIME_PATTERN_MEMORY>"
-    )
 
 
 def _append_zero_diff_alert(
@@ -1028,7 +984,7 @@ def build_brain_context(
         )
 
     # Session actions history sits directly under tool results on ordinary
-    # turns. Follow-up sequence prompts replace it with CURRENT_SEQUENCE, so
+    # turns. Follow-up sequence prompts add CURRENT_REQUEST_FLOW beside it, so
     # the context window always exposes the relevant action trail in one
     # predictable place.
     session_actions_history_context = (
@@ -1100,10 +1056,27 @@ def build_brain_context(
         context,
     )
 
+    # Silent metabolism block: the current state is allowed to modulate
+    # attention/continuity but is never a conversational topic by default.
+    try:
+        from runtime.metabolism import build_metabolism_brain_context
+
+        metabolism_context = build_metabolism_brain_context(
+            context,
+            user_input=user_input,
+        )
+        if metabolism_context:
+            runtime_context_parts.append(
+                metabolism_context
+            )
+    except Exception:
+        pass
+
     # L1 memory block: includes active memory records and live runtime memory.
     _append_L1_runtime_memory(
         runtime_context_parts,
         context,
+        user_input=user_input,
         commit_active_memory_refresh=commit_active_memory_refresh,
     )
 
@@ -1140,24 +1113,6 @@ def build_brain_context(
         runtime_context_parts.append(
             loaded_delayed_memory_context
         )
-
-    # L3 memory is useful on ordinary turns, but the hidden archived-session
-    # restore tick already carries the exact restored dialogue/runtime state.
-    # Feeding PREVIOUS_SESSION_STATE into that very first continuation prompt
-    # can inject an older checkpoint (often from much earlier in the session)
-    # and pull JIN away from the actual restore point. Keep it out of the
-    # one-shot bootstrap prompt; it returns automatically once priming ends.
-    if not restore_priming:
-        _append_L3_session_memory(
-            runtime_context_parts,
-            context,
-        )
-
-    # L2 memory block: adds slower pattern memory after session memory.
-    _append_L2_runtime_memory(
-        runtime_context_parts,
-        context,
-    )
 
     # L4 memory block: always-on canonical facts that survive sessions.
     long_term_memory_context = build_long_term_memory_context(

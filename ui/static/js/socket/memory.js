@@ -808,23 +808,6 @@ function handleSocketLog(
 
   if (
       isMemoryLog(data)
-      && memoryLogLevelIs(data, "L3")
-      && (
-          memoryLogEventIs(data, "summarizer_request")
-          || memoryLogIncludes(data, "L3 session summarizer request")
-      )
-  ) {
-    startL3MemoryGlow();
-
-    if (window.activateRuntimeActionPendingUntilL3) {
-      window.activateRuntimeActionPendingUntilL3(
-        "save_session"
-      );
-    }
-  }
-
-  if (
-      isMemoryLog(data)
       && memoryLogLevelIs(data, "L1")
       && (
           memoryLogEventIs(data, "summarizer_result")
@@ -843,26 +826,6 @@ function handleSocketLog(
       )
   ) {
     stopL2MemoryGlow();
-  }
-
-  if (
-      isMemoryLog(data)
-      && memoryLogLevelIs(data, "L3")
-      && (
-          memoryLogEventIs(data, "summarizer_result")
-          || memoryLogMessageHasOutcome(data)
-      )
-  ) {
-    stopL3MemoryGlow();
-
-    if (window.fadeRuntimeAction) {
-      window.fadeRuntimeAction(
-        "save_session",
-        {
-          forceCompletePendingL3: true,
-        }
-      );
-    }
   }
 
 }

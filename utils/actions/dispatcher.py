@@ -17,7 +17,6 @@ from contracts.rules_assembler import (
     RUNTIME_ACTION_UNLOAD_SKILL,
     RUNTIME_ACTION_RESOLVE_TODO,
     RUNTIME_ACTION_SAVE_DELAYED_MEMORY_CONTENT,
-    RUNTIME_ACTION_SAVE_SESSION,
     RUNTIME_ACTION_RESOLVE_ACTIVE_MEMORY,
     RUNTIME_ACTION_UPDATE_ACTIVE_MEMORY,
     RUNTIME_ACTION_DEEP_WEB_SEARCH,
@@ -236,20 +235,6 @@ async def apply_runtime_action_calls(
     filtered_actions = []
     rejected_action_events = {}
     rejected_active_memory_results = []
-    save_session_seen = bool(
-        getattr(
-            context,
-            "runtime_save_session_requested",
-            False,
-        )
-    )
-    save_session_action_emitted = bool(
-        getattr(
-            context,
-            "runtime_save_session_action_emitted",
-            False,
-        )
-    )
     resolve_active_memory_ids_seen = set()
     resolve_active_memory_failures_seen = set()
     save_delayed_memory_seen = set()
@@ -663,12 +648,7 @@ async def apply_runtime_action_calls(
                 ),
             }
 
-            if action.name == RUNTIME_ACTION_SAVE_SESSION:
-                rejection_event["error"] = (
-                    "user_did_not_explicitly_request_session_save"
-                )
-
-            elif (
+            if (
                 action.name
                 == RUNTIME_ACTION_SAVE_DELAYED_MEMORY_CONTENT
             ):
@@ -753,40 +733,6 @@ async def apply_runtime_action_calls(
             jin_size_last_by_message[
                 jin_size_message_scope
             ] = jin_size
-            accepted_action_names.add(
-                action_event_name
-            )
-            filtered_actions.append(
-                action
-            )
-            continue
-
-        if action.name == RUNTIME_ACTION_SAVE_SESSION:
-            # SAVE_SESSION is repeatable across internal follow-up messages.
-            # Completing L3 clears runtime_save_session_requested, so a later
-            # model message may deliberately request another snapshot and
-            # receive another follow-up tick. Keep deduplication scoped to the
-            # current model message/batch instead of suppressing the action for
-            # the rest of the user turn.
-            if save_session_seen:
-                if not save_session_action_emitted:
-                    save_session_action_emitted = True
-                    accepted_action_names.add(
-                        action_event_name
-                    )
-                    filtered_actions.append(
-                        action
-                    )
-
-                continue
-
-            save_session_seen = True
-            save_session_action_emitted = True
-            if not accept_runtime_action_once_per_message(
-                action
-            ):
-                continue
-
             accepted_action_names.add(
                 action_event_name
             )
@@ -1531,12 +1477,6 @@ async def apply_runtime_action_calls(
     ):
         return 0
 
-    save_session_count = sum(
-        1
-        for action in filtered_actions
-        if action.name == RUNTIME_ACTION_SAVE_SESSION
-    )
-
     save_active_memory_actions = [
         action
         for action in filtered_actions
@@ -1841,55 +1781,6 @@ async def apply_runtime_action_calls(
         with_action_context=with_action_context,
     )
 
-    if save_session_count:
-        context.runtime_save_session_armed = False
-        context.runtime_save_session_requested = True
-        context.runtime_save_session_action_emitted = True
-        save_session_confirmation_id = ""
-
-        for action in filtered_actions:
-            if action.name != RUNTIME_ACTION_SAVE_SESSION:
-                continue
-
-            save_session_confirmation_id = str(
-                guard_confirmation_ids.get(
-                    id(action),
-                    "",
-                )
-                or ""
-            ).strip()
-            if save_session_confirmation_id:
-                break
-
-        if log_runtime is not None:
-            await log_runtime(
-                "[RUNTIME ACTION] save_session requested"
-            )
-
-        emitter = getattr(
-            context,
-            "emitter",
-            None,
-        )
-        emit = getattr(
-            emitter,
-            "emit",
-            None,
-        )
-
-        if emit is not None:
-            payload = {
-                "type": "runtime_action",
-                "action": "save_session",
-                "status": "started",
-                "text": "Saving session",
-            }
-
-            if save_session_confirmation_id:
-                payload["confirmation_id"] = save_session_confirmation_id
-
-            await emit(with_action_context(payload))
-
     saved_active_memory_texts = await apply_save_active_memory_actions(
         context,
         save_active_memory_actions,
@@ -1947,10 +1838,6 @@ async def apply_runtime_action_calls(
         + len(
             update_l4_facts_actions
         )
-        + min(
-            save_session_count,
-            1,
-        )
         + len(
             saved_active_memory_texts
         )
@@ -1972,8 +1859,7 @@ async def apply_runtime_action_calls(
         filtered_actions,
         keep_actions={
             RUNTIME_ACTION_WEB_SEARCH,
-            RUNTIME_ACTION_SAVE_SESSION,
-            RUNTIME_ACTION_UPDATE_L4_FACTS,
+                    RUNTIME_ACTION_UPDATE_L4_FACTS,
         },
     )
 

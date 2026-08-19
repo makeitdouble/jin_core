@@ -685,6 +685,205 @@ function appendL4ResponseGroup(
   );
 }
 
+function renderMetabolismTrace(parsed) {
+  const kind =
+    String(parsed && parsed.kind || "");
+
+  if (kind === "metabolism_request") {
+    appendTraceModalBody(
+      traceModalContent,
+      "System instruction",
+      parsed.system_prompt || ""
+    );
+
+    const snapshot =
+      parsed.snapshot
+      && typeof parsed.snapshot === "object"
+        ? parsed.snapshot
+        : {};
+
+    const meta =
+      document.createElement("section");
+
+    meta.className =
+      "delayed-memory-modal-fields";
+
+    appendTraceModalField(
+      meta,
+      "Model",
+      parsed.model || ""
+    );
+    appendTraceModalField(
+      meta,
+      "Request",
+      parsed.request_id || ""
+    );
+    appendTraceModalField(
+      meta,
+      "Turn",
+      snapshot.runtime_state
+      && snapshot.runtime_state.turn_number
+    );
+    appendTraceModalField(
+      meta,
+      "L4 facts",
+      snapshot.l4_facts_total
+    );
+    appendTraceModalField(
+      meta,
+      "Actions",
+      Array.isArray(snapshot.recent_runtime_actions)
+        ? snapshot.recent_runtime_actions.length
+        : 0
+    );
+
+    if (meta.childElementCount) {
+      traceModalContent.appendChild(
+        meta
+      );
+    }
+
+    appendTraceModalBody(
+      traceModalContent,
+      "Previous chemistry",
+      JSON.stringify(
+        snapshot.previous_levels || {},
+        null,
+        2
+      )
+    );
+    appendTraceModalBody(
+      traceModalContent,
+      "Baseline",
+      JSON.stringify(
+        snapshot.baseline || {},
+        null,
+        2
+      )
+    );
+    appendTraceModalBody(
+      traceModalContent,
+      "Runtime state",
+      JSON.stringify(
+        snapshot.runtime_state || {},
+        null,
+        2
+      )
+    );
+    if (snapshot.snapshot_compaction) {
+      appendTraceModalBody(
+        traceModalContent,
+        "Snapshot budget",
+        JSON.stringify(
+          snapshot.snapshot_compaction,
+          null,
+          2
+        )
+      );
+    }
+    appendTraceModalBody(
+      traceModalContent,
+      "Runtime actions",
+      JSON.stringify(
+        snapshot.recent_runtime_actions || [],
+        null,
+        2
+      )
+    );
+    appendTraceModalBody(
+      traceModalContent,
+      "Recent interactions + reasoning",
+      JSON.stringify(
+        snapshot.recent_interactions || [],
+        null,
+        2
+      )
+    );
+    appendTraceModalBody(
+      traceModalContent,
+      "L4 index",
+      JSON.stringify(
+        snapshot.l4_index || [],
+        null,
+        2
+      )
+    );
+    return;
+  }
+
+  const fields =
+    document.createElement("section");
+
+  fields.className =
+    "delayed-memory-modal-fields";
+
+  appendTraceModalField(
+    fields,
+    "Status",
+    parsed.status || (parsed.ok === false ? "failed" : "applied")
+  );
+  appendTraceModalField(
+    fields,
+    "Request",
+    parsed.request_id || ""
+  );
+
+  const levels =
+    parsed.levels
+    && typeof parsed.levels === "object"
+      ? parsed.levels
+      : {};
+
+  [
+    ["DOP", levels.dopamine],
+    ["SER", levels.serotonin],
+    ["OXY", levels.oxytocin],
+    ["NOR", levels.norepinephrine],
+    ["COR", levels.cortisol],
+  ].forEach(([label, value]) => {
+    appendTraceModalField(
+      fields,
+      label,
+      Number.isFinite(Number(value))
+        ? Number(value).toFixed(3)
+        : ""
+    );
+  });
+
+  if (fields.childElementCount) {
+    traceModalContent.appendChild(
+      fields
+    );
+  }
+
+  if (parsed.target_levels) {
+    appendTraceModalBody(
+      traceModalContent,
+      "Service target",
+      JSON.stringify(parsed.target_levels, null, 2)
+    );
+  }
+
+  if (parsed.delta) {
+    appendTraceModalBody(
+      traceModalContent,
+      "Applied delta",
+      JSON.stringify(parsed.delta, null, 2)
+    );
+  }
+
+  appendTraceModalBody(
+    traceModalContent,
+    "Raw service response",
+    parsed.raw || ""
+  );
+  appendTraceModalBody(
+    traceModalContent,
+    "Error",
+    parsed.error || ""
+  );
+}
+
 function renderL4SummarizerResponseTrace(parsed) {
   if (parsed.no_changes) {
     const empty =
@@ -2666,6 +2865,20 @@ function renderTraceDetails(
 
   if (
       parsed
+      && (
+          parsed.kind === "metabolism_request"
+          || parsed.kind === "metabolism_response"
+      )
+  ) {
+    renderMetabolismTrace(
+      parsed
+    );
+
+    return;
+  }
+
+  if (
+      parsed
       && parsed.kind === "l4_fact"
   ) {
     renderL4FactTrace(
@@ -2795,6 +3008,20 @@ function getTraceTitle(
 ) {
   const parsed =
     parseTraceJson(details);
+
+  if (
+      parsed
+      && parsed.kind === "metabolism_request"
+  ) {
+    return "Metabolism request";
+  }
+
+  if (
+      parsed
+      && parsed.kind === "metabolism_response"
+  ) {
+    return "Metabolism response";
+  }
 
   if (
       parsed

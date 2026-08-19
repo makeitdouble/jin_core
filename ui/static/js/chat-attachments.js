@@ -845,6 +845,16 @@ function bindRuntimeActionAttachmentPreview(
   element._jinRuntimeActionAttachmentBound =
     true;
 
+  // Reuse the existing compact inline attachment hover preview, including
+  // its mouseleave / pointerdown cleanup so the image cannot stay orphaned.
+  bindJinAttachmentHoverPreview(
+    element,
+    attachment,
+    {
+      hoverPreviewMaxPx: 100,
+    }
+  );
+
   const openAttachment = () => {
     const currentAttachment =
       element._jinRuntimeActionAttachment;

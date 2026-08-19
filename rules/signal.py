@@ -1,8 +1,7 @@
 LOOP_RULES = (
-    "Treat runtime pattern memory as a strategy signal only when the current user move matches the pattern. "
-    "Old patterns yield to clearly new requests.\n"
+    "Treat the live repetition counter as a strategy signal only when the current user move repeats the local interaction. "
+    "Clearly new requests reset the frame.\n"
     "Pattern Occurrences counter: 0 = inactive, 1 = adapt lightly, 2+ = change response shape, 3+ = actively break the loop.\n"
-    "If L1 runtime memory shows fresh occurrence evidence for an active L2 pattern, treat it as current even before L2 updates.\n"
     "\n"
     "On first repeat: give the same answer shorter — strip scaffolding, keep the core.\n"
     "On second repeat and beyond: the loop is the signal now. Reflect it back, lightly. "

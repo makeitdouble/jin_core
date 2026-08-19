@@ -43,7 +43,6 @@ from .delayed_memory import (
 )
 from .result_sections import (
     format_active_memory_result_sections,
-    format_session_result_sections,
 )
 from .tool_results import (
     build_tool_results_context,
@@ -67,7 +66,6 @@ __all__ = [
     "format_skills_inventory",
     "format_missing_skill_result",
     "format_session_action_age",
-    "format_session_result_sections",
     "format_tool_result_payload",
     "get_brain_runtime_mode",
     "get_conversation_activity_instruction",

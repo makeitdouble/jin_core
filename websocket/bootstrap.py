@@ -1,4 +1,5 @@
 import re
+from datetime import datetime
 
 from fastapi import WebSocket
 
@@ -18,12 +19,10 @@ from runtime.L1_memory_utils import (
     canonicalize_runtime_memory_key,
     emit_runtime_l1_diff_update,
     emit_runtime_memory_snapshot_refresh,
-    emit_runtime_session_memory_update,
     rebuild_latest_runtime_memory_snapshot,
     remove_runtime_user_idle_lines,
     strip_runtime_memory_line_metadata,
 )
-from runtime.L3_memory_utils import parse_l3_session_snapshot_metadata
 from runtime.telemetry import send_telemetry
 from utils.actions import (
     is_active_memory_key,
@@ -32,7 +31,6 @@ from utils.actions import (
     remove_active_memory_entries,
 )
 from utils.chat_log import (
-    create_chat_log_bootstrap_reference,
     resume_chat_log_session,
 )
 from utils.attached_files_store import (
@@ -49,6 +47,12 @@ MAX_BOOTSTRAP_MEMORY_CHARS = 12000
 MAX_RESUME_CLIENT_ID_CHARS = 80
 RESUME_CLIENT_ID_RE = re.compile(
     r"[^a-zA-Z0-9_.:-]"
+)
+
+
+RETIRED_RUNTIME_MEMORY_LINE_RE = re.compile(
+    r"^\s*(?:-\s*)?l2_pattern_evidence_\d+\s*:",
+    re.IGNORECASE,
 )
 
 
@@ -102,6 +106,62 @@ def apply_active_memory_records(
     context.active_memory_records = records
 
 
+def apply_metabolism_bootstrap_state(
+    context,
+    message_data: dict,
+) -> None:
+
+    from runtime.metabolism import (
+        METABOLISM_DEFAULT_LEVELS,
+        normalize_metabolism_associations,
+        normalize_metabolism_levels,
+    )
+
+    raw_levels = message_data.get(
+        "metabolism_levels",
+        None,
+    )
+
+    if isinstance(raw_levels, dict):
+        context.runtime_metabolism_levels = normalize_metabolism_levels(
+            raw_levels
+        )
+    else:
+        context.runtime_metabolism_levels = normalize_metabolism_levels(
+            getattr(
+                context,
+                "runtime_metabolism_levels",
+                METABOLISM_DEFAULT_LEVELS,
+            )
+        )
+
+    try:
+        updated_at = float(
+            message_data.get(
+                "metabolism_updated_at",
+                0.0,
+            )
+            or 0.0
+        )
+    except (TypeError, ValueError):
+        updated_at = 0.0
+
+    context.runtime_metabolism_last_tick_at = max(0.0, updated_at)
+    context.runtime_metabolism_associations = normalize_metabolism_associations(
+        message_data.get(
+            "metabolism_associations",
+            getattr(context, "runtime_metabolism_associations", []),
+        )
+    )
+    context.runtime_metabolism_last_committed_l1_id = str(
+        message_data.get(
+            "metabolism_last_committed_l1_id",
+            getattr(context, "runtime_metabolism_last_committed_l1_id", ""),
+        )
+        or ""
+    ).strip()
+
+
 def active_memory_records_text(context) -> str:
 
     return "\n".join(
@@ -128,28 +188,16 @@ def apply_archived_session_continuation_state(
         limit=80,
     )
 
-    if source_session_id:
-        # Restoring an archive starts a fresh runtime/logging session. Keep the
-        # archived id only as lineage metadata; never checkout the old log
-        # directory or overwrite the fresh browser/client session id.
+    if (
+        source_session_id
+        and message_data.get("archived_session_restore") is True
+    ):
+        # The browser snapshot is primary. If an exact server log directory
+        # exists, enrich from that predecessor and prime one hidden restore
+        # turn. No marker file is needed: lineage already lives in the browser
+        # snapshot/source_session_id chain.
         context.runtime_archived_session_id = source_session_id
-        context.runtime_session_restore_priming = bool(
-            message_data.get(
-                "archived_session_restore",
-                True,
-            )
-        )
-        create_chat_log_bootstrap_reference(
-            context,
-            source_session_id,
-            source_session_date=clean_bootstrap_memory(
-                message_data.get(
-                    "source_session_date",
-                    "",
-                ),
-                limit=10,
-            ),
-        )
+        context.runtime_session_restore_priming = True
 
     restore_reasoning_dump = clean_bootstrap_memory(
         message_data.get(
@@ -351,10 +399,16 @@ def apply_archived_session_continuation_state(
                         part.get("message", ""),
                         limit=2400,
                     )
+                    part_id = clean_bootstrap_memory(
+                        part.get("id", ""),
+                        limit=200,
+                    )
                     if detail:
                         normalized_part["detail"] = detail
                     if message:
                         normalized_part["message"] = message
+                    if part_id:
+                        normalized_part["id"] = part_id
                     normalized_parts.append(normalized_part)
 
                 if normalized_parts:
@@ -975,13 +1029,19 @@ def clean_bootstrap_runtime_memory(
     limit: int = MAX_BOOTSTRAP_MEMORY_CHARS,
 ) -> str:
 
-    return remove_active_memory_entries(
+    cleaned = remove_active_memory_entries(
         remove_runtime_user_idle_lines(
             clean_bootstrap_memory(
                 value,
                 limit=limit,
             )
         )
+    ).strip()
+
+    return "\n".join(
+        line
+        for line in cleaned.splitlines()
+        if not RETIRED_RUNTIME_MEMORY_LINE_RE.match(line)
     ).strip()
 
 
@@ -1399,53 +1459,6 @@ def build_restored_runtime_pheromone_snapshot(
     }
 
 
-def build_l3_bootstrap_runtime_memory(
-    *,
-    session_memory_updates: int,
-) -> str:
-
-    return (
-        "session status: Restored from saved L3 session memory; browser L1 runtime snapshot was stale and was ignored.\n"
-        "current context: Use restored session_memory as the source of truth until new L1 runtime facts are created.\n"
-        f"session memory source: browser restore; L3 updates restored: {session_memory_updates}.\n"
-        "last_jin_response: Browser session restore completed; awaiting the user's next message."
-    )
-
-
-def should_ignore_bootstrap_runtime_memory(
-    *,
-    session_memory: str,
-    runtime_memory: str,
-    session_memory_updates: int,
-    runtime_memory_updates: int,
-    runtime_memory_is_snapshot_fallback: bool = False,
-) -> bool:
-
-    if not (
-        session_memory
-        and runtime_memory
-    ):
-        return False
-
-    # Only reject L1 during browser/L3 bootstrap when it was inferred from an
-    # unconfirmed runtime_snapshot.raw_memory fallback. An explicitly persisted
-    # session runtime is the exact L1 state saved with the session, so it must
-    # survive bootstrap even if its L1 counter is lower than the L3 counter.
-    if not runtime_memory_is_snapshot_fallback:
-        return False
-
-    if runtime_memory_updates == 0:
-        return True
-
-    if (
-        session_memory_updates > 0
-        and runtime_memory_updates < session_memory_updates
-    ):
-        return True
-
-    return False
-
-
 async def emit_current_runtime_memory(
     context,
     *,
@@ -1757,6 +1770,10 @@ def apply_runtime_resume(
         context,
         message_data,
     )
+    apply_metabolism_bootstrap_state(
+        context,
+        message_data,
+    )
     apply_delayed_memory_reports(
         context,
         message_data,
@@ -1788,56 +1805,15 @@ def apply_runtime_resume(
         message_data,
     )
 
-    session_memory = clean_bootstrap_memory(
+    source_session_id = clean_bootstrap_memory(
         message_data.get(
-            "session_memory",
-            "",
-        )
+            "source_session_id",
+            message_data.get("previous_session_id", ""),
+        ),
+        limit=80,
     )
-    session_memory_updates = parse_bootstrap_counter(
-        message_data.get(
-            "session_memory_updates",
-            0,
-        )
-    )
-    current_session_memory_updates = parse_bootstrap_counter(
-        getattr(
-            context,
-            "runtime_session_memory_updates",
-            0,
-        )
-    )
-    session_memory_restored = False
-
-    if (
-        session_memory
-        and (
-            not str(
-                getattr(
-                    context,
-                    "session_memory",
-                    "",
-                )
-                or ""
-            ).strip()
-            or session_memory_updates > current_session_memory_updates
-        )
-    ):
-        context.session_memory = session_memory
-        context.runtime_l3_session_memory = session_memory
-        context.runtime_session_memory_updates = max(
-            current_session_memory_updates,
-            session_memory_updates,
-        )
-        context.runtime_l3_saved_runtime_snapshot_index = None
-        context.session_memory_source = clean_bootstrap_memory(
-            message_data.get(
-                "session_memory_source",
-                "browser_soft_reconnect",
-            ),
-            limit=80,
-        ) or "browser_soft_reconnect"
-        session_memory_restored = True
+    if source_session_id:
+        context.previous_session_id = source_session_id
 
     runtime_memory = clean_bootstrap_runtime_memory(
         message_data.get(
@@ -1874,7 +1850,7 @@ def apply_runtime_resume(
             runtime_memory
         )
     ):
-        return session_memory_restored
+        return False
 
     hydrate_runtime_counters_from_bootstrap_metadata(
         context,
@@ -1929,7 +1905,7 @@ def apply_runtime_resume(
         )
         and current_updates >= runtime_memory_updates
     ):
-        return session_memory_restored
+        return False
 
     restored_pheromone_snapshot = (
         build_restored_runtime_pheromone_snapshot(
@@ -1978,8 +1954,8 @@ def enrich_session_bootstrap_from_archive(
         return {}
 
     # A delayed-memory session link already carries the rich archived payload.
-    # A normal browser/L3 restore only carries its source session id, so enrich
-    # that bootstrap from the server-side raw logs before hydrating JIN.
+    # A normal browser bootstrap carries its predecessor session id, so enrich
+    # that checkpoint from the server-side raw logs before hydrating JIN.
     if message_data.get("archived_session_restore") is True:
         return message_data
 
@@ -2009,35 +1985,60 @@ def enrich_session_bootstrap_from_archive(
 
     enriched = dict(message_data)
 
-    # These fields exist only (or are materially richer) in the raw archived
-    # session and are safe to use for both click-restore and browser/L3 load.
-    for field in (
-        "dialog_context",
-        "recent_turns",
-        "previous_reasoning",
-        "restore_reasoning_dump",
-        "restore_l4_fact_ids",
-        "restore_delayed_memory_metadata",
-        "restore_attached_file_metadata",
-        "session_actions",
-        "runtime_turn_counter",
-        "turn_number",
-        "user_message_count",
-        "assistant_message_count",
-        "attached_file_ids",
-    ):
-        value = archived.get(field)
-        if value not in (None, "", [], {}):
-            enriched[field] = value
+    archive_reaches_saved_checkpoint = True
+    saved_at = clean_bootstrap_memory(
+        message_data.get("saved_at", ""),
+        limit=80,
+    )
+    archive_messages = archived.get("messages", [])
 
-    # Browser/L3 persistence is the exact checkpoint when available. Fall back
-    # to PREVIOUS_* from the archived context only when the browser half is
-    # absent.
+    if saved_at and isinstance(archive_messages, list) and archive_messages:
+        archive_tail_at = str(
+            archive_messages[-1].get("ts", "")
+            if isinstance(archive_messages[-1], dict)
+            else ""
+        ).strip()
+        if archive_tail_at:
+            try:
+                checkpoint_at = datetime.fromisoformat(
+                    saved_at.replace("Z", "+00:00")
+                ).replace(microsecond=0)
+                archive_tail_at = datetime.fromisoformat(
+                    archive_tail_at.replace("Z", "+00:00")
+                ).replace(microsecond=0)
+                archive_reaches_saved_checkpoint = (
+                    archive_tail_at >= checkpoint_at
+                )
+            except (TypeError, ValueError):
+                pass
+
+    # Never mix a newer browser save with an older raw log tail.
+    if archive_reaches_saved_checkpoint:
+        for field in (
+            "dialog_context",
+            "recent_turns",
+            "previous_reasoning",
+            "restore_reasoning_dump",
+            "restore_l4_fact_ids",
+            "restore_delayed_memory_metadata",
+            "restore_attached_file_metadata",
+            "session_actions",
+            "runtime_turn_counter",
+            "turn_number",
+            "user_message_count",
+            "assistant_message_count",
+            "attached_file_ids",
+        ):
+            value = archived.get(field)
+            if value not in (None, "", [], {}):
+                enriched[field] = value
+
+    # Browser persistence is the exact checkpoint when available. Fall back
+    # to archived PREVIOUS_RUNTIME_STATE/resources only when the browser half
+    # is absent.
     for field in (
         "runtime_memory",
         "runtime_memory_updates",
-        "session_memory",
-        "session_memory_updates",
         "loaded_memory_ids",
         "active_memory_records",
     ):
@@ -2049,6 +2050,9 @@ def enrich_session_bootstrap_from_archive(
     enriched["source_session_id"] = source_session_id
     if archived.get("source_session_date"):
         enriched["source_session_date"] = archived["source_session_date"]
+    # This is still an archived-session restore even when the raw log tail is
+    # stale. The freshness guard above controls only which archived fields may
+    # be mixed into the browser checkpoint; restore priming must remain active.
     enriched["archived_session_restore"] = True
     return enriched
 
@@ -2063,6 +2067,10 @@ def apply_session_bootstrap(
     )
 
     apply_active_memory_records(
+        context,
+        message_data,
+    )
+    apply_metabolism_bootstrap_state(
         context,
         message_data,
     )
@@ -2097,12 +2105,15 @@ def apply_session_bootstrap(
         message_data,
     )
 
-    session_memory = clean_bootstrap_memory(
+    source_session_id = clean_bootstrap_memory(
         message_data.get(
-            "session_memory",
-            "",
-        )
+            "source_session_id",
+            message_data.get("previous_session_id", ""),
+        ),
+        limit=80,
     )
+    if source_session_id:
+        context.previous_session_id = source_session_id
 
     runtime_memory = clean_bootstrap_runtime_memory(
         message_data.get(
@@ -2145,8 +2156,7 @@ def apply_session_bootstrap(
         )
 
     has_bootstrap_content = bool(
-        session_memory
-        or runtime_memory
+        runtime_memory
     )
 
     if has_bootstrap_content:
@@ -2155,15 +2165,6 @@ def apply_session_bootstrap(
             message_data,
         )
 
-    session_memory_updates = parse_bootstrap_counter(
-        message_data.get(
-            "session_memory_updates",
-            message_data.get(
-                "runtime_session_memory_updates",
-                0,
-            ),
-        )
-    )
     runtime_memory_updates = parse_bootstrap_counter(
         message_data.get(
             "runtime_memory_updates",
@@ -2171,29 +2172,7 @@ def apply_session_bootstrap(
         )
     )
 
-    # If runtime_memory arrived only through snapshot fallback and L3 exists,
-    # force the L1 counter to 0 so stale bootstrap logic can reject it.
-    if (
-        runtime_memory_is_snapshot_fallback
-        and session_memory
-    ):
-        runtime_memory_updates = 0
-
-    # Preserve the original stale snapshot raw text for UI display before
-    # replacing runtime_memory with the agent-facing status message.
-    stale_runtime_memory_for_ui = None
-
-    if should_ignore_bootstrap_runtime_memory(
-        session_memory=session_memory,
-        runtime_memory=runtime_memory,
-        session_memory_updates=session_memory_updates,
-        runtime_memory_updates=runtime_memory_updates,
-        runtime_memory_is_snapshot_fallback=runtime_memory_is_snapshot_fallback,
-    ):
-        stale_runtime_memory_for_ui = runtime_memory
-        runtime_memory = build_l3_bootstrap_runtime_memory(
-            session_memory_updates=session_memory_updates,
-        )
+    if runtime_memory_is_snapshot_fallback:
         runtime_memory_updates = 0
 
     active_memory_text = active_memory_records_text(
@@ -2206,44 +2185,11 @@ def apply_session_bootstrap(
             active_memory_text,
         )
 
-    if runtime_memory and not stale_runtime_memory_for_ui:
+    if runtime_memory:
         runtime_memory = refresh_restored_active_memory_runtime_metadata(
             context,
             runtime_memory,
         )
-
-    if session_memory:
-        session_metadata = parse_l3_session_snapshot_metadata(
-            session_memory
-        )
-
-        context.session_memory = session_memory
-        context.runtime_l3_session_memory = session_memory
-        context.runtime_l3_session_first_turn = session_metadata.get(
-            "session_snapshot_first_turn"
-        )
-        context.runtime_l3_session_last_turn = session_metadata.get(
-            "session_snapshot_last_turn"
-        )
-        # Do not restore runtime_l3_saved_runtime_snapshot_index from browser L3.
-        # Runtime snapshot indexes are window-local and may restart after reload;
-        # only same-process saves use that marker to avoid re-feeding old UI pages.
-        context.runtime_l3_saved_runtime_snapshot_index = None
-        context.runtime_session_memory_updates = max(
-            session_memory_updates,
-            getattr(
-                context,
-                "runtime_session_memory_updates",
-                0,
-            ),
-        )
-        context.session_memory_source = clean_bootstrap_memory(
-            message_data.get(
-                "session_memory_source",
-                "browser",
-            ),
-            limit=80,
-        ) or "browser"
 
     if runtime_memory:
         restored_pheromone_snapshot = (
@@ -2251,14 +2197,13 @@ def apply_session_bootstrap(
                 runtime_snapshot,
                 runtime_memory,
             )
-            if not stale_runtime_memory_for_ui
+            if isinstance(runtime_snapshot, dict)
             else None
         )
 
         # Bootstrap should replace the initial/default runtime page, not append
-        # extra pages. If L3 made the saved L1 runtime stale, the stale snapshot
-        # must not stay visible as a separate page. If pheromone persistence is
-        # enabled and the saved snapshot matches runtime_memory, keep that
+        # extra pages. If pheromone persistence is enabled and the saved
+        # snapshot matches runtime_memory, keep that
         # snapshot as the single restored baseline so the next L1 update can
         # continue strength calculations from it.
         context.runtime_memory_snapshots = []
@@ -2304,8 +2249,7 @@ def apply_session_bootstrap(
         context.runtime_memory_snapshot_index = 0
 
     return bool(
-        session_memory
-        or runtime_memory
+        runtime_memory
     )
 
 
@@ -2378,6 +2322,14 @@ async def initialize_connection(
         },
     )
 
+    # Chemistry is runtime state, not a page artifact. Re-emit it immediately
+    # on connect/reconnect so the avatar never falls back to browser defaults.
+    from runtime.metabolism import emit_metabolism_state
+
+    await emit_metabolism_state(
+        context
+    )
+
     if skip_initial_runtime_state:
         await context.logger.log_system(
             "[WS] soft reconnect: initial runtime state skipped"
@@ -2389,10 +2341,6 @@ async def initialize_connection(
     )
 
     await emit_runtime_l1_diff_update(
-        context
-    )
-
-    await emit_runtime_session_memory_update(
         context
     )
 

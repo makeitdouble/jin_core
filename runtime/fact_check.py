@@ -1781,7 +1781,6 @@ def build_fact_check_details_text(
         checks: list[dict],
         memory_snapshots: dict[str, str],
         runtime_memory: str,
-        runtime_l2_memory: str,
 ) -> str:
     sections = [
         build_fact_check_report(checks),
@@ -1790,9 +1789,6 @@ def build_fact_check_details_text(
         "",
         "L1:",
         indent_text(memory_snapshots.get("L1", "")),
-        "",
-        "L2:",
-        indent_text(memory_snapshots.get("L2", "")),
         "",
         "=== CHECK DETAILS ===",
     ]
@@ -1851,16 +1847,12 @@ def build_fact_check_details_text(
         "L1:",
         indent_text(runtime_memory),
         "",
-        "L2:",
-        indent_text(runtime_l2_memory),
-        "",
         "=== RAW JSON ===",
         json.dumps(
             {
                 "memory_snapshot_before_check": memory_snapshots,
                 "checks": checks,
                 "runtime_memory_after": runtime_memory,
-                "runtime_l2_memory_after": runtime_l2_memory,
             },
             ensure_ascii=False,
             indent=2,
@@ -1875,7 +1867,6 @@ def build_fact_check_payload(
         checks: list[dict],
         memory_snapshots: dict[str, str],
         runtime_memory: str,
-        runtime_l2_memory: str,
 ) -> str:
     # Keep the modal human-readable first. The UI displays details as plain text,
     # so JSON with escaped newlines makes the context almost impossible to read.
@@ -1884,7 +1875,6 @@ def build_fact_check_payload(
         checks=checks,
         memory_snapshots=memory_snapshots,
         runtime_memory=runtime_memory,
-        runtime_l2_memory=runtime_l2_memory,
     )
 
 
@@ -2013,7 +2003,6 @@ async def run_fact_check_once(
         checks_remaining = max(1, int(max_checks or FACT_CHECK_MAX_CANDIDATES_PER_RUN))
         memory_snapshots = {
             "L1": getattr(context, "runtime_memory", ""),
-            "L2": getattr(context, "runtime_l2_memory", ""),
         }
         l1_memory_before = getattr(
             context,
@@ -2023,7 +2012,6 @@ async def run_fact_check_once(
 
         for layer, attr in (
                 ("L1", "runtime_memory"),
-                ("L2", "runtime_l2_memory"),
         ):
             memory = getattr(context, attr, "")
             candidates = extract_fact_check_candidates(
@@ -2111,7 +2099,6 @@ async def run_fact_check_once(
                     "type": "fact_check_update",
                     "checks": checks,
                     "runtime_memory": l1_memory_after,
-                    "runtime_l2_memory": getattr(context, "runtime_l2_memory", ""),
                 })
 
             if l1_memory_changed:
@@ -2150,7 +2137,6 @@ async def run_fact_check_once(
                 checks=checks,
                 memory_snapshots=memory_snapshots,
                 runtime_memory=getattr(context, "runtime_memory", ""),
-                runtime_l2_memory=getattr(context, "runtime_l2_memory", ""),
             )
             log = getattr(logger, "log", None)
 

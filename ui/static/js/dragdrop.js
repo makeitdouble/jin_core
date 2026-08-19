@@ -386,13 +386,35 @@ function renderAttachedFilesPlaque() {
   const records = pinnedIds.map(getFileRecord).filter(Boolean);
   clearAttachedFilesPlaqueHoverPreview();
   attachedFiles.replaceChildren();
-  attachedFiles.classList.toggle("hidden", records.length === 0);
-  if (!records.length) return;
+  attachedFiles.classList.remove("hidden");
+
+  const header = document.createElement("div");
+  header.className = "jin-attached-files-header";
+  header.classList.toggle("has-files", records.length > 0);
 
   const title = document.createElement("div");
   title.className = "jin-attached-files-title";
   title.textContent = "[ ATTACHED_FILES ]";
-  attachedFiles.appendChild(title);
+
+  header.appendChild(title);
+
+  if (!records.length) {
+    const attachButton = document.createElement("button");
+    attachButton.type = "button";
+    attachButton.className = "jin-attached-files-attach-button";
+    attachButton.textContent = "ATTACH FILE";
+    attachButton.setAttribute("aria-label", "Attach file");
+    attachButton.addEventListener("click", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      if (fileInput) fileInput.click();
+    });
+    header.appendChild(attachButton);
+  }
+
+  attachedFiles.appendChild(header);
+
+  if (!records.length) return;
 
   const list = document.createElement("div");
   list.className = "jin-attached-files-list";
@@ -528,6 +550,7 @@ window.JinFiles = {
   },
 };
 
+renderAttachedFilesPlaque();
 void refreshFiles();
 
 

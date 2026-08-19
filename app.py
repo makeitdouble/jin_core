@@ -48,6 +48,7 @@ from websocket import (
 )
 
 from clients.registry import build_clients
+from runtime.client import RuntimeClient
 
 from runtime.state import RUNTIME_MEMORY_SUMMARIZER_LABEL
 from runtime.behavior_contract import (
@@ -375,57 +376,136 @@ async def index(
 # API STATUS
 # ---------------------------------------------------------
 
-async def check_api_status(
+async def fetch_runtime_model_status(
     client: httpx.AsyncClient,
+    *,
     base_url: str,
-) -> bool:
+    model_uid: str,
+    configured_context_window: int,
+):
 
-    try:
+    runtime = RuntimeClient(
+        api_base=base_url,
+        model_uid=model_uid,
+        timeout=STATUS_CHECK_TIMEOUT,
+        configured_context_window=configured_context_window,
+        client=client,
+    )
 
-        response = await client.get(
-            join_url(
-                base_url,
-                config.MODELS_ENDPOINT,
-            ),
-            timeout=STATUS_CHECK_TIMEOUT,
+    online = False
+
+    for endpoint in runtime.model_limits_detection_endpoints():
+
+        try:
+            response = await client.get(
+                join_url(base_url, endpoint),
+                timeout=STATUS_CHECK_TIMEOUT,
+            )
+        except (
+            httpx.HTTPError,
+            asyncio.TimeoutError,
+        ):
+            continue
+
+        if response.status_code != 200:
+            continue
+
+        online = True
+
+        try:
+            models = runtime.extract_model_list(
+                response.json()
+            )
+        except ValueError:
+            continue
+
+        model = runtime.select_model_metadata(models)
+
+        if model is None:
+            continue
+
+        loaded_model = runtime.select_loaded_model_metadata(
+            model
+        )
+        loaded_instances = model.get("loaded_instances")
+        loaded = (
+            loaded_model is not None
+            if isinstance(loaded_instances, list)
+            else None
         )
 
-        return response.status_code == 200
+        return {
+            "online": True,
+            "source": (
+                "openai"
+                if endpoint == config.MODELS_ENDPOINT
+                else "native"
+            ),
+            "loaded": loaded,
+            "model": model,
+            "loaded_model": loaded_model or {},
+        }
 
-    except (
-        httpx.HTTPError,
-        asyncio.TimeoutError,
-    ):
-
-        return False
+    return {
+        "online": online,
+        "source": "",
+        "loaded": None,
+        "model": {},
+        "loaded_model": {},
+    }
 
 
 async def build_status_snapshot(
     client: httpx.AsyncClient,
 ):
 
-    (
-        brain_status,
-        service_status,
-    ) = await asyncio.gather(
-        check_api_status(
-            client,
-            config.BRAIN_API_BASE,
-        ),
-        check_api_status(
-            client,
-            config.SERVICE_API_BASE,
+    service_request = fetch_runtime_model_status(
+        client,
+        base_url=config.SERVICE_API_BASE,
+        model_uid=config.SERVICE_MODEL_UID,
+        configured_context_window=(
+            config.SERVICE_CONTEXT_WINDOW
         ),
     )
+
+    if config.USE_SERVICE_AS_BRAIN:
+        service_status = await service_request
+        brain_status = service_status
+    else:
+        (
+            brain_status,
+            service_status,
+        ) = await asyncio.gather(
+            fetch_runtime_model_status(
+                client,
+                base_url=config.BRAIN_API_BASE,
+                model_uid=config.BRAIN_MODEL_UID,
+                configured_context_window=(
+                    config.BRAIN_CONTEXT_WINDOW
+                ),
+            ),
+            service_request,
+        )
+
+    brain_online = bool(brain_status.get("online"))
+    service_online = bool(service_status.get("online"))
 
     effective_use_service_as_brain = (
         config.USE_SERVICE_AS_BRAIN
-        and service_status
+        and service_online
     )
 
+    runtime_config = build_runtime_config(
+        use_service_as_brain=(
+            effective_use_service_as_brain
+        ),
+    )
+    runtime_config["service"]["lm_studio"] = service_status
+    runtime_config["brain"]["lm_studio"] = brain_status
+
     return {
-        "brain": brain_status,
-        "service": service_status,
+        "brain": brain_online,
+        "service": service_online,
         "translator": None,
         "use_service_as_brain": (
             effective_use_service_as_brain
@@ -437,11 +517,7 @@ async def build_status_snapshot(
                 True,
             )
         ),
-        "runtime_config": build_runtime_config(
-            use_service_as_brain=(
-                effective_use_service_as_brain
-            ),
-        ),
+        "runtime_config": runtime_config,
     }
 
 

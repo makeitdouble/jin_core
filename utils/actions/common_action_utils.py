@@ -25,7 +25,6 @@ from contracts.rules_assembler import (
     RUNTIME_ACTION_DETACH_FILE,
     RUNTIME_ACTION_RESOLVE_TODO,
     RUNTIME_ACTION_SAVE_DELAYED_MEMORY_CONTENT,
-    RUNTIME_ACTION_SAVE_SESSION,
     RUNTIME_ACTION_WEB_SEARCH,
 )
 from contracts.rules_assembler import (
@@ -434,7 +433,6 @@ def normalize_runtime_action_name(
         normalized_name = normalized_name[4:]
 
     aliases = {
-        "SAVE_SESSION": RUNTIME_ACTION_SAVE_SESSION,
         "SAVE_DELAYED_MEMORY": RUNTIME_ACTION_SAVE_DELAYED_MEMORY_CONTENT,
         "SAVE_DELAYED_MEMORY_CONTENT": RUNTIME_ACTION_SAVE_DELAYED_MEMORY_CONTENT,
         "SAVE_ACTIVE_MEMORY": RUNTIME_ACTION_SAVE_ACTIVE_MEMORY,
@@ -1353,7 +1351,7 @@ def _action_text_may_contain_marker(
     )
 
     # No opening angle bracket means no runtime action. Names such as
-    # ``SAVE_SESSION`` in prose, Markdown/code spans, or
+    # Runtime action names in prose, Markdown/code spans, or
     # standalone lines must pass through unchanged.
     if "<" not in upper_text:
         return False

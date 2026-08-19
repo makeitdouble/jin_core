@@ -2189,10 +2189,6 @@ function markStreamAnswerPhase(
     return false;
   }
 
-  stopStreamRuntimeAvatarReasoning(
-    stream
-  );
-
   return true;
 }
 
@@ -2255,10 +2251,6 @@ function stripInternalActionMarkers(
 ) {
 
   return String(text || "")
-    .replace(
-      /(^|\n)[^\S\r\n]*<SAVE_SESSION>[^\S\r\n]*(?=\n|$)/gi,
-      "$1"
-    )
     .replace(
       /(^|\n)[^\S\r\n]*<WEB_SEARCH:[^>\n]*>[^\S\r\n]*(?=\n|$)/gi,
       "$1"
@@ -2371,10 +2363,6 @@ function appendStreamChunk(
   if (!stream) {
     return;
   }
-
-  stopStreamRuntimeAvatarReasoning(
-    stream
-  );
 
   if (
     chunk === null

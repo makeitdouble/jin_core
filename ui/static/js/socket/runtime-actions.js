@@ -980,23 +980,6 @@ function handleRuntimeAction(
     );
   const abortedByUser =
     status === "aborted";
-  const terminalStatus =
-    [
-      "completed",
-      "complete",
-      "done",
-      "failed",
-      "interrupted",
-      "aborted",
-      "counter_final",
-    ].includes(status);
-  // The backend emits a terminal SAVE_SESSION event only after the L3
-  // operation has finished. Keep that event aligned with the same stop
-  // boundary used by the L3 panel glow.
-  const forceCompletePendingL3 =
-    action === "save_session"
-    && terminalStatus;
-
   if (
     (
       cancelledByUser
@@ -1223,15 +1206,6 @@ function handleRuntimeAction(
         || data.id
         || ""
       );
-
-  const pendingUntilL3 =
-    action === "save_session"
-    && ![
-      "failed",
-      "interrupted",
-      "aborted",
-    ].includes(status)
-    && forceCompletePendingL3 !== true;
 
   const counterPayloads =
     Array.isArray(data.payloads)
@@ -1665,8 +1639,6 @@ function handleRuntimeAction(
           deepSearchParentId,
           deepSearchObjective,
           closeTag,
-          pendingUntilL3,
-          forceCompletePendingL3,
         }
       );
 
@@ -1699,7 +1671,6 @@ function handleRuntimeAction(
           deepSearchChild,
           deepSearchParentId,
           deepSearchObjective,
-          forceCompletePendingL3,
         }
       );
     }
@@ -1771,8 +1742,6 @@ function handleRuntimeAction(
       deepSearchParentId,
       deepSearchObjective,
       closeTag,
-      pendingUntilL3,
-      forceCompletePendingL3,
     }
   );
 
@@ -1805,8 +1774,7 @@ function handleRuntimeAction(
         deepSearchChild,
         deepSearchParentId,
         deepSearchObjective,
-        forceCompletePendingL3,
-        fallbackToLatestActive:
+          fallbackToLatestActive:
           terminalFailure,
       }
     );

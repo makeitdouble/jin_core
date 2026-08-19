@@ -25,11 +25,15 @@ from runtime.L1_memory import (
     schedule_runtime_memory_update,
 )
 from runtime.L1_memory_utils import record_runtime_memory_reasoning_quotes
+from runtime.metabolism import (
+    append_metabolism_turn,
+    cancel_metabolism_update,
+    prepare_metabolism_for_turn,
+    settle_metabolism_after_turn,
+)
 from runtime.state_sync import refresh_runtime_state
 from utils.brain_client_utils import (
     get_brain_runtime_config,
-    should_execute_save_session_directly,
-    should_prearm_save_session,
 )
 from utils.chat_log import (
     append_chat_log_entry,
@@ -452,56 +456,6 @@ async def resolve_runtime_action_guard_confirmation(
 # ---------------------------------------------------------
 # PROCESS MESSAGE
 # ---------------------------------------------------------
-
-async def arm_save_session_from_user_text(
-    context,
-    user_text: str,
-) -> bool:
-
-    if (
-        getattr(
-            context,
-            "runtime_save_session_armed",
-            False,
-        )
-        or getattr(
-            context,
-            "runtime_save_session_requested",
-            False,
-        )
-    ):
-        return False
-
-    if not should_prearm_save_session(
-        user_text,
-    ):
-        return False
-
-    context.runtime_save_session_armed = True
-    context.runtime_save_session_requested = False
-    # This path is only a deterministic early trigger. It lets the brain see
-    # the user's explicit save intent, but it does not confirm the save and
-    # must not show the UI banner. The save becomes real only when JIN emits
-    # the private SAVE_SESSION marker handled by apply_runtime_action_calls().
-    context.runtime_save_session_action_emitted = False
-
-    logger = getattr(
-        context,
-        "logger",
-        None,
-    )
-    log_runtime = getattr(
-        logger,
-        "log_runtime",
-        None,
-    )
-
-    if log_runtime is not None:
-        await log_runtime(
-            "[RUNTIME ACTION] save_session armed"
-        )
-
-    return True
 
 
 async def refresh_pending_brain_usage(
@@ -1030,6 +984,20 @@ async def process_message(
         is_action_guard_retry = bool(
             action_guard_retry
         )
+        metabolism_turn_feedback = deepcopy(
+            getattr(
+                context,
+                "runtime_last_response_feedback",
+                None,
+            )
+        )
+
+        if not is_idle_followup and not is_action_guard_retry:
+            # A real foreground turn always wins over the previous background
+            # metabolism estimate, especially when SERVICE is also the brain.
+            cancel_metabolism_update(
+                context
+            )
 
         if is_session_restore_resume:
             # Keep restored file IDs pinned for subsequent turns, but do not
@@ -1155,7 +1123,6 @@ async def process_message(
         context.runtime_turn_interrupted = False
         context.runtime_turn_interruption_reason = ""
         context.runtime_turn_interruption_quote = ""
-        context.runtime_save_session_memory_committed_this_turn = False
         context.runtime_turn_memory_user_message = ""
         context.runtime_avatar_panel_collapsed = False
         context.runtime_avatar_current_size = {}
@@ -1164,21 +1131,11 @@ async def process_message(
         context.runtime_context_limit_stage = ""
         context.runtime_context_limit_kind = ""
         context.runtime_context_limit_finish_reason = ""
-        direct_save_session = False
         if (
             not is_idle_followup
             and not is_action_guard_retry
             and not is_session_restore_resume
         ):
-            direct_save_session = (
-                should_execute_save_session_directly(
-                    user_text,
-                )
-            )
-            await arm_save_session_from_user_text(
-                context,
-                user_text,
-            )
             apply_user_idle_context(
                 context,
                 message_data,
@@ -1195,6 +1152,17 @@ async def process_message(
                 context,
                 message_data,
             )
+
+            # Homeostat first: the current user event must be able to affect
+            # this very generation, not only the next one. No bubble/event
+            # card is emitted; only the existing ambient metabolism signal.
+            await prepare_metabolism_for_turn(
+                context,
+                get_message_user_text(
+                    message_data
+                ),
+            )
+
             context.runtime_turn_memory_user_message = (
                 format_runtime_memory_user_message(
                     context,
@@ -1228,8 +1196,6 @@ async def process_message(
         state = AgentState(
             user_input=user_text
         )
-        if direct_save_session:
-            state.metadata["direct_save_session"] = True
         if is_idle_followup:
             state.metadata["idle_followup"] = idle_followup
         if is_session_restore_resume:
@@ -1360,6 +1326,23 @@ async def process_message(
                 ),
                 assistant_created_at=assistant_created_at,
             )
+            append_metabolism_turn(
+                context,
+                user_message=user_text,
+                assistant_message=assistant_message,
+                reasoning=getattr(
+                    context,
+                    "runtime_turn_reasoning_content",
+                    "",
+                ),
+                feedback=metabolism_turn_feedback,
+            )
+            # Runtime actions/validators leave a small causal trace immediately.
+            # The slower SERVICE integration still runs afterwards and may
+            # correct the reflex from the full turn snapshot.
+            await settle_metabolism_after_turn(
+                context
+            )
 
         if is_session_restore_resume:
             # The Brain node consumes restore priming immediately after the
@@ -1398,10 +1381,7 @@ async def process_message(
                 context=context,
             )
         else:
-            # SAVE_SESSION now completes before its follow-up using the
-            # snapshots that already existed. The user's save request and
-            # JIN's final confirmation are therefore committed here through
-            # the ordinary post-response L1/L2 path.
+            # Commit the interrupted turn through the ordinary L1 path.
             record_runtime_memory_reasoning_quotes(
                 context,
                 getattr(
@@ -1421,15 +1401,6 @@ async def process_message(
                     user_text,
                 ),
                 assistant_message=assistant_message,
-            )
-
-        if getattr(
-            context,
-            "runtime_save_session_requested",
-            False,
-        ):
-            await wait_for_runtime_memory_update(
-                context
             )
 
         if not is_action_guard_retry:

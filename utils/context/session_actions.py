@@ -156,6 +156,21 @@ def _format_memory_action_context_part(
         or ""
     ).strip()
 
+    if normalized_action in {
+        "ATTACH_FILE",
+        "DETACH_FILE",
+    }:
+        if detail and part_id:
+            return (
+                f"{action}: {detail} "
+                f"[ id: {part_id} ]"
+            )
+        if detail:
+            return f"{action}: {detail}"
+        if part_id:
+            return f"{action} [ id: {part_id} ]"
+        return action
+
     if normalized_action not in PAYLOAD_DISTINCT_SESSION_ACTIONS:
         return ""
 
@@ -209,6 +224,29 @@ def _format_session_action_context_parts(
     context_parts = []
 
     for part in parts or []:
+        part_text = str(
+            part.get(
+                "text",
+                "",
+            )
+            or ""
+        ).strip()
+        part_detail = str(
+            part.get(
+                "detail",
+                "",
+            )
+            or ""
+        ).strip()
+        if (
+            part_text.upper() == "UPDATE_ACTIVE_MEMORY:FAILED"
+            and part_detail
+        ):
+            context_parts.append(
+                f"{part_text}:{part_detail}"
+            )
+            continue
+
         memory_part = _format_memory_action_context_part(
             part
         )
@@ -283,6 +321,7 @@ def build_session_actions_history_context(
     current_sequence: bool = False,
     sequence_user_message: str = "",
     sequence_user_created_at=None,
+    latest_action: str = "",
 ) -> str:
 
     history_items = []
@@ -361,11 +400,6 @@ def build_session_actions_history_context(
     action_index = 0
     open_sequence_turn_id = ""
 
-    if current_sequence:
-        lines.append(
-            "--- Sequence started ---"
-        )
-
     for item in history_items:
         runtime_turn_id = item[
             "runtime_turn_id"
@@ -429,12 +463,12 @@ def build_session_actions_history_context(
             if jin_message_content:
                 lines.append(
                     (
-                        f"JIN message {action_index} content: "
+                        f"assistant_output_{action_index}: "
                         f"{jin_message_content}{age_suffix}"
                     )
                 )
             lines.append(
-                f"JIN message {action_index} executed: {text}"
+                f"action_{action_index}: {text}"
             )
         else:
             lines.append(
@@ -447,34 +481,80 @@ def build_session_actions_history_context(
         )
 
     tag_name = (
-        "CURRENT_SEQUENCE"
+        "CURRENT_REQUEST_FLOW"
         if current_sequence
         else "SESSION_ACTIONS_HISTORY"
     )
 
+    escaped_lines = escape(
+        chr(10).join(
+            lines
+        )
+    )
     formatted_lines = indent_xml(
-        escape(
-            chr(10).join(
-                lines
-            )
-        ),
+        escaped_lines,
         spaces=4,
     )
 
-    if current_sequence and sequence_user_text:
+    if current_sequence:
+        request_age = ""
         if isinstance(
             sequence_user_created_at,
             (int, float),
         ) and sequence_user_created_at > 0:
-            sequence_user_text = (
-                f"{sequence_user_text}"
-                f" ( {format_session_action_age(now - float(sequence_user_created_at))} ago )"
+            request_age = format_session_action_age(
+                now - float(sequence_user_created_at)
             )
+
+        request_age_attr = (
+            f' age="{escape(request_age)} ago"'
+            if request_age
+            else ""
+        )
+        latest_action_text = str(
+            latest_action
+            or ""
+        ).strip()
+        state = (
+            "EVALUATE_AFTER_ACTION"
+            if history_items or latest_action_text
+            else "REQUEST_STARTED"
+        )
+        formatted_request = indent_xml(
+            escape(sequence_user_text or "<missing>"),
+            spaces=8,
+        )
+        formatted_executed_actions = indent_xml(
+            escaped_lines,
+            spaces=8,
+        )
+        executed_actions = (
+            f"\n{formatted_executed_actions}\n"
+            if formatted_executed_actions
+            else "\n        &lt;none&gt;\n"
+        )
+        latest_action_block = (
+            "\n    <LAST_EXECUTED_ACTION>"
+            f"{escape(latest_action_text)}"
+            "</LAST_EXECUTED_ACTION>"
+            if latest_action_text
+            else ""
+        )
 
         return (
             f"<{tag_name}>\n"
-            f"INITIAL_SEQUENCE_INSTRUCTION: {escape(sequence_user_text)}\nDO NOT FOLLOW INITIAL_SEQUENCE_INSTRUCTION EXPLICITLY, CHECK CURRENT_SEQUENCE HISTORY BELOW!\n"
-            f"{formatted_lines}\n"
+            f"    <STATE>{state}</STATE>\n"
+            f"    <ORIGINAL_USER_REQUEST{request_age_attr}>\n"
+            f"{formatted_request}\n"
+            f"    </ORIGINAL_USER_REQUEST>"
+            f"{latest_action_block}\n"
+            "    <ACTION_RESULTS_SOURCE>TOOLS_RESULTS</ACTION_RESULTS_SOURCE>\n"
+            f"    <EXECUTED_ACTIONS>{executed_actions}"
+            f"    </EXECUTED_ACTIONS>\n"
+            "    <NEXT_DECISION>\n"
+            "        <IF_REQUEST_SATISFIED>RESPOND_TO_USER_AND_STOP</IF_REQUEST_SATISFIED>\n"
+            "        <IF_REQUEST_NOT_SATISFIED>EXECUTE_ONLY_MISSING_ACTIONS</IF_REQUEST_NOT_SATISFIED>\n"
+            "    </NEXT_DECISION>\n"
             f"</{tag_name}>"
         )
 
@@ -532,6 +612,7 @@ def strip_actions_history_context(
         "CURRENT_CONCERNS",
         "CURREN_USER_INPUT",
         "CURRENT_RUNTIME",
+        "CURRENT_REQUEST_FLOW",
         "CURRENT_SEQUENCE",
         "CURRENT_ACTIONS_HISTORY",
         "SEQUENCE_ORIGIN_REQUEST",

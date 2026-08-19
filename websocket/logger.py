@@ -183,6 +183,24 @@ class WebSocketLogger:
     async def log_runtime(self, message: str):
         await self.log("[RUNTIME]", message)
 
+    async def log_metabolism(
+            self,
+            message: str,
+            details: str | None = None,
+            event: str | None = None,
+            request_id: str | None = None,
+            metabolism_levels: dict | None = None,
+    ):
+        await self.log(
+            "[METABOLISM]",
+            message,
+            details=details,
+            channel="metabolism",
+            metabolism_event=event,
+            metabolism_request_id=request_id,
+            metabolism_levels=metabolism_levels,
+        )
+
     async def log_flow(
             self,
             message: str,

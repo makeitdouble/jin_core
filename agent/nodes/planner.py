@@ -27,16 +27,8 @@ class PlannerNode(BaseNode):
             False,
         )
 
-        direct_save_session = bool(
-            state.metadata.get(
-                "direct_save_session",
-                False,
-            )
-        )
-
         state.translate_input = (
-            not direct_save_session
-            and translation_enabled
+            translation_enabled
             and contains_cyrillic(
                 state.user_input
             )

@@ -14,7 +14,6 @@ from rules.brain_context_builder import (
 from contracts.rules_assembler import (
     RUNTIME_ACTION_ASSET_ACTION,
     RUNTIME_ACTION_SAVE_ACTIVE_MEMORY,
-    RUNTIME_ACTION_SAVE_SESSION,
     RUNTIME_ACTION_WEB_SEARCH,
 )
 from rules.runtime import (
@@ -182,10 +181,6 @@ def build_runtime_xml(
             ),
             can_use_assets=(
                 RUNTIME_ACTION_ASSET_ACTION
-                in enabled_actions
-            ),
-            can_save_session=(
-                RUNTIME_ACTION_SAVE_SESSION
                 in enabled_actions
             ),
             can_save_active_memory=(

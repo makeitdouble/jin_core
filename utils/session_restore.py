@@ -32,7 +32,6 @@ L4_FACT_ID_RE = re.compile(
 
 
 ACTION_LABELS = {
-    "SAVE_SESSION": "Saved session",
     "SAVE_DELAYED_MEMORY_CONTENT": "Saved delayed memory",
     "LOAD_DELAYED_MEMORY": "Loaded delayed memory",
     "UNLOAD_DELAYED_MEMORY": "Unloaded delayed memory",
@@ -760,7 +759,6 @@ def build_archived_session_restore_payload(
 
     trusted_values = _parse_trusted_values(context_text)
     previous_runtime_state = _extract_block(context_text, "PREVIOUS_RUNTIME_STATE")
-    previous_session_state = _extract_block(context_text, "PREVIOUS_SESSION_STATE")
     attached_files_block = _extract_block(context_text, "ATTACHED_FILES")
 
     last_entry = visible_entries[-1]
@@ -868,8 +866,6 @@ def build_archived_session_restore_payload(
         "restore_attached_file_metadata": restore_attached_file_metadata,
         "runtime_memory": previous_runtime_state,
         "runtime_memory_updates": len(jin_entries),
-        "session_memory": previous_session_state,
-        "session_memory_updates": 1 if previous_session_state else 0,
         "loaded_memory_ids": loaded_memory_ids,
         "delayed_memory_reports": _parse_loaded_delayed_reports(context_text),
         "active_memory_records": _parse_active_memory_records(previous_runtime_state),

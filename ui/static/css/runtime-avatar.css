@@ -74,11 +74,55 @@
     inset: -13%;
     z-index: 0;
     pointer-events: none;
-    border-radius: 50%;
+    /* The metabolic aura is a field, not a hard circular layer. Keep the
+       colour cloud soft all the way to its edge so no visible arc appears
+       over the avatar panel when an off-centre channel gets stronger. */
+    border-radius: 0;
+    -webkit-mask-image: radial-gradient(
+        ellipse at center,
+        #000 0%,
+        #000 48%,
+        rgba(0, 0, 0, 0.82) 60%,
+        rgba(0, 0, 0, 0.30) 72%,
+        transparent 84%
+    );
+    mask-image: radial-gradient(
+        ellipse at center,
+        #000 0%,
+        #000 48%,
+        rgba(0, 0, 0, 0.82) 60%,
+        rgba(0, 0, 0, 0.30) 72%,
+        transparent 84%
+    );
     opacity: var(--jin-avatar-aura-opacity-low);
     transform: scale(var(--jin-avatar-aura-scale-low));
     transform-origin: center;
     background:
+        radial-gradient(
+            circle at 22% 24%,
+            color-mix(in srgb, #fbbf24 var(--jin-metabolism-dopamine-aura, 11.20%), transparent) 0%,
+            transparent 42%
+        ),
+        radial-gradient(
+            circle at 78% 20%,
+            color-mix(in srgb, #60a5fa var(--jin-metabolism-serotonin-aura, 12.80%), transparent) 0%,
+            transparent 43%
+        ),
+        radial-gradient(
+            circle at 87% 61%,
+            color-mix(in srgb, #f472b6 var(--jin-metabolism-oxytocin-aura, 11.60%), transparent) 0%,
+            transparent 42%
+        ),
+        radial-gradient(
+            circle at 54% 86%,
+            color-mix(in srgb, #f97316 var(--jin-metabolism-norepinephrine-aura, 10.80%), transparent) 0%,
+            transparent 43%
+        ),
+        radial-gradient(
+            circle at 14% 68%,
+            color-mix(in srgb, #34d399 var(--jin-metabolism-cortisol-aura, 9.40%), transparent) 0%,
+            transparent 42%
+        ),
         radial-gradient(
             circle at 50% 50%,
             color-mix(in srgb, var(--jin-color, #1f4f8f) 22%, transparent) 0%,
@@ -123,7 +167,8 @@
     z-index: 2;
     display: block;
     pointer-events: none;
-    opacity: 0.94;
+    opacity: var(--jin-avatar-metabolism-opacity, 0.94);
+    transition: opacity 58s cubic-bezier(0.22, 0.61, 0.36, 1);
 }
 
 .jin-runtime-avatar svg {
@@ -131,8 +176,9 @@
     width: 100%;
     height: 100%;
     overflow: visible;
-    transform: scale(0.90);
+    transform: scale(var(--jin-avatar-metabolism-body-scale, 0.90));
     transform-origin: center;
+    transition: transform 58s cubic-bezier(0.22, 0.61, 0.36, 1);
 }
 
 .jin-runtime-avatar-core-button {

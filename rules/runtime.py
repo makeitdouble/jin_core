@@ -7,13 +7,13 @@ REASONING_RECOVERY_MESSAGE = (
 
 ANSWERING_RECOVERY_MESSAGE = (
     "Your previous answer started repeating the already visible answer. "
-    "Do not restart or repeat it. Continue from CURRENT_SEQUENCE and only "
+    "Do not restart or repeat it. Continue from CURRENT_REQUEST_FLOW and only "
     "produce the remaining answer or action."
 )
 
 CONTEXT_LIMIT_RECOVERY_MESSAGE = (
     "The previous generation reached the {limit_label} during {stage}.\n"
-    "Continue the current task from CURRENT_SEQUENCE without restarting it.\n"
+    "Continue the current task from CURRENT_REQUEST_FLOW without restarting it.\n"
     "You MUST be MUCH shorter and act FASTER.\n"
 )
 
@@ -34,7 +34,7 @@ ACTION_BLOCKED_TRIGGER_WORD_MESSAGE = (
 IDLE_FOLLOWUP_MESSAGE = (
     "This is a follow-up tick from an IDLE timer JIN chose to set.\n"
     "Timer metadata is provided in TOOLS_RESULTS. Continue the existing "
-    "sequence and non-executed actions derived from CURRENT_SEQUENCE.\n"
+    "sequence and non-executed actions derived from CURRENT_REQUEST_FLOW.\n"
 )
 
 SESSION_RESTORE_REASONING_COUNT = 2
@@ -74,10 +74,10 @@ RUNTIME_ACTIONS_RULES = (
     f"{DELAYED_MEMORY_PROTOCOL}\n"
     "RUNTIME ACTION EXECUTION RULES:\n"
     "Use follow-up system ticks in sequence for multi-step tasks.\n"
-    "In case of conflict, ignore PREVIOUS_CHAT_MESSAGES and accept the original <USER> request inside CURRENT_SEQUENCE already in progress.\n"
-    "When follow-up tick is active you must use CURRENT_SEQUENCE as the only source of truth and the order of executed actions.\n"
-    "CURRENT_SEQUENCE starts with the original <USER> request and lists the steps already done for it.\n"
-    "SESSION_ACTIONS_HISTORY lists completed actions from the whole session.\n"
+    "In case of conflict, ignore PREVIOUS_CHAT_MESSAGES and keep the ORIGINAL_USER_REQUEST inside CURRENT_REQUEST_FLOW.\n"
+    "When follow-up tick is active, use CURRENT_REQUEST_FLOW as the source of truth for the request in progress; use SESSION_ACTIONS_HISTORY only as background history.\n"
+    "CURRENT_REQUEST_FLOW contains the original user request, actions already executed for it, and the next decision branch.\n"
+    "SESSION_ACTIONS_HISTORY is full-session background history; it is not a pending task list.\n"
     "When no actions needed or sequence is done stop instantly and notify user naturally.\n"
 )
 
@@ -89,7 +89,7 @@ PROPOSAL_RULES = (
             "Do not store trivial exchanges, unstable ideas, identity anchors, broad user preferences, core project rules, or facts that remain useful across unrelated topics as active memory.\n"
             "A proposal is optional user-facing text, not a runtime action and never a gate in front of an explicit user command. Use proposals only when JIN initiates a save-session or delayed-memory suggestion and the user has not already requested or accepted that action.\n"
             "A direct user request to save/finalize the session or save/update delayed memory is already authorization: execute the matching runtime action in the same turn. A clear acceptance of JIN's immediately preceding proposal is authorization too. Do not ask for confirmation again, do not re-propose, and do not replace the action with words like 'предлагаю'.\n"
-            "Examples of direct authorization include natural variants such as 'сохрани сессию', 'давай зафиналим сессию', 'да, сохраняй сессию', or an unambiguous 'да/ок, делай' replying to the proposal. Follow CURRENT_SEQUENCE intent rather than forcing the user to repeat a magic phrase.\n"
+            "Examples of direct authorization include natural variants such as 'сохрани сессию', 'давай зафиналим сессию', 'да, сохраняй сессию', or an unambiguous 'да/ок, делай' replying to the proposal. Follow CURRENT_REQUEST_FLOW intent rather than forcing the user to repeat a magic phrase.\n"
             "Offer only after the current request is answered and a natural boundary with clear durable value has appeared. Never interrupt active work, a runtime sequence, or a follow-up tick.\n"
             "Choose only one best-fit proposal. Do not present a menu of storage types, expose marker names, or explain internal mechanics.\n"
             "Propose saving the session when the conversation has reached a stable checkpoint worth restoring later, especially after a substantial task, decision, or coherent phase is complete.\n"
@@ -112,13 +112,11 @@ SKILL_ROUTING_RULES = ("\n"
     "\n"
     "Do not derive skill capabilities from a skill name or filename; load the skill first and use its loaded content.\n"
     "\n"
-    "SEQUENCE RULES:\n"
-    "1. Determine whether the CURRENT_SEQUENCE latest action or actions satisfies the original request at the top of CURRENT_SEQUENCE.\n"
-    "2. Take latest result of a process and do not continue and notify the user about completed request.\n"
-    "3. Continue with a task only if CURRENT_SEQUENCE actions do not cover the original user intent.\n"
-    "4. If all required actions already executed and listed in CURRENT_SEQUENCE - YOU MUST STOP and notify user.\n"
+    "CURRENT REQUEST FLOW:\n"
+    "Use CURRENT_REQUEST_FLOW only during follow-up ticks.\n"
+    "Follow its NEXT_DECISION branch exactly: satisfied means respond and stop; not satisfied means execute only missing actions.\n"
+    "Never repeat an action already listed in EXECUTED_ACTIONS unless a tool result explicitly requires a retry.\n"
     "\n"
-    "When the required actions are already completed - you must stop and notify user.\n"
     "\n"
     "If <TOOLS_RESULTS> block is not empty — clean redundant tool results obviously not needed for continuing conversation.\n"
 )

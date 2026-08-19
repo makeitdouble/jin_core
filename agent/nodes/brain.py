@@ -4,9 +4,6 @@ from xml.sax.saxutils import escape
 
 from agent.nodes.base import BaseNode
 
-from runtime.L3_memory import (
-    maybe_summarize_runtime_session_memory,
-)
 from runtime.stream import (
     RuntimeStream,
 )
@@ -36,7 +33,6 @@ from contracts.rules_assembler import (
     RUNTIME_ACTION_JIN_COLOR,
     RUNTIME_ACTION_JIN_SIZE,
     RUNTIME_ACTION_LOAD_DELAYED_MEMORY,
-    RUNTIME_ACTION_SAVE_SESSION,
     RUNTIME_ACTION_WEB_SEARCH,
 )
 from contracts.rules_assembler import (
@@ -80,7 +76,6 @@ from utils.tool_results import (
     TOOL_RESULT_KIND_ASSET,
     TOOL_RESULT_KIND_DEEP_SEARCH,
     TOOL_RESULT_KIND_SEARCH,
-    TOOL_RESULT_KIND_SESSION,
     begin_runtime_tool_results_turn,
     record_runtime_tool_result,
 )
@@ -258,62 +253,6 @@ def action_batch_requires_follow_up(
         for event in events_requiring_follow_up
     ):
         return False
-
-    return True
-
-
-async def complete_save_session_memory_before_follow_up(
-        *,
-        context,
-        state,
-        response_text: str,
-) -> bool:
-
-    if not getattr(
-        context,
-        "runtime_save_session_requested",
-        False,
-    ):
-        return False
-
-    # SAVE_SESSION is completed directly against the already accumulated
-    # runtime snapshots. The current user request and JIN's final confirmation
-    # are deliberately not pushed through L1 before this follow-up. They are
-    # handled later by the normal post-response L1/L2 pipeline, exactly like
-    # any ordinary user -> JIN exchange.
-    context.runtime_save_session_result = {}
-
-    await maybe_summarize_runtime_session_memory(
-        context=context,
-    )
-
-    save_result = getattr(
-        context,
-        "runtime_save_session_result",
-        None,
-    )
-    if not isinstance(
-        save_result,
-        dict,
-    ) or not save_result:
-        save_result = {
-            "action": "save_session",
-            "ok": False,
-            "status": "failed",
-            "reason": "l3_save_result_missing",
-            "message": (
-                "Session snapshot was not saved because the L3 save "
-                "operation did not produce a result."
-            ),
-            "destination": "L3 session memory",
-        }
-        context.runtime_save_session_result = save_result
-
-    record_runtime_tool_result(
-        context,
-        TOOL_RESULT_KIND_SESSION,
-        save_result,
-    )
 
     return True
 
@@ -564,13 +503,11 @@ POTENTIAL_LOOP_FOLLOWUP_MESSAGE = (
 
 
 FOLLOWUP_SYSTEM_MESSAGE = (
-    "!!!YOU MUST CHECK TOOL RESULTS ANS STOP execute and notify user if the original user request is satisfied by CURRENT SEQUENCE steps!!!\n"
-    "YOU MUST USE CURRENT_SEQUENCE BLOCK AS THE SOLE SOURCE OF TRUTH FOR THE ACTION ORDER AND EXECUTION STATUS!\n"
-    "DERIVE REMAINING STEPS FROM <INITIAL_SEQUENCE_USER_MESSAGE> AND CONTINUE FROM CURRENT_SEQUENCE OR STOP AND NOTIFY USER!\n"
-    "\n"
-    "If conditions are not met - continue without confirmation!\n"
-    "!!!DO NOT START A NEW SEQUENCE!!!\n"
-    "\n"
+    "<FOLLOWUP_TICK>\n"
+    "    <REQUEST_SOURCE>CURRENT_REQUEST_FLOW</REQUEST_SOURCE>\n"
+    "    <SESSION_HISTORY_ROLE>BACKGROUND_ONLY</SESSION_HISTORY_ROLE>\n"
+    "    <NEW_REQUEST>FALSE</NEW_REQUEST>\n"
+    "</FOLLOWUP_TICK>"
 )
 
 
@@ -592,7 +529,7 @@ def sanitize_sequence_user_request(
 
     # Attachment payload transport hints are useful to the runtime, but they
     # are not part of the user's request and must not leak into the visible
-    # CURRENT_SEQUENCE block on follow-up ticks.
+    # CURRENT_REQUEST_FLOW block on follow-up ticks.
     lines = []
 
     for line in str(value or "").splitlines():
@@ -943,26 +880,10 @@ def build_followup_system_message(
         latest_action: str = "",
 ) -> str:
 
-    latest_action = _compact_followup_value(
-        latest_action
-    )
-    lines = [
-        FOLLOWUP_SYSTEM_MESSAGE,
-    ]
-
-    if latest_action:
-        lines.append(
-            "This is follow-up tick for JIN latest action: "
-            f"{latest_action}."
-        )
-
-    lines.append(
-        "Requested and available information provided in tool results section."
-    )
-
-    return "\n".join(
-        lines
-    ).strip()
+    # Kept as an argument for existing callers; action identity lives only in
+    # CURRENT_REQUEST_FLOW so the follow-up prompt has one focused source of truth.
+    _ = latest_action
+    return FOLLOWUP_SYSTEM_MESSAGE
 
 
 def restore_sequence_attachments_for_followup(
@@ -1043,7 +964,6 @@ class BrainNode(BaseNode):
     ) -> str:
 
         from utils.context.context_exports import (
-            build_current_runtime_context,
             build_session_actions_history_context,
             strip_actions_history_context,
         )
@@ -1099,19 +1019,27 @@ class BrainNode(BaseNode):
             )
         )
 
-        current_actions_history_context = ""
+        session_actions_history_context = ""
+        current_request_flow_context = ""
 
         if context is not None:
             mark_current_action_sequence(
                 context
             )
 
-        current_actions_history_context = (
+        session_actions_history_context = (
+            build_session_actions_history_context(
+                context,
+                current_sequence=False,
+            )
+        )
+        current_request_flow_context = (
             build_session_actions_history_context(
                 context,
                 current_sequence=True,
                 sequence_user_message=initial_user_request,
                 sequence_user_created_at=sequence_started_at,
+                latest_action=latest_action,
             )
         )
 
@@ -1205,19 +1133,14 @@ class BrainNode(BaseNode):
             context.runtime_turn_interruption_reason = ""
             context.runtime_turn_interruption_quote = ""
 
-        current_runtime_context = build_current_runtime_context(
-            user_message=initial_user_request,
-            sequence_started_at=sequence_started_at,
-        )
-
-        if current_actions_history_context:
+        if session_actions_history_context:
             sections.append(
-                current_actions_history_context
+                session_actions_history_context
             )
 
-        if current_runtime_context:
+        if current_request_flow_context:
             sections.append(
-                current_runtime_context
+                current_request_flow_context
             )
 
         # Rebuild this live block on every internal follow-up instead of
@@ -1645,8 +1568,12 @@ class BrainNode(BaseNode):
             system_prompt=system_prompt,
             user_prompt=effective_brain_payload,
             runtime_actions=runtime_actions,
-            include_previous_reasoning=(
-                not is_followup_tick
+            include_previous_reasoning=bool(
+                getattr(
+                    context,
+                    "runtime_session_restore_priming",
+                    False,
+                )
             ),
         )
 
@@ -1753,23 +1680,6 @@ class BrainNode(BaseNode):
                 if str(part or "").strip()
             )
 
-        # A SAVE_SESSION marker can be emitted on the initial brain response
-        # or on any internal follow-up tick. Complete L3 here, at the shared
-        # stream boundary, so the next tick cannot start before the save
-        # result exists and has been added to TOOL_RESULTS. This deliberately
-        # bypasses the ordinary post-turn L1 update. Preserve the old abort
-        # behavior: a stopped turn must not start a new L3 request.
-        if not getattr(
-            context,
-            "runtime_turn_abort_requested",
-            False,
-        ):
-            await complete_save_session_memory_before_follow_up(
-                context=context,
-                state=state,
-                response_text=text or "",
-            )
-
         return (
             text or "",
             runtime.stream.reasoning,
@@ -1862,9 +1772,6 @@ class BrainNode(BaseNode):
         # (e.g. the user explicitly asked JIN to emit only the marker).
         context.runtime_active_memory_saved_this_turn = False
         context.runtime_active_memory_refresh_tick = 0
-        context.runtime_save_session_memory_committed_this_turn = False
-        context.runtime_save_session_result = {}
-
         idle_followup = state.metadata.get(
             "idle_followup",
         )
@@ -1938,6 +1845,13 @@ class BrainNode(BaseNode):
                         context,
                         runtime_actions=runtime_actions,
                         commit_active_memory_refresh=True,
+                        include_previous_reasoning=bool(
+                            getattr(
+                                context,
+                                "runtime_session_restore_priming",
+                                False,
+                            )
+                        ),
                     )
                 )
                 brain_payload = (
@@ -1983,61 +1897,18 @@ class BrainNode(BaseNode):
             or []
         )
 
-        direct_save_session = bool(
-            state.metadata.get(
-                "direct_save_session",
-                False,
-            )
-            and runtime_actions.get(
-                "CAN_SAVE_SESSION",
-                False,
-            )
+        text, reasoning = await self.run_brain_stream(
+            state=state,
+            context=context,
+            brain_runtime=brain_runtime,
+            brain_client=brain_client,
+            system_prompt=system_prompt,
+            brain_payload=brain_payload,
+            runtime_actions=runtime_actions,
+            emit_content_to_chat=(
+                not state.translate_response
+            ),
         )
-
-        if direct_save_session:
-            # A bare trigger from contracts/save_session.json is a
-            # deterministic command. Skip the first Brain inference entirely:
-            # emit the action bubble immediately, perform L3, then let the
-            # existing generic follow-up loop give JIN one normal response
-            # tick with the trusted SAVE_SESSION result in context.
-            applied_count = await apply_runtime_action_calls(
-                context,
-                (
-                    RuntimeActionCall(
-                        name=RUNTIME_ACTION_SAVE_SESSION,
-                    ),
-                ),
-                user_message=sequence_user_request,
-            )
-
-            if applied_count:
-                await complete_save_session_memory_before_follow_up(
-                    context=context,
-                    state=state,
-                    response_text="",
-                )
-                # The direct trigger owns only this first save. A later
-                # follow-up is a distinct model message; if JIN deliberately
-                # emits <SAVE_SESSION> there, let the normal stream boundary
-                # run L3 again and schedule the next follow-up.
-                text = ""
-                reasoning = ""
-            else:
-                direct_save_session = False
-
-        if not direct_save_session:
-            text, reasoning = await self.run_brain_stream(
-                state=state,
-                context=context,
-                brain_runtime=brain_runtime,
-                brain_client=brain_client,
-                system_prompt=system_prompt,
-                brain_payload=brain_payload,
-                runtime_actions=runtime_actions,
-                emit_content_to_chat=(
-                    not state.translate_response
-                ),
-            )
 
         if getattr(
             context,
@@ -2477,7 +2348,7 @@ class BrainNode(BaseNode):
                         runtime_actions=followup_runtime_actions,
                         commit_active_memory_refresh=True,
                         include_previous_chat_messages=False,
-                        include_previous_reasoning=True,
+                        include_previous_reasoning=False,
                         include_turn_reasoning=True,
                         crop_previous_reasoning=False,
                     ),
@@ -2608,7 +2479,7 @@ class BrainNode(BaseNode):
                             runtime_actions=followup_runtime_actions,
                             commit_active_memory_refresh=True,
                             include_previous_chat_messages=False,
-                            include_previous_reasoning=True,
+                            include_previous_reasoning=False,
                             include_turn_reasoning=True,
                             crop_previous_reasoning=False,
                         ),
@@ -2680,7 +2551,7 @@ class BrainNode(BaseNode):
                             runtime_actions=followup_runtime_actions,
                             commit_active_memory_refresh=True,
                             include_previous_chat_messages=False,
-                            include_previous_reasoning=True,
+                            include_previous_reasoning=False,
                             include_turn_reasoning=True,
                             crop_previous_reasoning=False,
                         ),
@@ -2751,7 +2622,7 @@ class BrainNode(BaseNode):
                             runtime_actions=followup_runtime_actions,
                             commit_active_memory_refresh=True,
                             include_previous_chat_messages=False,
-                            include_previous_reasoning=True,
+                            include_previous_reasoning=False,
                             include_turn_reasoning=True,
                             crop_previous_reasoning=False,
                         ),
@@ -2844,7 +2715,7 @@ class BrainNode(BaseNode):
                             runtime_actions=followup_runtime_actions,
                             commit_active_memory_refresh=True,
                             include_previous_chat_messages=False,
-                            include_previous_reasoning=True,
+                            include_previous_reasoning=False,
                             include_turn_reasoning=True,
                             crop_previous_reasoning=False,
                         ),
@@ -2898,7 +2769,7 @@ class BrainNode(BaseNode):
                         runtime_actions=followup_runtime_actions,
                         commit_active_memory_refresh=True,
                         include_previous_chat_messages=False,
-                        include_previous_reasoning=True,
+                        include_previous_reasoning=False,
                         include_turn_reasoning=True,
                         crop_previous_reasoning=False,
                     ),
@@ -2993,7 +2864,7 @@ class BrainNode(BaseNode):
                         runtime_actions=final_runtime_actions,
                         commit_active_memory_refresh=True,
                         include_previous_chat_messages=False,
-                        include_previous_reasoning=True,
+                        include_previous_reasoning=False,
                         include_turn_reasoning=True,
                         crop_previous_reasoning=False,
                     ),

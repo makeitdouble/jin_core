@@ -74,7 +74,6 @@ from contracts.rules_assembler import (
     RUNTIME_ACTION_UNLOAD_SKILL,
     RUNTIME_ACTION_RESOLVE_TODO,
     RUNTIME_ACTION_SAVE_DELAYED_MEMORY_CONTENT,
-    RUNTIME_ACTION_SAVE_SESSION,
     RUNTIME_ACTION_RESOLVE_ACTIVE_MEMORY,
     RUNTIME_ACTION_WEB_SEARCH,
     build_runtime_action_display_text,
@@ -157,45 +156,6 @@ from utils.runtime_action_abort import (
     mark_runtime_action_started,
     mark_runtime_actions_completed,
 )
-
-
-def should_execute_save_session(
-    user_message: str,
-) -> bool:
-    from runtime.behavior_contract import (
-        should_execute_action_guard,
-    )
-
-    return should_execute_action_guard(
-        "save_session",
-        user_message
-    )
-
-
-def should_prearm_save_session(
-    user_message: str,
-) -> bool:
-    from runtime.behavior_contract import (
-        should_prearm_action_guard,
-    )
-
-    return should_prearm_action_guard(
-        "save_session",
-        user_message
-    )
-
-
-def should_execute_save_session_directly(
-    user_message: str,
-) -> bool:
-    from runtime.behavior_contract import (
-        action_guard_has_exact_trigger_match,
-    )
-
-    return action_guard_has_exact_trigger_match(
-        "save_session",
-        user_message,
-    )
 
 
 def should_execute_save_delayed_memory(

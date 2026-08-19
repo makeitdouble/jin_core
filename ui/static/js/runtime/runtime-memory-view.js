@@ -120,6 +120,20 @@
   const memoryPanel =
       document.getElementById("memory-panel");
 
+  const memoryScroll =
+      memoryPanel
+        ? memoryPanel.querySelector(".memory-scroll")
+        : null;
+
+  const RUNTIME_MEMORY_LAZY_BATCH_SIZE = 20;
+  const RUNTIME_MEMORY_LAZY_BOTTOM_THRESHOLD_PX = 160;
+
+  let runtimeMemoryLazyMode = "";
+  let runtimeMemoryVisibleRowCount = RUNTIME_MEMORY_LAZY_BATCH_SIZE;
+  let runtimeMemoryLastScrollTop = 0;
+  let runtimeMemoryFirstScrollBatchLoaded = false;
+  let runtimeMemoryLastBatchRevealAt = 0;
+
   const MEMORY_PANEL_COLLAPSE_SYNC_EVENT =
       "jin:memory-panel-collapse-sync";
 
@@ -470,8 +484,156 @@
     ] || null;
   }
 
+  function getRuntimeMemoryLazyRows() {
+    if (!runtimeMemoryText) {
+      return [];
+    }
+
+    return Array.from(
+      runtimeMemoryText.querySelectorAll(
+        ".runtime-memory-line:not(.runtime-memory-user-idle)"
+      )
+    );
+  }
+
+  function applyRuntimeMemoryLazyVisibility() {
+    const rows = getRuntimeMemoryLazyRows();
+
+    rows.forEach((row, index) => {
+      row.style.display =
+          index < runtimeMemoryVisibleRowCount
+            ? ""
+            : "none";
+    });
+  }
+
+  function resetRuntimeMemoryLazyRows(options = {}) {
+    runtimeMemoryVisibleRowCount =
+        RUNTIME_MEMORY_LAZY_BATCH_SIZE;
+    runtimeMemoryFirstScrollBatchLoaded = false;
+    runtimeMemoryLastScrollTop = 0;
+    runtimeMemoryLastBatchRevealAt = 0;
+
+    if (options.keepMode !== true) {
+      runtimeMemoryLazyMode = "";
+    }
+
+    if (memoryScroll) {
+      memoryScroll.scrollTop = 0;
+    }
+
+    applyRuntimeMemoryLazyVisibility();
+  }
+
+  function syncRuntimeMemoryLazyMode(displayMode) {
+    const normalizedMode = String(displayMode || "runtime");
+
+    if (runtimeMemoryLazyMode === normalizedMode) {
+      return;
+    }
+
+    runtimeMemoryLazyMode = normalizedMode;
+    resetRuntimeMemoryLazyRows({
+      keepMode: true,
+    });
+  }
+
+  function revealNextRuntimeMemoryLazyBatch() {
+    const rows = getRuntimeMemoryLazyRows();
+
+    if (runtimeMemoryVisibleRowCount >= rows.length) {
+      return false;
+    }
+
+    runtimeMemoryVisibleRowCount = Math.min(
+      rows.length,
+      runtimeMemoryVisibleRowCount + RUNTIME_MEMORY_LAZY_BATCH_SIZE
+    );
+    runtimeMemoryLastBatchRevealAt = Date.now();
+    applyRuntimeMemoryLazyVisibility();
+    return true;
+  }
+
+  function handleRuntimeMemoryLazyScroll() {
+    if (!memoryScroll || isRuntimeMemoryViewSuspended()) {
+      return;
+    }
+
+    const currentScrollTop = Math.max(0, memoryScroll.scrollTop);
+    const scrollingDown = currentScrollTop > runtimeMemoryLastScrollTop;
+    runtimeMemoryLastScrollTop = currentScrollTop;
+
+    if (
+        !scrollingDown
+        || Date.now() - runtimeMemoryLastBatchRevealAt < 80
+    ) {
+      return;
+    }
+
+    if (!runtimeMemoryFirstScrollBatchLoaded) {
+      runtimeMemoryFirstScrollBatchLoaded = true;
+      revealNextRuntimeMemoryLazyBatch();
+      return;
+    }
+
+    const remaining =
+        memoryScroll.scrollHeight
+        - memoryScroll.clientHeight
+        - currentScrollTop;
+
+    if (remaining <= RUNTIME_MEMORY_LAZY_BOTTOM_THRESHOLD_PX) {
+      revealNextRuntimeMemoryLazyBatch();
+    }
+  }
+
+  function handleRuntimeMemoryLazyWheel(event) {
+    if (
+        !memoryScroll
+        || isRuntimeMemoryViewSuspended()
+        || Number(event && event.deltaY || 0) <= 0
+    ) {
+      return;
+    }
+
+    if (!runtimeMemoryFirstScrollBatchLoaded) {
+      runtimeMemoryFirstScrollBatchLoaded = true;
+      revealNextRuntimeMemoryLazyBatch();
+      return;
+    }
+
+    const remaining =
+        memoryScroll.scrollHeight
+        - memoryScroll.clientHeight
+        - memoryScroll.scrollTop;
+
+    if (remaining <= RUNTIME_MEMORY_LAZY_BOTTOM_THRESHOLD_PX) {
+      revealNextRuntimeMemoryLazyBatch();
+    }
+  }
+
+  function bindRuntimeMemoryLazyScroll() {
+    if (!memoryScroll || memoryScroll.dataset.lazyMemoryBound === "1") {
+      return;
+    }
+
+    memoryScroll.dataset.lazyMemoryBound = "1";
+    memoryScroll.addEventListener(
+      "scroll",
+      handleRuntimeMemoryLazyScroll,
+      { passive: true }
+    );
+    memoryScroll.addEventListener(
+      "wheel",
+      handleRuntimeMemoryLazyWheel,
+      { passive: true }
+    );
+  }
+
   function handleRuntimeMemoryPanelVisibilityChange() {
     if (isRuntimeMemoryViewSuspended()) {
+      resetRuntimeMemoryLazyRows({
+        keepMode: true,
+      });
       suspendRuntimeMemoryHighlights();
       return;
     }
@@ -757,6 +919,7 @@
     );
 
     if (rows.length < 2) {
+      applyRuntimeMemoryLazyVisibility();
       return;
     }
 
@@ -793,6 +956,7 @@
     );
 
     if (!orderChanged) {
+      applyRuntimeMemoryLazyVisibility();
       return;
     }
 
@@ -817,6 +981,7 @@
         sortedRows,
         previousTops
     );
+    applyRuntimeMemoryLazyVisibility();
   }
 
   function getActiveThinkMemoryCitationIdentitySets() {
@@ -2043,6 +2208,8 @@
     const displayMode =
         getRuntimeMemoryDisplayMode();
 
+    syncRuntimeMemoryLazyMode(displayMode);
+
     // Alternate memory views should stay open, but they must not freeze the
     // avatar on the previous L1 snapshot. The runtime update handler already
     // advances history.index to the newest snapshot before calling render.
@@ -2055,30 +2222,35 @@
     if (displayMode === "active") {
       renderActiveMemoryRecords();
       applyMemoryReferenceHighlights(renderHighlightOptions);
+      applyRuntimeMemoryLazyVisibility();
       return;
     }
 
     if (displayMode === "delayed") {
       renderDelayedMemoryReports();
       applyMemoryReferenceHighlights(renderHighlightOptions);
+      applyRuntimeMemoryLazyVisibility();
       return;
     }
 
     if (displayMode === "facts") {
       renderFactsMemoryFields();
       applyMemoryReferenceHighlights(renderHighlightOptions);
+      applyRuntimeMemoryLazyVisibility();
       return;
     }
 
     if (displayMode === "long_term") {
       renderLongTermMemoryFacts();
       applyMemoryReferenceHighlights(renderHighlightOptions);
+      applyRuntimeMemoryLazyVisibility();
       return;
     }
 
     if (displayMode === "files") {
       renderPersistentFiles();
       applyMemoryReferenceHighlights(renderHighlightOptions);
+      applyRuntimeMemoryLazyVisibility();
       return;
     }
 
@@ -2103,6 +2275,7 @@
       updateRuntimeMemoryTitleState();
       dispatchRuntimeAvatarSnapshot(null);
       applyMemoryReferenceHighlights(renderHighlightOptions);
+      applyRuntimeMemoryLazyVisibility();
       return;
     }
 
@@ -2145,6 +2318,7 @@
     updateRuntimeMemoryTitleState();
     dispatchRuntimeAvatarSnapshot(sourceSnapshot);
     applyMemoryReferenceHighlights(renderHighlightOptions);
+    applyRuntimeMemoryLazyVisibility();
   }
 
   function isLatestRuntimeMemorySnapshot() {
@@ -7477,6 +7651,7 @@
       filesStoreEventsBound = true;
     }
 
+    bindRuntimeMemoryLazyScroll();
     bindRuntimeMemoryNavigation();
     renderRuntimeMemorySnapshot();
     renderRuntimeDiffs();

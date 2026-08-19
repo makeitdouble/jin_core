@@ -15,6 +15,129 @@ from utils.tool_results import (
     TOOL_RESULT_KIND_ACTIVE_MEMORY,
     record_runtime_tool_result,
 )
+from .update_active_memory_utils import (
+    format_update_active_memory_failure_reason,
+)
+
+
+def _update_active_memory_action_event_outcome(
+    context,
+    action,
+    result: dict,
+    *,
+    failure_reason: str = "",
+) -> None:
+
+    events = getattr(
+        context,
+        "runtime_action_events",
+        None,
+    )
+
+    if not isinstance(
+        events,
+        list,
+    ):
+        return
+
+    action_payload = str(
+        getattr(
+            action,
+            "payload",
+            "",
+        )
+        or ""
+    ).strip()
+    runtime_turn_id = str(
+        getattr(
+            context,
+            "runtime_current_turn_id",
+            "",
+        )
+        or ""
+    ).strip()
+
+    for event in reversed(events):
+        if not isinstance(
+            event,
+            dict,
+        ):
+            continue
+
+        if str(
+            event.get(
+                "name",
+                "",
+            )
+            or ""
+        ).strip().casefold() != "update_active_memory":
+            continue
+
+        event_turn_id = str(
+            event.get(
+                "runtime_turn_id",
+                "",
+            )
+            or ""
+        ).strip()
+        if (
+            runtime_turn_id
+            and event_turn_id
+            and event_turn_id != runtime_turn_id
+        ):
+            continue
+
+        event_payload = str(
+            event.get(
+                "payload",
+                "",
+            )
+            or ""
+        ).strip()
+        if (
+            action_payload
+            and event_payload
+            and event_payload != action_payload
+        ):
+            continue
+
+        event["status"] = (
+            "completed"
+            if result.get("ok")
+            else "failed"
+        )
+        event["active_memory_id"] = str(
+            result.get(
+                "id",
+                "",
+            )
+            or ""
+        ).strip()
+
+        if result.get("ok"):
+            event.pop(
+                "error",
+                None,
+            )
+            event.pop(
+                "failure_reason",
+                None,
+            )
+        else:
+            event["error"] = str(
+                result.get(
+                    "error",
+                    "",
+                )
+                or ""
+            ).strip()
+            event["failure_reason"] = str(
+                failure_reason
+                or "update failed"
+            ).strip()
+
+        return
+
 
 
 async def emit_rejected_active_memory_results(
@@ -313,6 +436,19 @@ async def apply_update_active_memory_actions(
             context,
             action.payload,
         )
+        failure_reason = (
+            ""
+            if result.get("ok")
+            else format_update_active_memory_failure_reason(
+                result
+            )
+        )
+        _update_active_memory_action_event_outcome(
+            context,
+            action,
+            result,
+            failure_reason=failure_reason,
+        )
         record_runtime_tool_result(
             context,
             TOOL_RESULT_KIND_ACTIVE_MEMORY,
@@ -345,13 +481,28 @@ async def apply_update_active_memory_actions(
             "text": (
                 f"{display_name}: {result.get('title', 'Active memory')}"
                 if result.get("ok")
-                else f"{display_name}: failed"
+                else (
+                    f"{display_name}: failed"
+                    + (
+                        f" : {failure_reason}"
+                        if failure_reason
+                        else ""
+                    )
+                )
             ),
             "active_memory_result": result,
             "active_memory_id": result.get("id", ""),
             "active_memory_title": result.get("title", ""),
             "active_memory_changes": result.get("changes", []),
         }
+
+        if not result.get("ok"):
+            event["error"] = result.get(
+                "error",
+                "",
+            )
+            event["detail"] = failure_reason
+            event["failure_reason"] = failure_reason
 
         if result.get("record"):
             event["active_memory"] = result["record"]

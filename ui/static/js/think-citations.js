@@ -1481,52 +1481,6 @@
     syncAllThinkCitationHighlights();
   }
 
-  function buildSessionCitationFragments() {
-
-    const storage =
-      window.JinRuntime
-      && window.JinRuntime.storage;
-
-    if (
-      !storage
-      || typeof storage.readLatestSavedSessionMemory !== "function"
-    ) {
-      return [];
-    }
-
-    const savedSession =
-      storage.readLatestSavedSessionMemory();
-
-    if (
-      !savedSession
-      || savedSession.explicit_save !== true
-    ) {
-      return [];
-    }
-
-    const sessionMemory =
-      String(
-        savedSession.session_memory || ""
-      ).trim();
-
-    if (!sessionMemory) {
-      return [];
-    }
-
-    return buildMemoryCitationFragments(
-      sessionMemory,
-      {
-        source: "latestSavedSessionMemory",
-        sourceType: "session",
-        citationType: "session_citation",
-        layer: "session",
-        idPrefix: "session",
-        defaultConstantName: "session_memory",
-      }
-    );
-
-  }
-
   function normalizeThinkRuntimeCitationIdentity(value) {
 
     const source = String(value || "");
@@ -2292,7 +2246,6 @@
           ),
           ...buildActiveMemoryCitationFragments(),
           ...buildL4CitationFragments(),
-          ...buildSessionCitationFragments(),
         ];
 
         if (!fragments.length) {

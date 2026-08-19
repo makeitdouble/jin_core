@@ -59,6 +59,7 @@ function buildSessionActionPartKey(
     String(item.createdAt || 0),
     String(partIndex),
     normalizeSessionActionName(part.text),
+    String(part.id || ""),
     (part.colors || []).join(","),
   ].join("|");
 }
@@ -199,6 +200,9 @@ function normalizeSessionActionParts(
           const message =
             String(part.message || "").trim();
 
+          const id =
+            String(part.id || "").trim();
+
           const colors = Array.isArray(part.colors)
             ? part.colors
                 .map((color) =>
@@ -221,6 +225,7 @@ function normalizeSessionActionParts(
             text,
             detail,
             message,
+            id,
             colors,
             count,
             cancelled:
@@ -254,6 +259,7 @@ function normalizeSessionActionParts(
       text,
       detail: "",
       message: "",
+      id: "",
       colors: [],
       count: 0,
       cancelled: false,
@@ -276,6 +282,7 @@ function normalizeSessionActionParts(
     text: visibleText || text,
     detail: visibleText ? detail : "",
     message: "",
+    id: "",
     colors: [],
     count: 0,
     cancelled: false,
@@ -506,6 +513,41 @@ function buildSessionActionRow(
       actionName
     );
 
+    const normalizedActionName =
+      normalizeSessionActionName(
+        part.text
+      );
+    const isAttachmentAction = (
+      normalizedActionName === "ATTACH_FILE"
+      || normalizedActionName === "DETACH_FILE"
+    );
+
+    if (isAttachmentAction && part.detail) {
+      const attachmentName =
+        document.createElement("span");
+
+      attachmentName.textContent =
+        `: ${part.detail}`;
+
+      action.appendChild(
+        attachmentName
+      );
+    }
+
+    if (isAttachmentAction && part.id) {
+      const attachmentId =
+        document.createElement("span");
+
+      attachmentId.textContent =
+        ` [ id: ${part.id} ]`;
+      attachmentId.className =
+        "opacity-70";
+
+      action.appendChild(
+        attachmentId
+      );
+    }
+
     if (part.message) {
       const message =
         document.createElement("span");
@@ -588,7 +630,7 @@ function getSessionActionsTitle(
   mode,
 ) {
   return mode === "sequence"
-    ? "[ SEQUENCE ]"
+    ? "[ CURRENT REQUEST ]"
     : "[ SESSION ACTIONS ]";
 }
 
@@ -1048,6 +1090,7 @@ function markSessionActionCancelled(
         text: part.text,
         detail: part.detail,
         message: part.message,
+        id: part.id,
         colors: part.colors,
         count: part.count,
         cancelled: part.cancelled,

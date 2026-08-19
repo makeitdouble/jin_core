@@ -452,18 +452,6 @@
         Array.isArray(payload.restore_attached_file_metadata)
           ? payload.restore_attached_file_metadata
           : [],
-      session_memory:
-        String(
-          payload.session_memory
-          || ""
-        ),
-      session_memory_source:
-        "archived_session_log",
-      session_memory_updates:
-        Number(
-          payload.session_memory_updates
-          || 0
-        ),
       runtime_memory:
         String(
           payload.runtime_memory

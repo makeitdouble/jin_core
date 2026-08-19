@@ -81,6 +81,14 @@ class AttachmentUiContractTests(unittest.TestCase):
             attachment_source,
         )
         self.assertIn(
+            "bindJinAttachmentHoverPreview(\n    element,\n    attachment,",
+            attachment_source,
+        )
+        self.assertIn(
+            "hoverPreviewMaxPx: 100",
+            attachment_source,
+        )
+        self.assertIn(
             'action === "attach_file"',
             runtime_action_source,
         )

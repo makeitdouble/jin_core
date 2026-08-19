@@ -12,6 +12,13 @@ ACTIVE_MEMORY_UPDATE_ID_RE = re.compile(
     re.IGNORECASE,
 )
 
+UPDATE_ACTIVE_MEMORY_FAILURE_REASONS = {
+    "invalid_update_active_memory_payload": "invalid payload",
+    "active_memory_not_found": "incorrect id",
+    "active_memory_update_no_changes": "no changes",
+    "active_memory_update_failed": "update failed",
+}
+
 
 def build_update_active_memory_payload(
     query: str,
@@ -71,3 +78,64 @@ def parse_update_active_memory_payload(
         seen.add(field_name)
 
     return active_memory_id, tuple(changes)
+
+
+def format_update_active_memory_failure_reason(
+    result: dict,
+) -> str:
+
+    if not isinstance(
+        result,
+        dict,
+    ):
+        return "update failed"
+
+    error = str(
+        result.get(
+            "error",
+            "",
+        )
+        or ""
+    ).strip().casefold()
+
+    if error == "active_memory_field_not_declared":
+        unknown_fields = [
+            str(field or "").strip()
+            for field in result.get(
+                "unknown_fields",
+                [],
+            )
+            or []
+            if str(field or "").strip()
+        ]
+
+        if unknown_fields:
+            label = (
+                "unknown field"
+                if len(unknown_fields) == 1
+                else "unknown fields"
+            )
+            return (
+                f"{label}: "
+                + ", ".join(
+                    unknown_fields
+                )
+            )
+
+        return "unknown field"
+
+    reason = UPDATE_ACTIVE_MEMORY_FAILURE_REASONS.get(
+        error,
+        "",
+    )
+
+    if reason:
+        return reason
+
+    if error:
+        return error.replace(
+            "_",
+            " ",
+        )
+
+    return "update failed"

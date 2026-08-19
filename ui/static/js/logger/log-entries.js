@@ -1101,6 +1101,223 @@ function setL4LoggerButtonVisible(
   );
 }
 
+const metabolismCards = [];
+
+function normalizeMetabolismLoggerLevels(value) {
+  const metabolism =
+    window.JinRuntime
+    && window.JinRuntime.metabolism;
+
+  if (metabolism && typeof metabolism.normalize === "function") {
+    return metabolism.normalize(value);
+  }
+
+  return {
+    dopamine: 0.42,
+    serotonin: 0.58,
+    oxytocin: 0.46,
+    norepinephrine: 0.38,
+    cortisol: 0.24,
+  };
+}
+
+function applyMetabolismLoggerTint(logDiv, levels) {
+  if (!logDiv) {
+    return;
+  }
+
+  const normalized =
+    normalizeMetabolismLoggerLevels(levels);
+
+  Object.entries(normalized).forEach(([channel, value]) => {
+    const strength =
+      4 + Math.max(0, Math.min(1, Number(value) || 0)) * 11;
+
+    logDiv.style.setProperty(
+      `--jin-metabolism-${channel}`,
+      `${strength.toFixed(2)}%`
+    );
+  });
+}
+
+function resolveMetabolismLoggerEvent(meta) {
+  if (String(meta && meta.channel || "").toLowerCase() !== "metabolism") {
+    return "";
+  }
+
+  const event =
+    String(meta && meta.metabolism_event || "").toLowerCase();
+
+  return event === "request" || event === "result"
+    ? event
+    : "";
+}
+
+function createMetabolismLoggerCard(
+  requestDetails = null,
+  levels = null,
+  requestId = "",
+) {
+  const logDiv =
+    createL4LoggerCard(
+      "[METABOLISM]"
+    );
+
+  logDiv.classList.add(
+    "jin-metabolism-card"
+  );
+  logDiv.dataset.logKind =
+    "metabolism";
+  logDiv.dataset.metabolismRequestId =
+    String(requestId || "").trim();
+
+  applyMetabolismLoggerTint(
+    logDiv,
+    levels
+  );
+
+  const actions =
+    document.createElement("div");
+
+  actions.className =
+    "mt-2 flex flex-wrap items-center gap-2";
+
+  const requestButton =
+    createL4LoggerButton(
+      "request",
+      "muted"
+    );
+  const responseButton =
+    createL4LoggerButton(
+      "response",
+      "muted"
+    );
+
+  setL4LoggerButtonVisible(
+    requestButton,
+    Boolean(requestDetails)
+  );
+  setL4LoggerButtonVisible(
+    responseButton,
+    false
+  );
+
+  const state = {
+    logDiv,
+    requestId: String(requestId || "").trim(),
+    requestDetails,
+    responseDetails: null,
+    responseSettled: false,
+    requestButton,
+    responseButton,
+  };
+
+  requestButton.addEventListener(
+    "click",
+    function () {
+      if (!state.requestDetails) {
+        return;
+      }
+
+      showTrace(
+        state.requestDetails,
+        "Metabolism request"
+      );
+    }
+  );
+
+  responseButton.addEventListener(
+    "click",
+    function () {
+      if (!state.responseSettled || !state.responseDetails) {
+        return;
+      }
+
+      showTrace(
+        state.responseDetails,
+        "Metabolism response"
+      );
+    }
+  );
+
+  actions.appendChild(
+    requestButton
+  );
+  actions.appendChild(
+    responseButton
+  );
+  logDiv.appendChild(
+    actions
+  );
+
+  metabolismCards.push(
+    state
+  );
+
+  return state;
+}
+
+function handleMetabolismLoggerLog(
+  details,
+  meta,
+) {
+  const event =
+    resolveMetabolismLoggerEvent(meta);
+
+  if (!event) {
+    return null;
+  }
+
+  const levels =
+    meta && meta.metabolism_levels;
+  const requestId =
+    String(meta && meta.metabolism_request_id || "").trim();
+
+  if (event === "request") {
+    return createMetabolismLoggerCard(
+      details,
+      levels,
+      requestId
+    ).logDiv;
+  }
+
+  let state =
+    [...metabolismCards]
+      .reverse()
+      .find(candidate => (
+        !candidate.responseSettled
+        && (
+          !requestId
+          || candidate.requestId === requestId
+        )
+      ));
+
+  if (!state) {
+    state =
+      createMetabolismLoggerCard(
+        null,
+        levels,
+        requestId
+      );
+  }
+
+  state.responseSettled = true;
+  state.responseDetails =
+    String(details || "");
+
+  applyMetabolismLoggerTint(
+    state.logDiv,
+    levels
+  );
+
+  setL4LoggerButtonVisible(
+    state.responseButton,
+    Boolean(state.responseDetails.trim())
+  );
+
+  return state.logDiv;
+}
+
 function resolveL4SummarizerPhase(
   message,
   meta,
@@ -1359,171 +1576,6 @@ function handleL4SummarizerLog(
   return state.logDiv;
 }
 
-
-const l2SummarizerCards = [];
-
-function resolveL2SummarizerEvent(
-  message,
-  meta,
-) {
-  if (String(meta && meta.memory_level || "").toUpperCase() !== "L2") {
-    return "";
-  }
-
-  const event =
-    String(meta && meta.memory_event || "").toLowerCase();
-
-  if (event === "summarizer_request" || event === "summarizer_result") {
-    return event;
-  }
-
-  const normalized =
-    String(message || "").toLowerCase();
-
-  if (normalized.endsWith("summarizer request")) {
-    return "summarizer_request";
-  }
-
-  if (normalized.endsWith("summarizer result")) {
-    return "summarizer_result";
-  }
-
-  return "";
-}
-
-function createL2SummarizerCard(
-  requestDetails = null,
-) {
-  const logDiv =
-    createL4LoggerCard(
-      "[MEMORY:L2]"
-    );
-
-  const actions =
-    document.createElement("div");
-
-  actions.className =
-    "mt-2 flex flex-wrap items-center gap-2";
-
-  const payloadButton =
-    createL4LoggerButton(
-      "payload"
-    );
-  const responseButton =
-    createL4LoggerButton(
-      "response"
-    );
-
-  setL4LoggerButtonVisible(
-    payloadButton,
-    Boolean(requestDetails)
-  );
-  setL4LoggerButtonVisible(
-    responseButton,
-    false
-  );
-
-  const state = {
-    logDiv,
-    requestDetails,
-    responseDetails: null,
-    responseSettled: false,
-    payloadButton,
-    responseButton,
-  };
-
-  payloadButton.addEventListener(
-    "click",
-    function () {
-      if (!state.requestDetails) {
-        return;
-      }
-
-      showTrace(
-        prettifyTraceDetails(
-          state.requestDetails
-        ),
-        "L2 pattern memory payload"
-      );
-    }
-  );
-
-  responseButton.addEventListener(
-    "click",
-    function () {
-      if (!state.responseSettled) {
-        return;
-      }
-
-      const responseText =
-        String(state.responseDetails || "").trim();
-
-      showTrace(
-        responseText && responseText !== "<empty>"
-          ? responseText
-          : "No patterns",
-        "L2 pattern memory response"
-      );
-    }
-  );
-
-  actions.appendChild(payloadButton);
-  actions.appendChild(responseButton);
-  logDiv.appendChild(actions);
-
-  l2SummarizerCards.push(state);
-
-  return state;
-}
-
-function handleL2SummarizerLog(
-  message,
-  details,
-  meta,
-) {
-  const event =
-    resolveL2SummarizerEvent(
-      message,
-      meta
-    );
-
-  if (!event) {
-    return null;
-  }
-
-  if (event === "summarizer_request") {
-    return createL2SummarizerCard(
-      details
-    ).logDiv;
-  }
-
-  let state =
-    [...l2SummarizerCards]
-      .reverse()
-      .find((candidate) => !candidate.responseSettled);
-
-  if (!state) {
-    state =
-      createL2SummarizerCard();
-  }
-
-  state.responseSettled = true;
-  state.responseDetails =
-    String(details ?? "");
-
-  setL4LoggerButtonVisible(
-    state.responseButton,
-    true
-  );
-  setL4LoggerButtonTone(
-    state.responseButton,
-    meta && meta.memory_changed === false
-      ? "muted"
-      : "blue"
-  );
-
-  return state.logDiv;
-}
 
 function settleL4SummarizerCardForTerminalEvent(
   message,
@@ -2493,15 +2545,14 @@ function appendLog(
       details,
     );
 
-  const l2SummarizerLog =
-    handleL2SummarizerLog(
-      normalized.message,
+  const metabolismLog =
+    handleMetabolismLoggerLog(
       normalized.details,
       meta
     );
 
-  if (l2SummarizerLog) {
-    return l2SummarizerLog;
+  if (metabolismLog) {
+    return metabolismLog;
   }
 
   settleL4SummarizerCardForTerminalEvent(
@@ -3005,14 +3056,6 @@ function appendLog(
           .includes("[LM STUDIO ERROR]")
       );
 
-    const isPatternResult =
-      isSummarizer
-      && String(
-        normalized.message
-      ).includes(
-        "L2 pattern memory"
-      );
-
     const shouldShowReason =
       tag.includes("ERROR")
       || (
@@ -3065,8 +3108,6 @@ function appendLog(
     traceButton.textContent =
       isModelOutput
         ? "payload"
-        : isPatternResult
-        ? "patterns"
         : isSession || isLatestSnapshots || isActiveMemory || isFactsMemory
         ? "show"
         : isSummarizer
@@ -3093,9 +3134,7 @@ function appendLog(
             : prettifyTraceDetails(normalized.details),
           getTraceTitle(
             normalized.details,
-            isPatternResult
-              ? "L2 pattern memory"
-              : isLatestSnapshots
+            isLatestSnapshots
               ? "Latest snapshots"
               : isSession
               ? "Session bootstrap"

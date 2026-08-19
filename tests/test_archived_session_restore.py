@@ -14,6 +14,7 @@ from utils.session_restore import build_archived_session_restore_payload
 from websocket.bootstrap import (
     apply_archived_session_continuation_state,
     apply_session_bootstrap,
+    enrich_session_bootstrap_from_archive,
 )
 
 
@@ -28,17 +29,14 @@ class ArchivedSessionRestoreTests(unittest.TestCase):
             session_id="fresh-session",
         )
 
-        with patch(
-            "websocket.bootstrap.create_chat_log_bootstrap_reference"
-        ) as create_reference:
-            apply_archived_session_continuation_state(
-                context,
-                {
-                    "source_session_id": "archived-session",
-                    "source_session_date": "2026-08-18",
-                    "archived_session_restore": True,
-                },
-            )
+        apply_archived_session_continuation_state(
+            context,
+            {
+                "source_session_id": "archived-session",
+                "source_session_date": "2026-08-18",
+                "archived_session_restore": True,
+            },
+        )
 
         self.assertEqual(context.session_id, "fresh-session")
         self.assertEqual(
@@ -46,11 +44,33 @@ class ArchivedSessionRestoreTests(unittest.TestCase):
             "archived-session",
         )
         self.assertTrue(context.runtime_session_restore_priming)
-        create_reference.assert_called_once_with(
-            context,
-            "archived-session",
-            source_session_date="2026-08-18",
+        self.assertFalse(
+            hasattr(
+                context,
+                "runtime_chat_log_bootstrap_reference_path",
+            )
         )
+
+    def test_browser_only_predecessor_does_not_prime_archive_restore(self):
+        context = RuntimeContext(
+            websocket=None,
+            emitter=None,
+            logger=None,
+            clients={},
+            session_id="fresh-session",
+        )
+
+        apply_archived_session_continuation_state(
+            context,
+            {
+                "source_session_id": "browser-only-session",
+                "archived_session_restore": False,
+            },
+        )
+
+        self.assertEqual(context.session_id, "fresh-session")
+        self.assertEqual(context.runtime_archived_session_id, "")
+        self.assertFalse(context.runtime_session_restore_priming)
 
     def _build_fixture(self):
         root = Path(tempfile.mkdtemp())
@@ -520,6 +540,95 @@ open_question: continue
         )
         self.assertEqual(context.runtime_attached_file_ids, [])
 
+
+    def test_browser_checkpoint_does_not_mix_in_older_raw_dialogue(self):
+        archived = {
+            "source_session_id": "archive-session",
+            "messages": [
+                {
+                    "ts": "2026-08-19T17:24:52+03:00",
+                    "role": "jin",
+                    "text": "Жду тебя — обсудим Эндермена.",
+                },
+            ],
+            "dialog_context": (
+                "<RESTORED_SESSION_DIALOG>Enderman</RESTORED_SESSION_DIALOG>"
+            ),
+            "recent_turns": [
+                {"user": "про ендера", "jin": "обсудим ендера"},
+            ],
+            "previous_reasoning": "reasoning about Enderman",
+            "restore_reasoning_dump": (
+                "<RESTORED_SESSION_REASONING_DUMP>Enderman</RESTORED_SESSION_REASONING_DUMP>"
+            ),
+            "runtime_memory": "active_topic: stale archive topic",
+            "runtime_memory_updates": 10,
+        }
+
+        with patch(
+            "utils.session_restore.build_archived_session_restore_payload",
+            return_value=archived,
+        ):
+            enriched = enrich_session_bootstrap_from_archive(
+                {
+                    "type": "session_bootstrap",
+                    "source_session_id": "archive-session",
+                    "saved_at": "2026-08-19T17:11:06.500000Z",
+                    "runtime_memory": (
+                        "active_topic: Cooking instructions for macaroni and sausages"
+                    ),
+                    "runtime_memory_updates": 20,
+                    "session_memory": "saved L3",
+                    "session_memory_updates": 1,
+                }
+            )
+
+        self.assertEqual(
+            enriched["runtime_memory"],
+            "active_topic: Cooking instructions for macaroni and sausages",
+        )
+        self.assertNotIn("dialog_context", enriched)
+        self.assertNotIn("recent_turns", enriched)
+        self.assertNotIn("previous_reasoning", enriched)
+        self.assertNotIn("restore_reasoning_dump", enriched)
+        self.assertTrue(enriched["archived_session_restore"])
+
+    def test_browser_checkpoint_still_uses_raw_dialogue_when_log_reaches_save(self):
+        archived = {
+            "source_session_id": "archive-session",
+            "messages": [
+                {
+                    "ts": "2026-08-19T20:11:06+03:00",
+                    "role": "jin",
+                    "text": "current tail",
+                },
+            ],
+            "dialog_context": (
+                "<RESTORED_SESSION_DIALOG>current tail</RESTORED_SESSION_DIALOG>"
+            ),
+            "restore_reasoning_dump": (
+                "<RESTORED_SESSION_REASONING_DUMP>current reasoning</RESTORED_SESSION_REASONING_DUMP>"
+            ),
+        }
+
+        with patch(
+            "utils.session_restore.build_archived_session_restore_payload",
+            return_value=archived,
+        ):
+            enriched = enrich_session_bootstrap_from_archive(
+                {
+                    "type": "session_bootstrap",
+                    "source_session_id": "archive-session",
+                    "saved_at": "2026-08-19T17:11:06.900000Z",
+                    "runtime_memory": "active_topic: macaroni",
+                    "session_memory": "saved L3",
+                }
+            )
+
+        self.assertIn("dialog_context", enriched)
+        self.assertIn("restore_reasoning_dump", enriched)
+        self.assertTrue(enriched["archived_session_restore"])
+
     def test_restore_resource_replay_uses_real_runtime_action_dispatcher(self):
         context = RuntimeContext(
             websocket=None,
@@ -791,6 +900,7 @@ class ArchivedSessionRestoreClientContractTests(unittest.TestCase):
         self.assertIn("replaceLoadedDelayedMemoryReportIds", restore_script)
         self.assertIn("updateSessionActionsLog", restore_script)
         self.assertIn("jinArchivedSessionBootstrap", runtime_session)
+        self.assertIn("runtimeMemory.saved_at", runtime_session)
         self.assertIn('type: "archived_session_resume"', socket_script)
         self.assertNotIn(
             'bootstrap.archived_session_restore !== true',

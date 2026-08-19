@@ -13,7 +13,6 @@ from .logger import WebSocketLogger
 from runtime.L1_memory import apply_runtime_response_feedback
 from runtime.L1_memory_utils import (
     emit_runtime_l1_diff_update,
-    emit_runtime_session_memory_update,
 )
 from runtime.L4_memory import (
     apply_facts_memory_store_sync,
@@ -50,7 +49,6 @@ from .bootstrap import (
     is_soft_resume_request,
 )
 from .messages import (
-    arm_save_session_from_user_text,
     build_runtime_action_guard_retry_request,
     emit_runtime_action_guard_confirmation_failure,
     merge_runtime_idle_followup_turn,
@@ -287,7 +285,7 @@ async def websocket_endpoint(
                 continue
 
             # -------------------------------------------------
-            # RESTORE BROWSER SESSION MEMORY
+            # RESTORE BROWSER SESSION SNAPSHOT
             # -------------------------------------------------
 
             if message_type == "runtime_memory_delete_slot":
@@ -495,7 +493,7 @@ async def websocket_endpoint(
 
                 if restored:
                     await logger.log_system(
-                        "[WS] browser session memory restored"
+                        "[WS] browser session snapshot restored"
                     )
 
                     try:
@@ -523,10 +521,6 @@ async def websocket_endpoint(
                     )
 
                     await emit_delayed_memory_store_snapshot(
-                        context
-                    )
-
-                    await emit_runtime_session_memory_update(
                         context
                     )
 
