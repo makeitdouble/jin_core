@@ -10,6 +10,7 @@ from rules.runtime import (
     SESSION_RESTORE_REASONING_COUNT,
 )
 from utils.chat_log import CHAT_LOG_ROOT, _clean_session_id
+from utils.actions import normalize_jin_position_dict, normalize_jin_speed_value
 
 
 BLOCK_RE_TEMPLATE = r"<{name}(?:\s+[^>]*)?>\s*(?P<body>[\s\S]*?)\s*</{name}>"
@@ -597,6 +598,9 @@ def _parse_trusted_values(context_text: str) -> dict:
         "CURRENT_CONTEXT_WINDOW",
         "CURRENT_JIN_COLOR",
         "CURRENT_JIN_SIZE",
+        "CURRENT_JIN_POSITION",
+        "CURRENT_JIN_SPEED",
+        "CURRENT_WINDOW_SIZE",
         "CURRENT_USER_DATETIME",
     ):
         match = re.search(
@@ -878,6 +882,22 @@ def build_archived_session_restore_payload(
         "current_jin_color": trusted_values.get("CURRENT_JIN_COLOR", ""),
         "current_jin_size": _parse_jin_size(
             trusted_values.get("CURRENT_JIN_SIZE", "")
+        ),
+        "current_jin_position": normalize_jin_position_dict(
+            trusted_values.get("CURRENT_JIN_POSITION", "")
+        ),
+        "current_jin_speed": (
+            normalize_jin_speed_value(
+                trusted_values.get("CURRENT_JIN_SPEED", "")
+            )
+            or 900
+        ),
+        "current_window_size": _parse_jin_size(
+            trusted_values.get("CURRENT_WINDOW_SIZE", "")
+        ),
+        "current_jin_collapsed": bool(
+            str(trusted_values.get("CURRENT_JIN_SIZE", "")).strip()
+            or str(trusted_values.get("CURRENT_JIN_POSITION", "")).strip()
         ),
         "runtime_mode": runtime_mode,
         "archived_context": context_text,

@@ -247,6 +247,38 @@ def _format_session_action_context_parts(
             )
             continue
 
+        context_detail = str(
+            part.get(
+                "context_detail",
+                "",
+            )
+            or ""
+        ).strip()
+
+        if context_detail:
+            context_part = dict(
+                part
+            )
+            context_part["detail"] = context_detail
+            context_part.pop(
+                "colors",
+                None,
+            )
+            context_part.pop(
+                "sizes",
+                None,
+            )
+            formatted = format_session_action_display_parts(
+                [
+                    context_part,
+                ],
+            )
+            if formatted:
+                context_parts.append(
+                    formatted
+                )
+                continue
+
         memory_part = _format_memory_action_context_part(
             part
         )

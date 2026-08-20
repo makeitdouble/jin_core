@@ -20,6 +20,9 @@ from rules.brain_context_builder import (
 from utils.context.context_exports import (
     build_session_actions_history_context,
 )
+from utils.session_actions_history import (
+    upsert_session_action_marker_history_since,
+)
 from runtime.L1_memory_rules import (
     DEFAULT_RUNTIME_MEMORY,
 )
@@ -996,6 +999,70 @@ class BrainPromptMemoryTests(
             )
             self.assertNotIn(
                 "count:",
+                history,
+            )
+
+    def test_session_history_keeps_full_jin_visual_values_in_context(self):
+
+            context = SimpleNamespace(
+                runtime_session_action_history=[],
+                runtime_current_turn_id="turn_000001",
+                runtime_action_events=[],
+            )
+            marker_actions = [
+                {
+                    "name": "JIN_SIZE",
+                    "marker_count": 1,
+                    "payloads": ["300px"],
+                    "raw_payloads": ["300px 300px"],
+                },
+                {
+                    "name": "JIN_COLOR",
+                    "marker_count": 1,
+                    "payloads": ["#ff00ff"],
+                    "raw_payloads": ["#ff00ff"],
+                },
+                {
+                    "name": "JIN_POSITION",
+                    "marker_count": 1,
+                    "payloads": ["x:120px y:80px"],
+                    "raw_payloads": ["x:120px y:80px"],
+                },
+                {
+                    "name": "IDLE",
+                    "marker_count": 1,
+                    "payloads": ["30s"],
+                    "raw_payloads": ["30s"],
+                },
+            ]
+
+            with patch(
+                "utils.session_actions_history.time.time",
+                return_value=1000.0,
+            ):
+                self.assertTrue(
+                    upsert_session_action_marker_history_since(
+                        context,
+                        0,
+                        marker_actions,
+                    )
+                )
+
+            with patch(
+                "utils.context.session_actions.time.time",
+                return_value=4600.0,
+            ):
+                history = build_session_actions_history_context(
+                    context
+                )
+
+            self.assertIn(
+                (
+                    "1. JIN_SIZE: w:300px h:300px, "
+                    "JIN_COLOR: #ff00ff, "
+                    "JIN_POSITION: x:120px y:80px, "
+                    "IDLE: 30s ( 1h ago )"
+                ),
                 history,
             )
 

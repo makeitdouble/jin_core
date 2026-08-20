@@ -338,6 +338,8 @@ class RuntimeContext:
     # instead of silently mutating the browser before JIN resumes.
     runtime_session_restore_pending_jin_color: str = ""
     runtime_session_restore_pending_jin_size: object | None = None
+    runtime_session_restore_pending_jin_position: object | None = None
+    runtime_session_restore_pending_jin_speed: int | None = None
 
     runtime_memory_update_task: object | None = None
 
@@ -445,13 +447,37 @@ class RuntimeContext:
 
     runtime_metabolism_last_event: str = ""
 
+    runtime_metabolism_last_signal_delta: dict = field(
+        default_factory=dict
+    )
+
+    runtime_metabolism_last_signal_event: str = ""
+
+    runtime_metabolism_last_signal_at: float = 0.0
+
     runtime_metabolism_active_memory_salience: dict = field(
         default_factory=dict
     )
 
+    runtime_metabolism_memory_significance_events: dict = field(
+        default_factory=dict
+    )
+
+    runtime_metabolism_active_memory_significance_seen_at: dict = field(
+        default_factory=dict
+    )
+
+    runtime_metabolism_l4_significance_seen_at: dict = field(
+        default_factory=dict
+    )
+
+    runtime_metabolism_l4_significance_dirty: bool = False
+
     runtime_metabolism_policy: dict = field(
         default_factory=dict
     )
+
+    runtime_metabolism_instruction: str = ""
 
     runtime_metabolism_associations: list[dict] = field(
         default_factory=list

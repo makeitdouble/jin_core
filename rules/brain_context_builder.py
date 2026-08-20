@@ -462,12 +462,23 @@ def _append_zero_diff_alert(
 
 def build_delayed_memory_inventory_context(
     context=None,
+    *,
+    user_input: str = "",
 ) -> str:
 
     from utils.delayed_memory_file_store import (
         delayed_memory_filename,
         normalize_delayed_memory_reports,
     )
+
+    try:
+        from runtime.metabolism import (
+            delayed_memory_bubble_tier,
+            score_delayed_memory_report,
+        )
+    except Exception:
+        delayed_memory_bubble_tier = None
+        score_delayed_memory_report = None
 
     if context is None:
         return ""
@@ -497,11 +508,32 @@ def build_delayed_memory_inventory_context(
         except (TypeError, ValueError):
             continue
 
+        relevance = 0.0
+        bubble_tier = 0
+        if score_delayed_memory_report is not None:
+            try:
+                relevance = float(
+                    score_delayed_memory_report(
+                        report,
+                        report_id=report_id,
+                        user_input=user_input,
+                        context=context,
+                    )
+                    or 0.0
+                )
+                if delayed_memory_bubble_tier is not None:
+                    bubble_tier = int(delayed_memory_bubble_tier(relevance))
+            except Exception:
+                relevance = 0.0
+                bubble_tier = 0
+
         report_names.append(
             (
+                bubble_tier,
                 _delayed_memory_last_loaded_timestamp(
                     report,
                 ),
+                relevance,
                 _append_delayed_memory_context_age(
                     filename[:-5],
                     report,
@@ -512,10 +544,16 @@ def build_delayed_memory_inventory_context(
     if not report_names:
         return ""
 
+    # last_loaded_date remains the canonical order. A live lexical/metabolic
+    # match only adds a temporary prompt-only bubble tier; storage/UI order is
+    # untouched. Strongly relevant reports may surface above newer unrelated
+    # ones, while weak/no-match inventories stay purely recency-sorted.
     report_names.sort(
         key=lambda item: (
             -item[0],
-            item[1].casefold(),
+            -item[1],
+            -item[2],
+            item[3].casefold(),
         )
     )
 
@@ -523,7 +561,7 @@ def build_delayed_memory_inventory_context(
         "<DELAYED_MEMORY>\n"
         + "\n".join(
             report_name
-            for _, report_name in report_names
+            for _, _, _, report_name in report_names
         )
         + "\n</DELAYED_MEMORY>"
     )
@@ -1079,7 +1117,8 @@ def build_brain_context(
         # reports are visible before the rest of the runtime state.
         delayed_memory_inventory_context = (
             build_delayed_memory_inventory_context(
-                context
+                context,
+                user_input=user_input,
             )
         )
 
@@ -1269,10 +1308,10 @@ def build_brain_context(
                 )
             )
 
-    # Restore priming is intentionally actionless: this hidden turn exists only
-    # to re-establish conversational continuity. Normal action rules return on
-    # the next user turn.
-    if include_runtime_action_instructions and not restore_priming:
+    # Keep the normal runtime action contract on the hidden restore turn too.
+    # Session restore changes which historical/resource payloads are exposed,
+    # but it must not silently remove JIN's current rules or available actions.
+    if include_runtime_action_instructions:
         prompt_parts.append(
             build_runtime_action_instructions(
                 enabled_actions,

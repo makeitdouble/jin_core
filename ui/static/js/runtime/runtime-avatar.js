@@ -4818,6 +4818,22 @@
     lastAuxiliaryRenderSignatures = auxiliarySignatures;
   }
 
+  function notifyRoomStateChanged() {
+    window.dispatchEvent(
+      new CustomEvent("jin:avatar-room-state-changed")
+    );
+  }
+
+  function getCenterColor() {
+    return centerColor;
+  }
+
+  function getMemoryLayersHidden() {
+    return avatarRoot.classList.contains(
+      MEMORY_LAYERS_HIDDEN_CLASS
+    );
+  }
+
   function applyCenterColor(color) {
     const svg = avatarRoot.querySelector("svg");
     const overallColor =
@@ -4837,6 +4853,8 @@
       "--scene-jin-tint-alpha",
       String(0.12 * sceneColorIntensity)
     );
+
+    notifyRoomStateChanged();
 
     if (!svg) {
       renderAvatar(getLatestSnapshot(), {
@@ -5003,6 +5021,7 @@
     }
 
     syncMemoryLayersToggleLabel(nextHidden);
+    notifyRoomStateChanged();
 
     return nextHidden;
   }
@@ -5271,6 +5290,8 @@
     beginReasoning: beginReasoningMotion,
     endReasoning: endReasoningMotion,
     clearReasoning: clearReasoningMotion,
+    getCenterColor,
+    getMemoryLayersHidden,
     setCenterColor,
     setMemoryLayersHidden,
     toggleMemoryLayers,

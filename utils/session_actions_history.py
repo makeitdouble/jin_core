@@ -5,6 +5,9 @@ import time
 from utils.actions.action_counter_utils import (
     format_runtime_action_count,
 )
+from utils.actions.jin_position_utils import (
+    normalize_jin_position_payload,
+)
 from utils.actions.jin_size_utils import (
     normalize_jin_size_payload,
 )
@@ -101,6 +104,29 @@ def _normalize_session_action_display_sizes(
             )
 
     return normalized_sizes
+
+
+def _format_full_session_action_jin_size(
+    size,
+) -> str:
+
+    normalized_size = normalize_jin_size_payload(
+        size
+    )
+
+    if not normalized_size:
+        return ""
+
+    if (
+        normalized_size.startswith("w:")
+        and " h:" in normalized_size
+    ):
+        return normalized_size
+
+    return (
+        f"w:{normalized_size} "
+        f"h:{normalized_size}"
+    )
 
 
 def get_current_action_sequence_turn_id(
@@ -658,6 +684,13 @@ def _normalize_session_action_display_parts(
                     [],
                 )
             )
+            context_detail = str(
+                part.get(
+                    "context_detail",
+                    "",
+                )
+                or ""
+            ).strip()
             try:
                 count = max(
                     0,
@@ -684,6 +717,7 @@ def _normalize_session_action_display_parts(
             part_id = ""
             colors = []
             sizes = []
+            context_detail = ""
             count = 0
 
         if not part_text:
@@ -707,6 +741,9 @@ def _normalize_session_action_display_parts(
 
         if sizes:
             normalized_part["sizes"] = sizes
+
+        if context_detail:
+            normalized_part["context_detail"] = context_detail
 
         if count > 1:
             normalized_part["count"] = count
@@ -1734,12 +1771,37 @@ def _build_formatted_session_action_marker_parts(
 
         if colors:
             part["colors"] = colors
+            part["context_detail"] = ", ".join(
+                _unique_session_action_values(
+                    colors
+                )
+            )
         elif sizes:
             part["sizes"] = sizes
             part["detail"] = ", ".join(
                 sizes
             )
+            part["context_detail"] = ", ".join(
+                _unique_session_action_values(
+                    _format_full_session_action_jin_size(
+                        size
+                    )
+                    for size in sizes
+                )
+            )
         else:
+            if action_name == "JIN_POSITION":
+                position_values = _unique_session_action_values(
+                    normalize_jin_position_payload(
+                        payload
+                    )
+                    for payload in payloads
+                )
+                if position_values:
+                    part["context_detail"] = ", ".join(
+                        position_values
+                    )
+
             if (
                 action_name == "ASSET_ACTION"
                 and payloads

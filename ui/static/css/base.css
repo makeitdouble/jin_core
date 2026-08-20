@@ -236,6 +236,7 @@ main.panels-collapsed-2 #scene-shade {
     max-height: var(--panel-collapsed-title-height) !important;
 }
 
+#memory-panel.panel-avatar-inspector-closing,
 #memory-panel.panel-collapsed {
     height: calc(var(--runtime-avatar-panel-size) + var(--memory-avatar-collapsed-frame-size)) !important;
     min-height: calc(var(--runtime-avatar-panel-size) + var(--memory-avatar-collapsed-frame-size)) !important;
@@ -254,6 +255,7 @@ main.panels-collapsed-2 #scene-shade {
 }
 
 #console-panel.panel-collapsed #console-stream,
+#memory-panel.panel-avatar-inspector-closing .memory-scroll,
 #memory-panel.panel-collapsed .memory-scroll {
     max-height: 0;
     padding-top: 0 !important;
@@ -287,6 +289,7 @@ main.panels-collapsed-2 #scene-shade {
     background: rgba(148, 163, 184, 0.42);
 }
 
+#memory-panel.panel-avatar-inspector-closing .panel-bottom-resize-handle,
 .panel-collapsed .panel-bottom-resize-handle {
     display: none;
 }
@@ -847,9 +850,9 @@ main.panels-collapsed-2 #scene-shade {
             linear-gradient(
                     to bottom,
                     rgba(3, 7, 18, 0) 0%,
-                    rgba(3, 7, 18, 0.18) 34%,
-                    rgba(3, 7, 18, 0.62) 72%,
-                    rgba(3, 7, 18, 0.82) 100%
+                    rgba(3, 7, 18, 0.135) 34%,
+                    rgba(3, 7, 18, 0.465) 72%,
+                    rgba(3, 7, 18, 0.615) 100%
             );
     backdrop-filter: blur(1.5px);
     -webkit-backdrop-filter: blur(1.5px);

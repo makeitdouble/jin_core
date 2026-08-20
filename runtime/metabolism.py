@@ -8,6 +8,7 @@ import secrets
 import time
 import unicodedata
 from copy import deepcopy
+from datetime import datetime, timezone
 from typing import Any
 
 from clients.response_extractor import ResponseExtractor
@@ -66,6 +67,16 @@ METABOLISM_REFLEX_MAX_STEP = {
 METABOLISM_TEMPERATURE_MAX_DELTA = 0.12
 METABOLISM_MEMORY_STRENGTH_MAX_BOOST = 0.12
 METABOLISM_ACTIVE_MEMORY_MIN_SALIENCE = 0.16
+METABOLISM_MEMORY_SIGNIFICANCE_TOP_THRESHOLD = 0.50
+METABOLISM_MEMORY_SIGNIFICANCE_HALF_LIFE_SECONDS = 90 * 60
+METABOLISM_MEMORY_SIGNIFICANCE_MAX_CONTEXT_STEP_SECONDS = 5 * 60
+METABOLISM_MEMORY_SIGNIFICANCE_REINFORCE_FLOOR = 0.12
+METABOLISM_MEMORY_SIGNIFICANCE_EVENT_MAX_AGE_SECONDS = 10 * 60
+METABOLISM_DELAYED_MEMORY_BUBBLE_THRESHOLD = 0.26
+METABOLISM_DELAYED_MEMORY_STRONG_BUBBLE_THRESHOLD = 0.42
+METABOLISM_MEMORY_RECENT_FACTS = 6
+METABOLISM_MEMORY_RECENT_USER_TURNS = 3
+METABOLISM_INSTRUCTION_MAX_CHARS = 900
 
 # Fast rollback switches. State estimation + UI telemetry keep running even if
 # causal steering is disabled, so it is easy to compare "observer only" vs
@@ -99,9 +110,9 @@ METABOLISM_MAX_OUTPUT_TOKENS = 1024
 METABOLISM_TEMPERATURE = 0.1
 METABOLISM_CONTEXT_RESERVE_TOKENS = 384
 
-METABOLISM_SYSTEM_PROMPT = """You are JIN's metabolism state estimator.
+METABOLISM_SYSTEM_PROMPT = """You are JIN's metabolism state estimator and cognitive-direction generator.
 
-Read the supplied runtime snapshot and return the five target levels that JIN's internal state should move toward. These are computational modulation signals, not medical claims and not human physiology. The runtime applies inertia and movement limits itself; you only interpret the current state.
+Read the supplied runtime snapshot and return the five target levels that JIN's internal state should move toward, plus one compact behavioral instruction for the BRAIN. These are computational modulation signals, not medical claims and not human physiology. The runtime applies inertia and movement limits itself; you only interpret the current state.
 
 Channels:
 - dopamine: reward / novelty. Higher after useful novelty, successful resolution, clear progress, meaningful discovery, or explicit positive outcome/feedback. Do not reward JIN for its own excited wording.
@@ -122,12 +133,20 @@ Active Memory and delayed-memory inventory are context, not proof of emotion by 
 
 Keep continuity with previous_levels. Weak evidence should produce a target close to the previous state or baseline, not a dramatic mood swing.
 
+The instruction field is causal steering for the next BRAIN turn:
+- Write 1-3 concise sentences in imperative/directive form.
+- Do not mention channel names, metabolism, chemistry, mood, or numeric levels.
+- Describe what to prioritize in reasoning/attention/continuity now, including a relevant Active Memory or delayed-memory direction only when the snapshot supports it.
+- Truth, task correctness, and explicit USER intent outrank rapport. Never tell the BRAIN to agree with a false premise, flatter, invent evidence, or manufacture intimacy.
+- Prefer a concrete direction over generic motivational language. If signal is weak, simply preserve continuity and follow the current request without unnecessary branching.
+
 Output contract:
 - Return strict JSON only.
 - Do not write analysis, headings, bullets, markdown, commentary, or code fences.
 - Emit exactly one JSON object and nothing before or after it.
+- The object must contain exactly the five numeric channels plus the string field instruction.
 
-{"dopamine":0.000,"serotonin":0.000,"oxytocin":0.000,"norepinephrine":0.000,"cortisol":0.000}
+{"dopamine":0.000,"serotonin":0.000,"oxytocin":0.000,"norepinephrine":0.000,"cortisol":0.000,"instruction":"Keep continuity and follow the current request directly; verify uncertain details before committing."}
 """
 
 
@@ -152,6 +171,12 @@ def normalize_metabolism_levels(value: Any) -> dict[str, float]:
         )
         for channel in METABOLISM_CHANNELS
     }
+
+
+def normalize_metabolism_instruction(value: Any) -> str:
+    text = re.sub(r"\s+", " ", str(value or "")).strip()
+    text = re.sub(r"^(?:instructions?|instruction)\s*:\s*", "", text, flags=re.IGNORECASE)
+    return text[:METABOLISM_INSTRUCTION_MAX_CHARS].strip()
 
 
 def ensure_metabolism_state(context) -> dict[str, float]:
@@ -201,6 +226,196 @@ def _normalized_signal_text(value: Any) -> str:
     ).casefold().strip()
 
 
+def _normalize_memory_significance(value: Any) -> float:
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        number = 0.0
+    if number != number:
+        number = 0.0
+    return round(max(0.0, min(1.0, number)), 4)
+
+
+def current_metabolic_event_significance(context) -> float:
+    """How strongly the latest event displaced JIN's internal state.
+
+    This is intentionally about *movement*, not the absolute level of any
+    channel. A calm but unusual event can therefore be significant, while a
+    chronically elevated channel does not make every nearby memory important.
+    """
+
+    if context is None:
+        return 0.0
+
+    event = str(
+        getattr(context, "runtime_metabolism_last_signal_event", "")
+        or getattr(context, "runtime_metabolism_last_event", "")
+        or ""
+    ).strip().casefold()
+    if not event or event == "homeostasis":
+        return 0.0
+
+    try:
+        signal_at = float(
+            getattr(context, "runtime_metabolism_last_signal_at", 0.0)
+            or 0.0
+        )
+    except (TypeError, ValueError):
+        signal_at = 0.0
+    if (
+        signal_at > 0.0
+        and time.time() - signal_at
+        > METABOLISM_MEMORY_SIGNIFICANCE_EVENT_MAX_AGE_SECONDS
+    ):
+        return 0.0
+
+    delta = (
+        getattr(context, "runtime_metabolism_last_signal_delta", None)
+        or getattr(context, "runtime_metabolism_last_delta", {})
+        or {}
+    )
+    normalized_steps = []
+    for channel in METABOLISM_CHANNELS:
+        try:
+            movement = abs(float(delta.get(channel, 0.0) or 0.0))
+        except (TypeError, ValueError):
+            movement = 0.0
+        scale = max(
+            0.001,
+            float(
+                max(
+                    METABOLISM_MAX_STEP[channel],
+                    METABOLISM_REFLEX_MAX_STEP[channel],
+                )
+            ),
+        )
+        normalized_steps.append(min(1.0, movement / scale))
+
+    if not normalized_steps:
+        return 0.0
+
+    # RMS rewards a genuinely multi-channel displacement without requiring
+    # every channel to move. One slammed channel is meaningful; a broad shift
+    # is stronger still.
+    energy = math.sqrt(
+        sum(step * step for step in normalized_steps)
+        / len(normalized_steps)
+    )
+    return _normalize_memory_significance(energy)
+
+
+def _metabolic_significance_event_fingerprint(context) -> str:
+    if context is None:
+        return ""
+
+    event = str(
+        getattr(context, "runtime_metabolism_last_signal_event", "")
+        or getattr(context, "runtime_metabolism_last_event", "")
+        or ""
+    ).strip().casefold()
+    try:
+        tick = float(
+            getattr(context, "runtime_metabolism_last_signal_at", 0.0)
+            or getattr(context, "runtime_metabolism_last_tick_at", 0.0)
+            or 0.0
+        )
+    except (TypeError, ValueError):
+        tick = 0.0
+    delta = (
+        getattr(context, "runtime_metabolism_last_signal_delta", None)
+        or getattr(context, "runtime_metabolism_last_delta", {})
+        or {}
+    )
+    vector = ",".join(
+        f"{channel}:{float(delta.get(channel, 0.0) or 0.0):+.4f}"
+        for channel in METABOLISM_CHANNELS
+    )
+    return f"{event}|{tick:.6f}|{vector}"
+
+
+def _consume_metabolic_event_significance(
+    context,
+    *,
+    memory_key: str,
+) -> float:
+    """Allow one significance reinforcement per memory per metabolic event."""
+
+    if context is None or not memory_key:
+        return 0.0
+
+    fingerprint = _metabolic_significance_event_fingerprint(context)
+    if not fingerprint:
+        return 0.0
+
+    seen = getattr(
+        context,
+        "runtime_metabolism_memory_significance_events",
+        None,
+    )
+    if not isinstance(seen, dict):
+        seen = {}
+        context.runtime_metabolism_memory_significance_events = seen
+
+    if seen.get(memory_key) == fingerprint:
+        return 0.0
+    seen[memory_key] = fingerprint
+    return current_metabolic_event_significance(context)
+
+
+
+def _decay_memory_significance_by_elapsed(
+    significance: float,
+    *,
+    elapsed: float,
+) -> float:
+    current = _normalize_memory_significance(significance)
+    if current <= 0.0:
+        return current
+
+    # Decay is exposure-like rather than pure wall-clock expiry. A memory that
+    # was absent while JIN was shut down should not evaporate overnight, so a
+    # single context encounter can account for at most a few minutes.
+    elapsed = min(
+        max(0.0, float(elapsed or 0.0)),
+        float(METABOLISM_MEMORY_SIGNIFICANCE_MAX_CONTEXT_STEP_SECONDS),
+    )
+    half_life = max(
+        1.0,
+        float(METABOLISM_MEMORY_SIGNIFICANCE_HALF_LIFE_SECONDS),
+    )
+    factor = math.pow(0.5, elapsed / half_life)
+    return _normalize_memory_significance(current * factor)
+
+
+def _reinforce_memory_significance(
+    significance: float,
+    *,
+    event_significance: float,
+    relevance: float,
+) -> float:
+    current = _normalize_memory_significance(significance)
+    event_strength = _normalize_memory_significance(event_significance)
+    try:
+        relevance_value = max(0.0, min(1.0, float(relevance)))
+    except (TypeError, ValueError):
+        relevance_value = 0.0
+
+    floor = METABOLISM_MEMORY_SIGNIFICANCE_REINFORCE_FLOOR
+    if event_strength <= 0.0 or relevance_value <= floor:
+        return current
+
+    normalized_relevance = min(
+        1.0,
+        (relevance_value - floor) / max(0.001, 1.0 - floor),
+    )
+    gain = event_strength * normalized_relevance * 0.72
+    # Saturating reinforcement: repeated meaningful reuse can keep a memory
+    # important, but it approaches 1 smoothly instead of accumulating linearly.
+    return _normalize_memory_significance(
+        current + (1.0 - current) * gain
+    )
+
+
 def _tokenize_signal_text(value: Any) -> set[str]:
     return {
         token
@@ -223,6 +438,173 @@ def _signal_words(value: Any) -> list[str]:
         )
         if token
     ]
+
+
+_MEMORY_LEXICAL_STOPWORDS = {
+    # Keep this intentionally tiny. It only removes glue words that otherwise
+    # create false salience when the user says things like "это" / "this".
+    "это", "эта", "этот", "эти", "того", "так", "там", "тут", "вот",
+    "как", "что", "чтобы", "если", "или", "для", "при", "про", "она",
+    "они", "оно", "его", "её", "уже", "ещё", "еще", "просто", "сейчас",
+    "давай", "дальше", "продолжим", "продолжить", "поговорим", "снова", "опять",
+    "this", "that", "these", "those", "with", "from", "into", "about",
+    "have", "has", "had", "just", "then", "than", "when", "where", "what",
+    "your", "you", "user", "jin",
+}
+
+
+def _memory_lexical_tokens(value: Any) -> set[str]:
+    return {
+        token
+        for token in _signal_words(value)
+        if len(token) >= 3 and token not in _MEMORY_LEXICAL_STOPWORDS
+    }
+
+
+def _memory_token_stem(token: str) -> str:
+    token = str(token or "")
+    if len(token) <= 5:
+        return token
+    # A deliberately cheap morphology bridge for inflected RU/EN words.
+    # Five leading chars are enough to connect "архитектура/архитектуре" and
+    # "memory/memories" without pulling in an embedding model or extra call.
+    return token[:5]
+
+
+def _memory_phrase_ngrams(value: Any, *, size: int = 2) -> set[tuple[str, ...]]:
+    words = [
+        token
+        for token in _signal_words(value)
+        if len(token) >= 3 and token not in _MEMORY_LEXICAL_STOPWORDS
+    ]
+    if len(words) < size:
+        return set()
+    return {
+        tuple(_memory_token_stem(token) for token in words[index:index + size])
+        for index in range(len(words) - size + 1)
+    }
+
+
+def _lexical_memory_match(query: Any, candidate: Any) -> float:
+    query_tokens = _memory_lexical_tokens(query)
+    candidate_tokens = _memory_lexical_tokens(candidate)
+    if not query_tokens or not candidate_tokens:
+        return 0.0
+
+    exact_hits = len(query_tokens & candidate_tokens)
+    query_stems = {_memory_token_stem(token) for token in query_tokens}
+    candidate_stems = {_memory_token_stem(token) for token in candidate_tokens}
+    stem_hits = len(query_stems & candidate_stems)
+
+    # One meaningful keyword should matter even inside a long user sentence.
+    # Cap the denominator so relevance does not disappear in verbose inputs.
+    query_denominator = max(1, min(4, len(query_tokens)))
+    exact_score = min(1.0, exact_hits / query_denominator)
+    stem_score = min(1.0, stem_hits / query_denominator)
+
+    candidate_denominator = max(1, min(6, len(candidate_tokens)))
+    candidate_focus = min(1.0, stem_hits / candidate_denominator)
+
+    query_bigrams = _memory_phrase_ngrams(query, size=2)
+    candidate_bigrams = _memory_phrase_ngrams(candidate, size=2)
+    phrase_score = 1.0 if query_bigrams & candidate_bigrams else 0.0
+
+    return round(
+        max(
+            0.0,
+            min(
+                1.0,
+                exact_score * 0.48
+                + stem_score * 0.30
+                + candidate_focus * 0.08
+                + phrase_score * 0.14,
+            ),
+        ),
+        4,
+    )
+
+
+def _recent_user_memory_queries(context) -> list[str]:
+    if context is None:
+        return []
+
+    result: list[str] = []
+    seen: set[str] = set()
+    sources = [
+        getattr(context, "runtime_recent_turns", []) or [],
+        getattr(context, "runtime_metabolism_recent_turns", []) or [],
+    ]
+    for turns in sources:
+        for turn in reversed(turns):
+            if not isinstance(turn, dict):
+                continue
+            text = str(
+                turn.get("user", turn.get("user_message", ""))
+                or ""
+            ).strip()
+            normalized = _normalized_signal_text(text)
+            if not normalized or normalized in seen:
+                continue
+            result.append(text)
+            seen.add(normalized)
+            if len(result) >= METABOLISM_MEMORY_RECENT_USER_TURNS:
+                return result
+    return result
+
+
+def _recent_l4_memory_queries(context) -> list[str]:
+    if context is None:
+        return []
+
+    store = getattr(context, "runtime_long_term_memory_store", {})
+    facts = store.get("facts", []) if isinstance(store, dict) else []
+    normalized = [fact for fact in facts or [] if isinstance(fact, dict)]
+    normalized.sort(key=_l4_fact_numeric_sort_key)
+
+    result: list[str] = []
+    for fact in normalized[:METABOLISM_MEMORY_RECENT_FACTS]:
+        text = " ".join(
+            part
+            for part in (
+                str(fact.get("key", "") or "").strip(),
+                str(fact.get("value", "") or "").strip(),
+            )
+            if part
+        )
+        if text:
+            result.append(text)
+    return result
+
+
+def _memory_context_relevance(
+    candidate: Any,
+    *,
+    user_input: str = "",
+    context=None,
+) -> float:
+    current = _lexical_memory_match(user_input, candidate)
+    recent = max(
+        (
+            _lexical_memory_match(query, candidate)
+            for query in _recent_user_memory_queries(context)
+        ),
+        default=0.0,
+    )
+    recent_fact = max(
+        (
+            _lexical_memory_match(query, candidate)
+            for query in _recent_l4_memory_queries(context)
+        ),
+        default=0.0,
+    )
+
+    # Current input dominates. Recent dialogue and newest durable facts can
+    # still make a dormant memory "bubble" when the user speaks elliptically.
+    contextual_tail = min(1.0, recent * 0.24 + recent_fact * 0.30)
+    return round(
+        min(1.0, current + (1.0 - current) * contextual_tail),
+        4,
+    )
 
 
 def _normalize_signal_phrase(value: Any) -> str:
@@ -812,6 +1194,11 @@ def apply_metabolism_impulse(
         next_levels,
     )
     context.runtime_metabolism_last_event = str(source or "reflex")
+    context.runtime_metabolism_last_signal_delta = dict(
+        context.runtime_metabolism_last_delta
+    )
+    context.runtime_metabolism_last_signal_event = str(source or "reflex")
+    context.runtime_metabolism_last_signal_at = context.runtime_metabolism_last_tick_at
     return next_levels
 
 
@@ -867,6 +1254,117 @@ def _active_memory_visible_text(record: str) -> str:
         return str(record or "").strip()
 
 
+def _active_memory_suffix_value(record: str, suffix_name: str) -> str:
+    match = re.search(
+        r"\[\s*"
+        + re.escape(str(suffix_name or "").strip())
+        + r"\s*:\s*([^\]]*)\]",
+        str(record or ""),
+        flags=re.IGNORECASE,
+    )
+    return str(match.group(1) or "").strip() if match else ""
+
+
+def active_memory_significance(record: str) -> float:
+    return _normalize_memory_significance(
+        _active_memory_suffix_value(record, "significance")
+    )
+
+
+def _set_active_memory_significance(
+    record: str,
+    significance: float,
+) -> str:
+    try:
+        from utils.actions.active_memory_utils import set_active_memory_suffix_value
+    except Exception:
+        return str(record or "")
+
+    updated, ok, _previous = set_active_memory_suffix_value(
+        record,
+        "significance",
+        f"{_normalize_memory_significance(significance):.3f}",
+    )
+    if not ok:
+        return str(record or "")
+    return updated
+
+
+def seed_active_memory_significance(
+    record: str,
+    *,
+    context=None,
+) -> str:
+    """Attach a persistent numeric significance to a newly saved active item."""
+
+    if not str(record or "").strip():
+        return str(record or "")
+
+    active_id = _active_memory_record_id(record)
+    memory_key = f"active:{active_id or hash(str(record))}"
+    event_significance = _consume_metabolic_event_significance(
+        context,
+        memory_key=memory_key,
+    )
+    return _set_active_memory_significance(
+        record,
+        event_significance,
+    )
+
+
+def _refresh_active_memory_significance(
+    record: str,
+    *,
+    context=None,
+    relevance: float = 0.0,
+    now: float | None = None,
+) -> tuple[str, float]:
+    if not str(record or "").strip():
+        return str(record or ""), 0.0
+
+    current_time = float(now if now is not None else time.time())
+    current = active_memory_significance(record)
+
+    active_id = _active_memory_record_id(record)
+    memory_key = f"active:{active_id or hash(str(record))}"
+    seen_at = getattr(
+        context,
+        "runtime_metabolism_active_memory_significance_seen_at",
+        None,
+    )
+    if not isinstance(seen_at, dict):
+        seen_at = {}
+        if context is not None:
+            context.runtime_metabolism_active_memory_significance_seen_at = seen_at
+    previous_seen_at = float(seen_at.get(memory_key, current_time) or current_time)
+    seen_at[memory_key] = current_time
+    decayed = _decay_memory_significance_by_elapsed(
+        current,
+        elapsed=max(0.0, current_time - previous_seen_at),
+    )
+    event_significance = _consume_metabolic_event_significance(
+        context,
+        memory_key=memory_key,
+    )
+    reinforced = _reinforce_memory_significance(
+        decayed,
+        event_significance=event_significance,
+        relevance=relevance,
+    )
+
+    # Always attach the field once; after that avoid metadata churn for tiny
+    # sub-millipoint changes.
+    has_field = bool(_active_memory_suffix_value(record, "significance"))
+    if has_field and abs(reinforced - current) < 0.001:
+        return str(record or ""), current
+
+    updated = _set_active_memory_significance(
+        record,
+        reinforced,
+    )
+    return updated, reinforced
+
+
 def _active_memory_is_paused(record: str) -> bool:
     try:
         from utils.actions.active_memory_utils import is_active_memory_record_paused
@@ -884,24 +1382,22 @@ def score_active_memory_record(
     context=None,
 ) -> float:
     visible = _active_memory_visible_text(record)
-    user_tokens = _tokenize_signal_text(user_input)
-    record_tokens = _tokenize_signal_text(visible)
-    overlap = 0.0
-
-    if user_tokens and record_tokens:
-        overlap = len(user_tokens & record_tokens) / max(1, len(user_tokens))
-
+    relevance = _memory_context_relevance(
+        visible,
+        user_input=user_input,
+        context=context,
+    )
     resonance, _ = _record_channel_resonance(visible, levels, context=context)
     score = (
         METABOLISM_ACTIVE_MEMORY_MIN_SALIENCE
-        + min(0.58, overlap * 0.86)
-        + resonance * 0.18
+        + min(0.70, relevance * 0.74)
+        + resonance * 0.10
     )
 
     normalized_user = _normalized_signal_text(user_input)
     active_id = _active_memory_record_id(record)
-    if active_id and active_id in normalized_user:
-        score += 0.28
+    if active_id and active_id.casefold() in normalized_user:
+        score += 0.30
 
     return round(max(0.0, min(1.0, score)), 3)
 
@@ -953,22 +1449,133 @@ def rank_active_memory_records(
 
     levels = ensure_metabolism_state(context)
     scored = []
+    refreshed_by_id: dict[str, str] = {}
+    current_time = time.time()
 
     for index, record in enumerate(records):
-        score = score_active_memory_record(
+        visible = _active_memory_visible_text(record)
+        relevance = _memory_context_relevance(
+            visible,
+            user_input=user_input,
+            context=context,
+        )
+        refreshed_record, significance = _refresh_active_memory_significance(
             record,
+            context=context,
+            relevance=relevance,
+            now=current_time,
+        )
+        score = score_active_memory_record(
+            refreshed_record,
             user_input=user_input,
             levels=levels,
             context=context,
         )
-        scored.append((score, index, record))
+        active_id = _active_memory_record_id(refreshed_record)
+        if active_id:
+            refreshed_by_id[active_id] = refreshed_record
+        scored.append((score, significance, index, refreshed_record))
 
-    scored.sort(key=lambda item: (-item[0], item[1]))
+    if refreshed_by_id:
+        stored_records = list(
+            getattr(context, "active_memory_records", [])
+            or []
+        )
+        stored_changed = False
+        for index, stored_record in enumerate(stored_records):
+            active_id = _active_memory_record_id(stored_record)
+            replacement = refreshed_by_id.get(active_id)
+            if replacement and replacement != stored_record:
+                stored_records[index] = replacement
+                stored_changed = True
+        if stored_changed:
+            context.active_memory_records = stored_records
+            context.runtime_active_memory_records_dirty = True
+
+    scored.sort(
+        key=lambda item: (
+            0
+            if item[1] >= METABOLISM_MEMORY_SIGNIFICANCE_TOP_THRESHOLD
+            else 1,
+            -item[1]
+            if item[1] >= METABOLISM_MEMORY_SIGNIFICANCE_TOP_THRESHOLD
+            else -item[0],
+            -item[0]
+            if item[1] >= METABOLISM_MEMORY_SIGNIFICANCE_TOP_THRESHOLD
+            else item[2],
+            item[2],
+        )
+    )
     update_active_memory_salience(
         context,
         user_input=user_input,
     )
-    return [record for _, _, record in scored]
+    return [record for _, _, _, record in scored]
+
+
+def score_delayed_memory_report(
+    report: dict,
+    *,
+    report_id: str = "",
+    user_input: str = "",
+    context=None,
+) -> float:
+    if not isinstance(report, dict):
+        return 0.0
+
+    title = str(report.get("title", "") or "").strip()
+    summary = str(report.get("summary", "") or "").strip()
+    tags = report.get("tags", [])
+    if not isinstance(tags, list):
+        tags = [tags]
+    tags_text = " ".join(str(tag or "").strip() for tag in tags if str(tag or "").strip())
+
+    title_score = _memory_context_relevance(
+        title,
+        user_input=user_input,
+        context=context,
+    ) if title else 0.0
+    summary_score = _memory_context_relevance(
+        summary,
+        user_input=user_input,
+        context=context,
+    ) if summary else 0.0
+    tags_score = _memory_context_relevance(
+        tags_text,
+        user_input=user_input,
+        context=context,
+    ) if tags_text else 0.0
+
+    visible = " ".join(part for part in (title, summary, tags_text) if part)
+    levels = ensure_metabolism_state(context) if context is not None else dict(METABOLISM_DEFAULT_LEVELS)
+    resonance, _ = _record_channel_resonance(visible, levels, context=context) if visible else (0.0, "")
+
+    score = max(
+        title_score,
+        summary_score * 0.88,
+        tags_score * 0.72,
+    )
+    score = min(1.0, score + resonance * 0.08)
+
+    normalized_user = _normalized_signal_text(user_input)
+    normalized_id = str(report_id or report.get("id", "") or "").strip().casefold()
+    if normalized_id and normalized_id in normalized_user:
+        score = max(score, 0.96)
+
+    return round(max(0.0, min(1.0, score)), 3)
+
+
+def delayed_memory_bubble_tier(score: float) -> int:
+    try:
+        value = float(score)
+    except (TypeError, ValueError):
+        value = 0.0
+
+    if value >= METABOLISM_DELAYED_MEMORY_STRONG_BUBBLE_THRESHOLD:
+        return 2
+    if value >= METABOLISM_DELAYED_MEMORY_BUBBLE_THRESHOLD:
+        return 1
+    return 0
 
 
 def _l4_fact_numeric_sort_key(fact: dict) -> tuple:
@@ -1101,69 +1708,167 @@ def _select_l4_metabolic_focus(
     return focused[:3]
 
 
+def _refresh_l4_fact_significance(
+    fact: dict,
+    *,
+    context=None,
+    relevance: float = 0.0,
+    now: float | None = None,
+) -> float:
+    if not isinstance(fact, dict):
+        return 0.0
+
+    current_time = float(now if now is not None else time.time())
+    current = _normalize_memory_significance(
+        fact.get("significance", 0.0)
+    )
+    fact_id = str(fact.get("id", "") or "").strip().upper()
+    memory_key = f"l4:{fact_id or hash(str(fact))}"
+    seen_at = getattr(
+        context,
+        "runtime_metabolism_l4_significance_seen_at",
+        None,
+    )
+    if not isinstance(seen_at, dict):
+        seen_at = {}
+        if context is not None:
+            context.runtime_metabolism_l4_significance_seen_at = seen_at
+    previous_seen_at = float(seen_at.get(memory_key, current_time) or current_time)
+    seen_at[memory_key] = current_time
+    decayed = _decay_memory_significance_by_elapsed(
+        current,
+        elapsed=max(0.0, current_time - previous_seen_at),
+    )
+
+    event_significance = _consume_metabolic_event_significance(
+        context,
+        memory_key=memory_key,
+    )
+    reinforced = _reinforce_memory_significance(
+        decayed,
+        event_significance=event_significance,
+        relevance=relevance,
+    )
+
+    has_field = "significance" in fact
+    if has_field and abs(reinforced - current) < 0.001:
+        return current
+
+    fact["significance"] = reinforced
+    fact["significance_updated_at"] = datetime.fromtimestamp(
+        current_time,
+        tz=timezone.utc,
+    ).isoformat().replace("+00:00", "Z")
+    if context is not None:
+        context.runtime_metabolism_l4_significance_dirty = True
+    return reinforced
+
+
 def rank_l4_facts_for_context(
     facts: list[dict],
     *,
     context=None,
     user_input: str = "",
 ) -> list[dict]:
-    """Newest-first L4 context with a prompt-only metabolic focus lane.
+    """L4 prompt order with metabolic focus plus persistent event significance.
 
-    Default order is F227, F226, ... so fresh durable memory is naturally
-    closest to the model. When current input resonates with older facts,
-    metabolism may lift one to three of them to the very top. The persistent
-    store, memory panel and avatar are never reordered or highlighted here.
+    The ordinary lane stays exactly as before: newest facts first, with the
+    small query-sensitive metabolic focus cone allowed to bubble 1..3 matches.
+    Facts whose persistent significance is >= 0.5 form a stronger lane above
+    it. Significance itself decays only while the fact keeps being encountered
+    in context, and is reinforced only when a new metabolic event both moved
+    JIN's state and is relevant to that fact.
     """
 
     canonical = sorted(
         [fact for fact in (facts or []) if isinstance(fact, dict)],
         key=_l4_fact_numeric_sort_key,
     )
-    if (
-        context is None
-        or not METABOLISM_MEMORY_BIAS_ENABLED
-        or not str(user_input or "").strip()
-        or not canonical
-    ):
+    if not canonical:
         if context is not None:
             context.runtime_metabolism_l4_focus_ids = []
-        return canonical
+        return []
 
-    levels = advance_metabolism_clock(context)
-    scored = [
-        (
+    levels = (
+        advance_metabolism_clock(context)
+        if context is not None
+        else dict(METABOLISM_DEFAULT_LEVELS)
+    )
+    current_time = time.time()
+
+    scored = []
+    for index, fact in enumerate(canonical):
+        focus_score = (
             score_l4_fact_context_focus(
                 fact,
                 user_input=user_input,
                 levels=levels,
                 context=context,
-            ),
-            index,
-            fact,
+            )
+            if context is not None and str(user_input or "").strip()
+            else 0.0
         )
-        for index, fact in enumerate(canonical)
-    ]
-    focused = _select_l4_metabolic_focus(
-        scored,
-        levels=levels,
-    )
-    if not focused:
-        context.runtime_metabolism_l4_focus_ids = []
-        return canonical
+        significance = _refresh_l4_fact_significance(
+            fact,
+            context=context,
+            relevance=focus_score,
+            now=current_time,
+        )
+        scored.append((focus_score, significance, index, fact))
 
-    focused_facts = [item[2] for item in focused]
-    focused_object_ids = {id(fact) for fact in focused_facts}
-    result = [*focused_facts]
-    result.extend(
-        fact for fact in canonical
-        if id(fact) not in focused_object_ids
-    )
-    context.runtime_metabolism_l4_focus_ids = [
-        str(fact.get("id", "") or "").strip()
-        for fact in focused_facts
-        if str(fact.get("id", "") or "").strip()
+    ordinary = list(canonical)
+    focused_facts: list[dict] = []
+    if (
+        context is not None
+        and METABOLISM_MEMORY_BIAS_ENABLED
+        and str(user_input or "").strip()
+    ):
+        focused = _select_l4_metabolic_focus(
+            [(score, index, fact) for score, _sig, index, fact in scored],
+            levels=levels,
+        )
+        if focused:
+            focused_facts = [item[2] for item in focused]
+            focused_object_ids = {id(fact) for fact in focused_facts}
+            ordinary = [*focused_facts]
+            ordinary.extend(
+                fact
+                for fact in canonical
+                if id(fact) not in focused_object_ids
+            )
+
+    if context is not None:
+        context.runtime_metabolism_l4_focus_ids = [
+            str(fact.get("id", "") or "").strip()
+            for fact in focused_facts
+            if str(fact.get("id", "") or "").strip()
+        ]
+
+    significance_by_object = {
+        id(fact): significance
+        for _score, significance, _index, fact in scored
+    }
+    significant = [
+        fact
+        for fact in ordinary
+        if significance_by_object.get(id(fact), 0.0)
+        >= METABOLISM_MEMORY_SIGNIFICANCE_TOP_THRESHOLD
     ]
-    return result
+    ordinary_rank = {
+        id(fact): index
+        for index, fact in enumerate(ordinary)
+    }
+    significant.sort(
+        key=lambda fact: (
+            -significance_by_object.get(id(fact), 0.0),
+            ordinary_rank.get(id(fact), len(ordinary)),
+        )
+    )
+    significant_ids = {id(fact) for fact in significant}
+    return [
+        *significant,
+        *(fact for fact in ordinary if id(fact) not in significant_ids),
+    ]
 
 def _metabolism_temperature_delta(levels: dict[str, float]) -> float:
     normalized = normalize_metabolism_levels(levels)
@@ -1233,57 +1938,6 @@ def build_metabolism_brain_context(
     if "temperature_delta" not in policy:
         policy["temperature_delta"] = _metabolism_temperature_delta(levels)
 
-    directives = [
-        "Metabolism is a silent cognitive modulation layer. Never mention, roleplay, or explain these levels unless the user explicitly asks about the runtime/metabolism.",
-        "Truth and task correctness always outrank bonding. Oxytocin may increase continuity and warmth, but NEVER agreement, praise, deference, or acceptance of a false user premise.",
-    ]
-
-    drives = {
-        channel: _relative_drive(levels, channel)
-        for channel in METABOLISM_CHANNELS
-    }
-
-    if drives["dopamine"] > 0.035:
-        directives.append(
-            "Dopamine is elevated: allow one extra useful association, alternative, or exploratory connection when it genuinely helps; never invent evidence."
-        )
-    elif drives["dopamine"] < -0.12:
-        directives.append(
-            "Dopamine is low: prefer the shortest proven path over novelty for novelty's sake."
-        )
-
-    if drives["serotonin"] > 0.035:
-        directives.append(
-            "Serotonin is elevated: preserve continuity, stable decisions, and established conventions; avoid needless replanning."
-        )
-    elif drives["serotonin"] < -0.12:
-        directives.append(
-            "Serotonin is low: reduce branching, re-anchor to the current goal, and resolve one uncertainty at a time."
-        )
-
-    if drives["oxytocin"] > 0.035:
-        directives.append(
-            "Oxytocin is elevated: use shared history naturally, keep the user's established vocabulary and interaction rhythm, and give relevant social/well-being Active Memory slightly more salience. Correct the user normally when needed."
-        )
-    elif drives["oxytocin"] < -0.12:
-        directives.append(
-            "Oxytocin is low: keep the social tone neutral and do not manufacture intimacy or shared-history references."
-        )
-
-    if drives["norepinephrine"] > 0.035:
-        directives.append(
-            "Norepinephrine is elevated: tighten attention, inspect pending Active Memory conditions, verify uncertain details, and prefer loading a clearly relevant delayed-memory report over guessing."
-        )
-    elif drives["norepinephrine"] < -0.12:
-        directives.append(
-            "Norepinephrine is low: keep the flow light; do not create extra checks unless the task actually needs them."
-        )
-
-    if drives["cortisol"] > 0.035:
-        directives.append(
-            "Cortisol is elevated: run a quiet repair/contradiction check before committing, avoid confident guesses, and keep the answer a little tighter. Do not sound anxious."
-        )
-
     state_line = " ".join(
         f"{channel}={levels[channel]:.3f}"
         for channel in METABOLISM_CHANNELS
@@ -1292,24 +1946,33 @@ def build_metabolism_brain_context(
         context,
         user_input=user_input,
     )
-    top_active = sorted(
-        salience.items(),
-        key=lambda item: (-item[1], item[0]),
-    )[:3]
+    top_active = [
+        item
+        for item in sorted(
+            salience.items(),
+            key=lambda item: (-item[1], item[0]),
+        )
+        if item[1] > METABOLISM_ACTIVE_MEMORY_MIN_SALIENCE + 0.015
+    ][:3]
     top_active_line = (
         ", ".join(f"{active_id}:{score:.2f}" for active_id, score in top_active)
         if top_active
         else "none"
     )
-
-    return (
-        '<METABOLIC_STATE role="silent_homeostat">\n'
-        f"state: {state_line}\n"
-        f"temperature_delta: {float(policy.get('temperature_delta', 0.0)):+.4f}\n"
-        f"active_memory_salience_top: {top_active_line}\n"
-        + "\n".join(f"- {item}" for item in directives)
-        + "\n</METABOLIC_STATE>"
+    instruction = normalize_metabolism_instruction(
+        getattr(context, "runtime_metabolism_instruction", "")
     )
+
+    parts = [
+        '<METABOLIC_STATE role="silent_homeostat">',
+        f"state: {state_line}",
+        f"temperature_delta: {float(policy.get('temperature_delta', 0.0)):+.4f}",
+        f"active_memory_salience_top: {top_active_line}",
+    ]
+    if instruction:
+        parts.append(f"Instructions: {instruction}")
+    parts.append("</METABOLIC_STATE>")
+    return "\n".join(parts)
 
 
 def metabolic_memory_strength_boost(
@@ -1690,9 +2353,11 @@ def _compact_delayed_memory(context) -> list[dict]:
         result.append({
             "id": normalized_id,
             "title": _clip(report.get("title", ""), 220),
+            "summary": _clip(report.get("summary", ""), 260),
             "tags": [_clip(tag, 80) for tag in tags[:8] if str(tag or "").strip()],
             "loaded": normalized_id in loaded,
             "pinned": bool(report.get("pinned")),
+            "last_loaded_date": _clip(report.get("last_loaded_date", ""), 80),
         })
     return result[:24]
 
@@ -1762,7 +2427,7 @@ def build_metabolism_snapshot(
 
 def build_metabolism_user_prompt(snapshot: dict) -> str:
     return (
-        "Estimate JIN's five metabolism target levels from this snapshot.\n"
+        "Estimate JIN's five metabolism target levels and one 1-3 sentence BRAIN instruction from this snapshot.\n"
         "Return one strict JSON object only.\n\n"
         + json.dumps(snapshot, ensure_ascii=False, indent=2, sort_keys=False)
     )
@@ -1967,16 +2632,36 @@ def _extract_json_object(text: str) -> dict | None:
     return None
 
 
-def _parse_metabolism_json_text(raw_text: str) -> dict[str, float] | None:
+def _parse_metabolism_payload_text(
+    raw_text: str,
+) -> tuple[dict[str, float] | None, str]:
     parsed = _extract_json_object(raw_text)
 
     if not isinstance(parsed, dict):
-        return None
+        return None, ""
 
-    if set(parsed) != set(METABOLISM_CHANNELS):
-        return None
+    channel_keys = set(METABOLISM_CHANNELS)
+    payload_keys = set(parsed)
+    if payload_keys not in (channel_keys, channel_keys | {"instruction"}):
+        return None, ""
 
-    return normalize_metabolism_levels(parsed)
+    instruction = normalize_metabolism_instruction(parsed.get("instruction", ""))
+    if "instruction" in parsed and not instruction:
+        return None, ""
+
+    return normalize_metabolism_levels(parsed), instruction
+
+
+def _parse_metabolism_json_text(raw_text: str) -> dict[str, float] | None:
+    levels, _instruction = _parse_metabolism_payload_text(raw_text)
+    return levels
+
+
+def extract_metabolism_instruction(raw_text: str) -> str:
+    parsed = _extract_json_object(raw_text)
+    if not isinstance(parsed, dict):
+        return ""
+    return normalize_metabolism_instruction(parsed.get("instruction", ""))
 
 
 def parse_metabolism_response(response: Any) -> tuple[dict[str, float] | None, str]:
@@ -2114,12 +2799,16 @@ async def update_metabolism_state(
             max_tokens=METABOLISM_MAX_OUTPUT_TOKENS,
             timeout=getattr(config, "SERVICE_REQUEST_TIMEOUT", None),
         )
-        target_levels, raw_text = parse_metabolism_response(response)
+        # Keep parser compatibility with reasoning-capable providers, while
+        # the logger/UI shows only the model's visible final answer.
+        answer_text = ResponseExtractor.extract_content_text(response).strip()
+        target_levels, parse_text = parse_metabolism_response(response)
+        generated_instruction = extract_metabolism_instruction(parse_text)
         finish_reason = ResponseExtractor.extract_finish_reason(response)
         usage = ResponseExtractor.extract_usage(response)
         status = "applied"
         if target_levels is None:
-            target_levels = recover_metabolism_levels_locally(raw_text)
+            target_levels = recover_metabolism_levels_locally(parse_text)
             status = "local_recovered" if target_levels is not None else "invalid"
 
         if target_levels is None:
@@ -2129,7 +2818,7 @@ async def update_metabolism_state(
                 "metabolism response hit output token limit before final JSON; "
                 "previous state retained"
                 if output_limited
-                else "invalid five-channel response; previous state retained"
+                else "invalid metabolism payload; previous state retained"
             )
             context.runtime_metabolism_last_event = (
                 "semantic_truncated" if output_limited else "semantic_invalid"
@@ -2147,7 +2836,7 @@ async def update_metabolism_state(
                     "finish_reason": finish_reason,
                     "usage": usage,
                     "levels": previous,
-                    "raw": raw_text,
+                    "raw": answer_text,
                     "error": error_message,
                 }, ensure_ascii=False),
                 event="result",
@@ -2161,6 +2850,13 @@ async def update_metabolism_state(
         context.runtime_metabolism_last_tick_at = time.time()
         context.runtime_metabolism_last_delta = _metabolism_delta(previous, levels)
         context.runtime_metabolism_last_event = "semantic_integration"
+        context.runtime_metabolism_last_signal_delta = dict(
+            context.runtime_metabolism_last_delta
+        )
+        context.runtime_metabolism_last_signal_event = "semantic_integration"
+        context.runtime_metabolism_last_signal_at = context.runtime_metabolism_last_tick_at
+        if generated_instruction:
+            context.runtime_metabolism_instruction = generated_instruction
         if batch_id:
             context.runtime_metabolism_last_committed_l1_id = batch_id
 
@@ -2186,13 +2882,14 @@ async def update_metabolism_state(
                 "ok": True,
                 "status": status,
                 "target_levels": target_levels,
+                "instruction": generated_instruction,
                 "finish_reason": finish_reason,
                 "usage": usage,
                 "levels": levels,
                 "delta": _metabolism_delta(previous, levels),
                 "temperature_delta": _metabolism_temperature_delta(levels),
                 "learned_associations": len(associations),
-                "raw": raw_text,
+                "raw": answer_text,
             }, ensure_ascii=False),
             event="result",
             request_id=request_id,

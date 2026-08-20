@@ -380,9 +380,111 @@
     });
   }
 
+  function mergeLatestVisualCheckpoint(
+    payload
+  ) {
+    const merged = {
+      ...(payload || {}),
+    };
+    const storage =
+      window.JinRuntime
+      && window.JinRuntime.storage;
+
+    if (
+      !storage
+      || typeof storage.readLatestSavedSessionSnapshot
+        !== "function"
+    ) {
+      return merged;
+    }
+
+    const checkpoint =
+      storage.readLatestSavedSessionSnapshot();
+    const snapshot =
+      checkpoint
+      && String(checkpoint.session_id || "").trim()
+        === String(
+          merged.source_session_id
+          || sourceSessionId
+          || ""
+        ).trim()
+      && checkpoint.session_snapshot
+      && typeof checkpoint.session_snapshot === "object"
+        ? checkpoint.session_snapshot
+        : null;
+
+    if (!snapshot) {
+      return merged;
+    }
+
+    const color =
+      String(snapshot.current_jin_color || "").trim();
+
+    if (color) {
+      merged.current_jin_color = color;
+    }
+
+    for (const key of [
+      "current_jin_size",
+      "current_jin_position",
+      "current_window_size",
+      "room_state",
+    ]) {
+      const value = snapshot[key];
+
+      if (
+        value
+        && typeof value === "object"
+        && !Array.isArray(value)
+      ) {
+        merged[key] = { ...value };
+      }
+    }
+
+    const speed =
+      Number(snapshot.current_jin_speed || 0);
+
+    if (speed > 0) {
+      merged.current_jin_speed = speed;
+    }
+
+    if (
+      Object.prototype.hasOwnProperty.call(
+        snapshot,
+        "current_jin_collapsed"
+      )
+    ) {
+      merged.current_jin_collapsed =
+        Boolean(snapshot.current_jin_collapsed);
+    }
+
+    return merged;
+  }
+
+
   function restoreVisualState(
     payload
   ) {
+    const roomState =
+      payload.room_state
+      && typeof payload.room_state === "object"
+      && !Array.isArray(payload.room_state)
+        ? payload.room_state
+        : null;
+
+    if (
+      roomState
+      && window.JinPanels
+      && typeof window.JinPanels.applyRoomState
+        === "function"
+      && window.JinPanels.applyRoomState(
+        roomState,
+        { persist: false }
+      )
+    ) {
+      return;
+    }
+
     const color =
       String(
         payload.current_jin_color
@@ -402,10 +504,65 @@
     }
 
     const size =
-      String(
-        payload.current_jin_size
-        || ""
-      ).trim();
+      payload.current_jin_size
+      && typeof payload.current_jin_size === "object"
+      && !Array.isArray(payload.current_jin_size)
+        ? payload.current_jin_size
+        : String(
+            payload.current_jin_size
+            || ""
+          ).trim();
+    const position =
+      payload.current_jin_position
+      && typeof payload.current_jin_position === "object"
+        ? payload.current_jin_position
+        : null;
+    const legacyCollapsed =
+      Object.prototype.hasOwnProperty.call(
+        payload,
+        "current_jin_collapsed"
+      )
+        ? Boolean(payload.current_jin_collapsed)
+        : Boolean(size && position);
+
+    if (
+      legacyCollapsed
+      && window.JinPanels
+      && typeof window.JinPanels.applyRoomState
+        === "function"
+    ) {
+      const normalizedSize =
+        size
+        && typeof size === "object"
+          ? size
+          : null;
+
+      if (
+        window.JinPanels.applyRoomState(
+          {
+            version: 1,
+            avatar: {
+              collapsed: true,
+              color,
+              geometry_known:
+                Boolean(normalizedSize && position),
+              width:
+                normalizedSize && normalizedSize.width,
+              height:
+                normalizedSize && normalizedSize.height,
+              x: position && position.x,
+              y: position && position.y,
+              speed_px_per_second:
+                Number(payload.current_jin_speed || 900),
+              memory_layers_hidden: false,
+            },
+          },
+          { persist: false }
+        )
+      ) {
+        return;
+      }
+    }
 
     if (
       size
@@ -433,12 +590,6 @@
         speed
       );
     }
-
-    const position =
-      payload.current_jin_position
-      && typeof payload.current_jin_position === "object"
-        ? payload.current_jin_position
-        : null;
 
     if (
       position
@@ -567,10 +718,26 @@
           : null,
       current_jin_speed:
         Number(payload.current_jin_speed || 900),
+      current_jin_collapsed:
+        Object.prototype.hasOwnProperty.call(
+          payload,
+          "current_jin_collapsed"
+        )
+          ? Boolean(payload.current_jin_collapsed)
+          : Boolean(
+              payload.current_jin_size
+              && payload.current_jin_position
+            ),
       current_window_size:
         payload.current_window_size
         && typeof payload.current_window_size === "object"
           ? payload.current_window_size
+          : null,
+      room_state:
+        payload.room_state
+        && typeof payload.room_state === "object"
+        && !Array.isArray(payload.room_state)
+          ? payload.room_state
           : null,
     };
   }
@@ -610,7 +777,10 @@
       );
     }
 
-    const payload = await response.json();
+    const payload =
+      mergeLatestVisualCheckpoint(
+        await response.json()
+      );
 
     const bootstrap =
       buildBootstrap(payload);

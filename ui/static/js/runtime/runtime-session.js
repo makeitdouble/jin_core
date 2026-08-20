@@ -269,6 +269,16 @@
                     }
                   : null
               ),
+        current_jin_collapsed:
+          Object.prototype.hasOwnProperty.call(
+            source,
+            "current_jin_collapsed"
+          )
+            ? Boolean(source.current_jin_collapsed)
+            : Boolean(
+                data
+                && data.current_jin_collapsed
+              ),
         current_jin_speed:
           Number(
             source.current_jin_speed
@@ -293,6 +303,34 @@
                       ...data.current_window_size,
                     }
                   : null
+              ),
+        room_state:
+          (
+            source.room_state
+            && typeof source.room_state === "object"
+            && !Array.isArray(source.room_state)
+          )
+            ? {
+                ...source.room_state,
+              }
+            : (
+                data
+                && data.room_state
+                && typeof data.room_state === "object"
+                && !Array.isArray(data.room_state)
+                  ? {
+                      ...data.room_state,
+                    }
+                  : (
+                      fallbackSnapshot
+                      && fallbackSnapshot.room_state
+                      && typeof fallbackSnapshot.room_state === "object"
+                      && !Array.isArray(fallbackSnapshot.room_state)
+                        ? {
+                            ...fallbackSnapshot.room_state,
+                          }
+                        : null
+                    )
               ),
       };
     }
@@ -605,14 +643,6 @@
       return null;
     }
 
-    function hasTabCloseSessionBootstrap() {
-      if (persistedSessionBootstrapCleared) {
-        return false;
-      }
-
-      return hasUnsavedSessionActivity;
-    }
-
     function isDefaultRuntimeMemoryText(text) {
       let normalized = String(text || "")
         .trim()
@@ -885,17 +915,6 @@
       return true;
     }
 
-    function handleTabCloseSessionBootstrap(event) {
-      if (!hasTabCloseSessionBootstrap()) {
-        return undefined;
-      }
-
-      event.preventDefault();
-      event.returnValue = "Are you sure?";
-
-      return "Are you sure?";
-    }
-
     function buildRuntimeMemoryDisplaySnapshot(data) {
       const isArchivedRestore = Boolean(
         data
@@ -1080,6 +1099,19 @@
         // one hop wide instead of leaving it pointed at the older source tab.
         persistLiveSessionCheckpoint(
           bootstrap
+        );
+      }
+
+      if (
+          bootstrap
+          && bootstrap.room_state
+          && typeof bootstrap.room_state === "object"
+          && window.JinPanels
+          && typeof window.JinPanels.applyRoomState === "function"
+      ) {
+        window.JinPanels.applyRoomState(
+          bootstrap.room_state,
+          { persist: false }
         );
       }
 
@@ -1373,10 +1405,5 @@
     };
     window.markSessionActivityDirty = markSessionActivityDirty;
     window.markSessionBootstrapActive = markSessionActivityDirty;
-
-    window.addEventListener(
-      "beforeunload",
-      handleTabCloseSessionBootstrap
-    );
   }
 }());

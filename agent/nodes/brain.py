@@ -31,7 +31,9 @@ from contracts.rules_assembler import (
     RUNTIME_ACTION_DEEP_WEB_SEARCH,
     RUNTIME_ACTION_IDLE,
     RUNTIME_ACTION_JIN_COLOR,
+    RUNTIME_ACTION_JIN_POSITION,
     RUNTIME_ACTION_JIN_SIZE,
+    RUNTIME_ACTION_JIN_SPEED,
     RUNTIME_ACTION_LOAD_DELAYED_MEMORY,
     RUNTIME_ACTION_WEB_SEARCH,
 )
@@ -172,6 +174,16 @@ async def replay_session_restore_resource_actions(
         "runtime_session_restore_pending_jin_size",
         None,
     )
+    jin_position = getattr(
+        context,
+        "runtime_session_restore_pending_jin_position",
+        None,
+    )
+    jin_speed = getattr(
+        context,
+        "runtime_session_restore_pending_jin_speed",
+        None,
+    )
 
     # Consume the restoration envelope before any possible contract-driven
     # follow-up. The initial answer was generated with metadata only; from
@@ -181,6 +193,8 @@ async def replay_session_restore_resource_actions(
     context.runtime_session_restore_pending_attached_file_ids = []
     context.runtime_session_restore_pending_jin_color = ""
     context.runtime_session_restore_pending_jin_size = None
+    context.runtime_session_restore_pending_jin_position = None
+    context.runtime_session_restore_pending_jin_speed = None
     context.runtime_session_restore_priming = False
     context.runtime_session_restore_reasoning_dump = ""
     context.runtime_session_restore_l4_fact_ids = []
@@ -214,6 +228,18 @@ async def replay_session_restore_resource_actions(
                 payload=jin_size,
             )
         ] if jin_size else [])
+        + ([
+            RuntimeActionCall(
+                name=RUNTIME_ACTION_JIN_POSITION,
+                payload=jin_position,
+            )
+        ] if jin_position else [])
+        + ([
+            RuntimeActionCall(
+                name=RUNTIME_ACTION_JIN_SPEED,
+                payload=jin_speed,
+            )
+        ] if jin_speed else [])
     )
 
     if not actions:
@@ -1844,6 +1870,7 @@ class BrainNode(BaseNode):
                     build_brain_context(
                         context,
                         runtime_actions=runtime_actions,
+                        user_input=state.user_input,
                         commit_active_memory_refresh=True,
                         include_previous_reasoning=bool(
                             getattr(
@@ -2230,6 +2257,7 @@ class BrainNode(BaseNode):
                         build_brain_context(
                             context,
                             runtime_actions=followup_runtime_actions,
+                            user_input=sequence_user_request,
                             commit_active_memory_refresh=True,
                             include_previous_chat_messages=False,
                             include_previous_reasoning=False,
@@ -2342,6 +2370,7 @@ class BrainNode(BaseNode):
                     build_brain_context(
                         context,
                         runtime_actions=followup_runtime_actions,
+                        user_input=sequence_user_request,
                         commit_active_memory_refresh=True,
                         include_previous_chat_messages=False,
                         include_previous_reasoning=False,
@@ -2471,6 +2500,7 @@ class BrainNode(BaseNode):
                         build_brain_context(
                             context,
                             runtime_actions=followup_runtime_actions,
+                            user_input=sequence_user_request,
                             commit_active_memory_refresh=True,
                             include_previous_chat_messages=False,
                             include_previous_reasoning=False,
@@ -2541,6 +2571,7 @@ class BrainNode(BaseNode):
                         build_brain_context(
                             context,
                             runtime_actions=followup_runtime_actions,
+                            user_input=sequence_user_request,
                             commit_active_memory_refresh=True,
                             include_previous_chat_messages=False,
                             include_previous_reasoning=False,
@@ -2610,6 +2641,7 @@ class BrainNode(BaseNode):
                         build_brain_context(
                             context,
                             runtime_actions=followup_runtime_actions,
+                            user_input=sequence_user_request,
                             commit_active_memory_refresh=True,
                             include_previous_chat_messages=False,
                             include_previous_reasoning=False,
@@ -2701,6 +2733,7 @@ class BrainNode(BaseNode):
                         build_brain_context(
                             context,
                             runtime_actions=followup_runtime_actions,
+                            user_input=sequence_user_request,
                             commit_active_memory_refresh=True,
                             include_previous_chat_messages=False,
                             include_previous_reasoning=False,
@@ -2753,6 +2786,7 @@ class BrainNode(BaseNode):
                     build_brain_context(
                         context,
                         runtime_actions=followup_runtime_actions,
+                        user_input=sequence_user_request,
                         commit_active_memory_refresh=True,
                         include_previous_chat_messages=False,
                         include_previous_reasoning=False,
@@ -2846,6 +2880,7 @@ class BrainNode(BaseNode):
                     build_brain_context(
                         context,
                         runtime_actions=final_runtime_actions,
+                        user_input=sequence_user_request,
                         commit_active_memory_refresh=True,
                         include_previous_chat_messages=False,
                         include_previous_reasoning=False,

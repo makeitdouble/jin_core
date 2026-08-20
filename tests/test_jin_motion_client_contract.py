@@ -15,8 +15,15 @@ class JinMotionClientContractTests(unittest.TestCase):
         self.assertIn("speed_px_per_second: getJinMoveSpeed()", source)
         self.assertIn("window_width: Math.max(1, Math.round(window.innerWidth))", source)
         self.assertIn("window_height: Math.max(1, Math.round(window.innerHeight))", source)
-        self.assertIn("x: Math.round(rect.left)", source)
-        self.assertIn("y: Math.round(rect.top)", source)
+        self.assertIn("rect.left + (rect.width / 2)", source)
+        self.assertIn("rect.top + (rect.height / 2)", source)
+
+    def test_position_coordinates_target_avatar_center(self):
+        source = LOGGER_JS.read_text(encoding="utf-8")
+        self.assertIn("- (panelRect.width / 2)", source)
+        self.assertIn("- (panelRect.height / 2)", source)
+        self.assertIn("- (targetWidth / 2)", source)
+        self.assertIn("- (targetHeight / 2)", source)
 
     def test_position_and_speed_apply_without_chat_bubbles(self):
         source = RUNTIME_ACTIONS_JS.read_text(encoding="utf-8")
@@ -34,6 +41,16 @@ class JinMotionClientContractTests(unittest.TestCase):
         source = SOCKET_JS.read_text(encoding="utf-8")
         self.assertIn("resumePayload.runtime_avatar", source)
         self.assertIn("getRuntimeAvatarSnapshot()", source)
+
+    def test_avatar_inspector_restores_world_geometry_and_keeps_model_updates(self):
+        source = LOGGER_JS.read_text(encoding="utf-8")
+        self.assertIn("let avatarInspectorWorldState = null;", source)
+        self.assertIn("beginAvatarInspector(memoryPanel);", source)
+        self.assertIn("takeAvatarWorldStateForInspectorClose()", source)
+        self.assertIn("animateCollapsedAvatarWorldState(", source)
+        self.assertIn("size: pendingJinSize", source)
+        self.assertIn("position: pendingJinPosition", source)
+        self.assertIn("&& !avatarInspectorWorldState", source)
 
 
 if __name__ == "__main__":

@@ -117,6 +117,19 @@ REPEATABLE_RUNTIME_ACTIONS = frozenset({
     RUNTIME_ACTION_CLEAN_TOOL_RESULTS,
 })
 
+JIN_INLINE_PAYLOAD_ACTIONS = frozenset({
+    RUNTIME_ACTION_JIN_COLOR,
+    RUNTIME_ACTION_JIN_SIZE,
+    RUNTIME_ACTION_JIN_POSITION,
+    RUNTIME_ACTION_JIN_SPEED,
+})
+
+
+def _runtime_action_allows_inline_payload(
+    action_name: str,
+) -> bool:
+    return action_name in JIN_INLINE_PAYLOAD_ACTIONS
+
 
 @lru_cache(maxsize=None)
 def _runtime_action_marker_config(
@@ -150,6 +163,11 @@ def _find_all_runtime_action_matches(
             private_marker,
             action_name,
             close_tag,
+            allow_inline_payload=(
+                _runtime_action_allows_inline_payload(
+                    action_name
+                )
+            ),
         )
 
         if action_name == RUNTIME_ACTION_DEEP_WEB_SEARCH:
@@ -1267,6 +1285,57 @@ def _enabled_action_marker_prefix_index(
     )
 
 
+def _trailing_inline_jin_marker_length(
+    text: str,
+    enabled_action_names: tuple[str, ...],
+) -> int:
+    """Hold partial/inline JIN tags across streamed chunks, whitespace included."""
+    if not text:
+        return 0
+
+    marker_start = text.rfind("<")
+    if marker_start < 0:
+        return 0
+
+    candidate = text[marker_start:]
+    if ">" in candidate or "\n" in candidate or "\r" in candidate:
+        return 0
+
+    name_match = re.match(
+        r"<\s*([A-Z0-9_]*)",
+        candidate,
+        re.IGNORECASE,
+    )
+    if name_match is None:
+        return 0
+
+    typed_name = str(name_match.group(1) or "").upper()
+    allowed_names = []
+    for action_name in enabled_action_names:
+        if not _runtime_action_allows_inline_payload(action_name):
+            continue
+        private_marker, _ = _runtime_action_marker_config(action_name)
+        marker_name, _ = extract_private_marker_parts(private_marker)
+        for name in (marker_name, action_name):
+            normalized = str(name or "").strip().upper()
+            if normalized and normalized not in allowed_names:
+                allowed_names.append(normalized)
+
+    if not allowed_names:
+        return 0
+
+    if not typed_name:
+        return len(candidate) if candidate[1:].strip() == "" else 0
+
+    if any(
+        name.startswith(typed_name)
+        for name in allowed_names
+    ):
+        return len(candidate)
+
+    return 0
+
+
 def _trailing_marker_prefix_length(
     text: str,
     enabled_actions=None,
@@ -1310,7 +1379,10 @@ def _trailing_marker_prefix_length(
         if marker_flags & _MARKER_PREFIX_ANGLE:
             return length
 
-    return 0
+    return _trailing_inline_jin_marker_length(
+        text,
+        enabled_action_names,
+    )
 
 
 @lru_cache(maxsize=None)
@@ -1423,6 +1495,11 @@ def _unclosed_internal_action_request_start(
             private_marker,
             action_name,
             close_tag,
+            allow_inline_payload=(
+                _runtime_action_allows_inline_payload(
+                    action_name
+                )
+            ),
         )
 
         if marker_start is not None:

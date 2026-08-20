@@ -159,6 +159,18 @@ class MetabolismStateTests(unittest.TestCase):
         })
         self.assertIsNone(extra)
 
+        directed, _ = parse_metabolism_response({
+            "choices": [{"message": {"content": json.dumps({
+                "dopamine": 0.5,
+                "serotonin": 0.6,
+                "oxytocin": 0.4,
+                "norepinephrine": 0.3,
+                "cortisol": 0.2,
+                "instruction": "Keep continuity and verify the relevant memory before committing.",
+            })}}]
+        })
+        self.assertIsNotNone(directed)
+
     def test_context_budget_compacts_only_when_needed(self):
         snapshot = {
             "baseline": dict(METABOLISM_DEFAULT_LEVELS),
@@ -380,6 +392,8 @@ class MetabolismSchedulingTests(unittest.IsolatedAsyncioTestCase):
             details["usage"]["completion_tokens"],
             METABOLISM_MAX_OUTPUT_TOKENS,
         )
+        self.assertEqual(details["raw"], "")
+        self.assertNotIn("Analysis stopped", details["raw"])
         self.assertIn("output token limit", details["error"])
 
     async def test_cancelled_request_logs_terminal_result_with_same_request_id(self):

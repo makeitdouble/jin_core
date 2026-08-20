@@ -1947,9 +1947,14 @@ def apply_metabolic_runtime_memory_salience(
         return lines
 
     try:
-        from runtime.metabolism import metabolic_memory_strength_boost
+        from runtime.metabolism import (
+            current_metabolic_event_significance,
+            metabolic_memory_strength_boost,
+        )
     except Exception:
         return lines
+
+    event_significance = current_metabolic_event_significance(context)
 
     for line in lines:
         if not isinstance(line, dict):
@@ -1971,6 +1976,7 @@ def apply_metabolic_runtime_memory_salience(
             4,
         )
         line["metabolic_salience"] = salience
+        line["metabolic_significance"] = event_significance
         if channel:
             line["metabolic_channel"] = channel
         else:
@@ -3482,6 +3488,14 @@ def build_runtime_session_checkpoint(
             )
             or 0.0
         ),
+        "metabolism_instruction": str(
+            getattr(
+                context,
+                "runtime_metabolism_instruction",
+                "",
+            )
+            or ""
+        )[:900].strip(),
         "metabolism_associations": _dict_list(
             getattr(
                 context,
@@ -3519,6 +3533,13 @@ def build_runtime_session_checkpoint(
                     {},
                 )
                 or {}
+            )
+        ),
+        "current_jin_collapsed": bool(
+            getattr(
+                context,
+                "runtime_avatar_panel_collapsed",
+                False,
             )
         ),
         "current_jin_speed": int(

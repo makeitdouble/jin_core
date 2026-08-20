@@ -166,6 +166,54 @@ def compile_runtime_action_regexp(
 
 
 @lru_cache(maxsize=None)
+def compile_runtime_action_body_regexp(
+    private_marker: str,
+    runtime_action: str = "",
+) -> Pattern[str]:
+    """Compile the canonical ``<ACTION> payload </ACTION>`` form."""
+    name = _name_pattern(private_marker, runtime_action)
+
+    if not name:
+        return re.compile(r"(?!x)x")
+
+    return re.compile(
+        (
+            r"<\s*(?P<name>" + name + r")\s*>"
+            r"[^\S\r\n]*(?:\r?\n)?"
+            r"(?P<payload>.*?)"
+            r"(?:"
+            r"<\s*/\s*(?:" + name + r")\s*>+"
+            r"|"
+            r"<\s*(?:" + name + r")\s*>"
+            r")"
+        ),
+        re.IGNORECASE | re.DOTALL,
+    )
+
+
+@lru_cache(maxsize=None)
+def compile_runtime_action_inline_payload_regexp(
+    private_marker: str,
+    runtime_action: str = "",
+) -> Pattern[str]:
+    """Compile one-line ``<ACTION payload>`` compatibility syntax."""
+    name = _name_pattern(private_marker, runtime_action)
+
+    if not name:
+        return re.compile(r"(?!x)x")
+
+    return re.compile(
+        (
+            r"<\s*(?P<name>" + name + r")"
+            r"(?:\s*:\s*|\s+)"
+            r"(?P<payload>[^>\r\n]+?)"
+            r"\s*>"
+        ),
+        re.IGNORECASE,
+    )
+
+
+@lru_cache(maxsize=None)
 def compile_runtime_action_template_regexps(
     private_marker: str,
     runtime_action: str = "",
@@ -345,20 +393,39 @@ def find_runtime_action_matches(
     close_tag: bool = False,
     regexp: Pattern[str] | str | None = None,
     regexp_templates: tuple[str, ...] = REGEXP_TEMPLATES,
+    allow_inline_payload: bool = False,
 ) -> tuple[RuntimeActionRegexpMatch, ...]:
-    """Use the canonical regexp first and legacy templates only for inline actions."""
-    concrete_regexp = regexp or compile_runtime_action_regexp(
-        private_marker,
-        runtime_action,
-        close_tag,
-    )
+    """Use the canonical regexp plus explicitly enabled compatibility forms."""
+    if regexp is not None:
+        concrete_regexp = regexp
+    elif allow_inline_payload and close_tag:
+        concrete_regexp = compile_runtime_action_body_regexp(
+            private_marker,
+            runtime_action,
+        )
+    else:
+        concrete_regexp = compile_runtime_action_regexp(
+            private_marker,
+            runtime_action,
+            close_tag,
+        )
     matches = [
         *match_regexp(text, concrete_regexp),
     ]
 
-    # All runtime actions are strict. Only the canonical action tag compiled
-    # above is accepted. Bare action names and legacy call/tool-call wrappers
-    # are ordinary model text and must never become control events. Custom
+    if allow_inline_payload:
+        inline_matches = match_regexp(
+            text,
+            compile_runtime_action_inline_payload_regexp(
+                private_marker,
+                runtime_action,
+            ),
+        )
+        matches.extend(inline_matches)
+
+    # Runtime actions stay strict: only the canonical tag plus compatibility
+    # forms explicitly enabled by the caller are accepted. Bare action names
+    # and legacy call/tool-call wrappers remain ordinary model text. Custom
     # callers may still pass explicit templates to ``match_regexp_templates``
     # directly, but the runtime parser does not use them.
     return select_non_overlapping_regexp_matches(matches)
@@ -402,11 +469,22 @@ def find_unclosed_runtime_action_start(
     private_marker: str,
     runtime_action: str = "",
     close_tag: bool = False,
+    allow_inline_payload: bool = False,
 ) -> int | None:
     value = str(text or "")
 
     if not value:
         return None
+
+    inline_ranges: set[tuple[int, int]] = set()
+    if allow_inline_payload:
+        inline_ranges = {
+            (match.start(), match.end())
+            for match in compile_runtime_action_inline_payload_regexp(
+                private_marker,
+                runtime_action,
+            ).finditer(value)
+        }
 
     if close_tag:
         opening_match: re.Match[str] | None = None
@@ -419,6 +497,9 @@ def find_unclosed_runtime_action_start(
             if tag_match.group("slash"):
                 opening_match = None
                 opening_end = 0
+                continue
+
+            if (tag_match.start(), tag_match.end()) in inline_ranges:
                 continue
 
             if opening_match is None:
@@ -438,6 +519,21 @@ def find_unclosed_runtime_action_start(
 
         if opening_match is not None:
             return opening_match.start()
+
+    if allow_inline_payload:
+        name = _name_pattern(private_marker, runtime_action)
+        if name:
+            incomplete_inline = re.search(
+                (
+                    r"<\s*(?:" + name + r")"
+                    r"(?:\s*:\s*|\s+)"
+                    r"[^>\r\n]*$"
+                ),
+                value,
+                re.IGNORECASE,
+            )
+            if incomplete_inline is not None:
+                return incomplete_inline.start()
 
     upper_value = value.upper()
     best_start: int | None = None

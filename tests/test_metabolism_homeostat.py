@@ -3,17 +3,21 @@ import unittest
 from pathlib import Path
 from types import SimpleNamespace
 
+from rules.brain_context_builder import build_delayed_memory_inventory_context
 from runtime.metabolism import (
     METABOLISM_DEFAULT_LEVELS,
     METABOLISM_HALF_LIFE_SECONDS,
+    METABOLISM_MEMORY_SIGNIFICANCE_TOP_THRESHOLD,
     advance_metabolism_clock,
     apply_metabolism_impulse,
     build_metabolism_brain_context,
     build_metabolism_reflex,
     learn_metabolism_associations,
     build_runtime_outcome_reflex,
+    current_metabolic_event_significance,
     metabolic_memory_strength_boost,
     rank_active_memory_records,
+    rank_l4_facts_for_context,
     resolve_metabolism_temperature,
 )
 
@@ -28,6 +32,13 @@ class MetabolismHomeostatTests(unittest.TestCase):
             "runtime_metabolism_last_tick_at": 0.0,
             "runtime_metabolism_last_delta": {},
             "runtime_metabolism_last_event": "",
+            "runtime_metabolism_last_signal_delta": {},
+            "runtime_metabolism_last_signal_event": "",
+            "runtime_metabolism_last_signal_at": 0.0,
+            "runtime_metabolism_memory_significance_events": {},
+            "runtime_metabolism_active_memory_significance_seen_at": {},
+            "runtime_metabolism_l4_significance_seen_at": {},
+            "runtime_metabolism_l4_significance_dirty": False,
             "runtime_metabolism_active_memory_salience": {},
             "runtime_metabolism_policy": {},
             "runtime_last_response_feedback": None,
@@ -185,20 +196,26 @@ class MetabolismHomeostatTests(unittest.TestCase):
         self.assertLess(resolve_metabolism_temperature(base, high_pressure), base)
         self.assertEqual(resolve_metabolism_temperature(base, high_oxy), base)
 
-    def test_oxytocin_changes_dialogue_policy_but_has_explicit_anti_sycophancy_guard(self):
-        context = self._context(runtime_metabolism_levels={
-            **METABOLISM_DEFAULT_LEVELS,
-            "oxytocin": 0.72,
-        })
+    def test_brain_context_uses_generated_instruction_without_channel_labels(self):
+        context = self._context(
+            runtime_metabolism_levels={
+                **METABOLISM_DEFAULT_LEVELS,
+                "oxytocin": 0.72,
+            },
+            runtime_metabolism_instruction=(
+                "Use shared history only where it helps the current request; "
+                "keep continuity without agreeing with unsupported premises."
+            ),
+        )
 
         prompt = build_metabolism_brain_context(
             context,
             user_input="продолжим наш JIN",
         )
 
-        self.assertIn("shared history naturally", prompt)
-        self.assertIn("NEVER agreement, praise, deference", prompt)
-        self.assertIn("Correct the user normally when needed", prompt)
+        self.assertIn("Instructions: Use shared history only where it helps", prompt)
+        self.assertNotIn("Oxytocin is elevated", prompt)
+        self.assertNotIn("Serotonin is elevated", prompt)
         self.assertIn('role="silent_homeostat"', prompt)
 
     def test_active_memory_prompt_order_is_state_and_query_sensitive_without_mutating_storage(self):
@@ -221,11 +238,151 @@ class MetabolismHomeostatTests(unittest.TestCase):
             user_input="проверь code error и верифицируй фикс",
         )
 
-        self.assertEqual(ranked[0], records[1])
-        self.assertEqual(context.active_memory_records, records)
+        self.assertIn("[ active_memory_id: bbb222 ]", ranked[0])
+        self.assertIn("[ significance: 0.000 ]", ranked[0])
+        self.assertEqual(
+            [
+                record.split("[ active_memory_id: ", 1)[1].split(" ]", 1)[0]
+                for record in context.active_memory_records
+            ],
+            ["aaa111", "bbb222", "ccc333"],
+        )
+        self.assertTrue(
+            all("[ significance: 0.000 ]" in record for record in context.active_memory_records)
+        )
         self.assertGreater(
             context.runtime_metabolism_active_memory_salience["bbb222"],
             context.runtime_metabolism_active_memory_salience["aaa111"],
+        )
+
+    def test_recent_l4_fact_can_bubble_matching_active_memory_on_elliptical_input(self):
+        records = [
+            "active_memory_1: verify GPU telemetry [ active_memory_id: aaa111 ] [ status: pending ]",
+            "active_memory_2: continue Kowloon director architecture [ active_memory_id: bbb222 ] [ status: pending ]",
+        ]
+        context = self._context(
+            active_memory_records=list(records),
+            runtime_long_term_memory_store={
+                "facts": [
+                    {
+                        "id": "F98",
+                        "key": "Kowloon architecture",
+                        "value": "director controls scenes and Maya",
+                    }
+                ]
+            },
+        )
+
+        ranked = rank_active_memory_records(
+            records,
+            context=context,
+            user_input="продолжим это дальше",
+        )
+
+        self.assertIn("[ active_memory_id: bbb222 ]", ranked[0])
+        self.assertIn("[ significance: 0.000 ]", ranked[0])
+        self.assertGreater(
+            context.runtime_metabolism_active_memory_salience["bbb222"],
+            context.runtime_metabolism_active_memory_salience["aaa111"],
+        )
+
+    def test_metabolic_event_significance_tracks_state_displacement_not_absolute_level(self):
+        context = self._context(
+            runtime_metabolism_last_signal_event="semantic_integration",
+            runtime_metabolism_last_signal_at=time.time(),
+            runtime_metabolism_last_signal_delta={
+                "dopamine": 0.12,
+                "serotonin": 0.08,
+                "oxytocin": 0.09,
+                "norepinephrine": 0.10,
+                "cortisol": 0.10,
+            },
+        )
+
+        significance = current_metabolic_event_significance(context)
+
+        self.assertGreaterEqual(significance, 0.99)
+
+    def test_high_significance_active_memory_owns_top_lane(self):
+        records = [
+            "active_memory_1: unrelated durable event [ active_memory_id: aaa111 ] [ significance: 0.800 ] [ status: pending ]",
+            "active_memory_2: verify exact code error [ active_memory_id: bbb222 ] [ significance: 0.200 ] [ status: pending ]",
+        ]
+        context = self._context(active_memory_records=list(records))
+
+        ranked = rank_active_memory_records(
+            records,
+            context=context,
+            user_input="verify exact code error",
+        )
+
+        self.assertIn("[ active_memory_id: aaa111 ]", ranked[0])
+        self.assertGreaterEqual(
+            float(ranked[0].split("[ significance: ", 1)[1].split(" ]", 1)[0]),
+            METABOLISM_MEMORY_SIGNIFICANCE_TOP_THRESHOLD,
+        )
+
+    def test_high_significance_l4_fact_owns_top_lane(self):
+        facts = [
+            {
+                "id": "F2",
+                "key": "code.current_error",
+                "value": "verify exact code error",
+                "significance": 0.2,
+            },
+            {
+                "id": "F1",
+                "key": "project.durable_event",
+                "value": "unrelated but strongly state-shifting event",
+                "significance": 0.8,
+            },
+        ]
+        context = self._context()
+
+        ranked = rank_l4_facts_for_context(
+            facts,
+            context=context,
+            user_input="verify exact code error",
+        )
+
+        self.assertEqual(ranked[0]["id"], "F1")
+        self.assertGreaterEqual(
+            ranked[0]["significance"],
+            METABOLISM_MEMORY_SIGNIFICANCE_TOP_THRESHOLD,
+        )
+
+    def test_delayed_inventory_keeps_recency_by_default_but_bubbles_live_match(self):
+        context = self._context(
+            delayed_memory_reports={
+                "new111": {
+                    "title": "Fresh unrelated GPU notes",
+                    "summary": "GPU telemetry and percentages",
+                    "last_loaded_date": "2026-08-20T14:00:00+03:00",
+                },
+                "old222": {
+                    "title": "Kowloon Sandbox Architecture",
+                    "summary": "Director, scenes, Maya and night simulation",
+                    "last_loaded_date": "2026-08-01T10:00:00+03:00",
+                },
+            },
+        )
+
+        neutral = build_delayed_memory_inventory_context(
+            context,
+            user_input="совсем другая тема",
+        )
+        self.assertLess(
+            neutral.index("new111_Fresh_unrelated_GPU_notes"),
+            neutral.index("old222_Kowloon_Sandbox_Architecture"),
+        )
+
+        relevant = build_delayed_memory_inventory_context(
+            context,
+            user_input="давай дальше про Kowloon и директора",
+        )
+        self.assertLess(
+            relevant.index("old222_Kowloon_Sandbox_Architecture"),
+            relevant.index("new111_Fresh_unrelated_GPU_notes"),
         )
 
     def test_state_shift_biases_existing_l1_strength_instead_of_creating_a_new_memory_type(self):

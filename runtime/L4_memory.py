@@ -38,6 +38,7 @@ from runtime.L4_memory_utils import (
     normalize_l4_store,
     normalize_l4_text,
     restore_l4_fact_to_store,
+    utc_now_iso,
 )
 from utils.actions.save_delayed_memory_utils import (
     collect_anchor_fact_report_ids,
@@ -2875,10 +2876,10 @@ def build_runtime_l4_memory_context(*, context, fact_ids=None, user_input: str =
         )
     ]
 
-    # L4 prompt order is independent from the persistent store/UI. Fresh facts
-    # are nearest to the model by default (F227, F226, ...). Metabolism may
-    # promote a small coherent 1..3-fact focus cone only inside this prompt
-    # view; it never drives panel/avatar highlighting or persistent ordering.
+    # L4 prompt order stays independent from panel/avatar order. Fresh facts
+    # are nearest to the model by default, query focus may bubble a narrow
+    # 1..3-fact cone, and persistent metabolic significance can hold a fact in
+    # the prompt's top lane until context-exposure decay drops it below 0.5.
     try:
         from runtime.metabolism import rank_l4_facts_for_context
 
@@ -2903,6 +2904,28 @@ def build_runtime_l4_memory_context(*, context, fact_ids=None, user_input: str =
             )
 
         active_facts = sorted(active_facts, key=_fact_sort_key)
+
+    if bool(
+        getattr(
+            context,
+            "runtime_metabolism_l4_significance_dirty",
+            False,
+        )
+    ):
+        try:
+            store["revision"] = max(
+                0,
+                int(store.get("revision") or 0),
+            ) + 1
+        except (TypeError, ValueError):
+            store["revision"] = 1
+        store["updated_at"] = utc_now_iso()
+        context.runtime_long_term_memory_store = store
+        persist_runtime_l4_file_store(
+            context,
+            store,
+        )
+        context.runtime_metabolism_l4_significance_dirty = False
 
     delayed_memory_ids_by_fact_id = {}
 

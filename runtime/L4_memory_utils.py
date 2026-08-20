@@ -490,6 +490,21 @@ def utc_now_iso() -> str:
     )
 
 
+def l4_timestamp_sort_value(value) -> float:
+    text = normalize_l4_text(value)
+    if not text:
+        return 0.0
+    try:
+        parsed = datetime.fromisoformat(
+            text.replace("Z", "+00:00")
+        )
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=timezone.utc)
+        return parsed.timestamp()
+    except (TypeError, ValueError):
+        return 0.0
+
+
 def normalize_l4_text(value) -> str:
     return re.sub(r"\s+", " ", str(value or "")).strip()
 
@@ -649,12 +664,31 @@ def normalize_l4_fact(
     except (TypeError, ValueError):
         mention_count = 1
 
+    try:
+        significance = float(
+            value.get("significance")
+            if value.get("significance") is not None
+            else value.get("metabolic_significance", 0.0)
+        )
+    except (TypeError, ValueError):
+        significance = 0.0
+    if significance != significance:
+        significance = 0.0
+    significance = round(max(0.0, min(1.0, significance)), 4)
+
     return {
         "id": fact_id,
         "key": key,
         "value": fact_value,
         "category": normalize_l4_category(value.get("category")),
         "mention_count": mention_count,
+        "significance": significance,
+        "significance_updated_at": (
+            normalize_l4_text(value.get("significance_updated_at"))
+            or normalize_l4_text(value.get("updated_at"))
+            or normalize_l4_text(value.get("created_at"))
+            or current_time
+        ),
         "created_at": normalize_l4_text(value.get("created_at")) or current_time,
         "updated_at": normalize_l4_text(value.get("updated_at")) or current_time,
         "source_session_ids": normalize_l4_string_list(
@@ -698,6 +732,26 @@ def merge_same_l4_fact(existing: dict, incoming: dict, *, now: str) -> dict:
         existing.get("source_fact_ids"),
         incoming.get("source_fact_ids"),
     )
+    existing_significance = float(existing.get("significance", 0.0) or 0.0)
+    incoming_significance = float(incoming.get("significance", 0.0) or 0.0)
+    if incoming_significance > existing_significance:
+        result["significance"] = round(
+            max(0.0, min(1.0, incoming_significance)),
+            4,
+        )
+        result["significance_updated_at"] = (
+            normalize_l4_text(incoming.get("significance_updated_at"))
+            or now
+        )
+    else:
+        result["significance"] = round(
+            max(0.0, min(1.0, existing_significance)),
+            4,
+        )
+        result["significance_updated_at"] = (
+            normalize_l4_text(existing.get("significance_updated_at"))
+            or now
+        )
     result["updated_at"] = now
     return result
 
@@ -770,10 +824,44 @@ def merge_l4_snapshot_fact(
     incoming_id = normalize_l4_text(
         incoming_fact.get("id")
     )
+    existing_significance_at = normalize_l4_text(
+        existing_fact.get("significance_updated_at")
+    )
+    incoming_significance_at = normalize_l4_text(
+        incoming_fact.get("significance_updated_at")
+    )
+    existing_significance_time = l4_timestamp_sort_value(
+        existing_significance_at
+    )
+    incoming_significance_time = l4_timestamp_sort_value(
+        incoming_significance_at
+    )
+    if incoming_significance_time > existing_significance_time:
+        significance_source = incoming_fact
+    elif existing_significance_time > incoming_significance_time:
+        significance_source = existing_fact
+    else:
+        significance_source = max(
+            (existing_fact, incoming_fact),
+            key=lambda fact: float(
+                fact.get("significance", 0.0)
+                or 0.0
+            ),
+        )
 
     merged = {
         **base,
         "id": existing_id or incoming_id,
+        "significance": float(
+            significance_source.get("significance", 0.0)
+            or 0.0
+        ),
+        "significance_updated_at": (
+            normalize_l4_text(
+                significance_source.get("significance_updated_at")
+            )
+            or now
+        ),
         "mention_count": max(
             max(1, int(existing_fact.get("mention_count") or 1)),
             max(1, int(incoming_fact.get("mention_count") or 1)),
@@ -1370,12 +1458,21 @@ def normalize_facts_memory_field(
     if status not in {L4_FIELD_STATUS_PENDING, L4_FIELD_STATUS_ANALYZED}:
         status = L4_FIELD_STATUS_PENDING
 
+    try:
+        significance = float(field.get("significance", 0.0) or 0.0)
+    except (TypeError, ValueError):
+        significance = 0.0
+    if significance != significance:
+        significance = 0.0
+    significance = round(max(0.0, min(1.0, significance)), 4)
+
     return {
         **field,
         "content": content,
         "runtime_snapshot_id": normalize_l4_text(field.get("runtime_snapshot_id")),
         "session_id": normalize_l4_text(field.get("session_id") or session_id),
         "l4_status": status,
+        "significance": significance,
         "l4_content_hash": normalize_l4_text(field.get("l4_content_hash"))
         or build_l4_content_hash(content),
         "l4_analyzed_at": (
@@ -1445,6 +1542,7 @@ def collect_pending_facts_memory_fields(records: list[dict]) -> list[dict]:
                 "runtime_snapshot_id": field.get("runtime_snapshot_id", ""),
                 "session_id": field.get("session_id") or session_id,
                 "l4_content_hash": field.get("l4_content_hash", ""),
+                "significance": field.get("significance", 0.0),
             })
 
     return pending
@@ -1552,9 +1650,18 @@ def normalize_l4_candidates(
             for source_key in source_keys
             for field in fields_by_key[source_key]
         ]
+        matched_significance = max(
+            (
+                float(field.get("significance", 0.0) or 0.0)
+                for field in matched_fields
+            ),
+            default=0.0,
+        )
         candidate = normalize_l4_fact(
             {
                 **raw_candidate,
+                "significance": matched_significance,
+                "significance_updated_at": current_time,
                 "source_keys": source_keys,
                 "source_session_ids": [
                     field.get("session_id", "") for field in matched_fields
@@ -1828,6 +1935,33 @@ def merge_fact_sources(existing: dict, incoming: dict) -> dict:
     }
 
 
+def merge_l4_significance(
+    *facts: dict,
+    now: str,
+) -> tuple[float, str]:
+    best_value = 0.0
+    best_updated_at = now
+
+    for fact in facts:
+        if not isinstance(fact, dict):
+            continue
+        try:
+            value = float(fact.get("significance", 0.0) or 0.0)
+        except (TypeError, ValueError):
+            value = 0.0
+        if value != value:
+            value = 0.0
+        value = max(0.0, min(1.0, value))
+        if value >= best_value:
+            best_value = value
+            best_updated_at = (
+                normalize_l4_text(fact.get("significance_updated_at"))
+                or now
+            )
+
+    return round(best_value, 4), best_updated_at
+
+
 def build_l4_merge_detail_fact(fact: dict) -> dict:
     return {
         "id": normalize_l4_text(fact.get("id")),
@@ -1962,6 +2096,11 @@ def apply_l4_merge_operations(
             index = facts_by_id[operation["target_id"]]
             target = facts[index]
             target_before = dict(target)
+            significance, significance_updated_at = merge_l4_significance(
+                target,
+                pending,
+                now=current_time,
+            )
             candidate = normalize_l4_fact(
                 {
                     **pending,
@@ -1971,6 +2110,8 @@ def apply_l4_merge_operations(
                     "id": target["id"],
                     "created_at": target.get("created_at"),
                     "updated_at": current_time,
+                    "significance": significance,
+                    "significance_updated_at": significance_updated_at,
                     **merge_fact_sources(target, pending),
                     "mention_count": max(1, int(target.get("mention_count") or 1))
                     + max(1, int(pending.get("mention_count") or 1)),
@@ -2016,6 +2157,11 @@ def apply_l4_merge_operations(
                 allocation_store,
                 pending=False,
             )
+            significance, significance_updated_at = merge_l4_significance(
+                *merged_facts,
+                pending,
+                now=current_time,
+            )
             candidate = normalize_l4_fact(
                 {
                     "id": new_fact_id,
@@ -2024,6 +2170,8 @@ def apply_l4_merge_operations(
                     "category": operation["category"],
                     "created_at": current_time,
                     "updated_at": current_time,
+                    "significance": significance,
+                    "significance_updated_at": significance_updated_at,
                     "mention_count": sum(
                         max(1, int(fact.get("mention_count") or 1))
                         for fact in [*merged_facts, pending]
@@ -2397,6 +2545,12 @@ def apply_l4_jin_note_result(
         mention_count: int = 1,
         duplicate_key_reason: str,
     ) -> tuple[dict | None, str]:
+        source_significance, source_significance_updated_at = (
+            merge_l4_significance(
+                *(source_facts or []),
+                now=current_time,
+            )
+        )
         fact = normalize_l4_fact(
             {
                 **raw_fact,
@@ -2404,6 +2558,17 @@ def apply_l4_jin_note_result(
                 "created_at": created_at,
                 "updated_at": current_time,
                 "mention_count": mention_count,
+                "significance": (
+                    raw_fact.get("significance")
+                    if raw_fact.get("significance") is not None
+                    else source_significance
+                ),
+                "significance_updated_at": (
+                    normalize_l4_text(
+                        raw_fact.get("significance_updated_at")
+                    )
+                    or source_significance_updated_at
+                ),
                 "source_session_ids": merge_l4_string_lists(
                     *[
                         source_fact.get("source_session_ids")
@@ -2825,7 +2990,18 @@ def format_long_term_memory_context(
         if not line or not fact_id:
             continue
 
-        suffix = f" [ id: {fact_id} ]"
+        try:
+            significance = max(
+                0.0,
+                min(1.0, float(fact.get("significance", 0.0) or 0.0)),
+            )
+        except (TypeError, ValueError):
+            significance = 0.0
+
+        suffix = (
+            f" [ id: {fact_id} ]"
+            f" [ significance: {significance:.3f} ]"
+        )
         delayed_memory_ids = delayed_memory_ids_by_fact_id.get(
             fact_id.upper(),
             [],

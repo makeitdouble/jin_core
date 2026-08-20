@@ -322,11 +322,14 @@ const consolePanel = document.getElementById("console-panel");
     const PANEL_VIEWPORT_GAP = 8;
     const PANEL_DOCK_FREE = "free";
     const STARTUP_COLLAPSE_CLASS = "panel-startup-collapse-active";
+    const AVATAR_INSPECTOR_CLOSE_CLASS = "panel-avatar-inspector-closing";
     const COLLAPSED_AVATAR_MIN_PANEL_WIDTH = 96;
     const COLLAPSED_AVATAR_MIN_RUNTIME_SIZE = 96;
     const DEFAULT_JIN_AVATAR_SIZE = 333;
     const COLLAPSED_AVATAR_RESET_ANIMATION_MS = 320;
     const COLLAPSED_AVATAR_SIZE_ANIMATION_MS = 320;
+    const ROOM_STATE_RESTORE_DELAY_MS = 1000;
+    const ROOM_STATE_RESTORE_TINT_DURATION_MS = 2000;
     const DEFAULT_JIN_AVATAR_MOVE_SPEED = 900;
     const MIN_JIN_AVATAR_MOVE_SPEED = 1;
     const MAX_JIN_AVATAR_MOVE_SPEED = 100000;
@@ -350,9 +353,18 @@ const consolePanel = document.getElementById("console-panel");
     let collapsedAvatarResetFrameId = null;
     let collapsedAvatarSizeFrameId = null;
     let collapsedAvatarPositionFrameId = null;
+    let avatarInspectorCloseTimer = null;
     let pendingJinSize = null;
     let pendingJinPosition = null;
+    let avatarInspectorWorldState = null;
     let jinAvatarMoveSpeed = DEFAULT_JIN_AVATAR_MOVE_SPEED;
+    let roomStateRestoreSequence = 0;
+    let roomStateRestoreDelayTimer = null;
+    let roomStateRestoreFinishTimer = null;
+    let roomStateRestoreTintTimer = null;
+    let roomStateRestoreTintPreviousDuration = null;
+    let roomStateRestoreInProgress = false;
+    let roomStateRestoreShouldPersist = false;
 
     function clearCollapsedAvatarResetTimer() {
         if (collapsedAvatarResetTimer === null) {
@@ -363,6 +375,17 @@ const consolePanel = document.getElementById("console-panel");
             collapsedAvatarResetTimer
         );
         collapsedAvatarResetTimer = null;
+    }
+
+    function clearAvatarInspectorCloseTimer() {
+        if (avatarInspectorCloseTimer === null) {
+            return;
+        }
+
+        window.clearTimeout(
+            avatarInspectorCloseTimer
+        );
+        avatarInspectorCloseTimer = null;
     }
 
     function cancelCollapsedAvatarResetFrame() {
@@ -882,7 +905,17 @@ const consolePanel = document.getElementById("console-panel");
             return;
         }
 
+        if (panel === memoryPanel) {
+            clearAvatarInspectorCloseTimer();
+            panel.classList.remove(AVATAR_INSPECTOR_CLOSE_CLASS);
+        }
+
         if (collapsed) {
+            const inspectorWorldState =
+                panel === memoryPanel
+                    ? takeAvatarWorldStateForInspectorClose()
+                    : null;
+
             if (!panel.classList.contains("panel-collapsed")) {
                 panel.dataset.expandedHeight =
                     panel.style.height
@@ -911,16 +944,22 @@ const consolePanel = document.getElementById("console-panel");
                 null;
 
             if (panel === memoryPanel) {
-                pendingJinSizeResult =
-                    applyPendingJinSizeToCollapsedAvatar(
+                if (inspectorWorldState) {
+                    pendingJinSizeResult =
+                        animateCollapsedAvatarWorldState(
+                            panel,
+                            inspectorWorldState
+                        );
+                } else {
+                    pendingJinSizeResult =
+                        applyPendingJinSizeToCollapsedAvatar(
+                            panel
+                        );
+
+                    applyPendingJinPositionToCollapsedAvatar(
                         panel
                     );
-            }
-
-            if (panel === memoryPanel) {
-                applyPendingJinPositionToCollapsedAvatar(
-                    panel
-                );
+                }
             }
 
             if (
@@ -1093,6 +1132,68 @@ const consolePanel = document.getElementById("console-panel");
         }
 
         return Number.parseFloat(value) || 0;
+    }
+
+    function getPanelCollapseDurationMs(panel) {
+        if (!panel) {
+            return 0;
+        }
+
+        return Math.max(
+            0,
+            parseCssDurationMs(
+                getComputedStyle(panel)
+                    .getPropertyValue("--panel-collapse-duration")
+                    .trim()
+            )
+        );
+    }
+
+    function finishAvatarInspectorClose(panel) {
+        if (
+            !panel
+            || !panel.classList.contains(AVATAR_INSPECTOR_CLOSE_CLASS)
+        ) {
+            return false;
+        }
+
+        clearAvatarInspectorCloseTimer();
+        setPanelCollapsed(panel, true);
+        syncSceneShadeToPanelCollapse();
+        return true;
+    }
+
+    function collapseAvatarInspectorBeforeWorldRestore(panel) {
+        if (
+            panel !== memoryPanel
+            || panel.classList.contains("panel-collapsed")
+            || !avatarInspectorWorldState
+        ) {
+            return false;
+        }
+
+        if (panel.classList.contains(AVATAR_INSPECTOR_CLOSE_CLASS)) {
+            return true;
+        }
+
+        finishStartupCollapseAnimation();
+        clearAvatarInspectorCloseTimer();
+        registerPanelRuntimeActivity(panel);
+        panel.classList.add(AVATAR_INSPECTOR_CLOSE_CLASS);
+
+        if (prefersReducedMotion()) {
+            finishAvatarInspectorClose(panel);
+            return true;
+        }
+
+        avatarInspectorCloseTimer = window.setTimeout(
+            () => {
+                finishAvatarInspectorClose(panel);
+            },
+            getPanelCollapseDurationMs(panel) + 24
+        );
+
+        return true;
     }
 
     function beginStartupCollapseAnimation() {
@@ -1538,7 +1639,10 @@ const consolePanel = document.getElementById("console-panel");
 
         pendingJinSize = normalized;
 
-        if (isCollapsedMemoryAvatarPanel(memoryPanel)) {
+        if (
+            isCollapsedMemoryAvatarPanel(memoryPanel)
+            && !avatarInspectorWorldState
+        ) {
             return applyPendingJinSizeToCollapsedAvatar(
                 memoryPanel
             );
@@ -1555,6 +1659,7 @@ const consolePanel = document.getElementById("console-panel");
         }
 
         jinAvatarMoveSpeed = normalized;
+        scheduleRoomStatePersist();
         return true;
     }
 
@@ -1592,12 +1697,16 @@ const consolePanel = document.getElementById("console-panel");
             startLeft: panelRect.left - parentRect.left,
             startTop: panelRect.top - parentRect.top,
             targetLeft: clampNumber(
-                normalized.x - parentRect.left,
+                normalized.x
+                - parentRect.left
+                - (panelRect.width / 2),
                 gap,
                 maxLeft
             ),
             targetTop: clampNumber(
-                normalized.y - parentRect.top,
+                normalized.y
+                - parentRect.top
+                - (panelRect.height / 2),
                 gap,
                 maxTop
             ),
@@ -1736,13 +1845,72 @@ const consolePanel = document.getElementById("console-panel");
 
         pendingJinPosition = normalized;
 
-        if (isCollapsedMemoryAvatarPanel(memoryPanel)) {
+        if (
+            isCollapsedMemoryAvatarPanel(memoryPanel)
+            && !avatarInspectorWorldState
+        ) {
             return applyPendingJinPositionToCollapsedAvatar(
                 memoryPanel
             );
         }
 
         return true;
+    }
+
+    function captureCollapsedAvatarWorldState(panel) {
+        if (!isCollapsedMemoryAvatarPanel(panel)) {
+            return null;
+        }
+
+        const snapshot = getRuntimeAvatarSnapshot();
+
+        if (!snapshot || snapshot.collapsed !== true) {
+            return null;
+        }
+
+        return {
+            size: {
+                width: snapshot.width,
+                height: snapshot.height,
+            },
+            position: {
+                x: snapshot.x,
+                y: snapshot.y,
+            },
+        };
+    }
+
+    function beginAvatarInspector(panel) {
+        const worldState =
+            captureCollapsedAvatarWorldState(panel);
+
+        if (!worldState) {
+            return false;
+        }
+
+        avatarInspectorWorldState = worldState;
+        return true;
+    }
+
+    function takeAvatarWorldStateForInspectorClose() {
+        if (!avatarInspectorWorldState) {
+            return null;
+        }
+
+        const worldState = {
+            size: pendingJinSize
+                ? { ...pendingJinSize }
+                : { ...avatarInspectorWorldState.size },
+            position: pendingJinPosition
+                ? { ...pendingJinPosition }
+                : { ...avatarInspectorWorldState.position },
+        };
+
+        pendingJinSize = null;
+        pendingJinPosition = null;
+        avatarInspectorWorldState = null;
+
+        return worldState;
     }
 
     function getRuntimeAvatarSnapshot() {
@@ -1785,8 +1953,12 @@ const consolePanel = document.getElementById("console-panel");
                     ),
                     height: runtimeHeight,
                 }),
-                x: Math.round(rect.left),
-                y: Math.round(rect.top),
+                x: Math.round(
+                    rect.left + (rect.width / 2)
+                ),
+                y: Math.round(
+                    rect.top + (rect.height / 2)
+                ),
                 speed_px_per_second: getJinMoveSpeed(),
                 window_width: Math.max(1, Math.round(window.innerWidth)),
                 window_height: Math.max(1, Math.round(window.innerHeight)),
@@ -1802,8 +1974,12 @@ const consolePanel = document.getElementById("console-panel");
             width: DEFAULT_JIN_AVATAR_SIZE,
             height: DEFAULT_JIN_AVATAR_SIZE,
             size: `${DEFAULT_JIN_AVATAR_SIZE}px`,
-            x: rect ? Math.round(rect.left) : 0,
-            y: rect ? Math.round(rect.top) : 0,
+            x: rect
+                ? Math.round(rect.left + (rect.width / 2))
+                : 0,
+            y: rect
+                ? Math.round(rect.top + (rect.height / 2))
+                : 0,
             speed_px_per_second: getJinMoveSpeed(),
             window_width: Math.max(1, Math.round(window.innerWidth)),
             window_height: Math.max(1, Math.round(window.innerHeight)),
@@ -2015,6 +2191,143 @@ const consolePanel = document.getElementById("console-panel");
         panel.classList.remove(
             "panel-inactive"
         );
+    }
+
+    function resolveCollapsedAvatarWorldTargetGeometry(panel, worldState) {
+        const size = normalizeJinSizePayload(
+            worldState && worldState.size
+        );
+        const position = normalizeJinPositionPayload(
+            worldState && worldState.position
+        );
+
+        if (!size || !position || !panel.parentElement) {
+            return null;
+        }
+
+        const bounds = getCollapsedAvatarResizeBounds(panel);
+        const currentGeometry = getCollapsedAvatarCurrentGeometry(panel);
+        const targetWidth = Math.round(
+            clampNumber(size.width, bounds.minWidth, bounds.maxWidth)
+        );
+        const targetHeight = Math.round(
+            clampNumber(
+                size.height + bounds.frameHeight,
+                bounds.minHeight,
+                bounds.maxHeight
+            )
+        );
+        const maxLeft = Math.max(
+            bounds.gap,
+            bounds.parentRect.width - targetWidth - bounds.gap
+        );
+        const maxTop = Math.max(
+            bounds.gap,
+            bounds.parentRect.height - targetHeight - bounds.gap
+        );
+
+        return {
+            currentGeometry,
+            targetGeometry: {
+                left: Math.round(
+                    clampNumber(
+                        position.x
+                        - bounds.parentRect.left
+                        - (targetWidth / 2),
+                        bounds.gap,
+                        maxLeft
+                    )
+                ),
+                top: Math.round(
+                    clampNumber(
+                        position.y
+                        - bounds.parentRect.top
+                        - (targetHeight / 2),
+                        bounds.gap,
+                        maxTop
+                    )
+                ),
+                width: targetWidth,
+                height: targetHeight,
+            },
+        };
+    }
+
+    function animateCollapsedAvatarWorldState(panel, worldState) {
+        const resolved = resolveCollapsedAvatarWorldTargetGeometry(
+            panel,
+            worldState
+        );
+
+        if (!resolved) {
+            return null;
+        }
+
+        const startGeometry = resolved.currentGeometry;
+        const targetGeometry = resolved.targetGeometry;
+
+        cancelCollapsedAvatarSizeFrame();
+        cancelCollapsedAvatarPositionFrame();
+        cancelCollapsedAvatarResetFrame();
+        clearCollapsedAvatarResetTimer();
+        registerPanelRuntimeActivity(panel);
+        setPanelFreeDock(panel);
+
+        panel.style.left = `${Math.round(startGeometry.left)}px`;
+        panel.style.top = `${Math.round(startGeometry.top)}px`;
+        panel.style.right = "auto";
+        panel.style.bottom = "auto";
+
+        if (
+            prefersReducedMotion()
+            || collapsedAvatarGeometryMatches(startGeometry, targetGeometry)
+        ) {
+            applyCollapsedAvatarGeometry(panel, targetGeometry);
+            return { animated: false };
+        }
+
+        panel.classList.add("panel-avatar-size-changing");
+
+        const startTime = window.performance.now();
+        const animateWorldState = (timestamp) => {
+            const rawProgress = clampNumber(
+                (timestamp - startTime) / COLLAPSED_AVATAR_SIZE_ANIMATION_MS,
+                0,
+                1
+            );
+            const progress = easeInOutCubic(rawProgress);
+
+            applyCollapsedAvatarGeometry(
+                panel,
+                {
+                    left: startGeometry.left
+                        + (targetGeometry.left - startGeometry.left) * progress,
+                    top: startGeometry.top
+                        + (targetGeometry.top - startGeometry.top) * progress,
+                    width: startGeometry.width
+                        + (targetGeometry.width - startGeometry.width) * progress,
+                    height: startGeometry.height
+                        + (targetGeometry.height - startGeometry.height) * progress,
+                }
+            );
+
+            if (rawProgress < 1) {
+                collapsedAvatarSizeFrameId = window.requestAnimationFrame(
+                    animateWorldState
+                );
+                return;
+            }
+
+            collapsedAvatarSizeFrameId = null;
+            applyCollapsedAvatarGeometry(panel, targetGeometry);
+            panel.classList.remove("panel-avatar-size-changing");
+        };
+
+        collapsedAvatarSizeFrameId = window.requestAnimationFrame(
+            animateWorldState
+        );
+
+        return { animated: true };
     }
 
     function animateCollapsedAvatarSize(panel, width, height) {
@@ -3149,6 +3462,759 @@ const MEMORY_PANEL_COLLAPSE_SYNC_EVENT =
     "jin:memory-panel-collapse-sync";
 let consoleStreamDetachTimer = null;
 let memoryPanelScrollDetachTimer = null;
+const ROOM_STATE_PERSIST_DELAY_MS = 160;
+let roomStatePersistTimer = null;
+let roomStatePersistenceEnabled = false;
+let applyingRoomState = false;
+
+function isRoomStateObject(value) {
+    return Boolean(
+        value
+        && typeof value === "object"
+        && !Array.isArray(value)
+    );
+}
+
+function finiteRoomNumber(value) {
+    const number = Number(value);
+    return Number.isFinite(number)
+        ? number
+        : null;
+}
+
+function capturePanelRoomState(panel) {
+    if (!panel || !panel.parentElement) {
+        return null;
+    }
+
+    const parentRect =
+        panel.parentElement.getBoundingClientRect();
+    const rect =
+        panel.getBoundingClientRect();
+
+    return {
+        collapsed:
+            panel.classList.contains("panel-collapsed"),
+        dock: getPanelDock(panel),
+        left: Math.round(rect.left - parentRect.left),
+        top: Math.round(rect.top - parentRect.top),
+        width: Math.max(1, Math.round(rect.width)),
+        height: Math.max(1, Math.round(rect.height)),
+    };
+}
+
+function getRoomState(previousState = null) {
+    const previousAvatar =
+        previousState
+        && isRoomStateObject(previousState.avatar)
+            ? previousState.avatar
+            : {};
+    const avatarApi =
+        window.JinRuntime
+        && window.JinRuntime.avatar;
+    const avatarSnapshot =
+        getRuntimeAvatarSnapshot();
+    const avatarCollapsed =
+        Boolean(
+            memoryPanel
+            && memoryPanel.classList.contains("panel-collapsed")
+        );
+
+    let width = null;
+    let height = null;
+    let x = null;
+    let y = null;
+
+    if (avatarCollapsed && avatarSnapshot) {
+        width = finiteRoomNumber(avatarSnapshot.width);
+        height = finiteRoomNumber(avatarSnapshot.height);
+        x = finiteRoomNumber(avatarSnapshot.x);
+        y = finiteRoomNumber(avatarSnapshot.y);
+    } else {
+        width = finiteRoomNumber(previousAvatar.width);
+        height = finiteRoomNumber(previousAvatar.height);
+        x = finiteRoomNumber(previousAvatar.x);
+        y = finiteRoomNumber(previousAvatar.y);
+    }
+
+    const geometryKnown =
+        width !== null
+        && height !== null
+        && x !== null
+        && y !== null;
+
+    return {
+        version: 1,
+        saved_at: new Date().toISOString(),
+        console_panel:
+            capturePanelRoomState(consolePanel),
+        memory_panel:
+            capturePanelRoomState(memoryPanel),
+        avatar: {
+            collapsed: avatarCollapsed,
+            color:
+                avatarApi
+                && typeof avatarApi.getCenterColor === "function"
+                    ? String(avatarApi.getCenterColor() || "").trim()
+                    : "",
+            memory_layers_hidden:
+                avatarApi
+                && typeof avatarApi.getMemoryLayersHidden === "function"
+                    ? Boolean(avatarApi.getMemoryLayersHidden())
+                    : false,
+            geometry_known: geometryKnown,
+            width: geometryKnown ? Math.round(width) : null,
+            height: geometryKnown ? Math.round(height) : null,
+            x: geometryKnown ? Math.round(x) : null,
+            y: geometryKnown ? Math.round(y) : null,
+            speed_px_per_second: getJinMoveSpeed(),
+            window_width: Math.max(1, Math.round(window.innerWidth)),
+            window_height: Math.max(1, Math.round(window.innerHeight)),
+        },
+    };
+}
+
+function applyPanelRoomState(panel, state) {
+    if (!panel || !isRoomStateObject(state)) {
+        return false;
+    }
+
+    const dock = String(state.dock || "").trim();
+    const left = finiteRoomNumber(state.left);
+    const top = finiteRoomNumber(state.top);
+    const width = finiteRoomNumber(state.width);
+    const height = finiteRoomNumber(state.height);
+
+    setPanelCollapsed(
+        panel,
+        Boolean(state.collapsed)
+    );
+
+    if (dock === PANEL_DOCK_FREE) {
+        setPanelFreeDock(panel);
+    } else if (dock === getDefaultPanelDock(panel)) {
+        delete panel.dataset.panelDock;
+    }
+
+    if (
+        dock === PANEL_DOCK_FREE
+        && left !== null
+        && top !== null
+    ) {
+        panel.style.position = "absolute";
+        panel.style.left = `${Math.round(left)}px`;
+        panel.style.top = `${Math.round(top)}px`;
+        panel.style.right = "auto";
+        panel.style.bottom = "auto";
+    }
+
+    if (
+        width !== null
+        && width > 0
+        && dock === PANEL_DOCK_FREE
+    ) {
+        panel.style.width = `${Math.round(width)}px`;
+    }
+
+    if (
+        height !== null
+        && height > 0
+        && !panel.classList.contains("panel-collapsed")
+        && dock === PANEL_DOCK_FREE
+    ) {
+        panel.style.height = `${Math.round(height)}px`;
+    }
+
+    clampPanelGeometry(panel);
+    return true;
+}
+
+function applyAvatarRoomGeometry(avatarState) {
+    if (
+        !isRoomStateObject(avatarState)
+        || avatarState.geometry_known !== true
+    ) {
+        return false;
+    }
+
+    const size = normalizeJinSizePayload({
+        width: avatarState.width,
+        height: avatarState.height,
+    });
+    const position = normalizeJinPositionPayload({
+        x: avatarState.x,
+        y: avatarState.y,
+    });
+
+    if (!size || !position) {
+        return false;
+    }
+
+    if (isCollapsedMemoryAvatarPanel(memoryPanel)) {
+        const bounds =
+            getCollapsedAvatarResizeBounds(memoryPanel);
+
+        applyCollapsedAvatarSize(
+            memoryPanel,
+            size.width,
+            size.height + bounds.frameHeight
+        );
+
+        const parentRect =
+            memoryPanel.parentElement.getBoundingClientRect();
+        const panelRect =
+            memoryPanel.getBoundingClientRect();
+
+        applyCollapsedAvatarPosition(
+            memoryPanel,
+            position.x - parentRect.left - (panelRect.width / 2),
+            position.y - parentRect.top - (panelRect.height / 2)
+        );
+        clampCollapsedAvatarGeometry(memoryPanel);
+        pendingJinSize = null;
+        pendingJinPosition = null;
+        avatarInspectorWorldState = null;
+        return true;
+    }
+
+    avatarInspectorWorldState = {
+        size: {
+            width: size.width,
+            height: size.height,
+        },
+        position: {
+            x: position.x,
+            y: position.y,
+        },
+    };
+    return true;
+}
+
+function clearRoomStateRestoreTimers() {
+    if (roomStateRestoreDelayTimer !== null) {
+        window.clearTimeout(roomStateRestoreDelayTimer);
+        roomStateRestoreDelayTimer = null;
+    }
+
+    if (roomStateRestoreFinishTimer !== null) {
+        window.clearTimeout(roomStateRestoreFinishTimer);
+        roomStateRestoreFinishTimer = null;
+    }
+}
+
+function clearRoomStateTintTransition() {
+    const tint = document.getElementById("scene-jin-tint");
+
+    if (roomStateRestoreTintTimer !== null) {
+        window.clearTimeout(roomStateRestoreTintTimer);
+        roomStateRestoreTintTimer = null;
+    }
+
+    if (tint && roomStateRestoreTintPreviousDuration !== null) {
+        if (roomStateRestoreTintPreviousDuration) {
+            tint.style.transitionDuration =
+                roomStateRestoreTintPreviousDuration;
+        } else {
+            tint.style.removeProperty("transition-duration");
+        }
+    }
+
+    roomStateRestoreTintPreviousDuration = null;
+}
+
+function beginRoomStateTintTransition(sequence) {
+    const tint = document.getElementById("scene-jin-tint");
+
+    clearRoomStateTintTransition();
+
+    if (!tint) {
+        return;
+    }
+
+    roomStateRestoreTintPreviousDuration =
+        tint.style.transitionDuration;
+    tint.style.transitionDuration =
+        `${ROOM_STATE_RESTORE_TINT_DURATION_MS}ms`;
+    tint.getBoundingClientRect();
+
+    roomStateRestoreTintTimer = window.setTimeout(
+        () => {
+            if (sequence !== roomStateRestoreSequence) {
+                return;
+            }
+
+            clearRoomStateTintTransition();
+        },
+        ROOM_STATE_RESTORE_TINT_DURATION_MS + 80
+    );
+}
+
+function finishRoomStateRestore(sequence) {
+    if (sequence !== roomStateRestoreSequence) {
+        return;
+    }
+
+    roomStateRestoreFinishTimer = null;
+    roomStateRestoreInProgress = false;
+
+    if (roomStateRestoreShouldPersist) {
+        scheduleRoomStatePersist();
+    }
+}
+
+function clickPanelForRoomRestore(panel, handle) {
+    if (
+        !panel
+        || !handle
+        || panel.classList.contains("panel-collapsed")
+    ) {
+        return false;
+    }
+
+    handle.click();
+    return true;
+}
+
+function scheduleRoomStateCollapse(
+    sequence,
+    consoleCollapsed,
+    memoryCollapsed
+) {
+    roomStateRestoreDelayTimer = window.setTimeout(
+        () => {
+            roomStateRestoreDelayTimer = null;
+
+            if (sequence !== roomStateRestoreSequence) {
+                return;
+            }
+
+            if (consoleCollapsed) {
+                clickPanelForRoomRestore(
+                    consolePanel,
+                    consoleDragHandle
+                );
+            }
+
+            if (memoryCollapsed) {
+                clickPanelForRoomRestore(
+                    memoryPanel,
+                    memoryDragHandle
+                );
+            }
+
+            const finishDelay = Math.max(
+                consoleCollapsed
+                    ? getPanelCollapseDurationMs(consolePanel)
+                    : 0,
+                memoryCollapsed
+                    ? getPanelCollapseDurationMs(memoryPanel)
+                        + COLLAPSED_AVATAR_SIZE_ANIMATION_MS
+                        + 80
+                    : 0
+            );
+
+            roomStateRestoreFinishTimer = window.setTimeout(
+                () => finishRoomStateRestore(sequence),
+                finishDelay + 80
+            );
+        },
+        ROOM_STATE_RESTORE_DELAY_MS
+    );
+}
+
+function applyRoomState(roomState, options = {}) {
+    if (!isRoomStateObject(roomState)) {
+        return false;
+    }
+
+    const avatarState =
+        isRoomStateObject(roomState.avatar)
+            ? roomState.avatar
+            : {};
+    const avatarApi =
+        window.JinRuntime
+        && window.JinRuntime.avatar;
+    const animateRestore =
+        options.animateRestore !== false
+        && !prefersReducedMotion();
+
+    roomStateRestoreSequence += 1;
+    const sequence = roomStateRestoreSequence;
+
+    clearRoomStateRestoreTimers();
+    roomStateRestoreInProgress = animateRestore;
+    roomStateRestoreShouldPersist =
+        options.persist !== false;
+
+    applyingRoomState = true;
+
+    try {
+        [consolePanel, memoryPanel]
+            .filter(Boolean)
+            .forEach(registerPanelRuntimeActivity);
+        finishStartupCollapseAnimation();
+
+        if (animateRestore) {
+            beginRoomStateTintTransition(sequence);
+        } else {
+            clearRoomStateTintTransition();
+        }
+
+        if (
+            avatarState.color
+            && avatarApi
+            && typeof avatarApi.setCenterColor === "function"
+        ) {
+            avatarApi.setCenterColor(avatarState.color);
+        }
+
+        if (finiteRoomNumber(avatarState.speed_px_per_second) > 0) {
+            setJinMoveSpeed(
+                avatarState.speed_px_per_second
+            );
+        }
+
+        if (
+            avatarApi
+            && typeof avatarApi.setMemoryLayersHidden === "function"
+            && Object.prototype.hasOwnProperty.call(
+                avatarState,
+                "memory_layers_hidden"
+            )
+        ) {
+            avatarApi.setMemoryLayersHidden(
+                Boolean(avatarState.memory_layers_hidden)
+            );
+        }
+
+        if (!animateRestore) {
+            withoutPanelTransitions(() => {
+                applyPanelRoomState(
+                    consolePanel,
+                    roomState.console_panel
+                );
+
+                const memoryApplied =
+                    applyPanelRoomState(
+                        memoryPanel,
+                        roomState.memory_panel
+                    );
+
+                if (
+                    !memoryApplied
+                    && Object.prototype.hasOwnProperty.call(
+                        avatarState,
+                        "collapsed"
+                    )
+                ) {
+                    setPanelCollapsed(
+                        memoryPanel,
+                        Boolean(avatarState.collapsed)
+                    );
+                }
+
+                applyAvatarRoomGeometry(avatarState);
+                syncCollapsedPanelBodies();
+                syncSceneShadeToPanelCollapse();
+            });
+        } else {
+            const consoleState =
+                isRoomStateObject(roomState.console_panel)
+                    ? roomState.console_panel
+                    : null;
+            const memoryState =
+                isRoomStateObject(roomState.memory_panel)
+                    ? roomState.memory_panel
+                    : null;
+            const consoleCollapsed =
+                Boolean(consoleState && consoleState.collapsed);
+            const memoryCollapsed =
+                memoryState
+                    ? Boolean(memoryState.collapsed)
+                    : Boolean(avatarState.collapsed);
+
+            withoutPanelTransitions(() => {
+                if (consoleState) {
+                    applyPanelRoomState(
+                        consolePanel,
+                        consoleState
+                    );
+
+                    if (consoleCollapsed) {
+                        setPanelCollapsed(consolePanel, false);
+                    }
+                } else {
+                    setPanelCollapsed(consolePanel, false);
+                }
+
+                setPanelCollapsed(memoryPanel, false);
+
+                if (!memoryCollapsed) {
+                    applyPanelRoomState(
+                        memoryPanel,
+                        memoryState
+                    );
+                }
+
+                applyAvatarRoomGeometry(avatarState);
+                syncCollapsedPanelBodies();
+                syncSceneShadeToPanelCollapse();
+            });
+
+            scheduleRoomStateCollapse(
+                sequence,
+                consoleCollapsed,
+                memoryCollapsed
+            );
+        }
+    } finally {
+        applyingRoomState = false;
+    }
+
+    if (!animateRestore && options.persist !== false) {
+        scheduleRoomStatePersist();
+    }
+
+    return true;
+}
+
+function persistRoomStateNow() {
+    if (
+        !roomStatePersistenceEnabled
+        || applyingRoomState
+        || roomStateRestoreInProgress
+    ) {
+        return false;
+    }
+
+    const storage =
+        window.JinRuntime
+        && window.JinRuntime.storage;
+
+    if (
+        !storage
+        || typeof storage.readLatestSavedSessionSnapshot !== "function"
+        || typeof storage.writeLatestSavedSessionSnapshot !== "function"
+        || (
+            typeof storage.shouldIsolateAnonymousStorage === "function"
+            && storage.shouldIsolateAnonymousStorage()
+        )
+    ) {
+        return false;
+    }
+
+    const checkpoint =
+        storage.readLatestSavedSessionSnapshot();
+
+    if (
+        !checkpoint
+        || !isRoomStateObject(checkpoint.session_snapshot)
+    ) {
+        return false;
+    }
+
+    const previousRoomState =
+        isRoomStateObject(
+            checkpoint.session_snapshot.room_state
+        )
+            ? checkpoint.session_snapshot.room_state
+            : null;
+    const roomState = getRoomState(previousRoomState);
+    const avatar = roomState.avatar;
+    const sessionSnapshot = {
+        ...checkpoint.session_snapshot,
+        room_state: roomState,
+        current_jin_collapsed:
+            Boolean(avatar.collapsed),
+        current_jin_speed:
+            Number(avatar.speed_px_per_second || 900),
+        current_window_size: {
+            width: avatar.window_width,
+            height: avatar.window_height,
+        },
+    };
+
+    if (avatar.color) {
+        sessionSnapshot.current_jin_color = avatar.color;
+    }
+
+    if (avatar.geometry_known) {
+        sessionSnapshot.current_jin_size = {
+            width: avatar.width,
+            height: avatar.height,
+        };
+        sessionSnapshot.current_jin_position = {
+            x: avatar.x,
+            y: avatar.y,
+        };
+    }
+
+    storage.writeLatestSavedSessionSnapshot({
+        ...checkpoint,
+        session_snapshot: sessionSnapshot,
+    });
+
+    return true;
+}
+
+function scheduleRoomStatePersist() {
+    if (
+        !roomStatePersistenceEnabled
+        || applyingRoomState
+        || roomStateRestoreInProgress
+    ) {
+        return;
+    }
+
+    if (roomStatePersistTimer !== null) {
+        window.clearTimeout(roomStatePersistTimer);
+    }
+
+    roomStatePersistTimer = window.setTimeout(
+        () => {
+            roomStatePersistTimer = null;
+            persistRoomStateNow();
+        },
+        ROOM_STATE_PERSIST_DELAY_MS
+    );
+}
+
+function getStoredRoomState() {
+    const storage =
+        window.JinRuntime
+        && window.JinRuntime.storage;
+
+    if (
+        !storage
+        || typeof storage.readLatestSavedSessionSnapshot !== "function"
+    ) {
+        return null;
+    }
+
+    const checkpoint =
+        storage.readLatestSavedSessionSnapshot();
+
+    if (
+        !checkpoint
+        || !isRoomStateObject(checkpoint.session_snapshot)
+    ) {
+        return null;
+    }
+
+    const requestedSessionId =
+        String(
+            new URLSearchParams(window.location.search)
+                .get("restore_session")
+            || ""
+        ).trim();
+
+    if (
+        requestedSessionId
+        && String(checkpoint.session_id || "").trim()
+            !== requestedSessionId
+    ) {
+        return null;
+    }
+
+    const snapshot = checkpoint.session_snapshot;
+
+    if (isRoomStateObject(snapshot.room_state)) {
+        return snapshot.room_state;
+    }
+
+    if (
+        !isRoomStateObject(snapshot.current_jin_size)
+        || !isRoomStateObject(snapshot.current_jin_position)
+    ) {
+        return null;
+    }
+
+    return {
+        version: 1,
+        avatar: {
+            collapsed:
+                Object.prototype.hasOwnProperty.call(
+                    snapshot,
+                    "current_jin_collapsed"
+                )
+                    ? Boolean(snapshot.current_jin_collapsed)
+                    : true,
+            color:
+                String(snapshot.current_jin_color || "").trim(),
+            memory_layers_hidden: false,
+            geometry_known: true,
+            width: snapshot.current_jin_size.width,
+            height: snapshot.current_jin_size.height,
+            x: snapshot.current_jin_position.x,
+            y: snapshot.current_jin_position.y,
+            speed_px_per_second:
+                Number(snapshot.current_jin_speed || 900),
+        },
+    };
+}
+
+function enableRoomStatePersistence() {
+    roomStatePersistenceEnabled = true;
+    scheduleRoomStatePersist();
+}
+
+function initRoomStatePersistence() {
+    if (typeof MutationObserver !== "undefined") {
+        const observer = new MutationObserver(
+            scheduleRoomStatePersist
+        );
+
+        [consolePanel, memoryPanel]
+            .filter(Boolean)
+            .forEach((panel) => {
+                observer.observe(panel, {
+                    attributes: true,
+                    attributeFilter: [
+                        "style",
+                        "data-panel-dock",
+                    ],
+                });
+            });
+    }
+
+    window.addEventListener(
+        "jin:avatar-room-state-changed",
+        scheduleRoomStatePersist
+    );
+    window.addEventListener(
+        "beforeunload",
+        persistRoomStateNow
+    );
+
+    const storedRoomState = getStoredRoomState();
+
+    if (storedRoomState) {
+        applyRoomState(
+            storedRoomState,
+            { persist: false }
+        );
+        enableRoomStatePersistence();
+        return;
+    }
+
+    const enableAfterRestore = () => {
+        Promise.resolve(
+            window.jinArchivedSessionRestoreReady
+        )
+            .catch(() => null)
+            .finally(enableRoomStatePersistence);
+    };
+
+    if (document.readyState === "complete") {
+        enableAfterRestore();
+    } else {
+        window.addEventListener(
+            "load",
+            enableAfterRestore,
+            { once: true }
+        );
+    }
+}
 
 function clearConsoleStreamDetachTimer() {
     if (consoleStreamDetachTimer === null) {
@@ -3658,8 +4724,11 @@ window.JinPanels =
             collapseAllPanels,
             expandConsolePanelForContextAttachment,
             cancelStartupCollapseAnimation,
+            applyRoomState,
+            getRoomState,
             getRuntimeAvatarSnapshot,
             getJinMoveSpeed,
+            persistRoomStateNow,
             refreshCollapsedPanelHeights,
             setJinMoveSpeed,
             setPendingJinPosition,
@@ -3685,7 +4754,6 @@ memoryDragHandle.addEventListener("mousedown", (event) => {
 
     cancelCollapsedAvatarSizeFrame();
     cancelCollapsedAvatarPositionFrame();
-    pendingJinPosition = null;
 
     isMemoryDragging = true;
 
@@ -3711,6 +4779,7 @@ window.addEventListener("mousemove", (event) => {
         )
     ) {
         memoryHasMoved = true;
+        pendingJinPosition = null;
         setPanelFreeDock(memoryPanel);
     }
 
@@ -3750,9 +4819,20 @@ window.addEventListener("mouseup", () => {
 });
 
 memoryDragHandle.addEventListener("click", (event) => {
+    if (memoryPanel.classList.contains(AVATAR_INSPECTOR_CLOSE_CLASS)) {
+        event.preventDefault();
+        return;
+    }
+
+    const collapsedAvatar =
+        isCollapsedMemoryAvatarPanel(memoryPanel);
+    const avatarResetting =
+        memoryPanel.classList.contains("panel-avatar-resetting");
+
     if (
         memoryHasMoved
-        || event.detail > 1
+        || avatarResetting
+        || (event.detail > 1 && !collapsedAvatar)
     ) {
         memoryHasMoved = false;
         return;
@@ -3768,11 +4848,13 @@ memoryDragHandle.addEventListener("click", (event) => {
         return;
     }
 
-    if (isCollapsedMemoryAvatarPanel(memoryPanel)) {
+    if (collapsedAvatar) {
         event.preventDefault();
         finishStartupCollapseAnimation();
 
         clearCollapsedAvatarResetTimer();
+
+        beginAvatarInspector(memoryPanel);
 
         const avatarResetStarted =
             resetCollapsedAvatarToDefault(memoryPanel);
@@ -3792,6 +4874,11 @@ memoryDragHandle.addEventListener("click", (event) => {
                 COLLAPSED_AVATAR_RESET_EXPAND_DELAY_MS
             );
 
+        return;
+    }
+
+    if (collapseAvatarInspectorBeforeWorldRestore(memoryPanel)) {
+        event.preventDefault();
         return;
     }
 
@@ -3827,5 +4914,8 @@ window.addEventListener(
         cancelCollapsedAvatarPositionFrame();
         clampAllPanelGeometry();
         refreshCollapsedPanelHeights();
+        scheduleRoomStatePersist();
     }
 );
+
+initRoomStatePersistence();
