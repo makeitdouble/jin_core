@@ -24,9 +24,16 @@ from contracts.rules_assembler import (
     build_runtime_action_display_text,
     get_runtime_action_display_name,
     runtime_action_has_close_tag,
+    runtime_action_emits_followup,
 )
 from rules.runtime import (
     ACTION_REJECTED_MISSING_TRIGGER_WORDS_MESSAGE,
+)
+from runtime.anonymous_mode import (
+    RESTRICTED_WRITE_REASON,
+    build_restricted_write_event,
+    persistent_writes_restricted,
+    runtime_action_write_is_restricted,
 )
 from utils.assets_utils import ensure_assets_tree
 from utils.actions import (
@@ -212,7 +219,8 @@ async def apply_runtime_action_calls(
 
         return enriched_payload
 
-    ensure_assets_tree()
+    if not persistent_writes_restricted(context):
+        ensure_assets_tree()
     tool_results_clean_state = snapshot_runtime_tool_results_state(
         context
     )
@@ -545,6 +553,37 @@ async def apply_runtime_action_calls(
     )
 
     for action in actions:
+
+        if runtime_action_write_is_restricted(
+            context,
+            action.name,
+            action.payload,
+        ):
+            rejected_action_events[id(action)] = (
+                build_restricted_write_event(
+                    action.name,
+                    include_followup=runtime_action_emits_followup(
+                        action.name
+                    ),
+                )
+            )
+            logger = getattr(
+                context,
+                "logger",
+                None,
+            )
+            log_runtime = getattr(
+                logger,
+                "log_runtime",
+                None,
+            )
+            if log_runtime is not None:
+                await log_runtime(
+                    "[RUNTIME ACTION] "
+                    f"{action.name.lower()} failed: "
+                    f"{RESTRICTED_WRITE_REASON}"
+                )
+            continue
 
         jin_color = ""
         jin_size = ""
@@ -1400,8 +1439,10 @@ async def apply_runtime_action_calls(
                     and not rejected_event.get(
                         "failure_followup_message"
                     )
-                    and rejected_event.get("error")
-                    != "behavior_contract_blocker_matched"
+                    and rejected_event.get("error") not in {
+                        "behavior_contract_blocker_matched",
+                        "restricted_write",
+                    }
                 ):
                     continue
 

@@ -130,6 +130,10 @@ class RuntimeContext:
 
     delayed_memory_file_store_enabled: bool = True
 
+    runtime_anonymous_mode: bool = False
+
+    runtime_persistent_writes_restricted: bool = False
+
     runtime_loaded_skills: list[dict] = field(
         default_factory=list
     )

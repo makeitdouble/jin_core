@@ -57,6 +57,16 @@ class ConfigLoaderTests(unittest.TestCase):
             5,
         )
 
+        self.assertIs(
+            config.ENABLE_DEFAULT_ANONYMOUS_MODE,
+            True,
+        )
+
+        self.assertIs(
+            config.ENABLE_GLOBAL_ANONYMOUS_MODE,
+            False,
+        )
+
     def test_env_overrides_fallback_config_values(self):
 
         root = Path(__file__).resolve().parents[1]

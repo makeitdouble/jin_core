@@ -91,6 +91,18 @@ function buildWebSocketUrl() {
     );
   }
 
+  if (
+      window.JinRuntime
+      && window.JinRuntime.anonymousMode
+      && typeof window.JinRuntime.anonymousMode.isEnabled === "function"
+      && window.JinRuntime.anonymousMode.isEnabled()
+  ) {
+    params.set(
+      "anonymous_mode",
+      "1"
+    );
+  }
+
   return `ws://${window.location.host}/ws/chat?${params.toString()}`;
 
 }
@@ -688,6 +700,18 @@ async function handleSocketOpen() {
     }
   }
 
+  if (
+      window.JinRuntime
+      && window.JinRuntime.runtime
+      && window.JinRuntime.runtime.getActiveMemoryRecords
+  ) {
+    sendSocketMessage({
+      type: "active_memory_store_sync",
+      active_memory_records:
+        window.JinRuntime.runtime.getActiveMemoryRecords(),
+    });
+  }
+
   syncDelayedMemoryReportsToRuntime();
   if (typeof window.syncFactsMemoryToRuntime === "function") {
     window.syncFactsMemoryToRuntime();
@@ -822,6 +846,18 @@ async function initializeSocketClient() {
   }
 
   socketClientInitialized = true;
+
+  if (
+      window.JinRuntime
+      && window.JinRuntime.anonymousMode
+      && window.JinRuntime.anonymousMode.ready
+  ) {
+    try {
+      await window.JinRuntime.anonymousMode.ready;
+    } catch (error) {
+      // Detection failure falls back to normal mode.
+    }
+  }
 
   if (typeof logOtherLatestRuntimeMemorySnapshots === "function") {
     logOtherLatestRuntimeMemorySnapshots();

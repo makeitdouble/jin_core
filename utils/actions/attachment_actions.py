@@ -19,6 +19,7 @@ from utils.tool_results import (
     TOOL_RESULT_KIND_FILES,
     record_runtime_tool_result,
 )
+from runtime.anonymous_mode import persistent_writes_restricted
 
 
 def _clean_id(value: str) -> str:
@@ -63,9 +64,12 @@ async def _emit_snapshot(context) -> None:
     emitter = getattr(context, "emitter", None)
     emit = getattr(emitter, "emit", None)
     if emit is not None:
+        snapshot = public_file_snapshot()
+        if persistent_writes_restricted(context):
+            snapshot["pinned_ids"] = _active_ids(context)
         await emit({
             "type": "attached_files_update",
-            **public_file_snapshot(),
+            **snapshot,
         })
 
 
@@ -80,6 +84,7 @@ async def apply_attachment_actions(
 ) -> list[dict]:
     results = []
     active_ids = _active_ids(context)
+    restricted_writes = persistent_writes_restricted(context)
 
     if list_actions:
         records = list_file_records()
@@ -109,7 +114,8 @@ async def apply_attachment_actions(
             continue
         was_loaded = file_id in active_ids
         active_ids = [value for value in active_ids if value != file_id]
-        set_file_pinned(file_id, False)
+        if not restricted_writes:
+            set_file_pinned(file_id, False)
         results.append({
             "action": "detach_file",
             "ok": True,
@@ -140,17 +146,24 @@ async def apply_attachment_actions(
             })
             continue
         previous_active_ids = list(active_ids)
-        updated, error = set_file_pinned(file_id, True)
-        if error:
-            results.append({
-                "action": "attach_file",
-                "ok": False,
-                "id": file_id,
-                "name": record["name"],
-                "error": error,
-            })
-            continue
-        active_ids = get_pinned_file_ids()
+        if restricted_writes:
+            updated = record
+            error = None
+            active_ids.append(file_id)
+            if len(active_ids) > MAX_ATTACHED_FILES:
+                active_ids = active_ids[-MAX_ATTACHED_FILES:]
+        else:
+            updated, error = set_file_pinned(file_id, True)
+            if error:
+                results.append({
+                    "action": "attach_file",
+                    "ok": False,
+                    "id": file_id,
+                    "name": record["name"],
+                    "error": error,
+                })
+                continue
+            active_ids = get_pinned_file_ids()
         replaced_ids = [
             value
             for value in previous_active_ids

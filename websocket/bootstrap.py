@@ -24,6 +24,10 @@ from runtime.L1_memory_utils import (
     strip_runtime_memory_line_metadata,
 )
 from runtime.telemetry import send_telemetry
+from runtime.anonymous_mode import (
+    configure_runtime_anonymous_mode,
+    websocket_requests_anonymous_mode,
+)
 from utils.actions import (
     is_active_memory_key,
     is_delayed_memory_report_id,
@@ -1173,6 +1177,10 @@ def get_or_create_connection_context(
         )
     )
 
+    anonymous_mode_enabled = websocket_requests_anonymous_mode(
+        websocket
+    )
+
     if not client_id:
         context = RuntimeContext(
             websocket=websocket,
@@ -1187,6 +1195,10 @@ def get_or_create_connection_context(
         )
         hydrate_attached_files_from_store(
             context
+        )
+        configure_runtime_anonymous_mode(
+            context,
+            anonymous_mode_enabled,
         )
 
         return context, False
@@ -1217,6 +1229,10 @@ def get_or_create_connection_context(
         hydrate_attached_files_from_store(
             existing_context
         )
+        configure_runtime_anonymous_mode(
+            existing_context,
+            anonymous_mode_enabled,
+        )
         return existing_context, True
 
     context = RuntimeContext(
@@ -1236,6 +1252,10 @@ def get_or_create_connection_context(
     )
     hydrate_attached_files_from_store(
         context
+    )
+    configure_runtime_anonymous_mode(
+        context,
+        anonymous_mode_enabled,
     )
 
     store[client_id] = context

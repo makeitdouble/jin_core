@@ -239,7 +239,7 @@ def _format_session_action_context_parts(
             or ""
         ).strip()
         if (
-            part_text.upper() == "UPDATE_ACTIVE_MEMORY:FAILED"
+            part_text.upper().endswith(":FAILED")
             and part_detail
         ):
             context_parts.append(

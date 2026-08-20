@@ -1520,17 +1520,21 @@ def _build_formatted_session_action_marker_parts(
         if not normalized_name:
             continue
 
+        preserve_failure_state = (
+            normalized_name == "UPDATE_ACTIVE_MEMORY"
+            or (
+                marker_status == "failed"
+                and marker_failure_reason.casefold()
+                == "restricted write"
+            )
+        )
         group_key = (
             normalized_name,
-            (
-                marker_status
-                if normalized_name == "UPDATE_ACTIVE_MEMORY"
-                else ""
-            ),
+            marker_status if preserve_failure_state else "",
             (
                 marker_failure_reason
                 if (
-                    normalized_name == "UPDATE_ACTIVE_MEMORY"
+                    preserve_failure_state
                     and marker_status == "failed"
                 )
                 else ""
@@ -1694,10 +1698,19 @@ def _build_formatted_session_action_marker_parts(
         }
 
         if (
-            action_name == "UPDATE_ACTIVE_MEMORY"
-            and group.get(
+            group.get(
                 "status"
             ) == "failed"
+            and (
+                action_name == "UPDATE_ACTIVE_MEMORY"
+                or str(
+                    group.get(
+                        "failure_reason",
+                        "",
+                    )
+                    or ""
+                ).strip().casefold() == "restricted write"
+            )
         ):
             part["text"] = (
                 f"{action_name}:failed"
@@ -2053,15 +2066,13 @@ def _apply_session_action_runtime_outcomes(
         ):
             continue
 
-        if str(
+        event_name = str(
             event.get(
                 "name",
                 "",
             )
             or ""
-        ).strip().casefold() != "update_active_memory":
-            continue
-
+        ).strip().casefold()
         status = str(
             event.get(
                 "status",
@@ -2073,6 +2084,33 @@ def _apply_session_action_runtime_outcomes(
             "completed",
             "failed",
         }:
+            continue
+
+        failure_reason = str(
+            event.get(
+                "failure_reason",
+                "",
+            )
+            or ""
+        ).strip().casefold()
+        error = str(
+            event.get(
+                "error",
+                "",
+            )
+            or ""
+        ).strip().casefold()
+        restricted_write_failure = (
+            status == "failed"
+            and (
+                failure_reason == "restricted write"
+                or error == "restricted_write"
+            )
+        )
+        if (
+            event_name != "update_active_memory"
+            and not restricted_write_failure
+        ):
             continue
 
         event_turn_id = str(
@@ -2103,13 +2141,28 @@ def _apply_session_action_runtime_outcomes(
         ):
             continue
 
-        if str(
+        marker_name = str(
             marker_action.get(
                 "name",
                 "",
             )
             or ""
-        ).strip().upper() != "UPDATE_ACTIVE_MEMORY":
+        ).strip().upper()
+        if not marker_name:
+            continue
+
+        matching_name_events = [
+            event
+            for event in outcome_events
+            if str(
+                event.get(
+                    "name",
+                    "",
+                )
+                or ""
+            ).strip().upper() == marker_name
+        ]
+        if not matching_name_events:
             continue
 
         raw_payloads = marker_action.get(
@@ -2154,7 +2207,7 @@ def _apply_session_action_runtime_outcomes(
 
         matching_event = None
         for event in reversed(
-            outcome_events
+            matching_name_events
         ):
             event_payload = str(
                 event.get(

@@ -71,6 +71,8 @@
       getCurrentLatestRuntimeMemoryStorageKey,
       getCurrentRuntimeSessionId,
       activateFactsMemorySession,
+      shouldIsolateAnonymousStorage,
+      isAnonymousModeEnabled,
     } = storage;
 
     let pendingBootstrapRuntimeMemorySnapshot = null;
@@ -252,6 +254,15 @@
     }
 
     function persistLiveSessionCheckpoint(data) {
+      if (
+          (typeof shouldIsolateAnonymousStorage === "function"
+            && shouldIsolateAnonymousStorage())
+          || (typeof isAnonymousModeEnabled === "function"
+            && isAnonymousModeEnabled())
+      ) {
+        return false;
+      }
+
       const currentRuntime =
         readLatestRuntimeMemory();
 
@@ -982,6 +993,15 @@
 
     function applyPersistedSessionBootstrap(bootstrap) {
       if (
+          (typeof shouldIsolateAnonymousStorage === "function"
+            && shouldIsolateAnonymousStorage())
+          || (typeof isAnonymousModeEnabled === "function"
+            && isAnonymousModeEnabled())
+      ) {
+        return;
+      }
+
+      if (
           bootstrap
           && bootstrap.source_session_id
           && setBootSourceRuntimeSessionId
@@ -1068,6 +1088,15 @@
     }
 
     function getPersistedSessionBootstrap() {
+      if (
+          (typeof shouldIsolateAnonymousStorage === "function"
+            && shouldIsolateAnonymousStorage())
+          || (typeof isAnonymousModeEnabled === "function"
+            && isAnonymousModeEnabled())
+      ) {
+        return null;
+      }
+
       if (
         window.jinArchivedSessionBootstrap
         && typeof window.jinArchivedSessionBootstrap === "object"
@@ -1249,6 +1278,15 @@
     function clearPersistedSessionBootstrap() {
       persistedSessionBootstrapCleared = true;
       hasUnsavedSessionActivity = false;
+
+      if (
+          (typeof shouldIsolateAnonymousStorage === "function"
+            && shouldIsolateAnonymousStorage())
+          || (typeof isAnonymousModeEnabled === "function"
+            && isAnonymousModeEnabled())
+      ) {
+        return;
+      }
 
       removeBrowserMemory(
         runtimeStorageKeys.latestSavedSessionSnapshotStorageKey

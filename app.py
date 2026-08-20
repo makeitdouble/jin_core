@@ -289,6 +289,25 @@ async def saved_runtime_file():
 # INDEX PAGE
 # ---------------------------------------------------------
 
+def build_anonymous_mode_config():
+    return {
+        "ENABLE_DEFAULT_ANONYMOUS_MODE": bool(
+            getattr(
+                config,
+                "ENABLE_DEFAULT_ANONYMOUS_MODE",
+                True,
+            )
+        ),
+        "ENABLE_GLOBAL_ANONYMOUS_MODE": bool(
+            getattr(
+                config,
+                "ENABLE_GLOBAL_ANONYMOUS_MODE",
+                False,
+            )
+        ),
+    }
+
+
 def build_runtime_config(
     use_service_as_brain=None,
 ):
@@ -367,6 +386,9 @@ async def index(
             },
             "format_response": (
                 status_snapshot["format_response"]
+            ),
+            "anonymous_mode_config": (
+                build_anonymous_mode_config()
             ),
         },
     )

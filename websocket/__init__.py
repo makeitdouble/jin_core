@@ -26,6 +26,10 @@ from runtime.L4_memory import (
     schedule_l4_memory_idle_update,
 )
 from runtime.fact_check import run_fact_check_once
+from runtime.anonymous_mode import (
+    RESTRICTED_WRITE_REASON,
+    persistent_writes_restricted,
+)
 from utils.ws_errors import handle_websocket_error
 from .attachments import (
     build_user_text_with_attachments,
@@ -35,6 +39,7 @@ from .attachments import (
     redacted_message_data_for_log,
 )
 from .bootstrap import (
+    apply_active_memory_records,
     apply_delayed_memory_reports,
     apply_suppressed_delayed_memory_auto_load_ids,
     apply_loaded_delayed_memory_ids,
@@ -295,16 +300,34 @@ async def websocket_endpoint(
                 )
                 continue
 
+            if message_type == "active_memory_store_sync":
+                apply_active_memory_records(
+                    context,
+                    message_data,
+                )
+                continue
+
             if message_type == "attachment_context_sync":
-                file_ids = sync_pinned_file_ids(
-                    message_data.get(
-                        "ids",
-                        [],
+                requested_file_ids = message_data.get(
+                    "ids",
+                    [],
+                )
+                if persistent_writes_restricted(context):
+                    attachments = hydrate_attachment_ids(
+                        requested_file_ids
                     )
-                )
-                attachments = hydrate_attachment_ids(
-                    file_ids
-                )
+                    file_ids = [
+                        str(attachment.get("id", "") or "").strip()
+                        for attachment in attachments
+                        if str(attachment.get("id", "") or "").strip()
+                    ]
+                else:
+                    file_ids = sync_pinned_file_ids(
+                        requested_file_ids
+                    )
+                    attachments = hydrate_attachment_ids(
+                        file_ids
+                    )
                 context.runtime_attached_file_ids = list(
                     file_ids
                 )
@@ -314,17 +337,23 @@ async def websocket_endpoint(
                 context.runtime_current_sequence_attachments = list(
                     attachments
                 )
+                file_snapshot = public_file_snapshot()
+                if persistent_writes_restricted(context):
+                    file_snapshot["pinned_ids"] = list(file_ids)
                 await websocket.send_json({
                     "type": "attached_files_update",
-                    **public_file_snapshot(),
+                    **file_snapshot,
                 })
                 continue
 
             if message_type == "delayed_memory_store_sync":
-                deleted_report_ids = apply_delayed_memory_reports(
-                    context,
-                    message_data,
-                )
+                if persistent_writes_restricted(context):
+                    deleted_report_ids = []
+                else:
+                    deleted_report_ids = apply_delayed_memory_reports(
+                        context,
+                        message_data,
+                    )
                 apply_loaded_delayed_memory_ids(
                     context,
                     message_data,
@@ -333,28 +362,29 @@ async def websocket_endpoint(
                     context,
                     message_data,
                 )
-                for report_id in deleted_report_ids:
-                    delete_errors = delete_delayed_memory_report_files(
-                        report_id
-                    )
-                    for delete_error in delete_errors:
-                        await logger.log_system(
-                            "[DELAYED MEMORY] local file delete failed: "
-                            + delete_error
+                if not persistent_writes_restricted(context):
+                    for report_id in deleted_report_ids:
+                        delete_errors = delete_delayed_memory_report_files(
+                            report_id
                         )
-                reports = getattr(
-                    context,
-                    "delayed_memory_reports",
-                    {},
-                ) or {}
-                file_errors = persist_delayed_memory_reports(
-                    reports
-                )
-                for file_error in file_errors:
-                    await logger.log_system(
-                        "[DELAYED MEMORY] local file save failed: "
-                        + file_error
+                        for delete_error in delete_errors:
+                            await logger.log_system(
+                                "[DELAYED MEMORY] local file delete failed: "
+                                + delete_error
+                            )
+                    reports = getattr(
+                        context,
+                        "delayed_memory_reports",
+                        {},
+                    ) or {}
+                    file_errors = persist_delayed_memory_reports(
+                        reports
                     )
+                    for file_error in file_errors:
+                        await logger.log_system(
+                            "[DELAYED MEMORY] local file save failed: "
+                            + file_error
+                        )
                 await emit_delayed_memory_store_snapshot(
                     context
                 )
@@ -442,6 +472,19 @@ async def websocket_endpoint(
                 continue
 
             if message_type == "l4_memory_delete_fact":
+                if persistent_writes_restricted(context):
+                    await logger.log_runtime(
+                        "[RUNTIME ACTION] l4_memory_delete_fact failed: "
+                        + RESTRICTED_WRITE_REASON
+                    )
+                    await emit_l4_memory_update(
+                        context,
+                        change={
+                            "deleted": False,
+                            "error": "restricted_write",
+                        },
+                    )
+                    continue
                 await delete_l4_memory_fact(
                     context,
                     str(
@@ -459,10 +502,17 @@ async def websocket_endpoint(
                     "fact",
                     {},
                 )
-                restored = await restore_l4_memory_fact(
-                    context,
-                    fact,
-                )
+                if persistent_writes_restricted(context):
+                    await logger.log_runtime(
+                        "[RUNTIME ACTION] l4_memory_restore_fact failed: "
+                        + RESTRICTED_WRITE_REASON
+                    )
+                    restored = False
+                else:
+                    restored = await restore_l4_memory_fact(
+                        context,
+                        fact,
+                    )
                 await websocket.send_json({
                     "type": "l4_memory_restore_result",
                     "fact_id": str(
@@ -471,10 +521,29 @@ async def websocket_endpoint(
                         else ""
                     ),
                     "restored": bool(restored),
+                    "error": (
+                        "restricted_write"
+                        if persistent_writes_restricted(context)
+                        else ""
+                    ),
                 })
+                if persistent_writes_restricted(context):
+                    await emit_l4_memory_update(
+                        context,
+                        change={
+                            "restored": False,
+                            "error": "restricted_write",
+                        },
+                    )
                 continue
 
             if message_type == "session_bootstrap":
+
+                if persistent_writes_restricted(context):
+                    await logger.log_system(
+                        "[SESSION] browser session bootstrap ignored in anonymous mode"
+                    )
+                    continue
 
                 await logger.log(
                     "[SESSION]",

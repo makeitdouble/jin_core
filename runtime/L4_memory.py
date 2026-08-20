@@ -660,6 +660,15 @@ def load_runtime_l4_file_store(context) -> dict:
 
 def persist_runtime_l4_file_store(context, store) -> None:
 
+    if bool(
+        getattr(
+            context,
+            "runtime_persistent_writes_restricted",
+            False,
+        )
+    ):
+        return
+
     if not runtime_l4_file_store_enabled(
         context,
     ):
@@ -932,6 +941,16 @@ def apply_facts_memory_store_sync(context, raw_records) -> dict:
 
 
 def apply_l4_memory_store_sync(context, raw_store) -> bool:
+    if bool(
+        getattr(
+            context,
+            "runtime_persistent_writes_restricted",
+            False,
+        )
+    ):
+        ensure_runtime_l4_state(context)
+        return False
+
     incoming = normalize_l4_store(raw_store)
     current = ensure_runtime_l4_state(context)
     merged, change = merge_l4_store_snapshots(
@@ -2653,6 +2672,15 @@ def schedule_l4_memory_idle_update(
     context,
     user_idle_seconds: int | None = None,
 ) -> asyncio.Task | None:
+    if bool(
+        getattr(
+            context,
+            "runtime_persistent_writes_restricted",
+            False,
+        )
+    ):
+        return None
+
     if not l4_memory_enabled():
         return None
 

@@ -27,8 +27,14 @@
   const activeMemoryStorageKey =
     "jin.activeMemory.v1";
 
+  const anonymousActiveMemoryStorageKey =
+    "jin.activeMemory.anonymous.v1";
+
   const delayedMemoryReportsStorageKey =
     "jin.delayedMemoryReports.v1";
+
+  const anonymousDelayedMemoryReportsStorageKey =
+    "jin.delayedMemoryReports.anonymous.v1";
 
   const factsMemoryStorageKeyPrefix =
     "jin.factsMemory";
@@ -331,6 +337,88 @@
   }
 
 
+  function shouldIsolateAnonymousStorage() {
+
+    return Boolean(
+      window.JinRuntime
+      && window.JinRuntime.anonymousMode
+      && typeof window.JinRuntime.anonymousMode.shouldIsolateStorage === "function"
+      && window.JinRuntime.anonymousMode.shouldIsolateStorage()
+    );
+
+  }
+
+
+  function isAnonymousModeEnabled() {
+
+    return Boolean(
+      window.JinRuntime
+      && window.JinRuntime.anonymousMode
+      && typeof window.JinRuntime.anonymousMode.isEnabled === "function"
+      && window.JinRuntime.anonymousMode.isEnabled()
+    );
+
+  }
+
+
+  function getActiveMemoryStorageKey() {
+
+    return shouldIsolateAnonymousStorage()
+      ? anonymousActiveMemoryStorageKey
+      : activeMemoryStorageKey;
+
+  }
+
+
+  function getDelayedMemoryReportsStorageKey() {
+
+    return shouldIsolateAnonymousStorage()
+      ? anonymousDelayedMemoryReportsStorageKey
+      : delayedMemoryReportsStorageKey;
+
+  }
+
+
+  function readFactsStorageMemory(
+    key
+  ) {
+
+    return shouldIsolateAnonymousStorage()
+      ? readSessionMemory(key)
+      : readBrowserMemory(key);
+
+  }
+
+
+  function writeFactsStorageMemory(
+    key,
+    value
+  ) {
+
+    if (shouldIsolateAnonymousStorage()) {
+      writeSessionMemory(key, value);
+      return;
+    }
+
+    writeBrowserMemory(key, value);
+
+  }
+
+
+  function removeFactsStorageMemory(
+    key
+  ) {
+
+    if (shouldIsolateAnonymousStorage()) {
+      removeSessionMemory(key);
+      return;
+    }
+
+    removeBrowserMemory(key);
+
+  }
+
+
   function readBrowserMemory(
     key
   ) {
@@ -380,10 +468,89 @@
   }
 
 
+  function readSessionMemory(
+    key
+  ) {
+
+    try {
+      return JSON.parse(
+        window.sessionStorage.getItem(
+          key
+        ) || "null"
+      );
+    } catch (error) {
+      return null;
+    }
+
+  }
+
+
+  function writeSessionMemory(
+    key,
+    value
+  ) {
+
+    try {
+      window.sessionStorage.setItem(
+        key,
+        JSON.stringify(value)
+      );
+    } catch (error) {
+      // Ephemeral runtime state is helpful, not required for chat.
+    }
+
+  }
+
+
+  function removeSessionMemory(
+    key
+  ) {
+
+    try {
+      window.sessionStorage.removeItem(
+        key
+      );
+    } catch (error) {
+      // Ephemeral runtime state is helpful, not required for chat.
+    }
+
+  }
+
+
+  function readRuntimeSessionMemory(
+    key
+  ) {
+
+    return shouldIsolateAnonymousStorage()
+      ? readSessionMemory(key)
+      : readBrowserMemory(key);
+
+  }
+
+
+  function writeRuntimeSessionMemory(
+    key,
+    value
+  ) {
+
+    if (shouldIsolateAnonymousStorage()) {
+      writeSessionMemory(key, value);
+      return;
+    }
+
+    writeBrowserMemory(key, value);
+
+  }
+
+
   // The old multi-checkpoint L3 history has no runtime meaning anymore.
-  removeBrowserMemory(
-    retiredSavedSessionHistoryStorageKey
-  );
+  // Do not mutate the normal browser profile while anonymous detection is
+  // pending or anonymous isolation is active.
+  if (!shouldIsolateAnonymousStorage()) {
+    removeBrowserMemory(
+      retiredSavedSessionHistoryStorageKey
+    );
+  }
 
 
   function stripRetiredRuntimeMemoryEntries(
@@ -455,7 +622,7 @@
   function readLatestRuntimeMemory() {
 
     return sanitizeRuntimeMemoryRecord(
-      readBrowserMemory(
+      readRuntimeSessionMemory(
         latestRuntimeMemoryStorageKey
       )
     );
@@ -511,7 +678,7 @@
       };
     }
 
-    writeBrowserMemory(
+    writeRuntimeSessionMemory(
       latestRuntimeMemoryStorageKey,
       normalizedValue
     );
@@ -562,6 +729,10 @@
 
   function readLatestSavedSessionSnapshot() {
 
+    if (shouldIsolateAnonymousStorage()) {
+      return null;
+    }
+
     const current =
       normalizeSavedSessionSnapshot(
         readBrowserMemory(
@@ -601,6 +772,10 @@
     value
   ) {
 
+    if (shouldIsolateAnonymousStorage()) {
+      return;
+    }
+
     writeBrowserMemory(
       latestSavedSessionSnapshotStorageKey,
       normalizeSavedSessionSnapshot(value)
@@ -613,6 +788,10 @@
 
 
   function readLatestSavedRuntimeMemory() {
+
+    if (shouldIsolateAnonymousStorage()) {
+      return null;
+    }
 
     return sanitizeRuntimeMemoryRecord(
       readBrowserMemory(
@@ -657,7 +836,7 @@
 
     return normalizeActiveMemoryRecords(
       readBrowserMemory(
-        activeMemoryStorageKey
+        getActiveMemoryStorageKey()
       )
     );
 
@@ -669,7 +848,7 @@
   ) {
 
     writeBrowserMemory(
-      activeMemoryStorageKey,
+      getActiveMemoryStorageKey(),
       normalizeActiveMemoryRecords(records)
     );
 
@@ -679,7 +858,7 @@
   function clearActiveMemoryRecords() {
 
     removeBrowserMemory(
-      activeMemoryStorageKey
+      getActiveMemoryStorageKey()
     );
 
     return [];
@@ -924,16 +1103,21 @@
     const records = [];
 
     try {
-      for (let index = 0; index < window.localStorage.length; index += 1) {
+      const factsStorage =
+        shouldIsolateAnonymousStorage()
+          ? window.sessionStorage
+          : window.localStorage;
+
+      for (let index = 0; index < factsStorage.length; index += 1) {
         const storageKey =
-          window.localStorage.key(index);
+          factsStorage.key(index);
 
         if (!isFactsMemoryStorageKey(storageKey)) {
           continue;
         }
 
         const stored =
-          readBrowserMemory(storageKey);
+          readFactsStorageMemory(storageKey);
 
         const signals =
           normalizeFactsMemory(
@@ -948,7 +1132,7 @@
         }
 
         if (isLegacyFactsMemoryValue(stored)) {
-          writeBrowserMemory(
+          writeFactsStorageMemory(
             storageKey,
             signals
           );
@@ -1057,12 +1241,12 @@
         currentSessionId
       );
 
-    writeBrowserMemory(
+    writeFactsStorageMemory(
       targetStorageKey,
       signals
     );
 
-    removeBrowserMemory(
+    removeFactsStorageMemory(
       storageKey
     );
 
@@ -1086,7 +1270,7 @@
       return false;
     }
 
-    removeBrowserMemory(
+    removeFactsStorageMemory(
       storageKey
     );
 
@@ -1145,7 +1329,7 @@
       return false;
     }
 
-    removeBrowserMemory(
+    removeFactsStorageMemory(
       key
     );
 
@@ -1165,7 +1349,7 @@
 
     const stored =
       key
-        ? readBrowserMemory(key)
+        ? readFactsStorageMemory(key)
         : null;
 
     const signals =
@@ -1177,7 +1361,7 @@
         key
         && isLegacyFactsMemoryValue(stored)
     ) {
-      writeBrowserMemory(
+      writeFactsStorageMemory(
         key,
         signals
       );
@@ -1204,7 +1388,7 @@
       );
 
     if (key) {
-      writeBrowserMemory(
+      writeFactsStorageMemory(
         key,
         signals
       );
@@ -1687,7 +1871,7 @@
 
     const rawReports =
       readBrowserMemory(
-        delayedMemoryReportsStorageKey
+        getDelayedMemoryReportsStorageKey()
       );
     const reports =
       normalizeDelayedMemoryReports(
@@ -1701,7 +1885,7 @@
         && JSON.stringify(rawReports) !== JSON.stringify(reports)
     ) {
       writeBrowserMemory(
-        delayedMemoryReportsStorageKey,
+        getDelayedMemoryReportsStorageKey(),
         reports
       );
     }
@@ -1716,7 +1900,7 @@
   ) {
 
     writeBrowserMemory(
-      delayedMemoryReportsStorageKey,
+      getDelayedMemoryReportsStorageKey(),
       normalizeDelayedMemoryReports(
         reports
       )
@@ -1747,6 +1931,10 @@
   function writeLatestSavedRuntimeMemory(
     value
   ) {
+
+    if (shouldIsolateAnonymousStorage()) {
+      return;
+    }
 
     value = sanitizeRuntimeMemoryRecord(value);
 
@@ -1834,6 +2022,10 @@
     runtimeMemory
   ) {
 
+    if (shouldIsolateAnonymousStorage()) {
+      return;
+    }
+
     if (
         !runtimeMemory
         || typeof runtimeMemory !== "object"
@@ -1911,6 +2103,10 @@
 
 
   function collectOtherLatestRuntimeMemorySnapshots() {
+
+    if (shouldIsolateAnonymousStorage()) {
+      return [];
+    }
 
     const snapshots = [];
 
@@ -2021,6 +2217,10 @@
 
   function readLatestPreviousRuntimeMemory() {
 
+    if (shouldIsolateAnonymousStorage()) {
+      return null;
+    }
+
     const snapshots =
       collectOtherLatestRuntimeMemorySnapshots();
 
@@ -2062,6 +2262,12 @@
 
 
   function clearOtherLatestRuntimeMemorySnapshots() {
+
+    if (shouldIsolateAnonymousStorage()) {
+      return {
+        cleared: 0,
+      };
+    }
 
     const snapshots =
       collectOtherLatestRuntimeMemorySnapshots();
@@ -2293,7 +2499,9 @@
       latestRuntimeMemoryStorageKeyVersion,
       latestSavedRuntimeMemoryStorageKey,
       activeMemoryStorageKey,
+      anonymousActiveMemoryStorageKey,
       delayedMemoryReportsStorageKey,
+      anonymousDelayedMemoryReportsStorageKey,
       factsMemoryStorageKeyPrefix,
       factsMemoryStorageKeyVersion,
       savedRuntimeFallbackPath,
@@ -2311,6 +2519,13 @@
     readBrowserMemory,
     writeBrowserMemory,
     removeBrowserMemory,
+    readSessionMemory,
+    writeSessionMemory,
+    removeSessionMemory,
+    isAnonymousModeEnabled,
+    shouldIsolateAnonymousStorage,
+    getActiveMemoryStorageKey,
+    getDelayedMemoryReportsStorageKey,
     readLatestRuntimeMemory,
     writeLatestRuntimeMemory,
     readLatestSavedSessionSnapshot,

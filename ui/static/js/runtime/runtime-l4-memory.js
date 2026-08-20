@@ -11,6 +11,7 @@
   }
 
   const longTermFactsStorageKey = "jin.longTermFacts.v1";
+  const anonymousLongTermFactsStorageKey = "jin.longTermFacts.anonymous.v1";
   const idleTickIntervalMs = 60000;
   const idleMinimumSeconds = 60;
 
@@ -274,9 +275,18 @@
     return migrated;
   }
 
+  function getLongTermFactsStorageKey() {
+    return (
+      storage.shouldIsolateAnonymousStorage
+      && storage.shouldIsolateAnonymousStorage()
+    )
+      ? anonymousLongTermFactsStorageKey
+      : longTermFactsStorageKey;
+  }
+
   function readStore() {
     return normalizeStore(
-      storage.readBrowserMemory(longTermFactsStorageKey)
+      storage.readBrowserMemory(getLongTermFactsStorageKey())
     );
   }
 
@@ -293,7 +303,7 @@
 
   function writeStore(store) {
     const normalized = normalizeStore(store);
-    storage.writeBrowserMemory(longTermFactsStorageKey, normalized);
+    storage.writeBrowserMemory(getLongTermFactsStorageKey(), normalized);
     return normalized;
   }
 

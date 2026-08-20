@@ -531,6 +531,27 @@
   }
 
   async function restoreArchivedSession() {
+    if (
+        window.JinRuntime
+        && window.JinRuntime.anonymousMode
+        && window.JinRuntime.anonymousMode.ready
+    ) {
+      try {
+        await window.JinRuntime.anonymousMode.ready;
+      } catch (error) {
+        // Detection failure falls back to normal restore behavior.
+      }
+    }
+
+    if (
+        window.JinRuntime
+        && window.JinRuntime.anonymousMode
+        && typeof window.JinRuntime.anonymousMode.isEnabled === "function"
+        && window.JinRuntime.anonymousMode.isEnabled()
+    ) {
+      return null;
+    }
+
     const response = await fetch(
       `/api/sessions/${encodeURIComponent(sourceSessionId)}/restore`,
       {

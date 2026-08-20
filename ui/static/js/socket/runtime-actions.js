@@ -980,6 +980,17 @@ function handleRuntimeAction(
     );
   const abortedByUser =
     status === "aborted";
+  const restrictedWriteFailure =
+    status === "failed"
+    && (
+      String(data.error || "").trim().toLowerCase()
+      === "restricted_write"
+      || /restricted\s+write/i.test(text)
+    );
+  const strikeThroughFailure =
+    cancelledByUser
+    || abortedByUser
+    || restrictedWriteFailure;
   if (
     (
       cancelledByUser
@@ -1286,14 +1297,12 @@ function handleRuntimeAction(
             data.context || null,
           guardConfirmationId,
           cancelled:
-            (
-              cancelledByUser
-              || abortedByUser
-            )
+            strikeThroughFailure
               ? true
               : undefined,
           preserveLabel:
-            cancelledByUser,
+            cancelledByUser
+            || restrictedWriteFailure,
           fallbackToLatestActive:
             abortedByUser,
         }
@@ -1418,14 +1427,12 @@ function handleRuntimeAction(
             data.context || null,
           guardConfirmationId,
           cancelled:
-            (
-              cancelledByUser
-              || abortedByUser
-            )
+            strikeThroughFailure
               ? true
               : undefined,
           preserveLabel:
-            cancelledByUser,
+            cancelledByUser
+            || restrictedWriteFailure,
           fallbackToLatestActive:
             abortedByUser,
         }
@@ -1707,14 +1714,12 @@ function handleRuntimeAction(
       reviveCompleted:
         !counterFinal,
       cancelled:
-        (
-          cancelledByUser
-          || abortedByUser
-        )
+        strikeThroughFailure
           ? true
           : undefined,
       preserveLabel:
         cancelledByUser
+        || restrictedWriteFailure
         || (
           displayCounterOnly
           && closeTag
