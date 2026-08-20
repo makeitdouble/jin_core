@@ -1509,6 +1509,83 @@ function handleRuntimeAction(
     return;
   }
 
+  if (action === "jin_speed") {
+    const speed = Number.parseInt(
+      data.speed || data.payload || 0,
+      10
+    );
+    const speedApplied = (
+      status === "completed"
+      || status === "complete"
+      || status === "done"
+    ) && Number.isFinite(speed) && speed > 0;
+
+    if (
+      speedApplied
+      && window.JinPanels
+      && typeof window.JinPanels.setJinMoveSpeed === "function"
+    ) {
+      window.JinPanels.setJinMoveSpeed(
+        speed
+      );
+    }
+
+    if (
+      shouldLogRuntimeAction
+      && window.log_internal_action
+    ) {
+      window.log_internal_action(
+        action,
+        data
+      );
+    }
+
+    // Intentionally no chat bubble: JIN motion actions are silent avatar
+    // gestures, like JIN_COLOR/JIN_SIZE while visual action bubbles are off.
+    return;
+  }
+
+  if (action === "jin_position") {
+    const x = Number.parseInt(
+      data.x,
+      10
+    );
+    const y = Number.parseInt(
+      data.y,
+      10
+    );
+    const positionApplied = (
+      status === "completed"
+      || status === "complete"
+      || status === "done"
+    )
+      && Number.isFinite(x)
+      && Number.isFinite(y);
+
+    if (
+      positionApplied
+      && window.JinPanels
+      && typeof window.JinPanels.setPendingJinPosition === "function"
+    ) {
+      window.JinPanels.setPendingJinPosition({
+        x,
+        y,
+      });
+    }
+
+    if (
+      shouldLogRuntimeAction
+      && window.log_internal_action
+    ) {
+      window.log_internal_action(
+        action,
+        data
+      );
+    }
+
+    return;
+  }
+
   if (
     action === "save_active_memory"
     && data.active_memory

@@ -28,6 +28,8 @@ SERVICE_AS_BRAIN_RUNTIME_ACTIONS = {
     "CAN_IDLE": True,
     "CAN_JIN_COLOR": True,
     "CAN_JIN_SIZE": True,
+    "CAN_JIN_POSITION": True,
+    "CAN_JIN_SPEED": True,
     "CAN_UPDATE_L4_FACTS": True,
 }
 
@@ -42,6 +44,8 @@ BRAIN_RUNTIME_ACTIONS = {
     "CAN_IDLE": True,
     "CAN_JIN_COLOR": True,
     "CAN_JIN_SIZE": True,
+    "CAN_JIN_POSITION": True,
+    "CAN_JIN_SPEED": True,
     "CAN_UPDATE_L4_FACTS": True,
 }
 

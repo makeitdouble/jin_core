@@ -1,0 +1,24 @@
+{
+  "jin_position": {
+    "version": 1,
+    "description": "Allows the model to move the collapsed live JIN avatar to a new position inside the current browser window.",
+    "runtime_action": "JIN_POSITION",
+    "private_marker": "<JIN_POSITION>",
+    "triggers": [],
+    "blockers": [],
+    "effects": {
+      "emit_followup": false
+    },
+    "rules": [
+      "Use to move the collapsed live JIN avatar inside the current browser window as a non-verbal spatial gesture.",
+      "Emit marker using exactly this schema <JIN_POSITION> 120px 80px </JIN_POSITION>",
+      "Put only the position payload inside the tag body; do not put it in the opening tag.",
+      "The first number is x and the second number is y, measured in pixels from the browser window's top-left corner to the avatar panel's top-left corner.",
+      "Labeled payload values are also valid, for example <JIN_POSITION> x:120px y:80px </JIN_POSITION>.",
+      "Use CURRENT_WINDOW_SIZE, CURRENT_JIN_SIZE and CURRENT_JIN_POSITION to choose sensible coordinates. The UI clamps out-of-bounds targets safely inside the available viewport.",
+      "Movement uses the current JIN_SPEED. You may change JIN_SPEED immediately before JIN_POSITION to crawl slowly or move almost instantly."
+    ],
+    "close_tag": true,
+    "body_placeholder": "120px 80px"
+  }
+}

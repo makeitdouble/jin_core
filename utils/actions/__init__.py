@@ -51,6 +51,22 @@ from .jin_color_utils import (
     is_noop_jin_color_action,
     normalize_jin_color_payload,
 )
+from .jin_position_utils import (
+    format_jin_position_payload,
+    get_applied_jin_position,
+    is_noop_jin_position_action,
+    normalize_jin_position_dict,
+    normalize_jin_position_payload,
+    parse_jin_position_payload,
+)
+from .jin_speed_utils import (
+    DEFAULT_RUNTIME_JIN_SPEED,
+    format_jin_speed_payload,
+    get_applied_jin_speed,
+    is_noop_jin_speed_action,
+    normalize_jin_speed_payload,
+    normalize_jin_speed_value,
+)
 from .jin_size_utils import (
     format_jin_size_payload,
     get_applied_jin_size,
@@ -103,6 +119,8 @@ __all__ = [
     "generate_delayed_memory_report_id",
     "generate_short_runtime_id",
     "get_applied_jin_color",
+    "get_applied_jin_position",
+    "get_applied_jin_speed",
     "get_applied_jin_size",
     "get_active_memory_record_title",
     "get_save_active_memory_marker_fields",
@@ -111,6 +129,8 @@ __all__ = [
     "is_active_memory_record_paused",
     "is_delayed_memory_report_id",
     "is_noop_jin_color_action",
+    "is_noop_jin_position_action",
+    "is_noop_jin_speed_action",
     "is_noop_jin_size_action",
     "match_regexp",
     "match_regexp_templates",
@@ -118,6 +138,10 @@ __all__ = [
     "normalize_active_memory_custom_field_name",
     "normalize_active_memory_custom_field_value",
     "normalize_jin_color_payload",
+    "normalize_jin_position_dict",
+    "normalize_jin_position_payload",
+    "normalize_jin_speed_payload",
+    "normalize_jin_speed_value",
     "normalize_jin_size_dict",
     "normalize_jin_size_payload",
     "parse_update_l4_facts_payload",
@@ -132,6 +156,7 @@ __all__ = [
     "normalize_long_term_fact_ids",
     "parse_delayed_memory_content_payload",
     "parse_idle_seconds",
+    "parse_jin_position_payload",
     "parse_jin_size_payload",
     "refresh_active_memory_runtime_metadata",
     "remove_active_memory_entries",
@@ -139,5 +164,8 @@ __all__ = [
     "strip_active_memory_managed_suffixes",
     "strip_active_memory_runtime_metadata",
     "set_active_memory_suffix_value",
+    "format_jin_position_payload",
+    "format_jin_speed_payload",
     "format_jin_size_payload",
+    "DEFAULT_RUNTIME_JIN_SPEED",
 ]

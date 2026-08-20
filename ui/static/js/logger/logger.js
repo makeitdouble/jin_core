@@ -327,6 +327,10 @@ const consolePanel = document.getElementById("console-panel");
     const DEFAULT_JIN_AVATAR_SIZE = 333;
     const COLLAPSED_AVATAR_RESET_ANIMATION_MS = 320;
     const COLLAPSED_AVATAR_SIZE_ANIMATION_MS = 320;
+    const DEFAULT_JIN_AVATAR_MOVE_SPEED = 900;
+    const MIN_JIN_AVATAR_MOVE_SPEED = 1;
+    const MAX_JIN_AVATAR_MOVE_SPEED = 100000;
+    const MAX_JIN_AVATAR_MOVE_DURATION_MS = 60000;
     const COLLAPSED_AVATAR_RESET_EXPAND_DELAY_MS = 420;
     const COLLAPSED_AVATAR_RESET_GEOMETRY_EPSILON = 1;
     const COLLAPSED_AVATAR_RESIZE_EDGES = [
@@ -345,7 +349,10 @@ const consolePanel = document.getElementById("console-panel");
     let collapsedAvatarResetTimer = null;
     let collapsedAvatarResetFrameId = null;
     let collapsedAvatarSizeFrameId = null;
+    let collapsedAvatarPositionFrameId = null;
     let pendingJinSize = null;
+    let pendingJinPosition = null;
+    let jinAvatarMoveSpeed = DEFAULT_JIN_AVATAR_MOVE_SPEED;
 
     function clearCollapsedAvatarResetTimer() {
         if (collapsedAvatarResetTimer === null) {
@@ -384,6 +391,16 @@ const consolePanel = document.getElementById("console-panel");
                 "panel-avatar-size-changing"
             );
         }
+    }
+
+    function cancelCollapsedAvatarPositionFrame() {
+        if (collapsedAvatarPositionFrameId !== null) {
+            window.cancelAnimationFrame(
+                collapsedAvatarPositionFrameId
+            );
+            collapsedAvatarPositionFrameId = null;
+        }
+
     }
 
     function getDefaultPanelDock(panel) {
@@ -566,6 +583,79 @@ const consolePanel = document.getElementById("console-panel");
         }
 
         return null;
+    }
+
+    function normalizeJinPositionPayload(value) {
+        if (value && typeof value === "object") {
+            const x = Number.parseInt(value.x, 10);
+            const y = Number.parseInt(value.y, 10);
+
+            if (
+                Number.isFinite(x)
+                && Number.isFinite(y)
+            ) {
+                return { x, y };
+            }
+        }
+
+        const source = String(value || "").trim();
+
+        if (!source) {
+            return null;
+        }
+
+        const labeled = source.match(
+            /^x\s*:\s*([+-]?\d+)(?:px)?\s+y\s*:\s*([+-]?\d+)(?:px)?$/i
+        );
+
+        if (labeled) {
+            return {
+                x: Number.parseInt(labeled[1], 10),
+                y: Number.parseInt(labeled[2], 10),
+            };
+        }
+
+        const plain = source.match(
+            /^([+-]?\d+)(?:px)?\s+([+-]?\d+)(?:px)?$/i
+        );
+
+        if (!plain) {
+            return null;
+        }
+
+        return {
+            x: Number.parseInt(plain[1], 10),
+            y: Number.parseInt(plain[2], 10),
+        };
+    }
+
+    function normalizeJinSpeedPayload(value) {
+        let speed = Number.NaN;
+
+        if (typeof value === "number") {
+            speed = value;
+        } else {
+            const source = String(value || "").trim();
+            const match = source.match(
+                /^(\d+(?:\.\d+)?)\s*(?:px\s*\/\s*s|pxps|px\s*\/\s*sec|px\s*\/\s*second)?$/i
+            );
+
+            if (match) {
+                speed = Number.parseFloat(match[1]);
+            }
+        }
+
+        if (!Number.isFinite(speed) || speed <= 0) {
+            return null;
+        }
+
+        return Math.round(
+            clampNumber(
+                speed,
+                MIN_JIN_AVATAR_MOVE_SPEED,
+                MAX_JIN_AVATAR_MOVE_SPEED
+            )
+        );
     }
 
     function formatJinSizePayload(size) {
@@ -827,6 +917,12 @@ const consolePanel = document.getElementById("console-panel");
                     );
             }
 
+            if (panel === memoryPanel) {
+                applyPendingJinPositionToCollapsedAvatar(
+                    panel
+                );
+            }
+
             if (
                 !pendingJinSizeResult
                 || pendingJinSizeResult.animated !== true
@@ -841,6 +937,7 @@ const consolePanel = document.getElementById("console-panel");
 
         if (panel === memoryPanel) {
             cancelCollapsedAvatarSizeFrame();
+            cancelCollapsedAvatarPositionFrame();
         }
 
         if (panel === consolePanel) {
@@ -1450,6 +1547,204 @@ const consolePanel = document.getElementById("console-panel");
         return true;
     }
 
+    function setJinMoveSpeed(speed) {
+        const normalized = normalizeJinSpeedPayload(speed);
+
+        if (normalized === null) {
+            return false;
+        }
+
+        jinAvatarMoveSpeed = normalized;
+        return true;
+    }
+
+    function getJinMoveSpeed() {
+        return jinAvatarMoveSpeed;
+    }
+
+    function resolveCollapsedAvatarPositionTarget(panel, position) {
+        if (
+            !panel
+            || !panel.parentElement
+        ) {
+            return null;
+        }
+
+        const normalized = normalizeJinPositionPayload(position);
+
+        if (!normalized) {
+            return null;
+        }
+
+        const parentRect = panel.parentElement.getBoundingClientRect();
+        const panelRect = panel.getBoundingClientRect();
+        const gap = getPanelGapPixels(panel);
+        const maxLeft = Math.max(
+            gap,
+            parentRect.width - panelRect.width - gap
+        );
+        const maxTop = Math.max(
+            gap,
+            parentRect.height - panelRect.height - gap
+        );
+
+        return {
+            startLeft: panelRect.left - parentRect.left,
+            startTop: panelRect.top - parentRect.top,
+            targetLeft: clampNumber(
+                normalized.x - parentRect.left,
+                gap,
+                maxLeft
+            ),
+            targetTop: clampNumber(
+                normalized.y - parentRect.top,
+                gap,
+                maxTop
+            ),
+        };
+    }
+
+    function applyCollapsedAvatarPosition(panel, left, top) {
+        if (!panel) {
+            return;
+        }
+
+        setPanelFreeDock(panel);
+        panel.style.left = `${Math.round(left)}px`;
+        panel.style.top = `${Math.round(top)}px`;
+        panel.style.right = "auto";
+        panel.style.bottom = "auto";
+    }
+
+    function animateCollapsedAvatarPosition(panel, position) {
+        if (!isCollapsedMemoryAvatarPanel(panel)) {
+            return null;
+        }
+
+        const resolved = resolveCollapsedAvatarPositionTarget(
+            panel,
+            position
+        );
+
+        if (!resolved) {
+            return null;
+        }
+
+        cancelCollapsedAvatarPositionFrame();
+        cancelCollapsedAvatarResetFrame();
+        clearCollapsedAvatarResetTimer();
+        registerPanelRuntimeActivity(panel);
+
+        const deltaX = resolved.targetLeft - resolved.startLeft;
+        const deltaY = resolved.targetTop - resolved.startTop;
+        const distance = Math.hypot(deltaX, deltaY);
+        const speed = Math.max(
+            MIN_JIN_AVATAR_MOVE_SPEED,
+            Number(jinAvatarMoveSpeed) || DEFAULT_JIN_AVATAR_MOVE_SPEED
+        );
+        const duration = Math.min(
+            MAX_JIN_AVATAR_MOVE_DURATION_MS,
+            Math.max(16, distance / speed * 1000)
+        );
+
+        if (
+            prefersReducedMotion()
+            || distance < 1
+            || duration <= 16
+        ) {
+            applyCollapsedAvatarPosition(
+                panel,
+                resolved.targetLeft,
+                resolved.targetTop
+            );
+
+            return {
+                animated: false,
+                x: resolved.targetLeft,
+                y: resolved.targetTop,
+                speed,
+            };
+        }
+
+        const startTime = window.performance.now();
+
+        const animatePosition = (timestamp) => {
+            const rawProgress = clampNumber(
+                (timestamp - startTime) / duration,
+                0,
+                1
+            );
+
+            applyCollapsedAvatarPosition(
+                panel,
+                resolved.startLeft + deltaX * rawProgress,
+                resolved.startTop + deltaY * rawProgress
+            );
+
+            if (rawProgress < 1) {
+                collapsedAvatarPositionFrameId =
+                    window.requestAnimationFrame(
+                        animatePosition
+                    );
+                return;
+            }
+
+            collapsedAvatarPositionFrameId = null;
+        };
+
+        collapsedAvatarPositionFrameId =
+            window.requestAnimationFrame(
+                animatePosition
+            );
+
+        return {
+            animated: true,
+            x: resolved.targetLeft,
+            y: resolved.targetTop,
+            speed,
+            duration,
+        };
+    }
+
+    function applyPendingJinPositionToCollapsedAvatar(panel) {
+        if (
+            !pendingJinPosition
+            || !isCollapsedMemoryAvatarPanel(panel)
+        ) {
+            return false;
+        }
+
+        const applied = animateCollapsedAvatarPosition(
+            panel,
+            pendingJinPosition
+        );
+
+        if (!applied) {
+            return false;
+        }
+
+        pendingJinPosition = null;
+        return applied;
+    }
+
+    function setPendingJinPosition(position) {
+        const normalized = normalizeJinPositionPayload(position);
+
+        if (!normalized) {
+            return false;
+        }
+
+        pendingJinPosition = normalized;
+
+        if (isCollapsedMemoryAvatarPanel(memoryPanel)) {
+            return applyPendingJinPositionToCollapsedAvatar(
+                memoryPanel
+            );
+        }
+
+        return true;
+    }
+
     function getRuntimeAvatarSnapshot() {
         const collapsed =
             Boolean(
@@ -1490,14 +1785,28 @@ const consolePanel = document.getElementById("console-panel");
                     ),
                     height: runtimeHeight,
                 }),
+                x: Math.round(rect.left),
+                y: Math.round(rect.top),
+                speed_px_per_second: getJinMoveSpeed(),
+                window_width: Math.max(1, Math.round(window.innerWidth)),
+                window_height: Math.max(1, Math.round(window.innerHeight)),
             };
         }
+
+        const rect = memoryPanel
+            ? memoryPanel.getBoundingClientRect()
+            : null;
 
         return {
             collapsed: false,
             width: DEFAULT_JIN_AVATAR_SIZE,
             height: DEFAULT_JIN_AVATAR_SIZE,
             size: `${DEFAULT_JIN_AVATAR_SIZE}px`,
+            x: rect ? Math.round(rect.left) : 0,
+            y: rect ? Math.round(rect.top) : 0,
+            speed_px_per_second: getJinMoveSpeed(),
+            window_width: Math.max(1, Math.round(window.innerWidth)),
+            window_height: Math.max(1, Math.round(window.innerHeight)),
         };
     }
 
@@ -3350,7 +3659,10 @@ window.JinPanels =
             expandConsolePanelForContextAttachment,
             cancelStartupCollapseAnimation,
             getRuntimeAvatarSnapshot,
+            getJinMoveSpeed,
             refreshCollapsedPanelHeights,
+            setJinMoveSpeed,
+            setPendingJinPosition,
             setPendingJinSize,
             syncCollapsedPanelBodies,
             syncConsolePanelBodyMount,
@@ -3372,6 +3684,8 @@ memoryDragHandle.addEventListener("mousedown", (event) => {
     }
 
     cancelCollapsedAvatarSizeFrame();
+    cancelCollapsedAvatarPositionFrame();
+    pendingJinPosition = null;
 
     isMemoryDragging = true;
 
@@ -3510,6 +3824,7 @@ requestAnimationFrame(
 window.addEventListener(
     "resize",
     () => {
+        cancelCollapsedAvatarPositionFrame();
         clampAllPanelGeometry();
         refreshCollapsedPanelHeights();
     }

@@ -23,6 +23,8 @@ ACTION_CONFIG_KEYS = (
     ("IDLE", "CAN_IDLE"),
     ("JIN_COLOR", "CAN_JIN_COLOR"),
     ("JIN_SIZE", "CAN_JIN_SIZE"),
+    ("JIN_POSITION", "CAN_JIN_POSITION"),
+    ("JIN_SPEED", "CAN_JIN_SPEED"),
     ("UPDATE_L4_FACTS", "CAN_UPDATE_L4_FACTS"),
     ("LOAD_SKILL", "CAN_USE_ASSETS"),
     ("UNLOAD_SKILL", "CAN_USE_ASSETS"),
@@ -486,7 +488,7 @@ def _context_has_active_memory(context=None) -> bool:
     )
 
 
-def _context_disables_jin_size(context=None) -> bool:
+def _context_disables_jin_avatar_geometry(context=None) -> bool:
     return (
         context is not None
         and hasattr(
@@ -512,8 +514,8 @@ def build_allowed_markers(
         action_name = _normalize_action_name(action)
 
         if (
-            action_name == "JIN_SIZE"
-            and _context_disables_jin_size(
+            action_name in {"JIN_SIZE", "JIN_POSITION", "JIN_SPEED"}
+            and _context_disables_jin_avatar_geometry(
                 context
             )
         ):
@@ -562,8 +564,8 @@ def build_runtime_action_instructions(
         normalized_name = _normalize_action_name(action_name)
 
         if (
-            normalized_name == "JIN_SIZE"
-            and _context_disables_jin_size(
+            normalized_name in {"JIN_SIZE", "JIN_POSITION", "JIN_SPEED"}
+            and _context_disables_jin_avatar_geometry(
                 context
             )
         ):
@@ -632,4 +634,6 @@ RUNTIME_ACTION_CHECK_TODO = get_runtime_action_name("check_todo")
 RUNTIME_ACTION_IDLE = get_runtime_action_name("idle")
 RUNTIME_ACTION_JIN_COLOR = get_runtime_action_name("jin_color")
 RUNTIME_ACTION_JIN_SIZE = get_runtime_action_name("jin_size")
+RUNTIME_ACTION_JIN_POSITION = get_runtime_action_name("jin_position")
+RUNTIME_ACTION_JIN_SPEED = get_runtime_action_name("jin_speed")
 RUNTIME_ACTION_UPDATE_L4_FACTS = get_runtime_action_name("update_l4_facts")

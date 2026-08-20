@@ -43,7 +43,11 @@ from utils.delayed_memory_triggers import (
     load_delayed_memory_by_tags,
 )
 from utils.session_actions_history import emit_session_actions_update
-from utils.actions import normalize_jin_size_dict
+from utils.actions import (
+    normalize_jin_position_dict,
+    normalize_jin_speed_value,
+    normalize_jin_size_dict,
+)
 from utils.token_usage import (
     format_token_usage_summary,
     get_runtime_token_estimate_scale,
@@ -744,12 +748,54 @@ def apply_runtime_avatar_context(
         ),
     })
 
+    position = normalize_jin_position_dict({
+        "x": avatar_context.get("x"),
+        "y": avatar_context.get("y"),
+    })
+
+    try:
+        window_width = int(
+            avatar_context.get("window_width")
+            or avatar_context.get("windowWidth")
+            or 0
+        )
+        window_height = int(
+            avatar_context.get("window_height")
+            or avatar_context.get("windowHeight")
+            or 0
+        )
+    except (TypeError, ValueError):
+        window_width = 0
+        window_height = 0
+
+    speed = normalize_jin_speed_value(
+        avatar_context.get("speed")
+        or avatar_context.get("speed_px_per_second")
+        or avatar_context.get("speedPxPerSecond")
+        or ""
+    )
+
     context.runtime_avatar_panel_collapsed = collapsed
     context.runtime_avatar_current_size = (
         size
         if size
         else {}
     )
+    context.runtime_avatar_current_position = (
+        position
+        if position
+        else {}
+    )
+    context.runtime_avatar_window_size = (
+        {
+            "width": window_width,
+            "height": window_height,
+        }
+        if window_width > 0 and window_height > 0
+        else {}
+    )
+    if speed is not None:
+        context.runtime_avatar_move_speed = speed
 
 
 def append_runtime_recent_turn(
@@ -1000,6 +1046,12 @@ async def process_message(
             )
 
         if is_session_restore_resume:
+            # The restore tick has no user message, so take the live browser
+            # geometry from the resume request before building its context.
+            apply_runtime_avatar_context(
+                context,
+                message_data,
+            )
             # Keep restored file IDs pinned for subsequent turns, but do not
             # feed any file payload/image bytes into the hidden restore tick.
             active_attachment_ids = []
@@ -1126,6 +1178,9 @@ async def process_message(
         context.runtime_turn_memory_user_message = ""
         context.runtime_avatar_panel_collapsed = False
         context.runtime_avatar_current_size = {}
+        context.runtime_avatar_current_position = {}
+        context.runtime_avatar_window_size = {}
+        context.runtime_avatar_move_speed = 900
         context.runtime_reasoning_recovery_pending = False
         context.runtime_context_limit_recovery_pending = False
         context.runtime_context_limit_stage = ""

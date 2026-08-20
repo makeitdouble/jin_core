@@ -417,6 +417,39 @@
         size
       );
     }
+
+    const speed = Number(
+      payload.current_jin_speed
+      || 0
+    );
+
+    if (
+      speed > 0
+      && window.JinPanels
+      && typeof window.JinPanels.setJinMoveSpeed
+        === "function"
+    ) {
+      window.JinPanels.setJinMoveSpeed(
+        speed
+      );
+    }
+
+    const position =
+      payload.current_jin_position
+      && typeof payload.current_jin_position === "object"
+        ? payload.current_jin_position
+        : null;
+
+    if (
+      position
+      && window.JinPanels
+      && typeof window.JinPanels.setPendingJinPosition
+        === "function"
+    ) {
+      window.JinPanels.setPendingJinPosition(
+        position
+      );
+    }
   }
 
   function buildBootstrap(
@@ -526,6 +559,18 @@
         payload.current_jin_size
         && typeof payload.current_jin_size === "object"
           ? payload.current_jin_size
+          : null,
+      current_jin_position:
+        payload.current_jin_position
+        && typeof payload.current_jin_position === "object"
+          ? payload.current_jin_position
+          : null,
+      current_jin_speed:
+        Number(payload.current_jin_speed || 900),
+      current_window_size:
+        payload.current_window_size
+        && typeof payload.current_window_size === "object"
+          ? payload.current_window_size
           : null,
     };
   }

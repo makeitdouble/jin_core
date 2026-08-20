@@ -1,0 +1,23 @@
+{
+  "jin_speed": {
+    "version": 1,
+    "description": "Allows the model to set the movement speed used by subsequent JIN_POSITION avatar gestures.",
+    "runtime_action": "JIN_SPEED",
+    "private_marker": "<JIN_SPEED>",
+    "triggers": [],
+    "blockers": [],
+    "effects": {
+      "emit_followup": false
+    },
+    "rules": [
+      "Use to set how quickly the collapsed live JIN avatar moves when JIN_POSITION is executed.",
+      "Emit marker using exactly this schema <JIN_SPEED> 600px/s </JIN_SPEED>",
+      "Put only the speed payload inside the tag body; do not put it in the opening tag.",
+      "The value is pixels per second and persists for later JIN_POSITION actions until changed.",
+      "Small values such as 20-80px/s create a slow crawl; large values such as 2000-6000px/s create a quick jump-like move.",
+      "Use CURRENT_JIN_SPEED as the current movement speed."
+    ],
+    "close_tag": true,
+    "body_placeholder": "600px/s"
+  }
+}

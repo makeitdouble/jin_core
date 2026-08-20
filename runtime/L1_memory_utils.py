@@ -3511,6 +3511,34 @@ def build_runtime_session_checkpoint(
             if isinstance(current_size, dict)
             else None
         ),
+        "current_jin_position": (
+            dict(
+                getattr(
+                    context,
+                    "runtime_avatar_current_position",
+                    {},
+                )
+                or {}
+            )
+        ),
+        "current_jin_speed": int(
+            getattr(
+                context,
+                "runtime_avatar_move_speed",
+                900,
+            )
+            or 900
+        ),
+        "current_window_size": (
+            dict(
+                getattr(
+                    context,
+                    "runtime_avatar_window_size",
+                    {},
+                )
+                or {}
+            )
+        ),
     }
 
 

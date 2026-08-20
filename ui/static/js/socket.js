@@ -456,10 +456,22 @@ function requestArchivedSessionResume(
     return false;
   }
 
-  const sent = sendSocketMessage({
+  const resumePayload = {
     type: "archived_session_resume",
     source_session_id: sourceSessionId,
-  });
+  };
+
+  if (
+    window.JinPanels
+    && typeof window.JinPanels.getRuntimeAvatarSnapshot === "function"
+  ) {
+    resumePayload.runtime_avatar =
+      window.JinPanels.getRuntimeAvatarSnapshot();
+  }
+
+  const sent = sendSocketMessage(
+    resumePayload
+  );
 
   if (sent) {
     archivedSessionResumeSent = true;

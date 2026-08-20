@@ -10,6 +10,8 @@ from contracts.rules_assembler import (
     RUNTIME_ACTION_IDLE,
     RUNTIME_ACTION_JIN_COLOR,
     RUNTIME_ACTION_JIN_SIZE,
+    RUNTIME_ACTION_JIN_POSITION,
+    RUNTIME_ACTION_JIN_SPEED,
     RUNTIME_ACTION_UPDATE_L4_FACTS,
     RUNTIME_ACTION_CLEAN_TOOL_RESULTS,
     RUNTIME_ACTION_UNLOAD_DELAYED_MEMORY,
@@ -42,6 +44,10 @@ from utils.actions import (
     extract_search_query,
     generate_active_memory_slot_key,
     normalize_jin_color_payload,
+    normalize_jin_position_dict,
+    normalize_jin_position_payload,
+    normalize_jin_speed_payload,
+    normalize_jin_speed_value,
     normalize_jin_size_dict,
     normalize_jin_size_payload,
     parse_idle_seconds,
@@ -83,6 +89,9 @@ from utils.actions.jin_color_actions import (
 )
 from utils.actions.jin_size_actions import (
     emit_jin_size_actions,
+)
+from utils.actions.jin_motion_actions import (
+    emit_jin_motion_actions,
 )
 from utils.actions.skill_actions import (
     apply_skill_actions,
@@ -262,6 +271,8 @@ async def apply_runtime_action_calls(
         RUNTIME_ACTION_WEB_SEARCH,
         RUNTIME_ACTION_JIN_COLOR,
         RUNTIME_ACTION_JIN_SIZE,
+        RUNTIME_ACTION_JIN_POSITION,
+        RUNTIME_ACTION_JIN_SPEED,
         RUNTIME_ACTION_UPDATE_L4_FACTS,
     }
     todo_action_names = {
@@ -370,6 +381,14 @@ async def apply_runtime_action_calls(
                 )
             elif action_name == RUNTIME_ACTION_JIN_SIZE:
                 payload_identity = normalize_jin_size_payload(
+                    action.payload
+                )
+            elif action_name == RUNTIME_ACTION_JIN_POSITION:
+                payload_identity = normalize_jin_position_payload(
+                    action.payload
+                )
+            elif action_name == RUNTIME_ACTION_JIN_SPEED:
+                payload_identity = normalize_jin_speed_payload(
                     action.payload
                 )
             elif action_name in {
@@ -588,6 +607,10 @@ async def apply_runtime_action_calls(
         jin_color = ""
         jin_size = ""
         jin_size_dict = None
+        jin_position = ""
+        jin_position_dict = None
+        jin_speed = ""
+        jin_speed_value = None
 
         if action.name == RUNTIME_ACTION_JIN_COLOR:
             jin_color = normalize_jin_color_payload(
@@ -613,6 +636,28 @@ async def apply_runtime_action_calls(
                 or not jin_size_dict
                 or jin_size == current_jin_size
             ):
+                continue
+
+        if action.name == RUNTIME_ACTION_JIN_POSITION:
+            jin_position = normalize_jin_position_payload(
+                action.payload
+            )
+            jin_position_dict = normalize_jin_position_dict(
+                action.payload
+            )
+
+            if not jin_position or not jin_position_dict:
+                continue
+
+        if action.name == RUNTIME_ACTION_JIN_SPEED:
+            jin_speed = normalize_jin_speed_payload(
+                action.payload
+            )
+            jin_speed_value = normalize_jin_speed_value(
+                action.payload
+            )
+
+            if not jin_speed or jin_speed_value is None:
                 continue
 
         action_event_name = action.name.lower()
@@ -772,6 +817,18 @@ async def apply_runtime_action_calls(
             jin_size_last_by_message[
                 jin_size_message_scope
             ] = jin_size
+            accepted_action_names.add(
+                action_event_name
+            )
+            filtered_actions.append(
+                action
+            )
+            continue
+
+        if action.name in {
+            RUNTIME_ACTION_JIN_POSITION,
+            RUNTIME_ACTION_JIN_SPEED,
+        }:
             accepted_action_names.add(
                 action_event_name
             )
@@ -1255,6 +1312,30 @@ async def apply_runtime_action_calls(
                 action_event["height"] = size["height"]
                 action_event["payload"] = payload
 
+        elif action.name == RUNTIME_ACTION_JIN_POSITION:
+            position = normalize_jin_position_dict(
+                action.payload
+            )
+            payload = normalize_jin_position_payload(
+                action.payload
+            )
+            if position and payload:
+                action_event["position"] = payload
+                action_event["x"] = position["x"]
+                action_event["y"] = position["y"]
+                action_event["payload"] = payload
+
+        elif action.name == RUNTIME_ACTION_JIN_SPEED:
+            speed = normalize_jin_speed_value(
+                action.payload
+            )
+            payload = normalize_jin_speed_payload(
+                action.payload
+            )
+            if speed is not None and payload:
+                action_event["speed"] = speed
+                action_event["payload"] = payload
+
         elif action.payload:
             action_event_payload = action.payload
 
@@ -1499,6 +1580,28 @@ async def apply_runtime_action_calls(
                         payload["width"] = size["width"]
                         payload["height"] = size["height"]
                         payload["payload"] = size_payload
+                if action.name == RUNTIME_ACTION_JIN_POSITION:
+                    position = normalize_jin_position_dict(
+                        action.payload
+                    )
+                    position_payload = normalize_jin_position_payload(
+                        action.payload
+                    )
+                    if position and position_payload:
+                        payload["position"] = position_payload
+                        payload["x"] = position["x"]
+                        payload["y"] = position["y"]
+                        payload["payload"] = position_payload
+                if action.name == RUNTIME_ACTION_JIN_SPEED:
+                    speed = normalize_jin_speed_value(
+                        action.payload
+                    )
+                    speed_payload = normalize_jin_speed_payload(
+                        action.payload
+                    )
+                    if speed is not None and speed_payload:
+                        payload["speed"] = speed
+                        payload["payload"] = speed_payload
                 confirmation_id = str(
                     rejected_event.get(
                         "confirmation_id",
@@ -1606,6 +1709,15 @@ async def apply_runtime_action_calls(
         if action.name == RUNTIME_ACTION_JIN_SIZE
     ]
 
+    jin_motion_actions = [
+        action
+        for action in filtered_actions
+        if action.name in {
+            RUNTIME_ACTION_JIN_POSITION,
+            RUNTIME_ACTION_JIN_SPEED,
+        }
+    ]
+
     load_skill_actions = [
         action
         for action in filtered_actions
@@ -1688,6 +1800,14 @@ async def apply_runtime_action_calls(
     await emit_jin_size_actions(
         context,
         jin_size_actions,
+        action_display_ids=action_display_ids,
+        log_runtime=log_runtime,
+        with_action_context=with_action_context,
+    )
+
+    await emit_jin_motion_actions(
+        context,
+        jin_motion_actions,
         action_display_ids=action_display_ids,
         log_runtime=log_runtime,
         with_action_context=with_action_context,
@@ -1875,6 +1995,9 @@ async def apply_runtime_action_calls(
         )
         + len(
             jin_size_actions
+        )
+        + len(
+            jin_motion_actions
         )
         + len(
             update_l4_facts_actions

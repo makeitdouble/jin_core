@@ -99,6 +99,16 @@ def expected_enabled_runtime_actions(runtime_actions: dict) -> tuple[str, ...]:
             "JIN_SIZE"
         )
 
+    if bool(runtime_actions.get("CAN_JIN_POSITION", False)):
+        expected_actions.append(
+            "JIN_POSITION"
+        )
+
+    if bool(runtime_actions.get("CAN_JIN_SPEED", False)):
+        expected_actions.append(
+            "JIN_SPEED"
+        )
+
     if bool(runtime_actions.get("CAN_UPDATE_L4_FACTS", False)):
         expected_actions.append(
             "UPDATE_L4_FACTS"
@@ -139,6 +149,7 @@ def expected_enabled_runtime_actions(runtime_actions: dict) -> tuple[str, ...]:
             (
                 "SAVE_ACTIVE_MEMORY",
                 "RESOLVE_ACTIVE_MEMORY",
+                "UPDATE_ACTIVE_MEMORY",
             )
         )
 

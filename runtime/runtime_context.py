@@ -16,6 +16,7 @@ RECENT_MESSAGES_MAX_PAIRS = 3
 RECENT_MESSAGE_MAX_CHARS = 220
 DEFAULT_JIN_COLOR = "#1f4f8f"
 DEFAULT_JIN_SIZE_TEXT = "120px"
+DEFAULT_JIN_SPEED_TEXT = "900px/s"
 
 
 class RuntimeEmitter:
@@ -464,6 +465,16 @@ class RuntimeContext:
         default_factory=dict
     )
 
+    runtime_avatar_current_position: dict = field(
+        default_factory=dict
+    )
+
+    runtime_avatar_window_size: dict = field(
+        default_factory=dict
+    )
+
+    runtime_avatar_move_speed: int = 900
+
 
 def format_xml_field(
     tag: str,
@@ -575,6 +586,9 @@ class ContextContract:
     current_context_window: str = ""
     jin_color: str = DEFAULT_JIN_COLOR
     jin_size_context: str = ""
+    jin_position_context: str = ""
+    jin_speed_context: str = DEFAULT_JIN_SPEED_TEXT
+    window_size_context: str = ""
     can_web_search: bool = True
     can_use_assets: bool = False
     can_save_active_memory: bool = False
@@ -618,6 +632,15 @@ class ContextContract:
 
         if self.jin_size_context:
             fields["CURRENT_JIN_SIZE"] = self.jin_size_context
+
+        if self.jin_position_context:
+            fields["CURRENT_JIN_POSITION"] = self.jin_position_context
+
+        if self.jin_speed_context:
+            fields["CURRENT_JIN_SPEED"] = self.jin_speed_context
+
+        if self.window_size_context:
+            fields["CURRENT_WINDOW_SIZE"] = self.window_size_context
 
         fields["CURRENT_USER_DATETIME"] = format_user_datetime(
             self.current_date,

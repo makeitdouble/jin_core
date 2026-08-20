@@ -27,6 +27,9 @@ from utils.actions import (
     get_applied_jin_size,
     normalize_jin_size_dict,
     normalize_jin_color_payload,
+    normalize_jin_position_dict,
+    normalize_jin_speed_value,
+    format_jin_speed_payload,
 )
 
 
@@ -141,6 +144,105 @@ def get_current_jin_size_context(
     return payload
 
 
+def format_current_jin_position(
+    position,
+) -> str:
+
+    normalized = normalize_jin_position_dict(
+        position
+    )
+
+    if not normalized:
+        return ""
+
+    return (
+        f"x: {normalized['x']}px "
+        f"y: {normalized['y']}px"
+    )
+
+
+def get_current_jin_position_context(
+    context=None,
+) -> str:
+
+    if not bool(
+        getattr(
+            context,
+            "runtime_avatar_panel_collapsed",
+            False,
+        )
+    ):
+        return ""
+
+    return format_current_jin_position(
+        getattr(
+            context,
+            "runtime_avatar_current_position",
+            {},
+        )
+    )
+
+
+def get_current_jin_speed_context(
+    context=None,
+) -> str:
+
+    if not bool(
+        getattr(
+            context,
+            "runtime_avatar_panel_collapsed",
+            False,
+        )
+    ):
+        return ""
+
+    speed = normalize_jin_speed_value(
+        getattr(
+            context,
+            "runtime_avatar_move_speed",
+            900,
+        )
+    )
+
+    return format_jin_speed_payload(
+        speed if speed is not None else 900
+    )
+
+
+def get_current_window_size_context(
+    context=None,
+) -> str:
+
+    if not bool(
+        getattr(
+            context,
+            "runtime_avatar_panel_collapsed",
+            False,
+        )
+    ):
+        return ""
+
+    window_size = getattr(
+        context,
+        "runtime_avatar_window_size",
+        {},
+    )
+
+    if not isinstance(window_size, dict):
+        return ""
+
+    try:
+        width = int(window_size.get("width") or 0)
+        height = int(window_size.get("height") or 0)
+    except (TypeError, ValueError):
+        return ""
+
+    if width <= 0 or height <= 0:
+        return ""
+
+    return f"width: {width}px height: {height}px"
+
+
 def build_runtime_xml(
     context=None,
     runtime_actions=None,
@@ -173,6 +275,15 @@ def build_runtime_xml(
                 context
             ),
             jin_size_context=get_current_jin_size_context(
+                context
+            ),
+            jin_position_context=get_current_jin_position_context(
+                context
+            ),
+            jin_speed_context=get_current_jin_speed_context(
+                context
+            ),
+            window_size_context=get_current_window_size_context(
                 context
             ),
             can_web_search=(

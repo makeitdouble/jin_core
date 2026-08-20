@@ -18,6 +18,8 @@ from contracts.rules_assembler import (
     RUNTIME_ACTION_IDLE,
     RUNTIME_ACTION_JIN_COLOR,
     RUNTIME_ACTION_JIN_SIZE,
+    RUNTIME_ACTION_JIN_POSITION,
+    RUNTIME_ACTION_JIN_SPEED,
     RUNTIME_ACTION_UPDATE_L4_FACTS,
     RUNTIME_ACTION_CLEAN_TOOL_RESULTS,
     RUNTIME_ACTION_UNLOAD_SKILL,
@@ -50,6 +52,8 @@ from .create_todo_list_utils import build_create_todo_list_payload
 from .idle_utils import build_idle_payload
 from .jin_color_utils import build_jin_color_payload
 from .jin_size_utils import build_jin_size_payload
+from .jin_position_utils import build_jin_position_payload
+from .jin_speed_utils import build_jin_speed_payload
 from .update_l4_facts_utils import build_update_l4_facts_payload
 from .update_active_memory_utils import build_update_active_memory_payload
 from .resolve_action_utils import build_resolve_action_payload
@@ -107,6 +111,8 @@ REPEATABLE_RUNTIME_ACTIONS = frozenset({
     RUNTIME_ACTION_IDLE,
     RUNTIME_ACTION_JIN_COLOR,
     RUNTIME_ACTION_JIN_SIZE,
+    RUNTIME_ACTION_JIN_POSITION,
+    RUNTIME_ACTION_JIN_SPEED,
     RUNTIME_ACTION_UPDATE_L4_FACTS,
     RUNTIME_ACTION_CLEAN_TOOL_RESULTS,
 })
@@ -450,6 +456,8 @@ def normalize_runtime_action_name(
         "CHECK_TODO": RUNTIME_ACTION_CHECK_TODO,
         "IDLE": RUNTIME_ACTION_IDLE,
         "JIN_SIZE": RUNTIME_ACTION_JIN_SIZE,
+        "JIN_POSITION": RUNTIME_ACTION_JIN_POSITION,
+        "JIN_SPEED": RUNTIME_ACTION_JIN_SPEED,
         "UPDATE_L4_FACTS": RUNTIME_ACTION_UPDATE_L4_FACTS,
     }
 
@@ -552,6 +560,8 @@ _ACTION_PAYLOAD_BUILDERS = {
     RUNTIME_ACTION_IDLE: build_idle_payload,
     RUNTIME_ACTION_JIN_COLOR: build_jin_color_payload,
     RUNTIME_ACTION_JIN_SIZE: build_jin_size_payload,
+    RUNTIME_ACTION_JIN_POSITION: build_jin_position_payload,
+    RUNTIME_ACTION_JIN_SPEED: build_jin_speed_payload,
     RUNTIME_ACTION_UPDATE_L4_FACTS: build_update_l4_facts_payload,
     RUNTIME_ACTION_DEEP_WEB_SEARCH: build_deep_web_search_payload,
     RUNTIME_ACTION_WEB_SEARCH: build_web_search_payload,

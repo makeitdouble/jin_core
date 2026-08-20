@@ -250,6 +250,50 @@
                     }
                   : null
               ),
+        current_jin_position:
+          (
+            source.current_jin_position
+            && typeof source.current_jin_position === "object"
+            && !Array.isArray(source.current_jin_position)
+          )
+            ? {
+                ...source.current_jin_position,
+              }
+            : (
+                data
+                && data.current_jin_position
+                && typeof data.current_jin_position === "object"
+                && !Array.isArray(data.current_jin_position)
+                  ? {
+                      ...data.current_jin_position,
+                    }
+                  : null
+              ),
+        current_jin_speed:
+          Number(
+            source.current_jin_speed
+            || (data && data.current_jin_speed)
+            || 900
+          ),
+        current_window_size:
+          (
+            source.current_window_size
+            && typeof source.current_window_size === "object"
+            && !Array.isArray(source.current_window_size)
+          )
+            ? {
+                ...source.current_window_size,
+              }
+            : (
+                data
+                && data.current_window_size
+                && typeof data.current_window_size === "object"
+                && !Array.isArray(data.current_window_size)
+                  ? {
+                      ...data.current_window_size,
+                    }
+                  : null
+              ),
       };
     }
 
