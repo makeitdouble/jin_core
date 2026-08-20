@@ -528,7 +528,6 @@ async def build_status_snapshot(
     return {
         "brain": brain_online,
         "service": service_online,
-        "translator": None,
         "use_service_as_brain": (
             effective_use_service_as_brain
         ),

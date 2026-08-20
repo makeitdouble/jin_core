@@ -11,26 +11,6 @@ def build_clients(
 
     clients = {
 
-        "translator": RuntimeClient(
-            api_base=(
-                settings.TRANSLATOR_API_BASE
-            ),
-            model_uid=(
-                settings.TRANSLATOR_MODEL_UID
-            ),
-            timeout=(
-                settings
-                .TRANSLATOR_REQUEST_TIMEOUT
-            ),
-            configured_context_window=(
-                settings.TRANSLATOR_CONTEXT_WINDOW
-            ),
-            configured_max_tokens=(
-                settings.TRANSLATION_MAX_TOKENS
-            ),
-            client=http_client,
-        ),
-
         "service": RuntimeClient(
             api_base=(
                 settings.SERVICE_API_BASE

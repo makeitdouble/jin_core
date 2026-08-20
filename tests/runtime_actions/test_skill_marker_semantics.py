@@ -209,6 +209,25 @@ class SkillMarkerSemanticsTests(RuntimeActionTestCase):
             ),
         )
 
+    def test_visual_marker_sequence_keeps_jin_size_and_color(self):
+        counter = RuntimeActionCounter()
+        counter.record([
+            RuntimeActionCall(name="JIN_SIZE", payload="120px 120px"),
+            RuntimeActionCall(name="JIN_COLOR", payload="#ff69b4"),
+        ])
+
+        marker_actions = counter.marker_actions(
+            display_payloads={
+                "JIN_SIZE": ["120px"],
+                "JIN_COLOR": ["#ff69b4"],
+            },
+        )
+
+        self.assertEqual(
+            format_session_action_marker_names(marker_actions),
+            "JIN_SIZE - 120px, JIN_COLOR",
+        )
+
     def test_active_memory_marker_history_keeps_payloads_separate(self):
         counter = RuntimeActionCounter()
         counter.record([

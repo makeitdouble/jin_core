@@ -216,7 +216,6 @@ function isJinMemoryReferenceRole(role) {
   return (
     role === "brain"
     || role === "service"
-    || role === "translator"
   );
 }
 
@@ -938,15 +937,6 @@ function getRoleConfig(role) {
           "jin-chat-bubble jin-chat-bubble-service jin-chat-bubble-rateable",
         avatarClass:
           "jin-chat-avatar-service"
-      };
-
-    case "translator":
-      return {
-        avatar: "TR",
-        bubbleClass:
-            "jin-chat-bubble jin-chat-bubble-translator",
-        avatarClass:
-            "jin-chat-avatar-translator"
       };
 
     case "brain":

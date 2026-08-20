@@ -1282,8 +1282,7 @@ async def process_message(
         })
 
         assistant_message = (
-                state.final_answer
-                or state.brain_response
+                state.brain_response
                 or context.runtime_turn_assistant_response
         )
         if not is_action_guard_retry:

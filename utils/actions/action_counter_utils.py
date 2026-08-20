@@ -42,7 +42,6 @@ class RuntimeActionCounter:
         "UNLOAD_SKILL",
         "UNLOAD_SKILLS",
         "DEEP_WEB_SEARCH",
-        "JIN_SIZE",
     })
 
     def __init__(self):

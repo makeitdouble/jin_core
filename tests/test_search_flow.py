@@ -560,7 +560,6 @@ class SearchFlowTests(
                 "\u0430\u0432\u0442\u043e\u043c\u043e\u0431\u0438\u043b\u044f "
                 "\u0442\u0435\u0441\u043b\u0430"
             ),
-            translated_input="search tesla car price",
         )
 
         await BrainNode().run(
@@ -654,7 +653,7 @@ class SearchFlowTests(
             logger_text,
         )
         self.assertIn(
-            f"INITIAL_SEQUENCE_INSTRUCTION: {state.translated_input}",
+            f"INITIAL_SEQUENCE_INSTRUCTION: {state.user_input}",
             brain_client.prompts[1]["system_prompt"],
         )
         self.assertNotIn(
@@ -728,7 +727,6 @@ class SearchFlowTests(
         )
         state = AgentState(
             user_input="Tell me about Tesla.",
-            translated_input="Tell me about Tesla.",
         )
 
         await BrainNode().run(
@@ -801,7 +799,6 @@ class SearchFlowTests(
         )
         state = AgentState(
             user_input="How much are apples?",
-            translated_input="How much are apples?",
         )
 
         await BrainNode().run(
@@ -897,7 +894,6 @@ class SearchFlowTests(
         )
         state = AgentState(
             user_input="Research blue tomatoes.",
-            translated_input="Research blue tomatoes.",
         )
 
         await BrainNode().run(
@@ -1052,7 +1048,6 @@ class SearchFlowTests(
         )
         state = AgentState(
             user_input="How much does Jupiter cost?",
-            translated_input="How much does Jupiter cost?",
         )
 
         await BrainNode().run(
@@ -1099,7 +1094,6 @@ class SearchFlowTests(
         )
         state = AgentState(
             user_input="Latest Python?",
-            translated_input="Latest Python?",
         )
 
         await BrainNode().run(

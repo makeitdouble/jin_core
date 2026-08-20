@@ -207,7 +207,6 @@ function Test-AutoModelConfigValue {
     $templateValues = @{
         "BRAIN_MODEL_UID" = "brain-model"
         "SERVICE_MODEL_UID" = "service-model"
-        "TRANSLATOR_MODEL_UID" = "translator-model"
     }
 
     return (
@@ -233,7 +232,6 @@ function Test-AutoProviderBaseValue {
     $templateValues = @{
         "BRAIN_API_BASE" = "http://brain-host:1234"
         "SERVICE_API_BASE" = "http://service-host:1234"
-        "TRANSLATOR_API_BASE" = "http://translator-host:1234"
     }
 
     return (
@@ -270,8 +268,7 @@ function Get-ConfiguredBaseUrlCandidates {
     $baseUrls = New-Object System.Collections.Generic.List[string]
     $baseNames = @(
         "SERVICE_API_BASE",
-        "BRAIN_API_BASE",
-        "TRANSLATOR_API_BASE"
+        "BRAIN_API_BASE"
     )
 
     foreach ($name in $baseNames) {
@@ -385,11 +382,9 @@ function Write-JinConfig {
 
     Update-ProviderBaseConfig -ConfigPath $configPath -Name "BRAIN_API_BASE" -ActiveBaseUrl $ActiveBaseUrl
     Update-ProviderBaseConfig -ConfigPath $configPath -Name "SERVICE_API_BASE" -ActiveBaseUrl $ActiveBaseUrl
-    Update-ProviderBaseConfig -ConfigPath $configPath -Name "TRANSLATOR_API_BASE" -ActiveBaseUrl $ActiveBaseUrl
 
     Update-ModelConfig -ConfigPath $configPath -Name "BRAIN_MODEL_UID" -SuggestedModel $suggestedModel
     Update-ModelConfig -ConfigPath $configPath -Name "SERVICE_MODEL_UID" -SuggestedModel $suggestedModel
-    Update-ModelConfig -ConfigPath $configPath -Name "TRANSLATOR_MODEL_UID" -SuggestedModel $suggestedModel
 }
 
 function Get-PythonCommand {

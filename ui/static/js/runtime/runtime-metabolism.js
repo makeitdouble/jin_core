@@ -37,6 +37,32 @@
   // salience remain independent, so this can be disabled without touching the
   // causal metabolism layer.
   const AMBIENT_BODY_MOTION_ENABLED = true;
+
+  // Keep the existing five metabolic colour clouds exactly as they are
+  // visually; only their centre and falloff radius are allowed to move.
+  // Drift is intentionally glacial: even a maxed channel moves by less than
+  // one CSS pixel per minute on the normal avatar size.
+  const METABOLIC_SPOT_DRIFT_ENABLED = true;
+  const SPOT_GEOMETRY = Object.freeze({
+    dopamine: Object.freeze({ x: 22, y: 24, radius: 42 }),
+    serotonin: Object.freeze({ x: 78, y: 20, radius: 43 }),
+    oxytocin: Object.freeze({ x: 87, y: 61, radius: 42 }),
+    norepinephrine: Object.freeze({ x: 54, y: 86, radius: 43 }),
+    cortisol: Object.freeze({ x: 14, y: 68, radius: 42 }),
+  });
+  const SPOT_RADIUS_RANGE = 0.22;
+  const SPOT_MIN_CENTER_PERCENT = 10;
+  const SPOT_MAX_CENTER_PERCENT = 90;
+  const SPOT_DRIFT_STEP_MIN_PERCENT = 4.0;
+  const SPOT_DRIFT_STEP_MAX_PERCENT = 9.0;
+  const SPOT_DRIFT_SPEED_MIN_PERCENT_PER_MINUTE = 0.07;
+  const SPOT_DRIFT_SPEED_MAX_PERCENT_PER_MINUTE = 0.24;
+  const SPOT_DRIFT_START_MIN_MS = 8000;
+  const SPOT_DRIFT_START_MAX_MS = 24000;
+  const SPOT_DRIFT_RETARGET_MIN_MS = 1800;
+  const SPOT_DRIFT_RETARGET_MAX_MS = 4500;
+  const SPOT_DRIFT_PAUSE_MIN_MS = 12000;
+  const SPOT_DRIFT_PAUSE_MAX_MS = 42000;
   const IDLE_HOMEOSTASIS_TICK_MS = 30000;
 
   let state = { ...DEFAULTS };
@@ -44,6 +70,16 @@
   let authoritativeAtMs = Date.now();
   let halfLivesSeconds = { ...DEFAULT_HALF_LIVES_SECONDS };
   let activeMemorySalience = {};
+  const spotPositions = Object.fromEntries(
+    CHANNELS.map(channel => [
+      channel,
+      {
+        x: SPOT_GEOMETRY[channel].x,
+        y: SPOT_GEOMETRY[channel].y,
+      },
+    ])
+  );
+  const spotDriftTimers = new Map();
 
   function clamp(value, min, max) {
     const number = Number(value);
@@ -204,6 +240,186 @@
     return 7 + level * 10;
   }
 
+  function getSpotRadiusPercent(channel, level = state[channel]) {
+    const geometry = SPOT_GEOMETRY[channel];
+    if (!geometry) {
+      return 42;
+    }
+
+    const current = clamp(level, 0, 1);
+    const baseline = clamp(DEFAULTS[channel], 0, 1);
+    let scale = 1;
+
+    if (current >= baseline) {
+      const room = Math.max(0.0001, 1 - baseline);
+      scale += ((current - baseline) / room) * SPOT_RADIUS_RANGE;
+    } else {
+      const room = Math.max(0.0001, baseline);
+      scale -= ((baseline - current) / room) * SPOT_RADIUS_RANGE;
+    }
+
+    return geometry.radius * scale;
+  }
+
+  function randomBetween(min, max) {
+    return min + Math.random() * Math.max(0, max - min);
+  }
+
+  function getSpotDriftSpeed(channel) {
+    const level = clamp(state[channel], 0, 1);
+    return (
+      SPOT_DRIFT_SPEED_MIN_PERCENT_PER_MINUTE
+      + (
+        SPOT_DRIFT_SPEED_MAX_PERCENT_PER_MINUTE
+        - SPOT_DRIFT_SPEED_MIN_PERCENT_PER_MINUTE
+      ) * level
+    );
+  }
+
+  function getAvatarShell() {
+    return document.querySelector(".jin-runtime-avatar-shell");
+  }
+
+  function applySpotSizeVariables() {
+    const shell = getAvatarShell();
+    if (!shell) {
+      return;
+    }
+
+    CHANNELS.forEach(channel => {
+      shell.style.setProperty(
+        `--jin-metabolism-${channel}-radius`,
+        `${getSpotRadiusPercent(channel).toFixed(3)}%`
+      );
+    });
+  }
+
+  function getRenderedSpotPosition(shell, channel) {
+    const fallback = spotPositions[channel];
+    if (!shell || !fallback || typeof window.getComputedStyle !== "function") {
+      return fallback;
+    }
+
+    const styles = window.getComputedStyle(shell);
+    const x = parseFloat(
+      styles.getPropertyValue(`--jin-metabolism-${channel}-x`)
+    );
+    const y = parseFloat(
+      styles.getPropertyValue(`--jin-metabolism-${channel}-y`)
+    );
+
+    return {
+      x: Number.isFinite(x) ? x : fallback.x,
+      y: Number.isFinite(y) ? y : fallback.y,
+    };
+  }
+
+  function scheduleSpotDrift(channel, delayMs) {
+    if (!METABOLIC_SPOT_DRIFT_ENABLED || !SPOT_GEOMETRY[channel]) {
+      return;
+    }
+
+    const previousTimer = spotDriftTimers.get(channel);
+    if (previousTimer) {
+      window.clearTimeout(previousTimer);
+    }
+
+    const timer = window.setTimeout(() => {
+      const shell = getAvatarShell();
+      if (!shell) {
+        scheduleSpotDrift(channel, 1000);
+        return;
+      }
+
+      const current = getRenderedSpotPosition(shell, channel);
+      const angle = randomBetween(0, Math.PI * 2);
+      const step = randomBetween(
+        SPOT_DRIFT_STEP_MIN_PERCENT,
+        SPOT_DRIFT_STEP_MAX_PERCENT
+      );
+      const next = {
+        x: clamp(
+          current.x + Math.cos(angle) * step,
+          SPOT_MIN_CENTER_PERCENT,
+          SPOT_MAX_CENTER_PERCENT
+        ),
+        y: clamp(
+          current.y + Math.sin(angle) * step,
+          SPOT_MIN_CENTER_PERCENT,
+          SPOT_MAX_CENTER_PERCENT
+        ),
+      };
+      const distance = Math.hypot(
+        next.x - current.x,
+        next.y - current.y
+      );
+      const speed = Math.max(
+        0.001,
+        getSpotDriftSpeed(channel)
+      );
+      const durationMs = Math.max(
+        60 * 1000,
+        (distance / speed) * 60 * 1000
+      );
+
+      shell.style.setProperty(
+        `--jin-metabolism-${channel}-drift-duration`,
+        `${Math.round(durationMs)}ms`
+      );
+      shell.style.setProperty(
+        `--jin-metabolism-${channel}-x`,
+        `${next.x.toFixed(3)}%`
+      );
+      shell.style.setProperty(
+        `--jin-metabolism-${channel}-y`,
+        `${next.y.toFixed(3)}%`
+      );
+      spotPositions[channel] = next;
+
+      scheduleSpotDrift(
+        channel,
+        durationMs + randomBetween(
+          SPOT_DRIFT_PAUSE_MIN_MS,
+          SPOT_DRIFT_PAUSE_MAX_MS
+        )
+      );
+    }, Math.max(0, Number(delayMs) || 0));
+
+    spotDriftTimers.set(channel, timer);
+  }
+
+  function startSpotDrift() {
+    if (!METABOLIC_SPOT_DRIFT_ENABLED) {
+      return;
+    }
+
+    CHANNELS.forEach(channel => {
+      scheduleSpotDrift(
+        channel,
+        randomBetween(
+          SPOT_DRIFT_START_MIN_MS,
+          SPOT_DRIFT_START_MAX_MS
+        )
+      );
+    });
+  }
+
+  function retargetSpotDriftForCurrentState() {
+    if (!METABOLIC_SPOT_DRIFT_ENABLED) {
+      return;
+    }
+
+    CHANNELS.forEach(channel => {
+      scheduleSpotDrift(
+        channel,
+        randomBetween(
+          SPOT_DRIFT_RETARGET_MIN_MS,
+          SPOT_DRIFT_RETARGET_MAX_MS
+        )
+      );
+    });
+  }
+
   function getAmbientBodyScale() {
     if (!AMBIENT_BODY_MOTION_ENABLED) {
       return 0.90;
@@ -235,8 +451,9 @@
     );
   }
 
-  function applyCssVariables() {
+  function applyCssVariables(options = {}) {
     const root = document.documentElement;
+    const updateSpotSizes = options.updateSpotSizes === true;
 
     CHANNELS.forEach(channel => {
       root.style.setProperty(
@@ -257,6 +474,10 @@
       "--jin-avatar-metabolism-opacity",
       getAmbientAvatarOpacity().toFixed(4)
     );
+
+    if (updateSpotSizes) {
+      applySpotSizeVariables();
+    }
   }
 
   function getState() {
@@ -306,7 +527,8 @@
         ? serverTimestamp * 1000
         : Date.now();
 
-    applyCssVariables();
+    applyCssVariables({ updateSpotSizes: true });
+    retargetSpotDriftForCurrentState();
     dispatchUpdate("server");
 
     return getState();
@@ -348,7 +570,8 @@
 
   state = normalize(state);
   authoritativeState = { ...state };
-  applyCssVariables();
+  applyCssVariables({ updateSpotSizes: true });
+  startSpotDrift();
 
   window.setInterval(
     applyIdleHomeostasis,
@@ -361,6 +584,8 @@
     PALETTE,
     DEFAULTS,
     AMBIENT_BODY_MOTION_ENABLED,
+    METABOLIC_SPOT_DRIFT_ENABLED,
+    SPOT_GEOMETRY,
     normalize,
     getState,
     getDominantChannel,
@@ -369,6 +594,7 @@
     tintColor,
     loggerTintPercent,
     auraTintPercent,
+    getSpotRadiusPercent,
     applyServerUpdate,
   };
 })();

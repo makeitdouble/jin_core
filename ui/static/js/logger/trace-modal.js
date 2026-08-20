@@ -530,6 +530,102 @@ function appendTraceModalBody(
   );
 }
 
+function appendTraceModalCard(
+  parent,
+  titleText,
+  renderContent,
+) {
+  const card =
+    document.createElement("div");
+
+  card.className =
+    "jin-context-card jin-context-card-plain delayed-memory-modal-card";
+
+  const header =
+    document.createElement("div");
+
+  header.className =
+    "jin-context-card-header delayed-memory-modal-card-header";
+  header.title =
+    "Click to collapse / expand";
+  header.tabIndex = 0;
+  header.setAttribute(
+    "role",
+    "button"
+  );
+  header.setAttribute(
+    "aria-expanded",
+    "true"
+  );
+
+  const heading =
+    document.createElement("div");
+
+  heading.className =
+    "jin-context-card-heading";
+
+  const title =
+    document.createElement("div");
+
+  title.className =
+    "jin-context-card-title delayed-memory-modal-card-title";
+  title.textContent =
+    `[ ${String(titleText || "").trim()} ]`;
+
+  heading.appendChild(title);
+  header.appendChild(heading);
+
+  const toggle = () => {
+    const collapsed =
+      !card.classList.contains(
+        "is-collapsed"
+      );
+
+    card.classList.toggle(
+      "is-collapsed",
+      collapsed
+    );
+    header.setAttribute(
+      "aria-expanded",
+      collapsed ? "false" : "true"
+    );
+  };
+
+  header.addEventListener(
+    "click",
+    toggle
+  );
+  header.addEventListener(
+    "keydown",
+    (event) => {
+      if (
+        event.target !== header
+        || !["Enter", " "].includes(event.key)
+      ) {
+        return;
+      }
+
+      event.preventDefault();
+      toggle();
+    }
+  );
+
+  const body =
+    document.createElement("div");
+
+  body.className =
+    "jin-context-card-body delayed-memory-modal-card-body";
+
+  if (typeof renderContent === "function") {
+    renderContent(body);
+  }
+
+  card.append(header, body);
+  parent.appendChild(card);
+
+  return card;
+}
+
 function prettifyTraceFieldName(value) {
   return String(value || "")
     .replace(/_/g, " ")
@@ -943,6 +1039,127 @@ function renderL4SummarizerResponseTrace(parsed) {
 }
 
 function renderL4SkipTrace(parsed) {
+  if (
+    String(parsed.reason || "").toLowerCase()
+      === "runtime_context_budget_exhausted"
+  ) {
+    appendTraceModalCard(
+      traceModalContent,
+      "L4 MERGE BUDGET",
+      (body) => {
+        const fields =
+          document.createElement("section");
+
+        fields.className =
+          "delayed-memory-modal-fields";
+
+        appendTraceModalField(
+          fields,
+          "Reason",
+          parsed.reason
+        );
+        appendTraceModalField(
+          fields,
+          "Pending queue",
+          parsed.pending_count
+        );
+        appendTraceModalField(
+          fields,
+          "First pending ID",
+          parsed.first_pending_id
+        );
+        appendTraceModalField(
+          fields,
+          "Context window",
+          parsed.runtime_context_window_tokens
+            ? `${parsed.runtime_context_window_tokens} tokens`
+            : ""
+        );
+        appendTraceModalField(
+          fields,
+          "Prompt estimate",
+          parsed.estimated_prompt_tokens
+            ? `${parsed.estimated_prompt_tokens} tokens`
+            : ""
+        );
+        appendTraceModalField(
+          fields,
+          "Response estimate",
+          parsed.estimated_response_tokens
+            ? `${parsed.estimated_response_tokens} tokens`
+            : ""
+        );
+        appendTraceModalField(
+          fields,
+          "Provider reserve",
+          parsed.runtime_output_reserve_tokens
+            ? `${parsed.runtime_output_reserve_tokens} tokens`
+            : ""
+        );
+        appendTraceModalField(
+          fields,
+          "Reasoning headroom target",
+          parsed.default_response_headroom_tokens
+            ? `${parsed.default_response_headroom_tokens} tokens`
+            : ""
+        );
+        appendTraceModalField(
+          fields,
+          "Reasoning headroom used",
+          parsed.response_headroom_tokens
+            ? `${parsed.response_headroom_tokens} tokens`
+            : ""
+        );
+        appendTraceModalField(
+          fields,
+          "Estimated total",
+          parsed.estimated_total_tokens
+            ? `${parsed.estimated_total_tokens} tokens`
+            : ""
+        );
+        appendTraceModalField(
+          fields,
+          "Overflow",
+          Number(parsed.overflow_tokens || 0)
+            ? `${parsed.overflow_tokens} tokens`
+            : "0 tokens"
+        );
+
+        body.appendChild(fields);
+
+        appendTraceModalBody(
+          body,
+          "What happened",
+          parsed.summary
+        );
+        appendTraceModalBody(
+          body,
+          "Retry behavior",
+          parsed.retry_behavior
+        );
+      }
+    );
+
+    appendTraceModalCard(
+      traceModalContent,
+      "MERGE PAYLOAD",
+      (body) => {
+        appendTraceModalBody(
+          body,
+          "Pending candidate",
+          parsed.merge_candidate || {}
+        );
+        appendTraceModalBody(
+          body,
+          "Full service request payload",
+          parsed.request_payload || {}
+        );
+      }
+    );
+
+    return;
+  }
+
   appendTraceModalBody(
     traceModalContent,
     "What happened",

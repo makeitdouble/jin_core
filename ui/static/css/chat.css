@@ -245,9 +245,8 @@
             inset 0 0 12px rgba(226, 232, 240, 0.03);
 }
 
-.jin-chat-avatar-brain,
-.jin-chat-avatar-translator {
-    /* Цветовая ветка BRAIN/translator-аватарок: немного в фиолетово-синий. */
+.jin-chat-avatar-brain {
+    /* Цветовая ветка BRAIN-аватарки: немного в фиолетово-синий. */
     border-color: rgba(165, 180, 252, 0.34);
     color: rgba(199, 210, 254, 0.92);
 }
@@ -367,9 +366,8 @@
             0 0 10px rgba(96, 165, 250, 0.030);
 }
 
-.jin-chat-bubble-brain,
-.jin-chat-bubble-translator {
-    /* Отдельная ветка для BRAIN/translator-баблов: мягкий indigo-оттенок. */
+.jin-chat-bubble-brain {
+    /* Отдельная ветка для BRAIN-баблов: мягкий indigo-оттенок. */
     border-color: rgba(165, 180, 252, 0.20);
     box-shadow:
             0 0 0 1px rgba(165, 180, 252, 0.045),

@@ -1649,7 +1649,7 @@ class BrainNode(BaseNode):
         try:
             generator = ask_brain_stream(
                 client=brain_client,
-                text=state.translated_input,
+                text=state.user_input,
                 context=context,
                 system_prompt=system_prompt,
                 brain_payload=effective_brain_payload,
@@ -1803,7 +1803,7 @@ class BrainNode(BaseNode):
                     "origin_user_request",
                     "",
                 )
-                or state.translated_input
+                or state.user_input
                 or getattr(
                     context,
                     "runtime_turn_user_message",
@@ -1856,7 +1856,7 @@ class BrainNode(BaseNode):
                 )
                 brain_payload = (
                     build_brain_payload(
-                        state.translated_input,
+                        state.user_input,
                         context=context,
                     )
                 )
@@ -1867,7 +1867,7 @@ class BrainNode(BaseNode):
                     "runtime_turn_user_message",
                     "",
                 )
-                or state.translated_input
+                or state.user_input
                 or ""
             )
             sequence_user_request = sanitize_sequence_user_request(
@@ -1905,9 +1905,7 @@ class BrainNode(BaseNode):
             system_prompt=system_prompt,
             brain_payload=brain_payload,
             runtime_actions=runtime_actions,
-            emit_content_to_chat=(
-                not state.translate_response
-            ),
+            emit_content_to_chat=True,
         )
 
         if getattr(
@@ -2254,9 +2252,7 @@ class BrainNode(BaseNode):
                     system_prompt=followup_system_prompt,
                     brain_payload="",
                     runtime_actions=followup_runtime_actions,
-                    emit_content_to_chat=(
-                        not state.translate_response
-                    ),
+                    emit_content_to_chat=True,
                     filter_runtime_actions=True,
                 )
 
@@ -2373,9 +2369,7 @@ class BrainNode(BaseNode):
                     system_prompt=followup_system_prompt,
                     brain_payload="",
                     runtime_actions=followup_runtime_actions,
-                    emit_content_to_chat=(
-                        not state.translate_response
-                    ),
+                    emit_content_to_chat=True,
                     filter_runtime_actions=True,
                 )
 
@@ -2507,9 +2501,7 @@ class BrainNode(BaseNode):
                     system_prompt=followup_system_prompt,
                     brain_payload="",
                     runtime_actions=followup_runtime_actions,
-                    emit_content_to_chat=(
-                        not state.translate_response
-                    ),
+                    emit_content_to_chat=True,
                 )
 
                 if not text.strip():
@@ -2573,9 +2565,7 @@ class BrainNode(BaseNode):
                     system_prompt=followup_system_prompt,
                     brain_payload="",
                     runtime_actions=followup_runtime_actions,
-                    emit_content_to_chat=(
-                        not state.translate_response
-                    ),
+                    emit_content_to_chat=True,
                     filter_runtime_actions=True,
                 )
 
@@ -2644,9 +2634,7 @@ class BrainNode(BaseNode):
                     system_prompt=followup_system_prompt,
                     brain_payload="",
                     runtime_actions=followup_runtime_actions,
-                    emit_content_to_chat=(
-                        not state.translate_response
-                    ),
+                    emit_content_to_chat=True,
                     filter_runtime_actions=True,
                 )
 
@@ -2737,9 +2725,7 @@ class BrainNode(BaseNode):
                     system_prompt=followup_system_prompt,
                     brain_payload="",
                     runtime_actions=followup_runtime_actions,
-                    emit_content_to_chat=(
-                        not state.translate_response
-                    ),
+                    emit_content_to_chat=True,
                     filter_runtime_actions=True,
                 )
 
@@ -2791,9 +2777,7 @@ class BrainNode(BaseNode):
                 system_prompt=followup_system_prompt,
                 brain_payload="",
                 runtime_actions=followup_runtime_actions,
-                emit_content_to_chat=(
-                    not state.translate_response
-                ),
+                emit_content_to_chat=True,
                 filter_runtime_actions=True,
             )
 
@@ -2887,9 +2871,7 @@ class BrainNode(BaseNode):
                 system_prompt=final_system_prompt,
                 brain_payload="",
                 runtime_actions=final_runtime_actions,
-                emit_content_to_chat=(
-                    not state.translate_response
-                ),
+                emit_content_to_chat=True,
                 filter_runtime_actions=False,
                 preserve_runtime_action_markers=True,
             )

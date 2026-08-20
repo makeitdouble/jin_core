@@ -121,6 +121,54 @@ function getInternalActionUpdateL4Message(data) {
   return "";
 }
 
+function getInternalActionJinSizeHover(data) {
+  if (!data || typeof data !== "object") {
+    return "";
+  }
+
+  let width = Number.parseInt(
+    data.width || 0,
+    10
+  );
+  let height = Number.parseInt(
+    data.height || 0,
+    10
+  );
+
+  if (!(width > 0) || !(height > 0)) {
+    const source = String(
+      data.size
+      || data.payload
+      || (
+        Array.isArray(data.sizes)
+          ? data.sizes[data.sizes.length - 1]
+          : ""
+      )
+      || ""
+    );
+    const numbers = Array.from(
+      source.matchAll(/\d+/g)
+    )
+      .slice(0, 2)
+      .map((match) => Number.parseInt(match[0], 10))
+      .filter((value) => Number.isFinite(value) && value > 0);
+
+    if (!(width > 0) && numbers.length) {
+      width = numbers[0];
+    }
+
+    if (!(height > 0)) {
+      height = numbers[1] || width;
+    }
+  }
+
+  if (!(width > 0) || !(height > 0)) {
+    return "";
+  }
+
+  return `width: ${width}px\nheight: ${height}px`;
+}
+
 function formatInternalActionPayload(payload) {
   if (typeof payload === "string") {
     return prettifyTraceDetails(
@@ -666,6 +714,12 @@ function log_internal_action(
         data
       )
       : "";
+  const jinSizeHover =
+    actionName === "JIN_SIZE"
+      ? getInternalActionJinSizeHover(
+        data
+      )
+      : "";
   const text =
     updateL4Message
     || String(
@@ -736,9 +790,9 @@ function log_internal_action(
     );
   }
 
-  if (updateL4Message) {
+  if (updateL4Message || jinSizeHover) {
     logDiv.title =
-      updateL4Message;
+      updateL4Message || jinSizeHover;
     logDiv.classList.add(
       "cursor-help"
     );
@@ -812,6 +866,78 @@ function log_internal_action(
 
   consoleStream.scrollTop =
     consoleStream.scrollHeight;
+}
+
+function normalizeLatestModelOutputLogOrder(
+  modelLog
+) {
+  if (!modelLog || !consoleStream) {
+    return;
+  }
+
+  const entries = Array.from(
+    consoleStream.children
+  );
+  const modelIndex =
+    entries.indexOf(modelLog);
+
+  if (modelIndex < 0) {
+    return;
+  }
+
+  let userLog = null;
+
+  for (let index = modelIndex - 1; index >= 0; index -= 1) {
+    const candidate = entries[index];
+
+    if (candidate.dataset.logKind === "user") {
+      userLog = candidate;
+      break;
+    }
+  }
+
+  if (!userLog) {
+    return;
+  }
+
+  const turnEntries = entries.slice(
+    entries.indexOf(userLog) + 1
+  ).filter((entry) => entry !== modelLog);
+  const strippedMarkerLogs = turnEntries.filter(
+    (entry) => (
+      entry.dataset.logKind === "validator"
+      && /runtime action marker stripped/i.test(
+        entry.textContent || ""
+      )
+    )
+  );
+  const jinVisualActionLogs = turnEntries.filter(
+    (entry) => {
+      if (entry.dataset.logKind === "action") {
+        return /(?:^|:)JIN_(?:SIZE|COLOR)(?::|$)/i.test(
+          entry.dataset.actionLogKey || ""
+        );
+      }
+
+      return /\[RUNTIME ACTION\]\s+jin_(?:size|color)\b/i.test(
+        entry.textContent || ""
+      );
+    }
+  );
+
+  userLog.after(modelLog);
+
+  let anchor = modelLog;
+
+  strippedMarkerLogs.forEach((entry) => {
+    anchor.after(entry);
+    anchor = entry;
+  });
+
+  jinVisualActionLogs.forEach((entry) => {
+    anchor.after(entry);
+    anchor = entry;
+  });
 }
 
 function getFactsMemoryStorage() {
@@ -3343,6 +3469,12 @@ function appendLog(
     );
   } else {
     consoleStream.appendChild(
+      logDiv
+    );
+  }
+
+  if (isModelOutput) {
+    normalizeLatestModelOutputLogOrder(
       logDiv
     );
   }

@@ -348,7 +348,7 @@ class SimpleBehaviorProbe(unittest.IsolatedAsyncioTestCase):
 
             state = await run_standard_turn(self.context, step["user_text"])
             answer = (
-                state.final_answer
+                state.brain_response
                 or state.brain_response
                 or self.context.runtime_turn_assistant_response
                 or ""

@@ -177,8 +177,6 @@ class WebSocketLogger:
             **extra,
         )
 
-    async def log_translation(self, message: str):
-        await self.log("[TRANSLATION]", message)
 
     async def log_runtime(self, message: str):
         await self.log("[RUNTIME]", message)

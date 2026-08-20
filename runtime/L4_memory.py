@@ -1526,6 +1526,94 @@ async def log_l4_skip_event(
     return result
 
 
+def build_l4_merge_budget_skip_details(
+    *,
+    service_client,
+    system_prompt: str,
+    batch_plan: dict,
+    pending_queue: list[dict],
+    provider_context_window_recovered: bool = False,
+) -> dict:
+    context_window = _positive_int(
+        batch_plan.get("runtime_context_window_tokens")
+    )
+    estimated_total = _positive_int(
+        batch_plan.get("estimated_total_tokens")
+    )
+    first_pending = (
+        dict(pending_queue[0])
+        if pending_queue
+        and isinstance(pending_queue[0], dict)
+        else {}
+    )
+    first_pending_id = str(
+        first_pending.get("id") or ""
+    ).strip()
+    user_prompt = str(
+        batch_plan.get("user_prompt") or ""
+    )
+    request_payload = build_runtime_summarizer_payload(
+        service_client=service_client,
+        system_prompt=system_prompt,
+        user_prompt=user_prompt,
+        temperature=getattr(
+            config,
+            "SERVICE_TEMPERATURE",
+            0.1,
+        ),
+        max_tokens=batch_plan.get(
+            "requested_max_output_tokens"
+        ),
+    )
+
+    return {
+        "kind": "l4_skip",
+        "summary": (
+            "The next FIFO L4 merge candidate could not fit inside the "
+            "service context budget even after batching was reduced to one "
+            "pending fact. No L4 data was changed."
+        ),
+        "retry_behavior": (
+            "The pending candidate remains queued. A later idle merge can "
+            "retry after the context budget changes."
+        ),
+        "pending_count": len(pending_queue),
+        "first_pending_id": first_pending_id,
+        "runtime_context_window_tokens": context_window,
+        "estimated_prompt_tokens": batch_plan[
+            "estimated_prompt_tokens"
+        ],
+        "estimated_response_tokens": batch_plan[
+            "estimated_response_tokens"
+        ],
+        "runtime_output_reserve_tokens": batch_plan[
+            "runtime_output_reserve_tokens"
+        ],
+        "response_headroom_tokens": batch_plan[
+            "response_headroom_tokens"
+        ],
+        "default_response_headroom_tokens": batch_plan.get(
+            "default_response_headroom_tokens",
+            batch_plan["response_headroom_tokens"],
+        ),
+        "response_headroom_squeezed": bool(
+            batch_plan.get("response_headroom_squeezed")
+        ),
+        "estimated_total_tokens": estimated_total,
+        "overflow_tokens": max(
+            0,
+            estimated_total - context_window,
+        ),
+        "provider_context_window_recovered": bool(
+            provider_context_window_recovered
+        ),
+        # Keep the candidate separately for a readable first view, then expose
+        # the exact would-be service request below it in the logger modal.
+        "merge_candidate": first_pending,
+        "request_payload": request_payload,
+    }
+
+
 async def run_l4_extraction_phase(
     *,
     context,
@@ -2011,38 +2099,17 @@ async def run_l4_merge_phase(*, context, service_client) -> dict:
     )
     pending_facts = batch_plan["pending_facts"]
     if not pending_facts:
-        first_pending_id = ""
-        if pending_queue:
-            first_pending_id = str(
-                pending_queue[0].get("id") or ""
-            ).strip()
         return await log_l4_skip_event(
             context,
             phase="merge",
             message_phase="merge",
             reason="runtime_context_budget_exhausted",
-            details={
-                "pending_count": len(pending_queue),
-                "first_pending_id": first_pending_id,
-                "runtime_context_window_tokens": batch_plan[
-                    "runtime_context_window_tokens"
-                ],
-                "estimated_prompt_tokens": batch_plan[
-                    "estimated_prompt_tokens"
-                ],
-                "estimated_response_tokens": batch_plan[
-                    "estimated_response_tokens"
-                ],
-                "runtime_output_reserve_tokens": batch_plan[
-                    "runtime_output_reserve_tokens"
-                ],
-                "response_headroom_tokens": batch_plan[
-                    "response_headroom_tokens"
-                ],
-                "estimated_total_tokens": batch_plan[
-                    "estimated_total_tokens"
-                ],
-            },
+            details=build_l4_merge_budget_skip_details(
+                service_client=service_client,
+                system_prompt=system_prompt,
+                batch_plan=batch_plan,
+                pending_queue=pending_queue,
+            ),
         )
 
     if force_single_batch:
@@ -2098,39 +2165,18 @@ async def run_l4_merge_phase(*, context, service_client) -> dict:
         )
         pending_facts = batch_plan["pending_facts"]
         if not pending_facts:
-            first_pending_id = ""
-            if pending_queue:
-                first_pending_id = str(
-                    pending_queue[0].get("id") or ""
-                ).strip()
             return await log_l4_skip_event(
                 context,
                 phase="merge",
                 message_phase="merge",
                 reason="runtime_context_budget_exhausted",
-                details={
-                    "pending_count": len(pending_queue),
-                    "first_pending_id": first_pending_id,
-                    "runtime_context_window_tokens": batch_plan[
-                        "runtime_context_window_tokens"
-                    ],
-                    "estimated_prompt_tokens": batch_plan[
-                        "estimated_prompt_tokens"
-                    ],
-                    "estimated_response_tokens": batch_plan[
-                        "estimated_response_tokens"
-                    ],
-                    "runtime_output_reserve_tokens": batch_plan[
-                        "runtime_output_reserve_tokens"
-                    ],
-                    "response_headroom_tokens": batch_plan[
-                        "response_headroom_tokens"
-                    ],
-                    "estimated_total_tokens": batch_plan[
-                        "estimated_total_tokens"
-                    ],
-                    "provider_context_window_recovered": True,
-                },
+                details=build_l4_merge_budget_skip_details(
+                    service_client=service_client,
+                    system_prompt=system_prompt,
+                    batch_plan=batch_plan,
+                    pending_queue=pending_queue,
+                    provider_context_window_recovered=True,
+                ),
             )
 
         user_prompt = batch_plan["user_prompt"]

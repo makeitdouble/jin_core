@@ -1,5 +1,83 @@
 /* Динамический SVG-аватар и его состояния внутри runtime-панели. */
 
+/* Typed custom properties let each existing metabolic gradient drift
+   independently without replacing the original radial-gradient design. */
+@property --jin-metabolism-dopamine-x {
+    syntax: "<percentage>";
+    inherits: true;
+    initial-value: 22%;
+}
+@property --jin-metabolism-dopamine-y {
+    syntax: "<percentage>";
+    inherits: true;
+    initial-value: 24%;
+}
+@property --jin-metabolism-dopamine-radius {
+    syntax: "<percentage>";
+    inherits: true;
+    initial-value: 42%;
+}
+@property --jin-metabolism-serotonin-x {
+    syntax: "<percentage>";
+    inherits: true;
+    initial-value: 78%;
+}
+@property --jin-metabolism-serotonin-y {
+    syntax: "<percentage>";
+    inherits: true;
+    initial-value: 20%;
+}
+@property --jin-metabolism-serotonin-radius {
+    syntax: "<percentage>";
+    inherits: true;
+    initial-value: 43%;
+}
+@property --jin-metabolism-oxytocin-x {
+    syntax: "<percentage>";
+    inherits: true;
+    initial-value: 87%;
+}
+@property --jin-metabolism-oxytocin-y {
+    syntax: "<percentage>";
+    inherits: true;
+    initial-value: 61%;
+}
+@property --jin-metabolism-oxytocin-radius {
+    syntax: "<percentage>";
+    inherits: true;
+    initial-value: 42%;
+}
+@property --jin-metabolism-norepinephrine-x {
+    syntax: "<percentage>";
+    inherits: true;
+    initial-value: 54%;
+}
+@property --jin-metabolism-norepinephrine-y {
+    syntax: "<percentage>";
+    inherits: true;
+    initial-value: 86%;
+}
+@property --jin-metabolism-norepinephrine-radius {
+    syntax: "<percentage>";
+    inherits: true;
+    initial-value: 43%;
+}
+@property --jin-metabolism-cortisol-x {
+    syntax: "<percentage>";
+    inherits: true;
+    initial-value: 14%;
+}
+@property --jin-metabolism-cortisol-y {
+    syntax: "<percentage>";
+    inherits: true;
+    initial-value: 68%;
+}
+@property --jin-metabolism-cortisol-radius {
+    syntax: "<percentage>";
+    inherits: true;
+    initial-value: 42%;
+}
+
 #memory-drag-handle {
     position: relative;
     isolation: isolate;
@@ -61,6 +139,22 @@
     place-items: center;
     flex: 0 0 auto;
     user-select: none;
+    transition:
+        --jin-metabolism-dopamine-x var(--jin-metabolism-dopamine-drift-duration, 2400s) linear,
+        --jin-metabolism-dopamine-y var(--jin-metabolism-dopamine-drift-duration, 2400s) linear,
+        --jin-metabolism-serotonin-x var(--jin-metabolism-serotonin-drift-duration, 2400s) linear,
+        --jin-metabolism-serotonin-y var(--jin-metabolism-serotonin-drift-duration, 2400s) linear,
+        --jin-metabolism-oxytocin-x var(--jin-metabolism-oxytocin-drift-duration, 2400s) linear,
+        --jin-metabolism-oxytocin-y var(--jin-metabolism-oxytocin-drift-duration, 2400s) linear,
+        --jin-metabolism-norepinephrine-x var(--jin-metabolism-norepinephrine-drift-duration, 2400s) linear,
+        --jin-metabolism-norepinephrine-y var(--jin-metabolism-norepinephrine-drift-duration, 2400s) linear,
+        --jin-metabolism-cortisol-x var(--jin-metabolism-cortisol-drift-duration, 2400s) linear,
+        --jin-metabolism-cortisol-y var(--jin-metabolism-cortisol-drift-duration, 2400s) linear,
+        --jin-metabolism-dopamine-radius 14s cubic-bezier(0.22, 0.61, 0.36, 1) 650ms,
+        --jin-metabolism-serotonin-radius 14s cubic-bezier(0.22, 0.61, 0.36, 1) 650ms,
+        --jin-metabolism-oxytocin-radius 14s cubic-bezier(0.22, 0.61, 0.36, 1) 650ms,
+        --jin-metabolism-norepinephrine-radius 14s cubic-bezier(0.22, 0.61, 0.36, 1) 650ms,
+        --jin-metabolism-cortisol-radius 14s cubic-bezier(0.22, 0.61, 0.36, 1) 650ms;
 }
 
 .jin-runtime-avatar-shell::before {
@@ -99,29 +193,29 @@
     transform-origin: center;
     background:
         radial-gradient(
-            circle at 22% 24%,
+            circle at var(--jin-metabolism-dopamine-x, 22%) var(--jin-metabolism-dopamine-y, 24%),
             color-mix(in srgb, #fbbf24 var(--jin-metabolism-dopamine-aura, 11.20%), transparent) 0%,
-            transparent 42%
+            transparent var(--jin-metabolism-dopamine-radius, 42%)
         ),
         radial-gradient(
-            circle at 78% 20%,
+            circle at var(--jin-metabolism-serotonin-x, 78%) var(--jin-metabolism-serotonin-y, 20%),
             color-mix(in srgb, #60a5fa var(--jin-metabolism-serotonin-aura, 12.80%), transparent) 0%,
-            transparent 43%
+            transparent var(--jin-metabolism-serotonin-radius, 43%)
         ),
         radial-gradient(
-            circle at 87% 61%,
+            circle at var(--jin-metabolism-oxytocin-x, 87%) var(--jin-metabolism-oxytocin-y, 61%),
             color-mix(in srgb, #f472b6 var(--jin-metabolism-oxytocin-aura, 11.60%), transparent) 0%,
-            transparent 42%
+            transparent var(--jin-metabolism-oxytocin-radius, 42%)
         ),
         radial-gradient(
-            circle at 54% 86%,
+            circle at var(--jin-metabolism-norepinephrine-x, 54%) var(--jin-metabolism-norepinephrine-y, 86%),
             color-mix(in srgb, #f97316 var(--jin-metabolism-norepinephrine-aura, 10.80%), transparent) 0%,
-            transparent 43%
+            transparent var(--jin-metabolism-norepinephrine-radius, 43%)
         ),
         radial-gradient(
-            circle at 14% 68%,
+            circle at var(--jin-metabolism-cortisol-x, 14%) var(--jin-metabolism-cortisol-y, 68%),
             color-mix(in srgb, #34d399 var(--jin-metabolism-cortisol-aura, 9.40%), transparent) 0%,
-            transparent 42%
+            transparent var(--jin-metabolism-cortisol-radius, 42%)
         ),
         radial-gradient(
             circle at 50% 50%,
@@ -295,22 +389,9 @@
     will-change: transform, opacity;
 }
 
-.jin-runtime-avatar-shell.is-reasoning-whispering::before {
-    --jin-avatar-aura-opacity-low: 0.30;
-    --jin-avatar-aura-opacity-high: 0.54;
-    --jin-avatar-aura-scale-low: 0.975;
-    --jin-avatar-aura-scale-high: 1.055;
-    animation-duration: 6.8s;
-}
-
-.jin-runtime-avatar-shell.is-reasoning-whispering::after {
-    opacity: 0.64;
-    transform: scale(1.012);
-}
-
-.jin-runtime-avatar-shell.is-reasoning-whispering .jin-avatar-center-soft {
-    animation: jin-avatar-reasoning-core-whisper 4.6s ease-in-out infinite;
-}
+/* Reasoning changes ring motion only. Keep the shell aura, depth field and
+   center light at their normal idle intensity so entering reasoning does not
+   flash or brighten the avatar. */
 
 @keyframes jin-avatar-reasoning-whisper {
     0%, 8%, 100% {
@@ -360,20 +441,6 @@
             )
             scaleX(var(--jin-avatar-whisper-back-y, 0.982))
             scaleY(var(--jin-avatar-whisper-back-x, 0.978));
-    }
-}
-
-@keyframes jin-avatar-reasoning-core-whisper {
-    0%, 100% {
-        fill-opacity: 0.30;
-        transform: scale(0.96);
-        transform-origin: 180px 180px;
-    }
-
-    52% {
-        fill-opacity: 0.42;
-        transform: scale(1.055);
-        transform-origin: 180px 180px;
     }
 }
 

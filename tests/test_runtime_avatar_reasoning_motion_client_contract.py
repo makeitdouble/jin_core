@@ -120,8 +120,20 @@ class RuntimeAvatarReasoningMotionClientContractTests(unittest.TestCase):
         )
         self.assertIn("scaleX(var(--jin-avatar-whisper-front-x", source)
         self.assertIn("scaleY(var(--jin-avatar-whisper-back-y", source)
-        self.assertIn("@keyframes jin-avatar-reasoning-core-whisper", source)
         self.assertIn(".jin-avatar-reasoning-motion,", source)
+        self.assertNotIn(
+            ".jin-runtime-avatar-shell.is-reasoning-whispering::before",
+            source,
+        )
+        self.assertNotIn(
+            ".jin-runtime-avatar-shell.is-reasoning-whispering::after",
+            source,
+        )
+        self.assertNotIn(
+            ".jin-runtime-avatar-shell.is-reasoning-whispering .jin-avatar-center-soft",
+            source,
+        )
+        self.assertNotIn("@keyframes jin-avatar-reasoning-core-whisper", source)
 
 
     def test_reasoning_whisper_starts_only_after_rotation_reaches_full_stop(self):

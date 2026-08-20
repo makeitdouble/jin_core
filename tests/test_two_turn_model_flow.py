@@ -197,7 +197,7 @@ async def run_standard_turn(
     })
 
     assistant_message = (
-        state.final_answer
+        state.brain_response
         or state.brain_response
         or context.runtime_turn_assistant_response
     )
@@ -361,7 +361,7 @@ class TwoTurnModelFlowTests(
             question_1,
         )
         answer_1 = (
-            state_1.final_answer
+            state_1.brain_response
             or state_1.brain_response
         )
 
@@ -376,7 +376,7 @@ class TwoTurnModelFlowTests(
             question_2,
         )
         answer_2 = (
-            state_2.final_answer
+            state_2.brain_response
             or state_2.brain_response
         )
 

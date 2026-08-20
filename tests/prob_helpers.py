@@ -330,7 +330,7 @@ class BehaviorProbeHelpers:
         await context.websocket.send_json({"type": "agent_runtime_end", "scenario": scenario_id})
 
         assistant_message = (
-            state.final_answer
+            state.brain_response
             or state.brain_response
             or context.runtime_turn_assistant_response
             or ""

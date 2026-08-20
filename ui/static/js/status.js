@@ -588,7 +588,6 @@ async function updateRuntime(options = {}) {
         const offlineStatus = {
             brain: false,
             service: false,
-            translator: false,
             use_service_as_brain: false,
             format_response: (
                 window.jinRuntimeConfig

@@ -1115,7 +1115,6 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
         state = AgentState(
             user_input="what skills do you have?",
         )
-        state.translated_input = state.user_input
         brain_runtime = _brain_runtime()
 
         with patch(
@@ -1197,7 +1196,6 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
         state = AgentState(
             user_input="list skills, then append chunk_reader",
         )
-        state.translated_input = state.user_input
 
         with patch(
             "agent.nodes.brain.get_brain_runtime_config",
@@ -1275,7 +1273,6 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
         state = AgentState(
             user_input="что на скриншоте?",
         )
-        state.translated_input = state.user_input
 
         with patch(
             "agent.nodes.brain.get_brain_runtime_config",
@@ -1355,7 +1352,6 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
         state = AgentState(
             user_input="что на скриншоте?",
         )
-        state.translated_input = state.user_input
 
         with patch(
             "agent.nodes.brain.ask_brain_stream",
@@ -1432,7 +1428,7 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
                 _assert_latest_request_payload(
                     self,
                     kwargs,
-                    state.translated_input,
+                    state.user_input,
                     "save_delayed_memory_content",
                 )
                 self.assertIn(
@@ -1461,7 +1457,6 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
         state = AgentState(
             user_input="run five runtime steps",
         )
-        state.translated_input = state.user_input
         brain_runtime = _brain_runtime()
 
         with patch(
@@ -1543,7 +1538,6 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
         state = AgentState(
             user_input="do the task",
         )
-        state.translated_input = state.user_input
         brain_runtime = _brain_runtime()
 
         with patch(
@@ -1630,7 +1624,6 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
         state = AgentState(
             user_input="do the task",
         )
-        state.translated_input = state.user_input
         brain_runtime = _brain_runtime()
 
         with patch(
@@ -1718,7 +1711,6 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
         state = AgentState(
             user_input="tell me about yourself",
         )
-        state.translated_input = state.user_input
         brain_runtime = _brain_runtime()
 
         with patch(
@@ -1800,7 +1792,6 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
         state = AgentState(
             user_input="tell me about yourself",
         )
-        state.translated_input = state.user_input
         brain_runtime = _brain_runtime()
 
         with patch(
@@ -1847,7 +1838,6 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
         state = AgentState(
             user_input="hello",
         )
-        state.translated_input = state.user_input
 
         with patch(
             "agent.nodes.brain.get_brain_runtime_config",
@@ -1997,7 +1987,6 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
         state = AgentState(
             user_input="question",
         )
-        state.translated_input = state.user_input
 
         with patch(
             "agent.nodes.brain.get_brain_runtime_config",
@@ -2038,7 +2027,7 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
             [],
         )
 
-    async def test_asset_operation_result_is_returned_to_model_before_final_answer(self):
+    async def test_asset_operation_result_is_returned_to_model_before_visible_response(self):
 
         calls = []
         emitted_reports = []
@@ -2102,7 +2091,7 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
                 _assert_latest_request_payload(
                     self,
                     kwargs,
-                    state.translated_input,
+                    state.user_input,
                     "create_wildcard_file",
                 )
                 self.assertNotIn(
@@ -2124,7 +2113,6 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
         state = AgentState(
             user_input="Create wildcard file clothing/test_bottoms with 2 lines",
         )
-        state.translated_input = state.user_input
         brain_runtime = _brain_runtime()
 
         with patch(
@@ -2206,7 +2194,7 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
                 _assert_latest_request_payload(
                     self,
                     kwargs,
-                    state.translated_input,
+                    state.user_input,
                     'LOAD_SKILL',
                 )
                 return (
@@ -2220,7 +2208,6 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
         state = AgentState(
             user_input="create a wildcard file",
         )
-        state.translated_input = state.user_input
         brain_runtime = _brain_runtime()
 
         with patch(
@@ -2282,7 +2269,7 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
                 _assert_latest_request_payload(
                     self,
                     kwargs,
-                    state.translated_input,
+                    state.user_input,
                     'LOAD_SKILL',
                 )
                 return (
@@ -2296,7 +2283,6 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
         state = AgentState(
             user_input="load the wildcards skill",
         )
-        state.translated_input = state.user_input
         brain_runtime = _brain_runtime()
 
         with patch(
@@ -2439,7 +2425,6 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
             background_tasks=set(),
         )
         state = AgentState(user_input=context.runtime_turn_user_message)
-        state.translated_input = state.user_input
 
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
@@ -2556,7 +2541,7 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
                 await AgentRuntime().run(state, context)
 
         self.assertEqual(fake_client.calls, 2)
-        self.assertEqual(state.final_answer, "Follow-up continued.")
+        self.assertEqual(state.brain_response, "Follow-up continued.")
         self.assertEqual(context.runtime_action_events[0]["name"], "load_skill")
         self.assertEqual(context.runtime_action_events[0]["runtime_turn_id"], "turn_000001")
         self.assertEqual(context.runtime_current_turn_id, "turn_changed_after_load_skill")
@@ -2603,7 +2588,7 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
                 _assert_latest_request_payload(
                     self,
                     kwargs,
-                    state.translated_input,
+                    state.user_input,
                     "create_wildcard_file",
                 )
                 self.assertNotIn(
@@ -2631,7 +2616,7 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
                 _assert_latest_request_payload(
                     self,
                     kwargs,
-                    state.translated_input,
+                    state.user_input,
                     "generate_prompt_batch",
                 )
                 self.assertNotIn(
@@ -2656,7 +2641,6 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
                 "using tops, bottoms, and shoes."
             ),
         )
-        state.translated_input = state.user_input
         brain_runtime = _brain_runtime()
 
         with patch(
@@ -2765,7 +2749,7 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
                 _assert_latest_request_payload(
                     self,
                     kwargs,
-                    state.translated_input,
+                    state.user_input,
                     "generate_prompt_batch",
                 )
                 self.assertNotIn(
@@ -2790,7 +2774,6 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
                 "and save test_prompts.txt"
             ),
         )
-        state.translated_input = state.user_input
         brain_runtime = _brain_runtime()
 
         with patch(
@@ -2897,7 +2880,7 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
         state = AgentState(
             user_input=origin_request,
         )
-        state.translated_input = origin_request
+        state.user_input = origin_request
         state.metadata["idle_followup"] = {
             "id": "idle_001",
             "seconds": 30,
@@ -3060,7 +3043,6 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
         state = AgentState(
             user_input="clear search results",
         )
-        state.translated_input = state.user_input
 
         with patch(
             "agent.nodes.brain.get_brain_runtime_config",
@@ -3108,7 +3090,6 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
         state = AgentState(
             user_input="clear search results",
         )
-        state.translated_input = state.user_input
 
         with patch(
             "agent.nodes.brain.get_brain_runtime_config",
@@ -3200,7 +3181,6 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
         state = AgentState(
             user_input="clear results and create memory",
         )
-        state.translated_input = state.user_input
 
         with patch(
             "agent.nodes.brain.get_brain_runtime_config",
@@ -3266,7 +3246,6 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
         state = AgentState(
             user_input="emit several different runtime actions",
         )
-        state.translated_input = state.user_input
         brain_runtime = _brain_runtime()
 
         with patch(
@@ -3373,7 +3352,6 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
         state = AgentState(
             user_input="run two actions in one message",
         )
-        state.translated_input = state.user_input
         brain_runtime = _brain_runtime()
 
         with patch(
@@ -3436,7 +3414,6 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
         state = AgentState(
             user_input="inspect available skills",
         )
-        state.translated_input = state.user_input
 
         with patch(
             "agent.nodes.brain.get_brain_runtime_config",
@@ -3513,7 +3490,6 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
         state = AgentState(
             user_input="inspect and read the skill",
         )
-        state.translated_input = state.user_input
 
         with patch(
             "agent.nodes.brain.get_brain_runtime_config",
@@ -3630,7 +3606,6 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
         state = AgentState(
             user_input="run a long task",
         )
-        state.translated_input = state.user_input
         brain_runtime = _brain_runtime()
 
         with patch(

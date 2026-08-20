@@ -5,6 +5,7 @@
 
 from __future__ import annotations
 
+from datetime import datetime
 from xml.sax.saxutils import escape
 
 from .identity import IDENTITY
@@ -493,9 +494,14 @@ def build_delayed_memory_inventory_context(
             continue
 
         report_names.append(
-            _append_delayed_memory_context_age(
-                filename[:-5],
-                report,
+            (
+                _delayed_memory_last_loaded_timestamp(
+                    report,
+                ),
+                _append_delayed_memory_context_age(
+                    filename[:-5],
+                    report,
+                ),
             )
         )
 
@@ -503,14 +509,59 @@ def build_delayed_memory_inventory_context(
         return ""
 
     report_names.sort(
-        key=str.casefold
+        key=lambda item: (
+            -item[0],
+            item[1].casefold(),
+        )
     )
 
     return (
         "<DELAYED_MEMORY>\n"
-        + "\n".join(report_names)
+        + "\n".join(
+            report_name
+            for _, report_name in report_names
+        )
         + "\n</DELAYED_MEMORY>"
     )
+
+
+def _delayed_memory_last_loaded_timestamp(
+    report: dict,
+) -> float:
+
+    if not isinstance(
+        report,
+        dict,
+    ):
+        return 0.0
+
+    value = str(
+        report.get(
+            "last_loaded_date",
+            "",
+        )
+        or ""
+    ).strip()
+
+    if not value:
+        return 0.0
+
+    normalized = (
+        value[:-1] + "+00:00"
+        if value.endswith("Z")
+        else value
+    )
+
+    try:
+        return datetime.fromisoformat(
+            normalized
+        ).timestamp()
+    except (
+        TypeError,
+        ValueError,
+        OverflowError,
+    ):
+        return 0.0
 
 
 def _format_delayed_memory_context_age_suffix(

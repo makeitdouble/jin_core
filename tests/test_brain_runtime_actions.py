@@ -3675,6 +3675,45 @@ class BrainRuntimeActionTests(unittest.TestCase):
             prompt,
         )
 
+    def test_delayed_memory_inventory_is_sorted_by_last_loaded_date_newest_first(self):
+
+        context = SimpleNamespace(
+            delayed_memory_reports={
+                "aaa111": {
+                    "title": "Alphabetically first but old",
+                    "last_loaded_date": "2026-08-10T10:00:00",
+                },
+                "zzz999": {
+                    "title": "Alphabetically last but newest",
+                    "last_loaded_date": "2026-08-20T14:00:00+03:00",
+                },
+                "mmm555": {
+                    "title": "Never loaded",
+                    "last_loaded_date": "",
+                },
+            },
+        )
+
+        prompt = build_brain_context(
+            context=context,
+            runtime_actions={
+                "CAN_SAVE_DELAYED_MEMORY": True,
+            },
+        )
+
+        newest = "zzz999_Alphabetically_last_but_newest"
+        old = "aaa111_Alphabetically_first_but_old"
+        never_loaded = "mmm555_Never_loaded"
+
+        self.assertLess(
+            prompt.index(newest),
+            prompt.index(old),
+        )
+        self.assertLess(
+            prompt.index(old),
+            prompt.index(never_loaded),
+        )
+
     def test_prompt_lists_delayed_memory_inventory_with_age_suffix(self):
         now = datetime(
             2026,

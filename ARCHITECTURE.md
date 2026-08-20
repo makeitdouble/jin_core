@@ -27,7 +27,7 @@ The surrounding modules have narrow ownership:
 | Area | Main responsibility |
 |---|---|
 | `websocket/` | connection lifecycle, bootstrap, queueing, user-turn orchestration |
-| `agent/` | planner, Brain execution, validation, optional translation |
+| `agent/` | direct Brain execution and turn state |
 | `runtime/` | live state, streams, memory engines, telemetry, recovery |
 | `contracts/` | runtime-action definitions and Brain-facing action rules |
 | `utils/actions/` | action payload handling and state mutations |
@@ -70,13 +70,13 @@ Interrupted turns use the interrupted-memory path in `runtime/L1_memory.py`, so 
 
 ## 4. Agent and Model Boundary
 
-`AgentRuntime` executes a small node plan through `agent/router.py`. Brain is the visible reasoning and response role. Service handles background memory work and supporting inference. Translator is an optional internal stage around Brain execution.
+`AgentRuntime` passes each user turn directly to `BrainNode`. Brain is the visible reasoning and response role. Service handles background memory work and supporting inference.
 
 Roles are resolved separately from physical model endpoints. `USE_SERVICE_AS_BRAIN` can assign the Service endpoint to the Brain role while the rest of the runtime continues to address it as Brain.
 
-Model access goes through the OpenAI-compatible clients in `clients/` and `runtime/client.py`. Provider metadata can supply the loaded context window for live budgeting and telemetry.
+Model access goes through the OpenAI-compatible clients in `clients/` and `runtime/client.py`. Provider metadata can supply the loaded context window for live budgeting and telemetry. Stream-level output protection remains inside `RuntimeStream`, where it can interrupt repetition or malformed generation during generation rather than after the Brain has finished.
 
-Core files: `agent/runtime.py`, `agent/nodes/brain.py`, `agent/nodes/translation.py`, `clients/registry.py`, `utils/brain_client_utils.py`.
+Core files: `agent/runtime.py`, `agent/nodes/brain.py`, `clients/registry.py`, `utils/brain_client_utils.py`.
 
 ---
 

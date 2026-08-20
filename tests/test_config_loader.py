@@ -42,10 +42,6 @@ class ConfigLoaderTests(unittest.TestCase):
             "/v1/chat/completions",
         )
 
-        self.assertEqual(
-            config.TRANSLATOR_MODEL_UID,
-            "translator-model",
-        )
 
         self.assertEqual(
             config.BRAIN_MAX_FOLLOWUPS,

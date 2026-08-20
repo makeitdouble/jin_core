@@ -98,26 +98,20 @@ The WebSocket layer creates a `RuntimeContext` for each connection. Every user m
 A normal turn follows this path:
 
 1. The user sends a message with optional persistent attachments.
-2. The planner prepares the request and selects the runtime path.
+2. `AgentRuntime` passes the request directly to the Brain.
 3. The Brain streams reasoning and visible answer content through separate runtime channels.
 4. Stream validation guards repetition and malformed generation while private runtime-action markers are extracted.
 5. Runtime Actions can mutate state or return trusted results; actions that need another model step continue inside the same user sequence.
 6. After the visible turn completes, the Service model schedules the L1/L2 memory update.
 7. A later user turn waits for any pending memory update, then receives current L1/L2/L3/L4 state, relevant Delayed/Active Memory, files, skills, and action results.
 
-The default model path is:
+The model path is intentionally direct:
 
 ```text
-planner -> brain -> validator
+user -> brain
 ```
 
-When translation is enabled, Cyrillic input can be routed through:
-
-```text
-planner -> translator -> brain -> validator
-```
-
-Translator output remains internal and is logged for observability. The Brain streams the visible response from the configured brain runtime.
+There is no pre-Brain routing layer. Planning decisions, runtime actions, and follow-up decisions stay inside the Brain/runtime loop.
 
 ### Model Roles
 
@@ -126,8 +120,7 @@ JIN talks to models through an OpenAI-compatible API.
 The runtime separates model work into roles:
 
 * **Brain:** visible reasoning, responses, and runtime decisions;
-* **Service:** background memory updates and supporting work;
-* **Translator:** optional internal translation before the brain step.
+* **Service:** background memory updates and supporting work.
 
 JIN is model-agnostic at the API boundary. Brain and Service roles can use different models: the Brain benefits most from stronger reasoning, while the Service role can use a smaller/faster model for background work. `USE_SERVICE_AS_BRAIN = True` lets one configured model handle both roles while preserving their logical separation.
 
@@ -169,7 +162,7 @@ JIN can inspect available skills, attach the one required for the current task, 
 |-- app.py                     # FastAPI app, routes, and lifespan
 |-- websocket/                 # WebSocket routing, messages, and UI logging
 |-- contracts/                 # Action markers, rules, guards, and follow-ups
-|-- agent/                     # Agent runtime, state, router, and nodes
+|-- agent/                     # Direct Brain runtime, state, and Brain node
 |-- clients/                   # OpenAI-compatible client builders
 |-- runtime/                   # Context, memory, streams, telemetry, registry
 |-- memory/                    # Delayed/L4 runtime stores and placeholders
@@ -272,7 +265,6 @@ Copy `config.example.py` to `config.py`, then set the provider URLs and model ID
 | `USE_SERVICE_AS_BRAIN` | Use the service model for visible brain responses. |
 | `BRAIN_API_BASE`, `BRAIN_MODEL_UID` | Configure the Brain provider and model. |
 | `SERVICE_API_BASE`, `SERVICE_MODEL_UID` | Configure the Service provider and model. |
-| `TRANSLATION_ENABLED` | Enable the optional Translator path before Brain execution. |
 | `FOLLOW_UP_ON_LIMIT` | Continue a Brain generation in an internal tick when the provider stops at its output/context limit. |
 | `BRAIN_CONTEXT_WINDOW`, `SERVICE_CONTEXT_WINDOW` | Set UI/reference context denominators; live request budgets can come from the context window reported by the loaded model. |
 | `BRAIN_IMAGE_INPUT_ENABLED`, `SERVICE_IMAGE_INPUT_ENABLED` | Send image attachments to compatible model roles. |
@@ -296,12 +288,6 @@ You can also run the same suite directly with Python:
 
 ```bash
 python -m unittest discover -s tests
-```
-
-Run the translator smoke test against the configured local model:
-
-```bash
-npm run translation_tests
 ```
 
 Run optional behavior probes:

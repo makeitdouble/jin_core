@@ -1,8 +1,6 @@
 # Copy this file to config.py and adjust values for your local nodes.
 
 USE_SERVICE_AS_BRAIN = True
-TRANSLATION_ENABLED = False
-TRANSLATE_RESPONSE = False
 FORMAT_RESPONSE = True
 DEBUG_RULE_CITATIONS = True
 LOG_CHAT = True
@@ -160,22 +158,3 @@ DEEP_WEB_SEARCH_MAX_WORKER_CALLS = 24
 DEEP_WEB_SEARCH_MAX_DEPTH = 4
 DEEP_WEB_SEARCH_MAX_TOKENS = 700
 
-# ---------------------------------------------------------
-# TRANSLATOR MODEL
-# ---------------------------------------------------------
-
-TRANSLATOR_API_BASE = "http://translator-host:1234"
-
-TRANSLATOR_MODEL_UID = "translator-model"
-
-TRANSLATOR_REQUEST_TIMEOUT = 120
-
-TRANSLATOR_CONTEXT_WINDOW = 2048
-
-TRANSLATION_RETRIES = 1
-
-TRANSLATION_TEMPERATURE = 0.1
-
-TRANSLATION_MIN_TOKENS = 1024
-
-TRANSLATION_MAX_TOKENS = 2048

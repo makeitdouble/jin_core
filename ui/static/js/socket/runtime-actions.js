@@ -1,3 +1,7 @@
+// Temporary UI-only switch. Runtime parsing, execution, avatar updates and
+// logger entries stay active; flip this to true to restore the two chat bubbles.
+const ENABLE_JIN_VISUAL_ACTION_BUBBLES = false;
+
 function getRuntimeActionMessageId(data) {
 
   return String(
@@ -1263,6 +1267,8 @@ function handleRuntimeAction(
       && Boolean(color);
 
     if (
+      ENABLE_JIN_VISUAL_ACTION_BUBBLES
+      &&
       displayText.trim()
       && window.appendRuntimeAction
     ) {
@@ -1331,6 +1337,8 @@ function handleRuntimeAction(
     }
 
     if (
+      ENABLE_JIN_VISUAL_ACTION_BUBBLES
+      &&
       (
         colorApplied
         || counterFinal
@@ -1397,6 +1405,8 @@ function handleRuntimeAction(
       );
 
     if (
+      ENABLE_JIN_VISUAL_ACTION_BUBBLES
+      &&
       displayText.trim()
       && window.appendRuntimeAction
     ) {
@@ -1462,6 +1472,8 @@ function handleRuntimeAction(
     }
 
     if (
+      ENABLE_JIN_VISUAL_ACTION_BUBBLES
+      &&
       (
         sizeApplied
         || counterFinal

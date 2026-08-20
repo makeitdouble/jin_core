@@ -684,6 +684,46 @@ class L4MemoryTests(unittest.IsolatedAsyncioTestCase):
         self.assertGreater(plan_8k["batch_count"], plan_4k["batch_count"])
         self.assertEqual(plan_4k["requested_max_output_tokens"], 32768)
 
+    def test_merge_batch_plan_squeezes_only_headroom_to_avoid_fifo_deadlock(self):
+        existing_facts = normalize_l4_store({
+            "facts": [
+                {
+                    "id": f"F{index + 1}",
+                    "key": f"project.fact_{index}",
+                    "value": "Durable project fact " + ("detail " * 20),
+                    "category": "project_fact",
+                }
+                for index in range(200)
+            ],
+        })["facts"]
+        store, _ = add_l4_pending_candidates(
+            normalize_l4_store({"facts": existing_facts}),
+            [{
+                "key": "project.pending",
+                "value": "Pending durable fact " + ("detail " * 20),
+                "category": "project_fact",
+            }],
+            now="2026-08-20T12:00:00Z",
+        )
+
+        plan = build_l4_merge_batch_plan(
+            existing_facts=store["facts"],
+            pending_facts=store["pending_facts"],
+            system_prompt=build_l4_merge_system_prompt(),
+            runtime_context_window=16384,
+            requested_max_tokens=None,
+            runtime_output_reserve=256,
+        )
+
+        self.assertTrue(plan["fits"])
+        self.assertEqual(plan["batch_count"], 1)
+        self.assertTrue(plan["response_headroom_squeezed"])
+        self.assertLess(
+            plan["response_headroom_tokens"],
+            plan["default_response_headroom_tokens"],
+        )
+        self.assertLessEqual(plan["estimated_total_tokens"], 16384)
+
     def test_merge_can_apply_one_batch_and_leave_rest_of_pending_queue(self):
         store, _ = add_l4_pending_candidates(
             normalize_l4_store({}),

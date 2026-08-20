@@ -21,11 +21,6 @@ class RuntimeState:
                 settings.SERVICE_CONTEXT_WINDOW,
             ),
             (
-                settings.TRANSLATOR_MODEL_UID,
-                "translator",
-                settings.TRANSLATOR_CONTEXT_WINDOW,
-            ),
-            (
                 RUNTIME_MEMORY_SUMMARIZER_RUNTIME_ID,
                 RUNTIME_MEMORY_SUMMARIZER_LABEL,
                 settings.SERVICE_CONTEXT_WINDOW,

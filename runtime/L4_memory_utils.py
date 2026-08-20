@@ -315,13 +315,15 @@ def build_l4_merge_batch_plan(
     # proportional reasoning cushion instead of filling the context almost to
     # the edge with prompt + estimated JSON. The adaptive retry cap below can
     # still shrink the FIFO batch further if the live model needs more room.
-    response_headroom = max(
+    default_response_headroom = max(
         128,
         min(
             3072,
             context_window // 5,
         ),
     )
+    response_headroom = default_response_headroom
+    response_headroom_squeezed = False
 
     try:
         batch_limit = max(0, int(max_batch_count or 0))
@@ -372,12 +374,6 @@ def build_l4_merge_batch_plan(
         selected_response_tokens = response_tokens
         estimated_total_tokens = total_tokens
 
-    pending_ids = [
-        normalize_l4_text(fact.get("id"))
-        for fact in selected
-        if normalize_l4_text(fact.get("id"))
-    ]
-
     if selected:
         configured_output_room = max(
             1,
@@ -412,11 +408,54 @@ def build_l4_merge_batch_plan(
                 + response_headroom
             )
 
-        selected_prompt = first_prompt
-        selected_prompt_tokens = first_prompt_tokens
-        selected_response_tokens = first_response_tokens
-        estimated_total_tokens = first_total_tokens
-        configured_output_room = 0
+        # Do not let the conservative hidden-reasoning cushion deadlock the
+        # FIFO forever. If the first pending fact itself fits, squeeze only the
+        # *safety headroom* for this one-item fallback. The provider reserve and
+        # estimated final JSON response remain fully protected.
+        available_headroom = (
+            context_window
+            - first_prompt_tokens
+            - first_response_tokens
+            - provider_reserve
+        )
+
+        if queue and available_headroom >= 128:
+            selected = [queue[0]]
+            selected_prompt = first_prompt
+            selected_prompt_tokens = first_prompt_tokens
+            selected_response_tokens = first_response_tokens
+            response_headroom = min(
+                default_response_headroom,
+                available_headroom,
+            )
+            response_headroom_squeezed = (
+                response_headroom
+                < default_response_headroom
+            )
+            estimated_total_tokens = (
+                first_prompt_tokens
+                + first_response_tokens
+                + provider_reserve
+                + response_headroom
+            )
+            configured_output_room = max(
+                1,
+                context_window
+                - first_prompt_tokens
+                - provider_reserve,
+            )
+        else:
+            selected_prompt = first_prompt
+            selected_prompt_tokens = first_prompt_tokens
+            selected_response_tokens = first_response_tokens
+            estimated_total_tokens = first_total_tokens
+            configured_output_room = 0
+
+    pending_ids = [
+        normalize_l4_text(fact.get("id"))
+        for fact in selected
+        if normalize_l4_text(fact.get("id"))
+    ]
 
     return {
         "pending_facts": selected,
@@ -432,6 +471,8 @@ def build_l4_merge_batch_plan(
         "estimated_response_tokens": selected_response_tokens,
         "runtime_output_reserve_tokens": provider_reserve,
         "response_headroom_tokens": response_headroom,
+        "default_response_headroom_tokens": default_response_headroom,
+        "response_headroom_squeezed": response_headroom_squeezed,
         "estimated_total_tokens": estimated_total_tokens,
         "configured_output_room_tokens": configured_output_room,
         "requested_max_output_tokens": max_requested_output,
