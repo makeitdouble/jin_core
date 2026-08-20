@@ -703,6 +703,7 @@ def build_long_term_memory_context(
     return build_runtime_l4_memory_context(
         context=context,
         fact_ids=restore_fact_ids,
+        user_input=user_input,
     )
 
 

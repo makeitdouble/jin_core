@@ -2276,7 +2276,7 @@ class RuntimeStreamTokenTests(unittest.IsolatedAsyncioTestCase):
 
             yield {
                 "type": "content",
-                "content": "<JIN_COLOR: #ff0000>",
+                "content": "<JIN_COLOR> #ff0000 </JIN_COLOR>",
             }
 
             state["generation_continued"] = True
@@ -2365,7 +2365,7 @@ class RuntimeStreamTokenTests(unittest.IsolatedAsyncioTestCase):
 
             yield {
                 "type": "content",
-                "content": "<JIN_COLOR: #ff0000>",
+                "content": "<JIN_COLOR> #ff0000 </JIN_COLOR>",
             }
 
         context = SimpleNamespace(
@@ -2434,12 +2434,12 @@ class RuntimeStreamTokenTests(unittest.IsolatedAsyncioTestCase):
 
             yield {
                 "type": "content",
-                "content": "<JIN_COLOR: #0000ff>",
+                "content": "<JIN_COLOR> #0000ff </JIN_COLOR>",
             }
 
             yield {
                 "type": "content",
-                "content": "<JIN_COLOR: #ff0000>",
+                "content": "<JIN_COLOR> #ff0000 </JIN_COLOR>",
             }
 
         context = SimpleNamespace(
@@ -2537,7 +2537,7 @@ class RuntimeStreamTokenTests(unittest.IsolatedAsyncioTestCase):
             yield {
                 "type": "content",
                 "content": "".join(
-                    f"<JIN_COLOR: {color}>"
+                    f"<JIN_COLOR> {color} </JIN_COLOR>"
                     for _ in range(5)
                     for color in (
                         "#0000ff",
@@ -2652,12 +2652,12 @@ class RuntimeStreamTokenTests(unittest.IsolatedAsyncioTestCase):
 
             yield {
                 "type": "content",
-                "content": "<JIN_COLOR: #ff0000>",
+                "content": "<JIN_COLOR> #ff0000 </JIN_COLOR>",
             }
 
             yield {
                 "type": "content",
-                "content": "<JIN_COLOR: #ff0000>",
+                "content": "<JIN_COLOR> #ff0000 </JIN_COLOR>",
             }
 
             state["generation_continued"] = True

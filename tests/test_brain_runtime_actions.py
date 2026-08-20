@@ -1053,7 +1053,7 @@ class BrainRuntimeActionTests(unittest.TestCase):
             async def stream(self, **_kwargs):
                 yield {
                     "type": "content",
-                    "content": "<JIN_COLOR: #00f2ff>",
+                    "content": "<JIN_COLOR> #00f2ff </JIN_COLOR>",
                 }
 
         async def collect(context):
@@ -1249,7 +1249,7 @@ class BrainRuntimeActionTests(unittest.TestCase):
                     "\n",
                     "Про",
                     "должаю видимый текст.\n",
-                    "<JIN_COLOR: #ff00ff>",
+                    "<JIN_COLOR> #ff00ff </JIN_COLOR>",
                     "\nФинал генерации.",
                 ):
                     yield {
@@ -1453,7 +1453,7 @@ class BrainRuntimeActionTests(unittest.TestCase):
                     "type": "content",
                     "content": (
                         "<SAVE_SESSION>\n"
-                        "<JIN_COLOR: #112233>"
+                        "<JIN_COLOR> #112233 </JIN_COLOR>"
                     ),
                 }
 
@@ -2149,7 +2149,7 @@ class BrainRuntimeActionTests(unittest.TestCase):
                     state["emitted_markers"] = index + 1
                     yield {
                         "type": "content",
-                        "content": "<JIN_COLOR: #ff0000>",
+                        "content": "<JIN_COLOR> #ff0000 </JIN_COLOR>",
                     }
 
         class TrackingEmitter:
@@ -2213,10 +2213,10 @@ class BrainRuntimeActionTests(unittest.TestCase):
                 {
                     "type": "raw_model_output",
                     "content": (
-                        "<JIN_COLOR: #ff0000>"
-                        "<JIN_COLOR: #ff0000>"
-                        "<JIN_COLOR: #ff0000>"
-                        "<JIN_COLOR: #ff0000>"
+                        "<JIN_COLOR> #ff0000 </JIN_COLOR>"
+                        "<JIN_COLOR> #ff0000 </JIN_COLOR>"
+                        "<JIN_COLOR> #ff0000 </JIN_COLOR>"
+                        "<JIN_COLOR> #ff0000 </JIN_COLOR>"
                     ),
                 },
             ],
@@ -2274,7 +2274,7 @@ class BrainRuntimeActionTests(unittest.TestCase):
                     state["emitted_markers"] = index + 1
                     yield {
                         "type": "content",
-                        "content": "<JIN_COLOR: #ff0000>",
+                        "content": "<JIN_COLOR> #ff0000 </JIN_COLOR>",
                     }
 
         class TrackingEmitter:

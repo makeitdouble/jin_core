@@ -9,7 +9,7 @@ class FakeBrainClient:
     async def stream(self, **_kwargs):
         yield {
             "type": "content",
-            "content": "Принято. <JIN_COLOR: #ff0000 >",
+            "content": "Принято. <JIN_COLOR> #ff0000 </JIN_COLOR>",
         }
 
 
@@ -80,7 +80,7 @@ def test_brain_stream_jin_color_executes_without_confirmation():
         if chunk.get("type") == "raw_model_output"
     ] == [{
         "type": "raw_model_output",
-        "content": "Принято. <JIN_COLOR: #ff0000 >",
+        "content": "Принято. <JIN_COLOR> #ff0000 </JIN_COLOR>",
     }]
     assert [
         (event.get("type"), event.get("status"))
@@ -113,7 +113,7 @@ def test_brain_stream_matching_trigger_executes_without_confirmation():
         if chunk.get("type") == "raw_model_output"
     ] == [{
         "type": "raw_model_output",
-        "content": "Принято. <JIN_COLOR: #ff0000 >",
+        "content": "Принято. <JIN_COLOR> #ff0000 </JIN_COLOR>",
     }]
     assert [
         (event.get("type"), event.get("status"))

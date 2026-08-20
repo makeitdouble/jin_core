@@ -2245,7 +2245,10 @@
             currentJob.runtimeCitationIndex
           ),
           ...buildActiveMemoryCitationFragments(),
-          ...buildL4CitationFragments(),
+          // L4 deliberately does not enter fuzzy/semantic citation matching.
+          // Its F-id and full key are already covered by the streaming exact
+          // candidate path, which prevents incidental fact-value wording from
+          // flashing the L4 panel/avatar.
         ];
 
         if (!fragments.length) {

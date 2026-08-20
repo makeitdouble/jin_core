@@ -448,14 +448,14 @@ def generate_active_memory_slot_key(
 def _runtime_memory_helpers():
 
     from runtime.L1_memory_utils import (
-        durable_memory_line_text,
+        runtime_memory_line_text,
         normalize_memory_key,
         parse_runtime_memory_lines,
     )
 
     return (
         parse_runtime_memory_lines,
-        durable_memory_line_text,
+        runtime_memory_line_text,
         normalize_memory_key,
     )
 
@@ -464,9 +464,9 @@ def _active_memory_line_text(
     line: dict,
 ) -> str:
 
-    _, durable_memory_line_text, _ = _runtime_memory_helpers()
+    _, runtime_memory_line_text, _ = _runtime_memory_helpers()
 
-    return durable_memory_line_text(
+    return runtime_memory_line_text(
         line
     )
 
@@ -848,7 +848,7 @@ def refresh_active_memory_runtime_metadata(
     add_runtime_user_idle_to_elapsed: bool = False,
 ) -> str:
 
-    parse_runtime_memory_lines, durable_memory_line_text, normalize_memory_key = (
+    parse_runtime_memory_lines, runtime_memory_line_text, normalize_memory_key = (
         _runtime_memory_helpers()
     )
     parsed_lines = parse_runtime_memory_lines(
@@ -945,7 +945,7 @@ def refresh_active_memory_runtime_metadata(
             key
         ):
             updated_lines.append(
-                durable_memory_line_text(
+                runtime_memory_line_text(
                     line
                 )
             )

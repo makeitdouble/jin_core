@@ -174,19 +174,6 @@ if (memoryLayersToggle) {
       event.preventDefault();
       event.stopPropagation();
 
-      const avatar =
-        window.JinRuntime
-        && window.JinRuntime.avatar;
-
-      if (
-        generationRunning
-        && avatar
-        && avatar.isReasoning
-      ) {
-        abortGeneration();
-        return;
-      }
-
       toggleRuntimeAvatarMemoryLayers();
     }
   );

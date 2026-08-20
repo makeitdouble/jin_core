@@ -727,8 +727,15 @@
         buildMemoryReferenceAliasUsage(rows);
 
     rows.forEach((row) => {
+        // L4 is citation-gated. Generic persistent answer/reasoning text may
+        // contain words from a durable fact value and must never make that fact
+        // jump in the panel. L4 focus is exposed only by an explicit structured
+        // reasoning citation (F-id / full fact key) handled below.
+        const persistentReferenceEligible =
+          !row.classList.contains("runtime-memory-l4-row");
         const matched = Boolean(
-          sourceText
+          persistentReferenceEligible
+          && sourceText
           && getMemoryReferenceAliases(row)
             .some(alias => (
               Number(

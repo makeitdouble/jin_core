@@ -19,9 +19,6 @@ STRENGTH_QUOTE_BOOST = 0.06
 # Sets the starting strength for newly observed memory keys.
 STRENGTH_NEW_KEY = 0.5
 
-# Sets the minimum strength retained for durable memory lines.
-DURABLE_FLOOR = 0.25
-
 # Sets the strength threshold for marking runtime memory lines as hot.
 HOT_THRESHOLD = 0.5
 
@@ -78,33 +75,6 @@ GENERIC_MEMORY_MATCH_KEYS = (
     "current requests",
 
     "interaction state",
-)
-
-# Lists key tokens that identify memory entries as durable.
-DURABLE_MEMORY_KEY_TOKENS = (
-    "fact",
-    "identity",
-    "profile",
-    "preference",
-    "stored",
-    "contract",
-    "axiom",
-    "jin",
-)
-
-# Lists value markers that negate or invalidate durable memory entries.
-DURABLE_MEMORY_NEGATION_MARKERS = (
-    "not",
-    "not fact",
-    "not true",
-    "false",
-    "obsolete",
-    "removed",
-    "cancelled",
-    "canceled",
-    "superseded",
-    "no longer",
-    "invalid",
 )
 
 # Stores the runtime state key used for the last response feedback signal.
@@ -220,30 +190,7 @@ KEY_SEMANTICS = (
     "If an existing key already represents the same semantic state, update it in place.\n"
     "Use lowercase words with underscores for new keys.\n"
     "Choose names that help immediate continuity and retrieval.\n"
-    "Example keys (not mandatory): user_fact, user_name, user_state, user_identity, user_work, \n"
-    "jin_fact, jin_purpose, jin_state, jin_identity.\n"
-    "Update usual keys value when needed.\n"
-    "Example usual keys (not mandatory): session_status, active_topic, current_task, current_request, "
-    "user_focus, user_intent, open_question, open_risk, previous_choices, pending_choice, pending_action, previous_action, "
-    "test_result, observed_behavior, interaction_state, dormant_thread, "
-    "next_steps, future_steps, next_strategy, future_strategy.\n"
     "</memory_line_semantics_rules>\n"
-    "\n"
-)
-
-DURABLE_CARRY_FORWARD = (
-    "\n"
-    "<durable_carry_forward_rules>\n"
-    "Some existing memory lines are durable and need to be preserved across whole session.\n"
-    "A durable line may be removed only if the latest user message explicitly cancels exact durable line.\n"
-    "A topic change, low-signal message, casual chat, or short reply never removes durable lines.\n"
-    "If the latest turn does not change a durable line, copy the existing durable line exactly unchanged.\n"
-    "Before final output, scan Current runtime memory and copy forward every line whose key is durable.\n"
-    "Durable keys examples: user_name, user_fact, user_identity, user_state, user_preference, "
-    "jin_fact, jin_identity, jin_role, jin_purpose, shared_axiom, active_memory, stored_memory, contract.\n"
-    "An active_memory remains active and durable until JIN explicitly resolves it.\n"
-    "Topic changes, conversation flow, or unrelated user requests never cancel or modify active_memory by themselves.\n"
-    "</durable_carry_forward_rules>\n"
     "\n"
 )
 
@@ -270,7 +217,7 @@ LIVE_INTERACTION_SIGNALS = (
     "Store the useful inferred pattern, not a transcript or quoted evidence.\n"
     "\n"
     "Treat inferred signals as temporary adaptive context, not permanent user traits.\n"
-    "You must distinct weak signal from durable preference or identity claim and use cautious wording for uncertain inferences.\n"
+    "You must distinct weak signal from stable preference or identity claim and use cautious wording for uncertain inferences.\n"
     "\n"
     "</live_interaction_signal_rules>\n"
     "\n"
@@ -305,7 +252,6 @@ def build_runtime_memory_system_prompt(
         ROLE
         + KEY_SEMANTICS
         + LIVE_INTERACTION_SIGNALS
-#        + DURABLE_CARRY_FORWARD
         + OUTPUT_FORMAT
     )
 

@@ -1,6 +1,7 @@
 import asyncio
 import json
 import logging
+import re
 import time
 
 import httpx
@@ -22,6 +23,13 @@ logger = logging.getLogger(__name__)
 
 MODEL_LIMITS_CACHE_TTL_SECONDS = 2.0
 LEGACY_NATIVE_MODELS_ENDPOINT = "/api/v0/models"
+LM_STUDIO_CONTEXT_WINDOW_PATTERNS = (
+    re.compile(r"\bn_ctx\s*[:=]\s*(\d+)\b", re.IGNORECASE),
+    re.compile(
+        r"\bcontext(?:\s+length|\s+window)?\s*(?:is|[:=])\s*(\d+)\b",
+        re.IGNORECASE,
+    ),
+)
 
 
 class LMStudioAPIError(RuntimeError):
@@ -346,6 +354,7 @@ class RuntimeClient:
         self.client = client
         self.detected_context_window = None
         self.detected_max_tokens = None
+        self.provider_context_window_ceiling = None
         self.model_limits_detection_attempted = False
         self.model_limits_detected_at = 0.0
 
@@ -628,18 +637,104 @@ class RuntimeClient:
             "",
         )
 
-        # LM Studio's native v1 metadata exposes the context_length of the
-        # actually loaded instance. Prefer it over OpenAI-compatible metadata.
+        # LM Studio's native metadata exposes the context_length of the
+        # actually loaded instance. Prefer both native API generations over
+        # OpenAI-compatible metadata: /v1/models may expose the model's
+        # theoretical context length instead of the n_ctx used by the loaded
+        # instance.
         for endpoint in (
             native_endpoint,
-            settings.MODELS_ENDPOINT,
             LEGACY_NATIVE_MODELS_ENDPOINT,
+            settings.MODELS_ENDPOINT,
         ):
             endpoint = str(endpoint or "").strip()
             if endpoint and endpoint not in endpoints:
                 endpoints.append(endpoint)
 
         return endpoints
+
+    @staticmethod
+    def extract_context_window_from_error(
+            error,
+    ) -> int | None:
+
+        text_parts = [
+            str(
+                getattr(
+                    error,
+                    "summary",
+                    "",
+                )
+                or ""
+            ),
+            str(
+                getattr(
+                    error,
+                    "details",
+                    "",
+                )
+                or ""
+            ),
+            str(
+                error
+                or ""
+            ),
+        ]
+        text = "\n".join(
+            part
+            for part in text_parts
+            if part
+        )
+
+        for pattern in LM_STUDIO_CONTEXT_WINDOW_PATTERNS:
+            match = pattern.search(
+                text
+            )
+            if not match:
+                continue
+
+            try:
+                context_window = int(
+                    match.group(1)
+                )
+            except (
+                TypeError,
+                ValueError,
+            ):
+                context_window = 0
+
+            if context_window > 0:
+                return context_window
+
+        return None
+
+    def remember_provider_context_window(
+            self,
+            error,
+    ) -> int | None:
+
+        context_window = self.extract_context_window_from_error(
+            error
+        )
+        if not context_window:
+            return None
+
+        current_ceiling = self.provider_context_window_ceiling
+        if current_ceiling:
+            context_window = min(
+                int(current_ceiling),
+                context_window,
+            )
+
+        self.provider_context_window_ceiling = context_window
+
+        if self.detected_context_window:
+            self.detected_context_window = min(
+                int(self.detected_context_window),
+                context_window,
+            )
+
+        return context_window
 
     def select_loaded_model_metadata(
             self,
@@ -805,10 +900,23 @@ class RuntimeClient:
         # *_CONTEXT_WINDOW is intentionally only the UI/reference denominator.
         # It is used for requests only as an emergency fallback when LM Studio
         # metadata cannot be read at all.
-        return (
+        resolved_context_window = (
             detected_context_window
             or self.configured_context_window
         )
+
+        if self.provider_context_window_ceiling:
+            if resolved_context_window:
+                resolved_context_window = min(
+                    int(resolved_context_window),
+                    int(self.provider_context_window_ceiling),
+                )
+            else:
+                resolved_context_window = int(
+                    self.provider_context_window_ceiling
+                )
+
+        return resolved_context_window
 
     async def resolve_request_max_tokens(
             self,
@@ -1087,7 +1195,7 @@ class RuntimeClient:
             response.raise_for_status()
 
         except httpx.HTTPError as error:
-            raise _build_lm_studio_error(
+            api_error = _build_lm_studio_error(
                 endpoint=endpoint,
                 payload=payload,
                 response=getattr(
@@ -1096,7 +1204,11 @@ class RuntimeClient:
                     None,
                 ),
                 error=error,
-            ) from error
+            )
+            self.remember_provider_context_window(
+                api_error
+            )
+            raise api_error from error
 
         try:
             result = response.json()
@@ -1112,12 +1224,16 @@ class RuntimeClient:
             result
         )
         if provider_error is not None:
-            raise _build_lm_studio_error(
+            api_error = _build_lm_studio_error(
                 endpoint=endpoint,
                 payload=payload,
                 error_payload=provider_error,
                 response=response,
             )
+            self.remember_provider_context_window(
+                api_error
+            )
+            raise api_error
 
         return result
 
@@ -1180,12 +1296,16 @@ class RuntimeClient:
                         except Exception:
                             pass
 
-                    raise _build_lm_studio_error(
+                    api_error = _build_lm_studio_error(
                         endpoint=endpoint,
                         payload=payload,
                         response=response,
                         error=error,
-                    ) from error
+                    )
+                    self.remember_provider_context_window(
+                        api_error
+                    )
+                    raise api_error from error
 
                 stream_id = id(response)
 
@@ -1320,12 +1440,16 @@ class RuntimeClient:
                         )
                     )
                     if provider_error is not None:
-                        raise _build_lm_studio_error(
+                        api_error = _build_lm_studio_error(
                             endpoint=endpoint,
                             payload=payload,
                             error_payload=provider_error,
                             response=response,
                         )
+                        self.remember_provider_context_window(
+                            api_error
+                        )
+                        raise api_error
 
                     # -------------------------------------------------
                     # USAGE
@@ -1431,13 +1555,17 @@ class RuntimeClient:
         # FATAL ERROR
         # ---------------------------------------------------------
 
-        except LMStudioAPIError:
+        except LMStudioAPIError as error:
+
+            self.remember_provider_context_window(
+                error
+            )
 
             raise
 
         except httpx.HTTPError as e:
 
-            raise _build_lm_studio_error(
+            api_error = _build_lm_studio_error(
                 endpoint=endpoint,
                 payload=payload,
                 response=getattr(
@@ -1446,7 +1574,11 @@ class RuntimeClient:
                     None,
                 ),
                 error=e,
-            ) from e
+            )
+            self.remember_provider_context_window(
+                api_error
+            )
+            raise api_error from e
 
         except Exception as e:
 

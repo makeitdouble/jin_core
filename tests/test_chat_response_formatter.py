@@ -157,7 +157,7 @@ const fs = require("fs");
 global.window = {};
 eval(fs.readFileSync(process.argv[1], "utf8"));
 
-const html = window.JinResponseFormatter.render("before <JIN_SIZE: w:220px h:440px > after");
+const html = window.JinResponseFormatter.render("before <JIN_SIZE> w:220px h:440px </JIN_SIZE> after");
 
 if (!html.includes("jin-chat-jin-size-marker")) {
   throw new Error(`size marker class missing: ${html}`);

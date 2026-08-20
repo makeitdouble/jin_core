@@ -6,7 +6,7 @@
     || {};
 
   const markerPattern =
-    /<(?:(JIN_COLOR):\s*(#?(?:[0-9a-f]{6}|[0-9a-f]{3}))|(JIN_SIZE):\s*([^>\r\n]*?))\s*\/?>/gi;
+    /<(JIN_COLOR|JIN_SIZE)\s*>([\s\S]*?)<\/\1\s*>/gi;
 
   function escapeHtml(text) {
 
@@ -61,7 +61,7 @@
 
     if (!normalizedColor) {
       return escapeHtml(
-        `<JIN_COLOR: ${color}>`
+        `<JIN_COLOR> ${color} </JIN_COLOR>`
       );
     }
 
@@ -317,7 +317,7 @@
 
     if (!normalizedSize) {
       return escapeHtml(
-        `<JIN_SIZE: ${size}>`
+        `<JIN_SIZE> ${size} </JIN_SIZE>`
       );
     }
 
@@ -353,12 +353,12 @@
           )
         )
       );
-      rendered += match[1]
+      rendered += String(match[1] || "").toUpperCase() === "JIN_COLOR"
         ? buildChatJinColorMarkerHtml(
           match[2]
         )
         : buildChatJinSizeMarkerHtml(
-          match[4]
+          match[2]
         );
       lastIndex =
         markerPattern.lastIndex;

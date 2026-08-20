@@ -62,10 +62,10 @@ class RuntimeJinColorActionTests(RuntimeActionTestCase):
     def test_jin_color_marker_validates_and_normalizes_hex(self):
 
         for marker, expected_color in (
-            ("<JIN_COLOR: #00f2ff>", "#00f2ff"),
-            ("<JIN_COLOR: 00F2FF>", "#00f2ff"),
-            ("<JIN_COLOR: 0ff>", "#00ffff"),
-            ("<JIN_COLOR: #f0A />", "#ff00aa"),
+            ("<JIN_COLOR> #00f2ff </JIN_COLOR>", "#00f2ff"),
+            ("<JIN_COLOR> 00F2FF </JIN_COLOR>", "#00f2ff"),
+            ("<JIN_COLOR> 0ff </JIN_COLOR>", "#00ffff"),
+            ("<JIN_COLOR> #f0A </JIN_COLOR>", "#ff00aa"),
         ):
             with self.subTest(marker=marker):
                 result = extract_runtime_actions(
@@ -96,10 +96,10 @@ class RuntimeJinColorActionTests(RuntimeActionTestCase):
     def test_jin_color_invalid_payload_does_not_emit_action(self):
 
         for marker in (
-            "<JIN_COLOR: #>",
-            "<JIN_COLOR: #00f2ff00>",
-            "<JIN_COLOR: blue>",
-            "<JIN_COLOR: #00f2fg>",
+            "<JIN_COLOR> # </JIN_COLOR>",
+            "<JIN_COLOR> #00f2ff00 </JIN_COLOR>",
+            "<JIN_COLOR> blue </JIN_COLOR>",
+            "<JIN_COLOR> #00f2fg </JIN_COLOR>",
         ):
             with self.subTest(marker=marker):
                 result = extract_runtime_actions(
@@ -118,40 +118,25 @@ class RuntimeJinColorActionTests(RuntimeActionTestCase):
                     (),
                 )
 
-    def test_jin_color_marker_without_payload_stays_text(self):
+    def test_jin_color_empty_block_does_not_emit_action(self):
 
-        for marker in (
-            "<JIN_COLOR>",
-            "<JIN_COLOR />",
-            "<JIN_COLOR:>",
-            "<JIN_COLOR: />",
-        ):
-            with self.subTest(marker=marker):
-                result = extract_runtime_actions(
-                    f"before {marker} after",
-                    enabled_actions=(
-                        RUNTIME_ACTION_JIN_COLOR,
-                    ),
-                )
+        result = extract_runtime_actions(
+            "before <JIN_COLOR></JIN_COLOR> after",
+            enabled_actions=(
+                RUNTIME_ACTION_JIN_COLOR,
+            ),
+        )
 
-                self.assertEqual(
-                    result.text,
-                    f"before {marker} after",
-                )
-                self.assertEqual(
-                    result.actions,
-                    (),
-                )
-                self.assertEqual(
-                    result.observed_actions,
-                    (),
-                )
-                self.assertEqual(
-                    result.removed_markers,
-                    (),
-                )
+        self.assertEqual(
+            result.text,
+            "before after",
+        )
+        self.assertEqual(
+            result.actions,
+            (),
+        )
 
-    def test_jin_color_stream_filter_keeps_marker_without_payload(self):
+    def test_jin_color_stream_filter_holds_until_close_tag(self):
 
         stream_filter = RuntimeActionStreamFilter(
             enabled_actions=(
@@ -159,29 +144,39 @@ class RuntimeJinColorActionTests(RuntimeActionTestCase):
             ),
         )
 
-        result = stream_filter.filter(
-            "before <JIN_COLOR> after"
+        first = stream_filter.filter(
+            "before <JIN_COLOR> #00"
+        )
+        second = stream_filter.filter(
+            "f2ff </JIN_COLOR> after"
         )
         final = stream_filter.flush_result()
 
         self.assertEqual(
-            result.text,
-            "before <JIN_COLOR> after",
+            first.text,
+            "before ",
         )
         self.assertEqual(
-            result.actions,
+            first.actions,
             (),
+        )
+        self.assertEqual(
+            second.text,
+            "after",
+        )
+        self.assertEqual(
+            [action.payload for action in second.actions],
+            ["#00f2ff"],
         )
         self.assertEqual(
             final.text,
             "",
         )
 
-
     def test_jin_color_multiple_markers_keep_order(self):
 
         result = extract_runtime_actions(
-            "<JIN_COLOR: #00f2ff><JIN_COLOR: f0a><JIN_COLOR: 101820><JIN_COLOR: #00f2ff>",
+            "<JIN_COLOR> #00f2ff </JIN_COLOR><JIN_COLOR> f0a </JIN_COLOR><JIN_COLOR> 101820 </JIN_COLOR><JIN_COLOR> #00f2ff </JIN_COLOR>",
             enabled_actions=(
                 RUNTIME_ACTION_JIN_COLOR,
             ),
@@ -213,11 +208,11 @@ class RuntimeJinColorActionTests(RuntimeActionTestCase):
 
         result = extract_runtime_actions(
             (
-                "<JIN_COLOR: #0000ff>"
-                "<JIN_COLOR: #ffffff>"
-                "<JIN_COLOR: #0000ff>"
-                "<JIN_COLOR: #ffffff>"
-                "<JIN_COLOR: #0000ff>"
+                "<JIN_COLOR> #0000ff </JIN_COLOR>"
+                "<JIN_COLOR> #ffffff </JIN_COLOR>"
+                "<JIN_COLOR> #0000ff </JIN_COLOR>"
+                "<JIN_COLOR> #ffffff </JIN_COLOR>"
+                "<JIN_COLOR> #0000ff </JIN_COLOR>"
             ),
             enabled_actions=(
                 RUNTIME_ACTION_JIN_COLOR,

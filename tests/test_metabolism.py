@@ -6,6 +6,7 @@ from unittest.mock import AsyncMock, patch
 
 from runtime.metabolism import (
     METABOLISM_DEFAULT_LEVELS,
+    METABOLISM_MAX_OUTPUT_TOKENS,
     METABOLISM_MAX_STEP,
     METABOLISM_SYSTEM_PROMPT,
     append_metabolism_turn,
@@ -343,6 +344,43 @@ class MetabolismSchedulingTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result, METABOLISM_DEFAULT_LEVELS)
         details = json.loads(logger.log_metabolism.await_args_list[1].kwargs["details"])
         self.assertEqual(details["status"], "invalid")
+
+    async def test_reasoning_model_has_room_and_reports_output_truncation_explicitly(self):
+        context, logger, _ = self.build_context()
+        truncated_response = {
+            "choices": [{
+                "finish_reason": "length",
+                "message": {
+                    "content": "",
+                    "reasoning_content": "Analysis stopped before the final JSON.",
+                },
+            }],
+            "usage": {
+                "prompt_tokens": 400,
+                "completion_tokens": METABOLISM_MAX_OUTPUT_TOKENS,
+                "total_tokens": 400 + METABOLISM_MAX_OUTPUT_TOKENS,
+            },
+        }
+        ask_mock = AsyncMock(return_value=truncated_response)
+
+        with patch("runtime.metabolism.ask_service_model", new=ask_mock):
+            task = schedule_metabolism_update(context, debounce_seconds=0)
+            result = await task
+
+        self.assertGreaterEqual(METABOLISM_MAX_OUTPUT_TOKENS, 1024)
+        self.assertEqual(
+            ask_mock.await_args.kwargs["max_tokens"],
+            METABOLISM_MAX_OUTPUT_TOKENS,
+        )
+        self.assertEqual(result, METABOLISM_DEFAULT_LEVELS)
+        details = json.loads(logger.log_metabolism.await_args_list[1].kwargs["details"])
+        self.assertEqual(details["status"], "truncated")
+        self.assertEqual(details["finish_reason"], "length")
+        self.assertEqual(
+            details["usage"]["completion_tokens"],
+            METABOLISM_MAX_OUTPUT_TOKENS,
+        )
+        self.assertIn("output token limit", details["error"])
 
     async def test_cancelled_request_logs_terminal_result_with_same_request_id(self):
         context, logger, _ = self.build_context()

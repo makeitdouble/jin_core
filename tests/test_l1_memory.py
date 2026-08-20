@@ -533,14 +533,12 @@ class L1MemoryTests(
 
             prompt = build_runtime_memory_system_prompt()
 
-            # Keep this test focused on durable L1 prompt contracts, not exact wording.
+            # Keep this test focused on L1 prompt contracts, not exact wording.
             # Rules text is intentionally editable and should not break tests on every polish.
             for required_text in (
                     "runtime L1 memory summarizer",
                     "Return only the new compressed L1 memory state",
                     "Every memory line must be a complete key:value entry",
-                    "user_fact",
-                    "jin_fact",
             ):
                 assert_contains_text(
                     self,
@@ -1415,7 +1413,7 @@ class L1MemoryTests(
                 updated_memory,
             )
 
-    async def test_summarizer_preserves_durable_fact_keys(self):
+    async def test_summarizer_does_not_restore_omitted_fact_keys(self):
 
             service_client = FakeServiceClient(
                 (
@@ -1460,11 +1458,11 @@ class L1MemoryTests(
                 "session_status: Active, discussing a new topic",
                 updated_memory,
             )
-            self.assertIn(
+            self.assertNotIn(
                 "user_fact: Name is Sergey; lives in Kyiv",
                 updated_memory,
             )
-            self.assertIn(
+            self.assertNotIn(
                 "jin_facts: JIN can keep runtime memory",
                 updated_memory,
             )

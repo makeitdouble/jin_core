@@ -165,7 +165,7 @@ function renderChatTextHtml(text) {
       text || ""
     );
   const markerPattern =
-    /<(?:(JIN_COLOR):\s*(#?(?:[0-9a-f]{6}|[0-9a-f]{3}))|(JIN_SIZE):\s*([^>\r\n]*?))\s*\/?>/gi;
+    /<(JIN_COLOR|JIN_SIZE)\s*>([\s\S]*?)<\/\1\s*>/gi;
   let rendered = "";
   let lastIndex = 0;
   let match = null;
@@ -178,7 +178,7 @@ function renderChatTextHtml(text) {
       )
     );
     if (
-      match[1]
+      String(match[1] || "").toUpperCase() === "JIN_COLOR"
       && window.JinResponseFormatter
       && typeof window.JinResponseFormatter.buildJinColorMarkerHtml === "function"
     ) {
@@ -186,12 +186,12 @@ function renderChatTextHtml(text) {
         match[2]
       );
     } else if (
-      match[3]
+      String(match[1] || "").toUpperCase() === "JIN_SIZE"
       && window.JinResponseFormatter
       && typeof window.JinResponseFormatter.buildJinSizeMarkerHtml === "function"
     ) {
       rendered += window.JinResponseFormatter.buildJinSizeMarkerHtml(
-        match[4]
+        match[2]
       );
     } else {
       rendered += escapeHtml(
@@ -2256,7 +2256,7 @@ function stripInternalActionMarkers(
       "$1"
     )
     .replace(
-      /(^|\n)[^\S\r\n]*<JIN_SIZE:[^>\n]*>[^\S\r\n]*(?=\n|$)/gi,
+      /(^|\n)[^\S\r\n]*<JIN_SIZE\s*>[\s\S]*?<\/JIN_SIZE\s*>[^\S\r\n]*(?=\n|$)/gi,
       "$1"
     )
     .replace(
@@ -2396,6 +2396,10 @@ function appendStreamChunk(
   if (!chunk) {
     return;
   }
+
+  startStreamRuntimeAvatarReasoning(
+    stream
+  );
 
   stream.answer += chunk;
   stream.pendingAnswer += chunk;

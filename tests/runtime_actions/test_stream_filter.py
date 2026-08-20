@@ -1473,7 +1473,7 @@ class RuntimeStreamFilterTests(RuntimeActionTestCase):
 
         result = stream_filter.filter(
             "".join(
-                f"<JIN_COLOR: {color}>"
+                f"<JIN_COLOR> {color} </JIN_COLOR>"
                 for _ in range(5)
                 for color in (
                     "#0000ff",
@@ -2301,23 +2301,23 @@ class RuntimeStreamFilterTests(RuntimeActionTestCase):
 
         cases = (
             (
-                "before <JIN_COLOR: #00f2ff> after",
+                "before <JIN_COLOR> #00f2ff </JIN_COLOR> after",
                 "before after",
             ),
             (
-                "<JIN_COLOR: #00f2ff> after",
+                "<JIN_COLOR> #00f2ff </JIN_COLOR> after",
                 "after",
             ),
             (
-                "before <JIN_COLOR: #00f2ff>",
+                "before <JIN_COLOR> #00f2ff </JIN_COLOR>",
                 "before",
             ),
             (
-                "before\n<JIN_COLOR: #00f2ff>\n\nafter",
+                "before\n<JIN_COLOR> #00f2ff </JIN_COLOR>\n\nafter",
                 "before\nafter",
             ),
             (
-                "before\n\n<JIN_COLOR: #00f2ff>",
+                "before\n\n<JIN_COLOR> #00f2ff </JIN_COLOR>",
                 "before",
             ),
         )
@@ -2353,7 +2353,7 @@ class RuntimeStreamFilterTests(RuntimeActionTestCase):
             "before\n\n"
         )
         second = stream_filter.filter(
-            "<JIN_COLOR: #00f2ff>"
+            "<JIN_COLOR> #00f2ff </JIN_COLOR>"
         )
         final = stream_filter.flush_result()
 
@@ -2395,7 +2395,7 @@ class RuntimeStreamFilterTests(RuntimeActionTestCase):
             "<JIN"
         )
         third = stream_filter.filter(
-            "_COLOR: #00f2ff>"
+            "_COLOR> #00f2ff </JIN_COLOR>"
         )
 
         self.assertEqual(
@@ -2433,7 +2433,7 @@ class RuntimeStreamFilterTests(RuntimeActionTestCase):
             "before\n\n<JIN"
         )
         second = stream_filter.filter(
-            "_COLOR: #00f2ff>"
+            "_COLOR> #00f2ff </JIN_COLOR>"
         )
 
         self.assertEqual(

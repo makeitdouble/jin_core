@@ -1138,6 +1138,64 @@
     line-height: 1.62;
 }
 
+.jin-context-l4-row {
+    grid-template-columns: minmax(300px, 0.34fr) minmax(0, 1fr);
+}
+
+.jin-context-l4-key {
+    display: flex;
+    min-width: 0;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 6px;
+}
+
+.jin-context-l4-fact-id {
+    appearance: none;
+    border: 0;
+    background: transparent;
+    padding: 0;
+    color: rgba(212, 212, 216, 0.76);
+    font: inherit;
+    line-height: inherit;
+    cursor: default;
+    transition:
+            color 0.14s ease,
+            text-shadow 0.14s ease,
+            opacity 0.14s ease;
+}
+
+button.jin-context-l4-fact-id.is-linked {
+    color: rgba(244, 244, 245, 0.96);
+    cursor: pointer;
+}
+
+button.jin-context-l4-fact-id.is-linked:hover,
+button.jin-context-l4-fact-id.is-linked:focus-visible {
+    outline: none;
+    color: rgba(255, 255, 255, 1);
+    text-shadow: 0 0 8px rgba(244, 244, 245, 0.18);
+}
+
+.jin-context-l4-separator {
+    color: rgba(113, 113, 122, 0.56);
+}
+
+.jin-context-l4-fact-key {
+    min-width: 0;
+    overflow-wrap: anywhere;
+    color: rgba(125, 211, 252, 0.72);
+}
+
+.jin-context-l4-age {
+    color: rgba(161, 161, 170, 0.56);
+    white-space: nowrap;
+}
+
+.jin-context-l4-value {
+    color: rgba(228, 228, 231, 0.84);
+}
+
 .jin-context-chat-list {
     display: grid;
     gap: 7px;
@@ -1321,6 +1379,11 @@
     }
 
     .jin-context-kv-row {
+        grid-template-columns: 1fr;
+        gap: 4px;
+    }
+
+    .jin-context-l4-row {
         grid-template-columns: 1fr;
         gap: 4px;
     }

@@ -2,12 +2,14 @@ from __future__ import annotations
 
 import asyncio
 import json
+import re
 import time
 import traceback
 
 from clients.response_extractor import ResponseExtractor
 from clients.service_client import ask_service_model
 from config_loader import config
+from runtime.client import LMStudioAPIError
 from runtime.L4_memory_utils import (
     add_l4_pending_candidates,
     apply_l4_jin_note_result,
@@ -1710,6 +1712,200 @@ def protect_explicit_l4_edits_from_merge(
     return next_operations, protected_pending_ids
 
 
+def _l4_fact_semantic_signature(fact) -> tuple[str, str, str]:
+    if not isinstance(fact, dict):
+        return ("", "", "")
+
+    return (
+        normalize_l4_key(fact.get("key")),
+        normalize_l4_text(fact.get("value")),
+        normalize_l4_key(fact.get("category")),
+    )
+
+
+def rebase_l4_merge_operations(
+    *,
+    base_store,
+    current_store,
+    operations: list[dict],
+    pending_ids: list[str],
+) -> tuple[dict, dict]:
+    """Apply an already-generated merge result to the newest L4 snapshot.
+
+    The service model reasons over ``base_store``. While that request is in
+    flight another tab/runtime action can legitimately advance the canonical
+    store. A whole-store equality guard is therefore too coarse: it throws
+    away a still-valid model result and the next idle tick asks the model the
+    same question again.
+
+    Rebase only when the records actually touched by the model are unchanged
+    semantically. Unrelated additions/revisions and provenance-only updates are
+    safe. If a touched committed/pending fact changed meaning, keep the pending
+    work for a later pass instead of overwriting a concurrent edit.
+    """
+
+    base = clone_l4_store(base_store)
+    current = clone_l4_store(current_store)
+
+    base_facts = {
+        str(fact.get("id") or "").strip(): fact
+        for fact in base.get("facts") or []
+        if str(fact.get("id") or "").strip()
+    }
+    current_facts = {
+        str(fact.get("id") or "").strip(): fact
+        for fact in current.get("facts") or []
+        if str(fact.get("id") or "").strip()
+    }
+    base_pending = {
+        str(fact.get("id") or "").strip(): fact
+        for fact in base.get("pending_facts") or []
+        if str(fact.get("id") or "").strip()
+    }
+    current_pending = {
+        str(fact.get("id") or "").strip(): fact
+        for fact in current.get("pending_facts") or []
+        if str(fact.get("id") or "").strip()
+    }
+
+    selected_pending_ids = [
+        str(pending_id or "").strip()
+        for pending_id in pending_ids
+        if str(pending_id or "").strip()
+    ]
+    active_pending_ids = [
+        pending_id
+        for pending_id in selected_pending_ids
+        if pending_id in current_pending
+    ]
+    superseded_pending_ids = [
+        pending_id
+        for pending_id in selected_pending_ids
+        if pending_id not in current_pending
+    ]
+
+    # Another writer may already have consumed all selected PFs. That is a
+    # successful convergence, not a reason to ask the model again.
+    if not active_pending_ids:
+        return current, {
+            "valid": True,
+            "changed": False,
+            "rebased": True,
+            "superseded_pending_ids": superseded_pending_ids,
+            "processed_pending_ids": superseded_pending_ids,
+            "pending_count": len(current.get("pending_facts") or []),
+            "operation_details": [],
+            "removed_fact_ids": [],
+            "replacement_fact_ids": [],
+            "replacement_fact_id_map": {},
+        }
+
+    active_pending_id_set = set(active_pending_ids)
+    rebased_operations = [
+        dict(operation)
+        for operation in operations
+        if str(operation.get("pending_id") or "").strip()
+        in active_pending_id_set
+    ]
+
+    conflict_pending_ids = []
+    conflict_fact_ids = []
+
+    for operation in rebased_operations:
+        pending_id = str(operation.get("pending_id") or "").strip()
+        if (
+            _l4_fact_semantic_signature(base_pending.get(pending_id))
+            != _l4_fact_semantic_signature(current_pending.get(pending_id))
+        ):
+            conflict_pending_ids.append(pending_id)
+            continue
+
+        action = operation.get("action")
+        touched_fact_ids = []
+        if action == "update":
+            target_id = str(operation.get("target_id") or "").strip()
+            if target_id:
+                touched_fact_ids.append(target_id)
+        elif action == "merge":
+            touched_fact_ids.extend(
+                str(fact_id or "").strip()
+                for fact_id in operation.get("fact_ids", [])
+                if str(fact_id or "").strip()
+            )
+
+        for fact_id in touched_fact_ids:
+            if (
+                _l4_fact_semantic_signature(base_facts.get(fact_id))
+                != _l4_fact_semantic_signature(current_facts.get(fact_id))
+            ):
+                conflict_fact_ids.append(fact_id)
+
+        # A concurrent writer may have created exactly the fact this operation
+        # planned to create. Fold the pending provenance into that fact rather
+        # than rejecting the stale create and generating another request.
+        if action == "create":
+            desired_signature = (
+                normalize_l4_key(operation.get("key")),
+                normalize_l4_text(operation.get("value")),
+                normalize_l4_key(operation.get("category")),
+            )
+            same_key = [
+                fact
+                for fact in current_facts.values()
+                if normalize_l4_key(fact.get("key")) == desired_signature[0]
+            ]
+            if same_key:
+                exact_matches = [
+                    fact
+                    for fact in same_key
+                    if _l4_fact_semantic_signature(fact) == desired_signature
+                ]
+                if len(exact_matches) == 1:
+                    operation["action"] = "update"
+                    operation["target_id"] = exact_matches[0]["id"]
+                else:
+                    conflict_pending_ids.append(pending_id)
+
+    conflict_pending_ids = sorted(set(conflict_pending_ids))
+    conflict_fact_ids = sorted(set(conflict_fact_ids))
+    if conflict_pending_ids or conflict_fact_ids:
+        return current, {
+            "valid": False,
+            "changed": False,
+            "reason": "store_changed_on_merge_targets",
+            "rebased": False,
+            "conflict_pending_ids": conflict_pending_ids,
+            "conflict_fact_ids": conflict_fact_ids,
+            "superseded_pending_ids": superseded_pending_ids,
+        }
+
+    rebased_store, rebased_change = apply_l4_merge_operations(
+        current,
+        rebased_operations,
+        pending_ids=active_pending_ids,
+    )
+    if not rebased_change.get("valid"):
+        return current, {
+            **rebased_change,
+            "reason": "store_changed_rebase_conflict",
+            "rebase_validation_reason": rebased_change.get("reason"),
+            "rebased": False,
+            "superseded_pending_ids": superseded_pending_ids,
+        }
+
+    rebased_change["rebased"] = True
+    rebased_change["base_revision"] = base.get("revision")
+    rebased_change["rebased_onto_revision"] = current.get("revision")
+    if superseded_pending_ids:
+        rebased_change["superseded_pending_ids"] = superseded_pending_ids
+        rebased_change["processed_pending_ids"] = sorted(set(
+            list(rebased_change.get("processed_pending_ids") or [])
+            + superseded_pending_ids
+        ))
+
+    return rebased_store, rebased_change
+
+
 async def run_l4_merge_phase(*, context, service_client) -> dict:
     base_store = clone_l4_store(ensure_runtime_l4_state(context))
     pending_queue = list(base_store.get("pending_facts") or [])
@@ -1838,14 +2034,96 @@ async def run_l4_merge_phase(*, context, service_client) -> dict:
 
     user_prompt = batch_plan["user_prompt"]
     pending_ids = batch_plan["pending_ids"]
-    response = await ask_l4_model(
-        context=context,
-        service_client=service_client,
-        label="L4 merge",
-        system_prompt=system_prompt,
-        user_prompt=user_prompt,
-        max_tokens=batch_plan["requested_max_output_tokens"],
-    )
+    try:
+        response = await ask_l4_model(
+            context=context,
+            service_client=service_client,
+            label="L4 merge",
+            system_prompt=system_prompt,
+            user_prompt=user_prompt,
+            max_tokens=batch_plan["requested_max_output_tokens"],
+        )
+    except LMStudioAPIError:
+        provider_context_window = _positive_int(
+            getattr(
+                service_client,
+                "provider_context_window_ceiling",
+                0,
+            )
+        )
+        if (
+            not provider_context_window
+            or provider_context_window >= runtime_context_window
+        ):
+            raise
+
+        # Some LM Studio metadata surfaces the model's theoretical maximum
+        # instead of the n_ctx used by the loaded instance. RuntimeClient
+        # learns the provider-enforced n_ctx from the 400 response; rebuild the
+        # FIFO batch once against that real budget instead of failing the idle
+        # L4 update and repeating the same oversized request on the next tick.
+        runtime_context_window = provider_context_window
+        batch_plan = build_l4_merge_batch_plan(
+            existing_facts=base_store.get("facts") or [],
+            pending_facts=pending_queue,
+            system_prompt=system_prompt,
+            runtime_context_window=runtime_context_window,
+            requested_max_tokens=None,
+            runtime_output_reserve=runtime_output_reserve,
+            protected_fact_ids=protected_fact_ids,
+            max_batch_count=(
+                1
+                if force_single_batch
+                else configured_batch_limit or None
+            ),
+        )
+        pending_facts = batch_plan["pending_facts"]
+        if not pending_facts:
+            first_pending_id = ""
+            if pending_queue:
+                first_pending_id = str(
+                    pending_queue[0].get("id") or ""
+                ).strip()
+            return await log_l4_skip_event(
+                context,
+                phase="merge",
+                message_phase="merge",
+                reason="runtime_context_budget_exhausted",
+                details={
+                    "pending_count": len(pending_queue),
+                    "first_pending_id": first_pending_id,
+                    "runtime_context_window_tokens": batch_plan[
+                        "runtime_context_window_tokens"
+                    ],
+                    "estimated_prompt_tokens": batch_plan[
+                        "estimated_prompt_tokens"
+                    ],
+                    "estimated_response_tokens": batch_plan[
+                        "estimated_response_tokens"
+                    ],
+                    "runtime_output_reserve_tokens": batch_plan[
+                        "runtime_output_reserve_tokens"
+                    ],
+                    "response_headroom_tokens": batch_plan[
+                        "response_headroom_tokens"
+                    ],
+                    "estimated_total_tokens": batch_plan[
+                        "estimated_total_tokens"
+                    ],
+                    "provider_context_window_recovered": True,
+                },
+            )
+
+        user_prompt = batch_plan["user_prompt"]
+        pending_ids = batch_plan["pending_ids"]
+        response = await ask_l4_model(
+            context=context,
+            service_client=service_client,
+            label="L4 merge",
+            system_prompt=system_prompt,
+            user_prompt=user_prompt,
+            max_tokens=batch_plan["requested_max_output_tokens"],
+        )
 
     if is_runtime_memory_response_truncated(response):
         truncation_details = build_l4_truncation_details(
@@ -1871,21 +2149,6 @@ async def run_l4_merge_phase(*, context, service_client) -> dict:
             message_phase="merge",
             reason="response_truncated",
             details=truncation_details,
-        )
-
-    current_store = clone_l4_store(ensure_runtime_l4_state(context))
-    if current_store != base_store:
-        return await log_l4_skip_event(
-            context,
-            phase="merge",
-            message_phase="merge",
-            reason="store_changed_during_merge",
-            details={
-                "base_revision": base_store.get("revision"),
-                "current_revision": current_store.get("revision"),
-                "pending_count": len(pending_facts),
-                "pending_ids": pending_ids,
-            },
         )
 
     response_text = extract_runtime_memory_text(response)
@@ -1976,21 +2239,6 @@ async def run_l4_merge_phase(*, context, service_client) -> dict:
                 details=details,
             )
 
-        current_store = clone_l4_store(ensure_runtime_l4_state(context))
-        if current_store != base_store:
-            return await log_l4_skip_event(
-                context,
-                phase="merge",
-                message_phase="merge",
-                reason="store_changed_during_merge_repair",
-                details={
-                    "base_revision": base_store.get("revision"),
-                    "current_revision": current_store.get("revision"),
-                    "pending_count": len(pending_facts),
-                    "pending_ids": pending_ids,
-                },
-            )
-
         repair_payload = extract_l4_json_payload(
             extract_runtime_memory_text(repair_response)
         )
@@ -2057,6 +2305,38 @@ async def run_l4_merge_phase(*, context, service_client) -> dict:
     if repaired:
         merge_change["repaired"] = True
         merge_change["initial_validation_error"] = initial_validation_reason
+
+    current_store = clone_l4_store(ensure_runtime_l4_state(context))
+    if current_store != base_store:
+        next_store, rebased_change = rebase_l4_merge_operations(
+            base_store=base_store,
+            current_store=current_store,
+            operations=operations,
+            pending_ids=pending_ids,
+        )
+        if not rebased_change.get("valid"):
+            return await log_l4_skip_event(
+                context,
+                phase="merge",
+                message_phase="merge",
+                reason=rebased_change.get("reason") or "store_changed_rebase_conflict",
+                details={
+                    "base_revision": base_store.get("revision"),
+                    "current_revision": current_store.get("revision"),
+                    "pending_count": len(pending_facts),
+                    "pending_ids": pending_ids,
+                    **rebased_change,
+                },
+            )
+
+        if repaired:
+            rebased_change["repaired"] = True
+            rebased_change["initial_validation_error"] = initial_validation_reason
+        if protected_pending_ids:
+            rebased_change["protected_pending_ids"] = sorted(
+                set(protected_pending_ids)
+            )
+        merge_change = rebased_change
 
     context.runtime_long_term_memory_store = next_store
     clear_l4_merge_pending_recovery(
@@ -2478,7 +2758,7 @@ def _get_l4_fact_anchor_report_ids(
     return report_ids
 
 
-def build_runtime_l4_memory_context(*, context, fact_ids=None) -> str:
+def build_runtime_l4_memory_context(*, context, fact_ids=None, user_input: str = "") -> str:
     if not l4_memory_enabled():
         return ""
 
@@ -2520,6 +2800,36 @@ def build_runtime_l4_memory_context(*, context, fact_ids=None) -> str:
             in requested_fact_ids
         )
     ]
+
+    # L4 prompt order is independent from the persistent store/UI. Fresh facts
+    # are nearest to the model by default (F227, F226, ...). Metabolism may
+    # promote a small coherent 1..3-fact focus cone only inside this prompt
+    # view; it never drives panel/avatar highlighting or persistent ordering.
+    try:
+        from runtime.metabolism import rank_l4_facts_for_context
+
+        active_facts = rank_l4_facts_for_context(
+            active_facts,
+            context=context,
+            user_input=user_input,
+        )
+    except Exception:
+        def _fact_sort_key(fact):
+            match = re.fullmatch(
+                r"F([1-9]\d*)",
+                str((fact or {}).get("id", "") or "").strip(),
+                flags=re.IGNORECASE,
+            )
+            if match:
+                return (0, -int(match.group(1)), "")
+            return (
+                1,
+                0,
+                str((fact or {}).get("id", "") or "").strip().casefold(),
+            )
+
+        active_facts = sorted(active_facts, key=_fact_sort_key)
+
     delayed_memory_ids_by_fact_id = {}
 
     for fact in active_facts:

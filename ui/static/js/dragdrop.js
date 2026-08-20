@@ -398,19 +398,17 @@ function renderAttachedFilesPlaque() {
 
   header.appendChild(title);
 
-  if (!records.length) {
-    const attachButton = document.createElement("button");
-    attachButton.type = "button";
-    attachButton.className = "jin-attached-files-attach-button";
-    attachButton.textContent = "ATTACH FILE";
-    attachButton.setAttribute("aria-label", "Attach file");
-    attachButton.addEventListener("click", (event) => {
-      event.preventDefault();
-      event.stopPropagation();
-      if (fileInput) fileInput.click();
-    });
-    header.appendChild(attachButton);
-  }
+  const attachButton = document.createElement("button");
+  attachButton.type = "button";
+  attachButton.className = "jin-attached-files-attach-button";
+  attachButton.textContent = "ATTACH FILE";
+  attachButton.setAttribute("aria-label", "Attach file");
+  attachButton.addEventListener("click", (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    if (fileInput) fileInput.click();
+  });
+  header.appendChild(attachButton);
 
   attachedFiles.appendChild(header);
 

@@ -44,17 +44,10 @@ from runtime.L1_memory_utils import (
     build_runtime_memory_batch_user_prompt,
     build_runtime_memory_snapshot,
     build_runtime_memory_user_prompt,
-    durable_memory_line_text,
     enforce_runtime_turn_fields,
     get_strength_zones,
-    has_durable_fact_negation,
-    is_durable_memory_key,
-    is_runtime_memory_repeatable_key_family,
-    normalize_memory_key,
-    normalize_runtime_memory_key_family,
     normalize_compound_runtime_memory_lines,
     parse_runtime_memory_lines,
-    repeatable_runtime_memory_values_are_same_slot,
     remove_runtime_memory_placeholder_lines,
     remove_runtime_response_feedback_text,
     remove_runtime_user_idle_lines,
@@ -697,10 +690,6 @@ async def summarize_runtime_memory(
 
             return stored_memory
 
-        updated_memory = merge_durable_memory_facts(
-            current_memory,
-            updated_memory,
-        )
         updated_memory = remove_runtime_response_feedback_text(
             updated_memory
         )
@@ -904,10 +893,6 @@ async def summarize_runtime_memory_pending_turns(
 
             return stored_initial_memory
 
-        updated_memory = merge_durable_memory_facts(
-            initial_memory,
-            updated_memory,
-        )
         updated_memory = remove_runtime_response_feedback_text(
             updated_memory
         )
@@ -1182,160 +1167,3 @@ async def cancel_runtime_memory_update(
         await task
 
     context.runtime_memory_update_task = None
-
-def merge_durable_memory_facts(
-        previous_memory: str,
-        candidate_memory: str,
-) -> str:
-
-    previous_memory = remove_runtime_response_feedback_text(
-        previous_memory
-    )
-    candidate_memory = remove_runtime_response_feedback_text(
-        candidate_memory
-    )
-
-    previous_lines = parse_runtime_memory_lines(
-        previous_memory
-    )
-    candidate_lines = parse_runtime_memory_lines(
-        candidate_memory
-    )
-
-    candidate_by_key = {
-        normalize_memory_key(
-            line.get(
-                "key",
-                "",
-            )
-        ): line
-        for line in candidate_lines
-    }
-
-    preserved_lines = []
-
-    for previous_line in previous_lines:
-
-        previous_key = (
-            previous_line.get(
-                "key",
-                "",
-            )
-            or ""
-        ).strip()
-
-        if not is_durable_memory_key(
-            previous_key
-        ):
-            continue
-
-        previous_value = previous_line.get(
-            "value",
-            "",
-        )
-
-        if is_runtime_memory_repeatable_key_family(
-                previous_key
-        ):
-            previous_family = normalize_runtime_memory_key_family(
-                previous_key
-            )
-            candidate_semantic_match = False
-
-            for candidate_line in candidate_lines:
-                candidate_key = (
-                    candidate_line.get(
-                        "key",
-                        "",
-                    )
-                    or ""
-                ).strip()
-
-                if not is_runtime_memory_repeatable_key_family(
-                        candidate_key
-                ):
-                    continue
-
-                if (
-                        normalize_runtime_memory_key_family(
-                            candidate_key
-                        )
-                        != previous_family
-                ):
-                    continue
-
-                candidate_value = candidate_line.get(
-                    "value",
-                    "",
-                )
-
-                if has_durable_fact_negation(
-                    candidate_value
-                ):
-                    candidate_semantic_match = True
-                    break
-
-                if repeatable_runtime_memory_values_are_same_slot(
-                        previous_value,
-                        candidate_value,
-                ):
-                    candidate_semantic_match = True
-                    break
-
-            if candidate_semantic_match:
-                continue
-
-            preserved_lines.append(
-                durable_memory_line_text(
-                    previous_line
-                )
-            )
-            continue
-
-        normalized_key = normalize_memory_key(
-            previous_key
-        )
-
-        candidate_line = candidate_by_key.get(
-            normalized_key
-        )
-
-        if candidate_line is not None:
-            candidate_value = candidate_line.get(
-                "value",
-                "",
-            )
-
-            if has_durable_fact_negation(
-                candidate_value
-            ):
-                continue
-
-            continue
-
-        preserved_lines.append(
-            durable_memory_line_text(
-                previous_line
-            )
-        )
-
-    if not preserved_lines:
-        return candidate_memory
-
-    candidate_text = (
-        candidate_memory
-        or ""
-    ).strip()
-
-    if not candidate_text:
-        return "\n".join(
-            preserved_lines
-        )
-
-    return (
-        "\n".join(
-            preserved_lines
-        )
-        + "\n"
-        + candidate_text
-    )

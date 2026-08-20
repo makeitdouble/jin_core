@@ -9,9 +9,6 @@ from difflib import SequenceMatcher
 
 from runtime.L1_memory_rules import (
     DEFAULT_RUNTIME_MEMORY,
-    DURABLE_FLOOR,
-    DURABLE_MEMORY_KEY_TOKENS,
-    DURABLE_MEMORY_NEGATION_MARKERS,
     EMPTY_ASSISTANT_REPLY_MEMORY_TEMPLATE,
     GENERIC_MEMORY_MATCH_KEYS,
     GENERIC_MEMORY_VALUE_SIMILARITY_MIN,
@@ -1902,24 +1899,9 @@ def normalize_memory_key(
     )
 
 
-def is_durable_memory_key(
-        key: str,
-) -> bool:
-
-    normalized_key = normalize_memory_key(
-        key
-    )
-
-    return any(
-        token in normalized_key
-        for token in DURABLE_MEMORY_KEY_TOKENS
-    )
-
-
 def compute_line_strength(
         prev_strength: float | None,
         change_ratio_val: float,
-        is_durable: bool,
         is_new: bool,
         quote_boost: float = 0.0,
 ) -> float:
@@ -1939,13 +1921,11 @@ def compute_line_strength(
         ),
     )
 
-    floor = DURABLE_FLOOR if is_durable else 0.0
-
     return round(
         min(
             1.0,
             max(
-                floor,
+                0.0,
                 raw,
             ),
         ),
@@ -2551,22 +2531,7 @@ def build_strength_map(
     }
 
 
-def has_durable_fact_negation(
-        value: str,
-) -> bool:
-
-    normalized_value = (
-        value
-        or ""
-    ).strip().lower()
-
-    return any(
-        marker in normalized_value
-        for marker in DURABLE_MEMORY_NEGATION_MARKERS
-    )
-
-
-def durable_memory_line_text(
+def runtime_memory_line_text(
         line: dict,
 ) -> str:
 
@@ -2831,9 +2796,6 @@ def apply_runtime_memory_diff(
             line["strength"] = compute_line_strength(
                 prev_strength=None,
                 change_ratio_val=1.0,
-                is_durable=is_durable_memory_key(
-                    line.get("key", "")
-                ),
                 is_new=True,
                 quote_boost=quote_boost,
             )
@@ -2945,7 +2907,6 @@ def apply_runtime_memory_diff(
             line["strength"] = compute_line_strength(
                 prev_strength=None,
                 change_ratio_val=1.0,
-                is_durable=is_durable_memory_key(key),
                 is_new=True,
                 quote_boost=quote_boost,
             )
@@ -3027,7 +2988,6 @@ def apply_runtime_memory_diff(
                 if exact_identity_match
                 else 1.0
             ),
-            is_durable=is_durable_memory_key(key),
             is_new=not exact_identity_match,
             quote_boost=quote_boost,
         )

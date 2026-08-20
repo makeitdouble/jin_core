@@ -955,7 +955,9 @@
     clearReasoningLayerSettleStyles();
 
     if (avatarShell) {
-      avatarShell.classList.add(REASONING_MOTION_CLASS);
+      avatarShell.classList.add(
+        REASONING_MOTION_CLASS
+      );
       avatarShell.dataset.motionMode = "reasoning";
     }
 
@@ -4489,8 +4491,15 @@
             "jin-avatar-memory-dash-active"
           )
         );
+        // L4 is citation-gated: ambient/persistent text must not turn a
+        // durable fact into a visual focus merely because its value shares
+        // wording with the latest answer. Explicit reasoning citations still
+        // use the structured THINK_RUNTIME_CITATION_HIGHLIGHT_EVENT path.
+        const persistentReferenceEligible =
+          !recordNode.classList.contains("jin-avatar-memory-dash-l4");
         const matched = Boolean(
-          !mirroredActiveRuntimeNode
+          persistentReferenceEligible
+          && !mirroredActiveRuntimeNode
           && sourceText
           && getAvatarMemoryReferenceAliases(recordNode)
             .some(alias => (
@@ -5262,9 +5271,6 @@
     beginReasoning: beginReasoningMotion,
     endReasoning: endReasoningMotion,
     clearReasoning: clearReasoningMotion,
-    get isReasoning() {
-      return reasoningMotionActive;
-    },
     setCenterColor,
     setMemoryLayersHidden,
     toggleMemoryLayers,

@@ -89,7 +89,13 @@ METABOLISM_RECENT_ACTIONS = 10
 METABOLISM_REASONING_MAX_CHARS = 4200
 METABOLISM_MESSAGE_MAX_CHARS = 7000
 METABOLISM_RUNTIME_MEMORY_MAX_CHARS = 9000
-METABOLISM_MAX_OUTPUT_TOKENS = 120
+# LM Studio counts reasoning/thinking tokens and the final JSON against the
+# same completion budget. 120 tokens was enough for the JSON itself but not
+# for reasoning-capable SERVICE models: they could hit finish_reason=length
+# inside their analysis and return no JSON at all. Keep this bounded, but give
+# the estimator enough room to finish its hidden reasoning and emit the tiny
+# five-channel payload.
+METABOLISM_MAX_OUTPUT_TOKENS = 1024
 METABOLISM_TEMPERATURE = 0.1
 METABOLISM_CONTEXT_RESERVE_TOKENS = 384
 
@@ -964,6 +970,200 @@ def rank_active_memory_records(
     )
     return [record for _, _, record in scored]
 
+
+def _l4_fact_numeric_sort_key(fact: dict) -> tuple:
+    """Newest durable facts first; F ids are monotonic creation ids."""
+
+    fact_id = str((fact or {}).get("id", "") or "").strip()
+    match = re.fullmatch(r"F([1-9]\d*)", fact_id, flags=re.IGNORECASE)
+    if match:
+        return (0, -int(match.group(1)), "")
+    return (1, 0, fact_id.casefold())
+
+
+def score_l4_fact_context_focus(
+    fact: dict,
+    *,
+    user_input: str,
+    levels: dict[str, float],
+    context=None,
+) -> float:
+    """Return prompt-only L4 salience without mutating storage/UI order."""
+
+    if not isinstance(fact, dict):
+        return 0.0
+
+    fact_text = " ".join(
+        part
+        for part in (
+            str(fact.get("key", "") or "").strip(),
+            str(fact.get("value", "") or "").strip(),
+        )
+        if part
+    )
+    if not fact_text:
+        return 0.0
+
+    user_tokens = _tokenize_signal_text(user_input)
+    fact_tokens = _tokenize_signal_text(fact_text)
+    lexical_overlap = 0.0
+    if user_tokens and fact_tokens:
+        lexical_overlap = len(user_tokens & fact_tokens) / max(1, len(user_tokens))
+
+    resonance, _channel = _record_channel_resonance(
+        fact_text,
+        levels,
+        context=context,
+    )
+
+    learned_cross_resonance = 0.0
+    now = time.time()
+    for item in ensure_metabolism_associations(context):
+        phrase = str(item.get("phrase", "") or "")
+        if (
+            not phrase
+            or not _phrase_occurs(phrase, user_input)
+            or not _phrase_occurs(phrase, fact_text)
+        ):
+            continue
+        learned_cross_resonance = max(
+            learned_cross_resonance,
+            float(item.get("weight", 0.0) or 0.0)
+            * _association_recency_weight(item, now),
+        )
+
+    attention_drive = max(
+        0.0,
+        _relative_drive(levels, "norepinephrine"),
+        _relative_drive(levels, "dopamine"),
+        _relative_drive(levels, "oxytocin"),
+        _relative_drive(levels, "cortisol"),
+    )
+    attention_gain = 0.82 + min(0.18, attention_drive * 0.18)
+
+    score = (
+        lexical_overlap * 0.62
+        + learned_cross_resonance * 0.24
+        + resonance * 0.14
+    ) * attention_gain
+
+    return round(max(0.0, min(1.0, score)), 4)
+
+
+def _select_l4_metabolic_focus(
+    scored: list[tuple[float, int, dict]],
+    *,
+    levels: dict[str, float],
+) -> list[tuple[float, int, dict]]:
+    """Choose a narrow 1..3 fact attention cone for the prompt only.
+
+    Relevance owns the decision; metabolism only changes how wide attention
+    may open. Alert/novel/social continuity can admit a second or third nearby
+    fact, while pressure narrows the cone. Nothing unrelated is promoted just
+    to fill a quota.
+    """
+
+    ranked = sorted(scored, key=lambda item: (-item[0], item[1]))
+    if not ranked or ranked[0][0] < 0.22:
+        return []
+
+    top_score = ranked[0][0]
+    breadth_drive = (
+        max(0.0, _relative_drive(levels, "norepinephrine")) * 0.42
+        + max(0.0, _relative_drive(levels, "dopamine")) * 0.30
+        + max(0.0, _relative_drive(levels, "oxytocin")) * 0.22
+        - max(0.0, _relative_drive(levels, "cortisol")) * 0.36
+    )
+    breadth_drive = max(-0.35, min(0.65, breadth_drive))
+
+    # Relative floors keep the focus coherent with the strongest fact. A more
+    # open metabolic state lowers them slightly; high pressure raises them.
+    second_ratio = max(0.62, min(0.82, 0.75 - breadth_drive * 0.16))
+    third_ratio = max(0.50, min(0.72, 0.61 - breadth_drive * 0.14))
+    second_floor = max(0.20, top_score * second_ratio)
+    third_floor = max(0.18, top_score * third_ratio)
+
+    focused = [ranked[0]]
+    if len(ranked) > 1 and ranked[1][0] >= second_floor:
+        focused.append(ranked[1])
+
+    # A third fact needs either a convincingly strong semantic hit or enough
+    # attentional breadth. This makes the lane breathe between 1, 2 and 3
+    # instead of behaving like a fixed top-k search.
+    if (
+        len(focused) == 2
+        and len(ranked) > 2
+        and ranked[2][0] >= third_floor
+        and (top_score >= 0.34 or breadth_drive >= 0.08)
+    ):
+        focused.append(ranked[2])
+
+    return focused[:3]
+
+
+def rank_l4_facts_for_context(
+    facts: list[dict],
+    *,
+    context=None,
+    user_input: str = "",
+) -> list[dict]:
+    """Newest-first L4 context with a prompt-only metabolic focus lane.
+
+    Default order is F227, F226, ... so fresh durable memory is naturally
+    closest to the model. When current input resonates with older facts,
+    metabolism may lift one to three of them to the very top. The persistent
+    store, memory panel and avatar are never reordered or highlighted here.
+    """
+
+    canonical = sorted(
+        [fact for fact in (facts or []) if isinstance(fact, dict)],
+        key=_l4_fact_numeric_sort_key,
+    )
+    if (
+        context is None
+        or not METABOLISM_MEMORY_BIAS_ENABLED
+        or not str(user_input or "").strip()
+        or not canonical
+    ):
+        if context is not None:
+            context.runtime_metabolism_l4_focus_ids = []
+        return canonical
+
+    levels = advance_metabolism_clock(context)
+    scored = [
+        (
+            score_l4_fact_context_focus(
+                fact,
+                user_input=user_input,
+                levels=levels,
+                context=context,
+            ),
+            index,
+            fact,
+        )
+        for index, fact in enumerate(canonical)
+    ]
+    focused = _select_l4_metabolic_focus(
+        scored,
+        levels=levels,
+    )
+    if not focused:
+        context.runtime_metabolism_l4_focus_ids = []
+        return canonical
+
+    focused_facts = [item[2] for item in focused]
+    focused_object_ids = {id(fact) for fact in focused_facts}
+    result = [*focused_facts]
+    result.extend(
+        fact for fact in canonical
+        if id(fact) not in focused_object_ids
+    )
+    context.runtime_metabolism_l4_focus_ids = [
+        str(fact.get("id", "") or "").strip()
+        for fact in focused_facts
+        if str(fact.get("id", "") or "").strip()
+    ]
+    return result
 
 def _metabolism_temperature_delta(levels: dict[str, float]) -> float:
     normalized = normalize_metabolism_levels(levels)
@@ -1915,26 +2115,40 @@ async def update_metabolism_state(
             timeout=getattr(config, "SERVICE_REQUEST_TIMEOUT", None),
         )
         target_levels, raw_text = parse_metabolism_response(response)
+        finish_reason = ResponseExtractor.extract_finish_reason(response)
+        usage = ResponseExtractor.extract_usage(response)
         status = "applied"
         if target_levels is None:
             target_levels = recover_metabolism_levels_locally(raw_text)
             status = "local_recovered" if target_levels is not None else "invalid"
 
         if target_levels is None:
-            context.runtime_metabolism_last_event = "semantic_invalid"
+            output_limited = finish_reason.casefold() == "length"
+            status = "truncated" if output_limited else "invalid"
+            error_message = (
+                "metabolism response hit output token limit before final JSON; "
+                "previous state retained"
+                if output_limited
+                else "invalid five-channel response; previous state retained"
+            )
+            context.runtime_metabolism_last_event = (
+                "semantic_truncated" if output_limited else "semantic_invalid"
+            )
             if batch_id:
                 context.runtime_metabolism_last_committed_l1_id = batch_id
             await context.logger.log_metabolism(
-                "state response invalid",
+                f"state response {status}",
                 details=json.dumps({
                     "kind": "metabolism_response",
                     "request_id": request_id,
                     "batch_id": batch_id,
                     "ok": False,
-                    "status": "invalid",
+                    "status": status,
+                    "finish_reason": finish_reason,
+                    "usage": usage,
                     "levels": previous,
                     "raw": raw_text,
-                    "error": "invalid five-channel response; previous state retained",
+                    "error": error_message,
                 }, ensure_ascii=False),
                 event="result",
                 request_id=request_id,
@@ -1972,6 +2186,8 @@ async def update_metabolism_state(
                 "ok": True,
                 "status": status,
                 "target_levels": target_levels,
+                "finish_reason": finish_reason,
+                "usage": usage,
                 "levels": levels,
                 "delta": _metabolism_delta(previous, levels),
                 "temperature_delta": _metabolism_temperature_delta(levels),

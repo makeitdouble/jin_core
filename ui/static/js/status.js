@@ -41,18 +41,39 @@ function formatRuntimeStatusBytes(value) {
     return `${amount.toFixed(precision)} ${units[unitIndex]}`;
 }
 
-function formatRuntimeStatusOffload(value) {
-    const number = Number(value);
-
-    if (!Number.isFinite(number)) {
+function formatRuntimeStatusQuantization(value) {
+    if (value === null || value === undefined || value === "") {
         return "";
     }
 
-    if (number >= 0 && number <= 1) {
-        return `${Math.round(number * 100)}%`;
+    if (typeof value !== "object" || Array.isArray(value)) {
+        return String(value);
     }
 
-    return String(value);
+    const name = findRuntimeStatusValue(
+        value,
+        "name",
+        "quantization_level",
+        "quant"
+    );
+
+    if (name !== null && name !== undefined && name !== "") {
+        return String(name);
+    }
+
+    const bitsPerWeight = Number(
+        findRuntimeStatusValue(
+            value,
+            "bits_per_weight",
+            "bits"
+        )
+    );
+
+    if (Number.isFinite(bitsPerWeight) && bitsPerWeight > 0) {
+        return `${bitsPerWeight} bpw`;
+    }
+
+    return "";
 }
 
 function formatRuntimeStatusValue(value) {
@@ -355,11 +376,15 @@ function renderRuntimeStatusModal(role) {
             ["instance", findRuntimeStatusValue(loadedModel, "id", "key", "model")],
             ["context", contextText],
             ["architecture", findRuntimeStatusValue(model, "architecture", "arch", "family")],
-            ["quantization", findRuntimeStatusValue(model, "quantization", "quantization_level", "quant")],
             [
-                "gpu offload",
-                formatRuntimeStatusOffload(
-                    findRuntimeStatusValue(loadedModel, "gpu_offload_ratio", "gpu_offload")
+                "quantization",
+                formatRuntimeStatusQuantization(
+                    findRuntimeStatusValue(
+                        model,
+                        "quantization",
+                        "quantization_level",
+                        "quant"
+                    )
                 )
             ],
             [

@@ -114,6 +114,9 @@
     const rawDeleted = Array.isArray(source.deleted_fact_ids)
       ? source.deleted_fact_ids
       : [];
+    const rawIgnoredPending = Array.isArray(source.ignored_pending_fact_ids)
+      ? source.ignored_pending_fact_ids
+      : [];
 
     const usedFacts = new Set();
     const usedPending = new Set();
@@ -201,6 +204,14 @@
       if (id && !deletedFactIds.includes(id)) deletedFactIds.push(id);
     });
 
+    const ignoredPendingFactIds = [];
+    rawIgnoredPending.forEach((rawId) => {
+      const id = normalizeFactId(rawId, true);
+      if (id && !ignoredPendingFactIds.includes(id)) {
+        ignoredPendingFactIds.push(id);
+      }
+    });
+
     function remapSourceIds(fact) {
       fact.source_fact_ids = normalizeList(fact.source_fact_ids)
         .map((rawId) => {
@@ -225,6 +236,7 @@
       facts,
       pending_facts: pendingFacts,
       deleted_fact_ids: deletedFactIds,
+      ignored_pending_fact_ids: ignoredPendingFactIds,
       next_fact_id: nextFact,
       next_pending_fact_id: nextPending,
     };
@@ -246,6 +258,10 @@
         const pendingId = normalizeFactId(sourceId, true);
         if (pendingId) processedPendingIds.add(pendingId);
       });
+    });
+    normalizeList(migrated.ignored_pending_fact_ids).forEach((sourceId) => {
+      const pendingId = normalizeFactId(sourceId, true);
+      if (pendingId) processedPendingIds.add(pendingId);
     });
     migrated.pending_facts = migrated.pending_facts.filter((fact) => {
       if (seenPending.has(fact.id) || processedPendingIds.has(fact.id)) {

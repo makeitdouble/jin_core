@@ -190,12 +190,18 @@ def apply_archived_session_continuation_state(
 
     if (
         source_session_id
-        and message_data.get("archived_session_restore") is True
+        and bool(
+            message_data.get(
+                "archived_session_restore",
+                True,
+            )
+        )
     ):
-        # The browser snapshot is primary. If an exact server log directory
-        # exists, enrich from that predecessor and prime one hidden restore
-        # turn. No marker file is needed: lineage already lives in the browser
-        # snapshot/source_session_id chain.
+        # A browser checkpoint with predecessor lineage is enough to resume
+        # the conversation by default. Raw-log archive enrichment is optional:
+        # later fresh tabs may only have the browser snapshot for their direct
+        # predecessor, but they must still get the hidden continuation tick.
+        # An explicit archived_session_restore=false remains an opt-out.
         context.runtime_archived_session_id = source_session_id
         context.runtime_session_restore_priming = True
 

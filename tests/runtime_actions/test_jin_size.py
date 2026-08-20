@@ -21,20 +21,20 @@ class RuntimeJinSizeActionTests(RuntimeActionTestCase):
     def test_jin_size_marker_validates_supported_payload_forms(self):
 
         cases = (
-            ("<JIN_SIZE: 120px 120px >", "120px"),
-            ("<JIN_SIZE: 120 140 >", "w:120px h:140px"),
-            ("<JIN_SIZE: w:120px h:140px >", "w:120px h:140px"),
-            ("<JIN_SIZE: w:120 h:140 >", "w:120px h:140px"),
-            ("<JIN_SIZE: 120px >", "120px"),
-            ("<JIN_SIZE: 120 >", "120px"),
-            ("<JIN_SIZE: w:120 >", "120px"),
-            ("<JIN_SIZE: h:120px >", "120px"),
+            ("<JIN_SIZE> 120px 120px </JIN_SIZE>", "120px"),
+            ("<JIN_SIZE> 120 140 </JIN_SIZE>", "w:120px h:140px"),
+            ("<JIN_SIZE> w:120px h:140px </JIN_SIZE>", "w:120px h:140px"),
+            ("<JIN_SIZE> w:120 h:140 </JIN_SIZE>", "w:120px h:140px"),
+            ("<JIN_SIZE> 120px </JIN_SIZE>", "120px"),
+            ("<JIN_SIZE> 120 </JIN_SIZE>", "120px"),
+            ("<JIN_SIZE> w:120 </JIN_SIZE>", "120px"),
+            ("<JIN_SIZE> h:120px </JIN_SIZE>", "120px"),
             (
-                "<JIN_SIZE: width: 500px height: 300px >",
+                "<JIN_SIZE> width: 500px height: 300px </JIN_SIZE>",
                 "w:500px h:300px",
             ),
             (
-                "<JIN_SIZE: junk width=500px / height=300px ignore 777 >",
+                "<JIN_SIZE> junk width=500px / height=300px ignore 777 </JIN_SIZE>",
                 "w:500px h:300px",
             ),
         )
@@ -183,7 +183,7 @@ class RuntimeJinSizeActionTests(RuntimeActionTestCase):
         )
 
         self.assertIn(
-            "<JIN_SIZE: 120px 120px >",
+            "<JIN_SIZE> 120px 120px </JIN_SIZE>",
             build_runtime_action_instructions(
                 (
                     RUNTIME_ACTION_JIN_SIZE,
@@ -204,7 +204,7 @@ class RuntimeJinSizeActionTests(RuntimeActionTestCase):
             ),
         )
         self.assertNotIn(
-            "<JIN_SIZE:",
+            "<JIN_SIZE>",
             build_runtime_action_instructions(
                 (
                     RUNTIME_ACTION_JIN_SIZE,

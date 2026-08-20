@@ -1749,6 +1749,224 @@ function openContextDelayedMemoryReport(reportId) {
   return true;
 }
 
+function parseContextLongTermMemoryLine(line) {
+  const source = String(line || "").trim();
+  const separatorIndex = source.indexOf(":");
+  const idMatch = source.match(
+    /\[\s*id\s*:\s*(F\d+)\s*\]/i
+  );
+
+  if (
+    separatorIndex <= 0
+    || !idMatch
+    || typeof idMatch.index !== "number"
+    || idMatch.index <= separatorIndex
+  ) {
+    return null;
+  }
+
+  const delayedMemoryIds = [];
+  const seenDelayedMemoryIds = new Set();
+  const delayedPattern =
+    /\[\s*delayed_memory_id\s*:\s*([^\]]+?)\s*\]/gi;
+  let delayedMatch = null;
+
+  while ((delayedMatch = delayedPattern.exec(source)) !== null) {
+    const reportId = normalizeContextDelayedMemoryReportId(
+      delayedMatch[1]
+    );
+
+    if (!reportId || seenDelayedMemoryIds.has(reportId)) {
+      continue;
+    }
+
+    seenDelayedMemoryIds.add(reportId);
+    delayedMemoryIds.push(reportId);
+  }
+
+  const ageMatch = source.match(
+    /\(\s*([0-9]+(?:s|m|h|d))\s+ago\s*\)\s*$/i
+  );
+
+  return {
+    id: String(idMatch[1] || "").toUpperCase(),
+    key: source.slice(0, separatorIndex).trim(),
+    value: source.slice(separatorIndex + 1, idMatch.index).trim(),
+    age: ageMatch
+      ? `${String(ageMatch[1] || "").toLowerCase()} ago`
+      : "",
+    delayedMemoryIds,
+  };
+}
+
+function resolveContextLongTermFactReport(delayedMemoryIds) {
+  for (const rawReportId of Array.isArray(delayedMemoryIds) ? delayedMemoryIds : []) {
+    const reportId = normalizeContextDelayedMemoryReportId(rawReportId);
+    const report = getContextDelayedMemoryReport(reportId);
+
+    if (reportId && report) {
+      return {
+        reportId,
+        report,
+      };
+    }
+  }
+
+  return null;
+}
+
+function getContextLongTermFactReportTitle(linked) {
+  if (!linked || !linked.report) {
+    return "";
+  }
+
+  return String(
+    linked.report.title
+    || linked.report.summary
+    || linked.report._storage_key
+    || linked.reportId
+    || ""
+  ).trim();
+}
+
+function syncContextLongTermFactIdLink(node, delayedMemoryIds) {
+  if (!node) {
+    return null;
+  }
+
+  const linked = resolveContextLongTermFactReport(
+    delayedMemoryIds
+  );
+  const linkedTitle = getContextLongTermFactReportTitle(linked);
+
+  node.classList.toggle(
+    "is-linked",
+    Boolean(linked)
+  );
+  node.title = linkedTitle;
+  node.setAttribute(
+    "aria-disabled",
+    linked ? "false" : "true"
+  );
+
+  return linked;
+}
+
+function renderContextLongTermMemoryBody(parent, content) {
+  const records = String(content || "")
+    .split("\n")
+    .map(parseContextLongTermMemoryLine)
+    .filter(Boolean);
+
+  if (!records.length) {
+    renderContextBody(parent, content);
+    return;
+  }
+
+  const list = contextElement(
+    "div",
+    "jin-context-kv-list jin-context-l4-list"
+  );
+
+  records.forEach((record) => {
+    const row = contextElement(
+      "div",
+      "jin-context-kv-row jin-context-l4-row"
+    );
+    const keyCell = contextElement(
+      "div",
+      "jin-context-kv-key jin-context-l4-key"
+    );
+    const factId = record.delayedMemoryIds.length
+      ? document.createElement("button")
+      : document.createElement("span");
+
+    factId.className = "jin-context-l4-fact-id";
+    factId.textContent = record.id;
+
+    if (record.delayedMemoryIds.length) {
+      factId.type = "button";
+      syncContextLongTermFactIdLink(
+        factId,
+        record.delayedMemoryIds
+      );
+
+      factId.addEventListener("mouseenter", () => {
+        syncContextLongTermFactIdLink(
+          factId,
+          record.delayedMemoryIds
+        );
+      });
+      factId.addEventListener("focus", () => {
+        syncContextLongTermFactIdLink(
+          factId,
+          record.delayedMemoryIds
+        );
+      });
+      factId.addEventListener("click", (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+
+        const linked = syncContextLongTermFactIdLink(
+          factId,
+          record.delayedMemoryIds
+        );
+
+        if (linked) {
+          openContextDelayedMemoryReport(
+            linked.reportId
+          );
+        }
+      });
+    }
+
+    keyCell.appendChild(factId);
+    keyCell.appendChild(
+      contextElement(
+        "span",
+        "jin-context-l4-separator",
+        "·"
+      )
+    );
+    keyCell.appendChild(
+      contextElement(
+        "span",
+        "jin-context-l4-fact-key",
+        record.key
+      )
+    );
+
+    if (record.age) {
+      keyCell.appendChild(
+        contextElement(
+          "span",
+          "jin-context-l4-separator",
+          "·"
+        )
+      );
+      keyCell.appendChild(
+        contextElement(
+          "span",
+          "jin-context-l4-age",
+          record.age
+        )
+      );
+    }
+
+    row.appendChild(keyCell);
+    row.appendChild(
+      contextElement(
+        "div",
+        "jin-context-kv-value jin-context-l4-value",
+        record.value || "<empty>"
+      )
+    );
+    list.appendChild(row);
+  });
+
+  parent.appendChild(list);
+}
+
 function syncContextDelayedMemoryRow(row) {
   if (!row || !row.dataset) {
     return;
@@ -2556,6 +2774,11 @@ function appendContextCard(
 
   if (typeof block.renderBody === "function") {
     block.renderBody(body);
+  } else if (normalizedBlockTitle === "LONG_TERM_MEMORY") {
+    renderContextLongTermMemoryBody(
+      body,
+      block.content
+    );
   } else if (normalizedBlockTitle === "DELAYED_MEMORY") {
     renderContextDelayedMemoryBody(
       body,

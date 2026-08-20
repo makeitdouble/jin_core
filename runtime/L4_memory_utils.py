@@ -318,8 +318,8 @@ def build_l4_merge_batch_plan(
     response_headroom = max(
         128,
         min(
-            4096,
-            context_window // 4,
+            3072,
+            context_window // 5,
         ),
     )
 
@@ -904,8 +904,19 @@ def prune_l4_processed_pending_facts(
     *,
     facts,
     pending_facts,
+    ignored_pending_fact_ids=None,
 ) -> list[dict]:
     processed_ids = collect_l4_processed_pending_fact_ids(facts)
+    processed_ids.update(
+        pending_id
+        for pending_id in (
+            normalize_l4_id(raw_id, pending=True)
+            for raw_id in normalize_l4_string_list(
+                ignored_pending_fact_ids
+            )
+        )
+        if pending_id
+    )
     if not processed_ids:
         return pending_facts
 
@@ -938,6 +949,28 @@ def merge_l4_store_snapshots(
         incoming.get("deleted_fact_ids"),
     )
     deleted_fact_id_set = set(deleted_fact_ids)
+    ignored_pending_fact_ids = merge_l4_string_lists(
+        [
+            pending_id
+            for pending_id in (
+                normalize_l4_id(raw_id, pending=True)
+                for raw_id in normalize_l4_string_list(
+                    primary.get("ignored_pending_fact_ids")
+                )
+            )
+            if pending_id
+        ],
+        [
+            pending_id
+            for pending_id in (
+                normalize_l4_id(raw_id, pending=True)
+                for raw_id in normalize_l4_string_list(
+                    incoming.get("ignored_pending_fact_ids")
+                )
+            )
+            if pending_id
+        ],
+    )
 
     facts, _facts_changed = merge_l4_snapshot_fact_lists(
         [
@@ -962,6 +995,7 @@ def merge_l4_store_snapshots(
     pending_facts = prune_l4_processed_pending_facts(
         facts=facts,
         pending_facts=pending_facts,
+        ignored_pending_fact_ids=ignored_pending_fact_ids,
     )
     next_fact_id = max(
         int(primary.get("next_fact_id") or 1),
@@ -975,6 +1009,8 @@ def merge_l4_store_snapshots(
         facts != primary.get("facts")
         or pending_facts != primary.get("pending_facts")
         or deleted_fact_ids != primary.get("deleted_fact_ids")
+        or ignored_pending_fact_ids
+        != primary.get("ignored_pending_fact_ids")
         or next_fact_id != int(primary.get("next_fact_id") or 1)
         or next_pending_fact_id != int(primary.get("next_pending_fact_id") or 1)
     )
@@ -984,6 +1020,7 @@ def merge_l4_store_snapshots(
         "facts": facts,
         "pending_facts": pending_facts,
         "deleted_fact_ids": deleted_fact_ids,
+        "ignored_pending_fact_ids": ignored_pending_fact_ids,
         "next_fact_id": next_fact_id,
         "next_pending_fact_id": next_pending_fact_id,
     }
@@ -1182,6 +1219,7 @@ def empty_l4_store(*, now: str | None = None) -> dict:
         "facts": [],
         "pending_facts": [],
         "deleted_fact_ids": [],
+        "ignored_pending_fact_ids": [],
         "next_fact_id": 1,
         "next_pending_fact_id": 1,
     }
@@ -1209,6 +1247,16 @@ def normalize_l4_store(value, *, now: str | None = None) -> dict:
         value.get("deleted_fact_ids")
     )
     deleted_fact_id_set = set(deleted_fact_ids)
+    ignored_pending_fact_ids = [
+        pending_id
+        for pending_id in (
+            normalize_l4_id(raw_id, pending=True)
+            for raw_id in normalize_l4_string_list(
+                value.get("ignored_pending_fact_ids")
+            )
+        )
+        if pending_id
+    ]
 
     facts = [
         fact
@@ -1226,6 +1274,7 @@ def normalize_l4_store(value, *, now: str | None = None) -> dict:
             pending=True,
             now=current_time,
         ),
+        ignored_pending_fact_ids=ignored_pending_fact_ids,
     )
 
     next_fact_id = max(
@@ -1254,6 +1303,7 @@ def normalize_l4_store(value, *, now: str | None = None) -> dict:
         "facts": facts,
         "pending_facts": pending_facts,
         "deleted_fact_ids": deleted_fact_ids,
+        "ignored_pending_fact_ids": ignored_pending_fact_ids,
         "next_fact_id": next_fact_id,
         "next_pending_fact_id": next_pending_fact_id,
     }
@@ -2055,6 +2105,10 @@ def apply_l4_merge_operations(
         "deleted_fact_ids": merge_l4_string_lists(
             base_store.get("deleted_fact_ids"),
             removed_fact_ids,
+        ),
+        "ignored_pending_fact_ids": merge_l4_string_lists(
+            base_store.get("ignored_pending_fact_ids"),
+            ignored_ids,
         ),
         "next_fact_id": allocation_store.get(
             "next_fact_id",
