@@ -1020,6 +1020,19 @@ class SearchFlowTests(
             state.brain_response,
             "Blue tomato summary from deep search.",
         )
+        followup_prompt = brain_client.prompts[1]["system_prompt"]
+        self.assertIn(
+            "DEEP_WEB_SEARCH:",
+            followup_prompt,
+        )
+        self.assertIn(
+            "WEB_SEARCH:",
+            followup_prompt,
+        )
+        self.assertNotIn(
+            "do not start another web search",
+            followup_prompt,
+        )
 
     async def test_empty_search_results_are_removed_from_brain_context(self):
 

@@ -1,3 +1,4 @@
+import json
 import re
 from datetime import datetime
 
@@ -38,6 +39,10 @@ from utils.actions import (
 from utils.chat_log import (
     resume_chat_log_session,
 )
+from utils.session_actions_history import (
+    get_session_action_session_id,
+    session_action_belongs_to_session,
+)
 from utils.attached_files_store import (
     hydrate_attachment_ids,
 )
@@ -49,6 +54,7 @@ from utils.delayed_memory_file_store import (
 
 
 MAX_BOOTSTRAP_MEMORY_CHARS = 12000
+MAX_BOOTSTRAP_TOOL_RESULT_CHARS = 32000
 MAX_RESUME_CLIENT_ID_CHARS = 80
 RESUME_CLIENT_ID_RE = re.compile(
     r"[^a-zA-Z0-9_.:-]"
@@ -59,6 +65,16 @@ RETIRED_RUNTIME_MEMORY_LINE_RE = re.compile(
     r"^\s*(?:-\s*)?l2_pattern_evidence_\d+\s*:",
     re.IGNORECASE,
 )
+
+
+BOOTSTRAP_TOOL_RESULT_KINDS = {
+    "active_memory",
+    "asset",
+    "deep_search",
+    "delayed_memory",
+    "files",
+    "search",
+}
 
 
 ACTIVE_MEMORY_LINE_RE = re.compile(
@@ -366,9 +382,28 @@ def apply_archived_session_continuation_state(
 
     if isinstance(session_actions, list):
         normalized_actions = []
+        current_session_id = get_session_action_session_id(
+            context
+        )
+        restored_previous_session = bool(
+            source_session_id
+            and current_session_id
+            and source_session_id != current_session_id
+        )
 
         for item in session_actions[-200:]:
             if not isinstance(item, dict):
+                continue
+
+            # Fresh continuation actions belong to the predecessor session.
+            # Accept them here and rebind the final three to this runtime below.
+            if (
+                not restored_previous_session
+                and not session_action_belongs_to_session(
+                    item,
+                    current_session_id,
+                )
+            ):
                 continue
 
             text = clean_bootstrap_memory(
@@ -382,6 +417,16 @@ def apply_archived_session_continuation_state(
             normalized_item = {
                 "text": text,
             }
+
+            item_session_id = clean_bootstrap_memory(
+                item.get(
+                    "session_id",
+                    "",
+                ),
+                limit=80,
+            )
+            if item_session_id:
+                normalized_item["session_id"] = item_session_id
 
             try:
                 created_at = float(
@@ -433,6 +478,16 @@ def apply_archived_session_continuation_state(
                     normalized_item["parts"] = normalized_parts
 
             normalized_actions.append(normalized_item)
+
+        if restored_previous_session:
+            # Keep exactly the three latest actions from the direct predecessor.
+            # Rebinding makes normal per-session pruning retain them, while new
+            # actions from this tab append to the same history afterwards.
+            normalized_actions = normalized_actions[-3:]
+            for item in normalized_actions:
+                item["runtime_session_action_previous_bootstrap"] = True
+                if current_session_id:
+                    item["session_id"] = current_session_id
 
         context.runtime_session_action_history = normalized_actions
 
@@ -1075,6 +1130,165 @@ def clean_bootstrap_runtime_memory(
     ).strip()
 
 
+def clean_bootstrap_tool_result_value(value):
+
+    if isinstance(
+        value,
+        str,
+    ):
+        return clean_bootstrap_memory(
+            value,
+            limit=MAX_BOOTSTRAP_TOOL_RESULT_CHARS,
+        )
+
+    if isinstance(
+        value,
+        (dict, list),
+    ):
+        try:
+            encoded = json.dumps(
+                value,
+                ensure_ascii=False,
+                default=str,
+            )
+            if len(encoded) > MAX_BOOTSTRAP_TOOL_RESULT_CHARS:
+                encoded = encoded[
+                    -MAX_BOOTSTRAP_TOOL_RESULT_CHARS:
+                ]
+            return json.loads(
+                encoded
+            )
+        except (
+            TypeError,
+            ValueError,
+            json.JSONDecodeError,
+        ):
+            return clean_bootstrap_memory(
+                str(value),
+                limit=MAX_BOOTSTRAP_TOOL_RESULT_CHARS,
+            )
+
+    if value is None:
+        return ""
+
+    return clean_bootstrap_memory(
+        str(value),
+        limit=MAX_BOOTSTRAP_TOOL_RESULT_CHARS,
+    )
+
+
+def clean_bootstrap_tool_results(value) -> tuple[list[dict], list]:
+
+    if not isinstance(
+        value,
+        list,
+    ):
+        return [], []
+
+    results = []
+    created_ats = []
+
+    for raw_item in value[-50:]:
+        if not isinstance(
+            raw_item,
+            dict,
+        ):
+            continue
+
+        kind = clean_bootstrap_memory(
+            raw_item.get("kind", ""),
+            limit=80,
+        ).casefold()
+        if kind not in BOOTSTRAP_TOOL_RESULT_KINDS:
+            continue
+
+        result = clean_bootstrap_tool_result_value(
+            raw_item.get("result")
+        )
+        if result is None or result == "":
+            continue
+
+        item = {
+            "kind": kind,
+            "result": result,
+        }
+
+        item_id = clean_bootstrap_memory(
+            raw_item.get("id", ""),
+            limit=200,
+        )
+        if item_id:
+            item["id"] = item_id
+
+        created_at = 0.0
+        for key in (
+            "created_at",
+            "recorded_at",
+        ):
+            try:
+                created_at = float(
+                    raw_item.get(key, 0)
+                    or 0
+                )
+            except (
+                TypeError,
+                ValueError,
+            ):
+                created_at = 0.0
+            if created_at > 0:
+                break
+
+        if created_at > 0:
+            item["created_at"] = created_at
+            created_ats.append(created_at)
+        else:
+            created_ats.append(None)
+
+        results.append(item)
+
+    return results, created_ats
+
+
+def apply_bootstrap_tool_results(
+    context,
+    message_data: dict,
+) -> list[dict]:
+
+    if "tool_results" not in message_data:
+        return list(
+            getattr(
+                context,
+                "runtime_tool_results",
+                [],
+            )
+            or []
+        )
+
+    results, created_ats = clean_bootstrap_tool_results(
+        message_data.get(
+            "tool_results",
+            [],
+        )
+    )
+
+    context.runtime_tool_results = results
+    context.runtime_tool_result_created_ats = created_ats
+    context.runtime_tool_results_turn_count = 0
+    context.runtime_tool_results_generation = (
+        int(
+            getattr(
+                context,
+                "runtime_tool_results_generation",
+                0,
+            )
+            or 0
+        )
+        + 1
+    )
+
+    return results
+
+
 def reset_archived_runtime_memory_lifecycle(
     memory: str,
 ) -> str:
@@ -1465,12 +1679,13 @@ def build_restored_runtime_pheromone_snapshot(
     index: int = 0,
 ) -> dict | None:
 
-    if not runtime_snapshot_has_pheromone_strength(
-        runtime_snapshot
+    if not isinstance(
+        runtime_snapshot,
+        dict,
     ):
         return None
 
-    snapshot_memory = clean_bootstrap_memory(
+    snapshot_memory = clean_bootstrap_runtime_memory(
         runtime_snapshot.get(
             "raw_memory",
             "",
@@ -1481,7 +1696,7 @@ def build_restored_runtime_pheromone_snapshot(
         return None
 
     lines = [
-        line
+        dict(line)
         for line in runtime_snapshot.get(
             "lines",
             [],
@@ -1495,14 +1710,43 @@ def build_restored_runtime_pheromone_snapshot(
     if not lines:
         return None
 
-    return {
+    restored_snapshot = {
         **runtime_snapshot,
         "index": index,
         "raw_memory": runtime_memory,
         "lines": lines,
-        "display_source": "restored_runtime_pheromone_snapshot",
-        "restored_pheromone_strength": True,
+        "display_source": "restored_runtime_snapshot",
     }
+
+    if runtime_snapshot_has_pheromone_strength(
+        runtime_snapshot
+    ):
+        restored_snapshot[
+            "restored_pheromone_strength"
+        ] = True
+
+    return restored_snapshot
+
+
+def resolve_restored_runtime_snapshot_session_id(
+    runtime_snapshot: dict,
+    source_session_id: str,
+) -> str:
+
+    snapshot_session_id = clean_bootstrap_memory(
+        runtime_snapshot.get("session_id", "")
+        if isinstance(runtime_snapshot, dict)
+        else "",
+        limit=80,
+    )
+
+    if snapshot_session_id:
+        return snapshot_session_id
+
+    return clean_bootstrap_memory(
+        source_session_id,
+        limit=80,
+    )
 
 
 async def emit_current_runtime_memory(
@@ -1824,6 +2068,10 @@ def apply_runtime_resume(
         context,
         message_data,
     )
+    apply_bootstrap_tool_results(
+        context,
+        message_data,
+    )
 
     is_archived_restore = bool(
         message_data.get("archived_session_restore")
@@ -1984,6 +2232,17 @@ def apply_runtime_resume(
             runtime_memory,
         )
 
+    restored_snapshot_session_id = (
+        resolve_restored_runtime_snapshot_session_id(
+            runtime_snapshot,
+            source_session_id,
+        )
+    )
+    if restored_snapshot_session_id:
+        restored_snapshot["session_id"] = (
+            restored_snapshot_session_id
+        )
+
     context.runtime_memory_snapshots = [
         restored_snapshot
     ]
@@ -2087,6 +2346,7 @@ def enrich_session_bootstrap_from_archive(
         "runtime_memory_updates",
         "loaded_memory_ids",
         "active_memory_records",
+        "tool_results",
     ):
         if enriched.get(field) in (None, "", [], {}):
             value = archived.get(field)
@@ -2121,6 +2381,10 @@ def apply_session_bootstrap(
         message_data,
     )
     apply_delayed_memory_reports(
+        context,
+        message_data,
+    )
+    apply_bootstrap_tool_results(
         context,
         message_data,
     )
@@ -2192,14 +2456,30 @@ def apply_session_bootstrap(
         runtime_memory_is_snapshot_fallback = True
 
     if is_archived_restore and runtime_memory:
-        # PREVIOUS_RUNTIME_STATE is a semantic snapshot, not a historical L1
-        # page. Drop its old "created/updated Xm ago" presentation metadata so
-        # build_runtime_memory_snapshot() seeds every restored field as fresh at
-        # this restore point. The values remain identical; only lifecycle age is
-        # restarted.
-        runtime_memory = reset_archived_runtime_memory_lifecycle(
-            runtime_memory
+        # The persisted runtime snapshot owns the historical L1 lifecycle.
+        # Prefer its canonical raw_memory so snapshot timestamp + per-line
+        # created_at/updated_at survive the restore instead of being rebased to
+        # the current boot time.
+        snapshot_memory = (
+            clean_bootstrap_runtime_memory(
+                runtime_snapshot.get(
+                    "raw_memory",
+                    "",
+                )
+            )
+            if isinstance(runtime_snapshot, dict)
+            else ""
         )
+
+        if snapshot_memory:
+            runtime_memory = snapshot_memory
+        else:
+            # Log-only legacy archives have relative presentation suffixes but
+            # no absolute snapshot metadata. Keep the semantic values clean; in
+            # that fallback case there is simply no exact lifecycle to restore.
+            runtime_memory = reset_archived_runtime_memory_lifecycle(
+                runtime_memory
+            )
 
     has_bootstrap_content = bool(
         runtime_memory
@@ -2248,10 +2528,9 @@ def apply_session_bootstrap(
         )
 
         # Bootstrap should replace the initial/default runtime page, not append
-        # extra pages. If pheromone persistence is enabled and the saved
-        # snapshot matches runtime_memory, keep that
-        # snapshot as the single restored baseline so the next L1 update can
-        # continue strength calculations from it.
+        # extra pages. If the saved snapshot matches runtime_memory, keep that
+        # exact snapshot as the restored baseline so lifecycle timestamps, diff
+        # state, and pheromone strength all continue from the saved point.
         context.runtime_memory_snapshots = []
         context.runtime_memory_snapshot_index = 0
 
@@ -2287,6 +2566,17 @@ def apply_session_bootstrap(
             restored_snapshot = build_runtime_memory_snapshot(
                 context,
                 context.runtime_memory,
+            )
+
+        restored_snapshot_session_id = (
+            resolve_restored_runtime_snapshot_session_id(
+                runtime_snapshot,
+                source_session_id,
+            )
+        )
+        if restored_snapshot_session_id:
+            restored_snapshot["session_id"] = (
+                restored_snapshot_session_id
             )
 
         context.runtime_memory_snapshots.append(

@@ -41,7 +41,10 @@ SESSION_RESTORE_REASONING_COUNT = 2
 SESSION_RESTORE_REASONING_CHAR_LIMIT = 2000
 SESSION_RESTORE_MESSAGE = (
     "<CONVERSATION_CONTINUE_RULES>\n"
-    "This is a conversation restoration bootstrap information block.\n"
+    "!!!USER DIDN'T SENT A NEW MESSAGE!!!\n"
+    "!!!USER OPENED A NEW TAB OR LOADED A PREVIOUS SESSION!!!\n"
+    "!!!JIN CURRENTLY IS IN BOOTSTRAP FOLLOW UP TICK!!!\n"
+    "The session was bootstrapped in a browser tab!\n"
     "Now derive user language and conversation tone from a context.\n"
     "Think deep and fresh, extract all vibe and re-enable the archived conversation as fluently as possible.\n"
     "Keep the established tone, cadence, assumptions, unresolved "

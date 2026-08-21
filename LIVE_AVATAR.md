@@ -358,6 +358,21 @@ A report being loaded or pinned can make its linked archived L4 dot glow through
 
 This distinction prevents a report load from rewriting the structural meaning of L4. Load/pin is context emphasis; `anchor_fact_ids` is the structural exception that keeps an L4 fact exposed.
 
+### Delayed Memory Highlight Contract
+
+Delayed memory uses **one base blue hue and exactly two highlight tiers**. There is no third persistent DM highlight level.
+
+1. DM id cited in JIN output -> Tier 1 (soft).
+2. Pinned DM, not explicitly loaded -> Tier 2 (strong).
+3. Pinned + loaded DM -> Tier 2.
+4. Explicitly loaded DM -> Tier 2.
+5. Pinned DM1 cross-links DM2 -> DM1 Tier 2, DM2 Tier 1. The cross-link alone must not move DM2 upward in the delayed-memory panel.
+6. Loaded DM1 cross-links DM2 -> DM1 Tier 2, DM2 Tier 1.
+7. Any directly pinned/loaded DM highlights all of its own linked L4 facts at Tier 1; those L4 facts move upward in the long-term panel.
+8. A secondary cross-linked DM does **not** highlight or promote its own L4 facts unless that DM independently becomes pinned or loaded.
+
+Transient hover/modal focus reuses Tier 1; it never introduces another visual intensity. Direct Tier 2 state always wins if both classes are present.
+
 ### Cross-Report Anchor Signal
 
 A loaded/pinned report can contain an ordinary fact that is archived behind it while another report uses the same fact in `anchor_fact_ids`. In that case the **other delayed report** receives the softer class:

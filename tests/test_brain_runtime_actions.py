@@ -3858,6 +3858,14 @@ class BrainRuntimeActionTests(unittest.TestCase):
             )
         )
         self.assertLess(
+            prompt.index("</CURRENT_CONCERNS>"),
+            prompt.index("<CURRENT_TRUSTED_RUNTIME_VARIABLES>"),
+        )
+        self.assertLess(
+            prompt.index("</CURRENT_TRUSTED_RUNTIME_VARIABLES>"),
+            prompt.index("</TOOLS_RESULTS>"),
+        )
+        self.assertLess(
             prompt.index("</TOOLS_RESULTS>"),
             prompt.index(
                 "<ACTIVE_MEMORY priority=\"active_runtime_contracts\">"
@@ -3866,10 +3874,6 @@ class BrainRuntimeActionTests(unittest.TestCase):
         self.assertLess(
             prompt.index("<ACTIVE_MEMORY"),
             prompt.index("<RUNTIME_MEMORY "),
-        )
-        self.assertLess(
-            prompt.index("<RUNTIME_MEMORY "),
-            prompt.index("<CURRENT_TRUSTED_RUNTIME_VARIABLES>"),
         )
         self.assertLess(
             runtime_context.index("<ACTIVE_MEMORY"),

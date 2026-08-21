@@ -2,6 +2,7 @@ const deferredRuntimeActionsAfterResponse = [];
 let runtimeActionRowCounter = 0;
 
 let sceneSearchFadeTimer = null;
+const activeSceneSearchRuntimeActions = new Set();
 
 function getSceneRoot() {
   return document.querySelector("main");
@@ -31,6 +32,54 @@ function setSceneSearchScreenActive(active) {
   );
 }
 
+function buildSceneSearchRuntimeActionKey(
+  action,
+  options = {}
+) {
+
+  const normalizedAction =
+    String(
+      action || "runtime_action"
+    ).trim().toLowerCase()
+    || "runtime_action";
+  const id =
+    String(
+      options.id || ""
+    ).trim();
+
+  if (id) {
+    return `${normalizedAction}:${id}`;
+  }
+
+  const runtimeMessageId =
+    String(
+      options.runtimeMessageId
+      || options.runtime_message_id
+      || ""
+    ).trim();
+  const runtimeTurnId =
+    String(
+      options.runtimeTurnId
+      || options.runtime_turn_id
+      || ""
+    ).trim();
+  const parentId =
+    String(
+      options.deepSearchParentId
+      || options.deep_search_parent_id
+      || ""
+    ).trim();
+
+  return [
+    normalizedAction,
+    id,
+    runtimeMessageId,
+    runtimeTurnId,
+    parentId,
+  ].join(":");
+
+}
+
 function syncSceneSearchScreenForRuntimeAction(
   action,
   active,
@@ -47,8 +96,24 @@ function syncSceneSearchScreenForRuntimeAction(
     return;
   }
 
+  const key =
+    buildSceneSearchRuntimeActionKey(
+      action,
+      options
+    );
+
+  if (active) {
+    activeSceneSearchRuntimeActions.add(
+      key
+    );
+  } else {
+    activeSceneSearchRuntimeActions.delete(
+      key
+    );
+  }
+
   setSceneSearchScreenActive(
-    active
+    activeSceneSearchRuntimeActions.size > 0
   );
 }
 
@@ -2785,6 +2850,14 @@ function appendRuntimeAction(
           }
         )
     ) {
+      if (options.activateScene !== false) {
+        syncSceneSearchScreenForRuntimeAction(
+          action,
+          !options.completed,
+          options
+        );
+      }
+
       if (options.id) {
         existingRow.dataset.runtimeActionKey =
           actionKey || "";

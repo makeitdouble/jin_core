@@ -362,24 +362,6 @@
   }
 
 
-  function restoreSessionActions(
-    payload
-  ) {
-    if (
-      !Array.isArray(payload.session_actions)
-      || !payload.session_actions.length
-      || typeof window.updateSessionActionsLog
-        !== "function"
-    ) {
-      return;
-    }
-
-    window.updateSessionActionsLog({
-      mode: "session_actions",
-      items: payload.session_actions,
-    });
-  }
-
   function mergeLatestVisualCheckpoint(
     payload
   ) {
@@ -412,6 +394,49 @@
       && typeof checkpoint.session_snapshot === "object"
         ? checkpoint.session_snapshot
         : null;
+
+    const savedRuntime =
+      typeof storage.readLatestSavedRuntimeMemory === "function"
+        ? storage.readLatestSavedRuntimeMemory()
+        : null;
+    const savedRuntimeMatchesSource = Boolean(
+      savedRuntime
+      && typeof savedRuntime === "object"
+      && !Array.isArray(savedRuntime)
+      && String(savedRuntime.session_id || "").trim()
+        === String(
+          merged.source_session_id
+          || sourceSessionId
+          || ""
+        ).trim()
+    );
+
+    if (savedRuntimeMatchesSource) {
+      const runtimeMemory =
+        String(savedRuntime.runtime_memory || "").trim();
+      const runtimeSnapshot =
+        savedRuntime.runtime_snapshot
+        && typeof savedRuntime.runtime_snapshot === "object"
+        && !Array.isArray(savedRuntime.runtime_snapshot)
+          ? savedRuntime.runtime_snapshot
+          : null;
+
+      if (runtimeMemory) {
+        merged.runtime_memory = runtimeMemory;
+      }
+
+      if (runtimeSnapshot) {
+        merged.runtime_snapshot = {
+          ...runtimeSnapshot,
+        };
+      }
+
+      merged.runtime_memory_updates = Number(
+        savedRuntime.runtime_memory_updates
+        || merged.runtime_memory_updates
+        || 0
+      );
+    }
 
     if (!snapshot) {
       return merged;
@@ -646,6 +671,12 @@
           payload.runtime_memory_updates
           || 0
         ),
+      runtime_snapshot:
+        payload.runtime_snapshot
+        && typeof payload.runtime_snapshot === "object"
+        && !Array.isArray(payload.runtime_snapshot)
+          ? { ...payload.runtime_snapshot }
+          : null,
       loaded_memory_ids:
         Array.isArray(payload.loaded_memory_ids)
           ? payload.loaded_memory_ids
@@ -680,6 +711,10 @@
       session_actions:
         Array.isArray(payload.session_actions)
           ? payload.session_actions
+          : [],
+      tool_results:
+        Array.isArray(payload.tool_results)
+          ? payload.tool_results
           : [],
       runtime_turn_counter:
         Number(
@@ -792,7 +827,6 @@
 
     renderArchivedMessages(payload);
     restoreDelayedMemoryStore(payload);
-    restoreSessionActions(payload);
     restoreVisualState(payload);
 
     // Paint PREVIOUS_RUNTIME_STATE immediately as runtime page 1. This replaces

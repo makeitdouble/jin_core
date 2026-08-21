@@ -81,6 +81,9 @@ from utils.attached_files_store import (
 from utils.chat_log import (
     save_current_runtime_bootstrap_context_snapshot,
 )
+from utils.session_actions_history import (
+    emit_session_actions_update,
+)
 
 
 websocket_router = APIRouter()
@@ -591,6 +594,14 @@ async def websocket_endpoint(
 
                     await emit_delayed_memory_store_snapshot(
                         context
+                    )
+
+                    # Restore the same three-action trail in the visible
+                    # [SESSION ACTIONS] logger. RuntimeContext already owns
+                    # this list, so the hidden bootstrap tick sees it too.
+                    await emit_session_actions_update(
+                        context,
+                        current_sequence=False,
                     )
 
                 continue

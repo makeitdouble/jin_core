@@ -93,11 +93,9 @@
   const AMBER_ACCENT = "#e3a64e";
   const ACTIVE_MEMORY_RING_COLOR = "#d7fff9";
   const DELAYED_MEMORY_RING_COLOR = "#7ab8d8";
-  const DELAYED_MEMORY_RING_ACTIVE_COLOR = "#68dbff";
-  const PINNED_DELAYED_MEMORY_RING_COLOR = "#efffff";
   const L4_MEMORY_RING_COLOR = "#93c5fd";
   const FILE_RING_COLOR = DELAYED_MEMORY_RING_COLOR;
-  const FILE_RING_ACTIVE_COLOR = PINNED_DELAYED_MEMORY_RING_COLOR;
+  const FILE_RING_ACTIVE_COLOR = "#efffff";
 
   const avatarRoot = document.getElementById("jin-runtime-avatar");
   const avatarShell = avatarRoot?.closest(".jin-runtime-avatar-shell") || null;
@@ -1897,9 +1895,17 @@
           normalizeL4FactIds(report.anchor_fact_ids);
         const factIds =
           normalizeL4FactIds(report.facts_ids);
+        const linkedFactIds =
+          normalizeL4FactIds([
+            report.anchor_fact_ids,
+            report.facts_ids,
+            report.absorbed_fact_ids,
+            report.long_term_facts_ids,
+          ]);
+        // Keep pin and explicit-load state separate. Both are direct DM
+        // states for Tier 2 and both may act as secondary-link sources.
         const loaded =
-          Boolean(report.pinned)
-          || Boolean(
+          Boolean(
             runtime
             && typeof runtime.isDelayedMemoryReportLoaded === "function"
             && runtime.isDelayedMemoryReportLoaded(id)
@@ -1917,6 +1923,7 @@
           loaded,
           anchorFactIds,
           factIds,
+          linkedFactIds,
           attachmentIds:
             normalizeShortRuntimeIds(
               report.attachments_ids
@@ -2537,9 +2544,10 @@
       const pinned = Boolean(record.pinned);
       const contextLoaded = Boolean(record.loaded);
       const active = pinned || contextLoaded;
-      const color = active
-        ? DELAYED_MEMORY_RING_ACTIVE_COLOR
-        : mixColors(DELAYED_MEMORY_RING_COLOR, overallColor, 0.12);
+      // Delayed memory has one base hue. Direct state and references are
+      // expressed only through the two CSS highlight tiers.
+      const color =
+        mixColors(DELAYED_MEMORY_RING_COLOR, overallColor, 0.12);
 
       appendMemoryDashSegment(
         reasoningMotion.content,
@@ -2550,9 +2558,7 @@
           arcDegrees,
           metabolismChannel: getMetabolismChannel(index, kind),
           color,
-          glowColor: active
-            ? DELAYED_MEMORY_RING_ACTIVE_COLOR
-            : color,
+          glowColor: color,
           opacity: active ? 0.82 : 0.36,
           pinned,
           contextLoaded,
@@ -2560,7 +2566,7 @@
           citationKey:
             normalizeRuntimeCitationIdentity(record.id),
           delayedMemoryId: record.id,
-          delayedMemoryFactIds: record.factIds,
+          delayedMemoryFactIds: record.linkedFactIds,
           delayedMemoryAnchorFactIds: record.anchorFactIds,
           referenceAliases: record.referenceAliases,
           title: `${record.title}${record.summary ? `: ${record.summary}` : ""}`,
@@ -2829,9 +2835,7 @@
     const nextActive =
       nextPinned || nextContextLoaded;
     const nextColor =
-      nextActive
-        ? DELAYED_MEMORY_RING_ACTIVE_COLOR
-        : mixColors(DELAYED_MEMORY_RING_COLOR, overallColor, 0.12);
+      mixColors(DELAYED_MEMORY_RING_COLOR, overallColor, 0.12);
 
     dashGroup.classList.toggle(
       "is-memory-pinned",
@@ -2839,10 +2843,7 @@
     );
     const metabolismChannel =
       String(dashGroup.dataset.metabolismChannel || "").trim();
-    const nextGlowColor =
-      nextActive
-        ? DELAYED_MEMORY_RING_ACTIVE_COLOR
-        : nextColor;
+    const nextGlowColor = nextColor;
     const renderedColor =
       getMetabolismTintedColor(
         nextColor,
@@ -3057,7 +3058,7 @@
       }
 
       dashGroup.dataset.delayedMemoryFactIds =
-        serializeL4FactIds(record.factIds) || "";
+        serializeL4FactIds(record.linkedFactIds) || "";
       dashGroup.dataset.delayedMemoryAnchorFactIds =
         serializeL4FactIds(record.anchorFactIds) || "";
       dashGroup.classList.toggle(
@@ -3986,13 +3987,16 @@
   function getSecondaryLinkedDelayedMemoryReportIds() {
     const records = getDelayedMemoryAvatarRecords();
     const linkedReportIds = new Set();
-    const sourceReportIds = new Set();
 
+    // Pin and explicit load are both direct DM states. Either one may expose
+    // a softer cross-report anchor signal, but that secondary target must not
+    // inherit the source report's direct L4 emphasis.
     records
-      .filter(record => Boolean(record && record.loaded))
+      .filter(record => Boolean(
+        record && (record.pinned || record.loaded)
+      ))
       .forEach((sourceRecord) => {
         const hiddenFactIds = new Set(sourceRecord.factIds);
-        let matchedTarget = false;
 
         sourceRecord.anchorFactIds.forEach((factId) => {
           hiddenFactIds.delete(factId);
@@ -4017,19 +4021,11 @@
             )
           ) {
             linkedReportIds.add(targetRecord.id);
-            matchedTarget = true;
           }
         });
-
-        if (matchedTarget) {
-          sourceReportIds.add(sourceRecord.id);
-        }
       });
 
-    return {
-      sourceReportIds,
-      linkedReportIds,
-    };
+    return linkedReportIds;
   }
 
   function applyDelayedMemoryFactLinkGlow() {
@@ -4043,7 +4039,7 @@
       collectDelayedMemoryLinkedL4FactIds(svg);
     const hoveredL4FactIds =
       collectHoveredL4FactIds(svg);
-    const secondaryLinkState =
+    const secondaryLinkedReportIds =
       getSecondaryLinkedDelayedMemoryReportIds();
 
     Array.from(
@@ -4078,15 +4074,12 @@
 
       node.classList.toggle(
         "is-delayed-memory-secondary-linked",
-        secondaryLinkState.linkedReportIds.has(
+        secondaryLinkedReportIds.has(
           delayedMemoryId
         )
       );
-      node.classList.toggle(
-        "is-delayed-memory-secondary-source",
-        secondaryLinkState.sourceReportIds.has(
-          delayedMemoryId
-        )
+      node.classList.remove(
+        "is-delayed-memory-secondary-source"
       );
     });
 
@@ -4585,6 +4578,7 @@
         record.loaded,
         record.anchorFactIds.join(","),
         record.factIds.join(","),
+        record.linkedFactIds.join(","),
       ].join("␟")).join("␞"),
       l4: l4MemoryRecords.map(record => [
         record.id,

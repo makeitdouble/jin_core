@@ -19,6 +19,13 @@ RUNTIME_SESSION_JS = (
     / "runtime"
     / "runtime-session.js"
 )
+SESSION_RESTORE_JS = (
+    ROOT
+    / "ui"
+    / "static"
+    / "js"
+    / "session-restore.js"
+)
 
 
 class SessionBootstrapLineageClientContractTests(unittest.TestCase):
@@ -53,6 +60,26 @@ class SessionBootstrapLineageClientContractTests(unittest.TestCase):
         self.assertIn("bootstrap.source_session_id", block)
         self.assertIn("bootstrap.runtime_memory", block)
 
+    def test_live_bootstrap_preserves_tool_results(self):
+        source = RUNTIME_SESSION_JS.read_text(encoding="utf-8")
+        start = source.index("function normalizeLiveSessionSnapshot(")
+        end = source.index("function persistLiveSessionCheckpoint", start)
+        block = source[start:end]
+
+        self.assertIn("tool_results:", block)
+        self.assertIn("source.tool_results", block)
+        self.assertIn("data.tool_results", block)
+
+    def test_archived_bootstrap_passes_actions_and_tool_results(self):
+        source = SESSION_RESTORE_JS.read_text(encoding="utf-8")
+        start = source.index("function buildBootstrap(")
+        end = source.index("async function restoreArchivedSession", start)
+        block = source[start:end]
+
+        self.assertIn("payload.session_actions", block)
+        self.assertIn("payload.tool_results", block)
+        self.assertNotIn("session_actions: []", block)
+
     def test_live_runtime_snapshot_keeps_direct_predecessor_link(self):
         source = RUNTIME_STORAGE_JS.read_text(encoding="utf-8")
 
@@ -61,6 +88,51 @@ class SessionBootstrapLineageClientContractTests(unittest.TestCase):
         self.assertIn("readLatestPreviousRuntimeMemory", source)
         self.assertIn("collectOtherLatestRuntimeMemorySnapshots", source)
         self.assertIn("saved_at:\n        new Date().toISOString()", source)
+
+    def test_persisted_runtime_snapshot_keeps_its_origin_session_id(self):
+        storage_source = RUNTIME_STORAGE_JS.read_text(encoding="utf-8")
+        storage_start = storage_source.index(
+            "function buildPersistedRuntimeSnapshot("
+        )
+        storage_end = storage_source.index(
+            "function cloneRuntimeMemoryToCurrentSession(",
+            storage_start,
+        )
+        storage_block = storage_source[storage_start:storage_end]
+
+        self.assertIn(
+            'String(snapshot.session_id || "").trim()',
+            storage_block,
+        )
+        self.assertIn(
+            "session_id: snapshotSessionId",
+            storage_block,
+        )
+        self.assertNotIn(
+            "session_id: runtimeSessionId",
+            storage_block,
+        )
+
+        session_source = RUNTIME_SESSION_JS.read_text(encoding="utf-8")
+        checkpoint_start = session_source.index(
+            "function buildCheckpointRuntimeSnapshot("
+        )
+        checkpoint_end = session_source.index(
+            "function runtimeMemoryObjectFromSnapshot(",
+            checkpoint_start,
+        )
+        checkpoint_block = session_source[
+            checkpoint_start:checkpoint_end
+        ]
+
+        self.assertIn(
+            "persistedSnapshot.session_id",
+            checkpoint_block,
+        )
+        self.assertIn(
+            "|| getCurrentSavedSessionId()",
+            checkpoint_block,
+        )
 
 
 if __name__ == "__main__":

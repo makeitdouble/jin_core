@@ -57,6 +57,9 @@ body.jin-scrollbar-active,
     --panel-collapse-duration: 0.22s;
     --panel-startup-collapse-duration: 5s;
     --panel-collapse-easing: cubic-bezier(0.45, 0, 0.55, 1);
+    --app-header-height: 40px;
+    --app-header-slide-duration: 0.24s;
+    --app-header-slide-easing: cubic-bezier(0.22, 1, 0.36, 1);
     --panel-geometry-transition: height var(--panel-collapse-duration) var(--panel-collapse-easing), min-height var(--panel-collapse-duration) var(--panel-collapse-easing), max-height var(--panel-collapse-duration) var(--panel-collapse-easing);
 
     --chat-max-width: 820px;
@@ -89,11 +92,21 @@ body {
 }
 
 #app-header {
-    position: relative;
+    position: fixed;
+    top: 0;
+    right: 0;
+    left: 0;
     z-index: 40;
+    transform: translate3d(0, -100%, 0);
+    transition: transform var(--app-header-slide-duration) var(--app-header-slide-easing);
+    will-change: transform;
     box-shadow:
             0 5px 14px rgba(0, 0, 0, 0.22),
             0 1px 0 rgba(255, 255, 255, 0.018);
+}
+
+body.app-header-visible #app-header {
+    transform: translate3d(0, 0, 0);
 }
 
 main {
@@ -143,9 +156,12 @@ main.panel-startup-collapse-active {
 }
 
 main.scene-clutter-middle #scene-clutter-overlay,
-main.scene-cluttered #scene-cluttered-overlay,
-main.scene-searching #scene-search-overlay {
+main.scene-cluttered #scene-cluttered-overlay {
     opacity: 0;
+}
+
+main.scene-searching #scene-search-overlay {
+    opacity: 0.88;
 }
 
 #scene-jin-tint {
@@ -196,12 +212,16 @@ main.panels-collapsed-2 #scene-shade {
 
 #console-panel,
 #memory-panel {
+    --app-header-panel-shift: 0px;
     max-height: 100%;
     overflow: visible;
     opacity: 1;
+    transform: translate3d(0, var(--app-header-panel-shift), 0);
     transition:
             var(--panel-geometry-transition),
-            opacity 0.35s ease;
+            opacity 0.35s ease,
+            transform var(--app-header-slide-duration) var(--app-header-slide-easing);
+    will-change: transform;
 }
 
 #console-drag-handle,
@@ -398,7 +418,9 @@ main.panels-collapsed-2 #scene-shade {
 
 #console-panel.panel-resizing,
 #memory-panel.panel-resizing {
-    transition: opacity 0.35s ease;
+    transition:
+            opacity 0.35s ease,
+            transform var(--app-header-slide-duration) var(--app-header-slide-easing);
 }
 
 #console-panel {
@@ -488,8 +510,8 @@ main.panels-collapsed-2 #scene-shade {
                     rgba(4, 6, 10, 0.055) 72%,
                     rgba(4, 6, 10, 0.085) 100%
             );
-    -webkit-backdrop-filter: blur(14px) saturate(0.92);
-    backdrop-filter: blur(14px) saturate(0.92);
+    /*-webkit-backdrop-filter: blur(14px) saturate(0.92);
+    backdrop-filter: blur(14px) saturate(0.92);*/
     -webkit-mask-image: radial-gradient(
             ellipse 136px 124px at calc(100% - 48px) calc(100% - 10px),
             rgba(0, 0, 0, 1) 0%,
@@ -854,8 +876,8 @@ main.panels-collapsed-2 #scene-shade {
                     rgba(3, 7, 18, 0.465) 72%,
                     rgba(3, 7, 18, 0.615) 100%
             );
-    backdrop-filter: blur(1.5px);
-    -webkit-backdrop-filter: blur(1.5px);
+    /*backdrop-filter: blur(1.5px);
+    -webkit-backdrop-filter: blur(1.5px);*/
     mask-image:
             linear-gradient(
                     to bottom,
@@ -1105,19 +1127,23 @@ main.panels-collapsed-2 #scene-shade {
             border-color 1.8s ease,
             box-shadow 1.8s ease,
             var(--panel-geometry-transition),
-            opacity 0.35s ease;
+            opacity 0.35s ease,
+            transform var(--app-header-slide-duration) var(--app-header-slide-easing);
 }
 
 #memory-panel.panel-resizing {
     transition:
             border-color 1.8s ease,
             box-shadow 1.8s ease,
-            opacity 0.35s ease;
+            opacity 0.35s ease,
+            transform var(--app-header-slide-duration) var(--app-header-slide-easing);
 }
 
 #console-panel.panel-inactive {
     opacity: 0.75;
-    transition: opacity 3s cubic-bezier(0.22, 1, 0.36, 1);
+    transition:
+            opacity 3s cubic-bezier(0.22, 1, 0.36, 1),
+            transform var(--app-header-slide-duration) var(--app-header-slide-easing);
 }
 
 #memory-panel.panel-inactive {
@@ -1125,12 +1151,15 @@ main.panels-collapsed-2 #scene-shade {
     transition:
             border-color 1.8s ease,
             box-shadow 1.8s ease,
-            opacity 3s cubic-bezier(0.22, 1, 0.36, 1);
+            opacity 3s cubic-bezier(0.22, 1, 0.36, 1),
+            transform var(--app-header-slide-duration) var(--app-header-slide-easing);
 }
 
 #console-panel.panel-inactive:hover {
     opacity: 1;
-    transition: opacity 0.35s ease;
+    transition:
+            opacity 0.35s ease,
+            transform var(--app-header-slide-duration) var(--app-header-slide-easing);
 }
 
 #memory-panel.panel-inactive:hover {
@@ -1138,7 +1167,8 @@ main.panels-collapsed-2 #scene-shade {
     transition:
             border-color 1.8s ease,
             box-shadow 1.8s ease,
-            opacity 0.35s ease;
+            opacity 0.35s ease,
+            transform var(--app-header-slide-duration) var(--app-header-slide-easing);
 }
 
 main.panel-startup-collapse-active #console-panel,
@@ -1147,7 +1177,8 @@ main.panel-startup-collapse-active #memory-panel {
             height var(--panel-collapse-duration) var(--panel-collapse-easing),
             min-height var(--panel-collapse-duration) var(--panel-collapse-easing),
             max-height var(--panel-collapse-duration) var(--panel-collapse-easing),
-            opacity var(--panel-collapse-duration) var(--panel-collapse-easing) !important;
+            opacity var(--panel-collapse-duration) var(--panel-collapse-easing),
+            transform var(--app-header-slide-duration) var(--app-header-slide-easing) !important;
 }
 
 main.panel-startup-collapse-active #memory-panel {
@@ -1157,7 +1188,8 @@ main.panel-startup-collapse-active #memory-panel {
             height var(--panel-collapse-duration) var(--panel-collapse-easing),
             min-height var(--panel-collapse-duration) var(--panel-collapse-easing),
             max-height var(--panel-collapse-duration) var(--panel-collapse-easing),
-            opacity var(--panel-collapse-duration) var(--panel-collapse-easing) !important;
+            opacity var(--panel-collapse-duration) var(--panel-collapse-easing),
+            transform var(--app-header-slide-duration) var(--app-header-slide-easing) !important;
 }
 
 #memory-panel.memory-updating {
@@ -1281,4 +1313,8 @@ main.panel-startup-collapse-active #memory-panel {
     box-shadow:
             0 0 0 1px rgba(255,255,255,0.1),
             0 0 12px rgba(255,255,255,0.2);
+}
+
+#console-title{
+    margin-top: -2px;
 }

@@ -17,6 +17,7 @@ COMMON_ACTION_UTILS_PY = (
     ROOT / "utils" / "actions" / "common_action_utils.py"
 )
 INDEX_HTML = ROOT / "ui" / "templates" / "index.html"
+BASE_CSS = ROOT / "ui" / "static" / "css" / "base.css"
 
 
 class ChatRuntimeMarkerUiTests(unittest.TestCase):
@@ -254,6 +255,9 @@ for (const [input, expected] of cases) {
         ).read_text(
             encoding="utf-8"
         )
+        base_css = BASE_CSS.read_text(
+            encoding="utf-8"
+        )
 
         self.assertIn(
             "function syncRuntimeActionSearchState(",
@@ -304,12 +308,36 @@ for (const [input, expected] of cases) {
             chat_runtime_source,
         )
         self.assertIn(
-            "margin-top 240ms cubic-bezier(0, 0, 0.2, 1)",
+            "--jin-deep-search-stack-motion: 150ms",
             runtime_action_css,
         )
         self.assertIn(
-            "transition-timing-function: cubic-bezier(0.4, 0, 1, 1)",
+            "margin-top var(--jin-deep-search-stack-motion) cubic-bezier(0.16, 1, 0.3, 1)",
             runtime_action_css,
+        )
+        self.assertIn(
+            "transition-timing-function: cubic-bezier(0.55, 0.055, 0.675, 0.19)",
+            runtime_action_css,
+        )
+        self.assertIn(
+            "const activeSceneSearchRuntimeActions = new Set();",
+            chat_runtime_source,
+        )
+        self.assertIn(
+            "function buildSceneSearchRuntimeActionKey(",
+            chat_runtime_source,
+        )
+        self.assertIn(
+            "activeSceneSearchRuntimeActions.size > 0",
+            chat_runtime_source,
+        )
+        self.assertIn(
+            "main.scene-searching #scene-search-overlay",
+            base_css,
+        )
+        self.assertIn(
+            "opacity: 0.88",
+            base_css,
         )
         self.assertIn(
             "const deepSearchChild =",
@@ -334,6 +362,110 @@ for (const [input, expected] of cases) {
         self.assertIn(
             "deepSearchParentId,",
             socket_runtime_source,
+        )
+
+    @unittest.skipUnless(
+        shutil.which("node"),
+        "node is required for the browser-side search scene test",
+    )
+    def test_deep_search_scene_overlay_stays_until_parent_completes(self):
+        script = r'''
+const fs = require("fs");
+const source = fs.readFileSync(process.argv[1], "utf8");
+const end = source.indexOf("\nfunction formatRuntimeActionContextTitle(");
+
+if (end < 0) {
+  throw new Error("search scene helpers were not found");
+}
+
+eval(source.slice(0, end));
+
+const classes = new Set();
+global.document = {
+  querySelector(selector) {
+    if (selector !== "main") {
+      return null;
+    }
+
+    return {
+      classList: {
+        add(value) {
+          classes.add(value);
+        },
+        remove(value) {
+          classes.delete(value);
+        },
+      },
+    };
+  },
+};
+
+syncSceneSearchScreenForRuntimeAction(
+  "deep_web_search",
+  true,
+  {
+    id: "deep_web_search_001",
+    runtimeMessageId: "message_1",
+    sceneEffect: "search",
+  }
+);
+
+if (!classes.has("scene-searching")) {
+  throw new Error("deep search parent did not activate the search scene");
+}
+
+syncSceneSearchScreenForRuntimeAction(
+  "web_search",
+  true,
+  {
+    id: "web_search_001",
+    deepSearchParentId: "deep_web_search_001",
+    sceneEffect: "search",
+  }
+);
+syncSceneSearchScreenForRuntimeAction(
+  "web_search",
+  false,
+  {
+    id: "web_search_001",
+    deepSearchParentId: "deep_web_search_001",
+    sceneEffect: "search",
+  }
+);
+
+if (!classes.has("scene-searching")) {
+  throw new Error("child web search completion hid the deep search scene");
+}
+
+syncSceneSearchScreenForRuntimeAction(
+  "deep_web_search",
+  false,
+  {
+    id: "deep_web_search_001",
+    sceneEffect: "search",
+  }
+);
+
+if (classes.has("scene-searching")) {
+  throw new Error("deep search parent completion did not hide the search scene");
+}
+'''
+        completed = subprocess.run(
+            [
+                shutil.which("node"),
+                "-e",
+                script,
+                str(CHAT_RUNTIME_ACTIONS_JS),
+            ],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+
+        self.assertEqual(
+            completed.returncode,
+            0,
+            completed.stderr or completed.stdout,
         )
 
 

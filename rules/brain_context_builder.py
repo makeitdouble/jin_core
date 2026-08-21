@@ -358,10 +358,18 @@ def _append_L1_runtime_memory(
         )
 
         snapshot_timestamp = ""
+        snapshot_session_id = ""
         if isinstance(latest_snapshot, dict):
             snapshot_timestamp = str(
                 latest_snapshot.get(
                     "timestamp",
+                    "",
+                )
+                or ""
+            ).strip()
+            snapshot_session_id = str(
+                latest_snapshot.get(
+                    "session_id",
                     "",
                 )
                 or ""
@@ -382,8 +390,16 @@ def _append_L1_runtime_memory(
                 )
             )
 
+        runtime_memory_attrs = [
+            f'ts="{escape(snapshot_timestamp)}"'
+        ]
+        if snapshot_session_id:
+            runtime_memory_attrs.append(
+                f'session_id="{escape(snapshot_session_id)}"'
+            )
+
         parts.append(
-            f'<RUNTIME_MEMORY ts="{escape(snapshot_timestamp)}">\n'
+            f'<RUNTIME_MEMORY {" ".join(runtime_memory_attrs)}>\n'
             f"{indent_xml(escape(canonicalize_runtime_memory_text(runtime_memory)))}\n"
             "</RUNTIME_MEMORY>"
         )
@@ -1058,12 +1074,20 @@ def build_brain_context(
         runtime_actions
     )
 
-    # Current concerns is an always-present live interrupt summary. Keep it
-    # immediately above tool results so every normal prompt exposes the
-    # current active-memory and pinned-resource pressure in one fixed place.
+    # Current concerns is an always-present live interrupt summary. Keep trusted
+    # runtime variables directly below it so the live operational state is
+    # visible before transient tool/action output.
     prompt_parts.append(
         build_current_concerns_context(
             context
+        )
+    )
+
+    # Runtime XML block: exposes trusted runtime variables and enabled actions.
+    prompt_parts.append(
+        build_runtime_xml(
+            context,
+            runtime_actions,
         )
     )
 
@@ -1173,14 +1197,6 @@ def build_brain_context(
         context,
         user_input=user_input,
         commit_active_memory_refresh=commit_active_memory_refresh,
-    )
-
-    # Runtime XML block: exposes trusted runtime variables and enabled actions.
-    runtime_context_parts.append(
-        build_runtime_xml(
-            context,
-            runtime_actions,
-        )
     )
 
     # Visible session state block: records visible turn and message counters.

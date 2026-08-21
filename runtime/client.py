@@ -355,6 +355,7 @@ class RuntimeClient:
         self.detected_context_window = None
         self.detected_max_tokens = None
         self.provider_context_window_ceiling = None
+        self.provider_context_window_ceiling_detected_context = None
         self.model_limits_detection_attempted = False
         self.model_limits_detected_at = 0.0
 
@@ -719,6 +720,7 @@ class RuntimeClient:
         if not context_window:
             return None
 
+        detected_when_learned = self.detected_context_window
         current_ceiling = self.provider_context_window_ceiling
         if current_ceiling:
             context_window = min(
@@ -727,6 +729,10 @@ class RuntimeClient:
             )
 
         self.provider_context_window_ceiling = context_window
+        if detected_when_learned:
+            self.provider_context_window_ceiling_detected_context = int(
+                detected_when_learned
+            )
 
         if self.detected_context_window:
             self.detected_context_window = min(
@@ -735,6 +741,33 @@ class RuntimeClient:
             )
 
         return context_window
+
+    def release_stale_provider_context_window_ceiling(
+            self,
+            detected_context_window: int | None,
+    ) -> bool:
+
+        ceiling = self.provider_context_window_ceiling
+        learned_against = self.provider_context_window_ceiling_detected_context
+        if not ceiling or not learned_against or not detected_context_window:
+            return False
+
+        try:
+            detected = int(detected_context_window)
+            learned = int(learned_against)
+        except (TypeError, ValueError):
+            return False
+
+        # A provider 400 is authoritative only for the loaded model instance
+        # that produced it. If a fresh metadata read now reports a larger live
+        # n_ctx than the one seen when the ceiling was learned, LM Studio was
+        # reconfigured in-place and the old ceiling must not pin future turns.
+        if detected <= learned:
+            return False
+
+        self.provider_context_window_ceiling = None
+        self.provider_context_window_ceiling_detected_context = None
+        return True
 
     def select_loaded_model_metadata(
             self,
@@ -853,6 +886,10 @@ class RuntimeClient:
 
                 if context_window:
                     self.detected_context_window = context_window
+                    if force_refresh:
+                        self.release_stale_provider_context_window_ceiling(
+                            context_window
+                        )
 
                 if max_tokens:
                     self.detected_max_tokens = max_tokens

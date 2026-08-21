@@ -1,6 +1,7 @@
 import json
 import re
 from datetime import datetime
+from html import unescape
 from pathlib import Path
 from xml.sax.saxutils import escape
 
@@ -33,6 +34,7 @@ L4_FACT_ID_RE = re.compile(
 
 
 ACTION_LABELS = {
+    "SAVE_SESSION": "Saved session",
     "SAVE_DELAYED_MEMORY_CONTENT": "Saved delayed memory",
     "LOAD_DELAYED_MEMORY": "Loaded delayed memory",
     "UNLOAD_DELAYED_MEMORY": "Unloaded delayed memory",
@@ -519,6 +521,96 @@ def _tool_result_detail(name: str, payload: dict) -> tuple[str, str]:
     return label, detail
 
 
+def _tool_result_kind(name: str) -> str:
+    action_name = str(name or "").strip().upper()
+    if action_name == "WEB_SEARCH":
+        return "search"
+    if action_name == "DEEP_WEB_SEARCH":
+        return "deep_search"
+    if action_name in {
+        "ASSET_ACTION",
+        "CREATE_WILDCARD_FILE",
+        "APPEND_WILDCARD_FILE",
+        "GENERATE_PROMPT_BATCH",
+        "PREVIEW_FILE",
+        "EXPAND_TEMPLATE",
+        "SAMPLE_WILDCARD",
+    }:
+        return "asset"
+    if action_name in {
+        "SAVE_ACTIVE_MEMORY",
+        "RESOLVE_ACTIVE_MEMORY",
+        "UPDATE_ACTIVE_MEMORY",
+    }:
+        return "active_memory"
+    if action_name in {
+        "SAVE_DELAYED_MEMORY_CONTENT",
+        "LOAD_DELAYED_MEMORY",
+        "UNLOAD_DELAYED_MEMORY",
+    }:
+        return "delayed_memory"
+    if action_name in {
+        "LIST_FILES",
+        "ATTACH_FILE",
+    }:
+        return "files"
+    return ""
+
+
+def _clean_restored_tool_result_body(value: str) -> str:
+    source = unescape(
+        str(value or "")
+    ).replace("\r\n", "\n").replace("\r", "\n")
+    lines = source.splitlines()
+    non_empty = [
+        line
+        for line in lines
+        if line.strip()
+    ]
+    if non_empty:
+        indentation = min(
+            len(line) - len(line.lstrip())
+            for line in non_empty
+        )
+        if indentation:
+            lines = [
+                line[indentation:] if line.strip() else ""
+                for line in lines
+            ]
+
+    return "\n".join(lines).strip()[:32000]
+
+
+def _parse_restore_tool_results(
+    context_text: str,
+    fallback_created_at: float,
+) -> list[dict]:
+    items = []
+    offset = 0.0
+
+    for match in TOOL_RESULT_RE.finditer(str(context_text or "")):
+        kind = _tool_result_kind(
+            match.group("name")
+        )
+        if not kind:
+            continue
+
+        body = _clean_restored_tool_result_body(
+            match.group("body")
+        )
+        if not body:
+            continue
+
+        items.append({
+            "kind": kind,
+            "result": body,
+            "created_at": fallback_created_at + offset,
+        })
+        offset += 0.001
+
+    return items[-20:]
+
+
 def _build_session_actions(context_text: str, fallback_created_at: float) -> list[dict]:
     items = []
     offset = 0.0
@@ -828,6 +920,10 @@ def build_archived_session_restore_payload(
 
     fallback_created_at = _entry_timestamp(visible_entries[0]) or dialog_path.stat().st_mtime
     session_actions = _build_session_actions(context_text, fallback_created_at)
+    tool_results = _parse_restore_tool_results(
+        context_text,
+        fallback_created_at,
+    )
 
     ui_messages = []
     for entry in visible_entries:
@@ -875,6 +971,7 @@ def build_archived_session_restore_payload(
         "active_memory_records": _parse_active_memory_records(previous_runtime_state),
         "attached_file_ids": attached_file_ids,
         "session_actions": session_actions,
+        "tool_results": tool_results,
         "runtime_turn_counter": max_turn,
         "turn_number": max_turn,
         "user_message_count": len(user_entries),

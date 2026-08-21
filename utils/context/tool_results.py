@@ -260,7 +260,7 @@ def _append_recorded_tool_results(
 
             parts.append(
                 f"{_build_tool_result_open_tag(attrs, created_at=created_at, now=now)}\n"
-                f"{indent_xml(deep_result)}\n"
+                f"{indent_xml(escape(deep_result))}\n"
                 "    </TOOL_RESULT>"
             )
             appended = True

@@ -45,14 +45,6 @@ def format_runtime_blocked_trigger_word_message(
     )
 
 
-def get_brain_runtime_mode() -> str:
-
-    if settings.USE_SERVICE_AS_BRAIN:
-        return "SERVICE as BRAIN"
-
-    return "BRAIN"
-
-
 def get_current_jin_color(
     context=None,
 ) -> str:
@@ -263,9 +255,20 @@ def build_runtime_xml(
             user_input="",
             compressed_history="",
             system_state="ACTIVE",
-            runtime_mode=get_brain_runtime_mode(),
+            current_session_id=str(
+                getattr(
+                    context,
+                    "session_id",
+                    "",
+                )
+                or ""
+            ).strip(),
             service_model_uid=settings.SERVICE_MODEL_UID,
-            brain_model_uid=settings.BRAIN_MODEL_UID,
+            brain_model_uid=(
+                settings.BRAIN_MODEL_UID
+                if not settings.USE_SERVICE_AS_BRAIN
+                else ""
+            ),
             current_context_window=getattr(
                 context,
                 "runtime_current_context_window_text",

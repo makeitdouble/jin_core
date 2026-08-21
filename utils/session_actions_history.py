@@ -19,6 +19,108 @@ from utils.actions.update_l4_facts_utils import (
 MAX_SESSION_ACTION_HISTORY_ITEMS = 200
 
 
+def get_session_action_session_id(
+    context,
+) -> str:
+
+    if context is None:
+        return ""
+
+    return str(
+        getattr(
+            context,
+            "session_id",
+            "",
+        )
+        or ""
+    ).strip()
+
+
+def session_action_belongs_to_session(
+    item,
+    session_id: str,
+) -> bool:
+
+    normalized_session_id = str(
+        session_id
+        or ""
+    ).strip()
+
+    if not normalized_session_id:
+        return True
+
+    if not isinstance(
+        item,
+        dict,
+    ):
+        return False
+
+    return str(
+        item.get(
+            "session_id",
+            "",
+        )
+        or ""
+    ).strip() == normalized_session_id
+
+
+def prune_session_action_history_to_current_session(
+    context,
+) -> None:
+
+    if context is None:
+        return
+
+    session_id = get_session_action_session_id(
+        context
+    )
+
+    if not session_id:
+        return
+
+    history = getattr(
+        context,
+        "runtime_session_action_history",
+        None,
+    )
+
+    if not isinstance(
+        history,
+        list,
+    ):
+        context.runtime_session_action_history = []
+        return
+
+    history[:] = [
+        item
+        for item in history
+        if session_action_belongs_to_session(
+            item,
+            session_id,
+        )
+    ]
+
+
+def _stamp_session_action_items(
+    context,
+    items,
+) -> None:
+
+    session_id = get_session_action_session_id(
+        context
+    )
+
+    if not session_id:
+        return
+
+    for item in items or []:
+        if isinstance(
+            item,
+            dict,
+        ):
+            item["session_id"] = session_id
+
+
 JIN_COLOR_HEX_RE = re.compile(
     r"#?(?P<hex>[0-9a-fA-F]{3}|[0-9a-fA-F]{6})"
 )
@@ -928,6 +1030,10 @@ def record_session_action_history(
     if not normalized_text:
         return
 
+    prune_session_action_history_to_current_session(
+        context
+    )
+
     history = getattr(
         context,
         "runtime_session_action_history",
@@ -976,6 +1082,12 @@ def record_session_action_history(
         "text": normalized_text,
         "created_at": time.time(),
     }
+
+    session_id = get_session_action_session_id(
+        context
+    )
+    if session_id:
+        item["session_id"] = session_id
 
     if normalized_display_parts:
         item["parts"] = normalized_display_parts
@@ -2387,6 +2499,10 @@ def replace_session_action_history_since(
         created_at=time.time(),
         runtime_turn_id=runtime_turn_id,
     )
+    _stamp_session_action_items(
+        context,
+        marker_items,
+    )
 
     if not marker_items:
         return
@@ -2511,6 +2627,10 @@ def upsert_session_action_marker_history_since(
         created_at=created_at,
         runtime_turn_id=runtime_turn_id,
         jin_message_content=previous_jin_message_content,
+    )
+    _stamp_session_action_items(
+        context,
+        marker_items,
     )
 
     if not marker_items:
@@ -2768,6 +2888,9 @@ def build_session_actions_update_items(
     runtime_turn_id = get_current_action_sequence_turn_id(
         context
     )
+    session_id = get_session_action_session_id(
+        context
+    )
 
     if current_sequence and not runtime_turn_id:
         return []
@@ -2778,6 +2901,12 @@ def build_session_actions_update_items(
         if not isinstance(
             item,
             dict,
+        ):
+            continue
+
+        if not session_action_belongs_to_session(
+            item,
+            session_id,
         ):
             continue
 
@@ -2843,6 +2972,16 @@ def build_session_actions_update_items(
             "created_at": created_at,
         }
 
+        item_session_id = str(
+            item.get(
+                "session_id",
+                "",
+            )
+            or ""
+        ).strip()
+        if item_session_id:
+            update_item["session_id"] = item_session_id
+
         if parts:
             update_item["parts"] = parts
 
@@ -2883,6 +3022,9 @@ async def emit_session_actions_update(
 
     await emit({
         "type": "session_actions_update",
+        "session_id": get_session_action_session_id(
+            context
+        ),
         "mode": (
             "sequence"
             if current_sequence

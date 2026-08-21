@@ -2353,8 +2353,6 @@ class BrainNode(BaseNode):
                 followup_action_events = consume_current_action_batch()
                 followup_runtime_actions = {
                     **runtime_actions,
-                    "CAN_DEEP_WEB_SEARCH": False,
-                    "CAN_WEB_SEARCH": False,
                 }
                 latest_followup_action = (
                     format_followup_actions_from_events(
@@ -2382,9 +2380,10 @@ class BrainNode(BaseNode):
                     latest_action=latest_followup_action,
                     instruction=(
                         "Answer the latest user request from the trusted "
-                        "DEEP_WEB_SEARCH result. Synthesize the worker reports "
-                        "and source evidence; do not start another web search "
-                        "in this sequence."
+                        "DEEP_WEB_SEARCH report. Use it as the prepared "
+                        "research brief. If the user request still needs more "
+                        "research, you may emit another WEB_SEARCH or "
+                        "DEEP_WEB_SEARCH action."
                     ),
                 )
 

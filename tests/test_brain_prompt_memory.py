@@ -74,6 +74,7 @@ class BrainPromptMemoryTests(
             context.runtime_memory_snapshots = [
                 {
                     "timestamp": "2026-08-18T23:12:31+03:00",
+                    "session_id": "snapshot-session",
                 }
             ]
 
@@ -85,7 +86,11 @@ class BrainPromptMemoryTests(
             )
 
             self.assertIn(
-                '<RUNTIME_MEMORY ts="2026-08-18T23:12:31+03:00">',
+                (
+                    '<RUNTIME_MEMORY '
+                    'ts="2026-08-18T23:12:31+03:00" '
+                    'session_id="snapshot-session">'
+                ),
                 prompt,
             )
 
@@ -353,6 +358,14 @@ class BrainPromptMemoryTests(
                 ),
             )
             self.assertLess(
+                prompt.index("</CURRENT_CONCERNS>"),
+                prompt.index("<CURRENT_TRUSTED_RUNTIME_VARIABLES>"),
+            )
+            self.assertLess(
+                prompt.index("</CURRENT_TRUSTED_RUNTIME_VARIABLES>"),
+                prompt.index("<TOOLS_RESULTS>"),
+            )
+            self.assertLess(
                 prompt.index("</TOOLS_RESULTS>"),
                 prompt.index("<SESSION_ACTIONS_HISTORY>"),
             )
@@ -363,10 +376,6 @@ class BrainPromptMemoryTests(
             self.assertLess(
                 prompt.index("<LOADED_SKILLS_CONTENT>"),
                 prompt.index("<RUNTIME_MEMORY "),
-            )
-            self.assertLess(
-                prompt.index("<RUNTIME_MEMORY "),
-                prompt.index("<CURRENT_TRUSTED_RUNTIME_VARIABLES>"),
             )
             self.assertLess(
                 prompt.index("<CURRENT_TRUSTED_RUNTIME_VARIABLES>"),
@@ -1239,6 +1248,14 @@ class BrainPromptMemoryTests(
                 ),
             )
             self.assertLess(
+                prompt.index("</CURRENT_CONCERNS>"),
+                prompt.index("<CURRENT_TRUSTED_RUNTIME_VARIABLES>"),
+            )
+            self.assertLess(
+                prompt.index("</CURRENT_TRUSTED_RUNTIME_VARIABLES>"),
+                prompt.index("<TOOLS_RESULTS>"),
+            )
+            self.assertLess(
                 prompt.index("</TOOLS_RESULTS>"),
                 prompt.index(
                     "<LATEST_USER_FEEDBACK priority=HIGH_PRIORITY>"
@@ -1247,10 +1264,6 @@ class BrainPromptMemoryTests(
             self.assertLess(
                 prompt.index("<LATEST_USER_FEEDBACK priority=HIGH_PRIORITY>"),
                 prompt.index("<RUNTIME_MEMORY "),
-            )
-            self.assertLess(
-                prompt.index("<RUNTIME_MEMORY "),
-                prompt.index("<CURRENT_TRUSTED_RUNTIME_VARIABLES>"),
             )
             self.assertNotIn(
                 "User feedback:",

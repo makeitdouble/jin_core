@@ -668,9 +668,16 @@
         && normalizedValue.runtime_snapshot
         && typeof normalizedValue.runtime_snapshot === "object"
     ) {
+      const snapshotSessionId =
+        String(
+          normalizedValue.runtime_snapshot.session_id
+          || ""
+        ).trim()
+        || runtimeSessionId;
+
       normalizedValue.runtime_snapshot = {
         ...normalizedValue.runtime_snapshot,
-        session_id: runtimeSessionId,
+        session_id: snapshotSessionId,
         booted_from_session_id:
           normalizedValue.booted_from_session_id,
         previous_session_id:
@@ -1963,10 +1970,17 @@
         && normalizedValue.runtime_snapshot
         && typeof normalizedValue.runtime_snapshot === "object"
     ) {
+      const snapshotSessionId =
+        String(
+          normalizedValue.runtime_snapshot.session_id
+          || ""
+        ).trim()
+        || normalizedValue.session_id
+        || runtimeSessionId;
+
       normalizedValue.runtime_snapshot = {
         ...normalizedValue.runtime_snapshot,
-        session_id:
-          normalizedValue.session_id || runtimeSessionId,
+        session_id: snapshotSessionId,
         previous_session_id:
           normalizedValue.previous_session_id,
       };
@@ -2005,9 +2019,13 @@
       return null;
     }
 
+    const snapshotSessionId =
+      String(snapshot.session_id || "").trim()
+      || runtimeSessionId;
+
     return {
       ...snapshot,
-      session_id: runtimeSessionId,
+      session_id: snapshotSessionId,
       booted_from_session_id:
         bootSourceRuntimeSessionId,
       previous_session_id:

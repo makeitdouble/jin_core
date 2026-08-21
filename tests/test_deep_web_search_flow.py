@@ -4,6 +4,7 @@ import unittest
 
 from runtime.deep_web_search import (
     build_deep_search_current_sequence,
+    compact_search_result,
     DeepSearchPool,
     DeepSearchWorker,
     parse_deep_search_worker_response,
@@ -182,8 +183,13 @@ class DeepWebSearchFlowTests(unittest.IsolatedAsyncioTestCase):
         )
         self.assertNotIn("q11", provider.queries)
         self.assertNotIn("q12", provider.queries)
-        self.assertIn('used="10" max="10" remaining="0"', result)
         self.assertIn("final report", result)
+        self.assertIn("Deep web search report", result)
+        self.assertIn("Source notes:", result)
+        self.assertNotIn("<SEARCH>", result)
+        self.assertNotIn("<EVIDENCE>", result)
+        self.assertNotIn("web_search_", result)
+        self.assertNotIn("https://", result)
 
         runtime_messages = [
             payload
@@ -229,6 +235,29 @@ class DeepWebSearchFlowTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("3 new queries requested; 1 executed", cap_prompt)
         self.assertIn("global search cap 10 reached", cap_prompt)
         self.assertIn("q10", cap_prompt)
+
+    def test_compact_search_result_keeps_sources_without_urls(self):
+        search_result = (
+            "<SEARCH_RESULT>\n"
+            "  <STATUS>FOUND</STATUS>\n"
+            "  <SUMMARY>Found 1 search result.</SUMMARY>\n"
+            "  <RESULTS>\n"
+            "    <RESULT>\n"
+            "      <TITLE>Thread</TITLE>\n"
+            "      <SOURCE>reddit.com</SOURCE>\n"
+            "      <URL>https://reddit.com/thread</URL>\n"
+            "      <QUOTE>Users describe a cold noir soundtrack.</QUOTE>\n"
+            "      <EXCERPT></EXCERPT>\n"
+            "    </RESULT>\n"
+            "  </RESULTS>\n"
+            "</SEARCH_RESULT>"
+        )
+
+        compact = compact_search_result(search_result)
+
+        self.assertIn("reddit.com", compact)
+        self.assertIn("cold noir soundtrack", compact)
+        self.assertNotIn("https://", compact)
 
     async def test_current_sequence_ui_log_keeps_queries_separate_without_counts(self):
         service = FakeServiceClient([

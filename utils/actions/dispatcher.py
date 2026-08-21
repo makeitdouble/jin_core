@@ -1059,11 +1059,6 @@ async def apply_runtime_action_calls(
                     "runtime_deep_search_calls",
                     [],
                 )
-                or getattr(
-                    context,
-                    "runtime_deep_search_result",
-                    "",
-                )
             ):
                 continue
 

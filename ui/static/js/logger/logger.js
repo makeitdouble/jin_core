@@ -426,6 +426,26 @@ const consolePanel = document.getElementById("console-panel");
 
     }
 
+    function getHeaderAutoHidePanelShift(panel) {
+        const api =
+            window.JinHeaderAutoHide;
+
+        if (
+            !api
+            || typeof api.getPanelShift !== "function"
+        ) {
+            return 0;
+        }
+
+        const shift = Number(
+            api.getPanelShift(panel)
+        );
+
+        return Number.isFinite(shift)
+            ? shift
+            : 0;
+    }
+
     function getDefaultPanelDock(panel) {
         if (panel === consolePanel) {
             return "left";
@@ -1939,6 +1959,11 @@ const consolePanel = document.getElementById("console-panel");
                     )
                 );
 
+            const headerShift =
+                getHeaderAutoHidePanelShift(
+                    memoryPanel
+                );
+
             return {
                 collapsed: true,
                 width: Math.max(
@@ -1957,7 +1982,9 @@ const consolePanel = document.getElementById("console-panel");
                     rect.left + (rect.width / 2)
                 ),
                 y: Math.round(
-                    rect.top + (rect.height / 2)
+                    rect.top
+                    + (rect.height / 2)
+                    - headerShift
                 ),
                 speed_px_per_second: getJinMoveSpeed(),
                 window_width: Math.max(1, Math.round(window.innerWidth)),
@@ -1968,6 +1995,10 @@ const consolePanel = document.getElementById("console-panel");
         const rect = memoryPanel
             ? memoryPanel.getBoundingClientRect()
             : null;
+        const headerShift =
+            getHeaderAutoHidePanelShift(
+                memoryPanel
+            );
 
         return {
             collapsed: false,
@@ -1978,7 +2009,11 @@ const consolePanel = document.getElementById("console-panel");
                 ? Math.round(rect.left + (rect.width / 2))
                 : 0,
             y: rect
-                ? Math.round(rect.top + (rect.height / 2))
+                ? Math.round(
+                    rect.top
+                    + (rect.height / 2)
+                    - headerShift
+                )
                 : 0,
             speed_px_per_second: getJinMoveSpeed(),
             window_width: Math.max(1, Math.round(window.innerWidth)),
@@ -3491,13 +3526,19 @@ function capturePanelRoomState(panel) {
         panel.parentElement.getBoundingClientRect();
     const rect =
         panel.getBoundingClientRect();
+    const headerShift =
+        getHeaderAutoHidePanelShift(panel);
 
     return {
         collapsed:
             panel.classList.contains("panel-collapsed"),
         dock: getPanelDock(panel),
         left: Math.round(rect.left - parentRect.left),
-        top: Math.round(rect.top - parentRect.top),
+        top: Math.round(
+            rect.top
+            - parentRect.top
+            - headerShift
+        ),
         width: Math.max(1, Math.round(rect.width)),
         height: Math.max(1, Math.round(rect.height)),
     };

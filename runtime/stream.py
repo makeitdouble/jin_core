@@ -83,6 +83,7 @@ from utils.session_actions_history import (
     compact_session_action_history_since,
     emit_session_actions_update,
     extract_asset_action_marker_name,
+    prune_session_action_history_to_current_session,
     replace_session_action_history_since,
     record_session_action_history,
     upsert_session_action_marker_history_since,
@@ -2981,6 +2982,9 @@ class RuntimeStream:
         # The inner brain filter and the outer runtime filter can strip
         # different markers from the same model message. Keep one history
         # boundary for the whole runtime message and compact it at the end.
+        prune_session_action_history_to_current_session(
+            self.context
+        )
         session_action_history_start = len(
             getattr(
                 self.context,

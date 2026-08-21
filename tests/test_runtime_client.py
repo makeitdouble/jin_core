@@ -198,6 +198,54 @@ class RuntimeClientTests(
     unittest.IsolatedAsyncioTestCase
 ):
 
+    async def test_fresh_larger_loaded_context_releases_old_provider_ceiling(self):
+        http_client = FakeHttpClient(
+            models_payload={
+                "data": [
+                    {
+                        "id": "test-model",
+                        "loaded_context_length": 16384,
+                    }
+                ]
+            }
+        )
+        client = RuntimeClient(
+            api_base="http://runtime.test",
+            model_uid="test-model",
+            timeout=30.0,
+            configured_context_window=4096,
+            client=http_client,
+        )
+
+        self.assertEqual(
+            await client.resolve_request_context_window(force_refresh=True),
+            16384,
+        )
+        client.remember_provider_context_window("n_ctx = 16384")
+        self.assertEqual(client.provider_context_window_ceiling, 16384)
+        self.assertEqual(
+            client.provider_context_window_ceiling_detected_context,
+            16384,
+        )
+
+        http_client.models_payload = {
+            "data": [
+                {
+                    "id": "test-model",
+                    "loaded_context_length": 32768,
+                }
+            ]
+        }
+
+        self.assertEqual(
+            await client.resolve_request_context_window(force_refresh=True),
+            32768,
+        )
+        self.assertIsNone(client.provider_context_window_ceiling)
+        self.assertIsNone(
+            client.provider_context_window_ceiling_detected_context
+        )
+
     async def test_uses_detected_context_window_for_safe_max_tokens(self):
 
         http_client = FakeHttpClient(

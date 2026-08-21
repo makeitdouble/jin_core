@@ -294,7 +294,7 @@
     clip-path: none;
 
     /* Общее стеклянное размытие фона под баблом. */
-    backdrop-filter: blur(12px);
+    /*backdrop-filter: blur(12px);*/
 
     /* Общая глубина: тень вниз, внешнее свечение, внутренний объём. */
     box-shadow:
@@ -345,7 +345,7 @@
             var(--jin-chat-panel-user);
 
     /* Размытие USER-бабла. Уменьшай, если плашка слишком мутная. */
-    backdrop-filter: blur(9.75px);
+    /*backdrop-filter: blur(9.75px);*/
 
     /* USER-тени:
        1) физическая тень,

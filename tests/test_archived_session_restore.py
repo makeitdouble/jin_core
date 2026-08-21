@@ -10,6 +10,9 @@ from rules.brain_context_builder import build_brain_context
 from rules.runtime import SESSION_RESTORE_MESSAGE
 from runtime.client import RuntimeClient
 from runtime.runtime_context import RuntimeContext
+from utils.context.session_actions import build_session_actions_history_context
+from utils.context.tool_results import build_tool_results_context
+from utils.session_actions_history import record_session_action_history
 from utils.session_restore import build_archived_session_restore_payload
 from websocket.bootstrap import (
     apply_archived_session_continuation_state,
@@ -49,6 +52,85 @@ class ArchivedSessionRestoreTests(unittest.TestCase):
                 context,
                 "runtime_chat_log_bootstrap_reference_path",
             )
+        )
+
+    def test_archived_bootstrap_preserves_saved_runtime_lifecycle_timestamps(self):
+        context = RuntimeContext(
+            websocket=None,
+            emitter=None,
+            logger=None,
+            clients={},
+            session_id="fresh-session",
+        )
+        saved_snapshot_timestamp = "2026-08-20T19:14:16+03:00"
+        saved_created_at = "2026-08-20T16:14:16+00:00"
+
+        restored = apply_session_bootstrap(
+            context,
+            {
+                "type": "session_bootstrap",
+                "source_session_id": "archived-session",
+                "archived_session_restore": True,
+                "runtime_memory": (
+                    "user_message: old message [ created: 2s ago ]"
+                ),
+                "runtime_memory_updates": 7,
+                "runtime_snapshot": {
+                    "index": 4,
+                    "timestamp": saved_snapshot_timestamp,
+                    "created_at": saved_created_at,
+                    "raw_memory": "user_message: old message",
+                    "lines": [
+                        {
+                            "key": "user_message",
+                            "value": "old message",
+                            "status": "same",
+                            "created_at": saved_created_at,
+                            "updated_at": "",
+                            "memory_lifecycle_status": "created",
+                        }
+                    ],
+                },
+            },
+        )
+
+        self.assertTrue(restored)
+        self.assertEqual(
+            context.runtime_memory,
+            "user_message: old message",
+        )
+        snapshot = context.runtime_memory_snapshots[0]
+        self.assertEqual(snapshot["index"], 0)
+        self.assertEqual(
+            snapshot["timestamp"],
+            saved_snapshot_timestamp,
+        )
+        self.assertEqual(
+            snapshot["created_at"],
+            saved_created_at,
+        )
+        self.assertEqual(
+            snapshot["lines"][0]["created_at"],
+            saved_created_at,
+        )
+        self.assertEqual(
+            snapshot["session_id"],
+            "archived-session",
+        )
+
+        prompt = build_brain_context(
+            context=context,
+            runtime_actions={
+                "CAN_WEB_SEARCH": False,
+            },
+        )
+        self.assertIn(
+            'session_id="archived-session"',
+            prompt,
+        )
+        self.assertNotIn(
+            'session_id="fresh-session"',
+            prompt,
         )
 
     def test_browser_only_predecessor_does_not_prime_archive_restore(self):
@@ -126,6 +208,22 @@ class ArchivedSessionRestoreTests(unittest.TestCase):
   "message": "Session snapshot saved successfully."
 }
 </TOOL_RESULT>
+<TOOL_RESULT name="WEB_SEARCH">
+<SEARCH_RESULT>
+  <STATUS>FOUND</STATUS>
+  <QUERY>noir soundtrack</QUERY>
+  <SUMMARY>Found 1 search result.</SUMMARY>
+  <RESULTS>
+    <RESULT>
+      <TITLE>Reddit thread</TITLE>
+      <SOURCE>reddit.com</SOURCE>
+      <URL>https://reddit.com/thread</URL>
+      <QUOTE>People recommend cold noir music.</QUOTE>
+      <EXCERPT></EXCERPT>
+    </RESULT>
+  </RESULTS>
+</SEARCH_RESULT>
+</TOOL_RESULT>
 </TOOLS_RESULTS>
 <LOADED_DELAYED_MEMORY>
 {
@@ -185,6 +283,8 @@ session_snapshot_last_turn: 1
         })
         self.assertEqual(payload["runtime_mode"], "BRAIN")
         self.assertEqual(payload["session_actions"][0]["parts"][0]["text"], "Saved session")
+        self.assertEqual(payload["tool_results"][0]["kind"], "search")
+        self.assertIn("People recommend cold noir music.", payload["tool_results"][0]["result"])
 
 
     def test_restore_payload_uses_primary_context_and_ignores_bootstrap_snapshot(self):
@@ -862,6 +962,71 @@ open_question: continue
         self.assertGreaterEqual(context.user_message_count, 6)
         self.assertGreaterEqual(context.assistant_message_count, 6)
 
+    def test_session_bootstrap_restores_tool_results_and_previous_actions(self):
+        context = RuntimeContext(
+            websocket=None,
+            emitter=None,
+            logger=None,
+            clients={},
+            session_id="fresh-session",
+        )
+
+        restored = apply_session_bootstrap(
+            context,
+            {
+                "type": "session_bootstrap",
+                "source_session_id": "old-session",
+                "runtime_memory": "topic: restored",
+                "session_actions": [
+                    {"text": "JIN_COLOR: #111111", "created_at": 1.0},
+                    {"text": "JIN_COLOR: #222222", "created_at": 2.0},
+                    {"text": "JIN_COLOR: #333333", "created_at": 3.0},
+                    {"text": "JIN_COLOR: #444444", "created_at": 4.0},
+                ],
+                "tool_results": [
+                    {
+                        "kind": "deep_search",
+                        "result": "Deep web search report\nReport:\nReddit says cold noir.",
+                        "created_at": 5.0,
+                    },
+                ],
+            },
+        )
+
+        self.assertTrue(restored)
+        self.assertEqual(
+            [item["text"] for item in context.runtime_session_action_history],
+            [
+                "JIN_COLOR: #222222",
+                "JIN_COLOR: #333333",
+                "JIN_COLOR: #444444",
+            ],
+        )
+        self.assertTrue(
+            all(
+                item.get("runtime_session_action_previous_bootstrap")
+                for item in context.runtime_session_action_history
+            )
+        )
+
+        record_session_action_history(
+            context,
+            "WEB_SEARCH: new session query",
+        )
+        session_actions = build_session_actions_history_context(
+            context
+        )
+        self.assertIn("----- Previous actions -----", session_actions)
+        self.assertIn("----- Current session actions -----", session_actions)
+        self.assertIn("JIN_COLOR: #222222", session_actions)
+        self.assertIn("WEB_SEARCH: new session query", session_actions)
+
+        tool_results = build_tool_results_context(
+            context
+        )
+        self.assertIn("DEEP_WEB_SEARCH", tool_results)
+        self.assertIn("Reddit says cold noir.", tool_results)
+
 
 class ArchivedSessionRestoreClientContractTests(unittest.TestCase):
 
@@ -899,7 +1064,15 @@ class ArchivedSessionRestoreClientContractTests(unittest.TestCase):
         self.assertIn("appendThinkingChunk", restore_script)
         self.assertIn("replaceLoadedDelayedMemoryReportIds", restore_script)
         self.assertIn("updateSessionActionsLog", restore_script)
+        self.assertIn("readLatestSavedRuntimeMemory", restore_script)
+        self.assertIn("payload.runtime_snapshot", restore_script)
         self.assertIn("jinArchivedSessionBootstrap", runtime_session)
+        self.assertIn("snapshotRuntimeMemory", runtime_session)
+        self.assertIn("sourceSnapshot.lines.map", runtime_session)
+        self.assertNotIn(
+            "created_at:\n              isArchivedRestore ? restoredAt : line.created_at",
+            runtime_session,
+        )
         self.assertIn("runtimeMemory.saved_at", runtime_session)
         self.assertIn('type: "archived_session_resume"', socket_script)
         self.assertNotIn(

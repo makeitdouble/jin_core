@@ -1000,13 +1000,15 @@ function updateSessionActionsLog(
 
   sessionActionsLogState.list.replaceChildren(
     ...items
+      .map((item, index) => ({ item, index }))
       .slice(
         previewStartIndex
       )
-      .map(
-        (item, index) => buildSessionActionRow(
+      .reverse()
+      .map(({ item, index }) =>
+        buildSessionActionRow(
           item,
-          previewStartIndex + index
+          index
         )
       )
   );

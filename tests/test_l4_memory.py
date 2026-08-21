@@ -13,6 +13,7 @@ from runtime.L4_memory import (
     maybe_update_runtime_l4_memory,
     remap_delayed_memory_l4_fact_ids,
     restore_l4_memory_fact,
+    run_l4_merge_phase,
     runtime_l4_memory_update_running,
     schedule_l4_memory_idle_update,
 )
@@ -21,6 +22,7 @@ from runtime.L4_memory_utils import (
     apply_l4_jin_note_result,
     apply_l4_merge_operations,
     build_l4_fact_id,
+    build_l4_double_batch_plan,
     build_l4_jin_note_system_prompt,
     build_l4_merge_batch_plan,
     build_l4_merge_system_prompt,
@@ -723,6 +725,325 @@ class L4MemoryTests(unittest.IsolatedAsyncioTestCase):
             plan["default_response_headroom_tokens"],
         )
         self.assertLessEqual(plan["estimated_total_tokens"], 16384)
+
+    def test_double_batch_plan_falls_back_to_two_existing_fact_halves(self):
+        existing_facts = normalize_l4_store({
+            "facts": [
+                {
+                    "id": f"F{index + 1}",
+                    "key": f"project.fact_{index}",
+                    "value": "Durable project fact " + ("detail " * 20),
+                    "category": "project_fact",
+                }
+                for index in range(50)
+            ],
+        })["facts"]
+        store, _ = add_l4_pending_candidates(
+            normalize_l4_store({"facts": existing_facts}),
+            [
+                {
+                    "key": f"project.pending_{index}",
+                    "value": "Pending durable fact " + ("detail " * 10),
+                    "category": "project_fact",
+                }
+                for index in range(5)
+            ],
+            now="2026-08-21T12:00:00Z",
+        )
+
+        plan = build_l4_double_batch_plan(
+            existing_facts=store["facts"],
+            pending_facts=store["pending_facts"],
+            system_prompt=build_l4_merge_system_prompt(),
+            runtime_context_window=4096,
+            requested_max_tokens=None,
+            runtime_output_reserve=256,
+        )
+
+        self.assertTrue(plan["fits"])
+        self.assertEqual(plan["mode"], "halves")
+        self.assertEqual(
+            [len(batch) for batch in plan["existing_fact_batches"]],
+            [25, 25],
+        )
+        self.assertGreaterEqual(plan["batch_count"], 1)
+        self.assertEqual(len(plan["plans"]), 2)
+
+    def test_double_batch_plan_pauses_when_one_pending_cannot_fit_a_half(self):
+        existing_facts = normalize_l4_store({
+            "facts": [
+                {
+                    "id": f"F{index + 1}",
+                    "key": f"project.fact_{index}",
+                    "value": "Durable project fact " + ("detail " * 20),
+                    "category": "project_fact",
+                }
+                for index in range(100)
+            ],
+        })["facts"]
+        store, _ = add_l4_pending_candidates(
+            normalize_l4_store({"facts": existing_facts}),
+            [{
+                "key": "project.pending",
+                "value": "Pending durable fact " + ("detail " * 10),
+                "category": "project_fact",
+            }],
+            now="2026-08-21T12:00:00Z",
+        )
+
+        plan = build_l4_double_batch_plan(
+            existing_facts=store["facts"],
+            pending_facts=store["pending_facts"],
+            system_prompt=build_l4_merge_system_prompt(),
+            runtime_context_window=4096,
+            requested_max_tokens=None,
+            runtime_output_reserve=256,
+        )
+
+        self.assertFalse(plan["fits"])
+        self.assertEqual(plan["mode"], "paused")
+        self.assertGreater(plan["minimum_required_tokens"], 4096)
+
+    async def test_merge_uses_two_existing_fact_shards_before_applying(self):
+        existing_facts = normalize_l4_store({
+            "facts": [
+                {
+                    "id": f"F{index + 1}",
+                    "key": f"project.fact_{index}",
+                    "value": "Durable project fact " + ("detail " * 20),
+                    "category": "project_fact",
+                }
+                for index in range(50)
+            ],
+        })["facts"]
+        store, _ = add_l4_pending_candidates(
+            normalize_l4_store({"facts": existing_facts}),
+            [
+                {
+                    "key": f"project.pending_{index}",
+                    "value": "Pending durable fact " + ("detail " * 10),
+                    "category": "project_fact",
+                }
+                for index in range(5)
+            ],
+            now="2026-08-21T12:00:00Z",
+        )
+        selected = store["pending_facts"][:3]
+        scan_response = json.dumps({
+            "scan": [
+                {
+                    "pending_id": fact["id"],
+                    "decision": "no_match",
+                    "fact_ids": [],
+                }
+                for fact in selected
+            ],
+        })
+        merge_response = json.dumps({
+            "operations": [
+                {
+                    "action": "create",
+                    "pending_id": fact["id"],
+                    "key": fact["key"],
+                    "value": fact["value"],
+                    "category": fact["category"],
+                }
+                for fact in selected
+            ],
+        })
+        service_client = FakeServiceClient(
+            [scan_response, merge_response],
+            context_window=4096,
+        )
+        context = RuntimeContext(
+            websocket=None,
+            emitter=FakeEmitter(),
+            logger=FakeLogger(),
+            clients={"service": service_client},
+        )
+        context.runtime_long_term_memory_store = store
+
+        result = await run_l4_merge_phase(
+            context=context,
+            service_client=service_client,
+        )
+
+        self.assertEqual(result["status"], "completed")
+        self.assertEqual(result["batch_count"], 3)
+        self.assertEqual(result["remaining_pending_count"], 2)
+        self.assertEqual(len(service_client.calls), 2)
+        self.assertEqual(context.runtime_l4_merge_existing_batch_mode, "halves")
+        self.assertEqual(context.runtime_l4_merge_batch_limit, 6)
+
+        first_payload = json.loads(
+            service_client.calls[0]["user_prompt"].split("\n\n", 1)[1]
+        )
+        second_payload = json.loads(
+            service_client.calls[1]["user_prompt"].split("\n\n", 1)[1]
+        )
+        self.assertEqual(len(first_payload["existing_facts"]), 25)
+        self.assertEqual(len(second_payload["existing_facts"]), 25)
+        self.assertEqual(len(second_payload["previous_shard_scan"]), 3)
+
+    async def test_l4_pause_logs_once_and_starts_no_model_request(self):
+        existing_facts = normalize_l4_store({
+            "facts": [
+                {
+                    "id": f"F{index + 1}",
+                    "key": f"project.fact_{index}",
+                    "value": "Durable project fact " + ("detail " * 20),
+                    "category": "project_fact",
+                }
+                for index in range(100)
+            ],
+        })["facts"]
+        store, _ = add_l4_pending_candidates(
+            normalize_l4_store({"facts": existing_facts}),
+            [{
+                "key": "project.pending",
+                "value": "Pending durable fact " + ("detail " * 10),
+                "category": "project_fact",
+            }],
+            now="2026-08-21T12:00:00Z",
+        )
+        logger = CaptureMemoryLogger()
+        service_client = FakeServiceClient("unused", context_window=4096)
+        context = RuntimeContext(
+            websocket=None,
+            emitter=FakeEmitter(),
+            logger=logger,
+            clients={"service": service_client},
+        )
+        context.runtime_long_term_memory_store = store
+
+        first = await run_l4_merge_phase(
+            context=context,
+            service_client=service_client,
+        )
+        second = await run_l4_merge_phase(
+            context=context,
+            service_client=service_client,
+        )
+
+        self.assertEqual(first["status"], "paused")
+        self.assertEqual(second["status"], "paused")
+        self.assertEqual(service_client.calls, [])
+        self.assertEqual(len(logger.logs), 1)
+        self.assertEqual(logger.logs[0]["event"], "merge_paused")
+        self.assertEqual(logger.logs[0]["tag_suffix"], "PAUSED")
+        self.assertIn("Not enough context window size", logger.logs[0]["message"])
+        self.assertIn("Minimum required:", logger.logs[0]["message"])
+        self.assertIn("Maximum available: 4096", logger.logs[0]["message"])
+
+    async def test_successful_learned_pending_batch_expands_instead_of_sticking(self):
+        store, _ = add_l4_pending_candidates(
+            normalize_l4_store({}),
+            [
+                {
+                    "key": f"project.pending_{index}",
+                    "value": f"Pending durable fact {index}.",
+                    "category": "project_fact",
+                }
+                for index in range(6)
+            ],
+            now="2026-08-21T12:00:00Z",
+        )
+        first_fact = store["pending_facts"][0]
+        second_batch = store["pending_facts"][1:3]
+        responses = [
+            json.dumps({
+                "operations": [{
+                    "action": "create",
+                    "pending_id": first_fact["id"],
+                    "key": first_fact["key"],
+                    "value": first_fact["value"],
+                    "category": first_fact["category"],
+                }],
+            }),
+            json.dumps({
+                "operations": [
+                    {
+                        "action": "create",
+                        "pending_id": fact["id"],
+                        "key": fact["key"],
+                        "value": fact["value"],
+                        "category": fact["category"],
+                    }
+                    for fact in second_batch
+                ],
+            }),
+        ]
+        service_client = FakeServiceClient(responses, context_window=16384)
+        context = RuntimeContext(
+            websocket=None,
+            emitter=FakeEmitter(),
+            logger=FakeLogger(),
+            clients={"service": service_client},
+        )
+        context.runtime_long_term_memory_store = store
+        context.runtime_l4_merge_batch_limit = 1
+
+        first = await run_l4_merge_phase(
+            context=context,
+            service_client=service_client,
+        )
+        self.assertEqual(first["batch_count"], 1)
+        self.assertEqual(context.runtime_l4_merge_batch_limit, 2)
+
+        second = await run_l4_merge_phase(
+            context=context,
+            service_client=service_client,
+        )
+        self.assertEqual(second["batch_count"], 2)
+        self.assertEqual(context.runtime_l4_merge_batch_limit, 4)
+
+    async def test_live_context_window_change_releases_locked_l4_batch(self):
+        store, _ = add_l4_pending_candidates(
+            normalize_l4_store({}),
+            [
+                {
+                    "key": f"project.pending_{index}",
+                    "value": f"Pending durable fact {index}.",
+                    "category": "project_fact",
+                }
+                for index in range(4)
+            ],
+            now="2026-08-21T12:00:00Z",
+        )
+        response = json.dumps({
+            "operations": [
+                {
+                    "action": "create",
+                    "pending_id": fact["id"],
+                    "key": fact["key"],
+                    "value": fact["value"],
+                    "category": fact["category"],
+                }
+                for fact in store["pending_facts"]
+            ],
+        })
+        service_client = FakeServiceClient(response, context_window=8192)
+        context = RuntimeContext(
+            websocket=None,
+            emitter=FakeEmitter(),
+            logger=FakeLogger(),
+            clients={"service": service_client},
+        )
+        context.runtime_long_term_memory_store = store
+        context.runtime_l4_merge_context_window_tokens = 4096
+        context.runtime_l4_merge_batch_limit = 1
+        context.runtime_l4_merge_last_success_batch_limit = 1
+        context.runtime_l4_merge_batch_locked = True
+
+        result = await run_l4_merge_phase(
+            context=context,
+            service_client=service_client,
+        )
+
+        self.assertEqual(result["batch_count"], 4)
+        self.assertEqual(result["remaining_pending_count"], 0)
+        self.assertFalse(context.runtime_l4_merge_batch_locked)
+        self.assertEqual(context.runtime_l4_merge_batch_limit, 0)
 
     def test_merge_can_apply_one_batch_and_leave_rest_of_pending_queue(self):
         store, _ = add_l4_pending_candidates(

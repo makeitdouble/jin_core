@@ -169,6 +169,15 @@
                   ? data.session_actions
                   : []
               ),
+        tool_results:
+          Array.isArray(source.tool_results)
+            ? source.tool_results
+            : (
+                data
+                && Array.isArray(data.tool_results)
+                  ? data.tool_results
+                  : []
+              ),
         loaded_memory_ids:
           Array.from(new Set(
             loadedMemoryIds
@@ -431,7 +440,11 @@
         ? {
             ...persistedSnapshot,
             session_id:
-              getCurrentSavedSessionId(),
+              String(
+                persistedSnapshot.session_id
+                || ""
+              ).trim()
+              || getCurrentSavedSessionId(),
           }
         : null;
     }
@@ -873,8 +886,8 @@
       }
 
       // This is the authoritative server echo of PREVIOUS_RUNTIME_STATE. Replace
-      // the provisional browser page in-place so lifecycle timestamps/strengths
-      // are rebuilt as fresh values, but never append a second restore page.
+      // the provisional browser page in-place, preserving the saved lifecycle
+      // timestamps/strengths instead of rebasing them to the restore moment.
       const restoredRuntimeSnapshot = {
         ...data.snapshot,
         index: 0,
@@ -921,6 +934,21 @@
         && data.archived_session_restore === true
       );
 
+      const sourceSnapshot =
+        (
+          data
+          && data.runtime_snapshot
+          && typeof data.runtime_snapshot === "object"
+          && !Array.isArray(data.runtime_snapshot)
+        )
+          ? data.runtime_snapshot
+          : {};
+
+      const snapshotRuntimeMemory =
+        stripActiveMemoryRuntimeMemoryText(
+          sourceSnapshot.raw_memory || ""
+        ).trim();
+
       let runtimeMemory =
         stripActiveMemoryRuntimeMemoryText(
           (
@@ -928,68 +956,58 @@
             && (
               data.runtime_memory
               || data.memory
-              || (
-                data.runtime_snapshot
-                && data.runtime_snapshot.raw_memory
-              )
+              || snapshotRuntimeMemory
             )
           )
           || ""
         ).trim();
 
       if (isArchivedRestore) {
-        runtimeMemory =
-          stripArchivedRuntimeLifecycleMetadata(
-            runtimeMemory
-          );
+        if (snapshotRuntimeMemory) {
+          // The persisted snapshot is authoritative for lifecycle history.
+          // Use the exact raw memory it was built from so its timestamp and
+          // per-line created_at/updated_at values remain valid.
+          runtimeMemory = snapshotRuntimeMemory;
+        } else {
+          // Old log-only archives contain relative "created/updated ... ago"
+          // display suffixes but no absolute timestamps. Strip the suffixes;
+          // never manufacture fresh lifecycle timestamps during restore.
+          runtimeMemory =
+            stripArchivedRuntimeLifecycleMetadata(
+              runtimeMemory
+            );
+        }
       }
 
       if (!runtimeMemory) {
         return null;
       }
 
-      const sourceSnapshot =
-        (
-          data
-          && data.runtime_snapshot
-          && typeof data.runtime_snapshot === "object"
-        )
-          ? data.runtime_snapshot
-          : {};
-
-      const restoredAt = new Date().toISOString();
-      const parsedFreshLines =
+      const parsedLines =
         splitMemoryTextLines(runtimeMemory)
-          .map(parseRuntimeMemoryLine)
-          .map((line) => ({
-            ...line,
-            status: isArchivedRestore ? "new" : line.status,
-            key_status: isArchivedRestore ? "new" : line.key_status,
-            value_status: isArchivedRestore ? "new" : line.value_status,
-            key_change_ratio: isArchivedRestore ? 1 : line.key_change_ratio,
-            value_change_ratio: isArchivedRestore ? 1 : line.value_change_ratio,
-            memory_lifecycle_status:
-              isArchivedRestore ? "created" : line.memory_lifecycle_status,
-            created_at:
-              isArchivedRestore ? restoredAt : line.created_at,
-            updated_at:
-              isArchivedRestore ? "" : line.updated_at,
-          }));
+          .map(parseRuntimeMemoryLine);
+      const sourceSnapshotMatches = Boolean(
+        Array.isArray(sourceSnapshot.lines)
+        && sourceSnapshot.lines.length
+        && stripActiveMemoryRuntimeMemoryText(
+          sourceSnapshot.raw_memory || ""
+        ).trim() === runtimeMemory
+      );
 
       return {
         ...sourceSnapshot,
         session_id:
           sourceSnapshot.session_id
+          || (data && data.source_session_id)
+          || (data && data.previous_session_id)
           || "browser_restore",
         index: 0,
         display_source: "saved_runtime_checkpoint",
         raw_memory: runtimeMemory,
         lines:
-          !isArchivedRestore
-            && Array.isArray(sourceSnapshot.lines)
-            && sourceSnapshot.raw_memory === runtimeMemory
-            ? sourceSnapshot.lines
-            : parsedFreshLines,
+          sourceSnapshotMatches
+            ? sourceSnapshot.lines.map(line => ({ ...line }))
+            : parsedLines,
         restored_from_checkpoint: true,
         runtime_memory_updates:
           Number(
@@ -1000,6 +1018,7 @@
                 || data.updates
               )
             )
+            || sourceSnapshot.runtime_memory_updates
             || 0
           ),
       };
@@ -1309,6 +1328,8 @@
             ),
           runtime_snapshot:
             runtimeMemory.runtime_snapshot || null,
+          source_session_id: sourceSessionId || null,
+          previous_session_id: previousSessionId || null,
         })
         || buildDefaultRuntimeMemorySnapshot();
 

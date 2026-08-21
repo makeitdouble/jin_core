@@ -224,6 +224,11 @@ class RuntimeContext:
     # runtime learns a smaller FIFO batch and backs off instead of hammering
     # the identical pending queue on every idle tick.
     runtime_l4_merge_batch_limit: int = 0
+    runtime_l4_merge_last_success_batch_limit: int = 0
+    runtime_l4_merge_batch_locked: bool = False
+    runtime_l4_merge_context_window_tokens: int = 0
+    runtime_l4_merge_existing_batch_mode: str = ""
+    runtime_l4_merge_paused_signature: str = ""
     runtime_l4_merge_truncation_streak: int = 0
     runtime_l4_merge_retry_not_before: float = 0.0
     runtime_l4_merge_deferred_pending_until: dict[str, float] = field(
@@ -606,7 +611,7 @@ class ContextContract:
     original_user_input: str = ""
     compressed_history: str = ""
     system_state: str = "ACTIVE"
-    runtime_mode: str = ""
+    current_session_id: str = ""
     service_model_uid: str = ""
     brain_model_uid: str = ""
     current_context_window: str = ""
@@ -636,16 +641,13 @@ class ContextContract:
 
         fields = {}
 
-        if self.runtime_mode:
-            fields["RUNTIME_MODE"] = self.runtime_mode
+        if self.current_session_id:
+            fields["CURRENT_SESSION_ID"] = self.current_session_id
 
         if self.service_model_uid:
             fields["SERVICE_MODEL_UID"] = self.service_model_uid
 
-        if (
-            self.runtime_mode == "BRAIN"
-            and self.brain_model_uid
-        ):
+        if self.brain_model_uid:
             fields["BRAIN_MODEL_UID"] = self.brain_model_uid
 
         if self.current_context_window:

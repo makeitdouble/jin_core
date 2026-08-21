@@ -2773,6 +2773,9 @@ function appendLog(
   const normalizedTag =
     String(tag || "").toUpperCase();
 
+  const isL4Paused =
+    normalizedTag === "[MEMORY:L4:PAUSED]";
+
   const isBrainOutput =
     normalizedTag === "[BRAIN]";
 
@@ -2914,6 +2917,25 @@ function appendLog(
       "rounded",
       "border",
       "border-blue-500/10",
+    );
+  }
+
+  if (isL4Paused) {
+    tagClass =
+      "text-red-300 font-bold";
+
+    logDiv.classList.remove(
+      "bg-blue-500/5",
+      "border-blue-500/10",
+    );
+    logDiv.classList.add(
+      "font-mono",
+      "text-[12px]",
+      "bg-red-500/5",
+      "p-2",
+      "rounded",
+      "border",
+      "border-red-500/15",
     );
   }
 
@@ -3069,7 +3091,9 @@ function appendLog(
     document.createElement("span");
 
   messageSpan.className =
-    "block mt-1 text-zinc-400";
+    isL4Paused
+      ? "block mt-1 text-red-200/80"
+      : "block mt-1 text-zinc-400";
 
   messageSpan.style.overflowWrap =
     "anywhere";

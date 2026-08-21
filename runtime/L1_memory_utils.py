@@ -42,6 +42,10 @@ from runtime.memory_common import (
 from utils.actions import (
     generate_short_runtime_id,
 )
+from utils.session_actions_history import (
+    get_session_action_session_id,
+    session_action_belongs_to_session,
+)
 
 
 
@@ -3332,7 +3336,7 @@ def build_runtime_memory_snapshot(
 
 
 def build_runtime_session_checkpoint(
-        context,
+    context,
 ) -> dict:
 
     def _dict_list(value, *, limit: int | None = None) -> list[dict]:
@@ -3395,6 +3399,109 @@ def build_runtime_session_checkpoint(
         {},
     )
 
+    current_session_id = get_session_action_session_id(
+        context
+    )
+    session_action_history = [
+        item
+        for item in getattr(
+            context,
+            "runtime_session_action_history",
+            [],
+        ) or []
+        if session_action_belongs_to_session(
+            item,
+            current_session_id,
+        )
+    ]
+    runtime_tool_results = []
+    created_ats = getattr(
+        context,
+        "runtime_tool_result_created_ats",
+        [],
+    )
+    if not isinstance(
+        created_ats,
+        list,
+    ):
+        created_ats = []
+
+    for index, item in enumerate(
+        getattr(
+            context,
+            "runtime_tool_results",
+            [],
+        )
+        or []
+    ):
+        if not isinstance(
+            item,
+            dict,
+        ):
+            continue
+
+        kind = str(
+            item.get(
+                "kind",
+                "",
+            )
+            or ""
+        ).strip()
+        if not kind:
+            continue
+
+        result = item.get(
+            "result"
+        )
+        if isinstance(
+            result,
+            str,
+        ):
+            result = result[:32000]
+
+        restored_item = {
+            "kind": kind,
+            "result": result,
+        }
+        result_id = str(
+            item.get(
+                "id",
+                "",
+            )
+            or ""
+        ).strip()
+        if result_id:
+            restored_item["id"] = result_id
+
+        created_at = item.get(
+            "created_at",
+            None,
+        )
+        if created_at is None and index < len(
+            created_ats
+        ):
+            created_at = created_ats[index]
+
+        try:
+            created_at_float = float(
+                created_at
+                or 0
+            )
+        except (
+            TypeError,
+            ValueError,
+        ):
+            created_at_float = 0.0
+
+        if created_at_float > 0:
+            restored_item["created_at"] = created_at_float
+
+        runtime_tool_results.append(
+            restored_item
+        )
+
+    runtime_tool_results = runtime_tool_results[-20:]
+
     return {
         "session_id": str(
             getattr(
@@ -3422,12 +3529,12 @@ def build_runtime_session_checkpoint(
         ),
         "previous_reasoning": reasoning,
         "session_actions": _dict_list(
-            getattr(
-                context,
-                "runtime_session_action_history",
-                [],
-            ),
+            session_action_history,
             limit=200,
+        ),
+        "tool_results": _dict_list(
+            runtime_tool_results,
+            limit=20,
         ),
         "runtime_turn_counter": int(
             getattr(

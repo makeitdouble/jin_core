@@ -14,7 +14,11 @@ from runtime.L4_memory_utils import (
     add_l4_pending_candidates,
     apply_l4_jin_note_result,
     apply_l4_merge_operations,
+    build_l4_double_batch_plan,
     build_l4_merge_batch_plan,
+    build_l4_merge_shard_finalize_user_prompt,
+    build_l4_merge_shard_scan_system_prompt,
+    build_l4_merge_shard_scan_user_prompt,
     build_l4_merge_user_prompt,
     build_l4_extraction_system_prompt,
     build_l4_extraction_user_prompt,
@@ -23,6 +27,8 @@ from runtime.L4_memory_utils import (
     build_l4_merge_system_prompt,
     clone_l4_store,
     collect_pending_facts_memory_fields,
+    collect_l4_shard_scan_referenced_facts,
+    estimate_l4_merge_response_tokens,
     delete_l4_fact_from_store,
     extract_l4_json_payload,
     format_l4_merge_operation_details,
@@ -34,12 +40,14 @@ from runtime.L4_memory_utils import (
     normalize_facts_memory_records,
     normalize_l4_candidates,
     normalize_l4_merge_operations,
+    normalize_l4_merge_shard_scan,
     normalize_l4_key,
     normalize_l4_store,
     normalize_l4_text,
     restore_l4_fact_to_store,
     utc_now_iso,
 )
+from utils.tokens import estimate_runtime_tokens
 from utils.actions.save_delayed_memory_utils import (
     collect_anchor_fact_report_ids,
     collect_long_term_fact_ids_from_reports,
@@ -89,10 +97,92 @@ def reset_l4_merge_recovery_state(
 ) -> None:
     if not keep_batch_limit:
         context.runtime_l4_merge_batch_limit = 0
+        context.runtime_l4_merge_last_success_batch_limit = 0
+        context.runtime_l4_merge_batch_locked = False
+        context.runtime_l4_merge_existing_batch_mode = ""
+        context.runtime_l4_merge_paused_signature = ""
         context.runtime_l4_merge_deferred_pending_until = {}
         context.runtime_l4_merge_force_single_batch_once = False
     context.runtime_l4_merge_truncation_streak = 0
     context.runtime_l4_merge_retry_not_before = 0.0
+
+
+def refresh_l4_merge_context_window_state(
+    context,
+    runtime_context_window: int,
+) -> bool:
+    """Release learned L4 batching limits when LM Studio's live n_ctx changes."""
+
+    current = _positive_int(runtime_context_window)
+    previous = _positive_int(
+        getattr(
+            context,
+            "runtime_l4_merge_context_window_tokens",
+            0,
+        )
+    )
+    context.runtime_l4_merge_context_window_tokens = current
+    if not previous or not current or previous == current:
+        return False
+
+    context.runtime_l4_merge_batch_limit = 0
+    context.runtime_l4_merge_last_success_batch_limit = 0
+    context.runtime_l4_merge_batch_locked = False
+    context.runtime_l4_merge_truncation_streak = 0
+    context.runtime_l4_merge_retry_not_before = 0.0
+    context.runtime_l4_merge_existing_batch_mode = ""
+    context.runtime_l4_merge_paused_signature = ""
+    return True
+
+
+def record_l4_merge_success(
+    context,
+    *,
+    batch_count: int,
+    remaining_pending_count: int,
+) -> dict:
+    """Grow a learned pending batch until a probe fails, then keep the last win."""
+
+    normalized_batch_count = max(1, int(batch_count or 1))
+    remaining = max(0, int(remaining_pending_count or 0))
+    locked = bool(
+        getattr(
+            context,
+            "runtime_l4_merge_batch_locked",
+            False,
+        )
+    )
+
+    context.runtime_l4_merge_last_success_batch_limit = normalized_batch_count
+    context.runtime_l4_merge_truncation_streak = 0
+    context.runtime_l4_merge_retry_not_before = 0.0
+
+    if remaining <= 0:
+        context.runtime_l4_merge_batch_limit = 0
+        context.runtime_l4_merge_last_success_batch_limit = 0
+        context.runtime_l4_merge_batch_locked = False
+        return {
+            "adaptive_batch_limit": 0,
+            "adaptive_batch_locked": False,
+        }
+
+    if locked:
+        context.runtime_l4_merge_batch_limit = normalized_batch_count
+        return {
+            "adaptive_batch_limit": normalized_batch_count,
+            "adaptive_batch_locked": True,
+        }
+
+    next_limit = max(
+        normalized_batch_count + 1,
+        normalized_batch_count * 2,
+    )
+    context.runtime_l4_merge_batch_limit = next_limit
+    return {
+        "adaptive_batch_limit": next_limit,
+        "adaptive_batch_locked": False,
+        "last_success_batch_limit": normalized_batch_count,
+    }
 
 
 def get_l4_merge_retry_backoff(context) -> dict | None:
@@ -140,15 +230,28 @@ def record_l4_merge_truncation(
         )
     )
     normalized_batch_count = max(1, int(batch_count or 1))
-    next_batch_limit = max(
-        1,
-        normalized_batch_count // 2,
-    )
-    if current_limit:
-        next_batch_limit = min(
-            current_limit,
-            next_batch_limit,
+    last_success = _positive_int(
+        getattr(
+            context,
+            "runtime_l4_merge_last_success_batch_limit",
+            0,
         )
+    )
+    if last_success and normalized_batch_count > last_success:
+        # An expansion probe failed. Pin the runtime to the last batch size that
+        # actually completed instead of oscillating forever between N and 2N.
+        next_batch_limit = last_success
+        context.runtime_l4_merge_batch_locked = True
+    else:
+        next_batch_limit = max(
+            1,
+            normalized_batch_count // 2,
+        )
+        if current_limit:
+            next_batch_limit = min(
+                current_limit,
+                next_batch_limit,
+            )
 
     streak = _positive_int(
         getattr(
@@ -171,6 +274,10 @@ def record_l4_merge_truncation(
 
     return {
         "adaptive_batch_limit": next_batch_limit,
+        "adaptive_batch_locked": bool(
+            getattr(context, "runtime_l4_merge_batch_locked", False)
+        ),
+        "last_success_batch_limit": last_success,
         "truncation_streak": streak,
         "retry_after_seconds": retry_after_seconds,
     }
@@ -2014,6 +2121,69 @@ def rebase_l4_merge_operations(
     return rebased_store, rebased_change
 
 
+async def log_l4_context_paused(
+    context,
+    *,
+    minimum_required: int,
+    maximum_available: int,
+    pending_count: int,
+    existing_fact_count: int,
+) -> dict:
+    minimum_required = max(1, int(minimum_required or 1))
+    maximum_available = max(1, int(maximum_available or 1))
+    signature = (
+        f"{minimum_required}:{maximum_available}:"
+        f"{pending_count}:{existing_fact_count}"
+    )
+    already_logged = (
+        str(
+            getattr(
+                context,
+                "runtime_l4_merge_paused_signature",
+                "",
+            )
+            or ""
+        )
+        == signature
+    )
+    context.runtime_l4_merge_paused_signature = signature
+
+    result = {
+        "phase": "merge",
+        "status": "paused",
+        "reason": "not_enough_context_window_size",
+        "minimum_required": minimum_required,
+        "maximum_available": maximum_available,
+        "pending_count": max(0, int(pending_count or 0)),
+        "existing_fact_count": max(0, int(existing_fact_count or 0)),
+    }
+    if already_logged:
+        return result
+
+    message = (
+        "Not enough context window size\n"
+        f"Minimum required: {minimum_required}\n"
+        f"Maximum available: {maximum_available}"
+    )
+    await log_memory_event(
+        context,
+        level=L4_LOG_LEVEL,
+        message=message,
+        details=json.dumps(
+            {
+                "kind": "l4_context_paused",
+                **result,
+            },
+            ensure_ascii=False,
+            indent=2,
+        ),
+        fallback_channel="summarizer",
+        event="merge_paused",
+        tag_suffix="PAUSED",
+    )
+    return result
+
+
 async def run_l4_merge_phase(*, context, service_client) -> dict:
     base_store = clone_l4_store(ensure_runtime_l4_state(context))
     pending_queue = list(base_store.get("pending_facts") or [])
@@ -2065,10 +2235,14 @@ async def run_l4_merge_phase(*, context, service_client) -> dict:
             getattr(config, "SERVICE_CONTEXT_WINDOW", 0)
         ) or 4096
 
+    refresh_l4_merge_context_window_state(
+        context,
+        runtime_context_window,
+    )
+
     runtime_output_reserve = _positive_int(
         getattr(config, "RUNTIME_OUTPUT_TOKEN_RESERVE", 256)
     )
-
     protected_fact_ids = get_runtime_l4_explicit_edit_fact_ids(context)
     force_single_batch = bool(
         getattr(
@@ -2077,80 +2251,215 @@ async def run_l4_merge_phase(*, context, service_client) -> dict:
             False,
         )
     )
-    configured_batch_limit = _positive_int(
-        getattr(
-            context,
-            "runtime_l4_merge_batch_limit",
-            0,
+
+    async def execute_double_batch_plan(double_plan: dict) -> dict:
+        merge_mode = str(double_plan.get("mode") or "full")
+        selected_pending = list(double_plan.get("pending_facts") or [])
+        selected_pending_ids = list(double_plan.get("pending_ids") or [])
+        plans = list(double_plan.get("plans") or [])
+        existing_batches = list(
+            double_plan.get("existing_fact_batches") or []
         )
-    )
-    batch_plan = build_l4_merge_batch_plan(
-        existing_facts=base_store.get("facts") or [],
-        pending_facts=pending_queue,
-        system_prompt=system_prompt,
-        runtime_context_window=runtime_context_window,
-        requested_max_tokens=None,
-        runtime_output_reserve=runtime_output_reserve,
-        protected_fact_ids=protected_fact_ids,
-        max_batch_count=(
-            1
-            if force_single_batch
-            else configured_batch_limit or None
-        ),
-    )
-    pending_facts = batch_plan["pending_facts"]
-    if not pending_facts:
-        return await log_l4_skip_event(
-            context,
-            phase="merge",
-            message_phase="merge",
-            reason="runtime_context_budget_exhausted",
-            details=build_l4_merge_budget_skip_details(
+
+        if merge_mode == "full":
+            request_plan = plans[0]
+            merge_user_prompt = request_plan["user_prompt"]
+            merge_response = await ask_l4_model(
+                context=context,
                 service_client=service_client,
+                label="L4 merge",
                 system_prompt=system_prompt,
-                batch_plan=batch_plan,
-                pending_queue=pending_queue,
-            ),
+                user_prompt=merge_user_prompt,
+                max_tokens=request_plan["requested_max_output_tokens"],
+            )
+            return {
+                "response": merge_response,
+                "batch_plan": {
+                    **request_plan,
+                    "remaining_pending_count": max(
+                        0,
+                        len(pending_queue) - len(selected_pending),
+                    ),
+                },
+                "pending_facts": selected_pending,
+                "pending_ids": selected_pending_ids,
+                "merge_mode": merge_mode,
+                "shard_scan": [],
+                "shard_previous_facts": [],
+                "shard_second_half": [],
+            }
+
+        first_half, second_half = existing_batches
+        first_plan, second_plan = plans
+        scan_system_prompt = build_l4_merge_shard_scan_system_prompt()
+        scan_user_prompt = build_l4_merge_shard_scan_user_prompt(
+            existing_facts=first_half,
+            pending_facts=selected_pending,
+            protected_fact_ids=protected_fact_ids,
         )
+        scan_response = await ask_l4_model(
+            context=context,
+            service_client=service_client,
+            label="L4 merge",
+            system_prompt=scan_system_prompt,
+            user_prompt=scan_user_prompt,
+            max_tokens=first_plan["requested_max_output_tokens"],
+        )
+        if is_runtime_memory_response_truncated(scan_response):
+            details = build_l4_truncation_details(
+                scan_response,
+                phase="merge",
+                pending_count=len(selected_pending),
+                pending_ids=selected_pending_ids,
+            )
+            details.update(
+                record_l4_merge_truncation(
+                    context,
+                    batch_count=len(selected_pending),
+                )
+            )
+            details["existing_batch_mode"] = "halves"
+            details["shard"] = 1
+            terminal = await log_l4_skip_event(
+                context,
+                phase="merge",
+                message_phase="merge",
+                reason="response_truncated",
+                details=details,
+            )
+            return {"terminal": terminal}
 
-    if force_single_batch:
-        # This is a one-shot isolation pass. If it fails again the single PF is
-        # deferred; if it succeeds, later idle ticks can return to normal batch
-        # sizing immediately.
-        context.runtime_l4_merge_force_single_batch_once = False
+        scan_payload = extract_l4_json_payload(
+            extract_runtime_memory_text(scan_response)
+        )
+        scan_results = normalize_l4_merge_shard_scan(
+            scan_payload,
+            pending_ids=selected_pending_ids,
+            visible_fact_ids=[
+                fact.get("id")
+                for fact in first_half
+                if isinstance(fact, dict)
+            ],
+        )
+        if not scan_results:
+            recovery = record_l4_merge_validation_failure(
+                context,
+                pending_ids=selected_pending_ids,
+                batch_count=len(selected_pending),
+            )
+            terminal = await log_l4_skip_event(
+                context,
+                phase="merge",
+                message_phase="merge",
+                reason="invalid_shard_scan",
+                details={
+                    "pending_count": len(selected_pending),
+                    "pending_ids": selected_pending_ids,
+                    "existing_batch_mode": "halves",
+                    "shard": 1,
+                    **recovery,
+                },
+            )
+            return {"terminal": terminal}
 
-    user_prompt = batch_plan["user_prompt"]
-    pending_ids = batch_plan["pending_ids"]
-    try:
-        response = await ask_l4_model(
+        # The first pass returns only compact overlap evidence. Before the
+        # second request, trim the pending prefix if that hand-off metadata
+        # consumes the last bit of the live context budget. Extra first-pass
+        # scan results are harmless and remain queued for the next idle tick.
+        final_pending = list(selected_pending)
+        final_scan = list(scan_results)
+        final_prompt = ""
+        final_previous_facts = []
+        minimum_finalize_required = 0
+        while final_pending:
+            final_ids = {
+                str(fact.get("id") or "").strip()
+                for fact in final_pending
+            }
+            final_scan = [
+                item
+                for item in scan_results
+                if item.get("pending_id") in final_ids
+            ]
+            final_previous_facts = collect_l4_shard_scan_referenced_facts(
+                first_half,
+                final_scan,
+            )
+            final_prompt = build_l4_merge_shard_finalize_user_prompt(
+                existing_facts=second_half,
+                pending_facts=final_pending,
+                previous_shard_scan=final_scan,
+                previous_shard_facts=final_previous_facts,
+                all_existing_facts=base_store.get("facts") or [],
+                protected_fact_ids=protected_fact_ids,
+            )
+            minimum_finalize_required = (
+                estimate_runtime_tokens(
+                    system_prompt=system_prompt,
+                    user_input=final_prompt,
+                )
+                + estimate_l4_merge_response_tokens(final_pending)
+                + runtime_output_reserve
+                + 128
+            )
+            if minimum_finalize_required <= runtime_context_window:
+                break
+            final_pending.pop()
+
+        if not final_pending:
+            terminal = await log_l4_context_paused(
+                context,
+                minimum_required=minimum_finalize_required,
+                maximum_available=runtime_context_window,
+                pending_count=len(pending_queue),
+                existing_fact_count=len(base_store.get("facts") or []),
+            )
+            return {"terminal": terminal}
+
+        final_pending_ids = [
+            str(fact.get("id") or "").strip()
+            for fact in final_pending
+            if str(fact.get("id") or "").strip()
+        ]
+        merge_response = await ask_l4_model(
             context=context,
             service_client=service_client,
             label="L4 merge",
             system_prompt=system_prompt,
-            user_prompt=user_prompt,
-            max_tokens=batch_plan["requested_max_output_tokens"],
+            user_prompt=final_prompt,
+            max_tokens=second_plan["requested_max_output_tokens"],
         )
-    except LMStudioAPIError:
-        provider_context_window = _positive_int(
+        return {
+            "response": merge_response,
+            "batch_plan": {
+                **second_plan,
+                "user_prompt": final_prompt,
+                "pending_facts": final_pending,
+                "pending_ids": final_pending_ids,
+                "batch_count": len(final_pending),
+                "remaining_pending_count": max(
+                    0,
+                    len(pending_queue) - len(final_pending),
+                ),
+            },
+            "pending_facts": final_pending,
+            "pending_ids": final_pending_ids,
+            "merge_mode": merge_mode,
+            "shard_scan": final_scan,
+            "shard_previous_facts": final_previous_facts,
+            "shard_second_half": second_half,
+        }
+
+    execution = None
+    for provider_attempt in range(2):
+        configured_batch_limit = _positive_int(
             getattr(
-                service_client,
-                "provider_context_window_ceiling",
+                context,
+                "runtime_l4_merge_batch_limit",
                 0,
             )
         )
-        if (
-            not provider_context_window
-            or provider_context_window >= runtime_context_window
-        ):
-            raise
-
-        # Some LM Studio metadata surfaces the model's theoretical maximum
-        # instead of the n_ctx used by the loaded instance. RuntimeClient
-        # learns the provider-enforced n_ctx from the 400 response; rebuild the
-        # FIFO batch once against that real budget instead of failing the idle
-        # L4 update and repeating the same oversized request on the next tick.
-        runtime_context_window = provider_context_window
-        batch_plan = build_l4_merge_batch_plan(
+        double_plan = build_l4_double_batch_plan(
             existing_facts=base_store.get("facts") or [],
             pending_facts=pending_queue,
             system_prompt=system_prompt,
@@ -2164,33 +2473,81 @@ async def run_l4_merge_phase(*, context, service_client) -> dict:
                 else configured_batch_limit or None
             ),
         )
-        pending_facts = batch_plan["pending_facts"]
-        if not pending_facts:
-            return await log_l4_skip_event(
+        if not double_plan.get("fits"):
+            return await log_l4_context_paused(
                 context,
-                phase="merge",
-                message_phase="merge",
-                reason="runtime_context_budget_exhausted",
-                details=build_l4_merge_budget_skip_details(
-                    service_client=service_client,
-                    system_prompt=system_prompt,
-                    batch_plan=batch_plan,
-                    pending_queue=pending_queue,
-                    provider_context_window_recovered=True,
-                ),
+                minimum_required=double_plan.get("minimum_required_tokens") or 1,
+                maximum_available=runtime_context_window,
+                pending_count=len(pending_queue),
+                existing_fact_count=len(base_store.get("facts") or []),
             )
 
-        user_prompt = batch_plan["user_prompt"]
-        pending_ids = batch_plan["pending_ids"]
-        response = await ask_l4_model(
-            context=context,
-            service_client=service_client,
-            label="L4 merge",
-            system_prompt=system_prompt,
-            user_prompt=user_prompt,
-            max_tokens=batch_plan["requested_max_output_tokens"],
+        context.runtime_l4_merge_paused_signature = ""
+        context.runtime_l4_merge_existing_batch_mode = str(
+            double_plan.get("mode") or "full"
         )
 
+        planned_batch_count = int(double_plan.get("batch_count") or 0)
+        if (
+            configured_batch_limit
+            and planned_batch_count
+            and planned_batch_count < configured_batch_limit
+            and double_plan.get("remaining_pending_count")
+        ):
+            # The local budget itself rejected the expansion target. Keep the
+            # largest locally-fitting size instead of probing the same failure
+            # on every idle tick.
+            context.runtime_l4_merge_batch_limit = planned_batch_count
+            context.runtime_l4_merge_batch_locked = True
+
+        if force_single_batch:
+            context.runtime_l4_merge_force_single_batch_once = False
+
+        try:
+            execution = await execute_double_batch_plan(double_plan)
+            break
+        except LMStudioAPIError:
+            provider_context_window = _positive_int(
+                getattr(
+                    service_client,
+                    "provider_context_window_ceiling",
+                    0,
+                )
+            )
+            if (
+                provider_attempt
+                or not provider_context_window
+                or provider_context_window >= runtime_context_window
+            ):
+                raise
+
+            runtime_context_window = provider_context_window
+            refresh_l4_merge_context_window_state(
+                context,
+                runtime_context_window,
+            )
+
+    if execution is None:
+        raise RuntimeError("L4 merge execution did not start")
+    if execution.get("terminal") is not None:
+        return execution["terminal"]
+
+    response = execution["response"]
+    batch_plan = execution["batch_plan"]
+    pending_facts = execution["pending_facts"]
+    pending_ids = execution["pending_ids"]
+    merge_mode = execution["merge_mode"]
+    shard_scan = execution["shard_scan"]
+    shard_previous_facts = execution["shard_previous_facts"]
+    shard_second_half = execution["shard_second_half"]
+    user_prompt = batch_plan["user_prompt"]
+    if (
+        planned_batch_count
+        and len(pending_facts) < planned_batch_count
+        and len(pending_queue) > len(pending_facts)
+    ):
+        context.runtime_l4_merge_batch_limit = len(pending_facts)
+        context.runtime_l4_merge_batch_locked = True
     if is_runtime_memory_response_truncated(response):
         truncation_details = build_l4_truncation_details(
             response,
@@ -2198,6 +2555,7 @@ async def run_l4_merge_phase(*, context, service_client) -> dict:
             pending_count=len(pending_facts),
             pending_ids=pending_ids,
         )
+        truncation_details["existing_batch_mode"] = merge_mode
         truncation_details.update(
             record_l4_merge_truncation(
                 context,
@@ -2251,25 +2609,37 @@ async def run_l4_merge_phase(*, context, service_client) -> dict:
             operations,
             initial_validation_reason,
         )
-        repair_prompt = build_l4_merge_user_prompt(
-            existing_facts=base_store.get("facts") or [],
-            pending_facts=pending_facts,
-            protected_fact_ids=protected_fact_ids,
-            repair_context={
-                "validation_error": initial_validation_reason,
-                "feedback": feedback,
-                "required_pending_ids": pending_ids,
-                "previous_operations": (
-                    payload.get("operations", [])
-                    if isinstance(payload, dict)
-                    else []
-                ),
-                "instruction": (
-                    "Repair the previous result. Return corrected JSON only; "
-                    "do not repeat the invalid structure."
-                ),
-            },
-        )
+        repair_context = {
+            "validation_error": initial_validation_reason,
+            "feedback": feedback,
+            "required_pending_ids": pending_ids,
+            "previous_operations": (
+                payload.get("operations", [])
+                if isinstance(payload, dict)
+                else []
+            ),
+            "instruction": (
+                "Repair the previous result. Return corrected JSON only; "
+                "do not repeat the invalid structure."
+            ),
+        }
+        if merge_mode == "halves":
+            repair_prompt = build_l4_merge_shard_finalize_user_prompt(
+                existing_facts=shard_second_half,
+                pending_facts=pending_facts,
+                previous_shard_scan=shard_scan,
+                previous_shard_facts=shard_previous_facts,
+                all_existing_facts=base_store.get("facts") or [],
+                protected_fact_ids=protected_fact_ids,
+                repair_context=repair_context,
+            )
+        else:
+            repair_prompt = build_l4_merge_user_prompt(
+                existing_facts=base_store.get("facts") or [],
+                pending_facts=pending_facts,
+                protected_fact_ids=protected_fact_ids,
+                repair_context=repair_context,
+            )
         repair_response = await ask_l4_model(
             context=context,
             service_client=service_client,
@@ -2409,10 +2779,15 @@ async def run_l4_merge_phase(*, context, service_client) -> dict:
         context,
         merge_change.get("processed_pending_ids", pending_ids),
     )
-    reset_l4_merge_recovery_state(
+    batching_recovery = record_l4_merge_success(
         context,
-        keep_batch_limit=bool(next_store.get("pending_facts")),
+        batch_count=len(pending_facts),
+        remaining_pending_count=len(next_store.get("pending_facts") or []),
     )
+    merge_change["batching"] = {
+        "existing_batch_mode": merge_mode,
+        **batching_recovery,
+    }
     persist_runtime_l4_file_store(
         context,
         next_store,

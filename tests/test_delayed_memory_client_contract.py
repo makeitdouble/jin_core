@@ -267,6 +267,58 @@ class DelayedMemoryClientContractTests(unittest.TestCase):
         self.assertIn("loaded_delayed_memory_ids", socket_source)
         self.assertIn("replaceLoadedDelayedMemoryReportIds", socket_source)
 
+    def test_pinning_delayed_memory_does_not_create_secondary_report_glow(self):
+
+        memory_view_source = (
+            ROOT / "ui" / "static" / "js" / "runtime" / "runtime-memory-view.js"
+        ).read_text(encoding="utf-8")
+        avatar_source = (
+            ROOT / "ui" / "static" / "js" / "runtime" / "runtime-avatar.js"
+        ).read_text(encoding="utf-8")
+        index_source = (
+            ROOT / "ui" / "templates" / "index.html"
+        ).read_text(encoding="utf-8")
+
+        records_start = avatar_source.index(
+            "function getDelayedMemoryAvatarRecords()"
+        )
+        records_end = avatar_source.index(
+            "function getL4MemoryAvatarRecords()",
+            records_start,
+        )
+        records_block = avatar_source[records_start:records_end]
+
+        self.assertIn(
+            'runtime.isDelayedMemoryReportLoaded(id)',
+            records_block,
+        )
+        self.assertNotIn(
+            'Boolean(report.pinned)\n          || Boolean(',
+            records_block,
+        )
+
+        secondary_start = memory_view_source.index(
+            "function getSecondaryLinkedDelayedMemoryReportIds(reports)"
+        )
+        secondary_end = memory_view_source.index(
+            "function getContextLoadedDelayedMemoryFactIds()",
+            secondary_start,
+        )
+        secondary_block = memory_view_source[secondary_start:secondary_end]
+
+        self.assertIn(
+            ".filter(isDelayedMemoryReportExplicitlyLoaded)",
+            secondary_block,
+        )
+        self.assertNotIn(
+            ".filter(isDelayedMemoryReportInContext)",
+            secondary_block,
+        )
+        self.assertIn(
+            "delayed-pin-link-isolation=1",
+            index_source,
+        )
+
     def test_delayed_memory_unpin_resyncs_all_avatar_link_state(self):
 
         runtime_source = (

@@ -11,6 +11,8 @@ from utils.session_actions_history import (
     format_session_action_display_parts,
     get_current_action_sequence_started_at,
     get_current_action_sequence_turn_id,
+    get_session_action_session_id,
+    session_action_belongs_to_session,
 )
 
 
@@ -66,6 +68,19 @@ def _normalize_session_action_history_item(
                 False,
             )
         )
+        previous_bootstrap = bool(
+            item.get(
+                "runtime_session_action_previous_bootstrap",
+                False,
+            )
+        )
+        session_id = str(
+            item.get(
+                "session_id",
+                "",
+            )
+            or ""
+        ).strip()
     else:
         text = str(
             item
@@ -74,6 +89,8 @@ def _normalize_session_action_history_item(
         parts = []
         jin_message_content = ""
         plain_sequence = False
+        previous_bootstrap = False
+        session_id = ""
 
     return {
         "text": text,
@@ -82,6 +99,8 @@ def _normalize_session_action_history_item(
         "runtime_turn_id": runtime_turn_id,
         "jin_message_content": jin_message_content,
         "plain_sequence": plain_sequence,
+        "previous_bootstrap": previous_bootstrap,
+        "session_id": session_id,
     }
 
 
@@ -378,6 +397,19 @@ def build_session_actions_history_context(
         if item["text"]
     ]
 
+    if context is not None:
+        session_id = get_session_action_session_id(
+            context
+        )
+        history_items = [
+            item
+            for item in history_items
+            if session_action_belongs_to_session(
+                item,
+                session_id,
+            )
+        ]
+
     if current_sequence and context is not None:
         current_turn_id = get_current_action_sequence_turn_id(
             context
@@ -431,11 +463,30 @@ def build_session_actions_history_context(
     lines = []
     action_index = 0
     open_sequence_turn_id = ""
+    previous_actions_section_open = False
+    current_actions_section_open = False
 
     for item in history_items:
         runtime_turn_id = item[
             "runtime_turn_id"
         ]
+
+        if not current_sequence:
+            if item.get("previous_bootstrap"):
+                if not previous_actions_section_open:
+                    lines.append(
+                        "----- Previous actions -----"
+                    )
+                    previous_actions_section_open = True
+            elif (
+                previous_actions_section_open
+                and not current_actions_section_open
+            ):
+                lines.append(
+                    "----- Current session actions -----"
+                )
+                current_actions_section_open = True
+
         item_is_sequence = (
             not current_sequence
             and runtime_turn_id in sequence_turn_ids

@@ -1299,6 +1299,9 @@
     const records = Array.isArray(reports) ? reports : [];
     const linkedReportIds = new Set();
 
+    // Pin and explicit load are both direct delayed-memory states. Either
+    // may expose a secondary cross-report anchor. The secondary row itself is
+    // intentionally not a panel-sort signal.
     records
       .filter(isDelayedMemoryReportInContext)
       .forEach((sourceReport) => {

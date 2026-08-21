@@ -131,7 +131,14 @@ def build_runtime_summarizer_trusted_context(
 
     contract = ContextContract(
         user_input="",
-        runtime_mode="SERVICE",
+        current_session_id=str(
+            getattr(
+                context,
+                "session_id",
+                "",
+            )
+            or ""
+        ).strip(),
         service_model_uid=settings.SERVICE_MODEL_UID,
         timestamp=str(timestamp),
         current_date=str(

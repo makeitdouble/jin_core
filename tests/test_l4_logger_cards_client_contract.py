@@ -66,6 +66,16 @@ class L4LoggerCardsClientContractTests(unittest.TestCase):
         self.assertIn('Array.isArray(payload.facts)', source)
         self.assertIn('Array.isArray(payload.operations)', source)
 
+    def test_l4_paused_card_is_rendered_as_a_red_memory_card(self):
+        source = LOG_ENTRIES_JS.read_text(encoding="utf-8")
+        index_source = INDEX_HTML.read_text(encoding="utf-8")
+
+        self.assertIn('"[MEMORY:L4:PAUSED]"', source)
+        self.assertIn('bg-red-500/5', source)
+        self.assertIn('border-red-500/15', source)
+        self.assertIn('text-red-300 font-bold', source)
+        self.assertIn('l4-double-batch=1', index_source)
+
     def test_restore_message_round_trip_is_registered(self):
         runtime_source = RUNTIME_L4_JS.read_text(encoding="utf-8")
         socket_source = SOCKET_EVENTS_JS.read_text(encoding="utf-8")

@@ -11,7 +11,7 @@ from utils.context.current_concerns import (
 
 class CurrentConcernsContextTests(unittest.TestCase):
 
-    def test_empty_current_concerns_block_is_always_before_tool_results(self):
+    def test_empty_current_concerns_block_is_followed_by_trusted_variables(self):
         context = SimpleNamespace(
             runtime_memory="",
             active_memory_records=[],
@@ -30,11 +30,12 @@ class CurrentConcernsContextTests(unittest.TestCase):
 
         self.assertTrue(
             prompt.startswith(
-                "<CURRENT_CONCERNS>\n</CURRENT_CONCERNS>"
+                "<CURRENT_CONCERNS>\n</CURRENT_CONCERNS>\n\n"
+                "<CURRENT_TRUSTED_RUNTIME_VARIABLES>"
             )
         )
         self.assertLess(
-            prompt.index("</CURRENT_CONCERNS>"),
+            prompt.index("</CURRENT_TRUSTED_RUNTIME_VARIABLES>"),
             prompt.index("<TOOLS_RESULTS>"),
         )
 

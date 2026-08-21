@@ -238,6 +238,241 @@ def build_l4_merge_user_prompt(
     )
 
 
+def split_l4_existing_fact_batches(
+    existing_facts: list[dict],
+) -> list[list[dict]]:
+    """Split committed L4 into at most two stable FIFO-preserving halves."""
+
+    facts = [
+        fact
+        for fact in existing_facts
+        if isinstance(fact, dict)
+    ]
+    if len(facts) <= 1:
+        return [facts]
+
+    midpoint = (len(facts) + 1) // 2
+    return [
+        facts[:midpoint],
+        facts[midpoint:],
+    ]
+
+
+def build_l4_merge_shard_scan_system_prompt() -> str:
+    return (
+        "You scan one shard of JIN's committed L4 memory for semantic overlap "
+        "with pending L4 candidates. This is only the first half of a two-pass "
+        "comparison. Do not create or mutate memory. Return exactly one scan "
+        "result for every pending_id.\n\n"
+        "For each pending candidate choose one decision:\n"
+        "- no_match: this shard contains no relevant overlap;\n"
+        "- ignore: the candidate should be ignored, either because it is not "
+        "durable/useful enough or because this shard already represents it;\n"
+        "- update: exactly one committed fact in this shard should be updated;\n"
+        "- merge: two or more committed facts in this shard overlap and should "
+        "participate in a final merge.\n\n"
+        "When ignore is caused by an existing fact, include that fact in "
+        "fact_ids. For update include exactly one fact_id. For merge include at "
+        "least two fact_ids. Use only F<number> IDs visible in this request. "
+        "Protected fact IDs are read-only: if a pending candidate overlaps one, "
+        "return ignore and include that protected ID in fact_ids.\n\n"
+        "Return JSON only:\n"
+        '{"scan":[{"pending_id":"PF1","decision":"no_match",'
+        '"fact_ids":[],"comment":""}]}'
+    )
+
+
+def build_l4_merge_shard_scan_user_prompt(
+    *,
+    existing_facts: list[dict],
+    pending_facts: list[dict],
+    protected_fact_ids=(),
+) -> str:
+    return (
+        "Scan this committed-memory shard against every pending candidate.\n\n"
+        + json.dumps(
+            {
+                "existing_facts": [
+                    build_l4_merge_model_fact(fact)
+                    for fact in existing_facts
+                    if isinstance(fact, dict)
+                ],
+                "pending_facts": [
+                    build_l4_merge_model_fact(fact)
+                    for fact in pending_facts
+                    if isinstance(fact, dict)
+                ],
+                "protected_fact_ids": [
+                    fact_id
+                    for fact_id in normalize_l4_string_list(protected_fact_ids)
+                    if normalize_l4_id(fact_id, pending=False)
+                ],
+            },
+            ensure_ascii=False,
+            separators=(",", ":"),
+            sort_keys=True,
+        )
+    )
+
+
+def normalize_l4_merge_shard_scan(
+    payload,
+    *,
+    pending_ids: list[str],
+    visible_fact_ids: list[str],
+) -> list[dict]:
+    if not isinstance(payload, dict) or not isinstance(payload.get("scan"), list):
+        return []
+
+    expected_pending = {
+        normalize_l4_id(pending_id, pending=True)
+        for pending_id in pending_ids
+        if normalize_l4_id(pending_id, pending=True)
+    }
+    visible_facts = {
+        normalize_l4_id(fact_id, pending=False)
+        for fact_id in visible_fact_ids
+        if normalize_l4_id(fact_id, pending=False)
+    }
+    allowed_decisions = {
+        "no_match",
+        "ignore",
+        "update",
+        "merge",
+    }
+    normalized = []
+    seen_pending = set()
+
+    for raw_item in payload.get("scan") or []:
+        if not isinstance(raw_item, dict):
+            return []
+        pending_id = normalize_l4_id(raw_item.get("pending_id"), pending=True)
+        decision = normalize_l4_key(raw_item.get("decision"))
+        if (
+            not pending_id
+            or pending_id not in expected_pending
+            or pending_id in seen_pending
+            or decision not in allowed_decisions
+        ):
+            return []
+
+        fact_ids = [
+            fact_id
+            for fact_id in (
+                normalize_l4_id(raw_id, pending=False)
+                for raw_id in normalize_l4_string_list(raw_item.get("fact_ids"))
+            )
+            if fact_id
+        ]
+        if any(fact_id not in visible_facts for fact_id in fact_ids):
+            return []
+        if len(set(fact_ids)) != len(fact_ids):
+            return []
+        if decision == "no_match" and fact_ids:
+            return []
+        if decision == "update" and len(fact_ids) != 1:
+            return []
+        if decision == "merge" and len(fact_ids) < 2:
+            return []
+
+        item = {
+            "pending_id": pending_id,
+            "decision": decision,
+            "fact_ids": fact_ids,
+        }
+        comment = normalize_l4_text(raw_item.get("comment"))
+        if comment:
+            item["comment"] = comment
+        normalized.append(item)
+        seen_pending.add(pending_id)
+
+    if seen_pending != expected_pending:
+        return []
+
+    order = {
+        pending_id: index
+        for index, pending_id in enumerate(pending_ids)
+    }
+    normalized.sort(key=lambda item: order.get(item["pending_id"], 10**9))
+    return normalized
+
+
+def build_l4_merge_shard_finalize_user_prompt(
+    *,
+    existing_facts: list[dict],
+    pending_facts: list[dict],
+    previous_shard_scan: list[dict],
+    previous_shard_facts: list[dict],
+    all_existing_facts: list[dict],
+    protected_fact_ids=(),
+    repair_context: dict | None = None,
+) -> str:
+    return (
+        "Finalize this pending batch after an earlier L4 shard scan. "
+        "existing_facts is the remaining committed-memory shard. "
+        "previous_shard_scan summarizes the first shard, and "
+        "previous_shard_facts contains every committed fact explicitly "
+        "referenced by that scan. Consider both shards together and return "
+        "exactly one normal L4 merge operation for every pending_id.\n\n"
+        + json.dumps(
+            {
+                "existing_facts": [
+                    build_l4_merge_model_fact(fact)
+                    for fact in existing_facts
+                    if isinstance(fact, dict)
+                ],
+                "pending_facts": [
+                    build_l4_merge_model_fact(fact)
+                    for fact in pending_facts
+                    if isinstance(fact, dict)
+                ],
+                "previous_shard_scan": previous_shard_scan,
+                "previous_shard_facts": [
+                    build_l4_merge_model_fact(fact)
+                    for fact in previous_shard_facts
+                    if isinstance(fact, dict)
+                ],
+                "exact_key_conflicts": collect_l4_exact_key_conflicts(
+                    existing_facts=all_existing_facts,
+                    pending_facts=pending_facts,
+                ),
+                "protected_fact_ids": [
+                    fact_id
+                    for fact_id in normalize_l4_string_list(protected_fact_ids)
+                    if normalize_l4_id(fact_id, pending=False)
+                ],
+                **(
+                    {"repair": repair_context}
+                    if isinstance(repair_context, dict) and repair_context
+                    else {}
+                ),
+            },
+            ensure_ascii=False,
+            separators=(",", ":"),
+            sort_keys=True,
+        )
+    )
+
+
+def collect_l4_shard_scan_referenced_facts(
+    existing_facts: list[dict],
+    scan_results: list[dict],
+) -> list[dict]:
+    referenced_ids = {
+        fact_id
+        for item in scan_results
+        if isinstance(item, dict)
+        for fact_id in normalize_l4_string_list(item.get("fact_ids"))
+        if normalize_l4_id(fact_id, pending=False)
+    }
+    return [
+        fact
+        for fact in existing_facts
+        if isinstance(fact, dict)
+        and normalize_l4_id(fact.get("id"), pending=False) in referenced_ids
+    ]
+
+
 def build_l4_merge_model_fact(fact: dict) -> dict:
     return {
         "id": normalize_l4_text(fact.get("id")),
@@ -335,6 +570,26 @@ def build_l4_merge_batch_plan(
         for fact in pending_facts
         if isinstance(fact, dict)
     ]
+    minimum_required_tokens = 0
+    if queue:
+        minimum_prompt = build_l4_merge_user_prompt(
+            existing_facts=existing_facts,
+            pending_facts=[queue[0]],
+            protected_fact_ids=protected_fact_ids,
+        )
+        minimum_prompt_tokens = estimate_runtime_tokens(
+            system_prompt=system_prompt,
+            user_input=minimum_prompt,
+        )
+        minimum_response_tokens = estimate_l4_merge_response_tokens(
+            [queue[0]]
+        )
+        minimum_required_tokens = (
+            minimum_prompt_tokens
+            + minimum_response_tokens
+            + provider_reserve
+            + 128
+        )
     selected = []
     selected_prompt = ""
     selected_prompt_tokens = 0
@@ -477,7 +732,157 @@ def build_l4_merge_batch_plan(
         "configured_output_room_tokens": configured_output_room,
         "requested_max_output_tokens": max_requested_output,
         "adaptive_batch_limit": batch_limit,
+        "minimum_required_tokens": minimum_required_tokens,
         "fits": bool(selected),
+    }
+
+
+def build_l4_double_batch_plan(
+    *,
+    existing_facts: list[dict],
+    pending_facts: list[dict],
+    system_prompt: str,
+    runtime_context_window: int,
+    requested_max_tokens: int | None,
+    runtime_output_reserve: int = 256,
+    protected_fact_ids=(),
+    max_batch_count: int | None = None,
+) -> dict:
+    """Plan both pending batching and committed-L4 full/half batching.
+
+    Full L4 is preferred. If even one pending fact cannot fit against the full
+    committed list, the runtime falls back to exactly two committed-memory
+    halves. Both halves must be able to compare at least one pending candidate
+    before any model request is allowed.
+    """
+
+    facts = [
+        fact
+        for fact in existing_facts
+        if isinstance(fact, dict)
+    ]
+    queue = [
+        fact
+        for fact in pending_facts
+        if isinstance(fact, dict)
+    ]
+    full_plan = build_l4_merge_batch_plan(
+        existing_facts=facts,
+        pending_facts=queue,
+        system_prompt=system_prompt,
+        runtime_context_window=runtime_context_window,
+        requested_max_tokens=requested_max_tokens,
+        runtime_output_reserve=runtime_output_reserve,
+        protected_fact_ids=protected_fact_ids,
+        max_batch_count=max_batch_count,
+    )
+    if full_plan["fits"]:
+        return {
+            "fits": True,
+            "mode": "full",
+            "batch_count": full_plan["batch_count"],
+            "pending_facts": full_plan["pending_facts"],
+            "pending_ids": full_plan["pending_ids"],
+            "total_pending_count": full_plan["total_pending_count"],
+            "remaining_pending_count": full_plan["remaining_pending_count"],
+            "plans": [full_plan],
+            "existing_fact_batches": [facts],
+            "minimum_required_tokens": full_plan["minimum_required_tokens"],
+            "runtime_context_window_tokens": full_plan[
+                "runtime_context_window_tokens"
+            ],
+        }
+
+    halves = split_l4_existing_fact_batches(facts)
+    if len(halves) < 2:
+        return {
+            "fits": False,
+            "mode": "paused",
+            "batch_count": 0,
+            "pending_facts": [],
+            "pending_ids": [],
+            "total_pending_count": len(queue),
+            "remaining_pending_count": len(queue),
+            "plans": [full_plan],
+            "existing_fact_batches": halves,
+            "minimum_required_tokens": full_plan["minimum_required_tokens"],
+            "runtime_context_window_tokens": full_plan[
+                "runtime_context_window_tokens"
+            ],
+        }
+
+    half_plans = [
+        build_l4_merge_batch_plan(
+            existing_facts=half,
+            pending_facts=queue,
+            system_prompt=system_prompt,
+            runtime_context_window=runtime_context_window,
+            requested_max_tokens=requested_max_tokens,
+            runtime_output_reserve=runtime_output_reserve,
+            protected_fact_ids=protected_fact_ids,
+            max_batch_count=max_batch_count,
+        )
+        for half in halves
+    ]
+    minimum_required_tokens = max(
+        [
+            int(plan.get("minimum_required_tokens") or 0)
+            for plan in half_plans
+        ]
+        or [0]
+    )
+    if any(not plan["fits"] for plan in half_plans):
+        return {
+            "fits": False,
+            "mode": "paused",
+            "batch_count": 0,
+            "pending_facts": [],
+            "pending_ids": [],
+            "total_pending_count": len(queue),
+            "remaining_pending_count": len(queue),
+            "plans": half_plans,
+            "existing_fact_batches": halves,
+            "minimum_required_tokens": minimum_required_tokens,
+            "runtime_context_window_tokens": max(
+                int(plan.get("runtime_context_window_tokens") or 0)
+                for plan in half_plans
+            ),
+        }
+
+    batch_count = min(plan["batch_count"] for plan in half_plans)
+    exact_plans = [
+        build_l4_merge_batch_plan(
+            existing_facts=half,
+            pending_facts=queue,
+            system_prompt=system_prompt,
+            runtime_context_window=runtime_context_window,
+            requested_max_tokens=requested_max_tokens,
+            runtime_output_reserve=runtime_output_reserve,
+            protected_fact_ids=protected_fact_ids,
+            max_batch_count=batch_count,
+        )
+        for half in halves
+    ]
+    selected = queue[:batch_count]
+    return {
+        "fits": True,
+        "mode": "halves",
+        "batch_count": batch_count,
+        "pending_facts": selected,
+        "pending_ids": [
+            normalize_l4_text(fact.get("id"))
+            for fact in selected
+            if normalize_l4_text(fact.get("id"))
+        ],
+        "total_pending_count": len(queue),
+        "remaining_pending_count": max(0, len(queue) - batch_count),
+        "plans": exact_plans,
+        "existing_fact_batches": halves,
+        "minimum_required_tokens": minimum_required_tokens,
+        "runtime_context_window_tokens": max(
+            int(plan.get("runtime_context_window_tokens") or 0)
+            for plan in exact_plans
+        ),
     }
 
 

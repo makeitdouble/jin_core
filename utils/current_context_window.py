@@ -183,7 +183,7 @@ def ensure_current_context_window_field(
     for tag in (
         "BRAIN_MODEL_UID",
         "SERVICE_MODEL_UID",
-        "RUNTIME_MODE",
+        "CURRENT_SESSION_ID",
     ):
         match = re.search(
             (

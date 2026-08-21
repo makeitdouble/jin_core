@@ -707,14 +707,6 @@
         drop-shadow(0 0 10px var(--jin-avatar-memory-glow-mid, rgba(215, 255, 249, 0.54)));
 }
 
-.jin-avatar-memory-dash-delayed.is-memory-pinned,
-.jin-avatar-memory-dash-delayed.is-context-loaded {
-    filter:
-        brightness(1.18)
-        drop-shadow(0 0 4px var(--jin-avatar-memory-glow-near, rgba(239, 255, 255, 0.92)))
-        drop-shadow(0 0 11px var(--jin-avatar-memory-glow-mid, rgba(239, 255, 255, 0.54)));
-}
-
 /* L4 has many tiny segments. Keep the same ambient treatment on the shared
    rotating ring so Chromium composites one filtered surface instead of one
    filter surface per fact. Per-dash citation/hover/link filters below still
@@ -727,19 +719,6 @@
 
 .jin-avatar-memory-dash-l4 {
     filter: none;
-}
-
-.jin-avatar-memory-dash-delayed.is-delayed-memory-secondary-linked {
-    filter:
-        brightness(1.46)
-        saturate(1.32)
-        drop-shadow(0 0 4px var(--jin-avatar-memory-glow-near, rgba(210, 255, 255, 0.46)))
-        drop-shadow(0 0 10px var(--jin-avatar-memory-glow-mid, rgba(90, 235, 245, 0.27)))
-        drop-shadow(0 0 20px var(--jin-avatar-memory-glow-far, rgba(52, 211, 222, 0.12)));
-}
-
-.jin-avatar-memory-dash-delayed.is-delayed-memory-secondary-linked path {
-    stroke-opacity: 0.78;
 }
 
 .jin-avatar-memory-dash.is-runtime-cited,
@@ -791,37 +770,35 @@
 }
 
 /*
-   Delayed-memory ring now uses exactly two blue highlight tiers.
-   Tier 2 = strong bright-blue (pinned / context-loaded / anchor link / open modal / secondary target).
-   Tier 1 = softer blue (citation / mention / row hover / secondary source override).
+   Delayed-memory ring has exactly two highlight tiers over one base hue.
+   Tier 2 = direct state: pinned or explicitly context-loaded.
+   Tier 1 = indirect/transient signal: answer/reasoning citation, row/modal
+            focus, L4 anchor relation, or cross-linked delayed report.
+   A Tier 1 class never downgrades a report that is already Tier 2.
 */
 .jin-avatar-memory-dash-delayed.is-memory-pinned,
-.jin-avatar-memory-dash-delayed.is-context-loaded,
-.jin-avatar-memory-dash-delayed.is-delayed-memory-secondary-linked,
-.jin-avatar-memory-dash-delayed.is-delayed-memory-linked-hit,
-.jin-avatar-memory-dash-delayed.is-memory-modal-active {
+.jin-avatar-memory-dash-delayed.is-context-loaded {
     filter:
-        brightness(1.72)
-        saturate(1.65)
-        drop-shadow(0 0 5px rgba(190, 252, 255, 0.92))
-        drop-shadow(0 0 12px rgba(52, 211, 222, 0.54))
-        drop-shadow(0 0 24px rgba(34, 211, 238, 0.24))
-        drop-shadow(0 0 38px rgba(34, 211, 238, 0.18));
+        brightness(2.20)
+        saturate(1.90)
+        drop-shadow(0 0 6px rgba(210, 255, 255, 0.98))
+        drop-shadow(0 0 16px rgba(80, 235, 245, 0.78))
+        drop-shadow(0 0 30px rgba(34, 211, 238, 0.38))
+        drop-shadow(0 0 46px rgba(34, 211, 238, 0.26));
 }
 
 .jin-avatar-memory-dash-delayed:not(.is-memory-dot).is-memory-pinned path,
-.jin-avatar-memory-dash-delayed:not(.is-memory-dot).is-context-loaded path,
-.jin-avatar-memory-dash-delayed:not(.is-memory-dot).is-delayed-memory-secondary-linked path,
-.jin-avatar-memory-dash-delayed:not(.is-memory-dot).is-delayed-memory-linked-hit path,
-.jin-avatar-memory-dash-delayed:not(.is-memory-dot).is-memory-modal-active path {
+.jin-avatar-memory-dash-delayed:not(.is-memory-dot).is-context-loaded path {
     stroke-opacity: 1 !important;
     stroke-width: calc(var(--jin-avatar-memory-hover-width, 2px) + 0.45px);
 }
 
-.jin-avatar-memory-dash-delayed:not(.is-memory-pinned):not(.is-context-loaded):not(.is-delayed-memory-secondary-linked):not(.is-delayed-memory-linked-hit):not(.is-memory-modal-active).is-runtime-cited,
-.jin-avatar-memory-dash-delayed:not(.is-memory-pinned):not(.is-context-loaded):not(.is-delayed-memory-secondary-linked):not(.is-delayed-memory-linked-hit):not(.is-memory-modal-active).is-memory-reference-hit,
-.jin-avatar-memory-dash-delayed:not(.is-memory-pinned):not(.is-context-loaded):not(.is-delayed-memory-secondary-linked):not(.is-delayed-memory-linked-hit):not(.is-memory-modal-active).is-memory-hover-hit,
-.jin-avatar-memory-dash-delayed.is-delayed-memory-secondary-source:not(.is-delayed-memory-linked-hit):not(.is-memory-modal-active) {
+.jin-avatar-memory-dash-delayed:not(.is-memory-pinned):not(.is-context-loaded).is-runtime-cited,
+.jin-avatar-memory-dash-delayed:not(.is-memory-pinned):not(.is-context-loaded).is-memory-reference-hit,
+.jin-avatar-memory-dash-delayed:not(.is-memory-pinned):not(.is-context-loaded).is-memory-hover-hit,
+.jin-avatar-memory-dash-delayed:not(.is-memory-pinned):not(.is-context-loaded).is-memory-modal-active,
+.jin-avatar-memory-dash-delayed:not(.is-memory-pinned):not(.is-context-loaded).is-delayed-memory-linked-hit,
+.jin-avatar-memory-dash-delayed:not(.is-memory-pinned):not(.is-context-loaded).is-delayed-memory-secondary-linked {
     filter:
         brightness(1.46)
         saturate(1.32)
@@ -830,12 +807,36 @@
         drop-shadow(0 0 20px rgba(52, 211, 222, 0.12));
 }
 
-.jin-avatar-memory-dash-delayed:not(.is-memory-dot):not(.is-memory-pinned):not(.is-context-loaded):not(.is-delayed-memory-secondary-linked):not(.is-delayed-memory-linked-hit):not(.is-memory-modal-active).is-runtime-cited path,
-.jin-avatar-memory-dash-delayed:not(.is-memory-dot):not(.is-memory-pinned):not(.is-context-loaded):not(.is-delayed-memory-secondary-linked):not(.is-delayed-memory-linked-hit):not(.is-memory-modal-active).is-memory-reference-hit path,
-.jin-avatar-memory-dash-delayed:not(.is-memory-dot):not(.is-memory-pinned):not(.is-context-loaded):not(.is-delayed-memory-secondary-linked):not(.is-delayed-memory-linked-hit):not(.is-memory-modal-active).is-memory-hover-hit path,
-.jin-avatar-memory-dash-delayed:not(.is-memory-dot).is-delayed-memory-secondary-source:not(.is-delayed-memory-linked-hit):not(.is-memory-modal-active) path {
+.jin-avatar-memory-dash-delayed:not(.is-memory-dot):not(.is-memory-pinned):not(.is-context-loaded).is-runtime-cited path,
+.jin-avatar-memory-dash-delayed:not(.is-memory-dot):not(.is-memory-pinned):not(.is-context-loaded).is-memory-reference-hit path,
+.jin-avatar-memory-dash-delayed:not(.is-memory-dot):not(.is-memory-pinned):not(.is-context-loaded).is-memory-hover-hit path,
+.jin-avatar-memory-dash-delayed:not(.is-memory-dot):not(.is-memory-pinned):not(.is-context-loaded).is-memory-modal-active path,
+.jin-avatar-memory-dash-delayed:not(.is-memory-dot):not(.is-memory-pinned):not(.is-context-loaded).is-delayed-memory-linked-hit path,
+.jin-avatar-memory-dash-delayed:not(.is-memory-dot):not(.is-memory-pinned):not(.is-context-loaded).is-delayed-memory-secondary-linked path {
     stroke-opacity: 0.82 !important;
     stroke-width: var(--jin-avatar-memory-hover-width, 2px);
+}
+
+/* Direct delayed-memory -> L4 propagation is Tier 1 only. Cross-linked
+   delayed reports are deliberately excluded by the JS collector, so their
+   facts never inherit this relation glow. */
+.jin-avatar-memory-dash-l4.is-delayed-memory-linked-hit {
+    filter:
+        brightness(1.46)
+        saturate(1.32)
+        drop-shadow(0 0 4px var(--jin-avatar-memory-glow-near, rgba(210, 255, 255, 0.46)))
+        drop-shadow(0 0 10px var(--jin-avatar-memory-glow-mid, rgba(90, 235, 245, 0.27)))
+        drop-shadow(0 0 20px var(--jin-avatar-memory-glow-far, rgba(52, 211, 222, 0.12)));
+}
+
+.jin-avatar-memory-dash-l4:not(.is-memory-dot).is-delayed-memory-linked-hit path {
+    stroke-opacity: 0.82 !important;
+    stroke-width: var(--jin-avatar-memory-hover-width, 2px);
+}
+
+.jin-avatar-memory-dash-l4.is-memory-dot.is-delayed-memory-linked-hit circle {
+    fill-opacity: 0.82 !important;
+    r: var(--jin-avatar-memory-dot-radius, 1.6px);
 }
 
 

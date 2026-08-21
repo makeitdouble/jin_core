@@ -40,6 +40,14 @@ class LiveSessionCheckpointTests(unittest.TestCase):
             runtime_session_action_history=[
                 {"text": "action"},
             ],
+            runtime_tool_results=[
+                {
+                    "kind": "deep_search",
+                    "result": "Deep web search report",
+                    "id": "deep_web_search_001",
+                },
+            ],
+            runtime_tool_result_created_ats=[42.0],
             runtime_turn_counter=17,
             turn_number=31,
             user_message_count=9,
@@ -78,6 +86,17 @@ class LiveSessionCheckpointTests(unittest.TestCase):
         self.assertEqual(
             checkpoint["current_jin_size"],
             {"width": 120, "height": 90},
+        )
+        self.assertEqual(
+            checkpoint["tool_results"],
+            [
+                {
+                    "kind": "deep_search",
+                    "result": "Deep web search report",
+                    "id": "deep_web_search_001",
+                    "created_at": 42.0,
+                },
+            ],
         )
         self.assertNotIn("session_memory", checkpoint)
         self.assertNotIn("runtime_l3_session_memory", checkpoint)
