@@ -1803,13 +1803,14 @@ const consolePanel = document.getElementById("console-panel");
                 0,
                 1
             );
+            const progress =
+                easeInOutCubic(rawProgress);
 
             applyCollapsedAvatarPosition(
                 panel,
-                resolved.startLeft + deltaX * rawProgress,
-                resolved.startTop + deltaY * rawProgress
+                resolved.startLeft + deltaX * progress,
+                resolved.startTop + deltaY * progress
             );
-
             if (rawProgress < 1) {
                 collapsedAvatarPositionFrameId =
                     window.requestAnimationFrame(
@@ -2409,14 +2410,14 @@ const consolePanel = document.getElementById("console-panel");
 
             return {
                 animated: false,
+                duration: 0,
                 bounds:
                     resolved.bounds,
                 width:
                     targetGeometry.width,
                 height:
                     targetGeometry.height,
-            };
-        }
+            };        }
 
         panel.classList.add(
             "panel-avatar-size-changing"
@@ -2497,14 +2498,15 @@ const consolePanel = document.getElementById("console-panel");
 
         return {
             animated: true,
+            duration:
+                COLLAPSED_AVATAR_SIZE_ANIMATION_MS,
             bounds:
                 resolved.bounds,
             width:
                 targetGeometry.width,
             height:
                 targetGeometry.height,
-        };
-    }
+        };    }
 
     function clampCollapsedAvatarGeometry(panel) {
         const size =
@@ -4230,10 +4232,35 @@ function initRoomStatePersistence() {
     const storedRoomState = getStoredRoomState();
 
     if (storedRoomState) {
-        applyRoomState(
-            storedRoomState,
-            { persist: false }
-        );
+        const applyStoredRoomState = () => {
+            return applyRoomState(
+                storedRoomState,
+                { persist: false }
+            );
+        };
+        const avatarState =
+            isRoomStateObject(storedRoomState.avatar)
+                ? storedRoomState.avatar
+                : {};
+        const sceneTintShift =
+            window.JinRuntime
+            && window.JinRuntime.session
+            && typeof window.JinRuntime.session.applyBootstrapSceneTintShift
+                === "function"
+                ? window.JinRuntime.session.applyBootstrapSceneTintShift
+                : null;
+
+        if (
+            sceneTintShift
+            && String(avatarState.color || "").trim()
+        ) {
+            sceneTintShift(
+                applyStoredRoomState
+            );
+        } else {
+            applyStoredRoomState();
+        }
+
         enableRoomStatePersistence();
         return;
     }

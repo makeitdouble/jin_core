@@ -191,10 +191,11 @@ function addFiles(fileList) {
   if (fileInput) fileInput.value = "";
 }
 
-async function setPinned(id, pinned) {
+async function setPinned(id, pinned, options = {}) {
   const record = getFileRecord(id);
   if (!record) return false;
-  if (Boolean(record.pinned) === Boolean(pinned)) return true;
+  const wasPinned = Boolean(record.pinned);
+  if (wasPinned === Boolean(pinned)) return true;
   try {
     const response = await fetch(
       `/api/files/${encodeURIComponent(id)}/pin?pinned=${pinned ? "true" : "false"}`,
@@ -204,6 +205,30 @@ async function setPinned(id, pinned) {
     normalizeSnapshot(await response.json());
     dispatchStoreChanged();
     syncAttachmentContext();
+
+    if (
+      wasPinned
+      && !Boolean(pinned)
+      && options.log !== false
+      && typeof window.appendLog === "function"
+    ) {
+      const unpinnedMemory = {
+        kind: "file",
+        id: String(record.id || id || "").trim().toLowerCase(),
+        label: String(record.name || record.id || "file"),
+      };
+
+      window.appendLog(
+        "[MEMORY:UNPINNED]",
+        "File unpinned",
+        JSON.stringify(unpinnedMemory, null, 2),
+        {
+          memory_event: "memory_unpinned",
+          unpinned_memory: unpinnedMemory,
+        }
+      );
+    }
+
     return true;
   } catch (_error) {
     return false;
@@ -525,7 +550,7 @@ if (chatColumn && fileInput) {
 
 window.prepareJinAttachments = prepareJinAttachments;
 window.clearJinAttachments = function () {
-  Promise.all(pinnedIds.map((id) => setPinned(id, false)));
+  Promise.all(pinnedIds.map((id) => setPinned(id, false, {log: false})));
 };
 window.hasJinAttachments = () => pinnedIds.length > 0;
 window.JinFiles = {

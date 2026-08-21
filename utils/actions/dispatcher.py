@@ -85,13 +85,9 @@ from utils.actions.attachment_actions import (
 from utils.actions.update_l4_facts_actions import schedule_update_l4_facts_actions
 from utils.actions.jin_color_actions import (
     apply_idle_actions,
-    emit_jin_color_actions,
 )
-from utils.actions.jin_size_actions import (
-    emit_jin_size_actions,
-)
-from utils.actions.jin_motion_actions import (
-    emit_jin_motion_actions,
+from utils.actions.jin_visual_sequence_actions import (
+    emit_jin_visual_sequences,
 )
 from utils.actions.skill_actions import (
     apply_skill_actions,
@@ -1784,25 +1780,9 @@ async def apply_runtime_action_calls(
         with_action_context=with_action_context,
     )
 
-    await emit_jin_color_actions(
+    await emit_jin_visual_sequences(
         context,
-        jin_color_actions,
-        action_display_ids=action_display_ids,
-        log_runtime=log_runtime,
-        with_action_context=with_action_context,
-    )
-
-    await emit_jin_size_actions(
-        context,
-        jin_size_actions,
-        action_display_ids=action_display_ids,
-        log_runtime=log_runtime,
-        with_action_context=with_action_context,
-    )
-
-    await emit_jin_motion_actions(
-        context,
-        jin_motion_actions,
+        filtered_actions,
         action_display_ids=action_display_ids,
         log_runtime=log_runtime,
         with_action_context=with_action_context,

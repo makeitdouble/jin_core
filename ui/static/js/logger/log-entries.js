@@ -1154,6 +1154,36 @@ function parseL4JsonPayload(details) {
   return null;
 }
 
+function createNeutralMemoryLoggerCard(tag) {
+  const logDiv =
+    document.createElement("div");
+
+  logDiv.className =
+    "mb-1 min-w-0 whitespace-pre-wrap break-words font-mono text-[12px] bg-zinc-500/5 p-2 rounded border border-zinc-500/10";
+
+  logDiv.style.overflowWrap =
+    "anywhere";
+
+  logDiv.dataset.logKind =
+    "memory";
+
+  const tagSpan =
+    document.createElement("span");
+
+  tagSpan.className =
+    "text-zinc-400 font-bold logger-tag block";
+
+  tagSpan.textContent =
+    tag;
+
+  logDiv.appendChild(tagSpan);
+  consoleStream.appendChild(logDiv);
+  consoleStream.scrollTop =
+    consoleStream.scrollHeight;
+
+  return logDiv;
+}
+
 function createL4LoggerCard(tag) {
   const logDiv =
     document.createElement("div");
@@ -2111,6 +2141,151 @@ function bindDeletedFileInlinePreview(
   );
 }
 
+function resolveUnpinnedMemory(
+  details,
+  meta,
+) {
+  if (
+      meta
+      && meta.unpinned_memory
+      && typeof meta.unpinned_memory === "object"
+  ) {
+    return meta.unpinned_memory;
+  }
+
+  const payload =
+    parseL4JsonPayload(details);
+
+  return payload
+    && typeof payload === "object"
+    && !Array.isArray(payload)
+      ? payload
+      : null;
+}
+
+function handleMemoryUnpinnedLog(
+  tag,
+  details,
+  meta,
+) {
+  const isUnpinned =
+    String(meta && meta.memory_event || "").toLowerCase()
+      === "memory_unpinned"
+    || String(tag || "").toUpperCase()
+      === "[MEMORY:UNPINNED]";
+
+  if (!isUnpinned) {
+    return null;
+  }
+
+  const payload =
+    resolveUnpinnedMemory(
+      details,
+      meta
+    );
+  const kind =
+    String(payload && payload.kind || "")
+      .trim()
+      .toLowerCase();
+  const id =
+    String(payload && payload.id || "")
+      .trim()
+      .toLowerCase();
+  const label =
+    String(payload && payload.label || id || "memory")
+      .trim();
+
+  if (!id || (kind !== "file" && kind !== "delayed")) {
+    return null;
+  }
+
+  const logDiv =
+    createNeutralMemoryLoggerCard(
+      "[MEMORY:UNPINNED]"
+    );
+  const summary =
+    document.createElement("span");
+
+  summary.className =
+    "block mt-2 text-zinc-300 font-semibold";
+  summary.textContent =
+    `unpinned · ${label}`;
+
+  const actions =
+    document.createElement("div");
+
+  actions.className =
+    "mt-2 flex flex-wrap items-center gap-2";
+
+  const pinButton =
+    createL4LoggerButton(
+      "pin",
+      "muted"
+    );
+
+  pinButton.addEventListener(
+    "click",
+    async function () {
+      pinButton.disabled = true;
+
+      let pinned = false;
+
+      if (kind === "file") {
+        const api =
+          window.JinFiles;
+
+        if (api && typeof api.setPinned === "function") {
+          pinned = await api.setPinned(
+            id,
+            true,
+            {log: false}
+          );
+        }
+      } else {
+        const api =
+          window.JinRuntime
+          && window.JinRuntime.runtime;
+
+        if (api && typeof api.setDelayedMemoryReportPinned === "function") {
+          pinned = api.setDelayedMemoryReportPinned(
+            id,
+            true,
+            {log: false}
+          );
+        }
+      }
+
+      if (!pinned) {
+        pinButton.disabled = false;
+        pinButton.textContent = "pin failed";
+        window.setTimeout(
+          function () {
+            pinButton.textContent = "pin";
+          },
+          1400
+        );
+        return;
+      }
+
+      dismissLogAfterClear(
+        logDiv
+      );
+    }
+  );
+
+  logDiv.appendChild(
+    summary
+  );
+  actions.appendChild(
+    pinButton
+  );
+  logDiv.appendChild(
+    actions
+  );
+
+  return logDiv;
+}
+
 function handleDeletedFileLog(
   tag,
   details,
@@ -2706,6 +2881,17 @@ function appendLog(
 
   if (l4DeletedFactLog) {
     return l4DeletedFactLog;
+  }
+
+  const memoryUnpinnedLog =
+    handleMemoryUnpinnedLog(
+      tag,
+      normalized.details,
+      meta
+    );
+
+  if (memoryUnpinnedLog) {
+    return memoryUnpinnedLog;
   }
 
   const deletedFileLog =

@@ -1400,7 +1400,8 @@ function updateDelayedMemoryReportFields(
 
 function setDelayedMemoryReportPinned(
   reportId,
-  pinned
+  pinned,
+  options = {}
 ) {
 
   const normalizedId =
@@ -1458,6 +1459,29 @@ function setDelayedMemoryReportPinned(
     "pin",
     normalizedId
   );
+
+  if (
+      Boolean(report.pinned)
+      && !Boolean(pinned)
+      && options.log !== false
+      && typeof window.appendLog === "function"
+  ) {
+    const unpinnedMemory = {
+      kind: "delayed",
+      id: normalizedId,
+      label: String(report.title || report.id || normalizedId),
+    };
+
+    window.appendLog(
+      "[MEMORY:UNPINNED]",
+      "Delayed memory unpinned",
+      JSON.stringify(unpinnedMemory, null, 2),
+      {
+        memory_event: "memory_unpinned",
+        unpinned_memory: unpinnedMemory,
+      }
+    );
+  }
 
   return true;
 

@@ -11,6 +11,7 @@
     isReconnectInitialRuntimeMemoryUpdate: notInitialized,
     isLatestRuntimeMemoryDuplicate: notInitialized,
     isBootstrapRuntimeMemoryDuplicate: notInitialized,
+    applyBootstrapSceneTintShift: notInitialized,
     applyBootstrapRuntimeMemoryUpdate: notInitialized,
   };
 
@@ -79,12 +80,163 @@
     let lastStableRuntimeMemorySnapshot = null;
     let persistedSessionBootstrapCleared = false;
     let hasUnsavedSessionActivity = false;
+    const BOOTSTRAP_SCENE_TINT_SHIFT_MS = 2000;
+    let bootstrapSceneTintShiftSequence = 0;
 
     function getCurrentSavedSessionId() {
       return String(
         getCurrentRuntimeSessionId()
         || ""
       ).trim();
+    }
+
+    function prefersReducedSceneTintMotion() {
+      return Boolean(
+        window.matchMedia
+        && window.matchMedia(
+          "(prefers-reduced-motion: reduce)"
+        ).matches
+      );
+    }
+
+    function applyBootstrapSceneTintShift(apply) {
+      if (typeof apply !== "function") {
+        return false;
+      }
+
+      bootstrapSceneTintShiftSequence += 1;
+      const sequence =
+        bootstrapSceneTintShiftSequence;
+
+      const sceneMain =
+        document.querySelector("main");
+      const sceneTint =
+        document.getElementById("scene-jin-tint");
+
+      if (
+          prefersReducedSceneTintMotion()
+          || (!sceneMain && !sceneTint)
+      ) {
+        return Boolean(apply());
+      }
+
+      const root =
+        document.documentElement;
+      const previousRootDuration =
+        root.style.getPropertyValue(
+          "--scene-jin-tint-transition-duration"
+        );
+      const previousMain = sceneMain
+        ? {
+            transition: sceneMain.style.transition,
+            backgroundColor: sceneMain.style.backgroundColor,
+          }
+        : null;
+      const previousTint = sceneTint
+        ? {
+            transition: sceneTint.style.transition,
+            backgroundColor: sceneTint.style.backgroundColor,
+            opacity: sceneTint.style.opacity,
+          }
+        : null;
+
+      if (sceneMain) {
+        const style =
+          window.getComputedStyle(sceneMain);
+        sceneMain.style.transition = "none";
+        sceneMain.style.backgroundColor =
+          style.backgroundColor;
+      }
+
+      if (sceneTint) {
+        const style =
+          window.getComputedStyle(sceneTint);
+        sceneTint.style.transition = "none";
+        sceneTint.style.backgroundColor =
+          style.backgroundColor;
+        sceneTint.style.opacity =
+          style.opacity;
+      }
+
+      if (sceneMain) {
+        sceneMain.getBoundingClientRect();
+      } else if (sceneTint) {
+        sceneTint.getBoundingClientRect();
+      }
+
+      const applied =
+        Boolean(apply());
+      const rootStyle =
+        window.getComputedStyle(root);
+      const targetMainColor =
+        rootStyle.getPropertyValue("--scene-base-color").trim();
+      const targetTintColor =
+        rootStyle.getPropertyValue("--jin-color").trim();
+      const targetTintOpacity =
+        rootStyle.getPropertyValue("--scene-jin-tint-alpha").trim();
+
+      root.style.setProperty(
+        "--scene-jin-tint-transition-duration",
+        `${BOOTSTRAP_SCENE_TINT_SHIFT_MS}ms`
+      );
+
+      window.requestAnimationFrame(() => {
+        window.requestAnimationFrame(() => {
+          if (sceneMain && targetMainColor) {
+            sceneMain.style.transition =
+              previousMain.transition;
+            sceneMain.style.backgroundColor =
+              targetMainColor;
+          }
+
+          if (sceneTint && targetTintColor) {
+            sceneTint.style.transition =
+              previousTint.transition;
+            sceneTint.style.backgroundColor =
+              targetTintColor;
+          }
+
+          if (sceneTint && targetTintOpacity) {
+            sceneTint.style.opacity =
+              targetTintOpacity;
+          }
+
+          window.setTimeout(() => {
+            if (sequence !== bootstrapSceneTintShiftSequence) {
+              return;
+            }
+
+            if (previousRootDuration) {
+              root.style.setProperty(
+                "--scene-jin-tint-transition-duration",
+                previousRootDuration
+              );
+            } else {
+              root.style.removeProperty(
+                "--scene-jin-tint-transition-duration"
+              );
+            }
+
+            if (sceneMain) {
+              sceneMain.style.transition =
+                previousMain.transition;
+              sceneMain.style.backgroundColor =
+                previousMain.backgroundColor;
+            }
+
+            if (sceneTint) {
+              sceneTint.style.transition =
+                previousTint.transition;
+              sceneTint.style.backgroundColor =
+                previousTint.backgroundColor;
+              sceneTint.style.opacity =
+                previousTint.opacity;
+            }
+          }, BOOTSTRAP_SCENE_TINT_SHIFT_MS + 80);
+        });
+      });
+
+      return applied;
     }
 
     function normalizeLiveSessionSnapshot(
@@ -1128,10 +1280,24 @@
           && window.JinPanels
           && typeof window.JinPanels.applyRoomState === "function"
       ) {
-        window.JinPanels.applyRoomState(
-          bootstrap.room_state,
-          { persist: false }
-        );
+        const applyRoomState = () => {
+          return window.JinPanels.applyRoomState(
+            bootstrap.room_state,
+            { persist: false }
+          );
+        };
+        const avatarState =
+          bootstrap.room_state.avatar
+          && typeof bootstrap.room_state.avatar === "object"
+          && !Array.isArray(bootstrap.room_state.avatar)
+            ? bootstrap.room_state.avatar
+            : {};
+
+        if (String(avatarState.color || "").trim()) {
+          applyBootstrapSceneTintShift(applyRoomState);
+        } else {
+          applyRoomState();
+        }
       }
 
       if (
@@ -1407,6 +1573,7 @@
     session.isReconnectInitialRuntimeMemoryUpdate = isReconnectInitialRuntimeMemoryUpdate;
     session.isLatestRuntimeMemoryDuplicate = isLatestRuntimeMemoryDuplicate;
     session.isBootstrapRuntimeMemoryDuplicate = isBootstrapRuntimeMemoryDuplicate;
+    session.applyBootstrapSceneTintShift = applyBootstrapSceneTintShift;
     session.applyBootstrapRuntimeMemoryUpdate = applyBootstrapRuntimeMemoryUpdate;
     session.rememberStableRuntimeSnapshot = rememberStableRuntimeSnapshot;
 
