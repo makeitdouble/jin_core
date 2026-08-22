@@ -3880,6 +3880,9 @@ function applyRoomState(roomState, options = {}) {
     const animateRestore =
         options.animateRestore !== false
         && !prefersReducedMotion();
+    const animateTint =
+        animateRestore
+        && options.animateTint !== false;
 
     roomStateRestoreSequence += 1;
     const sequence = roomStateRestoreSequence;
@@ -3897,7 +3900,7 @@ function applyRoomState(roomState, options = {}) {
             .forEach(registerPanelRuntimeActivity);
         finishStartupCollapseAnimation();
 
-        if (animateRestore) {
+        if (animateTint) {
             beginRoomStateTintTransition(sequence);
         } else {
             clearRoomStateTintTransition();
@@ -4235,7 +4238,10 @@ function initRoomStatePersistence() {
         const applyStoredRoomState = () => {
             return applyRoomState(
                 storedRoomState,
-                { persist: false }
+                {
+                    persist: false,
+                    animateTint: false,
+                }
             );
         };
         const avatarState =
@@ -4255,7 +4261,8 @@ function initRoomStatePersistence() {
             && String(avatarState.color || "").trim()
         ) {
             sceneTintShift(
-                applyStoredRoomState
+                applyStoredRoomState,
+                avatarState.color
             );
         } else {
             applyStoredRoomState();

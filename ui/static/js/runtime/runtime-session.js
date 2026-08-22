@@ -82,6 +82,7 @@
     let hasUnsavedSessionActivity = false;
     const BOOTSTRAP_SCENE_TINT_SHIFT_MS = 2000;
     let bootstrapSceneTintShiftSequence = 0;
+    let activeBootstrapSceneTintColor = "";
 
     function getCurrentSavedSessionId() {
       return String(
@@ -99,9 +100,22 @@
       );
     }
 
-    function applyBootstrapSceneTintShift(apply) {
+    function applyBootstrapSceneTintShift(
+      apply,
+      targetColor = ""
+    ) {
       if (typeof apply !== "function") {
         return false;
+      }
+
+      const normalizedTargetColor =
+        String(targetColor || "").trim().toLowerCase();
+
+      if (
+          normalizedTargetColor
+          && normalizedTargetColor === activeBootstrapSceneTintColor
+      ) {
+        return Boolean(apply());
       }
 
       bootstrapSceneTintShiftSequence += 1;
@@ -120,12 +134,11 @@
         return Boolean(apply());
       }
 
+      activeBootstrapSceneTintColor =
+        normalizedTargetColor;
+
       const root =
         document.documentElement;
-      const previousRootDuration =
-        root.style.getPropertyValue(
-          "--scene-jin-tint-transition-duration"
-        );
       const previousMain = sceneMain
         ? {
             transition: sceneMain.style.transition,
@@ -175,65 +188,62 @@
       const targetTintOpacity =
         rootStyle.getPropertyValue("--scene-jin-tint-alpha").trim();
 
-      root.style.setProperty(
-        "--scene-jin-tint-transition-duration",
-        `${BOOTSTRAP_SCENE_TINT_SHIFT_MS}ms`
-      );
+      const transition =
+        `background-color ${BOOTSTRAP_SCENE_TINT_SHIFT_MS}ms ease`;
+
+      // Do not rely on a custom-property duration changing in the same style
+      // recalculation as the restored color. On a fresh tab that can collapse
+      // into one paint and make the inherited room color appear instantly.
+      // Keep the actually painted colors inline, then explicitly release them
+      // towards the restored values on the next frame.
+      if (sceneMain) {
+        sceneMain.style.transition = transition;
+      }
+
+      if (sceneTint) {
+        sceneTint.style.transition =
+          `${transition}, opacity ${BOOTSTRAP_SCENE_TINT_SHIFT_MS}ms ease`;
+      }
 
       window.requestAnimationFrame(() => {
-        window.requestAnimationFrame(() => {
-          if (sceneMain && targetMainColor) {
+        if (sceneMain && targetMainColor) {
+          sceneMain.style.backgroundColor =
+            targetMainColor;
+        }
+
+        if (sceneTint && targetTintColor) {
+          sceneTint.style.backgroundColor =
+            targetTintColor;
+        }
+
+        if (sceneTint && targetTintOpacity) {
+          sceneTint.style.opacity =
+            targetTintOpacity;
+        }
+
+        window.setTimeout(() => {
+          if (sequence !== bootstrapSceneTintShiftSequence) {
+            return;
+          }
+
+          activeBootstrapSceneTintColor = "";
+
+          if (sceneMain) {
             sceneMain.style.transition =
               previousMain.transition;
             sceneMain.style.backgroundColor =
-              targetMainColor;
+              previousMain.backgroundColor;
           }
 
-          if (sceneTint && targetTintColor) {
+          if (sceneTint) {
             sceneTint.style.transition =
               previousTint.transition;
             sceneTint.style.backgroundColor =
-              targetTintColor;
-          }
-
-          if (sceneTint && targetTintOpacity) {
+              previousTint.backgroundColor;
             sceneTint.style.opacity =
-              targetTintOpacity;
+              previousTint.opacity;
           }
-
-          window.setTimeout(() => {
-            if (sequence !== bootstrapSceneTintShiftSequence) {
-              return;
-            }
-
-            if (previousRootDuration) {
-              root.style.setProperty(
-                "--scene-jin-tint-transition-duration",
-                previousRootDuration
-              );
-            } else {
-              root.style.removeProperty(
-                "--scene-jin-tint-transition-duration"
-              );
-            }
-
-            if (sceneMain) {
-              sceneMain.style.transition =
-                previousMain.transition;
-              sceneMain.style.backgroundColor =
-                previousMain.backgroundColor;
-            }
-
-            if (sceneTint) {
-              sceneTint.style.transition =
-                previousTint.transition;
-              sceneTint.style.backgroundColor =
-                previousTint.backgroundColor;
-              sceneTint.style.opacity =
-                previousTint.opacity;
-            }
-          }, BOOTSTRAP_SCENE_TINT_SHIFT_MS + 80);
-        });
+        }, BOOTSTRAP_SCENE_TINT_SHIFT_MS + 80);
       });
 
       return applied;
@@ -1283,7 +1293,10 @@
         const applyRoomState = () => {
           return window.JinPanels.applyRoomState(
             bootstrap.room_state,
-            { persist: false }
+            {
+              persist: false,
+              animateTint: false,
+            }
           );
         };
         const avatarState =
@@ -1294,7 +1307,10 @@
             : {};
 
         if (String(avatarState.color || "").trim()) {
-          applyBootstrapSceneTintShift(applyRoomState);
+          applyBootstrapSceneTintShift(
+            applyRoomState,
+            avatarState.color
+          );
         } else {
           applyRoomState();
         }

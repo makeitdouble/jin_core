@@ -203,14 +203,6 @@ main.scene-searching #scene-search-overlay {
     transition: opacity var(--panel-collapse-duration) var(--panel-collapse-easing);
 }
 
-main.panels-collapsed-1 #scene-shade {
-    --scene-shade-alpha: 0.12;
-}
-
-main.panels-collapsed-2 #scene-shade {
-    --scene-shade-alpha: 0.20;
-}
-
 #console-panel,
 #memory-panel {
     --app-header-panel-shift: 0px;
