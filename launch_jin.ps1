@@ -387,18 +387,35 @@ function Write-JinConfig {
     Update-ModelConfig -ConfigPath $configPath -Name "SERVICE_MODEL_UID" -SuggestedModel $suggestedModel
 }
 
-function Get-PythonCommand {
-    $python = Get-Command python -ErrorAction SilentlyContinue
-    if ($python) {
-        return @($python.Source)
-    }
+function Test-PythonCommand {
+    param(
+        [string]$Executable,
+        [string[]]$Arguments = @()
+    )
 
+    try {
+        $versionOutput = & $Executable @Arguments --version 2>&1
+        $versionText = (@($versionOutput) -join " ").Trim()
+
+        return ($LASTEXITCODE -eq 0 -and $versionText -match '^Python 3(?:\.|\s|$)')
+    }
+    catch {
+        return $false
+    }
+}
+
+function Get-PythonCommand {
     $py = Get-Command py -ErrorAction SilentlyContinue
-    if ($py) {
+    if ($py -and (Test-PythonCommand -Executable $py.Source -Arguments @("-3"))) {
         return @($py.Source, "-3")
     }
 
-    Fail-WithMessage "Python was not found. Install Python 3, then run this script again."
+    $python = Get-Command python -ErrorAction SilentlyContinue
+    if ($python -and (Test-PythonCommand -Executable $python.Source)) {
+        return @($python.Source)
+    }
+
+    Fail-WithMessage "A working Python 3 installation was not found. Install Python 3 from python.org, then run this script again."
 }
 
 try {
@@ -456,7 +473,7 @@ try {
 
     if (-not (Test-Path $venvPython)) {
         Write-Step "Creating .venv..."
-        $pythonCommand = Get-PythonCommand
+        $pythonCommand = @(Get-PythonCommand)
         $pythonExe = $pythonCommand[0]
         $pythonArgs = @()
 
@@ -465,6 +482,10 @@ try {
         }
 
         & $pythonExe @pythonArgs -m venv $venvPath
+
+        if ($LASTEXITCODE -ne 0) {
+            Fail-WithMessage "Python failed to create the virtual environment (exit code $LASTEXITCODE)."
+        }
     }
     else {
         Write-Step ".venv already exists."
