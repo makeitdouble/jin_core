@@ -578,19 +578,46 @@ function formatActiveMemoryUpdateDetail(
   data
 ) {
 
-  const changes = Array.isArray(
+  const activeMemoryId = String(
+    data && (
+      data.active_memory_id
+      || data.id
+      || (
+        data.active_memory_result
+        && data.active_memory_result.id
+      )
+    )
+    || ""
+  ).trim();
+  const requestedChanges = Array.isArray(
+    data && data.active_memory_requested_changes
+  )
+    ? data.active_memory_requested_changes
+    : (
+      Array.isArray(
+        data
+        && data.active_memory_result
+        && data.active_memory_result.requested_changes
+      )
+        ? data.active_memory_result.requested_changes
+        : []
+    );
+  const appliedChanges = Array.isArray(
     data && data.active_memory_changes
   )
     ? data.active_memory_changes
     : [];
+  const changes = requestedChanges.length
+    ? requestedChanges
+    : appliedChanges;
+  const lines = activeMemoryId
+    ? [`active_memory_id: ${activeMemoryId}`]
+    : [];
 
-  return changes
+  changes
     .map((change) => {
       const field = String(
         change && change.field || ""
-      ).trim();
-      const before = String(
-        change && change.before || ""
       ).trim();
       const after = String(
         change && change.after || ""
@@ -600,9 +627,175 @@ function formatActiveMemoryUpdateDetail(
         return "";
       }
 
-      return `${field}: ${before} → ${after}`;
+      return `${field}: ${after}`;
     })
     .filter(Boolean)
+    .forEach(line => lines.push(line));
+
+  return lines.join("\n");
+
+}
+
+function formatActiveMemoryRecordDetail(
+  data
+) {
+
+  const activeMemoryId = String(
+    data && (
+      data.active_memory_id
+      || data.id
+      || (
+        data.active_memory_result
+        && data.active_memory_result.id
+      )
+    )
+    || ""
+  ).trim().toLowerCase();
+  let record = String(
+    data && (
+      data.active_memory
+      || data.active_memory_record
+      || (
+        data.active_memory_result
+        && data.active_memory_result.record
+      )
+    )
+    || ""
+  ).trim();
+  const activeMemoryRecords = (
+    window.JinRuntime
+    && window.JinRuntime.runtime
+    && typeof window.JinRuntime.runtime.getActiveMemoryRecords === "function"
+  )
+    ? (
+      window.JinRuntime.runtime.getActiveMemoryRecords()
+      || []
+    )
+      .map(item => String(item || "").trim())
+      .filter(Boolean)
+    : [];
+
+  if (
+    !record
+    && activeMemoryId
+  ) {
+    record = activeMemoryRecords
+      .find(item => item.toLowerCase().includes(
+        `[ active_memory_id: ${activeMemoryId} ]`
+      ))
+      || "";
+  }
+
+  if (!record && activeMemoryRecords.length) {
+    const action = String(data && data.action || "")
+      .trim()
+      .toLowerCase();
+    let conditions = String(
+      data && (
+        data.active_memory_title
+        || (
+          data.active_memory_result
+          && data.active_memory_result.title
+        )
+      )
+      || ""
+    ).trim();
+
+    if (!conditions && action === "save_active_memory") {
+      const payload = String(data && data.payload || "").trim();
+
+      if (payload.startsWith("{")) {
+        try {
+          conditions = String(
+            JSON.parse(payload).conditions || ""
+          ).trim();
+        } catch (error) {
+          conditions = "";
+        }
+      }
+    }
+
+    if (!conditions) {
+      const text = String(data && data.text || "").trim();
+      const separatorIndex = text.indexOf(":");
+
+      conditions = separatorIndex >= 0
+        ? text.slice(separatorIndex + 1).trim()
+        : "";
+    }
+
+    if (conditions) {
+      const normalizedConditions = conditions.toLowerCase();
+
+      record = activeMemoryRecords
+        .slice()
+        .reverse()
+        .find(item => (
+          item.toLowerCase().includes(
+            `[ conditions: ${normalizedConditions} ]`
+          )
+          || item.toLowerCase().includes(
+            `: ${normalizedConditions} [`
+          )
+        ))
+        || "";
+    }
+
+    if (!record && action === "save_active_memory") {
+      record = activeMemoryRecords[activeMemoryRecords.length - 1] || "";
+    }
+
+    if (!record && activeMemoryRecords.length === 1) {
+      record = activeMemoryRecords[0];
+    }
+  }
+
+  if (!record) {
+    return "";
+  }
+
+  return record
+    .split(/\r?\n/)
+    .map((line) => {
+      const trimmed = String(line || "").trim();
+
+      if (!trimmed) {
+        return "";
+      }
+
+      const parts = [];
+      let lastIndex = 0;
+
+      trimmed.replace(
+        /\s*(\[[^\]]+\])/gi,
+        (match, suffix, offset) => {
+          if (!parts.length) {
+            const body = trimmed.slice(0, offset).trim();
+
+            if (body) {
+              parts.push(body);
+            }
+          }
+
+          parts.push(String(suffix || "").trim());
+          lastIndex = offset + match.length;
+
+          return match;
+        }
+      );
+
+      if (!parts.length) {
+        return trimmed;
+      }
+
+      const tail = trimmed.slice(lastIndex).trim();
+
+      if (tail) {
+        parts.push(tail);
+      }
+
+      return parts.join("\n");
+    })
     .join("\n");
 
 }
@@ -888,7 +1081,7 @@ const PAYLOAD_DISTINCT_RUNTIME_ACTIONS = new Set([
   "save_active_memory",
   "update_active_memory",
   "resolve_active_memory",
-  "save_delayed_memory_content",
+  "save_delayed_memory",
   "load_delayed_memory",
   "unload_delayed_memory",
 ]);
@@ -1313,10 +1506,18 @@ function handleRuntimeAction(
 
   const runtimeDetail =
     (
-      action === "update_active_memory"
-        ? formatActiveMemoryUpdateDetail(data)
+      [
+        "save_active_memory",
+        "update_active_memory",
+      ].includes(action)
+        ? formatActiveMemoryRecordDetail(data)
         : ""
     )
+      || (
+        action === "update_active_memory"
+          ? formatActiveMemoryUpdateDetail(data)
+          : ""
+      )
       || updateL4FactsMessage
       || buildRuntimeActionDetail(
         data,
@@ -1403,7 +1604,14 @@ function handleRuntimeAction(
     && PAYLOAD_DISTINCT_RUNTIME_ACTIONS.has(action);
 
   const actionDisplayId =
-    reportScopedDelayedAction
+    action === "update_active_memory"
+      ? (
+        data.active_memory_id
+        || data.id
+        || data.counter_id
+        || ""
+      )
+      : reportScopedDelayedAction
       ? (
         delayedMemoryPreview.reportId
         || data.id
@@ -1863,7 +2071,7 @@ function handleRuntimeAction(
   }
 
   if (
-    action === "save_delayed_memory_content"
+    action === "save_delayed_memory"
     && data.delayed_memory_report
     && window.JinRuntime
     && window.JinRuntime.runtime

@@ -6,7 +6,6 @@ from pathlib import Path
 from typing import Any
 
 from rules.runtime import (
-    PROPOSAL_RULES,
     RUNTIME_ACTIONS_RULES,
     SKILL_ROUTING_RULES,
 )
@@ -35,7 +34,7 @@ ACTION_CONFIG_KEYS = (
     ("CREATE_TODO_LIST", "CAN_RUNTIME_TODO"),
     ("RESOLVE_TODO", "CAN_RUNTIME_TODO"),
     ("CHECK_TODO", "CAN_RUNTIME_TODO"),
-    ("SAVE_DELAYED_MEMORY_CONTENT", "CAN_SAVE_DELAYED_MEMORY"),
+    ("SAVE_DELAYED_MEMORY", "CAN_SAVE_DELAYED_MEMORY"),
     ("LOAD_DELAYED_MEMORY", "CAN_SAVE_DELAYED_MEMORY"),
     ("UNLOAD_DELAYED_MEMORY", "CAN_SAVE_DELAYED_MEMORY"),
     ("SAVE_ACTIVE_MEMORY", "CAN_SAVE_ACTIVE_MEMORY"),
@@ -57,7 +56,6 @@ def _normalize_action_name(action_name: str) -> str:
         normalized = normalized[4:]
 
     aliases = {
-        "SAVE_DELAYED_MEMORY": "SAVE_DELAYED_MEMORY_CONTENT",
         "SAVE_ACTIVE_MEMORY": "SAVE_ACTIVE_MEMORY",
         "USE_ASSETS": "ASSET_ACTION",
         "TODO_LIST": "CREATE_TODO_LIST",
@@ -305,7 +303,7 @@ def normalize_runtime_action_names(enabled_actions=None) -> tuple[str, ...]:
         if normalized_name == "SAVE_ACTIVE_MEMORY":
             normalized_names.append("RESOLVE_ACTIVE_MEMORY")
 
-        if normalized_name == "SAVE_DELAYED_MEMORY_CONTENT":
+        if normalized_name == "SAVE_DELAYED_MEMORY":
             normalized_names.extend((
                 "LOAD_DELAYED_MEMORY",
                 "UNLOAD_DELAYED_MEMORY",
@@ -601,7 +599,7 @@ def build_runtime_action_instructions(
 
 RUNTIME_ACTION_DEEP_WEB_SEARCH = get_runtime_action_name("deep_web_search")
 RUNTIME_ACTION_WEB_SEARCH = get_runtime_action_name("web_search")
-RUNTIME_ACTION_SAVE_DELAYED_MEMORY_CONTENT = get_runtime_action_name(
+RUNTIME_ACTION_SAVE_DELAYED_MEMORY = get_runtime_action_name(
     "save_delayed_memory"
 )
 RUNTIME_ACTION_LOAD_DELAYED_MEMORY = get_runtime_action_name(

@@ -1,7 +1,6 @@
 # Provides the initial runtime memory text for a brand-new session.
 DEFAULT_RUNTIME_MEMORY = (
     "This session has just begun. "
-    "You have no history with the user yet."
 )
 
 # Decays existing memory strength between scoring passes.

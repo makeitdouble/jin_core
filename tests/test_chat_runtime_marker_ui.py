@@ -165,7 +165,7 @@ for (const [input, expected] of cases) {
         for action in (
             "web_search",
             "deep_web_search",
-            "save_delayed_memory_content",
+            "save_delayed_memory",
             "load_delayed_memory",
             "save_active_memory",
             "update_active_memory",
@@ -204,8 +204,11 @@ for (const [input, expected] of cases) {
             ),
         )
 
-    def test_update_active_memory_bubble_uses_title_and_before_after_hover(self):
+    def test_active_memory_bubbles_use_title_and_full_record_hover(self):
         socket_runtime_source = SOCKET_RUNTIME_ACTIONS_JS.read_text(
+            encoding="utf-8"
+        )
+        chat_runtime_source = CHAT_RUNTIME_ACTIONS_JS.read_text(
             encoding="utf-8"
         )
         runtime_storage_source = (
@@ -218,12 +221,40 @@ for (const [input, expected] of cases) {
         ).read_text(encoding="utf-8")
 
         self.assertIn(
-            "formatActiveMemoryUpdateDetail",
+            "formatActiveMemoryRecordDetail",
             socket_runtime_source,
         )
         self.assertIn(
-            "`${field}: ${before} → ${after}`",
+            '"save_active_memory",',
             socket_runtime_source,
+        )
+        self.assertIn(
+            '"update_active_memory",',
+            socket_runtime_source,
+        )
+        self.assertIn(
+            'data.active_memory_result.record',
+            socket_runtime_source,
+        )
+        self.assertIn(
+            "getActiveMemoryRecords()",
+            socket_runtime_source,
+        )
+        self.assertIn(
+            'action === "save_active_memory"',
+            socket_runtime_source,
+        )
+        self.assertIn(
+            "activeMemoryRecords[activeMemoryRecords.length - 1]",
+            socket_runtime_source,
+        )
+        self.assertIn(
+            'node.title = detail;',
+            chat_runtime_source,
+        )
+        self.assertIn(
+            'row.title = detail;',
+            chat_runtime_source,
         )
         self.assertIn(
             "data.active_memory_title",

@@ -90,7 +90,7 @@ from .save_delayed_memory_utils import (
     normalize_delayed_memory_fact_ids,
     normalize_delayed_memory_fact_roles,
     normalize_long_term_fact_ids,
-    parse_delayed_memory_content_payload,
+    parse_delayed_memory_payload,
 )
 from .web_search_utils import extract_search_query
 
@@ -154,7 +154,7 @@ __all__ = [
     "normalize_delayed_memory_fact_ids",
     "normalize_delayed_memory_fact_roles",
     "normalize_long_term_fact_ids",
-    "parse_delayed_memory_content_payload",
+    "parse_delayed_memory_payload",
     "parse_idle_seconds",
     "parse_jin_position_payload",
     "parse_jin_size_payload",

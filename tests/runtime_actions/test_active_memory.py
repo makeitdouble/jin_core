@@ -32,12 +32,13 @@ from utils.actions import (
     get_save_active_memory_marker_fields,
     get_save_active_memory_placeholder_payload,
     normalize_jin_color_payload,
-    parse_delayed_memory_content_payload,
+    parse_delayed_memory_payload,
 )
 from utils.assets_utils import run_asset_action
 from utils.brain_client_utils import (
     record_delayed_memory_runtime_result,
     flush_pending_active_memory_resolve_failure_history,
+    update_active_memory_runtime_record,
 )
 from utils.context.context_exports import build_tool_results_context
 from utils.file_manager_asset_utils import read_asset_text_preview
@@ -476,6 +477,7 @@ class RuntimeActiveMemoryTests(RuntimeActionTestCase):
                 "active_memory_id": (
                     context.emitter.events[0]["active_memory_id"]
                 ),
+                "active_memory": context.active_memory_records[0],
             },
         )
 
@@ -691,6 +693,41 @@ class RuntimeActiveMemoryTests(RuntimeActionTestCase):
         )
 
 
+    def test_extracts_update_active_memory_json_block_from_active_memory_capability(self):
+
+        result = extract_runtime_actions(
+            (
+                "before "
+                "<UPDATE_ACTIVE_MEMORY>\n"
+                "{\"active_memory_id\":\"abc123\",\"fields\":{"
+                "\"last_photo_id\":\"def456\","
+                "\"current_photo_count\":\"2\""
+                "}}\n"
+                "</UPDATE_ACTIVE_MEMORY>"
+                " after"
+            ),
+            enabled_actions=[
+                "CAN_SAVE_ACTIVE_MEMORY",
+            ],
+        )
+
+        self.assertEqual(result.text, "before after")
+        self.assertEqual(
+            result.actions,
+            (
+                RuntimeActionCall(
+                    name="UPDATE_ACTIVE_MEMORY",
+                    payload=(
+                        "{\"active_memory_id\":\"abc123\",\"fields\":{"
+                        "\"last_photo_id\":\"def456\","
+                        "\"current_photo_count\":\"2\""
+                        "}}"
+                    ),
+                ),
+            ),
+        )
+
+
     def test_save_active_memory_materializes_hidden_custom_state_fields(self):
 
         context = FakeContext()
@@ -811,6 +848,325 @@ class RuntimeActiveMemoryTests(RuntimeActionTestCase):
         )
 
 
+    def test_update_active_memory_accepts_numbered_slot_key_reference(self):
+
+        context = FakeContext()
+        context.emitter = FakeEmitter()
+        context.timestamp = "2026-08-18T23:25:00"
+        context.session_id = "state-session"
+        context.turn_number = 11
+
+        asyncio.run(
+            apply_runtime_action_calls(
+                context,
+                (
+                    RuntimeActionCall(
+                        name="SAVE_ACTIVE_MEMORY",
+                        payload=(
+                            "Once a day ask for a photo. "
+                            "(last_photo_id: qamzck) "
+                            "(current_photo_count: 1)"
+                        ),
+                    ),
+                ),
+            )
+        )
+        active_memory_id = context.emitter.events[0]["active_memory_id"]
+        context.emitter.events.clear()
+        context.timestamp = "2026-08-18T23:26:00"
+
+        applied_count = asyncio.run(
+            apply_runtime_action_calls(
+                context,
+                (
+                    RuntimeActionCall(
+                        name="UPDATE_ACTIVE_MEMORY",
+                        payload=(
+                            "active_memory_1\n"
+                            "last_photo_id: def456\n"
+                            "current_photo_count: 2"
+                        ),
+                    ),
+                ),
+            )
+        )
+
+        self.assertEqual(applied_count, 1)
+        record = context.active_memory_records[0]
+        self.assertIn("[ last_photo_id: def456 ]", record)
+        self.assertIn("[ current_photo_count: 2 ]", record)
+        event = context.emitter.events[0]
+        self.assertEqual(event["status"], "completed")
+        self.assertEqual(event["active_memory_id"], active_memory_id)
+        self.assertEqual(
+            event["active_memory_result"]["requested_id"],
+            "active_memory_1",
+        )
+        self.assertEqual(
+            event["active_memory_result"]["id"],
+            active_memory_id,
+        )
+
+
+    def test_update_active_memory_accepts_numbered_slot_key_inside_raw_marker(self):
+
+        context = FakeContext()
+        context.emitter = FakeEmitter()
+        context.timestamp = "2026-08-18T23:25:00"
+        context.session_id = "state-session"
+        context.turn_number = 11
+
+        asyncio.run(
+            apply_runtime_action_calls(
+                context,
+                (
+                    RuntimeActionCall(
+                        name="SAVE_ACTIVE_MEMORY",
+                        payload=(
+                            "Once a day ask for a photo. "
+                            "(last_photo_id: qamzck) "
+                            "(current_date: 2026-08-21)"
+                        ),
+                    ),
+                ),
+            )
+        )
+        active_memory_id = context.emitter.events[0]["active_memory_id"]
+        context.emitter.events.clear()
+        context.timestamp = "2026-08-22T00:00:00"
+
+        applied_count = asyncio.run(
+            apply_runtime_action_calls(
+                context,
+                (
+                    RuntimeActionCall(
+                        name="UPDATE_ACTIVE_MEMORY",
+                        payload=(
+                            "<UPDATE_ACTIVE_MEMORY: active_memory_1>\n"
+                            "last_photo_id: 1sot0h\n"
+                            "current_date: 2026-08-22\n"
+                            "</UPDATE_ACTIVE_MEMORY>"
+                        ),
+                    ),
+                ),
+            )
+        )
+
+        self.assertEqual(applied_count, 1)
+        record = context.active_memory_records[0]
+        self.assertIn("[ last_photo_id: 1sot0h ]", record)
+        self.assertIn("[ current_date: 2026-08-22 ]", record)
+        event = context.emitter.events[0]
+        self.assertEqual(event["status"], "completed")
+        self.assertEqual(event["active_memory_id"], active_memory_id)
+        self.assertEqual(
+            event["active_memory_result"]["requested_id"],
+            "active_memory_1",
+        )
+        self.assertEqual(
+            event["active_memory_result"]["id"],
+            active_memory_id,
+        )
+
+
+    def test_update_active_memory_accepts_json_numbered_slot_key(self):
+
+        context = FakeContext()
+        context.emitter = FakeEmitter()
+        context.timestamp = "2026-08-18T23:25:00"
+        context.session_id = "state-session"
+        context.turn_number = 11
+
+        asyncio.run(
+            apply_runtime_action_calls(
+                context,
+                (
+                    RuntimeActionCall(
+                        name="SAVE_ACTIVE_MEMORY",
+                        payload=(
+                            "Once a day ask for a photo. "
+                            "(last_photo_id: qamzck) "
+                            "(current_date: 2026-08-21)"
+                        ),
+                    ),
+                ),
+            )
+        )
+        active_memory_id = context.emitter.events[0]["active_memory_id"]
+        context.emitter.events.clear()
+        context.timestamp = "2026-08-22T00:00:00"
+
+        applied_count = asyncio.run(
+            apply_runtime_action_calls(
+                context,
+                (
+                    RuntimeActionCall(
+                        name="UPDATE_ACTIVE_MEMORY",
+                        payload=(
+                            "{\"active_memory_id\":\"active_memory_1\","
+                            "\"fields\":{"
+                            "\"last_photo_id\":\"1sot0h\","
+                            "\"current_date\":\"2026-08-22\""
+                            "}}"
+                        ),
+                    ),
+                ),
+            )
+        )
+
+        self.assertEqual(applied_count, 1)
+        record = context.active_memory_records[0]
+        self.assertIn("[ last_photo_id: 1sot0h ]", record)
+        self.assertIn("[ current_date: 2026-08-22 ]", record)
+        event = context.emitter.events[0]
+        self.assertEqual(event["status"], "completed")
+        self.assertEqual(event["active_memory_id"], active_memory_id)
+        self.assertEqual(
+            event["active_memory_result"]["requested_id"],
+            "active_memory_1",
+        )
+        self.assertEqual(
+            event["active_memory_result"]["id"],
+            active_memory_id,
+        )
+
+
+    def test_update_active_memory_json_fields_ignores_creation_time(self):
+
+        context = FakeContext()
+        context.emitter = FakeEmitter()
+        context.timestamp = "2026-08-18T23:25:00"
+        context.session_id = "state-session"
+        context.turn_number = 11
+
+        asyncio.run(
+            apply_runtime_action_calls(
+                context,
+                (
+                    RuntimeActionCall(
+                        name="SAVE_ACTIVE_MEMORY",
+                        payload=(
+                            "Once a day ask for a photo. "
+                            "(current_photo_id: qamzck) "
+                            "(current_photo_count: 1)"
+                        ),
+                    ),
+                ),
+            )
+        )
+        context.emitter.events.clear()
+        context.timestamp = "2026-08-22T14:55:00"
+
+        applied_count = asyncio.run(
+            apply_runtime_action_calls(
+                context,
+                (
+                    RuntimeActionCall(
+                        name="UPDATE_ACTIVE_MEMORY",
+                        payload=(
+                            "{\"active_memory_id\":\"active_memory_1\","
+                            "\"fields\":{"
+                            "\"current_photo_id\":\"1sot0h\","
+                            "\"current_photo_count\":2,"
+                            "\"creation_time\":\"2026-08-22T14:54:17Z\""
+                            "}}"
+                        ),
+                    ),
+                ),
+            )
+        )
+
+        self.assertEqual(applied_count, 1)
+        record = context.active_memory_records[0]
+        self.assertIn("[ current_photo_id: 1sot0h ]", record)
+        self.assertIn("[ current_photo_count: 2 ]", record)
+        self.assertNotIn(
+            "2026-08-22T14:54:17Z",
+            record,
+        )
+        event = context.emitter.events[0]
+        self.assertEqual(event["status"], "completed")
+        self.assertEqual(
+            event["active_memory_changes"],
+            [
+                {
+                    "field": "current_photo_id",
+                    "before": "qamzck",
+                    "after": "1sot0h",
+                },
+                {
+                    "field": "current_photo_count",
+                    "before": "1",
+                    "after": "2",
+                },
+            ],
+        )
+
+
+    def test_update_active_memory_accepts_json_inside_raw_marker(self):
+
+        context = FakeContext()
+        context.emitter = FakeEmitter()
+        context.timestamp = "2026-08-18T23:25:00"
+        context.session_id = "state-session"
+        context.turn_number = 11
+
+        asyncio.run(
+            apply_runtime_action_calls(
+                context,
+                (
+                    RuntimeActionCall(
+                        name="SAVE_ACTIVE_MEMORY",
+                        payload=(
+                            "Once a day ask for a photo. "
+                            "(last_photo_id: qamzck) "
+                            "(current_date: 2026-08-21)"
+                        ),
+                    ),
+                ),
+            )
+        )
+        active_memory_id = context.emitter.events[0]["active_memory_id"]
+        context.emitter.events.clear()
+        context.timestamp = "2026-08-22T00:00:00"
+
+        applied_count = asyncio.run(
+            apply_runtime_action_calls(
+                context,
+                (
+                    RuntimeActionCall(
+                        name="UPDATE_ACTIVE_MEMORY",
+                        payload=(
+                            "<UPDATE_ACTIVE_MEMORY>\n"
+                            "{\"active_memory_id\":\"active_memory_1\","
+                            "\"fields\":{"
+                            "\"last_photo_id\":\"1sot0h\","
+                            "\"current_date\":\"2026-08-22\""
+                            "}}\n"
+                            "</UPDATE_ACTIVE_MEMORY>"
+                        ),
+                    ),
+                ),
+            )
+        )
+
+        self.assertEqual(applied_count, 1)
+        record = context.active_memory_records[0]
+        self.assertIn("[ last_photo_id: 1sot0h ]", record)
+        self.assertIn("[ current_date: 2026-08-22 ]", record)
+        event = context.emitter.events[0]
+        self.assertEqual(event["status"], "completed")
+        self.assertEqual(event["active_memory_id"], active_memory_id)
+        self.assertEqual(
+            event["active_memory_result"]["requested_id"],
+            "active_memory_1",
+        )
+        self.assertEqual(
+            event["active_memory_result"]["id"],
+            active_memory_id,
+        )
+
+
     def test_update_active_memory_rejects_new_field_atomically(self):
 
         context = FakeContext()
@@ -869,6 +1225,169 @@ class RuntimeActiveMemoryTests(RuntimeActionTestCase):
         )
 
 
+    def test_update_active_memory_slot_key_rejects_new_field_atomically(self):
+
+        context = FakeContext()
+        context.emitter = FakeEmitter()
+        context.timestamp = "2026-08-18T23:25:00"
+        context.session_id = "state-session"
+        context.turn_number = 11
+
+        asyncio.run(
+            apply_runtime_action_calls(
+                context,
+                (
+                    RuntimeActionCall(
+                        name="SAVE_ACTIVE_MEMORY",
+                        payload=(
+                            "Once a day ask for a photo. "
+                            "(last_photo_id: qamzck)"
+                        ),
+                    ),
+                ),
+            )
+        )
+        original_record = context.active_memory_records[0]
+        context.emitter.events.clear()
+        context.timestamp = "2026-08-18T23:26:00"
+
+        applied_count = asyncio.run(
+            apply_runtime_action_calls(
+                context,
+                (
+                    RuntimeActionCall(
+                        name="UPDATE_ACTIVE_MEMORY",
+                        payload=(
+                            "active_memory_1\n"
+                            "last_photo_id: def456\n"
+                            "new_field: nope"
+                        ),
+                    ),
+                ),
+            )
+        )
+
+        self.assertEqual(applied_count, 0)
+        self.assertEqual(context.active_memory_records[0], original_record)
+        self.assertNotIn("updated_at", context.active_memory_records[0])
+        event = context.emitter.events[0]
+        self.assertEqual(event["status"], "failed")
+        self.assertEqual(
+            event["active_memory_result"]["error"],
+            "active_memory_field_not_declared",
+        )
+        self.assertEqual(
+            event["active_memory_result"]["requested_id"],
+            "active_memory_1",
+        )
+        self.assertEqual(
+            event["active_memory_result"]["unknown_fields"],
+            ["new_field"],
+        )
+
+
+    def test_update_active_memory_slot_key_rejects_runtime_managed_field(self):
+
+        context = FakeContext()
+        context.emitter = FakeEmitter()
+        context.timestamp = "2026-08-18T23:25:00"
+        context.session_id = "state-session"
+        context.turn_number = 11
+
+        asyncio.run(
+            apply_runtime_action_calls(
+                context,
+                (
+                    RuntimeActionCall(
+                        name="SAVE_ACTIVE_MEMORY",
+                        payload=(
+                            "Once a day ask for a photo. "
+                            "(last_photo_id: qamzck)"
+                        ),
+                    ),
+                ),
+            )
+        )
+        original_record = context.active_memory_records[0]
+
+        result = asyncio.run(
+            update_active_memory_runtime_record(
+                context,
+                (
+                    "active_memory_1\n"
+                    "updated_at: 1999-01-01T00:00:00"
+                ),
+            )
+        )
+
+        self.assertFalse(result["ok"])
+        self.assertEqual(
+            result["error"],
+            "invalid_update_active_memory_payload",
+        )
+        self.assertEqual(
+            result["requested_id"],
+            "active_memory_1",
+        )
+        self.assertEqual(context.active_memory_records[0], original_record)
+        self.assertNotIn(
+            "1999-01-01T00:00:00",
+            context.active_memory_records[0],
+        )
+
+
+    def test_update_active_memory_json_rejects_runtime_managed_field(self):
+
+        context = FakeContext()
+        context.emitter = FakeEmitter()
+        context.timestamp = "2026-08-18T23:25:00"
+        context.session_id = "state-session"
+        context.turn_number = 11
+
+        asyncio.run(
+            apply_runtime_action_calls(
+                context,
+                (
+                    RuntimeActionCall(
+                        name="SAVE_ACTIVE_MEMORY",
+                        payload=(
+                            "Once a day ask for a photo. "
+                            "(last_photo_id: qamzck)"
+                        ),
+                    ),
+                ),
+            )
+        )
+        original_record = context.active_memory_records[0]
+
+        result = asyncio.run(
+            update_active_memory_runtime_record(
+                context,
+                (
+                    "{\"active_memory_id\":\"active_memory_1\","
+                    "\"fields\":{"
+                    "\"updated_at\":\"1999-01-01T00:00:00\""
+                    "}}"
+                ),
+            )
+        )
+
+        self.assertFalse(result["ok"])
+        self.assertEqual(
+            result["error"],
+            "invalid_update_active_memory_payload",
+        )
+        self.assertEqual(
+            result["requested_id"],
+            "active_memory_1",
+        )
+        self.assertEqual(context.active_memory_records[0], original_record)
+        self.assertNotIn(
+            "1999-01-01T00:00:00",
+            context.active_memory_records[0],
+        )
+
+
     def test_save_active_memory_rejects_more_than_three_custom_fields(self):
 
         context = FakeContext()
@@ -900,6 +1419,72 @@ class RuntimeActiveMemoryTests(RuntimeActionTestCase):
             getattr(context, "active_memory_records", []),
             [],
         )
+
+
+    def test_save_active_memory_accepts_flat_json_and_keeps_last_duplicate(self):
+
+        context = FakeContext()
+        context.emitter = FakeEmitter()
+        context.timestamp = "2026-08-22T15:40:00"
+        context.session_id = "flat-json-session"
+        context.turn_number = 12
+
+        applied_count = asyncio.run(
+            apply_runtime_action_calls(
+                context,
+                (
+                    RuntimeActionCall(
+                        name="SAVE_ACTIVE_MEMORY",
+                        payload=(
+                            '{"conditions":"Track photo state",'
+                            '"current_photo_id":"old",'
+                            '"current_photo_id":"1sot0h",'
+                            '"current_photo_count":2}'
+                        ),
+                    ),
+                ),
+            )
+        )
+
+        self.assertEqual(applied_count, 1)
+        self.assertEqual(len(context.active_memory_records), 1)
+        record = context.active_memory_records[0]
+        self.assertIn("Track photo state", record)
+        self.assertIn("[ current_photo_id: 1sot0h ]", record)
+        self.assertIn("[ current_photo_count: 2 ]", record)
+        self.assertNotIn("[ current_photo_id: old ]", record)
+
+
+    def test_save_active_memory_flat_json_caps_custom_fields_without_dropping_save(self):
+
+        context = FakeContext()
+        context.emitter = FakeEmitter()
+        context.timestamp = "2026-08-22T15:41:00"
+        context.session_id = "flat-json-limit-session"
+        context.turn_number = 13
+
+        applied_count = asyncio.run(
+            apply_runtime_action_calls(
+                context,
+                (
+                    RuntimeActionCall(
+                        name="SAVE_ACTIVE_MEMORY",
+                        payload=(
+                            '{"conditions":"Keep the memory",'
+                            '"field_one":1,"field_two":2,'
+                            '"field_three":3,"field_four":4}'
+                        ),
+                    ),
+                ),
+            )
+        )
+
+        self.assertEqual(applied_count, 1)
+        record = context.active_memory_records[0]
+        self.assertIn("Keep the memory", record)
+        self.assertIn("[ field_one: 1 ]", record)
+        self.assertIn("[ field_three: 3 ]", record)
+        self.assertNotIn("[ field_four: 4 ]", record)
 
 
     def test_apply_runtime_action_calls_queues_active_memory_record(self):

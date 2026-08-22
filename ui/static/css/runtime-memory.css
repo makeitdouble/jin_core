@@ -1079,6 +1079,11 @@
     will-change: height, padding, opacity;
 }
 
+#jin-runtime-status-modal .jin-context-card,
+#jin-runtime-status-modal .jin-context-card-body {
+    overflow: visible;
+}
+
 .jin-context-card.is-collapsed .jin-context-card-header {
     border-bottom-color: transparent;
 }

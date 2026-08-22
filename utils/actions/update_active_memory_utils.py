@@ -1,7 +1,9 @@
+import json
 import re
 
 from .action_payload_utils import _build_internal_action_payload
 from .active_memory_utils import (
+    ACTIVE_MEMORY_RESERVED_CUSTOM_FIELD_NAMES,
     normalize_active_memory_custom_field_name,
     normalize_active_memory_custom_field_value,
 )
@@ -32,13 +34,183 @@ def build_update_active_memory_payload(
     )
 
 
+def _parse_update_active_memory_json_payload(
+    payload: str,
+) -> tuple[str, tuple[tuple[str, str], ...]]:
+
+    text = str(
+        payload or ""
+    ).strip()
+
+    if not text.startswith("{"):
+        return "", ()
+
+    try:
+        data = json.loads(text)
+    except (TypeError, ValueError):
+        return "", ()
+
+    if not isinstance(
+        data,
+        dict,
+    ):
+        return "", ()
+
+    active_memory_id = str(
+        data.get("active_memory_id")
+        or data.get("id")
+        or ""
+    ).strip().casefold()
+
+    if not ACTIVE_MEMORY_UPDATE_ID_RE.fullmatch(
+        active_memory_id
+    ):
+        return "", ()
+
+    raw_fields = (
+        data.get("fields")
+        if "fields" in data
+        else data.get("updates")
+    )
+
+    if raw_fields is None:
+        raw_fields = {
+            key: value
+            for key, value in data.items()
+            if str(key or "").strip().casefold()
+            not in {
+                "active_memory_id",
+                "id",
+            }
+        }
+
+    if not isinstance(
+        raw_fields,
+        dict,
+    ) or not raw_fields:
+        return "", ()
+
+    changes = []
+    seen = set()
+
+    for raw_name, raw_value in raw_fields.items():
+        raw_field_name = str(
+            raw_name or ""
+        ).strip().casefold()
+
+        if raw_field_name in ACTIVE_MEMORY_RESERVED_CUSTOM_FIELD_NAMES:
+            continue
+
+        if isinstance(
+            raw_value,
+            (dict, list),
+        ):
+            return "", ()
+
+        field_name = normalize_active_memory_custom_field_name(
+            raw_name
+        )
+        field_value = normalize_active_memory_custom_field_value(
+            raw_value
+        )
+
+        if (
+            not field_name
+            or not field_value
+            or field_name in seen
+        ):
+            return "", ()
+
+        changes.append(
+            (
+                field_name,
+                field_value,
+            )
+        )
+        seen.add(field_name)
+
+    return active_memory_id, tuple(changes)
+
+
+def parse_update_active_memory_payload_fields(
+    payload: str,
+) -> tuple[str, tuple[tuple[str, str], ...]]:
+    """Read the id and submitted values from flat or legacy nested JSON."""
+
+    text = str(payload or "").strip()
+    if not text.startswith("{"):
+        return parse_update_active_memory_payload(text)
+
+    try:
+        data = json.loads(text)
+    except (TypeError, ValueError):
+        return "", ()
+
+    if not isinstance(data, dict):
+        return "", ()
+
+    active_memory_id = str(
+        data.get("active_memory_id")
+        or data.get("id")
+        or ""
+    ).strip().casefold()
+    if not ACTIVE_MEMORY_UPDATE_ID_RE.fullmatch(active_memory_id):
+        return "", ()
+
+    raw_fields = (
+        data.get("fields")
+        if "fields" in data
+        else data.get("updates")
+    )
+    if raw_fields is None:
+        raw_fields = {
+            key: value
+            for key, value in data.items()
+            if str(key or "").strip().casefold()
+            not in {"active_memory_id", "id"}
+        }
+    if not isinstance(raw_fields, dict) or not raw_fields:
+        return "", ()
+
+    fields = []
+    seen = set()
+    for raw_name, raw_value in raw_fields.items():
+        if isinstance(raw_value, (dict, list)):
+            return "", ()
+
+        field_name = str(raw_name or "").strip().casefold()
+        field_value = normalize_active_memory_custom_field_value(
+            raw_value
+        )
+        if (
+            not re.fullmatch(r"[a-z][a-z0-9_]{0,31}", field_name)
+            or not field_value
+            or field_name in seen
+        ):
+            return "", ()
+
+        fields.append((field_name, field_value))
+        seen.add(field_name)
+
+    return active_memory_id, tuple(fields)
+
+
 def parse_update_active_memory_payload(
     payload: str,
 ) -> tuple[str, tuple[tuple[str, str], ...]]:
 
+    text = str(
+        payload or ""
+    ).strip()
+
+    if text.startswith("{"):
+        return _parse_update_active_memory_json_payload(
+            text
+        )
+
     lines = [
         str(line or "").strip()
-        for line in str(payload or "").splitlines()
+        for line in text.splitlines()
         if str(line or "").strip()
     ]
 

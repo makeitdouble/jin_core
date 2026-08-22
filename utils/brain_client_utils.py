@@ -73,7 +73,7 @@ from contracts.rules_assembler import (
     RUNTIME_ACTION_UNLOAD_DELAYED_MEMORY,
     RUNTIME_ACTION_UNLOAD_SKILL,
     RUNTIME_ACTION_RESOLVE_TODO,
-    RUNTIME_ACTION_SAVE_DELAYED_MEMORY_CONTENT,
+    RUNTIME_ACTION_SAVE_DELAYED_MEMORY,
     RUNTIME_ACTION_RESOLVE_ACTIVE_MEMORY,
     RUNTIME_ACTION_WEB_SEARCH,
     build_runtime_action_display_text,
@@ -112,7 +112,7 @@ from utils.actions import (
     is_active_memory_record_paused,
     normalize_active_memory_custom_field_name,
     normalize_active_memory_custom_field_value,
-    parse_delayed_memory_content_payload,
+    parse_delayed_memory_payload,
     parse_update_active_memory_payload,
     parse_idle_seconds,
     normalize_jin_color_payload,
@@ -122,6 +122,9 @@ from utils.actions import (
     strip_active_memory_runtime_metadata,
     strip_active_memory_managed_suffixes,
     set_active_memory_suffix_value,
+)
+from utils.actions.update_active_memory_utils import (
+    parse_update_active_memory_payload_fields,
 )
 from utils.session_actions_history import (
     build_active_memory_resolve_failed_history_text,
@@ -305,7 +308,7 @@ def build_delayed_memory_report(
             )
         )
     except json.JSONDecodeError:
-        report = parse_delayed_memory_content_payload(
+        report = parse_delayed_memory_payload(
             payload
         )
 
@@ -821,10 +824,15 @@ def build_active_memory_runtime_line(
 
     raw_visible_value = suffix_values[0][1]
 
-    # Custom state schema is created only from trailing parenthesized
-    # declarations. A model-authored square suffix would otherwise be
-    # indistinguishable from a runtime-owned field after persistence.
-    if collect_active_memory_custom_fields(raw_visible_value):
+    json_payload = raw_visible_value.lstrip().startswith("{")
+
+    # Legacy plain-text saves may create custom state only from trailing
+    # parenthesized declarations. A model-authored square suffix would
+    # otherwise be indistinguishable from runtime-owned state.
+    if (
+        not json_payload
+        and collect_active_memory_custom_fields(raw_visible_value)
+    ):
         return ""
 
     visible_value, custom_fields = (
@@ -841,7 +849,7 @@ def build_active_memory_runtime_line(
     # three-field limit), keep the save conservative instead of silently
     # creating a schema the model did not actually request.
     original_visible_value = suffix_values[0][1].strip()
-    custom_declaration_present = bool(
+    custom_declaration_present = not json_payload and bool(
         re.search(
             r"\(\s*[A-Za-z][A-Za-z0-9_]{0,31}\s*:\s*[^()]+\)\s*$",
             original_visible_value,
@@ -1013,6 +1021,313 @@ ACTIVE_MEMORY_RUNTIME_LINE_RE = re.compile(
     r"^\s*active_memory(?:_\d+)?\s*:",
     re.IGNORECASE,
 )
+UPDATE_ACTIVE_MEMORY_SLOT_KEY_RE = re.compile(
+    r"^active_memory_[1-9]\d*$",
+    re.IGNORECASE,
+)
+
+UPDATE_ACTIVE_MEMORY_SLOT_KEY_TOKEN_RE = re.compile(
+    r"(?<![a-z0-9_])(active_memory_[1-9]\d*)(?![a-z0-9_])",
+    re.IGNORECASE,
+)
+
+UPDATE_ACTIVE_MEMORY_OPEN_TAG_RE = re.compile(
+    r"^\s*<\s*UPDATE_ACTIVE_MEMORY(?:\s*:\s*([^>]*?))?\s*>\s*$",
+    re.IGNORECASE,
+)
+
+UPDATE_ACTIVE_MEMORY_CLOSE_TAG_RE = re.compile(
+    r"^\s*</\s*UPDATE_ACTIVE_MEMORY\s*>\s*$",
+    re.IGNORECASE,
+)
+
+
+def _collect_context_active_memory_sources(
+    context,
+) -> list[str]:
+
+    active_records = getattr(
+        context,
+        "active_memory_records",
+        None,
+    )
+    return [
+        *(active_records or ()),
+        getattr(
+            context,
+            "runtime_memory",
+            "",
+        ),
+        getattr(
+            context,
+            "runtime_memory_stable",
+            "",
+        ),
+    ]
+
+
+def _extract_update_active_memory_slot_key(
+    payload: str,
+) -> str:
+
+    for line in str(
+        payload or ""
+    ).splitlines():
+        text = str(
+            line or ""
+        ).strip()
+
+        if not text:
+            continue
+
+        match = UPDATE_ACTIVE_MEMORY_SLOT_KEY_TOKEN_RE.search(
+            text
+        )
+        if match is None:
+            return ""
+
+        return match.group(
+            1
+        ).casefold()
+
+    return ""
+
+
+def _unwrap_update_active_memory_marker_payload(
+    payload: str,
+) -> str:
+
+    attribute_payload = ""
+    payload_lines = []
+    did_read_first_line = False
+
+    for line in str(
+        payload or ""
+    ).splitlines():
+        text = str(
+            line or ""
+        ).strip()
+
+        if not text:
+            continue
+
+        if not did_read_first_line:
+            did_read_first_line = True
+            match = UPDATE_ACTIVE_MEMORY_OPEN_TAG_RE.fullmatch(
+                text
+            )
+
+            if match is not None:
+                attribute_payload = str(
+                    match.group(1)
+                    or ""
+                ).strip()
+                continue
+
+        if UPDATE_ACTIVE_MEMORY_CLOSE_TAG_RE.fullmatch(
+            text
+        ):
+            continue
+
+        payload_lines.append(
+            text
+        )
+
+    return "\n".join(
+        part
+        for part in (
+            attribute_payload,
+            *payload_lines,
+        )
+        if part
+    )
+
+
+def _extract_update_active_memory_json_slot_key(
+    payload: str,
+) -> str:
+
+    text = str(
+        payload or ""
+    ).strip()
+
+    if not text.startswith("{"):
+        return ""
+
+    try:
+        data = json.loads(text)
+    except (TypeError, ValueError):
+        return ""
+
+    if not isinstance(
+        data,
+        dict,
+    ):
+        return ""
+
+    candidate = str(
+        data.get("active_memory_id")
+        or data.get("id")
+        or ""
+    ).strip().casefold()
+
+    if UPDATE_ACTIVE_MEMORY_SLOT_KEY_RE.fullmatch(
+        candidate
+    ):
+        return candidate
+
+    return ""
+
+
+def _replace_update_active_memory_json_slot_key(
+    payload: str,
+    active_memory_id: str,
+) -> str:
+
+    text = str(
+        payload or ""
+    ).strip()
+
+    if not text.startswith("{"):
+        return ""
+
+    try:
+        data = json.loads(text)
+    except (TypeError, ValueError):
+        return ""
+
+    if not isinstance(
+        data,
+        dict,
+    ):
+        return ""
+
+    for key in (
+        "active_memory_id",
+        "id",
+    ):
+        candidate = str(
+            data.get(key)
+            or ""
+        ).strip().casefold()
+
+        if UPDATE_ACTIVE_MEMORY_SLOT_KEY_RE.fullmatch(
+            candidate
+        ):
+            data[key] = active_memory_id
+            return json.dumps(
+                data,
+                ensure_ascii=False,
+            )
+
+    return ""
+
+
+def _find_active_memory_slot_record_by_key(
+    context,
+    active_memory_key: str,
+) -> str:
+
+    normalized_key = str(
+        active_memory_key or ""
+    ).strip().casefold()
+
+    if not UPDATE_ACTIVE_MEMORY_SLOT_KEY_RE.fullmatch(
+        normalized_key
+    ):
+        return ""
+
+    for source in _collect_context_active_memory_sources(
+        context
+    ):
+        for line in str(
+            source or ""
+        ).splitlines():
+            key, separator, _ = str(
+                line or ""
+            ).partition(":")
+
+            if (
+                separator
+                and key.strip().casefold() == normalized_key
+                and ACTIVE_MEMORY_RUNTIME_LINE_RE.match(line)
+                and not is_active_memory_record_paused(line)
+            ):
+                return line.strip()
+
+    return ""
+
+
+def normalize_update_active_memory_payload_reference(
+    context,
+    payload: str,
+) -> tuple[str, str, str]:
+
+    original_payload = _unwrap_update_active_memory_marker_payload(
+        payload
+    )
+    slot_key = _extract_update_active_memory_slot_key(
+        original_payload
+    ) or _extract_update_active_memory_json_slot_key(
+        original_payload
+    )
+
+    if not slot_key:
+        return original_payload, "", ""
+
+    slot_record = _find_active_memory_slot_record_by_key(
+        context,
+        slot_key,
+    )
+    active_memory_ids = sorted(
+        collect_active_memory_slot_ids(
+            slot_record
+        )
+    )
+    active_memory_id = (
+        active_memory_ids[0]
+        if active_memory_ids
+        else ""
+    )
+
+    if not active_memory_id:
+        return original_payload, slot_key, ""
+
+    json_payload = _replace_update_active_memory_json_slot_key(
+        original_payload,
+        active_memory_id,
+    )
+    if json_payload:
+        return json_payload, slot_key, active_memory_id
+
+    lines = []
+    did_write_id = False
+
+    for line in original_payload.splitlines():
+        text = str(
+            line or ""
+        ).strip()
+
+        if not text:
+            continue
+
+        if UPDATE_ACTIVE_MEMORY_CLOSE_TAG_RE.fullmatch(
+            text
+        ):
+            continue
+
+        if not did_write_id:
+            lines.append(
+                active_memory_id
+            )
+            did_write_id = True
+            continue
+
+        lines.append(
+            text
+        )
+
+    return "\n".join(lines), slot_key, active_memory_id
 
 
 def remove_active_memory_slot_from_text(
@@ -1085,26 +1400,9 @@ def find_active_memory_slot_record(
     if not normalized_id:
         return ""
 
-    active_records = getattr(
-        context,
-        "active_memory_records",
-        None,
-    )
-    sources = [
-        *(active_records or ()),
-        getattr(
-            context,
-            "runtime_memory",
-            "",
-        ),
-        getattr(
-            context,
-            "runtime_memory_stable",
-            "",
-        ),
-    ]
-
-    for source in sources:
+    for source in _collect_context_active_memory_sources(
+        context
+    ):
         for line in str(
             source or ""
         ).splitlines():
@@ -1348,10 +1646,38 @@ async def update_active_memory_runtime_record(
     if context is None:
         return result
 
-    active_memory_id, changes = parse_update_active_memory_payload(
-        payload
+    normalized_payload, requested_reference, resolved_reference_id = (
+        normalize_update_active_memory_payload_reference(
+            context,
+            payload,
+        )
     )
-    result["id"] = active_memory_id
+
+    if requested_reference:
+        result["requested_id"] = requested_reference
+
+    if requested_reference and not resolved_reference_id:
+        result["id"] = requested_reference
+        result["error"] = "active_memory_not_found"
+        return result
+
+    active_memory_id, changes = parse_update_active_memory_payload(
+        normalized_payload
+    )
+    (
+        requested_active_memory_id,
+        requested_changes,
+    ) = parse_update_active_memory_payload_fields(
+        normalized_payload
+    )
+    result["id"] = active_memory_id or requested_active_memory_id
+    result["requested_changes"] = [
+        {
+            "field": field_name,
+            "after": field_value,
+        }
+        for field_name, field_value in requested_changes
+    ]
 
     if not active_memory_id or not changes:
         return result
@@ -1363,6 +1689,10 @@ async def update_active_memory_runtime_record(
     if not current_record:
         result["error"] = "active_memory_not_found"
         return result
+
+    result["previous_title"] = get_active_memory_record_title(
+        current_record
+    )
 
     current_fields = dict(
         collect_active_memory_custom_fields(
@@ -1467,7 +1797,7 @@ async def update_active_memory_runtime_record(
         "ok": True,
         "error": "",
         "id": active_memory_id,
-        "title": get_active_memory_record_title(updated_record),
+        "title": result["previous_title"],
         "record": updated_record,
         "changes": list(change_results),
         "updated_at": updated_at,
@@ -2635,7 +2965,7 @@ def build_delayed_memory_history_text(
     if not title:
         return ""
 
-    if action == "save_delayed_memory_content":
+    if action == "save_delayed_memory":
         return f"Delayed memory saved: {title}"
 
     if action == "load_delayed_memory":

@@ -1,7 +1,7 @@
 from copy import deepcopy
 
 from contracts.rules_assembler import (
-    RUNTIME_ACTION_SAVE_DELAYED_MEMORY_CONTENT,
+    RUNTIME_ACTION_SAVE_DELAYED_MEMORY,
     get_runtime_action_display_name,
     runtime_action_has_close_tag,
 )
@@ -361,7 +361,7 @@ async def apply_save_delayed_memory_actions(
 
             history_text = build_delayed_memory_history_text({
                 "ok": True,
-                "action": "save_delayed_memory_content",
+                "action": "save_delayed_memory",
                 "id": report_id,
                 "title": str(
                     report_value.get(
@@ -383,7 +383,7 @@ async def apply_save_delayed_memory_actions(
 
             saved_result = {
                 "ok": True,
-                "action": "save_delayed_memory_content",
+                "action": "save_delayed_memory",
                 "destination": (
                     "delayed_memory_reports (Delayed Memory storage)"
                 ),
@@ -485,7 +485,7 @@ async def apply_save_delayed_memory_actions(
                     )
                     and event.get(
                         "name"
-                    ) == "save_delayed_memory_content"
+                    ) == "save_delayed_memory"
                 ])
                 action_sequence = max(
                     current_action_sequence + 1,
@@ -505,19 +505,19 @@ async def apply_save_delayed_memory_actions(
                     action_sequence,
                 )
                 action_id = build_runtime_action_id(
-                    RUNTIME_ACTION_SAVE_DELAYED_MEMORY_CONTENT,
+                    RUNTIME_ACTION_SAVE_DELAYED_MEMORY,
                     action_sequence,
                 )
             await emit(with_action_context({
                 "type": "runtime_action",
-                "action": "save_delayed_memory_content",
+                "action": "save_delayed_memory",
                 "id": action_id,
                 "status": "completed",
                 "display_name": get_runtime_action_display_name(
-                    RUNTIME_ACTION_SAVE_DELAYED_MEMORY_CONTENT
+                    RUNTIME_ACTION_SAVE_DELAYED_MEMORY
                 ),
                 "close_tag": runtime_action_has_close_tag(
-                    RUNTIME_ACTION_SAVE_DELAYED_MEMORY_CONTENT
+                    RUNTIME_ACTION_SAVE_DELAYED_MEMORY
                 ),
                 "text": (
                     f"Saved delayed memory: {report_title}"

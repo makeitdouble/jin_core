@@ -1829,8 +1829,7 @@ def is_default_runtime_memory_text(
     ).lower()
 
     return normalized == (
-        "this session has just begun. "
-        "you have no history with the user yet."
+        "this session has just begun."
     ).lower()
 
 

@@ -158,10 +158,10 @@ class WebSocketPendingUsageTests(unittest.IsolatedAsyncioTestCase):
 
         message = {
             "decision": "continue",
-            "action": "save_delayed_memory_content",
+            "action": "save_delayed_memory",
             "guard": "save_delayed_memory",
-            "confirmation_id": "turn_7:save_delayed_memory_content:abc",
-            "id": "save_delayed_memory_content_7",
+            "confirmation_id": "turn_7:save_delayed_memory:abc",
+            "id": "save_delayed_memory_7",
             "retry_attempt": 1,
             "retry_user_message": "создай отчот",
             "retry_context_snapshot": {
@@ -185,10 +185,10 @@ class WebSocketPendingUsageTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(
             retry_request["runtime_action_guard_retry"],
             {
-                "action": "save_delayed_memory_content",
+                "action": "save_delayed_memory",
                 "guard": "save_delayed_memory",
-                "confirmation_id": "turn_7:save_delayed_memory_content:abc",
-                "id": "save_delayed_memory_content_7",
+                "confirmation_id": "turn_7:save_delayed_memory:abc",
+                "id": "save_delayed_memory_7",
                 "attempt": 1,
                 "context_snapshot": {
                     "system_prompt": "original system",
@@ -229,9 +229,9 @@ class WebSocketPendingUsageTests(unittest.IsolatedAsyncioTestCase):
             context,
             {
                 "decision": "continue",
-                "action": "save_delayed_memory_content",
+                "action": "save_delayed_memory",
                 "confirmation_id": "stale-confirmation",
-                "id": "save_delayed_memory_content_3",
+                "id": "save_delayed_memory_3",
             },
         )
 
@@ -239,15 +239,15 @@ class WebSocketPendingUsageTests(unittest.IsolatedAsyncioTestCase):
             context.emitter.events,
             [{
                 "type": "runtime_action",
-                "action": "save_delayed_memory_content",
+                "action": "save_delayed_memory",
                 "status": "failed",
-                "display_name": "SAVE_DELAYED_MEMORY_CONTENT",
+                "display_name": "SAVE_DELAYED_MEMORY",
                 "close_tag": True,
                 "confirmation_id": "stale-confirmation",
                 "error": "runtime_action_confirmation_expired",
-                "text": "SAVE_DELAYED_MEMORY_CONTENT: FAILED",
+                "text": "SAVE_DELAYED_MEMORY: FAILED",
                 "detail": "The original confirmation no longer exists after reconnect.",
-                "id": "save_delayed_memory_content_3",
+                "id": "save_delayed_memory_3",
             }],
         )
 
@@ -257,17 +257,17 @@ class WebSocketPendingUsageTests(unittest.IsolatedAsyncioTestCase):
             emitter=FakeEmitter(),
             runtime_action_guard_confirmations={},
             runtime_action_guard_retry={
-                "action": "save_delayed_memory_content",
+                "action": "save_delayed_memory",
                 "guard": "save_delayed_memory",
                 "confirmation_id": "stale-confirmation",
-                "id": "save_delayed_memory_content_4",
+                "id": "save_delayed_memory_4",
                 "attempt": 1,
             },
             runtime_action_guard_retry_consumed=False,
             runtime_action_failure_followup_messages=[],
         )
         action = RuntimeActionCall(
-            name="SAVE_DELAYED_MEMORY_CONTENT",
+            name="SAVE_DELAYED_MEMORY",
             payload="title: Replay report",
         )
 
@@ -296,7 +296,7 @@ class WebSocketPendingUsageTests(unittest.IsolatedAsyncioTestCase):
         )
         self.assertEqual(
             action_display_ids[id(action)],
-            "save_delayed_memory_content_4",
+            "save_delayed_memory_4",
         )
         self.assertTrue(
             context.runtime_action_guard_retry_consumed
@@ -314,7 +314,7 @@ class WebSocketPendingUsageTests(unittest.IsolatedAsyncioTestCase):
         context.runtime_action_guard_retry_consumed = False
         context.runtime_action_guard_retry = {
             **context.runtime_action_guard_retry,
-            "action": "save_delayed_memory_content",
+            "action": "save_delayed_memory",
             "guard": "save_delayed_memory",
         }
         context.runtime_action_guard_confirmations = {}
@@ -364,10 +364,10 @@ class WebSocketPendingUsageTests(unittest.IsolatedAsyncioTestCase):
 
         mark_runtime_action_started(
             context,
-            action="save_delayed_memory_content",
-            action_id="save_delayed_memory_content_1",
-            display_name="SAVE_DELAYED_MEMORY_CONTENT",
-            text="SAVE_DELAYED_MEMORY_CONTENT",
+            action="save_delayed_memory",
+            action_id="save_delayed_memory_1",
+            display_name="SAVE_DELAYED_MEMORY",
+            text="SAVE_DELAYED_MEMORY",
             close_tag=True,
         )
 
@@ -389,7 +389,7 @@ class WebSocketPendingUsageTests(unittest.IsolatedAsyncioTestCase):
         )
         self.assertEqual(
             context.emitter.events[0]["text"],
-            "SAVE_DELAYED_MEMORY_CONTENT: ABORTED",
+            "SAVE_DELAYED_MEMORY: ABORTED",
         )
 
     def test_idle_followups_replace_same_recent_turn_instead_of_duplicating_it(self):

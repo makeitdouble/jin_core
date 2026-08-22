@@ -25,12 +25,17 @@ from fastapi.templating import (
 )
 
 import asyncio
+import ast
 import httpx
 import json
 from pathlib import Path
 
 from config_loader import (
     config,
+    ROOT as CONFIG_ROOT,
+)
+from app_settings import (
+    settings,
 )
 
 from utils.urls import (
@@ -354,6 +359,172 @@ def build_runtime_config(
     }
 
 
+RUNTIME_CONFIG_WRITE_FIELDS = {
+    "service": {
+        "model": "SERVICE_MODEL_UID",
+        "configured_context_window": "SERVICE_CONTEXT_WINDOW",
+    },
+    "brain": {
+        "model": "BRAIN_MODEL_UID",
+        "configured_context_window": "BRAIN_CONTEXT_WINDOW",
+    },
+}
+
+
+def _format_config_literal(value):
+
+    if isinstance(value, str):
+        return repr(value)
+
+    if isinstance(value, bool):
+        return "True" if value else "False"
+
+    return str(value)
+
+
+def write_runtime_config_values(updates: dict[str, object]) -> None:
+
+    config_path = CONFIG_ROOT / "config.py"
+
+    if not config_path.exists():
+        raise FileNotFoundError(
+            f"config.py not found at {config_path}"
+        )
+
+    text = config_path.read_text(
+        encoding="utf-8"
+    )
+    tree = ast.parse(
+        text
+    )
+    lines = text.splitlines()
+    replaced: set[str] = set()
+
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Assign):
+            continue
+
+        for target in node.targets:
+            if (
+                not isinstance(target, ast.Name)
+                or target.id not in updates
+            ):
+                continue
+
+            if (
+                getattr(node, "end_lineno", node.lineno)
+                != node.lineno
+            ):
+                raise ValueError(
+                    f"Cannot rewrite multiline config value {target.id}"
+                )
+
+            line_index = node.lineno - 1
+            current_line = lines[line_index]
+            indent = current_line[
+                :len(current_line) - len(current_line.lstrip())
+            ]
+            lines[line_index] = (
+                f"{indent}{target.id} = "
+                f"{_format_config_literal(updates[target.id])}"
+            )
+            replaced.add(target.id)
+
+    missing = [
+        name
+        for name in updates
+        if name not in replaced
+    ]
+
+    if missing and lines and lines[-1].strip():
+        lines.append("")
+
+    for name in missing:
+        lines.append(
+            f"{name} = {_format_config_literal(updates[name])}"
+        )
+
+    config_path.write_text(
+        "\n".join(lines).rstrip() + "\n",
+        encoding="utf-8",
+    )
+
+
+def apply_runtime_config_values(
+    updates: dict[str, object],
+    application: FastAPI | None = None,
+) -> None:
+
+    for name, value in updates.items():
+        setattr(
+            config,
+            name,
+            value,
+        )
+
+        if hasattr(settings, name):
+            object.__setattr__(
+                settings,
+                name,
+                value,
+            )
+
+    if (
+        application is None
+        or not hasattr(application.state, "http_client")
+    ):
+        return
+
+    next_clients = build_clients(
+        application.state.http_client
+    )
+    current_clients = getattr(
+        application.state,
+        "clients",
+        None,
+    )
+
+    if isinstance(current_clients, dict):
+        current_clients.clear()
+        current_clients.update(
+            next_clients
+        )
+    else:
+        application.state.clients = next_clients
+
+
+def compact_runtime_model_options(models: list[dict]) -> list[dict]:
+
+    options = []
+    seen = set()
+
+    for model in models:
+        model_id = (
+            model.get("id")
+            or model.get("key")
+            or model.get("model")
+            or model.get("name")
+        )
+        model_id = str(model_id or "").strip()
+
+        if not model_id or model_id in seen:
+            continue
+
+        display_name = (
+            model.get("display_name")
+            or model.get("name")
+            or model.get("label")
+            or model_id
+        )
+        options.append({
+            "id": model_id,
+            "name": str(display_name or model_id).strip(),
+        })
+        seen.add(model_id)
+
+    return options
+
+
 @app.get(
     "/",
     response_class=HTMLResponse,
@@ -415,12 +586,20 @@ async def fetch_runtime_model_status(
     )
 
     online = False
+    attempted_url = ""
+    detected_url = ""
+    detected_source = ""
+    available_models = []
 
     for endpoint in runtime.model_limits_detection_endpoints():
+        request_url = join_url(base_url, endpoint)
+
+        if not attempted_url:
+            attempted_url = request_url
 
         try:
             response = await client.get(
-                join_url(base_url, endpoint),
+                request_url,
                 timeout=STATUS_CHECK_TIMEOUT,
             )
         except (
@@ -433,6 +612,12 @@ async def fetch_runtime_model_status(
             continue
 
         online = True
+        detected_url = request_url
+        detected_source = (
+            "openai"
+            if endpoint == config.MODELS_ENDPOINT
+            else "native"
+        )
 
         try:
             models = runtime.extract_model_list(
@@ -441,6 +626,9 @@ async def fetch_runtime_model_status(
         except ValueError:
             continue
 
+        available_models = compact_runtime_model_options(
+            models
+        )
         model = runtime.select_model_metadata(models)
 
         if model is None:
@@ -458,11 +646,9 @@ async def fetch_runtime_model_status(
 
         return {
             "online": True,
-            "source": (
-                "openai"
-                if endpoint == config.MODELS_ENDPOINT
-                else "native"
-            ),
+            "source": detected_source,
+            "url": detected_url,
+            "available_models": available_models,
             "loaded": loaded,
             "model": model,
             "loaded_model": loaded_model or {},
@@ -470,7 +656,9 @@ async def fetch_runtime_model_status(
 
     return {
         "online": online,
-        "source": "",
+        "source": detected_source,
+        "url": detected_url or attempted_url,
+        "available_models": available_models,
         "loaded": None,
         "model": {},
         "loaded_model": {},
@@ -544,6 +732,104 @@ async def build_status_snapshot(
 
 @app.get("/api/status")
 async def api_status():
+
+    return await build_status_snapshot(
+        app.state.http_client
+    )
+
+
+@app.post("/api/runtime-config")
+async def api_update_runtime_config(request: Request):
+
+    try:
+        payload = await request.json()
+    except json.JSONDecodeError as error:
+        raise HTTPException(
+            status_code=400,
+            detail="Invalid JSON",
+        ) from error
+
+    if not isinstance(payload, dict):
+        raise HTTPException(
+            status_code=400,
+            detail="Invalid payload",
+        )
+
+    role = str(
+        payload.get("role") or ""
+    ).strip().lower()
+    role_fields = RUNTIME_CONFIG_WRITE_FIELDS.get(
+        role
+    )
+
+    if role_fields is None:
+        raise HTTPException(
+            status_code=400,
+            detail="Invalid runtime role",
+        )
+
+    updates: dict[str, object] = {}
+
+    if "model" in payload:
+        model = str(
+            payload.get("model") or ""
+        ).strip()
+
+        if not model:
+            raise HTTPException(
+                status_code=400,
+                detail="Model is required",
+            )
+
+        updates[role_fields["model"]] = model
+
+    if "configured_context_window" in payload:
+        try:
+            configured_context_window = int(
+                payload.get("configured_context_window")
+            )
+        except (
+            TypeError,
+            ValueError,
+        ) as error:
+            raise HTTPException(
+                status_code=400,
+                detail="Configured context must be an integer",
+            ) from error
+
+        if configured_context_window <= 0:
+            raise HTTPException(
+                status_code=400,
+                detail="Configured context must be positive",
+            )
+
+        updates[
+            role_fields["configured_context_window"]
+        ] = configured_context_window
+
+    if not updates:
+        raise HTTPException(
+            status_code=400,
+            detail="No runtime config changes",
+        )
+
+    try:
+        write_runtime_config_values(
+            updates
+        )
+        apply_runtime_config_values(
+            updates,
+            app,
+        )
+    except (
+        FileNotFoundError,
+        ValueError,
+        OSError,
+    ) as error:
+        raise HTTPException(
+            status_code=500,
+            detail=str(error),
+        ) from error
 
     return await build_status_snapshot(
         app.state.http_client

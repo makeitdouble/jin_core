@@ -325,10 +325,10 @@ class RuntimeStreamTokenTests(unittest.IsolatedAsyncioTestCase):
 
         mark_runtime_action_started(
             context,
-            action="save_delayed_memory_content",
-            action_id="save_delayed_memory_content_1",
-            display_name="SAVE_DELAYED_MEMORY_CONTENT",
-            text="SAVE_DELAYED_MEMORY_CONTENT",
+            action="save_delayed_memory",
+            action_id="save_delayed_memory_1",
+            display_name="SAVE_DELAYED_MEMORY",
+            text="SAVE_DELAYED_MEMORY",
             close_tag=True,
         )
 
@@ -343,7 +343,7 @@ class RuntimeStreamTokenTests(unittest.IsolatedAsyncioTestCase):
         )
         self.assertEqual(
             context.runtime_action_events[0]["name"],
-            "save_delayed_memory_content",
+            "save_delayed_memory",
         )
         self.assertEqual(
             context.runtime_action_events[0]["status"],
@@ -351,7 +351,7 @@ class RuntimeStreamTokenTests(unittest.IsolatedAsyncioTestCase):
         )
         self.assertEqual(
             context.runtime_turn_aborted_actions[0]["name"],
-            "SAVE_DELAYED_MEMORY_CONTENT",
+            "SAVE_DELAYED_MEMORY",
         )
         self.assertEqual(
             context.runtime_active_action_markers,
@@ -359,10 +359,10 @@ class RuntimeStreamTokenTests(unittest.IsolatedAsyncioTestCase):
         )
         self.assertEqual(
             context.emitter.events[0]["text"],
-            "SAVE_DELAYED_MEMORY_CONTENT: ABORTED",
+            "SAVE_DELAYED_MEMORY: ABORTED",
         )
         self.assertIn(
-            "SAVE_DELAYED_MEMORY_CONTENT: ABORTED",
+            "SAVE_DELAYED_MEMORY: ABORTED",
             logger.messages[0][1],
         )
 
@@ -1743,7 +1743,7 @@ class RuntimeStreamTokenTests(unittest.IsolatedAsyncioTestCase):
 
             yield {
                 "type": "content",
-                "content": "<SAVE_DELAYED_MEMORY_CONTENT>\n",
+                "content": "<SAVE_DELAYED_MEMORY>\n",
             }
             yield {
                 "type": "content",
@@ -1822,7 +1822,7 @@ class RuntimeStreamTokenTests(unittest.IsolatedAsyncioTestCase):
         )
         self.assertEqual(
             lifecycle_events[0]["text"],
-            "SAVE_DELAYED_MEMORY_CONTENT",
+            "SAVE_DELAYED_MEMORY",
         )
         self.assertTrue(
             lifecycle_events[0]["close_tag"],
@@ -1839,12 +1839,12 @@ class RuntimeStreamTokenTests(unittest.IsolatedAsyncioTestCase):
             yield {
                 "type": "content",
                 "content": (
-                    "<SAVE_DELAYED_MEMORY_CONTENT>\n"
+                    "<SAVE_DELAYED_MEMORY>\n"
                     "title: Unrequested report\n"
                     "summary: Runtime summary.\n"
                     "tags: runtime, summary\n"
                     "body: Full report.\n"
-                    "</SAVE_DELAYED_MEMORY_CONTENT>\n"
+                    "</SAVE_DELAYED_MEMORY>\n"
                 ),
             }
 
@@ -1940,18 +1940,18 @@ class RuntimeStreamTokenTests(unittest.IsolatedAsyncioTestCase):
             0,
         )
         self.assertIn(
-            "SAVE_DELAYED_MEMORY_CONTENT - failed: Unrequested report",
+            "SAVE_DELAYED_MEMORY - failed: Unrequested report",
             context.runtime_session_action_history[-1]["text"],
         )
         followup_prompt = BrainNode.build_followup_system_prompt(
             "<TOOL_RESULTS>\n</TOOL_RESULTS>",
             "выполни другое действие",
             context=context,
-            latest_action="save_delayed_memory_content",
+            latest_action="save_delayed_memory",
         )
 
         self.assertIn(
-            "JIN message 1 executed: SAVE_DELAYED_MEMORY_CONTENT: failed: Unrequested report",
+            "JIN message 1 executed: SAVE_DELAYED_MEMORY: failed: Unrequested report",
             followup_prompt,
         )
         self.assertFalse(
@@ -1972,7 +1972,7 @@ class RuntimeStreamTokenTests(unittest.IsolatedAsyncioTestCase):
 
             yield {
                 "type": "content",
-                "content": "<SAVE_DELAYED_MEMORY_CONTENT>\n",
+                "content": "<SAVE_DELAYED_MEMORY>\n",
             }
 
             state["body_requested"] = True
@@ -1984,7 +1984,7 @@ class RuntimeStreamTokenTests(unittest.IsolatedAsyncioTestCase):
                     "summary: Runtime summary.\n"
                     "tags: runtime, summary\n"
                     "body: Full report.\n"
-                    "</SAVE_DELAYED_MEMORY_CONTENT>\n"
+                    "</SAVE_DELAYED_MEMORY>\n"
                 ),
             }
 
@@ -2074,12 +2074,12 @@ class RuntimeStreamTokenTests(unittest.IsolatedAsyncioTestCase):
             yield {
                 "type": "content",
                 "content": (
-                    "<SAVE_DELAYED_MEMORY_CONTENT>\n"
+                    "<SAVE_DELAYED_MEMORY>\n"
                     "title: Confirmed report\n"
                     "summary: Runtime summary.\n"
                     "tags: runtime, summary\n"
                     "body: Full report.\n"
-                    "</SAVE_DELAYED_MEMORY_CONTENT>\n"
+                    "</SAVE_DELAYED_MEMORY>\n"
                 ),
             }
 
@@ -2181,12 +2181,12 @@ class RuntimeStreamTokenTests(unittest.IsolatedAsyncioTestCase):
             yield {
                 "type": "content",
                 "content": (
-                    "<SAVE_DELAYED_MEMORY_CONTENT>\n"
+                    "<SAVE_DELAYED_MEMORY>\n"
                     "title: Reconnected report\n"
                     "summary: Runtime summary.\n"
                     "tags: runtime, summary\n"
                     "body: Full report.\n"
-                    "</SAVE_DELAYED_MEMORY_CONTENT>\n"
+                    "</SAVE_DELAYED_MEMORY>\n"
                 ),
             }
 
@@ -2201,10 +2201,10 @@ class RuntimeStreamTokenTests(unittest.IsolatedAsyncioTestCase):
             runtime_session_action_history=[],
             runtime_action_guard_confirmations={},
             runtime_action_guard_retry={
-                "action": "save_delayed_memory_content",
+                "action": "save_delayed_memory",
                 "guard": "save_delayed_memory",
                 "confirmation_id": "stale-confirmation",
-                "id": "save_delayed_memory_content_9",
+                "id": "save_delayed_memory_9",
                 "attempt": 1,
             },
             runtime_action_guard_retry_consumed=False,
@@ -2254,7 +2254,7 @@ class RuntimeStreamTokenTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(context.runtime_action_guard_retry_consumed)
         self.assertEqual(
             {event.get("id") for event in lifecycle_events},
-            {"save_delayed_memory_content_9"},
+            {"save_delayed_memory_9"},
         )
         self.assertEqual(
             {
@@ -2834,12 +2834,12 @@ class RuntimeStreamTokenTests(unittest.IsolatedAsyncioTestCase):
             yield {
                 "type": "content",
                 "content": (
-                    "<SAVE_DELAYED_MEMORY_CONTENT>\n"
+                    "<SAVE_DELAYED_MEMORY>\n"
                     "title: Unrequested report\n"
                     "summary: Runtime summary.\n"
                     "tags: runtime, summary\n"
                     "body: Full report.\n"
-                    "</SAVE_DELAYED_MEMORY_CONTENT>\n"
+                    "</SAVE_DELAYED_MEMORY>\n"
                 ),
             }
 
@@ -2919,7 +2919,7 @@ class RuntimeStreamTokenTests(unittest.IsolatedAsyncioTestCase):
             (
                 "SAVE_ACTIVE_MEMORY - "
                 "current session context and task status, "
-                "SAVE_DELAYED_MEMORY_CONTENT - failed: Unrequested report "
+                "SAVE_DELAYED_MEMORY - failed: Unrequested report "
                 "(user did not provided system allowed trigger words for this action)"
             ),
         )
@@ -2935,7 +2935,7 @@ class RuntimeStreamTokenTests(unittest.IsolatedAsyncioTestCase):
             (
                 "JIN message 1 executed: SAVE_ACTIVE_MEMORY: "
                 "current session context and task status, "
-                "SAVE_DELAYED_MEMORY_CONTENT: failed: Unrequested report"
+                "SAVE_DELAYED_MEMORY: failed: Unrequested report"
             ),
             sequence_context,
         )
@@ -2968,7 +2968,7 @@ class RuntimeStreamTokenTests(unittest.IsolatedAsyncioTestCase):
                     "detail": "current session context and task status",
                 },
                 {
-                    "text": "SAVE_DELAYED_MEMORY_CONTENT",
+                    "text": "SAVE_DELAYED_MEMORY",
                     "detail": (
                         "failed: Unrequested report "
                         "(user did not provided system allowed trigger words for this action)"
@@ -2980,7 +2980,7 @@ class RuntimeStreamTokenTests(unittest.IsolatedAsyncioTestCase):
     async def test_unfinished_delayed_memory_bubble_fails_instead_of_staying_active(self):
 
         failed_payload = (
-            "<SAVE_DELAYED_MEMORY_CONTENT>\n"
+            "<SAVE_DELAYED_MEMORY>\n"
             "CONDITIONS: Simulation step 2/5\n"
             "</SAVE_ACTIVE_MEMORY>\n"
         )
@@ -3050,7 +3050,7 @@ class RuntimeStreamTokenTests(unittest.IsolatedAsyncioTestCase):
             [
                 {
                     "ok": False,
-                    "action": "save_delayed_memory_content",
+                    "action": "save_delayed_memory",
                     "id": runtime_events[0]["id"],
                     "error": "Delayed memory report was not saved",
                     "payload": failed_payload,

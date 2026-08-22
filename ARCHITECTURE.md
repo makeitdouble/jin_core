@@ -148,6 +148,24 @@ Delayed reports can move ordinary L4 facts behind report content through `facts_
 
 Delayed reports are persistent JSON objects with content, tags, fact links, attachment links, and load metadata. `utils/delayed_memory_file_store.py` owns normalization and file persistence; `websocket/bootstrap.py` hydrates them into runtime state.
 
+The Brain saves a report with a JSON payload inside the `SAVE_DELAYED_MEMORY` marker:
+
+```text
+<SAVE_DELAYED_MEMORY>
+{
+  "title": "",
+  "summary": "",
+  "tags": [],
+  "body": "",
+  "anchor_fact_ids": [],
+  "facts_ids": [],
+  "attachments_ids": []
+}
+</SAVE_DELAYED_MEMORY>
+```
+
+The marker body must be valid JSON. `tags` and every `*_ids` field are arrays; `title`, `summary`, and `body` are strings. The runtime still accepts the pre-JSON field payload when reading old data, but it is no longer part of the advertised action contract.
+
 Reports enter context through runtime actions, UI state, pin state, or user-text tag matches. `attachments_ids`, `facts_ids`, and `anchor_fact_ids` connect reports to the file and L4 stores.
 
 ### Active Memory

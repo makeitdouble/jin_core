@@ -1,3 +1,4 @@
+import json
 import re
 
 from contracts.rules_assembler import (
@@ -66,6 +67,17 @@ def get_save_active_memory_marker_fields(
     )
 
     if not marker_fields:
+        return ()
+
+    if marker_fields.lstrip().startswith("{"):
+        try:
+            placeholder = json.loads(marker_fields)
+        except (TypeError, ValueError, json.JSONDecodeError):
+            return ()
+
+        if isinstance(placeholder, dict) and "conditions" in placeholder:
+            return ("conditions",)
+
         return ()
 
     fields = []

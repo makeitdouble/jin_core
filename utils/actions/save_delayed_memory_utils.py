@@ -330,7 +330,7 @@ def normalize_delayed_memory_tags(value) -> list[str]:
     return tags
 
 
-def parse_delayed_memory_content_payload(
+def parse_delayed_memory_payload(
     payload: str,
     *,
     created_session_id: str = "",
@@ -348,80 +348,108 @@ def parse_delayed_memory_content_payload(
     if not text:
         return {}
 
-    field_matches = list(
-        DELAYED_MEMORY_FIELD_RE.finditer(
+    fields = None
+
+    try:
+        parsed = json.loads(
             text
         )
-    )
+    except json.JSONDecodeError:
+        parsed = None
 
-    if not field_matches:
-        return {}
-
-    fields = {}
-
-    for index, match in enumerate(
-        field_matches
+    if isinstance(
+        parsed,
+        dict,
     ):
-        field_name = match.group(
-            1
-        ).casefold()
-        inline_value = (
-            match.group(
-                2
+        if "title" in parsed:
+            fields = parsed
+        elif len(parsed) == 1:
+            nested = next(
+                iter(parsed.values())
             )
-            or ""
-        ).strip()
-        next_start = (
-            field_matches[index + 1].start()
-            if index + 1 < len(field_matches)
-            else len(text)
-        )
-        block_value = text[
-            match.end():next_start
-        ].strip(
-            "\n"
+            if isinstance(
+                nested,
+                dict,
+            ) and "title" in nested:
+                fields = nested
+
+    if fields is None:
+        # Compatibility path for reports produced before the JSON marker
+        # contract. New prompts never advertise this text-field format.
+        field_matches = list(
+            DELAYED_MEMORY_FIELD_RE.finditer(
+                text
+            )
         )
 
-        if field_name == "body":
-            value = "\n".join(
-                part
-                for part in (
-                    inline_value,
-                    block_value,
+        if not field_matches:
+            return {}
+
+        fields = {}
+
+        for index, match in enumerate(
+            field_matches
+        ):
+            field_name = match.group(
+                1
+            ).casefold()
+            inline_value = (
+                match.group(
+                    2
                 )
-                if part
+                or ""
             ).strip()
-        elif field_name in {
-            "anchor_fact_ids",
-            "facts_ids",
-            "absorbed_fact_ids",
-            "long_term_facts_ids",
-        }:
-            value = normalize_long_term_fact_ids(
-                " ".join(
-                    part
-                    for part in (
-                        inline_value,
-                        block_value,
-                    )
-                    if part
-                )
+            next_start = (
+                field_matches[index + 1].start()
+                if index + 1 < len(field_matches)
+                else len(text)
             )
-        elif field_name == "attachments_ids":
-            value = normalize_delayed_memory_attachment_ids(
-                " ".join(
-                    part
-                    for part in (
-                        inline_value,
-                        block_value,
-                    )
-                    if part
-                )
+            block_value = text[
+                match.end():next_start
+            ].strip(
+                "\n"
             )
-        else:
-            value = inline_value
 
-        fields[field_name] = value
+            if field_name == "body":
+                value = "\n".join(
+                    part
+                    for part in (
+                        inline_value,
+                        block_value,
+                    )
+                    if part
+                ).strip()
+            elif field_name in {
+                "anchor_fact_ids",
+                "facts_ids",
+                "absorbed_fact_ids",
+                "long_term_facts_ids",
+            }:
+                value = normalize_long_term_fact_ids(
+                    " ".join(
+                        part
+                        for part in (
+                            inline_value,
+                            block_value,
+                        )
+                        if part
+                    )
+                )
+            elif field_name == "attachments_ids":
+                value = normalize_delayed_memory_attachment_ids(
+                    " ".join(
+                        part
+                        for part in (
+                            inline_value,
+                            block_value,
+                        )
+                        if part
+                    )
+                )
+            else:
+                value = inline_value
+
+            fields[field_name] = value
 
     title = str(
         fields.get(
@@ -494,7 +522,7 @@ def build_save_delayed_memory_payload(
     placeholder_payloads=(),
 ) -> str | None:
 
-    report = parse_delayed_memory_content_payload(
+    report = parse_delayed_memory_payload(
         query
     )
 

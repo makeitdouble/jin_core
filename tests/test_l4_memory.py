@@ -2604,7 +2604,7 @@ class L4MemoryTests(unittest.IsolatedAsyncioTestCase):
             context,
             [
                 RuntimeActionCall(
-                    name="SAVE_DELAYED_MEMORY_CONTENT",
+                    name="SAVE_DELAYED_MEMORY",
                     payload=payload,
                 ),
             ],

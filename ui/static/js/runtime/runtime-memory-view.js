@@ -1207,9 +1207,51 @@
   }
 
   function getActiveMemoryRecordTexts() {
-    return typeof getActiveMemoryRecords === "function"
-      ? getActiveMemoryRecords()
-      : [];
+    const records =
+        typeof getActiveMemoryRecords === "function"
+          ? getActiveMemoryRecords()
+          : [];
+
+    return (Array.isArray(records) ? records : [])
+      .map((record, index) => ({
+        record,
+        index,
+        activityTimestamp:
+          getActiveMemoryActivityTimestamp(record),
+      }))
+      .sort((left, right) => {
+        const activityDifference =
+            right.activityTimestamp
+            - left.activityTimestamp;
+
+        if (activityDifference) {
+          return activityDifference;
+        }
+
+        return left.index - right.index;
+      })
+      .map(item => item.record);
+  }
+
+  function getActiveMemoryActivityTimestamp(record) {
+    const text = String(record || "");
+    const updatedMatch = text.match(
+      /\[\s*updated_at\s*:\s*([^\]]+?)\s*\]/i
+    );
+    const creationMatch = text.match(
+      /\[\s*creation_time\s*:\s*([^\]]+?)\s*\]/i
+    );
+    const timestamp = Date.parse(
+      String(
+        updatedMatch && updatedMatch[1]
+        || creationMatch && creationMatch[1]
+        || ""
+      ).trim()
+    );
+
+    return Number.isFinite(timestamp)
+      ? timestamp
+      : 0;
   }
 
   function getDelayedMemoryReportRecords() {

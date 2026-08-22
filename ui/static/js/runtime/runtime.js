@@ -198,8 +198,7 @@ const runtimeMemoryCount =
   );
 
 const defaultRuntimeMemoryText =
-  "This session has just begun. "
-  + "You have no history with the user yet.";
+  "This session has just begun.";
 
 const sessionStartedRuntimeMemoryText =
   "session_status: Session started";

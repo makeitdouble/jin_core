@@ -35,7 +35,7 @@ L4_FACT_ID_RE = re.compile(
 
 ACTION_LABELS = {
     "SAVE_SESSION": "Saved session",
-    "SAVE_DELAYED_MEMORY_CONTENT": "Saved delayed memory",
+    "SAVE_DELAYED_MEMORY": "Saved delayed memory",
     "LOAD_DELAYED_MEMORY": "Loaded delayed memory",
     "UNLOAD_DELAYED_MEMORY": "Unloaded delayed memory",
     "SAVE_ACTIVE_MEMORY": "Saved active memory",
@@ -544,7 +544,7 @@ def _tool_result_kind(name: str) -> str:
     }:
         return "active_memory"
     if action_name in {
-        "SAVE_DELAYED_MEMORY_CONTENT",
+        "SAVE_DELAYED_MEMORY",
         "LOAD_DELAYED_MEMORY",
         "UNLOAD_DELAYED_MEMORY",
     }:

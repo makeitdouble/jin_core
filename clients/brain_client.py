@@ -15,7 +15,7 @@ from contracts.rules_assembler import (
     RUNTIME_ACTION_JIN_SIZE,
     RUNTIME_ACTION_UPDATE_L4_FACTS,
     RUNTIME_ACTION_UNLOAD_DELAYED_MEMORY,
-    RUNTIME_ACTION_SAVE_DELAYED_MEMORY_CONTENT,
+    RUNTIME_ACTION_SAVE_DELAYED_MEMORY,
     RUNTIME_ACTION_SAVE_ACTIVE_MEMORY,
     RUNTIME_ACTION_RESOLVE_ACTIVE_MEMORY,
     RUNTIME_ACTION_WEB_SEARCH,
@@ -124,14 +124,14 @@ def get_response_enabled_runtime_actions(
     )
 
     if (
-        RUNTIME_ACTION_SAVE_DELAYED_MEMORY_CONTENT
+        RUNTIME_ACTION_SAVE_DELAYED_MEMORY
         in enabled_actions
         and not should_execute_save_delayed_memory(
             user_message
         )
     ):
         enabled_actions.remove(
-            RUNTIME_ACTION_SAVE_DELAYED_MEMORY_CONTENT
+            RUNTIME_ACTION_SAVE_DELAYED_MEMORY
         )
 
     return tuple(
@@ -1271,7 +1271,7 @@ async def ask_brain_stream(
         ).upper()
 
         delayed_memory_marker = get_runtime_action_private_marker(
-            RUNTIME_ACTION_SAVE_DELAYED_MEMORY_CONTENT
+            RUNTIME_ACTION_SAVE_DELAYED_MEMORY
         ).upper()
 
         if (
@@ -1341,7 +1341,7 @@ async def ask_brain_stream(
                 )
                 and event.get(
                     "name"
-                ) == "save_delayed_memory_content"
+                ) == "save_delayed_memory"
             ]),
         )
         next_sequence = current_sequence + 1
@@ -1349,7 +1349,7 @@ async def ask_brain_stream(
             next_sequence
         )
         action_id = build_runtime_action_id(
-            RUNTIME_ACTION_SAVE_DELAYED_MEMORY_CONTENT,
+            RUNTIME_ACTION_SAVE_DELAYED_MEMORY,
             next_sequence,
         )
         pending_ids.append(
@@ -1358,17 +1358,17 @@ async def ask_brain_stream(
 
         payload = {
             "type": "runtime_action",
-            "action": "save_delayed_memory_content",
+            "action": "save_delayed_memory",
             "id": action_id,
             "status": "started",
             "display_name": get_runtime_action_display_name(
-                RUNTIME_ACTION_SAVE_DELAYED_MEMORY_CONTENT
+                RUNTIME_ACTION_SAVE_DELAYED_MEMORY
             ),
             "text": build_runtime_action_display_text(
-                RUNTIME_ACTION_SAVE_DELAYED_MEMORY_CONTENT
+                RUNTIME_ACTION_SAVE_DELAYED_MEMORY
             ),
             "close_tag": runtime_action_has_close_tag(
-                RUNTIME_ACTION_SAVE_DELAYED_MEMORY_CONTENT
+                RUNTIME_ACTION_SAVE_DELAYED_MEMORY
             ),
         }
 

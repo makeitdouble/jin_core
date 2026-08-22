@@ -63,7 +63,7 @@ from contracts.rules_assembler import (
     RUNTIME_ACTION_SAVE_ACTIVE_MEMORY,
     RUNTIME_ACTION_UPDATE_L4_FACTS,
     RUNTIME_ACTION_UNLOAD_DELAYED_MEMORY,
-    RUNTIME_ACTION_SAVE_DELAYED_MEMORY_CONTENT,
+    RUNTIME_ACTION_SAVE_DELAYED_MEMORY,
     build_runtime_action_display_text,
     get_runtime_action_display_name,
     runtime_action_has_close_tag,
@@ -1237,7 +1237,7 @@ class RuntimeStream:
 
         if (
             action.name
-            != RUNTIME_ACTION_SAVE_DELAYED_MEMORY_CONTENT
+            != RUNTIME_ACTION_SAVE_DELAYED_MEMORY
             or not action.payload
         ):
             return ""
@@ -1318,7 +1318,7 @@ class RuntimeStream:
         ).strip()
         failure_result = {
             "ok": False,
-            "action": "save_delayed_memory_content",
+            "action": "save_delayed_memory",
             "id": action_id,
             "title": duplicate_title,
             "error": "duplicate_delayed_memory_title",
@@ -1349,7 +1349,7 @@ class RuntimeStream:
             self.context.runtime_action_events = action_events
 
         action_event = {
-            "name": "save_delayed_memory_content",
+            "name": "save_delayed_memory",
             "status": "failed",
             "id": action_id,
             "title": duplicate_title,
@@ -1362,7 +1362,7 @@ class RuntimeStream:
         record_session_action_history(
             self.context,
             (
-                "SAVE_DELAYED_MEMORY_CONTENT - failed: "
+                "SAVE_DELAYED_MEMORY - failed: "
                 f"{duplicate_title} "
                 "(duplicate delayed memory title; potential loop blocked)"
             ),
@@ -1374,14 +1374,14 @@ class RuntimeStream:
             await emit({
                 "type": "runtime_action",
                 "runtime_message_id": self.stream.message_id,
-                "action": "save_delayed_memory_content",
+                "action": "save_delayed_memory",
                 "id": action_id,
                 "status": "failed",
                 "display_name": get_runtime_action_display_name(
-                    RUNTIME_ACTION_SAVE_DELAYED_MEMORY_CONTENT
+                    RUNTIME_ACTION_SAVE_DELAYED_MEMORY
                 ),
                 "close_tag": runtime_action_has_close_tag(
-                    RUNTIME_ACTION_SAVE_DELAYED_MEMORY_CONTENT
+                    RUNTIME_ACTION_SAVE_DELAYED_MEMORY
                 ),
                 "text": duplicate_title,
                 "error": "duplicate_delayed_memory_title",
@@ -1456,7 +1456,7 @@ class RuntimeStream:
         for action in actions:
             if (
                 action.name
-                == RUNTIME_ACTION_SAVE_DELAYED_MEMORY_CONTENT
+                == RUNTIME_ACTION_SAVE_DELAYED_MEMORY
                 and action.payload
             ):
                 self.delayed_memory_action_payload = action.payload
@@ -1467,7 +1467,7 @@ class RuntimeStream:
             (),
         ):
             if (
-                "SAVE_DELAYED_MEMORY_CONTENT"
+                "SAVE_DELAYED_MEMORY"
                 in str(marker).upper()
             ):
                 self.delayed_memory_action_payload = str(marker)
@@ -1541,7 +1541,7 @@ class RuntimeStream:
                     if (
                         id(action) in rejected_action_ids
                         and action.name
-                        == RUNTIME_ACTION_SAVE_DELAYED_MEMORY_CONTENT
+                        == RUNTIME_ACTION_SAVE_DELAYED_MEMORY
                     ):
                         self.mark_started_runtime_action_guard_rejected(
                             action,
@@ -1554,7 +1554,7 @@ class RuntimeStream:
                     if not (
                         id(action) in rejected_action_ids
                         and action.name
-                        == RUNTIME_ACTION_SAVE_DELAYED_MEMORY_CONTENT
+                        == RUNTIME_ACTION_SAVE_DELAYED_MEMORY
                     )
                 )
 
@@ -1812,7 +1812,7 @@ class RuntimeStream:
 
         if (
             action.name
-            == RUNTIME_ACTION_SAVE_DELAYED_MEMORY_CONTENT
+            == RUNTIME_ACTION_SAVE_DELAYED_MEMORY
             and self.started_delayed_memory_action_ids
         ):
             return self.started_delayed_memory_action_ids[-1]
@@ -2075,7 +2075,7 @@ class RuntimeStream:
                     "name",
                     "",
                 )
-                == RUNTIME_ACTION_SAVE_DELAYED_MEMORY_CONTENT
+                == RUNTIME_ACTION_SAVE_DELAYED_MEMORY
             ):
                 rejected_payload = str(
                     getattr(
@@ -2133,7 +2133,7 @@ class RuntimeStream:
         self.delayed_memory_action_payload = (
             rejected_payload
             or self.delayed_memory_action_payload
-            or "<SAVE_DELAYED_MEMORY_CONTENT>"
+            or "<SAVE_DELAYED_MEMORY>"
         )
 
     def append_action_guard_missing_trigger_message(
@@ -2474,7 +2474,7 @@ class RuntimeStream:
 
                 if action.payload and not has_close_tag:
                     payload["payload"] = action.payload
-            elif action.name == RUNTIME_ACTION_SAVE_DELAYED_MEMORY_CONTENT:
+            elif action.name == RUNTIME_ACTION_SAVE_DELAYED_MEMORY:
                 pending_ids = getattr(
                     self.context,
                     "runtime_pending_delayed_memory_action_ids",
@@ -2524,7 +2524,7 @@ class RuntimeStream:
                             )
                             and event.get(
                                 "name"
-                            ) == "save_delayed_memory_content"
+                            ) == "save_delayed_memory"
                         ]),
                     )
                     next_sequence = current_sequence + 1
@@ -2532,7 +2532,7 @@ class RuntimeStream:
                         next_sequence
                     )
                     action_id = build_runtime_action_id(
-                        RUNTIME_ACTION_SAVE_DELAYED_MEMORY_CONTENT,
+                        RUNTIME_ACTION_SAVE_DELAYED_MEMORY,
                         next_sequence,
                     )
                 if action_id not in pending_ids:
@@ -2546,7 +2546,7 @@ class RuntimeStream:
                 payload = {
                     "type": "runtime_action",
                     "runtime_message_id": self.stream.message_id,
-                    "action": "save_delayed_memory_content",
+                    "action": "save_delayed_memory",
                     "id": action_id,
                     "status": "started",
                     "display_name": display_name,
@@ -2723,7 +2723,7 @@ class RuntimeStream:
 
             mark_runtime_action_completed(
                 self.context,
-                action=RUNTIME_ACTION_SAVE_DELAYED_MEMORY_CONTENT,
+                action=RUNTIME_ACTION_SAVE_DELAYED_MEMORY,
                 action_id=action_id,
             )
 
@@ -2745,7 +2745,7 @@ class RuntimeStream:
 
             failure_result = {
                 "ok": False,
-                "action": "save_delayed_memory_content",
+                "action": "save_delayed_memory",
                 "id": action_id,
                 "error": (
                     "user_did_not_explicitly_request_report_save"
@@ -2822,14 +2822,14 @@ class RuntimeStream:
                 payload = {
                     "type": "runtime_action",
                     "runtime_message_id": self.stream.message_id,
-                    "action": "save_delayed_memory_content",
+                    "action": "save_delayed_memory",
                     "id": action_id,
                     "status": "failed",
                     "display_name": get_runtime_action_display_name(
-                        RUNTIME_ACTION_SAVE_DELAYED_MEMORY_CONTENT
+                        RUNTIME_ACTION_SAVE_DELAYED_MEMORY
                     ),
                     "close_tag": runtime_action_has_close_tag(
-                        RUNTIME_ACTION_SAVE_DELAYED_MEMORY_CONTENT
+                        RUNTIME_ACTION_SAVE_DELAYED_MEMORY
                     ),
                     "text": (
                         "Delayed memory save rejected"

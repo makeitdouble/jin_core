@@ -17,6 +17,8 @@ from contracts.rules_assembler import (
 )
 
 
+CURRENT_RUNTIME_SETTINGS_CONTENT = ("")
+
 SERVICE_AS_BRAIN_RUNTIME_ACTIONS = {
     "CAN_DEEP_WEB_SEARCH": True,
     "CAN_WEB_SEARCH": True,
@@ -67,6 +69,22 @@ PREVIOUS_REASONING_CONTEXT_MIN_CROP_CHARS = (
 PREVIOUS_REASONING_SEPARATOR_TEMPLATE = (
     "---------------------------- CUTTED {chars} chars ----------------------------"
 )
+
+
+def build_current_runtime_settings_context() -> str:
+    content = str(
+        CURRENT_RUNTIME_SETTINGS_CONTENT
+        or ""
+    ).strip()
+
+    if not content:
+        return ""
+
+    return (
+        "<CURRENT_RUNTIME_SETTINGS>\n"
+        f"{content}\n"
+        "</CURRENT_RUNTIME_SETTINGS>"
+    )
 
 
 def build_loop_rules(
@@ -1061,10 +1079,20 @@ def build_brain_context(
         )
     )
 
+    current_runtime_settings_context = (
+        build_current_runtime_settings_context()
+    )
+    if current_runtime_settings_context:
+        # Runtime settings are the absolute first prompt block on every turn.
+        prompt_parts.append(
+            current_runtime_settings_context
+        )
+
     if restore_priming:
         from .runtime import SESSION_RESTORE_MESSAGE
 
-        # This must remain the first prompt block. It is a hidden restore tick,
+        # This remains the first restore-specific prompt block, immediately
+        # below optional CURRENT_RUNTIME_SETTINGS. It is a hidden restore tick,
         # not a user request.
         prompt_parts.append(
             SESSION_RESTORE_MESSAGE

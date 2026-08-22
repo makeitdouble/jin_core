@@ -212,7 +212,7 @@ def _format_memory_action_context_part(
 
     if normalized_action in {
         "SAVE_ACTIVE_MEMORY",
-        "SAVE_DELAYED_MEMORY_CONTENT",
+        "SAVE_DELAYED_MEMORY",
     }:
         if detail:
             return f"{action} - {detail}"

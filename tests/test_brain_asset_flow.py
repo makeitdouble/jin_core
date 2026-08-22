@@ -243,7 +243,7 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
             "system rules",
             "save the report",
             context=context,
-            latest_action="SAVE_DELAYED_MEMORY_CONTENT",
+            latest_action="SAVE_DELAYED_MEMORY",
         )
 
         self.assertTrue(
@@ -1403,7 +1403,7 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
 
         calls = []
         failed_payload = (
-            "<SAVE_DELAYED_MEMORY_CONTENT>\n"
+            "<SAVE_DELAYED_MEMORY>\n"
             "CONDITIONS: Simulation step 2/5\n"
             "</SAVE_ACTIVE_MEMORY>"
         )
@@ -1415,7 +1415,7 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
             if len(calls) == 1:
                 context.runtime_delayed_memory_results.append({
                     "ok": False,
-                    "action": "save_delayed_memory_content",
+                    "action": "save_delayed_memory",
                     "error": "Delayed memory report was not saved",
                     "payload": failed_payload,
                 })
@@ -1429,7 +1429,7 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
                     self,
                     kwargs,
                     state.user_input,
-                    "save_delayed_memory_content",
+                    "save_delayed_memory",
                 )
                 self.assertIn(
                     "Delayed memory report was not saved",
@@ -1440,7 +1440,7 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
                     kwargs["system_prompt"],
                 )
                 self.assertIn(
-                    "&lt;SAVE_DELAYED_MEMORY_CONTENT&gt;",
+                    "&lt;SAVE_DELAYED_MEMORY&gt;",
                     kwargs["system_prompt"],
                 )
                 self.assertIn(

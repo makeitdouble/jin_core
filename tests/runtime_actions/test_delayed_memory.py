@@ -33,7 +33,7 @@ from utils.actions import (
     get_save_active_memory_marker_fields,
     get_save_active_memory_placeholder_payload,
     normalize_jin_color_payload,
-    parse_delayed_memory_content_payload,
+    parse_delayed_memory_payload,
 )
 from utils.assets_utils import run_asset_action
 from utils.brain_client_utils import (
@@ -67,9 +67,9 @@ class RuntimeDelayedMemoryTests(RuntimeActionTestCase):
 
         text = (
             "before\n"
-            "<SAVE_DELAYED_MEMORY_CONTENT>\n"
+            "<SAVE_DELAYED_MEMORY>\n"
             '{"demo": {"summary": "quoted marker"}}\n'
-            "</SAVE_DELAYED_MEMORY_CONTENT>\n"
+            "</SAVE_DELAYED_MEMORY>\n"
             "after"
         )
 
@@ -94,7 +94,7 @@ class RuntimeDelayedMemoryTests(RuntimeActionTestCase):
 
     def test_parses_delayed_memory_content_payload(self):
 
-        report = parse_delayed_memory_content_payload(
+        report = parse_delayed_memory_payload(
             (
                 "title: Radius of Influence Specs\n"
                 "summary: Three-zone data priority model for Kowloon Sandbox simulation.\n"
@@ -150,7 +150,7 @@ class RuntimeDelayedMemoryTests(RuntimeActionTestCase):
 
     def test_parses_long_term_fact_ids_for_delayed_memory_report(self):
 
-        report = parse_delayed_memory_content_payload(
+        report = parse_delayed_memory_payload(
             (
                 "title: Project context\n"
                 "summary: Consolidated project details.\n"
@@ -178,7 +178,7 @@ class RuntimeDelayedMemoryTests(RuntimeActionTestCase):
 
     def test_parses_anchor_and_facts_ids_for_delayed_memory_report(self):
 
-        report = parse_delayed_memory_content_payload(
+        report = parse_delayed_memory_payload(
             (
                 "title: Social context\n"
                 "summary: Consolidated social details.\n"
@@ -198,7 +198,7 @@ class RuntimeDelayedMemoryTests(RuntimeActionTestCase):
 
     def test_parses_json_array_fact_ids_for_delayed_memory_report(self):
 
-        report = parse_delayed_memory_content_payload(
+        report = parse_delayed_memory_payload(
             (
                 "title: Architecture context\n"
                 "summary: Consolidated architecture details.\n"
@@ -221,7 +221,7 @@ class RuntimeDelayedMemoryTests(RuntimeActionTestCase):
 
     def test_parses_unbounded_attachment_ids_for_delayed_memory_report(self):
 
-        report = parse_delayed_memory_content_payload(
+        report = parse_delayed_memory_payload(
             (
                 "title: Files context\n"
                 "summary: Linked files.\n"
@@ -291,7 +291,7 @@ class RuntimeDelayedMemoryTests(RuntimeActionTestCase):
 
         result = extract_runtime_actions(
             (
-                "<SAVE_DELAYED_MEMORY_CONTENT>\n"
+                "<SAVE_DELAYED_MEMORY>\n"
                 "title: Radius of Influence Specs\n"
                 "summary: Three-zone data priority model for Kowloon Sandbox simulation.\n"
                 "tags: kowloon_sandbox, simulation, world_state, radius_of_influence\n"
@@ -299,7 +299,7 @@ class RuntimeDelayedMemoryTests(RuntimeActionTestCase):
                 "### Radius of Influence Specs\n"
                 "\n"
                 "A complete, self-sufficient summary...\n"
-                "</SAVE_DELAYED_MEMORY_CONTENT>\n"
+                "</SAVE_DELAYED_MEMORY>\n"
                 "\n"
                 "Done."
             ),
@@ -313,7 +313,7 @@ class RuntimeDelayedMemoryTests(RuntimeActionTestCase):
             "Done.",
         )
         self.assertEqual(
-            result.count("SAVE_DELAYED_MEMORY_CONTENT"),
+            result.count("SAVE_DELAYED_MEMORY"),
             1,
         )
         report = json.loads(
@@ -346,7 +346,7 @@ class RuntimeDelayedMemoryTests(RuntimeActionTestCase):
 
         first = stream_filter.filter(
             (
-                "<SAVE_DELAYED_MEMORY_CONTENT>\n"
+                "<SAVE_DELAYED_MEMORY>\n"
                 "title: Radius of Influence Specs\n"
                 "summary: Three-zone data priority model.\n"
             )
@@ -355,7 +355,7 @@ class RuntimeDelayedMemoryTests(RuntimeActionTestCase):
             (
                 "tags: simulation, world_state\n"
                 "body: Complete report body.\n"
-                "</SAVE_DELAYED_MEMORY_CONTENT>\n"
+                "</SAVE_DELAYED_MEMORY>\n"
             )
         )
 
@@ -367,13 +367,13 @@ class RuntimeDelayedMemoryTests(RuntimeActionTestCase):
             first.started_actions,
             (
                 RuntimeActionCall(
-                    name="SAVE_DELAYED_MEMORY_CONTENT",
+                    name="SAVE_DELAYED_MEMORY",
                     payload="",
                 ),
             ),
         )
         self.assertEqual(
-            second.count("SAVE_DELAYED_MEMORY_CONTENT"),
+            second.count("SAVE_DELAYED_MEMORY"),
             1,
         )
 
@@ -388,7 +388,7 @@ class RuntimeDelayedMemoryTests(RuntimeActionTestCase):
 
         first = stream_filter.filter(
             (
-                "<SAVE_DELAYED_MEMORY_CONTENT>\n"
+                "<SAVE_DELAYED_MEMORY>\n"
                 "title: Radius of Influence Specs\n"
                 "summary: Three-zone data priority model.\n"
                 "tags: simulation, world_state\n"
@@ -399,10 +399,10 @@ class RuntimeDelayedMemoryTests(RuntimeActionTestCase):
 
         self.assertEqual(
             first.started_actions[0].name,
-            "SAVE_DELAYED_MEMORY_CONTENT",
+            "SAVE_DELAYED_MEMORY",
         )
         self.assertEqual(
-            tail.count("SAVE_DELAYED_MEMORY_CONTENT"),
+            tail.count("SAVE_DELAYED_MEMORY"),
             1,
         )
         report = json.loads(
@@ -532,7 +532,7 @@ class RuntimeDelayedMemoryTests(RuntimeActionTestCase):
 
         first = stream_filter.filter(
             (
-                "<SAVE_DELAYED_MEMORY_CONTENT>\n"
+                "<SAVE_DELAYED_MEMORY>\n"
                 "title: Radius"
             )
         )
@@ -543,7 +543,7 @@ class RuntimeDelayedMemoryTests(RuntimeActionTestCase):
                 "tags: a, b\n"
                 "body:\n"
                 "Body\n"
-                "</SAVE_DELAYED_MEMORY_CONTENT>\n"
+                "</SAVE_DELAYED_MEMORY>\n"
                 "Saved."
             )
         )
@@ -561,7 +561,7 @@ class RuntimeDelayedMemoryTests(RuntimeActionTestCase):
             "Saved.",
         )
         self.assertEqual(
-            second.count("SAVE_DELAYED_MEMORY_CONTENT"),
+            second.count("SAVE_DELAYED_MEMORY"),
             1,
         )
 
@@ -599,7 +599,7 @@ class RuntimeDelayedMemoryTests(RuntimeActionTestCase):
                 context,
                 (
                     RuntimeActionCall(
-                        name="SAVE_DELAYED_MEMORY_CONTENT",
+                        name="SAVE_DELAYED_MEMORY",
                         payload=report_payload,
                     ),
                 ),
@@ -647,10 +647,10 @@ class RuntimeDelayedMemoryTests(RuntimeActionTestCase):
             [
                 {
                     "type": "runtime_action",
-                    "action": "save_delayed_memory_content",
-                    "id": "save_delayed_memory_content_001",
+                    "action": "save_delayed_memory",
+                    "id": "save_delayed_memory_001",
                     "status": "completed",
-                    "display_name": "SAVE_DELAYED_MEMORY_CONTENT",
+                    "display_name": "SAVE_DELAYED_MEMORY",
                     "close_tag": True,
                     "text": "Saved delayed memory: Radius of Influence Specs",
                     "delayed_memory_report_id": report_id,
@@ -672,7 +672,7 @@ class RuntimeDelayedMemoryTests(RuntimeActionTestCase):
             context
         )
         self.assertIn(
-            '<TOOL_RESULT name="SAVE_DELAYED_MEMORY_CONTENT"',
+            '<TOOL_RESULT name="SAVE_DELAYED_MEMORY"',
             tool_results,
         )
         self.assertIn(
@@ -720,11 +720,11 @@ class RuntimeDelayedMemoryTests(RuntimeActionTestCase):
         )
 
         first_action = RuntimeActionCall(
-            name="SAVE_DELAYED_MEMORY_CONTENT",
+            name="SAVE_DELAYED_MEMORY",
             payload=report_payload,
         )
         second_action = RuntimeActionCall(
-            name="SAVE_DELAYED_MEMORY_CONTENT",
+            name="SAVE_DELAYED_MEMORY",
             payload=report_payload,
         )
 
@@ -765,11 +765,11 @@ class RuntimeDelayedMemoryTests(RuntimeActionTestCase):
             [
                 event["id"]
                 for event in context.emitter.events
-                if event.get("action") == "save_delayed_memory_content"
+                if event.get("action") == "save_delayed_memory"
             ],
             [
-                "save_delayed_memory_content_001",
-                "save_delayed_memory_content_002",
+                "save_delayed_memory_001",
+                "save_delayed_memory_002",
             ],
         )
 
@@ -810,7 +810,7 @@ class RuntimeDelayedMemoryTests(RuntimeActionTestCase):
                         payload="current session state",
                     ),
                     RuntimeActionCall(
-                        name="SAVE_DELAYED_MEMORY_CONTENT",
+                        name="SAVE_DELAYED_MEMORY",
                         payload=delayed_memory_payload,
                     ),
                 ),
@@ -829,7 +829,7 @@ class RuntimeDelayedMemoryTests(RuntimeActionTestCase):
             ],
             [
                 "save_active_memory",
-                "save_delayed_memory_content",
+                "save_delayed_memory",
             ],
         )
         from agent.nodes.brain import (
@@ -842,7 +842,7 @@ class RuntimeDelayedMemoryTests(RuntimeActionTestCase):
             ),
             (
                 "SAVE_ACTIVE_MEMORY, "
-                "SAVE_DELAYED_MEMORY_CONTENT"
+                "SAVE_DELAYED_MEMORY"
             ),
         )
         self.assertFalse(
@@ -889,7 +889,7 @@ class RuntimeDelayedMemoryTests(RuntimeActionTestCase):
                 context,
                 (
                     RuntimeActionCall(
-                        name="SAVE_DELAYED_MEMORY_CONTENT",
+                        name="SAVE_DELAYED_MEMORY",
                         payload=report_payload,
                     ),
                 ),

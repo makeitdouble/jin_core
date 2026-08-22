@@ -604,7 +604,7 @@ class L1MemoryTests(
                 assistant_message="Okay, saving.",
                 aborted_actions=[
                     {
-                        "name": "SAVE_DELAYED_MEMORY_CONTENT",
+                        "name": "SAVE_DELAYED_MEMORY",
                         "status": "aborted",
                     },
                 ],
@@ -615,7 +615,7 @@ class L1MemoryTests(
                 message,
             )
             self.assertIn(
-                "SAVE_DELAYED_MEMORY_CONTENT: ABORTED",
+                "SAVE_DELAYED_MEMORY: ABORTED",
                 message,
             )
 

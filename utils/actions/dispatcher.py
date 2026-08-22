@@ -18,7 +18,7 @@ from contracts.rules_assembler import (
     RUNTIME_ACTION_DETACH_FILE,
     RUNTIME_ACTION_UNLOAD_SKILL,
     RUNTIME_ACTION_RESOLVE_TODO,
-    RUNTIME_ACTION_SAVE_DELAYED_MEMORY_CONTENT,
+    RUNTIME_ACTION_SAVE_DELAYED_MEMORY,
     RUNTIME_ACTION_RESOLVE_ACTIVE_MEMORY,
     RUNTIME_ACTION_UPDATE_ACTIVE_MEMORY,
     RUNTIME_ACTION_DEEP_WEB_SEARCH,
@@ -105,6 +105,7 @@ from utils.brain_client_utils import (
     build_delayed_memory_report,
     collect_context_active_memory_slot_ids,
     collect_context_active_memory_texts,
+    normalize_update_active_memory_payload_reference,
     normalize_active_memory_runtime_payload,
     resolve_runtime_action_user_message,
 )
@@ -730,7 +731,7 @@ async def apply_runtime_action_calls(
 
             if (
                 action.name
-                == RUNTIME_ACTION_SAVE_DELAYED_MEMORY_CONTENT
+                == RUNTIME_ACTION_SAVE_DELAYED_MEMORY
             ):
                 rejected_report = build_delayed_memory_report(
                     context,
@@ -833,7 +834,7 @@ async def apply_runtime_action_calls(
             )
             continue
 
-        if action.name == RUNTIME_ACTION_SAVE_DELAYED_MEMORY_CONTENT:
+        if action.name == RUNTIME_ACTION_SAVE_DELAYED_MEMORY:
             save_delayed_memory_key = str(
                 action.payload
                 or ""
@@ -936,8 +937,12 @@ async def apply_runtime_action_calls(
             continue
 
         if action.name == RUNTIME_ACTION_UPDATE_ACTIVE_MEMORY:
+            normalized_payload, _, _ = normalize_update_active_memory_payload_reference(
+                context,
+                action.payload,
+            )
             active_memory_id, update_fields = parse_update_active_memory_payload(
-                action.payload
+                normalized_payload
             )
 
             if not active_memory_id or not update_fields:
@@ -1639,7 +1644,7 @@ async def apply_runtime_action_calls(
     save_delayed_memory_actions = [
         action
         for action in filtered_actions
-        if action.name == RUNTIME_ACTION_SAVE_DELAYED_MEMORY_CONTENT
+        if action.name == RUNTIME_ACTION_SAVE_DELAYED_MEMORY
     ]
 
     load_delayed_memory_actions = [

@@ -182,7 +182,7 @@ const runtimeActionIconDefinitions = {
     tone: "search",
     svg: '<circle cx="10.5" cy="10.5" r="5.25"></circle><path d="m15 15 4 4"></path><path d="M5.5 10.5h10"></path><path d="M10.5 5.5c1.5 1.6 2.25 3.25 2.25 5s-.75 3.4-2.25 5"></path><path d="M10.5 5.5c-1.5 1.6-2.25 3.25-2.25 5s.75 3.4 2.25 5"></path>',
   },
-  save_delayed_memory_content: {
+  save_delayed_memory: {
     title: "save delayed memory",
     tone: "save",
     svg: '<path d="M5 4h11l3 3v13H5z"></path><path d="M8 4v6h7V4"></path><path d="M8 16h8"></path>',
@@ -2453,6 +2453,14 @@ function updateRuntimeActionRow(
 
   if (detail) {
     label.title = detail;
+    row.title = detail;
+    label
+      .querySelectorAll(
+        ".jin-runtime-action-name, .jin-runtime-action-marker-count"
+      )
+      .forEach(node => {
+        node.title = detail;
+      });
     label.classList.add(
       "cursor-help"
     );
@@ -2460,6 +2468,16 @@ function updateRuntimeActionRow(
     label.removeAttribute(
       "title"
     );
+    row.removeAttribute(
+      "title"
+    );
+    label
+      .querySelectorAll(
+        ".jin-runtime-action-name, .jin-runtime-action-marker-count"
+      )
+      .forEach(node => {
+        node.removeAttribute("title");
+      });
     label.classList.remove(
       "cursor-help"
     );
@@ -2489,7 +2507,7 @@ function updateRuntimeActionRow(
 
   if (
     [
-      "save_delayed_memory_content",
+      "save_delayed_memory",
       "load_delayed_memory",
     ].includes(action)
   ) {
@@ -3054,6 +3072,14 @@ function appendRuntimeAction(
 
   if (detail) {
     label.title = detail;
+    row.title = detail;
+    label
+      .querySelectorAll(
+        ".jin-runtime-action-name, .jin-runtime-action-marker-count"
+      )
+      .forEach(node => {
+        node.title = detail;
+      });
     label.classList.add(
       "cursor-help"
     );
@@ -3083,7 +3109,7 @@ function appendRuntimeAction(
 
   if (
     [
-      "save_delayed_memory_content",
+      "save_delayed_memory",
       "load_delayed_memory",
     ].includes(action)
   ) {

@@ -223,7 +223,7 @@ class BehaviorContractTests(unittest.TestCase):
 
         self.assertEqual(
             guard["private_marker"],
-            "<SAVE_DELAYED_MEMORY_CONTENT>",
+            "<SAVE_DELAYED_MEMORY>",
         )
         self.assertTrue(
             guard["close_tag"],
@@ -233,7 +233,7 @@ class BehaviorContractTests(unittest.TestCase):
 
         self.assertEqual(
             get_action_guard_name_for_runtime_action(
-                "SAVE_DELAYED_MEMORY_CONTENT"
+                "SAVE_DELAYED_MEMORY"
             ),
             "save_delayed_memory",
         )

@@ -5,8 +5,8 @@ const delayedMemoryClientFilterState = {
 
 const delayedMemoryTagPairs = [
   {
-    open: "<SAVE_DELAYED_MEMORY_CONTENT>",
-    close: "</SAVE_DELAYED_MEMORY_CONTENT>",
+    open: "<SAVE_DELAYED_MEMORY>",
+    close: "</SAVE_DELAYED_MEMORY>",
   },
 ];
 
@@ -30,10 +30,10 @@ function startDelayedMemoryRuntimeBubble(
 
   if (window.appendRuntimeAction) {
     window.appendRuntimeAction(
-      "save_delayed_memory_content",
-      "SAVE_DELAYED_MEMORY_CONTENT",
+      "save_delayed_memory",
+      "SAVE_DELAYED_MEMORY",
       {
-        displayName: "SAVE_DELAYED_MEMORY_CONTENT",
+        displayName: "SAVE_DELAYED_MEMORY",
         closeTag: true,
       }
     );
@@ -55,7 +55,7 @@ function completeDelayedMemoryRuntimeBubble(
 
   if (window.fadeRuntimeAction) {
     window.fadeRuntimeAction(
-      "save_delayed_memory_content"
+      "save_delayed_memory"
     );
   }
 
@@ -137,6 +137,40 @@ function normalizeDelayedMemoryFactIds(
 
 }
 
+function normalizeDelayedMemoryAttachmentIds(
+  value
+) {
+
+  const source =
+    Array.isArray(value)
+      ? value.flat(Infinity)
+      : [value];
+  const seen = new Set();
+  const attachmentIds = [];
+
+  source.forEach(function (item) {
+    String(item || "")
+      .split(/[,;\s]+/)
+      .map(id => id.trim().replace(/^[\[\]"']+|[\[\]"']+$/g, "").toLowerCase())
+      .filter(Boolean)
+      .forEach(function (id) {
+        if (
+            !/^[a-z0-9]{6}$/.test(id)
+            || seen.has(id)
+        ) {
+          return;
+        }
+
+        seen.add(id);
+        attachmentIds.push(id);
+      });
+  });
+
+  return attachmentIds;
+
+}
+
+
 function parseDelayedMemoryReportPayload(
   payload
 ) {
@@ -150,64 +184,98 @@ function parseDelayedMemoryReportPayload(
     return {};
   }
 
-  const fieldPattern =
-    /^[^\S\r\n]*(title|summary|tags|body|anchor_fact_ids|facts_ids|absorbed_fact_ids|long_term_facts_ids)[^\S\r\n]*:[^\S\r\n]*(.*)$/gim;
+  let fields = null;
 
-  const matches = [];
-  let match = fieldPattern.exec(text);
+  try {
+    const parsed = JSON.parse(text);
 
-  while (match) {
-    matches.push({
-      name: String(match[1] || "").toLowerCase(),
-      inline: String(match[2] || "").trim(),
-      start: match.index,
-      end: fieldPattern.lastIndex,
-    });
-
-    match = fieldPattern.exec(text);
-  }
-
-  if (!matches.length) {
-    return {};
-  }
-
-  const fields = {};
-
-  matches.forEach(
-    function (
-      field,
-      index,
+    if (
+        parsed
+        && typeof parsed === "object"
+        && !Array.isArray(parsed)
     ) {
-      const nextStart =
-        index + 1 < matches.length
-          ? matches[index + 1].start
-          : text.length;
+      if (Object.prototype.hasOwnProperty.call(parsed, "title")) {
+        fields = parsed;
+      } else {
+        const values = Object.values(parsed);
 
-      const blockValue =
-        text.slice(
-          field.end,
-          nextStart
-        ).replace(/^\n+|\n+$/g, "");
+        if (
+            values.length === 1
+            && values[0]
+            && typeof values[0] === "object"
+            && !Array.isArray(values[0])
+            && Object.prototype.hasOwnProperty.call(values[0], "title")
+        ) {
+          fields = values[0];
+        }
+      }
+    }
+  } catch (_error) {
+    fields = null;
+  }
 
-      fields[field.name] =
-        field.name === "body"
-          ? [field.inline, blockValue]
-              .filter(Boolean)
-              .join("\n")
-              .trim()
-          : [
-              "anchor_fact_ids",
-              "facts_ids",
-              "absorbed_fact_ids",
-              "long_term_facts_ids",
-            ].includes(field.name)
+  if (!fields) {
+    // Compatibility for reports emitted before the JSON marker contract.
+    const fieldPattern =
+      /^[^\S\r\n]*(title|summary|tags|body|anchor_fact_ids|facts_ids|attachments_ids|absorbed_fact_ids|long_term_facts_ids)[^\S\r\n]*:[^\S\r\n]*(.*)$/gim;
+
+    const matches = [];
+    let match = fieldPattern.exec(text);
+
+    while (match) {
+      matches.push({
+        name: String(match[1] || "").toLowerCase(),
+        inline: String(match[2] || "").trim(),
+        start: match.index,
+        end: fieldPattern.lastIndex,
+      });
+
+      match = fieldPattern.exec(text);
+    }
+
+    if (!matches.length) {
+      return {};
+    }
+
+    fields = {};
+
+    matches.forEach(
+      function (
+        field,
+        index,
+      ) {
+        const nextStart =
+          index + 1 < matches.length
+            ? matches[index + 1].start
+            : text.length;
+
+        const blockValue =
+          text.slice(
+            field.end,
+            nextStart
+          ).replace(/^\n+|\n+$/g, "");
+
+        fields[field.name] =
+          field.name === "body"
             ? [field.inline, blockValue]
                 .filter(Boolean)
-                .join(" ")
+                .join("\n")
                 .trim()
-            : field.inline;
-    }
-  );
+            : [
+                "anchor_fact_ids",
+                "facts_ids",
+                "attachments_ids",
+                "absorbed_fact_ids",
+                "long_term_facts_ids",
+              ].includes(field.name)
+              ? [field.inline, blockValue]
+                  .filter(Boolean)
+                  .join(" ")
+                  .trim()
+              : field.inline;
+      }
+    );
+  }
 
   const title =
     String(fields.title || "").trim();
@@ -252,14 +320,17 @@ function parseDelayedMemoryReportPayload(
         && window.JinRuntime.storage
         && typeof window.JinRuntime.storage.normalizeDelayedMemoryTags === "function"
           ? window.JinRuntime.storage.normalizeDelayedMemoryTags(fields.tags)
-          : String(fields.tags || "")
-              .split(",")
-              .map(tag => tag.trim())
+          : (Array.isArray(fields.tags) ? fields.tags : String(fields.tags || "").split(","))
+              .map(tag => String(tag || "").trim())
               .filter(Boolean),
       body:
         String(fields.body || "").trim(),
       anchor_fact_ids: anchorFactIds,
       facts_ids: factsIds,
+      attachments_ids:
+        normalizeDelayedMemoryAttachmentIds(
+          fields.attachments_ids
+        ),
       created_session_id:
         String(window.jinRuntimeSessionId || websocketClientId || "").trim(),
       created_time:

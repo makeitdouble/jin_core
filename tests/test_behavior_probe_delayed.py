@@ -46,7 +46,7 @@ Two-step probe:
 1. The user asks JIN to remind them to drink coffee in 10 minutes.
    Any answer is accepted, but JIN must emit save_active_memory.
 2. The user asks JIN to save the report.
-   Any answer is accepted, but JIN must emit save_delayed_memory_content.
+   Any answer is accepted, but JIN must emit save_delayed_memory.
 """
 
 # Add more turns by appending:
@@ -71,7 +71,7 @@ UNEXPECTED_RUNTIME_ACTION_1 = []
 USER_TEXT_2 = "сохрани отчёт о текущей беседе в delayed memory"
 EXPECTED_TEXT_ANSWER_2 = []
 EXPECTED_TEXT_MEMORY_2 = []
-EXPECTED_RUNTIME_ACTION_2 = ["save_delayed_memory_content"]
+EXPECTED_RUNTIME_ACTION_2 = ["save_delayed_memory"]
 UNEXPECTED_TEXT_ANSWER_2 = []
 UNEXPECTED_TEXT_MEMORY_2 = []
 UNEXPECTED_RUNTIME_ACTION_2 = []
@@ -171,7 +171,7 @@ class BehaviorProbeShapeTests(unittest.TestCase):
         self.assertEqual(steps[1]["user_text"], USER_TEXT_2)
         self.assertEqual(steps[1]["expected_answer"], [])
         self.assertEqual(steps[1]["expected_memory"], [])
-        self.assertEqual(steps[1]["expected_runtime_actions"], ["save_delayed_memory_content"])
+        self.assertEqual(steps[1]["expected_runtime_actions"], ["save_delayed_memory"])
         self.assertEqual(steps[1]["unexpected_runtime_actions"], [])
 
     def test_evaluator_checks_declared_runtime_actions(self):
@@ -203,11 +203,11 @@ class BehaviorProbeShapeTests(unittest.TestCase):
                 expected_memory=[],
                 unexpected_answer=[],
                 unexpected_memory=[],
-                expected_runtime_actions=["save_delayed_memory_content"],
+                expected_runtime_actions=["save_delayed_memory"],
                 unexpected_runtime_actions=[],
                 runtime_actions=[
                     {
-                        "name": "save_delayed_memory_content",
+                        "name": "save_delayed_memory",
                         "payload": "coffee reminder report",
                     },
                 ],
@@ -228,7 +228,7 @@ class BehaviorProbeShapeTests(unittest.TestCase):
                 expected_memory=[],
                 unexpected_answer=[],
                 unexpected_memory=[],
-                expected_runtime_actions=["save_delayed_memory_content"],
+                expected_runtime_actions=["save_delayed_memory"],
                 unexpected_runtime_actions=[],
                 runtime_actions=[],
             ),
@@ -279,7 +279,7 @@ class BehaviorProbeShapeTests(unittest.TestCase):
             {"type": "message_chunk", "chunk": "ignored"},
             {
                 "type": "runtime_action",
-                "action": "save_delayed_memory_content",
+                "action": "save_delayed_memory",
                 "status": "completed",
                 "text": "Saving delayed memory",
                 "delayed_memory_report": {
@@ -298,7 +298,7 @@ class BehaviorProbeShapeTests(unittest.TestCase):
             websocket_messages=websocket_messages,
         )
 
-        self.assertTrue(runtime_action_found(actions, "save_delayed_memory_content"))
+        self.assertTrue(runtime_action_found(actions, "save_delayed_memory"))
         self.assertIn("delayed_memory_report", actions[0])
         self.assertIn("coffee_reminder_report", actions[0]["payload"])
 
@@ -354,16 +354,16 @@ class BehaviorProbeShapeTests(unittest.TestCase):
     def test_memory_field_check_does_not_match_field_name_inside_value(self):
         self.assertFalse(
             memory_fragment_found(
-                "last_jin_response: save_delayed_memory_content was discussed as plain text.",
-                "save_delayed_memory_content:",
+                "last_jin_response: save_delayed_memory was discussed as plain text.",
+                "save_delayed_memory:",
             )
         )
 
     def test_memory_field_check_matches_delayed_memory_line_key(self):
         self.assertTrue(
             memory_fragment_found(
-                "last_jin_response: ok\nsave_delayed_memory_content: Coffee reminder report saved.",
-                "save_delayed_memory_content:",
+                "last_jin_response: ok\nsave_delayed_memory: Coffee reminder report saved.",
+                "save_delayed_memory:",
             )
         )
 

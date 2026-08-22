@@ -14,6 +14,9 @@ from utils.actions.jin_size_utils import (
 from utils.actions.update_l4_facts_utils import (
     parse_update_l4_facts_payload,
 )
+from utils.actions.update_active_memory_utils import (
+    parse_update_active_memory_payload_fields,
+)
 
 
 MAX_SESSION_ACTION_HISTORY_ITEMS = 200
@@ -314,7 +317,7 @@ ACTION_DISPLAY_ALIASES = {
     "run_document_reader": "Read document iteratively",
     "run_python_skill": "Ran Python skill",
     "sample_wildcard": "Sampled wildcard",
-    "save_delayed_memory_content": "Saved delayed memory",
+    "save_delayed_memory": "Saved delayed memory",
 }
 
 
@@ -1174,7 +1177,7 @@ def build_delayed_memory_save_rejected_history_text(
         or ""
     ).strip()
 
-    text = "SAVE_DELAYED_MEMORY_CONTENT - failed"
+    text = "SAVE_DELAYED_MEMORY - failed"
 
     if normalized_title:
         text = f"{text}: {normalized_title}"
@@ -1317,7 +1320,7 @@ def _build_session_action_marker_detail(
 PAYLOAD_DISTINCT_SESSION_ACTIONS = {
     "SAVE_ACTIVE_MEMORY",
     "RESOLVE_ACTIVE_MEMORY",
-    "SAVE_DELAYED_MEMORY_CONTENT",
+    "SAVE_DELAYED_MEMORY",
     "LOAD_DELAYED_MEMORY",
     "UNLOAD_DELAYED_MEMORY",
 }
@@ -1873,6 +1876,31 @@ def _build_formatted_session_action_marker_parts(
             ).strip()
             if failure_reason:
                 part["detail"] = failure_reason
+            formatted_parts.append(
+                _with_session_action_marker_count(
+                    part,
+                    count,
+                )
+            )
+            continue
+
+        if action_name == "UPDATE_ACTIVE_MEMORY":
+            active_memory_ids = _unique_session_action_values(
+                parse_update_active_memory_payload_fields(
+                    payload
+                )[0]
+                for payload in payloads
+            )
+            active_memory_ids = [
+                active_memory_id
+                for active_memory_id in active_memory_ids
+                if active_memory_id
+            ]
+            if active_memory_ids:
+                part["text"] = (
+                    f"{action_name}:"
+                    + ",".join(active_memory_ids)
+                )
             formatted_parts.append(
                 _with_session_action_marker_count(
                     part,

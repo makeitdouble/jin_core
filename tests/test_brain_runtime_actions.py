@@ -138,7 +138,7 @@ def expected_enabled_runtime_actions(runtime_actions: dict) -> tuple[str, ...]:
     if bool(runtime_actions.get("CAN_SAVE_DELAYED_MEMORY", False)):
         expected_actions.extend(
             (
-                "SAVE_DELAYED_MEMORY_CONTENT",
+                "SAVE_DELAYED_MEMORY",
                 "LOAD_DELAYED_MEMORY",
                 "UNLOAD_DELAYED_MEMORY",
             )
@@ -724,9 +724,9 @@ class BrainRuntimeActionTests(unittest.TestCase):
 
         marker_text = (
             "Example:\n"
-            "<SAVE_DELAYED_MEMORY_CONTENT>\n"
+            "<SAVE_DELAYED_MEMORY>\n"
             '{"demo": {"summary": "quoted marker"}}\n'
-            "</SAVE_DELAYED_MEMORY_CONTENT>"
+            "</SAVE_DELAYED_MEMORY>"
         )
 
         class FakeBrainClient:
@@ -1845,7 +1845,7 @@ class BrainRuntimeActionTests(unittest.TestCase):
             context,
             0,
             [{
-                "name": "SAVE_DELAYED_MEMORY_CONTENT",
+                "name": "SAVE_DELAYED_MEMORY",
                 "marker_count": 2,
                 "payloads": [
                     '{"report_1":{"title":"First report","body":"one"}}',
@@ -1858,11 +1858,11 @@ class BrainRuntimeActionTests(unittest.TestCase):
             context.runtime_session_action_history[0]["parts"],
             [
                 {
-                    "text": "SAVE_DELAYED_MEMORY_CONTENT",
+                    "text": "SAVE_DELAYED_MEMORY",
                     "detail": "First report",
                 },
                 {
-                    "text": "SAVE_DELAYED_MEMORY_CONTENT",
+                    "text": "SAVE_DELAYED_MEMORY",
                     "detail": "Second report",
                 },
             ],
@@ -1955,7 +1955,7 @@ class BrainRuntimeActionTests(unittest.TestCase):
             "Среда мышления vs Интерфейс чата"
         )
         action = RuntimeActionCall(
-            name="SAVE_DELAYED_MEMORY_CONTENT",
+            name="SAVE_DELAYED_MEMORY",
             payload=(
                 '{"report_1":{"title":"'
                 + title
@@ -1976,7 +1976,7 @@ class BrainRuntimeActionTests(unittest.TestCase):
         )
 
         expected_text = (
-            "SAVE_DELAYED_MEMORY_CONTENT - "
+            "SAVE_DELAYED_MEMORY - "
             + title
         )
 
@@ -3069,7 +3069,7 @@ class BrainRuntimeActionTests(unittest.TestCase):
             async def stream(self, **_kwargs):
                 yield {
                     "type": "content",
-                    "content": "<SAVE_DELAYED_MEMORY_CONTENT>\n",
+                    "content": "<SAVE_DELAYED_MEMORY>\n",
                 }
                 yield {
                     "type": "content",
@@ -3082,7 +3082,7 @@ class BrainRuntimeActionTests(unittest.TestCase):
                 }
                 yield {
                     "type": "content",
-                    "content": "</SAVE_DELAYED_MEMORY_CONTENT>\n",
+                    "content": "</SAVE_DELAYED_MEMORY>\n",
                 }
 
         class TrackingEmitter:
@@ -3137,12 +3137,12 @@ class BrainRuntimeActionTests(unittest.TestCase):
                 {
                     "type": "raw_model_output",
                     "content": (
-                        "<SAVE_DELAYED_MEMORY_CONTENT>\n"
+                        "<SAVE_DELAYED_MEMORY>\n"
                         "title: Test delayed memory report\n"
                         "summary: Current runtime state.\n"
                         "tags: runtime, test\n"
                         "body: Complete report body.\n"
-                        "</SAVE_DELAYED_MEMORY_CONTENT>\n"
+                        "</SAVE_DELAYED_MEMORY>\n"
                     ),
                 },
             ],
@@ -3170,7 +3170,7 @@ class BrainRuntimeActionTests(unittest.TestCase):
         )
         self.assertEqual(
             lifecycle_events[0]["text"],
-            "SAVE_DELAYED_MEMORY_CONTENT",
+            "SAVE_DELAYED_MEMORY",
         )
         self.assertTrue(
             lifecycle_events[0]["close_tag"],
@@ -3237,7 +3237,7 @@ class BrainRuntimeActionTests(unittest.TestCase):
 
         for private_marker in (
             get_runtime_action_private_marker("SAVE_SESSION"),
-            get_runtime_action_private_marker("SAVE_DELAYED_MEMORY_CONTENT"),
+            get_runtime_action_private_marker("SAVE_DELAYED_MEMORY"),
             get_runtime_action_private_marker("SAVE_ACTIVE_MEMORY"),
             "Use WEB_SEARCH when freshness",
         ):
@@ -3835,7 +3835,8 @@ class BrainRuntimeActionTests(unittest.TestCase):
         assert_contains_text(
             self,
             prompt,
-            "<SAVE_ACTIVE_MEMORY> CONDITIONS </SAVE_ACTIVE_MEMORY>",
+            '{"conditions":"CONDITIONS",'
+            '"custom_field_name":"VALUE"}',
         )
         assert_contains_text(
             self,

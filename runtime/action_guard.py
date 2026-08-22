@@ -7,7 +7,7 @@ from typing import Any
 from contracts.rules_assembler import (
     RUNTIME_ACTION_JIN_COLOR,
     RUNTIME_ACTION_JIN_SIZE,
-    RUNTIME_ACTION_SAVE_DELAYED_MEMORY_CONTENT,
+    RUNTIME_ACTION_SAVE_DELAYED_MEMORY,
     build_runtime_action_display_text,
     get_runtime_action_display_name,
     runtime_action_has_close_tag,
@@ -190,7 +190,7 @@ def get_action_guard_display_id(
 
         return action_id
 
-    if action.name == RUNTIME_ACTION_SAVE_DELAYED_MEMORY_CONTENT:
+    if action.name == RUNTIME_ACTION_SAVE_DELAYED_MEMORY:
         pending_ids = getattr(
             context,
             "runtime_pending_delayed_memory_action_ids",

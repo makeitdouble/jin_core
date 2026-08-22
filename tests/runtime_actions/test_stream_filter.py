@@ -34,7 +34,7 @@ from utils.actions import (
     get_save_active_memory_marker_fields,
     get_save_active_memory_placeholder_payload,
     normalize_jin_color_payload,
-    parse_delayed_memory_content_payload,
+    parse_delayed_memory_payload,
 )
 from utils.assets_utils import run_asset_action
 from utils.brain_client_utils import (
@@ -73,7 +73,7 @@ class RuntimeStreamFilterTests(RuntimeActionTestCase):
             },
         )
         action = RuntimeActionCall(
-            name="SAVE_DELAYED_MEMORY_CONTENT",
+            name="SAVE_DELAYED_MEMORY",
             payload=(
                 "title: Experiment: Gemma substrate\n"
                 "summary: duplicate\n"
@@ -97,7 +97,7 @@ class RuntimeStreamFilterTests(RuntimeActionTestCase):
             },
         )
         action = RuntimeActionCall(
-            name="SAVE_DELAYED_MEMORY_CONTENT",
+            name="SAVE_DELAYED_MEMORY",
             payload=(
                 "title: experiment: Gemma substrate\n"
                 "summary: different title\n"
@@ -686,12 +686,12 @@ class RuntimeStreamFilterTests(RuntimeActionTestCase):
 
         result = stream_filter.filter(
             (
-                "<SAVE_DELAYED_MEMORY_CONTENT>\n"
+                "<SAVE_DELAYED_MEMORY>\n"
                 "title: Runtime state report\n"
                 "summary: Current runtime state.\n"
                 "tags: runtime\n"
                 "body: Full report.\n"
-                "</SAVE_DELAYED_MEMORY_CONTENT>\n"
+                "</SAVE_DELAYED_MEMORY>\n"
             )
         )
 
@@ -699,13 +699,13 @@ class RuntimeStreamFilterTests(RuntimeActionTestCase):
             result.started_actions,
             (
                 RuntimeActionCall(
-                    name="SAVE_DELAYED_MEMORY_CONTENT",
+                    name="SAVE_DELAYED_MEMORY",
                     payload="",
                 ),
             ),
         )
         self.assertEqual(
-            result.count("SAVE_DELAYED_MEMORY_CONTENT"),
+            result.count("SAVE_DELAYED_MEMORY"),
             1,
         )
 
@@ -1938,7 +1938,7 @@ class RuntimeStreamFilterTests(RuntimeActionTestCase):
             TOOL_RESULT_KIND_DELAYED_MEMORY,
             {
                 "ok": True,
-                "action": "save_delayed_memory_content",
+                "action": "save_delayed_memory",
                 "destination": "delayed_memory_reports",
                 "report": {
                     "f7jf9a": {
@@ -1968,7 +1968,7 @@ class RuntimeStreamFilterTests(RuntimeActionTestCase):
             )
 
         self.assertIn(
-            '<TOOL_RESULT name="SAVE_DELAYED_MEMORY_CONTENT" ( 5m 2s ago ) >',
+            '<TOOL_RESULT name="SAVE_DELAYED_MEMORY" ( 5m 2s ago ) >',
             tool_results,
         )
         self.assertIn(
@@ -1991,10 +1991,10 @@ class RuntimeStreamFilterTests(RuntimeActionTestCase):
             context,
             {
                 "ok": False,
-                "action": "save_delayed_memory_content",
-                "id": "save_delayed_memory_content_012",
+                "action": "save_delayed_memory",
+                "id": "save_delayed_memory_012",
                 "error": "user_did_not_explicitly_request_report_save",
-                "payload": "<SAVE_DELAYED_MEMORY_CONTENT>",
+                "payload": "<SAVE_DELAYED_MEMORY>",
                 "detail": (
                     "JIN attempted to save a delayed memory report when "
                     "the user did not explicitly request it."
@@ -2010,10 +2010,10 @@ class RuntimeStreamFilterTests(RuntimeActionTestCase):
                     "JIN attempted to save a delayed memory report when "
                     "the user did not explicitly request it."
                 ),
-                "payload": "<SAVE_DELAYED_MEMORY_CONTENT>",
+                "payload": "<SAVE_DELAYED_MEMORY>",
                 "error": "user_did_not_explicitly_request_report_save",
-                "id": "save_delayed_memory_content_013",
-                "action": "save_delayed_memory_content",
+                "id": "save_delayed_memory_013",
+                "action": "save_delayed_memory",
                 "ok": False,
             },
         )
@@ -2036,7 +2036,7 @@ class RuntimeStreamFilterTests(RuntimeActionTestCase):
         )
         self.assertEqual(
             tool_results.count(
-                '<TOOL_RESULT name="SAVE_DELAYED_MEMORY_CONTENT"'
+                '<TOOL_RESULT name="SAVE_DELAYED_MEMORY"'
             ),
             1,
         )

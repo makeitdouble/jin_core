@@ -26,7 +26,7 @@ from contracts.rules_assembler import (
     RUNTIME_ACTION_UNLOAD_DELAYED_MEMORY,
     RUNTIME_ACTION_DETACH_FILE,
     RUNTIME_ACTION_RESOLVE_TODO,
-    RUNTIME_ACTION_SAVE_DELAYED_MEMORY_CONTENT,
+    RUNTIME_ACTION_SAVE_DELAYED_MEMORY,
     RUNTIME_ACTION_WEB_SEARCH,
 )
 from contracts.rules_assembler import (
@@ -69,9 +69,8 @@ from .regexp_utils import (
     select_non_overlapping_regexp_matches,
 )
 from .save_delayed_memory_utils import (
-    DELAYED_MEMORY_FIELD_RE,
     build_save_delayed_memory_payload,
-    parse_delayed_memory_content_payload,
+    parse_delayed_memory_payload,
 )
 from .web_search_utils import (
     build_web_search_payload,
@@ -457,8 +456,7 @@ def normalize_runtime_action_name(
         normalized_name = normalized_name[4:]
 
     aliases = {
-        "SAVE_DELAYED_MEMORY": RUNTIME_ACTION_SAVE_DELAYED_MEMORY_CONTENT,
-        "SAVE_DELAYED_MEMORY_CONTENT": RUNTIME_ACTION_SAVE_DELAYED_MEMORY_CONTENT,
+        "SAVE_DELAYED_MEMORY": RUNTIME_ACTION_SAVE_DELAYED_MEMORY,
         "SAVE_ACTIVE_MEMORY": RUNTIME_ACTION_SAVE_ACTIVE_MEMORY,
         "RESOLVE_ACTIVE_MEMORY": RUNTIME_ACTION_RESOLVE_ACTIVE_MEMORY,
         "USE_ASSETS": RUNTIME_ACTION_ASSET_ACTION,
@@ -527,7 +525,7 @@ def normalize_runtime_action_names(
                 RUNTIME_ACTION_UPDATE_ACTIVE_MEMORY
             )
 
-        if normalized_name == RUNTIME_ACTION_SAVE_DELAYED_MEMORY_CONTENT:
+        if normalized_name == RUNTIME_ACTION_SAVE_DELAYED_MEMORY:
             normalized_names.append(
                 RUNTIME_ACTION_LOAD_DELAYED_MEMORY
             )
@@ -589,7 +587,7 @@ _ACTION_PAYLOAD_BUILDERS = {
     RUNTIME_ACTION_CREATE_TODO_LIST: build_create_todo_list_payload,
     RUNTIME_ACTION_RESOLVE_TODO: build_resolve_action_payload,
     RUNTIME_ACTION_CHECK_TODO: build_check_todo_payload,
-    RUNTIME_ACTION_SAVE_DELAYED_MEMORY_CONTENT: build_save_delayed_memory_payload,
+    RUNTIME_ACTION_SAVE_DELAYED_MEMORY: build_save_delayed_memory_payload,
     RUNTIME_ACTION_LOAD_DELAYED_MEMORY: build_load_delayed_memory_payload,
     RUNTIME_ACTION_UNLOAD_DELAYED_MEMORY: build_resolve_action_payload,
     RUNTIME_ACTION_ATTACH_FILE: build_resolve_action_payload,
@@ -2022,15 +2020,15 @@ class RuntimeActionStreamFilter:
             )
 
         delayed_memory_marker, _ = _runtime_action_marker_config(
-            RUNTIME_ACTION_SAVE_DELAYED_MEMORY_CONTENT
+            RUNTIME_ACTION_SAVE_DELAYED_MEMORY
         )
         delayed_memory_start_re = compile_runtime_action_start_regexp(
             delayed_memory_marker,
-            RUNTIME_ACTION_SAVE_DELAYED_MEMORY_CONTENT,
+            RUNTIME_ACTION_SAVE_DELAYED_MEMORY,
         )
         delayed_memory_end_re = compile_runtime_action_end_regexp(
             delayed_memory_marker,
-            RUNTIME_ACTION_SAVE_DELAYED_MEMORY_CONTENT,
+            RUNTIME_ACTION_SAVE_DELAYED_MEMORY,
         )
         delayed_memory_start = delayed_memory_start_re.match(
             pending
@@ -2047,32 +2045,12 @@ class RuntimeActionStreamFilter:
                 delayed_memory_start.end():
             ].strip()
 
-            present_fields = {
-                str(
-                    match.group(1)
-                    or ""
-                ).strip().casefold()
-                for match in DELAYED_MEMORY_FIELD_RE.finditer(
-                    payload
-                )
-            }
-
-            if (
-                {
-                    "title",
-                    "summary",
-                    "tags",
-                    "body",
-                }.issubset(
-                    present_fields
-                )
-                and parse_delayed_memory_content_payload(
-                    payload
-                )
+            if parse_delayed_memory_payload(
+                payload
             ):
                 pending = (
                     pending.rstrip()
-                    + "\n</SAVE_DELAYED_MEMORY_CONTENT>"
+                    + "\n</SAVE_DELAYED_MEMORY>"
                 )
 
         if _unclosed_internal_action_request_start(

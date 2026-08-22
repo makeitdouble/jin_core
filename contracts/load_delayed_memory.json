@@ -10,10 +10,9 @@
       "emit_followup": false
     },
     "rules": [
-      "Emit one marker per saved delayed memory. You may emit multiple markers to load multiple reports; already loaded ids are ignored.",
-      "id - is a placeholder word; replace placeholder with the 6-character id prefix shown in <DELAYED_MEMORY>.",
-      "Available reports are listed in the <DELAYED_MEMORY> block.",
-      "If a report is already loaded, use the content placed in <LOADED_DELAYED_MEMORY>."
+      "Emit one marker per report.",
+      "Use the 6-character id from <DELAYED_MEMORY> list.",
+      "Before load must check if it is already loaded in <LOADED_DELAYED_MEMORY> block"
     ],
     "close_tag": false
   }

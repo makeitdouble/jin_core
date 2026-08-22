@@ -1,3 +1,4 @@
+import json
 import re
 import secrets
 import string
@@ -141,6 +142,52 @@ def extract_active_memory_creation_custom_fields(
 ) -> tuple[str, tuple[tuple[str, str], ...]]:
 
     text = str(value or "").rstrip()
+
+    if text.lstrip().startswith("{"):
+        try:
+            payload_pairs = json.loads(
+                text,
+                object_pairs_hook=lambda pairs: pairs,
+            )
+        except (TypeError, ValueError, json.JSONDecodeError):
+            return "", ()
+
+        if not isinstance(payload_pairs, list):
+            return "", ()
+
+        conditions = ""
+        custom_fields_by_name = {}
+
+        for raw_name, raw_value in payload_pairs:
+            field_name = str(raw_name or "").strip().casefold()
+
+            if field_name == "conditions":
+                conditions = normalize_active_memory_custom_field_value(
+                    raw_value
+                )
+                continue
+
+            normalized_name = normalize_active_memory_custom_field_name(
+                field_name
+            )
+            normalized_value = normalize_active_memory_custom_field_value(
+                raw_value
+            )
+
+            if not normalized_name or not normalized_value:
+                continue
+
+            # JSON parsers conventionally keep the last duplicate key. Do the
+            # same after name normalization instead of rejecting the complete
+            # SAVE_ACTIVE_MEMORY payload.
+            custom_fields_by_name[normalized_name] = normalized_value
+
+        custom_fields = tuple(
+            custom_fields_by_name.items()
+        )[:ACTIVE_MEMORY_CUSTOM_FIELD_LIMIT]
+
+        return conditions, custom_fields
+
     reversed_fields = []
     seen = set()
 

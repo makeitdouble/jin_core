@@ -20,6 +20,7 @@ let runtimeStatusModal = null;
 let runtimeStatusModalTitle = null;
 let runtimeStatusModalContent = null;
 let activeRuntimeStatusRole = "";
+let activeRuntimeStatusModelPicker = null;
 
 function formatRuntimeStatusBytes(value) {
     const bytes = Number(value || 0);
@@ -96,9 +97,15 @@ function formatRuntimeStatusValue(value) {
 }
 
 function appendRuntimeStatusField(container, labelText, value) {
-    const text = formatRuntimeStatusValue(value).trim();
+    const hasNodeValue = (
+        typeof Node !== "undefined"
+        && value instanceof Node
+    );
+    const text = hasNodeValue
+        ? ""
+        : formatRuntimeStatusValue(value).trim();
 
-    if (!container || !text) {
+    if (!container || (!hasNodeValue && !text)) {
         return false;
     }
 
@@ -111,7 +118,12 @@ function appendRuntimeStatusField(container, labelText, value) {
 
     const content = document.createElement("div");
     content.className = "delayed-memory-modal-value break-words";
-    content.textContent = text;
+
+    if (hasNodeValue) {
+        content.appendChild(value);
+    } else {
+        content.textContent = text;
+    }
 
     field.append(label, content);
     container.appendChild(field);
@@ -182,11 +194,429 @@ function appendRuntimeStatusCard(container, titleText, fields) {
     container.appendChild(card);
 }
 
+function getRuntimeStatusModelId(model) {
+    return String(
+        (
+            model
+            && typeof model === "object"
+            && (
+                model.id
+                || model.key
+                || model.model
+                || model.name
+            )
+        )
+        || ""
+    ).trim();
+}
+
+function getRuntimeStatusModelName(model) {
+    return String(
+        (
+            model
+            && typeof model === "object"
+            && (
+                model.display_name
+                || model.name
+                || model.label
+                || getRuntimeStatusModelId(model)
+            )
+        )
+        || ""
+    ).trim();
+}
+
+function getRuntimeStatusModelOptions(lmStudio, configuredModel) {
+    const options = [];
+    const seen = new Set();
+
+    function addOption(modelId, modelName) {
+        const id = String(modelId || "").trim();
+
+        if (!id || seen.has(id)) {
+            return;
+        }
+
+        options.push({
+            id,
+            name: String(modelName || id).trim() || id,
+        });
+        seen.add(id);
+    }
+
+    (lmStudio.available_models || []).forEach((model) => {
+        if (!model || typeof model !== "object") {
+            return;
+        }
+
+        addOption(
+            model.id,
+            model.name
+        );
+    });
+
+    addOption(
+        configuredModel,
+        configuredModel
+    );
+
+    return options;
+}
+
+function closeRuntimeStatusModelPicker(options = {}) {
+    if (
+        !activeRuntimeStatusModelPicker
+        || typeof activeRuntimeStatusModelPicker.close !== "function"
+    ) {
+        return;
+    }
+
+    activeRuntimeStatusModelPicker.close(options);
+}
+
+function runtimeStatusModelPickerContains(target) {
+    if (
+        !target
+        || !activeRuntimeStatusModelPicker
+        || !activeRuntimeStatusModelPicker.container
+    ) {
+        return false;
+    }
+
+    return activeRuntimeStatusModelPicker.container.contains(target);
+}
+
+async function saveRuntimeStatusConfig(role, updates) {
+    const response = await fetch(
+        "/api/runtime-config",
+        {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+                role,
+                ...updates,
+            }),
+        }
+    );
+
+    if (!response.ok) {
+        throw new Error(
+            `HTTP ${response.status}`
+        );
+    }
+
+    applyRuntimeStatusSnapshot(
+        await response.json()
+    );
+}
+
+function createRuntimeStatusModelValue(
+    role,
+    value,
+    lmStudio,
+    online
+) {
+    const container = document.createElement("span");
+    container.textContent = value;
+
+    if (!online) {
+        return container;
+    }
+
+    const options = getRuntimeStatusModelOptions(
+        lmStudio,
+        value
+    );
+
+    if (!options.length) {
+        return container;
+    }
+
+    container.tabIndex = 0;
+    container.setAttribute("role", "button");
+    container.setAttribute("aria-label", "Select runtime model");
+    container.classList.add("cursor-pointer");
+
+    const picker = document.createElement("span");
+    picker.className = "delayed-memory-modal-fact-picker hidden";
+
+    const input = document.createElement("input");
+    input.type = "text";
+    input.className = "delayed-memory-modal-fact-input";
+    input.setAttribute("aria-label", "Search models");
+    input.setAttribute("autocomplete", "off");
+    input.setAttribute("spellcheck", "false");
+
+    const dropdown = document.createElement("span");
+    dropdown.className = "delayed-memory-modal-fact-dropdown";
+
+    function closePicker(options = {}) {
+        picker.classList.add("hidden");
+        input.value = "";
+        dropdown.innerHTML = "";
+
+        if (options.blur !== false) {
+            input.blur();
+        }
+
+        if (
+            activeRuntimeStatusModelPicker
+            && activeRuntimeStatusModelPicker.close === closePicker
+        ) {
+            activeRuntimeStatusModelPicker = null;
+        }
+    }
+
+    function renderOptions() {
+        const query = String(input.value || "").trim().toLowerCase();
+        const filteredOptions = options.filter((option) => {
+            return (
+                !query
+                || option.id.toLowerCase().includes(query)
+                || option.name.toLowerCase().includes(query)
+            );
+        });
+
+        dropdown.innerHTML = "";
+
+        if (!filteredOptions.length) {
+            const empty = document.createElement("span");
+            empty.className = "delayed-memory-modal-fact-empty";
+            empty.textContent = "no models";
+            dropdown.appendChild(empty);
+            return;
+        }
+
+        filteredOptions.forEach((option, index) => {
+            const optionButton = document.createElement("button");
+            const id = document.createElement("span");
+            const separator = document.createElement("span");
+            const text = document.createElement("span");
+
+            optionButton.type = "button";
+            optionButton.className = "delayed-memory-modal-fact-option";
+            optionButton.title = option.id;
+
+            id.className = "delayed-memory-modal-fact-option-id";
+            id.textContent = String(index + 1);
+
+            separator.className =
+                "delayed-memory-modal-fact-option-separator";
+            separator.textContent = ".";
+
+            text.className = "delayed-memory-modal-fact-option-text";
+            text.textContent = option.name || option.id;
+
+            optionButton.append(id, separator, text);
+            optionButton.addEventListener("click", (event) => {
+                event.preventDefault();
+                event.stopPropagation();
+                closePicker();
+
+                if (option.id === value) {
+                    return;
+                }
+
+                void saveRuntimeStatusConfig(
+                    role,
+                    {
+                        model: option.id,
+                    }
+                );
+            });
+
+            dropdown.appendChild(optionButton);
+        });
+    }
+
+    function openPicker() {
+        if (!online) {
+            return;
+        }
+
+        if (
+            activeRuntimeStatusModelPicker
+            && activeRuntimeStatusModelPicker.close !== closePicker
+        ) {
+            closeRuntimeStatusModelPicker();
+        }
+
+        activeRuntimeStatusModelPicker = {
+            close: closePicker,
+            container,
+        };
+        picker.classList.remove("hidden");
+        renderOptions();
+        input.focus({
+            preventScroll: true,
+        });
+    }
+
+    container.addEventListener("click", (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        openPicker();
+    });
+
+    container.addEventListener("keydown", (event) => {
+        if (event.key !== "Enter" && event.key !== " ") {
+            return;
+        }
+
+        event.preventDefault();
+        openPicker();
+    });
+
+    input.addEventListener("click", (event) => {
+        event.stopPropagation();
+    });
+
+    input.addEventListener("input", renderOptions);
+    input.addEventListener("keydown", (event) => {
+        if (event.key === "Escape") {
+            event.preventDefault();
+            event.stopPropagation();
+            closePicker();
+            container.focus({
+                preventScroll: true,
+            });
+            return;
+        }
+
+        if (event.key !== "Enter") {
+            return;
+        }
+
+        event.preventDefault();
+
+        const query = String(input.value || "").trim().toLowerCase();
+        const nextOption = options.find((option) => {
+            return (
+                option.id.toLowerCase() === query
+                || option.name.toLowerCase() === query
+            );
+        }) || options.find((option) => {
+            return (
+                !query
+                || option.id.toLowerCase().includes(query)
+                || option.name.toLowerCase().includes(query)
+            );
+        });
+
+        if (!nextOption) {
+            return;
+        }
+
+        closePicker();
+
+        if (nextOption.id !== value) {
+            void saveRuntimeStatusConfig(
+                role,
+                {
+                    model: nextOption.id,
+                }
+            );
+        }
+    });
+
+    picker.append(input, dropdown);
+    container.appendChild(picker);
+
+    return container;
+}
+
+function createRuntimeStatusConfiguredValue(role, value) {
+    const editor = document.createElement("span");
+    const normalizedValue = Number(value || 0);
+    let savedValue = (
+        Number.isFinite(normalizedValue)
+        && normalizedValue > 0
+    )
+        ? String(Math.trunc(normalizedValue))
+        : "";
+    let saveTimer = null;
+
+    editor.textContent = savedValue;
+    editor.setAttribute("contenteditable", "plaintext-only");
+    editor.setAttribute("spellcheck", "false");
+    editor.setAttribute("role", "textbox");
+    editor.setAttribute("aria-label", "Configured context");
+    editor.classList.add("delayed-memory-modal-editable");
+
+    function readNextValue() {
+        return String(editor.textContent || "")
+            .replace(/[^\d]/g, "")
+            .trim();
+    }
+
+    function restoreSavedValue() {
+        editor.textContent = savedValue;
+    }
+
+    function persistValue() {
+        const nextValue = readNextValue();
+        const nextNumber = Number(nextValue || 0);
+
+        if (
+            !nextValue
+            || !Number.isFinite(nextNumber)
+            || nextNumber <= 0
+        ) {
+            restoreSavedValue();
+            return;
+        }
+
+        const nextText = String(Math.trunc(nextNumber));
+
+        if (nextText === savedValue) {
+            editor.textContent = savedValue;
+            return;
+        }
+
+        savedValue = nextText;
+        editor.textContent = savedValue;
+
+        void saveRuntimeStatusConfig(
+            role,
+            {
+                configured_context_window: Number(savedValue),
+            }
+        );
+    }
+
+    function schedulePersistValue() {
+        window.clearTimeout(saveTimer);
+        saveTimer = window.setTimeout(
+            persistValue,
+            350
+        );
+    }
+
+    editor.addEventListener("input", schedulePersistValue);
+    editor.addEventListener("blur", () => {
+        window.clearTimeout(saveTimer);
+        persistValue();
+    });
+    editor.addEventListener("keydown", (event) => {
+        if (event.key !== "Enter") {
+            return;
+        }
+
+        event.preventDefault();
+        editor.blur();
+    });
+
+    return editor;
+}
+
 function closeRuntimeStatusModal() {
     if (!runtimeStatusModal) {
         return;
     }
 
+    closeRuntimeStatusModelPicker();
     runtimeStatusModal.classList.add("hidden");
     runtimeStatusModal.classList.remove("flex");
     activeRuntimeStatusRole = "";
@@ -241,6 +671,18 @@ function ensureRuntimeStatusModal() {
         if (event.key === "Escape" && activeRuntimeStatusRole) {
             closeRuntimeStatusModal();
         }
+    });
+
+    document.addEventListener("click", (event) => {
+        if (
+            !activeRuntimeStatusRole
+            || !activeRuntimeStatusModelPicker
+            || runtimeStatusModelPickerContains(event.target)
+        ) {
+            return;
+        }
+
+        closeRuntimeStatusModelPicker();
     });
 
     return runtimeStatusModal;
@@ -314,31 +756,19 @@ function renderRuntimeStatusModal(role) {
     const model = lmStudio.model || {};
     const loadedModel = lmStudio.loaded_model || {};
     const online = Boolean(status[normalizedRole]);
+    const configuredModel = (
+        roleConfig.model
+        || getRuntimeStatusModelId(model)
+        || getRuntimeStatusModelName(model)
+    );
 
     ensureRuntimeStatusModal();
     activeRuntimeStatusRole = normalizedRole;
     runtimeStatusModalTitle.textContent = `[ ${normalizedRole.toUpperCase()} ]`;
+    closeRuntimeStatusModelPicker({
+        blur: false,
+    });
     runtimeStatusModalContent.replaceChildren();
-
-    appendRuntimeStatusCard(
-        runtimeStatusModalContent,
-        "runtime",
-        [
-            ["status", online ? "online" : "offline"],
-            [
-                "model",
-                roleConfig.model
-                || findRuntimeStatusValue(model, "display_name", "name", "key", "id")
-            ],
-            ["context", roleConfig.max_tokens ? `${roleConfig.max_tokens} configured` : ""],
-            [
-                "route",
-                normalizedRole === "brain" && status.use_service_as_brain
-                    ? "service runtime"
-                    : "dedicated runtime",
-            ],
-        ]
-    );
 
     const contextLength = Number(
         findRuntimeStatusValue(
@@ -358,13 +788,46 @@ function renderRuntimeStatusModal(role) {
             "max_position_embeddings"
         ) || 0
     );
-    const contextText = contextLength > 0
-        ? (
-            maxContextLength > 0 && maxContextLength !== contextLength
-                ? `${contextLength} loaded / ${maxContextLength} max`
-                : `${contextLength}`
-        )
-        : (maxContextLength > 0 ? `${maxContextLength} max` : "");
+
+    appendRuntimeStatusCard(
+        runtimeStatusModalContent,
+        "runtime",
+        [
+            ["url", lmStudio.url],
+            ["status", online ? "online" : "offline"],
+            [
+                "model",
+                createRuntimeStatusModelValue(
+                    normalizedRole,
+                    configuredModel,
+                    lmStudio,
+                    online
+                )
+            ],
+            [
+                "route",
+                normalizedRole === "brain" && status.use_service_as_brain
+                    ? "service runtime"
+                    : "dedicated runtime",
+            ],
+        ]
+    );
+
+    appendRuntimeStatusCard(
+        runtimeStatusModalContent,
+        "context",
+        [
+            [
+                "configured",
+                createRuntimeStatusConfiguredValue(
+                    normalizedRole,
+                    roleConfig.max_tokens
+                ),
+            ],
+            ["loaded", contextLength > 0 ? contextLength : "unknown"],
+            ["maximum", maxContextLength > 0 ? maxContextLength : "unknown"],
+        ]
+    );
 
     appendRuntimeStatusCard(
         runtimeStatusModalContent,
@@ -374,7 +837,6 @@ function renderRuntimeStatusModal(role) {
             ["name", findRuntimeStatusValue(model, "display_name", "name", "key", "id")],
             ["state", findRuntimeStatusValue(loadedModel, "state", "status")],
             ["instance", findRuntimeStatusValue(loadedModel, "id", "key", "model")],
-            ["context", contextText],
             ["architecture", findRuntimeStatusValue(model, "architecture", "arch", "family")],
             [
                 "quantization",
@@ -415,8 +877,13 @@ function renderRuntimeStatusModal(role) {
 }
 
 async function openRuntimeStatusModal(role) {
-    const modal = ensureRuntimeStatusModal();
     const normalizedRole = String(role || "").trim().toLowerCase();
+
+    if (!runtimeStatusRoleIsOnline(normalizedRole)) {
+        return;
+    }
+
+    const modal = ensureRuntimeStatusModal();
 
     modal.classList.remove("hidden");
     modal.classList.add("flex");
@@ -463,7 +930,22 @@ async function loadBehaviorContract() {
 // UPDATE UI
 // -----------------------------------
 
-function setRuntimeChecking(dot, label, name) {
+function setRuntimeButtonInteractivity(button, enabled) {
+    if (!button) {
+        return;
+    }
+
+    button.disabled = !enabled;
+    button.setAttribute(
+        "aria-disabled",
+        enabled ? "false" : "true"
+    );
+    button.classList.toggle("cursor-pointer", enabled);
+    button.classList.toggle("hover:text-zinc-200", enabled);
+    button.classList.toggle("cursor-default", !enabled);
+}
+
+function setRuntimeChecking(dot, label, button, name) {
 
     dot.className =
         "h-2 w-2 rounded-full bg-slate-500 animate-pulse transition-all duration-300";
@@ -471,10 +953,15 @@ function setRuntimeChecking(dot, label, name) {
     label.textContent =
         name;
 
+    setRuntimeButtonInteractivity(
+        button,
+        false
+    );
+
 }
 
 
-function setRuntimeState(dot, label, name, online) {
+function setRuntimeState(dot, label, button, name, online) {
 
     if (online) {
 
@@ -494,6 +981,59 @@ function setRuntimeState(dot, label, name, online) {
 
     }
 
+    setRuntimeButtonInteractivity(
+        button,
+        Boolean(online)
+    );
+
+}
+
+function applyRuntimeStatusSnapshot(data) {
+    window.jinLatestStatus =
+        data;
+
+    setRuntimeState(
+      brainDot,
+      brainLabel,
+      brainStatusButton,
+      "BRAIN",
+      data.brain
+    );
+
+    setRuntimeState(
+      serviceDot,
+      serviceLabel,
+      serviceStatusButton,
+      "SERVICE",
+      data.service
+    );
+
+    window.jinRuntimeConfig = {
+        useServiceAsBrain:
+            Boolean(
+                data.use_service_as_brain
+            ),
+        formatResponse:
+            data.format_response !== false,
+        runtimeStatus: {
+            brain: Boolean(data.brain),
+            service: Boolean(data.service),
+        },
+        runtimeConfig:
+            data.runtime_config || {}
+    };
+
+    if (window.updateRuntimePanelFromStatus) {
+        window.updateRuntimePanelFromStatus(
+            data
+        );
+    }
+
+    if (activeRuntimeStatusRole) {
+        renderRuntimeStatusModal(
+            activeRuntimeStatusRole
+        );
+    }
 }
 
 // -----------------------------------
@@ -517,12 +1057,14 @@ async function updateRuntime(options = {}) {
         setRuntimeChecking(
           brainDot,
           brainLabel,
+          brainStatusButton,
           "BRAIN"
         );
 
         setRuntimeChecking(
           serviceDot,
           serviceLabel,
+          serviceStatusButton,
           "SERVICE"
         );
 
@@ -539,49 +1081,9 @@ async function updateRuntime(options = {}) {
 
         const data = await response.json();
 
-        window.jinLatestStatus =
-            data;
-
-        setRuntimeState(
-          brainDot,
-          brainLabel,
-          "BRAIN",
-          data.brain
+        applyRuntimeStatusSnapshot(
+            data
         );
-
-        setRuntimeState(
-          serviceDot,
-          serviceLabel,
-          "SERVICE",
-          data.service
-        );
-
-        window.jinRuntimeConfig = {
-            useServiceAsBrain:
-                Boolean(
-                    data.use_service_as_brain
-                ),
-            formatResponse:
-                data.format_response !== false,
-            runtimeStatus: {
-                brain: Boolean(data.brain),
-                service: Boolean(data.service),
-            },
-            runtimeConfig:
-                data.runtime_config || {}
-        };
-
-        if (window.updateRuntimePanelFromStatus) {
-            window.updateRuntimePanelFromStatus(
-                data
-            );
-        }
-
-        if (activeRuntimeStatusRole) {
-            renderRuntimeStatusModal(
-                activeRuntimeStatusRole
-            );
-        }
 
     } catch (err) {
 
@@ -599,34 +1101,9 @@ async function updateRuntime(options = {}) {
             ) || {},
         };
 
-        window.jinLatestStatus =
-            offlineStatus;
-
-        setRuntimeState(
-          brainDot,
-          brainLabel,
-          "BRAIN",
-          false
+        applyRuntimeStatusSnapshot(
+            offlineStatus
         );
-
-        setRuntimeState(
-          serviceDot,
-          serviceLabel,
-          "SERVICE",
-          false
-        );
-
-        if (window.updateRuntimePanelFromStatus) {
-            window.updateRuntimePanelFromStatus(
-                offlineStatus
-            );
-        }
-
-        if (activeRuntimeStatusRole) {
-            renderRuntimeStatusModal(
-                activeRuntimeStatusRole
-            );
-        }
 
     } finally {
 
@@ -661,6 +1138,32 @@ function runtimeStatusIsHealthy() {
 
 }
 
+function runtimeStatusRoleIsOnline(role) {
+    const normalizedRole =
+        String(role || "").trim().toLowerCase();
+    const latestStatus =
+        window.jinLatestStatus || {};
+    const runtimeConfig =
+        window.jinRuntimeConfig || {};
+    const runtimeStatus =
+        runtimeConfig.runtimeStatus || {};
+
+    if (
+        Object.prototype.hasOwnProperty.call(
+            latestStatus,
+            normalizedRole
+        )
+    ) {
+        return Boolean(
+            latestStatus[normalizedRole]
+        );
+    }
+
+    return Boolean(
+        runtimeStatus[normalizedRole]
+    );
+}
+
 function refreshRuntimeStatus() {
 
     // Focus/visibility changes are not a polling loop. If the WebSocket is
@@ -687,6 +1190,10 @@ function refreshRuntimeStatus() {
 serviceStatusButton?.addEventListener(
     "click",
     () => {
+        if (!runtimeStatusRoleIsOnline("service")) {
+            return;
+        }
+
         void openRuntimeStatusModal(
             "service"
         );
@@ -696,6 +1203,10 @@ serviceStatusButton?.addEventListener(
 brainStatusButton?.addEventListener(
     "click",
     () => {
+        if (!runtimeStatusRoleIsOnline("brain")) {
+            return;
+        }
+
         void openRuntimeStatusModal(
             "brain"
         );

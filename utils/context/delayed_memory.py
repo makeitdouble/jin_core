@@ -117,10 +117,10 @@ def format_delayed_memory_result_sections(
             )
             continue
 
-        if action == "save_delayed_memory_content":
+        if action == "save_delayed_memory":
             sections.append(
                 (
-                    "SAVE_DELAYED_MEMORY_CONTENT",
+                    "SAVE_DELAYED_MEMORY",
                     format_delayed_memory_report_result(
                         result
                     ),

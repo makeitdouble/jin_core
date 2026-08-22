@@ -3,7 +3,7 @@ import unittest
 
 from contracts.rules_assembler import (
     RUNTIME_ACTION_ASSET_ACTION,
-    RUNTIME_ACTION_SAVE_DELAYED_MEMORY_CONTENT,
+    RUNTIME_ACTION_SAVE_DELAYED_MEMORY,
     RUNTIME_ACTION_UPDATE_L4_FACTS,
 )
 from runtime.anonymous_mode import (
@@ -61,7 +61,7 @@ class AnonymousModeTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(
             runtime_action_write_is_restricted(
                 context,
-                RUNTIME_ACTION_SAVE_DELAYED_MEMORY_CONTENT,
+                RUNTIME_ACTION_SAVE_DELAYED_MEMORY,
                 "{}",
             )
         )

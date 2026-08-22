@@ -394,6 +394,9 @@ async def apply_save_active_memory_actions(
             if active_memory_id:
                 completed_event["active_memory_id"] = active_memory_id
 
+            if active_memory_line:
+                completed_event["active_memory"] = active_memory_line
+
             await emit(with_action_context(
                 completed_event
             ))
@@ -473,6 +476,7 @@ async def apply_update_active_memory_actions(
         event = {
             "type": "runtime_action",
             "action": "update_active_memory",
+            "id": result.get("id", ""),
             "status": "completed" if result.get("ok") else "failed",
             "display_name": display_name,
             "close_tag": runtime_action_has_close_tag(
@@ -494,6 +498,10 @@ async def apply_update_active_memory_actions(
             "active_memory_id": result.get("id", ""),
             "active_memory_title": result.get("title", ""),
             "active_memory_changes": result.get("changes", []),
+            "active_memory_requested_changes": result.get(
+                "requested_changes",
+                [],
+            ),
         }
 
         if not result.get("ok"):
