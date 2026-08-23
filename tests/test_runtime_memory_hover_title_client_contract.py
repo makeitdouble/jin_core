@@ -49,15 +49,19 @@ class RuntimeMemoryHoverTitleClientContractTests(unittest.TestCase):
             1,
         )
 
-    def test_rows_and_values_bind_hover_only_titles(self):
+    def test_row_hover_title_is_formatted_only_on_first_hover(self):
         source = MEMORY_VIEW_JS.read_text(encoding="utf-8")
 
+        self.assertIn("let hoverTitle = null;", source)
+        self.assertIn("if (hoverTitle === null) {", source)
         self.assertIn(
-            "bindRuntimeMemoryHoverTitle(\n        row,\n        hoverTitle",
+            "formatRuntimeMemoryHoverTitle(",
             source,
         )
-        self.assertIn(
-            "bindRuntimeMemoryHoverTitle(\n        valueSpan,\n        hoverTitle",
+        self.assertIn("row,", source)
+        self.assertIn("() => {", source)
+        self.assertNotIn(
+            "bindRuntimeMemoryHoverTitle(\n        valueSpan,",
             source,
         )
 

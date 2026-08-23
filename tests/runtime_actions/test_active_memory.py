@@ -162,7 +162,7 @@ class RuntimeActiveMemoryTests(RuntimeActionTestCase):
         self.assertEqual(result.actions, ())
         self.assertEqual(result.removed_markers, ())
 
-    def test_save_active_memory_marker_helpers_use_body_placeholder(self):
+    def test_save_active_memory_marker_helpers_use_conditions_placeholder(self):
 
         self.assertEqual(
             get_save_active_memory_marker_fields(),

@@ -80,7 +80,11 @@ class RuntimeMemoryRowPayloadClientContractTests(unittest.TestCase):
             source,
         )
         self.assertIn(
-            ").filter(row => getMemoryReferenceAliases(row).length);",
+            "getMemoryReferenceAliases(row).length",
+            source,
+        )
+        self.assertIn(
+            '!row.classList.contains("runtime-memory-l4-row")',
             source,
         )
         self.assertIn(
@@ -88,7 +92,11 @@ class RuntimeMemoryRowPayloadClientContractTests(unittest.TestCase):
             source,
         )
         self.assertIn(
-            "bindRuntimeMemoryHoverTitle(\n        row,\n        hoverTitle",
+            "let hoverTitle = null;",
+            source,
+        )
+        self.assertIn(
+            "formatRuntimeMemoryHoverTitle(",
             source,
         )
 

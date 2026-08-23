@@ -7,7 +7,8 @@
     "triggers": [],
     "blockers": [],
     "effects": {
-      "emit_followup": false
+      "emit_followup": false,
+      "follow_up_on_fail": false
     },
     "rules": [
       "Emit at any moment in you answer to clean redundant tool results and only if they are present in the context inside <TOOLS_RESULTS> block."

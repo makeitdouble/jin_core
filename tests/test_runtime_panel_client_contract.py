@@ -48,6 +48,30 @@ class RuntimePanelClientContractTests(unittest.TestCase):
             source,
         )
 
+    def test_context_bar_reflows_when_runtime_panel_width_changes(self):
+        source = RUNTIME_PANEL_JS.read_text(encoding="utf-8")
+
+        self.assertIn(
+            "let contextPanelResizeObserver = null;",
+            source,
+        )
+        self.assertIn(
+            'typeof window.ResizeObserver === "function"',
+            source,
+        )
+        self.assertIn(
+            "contextPanelResizeObserver.observe(",
+            source,
+        )
+        self.assertIn(
+            "contextRuntimePanel",
+            source,
+        )
+        self.assertIn(
+            "scheduleRuntimeTelemetryFrame();",
+            source,
+        )
+
     def test_submit_focuses_brain_context_tab(self):
         panel_source = RUNTIME_PANEL_JS.read_text(encoding="utf-8")
         input_source = SOCKET_INPUT_JS.read_text(encoding="utf-8")
@@ -174,7 +198,7 @@ class RuntimePanelClientContractTests(unittest.TestCase):
         source = INDEX_HTML.read_text(encoding="utf-8")
 
         self.assertIn(
-            "/static/js/runtime/runtime-panel.js?v=live-reasoning-tokens-1",
+            "/static/js/runtime/runtime-panel.js?v=context-bar-resize-1",
             source,
         )
         self.assertIn(

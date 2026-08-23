@@ -234,6 +234,9 @@ class RuntimeContext:
     runtime_l4_merge_deferred_pending_until: dict[str, float] = field(
         default_factory=dict
     )
+    runtime_l4_merge_single_retry_pending_ids: set[str] = field(
+        default_factory=set
+    )
     runtime_l4_merge_force_single_batch_once: bool = False
     runtime_l4_memory_update_kind: str = ""
     runtime_l4_idle_last_started_at: float = 0.0

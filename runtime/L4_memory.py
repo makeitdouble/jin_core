@@ -34,13 +34,13 @@ from runtime.L4_memory_utils import (
     format_l4_merge_operation_details,
     format_long_term_memory_context,
     infer_l4_jin_note_action,
+    inspect_l4_merge_shard_scan,
     l4_jin_note_requests_new_fact,
     mark_facts_memory_fields_analyzed,
     merge_l4_store_snapshots,
     normalize_facts_memory_records,
     normalize_l4_candidates,
     normalize_l4_merge_operations,
-    normalize_l4_merge_shard_scan,
     normalize_l4_key,
     normalize_l4_store,
     normalize_l4_text,
@@ -102,6 +102,7 @@ def reset_l4_merge_recovery_state(
         context.runtime_l4_merge_existing_batch_mode = ""
         context.runtime_l4_merge_paused_signature = ""
         context.runtime_l4_merge_deferred_pending_until = {}
+        context.runtime_l4_merge_single_retry_pending_ids = set()
         context.runtime_l4_merge_force_single_batch_once = False
     context.runtime_l4_merge_truncation_streak = 0
     context.runtime_l4_merge_retry_not_before = 0.0
@@ -298,6 +299,89 @@ def clear_l4_merge_pending_recovery(
     for pending_id in pending_ids or []:
         deferred.pop(str(pending_id or "").strip(), None)
     context.runtime_l4_merge_deferred_pending_until = deferred
+
+    single_retry_ids = set(
+        getattr(
+            context,
+            "runtime_l4_merge_single_retry_pending_ids",
+            set(),
+        )
+        or set()
+    )
+    for pending_id in pending_ids or []:
+        single_retry_ids.discard(str(pending_id or "").strip())
+    context.runtime_l4_merge_single_retry_pending_ids = single_retry_ids
+
+
+def record_l4_merge_shard_scan_failures(
+    context,
+    *,
+    pending_ids: list[str],
+) -> dict:
+    """Defer only bad shard-scan items and force their retries to be isolated."""
+
+    normalized_pending_ids = []
+    seen = set()
+    for pending_id in pending_ids or []:
+        normalized = str(pending_id or "").strip()
+        if not normalized or normalized in seen:
+            continue
+        seen.add(normalized)
+        normalized_pending_ids.append(normalized)
+
+    deferred = dict(
+        getattr(
+            context,
+            "runtime_l4_merge_deferred_pending_until",
+            {},
+        )
+        or {}
+    )
+    single_retry_ids = set(
+        getattr(
+            context,
+            "runtime_l4_merge_single_retry_pending_ids",
+            set(),
+        )
+        or set()
+    )
+    now = time.monotonic()
+    poison_ids = []
+
+    for pending_id in normalized_pending_ids:
+        # First failed repair gets a short isolated retry. If that same pending
+        # fact later fails another isolated shard repair, cool it down longer
+        # instead of hammering the service model every idle tick.
+        already_isolated = pending_id in single_retry_ids
+        retry_after = (
+            L4_MERGE_POISON_DEFER_SECONDS
+            if already_isolated
+            else L4_MERGE_VALIDATION_RETRY_SECONDS
+        )
+        if already_isolated:
+            poison_ids.append(pending_id)
+        deferred[pending_id] = now + retry_after
+        single_retry_ids.add(pending_id)
+
+    context.runtime_l4_merge_deferred_pending_until = deferred
+    context.runtime_l4_merge_single_retry_pending_ids = single_retry_ids
+
+    retry_after_seconds = (
+        L4_MERGE_POISON_DEFER_SECONDS
+        if poison_ids
+        else L4_MERGE_VALIDATION_RETRY_SECONDS
+    )
+    return {
+        "retry_behavior": (
+            "The shard scan repair pass still failed only for these pending "
+            "facts. Valid pending facts continue immediately; failed facts "
+            "stay pending and are retried one at a time after the backoff."
+        ),
+        "deferred_pending_ids": normalized_pending_ids,
+        "single_retry_pending_ids": normalized_pending_ids,
+        "poison_deferred_pending_ids": poison_ids,
+        "retry_after_seconds": retry_after_seconds,
+    }
 
 
 def get_l4_merge_available_pending_queue(
@@ -2206,6 +2290,53 @@ async def run_l4_merge_phase(*, context, service_client) -> dict:
     if deferred_backoff is not None:
         return deferred_backoff
 
+    all_pending_ids = {
+        str(fact.get("id") or "").strip()
+        for fact in base_store.get("pending_facts") or []
+        if isinstance(fact, dict) and str(fact.get("id") or "").strip()
+    }
+    single_retry_ids = {
+        pending_id
+        for pending_id in set(
+            getattr(
+                context,
+                "runtime_l4_merge_single_retry_pending_ids",
+                set(),
+            )
+            or set()
+        )
+        if pending_id in all_pending_ids
+    }
+    context.runtime_l4_merge_single_retry_pending_ids = single_retry_ids
+
+    single_retry_pending_id = next(
+        (
+            str(fact.get("id") or "").strip()
+            for fact in pending_queue
+            if isinstance(fact, dict)
+            and str(fact.get("id") or "").strip() in single_retry_ids
+        ),
+        "",
+    )
+    if single_retry_pending_id:
+        # Once a repaired shard item has failed, retry that candidate alone.
+        # Move only the due retry to the front without mutating canonical FIFO
+        # storage; later valid items remain available on the following tick.
+        pending_queue = [
+            *[
+                fact
+                for fact in pending_queue
+                if str(fact.get("id") or "").strip()
+                == single_retry_pending_id
+            ],
+            *[
+                fact
+                for fact in pending_queue
+                if str(fact.get("id") or "").strip()
+                != single_retry_pending_id
+            ],
+        ]
+
     system_prompt = build_l4_merge_system_prompt()
     runtime_context_window = 0
     context_window_resolver = getattr(
@@ -2245,7 +2376,8 @@ async def run_l4_merge_phase(*, context, service_client) -> dict:
     )
     protected_fact_ids = get_runtime_l4_explicit_edit_fact_ids(context)
     force_single_batch = bool(
-        getattr(
+        single_retry_pending_id
+        or getattr(
             context,
             "runtime_l4_merge_force_single_batch_once",
             False,
@@ -2287,6 +2419,8 @@ async def run_l4_merge_phase(*, context, service_client) -> dict:
                 "shard_scan": [],
                 "shard_previous_facts": [],
                 "shard_second_half": [],
+                "shard_scan_recovery": {},
+                "finalize_budget_trimmed": False,
             }
 
         first_half, second_half = existing_batches
@@ -2332,41 +2466,148 @@ async def run_l4_merge_phase(*, context, service_client) -> dict:
         scan_payload = extract_l4_json_payload(
             extract_runtime_memory_text(scan_response)
         )
-        scan_results = normalize_l4_merge_shard_scan(
+        visible_first_half_ids = [
+            fact.get("id")
+            for fact in first_half
+            if isinstance(fact, dict)
+        ]
+        scan_inspection = inspect_l4_merge_shard_scan(
             scan_payload,
             pending_ids=selected_pending_ids,
-            visible_fact_ids=[
-                fact.get("id")
-                for fact in first_half
-                if isinstance(fact, dict)
-            ],
+            visible_fact_ids=visible_first_half_ids,
         )
-        if not scan_results:
-            recovery = record_l4_merge_validation_failure(
-                context,
-                pending_ids=selected_pending_ids,
-                batch_count=len(selected_pending),
+        scan_results = list(scan_inspection["results"])
+        shard_scan_recovery = {}
+        initial_invalid_ids = list(scan_inspection["invalid_pending_ids"])
+
+        if initial_invalid_ids:
+            invalid_id_set = set(initial_invalid_ids)
+            repair_pending = [
+                fact
+                for fact in selected_pending
+                if str(fact.get("id") or "").strip() in invalid_id_set
+            ]
+            repair_context = {
+                "validation_error": "invalid_shard_scan_items",
+                "required_pending_ids": initial_invalid_ids,
+                "pending_errors": scan_inspection["pending_errors"],
+                "global_errors": scan_inspection["global_errors"],
+                "previous_scan": (
+                    scan_payload.get("scan", [])
+                    if isinstance(scan_payload, dict)
+                    else []
+                ),
+                "instruction": (
+                    "Repair only the required pending_ids. Return exactly one "
+                    "valid scan row for each required pending_id and no rows "
+                    "for any other pending_id. Use only fact IDs visible in "
+                    "this shard. Return corrected JSON only."
+                ),
+            }
+            repair_prompt = build_l4_merge_shard_scan_user_prompt(
+                existing_facts=first_half,
+                pending_facts=repair_pending,
+                protected_fact_ids=protected_fact_ids,
+                repair_context=repair_context,
             )
-            terminal = await log_l4_skip_event(
-                context,
-                phase="merge",
-                message_phase="merge",
-                reason="invalid_shard_scan",
-                details={
-                    "pending_count": len(selected_pending),
-                    "pending_ids": selected_pending_ids,
-                    "existing_batch_mode": "halves",
-                    "shard": 1,
-                    **recovery,
-                },
+            repair_response = await ask_l4_model(
+                context=context,
+                service_client=service_client,
+                label="L4 merge",
+                system_prompt=scan_system_prompt,
+                user_prompt=repair_prompt,
+                max_tokens=first_plan["requested_max_output_tokens"],
             )
-            return {"terminal": terminal}
+            repair_error = ""
+            if is_runtime_memory_response_truncated(repair_response):
+                repair_inspection = {
+                    "results": [],
+                    "valid_pending_ids": [],
+                    "invalid_pending_ids": initial_invalid_ids,
+                    "pending_errors": {
+                        pending_id: ["repair_response_truncated"]
+                        for pending_id in initial_invalid_ids
+                    },
+                    "global_errors": ["repair_response_truncated"],
+                }
+                repair_error = "response_truncated"
+            else:
+                repair_payload = extract_l4_json_payload(
+                    extract_runtime_memory_text(repair_response)
+                )
+                repair_inspection = inspect_l4_merge_shard_scan(
+                    repair_payload,
+                    pending_ids=initial_invalid_ids,
+                    visible_fact_ids=visible_first_half_ids,
+                )
+
+            results_by_pending = {
+                item["pending_id"]: item
+                for item in [
+                    *scan_results,
+                    *repair_inspection["results"],
+                ]
+            }
+            scan_results = [
+                results_by_pending[pending_id]
+                for pending_id in selected_pending_ids
+                if pending_id in results_by_pending
+            ]
+            repaired_pending_ids = list(
+                repair_inspection["valid_pending_ids"]
+            )
+            unrepaired_pending_ids = list(
+                repair_inspection["invalid_pending_ids"]
+            )
+            shard_scan_recovery = {
+                "repair_attempted": True,
+                "initial_invalid_pending_ids": initial_invalid_ids,
+                "initial_validation_errors": scan_inspection["pending_errors"],
+                "initial_global_errors": scan_inspection["global_errors"],
+                "repaired_pending_ids": repaired_pending_ids,
+                "repair_validation_errors": repair_inspection["pending_errors"],
+                "repair_global_errors": repair_inspection["global_errors"],
+                **({"repair_error": repair_error} if repair_error else {}),
+            }
+
+            if unrepaired_pending_ids:
+                isolation = record_l4_merge_shard_scan_failures(
+                    context,
+                    pending_ids=unrepaired_pending_ids,
+                )
+                shard_scan_recovery.update(isolation)
+
+            if not scan_results:
+                terminal = await log_l4_skip_event(
+                    context,
+                    phase="merge",
+                    message_phase="merge",
+                    reason="invalid_shard_scan",
+                    details={
+                        "pending_count": len(selected_pending),
+                        "pending_ids": selected_pending_ids,
+                        "existing_batch_mode": "halves",
+                        "shard": 1,
+                        **shard_scan_recovery,
+                    },
+                )
+                return {"terminal": terminal}
 
         # The first pass returns only compact overlap evidence. Before the
         # second request, trim the pending prefix if that hand-off metadata
         # consumes the last bit of the live context budget. Extra first-pass
         # scan results are harmless and remain queued for the next idle tick.
-        final_pending = list(selected_pending)
+        scan_valid_ids = {
+            item.get("pending_id")
+            for item in scan_results
+            if item.get("pending_id")
+        }
+        final_pending = [
+            fact
+            for fact in selected_pending
+            if str(fact.get("id") or "").strip() in scan_valid_ids
+        ]
+        scan_eligible_pending_count = len(final_pending)
         final_scan = list(scan_results)
         final_prompt = ""
         final_previous_facts = []
@@ -2448,6 +2689,10 @@ async def run_l4_merge_phase(*, context, service_client) -> dict:
             "shard_scan": final_scan,
             "shard_previous_facts": final_previous_facts,
             "shard_second_half": second_half,
+            "shard_scan_recovery": shard_scan_recovery,
+            "finalize_budget_trimmed": (
+                len(final_pending) < scan_eligible_pending_count
+            ),
         }
 
     execution = None
@@ -2540,9 +2785,12 @@ async def run_l4_merge_phase(*, context, service_client) -> dict:
     shard_scan = execution["shard_scan"]
     shard_previous_facts = execution["shard_previous_facts"]
     shard_second_half = execution["shard_second_half"]
+    shard_scan_recovery = execution.get("shard_scan_recovery") or {}
+    finalize_budget_trimmed = bool(execution.get("finalize_budget_trimmed"))
     user_prompt = batch_plan["user_prompt"]
     if (
-        planned_batch_count
+        finalize_budget_trimmed
+        and planned_batch_count
         and len(pending_facts) < planned_batch_count
         and len(pending_queue) > len(pending_facts)
     ):
@@ -2556,6 +2804,8 @@ async def run_l4_merge_phase(*, context, service_client) -> dict:
             pending_ids=pending_ids,
         )
         truncation_details["existing_batch_mode"] = merge_mode
+        if shard_scan_recovery:
+            truncation_details["shard_scan_recovery"] = shard_scan_recovery
         truncation_details.update(
             record_l4_merge_truncation(
                 context,
@@ -2773,6 +3023,9 @@ async def run_l4_merge_phase(*, context, service_client) -> dict:
                 set(protected_pending_ids)
             )
         merge_change = rebased_change
+
+    if shard_scan_recovery:
+        merge_change["shard_scan_recovery"] = shard_scan_recovery
 
     context.runtime_long_term_memory_store = next_store
     clear_l4_merge_pending_recovery(

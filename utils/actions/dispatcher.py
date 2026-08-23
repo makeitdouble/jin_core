@@ -27,6 +27,7 @@ from contracts.rules_assembler import (
     get_runtime_action_display_name,
     runtime_action_has_close_tag,
     runtime_action_emits_followup,
+    runtime_action_follows_up_on_fail,
 )
 from rules.runtime import (
     ACTION_REJECTED_MISSING_TRIGGER_WORDS_MESSAGE,
@@ -57,7 +58,9 @@ from utils.skills_asset_utils import (
     normalize_skill_name,
 )
 from utils.tool_results import (
+    TOOL_RESULT_KIND_ACTIVE_MEMORY,
     clear_runtime_tool_results_before_state,
+    record_runtime_tool_result,
     snapshot_runtime_tool_results_state,
 )
 from utils.runtime_action_abort import (
@@ -920,6 +923,24 @@ async def apply_runtime_action_calls(
             )
 
             if not active_memory_line:
+                failure_result = {
+                    "ok": False,
+                    "action": "save_active_memory",
+                    "error": "invalid_active_memory_payload",
+                    "detail": "invalid payload",
+                    "payload": str(action.payload or "").strip(),
+                }
+                rejected_action_events[id(action)] = {
+                    "status": "failed",
+                    "error": failure_result["error"],
+                    "failure_reason": failure_result["detail"],
+                    "failed_marker_payload": failure_result["payload"],
+                }
+                record_runtime_tool_result(
+                    context,
+                    TOOL_RESULT_KIND_ACTIVE_MEMORY,
+                    failure_result,
+                )
                 continue
 
             if not accept_runtime_action_once_per_message(
@@ -937,7 +958,11 @@ async def apply_runtime_action_calls(
             continue
 
         if action.name == RUNTIME_ACTION_UPDATE_ACTIVE_MEMORY:
-            normalized_payload, _, _ = normalize_update_active_memory_payload_reference(
+            (
+                normalized_payload,
+                requested_reference,
+                resolved_reference_id,
+            ) = normalize_update_active_memory_payload_reference(
                 context,
                 action.payload,
             )
@@ -946,6 +971,34 @@ async def apply_runtime_action_calls(
             )
 
             if not active_memory_id or not update_fields:
+                failure_error = (
+                    "active_memory_not_found"
+                    if requested_reference and not resolved_reference_id
+                    else "invalid_update_active_memory_payload"
+                )
+                failure_reason = (
+                    "incorrect id"
+                    if failure_error == "active_memory_not_found"
+                    else "invalid payload"
+                )
+                failure_result = {
+                    "ok": False,
+                    "action": "update_active_memory",
+                    "error": failure_error,
+                    "detail": failure_reason,
+                    "payload": str(action.payload or "").strip(),
+                }
+                rejected_action_events[id(action)] = {
+                    "status": "failed",
+                    "error": failure_error,
+                    "failure_reason": failure_reason,
+                    "failed_marker_payload": failure_result["payload"],
+                }
+                record_runtime_tool_result(
+                    context,
+                    TOOL_RESULT_KIND_ACTIVE_MEMORY,
+                    failure_result,
+                )
                 continue
 
             update_key = (
@@ -1520,6 +1573,9 @@ async def apply_runtime_action_calls(
                         "behavior_contract_blocker_matched",
                         "restricted_write",
                     }
+                    and not runtime_action_follows_up_on_fail(
+                        action.name
+                    )
                 ):
                     continue
 
@@ -1542,9 +1598,15 @@ async def apply_runtime_action_calls(
                         "error",
                         "",
                     ),
-                    "detail": rejected_event.get(
-                        "failure_followup_message",
-                        "",
+                    "detail": (
+                        rejected_event.get(
+                            "failure_followup_message",
+                            "",
+                        )
+                        or rejected_event.get(
+                            "failure_reason",
+                            "",
+                        )
                     ),
                 }
                 action_display_id = str(

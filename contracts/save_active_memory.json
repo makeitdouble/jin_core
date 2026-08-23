@@ -7,20 +7,19 @@
     "triggers": [],
     "blockers": [],
     "effects": {
-      "emit_followup": false
+      "emit_followup": false,
+      "follow_up_on_fail": true
     },
     "rules": [
       "Use when a clear, concrete unresolved intention, promise, condition, reminder, live rule, or future condition appears and keeping it pending would help the current or near-future conversation.",
+      "Avoid duplicating with long term facts, basic rules or another active memories.",
       "Emit using exactly this schema:",
       "<SAVE_ACTIVE_MEMORY>",
-      "{\"conditions\":\"CONDITIONS\",\"custom_field_name\":\"VALUE\"}",
+      "{\"conditions\":\"\",\"custom_field_name\":\"\"}",
       "</SAVE_ACTIVE_MEMORY>",
-      "conditions is the required default field; fill it with the concrete pending item to preserve.",
-      "Emit one plain JSON object inside the tag body. Put each optional custom field beside conditions at the JSON root; do not nest custom fields under fields or any other wrapper.",
-      "Do not save trivial exchanges, unstable ideas, identity anchors, broad user preferences, etc."
+      "conditions is required and must be non-empty."
     ],
     "close_tag": true,
-    "body_placeholder": "{\"conditions\":\"CONDITIONS\"}",
-    "display_payload": true
+    "display_payload": false
   }
 }

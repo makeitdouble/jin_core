@@ -128,7 +128,14 @@
         ? memoryPanel.querySelector(".memory-scroll")
         : null;
 
-  const RUNTIME_MEMORY_LAZY_BATCH_SIZE = 40;
+  // Per-panel lazy materialization knobs. Keep these together so the UI
+  // page size can be tuned without touching the render pipeline.
+  const ACTIVE_MEMORY_LAZY_BATCH_SIZE = 50;
+  const DELAYED_MEMORY_LAZY_BATCH_SIZE = 50;
+  const FACTS_MEMORY_LAZY_BATCH_SIZE = 50;
+  const LONG_TERM_MEMORY_LAZY_BATCH_SIZE = 20;
+  const LONG_TERM_MEMORY_VALUE_DISPLAY_MAX_CHARS = 78;
+  const FILES_MEMORY_LAZY_BATCH_SIZE = 50;
   const RUNTIME_MEMORY_LAZY_BOTTOM_THRESHOLD_PX = 160;
 
   let runtimeMemoryLazyMode = "";
@@ -168,6 +175,35 @@
     if (typeof setDisplayMode === "function") {
       setDisplayMode(mode);
     }
+  }
+
+  function getRuntimeMemoryLazyBatchSize(displayMode) {
+    const mode =
+        String(displayMode || getRuntimeMemoryDisplayMode()).trim();
+
+    if (mode === "long_term") {
+      return LONG_TERM_MEMORY_LAZY_BATCH_SIZE;
+    }
+
+    if (mode === "active") {
+      return ACTIVE_MEMORY_LAZY_BATCH_SIZE;
+    }
+
+    if (mode === "delayed") {
+      return DELAYED_MEMORY_LAZY_BATCH_SIZE;
+    }
+
+    if (mode === "facts") {
+      return FACTS_MEMORY_LAZY_BATCH_SIZE;
+    }
+
+    if (mode === "files") {
+      return FILES_MEMORY_LAZY_BATCH_SIZE;
+    }
+
+    // Runtime snapshots are not one of the five alternate memory panels.
+    // Keep their materialization at the common default.
+    return 50;
   }
 
   function normalizeMemoryReferenceSearchText(value) {
@@ -476,6 +512,30 @@
     );
   }
 
+  function getLongTermMemoryFullValueText(line) {
+    return String(
+      memoryModel.splitMemoryMeta(line && line.value || "").text
+      || ""
+    ).replace(/\\n/g, " ↵ ");
+  }
+
+  function truncateLongTermMemoryValueForDisplay(value) {
+    const chars =
+        Array.from(String(value || ""));
+
+    if (
+        chars.length
+        <= LONG_TERM_MEMORY_VALUE_DISPLAY_MAX_CHARS
+    ) {
+      return String(value || "");
+    }
+
+    return `${chars
+      .slice(0, LONG_TERM_MEMORY_VALUE_DISPLAY_MAX_CHARS)
+      .join("")
+      .trimEnd()}...`;
+  }
+
   function syncLongTermMemoryRowValueDisplay(row) {
     if (!row || !row.classList.contains("runtime-memory-l4-row")) {
       return;
@@ -485,8 +545,9 @@
         row.querySelector(".runtime-memory-value");
     const valueTextNode =
         valueSpan
-          ? Array.from(valueSpan.childNodes)
-              .find(node => node.nodeType === 3)
+        && valueSpan.firstChild
+        && valueSpan.firstChild.nodeType === 3
+          ? valueSpan.firstChild
           : null;
 
     if (!valueTextNode) {
@@ -502,13 +563,14 @@
           state && state.runtimeMemoryValueFullText
           || defaultText
         );
+    const nextValue =
+        isLongTermMemoryRowBubbled(row)
+          ? fullText
+          : defaultText;
 
-    valueTextNode.nodeValue =
-        ` ${
-          isLongTermMemoryRowBubbled(row)
-            ? fullText
-            : defaultText
-        }`;
+    if (valueTextNode.nodeValue !== nextValue) {
+      valueTextNode.nodeValue = nextValue;
+    }
   }
 
   function clearRuntimeMemoryHighlightClasses() {
@@ -525,12 +587,18 @@
         ].join(", ")
       )
       .forEach((row) => {
+        const wasBubbled =
+            isLongTermMemoryRowBubbled(row);
+
         row.classList.remove(
           "runtime-memory-reference-hit",
           "runtime-memory-citation-hit",
           "runtime-memory-external-hover-hit"
         );
-        syncLongTermMemoryRowValueDisplay(row);
+
+        if (wasBubbled !== isLongTermMemoryRowBubbled(row)) {
+          syncLongTermMemoryRowValueDisplay(row);
+        }
       });
   }
 
@@ -571,6 +639,8 @@
 
   function beginRuntimeMemoryLazyCollection(items, renderItem) {
     const source = Array.isArray(items) ? items : [];
+    const batchSize =
+        getRuntimeMemoryLazyBatchSize(runtimeMemoryLazyMode);
 
     clearRuntimeMemoryLazyCollection();
     runtimeMemoryLazyTotalCount = source.length;
@@ -579,7 +649,7 @@
       const start = runtimeMemoryLazyRenderedCount;
       const end = Math.min(
         runtimeMemoryLazyTotalCount,
-        start + RUNTIME_MEMORY_LAZY_BATCH_SIZE
+        start + batchSize
       );
 
       for (let index = start; index < end; index += 1) {
@@ -653,10 +723,11 @@
     const scrollingDown = currentScrollTop > runtimeMemoryLastScrollTop;
     runtimeMemoryLastScrollTop = currentScrollTop;
 
-    if (
-        !scrollingDown
-        || Date.now() - runtimeMemoryLastBatchRevealAt < 80
-    ) {
+    // Native middle-button autoscroll emits only `scroll` events and can
+    // stop at the current bottom. Do not debounce real downward movement:
+    // appending a batch moves the bottom away, so the distance check below
+    // already prevents duplicate reveals until the viewport catches up.
+    if (!scrollingDown) {
       return;
     }
 
@@ -796,46 +867,73 @@
 
     const sourceText =
         getActiveMemoryReferenceText();
-    const rows = Array.from(
-      runtimeMemoryText.querySelectorAll(
-        ".runtime-memory-line:not(.runtime-memory-user-idle)"
-      )
-    ).filter(row => getMemoryReferenceAliases(row).length);
+    const rows =
+        Array.isArray(options.rows)
+          ? options.rows
+          : Array.from(
+              runtimeMemoryText.querySelectorAll(
+                ".runtime-memory-line:not(.runtime-memory-user-idle)"
+              )
+            );
+
+    // L4 is citation-gated. Keep it completely out of generic alias matching
+    // instead of building aliases only to reject the row afterwards.
+    const persistentRows =
+        rows.filter((row) => (
+          !row.classList.contains("runtime-memory-l4-row")
+          && getMemoryReferenceAliases(row).length
+        ));
     const aliasUsage =
-        buildMemoryReferenceAliasUsage(rows);
+        sourceText
+          ? buildMemoryReferenceAliasUsage(persistentRows)
+          : new Map();
 
     rows.forEach((row) => {
-        // L4 is citation-gated. Generic persistent answer/reasoning text may
-        // contain words from a durable fact value and must never make that fact
-        // jump in the panel. L4 focus is exposed only by an explicit structured
-        // reasoning citation (F-id / full fact key) handled below.
-        const persistentReferenceEligible =
-          !row.classList.contains("runtime-memory-l4-row");
-        const matched = Boolean(
-          persistentReferenceEligible
-          && sourceText
-          && getMemoryReferenceAliases(row)
-            .some(alias => (
-              Number(
-                aliasUsage.get(
-                  normalizeMemoryReferenceSearchText(alias).trim()
-                ) || 0
-              ) === 1
-              &&
-              containsMemoryReference(
-                sourceText,
-                alias
-              )
-            ))
-        );
+      if (!row.classList.contains("runtime-memory-l4-row")) {
+        return;
+      }
 
-        row.classList.toggle(
-          "runtime-memory-reference-hit",
-          matched
-        );
-      });
+      if (!row.classList.contains("runtime-memory-reference-hit")) {
+        return;
+      }
 
-    applyThinkMemoryCitationHighlights(options);
+      const wasBubbled =
+          isLongTermMemoryRowBubbled(row);
+
+      row.classList.remove("runtime-memory-reference-hit");
+
+      if (wasBubbled !== isLongTermMemoryRowBubbled(row)) {
+        syncLongTermMemoryRowValueDisplay(row);
+      }
+    });
+
+    persistentRows.forEach((row) => {
+      const matched = Boolean(
+        sourceText
+        && getMemoryReferenceAliases(row)
+          .some(alias => (
+            Number(
+              aliasUsage.get(
+                normalizeMemoryReferenceSearchText(alias).trim()
+              ) || 0
+            ) === 1
+            && containsMemoryReference(
+              sourceText,
+              alias
+            )
+          ))
+      );
+
+      row.classList.toggle(
+        "runtime-memory-reference-hit",
+        matched
+      );
+    });
+
+    applyThinkMemoryCitationHighlights({
+      ...options,
+      rows,
+    });
   }
 
   function shouldReduceRuntimeMemoryMotion() {
@@ -997,15 +1095,14 @@
       return;
     }
 
-    const rows = Array.from(
-      runtimeMemoryText.querySelectorAll(
-        ".runtime-memory-line:not(.runtime-memory-user-idle)"
-      )
-    );
-
-    rows.forEach(
-      syncLongTermMemoryRowValueDisplay
-    );
+    const rows =
+        Array.isArray(options.rows)
+          ? options.rows
+          : Array.from(
+              runtimeMemoryText.querySelectorAll(
+                ".runtime-memory-line:not(.runtime-memory-user-idle)"
+              )
+            );
 
     if (rows.length < 2) {
       applyRuntimeMemoryLazyVisibility();
@@ -1017,6 +1114,25 @@
         row.dataset.memoryHighlightSortIndex = String(index);
       }
     });
+
+    const hasHighlightedRow =
+        rows.some(row => (
+          row.classList.contains("runtime-memory-reference-hit")
+          || row.classList.contains("runtime-memory-citation-hit")
+          || row.classList.contains("runtime-memory-context-loaded-hit")
+        ));
+    const alreadyInSourceOrder =
+        rows.every((row, index) => (
+          index === 0
+          || Number(
+              rows[index - 1].dataset.memoryHighlightSortIndex || 0
+            ) <= Number(row.dataset.memoryHighlightSortIndex || 0)
+        ));
+
+    if (!hasHighlightedRow && alreadyInSourceOrder) {
+      applyRuntimeMemoryLazyVisibility();
+      return;
+    }
 
     const sortedRows = rows
       .slice()
@@ -1112,11 +1228,15 @@
     const activeIdentities =
       getActiveThinkMemoryCitationIdentitySets();
 
-    const citationRows = Array.from(
-      runtimeMemoryText.querySelectorAll(
-        ".runtime-memory-line:not(.runtime-memory-user-idle)"
-      )
-    ).filter((row) => {
+    const rows =
+        Array.isArray(options.rows)
+          ? options.rows
+          : Array.from(
+              runtimeMemoryText.querySelectorAll(
+                ".runtime-memory-line:not(.runtime-memory-user-idle)"
+              )
+            );
+    const citationRows = rows.filter((row) => {
       const citationState =
           getRuntimeMemoryRowCitationState(row);
 
@@ -1177,13 +1297,23 @@
             ? activeIdentities.lineIdentities.has(lineIdentity)
             : (exactTextMatch || uniqueKeyMatch);
 
+      const wasBubbled =
+          isLongTermMemoryRowBubbled(row);
+
       row.classList.toggle(
         "runtime-memory-citation-hit",
         Boolean(matched)
       );
+
+      if (wasBubbled !== isLongTermMemoryRowBubbled(row)) {
+        syncLongTermMemoryRowValueDisplay(row);
+      }
     });
 
-    sortHighlightedMemoryRows(options);
+    sortHighlightedMemoryRows({
+      ...options,
+      rows,
+    });
   }
 
   function handleThinkMemoryCitationHighlight(event) {
@@ -1472,10 +1602,10 @@
     return linkedReportIds;
   }
 
-  function getContextLoadedDelayedMemoryFactIds() {
+  function buildContextLoadedDelayedMemoryFactIds(reports) {
     const factIds = new Set();
 
-    getDelayedMemoryReportRecords()
+    (Array.isArray(reports) ? reports : [])
       .filter(isDelayedMemoryReportInContext)
       .forEach((report) => {
         normalizeDelayedMemoryFactIds([
@@ -1487,6 +1617,12 @@
       });
 
     return factIds;
+  }
+
+  function getContextLoadedDelayedMemoryFactIds() {
+    return buildContextLoadedDelayedMemoryFactIds(
+        getDelayedMemoryReportRecords()
+    );
   }
 
   function reportReferencesLongTermFactId(report, factId) {
@@ -1508,6 +1644,25 @@
       report.absorbed_fact_ids,
       report.long_term_facts_ids,
     ]).includes(normalizedFactId);
+  }
+
+  function buildDelayedMemoryFactReportIndex(reports) {
+    const reportByFactId = new Map();
+
+    (Array.isArray(reports) ? reports : []).forEach((report) => {
+      normalizeDelayedMemoryFactIds([
+        report.anchor_fact_ids,
+        report.facts_ids,
+        report.absorbed_fact_ids,
+        report.long_term_facts_ids,
+      ]).forEach((factId) => {
+        if (!reportByFactId.has(factId)) {
+          reportByFactId.set(factId, report);
+        }
+      });
+    });
+
+    return reportByFactId;
   }
 
   function getDelayedMemoryReportForLongTermFactId(factId) {
@@ -1651,7 +1806,7 @@
     );
   }
 
-  function formatLongTermFactAgeSuffix(
+  function formatLongTermFactAgeLabel(
     timestamp,
     now = Date.now() / 1000
   ) {
@@ -1666,21 +1821,21 @@
     );
 
     if (seconds < 60) {
-      return ` ( ${seconds}s ago )`;
+      return `${seconds}s ago`;
     }
 
     const minutes = Math.floor(seconds / 60);
     if (minutes < 60) {
-      return ` ( ${minutes}m ago )`;
+      return `${minutes}m ago`;
     }
 
     const hours = Math.floor(minutes / 60);
     if (hours < 24) {
-      return ` ( ${hours}h ago )`;
+      return `${hours}h ago`;
     }
 
     const days = Math.floor(hours / 24);
-    return ` ( ${days}d ago )`;
+    return `${days}d ago`;
   }
 
   function refreshLongTermMemoryFactAges() {
@@ -1694,7 +1849,7 @@
       .querySelectorAll("[data-l4-fact-age-timestamp]")
       .forEach((node) => {
         node.textContent =
-            formatLongTermFactAgeSuffix(
+            formatLongTermFactAgeLabel(
                 node.dataset.l4FactAgeTimestamp,
                 now
             );
@@ -1784,36 +1939,120 @@
       });
   }
 
+  function hasActiveMemoryRecords() {
+    const records =
+        typeof getActiveMemoryRecords === "function"
+          ? getActiveMemoryRecords()
+          : [];
+
+    return Array.isArray(records) && records.length > 0;
+  }
+
+  function hasDelayedMemoryReportRecords() {
+    const reports =
+        typeof getDelayedMemoryReports === "function"
+          ? getDelayedMemoryReports()
+          : {};
+
+    return Boolean(
+      reports
+      && typeof reports === "object"
+      && !Array.isArray(reports)
+      && Object.values(reports).some(report => (
+        report
+        && typeof report === "object"
+        && !Array.isArray(report)
+      ))
+    );
+  }
+
+  function hasFactsMemoryFieldRecords() {
+    const fields =
+        typeof getFactsMemoryFields === "function"
+          ? getFactsMemoryFields()
+          : {};
+
+    return Boolean(
+      fields
+      && typeof fields === "object"
+      && !Array.isArray(fields)
+      && Object.values(fields).some((field) => (
+        field
+        && typeof field === "object"
+        && !Array.isArray(field)
+        && String(field.content || "").trim()
+        && String(field.l4_status || "pending")
+          .trim()
+          .toLocaleLowerCase() !== "analyzed"
+      ))
+    );
+  }
+
+  function hasLongTermMemoryFactRecords() {
+    const facts =
+        typeof getLongTermMemoryFacts === "function"
+          ? getLongTermMemoryFacts()
+          : [];
+
+    return Boolean(
+      Array.isArray(facts)
+      && facts.some(fact => (
+        fact
+        && typeof fact === "object"
+        && !Array.isArray(fact)
+        && String(fact.key || "").trim()
+        && String(fact.value || "").trim()
+      ))
+    );
+  }
+
+  function hasPersistentFileRecords() {
+    const records =
+        window.JinFiles
+        && typeof window.JinFiles.getFiles === "function"
+          ? window.JinFiles.getFiles()
+          : [];
+
+    return Boolean(
+      Array.isArray(records)
+      && records.some(record => (
+        record
+        && record.id
+        && record.name
+      ))
+    );
+  }
+
   function getAvailableRuntimeMemoryDisplayModes() {
     const modes = [
       "runtime",
     ];
 
-    if (getActiveMemoryRecordTexts().length > 0) {
+    if (hasActiveMemoryRecords()) {
       modes.push(
           "active"
       );
     }
 
-    if (getDelayedMemoryReportRecords().length > 0) {
+    if (hasDelayedMemoryReportRecords()) {
       modes.push(
           "delayed"
       );
     }
 
-    if (getFactsMemoryFieldRecords().length > 0) {
+    if (hasFactsMemoryFieldRecords()) {
       modes.push(
           "facts"
       );
     }
 
-    if (getLongTermMemoryFactRecords().length > 0) {
+    if (hasLongTermMemoryFactRecords()) {
       modes.push(
           "long_term"
       );
     }
 
-    if (getPersistentFileRecords().length > 0) {
+    if (hasPersistentFileRecords()) {
       modes.push(
           "files"
       );
@@ -1822,9 +2061,11 @@
     return modes;
   }
 
-  function ensureRuntimeMemoryDisplayModeAvailable() {
+  function ensureRuntimeMemoryDisplayModeAvailable(availableModes = null) {
     const modes =
-        getAvailableRuntimeMemoryDisplayModes();
+        Array.isArray(availableModes)
+          ? availableModes
+          : getAvailableRuntimeMemoryDisplayModes();
 
     const displayMode =
         getRuntimeMemoryDisplayMode();
@@ -1840,13 +2081,15 @@
     return "runtime";
   }
 
-  function updateRuntimeMemoryTitleState() {
+  function updateRuntimeMemoryTitleState(availableModes = null) {
     if (!runtimeMemoryTitle) {
       return;
     }
 
     const modes =
-        getAvailableRuntimeMemoryDisplayModes();
+        Array.isArray(availableModes)
+          ? availableModes
+          : getAvailableRuntimeMemoryDisplayModes();
 
     const currentMode =
         getRuntimeMemoryDisplayMode();
@@ -2163,16 +2406,40 @@
     );
   }
 
-  function estimateRuntimeMemoryTokens(text) {
-    if (!text) {
-      return 0;
+  function countRuntimeMemoryCharacters(text) {
+    let count = 0;
+
+    for (const character of String(text || "")) {
+      void character;
+      count += 1;
     }
 
-    return Math.max(
-        1,
-        Math.ceil(
-            Array.from(text).length / 4
-        )
+    return count;
+  }
+
+  function estimateRuntimeMemoryTokensFromCharacterCount(charCount) {
+    const count = Math.max(0, Number(charCount || 0));
+
+    return count
+      ? Math.max(1, Math.ceil(count / 4))
+      : 0;
+  }
+
+  function bindRuntimeMemoryTitleMetrics(charCount) {
+    if (!runtimeMemoryTitle) {
+      return;
+    }
+
+    const normalizedCharCount =
+        Math.max(0, Number(charCount || 0));
+    const tokenCount =
+        estimateRuntimeMemoryTokensFromCharacterCount(
+            normalizedCharCount
+        );
+
+    bindRuntimeMemoryHoverTitle(
+      runtimeMemoryTitle,
+      `${normalizedCharCount} chars / ~${tokenCount} tokens`
     );
   }
 
@@ -2243,15 +2510,8 @@
     const metricText =
         getRuntimeMemorySnapshotMetricText(snapshot);
 
-    const charCount =
-        Array.from(metricText).length;
-
-    const tokenCount =
-        estimateRuntimeMemoryTokens(metricText);
-
-    bindRuntimeMemoryHoverTitle(
-      runtimeMemoryTitle,
-      `${charCount} chars / ~${tokenCount} tokens`
+    bindRuntimeMemoryTitleMetrics(
+        countRuntimeMemoryCharacters(metricText)
     );
   }
 
@@ -2263,15 +2523,60 @@
     const metricText =
         String(text || "").trim();
 
-    const charCount =
-        Array.from(metricText).length;
+    bindRuntimeMemoryTitleMetrics(
+        countRuntimeMemoryCharacters(metricText)
+    );
+  }
 
-    const tokenCount =
-        estimateRuntimeMemoryTokens(metricText);
+  function updateRuntimeMemoryTitleMetricsFromItems(
+    items,
+    resolveText
+  ) {
+    if (!runtimeMemoryTitle) {
+      return;
+    }
+
+    const source = Array.isArray(items) ? items : [];
+    const resolver =
+        typeof resolveText === "function"
+          ? resolveText
+          : item => item;
+    let cachedTitle = null;
 
     bindRuntimeMemoryHoverTitle(
       runtimeMemoryTitle,
-      `${charCount} chars / ~${tokenCount} tokens`
+      () => {
+        if (cachedTitle !== null) {
+          return cachedTitle;
+        }
+
+        let charCount = 0;
+        let hasMetricText = false;
+
+        source.forEach((item, index) => {
+          const text =
+              String(resolver(item, index) || "").trim();
+
+          if (!text) {
+            return;
+          }
+
+          if (hasMetricText) {
+            charCount += 1;
+          }
+
+          charCount += countRuntimeMemoryCharacters(text);
+          hasMetricText = true;
+        });
+
+        const tokenCount =
+            estimateRuntimeMemoryTokensFromCharacterCount(charCount);
+
+        cachedTitle =
+            `${charCount} chars / ~${tokenCount} tokens`;
+
+        return cachedTitle;
+      }
     );
   }
 
@@ -2383,13 +2688,18 @@
     pendingRuntimeMemoryRender = false;
     memoryHighlightsSuspended = false;
 
-    ensureRuntimeMemoryDisplayModeAvailable();
-    updateRuntimeMemoryTitleState();
+    const availableModes =
+        Array.isArray(options.availableModes)
+          ? options.availableModes
+          : getAvailableRuntimeMemoryDisplayModes();
+    const displayMode =
+        ensureRuntimeMemoryDisplayModeAvailable(availableModes);
+
+    updateRuntimeMemoryTitleState(availableModes);
+
     const renderHighlightOptions = {
       animateSort: false,
     };
-    const displayMode =
-        getRuntimeMemoryDisplayMode();
 
     syncRuntimeMemoryLazyMode(displayMode);
 
@@ -2455,7 +2765,6 @@
       updateRuntimeMemoryTitleMetrics(null);
       updateRuntimeMemoryArrows();
       updateRuntimeMemoryPinGlow();
-      updateRuntimeMemoryTitleState();
       dispatchRuntimeAvatarSnapshot(null);
       applyMemoryReferenceHighlights(renderHighlightOptions);
       applyRuntimeMemoryLazyVisibility();
@@ -2498,7 +2807,6 @@
     updateRuntimeMemoryTitleMetrics(snapshot);
     updateRuntimeMemoryArrows();
     updateRuntimeMemoryPinGlow();
-    updateRuntimeMemoryTitleState();
     dispatchRuntimeAvatarSnapshot(sourceSnapshot);
     applyMemoryReferenceHighlights(renderHighlightOptions);
     applyRuntimeMemoryLazyVisibility();
@@ -2981,7 +3289,21 @@
       persistGlow = false,
       options = {}
   ) {
-    beginRuntimeMemoryLazyCollection(lines, (line, index) => {
+    const buildLine =
+        typeof options.buildLine === "function"
+          ? options.buildLine
+          : null;
+
+    beginRuntimeMemoryLazyCollection(lines, (sourceLine, index) => {
+      const line =
+          buildLine
+            ? buildLine(sourceLine, index)
+            : sourceLine;
+
+      if (!line) {
+        return;
+      }
+
       const row =
           document.createElement("div");
 
@@ -3036,10 +3358,12 @@
         );
       }
 
-      setMemoryReferenceAliases(
-        row,
-        collectMemoryRecordReferenceAliases(line)
-      );
+      if (!options.interactiveLongTermMemory) {
+        setMemoryReferenceAliases(
+          row,
+          collectMemoryRecordReferenceAliases(line)
+        );
+      }
 
       row.addEventListener(
         "mouseenter",
@@ -3066,15 +3390,22 @@
 
       const valuePresentation =
           memoryModel.buildRuntimeMemoryValuePresentation(line);
+      const longTermMemoryFullValueText =
+          options.interactiveLongTermMemory
+            ? getLongTermMemoryFullValueText(line)
+            : "";
+      const displayedValueText =
+          !options.interactiveLongTermMemory
+            ? valuePresentation.text
+            : truncateLongTermMemoryValueForDisplay(
+                longTermMemoryFullValueText
+              );
 
-      if (String(valuePresentation.text || "").trim()) {
+      if (String(displayedValueText || "").trim()) {
         row.classList.add(
             "runtime-memory-kv-row"
         );
       }
-
-      const fullRawLine =
-          `${key}: ${valuePresentation.raw}`;
 
       const keyStatus =
           line.key_status || line.status || "same";
@@ -3084,17 +3415,26 @@
 
       const keySpan =
           document.createElement("span");
+      const displayKey =
+          memoryModel.runtimeMemoryDisplay.convertKeyToName(key) || key;
+      let longTermHeader = null;
 
       keySpan.className =
           "runtime-memory-key";
-
       keySpan.textContent =
-          `${memoryModel.runtimeMemoryDisplay.convertKeyToName(key) || key}:`;
+          options.interactiveLongTermMemory
+            ? displayKey
+            : `${displayKey}:`;
 
       if (options.interactiveLongTermMemory) {
         row.classList.add(
           "runtime-memory-l4-row"
         );
+
+        longTermHeader =
+            document.createElement("div");
+        longTermHeader.className =
+            "runtime-memory-l4-header";
 
         const factNumber =
             line && Number.isSafeInteger(
@@ -3156,8 +3496,39 @@
           separatorSpan.textContent =
               "·";
 
-          row.appendChild(numberSpan);
-          row.appendChild(separatorSpan);
+          longTermHeader.appendChild(numberSpan);
+          longTermHeader.appendChild(separatorSpan);
+        }
+
+        longTermHeader.appendChild(keySpan);
+
+        if (
+            Number.isFinite(
+                Number(line && line.context_age_timestamp)
+            )
+            && Number(line.context_age_timestamp) > 0
+        ) {
+          const separatorSpan =
+              document.createElement("span");
+          const ageSpan =
+              document.createElement("span");
+
+          separatorSpan.className =
+              "runtime-memory-fact-separator";
+          separatorSpan.textContent =
+              "·";
+
+          ageSpan.className =
+              "runtime-memory-l4-age";
+          ageSpan.dataset.l4FactAgeTimestamp =
+              String(line.context_age_timestamp);
+          ageSpan.textContent =
+              formatLongTermFactAgeLabel(
+                  line.context_age_timestamp
+              );
+
+          longTermHeader.appendChild(separatorSpan);
+          longTermHeader.appendChild(ageSpan);
         }
       }
 
@@ -3168,20 +3539,22 @@
           "runtime-memory-value";
 
       valueSpan.textContent =
-          ` ${valuePresentation.text}`;
+          options.interactiveLongTermMemory
+            ? displayedValueText
+            : ` ${displayedValueText}`;
 
       if (options.interactiveLongTermMemory) {
         setRuntimeMemoryRowState(
           row,
           {
             runtimeMemoryValueDefaultText:
-              String(valuePresentation.text || ""),
+              String(displayedValueText || ""),
             runtimeMemoryValueFullText:
               String(
-                  memoryModel.splitMemoryMeta(line.value || "").text
-                  || valuePresentation.text
+                  longTermMemoryFullValueText
+                  || displayedValueText
                   || ""
-              ).replace(/\\n/g, " ↵ "),
+              ),
           }
         );
       }
@@ -3191,44 +3564,33 @@
               runtimeMemoryValueFontWeight(line)
           );
 
-      if (
-          options.interactiveLongTermMemory
-          && Number.isFinite(
-              Number(line && line.context_age_timestamp)
-          )
-          && Number(line.context_age_timestamp) > 0
-      ) {
-        const ageSpan =
-            document.createElement("span");
-
-        ageSpan.className =
-            "runtime-memory-l4-age";
-        ageSpan.dataset.l4FactAgeTimestamp =
-            String(line.context_age_timestamp);
-        ageSpan.textContent =
-            formatLongTermFactAgeSuffix(
-                line.context_age_timestamp
-            );
-
-        valueSpan.appendChild(ageSpan);
-      }
-
-      const hoverTitle =
-          formatRuntimeMemoryHoverTitle(fullRawLine);
+      let hoverTitle = null;
 
       bindRuntimeMemoryHoverTitle(
         row,
-        hoverTitle
-      );
-      bindRuntimeMemoryHoverTitle(
-        valueSpan,
-        hoverTitle
+        () => {
+          if (hoverTitle === null) {
+            hoverTitle =
+                formatRuntimeMemoryHoverTitle(
+                    `${key}: ${valuePresentation.raw}`
+                );
+          }
+
+          return hoverTitle;
+        }
       );
 
-      row.appendChild(keySpan);
+      if (longTermHeader) {
+        row.appendChild(longTermHeader);
+      } else {
+        row.appendChild(keySpan);
+      }
       row.appendChild(valueSpan);
 
-      if (options.interactiveLongTermMemory) {
+      if (
+          options.interactiveLongTermMemory
+          && line.context_loaded === true
+      ) {
         syncLongTermMemoryRowValueDisplay(row);
       }
 
@@ -4296,7 +4658,6 @@
     updateRuntimeMemoryTitleMetrics(null);
     updateRuntimeMemoryArrows();
     updateRuntimeMemoryPinGlow();
-    updateRuntimeMemoryTitleState();
   }
 
   function normalizeDelayedMemoryDisplayText(value) {
@@ -7370,7 +7731,6 @@
 
     updateRuntimeMemoryArrows();
     updateRuntimeMemoryPinGlow();
-    updateRuntimeMemoryTitleState();
   }
 
 
@@ -7427,7 +7787,8 @@
 
   function buildLongTermMemoryLine(
     fact,
-    contextLoadedFactIds = new Set()
+    contextLoadedFactIds = new Set(),
+    delayedReportByFactId = null
   ) {
 
     const id =
@@ -7436,8 +7797,12 @@
       String(fact.key || "").trim();
     const value =
       String(fact.value || "").trim();
+    const normalizedFactId =
+        normalizeDelayedMemoryFactId(id);
     const linkedDelayedMemoryReport =
-        getDelayedMemoryReportForLongTermFactId(id);
+        delayedReportByFactId instanceof Map
+          ? delayedReportByFactId.get(normalizedFactId) || null
+          : getDelayedMemoryReportForLongTermFactId(id);
 
     return {
       id,
@@ -7480,16 +7845,17 @@
   function renderLongTermMemoryFacts() {
     const records =
         getLongTermMemoryFactRecords();
-
+    const delayedReports =
+        records.length
+          ? getDelayedMemoryReportRecords()
+          : [];
     const contextLoadedFactIds =
-        getContextLoadedDelayedMemoryFactIds();
-
-    const lines =
-        records.map(
-          fact => buildLongTermMemoryLine(
-            fact,
-            contextLoadedFactIds
-          )
+        buildContextLoadedDelayedMemoryFactIds(
+            delayedReports
+        );
+    const delayedReportByFactId =
+        buildDelayedMemoryFactReportIndex(
+            delayedReports
         );
 
     if (runtimeMemoryText) {
@@ -7501,16 +7867,21 @@
           "title"
       );
 
-      if (!lines.length) {
+      if (!records.length) {
         runtimeMemoryText.textContent =
           "No long-term facts stored.";
       } else {
         appendRuntimeMemoryLineRows(
-            lines,
+            records,
             false,
             {
               applyFlash: false,
               interactiveLongTermMemory: true,
+              buildLine: fact => buildLongTermMemoryLine(
+                  fact,
+                  contextLoadedFactIds,
+                  delayedReportByFactId
+              ),
             }
         );
       }
@@ -7524,15 +7895,23 @@
     userIdleValueNode = null;
     idle.stop();
 
-    updateRuntimeMemoryTitleMetricsFromText(
-        lines
-          .map(line => `${line.key}: ${line.value}`)
-          .join("\n")
+    updateRuntimeMemoryTitleMetricsFromItems(
+        records,
+        (fact) => {
+          const key =
+              String(fact && fact.key || "").trim();
+          const value =
+              memoryModel.appendProperties(
+                  String(fact && fact.value || "").trim(),
+                  formatLongTermFactMetadata(fact)
+              );
+
+          return `${key}: ${value}`;
+        }
     );
 
     updateRuntimeMemoryArrows();
     updateRuntimeMemoryPinGlow();
-    updateRuntimeMemoryTitleState();
   }
 
 
@@ -7591,7 +7970,6 @@
     );
     updateRuntimeMemoryArrows();
     updateRuntimeMemoryPinGlow();
-    updateRuntimeMemoryTitleState();
   }
 
   function appendUserIdleRuntimeMemoryLine() {
@@ -7702,7 +8080,9 @@
         modes[nextIndex]
     );
 
-    renderRuntimeMemorySnapshot();
+    renderRuntimeMemorySnapshot({
+      availableModes: modes,
+    });
   }
 
   function isRuntimeMemoryTitleBackZone(event) {

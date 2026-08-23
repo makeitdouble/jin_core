@@ -38,9 +38,14 @@ from contracts.rules_assembler import (
     RUNTIME_ACTION_WEB_SEARCH,
 )
 from contracts.rules_assembler import (
+    extract_private_marker_name,
     get_action_contract_name_for_runtime_action,
     get_runtime_action_display_name,
+    get_runtime_action_private_marker,
+    get_runtime_action_rules,
     runtime_action_emits_followup,
+    runtime_action_follows_up_on_fail,
+    runtime_action_has_close_tag,
 )
 
 from clients.search_client import (
@@ -103,8 +108,204 @@ def action_event_requires_follow_up(event) -> bool:
 
     name = str(event.get("name", "") or "").strip().casefold()
 
+    if status == "failed":
+        return runtime_action_follows_up_on_fail(
+            name
+        )
+
     return runtime_action_emits_followup(
         name
+    )
+
+
+def _build_failed_runtime_action_marker(event: dict) -> str:
+
+    runtime_action = str(
+        event.get("name", "")
+        or ""
+    ).strip()
+    marker = get_runtime_action_private_marker(
+        runtime_action
+    )
+    payload = str(
+        event.get("failed_marker_payload")
+        or event.get("payload")
+        or ""
+    ).strip()
+
+    if not marker:
+        return payload
+
+    if not runtime_action_has_close_tag(
+        runtime_action
+    ):
+        return " ".join(
+            part
+            for part in (marker, payload)
+            if part
+        ).strip()
+
+    marker_name = extract_private_marker_name(
+        marker
+    )
+    if not marker_name:
+        return "\n".join(
+            part
+            for part in (marker, payload)
+            if part
+        ).strip()
+
+    return "\n".join((
+        marker,
+        payload,
+        f"</{marker_name}>",
+    )).strip()
+
+
+def build_failed_runtime_action_followup_context(
+        event: dict,
+) -> str:
+
+    if not isinstance(event, dict):
+        return ""
+
+    runtime_action = str(
+        event.get("name", "")
+        or ""
+    ).strip()
+    if (
+        str(event.get("status", "") or "").strip().casefold() != "failed"
+        or not runtime_action_follows_up_on_fail(runtime_action)
+    ):
+        return ""
+
+    failure_reason = str(
+        event.get("failure_reason")
+        or event.get("detail")
+        or event.get("error")
+        or "action failed"
+    ).strip()
+    display_name = get_runtime_action_display_name(
+        runtime_action
+    )
+    mandatory_rules = "\n".join(
+        get_runtime_action_rules(
+            runtime_action
+        )
+    ).strip()
+    failed_marker = _build_failed_runtime_action_marker(
+        event
+    )
+
+    sections = [
+        (
+            "RUNTIME ACTION ERROR: "
+            f"{display_name or runtime_action.upper()} failed: "
+            f"{failure_reason}"
+        ),
+    ]
+
+    if mandatory_rules:
+        sections.append(
+            "<MANDATORY_ACTION_RULES>\n"
+            + mandatory_rules
+            + "\n</MANDATORY_ACTION_RULES>"
+        )
+
+    if failed_marker:
+        sections.append(
+            "<FAILED_MARKER_CONTENT>\n"
+            + failed_marker
+            + "\n</FAILED_MARKER_CONTENT>"
+        )
+
+    return "\n\n".join(sections)
+
+
+def build_failed_runtime_action_followup_contexts(
+        context,
+) -> str:
+
+    if context is None:
+        return ""
+
+    current_turn_ids = {
+        str(
+            getattr(
+                context,
+                attribute,
+                "",
+            )
+            or ""
+        ).strip()
+        for attribute in (
+            "runtime_current_turn_id",
+            "runtime_current_sequence_turn_id",
+        )
+    }
+    current_turn_ids.discard("")
+    latest_events = {}
+
+    for index, event in enumerate(
+        getattr(
+            context,
+            "runtime_action_events",
+            [],
+        )
+        or []
+    ):
+        if not isinstance(event, dict):
+            continue
+
+        event_turn_id = str(
+            event.get(
+                "runtime_turn_id",
+                "",
+            )
+            or ""
+        ).strip()
+        if (
+            current_turn_ids
+            and event_turn_id
+            and event_turn_id not in current_turn_ids
+        ):
+            continue
+
+        runtime_action = str(
+            event.get(
+                "name",
+                "",
+            )
+            or ""
+        ).strip().casefold()
+        if not runtime_action_follows_up_on_fail(
+            runtime_action
+        ):
+            continue
+
+        latest_events[runtime_action] = (
+            index,
+            event,
+        )
+
+    contexts = []
+
+    for _, event in sorted(
+        latest_events.values(),
+        key=lambda item: item[0],
+    ):
+        failure_context = (
+            build_failed_runtime_action_followup_context(
+                event
+            )
+        )
+        if failure_context:
+            contexts.append(
+                failure_context
+            )
+
+    return "\n\n".join(
+        contexts
     )
 
 
@@ -1091,6 +1292,18 @@ class BrainNode(BaseNode):
                 latest_action
             )
         )
+
+        failed_action_context = (
+            build_failed_runtime_action_followup_contexts(
+                context
+            )
+            if context is not None
+            else ""
+        )
+        if failed_action_context:
+            sections.append(
+                failed_action_context
+            )
 
         if instruction.strip():
             sections.append(

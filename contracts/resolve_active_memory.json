@@ -7,7 +7,8 @@
     "triggers": [],
     "blockers": [],
     "effects": {
-      "emit_followup": false
+      "emit_followup": false,
+      "follow_up_on_fail": false
     },
     "rules": [
       "RESOLVE_ACTIVE_MEMORY:",

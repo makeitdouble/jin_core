@@ -1,6 +1,8 @@
 // Temporary UI-only switch. Runtime parsing, execution, avatar updates and
 // logger entries stay active; flip this to true to restore the two chat bubbles.
 const ENABLE_JIN_VISUAL_ACTION_BUBBLES = false;
+const THINK_RUNTIME_CITATION_HIGHLIGHT_EVENT =
+  "jin:think-runtime-citation-highlight";
 
 const JIN_VISUAL_SEQUENCE_ACTIONS = new Set([
   "jin_color",
@@ -572,6 +574,30 @@ function buildRuntimeActionDetail(
 
   return "";
 
+}
+
+function highlightUpdatedActiveMemory(activeMemoryId) {
+  const normalizedId =
+    String(activeMemoryId || "")
+      .trim()
+      .toLowerCase();
+
+  if (!/^[a-z0-9]{6}$/.test(normalizedId)) {
+    return;
+  }
+
+  window.dispatchEvent(
+    new CustomEvent(
+      THINK_RUNTIME_CITATION_HIGHLIGHT_EVENT,
+      {
+        detail: {
+          sourceId: `runtime-action:update-active-memory:${normalizedId}`,
+          active: true,
+          activeMemoryIds: [normalizedId],
+        },
+      }
+    )
+  );
 }
 
 function formatActiveMemoryUpdateDetail(
@@ -2052,9 +2078,15 @@ function handleRuntimeAction(
     && window.JinRuntime.runtime
     && window.JinRuntime.runtime.replaceActiveMemoryRecordById
   ) {
+    const activeMemoryId =
+      data.active_memory_id || data.id;
+
     window.JinRuntime.runtime.replaceActiveMemoryRecordById(
-      data.active_memory_id || data.id,
+      activeMemoryId,
       data.active_memory
+    );
+    highlightUpdatedActiveMemory(
+      activeMemoryId
     );
   }
 

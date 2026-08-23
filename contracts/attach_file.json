@@ -6,7 +6,10 @@
     "private_marker": "<ATTACH_FILE: id >",
     "triggers": [],
     "blockers": [],
-    "effects": {"emit_followup": false},
+    "effects": {
+      "emit_followup": false,
+      "follow_up_on_fail": false
+    },
     "rules": [
       "DO NOT attach files if they are already present in user message with correct ids.",
       "Emit one marker per file id to attach that saved file to context.",

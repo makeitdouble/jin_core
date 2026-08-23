@@ -122,8 +122,17 @@
     text-shadow: none !important;
 }
 
+.runtime-memory-l4-row .runtime-memory-l4-header {
+    display: flex;
+    align-items: baseline;
+    width: 100%;
+    min-width: 0;
+    white-space: nowrap;
+}
+
 .runtime-memory-l4-row .runtime-memory-fact-number {
     display: inline-block;
+    flex: 0 0 auto;
     min-width: 3ch;
     color: rgba(161, 161, 170, 0.68);
     font-variant-numeric: tabular-nums;
@@ -149,9 +158,39 @@
 
 .runtime-memory-l4-row .runtime-memory-fact-separator {
     display: inline-block;
+    flex: 0 0 1.4em;
     width: 1.4em;
     color: rgba(161, 161, 170, 0.48);
     text-align: center;
+}
+
+.runtime-memory-l4-row .runtime-memory-key {
+    display: block;
+    flex: 1 1 auto;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.runtime-memory-l4-row .runtime-memory-l4-age {
+    display: block;
+    flex: 0 0 auto;
+    color: rgba(161, 161, 170, 0.58);
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+}
+
+.runtime-memory-l4-row .runtime-memory-value {
+    display: block;
+    width: 100%;
+}
+
+.runtime-memory-l4-row:not(.runtime-memory-reference-hit):not(.runtime-memory-citation-hit):not(.runtime-memory-context-loaded-hit) .runtime-memory-value {
+    display: -webkit-box;
+    overflow: hidden;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
 }
 
 .runtime-memory-key,

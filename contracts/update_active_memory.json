@@ -7,18 +7,17 @@
     "triggers": [],
     "blockers": [],
     "effects": {
-      "emit_followup": false
+      "emit_followup": false,
+      "follow_up_on_fail": true
     },
     "rules": [
       "Use to update active memory values.",
       "Emit using exactly this schema:",
       "<UPDATE_ACTIVE_MEMORY>",
-      "{\"active_memory_id\":\"existing id VALUE\",\"field_name\":\"NEW_VALUE\",\"another_existing_field\":\"NEW_VALUE\"}",
+      "{\"active_memory_id\":\"\",\"custom_field_name\":\"\"}",
       "</UPDATE_ACTIVE_MEMORY>",
-      "active_memory_id is a placeholder; replace it with the exact six-character active_memory_id value.",
-      "After active_memory_id, put each existing custom field directly at the JSON root."
+      "Put each existing custom field needed for update directly at the JSON root."
     ],
-    "close_tag": true,
-    "body_placeholder": "{\"active_memory_id\":\"existing id VALUE\",\"field_name\":\"NEW_VALUE\"}"
+    "close_tag": true
   }
 }

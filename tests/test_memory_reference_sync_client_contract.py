@@ -29,7 +29,7 @@ class MemoryReferenceSyncClientContractTests(unittest.TestCase):
             source,
         )
         self.assertIn(
-            'if (getFactsMemoryFieldRecords().length > 0)',
+            'if (hasFactsMemoryFieldRecords())',
             source,
         )
 

@@ -7,7 +7,8 @@
     "triggers": [],
     "blockers": [],
     "effects": {
-      "emit_followup": false
+      "emit_followup": false,
+      "follow_up_on_fail": false
     },
     "rules": [
       "JIN can update, merge, or create durable facts through this marker.",

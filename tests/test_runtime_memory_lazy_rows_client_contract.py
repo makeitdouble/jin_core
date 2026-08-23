@@ -16,31 +16,39 @@ INDEX_HTML = ROOT / "ui" / "templates" / "index.html"
 
 class RuntimeMemoryLazyRowsClientContractTests(unittest.TestCase):
 
-    def test_memory_panels_materialize_rows_in_batches_of_forty(self):
+    def test_memory_panels_use_independent_lazy_batch_sizes(self):
         source = MEMORY_VIEW_JS.read_text(encoding="utf-8")
 
+        expected_constants = (
+            "const ACTIVE_MEMORY_LAZY_BATCH_SIZE = 50;",
+            "const DELAYED_MEMORY_LAZY_BATCH_SIZE = 50;",
+            "const FACTS_MEMORY_LAZY_BATCH_SIZE = 50;",
+            "const LONG_TERM_MEMORY_LAZY_BATCH_SIZE = 20;",
+            "const FILES_MEMORY_LAZY_BATCH_SIZE = 50;",
+        )
+
+        for declaration in expected_constants:
+            self.assertIn(declaration, source)
+
         self.assertIn(
-            "const RUNTIME_MEMORY_LAZY_BATCH_SIZE = 40;",
+            "function getRuntimeMemoryLazyBatchSize(displayMode)",
             source,
         )
         self.assertIn(
-            "function beginRuntimeMemoryLazyCollection(items, renderItem)",
+            "getRuntimeMemoryLazyBatchSize(runtimeMemoryLazyMode)",
             source,
         )
-        self.assertIn(
-            "for (let index = start; index < end; index += 1)",
+        self.assertIn("start + batchSize", source)
+        self.assertNotIn(
+            "const RUNTIME_MEMORY_LAZY_BATCH_SIZE =",
             source,
-        )
-        self.assertGreaterEqual(
-            source.count("beginRuntimeMemoryLazyCollection("),
-            4,
         )
 
     def test_lazy_rows_are_not_precreated_and_hidden_in_dom(self):
         source = MEMORY_VIEW_JS.read_text(encoding="utf-8")
 
         self.assertNotIn(
-            'row.style.display =\n          index < runtimeMemoryVisibleRowCount',
+            "runtimeMemoryVisibleRowCount",
             source,
         )
         self.assertIn(
@@ -64,10 +72,23 @@ class RuntimeMemoryLazyRowsClientContractTests(unittest.TestCase):
             source,
         )
 
-    def test_memory_view_cache_key_is_bumped_for_lazy_materialization(self):
+    def test_native_scroll_path_is_not_debounced_after_downward_progress(self):
+        source = MEMORY_VIEW_JS.read_text(encoding="utf-8")
+        start = source.index("function handleRuntimeMemoryLazyScroll()")
+        end = source.index("function handleRuntimeMemoryLazyWheel(event)", start)
+        scroll_handler = source[start:end]
+
+        self.assertIn("if (!scrollingDown)", scroll_handler)
+        self.assertNotIn("runtimeMemoryLastBatchRevealAt", scroll_handler)
+        self.assertIn(
+            "remaining <= RUNTIME_MEMORY_LAZY_BOTTOM_THRESHOLD_PX",
+            scroll_handler,
+        )
+
+    def test_memory_view_cache_key_is_bumped_for_l4_lazy_optimization(self):
         source = INDEX_HTML.read_text(encoding="utf-8")
 
-        self.assertIn("lazy-rows=2", source)
+        self.assertIn("lazy-rows=4", source)
 
 
 if __name__ == "__main__":

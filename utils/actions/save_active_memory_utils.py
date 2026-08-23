@@ -3,7 +3,6 @@ import re
 
 from contracts.rules_assembler import (
     RUNTIME_ACTION_SAVE_ACTIVE_MEMORY,
-    get_runtime_action_body_placeholder,
     get_runtime_action_private_marker,
 )
 
@@ -41,12 +40,6 @@ def _get_save_active_memory_placeholder_source(
 ) -> str:
 
     if marker is None:
-        body_placeholder = get_runtime_action_body_placeholder(
-            RUNTIME_ACTION_SAVE_ACTIVE_MEMORY
-        )
-        if body_placeholder:
-            return body_placeholder
-
         marker = get_runtime_action_private_marker(
             RUNTIME_ACTION_SAVE_ACTIVE_MEMORY
         )
@@ -55,7 +48,7 @@ def _get_save_active_memory_placeholder_source(
         marker
     )
 
-    return marker_fields
+    return marker_fields or "CONDITIONS"
 
 
 def get_save_active_memory_marker_fields(

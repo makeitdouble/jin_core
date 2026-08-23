@@ -45,6 +45,7 @@
 
   let contextTabButtons = {};
   let contextRuntimePanel = null;
+  let contextPanelResizeObserver = null;
 
   const runtimePanelState = {
     activeTab: "service",
@@ -1584,6 +1585,22 @@
       document.getElementById(
         "context-runtime-panel"
       );
+
+    if (
+      contextRuntimePanel
+      && typeof window.ResizeObserver === "function"
+    ) {
+      contextPanelResizeObserver =
+        new window.ResizeObserver(
+          function () {
+            scheduleRuntimeTelemetryFrame();
+          }
+        );
+
+      contextPanelResizeObserver.observe(
+        contextRuntimePanel
+      );
+    }
 
     Object.entries(
       contextTabButtons

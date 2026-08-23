@@ -7,7 +7,8 @@
     "triggers": [],
     "blockers": [],
     "effects": {
-      "emit_followup": false
+      "emit_followup": false,
+      "follow_up_on_fail": false
     },
     "rules": [
       "Use the 6-character id of a report in <LOADED_DELAYED_MEMORY> to remove it from current context; storage is unchanged."

@@ -287,6 +287,7 @@ def build_l4_merge_shard_scan_user_prompt(
     existing_facts: list[dict],
     pending_facts: list[dict],
     protected_fact_ids=(),
+    repair_context: dict | None = None,
 ) -> str:
     return (
         "Scan this committed-memory shard against every pending candidate.\n\n"
@@ -307,6 +308,11 @@ def build_l4_merge_shard_scan_user_prompt(
                     for fact_id in normalize_l4_string_list(protected_fact_ids)
                     if normalize_l4_id(fact_id, pending=False)
                 ],
+                **(
+                    {"repair": repair_context}
+                    if isinstance(repair_context, dict) and repair_context
+                    else {}
+                ),
             },
             ensure_ascii=False,
             separators=(",", ":"),
@@ -321,14 +327,39 @@ def normalize_l4_merge_shard_scan(
     pending_ids: list[str],
     visible_fact_ids: list[str],
 ) -> list[dict]:
-    if not isinstance(payload, dict) or not isinstance(payload.get("scan"), list):
+    inspection = inspect_l4_merge_shard_scan(
+        payload,
+        pending_ids=pending_ids,
+        visible_fact_ids=visible_fact_ids,
+    )
+    if inspection["invalid_pending_ids"] or inspection["global_errors"]:
         return []
+    return inspection["results"]
 
-    expected_pending = {
-        normalize_l4_id(pending_id, pending=True)
-        for pending_id in pending_ids
-        if normalize_l4_id(pending_id, pending=True)
-    }
+
+def inspect_l4_merge_shard_scan(
+    payload,
+    *,
+    pending_ids: list[str],
+    visible_fact_ids: list[str],
+) -> dict:
+    """Validate shard-scan rows independently instead of poisoning the batch.
+
+    The strict public normalizer above still preserves the old all-or-nothing
+    contract for callers that need it. The merge runtime uses this inspection
+    result so a malformed row can be repaired/retried without discarding valid
+    rows for unrelated pending facts.
+    """
+
+    ordered_pending = []
+    expected_pending = set()
+    for raw_pending_id in pending_ids:
+        pending_id = normalize_l4_id(raw_pending_id, pending=True)
+        if not pending_id or pending_id in expected_pending:
+            continue
+        expected_pending.add(pending_id)
+        ordered_pending.append(pending_id)
+
     visible_facts = {
         normalize_l4_id(fact_id, pending=False)
         for fact_id in visible_fact_ids
@@ -340,40 +371,89 @@ def normalize_l4_merge_shard_scan(
         "update",
         "merge",
     }
-    normalized = []
-    seen_pending = set()
+    results_by_pending = {}
+    pending_errors: dict[str, list[str]] = {}
+    global_errors = []
+    seen_rows = set()
 
-    for raw_item in payload.get("scan") or []:
+    def add_pending_error(pending_id: str, reason: str) -> None:
+        errors = pending_errors.setdefault(pending_id, [])
+        if reason not in errors:
+            errors.append(reason)
+        # Once a row is ambiguous/invalid, never keep an earlier result for
+        # the same pending_id. A repair request will resolve that one item.
+        results_by_pending.pop(pending_id, None)
+
+    if not isinstance(payload, dict) or not isinstance(payload.get("scan"), list):
+        return {
+            "results": [],
+            "valid_pending_ids": [],
+            "invalid_pending_ids": ordered_pending,
+            "pending_errors": {
+                pending_id: ["invalid_scan_payload"]
+                for pending_id in ordered_pending
+            },
+            "global_errors": ["invalid_scan_payload"],
+        }
+
+    for index, raw_item in enumerate(payload.get("scan") or []):
         if not isinstance(raw_item, dict):
-            return []
-        pending_id = normalize_l4_id(raw_item.get("pending_id"), pending=True)
-        decision = normalize_l4_key(raw_item.get("decision"))
-        if (
-            not pending_id
-            or pending_id not in expected_pending
-            or pending_id in seen_pending
-            or decision not in allowed_decisions
-        ):
-            return []
+            global_errors.append(f"item_{index}:invalid_item")
+            continue
 
-        fact_ids = [
-            fact_id
-            for fact_id in (
-                normalize_l4_id(raw_id, pending=False)
-                for raw_id in normalize_l4_string_list(raw_item.get("fact_ids"))
+        pending_id = normalize_l4_id(raw_item.get("pending_id"), pending=True)
+        if not pending_id:
+            global_errors.append(f"item_{index}:invalid_pending_id")
+            continue
+        if pending_id not in expected_pending:
+            global_errors.append(
+                f"item_{index}:unexpected_pending_id:{pending_id}"
             )
-            if fact_id
-        ]
+            continue
+        if pending_id in seen_rows:
+            add_pending_error(pending_id, "duplicate_pending_id")
+            continue
+        seen_rows.add(pending_id)
+
+        decision = normalize_l4_key(raw_item.get("decision"))
+        if decision not in allowed_decisions:
+            add_pending_error(pending_id, "invalid_decision")
+            continue
+
+        raw_fact_ids = raw_item.get("fact_ids")
+        raw_fact_values = (
+            raw_fact_ids
+            if isinstance(raw_fact_ids, list)
+            else [raw_fact_ids]
+        )
+        fact_ids = []
+        invalid_fact_id = False
+        for raw_fact_id in raw_fact_values:
+            raw_text = normalize_l4_text(raw_fact_id)
+            if not raw_text:
+                continue
+            fact_id = normalize_l4_id(raw_text, pending=False)
+            if not fact_id:
+                invalid_fact_id = True
+                continue
+            if fact_id not in fact_ids:
+                fact_ids.append(fact_id)
+
+        if invalid_fact_id:
+            add_pending_error(pending_id, "invalid_fact_id")
+            continue
         if any(fact_id not in visible_facts for fact_id in fact_ids):
-            return []
-        if len(set(fact_ids)) != len(fact_ids):
-            return []
+            add_pending_error(pending_id, "fact_id_outside_shard")
+            continue
         if decision == "no_match" and fact_ids:
-            return []
+            add_pending_error(pending_id, "no_match_with_fact_ids")
+            continue
         if decision == "update" and len(fact_ids) != 1:
-            return []
+            add_pending_error(pending_id, "update_requires_one_fact_id")
+            continue
         if decision == "merge" and len(fact_ids) < 2:
-            return []
+            add_pending_error(pending_id, "merge_requires_two_fact_ids")
+            continue
 
         item = {
             "pending_id": pending_id,
@@ -383,18 +463,29 @@ def normalize_l4_merge_shard_scan(
         comment = normalize_l4_text(raw_item.get("comment"))
         if comment:
             item["comment"] = comment
-        normalized.append(item)
-        seen_pending.add(pending_id)
+        results_by_pending[pending_id] = item
 
-    if seen_pending != expected_pending:
-        return []
+    for pending_id in ordered_pending:
+        if pending_id not in seen_rows:
+            add_pending_error(pending_id, "missing_scan_result")
 
-    order = {
-        pending_id: index
-        for index, pending_id in enumerate(pending_ids)
+    results = [
+        results_by_pending[pending_id]
+        for pending_id in ordered_pending
+        if pending_id in results_by_pending
+    ]
+    invalid_pending_ids = [
+        pending_id
+        for pending_id in ordered_pending
+        if pending_id in pending_errors
+    ]
+    return {
+        "results": results,
+        "valid_pending_ids": [item["pending_id"] for item in results],
+        "invalid_pending_ids": invalid_pending_ids,
+        "pending_errors": pending_errors,
+        "global_errors": global_errors,
     }
-    normalized.sort(key=lambda item: order.get(item["pending_id"], 10**9))
-    return normalized
 
 
 def build_l4_merge_shard_finalize_user_prompt(

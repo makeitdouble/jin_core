@@ -32,6 +32,7 @@ from runtime.L4_memory_utils import (
     format_l4_fact_line,
     format_l4_merge_operation_details,
     format_long_term_memory_context,
+    inspect_l4_merge_shard_scan,
     mark_facts_memory_fields_analyzed,
     merge_l4_store_snapshots,
     normalize_facts_memory_records,
@@ -884,6 +885,260 @@ class L4MemoryTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(first_payload["existing_facts"]), 25)
         self.assertEqual(len(second_payload["existing_facts"]), 25)
         self.assertEqual(len(second_payload["previous_shard_scan"]), 3)
+
+    def test_shard_scan_inspection_keeps_valid_rows_when_one_row_is_bad(self):
+        inspection = inspect_l4_merge_shard_scan(
+            {
+                "scan": [
+                    {
+                        "pending_id": "PF1",
+                        "decision": "update",
+                        "fact_ids": [],
+                    },
+                    {
+                        "pending_id": "PF2",
+                        "decision": "no_match",
+                        "fact_ids": [],
+                    },
+                ],
+            },
+            pending_ids=["PF1", "PF2"],
+            visible_fact_ids=["F1", "F2"],
+        )
+
+        self.assertEqual(inspection["valid_pending_ids"], ["PF2"])
+        self.assertEqual(inspection["invalid_pending_ids"], ["PF1"])
+        self.assertEqual(
+            inspection["pending_errors"]["PF1"],
+            ["update_requires_one_fact_id"],
+        )
+
+    async def test_invalid_shard_row_gets_real_repair_before_finalize(self):
+        existing_facts = normalize_l4_store({
+            "facts": [
+                {
+                    "id": f"F{index + 1}",
+                    "key": f"project.fact_{index}",
+                    "value": "Durable project fact " + ("detail " * 20),
+                    "category": "project_fact",
+                }
+                for index in range(50)
+            ],
+        })["facts"]
+        store, _ = add_l4_pending_candidates(
+            normalize_l4_store({"facts": existing_facts}),
+            [
+                {
+                    "key": "project.pending_1",
+                    "value": "First pending durable fact.",
+                    "category": "project_fact",
+                },
+                {
+                    "key": "project.pending_2",
+                    "value": "Second pending durable fact.",
+                    "category": "project_fact",
+                },
+            ],
+            now="2026-08-21T12:00:00Z",
+        )
+        initial_scan = json.dumps({
+            "scan": [
+                {
+                    "pending_id": "PF1",
+                    "decision": "update",
+                    "fact_ids": [],
+                },
+                {
+                    "pending_id": "PF2",
+                    "decision": "no_match",
+                    "fact_ids": [],
+                },
+            ],
+        })
+        repaired_scan = json.dumps({
+            "scan": [
+                {
+                    "pending_id": "PF1",
+                    "decision": "no_match",
+                    "fact_ids": [],
+                },
+            ],
+        })
+        merge_response = json.dumps({
+            "operations": [
+                {"action": "ignore", "pending_id": "PF1"},
+                {"action": "ignore", "pending_id": "PF2"},
+            ],
+        })
+        service_client = FakeServiceClient(
+            [initial_scan, repaired_scan, merge_response],
+            context_window=4096,
+        )
+        context = RuntimeContext(
+            websocket=None,
+            emitter=FakeEmitter(),
+            logger=FakeLogger(),
+            clients={"service": service_client},
+        )
+        context.runtime_long_term_memory_store = store
+
+        result = await run_l4_merge_phase(
+            context=context,
+            service_client=service_client,
+        )
+
+        self.assertEqual(result["status"], "completed")
+        self.assertEqual(len(service_client.calls), 3)
+        recovery = result["merge_change"]["shard_scan_recovery"]
+        self.assertTrue(recovery["repair_attempted"])
+        self.assertEqual(recovery["initial_invalid_pending_ids"], ["PF1"])
+        self.assertEqual(recovery["repaired_pending_ids"], ["PF1"])
+        self.assertNotIn("PF1", context.runtime_l4_merge_deferred_pending_until)
+        repair_payload = json.loads(
+            service_client.calls[1]["user_prompt"].split("\n\n", 1)[1]
+        )
+        self.assertEqual(
+            [fact["id"] for fact in repair_payload["pending_facts"]],
+            ["PF1"],
+        )
+        self.assertIn("repair", repair_payload)
+
+    async def test_bad_shard_row_is_deferred_without_blocking_valid_pending(self):
+        existing_facts = normalize_l4_store({
+            "facts": [
+                {
+                    "id": f"F{index + 1}",
+                    "key": f"project.fact_{index}",
+                    "value": "Durable project fact " + ("detail " * 20),
+                    "category": "project_fact",
+                }
+                for index in range(50)
+            ],
+        })["facts"]
+        store, _ = add_l4_pending_candidates(
+            normalize_l4_store({"facts": existing_facts}),
+            [
+                {
+                    "key": "project.poison",
+                    "value": "Difficult pending durable fact.",
+                    "category": "project_fact",
+                },
+                {
+                    "key": "project.good",
+                    "value": "Independent pending durable fact.",
+                    "category": "project_fact",
+                },
+            ],
+            now="2026-08-21T12:00:00Z",
+        )
+        initial_scan = json.dumps({
+            "scan": [
+                {
+                    "pending_id": "PF1",
+                    "decision": "update",
+                    "fact_ids": [],
+                },
+                {
+                    "pending_id": "PF2",
+                    "decision": "no_match",
+                    "fact_ids": [],
+                },
+            ],
+        })
+        broken_repair = json.dumps({"scan": []})
+        merge_good = json.dumps({
+            "operations": [
+                {"action": "ignore", "pending_id": "PF2"},
+            ],
+        })
+        retry_scan = json.dumps({
+            "scan": [
+                {
+                    "pending_id": "PF1",
+                    "decision": "no_match",
+                    "fact_ids": [],
+                },
+            ],
+        })
+        retry_merge = json.dumps({
+            "operations": [
+                {"action": "ignore", "pending_id": "PF1"},
+            ],
+        })
+        service_client = FakeServiceClient(
+            [
+                initial_scan,
+                broken_repair,
+                merge_good,
+                retry_scan,
+                retry_merge,
+            ],
+            context_window=4096,
+        )
+        context = RuntimeContext(
+            websocket=None,
+            emitter=FakeEmitter(),
+            logger=FakeLogger(),
+            clients={"service": service_client},
+        )
+        context.runtime_long_term_memory_store = store
+
+        first = await run_l4_merge_phase(
+            context=context,
+            service_client=service_client,
+        )
+
+        self.assertEqual(first["status"], "completed")
+        self.assertEqual(first["batch_count"], 1)
+        self.assertEqual(len(service_client.calls), 3)
+        self.assertEqual(
+            [fact["id"] for fact in context.runtime_long_term_memory_store["pending_facts"]],
+            ["PF1"],
+        )
+        self.assertIn("PF1", context.runtime_l4_merge_deferred_pending_until)
+        self.assertIn("PF1", context.runtime_l4_merge_single_retry_pending_ids)
+        self.assertEqual(context.runtime_l4_merge_retry_not_before, 0.0)
+        final_payload = json.loads(
+            service_client.calls[2]["user_prompt"].split("\n\n", 1)[1]
+        )
+        self.assertEqual(
+            [fact["id"] for fact in final_payload["pending_facts"]],
+            ["PF2"],
+        )
+
+        next_store, _ = add_l4_pending_candidates(
+            context.runtime_long_term_memory_store,
+            [
+                {
+                    "key": "project.later",
+                    "value": "Later independent fact.",
+                    "category": "project_fact",
+                },
+            ],
+            now="2026-08-21T12:01:00Z",
+        )
+        context.runtime_long_term_memory_store = next_store
+        context.runtime_l4_merge_deferred_pending_until["PF1"] = 0.0
+
+        second = await run_l4_merge_phase(
+            context=context,
+            service_client=service_client,
+        )
+
+        self.assertEqual(second["status"], "completed")
+        self.assertEqual(len(service_client.calls), 5)
+        retry_payload = json.loads(
+            service_client.calls[3]["user_prompt"].split("\n\n", 1)[1]
+        )
+        self.assertEqual(
+            [fact["id"] for fact in retry_payload["pending_facts"]],
+            ["PF1"],
+        )
+        self.assertEqual(
+            [fact["id"] for fact in context.runtime_long_term_memory_store["pending_facts"]],
+            ["PF3"],
+        )
+        self.assertNotIn("PF1", context.runtime_l4_merge_single_retry_pending_ids)
 
     async def test_l4_pause_logs_once_and_starts_no_model_request(self):
         existing_facts = normalize_l4_store({

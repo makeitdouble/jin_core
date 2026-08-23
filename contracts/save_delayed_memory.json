@@ -12,7 +12,8 @@
     ],
     "blockers": [],
     "effects": {
-      "emit_followup": false
+      "emit_followup": false,
+      "follow_up_on_fail": false
     },
     "rules": [
       "Use this marker only after the user explicitly asks to create/save a delayed memory report.",
