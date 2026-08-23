@@ -2,7 +2,7 @@
 
   window.JinRuntime = window.JinRuntime || {};
 
-  const RUNTIME_MEMORY_VALUE_DISPLAY_MAX_CHARS = 100;
+  const RUNTIME_MEMORY_VALUE_DISPLAY_MAX_CHARS = 50;
 
 
   function splitCompoundRuntimeMemoryLine(line) {
@@ -1067,7 +1067,7 @@
   }
 
 
-  // Truncates long displayed JIN answers for the runtime memory panel, e.g. 120 characters -> first 100 characters plus "...".
+  // Truncates long displayed JIN answers for the runtime memory panel, e.g. 120 characters -> first 50 characters plus "...".
   function truncateJinResponseForDisplay(value) {
 
     return truncateRuntimeMemoryValueForDisplay(

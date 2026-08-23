@@ -592,6 +592,52 @@
       return true;
     }
 
+    function clearPersistedToolResultsCheckpoint() {
+      if (
+          (typeof shouldIsolateAnonymousStorage === "function"
+            && shouldIsolateAnonymousStorage())
+          || (typeof isAnonymousModeEnabled === "function"
+            && isAnonymousModeEnabled())
+      ) {
+        return false;
+      }
+
+      const previousCheckpoint =
+        readLatestSavedSessionSnapshot();
+
+      if (
+          !previousCheckpoint
+          || typeof previousCheckpoint !== "object"
+          || Array.isArray(previousCheckpoint)
+      ) {
+        return false;
+      }
+
+      const previousSessionSnapshot =
+        (
+          previousCheckpoint.session_snapshot
+          && typeof previousCheckpoint.session_snapshot === "object"
+          && !Array.isArray(previousCheckpoint.session_snapshot)
+        )
+          ? previousCheckpoint.session_snapshot
+          : {};
+
+      // CLEAN_TOOL_RESULTS mutates only one bootstrap field. Preserve the
+      // checkpoint timestamp/lineage verbatim: advancing saved_at here makes
+      // the browser checkpoint look newer than the raw chat-log tail, which
+      // suppresses archive enrichment for dialogue/reasoning/actions/files.
+      writeLatestSavedSessionSnapshot({
+        ...previousCheckpoint,
+        session_snapshot: {
+          ...previousSessionSnapshot,
+          tool_results: [],
+        },
+      });
+
+      return true;
+    }
+
+
     function buildCheckpointRuntimeSnapshot(snapshot) {
       const persistedSnapshot =
         buildPersistedRuntimeSnapshot(
@@ -1584,6 +1630,7 @@
     }
 
     session.persistLiveSessionCheckpoint = persistLiveSessionCheckpoint;
+    session.clearPersistedToolResultsCheckpoint = clearPersistedToolResultsCheckpoint;
     session.getRuntimeMemoryForSoftReconnect = getRuntimeMemoryForSoftReconnect;
     session.getInitialRuntimeMemoryBootstrap = getInitialRuntimeMemoryBootstrap;
     session.isReconnectInitialRuntimeMemoryUpdate = isReconnectInitialRuntimeMemoryUpdate;

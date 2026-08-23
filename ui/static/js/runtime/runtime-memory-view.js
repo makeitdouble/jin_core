@@ -46,11 +46,14 @@
         : () => "";
   const MEMORY_REFERENCE_HIGHLIGHT_EVENT =
       "jin:memory-reference-highlight";
-  const MEMORY_REFERENCE_ALIAS_DATASET_KEY =
+  const MEMORY_REFERENCE_ALIAS_STATE_KEY =
       "memoryReferenceAliases";
   const memoryReferenceHighlightState = {
     persistentText: "",
   };
+  // Rich row payload stays in JS, not serialized into data-* attributes.
+  // WeakMap lets detached/lazy-unloaded rows release their metadata naturally.
+  const runtimeMemoryRowState = new WeakMap();
   const activeThinkMemoryCitationSources = new Map();
   let memoryReferenceEventsBound = false;
   let runtimeMemorySortTransitionSequence = 0;
@@ -125,13 +128,14 @@
         ? memoryPanel.querySelector(".memory-scroll")
         : null;
 
-  const RUNTIME_MEMORY_LAZY_BATCH_SIZE = 20;
+  const RUNTIME_MEMORY_LAZY_BATCH_SIZE = 40;
   const RUNTIME_MEMORY_LAZY_BOTTOM_THRESHOLD_PX = 160;
 
   let runtimeMemoryLazyMode = "";
-  let runtimeMemoryVisibleRowCount = RUNTIME_MEMORY_LAZY_BATCH_SIZE;
+  let runtimeMemoryLazyTotalCount = 0;
+  let runtimeMemoryLazyRenderedCount = 0;
+  let runtimeMemoryLazyAppendBatch = null;
   let runtimeMemoryLastScrollTop = 0;
-  let runtimeMemoryFirstScrollBatchLoaded = false;
   let runtimeMemoryLastBatchRevealAt = 0;
 
   const MEMORY_PANEL_COLLAPSE_SYNC_EVENT =
@@ -370,46 +374,67 @@
     collectMetadataAliases: collectMemoryMetadataReferenceAliases,
   });
 
+  function getRuntimeMemoryRowState(row, create = false) {
+    if (!row) {
+      return null;
+    }
+
+    let state = runtimeMemoryRowState.get(row) || null;
+
+    if (!state && create) {
+      state = Object.create(null);
+      runtimeMemoryRowState.set(row, state);
+    }
+
+    return state;
+  }
+
+  function setRuntimeMemoryRowState(row, values) {
+    if (!row || !values || typeof values !== "object") {
+      return;
+    }
+
+    Object.assign(
+      getRuntimeMemoryRowState(row, true),
+      values
+    );
+  }
+
   function setMemoryReferenceAliases(row, aliases) {
     if (!row) {
       return;
     }
 
-    const normalizedAliases =
-        normalizeMemoryReferenceAliases(aliases);
-
-    if (!normalizedAliases.length) {
-      delete row.dataset[
-        MEMORY_REFERENCE_ALIAS_DATASET_KEY
-      ];
-      return;
-    }
-
-    row.dataset[
-      MEMORY_REFERENCE_ALIAS_DATASET_KEY
-    ] = JSON.stringify(normalizedAliases);
+    setRuntimeMemoryRowState(
+      row,
+      {
+        [MEMORY_REFERENCE_ALIAS_STATE_KEY]:
+          normalizeMemoryReferenceAliases(aliases),
+      }
+    );
   }
 
   function getMemoryReferenceAliases(row) {
-    if (!row || !row.dataset) {
-      return [];
-    }
+    const state = getRuntimeMemoryRowState(row);
+    const aliases =
+        state && state[MEMORY_REFERENCE_ALIAS_STATE_KEY];
 
-    const raw = row.dataset[
-      MEMORY_REFERENCE_ALIAS_DATASET_KEY
-    ];
+    return Array.isArray(aliases)
+      ? aliases
+      : [];
+  }
 
-    if (!raw) {
-      return [];
-    }
+  function getRuntimeMemoryRowCitationState(row) {
+    const state = getRuntimeMemoryRowState(row);
 
-    try {
-      return normalizeMemoryReferenceAliases(
-        JSON.parse(raw)
-      );
-    } catch (error) {
-      return [];
-    }
+    return {
+      lineIdentity:
+        String(state && state.runtimeMemoryLineIdentity || ""),
+      lineKey:
+        String(state && state.runtimeMemoryLineKey || ""),
+      lineText:
+        String(state && state.runtimeMemoryLineText || ""),
+    };
   }
 
   function getActiveMemoryReferenceText() {
@@ -439,6 +464,53 @@
     );
   }
 
+  function isLongTermMemoryRowBubbled(row) {
+    return Boolean(
+      row
+      && row.classList.contains("runtime-memory-l4-row")
+      && (
+        row.classList.contains("runtime-memory-reference-hit")
+        || row.classList.contains("runtime-memory-citation-hit")
+        || row.classList.contains("runtime-memory-context-loaded-hit")
+      )
+    );
+  }
+
+  function syncLongTermMemoryRowValueDisplay(row) {
+    if (!row || !row.classList.contains("runtime-memory-l4-row")) {
+      return;
+    }
+
+    const valueSpan =
+        row.querySelector(".runtime-memory-value");
+    const valueTextNode =
+        valueSpan
+          ? Array.from(valueSpan.childNodes)
+              .find(node => node.nodeType === 3)
+          : null;
+
+    if (!valueTextNode) {
+      return;
+    }
+
+    const state =
+        getRuntimeMemoryRowState(row);
+    const defaultText =
+        String(state && state.runtimeMemoryValueDefaultText || "");
+    const fullText =
+        String(
+          state && state.runtimeMemoryValueFullText
+          || defaultText
+        );
+
+    valueTextNode.nodeValue =
+        ` ${
+          isLongTermMemoryRowBubbled(row)
+            ? fullText
+            : defaultText
+        }`;
+  }
+
   function clearRuntimeMemoryHighlightClasses() {
     if (!runtimeMemoryText || !runtimeMemoryText.isConnected) {
       return;
@@ -458,6 +530,7 @@
           "runtime-memory-citation-hit",
           "runtime-memory-external-hover-hit"
         );
+        syncLongTermMemoryRowValueDisplay(row);
       });
   }
 
@@ -484,33 +557,50 @@
     ] || null;
   }
 
-  function getRuntimeMemoryLazyRows() {
-    if (!runtimeMemoryText) {
-      return [];
-    }
-
-    return Array.from(
-      runtimeMemoryText.querySelectorAll(
-        ".runtime-memory-line:not(.runtime-memory-user-idle)"
-      )
-    );
+  function applyRuntimeMemoryLazyVisibility() {
+    // Rows are materialized in batches now; there are no hidden overflow
+    // rows sitting in the DOM to toggle. Keep this hook for the existing
+    // highlight/sort pipeline, which still calls it after reordering.
   }
 
-  function applyRuntimeMemoryLazyVisibility() {
-    const rows = getRuntimeMemoryLazyRows();
+  function clearRuntimeMemoryLazyCollection() {
+    runtimeMemoryLazyTotalCount = 0;
+    runtimeMemoryLazyRenderedCount = 0;
+    runtimeMemoryLazyAppendBatch = null;
+  }
 
-    rows.forEach((row, index) => {
-      row.style.display =
-          index < runtimeMemoryVisibleRowCount
-            ? ""
-            : "none";
-    });
+  function beginRuntimeMemoryLazyCollection(items, renderItem) {
+    const source = Array.isArray(items) ? items : [];
+
+    clearRuntimeMemoryLazyCollection();
+    runtimeMemoryLazyTotalCount = source.length;
+
+    const appendBatch = () => {
+      const start = runtimeMemoryLazyRenderedCount;
+      const end = Math.min(
+        runtimeMemoryLazyTotalCount,
+        start + RUNTIME_MEMORY_LAZY_BATCH_SIZE
+      );
+
+      for (let index = start; index < end; index += 1) {
+        renderItem(source[index], index);
+      }
+
+      runtimeMemoryLazyRenderedCount = end;
+
+      if (runtimeMemoryLazyRenderedCount >= runtimeMemoryLazyTotalCount) {
+        runtimeMemoryLazyAppendBatch = null;
+      }
+
+      return end > start;
+    };
+
+    runtimeMemoryLazyAppendBatch = appendBatch;
+    appendBatch();
   }
 
   function resetRuntimeMemoryLazyRows(options = {}) {
-    runtimeMemoryVisibleRowCount =
-        RUNTIME_MEMORY_LAZY_BATCH_SIZE;
-    runtimeMemoryFirstScrollBatchLoaded = false;
+    clearRuntimeMemoryLazyCollection();
     runtimeMemoryLastScrollTop = 0;
     runtimeMemoryLastBatchRevealAt = 0;
 
@@ -521,8 +611,6 @@
     if (memoryScroll) {
       memoryScroll.scrollTop = 0;
     }
-
-    applyRuntimeMemoryLazyVisibility();
   }
 
   function syncRuntimeMemoryLazyMode(displayMode) {
@@ -539,18 +627,20 @@
   }
 
   function revealNextRuntimeMemoryLazyBatch() {
-    const rows = getRuntimeMemoryLazyRows();
-
-    if (runtimeMemoryVisibleRowCount >= rows.length) {
+    if (typeof runtimeMemoryLazyAppendBatch !== "function") {
       return false;
     }
 
-    runtimeMemoryVisibleRowCount = Math.min(
-      rows.length,
-      runtimeMemoryVisibleRowCount + RUNTIME_MEMORY_LAZY_BATCH_SIZE
-    );
+    const appended = runtimeMemoryLazyAppendBatch();
+
+    if (!appended) {
+      return false;
+    }
+
     runtimeMemoryLastBatchRevealAt = Date.now();
-    applyRuntimeMemoryLazyVisibility();
+    applyMemoryReferenceHighlights({
+      animateSort: false,
+    });
     return true;
   }
 
@@ -570,12 +660,6 @@
       return;
     }
 
-    if (!runtimeMemoryFirstScrollBatchLoaded) {
-      runtimeMemoryFirstScrollBatchLoaded = true;
-      revealNextRuntimeMemoryLazyBatch();
-      return;
-    }
-
     const remaining =
         memoryScroll.scrollHeight
         - memoryScroll.clientHeight
@@ -591,13 +675,8 @@
         !memoryScroll
         || isRuntimeMemoryViewSuspended()
         || Number(event && event.deltaY || 0) <= 0
+        || Date.now() - runtimeMemoryLastBatchRevealAt < 80
     ) {
-      return;
-    }
-
-    if (!runtimeMemoryFirstScrollBatchLoaded) {
-      runtimeMemoryFirstScrollBatchLoaded = true;
-      revealNextRuntimeMemoryLazyBatch();
       return;
     }
 
@@ -610,7 +689,6 @@
       revealNextRuntimeMemoryLazyBatch();
     }
   }
-
   function bindRuntimeMemoryLazyScroll() {
     if (!memoryScroll || memoryScroll.dataset.lazyMemoryBound === "1") {
       return;
@@ -720,9 +798,9 @@
         getActiveMemoryReferenceText();
     const rows = Array.from(
       runtimeMemoryText.querySelectorAll(
-        `[data-memory-reference-aliases]`
+        ".runtime-memory-line:not(.runtime-memory-user-idle)"
       )
-    );
+    ).filter(row => getMemoryReferenceAliases(row).length);
     const aliasUsage =
         buildMemoryReferenceAliasUsage(rows);
 
@@ -925,6 +1003,10 @@
       )
     );
 
+    rows.forEach(
+      syncLongTermMemoryRowValueDisplay
+    );
+
     if (rows.length < 2) {
       applyRuntimeMemoryLazyVisibility();
       return;
@@ -1032,16 +1114,24 @@
 
     const citationRows = Array.from(
       runtimeMemoryText.querySelectorAll(
-        "[data-runtime-memory-line-key]"
+        ".runtime-memory-line:not(.runtime-memory-user-idle)"
       )
-    );
+    ).filter((row) => {
+      const citationState =
+          getRuntimeMemoryRowCitationState(row);
+
+      return Boolean(
+        citationState.lineIdentity
+        || citationState.lineKey
+        || citationState.lineText
+        || normalizeActiveMemoryId(row.dataset.activeMemoryId)
+      );
+    });
     const lineKeyUsage = new Map();
 
     citationRows.forEach((row) => {
-      const lineKey =
-        normalizeRuntimeCitationIdentity(
-          row.dataset.runtimeMemoryLineKey
-        );
+      const { lineKey } =
+          getRuntimeMemoryRowCitationState(row);
 
       if (!lineKey) {
         return;
@@ -1054,21 +1144,11 @@
     });
 
     citationRows.forEach((row) => {
-      const lineIdentity =
-        normalizeRuntimeCitationIdentity(
-          row.dataset.runtimeMemoryLineIdentity
-        );
+      const { lineIdentity, lineKey, lineText } =
+          getRuntimeMemoryRowCitationState(row);
       const activeMemoryId =
         normalizeActiveMemoryId(
           row.dataset.activeMemoryId
-        );
-      const lineKey =
-        normalizeRuntimeCitationIdentity(
-          row.dataset.runtimeMemoryLineKey
-        );
-      const lineText =
-        normalizeRuntimeCitationIdentity(
-          row.dataset.runtimeMemoryLineText
         );
       const exactTextMatch = Boolean(
         lineText
@@ -1950,6 +2030,53 @@
         .join("\n");
   }
 
+
+  const runtimeMemoryHoverTitleSources = new WeakMap();
+  const runtimeMemoryHoverTitleBoundNodes = new WeakSet();
+
+  function resolveRuntimeMemoryHoverTitle(node) {
+    if (!node) {
+      return "";
+    }
+
+    const source = runtimeMemoryHoverTitleSources.get(node);
+    const value =
+        typeof source === "function"
+          ? source()
+          : source;
+
+    return String(value || "").trim();
+  }
+
+  function bindRuntimeMemoryHoverTitle(node, source) {
+    if (!node) {
+      return;
+    }
+
+    runtimeMemoryHoverTitleSources.set(node, source);
+    node.removeAttribute("title");
+
+    if (runtimeMemoryHoverTitleBoundNodes.has(node)) {
+      return;
+    }
+
+    runtimeMemoryHoverTitleBoundNodes.add(node);
+
+    node.addEventListener("mouseenter", () => {
+      const title = resolveRuntimeMemoryHoverTitle(node);
+
+      if (title) {
+        node.setAttribute("title", title);
+      } else {
+        node.removeAttribute("title");
+      }
+    });
+
+    node.addEventListener("mouseleave", () => {
+      node.removeAttribute("title");
+    });
+  }
+
   function setRuntimeDiffUpdate(data) {
     runtimeDiffHistory.diffs =
         data && data.diffs || [];
@@ -2122,8 +2249,10 @@
     const tokenCount =
         estimateRuntimeMemoryTokens(metricText);
 
-    runtimeMemoryTitle.title =
-        `${charCount} chars / ~${tokenCount} tokens`;
+    bindRuntimeMemoryHoverTitle(
+      runtimeMemoryTitle,
+      `${charCount} chars / ~${tokenCount} tokens`
+    );
   }
 
   function updateRuntimeMemoryTitleMetricsFromText(text) {
@@ -2140,8 +2269,10 @@
     const tokenCount =
         estimateRuntimeMemoryTokens(metricText);
 
-    runtimeMemoryTitle.title =
-        `${charCount} chars / ~${tokenCount} tokens`;
+    bindRuntimeMemoryHoverTitle(
+      runtimeMemoryTitle,
+      `${charCount} chars / ~${tokenCount} tokens`
+    );
   }
 
   function clampRuntimeMemoryHistoryIndex() {
@@ -2810,8 +2941,10 @@
           `${memoryModel.stripMemoryTextMetaForDisplay(rawMemory).trim()}\n`;
 
       if (rawMemory.trim()) {
-        runtimeMemoryText.title =
-            formatRuntimeMemoryHoverTitle(rawMemory);
+        bindRuntimeMemoryHoverTitle(
+          runtimeMemoryText,
+          () => formatRuntimeMemoryHoverTitle(rawMemory)
+        );
       }
 
       if (showLiveUserIdle) {
@@ -2848,7 +2981,7 @@
       persistGlow = false,
       options = {}
   ) {
-    lines.forEach((line, index) => {
+    beginRuntimeMemoryLazyCollection(lines, (line, index) => {
       const row =
           document.createElement("div");
 
@@ -2872,11 +3005,6 @@
           normalizeRuntimeCitationIdentity(
             line.citation_identity
           );
-
-      if (lineIdentity) {
-        row.dataset.runtimeMemoryLineIdentity =
-            lineIdentity;
-      }
       const activeMemoryId =
           normalizeActiveMemoryId(
             line && line.active_memory_id
@@ -2886,14 +3014,21 @@
         row.dataset.activeMemoryId =
             activeMemoryId;
       }
-      row.dataset.runtimeMemoryLineKey =
-          normalizeRuntimeCitationIdentity(
-            line.key || "note"
-          );
-      row.dataset.runtimeMemoryLineText =
-          normalizeRuntimeCitationIdentity(
-            `${line.key || "note"}: ${line.value || ""}`
-          );
+
+      setRuntimeMemoryRowState(
+        row,
+        {
+          runtimeMemoryLineIdentity: lineIdentity,
+          runtimeMemoryLineKey:
+            normalizeRuntimeCitationIdentity(
+              line.key || "note"
+            ),
+          runtimeMemoryLineText:
+            normalizeRuntimeCitationIdentity(
+              `${line.key || "note"}: ${line.value || ""}`
+            ),
+        }
+      );
 
       if (line && line.context_loaded === true) {
         row.classList.add(
@@ -2998,10 +3133,12 @@
             numberSpan.classList.add(
                 "runtime-memory-fact-report-link"
             );
-            numberSpan.title =
-                reportTitle
-                  ? `Open delayed memory report: ${reportTitle}`
-                  : "Open delayed memory report";
+            bindRuntimeMemoryHoverTitle(
+              numberSpan,
+              reportTitle
+                ? `Open delayed memory report: ${reportTitle}`
+                : "Open delayed memory report"
+            );
             numberSpan.addEventListener("pointerdown", (event) => {
               event.stopPropagation();
             });
@@ -3032,6 +3169,23 @@
 
       valueSpan.textContent =
           ` ${valuePresentation.text}`;
+
+      if (options.interactiveLongTermMemory) {
+        setRuntimeMemoryRowState(
+          row,
+          {
+            runtimeMemoryValueDefaultText:
+              String(valuePresentation.text || ""),
+            runtimeMemoryValueFullText:
+              String(
+                  memoryModel.splitMemoryMeta(line.value || "").text
+                  || valuePresentation.text
+                  || ""
+              ).replace(/\\n/g, " ↵ "),
+          }
+        );
+      }
+
       valueSpan.style.fontWeight =
           String(
               runtimeMemoryValueFontWeight(line)
@@ -3062,13 +3216,21 @@
       const hoverTitle =
           formatRuntimeMemoryHoverTitle(fullRawLine);
 
-      row.title =
-          hoverTitle;
-      valueSpan.title =
-          hoverTitle;
+      bindRuntimeMemoryHoverTitle(
+        row,
+        hoverTitle
+      );
+      bindRuntimeMemoryHoverTitle(
+        valueSpan,
+        hoverTitle
+      );
 
       row.appendChild(keySpan);
       row.appendChild(valueSpan);
+
+      if (options.interactiveLongTermMemory) {
+        syncLongTermMemoryRowValueDisplay(row);
+      }
 
       if (options.interactiveActiveMemory) {
         configureActiveMemoryRow(
@@ -3725,7 +3887,7 @@
       runtimeMemoryPosition.textContent = String(records.length);
     }
 
-    records.forEach((record, index) => {
+    beginRuntimeMemoryLazyCollection(records, (record, index) => {
       const row = document.createElement("div");
       const fileId = String(record.id || "").trim().toLowerCase();
       const linkedState = linkedStateByFileId.get(fileId) || null;
@@ -3741,16 +3903,28 @@
       row.dataset.memoryHighlightSortIndex = String(index);
       row.setAttribute("role", "button");
       row.setAttribute("tabindex", "0");
-      row.title = String(record.name || "attachment");
+      bindRuntimeMemoryHoverTitle(
+        row,
+        String(record.name || "attachment")
+      );
       row.dataset.fileId = fileId;
       if (avatarMemoryHoverId) {
         row.dataset.avatarMemoryHoverId = avatarMemoryHoverId;
       }
-      if (fileId) {
-        row.dataset.runtimeMemoryLineKey = normalizeRuntimeCitationIdentity(fileId);
-      }
-      row.dataset.runtimeMemoryLineText = normalizeRuntimeCitationIdentity(
-        [record.name, record.stored_name, record.context_path].filter(Boolean).join(" · ")
+      setRuntimeMemoryRowState(
+        row,
+        {
+          runtimeMemoryLineKey:
+            fileId
+              ? normalizeRuntimeCitationIdentity(fileId)
+              : "",
+          runtimeMemoryLineText:
+            normalizeRuntimeCitationIdentity(
+              [record.name, record.stored_name, record.context_path]
+                .filter(Boolean)
+                .join(" · ")
+            ),
+        }
       );
       setMemoryReferenceAliases(
         row,
@@ -3772,7 +3946,10 @@
       pinButton.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14.7 3.3 20.7 9.3 18.6 11.4 16.9 9.7 13.7 12.9 14.4 15.7 12.9 17.2 9.4 13.7 5.3 17.8 4.2 16.7 8.3 12.6 4.8 9.1 6.3 7.6 9.1 8.3 12.3 5.1 10.6 3.4 12.7 1.3Z"/></svg>';
       pinButton.classList.toggle("delayed-memory-modal-pin-active", Boolean(record.pinned));
       pinButton.setAttribute("aria-pressed", record.pinned ? "true" : "false");
-      pinButton.title = String(record.id || "");
+      bindRuntimeMemoryHoverTitle(
+        pinButton,
+        String(record.id || "")
+      );
       pinButton.setAttribute(
         "aria-label",
         record.pinned
@@ -3795,7 +3972,10 @@
       const separator = document.createElement("span");
       separator.className = "runtime-memory-delayed-separator";
       separator.textContent = "·";
-      separator.title = pinButton.title;
+      bindRuntimeMemoryHoverTitle(
+        separator,
+        () => resolveRuntimeMemoryHoverTitle(pinButton)
+      );
       separator.addEventListener("pointerdown", (event) => event.stopPropagation());
       separator.addEventListener("click", togglePinnedFile);
 
@@ -3860,7 +4040,7 @@
           "title"
       );
 
-      reports.forEach((report, index) => {
+      beginRuntimeMemoryLazyCollection(reports, (report, index) => {
         const title =
             String(report.title || "").trim();
 
@@ -3941,10 +4121,17 @@
         valueSpan.textContent =
             ` ${summary}`;
 
-        row.title =
+        const hoverTitle =
             `${title}: ${summary}`.trim();
-        valueSpan.title =
-            row.title;
+
+        bindRuntimeMemoryHoverTitle(
+          row,
+          hoverTitle
+        );
+        bindRuntimeMemoryHoverTitle(
+          valueSpan,
+          hoverTitle
+        );
         row.dataset.delayedMemoryId =
             normalizeRuntimeCitationIdentity(
               reportId || report._storage_key
@@ -4018,7 +4205,10 @@
           "click",
           toggleDelayedMemoryPinned
         );
-        separatorSpan.title = pinButton.title;
+        bindRuntimeMemoryHoverTitle(
+          separatorSpan,
+          () => resolveRuntimeMemoryHoverTitle(pinButton)
+        );
         separatorSpan.addEventListener(
           "pointerdown",
           (event) => event.stopPropagation()
@@ -4693,8 +4883,10 @@
             "button";
         optionButton.className =
             "delayed-memory-modal-fact-option";
-        optionButton.title =
-            option.title;
+        bindRuntimeMemoryHoverTitle(
+          optionButton,
+          option.title
+        );
 
         id.className =
             "delayed-memory-modal-fact-option-id";
@@ -5184,14 +5376,16 @@
                 : "Pin delayed memory"
             )
     );
-    button.title =
-        loaded
-          ? "Unload delayed memory from context"
-          : (
-              pinned
-                ? "Unpin delayed memory"
-                : "Pin delayed memory"
-            );
+    bindRuntimeMemoryHoverTitle(
+      button,
+      loaded
+        ? "Unload delayed memory from context"
+        : (
+            pinned
+              ? "Unpin delayed memory"
+              : "Pin delayed memory"
+          )
+    );
   }
 
   function clearDelayedMemoryModalEditSaveTimer() {
@@ -5526,8 +5720,10 @@
         "Delete delayed memory"
     );
 
-    delayedMemoryModalDeleteButton.title =
-        "Hold to delete delayed memory";
+    bindRuntimeMemoryHoverTitle(
+      delayedMemoryModalDeleteButton,
+      "Hold to delete delayed memory"
+    );
 
     delayedMemoryModalDeleteButton.innerHTML =
         '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 3h6l1 2h4v2H4V5h4l1-2Zm1 6h2v9h-2V9Zm4 0h2v9h-2V9ZM7 9h2l.7 10h4.6L15 9h2l-.8 11.1A2 2 0 0 1 14.2 22H9.8a2 2 0 0 1-2-1.9L7 9Z"/></svg>';
@@ -5799,8 +5995,10 @@
           sessionId.length > 9
             ? `${sessionId.slice(0, 9)}...`
             : sessionId;
-      item.title =
-          sessionId;
+      bindRuntimeMemoryHoverTitle(
+        item,
+        sessionId
+      );
       item.setAttribute(
           "aria-label",
           `restore session ${sessionId}`
@@ -5937,7 +6135,10 @@
       item.className =
           "delayed-memory-modal-tag";
       item.textContent = tag;
-      item.title = "Hold to remove tag";
+      bindRuntimeMemoryHoverTitle(
+        item,
+        "Hold to remove tag"
+      );
       item.setAttribute("tabindex", "0");
 
       configureRuntimeMemoryDeleteHold(
@@ -6133,8 +6334,10 @@
       );
       item.textContent =
           factId;
-      item.title =
-          title;
+      bindRuntimeMemoryHoverTitle(
+        item,
+        title
+      );
       item.dataset.delayedMemoryFactId =
           factId;
       item.setAttribute(
@@ -6513,8 +6716,10 @@
         optionButton.type = "button";
         optionButton.className =
           "delayed-memory-modal-fact-option delayed-memory-modal-attachment-option";
-        optionButton.title =
-          `${option.record.name || "attachment"} · ${option.fileId}`;
+        bindRuntimeMemoryHoverTitle(
+          optionButton,
+          `${option.record.name || "attachment"} · ${option.fileId}`
+        );
 
         id.className =
           "delayed-memory-modal-fact-option-id";
@@ -6704,9 +6909,12 @@
       } else {
         item.textContent = fileId;
       }
-      item.title = record
-        ? `${record.name || "attachment"} · ${fileId}`
-        : `${fileId} · missing file`;
+      bindRuntimeMemoryHoverTitle(
+        item,
+        record
+          ? `${record.name || "attachment"} · ${fileId}`
+          : `${fileId} · missing file`
+      );
       item.dataset.delayedMemoryAttachmentId = fileId;
       item.setAttribute("tabindex", "0");
 
@@ -6810,8 +7018,10 @@
     body.className =
         "jin-context-card-body delayed-memory-modal-card-body";
 
-    header.title =
-        "Click to collapse / expand";
+    bindRuntimeMemoryHoverTitle(
+      header,
+      "Click to collapse / expand"
+    );
     header.tabIndex = 0;
     header.setAttribute("role", "button");
     header.setAttribute("aria-expanded", "true");

@@ -13,11 +13,18 @@ from .signal import LOOP_RULES, EXTREME_LOW_DIFF_RULES, ZERO_DIFF_RULES, \
     LOW_DIFF_RULES, MIDDLE_DIFF_RULES, NORMAL_DIFF_RULES
 from contracts.rules_assembler import (
     build_runtime_action_instructions,
-    get_enabled_runtime_actions,
+    get_enabled_runtime_actions as get_contract_enabled_runtime_actions,
+)
+from app_settings import (
+    settings,
 )
 
 
 CURRENT_RUNTIME_SETTINGS_CONTENT = ("")
+SEARCH_RUNTIME_ACTION_FLAGS = (
+    "CAN_DEEP_WEB_SEARCH",
+    "CAN_WEB_SEARCH",
+)
 
 SERVICE_AS_BRAIN_RUNTIME_ACTIONS = {
     "CAN_DEEP_WEB_SEARCH": True,
@@ -50,6 +57,44 @@ BRAIN_RUNTIME_ACTIONS = {
     "CAN_JIN_SPEED": True,
     "CAN_UPDATE_L4_FACTS": True,
 }
+
+
+def search_actions_available() -> bool:
+
+    return bool(
+        getattr(
+            settings,
+            "CAN_SEARCH",
+            False,
+        )
+    )
+
+
+def get_effective_runtime_actions(
+    runtime_actions=None,
+) -> dict:
+
+    effective_actions = dict(
+        runtime_actions
+        or {}
+    )
+
+    if not search_actions_available():
+        for flag_name in SEARCH_RUNTIME_ACTION_FLAGS:
+            effective_actions[flag_name] = False
+
+    return effective_actions
+
+
+def get_enabled_runtime_actions(
+    runtime_actions=None,
+) -> tuple[str, ...]:
+
+    return get_contract_enabled_runtime_actions(
+        get_effective_runtime_actions(
+            runtime_actions
+        )
+    )
 
 LOADED_DELAYED_MEMORY_CONTEXT_FIELDS = (
     "title",
@@ -1115,7 +1160,9 @@ def build_brain_context(
     prompt_parts.append(
         build_runtime_xml(
             context,
-            runtime_actions,
+            get_effective_runtime_actions(
+                runtime_actions
+            ),
         )
     )
 

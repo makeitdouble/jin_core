@@ -23,6 +23,7 @@ const MEMORY_REFERENCE_HIGHLIGHT_EVENT =
 
 let liveUserTurnAnchor = null;
 let keepLiveUserTurnAtTop = false;
+let jinThinkCollapsedPreference = true;
 
 
 function isChatRenderForeground() {
@@ -452,6 +453,35 @@ function updateLiveUserTurnBottomSpace() {
     return;
   }
 
+  const metrics =
+    getLiveUserTurnViewportMetrics();
+
+  if (!metrics) {
+    chatHistory.style.removeProperty(
+      "--jin-live-turn-bottom-space"
+    );
+
+    return;
+  }
+
+  chatHistory.style.setProperty(
+    "--jin-live-turn-bottom-space",
+    `${Math.ceil(metrics.bottomSpace)}px`
+  );
+
+}
+
+
+function getLiveUserTurnViewportMetrics() {
+
+  if (
+    !chatHistory
+    || !liveUserTurnAnchor
+    || !liveUserTurnAnchor.isConnected
+  ) {
+    return null;
+  }
+
   const anchorRect =
     liveUserTurnAnchor.getBoundingClientRect();
 
@@ -501,9 +531,34 @@ function updateLiveUserTurnBottomSpace() {
       availableHeight - occupiedHeight
     );
 
-  chatHistory.style.setProperty(
-    "--jin-live-turn-bottom-space",
-    `${Math.ceil(bottomSpace)}px`
+  return {
+    anchorRect,
+    bottomSpace,
+    overflow:
+      Math.max(
+        0,
+        occupiedHeight - availableHeight
+      ),
+  };
+
+}
+
+
+function liveUserTurnReachedViewportBottom() {
+
+  if (
+    !keepLiveUserTurnAtTop
+    || !chatHistory
+  ) {
+    return false;
+  }
+
+  const metrics =
+    getLiveUserTurnViewportMetrics();
+
+  return Boolean(
+    metrics
+    && metrics.bottomSpace <= 1
   );
 
 }
@@ -519,13 +574,20 @@ function scrollLiveUserTurnToTop() {
     return;
   }
 
+  const metrics =
+    getLiveUserTurnViewportMetrics();
+
+  if (!metrics) {
+    return;
+  }
+
   updateLiveUserTurnBottomSpace();
 
   const historyRect =
     chatHistory.getBoundingClientRect();
 
   const anchorRect =
-    liveUserTurnAnchor.getBoundingClientRect();
+    metrics.anchorRect;
 
   const targetTop =
     chatHistory.scrollTop
@@ -536,7 +598,7 @@ function scrollLiveUserTurnToTop() {
   chatHistory.scrollTop =
     Math.max(
       0,
-      targetTop
+      targetTop + metrics.overflow
     );
 
 }
@@ -865,8 +927,22 @@ function flushStreamFrame() {
 
   updateLiveUserTurnBottomSpace();
 
-  if (
-    autoscroll
+  let liveTurnOverflowAutoscroll =
+    false;
+
+  if (liveUserTurnReachedViewportBottom()) {
+    releaseLiveUserTurnTopLock();
+    liveTurnOverflowAutoscroll =
+      true;
+  }
+
+  if (keepLiveUserTurnAtTop) {
+    scrollLiveUserTurnToTop();
+  } else if (
+    (
+      autoscroll
+      || liveTurnOverflowAutoscroll
+    )
     && chatHistory
   ) {
     chatHistory.scrollTop =
@@ -1830,8 +1906,15 @@ function createStreamGroup(
   const thinkContent =
     document.createElement("div");
 
+  const initialThinkCollapsed =
+    Boolean(
+      jinThinkCollapsedPreference
+    );
+
   thinkContent.className =
-    "jin-think-content is-collapsed";
+    initialThinkCollapsed
+      ? "jin-think-content is-collapsed"
+      : "jin-think-content";
 
   thinkContent.setAttribute(
     "role",
@@ -1845,7 +1928,9 @@ function createStreamGroup(
 
   thinkContent.setAttribute(
     "aria-expanded",
-    "false"
+    initialThinkCollapsed
+      ? "false"
+      : "true"
   );
 
   thinkContent.setAttribute(
@@ -1853,12 +1938,18 @@ function createStreamGroup(
     "Toggle thinking block"
   );
 
-  let collapsed = true;
+  let collapsed =
+    initialThinkCollapsed;
 
-  const setCollapsed = (nextCollapsed) => {
+  const setCollapsed = (nextCollapsed, options = {}) => {
 
     collapsed =
       nextCollapsed;
+
+    if (options.persist === true) {
+      jinThinkCollapsedPreference =
+        collapsed;
+    }
 
     thinkContent.classList.toggle(
       "is-collapsed",
@@ -1944,7 +2035,10 @@ function createStreamGroup(
       }
 
       setCollapsed(
-        !collapsed
+        !collapsed,
+        {
+          persist: true,
+        }
       );
     }
   );
@@ -1963,7 +2057,10 @@ function createStreamGroup(
       event.preventDefault();
 
       setCollapsed(
-        !collapsed
+        !collapsed,
+        {
+          persist: true,
+        }
       );
 
     }

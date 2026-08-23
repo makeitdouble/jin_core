@@ -8,7 +8,6 @@ const sessionActionsLogState = {
   logDiv: null,
   tagSpan: null,
   list: null,
-  actions: null,
   fullButton: null,
   bottomMoveStreamKey: "",
 };
@@ -868,17 +867,17 @@ function ensureSessionActionsLog() {
   tagSpan.className =
     "text-zinc-300 font-bold logger-tag block";
 
+  const header =
+    document.createElement("div");
+
+  header.className =
+    "jin-attached-files-header";
+
   const list =
     document.createElement("div");
 
   list.className =
     "mt-1 text-zinc-400 space-y-1";
-
-  const actions =
-    document.createElement("div");
-
-  actions.className =
-    "mt-2 flex flex-wrap items-center gap-2 hidden";
 
   const fullButton =
     document.createElement("button");
@@ -887,30 +886,35 @@ function ensureSessionActionsLog() {
     "button";
 
   fullButton.className =
-    "inline-flex items-center rounded border border-zinc-600/40 px-2 py-1 text-[10px] uppercase tracking-wider text-zinc-300 hover:bg-zinc-700/40 transition";
+    "jin-attached-files-attach-button hidden";
 
   fullButton.textContent =
-    "full";
+    "FULL";
+
+  fullButton.setAttribute(
+    "aria-label",
+    "Show full session actions"
+  );
 
   fullButton.addEventListener(
     "click",
     showSessionActionsModal
   );
 
-  actions.appendChild(
+  header.appendChild(
+    tagSpan
+  );
+
+  header.appendChild(
     fullButton
   );
 
   logDiv.appendChild(
-    tagSpan
+    header
   );
 
   logDiv.appendChild(
     list
-  );
-
-  logDiv.appendChild(
-    actions
   );
 
   sessionActionsLogState.logDiv =
@@ -921,9 +925,6 @@ function ensureSessionActionsLog() {
 
   sessionActionsLogState.list =
     list;
-
-  sessionActionsLogState.actions =
-    actions;
 
   sessionActionsLogState.fullButton =
     fullButton;
@@ -1004,7 +1005,6 @@ function updateSessionActionsLog(
       .slice(
         previewStartIndex
       )
-      .reverse()
       .map(({ item, index }) =>
         buildSessionActionRow(
           item,
@@ -1013,7 +1013,7 @@ function updateSessionActionsLog(
       )
   );
 
-  sessionActionsLogState.actions.classList.toggle(
+  sessionActionsLogState.fullButton.classList.toggle(
     "hidden",
     items.length <= SESSION_ACTIONS_PREVIEW_LIMIT
   );

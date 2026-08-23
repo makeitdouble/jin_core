@@ -728,6 +728,47 @@ class RuntimeActiveMemoryTests(RuntimeActionTestCase):
         )
 
 
+    def test_extracts_update_active_memory_self_closing_attribute_marker(self):
+
+        marker = (
+            '<UPDATE_ACTIVE_MEMORY active_memory_id="abc123" '
+            'last_update="23 august" current_photos=2 '
+            'last_photo_id="def456" />'
+        )
+
+        result = extract_runtime_actions(
+            (
+                "before "
+                + marker
+                + " after"
+            ),
+            enabled_actions=[
+                "CAN_SAVE_ACTIVE_MEMORY",
+            ],
+        )
+
+        self.assertEqual(result.text, "before after")
+        self.assertEqual(
+            result.actions,
+            (
+                RuntimeActionCall(
+                    name="UPDATE_ACTIVE_MEMORY",
+                    payload=(
+                        'active_memory_id="abc123" '
+                        'last_update="23 august" current_photos=2 '
+                        'last_photo_id="def456"'
+                    ),
+                ),
+            ),
+        )
+        self.assertEqual(
+            result.removed_markers,
+            (
+                marker,
+            ),
+        )
+
+
     def test_save_active_memory_materializes_hidden_custom_state_fields(self):
 
         context = FakeContext()
@@ -1164,6 +1205,86 @@ class RuntimeActiveMemoryTests(RuntimeActionTestCase):
         self.assertEqual(
             event["active_memory_result"]["id"],
             active_memory_id,
+        )
+
+
+    def test_update_active_memory_accepts_self_closing_attribute_marker(self):
+
+        context = FakeContext()
+        context.emitter = FakeEmitter()
+        context.timestamp = "2026-08-23T10:00:00"
+        context.session_id = "state-session"
+        context.turn_number = 11
+
+        asyncio.run(
+            apply_runtime_action_calls(
+                context,
+                (
+                    RuntimeActionCall(
+                        name="SAVE_ACTIVE_MEMORY",
+                        payload=(
+                            '{"conditions":"Track workspace photo state.",'
+                            '"last_update":"22 august",'
+                            '"current_photos":"1",'
+                            '"last_photo_id":"qamzck"}'
+                        ),
+                    ),
+                ),
+            )
+        )
+        active_memory_id = context.emitter.events[0]["active_memory_id"]
+        context.emitter.events.clear()
+        context.timestamp = "2026-08-23T10:01:00"
+
+        result = extract_runtime_actions(
+            (
+                f'<UPDATE_ACTIVE_MEMORY active_memory_id="{active_memory_id}" '
+                'last_update="23 august" current_photos=2 '
+                'last_photo_id="8vyf97" />'
+            ),
+            enabled_actions=[
+                "CAN_SAVE_ACTIVE_MEMORY",
+            ],
+        )
+        applied_count = asyncio.run(
+            apply_runtime_action_calls(
+                context,
+                result.actions,
+            )
+        )
+
+        self.assertEqual(result.text, "")
+        self.assertEqual(applied_count, 1)
+        record = context.active_memory_records[0]
+        self.assertIn("[ last_update: 23 august ]", record)
+        self.assertIn("[ current_photos: 2 ]", record)
+        self.assertIn("[ last_photo_id: 8vyf97 ]", record)
+        self.assertIn(
+            "[ updated_at: 2026-08-23T10:01:00 ]",
+            record,
+        )
+        event = context.emitter.events[0]
+        self.assertEqual(event["status"], "completed")
+        self.assertEqual(event["active_memory_id"], active_memory_id)
+        self.assertEqual(
+            event["active_memory_changes"],
+            [
+                {
+                    "field": "last_update",
+                    "before": "22 august",
+                    "after": "23 august",
+                },
+                {
+                    "field": "current_photos",
+                    "before": "1",
+                    "after": "2",
+                },
+                {
+                    "field": "last_photo_id",
+                    "before": "qamzck",
+                    "after": "8vyf97",
+                },
+            ],
         )
 
 

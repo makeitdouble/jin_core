@@ -10,13 +10,10 @@
       "emit_followup": false
     },
     "rules": [
-      "Use to set JIN size (or weight)! Change live JIN avatar size in pixels.",
-      "Emit marker using exactly this schema <JIN_SIZE> 120px 120px </JIN_SIZE>",
-      "Put only the size payload inside the tag body; do not put it in the opening tag.",
-      "The first number is width and the second number is height.",
+      "Use to set JIN Live Avatar size.",
+      "Emit marker using this schema <JIN_SIZE> w:120 h:120 </JIN_SIZE>",
       "You may emit <JIN_SIZE> 120px </JIN_SIZE> to make the avatar square.",
-      "Payload values may include px or omit px.",
-      "Labeled payload values are also valid, for example <JIN_SIZE> w:120px h:120px </JIN_SIZE>, <JIN_SIZE> w:120 </JIN_SIZE>, or <JIN_SIZE> h:120 </JIN_SIZE>."
+      "Payload values may include px, percent, or vw/vh. Default is - px."
     ],
     "close_tag": true,
     "body_placeholder": "120px 120px"

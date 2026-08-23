@@ -9,6 +9,7 @@ from runtime.runtime_context import RuntimeContext
 
 ROOT = Path(__file__).resolve().parents[1]
 MEMORY_VIEW_JS = ROOT / "ui" / "static" / "js" / "runtime" / "runtime-memory-view.js"
+MEMORY_MODEL_JS = ROOT / "ui" / "static" / "js" / "runtime" / "runtime-memory-model.js"
 AVATAR_JS = ROOT / "ui" / "static" / "js" / "runtime" / "runtime-avatar.js"
 THINK_CITATIONS_JS = ROOT / "ui" / "static" / "js" / "think-citations.js"
 TRACE_MODAL_JS = ROOT / "ui" / "static" / "js" / "logger" / "trace-modal.js"
@@ -141,6 +142,20 @@ class L4ContextFocusContractTests(unittest.TestCase):
         self.assertNotIn("...buildL4CitationFragments(),", citations)
         self.assertIn('addLine("l4",', citations)
         self.assertIn('citationType: "l4_citation"', citations)
+
+    def test_bubbled_l4_rows_show_full_value_while_default_preview_is_50_chars(self):
+        memory_view = MEMORY_VIEW_JS.read_text(encoding="utf-8")
+        memory_model = MEMORY_MODEL_JS.read_text(encoding="utf-8")
+
+        self.assertIn(
+            "const RUNTIME_MEMORY_VALUE_DISPLAY_MAX_CHARS = 50;",
+            memory_model,
+        )
+        self.assertIn("function isLongTermMemoryRowBubbled(row)", memory_view)
+        self.assertIn('row.classList.contains("runtime-memory-citation-hit")', memory_view)
+        self.assertIn('row.classList.contains("runtime-memory-context-loaded-hit")', memory_view)
+        self.assertIn("syncLongTermMemoryRowValueDisplay(row);", memory_view)
+        self.assertIn("runtimeMemoryValueFullText", memory_view)
 
     def test_context_modal_renders_clean_fact_and_ordered_report_fallback(self):
         source = TRACE_MODAL_JS.read_text(encoding="utf-8")

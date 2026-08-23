@@ -17,6 +17,14 @@
     const ratingVisualClasses = ratingSelectionClasses.filter(
         (className) => className !== "jin-rating-committed"
     );
+    const ratingCountLabels = {
+        minus: "Dislikes",
+        plus: "Likes",
+    };
+    const ratingHoverLabels = {
+        minus: "Dislike answer",
+        plus: "Like answer",
+    };
     const ratingBubbleSelector =
         ".jin-chat-bubble-rateable, .jin-chat-bubble-service, .jin-chat-bubble-brain";
     const activeRatingBubbleSelector =
@@ -437,7 +445,57 @@
         }
     }
 
-    function setBubbleRatingClickAlt(bubble, count) {
+    function getBubbleRatingCountKey(ratingValue) {
+        const value = String(ratingValue || "");
+        if (!value) {
+            return "";
+        }
+
+        return `rating${value[0].toUpperCase()}${value.slice(1)}Count`;
+    }
+
+    function getBubbleRatingValueCount(bubble, ratingValue) {
+        const key = getBubbleRatingCountKey(ratingValue);
+        if (!bubble || !key) {
+            return 0;
+        }
+
+        const value = Number(bubble.dataset[key] || 0);
+        return Number.isFinite(value) ? Math.max(0, Math.trunc(value)) : 0;
+    }
+
+    function formatRatingValueLabel(bubble, ratingValue) {
+        const count = getBubbleRatingValueCount(bubble, ratingValue);
+        const countLabel = ratingCountLabels[ratingValue];
+
+        if (countLabel && count > 0) {
+            return `${countLabel}: ${count}`;
+        }
+
+        return ratingHoverLabels[ratingValue] || "";
+    }
+
+    function syncBubbleRatingZoneTitles(bubble) {
+        if (!bubble) {
+            return;
+        }
+
+        const zones = bubble.querySelector(":scope > .jin-rating-hover-zones");
+        if (!zones) {
+            return;
+        }
+
+        Array.from(zones.children || []).forEach((zone) => {
+            const ratingValue = zone.dataset.ratingValue || "";
+            const label = formatRatingValueLabel(bubble, ratingValue);
+            if (label) {
+                zone.title = label;
+                zone.setAttribute("aria-label", label);
+            }
+        });
+    }
+
+    function setBubbleRatingClickAlt(bubble, count, ratingValue = "") {
         if (!bubble) {
             return;
         }
@@ -451,11 +509,14 @@
             return;
         }
 
-        const label = String(Math.trunc(value));
+        const ratingLabel = ratingCountLabels[ratingValue];
+        const label = ratingLabel
+            ? `${ratingLabel}: ${Math.trunc(value)}`
+            : String(Math.trunc(value));
         bubble.dataset.ratingClickAlt = label;
         bubble.setAttribute("alt", label);
         bubble.setAttribute("aria-label", label);
-        bubble.setAttribute("title", label);
+        bubble.removeAttribute("title");
     }
 
     function clearBubbleRatingIntensity(bubble) {
@@ -530,6 +591,7 @@
 
             if (bubble.querySelector(":scope > .jin-rating-hover-zones")) {
                 markBubbleRatingL1State(bubble);
+                syncBubbleRatingZoneTitles(bubble);
                 return;
             }
 
@@ -544,17 +606,16 @@
             zones.setAttribute("aria-hidden", "true");
 
             [
-                ["jin-rating-zone jin-rating-zone-minus", "minus", "negative feedback hover zone"],
+                ["jin-rating-zone jin-rating-zone-minus", "minus", "Dislike answer"],
                 ["jin-rating-zone jin-rating-zone-neutral", "disable", "disable rating"],
-                ["jin-rating-zone jin-rating-zone-plus", "plus", "positive feedback hover zone"],
+                ["jin-rating-zone jin-rating-zone-plus", "plus", "Like answer"],
             ].forEach(([className, ratingValue, label]) => {
                 const zone = document.createElement("div");
                 zone.className = className;
                 zone.dataset.ratingValue = ratingValue;
                 zone.dataset.ratingHover = label;
-                if (ratingValue === "disable") {
-                    zone.title = "disable rating";
-                }
+                zone.title = label;
+                zone.setAttribute("aria-label", label);
 
                 zone.addEventListener("click", (event) => {
                     event.preventDefault();
@@ -606,7 +667,7 @@
                     window.jinAnswerRatingCounts = globalCounts;
 
                     const bubbleClickCount = Number(bubble.dataset.ratingClickCount || 0) + 1;
-                    const bubbleRatingCountKey = `rating${ratingValue[0].toUpperCase()}${ratingValue.slice(1)}Count`;
+                    const bubbleRatingCountKey = getBubbleRatingCountKey(ratingValue);
                     const previousRating = bubble.dataset.ratingSelected || null;
                     const activeRatingClickCount = Number(bubble.dataset[bubbleRatingCountKey] || 0) + 1;
 
@@ -632,8 +693,9 @@
                         bubble.classList.remove(pressClass);
                     }, 680);
 
-                    setBubbleRatingClickAlt(bubble, activeRatingClickCount);
-                    zones.title = String(activeRatingClickCount);
+                    setBubbleRatingClickAlt(bubble, activeRatingClickCount, ratingValue);
+                    zones.title = "";
+                    syncBubbleRatingZoneTitles(bubble);
 
                     const ratingDetail = {
                         rating: ratingValue,

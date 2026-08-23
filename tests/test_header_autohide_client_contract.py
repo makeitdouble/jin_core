@@ -103,6 +103,38 @@ class HeaderAutoHideClientContractTests(unittest.TestCase):
             source,
         )
 
+    def test_chat_content_occludes_the_hidden_header_hover_catch_zone(self):
+        source = HEADER_JS.read_text(encoding="utf-8")
+
+        self.assertIn(
+            'const chatHistory = document.getElementById("chat-history");',
+            source,
+        )
+        self.assertIn(
+            "let pointerOccludedByChatContent = false;",
+            source,
+        )
+        self.assertIn(
+            "function pointerIsOnChatContent(target)",
+            source,
+        )
+        for selector in (
+            ".jin-chat-avatar",
+            ".jin-chat-bubble",
+            ".jin-think-content",
+            ".jin-runtime-action-row > *",
+            ".jin-session-restore-divider",
+        ):
+            self.assertIn(selector, source)
+        self.assertIn(
+            "&& !pointerOccludedByChatContent",
+            source,
+        )
+        self.assertIn(
+            "pointerOccludedByChatContent = pointerIsOnChatContent(target);",
+            source,
+        )
+
     def test_temporary_header_shift_does_not_pollute_saved_room_geometry(self):
         source = LOGGER_JS.read_text(encoding="utf-8")
 

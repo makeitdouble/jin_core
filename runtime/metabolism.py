@@ -1970,7 +1970,7 @@ def build_metabolism_brain_context(
         f"active_memory_salience_top: {top_active_line}",
     ]
     if instruction:
-        parts.append(f"Instructions: {instruction}")
+        parts.append(f"Possible reaction: {instruction}")
     parts.append("</METABOLIC_STATE>")
     return "\n".join(parts)
 

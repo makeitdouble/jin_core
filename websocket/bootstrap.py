@@ -472,6 +472,36 @@ def apply_archived_session_continuation_state(
                         normalized_part["message"] = message
                     if part_id:
                         normalized_part["id"] = part_id
+
+                    raw_colors = part.get("colors", [])
+                    if isinstance(raw_colors, (str, bytes)):
+                        raw_colors = [raw_colors]
+                    if isinstance(raw_colors, list):
+                        colors = []
+                        for raw_color in raw_colors:
+                            color = clean_bootstrap_memory(
+                                raw_color,
+                                limit=16,
+                            ).lower()
+                            match = re.fullmatch(
+                                r"#?([0-9a-f]{3}|[0-9a-f]{6})",
+                                color,
+                                re.IGNORECASE,
+                            )
+                            if match is None:
+                                continue
+                            color = match.group(1).lower()
+                            if len(color) == 3:
+                                color = "".join(
+                                    char * 2
+                                    for char in color
+                                )
+                            normalized_color = f"#{color}"
+                            if normalized_color not in colors:
+                                colors.append(normalized_color)
+                        if colors:
+                            normalized_part["colors"] = colors
+
                     normalized_parts.append(normalized_part)
 
                 if normalized_parts:
@@ -2340,6 +2370,10 @@ def enrich_session_bootstrap_from_archive(
     # Browser persistence is the exact checkpoint when available. Fall back
     # to archived PREVIOUS_RUNTIME_STATE/resources only when the browser half
     # is absent.
+    exact_collection_fields = {
+        "tool_results",
+    }
+
     for field in (
         "runtime_memory",
         "runtime_memory_updates",
@@ -2347,10 +2381,26 @@ def enrich_session_bootstrap_from_archive(
         "active_memory_records",
         "tool_results",
     ):
-        if enriched.get(field) in (None, "", [], {}):
-            value = archived.get(field)
-            if value not in (None, "", [], {}):
-                enriched[field] = value
+        # CLEAN_TOOL_RESULTS deliberately persists tool_results=[]; that empty
+        # collection is authoritative and must not be repopulated from an older
+        # archived prompt on the next-tab boot. Other restore collections keep
+        # their legacy fallback semantics.
+        if field in exact_collection_fields:
+            browser_has_value = (
+                field in enriched
+                and enriched.get(field) is not None
+            )
+        else:
+            browser_has_value = (
+                enriched.get(field) not in (None, "", [], {})
+            )
+
+        if browser_has_value:
+            continue
+
+        value = archived.get(field)
+        if value not in (None, "", [], {}):
+            enriched[field] = value
 
     enriched["source_session_id"] = source_session_id
     if archived.get("source_session_date"):

@@ -1,5 +1,7 @@
 import unittest
 from typing import cast
+from types import SimpleNamespace
+from unittest.mock import patch
 
 import httpx
 
@@ -27,7 +29,12 @@ from websocket.logger import (
     WebSocketLogger,
 )
 from rules.brain_context_builder import (
+    build_brain_context,
+    get_enabled_runtime_actions,
     SERVICE_AS_BRAIN_RUNTIME_ACTIONS,
+)
+from app_settings import (
+    is_valid_serper_api_key,
 )
 
 
@@ -362,6 +369,99 @@ class SearchFlowTests(
         )
         SERVICE_AS_BRAIN_RUNTIME_ACTIONS["CAN_DEEP_WEB_SEARCH"] = (
             self._original_service_deep_web_search
+        )
+
+    def test_serper_key_validation_accepts_any_configured_real_key(self):
+
+        for value in (
+            "7037beeecf37f7555e12ac2c06904634a283ff0",
+            "r/7037beeecf37f7555e12ac2c06904634a283ff0",
+            "serper-live-key-with-provider-defined-format",
+        ):
+            with self.subTest(value=value):
+                self.assertTrue(
+                    is_valid_serper_api_key(
+                        value
+                    )
+                )
+
+        for value in (
+            "",
+            "   ",
+            "mock-serper-api-key",
+            "your-serper-api-key",
+            "your_serper_api_key",
+        ):
+            with self.subTest(value=value):
+                self.assertFalse(
+                    is_valid_serper_api_key(
+                        value
+                    )
+                )
+
+    def test_configured_serper_key_keeps_search_actions_in_context(self):
+
+        runtime_actions = {
+            "CAN_WEB_SEARCH": True,
+            "CAN_DEEP_WEB_SEARCH": True,
+        }
+
+        with patch(
+            "rules.brain_context_builder.settings",
+            SimpleNamespace(CAN_SEARCH=True),
+        ):
+            prompt = build_brain_context(
+                runtime_actions=runtime_actions
+            )
+
+            self.assertEqual(
+                get_enabled_runtime_actions(
+                    runtime_actions
+                ),
+                (
+                    "DEEP_WEB_SEARCH",
+                    "WEB_SEARCH",
+                ),
+            )
+
+        self.assertIn(
+            "Use WEB_SEARCH",
+            prompt,
+        )
+        self.assertIn(
+            "Use DEEP_WEB_SEARCH",
+            prompt,
+        )
+
+    def test_invalid_serper_key_hides_search_actions_from_context(self):
+
+        runtime_actions = {
+            "CAN_WEB_SEARCH": True,
+            "CAN_DEEP_WEB_SEARCH": True,
+        }
+
+        with patch(
+            "rules.brain_context_builder.settings",
+            SimpleNamespace(CAN_SEARCH=False),
+        ):
+            prompt = build_brain_context(
+                runtime_actions=runtime_actions
+            )
+
+            self.assertEqual(
+                get_enabled_runtime_actions(
+                    runtime_actions
+                ),
+                (),
+            )
+
+        self.assertNotIn(
+            "Use WEB_SEARCH",
+            prompt,
+        )
+        self.assertNotIn(
+            "Use DEEP_WEB_SEARCH",
+            prompt,
         )
 
     def test_found_search_result_contains_results(self):

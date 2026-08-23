@@ -81,10 +81,6 @@ ACTIVE_MEMORY_CUSTOM_FIELD_SUFFIX_RE = re.compile(
     re.IGNORECASE,
 )
 
-ACTIVE_MEMORY_TRAILING_CUSTOM_FIELD_RE = re.compile(
-    r"\(\s*([A-Za-z][A-Za-z0-9_]{0,31})\s*:\s*([^()]*)\)\s*$",
-)
-
 ACTIVE_MEMORY_CUSTOM_FIELD_LIMIT = 3
 ACTIVE_MEMORY_CUSTOM_FIELD_VALUE_MAX_LENGTH = 256
 
@@ -188,42 +184,7 @@ def extract_active_memory_creation_custom_fields(
 
         return conditions, custom_fields
 
-    reversed_fields = []
-    seen = set()
-
-    while True:
-        match = ACTIVE_MEMORY_TRAILING_CUSTOM_FIELD_RE.search(
-            text
-        )
-        if match is None:
-            break
-
-        field_name = normalize_active_memory_custom_field_name(
-            match.group(1)
-        )
-        field_value = normalize_active_memory_custom_field_value(
-            match.group(2)
-        )
-
-        # Parentheses remain ordinary condition text unless both the key and
-        # value form a valid custom state declaration. This keeps prose such as
-        # "(inside the apartment or view from the window)" untouched.
-        if not field_name or not field_value:
-            break
-
-        if field_name in seen:
-            return str(value or "").strip(), ()
-
-        seen.add(field_name)
-        reversed_fields.append((field_name, field_value))
-        text = text[:match.start()].rstrip()
-
-    custom_fields = tuple(reversed(reversed_fields))
-
-    if len(custom_fields) > ACTIVE_MEMORY_CUSTOM_FIELD_LIMIT:
-        return str(value or "").strip(), ()
-
-    return text.strip(), custom_fields
+    return text.strip(), ()
 
 
 def collect_active_memory_custom_fields(

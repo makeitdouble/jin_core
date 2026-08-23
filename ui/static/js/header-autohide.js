@@ -4,6 +4,7 @@
     const header = document.getElementById("app-header");
     const consolePanel = document.getElementById("console-panel");
     const memoryPanel = document.getElementById("memory-panel");
+    const chatHistory = document.getElementById("chat-history");
 
     if (!header) {
         return;
@@ -18,6 +19,13 @@
     const HEADER_HEIGHT_VAR = "--app-header-height";
     const PANEL_SHIFT_VAR = "--app-header-panel-shift";
     const DEFAULT_PANEL_GAP = 8;
+    const CHAT_CONTENT_SELECTOR = [
+        ".jin-chat-avatar",
+        ".jin-chat-bubble",
+        ".jin-think-content",
+        ".jin-runtime-action-row > *",
+        ".jin-session-restore-divider",
+    ].join(", ");
     const SHOW_DELAY_MS = 333;
     const HIDE_DELAY_MS = 1000;
 
@@ -26,6 +34,7 @@
     let lastPointerY = Number.POSITIVE_INFINITY;
     let interactionHeld = false;
     let pointerOccludedByPanel = false;
+    let pointerOccludedByChatContent = false;
     let visible = false;
     let panelSyncFrameId = null;
     let showTimerId = null;
@@ -163,6 +172,7 @@
         return interactionHeld
             || (
                 !pointerOccludedByPanel
+                && !pointerOccludedByChatContent
                 && lastPointerY <= revealZoneHeight
             );
     }
@@ -237,6 +247,16 @@
         );
     }
 
+    function pointerIsOnChatContent(target) {
+        return Boolean(
+            chatHistory
+            && target
+            && typeof target.closest === "function"
+            && chatHistory.contains(target)
+            && target.closest(CHAT_CONTENT_SELECTOR)
+        );
+    }
+
     function pointerIsOnHeldSurface(target) {
         return Boolean(
             target
@@ -255,6 +275,7 @@
             fallbackY
         );
         pointerOccludedByPanel = pointerIsOnOccludingPanel(target);
+        pointerOccludedByChatContent = pointerIsOnChatContent(target);
     }
 
     function handlePointerMove(event) {
@@ -287,6 +308,7 @@
     function handleDocumentLeave() {
         lastPointerY = Number.POSITIVE_INFINITY;
         pointerOccludedByPanel = false;
+        pointerOccludedByChatContent = false;
         interactionHeld = false;
         refreshVisibility();
     }

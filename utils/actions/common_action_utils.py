@@ -123,6 +123,21 @@ JIN_INLINE_PAYLOAD_ACTIONS = frozenset({
     RUNTIME_ACTION_JIN_SPEED,
 })
 
+UPDATE_ACTIVE_MEMORY_START_RE = re.compile(
+    r"<\s*UPDATE_ACTIVE_MEMORY(?=\s|>)",
+    re.IGNORECASE,
+)
+
+UPDATE_ACTIVE_MEMORY_SELF_CLOSING_ATTRIBUTE_RE = re.compile(
+    (
+        r"<\s*(?P<name>UPDATE_ACTIVE_MEMORY)"
+        r"\s+"
+        r"(?P<payload>(?:[^<>\"']+|\"[^\"]*\"|'[^']*')*?)"
+        r"\s*/\s*>"
+    ),
+    re.IGNORECASE | re.DOTALL,
+)
+
 
 def _runtime_action_allows_inline_payload(
     action_name: str,
@@ -192,11 +207,94 @@ def _find_all_runtime_action_matches(
                 if match.payload.strip()
             )
 
+        if action_name == RUNTIME_ACTION_UPDATE_ACTIVE_MEMORY:
+            action_matches = (
+                *_find_update_active_memory_attribute_matches(
+                    text
+                ),
+                *action_matches,
+            )
+
+        if action_name == RUNTIME_ACTION_CLEAN_TOOL_RESULTS:
+            action_matches = (
+                *action_matches,
+                *_find_clean_tool_results_closing_matches(
+                    text,
+                    private_marker,
+                ),
+            )
+
         matches.extend(
             action_matches
         )
 
     return select_non_overlapping_regexp_matches(
+        matches
+    )
+
+
+def _find_clean_tool_results_closing_matches(
+    text: str,
+    private_marker: str,
+) -> tuple[RuntimeActionRegexpMatch, ...]:
+    """Treat a redundant CLEAN_TOOL_RESULTS close tag as parser-only noise."""
+
+    matches = []
+    end_pattern = compile_runtime_action_end_regexp(
+        private_marker,
+        RUNTIME_ACTION_CLEAN_TOOL_RESULTS,
+    )
+
+    for match in end_pattern.finditer(
+        str(
+            text
+            or ""
+        )
+    ):
+        matches.append(
+            RuntimeActionRegexpMatch(
+                start=match.start(),
+                end=match.end(),
+                raw=match.group(0),
+                name=RUNTIME_ACTION_CLEAN_TOOL_RESULTS,
+                source="compat_closing",
+            )
+        )
+
+    return tuple(
+        matches
+    )
+
+
+def _find_update_active_memory_attribute_matches(
+    text: str,
+) -> tuple[RuntimeActionRegexpMatch, ...]:
+
+    matches = []
+
+    for match in UPDATE_ACTIVE_MEMORY_SELF_CLOSING_ATTRIBUTE_RE.finditer(
+        str(
+            text
+            or ""
+        )
+    ):
+        matches.append(
+            RuntimeActionRegexpMatch(
+                start=match.start(),
+                end=match.end(),
+                raw=match.group(0),
+                name=str(
+                    match.group("name")
+                    or ""
+                ).strip().upper(),
+                payload=str(
+                    match.group("payload")
+                    or ""
+                ).strip(),
+            )
+        )
+
+    return tuple(
         matches
     )
 
@@ -1173,6 +1271,18 @@ def extract_runtime_actions(
         match: RuntimeActionRegexpMatch,
     ) -> str:
 
+        if match.source == "compat_closing":
+            if not preserve_action_text:
+                removed_markers.append(
+                    match.raw
+                )
+
+            return (
+                match.raw
+                if preserve_action_text
+                else ""
+            )
+
         return handle_marker(
             match.raw,
             match.name,
@@ -1224,6 +1334,17 @@ def _enabled_action_start_markers(
             if marker not in markers:
                 markers.append(
                     marker
+                )
+
+        if action_name == RUNTIME_ACTION_CLEAN_TOOL_RESULTS:
+            marker_name, _ = extract_private_marker_parts(
+                private_marker
+            )
+            closing_marker = f"</{marker_name}>"
+
+            if closing_marker not in markers:
+                markers.append(
+                    closing_marker
                 )
 
     return tuple(
@@ -1485,6 +1606,18 @@ def _unclosed_internal_action_request_start(
     for action_name in normalize_runtime_action_names(
         enabled_actions
     ):
+        if action_name == RUNTIME_ACTION_UPDATE_ACTIVE_MEMORY:
+            marker_start = (
+                _unclosed_update_active_memory_attribute_start(
+                    text
+                )
+            )
+
+            if marker_start is not None:
+                marker_starts.append(
+                    marker_start
+                )
+
         private_marker, close_tag = _runtime_action_marker_config(
             action_name
         )
@@ -1511,6 +1644,42 @@ def _unclosed_internal_action_request_start(
     return max(
         marker_starts
     )
+
+
+def _unclosed_update_active_memory_attribute_start(
+    text: str,
+) -> int | None:
+
+    value = str(
+        text
+        or ""
+    )
+
+    if not value:
+        return None
+
+    marker_start = value.rfind(
+        "<"
+    )
+
+    if marker_start < 0:
+        return None
+
+    candidate = value[
+        marker_start:
+    ]
+
+    if ">" in candidate:
+        return None
+
+    if re.fullmatch(
+        r"<\s*UPDATE_ACTIVE_MEMORY(?:\s+[^<>]*)?",
+        candidate,
+        re.IGNORECASE | re.DOTALL,
+    ) is None:
+        return None
+
+    return marker_start
 
 
 def _asset_action_stream_payload_has_action(
@@ -1629,7 +1798,16 @@ class RuntimeActionStreamFilter:
                 marker_start,
             )
 
-            if opening_match is None:
+            update_attribute_start = (
+                action_name == RUNTIME_ACTION_UPDATE_ACTIVE_MEMORY
+                and UPDATE_ACTIVE_MEMORY_START_RE.match(
+                    text,
+                    marker_start,
+                )
+                is not None
+            )
+
+            if opening_match is None and not update_attribute_start:
                 continue
 
             if (
@@ -1688,6 +1866,19 @@ class RuntimeActionStreamFilter:
                 marker_starts.append(
                     match.start()
                 )
+
+            # UPDATE_ACTIVE_MEMORY also supports the compact self-closing
+            # attribute form, e.g.
+            # <UPDATE_ACTIVE_MEMORY active_memory_id="abc123" field="x" />.
+            # Detect the opening name itself, before the attribute payload
+            # is complete, so its pending bubble lights up while streaming.
+            if action_name == RUNTIME_ACTION_UPDATE_ACTIVE_MEMORY:
+                for match in UPDATE_ACTIVE_MEMORY_START_RE.finditer(
+                    text
+                ):
+                    marker_starts.append(
+                        match.start()
+                    )
 
         started_actions = []
 

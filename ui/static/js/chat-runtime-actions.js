@@ -2446,10 +2446,26 @@ function updateRuntimeActionRow(
     options
   );
 
-  const detail =
+  const incomingDetail =
     String(
       options.detail || ""
     ).trim();
+  const storedDetail =
+    String(
+      row.dataset.runtimeActionDetail || ""
+    ).trim();
+  const detail =
+    incomingDetail
+    || (
+      options.counterOnly === true
+        ? storedDetail
+        : ""
+    );
+
+  if (incomingDetail) {
+    row.dataset.runtimeActionDetail =
+      incomingDetail;
+  }
 
   if (detail) {
     label.title = detail;
@@ -2465,6 +2481,7 @@ function updateRuntimeActionRow(
       "cursor-help"
     );
   } else {
+    delete row.dataset.runtimeActionDetail;
     label.removeAttribute(
       "title"
     );
@@ -3071,6 +3088,8 @@ function appendRuntimeAction(
     ).trim();
 
   if (detail) {
+    row.dataset.runtimeActionDetail =
+      detail;
     label.title = detail;
     row.title = detail;
     label

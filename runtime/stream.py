@@ -110,6 +110,7 @@ OUTPUT_LIMIT_FINISH_REASONS = frozenset({
 CONTEXT_LIMIT_FINISH_REASONS = frozenset({
     "context_length",
     "context_limit",
+    "context_overflow",
 })
 
 GENERATION_LIMIT_FINISH_REASONS = (
@@ -750,12 +751,12 @@ class RuntimeStream:
     def mark_context_limit_recovery(
         self,
         finish_reason: str,
-    ) -> None:
+    ) -> bool:
 
         if not self.should_follow_up_on_context_limit(
             finish_reason
         ):
-            return
+            return False
 
         self.context_limit_recovery_armed = True
         stage = self.detect_context_limit_stage()
@@ -793,6 +794,8 @@ class RuntimeStream:
                 limit_kind,
             ),
         )
+
+        return True
 
     async def close_active_streams(self):
 
@@ -874,10 +877,10 @@ class RuntimeStream:
     def record_validator_interruption_history(
         self,
         validator=None,
-    ) -> None:
+    ) -> bool:
 
         if not self.is_brain_context():
-            return
+            return False
 
         if validator is None:
             validator = getattr(
@@ -927,6 +930,8 @@ class RuntimeStream:
             self.context,
             history_text,
         )
+
+        return True
 
     async def filter_runtime_action_content(
         self,
@@ -3039,12 +3044,19 @@ class RuntimeStream:
                 # -------------------------------------------------
 
                 if chunk_type == "finish":
-                    self.mark_context_limit_recovery(
-                        chunk.get(
-                            "finish_reason",
-                            "",
+                    context_limit_recorded = (
+                        self.mark_context_limit_recovery(
+                            chunk.get(
+                                "finish_reason",
+                                "",
+                            )
                         )
                     )
+                    if context_limit_recorded:
+                        await emit_session_actions_update(
+                            self.context,
+                            current_sequence=True,
+                        )
 
                     continue
 
@@ -3085,13 +3097,20 @@ class RuntimeStream:
                         self.mark_validator_interruption(
                             self.stream.thinking_validator
                         )
+                        history_recorded = (
+                            self.record_validator_interruption_history(
+                                self.stream.thinking_validator
+                            )
+                        )
+                        if history_recorded:
+                            await emit_session_actions_update(
+                                self.context,
+                                current_sequence=True,
+                            )
 
                         await self.close_active_streams()
                         await self.close_generator(
                             generator
-                        )
-                        self.record_validator_interruption_history(
-                            self.stream.thinking_validator
                         )
 
                         await self.stream.finish(
@@ -3165,12 +3184,19 @@ class RuntimeStream:
                     ):
                         self.capture_runtime_turn_response()
                         self.mark_validator_interruption()
+                        history_recorded = (
+                            self.record_validator_interruption_history()
+                        )
+                        if history_recorded:
+                            await emit_session_actions_update(
+                                self.context,
+                                current_sequence=True,
+                            )
 
                         await self.close_active_streams()
                         await self.close_generator(
                             generator
                         )
-                        self.record_validator_interruption_history()
 
                         await self.stream.finish(
                             emit=self.emit_to_chat

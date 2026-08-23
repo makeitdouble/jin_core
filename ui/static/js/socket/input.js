@@ -101,6 +101,10 @@ chatForm.addEventListener(
   function (e) {
 
     if (!generationRunning) {
+      focusChatInputFromFormPointer(
+        e
+      );
+
       return;
     }
 
@@ -109,6 +113,64 @@ chatForm.addEventListener(
     abortGeneration();
 
   }
+);
+
+function shouldFocusChatInputFromFormPointer(
+  e
+) {
+
+  if (
+    generationRunning
+    || e.button !== 0
+  ) {
+    return false;
+  }
+
+  if (
+    e.target
+    && e.target.closest
+    && e.target.closest(
+        "button, label, input, textarea, select, a, [role='button']"
+    )
+  ) {
+    return false;
+  }
+
+  return true;
+
+}
+
+function focusChatInputFromFormPointer(
+  e
+) {
+
+  if (
+    !shouldFocusChatInputFromFormPointer(
+      e
+    )
+  ) {
+    return false;
+  }
+
+  e.preventDefault();
+
+  if (window.focusJinUserInput) {
+    window.focusJinUserInput({
+      preventScroll: true,
+    });
+  } else {
+    userInput.focus({
+      preventScroll: true,
+    });
+  }
+
+  return true;
+
+}
+
+chatForm.addEventListener(
+  "mousedown",
+  focusChatInputFromFormPointer
 );
 
 

@@ -2141,6 +2141,16 @@ function handleRuntimeAction(
     || status === "complete"
     || status === "done"
   ) {
+    if (
+      action === "clean_tool_results"
+      && window.JinRuntime
+      && window.JinRuntime.session
+      && typeof window.JinRuntime.session.clearPersistedToolResultsCheckpoint
+        === "function"
+    ) {
+      window.JinRuntime.session.clearPersistedToolResultsCheckpoint();
+    }
+
     if (displayText.trim()) {
       const appended = appendRuntimeAction(
         action,

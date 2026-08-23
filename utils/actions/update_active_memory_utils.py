@@ -14,6 +14,28 @@ ACTIVE_MEMORY_UPDATE_ID_RE = re.compile(
     re.IGNORECASE,
 )
 
+UPDATE_ACTIVE_MEMORY_SELF_CLOSING_MARKER_RE = re.compile(
+    (
+        r"^\s*<\s*UPDATE_ACTIVE_MEMORY"
+        r"(?P<attributes>\s+(?:[^<>\"']+|\"[^\"]*\"|'[^']*')*?)"
+        r"\s*/\s*>\s*$"
+    ),
+    re.IGNORECASE | re.DOTALL,
+)
+
+UPDATE_ACTIVE_MEMORY_ATTRIBUTE_RE = re.compile(
+    (
+        r"(?P<name>[a-z][a-z0-9_]*)"
+        r"\s*=\s*"
+        r"(?:"
+        r"\"(?P<double>[^\"]*)\""
+        r"|'(?P<single>[^']*)'"
+        r"|(?P<bare>[^\s\"'<>]+)"
+        r")"
+    ),
+    re.IGNORECASE | re.DOTALL,
+)
+
 UPDATE_ACTIVE_MEMORY_FAILURE_REASONS = {
     "invalid_update_active_memory_payload": "invalid payload",
     "active_memory_not_found": "incorrect id",
@@ -31,6 +53,181 @@ def build_update_active_memory_payload(
         query,
         placeholder_payloads,
         reject_placeholders=False,
+    )
+
+
+def _unwrap_update_active_memory_attribute_payload(
+    payload: str,
+) -> str:
+
+    text = str(
+        payload or ""
+    ).strip()
+
+    match = UPDATE_ACTIVE_MEMORY_SELF_CLOSING_MARKER_RE.fullmatch(
+        text
+    )
+
+    if match is None:
+        return text
+
+    return str(
+        match.group("attributes")
+        or ""
+    ).strip()
+
+
+def _read_update_active_memory_attribute_pairs(
+    payload: str,
+) -> tuple[tuple[str, str], ...] | None:
+
+    text = _unwrap_update_active_memory_attribute_payload(
+        payload
+    )
+
+    if (
+        not text
+        or text.startswith("{")
+        or not re.match(
+            r"^\s*[a-z][a-z0-9_]*\s*=",
+            text,
+            re.IGNORECASE,
+        )
+    ):
+        return None
+
+    pairs = []
+    position = 0
+
+    while position < len(text):
+        spacing_match = re.match(
+            r"\s*",
+            text[position:],
+        )
+        if spacing_match is not None:
+            position += spacing_match.end()
+
+        if position >= len(text):
+            break
+
+        match = UPDATE_ACTIVE_MEMORY_ATTRIBUTE_RE.match(
+            text,
+            position,
+        )
+        if match is None:
+            return ()
+
+        value = (
+            match.group("double")
+            if match.group("double") is not None
+            else (
+                match.group("single")
+                if match.group("single") is not None
+                else match.group("bare")
+            )
+        )
+        pairs.append(
+            (
+                str(
+                    match.group("name")
+                    or ""
+                ),
+                str(
+                    value
+                    or ""
+                ),
+            )
+        )
+        position = match.end()
+
+    return tuple(
+        pairs
+    )
+
+
+def _parse_update_active_memory_attribute_payload(
+    payload: str,
+    *,
+    include_reserved_fields: bool = False,
+) -> tuple[str, tuple[tuple[str, str], ...]] | None:
+
+    pairs = _read_update_active_memory_attribute_pairs(
+        payload
+    )
+
+    if pairs is None:
+        return None
+
+    if not pairs:
+        return "", ()
+
+    active_memory_id = ""
+    changes = []
+    seen = set()
+
+    for raw_name, raw_value in pairs:
+        raw_field_name = str(
+            raw_name or ""
+        ).strip().casefold()
+
+        if raw_field_name in {
+            "active_memory_id",
+            "id",
+        }:
+            if active_memory_id:
+                return "", ()
+
+            active_memory_id = str(
+                raw_value or ""
+            ).strip().casefold()
+            continue
+
+        if include_reserved_fields:
+            field_name = raw_field_name
+            if not re.fullmatch(
+                r"[a-z][a-z0-9_]{0,31}",
+                field_name,
+            ):
+                return "", ()
+        else:
+            if raw_field_name in ACTIVE_MEMORY_RESERVED_CUSTOM_FIELD_NAMES:
+                continue
+
+            field_name = normalize_active_memory_custom_field_name(
+                raw_name
+            )
+
+        field_value = normalize_active_memory_custom_field_value(
+            raw_value
+        )
+
+        if (
+            not field_name
+            or not field_value
+            or field_name in seen
+        ):
+            return "", ()
+
+        changes.append(
+            (
+                field_name,
+                field_value,
+            )
+        )
+        seen.add(
+            field_name
+        )
+
+    if not ACTIVE_MEMORY_UPDATE_ID_RE.fullmatch(
+        active_memory_id
+    ):
+        return "", ()
+
+    if not changes:
+        return "", ()
+
+    return active_memory_id, tuple(
+        changes
     )
 
 
@@ -138,6 +335,15 @@ def parse_update_active_memory_payload_fields(
     """Read the id and submitted values from flat or legacy nested JSON."""
 
     text = str(payload or "").strip()
+
+    attribute_result = _parse_update_active_memory_attribute_payload(
+        text,
+        include_reserved_fields=True,
+    )
+
+    if attribute_result is not None:
+        return attribute_result
+
     if not text.startswith("{"):
         return parse_update_active_memory_payload(text)
 
@@ -202,6 +408,13 @@ def parse_update_active_memory_payload(
     text = str(
         payload or ""
     ).strip()
+
+    attribute_result = _parse_update_active_memory_attribute_payload(
+        text
+    )
+
+    if attribute_result is not None:
+        return attribute_result
 
     if text.startswith("{"):
         return _parse_update_active_memory_json_payload(

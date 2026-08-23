@@ -53,6 +53,7 @@ SESSION_RESTORE_MESSAGE = (
     "Do not invent missing context and do not treat this bootstrap as permission to start "
     "new work or runtime actions. Respond briefly and naturally, acknowledge that JIN is "
     "back in place, and make it easy for the user to continue from exactly where we left off and move on.\n"
+    "Use the language of the most recent non-empty user message in PREVIOUS_CHAT_MESSAGES.\n"
     "</CONVERSATION_CONTINUE_RULES>"
 )
 

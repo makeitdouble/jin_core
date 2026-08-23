@@ -115,6 +115,33 @@ window.isJinGenerationRunning = function () {
 
 };
 
+function focusJinUserInput(
+  options = {}
+) {
+
+  if (
+    !userInput
+    || generationRunning
+    || document.visibilityState === "hidden"
+  ) {
+    return false;
+  }
+
+  try {
+    userInput.focus({
+      preventScroll: options.preventScroll !== false,
+    });
+  } catch (error) {
+    userInput.focus();
+  }
+
+  return true;
+
+}
+
+window.focusJinUserInput =
+  focusJinUserInput;
+
 function isWebSocketOpen() {
   return (
     ws
@@ -345,6 +372,16 @@ function setGenerationState(
     stopIndicator.classList.toggle(
       "flex",
       active
+    );
+  }
+
+  if (!active) {
+    requestAnimationFrame(
+      () => {
+        focusJinUserInput({
+          preventScroll: true,
+        });
+      }
     );
   }
 

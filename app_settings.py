@@ -5,6 +5,51 @@ from config_loader import (
 )
 
 
+SERPER_API_KEY_PLACEHOLDERS = {
+    "mock-serper-api-key",
+    "your-serper-api-key",
+    "your_serper_api_key",
+}
+
+
+def is_valid_serper_api_key(
+    api_key: str,
+) -> bool:
+
+    normalized_key = str(
+        api_key
+        or ""
+    ).strip()
+
+    if not normalized_key:
+        return False
+
+    # Serper does not expose a stable client-side key shape contract.
+    # Availability means "a real key is configured"; the provider validates
+    # the credential when a request is made.
+    return (
+        normalized_key.casefold()
+        not in SERPER_API_KEY_PLACEHOLDERS
+    )
+
+
+def can_use_configured_search(
+    *,
+    provider: str,
+    serper_api_key: str,
+) -> bool:
+
+    return (
+        str(
+            provider
+            or ""
+        ).strip().casefold() == "serper"
+        and is_valid_serper_api_key(
+            serper_api_key
+        )
+    )
+
+
 @dataclass(frozen=True)
 class AppSettings:
 
@@ -31,6 +76,7 @@ class AppSettings:
     SEARCH_SERPER_API_KEY: str
     SEARCH_MAX_RESULTS: int
     SEARCH_TIMEOUT: float
+    CAN_SEARCH: bool
 
 
 settings = AppSettings(
@@ -84,5 +130,17 @@ settings = AppSettings(
         config,
         "SEARCH_TIMEOUT",
         20.0,
+    ),
+    CAN_SEARCH=can_use_configured_search(
+        provider=getattr(
+            config,
+            "SEARCH_PROVIDER",
+            "serper",
+        ),
+        serper_api_key=getattr(
+            config,
+            "SEARCH_SERPER_API_KEY",
+            "",
+        ),
     ),
 )

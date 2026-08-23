@@ -826,9 +826,6 @@ def build_active_memory_runtime_line(
 
     json_payload = raw_visible_value.lstrip().startswith("{")
 
-    # Legacy plain-text saves may create custom state only from trailing
-    # parenthesized declarations. A model-authored square suffix would
-    # otherwise be indistinguishable from runtime-owned state.
     if (
         not json_payload
         and collect_active_memory_custom_fields(raw_visible_value)
@@ -842,24 +839,6 @@ def build_active_memory_runtime_line(
     )
 
     if not visible_value:
-        return ""
-
-    # A trailing custom-field declaration is all-or-nothing. If custom-looking
-    # syntax was present but could not be accepted (duplicate/reserved/over the
-    # three-field limit), keep the save conservative instead of silently
-    # creating a schema the model did not actually request.
-    original_visible_value = suffix_values[0][1].strip()
-    custom_declaration_present = not json_payload and bool(
-        re.search(
-            r"\(\s*[A-Za-z][A-Za-z0-9_]{0,31}\s*:\s*[^()]+\)\s*$",
-            original_visible_value,
-        )
-    )
-    if (
-        custom_declaration_present
-        and visible_value == original_visible_value
-        and not custom_fields
-    ):
         return ""
 
     suffix_items = [

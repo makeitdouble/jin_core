@@ -693,6 +693,80 @@ open_question: continue
         self.assertNotIn("restore_reasoning_dump", enriched)
         self.assertTrue(enriched["archived_session_restore"])
 
+    def test_browser_checkpoint_explicit_empty_tool_results_stays_empty(self):
+        archived = {
+            "source_session_id": "archive-session",
+            "messages": [
+                {
+                    "ts": "2026-08-23T10:30:00+03:00",
+                    "role": "jin",
+                    "text": "current tail",
+                },
+            ],
+            "tool_results": [
+                {
+                    "kind": "search",
+                    "result": "stale search result",
+                    "created_at": 1.0,
+                },
+            ],
+        }
+
+        with patch(
+            "utils.session_restore.build_archived_session_restore_payload",
+            return_value=archived,
+        ):
+            enriched = enrich_session_bootstrap_from_archive(
+                {
+                    "type": "session_bootstrap",
+                    "source_session_id": "archive-session",
+                    "saved_at": "2026-08-23T10:29:00+03:00",
+                    "runtime_memory": "active_topic: current",
+                    "tool_results": [],
+                }
+            )
+
+        self.assertIn("tool_results", enriched)
+        self.assertEqual(enriched["tool_results"], [])
+
+    def test_empty_memory_collections_keep_archive_fallback_semantics(self):
+        archived = {
+            "source_session_id": "archive-session",
+            "messages": [
+                {
+                    "ts": "2026-08-23T10:30:00+03:00",
+                    "role": "jin",
+                    "text": "current tail",
+                },
+            ],
+            "loaded_memory_ids": ["delayed-1"],
+            "active_memory_records": [
+                {"id": "active-1", "conditions": "keep me"},
+            ],
+        }
+
+        with patch(
+            "utils.session_restore.build_archived_session_restore_payload",
+            return_value=archived,
+        ):
+            enriched = enrich_session_bootstrap_from_archive(
+                {
+                    "type": "session_bootstrap",
+                    "source_session_id": "archive-session",
+                    "saved_at": "2026-08-23T10:29:00+03:00",
+                    "runtime_memory": "active_topic: current",
+                    "loaded_memory_ids": [],
+                    "active_memory_records": [],
+                }
+            )
+
+        self.assertEqual(enriched["loaded_memory_ids"], ["delayed-1"])
+        self.assertEqual(
+            enriched["active_memory_records"],
+            [{"id": "active-1", "conditions": "keep me"}],
+        )
+
+
     def test_browser_checkpoint_still_uses_raw_dialogue_when_log_reaches_save(self):
         archived = {
             "source_session_id": "archive-session",

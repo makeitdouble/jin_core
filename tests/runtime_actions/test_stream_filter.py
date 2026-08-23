@@ -574,6 +574,37 @@ class RuntimeStreamFilterTests(RuntimeActionTestCase):
         )
 
 
+    def test_clean_tool_results_redundant_close_tag_is_same_action(self):
+
+        result = extract_runtime_actions(
+            "<CLEAN_TOOL_RESULTS> </CLEAN_TOOL_RESULTS>",
+            enabled_actions=[
+                RUNTIME_ACTION_CLEAN_TOOL_RESULTS,
+            ],
+        )
+
+        self.assertEqual(
+            result.text,
+            "",
+        )
+        self.assertEqual(
+            result.actions,
+            (
+                RuntimeActionCall(
+                    name=RUNTIME_ACTION_CLEAN_TOOL_RESULTS,
+                    payload="",
+                ),
+            ),
+        )
+        self.assertEqual(
+            result.removed_markers,
+            (
+                "<CLEAN_TOOL_RESULTS>",
+                "</CLEAN_TOOL_RESULTS>",
+            ),
+        )
+
+
     def test_repeated_clean_tool_results_markers_remain_countable(self):
 
         result = extract_runtime_actions(
@@ -651,6 +682,87 @@ class RuntimeStreamFilterTests(RuntimeActionTestCase):
             get_save_active_memory_marker_fields(),
             (
                 "conditions",
+            ),
+        )
+
+
+    def test_extracts_self_closing_update_active_memory_attributes(self):
+
+        marker = (
+            '<UPDATE_ACTIVE_MEMORY active_memory_id="abc123" '
+            'last_update="23 august" current_photos=2 '
+            'last_photo_id="8vyf97" />'
+        )
+
+        result = extract_runtime_actions(
+            marker,
+            enabled_actions=[
+                "CAN_SAVE_ACTIVE_MEMORY",
+            ],
+        )
+
+        self.assertEqual(
+            result.text,
+            "",
+        )
+        self.assertEqual(
+            result.actions,
+            (
+                RuntimeActionCall(
+                    name="UPDATE_ACTIVE_MEMORY",
+                    payload=(
+                        'active_memory_id="abc123" '
+                        'last_update="23 august" current_photos=2 '
+                        'last_photo_id="8vyf97"'
+                    ),
+                ),
+            ),
+        )
+        self.assertEqual(
+            result.removed_markers,
+            (
+                marker,
+            ),
+        )
+
+
+    def test_dedupes_duplicate_self_closing_update_active_memory_attributes(self):
+
+        marker = (
+            '<UPDATE_ACTIVE_MEMORY active_memory_id="abc123" '
+            'last_update="23 august" current_photos=2 '
+            'last_photo_id="8vyf97" />'
+        )
+
+        result = extract_runtime_actions(
+            marker + marker,
+            enabled_actions=[
+                "CAN_SAVE_ACTIVE_MEMORY",
+            ],
+        )
+
+        self.assertEqual(
+            result.text,
+            "",
+        )
+        self.assertEqual(
+            result.actions,
+            (
+                RuntimeActionCall(
+                    name="UPDATE_ACTIVE_MEMORY",
+                    payload=(
+                        'active_memory_id="abc123" '
+                        'last_update="23 august" current_photos=2 '
+                        'last_photo_id="8vyf97"'
+                    ),
+                ),
+            ),
+        )
+        self.assertEqual(
+            result.removed_markers,
+            (
+                marker,
+                marker,
             ),
         )
 
@@ -995,6 +1107,58 @@ class RuntimeStreamFilterTests(RuntimeActionTestCase):
         )
 
 
+    def test_stream_filter_strips_redundant_clean_tool_results_close_tag(self):
+
+        stream_filter = RuntimeActionStreamFilter(
+            enabled_actions=[
+                RUNTIME_ACTION_CLEAN_TOOL_RESULTS,
+            ],
+        )
+
+        first = stream_filter.filter(
+            "visible answer\n\n<CLEAN_TOOL_RESULTS> "
+        )
+        second = stream_filter.filter(
+            "</CLEAN_"
+        )
+        third = stream_filter.filter(
+            "TOOL_RESULTS>"
+        )
+
+        self.assertEqual(
+            first.text,
+            "visible answer",
+        )
+        self.assertEqual(
+            first.actions,
+            (
+                RuntimeActionCall(
+                    name=RUNTIME_ACTION_CLEAN_TOOL_RESULTS,
+                ),
+            ),
+        )
+        self.assertEqual(
+            second.text,
+            "",
+        )
+        self.assertEqual(
+            second.actions,
+            (),
+        )
+        self.assertEqual(
+            third.text,
+            "",
+        )
+        self.assertEqual(
+            third.actions,
+            (),
+        )
+        self.assertEqual(
+            stream_filter.flush(),
+            "",
+        )
+
+
     def test_stream_filter_handles_split_bracketed_web_search_marker(self):
 
         stream_filter = RuntimeActionStreamFilter(
@@ -1269,6 +1433,176 @@ class RuntimeStreamFilterTests(RuntimeActionTestCase):
             (
                 "blue tomato",
             ),
+        )
+
+
+    def test_stream_filter_starts_partial_update_active_memory_attribute_marker(self):
+
+        stream_filter = RuntimeActionStreamFilter(
+            enabled_actions=[
+                "CAN_SAVE_ACTIVE_MEMORY",
+            ],
+        )
+
+        result = stream_filter.filter(
+            '<UPDATE_ACTIVE_MEMORY active_memory_id="abc123" '
+        )
+
+        self.assertEqual(
+            result.text,
+            "",
+        )
+        self.assertEqual(
+            result.started_actions,
+            (
+                RuntimeActionCall(
+                    name="UPDATE_ACTIVE_MEMORY",
+                    payload="",
+                ),
+            ),
+        )
+        self.assertEqual(
+            result.actions,
+            (),
+        )
+
+
+    def test_stream_filter_starts_complete_update_active_memory_attribute_marker(self):
+
+        stream_filter = RuntimeActionStreamFilter(
+            enabled_actions=[
+                "CAN_SAVE_ACTIVE_MEMORY",
+            ],
+        )
+        marker = (
+            '<UPDATE_ACTIVE_MEMORY active_memory_id="abc123" '
+            'last_update="23 august" current_photos=2 '
+            'last_photo_id="8vyf97" />'
+        )
+
+        result = stream_filter.filter(
+            marker
+        )
+
+        self.assertEqual(
+            result.started_actions,
+            (
+                RuntimeActionCall(
+                    name="UPDATE_ACTIVE_MEMORY",
+                    payload="",
+                ),
+            ),
+        )
+        self.assertEqual(
+            result.actions,
+            (
+                RuntimeActionCall(
+                    name="UPDATE_ACTIVE_MEMORY",
+                    payload=(
+                        'active_memory_id="abc123" '
+                        'last_update="23 august" current_photos=2 '
+                        'last_photo_id="8vyf97"'
+                    ),
+                ),
+            ),
+        )
+
+
+    def test_stream_filter_extracts_update_active_memory_attributes_across_chunks(self):
+
+        marker_text = (
+            '<UPDATE_ACTIVE_MEMORY active_memory_id="abc123" '
+            'last_update="23 august" current_photos=2 '
+            'last_photo_id="8vyf97" />'
+        )
+        expected_action = RuntimeActionCall(
+            name="UPDATE_ACTIVE_MEMORY",
+            payload=(
+                'active_memory_id="abc123" '
+                'last_update="23 august" current_photos=2 '
+                'last_photo_id="8vyf97"'
+            ),
+        )
+
+        for split_at in range(1, len(marker_text)):
+            with self.subTest(split_at=split_at):
+                stream_filter = RuntimeActionStreamFilter(
+                    enabled_actions=[
+                        "CAN_SAVE_ACTIVE_MEMORY",
+                    ],
+                )
+
+                first = stream_filter.filter(
+                    marker_text[:split_at]
+                )
+                second = stream_filter.filter(
+                    marker_text[split_at:]
+                )
+                final = stream_filter.flush_result()
+
+                self.assertEqual(
+                    (
+                        first.text
+                        + second.text
+                        + final.text
+                    ),
+                    "",
+                )
+                self.assertEqual(
+                    (
+                        *first.actions,
+                        *second.actions,
+                        *final.actions,
+                    ),
+                    (
+                        expected_action,
+                    ),
+                )
+
+
+    def test_stream_filter_drops_incomplete_update_active_memory_attribute_marker(self):
+
+        stream_filter = RuntimeActionStreamFilter(
+            enabled_actions=[
+                "CAN_SAVE_ACTIVE_MEMORY",
+            ],
+        )
+
+        result = stream_filter.filter(
+            'hello <UPDATE_ACTIVE_MEMORY active_memory_id="abc123"'
+        )
+
+        self.assertEqual(
+            result.text,
+            "hello ",
+        )
+        self.assertEqual(
+            stream_filter.flush(),
+            "",
+        )
+
+
+    def test_update_active_memory_attribute_marker_rejects_false_prefix(self):
+
+        marker = (
+            '<UPDATE_ACTIVE_MEMORY_EXTRA active_memory_id="abc123" '
+            'last_photo_id="8vyf97" />'
+        )
+
+        result = extract_runtime_actions(
+            marker,
+            enabled_actions=[
+                "CAN_SAVE_ACTIVE_MEMORY",
+            ],
+        )
+
+        self.assertEqual(
+            result.text,
+            marker,
+        )
+        self.assertEqual(
+            result.actions,
+            (),
         )
 
 

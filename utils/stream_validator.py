@@ -796,6 +796,13 @@ class StreamValidator:
         ):
             return ""
 
+        # Pure ASCII art commonly repeats structural rows (pipes,
+        # slashes, underscores, etc.) on purpose. Keep this visual
+        # guard scoped to non-ASCII symbolic motifs so ASCII layouts
+        # cannot be mistaken for a reasoning loop.
+        if stripped.isascii():
+            return ""
+
         symbol_chars = [
             char
             for char in stripped

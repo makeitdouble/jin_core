@@ -352,6 +352,27 @@ def test_stream_validator_stops_repeated_complex_symbolic_motif_in_mixed_reasoni
     assert validator.last_failure_loop_preview == "(😼) ⚡"
 
 
+def test_stream_validator_allows_repeated_ascii_art_rows():
+    validator = StreamValidator()
+    line = "| | | | | | | |\n"
+
+    text = collect(
+        validator,
+        [
+            line
+            for _ in range(
+                MAX_REPEAT_SYMBOLIC_MOTIFS + 4
+            )
+        ],
+    )
+
+    assert text == line * (
+        MAX_REPEAT_SYMBOLIC_MOTIFS + 4
+    )
+    assert validator.last_failure_reason is None
+    assert validator.last_failure_loop_preview == ""
+
+
 def test_stream_validator_allows_bare_two_emoji_lines_even_when_repeated():
     validator = StreamValidator()
     line = "😂 ⚡\n"
