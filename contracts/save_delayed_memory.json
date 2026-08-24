@@ -3,6 +3,8 @@
     "version": 4,
     "description": "Allows the model to save a delayed memory report.",
     "runtime_action": "SAVE_DELAYED_MEMORY",
+    "enable_flag": "CAN_SAVE_DELAYED_MEMORY",
+    "runtime_order": 180,
     "private_marker": "<SAVE_DELAYED_MEMORY>",
     "triggers": [
       "создай отчёт",

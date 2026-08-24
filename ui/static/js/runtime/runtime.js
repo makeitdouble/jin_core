@@ -516,6 +516,13 @@ function persistRuntimeMemorySnapshot(
     persistedSnapshot
   );
 
+  // Facts Memory still originates in the browser profile, but scheduling no
+  // longer does. Hand fresh pending fields to the backend immediately; from
+  // this point L4 consolidation is driven entirely by the server scheduler.
+  if (typeof window.syncFactsMemoryToRuntime === "function") {
+    window.syncFactsMemoryToRuntime();
+  }
+
   writeLatestRuntimeMemory({
     version: 1,
     session_id:

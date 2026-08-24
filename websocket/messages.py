@@ -37,6 +37,7 @@ from utils.brain_client_utils import (
 )
 from utils.chat_log import (
     append_chat_log_entry,
+    replace_latest_chat_log_entry,
     save_turn_reasoning,
 )
 from utils.delayed_memory_triggers import (
@@ -798,11 +799,91 @@ def apply_runtime_avatar_context(
         context.runtime_avatar_move_speed = speed
 
 
+def build_user_retry_request(
+    context,
+    message_data: dict | None = None,
+) -> dict | None:
+    """Rebuild the latest real user request without creating a new user turn."""
+
+    source = getattr(
+        context,
+        "runtime_last_retryable_request",
+        {},
+    )
+    if not isinstance(source, dict) or not source:
+        return None
+
+    recent_turns = getattr(
+        context,
+        "runtime_recent_turns",
+        [],
+    )
+    if (
+        not isinstance(recent_turns, list)
+        or not recent_turns
+        or not str((recent_turns[-1] or {}).get("jin") or "").strip()
+    ):
+        return None
+
+    text = str(source.get("text") or "")
+    attachments = deepcopy(source.get("attachments") or [])
+    if not text.strip() and not attachments:
+        return None
+
+    retry_request = {
+        "type": "retry_last_response",
+        "text": text,
+    }
+    if attachments:
+        retry_request["attachments"] = attachments
+
+    live_request = message_data if isinstance(message_data, dict) else {}
+    # Runtime geometry and visible active-memory state are live UI state, not
+    # part of the discarded answer. Refresh only those fields on retry.
+    for field_name in (
+        "runtime_avatar",
+        "active_memory_records",
+    ):
+        if field_name in live_request:
+            retry_request[field_name] = deepcopy(live_request[field_name])
+
+    return retry_request
+
+
+def discard_latest_visible_turn_for_user_retry(
+    context,
+) -> dict:
+    """Remove the answer being replaced from rolling prompt-side history."""
+
+    previous_turn = {}
+    recent_turns = getattr(context, "runtime_recent_turns", None)
+    if isinstance(recent_turns, list) and recent_turns:
+        candidate = recent_turns.pop()
+        if isinstance(candidate, dict):
+            previous_turn = candidate
+
+    metabolism_turns = getattr(
+        context,
+        "runtime_metabolism_recent_turns",
+        None,
+    )
+    if isinstance(metabolism_turns, list) and metabolism_turns:
+        metabolism_turns.pop()
+
+    # The previous reasoning belongs to the discarded answer and must not be
+    # re-injected beside the explicit retry marker.
+    context.runtime_previous_reasoning_content = ""
+    context.runtime_previous_reasoning_loop_contents = []
+
+    return previous_turn
+
+
 def append_runtime_recent_turn(
     context,
     *,
     user_message: str,
     assistant_message: str,
+    reasoning: str = "",
     user_created_at: float | None = None,
     assistant_created_at: float | None = None,
 ) -> None:
@@ -824,6 +905,10 @@ def append_runtime_recent_turn(
         assistant_message
         or ""
     ).strip()
+    reasoning = str(
+        reasoning
+        or ""
+    ).strip()
 
     if not user_message and not assistant_message:
         return
@@ -832,6 +917,9 @@ def append_runtime_recent_turn(
         "user": user_message,
         "jin": assistant_message,
     }
+
+    if reasoning:
+        turn["reasoning"] = reasoning
 
     if isinstance(
         user_created_at,
@@ -869,107 +957,6 @@ def append_runtime_recent_turn(
     ]
 
 
-def merge_runtime_idle_followup_turn(
-    context,
-    *,
-    origin_user_request: str,
-    assistant_message: str,
-    assistant_created_at: float | None = None,
-    idle_followup_id: str = "",
-) -> None:
-
-    if context is None:
-        return
-
-    origin_user_request = str(
-        origin_user_request
-        or ""
-    ).strip()
-    assistant_message = str(
-        assistant_message
-        or ""
-    ).strip()
-
-    if not assistant_message:
-        return
-
-    recent_turns = getattr(
-        context,
-        "runtime_recent_turns",
-        None,
-    )
-    if not isinstance(
-        recent_turns,
-        list,
-    ):
-        recent_turns = []
-        context.runtime_recent_turns = recent_turns
-
-    target_turn = None
-    for turn in reversed(
-        recent_turns
-    ):
-        if not isinstance(
-            turn,
-            dict,
-        ):
-            continue
-
-        turn_user = str(
-            turn.get(
-                "user",
-                "",
-            )
-            or ""
-        ).strip()
-        turn_origin = str(
-            turn.get(
-                "idle_origin_user_request",
-                "",
-            )
-            or ""
-        ).strip()
-
-        if origin_user_request and (
-            turn_user == origin_user_request
-            or turn_origin == origin_user_request
-        ):
-            target_turn = turn
-            break
-
-    if target_turn is None:
-        target_turn = {
-            "user": origin_user_request,
-            "jin": "",
-            "idle_origin_user_request": origin_user_request,
-        }
-        recent_turns.append(
-            target_turn
-        )
-
-    target_turn["jin"] = assistant_message
-    target_turn["idle_origin_user_request"] = origin_user_request
-
-    normalized_idle_followup_id = str(
-        idle_followup_id
-        or ""
-    ).strip()
-    if normalized_idle_followup_id:
-        target_turn["idle_followup_id"] = normalized_idle_followup_id
-
-    if isinstance(
-        assistant_created_at,
-        (int, float),
-    ):
-        target_turn["jin_created_at"] = float(
-            assistant_created_at
-        )
-
-    context.runtime_recent_turns = recent_turns[
-        -RECENT_MESSAGES_MAX_PAIRS:
-    ]
-
-
 def format_runtime_memory_user_message(
     context,
     user_text: str,
@@ -984,9 +971,25 @@ def format_runtime_memory_user_message(
     )
 
     if repeated < 2:
-        return user_text
+        formatted = user_text
+    else:
+        formatted = (
+            f"{json.dumps(user_text, ensure_ascii=False)} "
+            f"[ repeated: {repeated} ]"
+        )
 
-    return f"{json.dumps(user_text, ensure_ascii=False)} [ repeated: {repeated} ]"
+    if getattr(
+        context,
+        "runtime_user_retry_active",
+        False,
+    ):
+        return (
+            f"{formatted} "
+            "[ user_retry: true; previous_jin_answer_discarded: true; "
+            "replace_previous_turn: true ]"
+        ).strip()
+
+    return formatted
 
 
 async def process_message(
@@ -997,17 +1000,13 @@ async def process_message(
     logger = context.logger
     action_guard_retry = {}
     is_action_guard_retry = False
+    is_user_retry = False
+    user_retry_replaced_turn = {}
+    retry_source_candidate = {}
     retry_terminal_emitted = False
 
     try:
 
-        idle_followup = message_data.get(
-            "idle_followup",
-            {},
-        )
-        if not isinstance(idle_followup, dict):
-            idle_followup = {}
-        is_idle_followup = bool(idle_followup)
         is_session_restore_resume = bool(
             message_data.get("type") == "archived_session_resume"
             and getattr(
@@ -1016,6 +1015,43 @@ async def process_message(
                 False,
             )
         )
+        is_user_retry = bool(
+            message_data.get("type") == "retry_last_response"
+        )
+        context.runtime_user_retry_active = is_user_retry
+        if is_user_retry:
+            context.runtime_user_retry_count = int(
+                getattr(context, "runtime_user_retry_count", 0)
+                or 0
+            ) + 1
+            retry_source_candidate = deepcopy(
+                getattr(
+                    context,
+                    "runtime_last_retryable_request",
+                    {},
+                )
+                or {}
+            )
+            # Retry consumes the previous completed-answer capability. It is
+            # restored only if the replacement itself completes successfully.
+            context.runtime_last_retryable_request = {}
+            user_retry_replaced_turn = (
+                discard_latest_visible_turn_for_user_retry(
+                    context
+                )
+            )
+        elif message_data.get("type", "message") == "message":
+            context.runtime_user_retry_count = 0
+            retry_source_candidate = {
+                "text": get_message_user_text(message_data),
+                "attachments": deepcopy(
+                    message_data.get("attachments") or []
+                ),
+            }
+            # The previous answer stops being retryable as soon as a new real
+            # user turn starts. The current request is promoted only after its
+            # JIN response completes successfully.
+            context.runtime_last_retryable_request = {}
         action_guard_retry = normalize_runtime_action_guard_retry(
             message_data.get(
                 "runtime_action_guard_retry",
@@ -1038,7 +1074,7 @@ async def process_message(
             )
         )
 
-        if not is_idle_followup and not is_action_guard_retry:
+        if not is_action_guard_retry:
             # A real foreground turn always wins over the previous background
             # metabolism estimate, especially when SERVICE is also the brain.
             cancel_metabolism_update(
@@ -1055,7 +1091,7 @@ async def process_message(
             # Keep restored file IDs pinned for subsequent turns, but do not
             # feed any file payload/image bytes into the hidden restore tick.
             active_attachment_ids = []
-        elif is_idle_followup or is_action_guard_retry:
+        elif is_action_guard_retry:
             active_attachment_ids = list(
                 getattr(
                     context,
@@ -1080,18 +1116,8 @@ async def process_message(
         user_text = (
             ""
             if is_session_restore_resume
-            else (
-                str(
-                    idle_followup.get(
-                        "origin_user_request",
-                        "",
-                    )
-                    or ""
-                )
-                if is_idle_followup
-                else build_user_text_with_attachments(
-                    message_data,
-                )
+            else build_user_text_with_attachments(
+                message_data,
             )
         )
 
@@ -1106,52 +1132,21 @@ async def process_message(
             + 1
         )
         context.runtime_current_turn_id = (
-            f"idle_{context.runtime_turn_counter:06d}"
-            if is_idle_followup
+            f"retry_{context.runtime_turn_counter:06d}"
+            if is_action_guard_retry
             else (
-                f"retry_{context.runtime_turn_counter:06d}"
-                if is_action_guard_retry
+                f"user_retry_{context.runtime_turn_counter:06d}"
+                if is_user_retry
                 else f"turn_{context.runtime_turn_counter:06d}"
             )
         )
-
-        if is_idle_followup:
-            context.runtime_current_sequence_turn_id = str(
-                idle_followup.get(
-                    "sequence_turn_id",
-                    "",
-                )
-                or context.runtime_current_turn_id
-            ).strip()
-            sequence_started_at = idle_followup.get(
-                "sequence_started_at"
-            )
-            if not isinstance(
-                sequence_started_at,
-                (int, float),
-            ) or sequence_started_at <= 0:
-                sequence_started_at = context.runtime_turn_started_at
-            context.runtime_current_sequence_started_at = float(
-                sequence_started_at
-            )
-        else:
-            context.runtime_current_sequence_turn_id = (
-                context.runtime_current_turn_id
-            )
-            context.runtime_current_sequence_started_at = (
-                context.runtime_turn_started_at
-            )
-        if is_idle_followup:
-            context.runtime_turn_attachments = deepcopy(
-                hydrated_active_attachments
-            )
-            context.runtime_current_sequence_attachments = deepcopy(
-                hydrated_active_attachments
-            )
-            context.runtime_current_sequence_attachments_turn_id = (
-                context.runtime_current_sequence_turn_id
-            )
-        elif is_action_guard_retry:
+        context.runtime_current_sequence_turn_id = (
+            context.runtime_current_turn_id
+        )
+        context.runtime_current_sequence_started_at = (
+            context.runtime_turn_started_at
+        )
+        if is_action_guard_retry:
             context.runtime_turn_attachments = deepcopy(
                 hydrated_active_attachments
             )
@@ -1187,36 +1182,41 @@ async def process_message(
         context.runtime_context_limit_kind = ""
         context.runtime_context_limit_finish_reason = ""
         if (
-            not is_idle_followup
-            and not is_action_guard_retry
+            not is_action_guard_retry
             and not is_session_restore_resume
         ):
-            apply_user_idle_context(
-                context,
-                message_data,
-            )
+            if not is_user_retry:
+                apply_user_idle_context(
+                    context,
+                    message_data,
+                )
+
             apply_active_memory_records(
                 context,
                 message_data,
             )
-            apply_runtime_pattern_context(
-                context,
-                message_data,
-            )
+
+            if not is_user_retry:
+                apply_runtime_pattern_context(
+                    context,
+                    message_data,
+                )
+
             apply_runtime_avatar_context(
                 context,
                 message_data,
             )
 
-            # Homeostat first: the current user event must be able to affect
-            # this very generation, not only the next one. No bubble/event
-            # card is emitted; only the existing ambient metabolism signal.
-            await prepare_metabolism_for_turn(
-                context,
-                get_message_user_text(
-                    message_data
-                ),
-            )
+            if not is_user_retry:
+                # Homeostat first: the current user event must be able to affect
+                # this very generation, not only the next one. No bubble/event
+                # card is emitted; only the existing ambient metabolism signal.
+                await prepare_metabolism_for_turn(
+                    context,
+                    get_message_user_text(
+                        message_data
+                    ),
+                )
 
             context.runtime_turn_memory_user_message = (
                 format_runtime_memory_user_message(
@@ -1224,18 +1224,24 @@ async def process_message(
                     user_text,
                 )
             )
-            context.user_message_count += 1
-            # Tag auto-load is driven only by the text the user typed.
-            # Attachment text still stays in ``user_text`` and reaches JIN as
-            # context, but it must never behave like a tag command.
-            await load_delayed_memory_by_tags(
-                context,
-                get_message_user_text(
-                    message_data
-                ),
-            )
 
-        if not is_action_guard_retry and not is_session_restore_resume:
+            if not is_user_retry:
+                context.user_message_count += 1
+                # Tag auto-load is driven only by the text the user typed.
+                # Attachment text still stays in ``user_text`` and reaches JIN as
+                # context, but it must never behave like a tag command.
+                await load_delayed_memory_by_tags(
+                    context,
+                    get_message_user_text(
+                        message_data
+                    ),
+                )
+
+        if (
+            not is_action_guard_retry
+            and not is_session_restore_resume
+            and not is_user_retry
+        ):
             try:
                 append_chat_log_entry(
                     context,
@@ -1251,10 +1257,10 @@ async def process_message(
         state = AgentState(
             user_input=user_text
         )
-        if is_idle_followup:
-            state.metadata["idle_followup"] = idle_followup
         if is_session_restore_resume:
             state.metadata["session_restore_resume"] = True
+        if is_user_retry:
+            state.metadata["user_retry"] = True
 
         if hasattr(
             context,
@@ -1269,6 +1275,16 @@ async def process_message(
 
         await websocket.send_json({
             "type": "agent_runtime_start",
+            # This is only candidate eligibility. The client waits for
+            # agent_runtime_end before making the bubble long-tap retryable.
+            "retryable_response": bool(
+                not is_action_guard_retry
+                and not is_session_restore_resume
+                and (
+                    is_user_retry
+                    or message_data.get("type", "message") == "message"
+                )
+            ),
         })
 
         await runtime.run(
@@ -1328,25 +1344,48 @@ async def process_message(
             ),
         )
 
+        assistant_message = (
+                state.brain_response
+                or context.runtime_turn_assistant_response
+        )
+        retryable_response = bool(
+            not is_action_guard_retry
+            and not is_session_restore_resume
+            and not getattr(
+                context,
+                "runtime_turn_interrupted",
+                False,
+            )
+            and str(assistant_message or "").strip()
+        )
+
+        if retryable_response:
+            context.runtime_last_retryable_request = deepcopy(
+                retry_source_candidate
+            )
+
         await logger.log_system(
             "[WS] agent runtime end"
         )
 
         await websocket.send_json({
             "type": "agent_runtime_end",
+            "retryable_response": retryable_response,
         })
-
-        assistant_message = (
-                state.brain_response
-                or context.runtime_turn_assistant_response
-        )
         if not is_action_guard_retry:
             try:
-                append_chat_log_entry(
-                    context,
-                    role="jin",
-                    text=assistant_message,
-                )
+                if is_user_retry:
+                    replace_latest_chat_log_entry(
+                        context,
+                        role="jin",
+                        text=assistant_message,
+                    )
+                else:
+                    append_chat_log_entry(
+                        context,
+                        role="jin",
+                        text=assistant_message,
+                    )
             except Exception as error:
                 await logger.log_system(
                     "[CHAT_LOG] local JIN message save failed: "
@@ -1354,29 +1393,25 @@ async def process_message(
                 )
 
         assistant_created_at = time.time()
-        if is_idle_followup:
-            merge_runtime_idle_followup_turn(
-                context,
-                origin_user_request=user_text,
-                assistant_message=assistant_message,
-                assistant_created_at=assistant_created_at,
-                idle_followup_id=str(
-                    idle_followup.get(
-                        "id",
-                        "",
-                    )
-                    or ""
-                ),
-            )
-        elif not is_action_guard_retry:
+        if not is_action_guard_retry:
             append_runtime_recent_turn(
                 context,
                 user_message=user_text,
                 assistant_message=assistant_message,
-                user_created_at=getattr(
+                reasoning=getattr(
                     context,
-                    "runtime_turn_started_at",
-                    None,
+                    "runtime_turn_reasoning_content",
+                    "",
+                ),
+                user_created_at=(
+                    user_retry_replaced_turn.get("user_created_at")
+                    if is_user_retry
+                    and isinstance(user_retry_replaced_turn, dict)
+                    else getattr(
+                        context,
+                        "runtime_turn_started_at",
+                        None,
+                    )
                 ),
                 assistant_created_at=assistant_created_at,
             )
@@ -1413,10 +1448,7 @@ async def process_message(
             context.runtime_session_restore_delayed_memory_metadata = []
             context.runtime_session_restore_attached_file_metadata = []
 
-        if (
-            is_idle_followup
-            or is_action_guard_retry
-        ):
+        if is_action_guard_retry:
             memory_update_task = None
         elif getattr(
             context,
@@ -1457,12 +1489,9 @@ async def process_message(
                 assistant_message=assistant_message,
             )
 
-        if not is_action_guard_retry:
+        if not is_action_guard_retry and not is_user_retry:
             context.assistant_message_count += 1
-        if (
-            not is_idle_followup
-            and not is_action_guard_retry
-        ):
+        if not is_action_guard_retry and not is_user_retry:
             context.turn_number += 1
 
         # Background fact-checking is intentionally not armed here.
@@ -1521,6 +1550,9 @@ async def process_message(
         )
 
     finally:
+
+        if is_user_retry:
+            context.runtime_user_retry_active = False
 
         if is_action_guard_retry:
             context.runtime_suppress_chat_content = False

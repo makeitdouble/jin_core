@@ -3,6 +3,8 @@
     "version": 1,
     "description": "Allows the model to set the movement speed used by subsequent JIN_POSITION avatar gestures.",
     "runtime_action": "JIN_SPEED",
+    "enable_flag": "CAN_JIN_SPEED",
+    "runtime_order": 70,
     "private_marker": "<JIN_SPEED>",
     "triggers": [],
     "blockers": [],

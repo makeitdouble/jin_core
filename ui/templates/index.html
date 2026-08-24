@@ -11,9 +11,9 @@
     <!-- CSS layers: theme vars -> base -> chat -> runtime -> overrides -> theme -> avatar. -->
     <link rel="stylesheet" href="/static/css/themes_font_size.css?v=theme-font-size-1">
     <link rel="stylesheet" href="/static/css/base.css?v=stream-avatar-1&panel-scroll-top=5&panel-corners=1&empty-files-plaque=1&avatar-inspector-close=1&header-autohide=1&search-overlay=1&room-state=2">
-    <link rel="stylesheet" href="/static/css/chat.css?v=stream-avatar-1&session-restore-divider=1">
-    <link rel="stylesheet" href="/static/css/chat-rating.css?v=rating-persist-1-rating-disable-2">
-    <link rel="stylesheet" href="/static/css/chat-runtime-action.css?v=action-drop-in-3">
+    <link rel="stylesheet" href="/static/css/chat.css?v=stream-avatar-1&session-restore-divider=1&reasoning-collapse-1&markdown-table=1">
+    <link rel="stylesheet" href="/static/css/chat-rating.css?v=rating-persist-1-rating-disable-2&bubble-utility-retry=1">
+    <link rel="stylesheet" href="/static/css/chat-runtime-action.css?v=deep-search-click-stack-1">
     <link rel="stylesheet" href="/static/css/runtime-memory.css?v=delayed-collapsible-cards-2&delayed-fact-paste=1&session-restore-fix=1&context-file-hover=1&modal-title-editor=1&runtime-memory-title=2&metabolism=1&l4-context-display=1&runtime-status-dropdown=1&l4-two-line-layout=1&l4-value-fill=1">
     <link rel="stylesheet" href="/static/css/interface-overrides.css?v=css-split-1">
     <link rel="stylesheet" href="/static/css/theme-win95.css?v=l4-fact-report-link-1&empty-files-plaque=1">
@@ -489,7 +489,7 @@
 <script src="/static/js/panel-scroll-top.js?v=6"></script>
 
 
-<script src="/static/js/answer-rating.js?v=answer-rating-persist-1-rating-disable-2&hover-labels=2"></script>
+<script src="/static/js/answer-rating.js?v=answer-rating-persist-1-rating-disable-2&hover-labels=2&bubble-utility-retry=1"></script>
 
 <!-- AUTO HEIGHT -->
 
@@ -508,13 +508,13 @@
 <script src="/static/js/runtime/runtime-storage.js?v=runtime-storage-19-anonymous-mode-1&active-memory-state=1"></script>
 <script src="/static/js/runtime/runtime-memory-model.js?v=runtime-memory-model-hidden-suffix-1"></script>
 <script src="/static/js/runtime/runtime-idle.js?v=runtime-idle-1"></script>
-<script src="/static/js/runtime/runtime-l4-memory.js?v=l4-merge-rebase-1&anonymous-mode=1"></script>
+<script src="/static/js/runtime/runtime-l4-memory.js?v=server-l4-scheduler-1&l4-chain-1&l4-merge-rebase-1&anonymous-mode=1"></script>
 <script src="/static/js/runtime/runtime-feedback.js?v=runtime-feedback-persist-1"></script>
 <script src="/static/js/runtime/runtime-session.js?v=avatar-motion-1&delayed-load-contract-1-reconnect-persistence-1-session-lineage-2-live-checkpoint-1&anonymous-mode=1&room-state=3&no-close-confirm=1"></script>
 <script src="/static/js/runtime/runtime-metabolism.js?v=metabolism-3-homeostat-spot-drift"></script>
 <script src="/static/js/runtime/runtime-panel.js?v=context-bar-resize-1"></script>
-<script src="/static/js/runtime/runtime-memory-view.js?v=context-card-chevronless-1&delayed-fact-paste=2&numeric-fact-order=1&l4-fact-age=1&hold-delete-1&modal-title-editor=1&active-citations=4&runtime-memory-title=2&lazy-rows=4&hover-title=1&row-payload=1&l4-citation-gate=1&delayed-pin-link-isolation=1&delayed-highlight-contract=1&active-memory-activity-order=1&l4-two-line-layout=1&l4-value-fill=1"></script>
-<script src="/static/js/runtime/runtime.js?v=delayed-unpin-avatar-sync-1&delayed-fact-paste=2&active-memory-state=1&active-citations=2&live-session-checkpoint=1&unpin-logger-card=1"></script>
+<script src="/static/js/runtime/runtime-memory-view.js?v=context-card-chevronless-1&delayed-fact-paste=2&numeric-fact-order=1&l4-fact-age=1&hold-delete-1&modal-title-editor=1&active-citations=4&runtime-memory-title=2&lazy-rows=5&hover-title=1&row-payload=1&l4-citation-gate=1&delayed-pin-link-isolation=1&delayed-highlight-contract=1&active-memory-activity-order=1&l4-two-line-layout=1&l4-value-fill=1&l4-priority-bubble=1"></script>
+<script src="/static/js/runtime/runtime.js?v=facts-memory-server-sync-1&delayed-unpin-avatar-sync-1&delayed-fact-paste=2&active-memory-state=1&active-citations=2&live-session-checkpoint=1&unpin-logger-card=1"></script>
 <script src="/static/js/runtime/runtime-avatar.js?v=memory-layers-dormant-1&reasoning-whisper=3&stable-render=2&active-citations=4&rotation-phase=2&rotation-stop=2&transition-ramp=2&rotation-cache=1&reasoning-handoff=2&metabolism=2-homeostat&avatar-toggle-only=1&l4-citation-gate=1&room-state=1&delayed-pin-link-isolation=1&delayed-highlight-contract=1"></script>
 <script src="/static/js/status.js?v=status-check-5&runtime-status-modal=3&runtime-config-edit=2"></script>
 <script src="/static/js/dragdrop.js?v=console-auto-expand-2&file-restore-2&empty-files-plaque=1&unpin-logger-card=1"></script>
@@ -523,20 +523,20 @@
 <script src="/static/js/header-autohide.js?v=header-autohide-6"></script>
 <script src="/static/js/logger/trace-modal.js?v=context-session-actions-1&context-file-hover=1&metabolism=1&l4-context-display=1&l4-budget-payload=1"></script>
 <script src="/static/js/logger/l1-summarizer.js?v=logger-l1-summarizer-1"></script>
-<script src="/static/js/logger/session-actions.js?v=logger-session-actions-11"></script>
+<script src="/static/js/logger/session-actions.js?v=logger-session-actions-13"></script>
 <script src="/static/js/logger/log-entries.js?v=update-l4-message-1&file-restore-card-2&deleted-image-hover-1&metabolism=1&jin-action-order=1&l4-double-batch=1&unpin-logger-card=1"></script>
 <script src="/static/js/think-citations.js?v=think-citations-8&stream-exact-citations=4&active-citations=4&l4-explicit-citations=1"></script>
-<script src="/static/js/chat-response-formatter.js?v=jin-size-1&runtime-marker-xml=1"></script>
-<script src="/static/js/chat-reference-ids.js?v=reference-ids-1"></script>
-<script src="/static/js/chat.js?v=stream-avatar-2-reference-ids-1&reasoning-click-guard=2&restore-attachment-state=1&avatar-reasoning-motion=2&avatar-output-motion=1&stream-exact-citations=1&memory-reference-turn-reset=1&runtime-marker-xml=1&reasoning-state=1&live-turn-overflow-scroll=2"></script>
+<script src="/static/js/chat-response-formatter.js?v=jin-size-1&runtime-marker-xml=1&markdown-table=1"></script>
+<script src="/static/js/chat-reference-ids.js?v=reference-ids-2"></script>
+<script src="/static/js/chat.js?v=stream-avatar-2-reference-ids-1&reasoning-click-guard=2&restore-attachment-state=1&avatar-reasoning-motion=2&avatar-output-motion=1&stream-exact-citations=1&memory-reference-turn-reset=1&runtime-marker-xml=1&reasoning-state=1&live-turn-overflow-scroll=2&bubble-utility-retry=1"></script>
 <script src="/static/js/chat-attachments.js?v=attached-files-3-attachment-modal-id-1&hold-delete-1&runtime-action-preview-2"></script>
-<script src="/static/js/chat-runtime-actions.js?v=action-drop-in-3&attach-preview-1&jin-color-split-1&active-memory-state=1&search-refcount=1&active-memory-title-hover=1"></script>
+<script src="/static/js/chat-runtime-actions.js?v=deep-search-click-stack-1&attach-preview-1&jin-color-split-1&active-memory-state=1&search-refcount=1&active-memory-title-hover=1"></script>
 <script src="/static/js/session-restore.js?v=avatar-motion-1&archived-session-restore-5&anonymous-mode=1&room-state=1"></script>
-<script src="/static/js/socket.js?v=avatar-geometry-1&stream-avatar-1-archived-session-restore-3&anonymous-mode=1&input-focus=2"></script>
+<script src="/static/js/socket.js?v=avatar-geometry-1&stream-avatar-1-archived-session-restore-3&anonymous-mode=1&input-focus=2&bubble-utility-retry=1"></script>
 <script src="/static/js/socket/memory.js?v=memory-panel-rename-1"></script>
 <script src="/static/js/socket/delayed-memory.js?v=delayed-tags-normalize-1&lazy-fact-ids=1&numeric-fact-order=1"></script>
-<script src="/static/js/socket/runtime-actions.js?v=size-sequence-1&attach-preview-1&avatar-answer-boundary=1&active-memory-state=1&restricted-write=1&visual-bubbles=1&avatar-motion=1&active-memory-update-bubble=1&active-memory-full-hover=3&active-memory-update-highlight=1"></script>
-<script src="/static/js/socket/event-handlers.js?v=stream-avatar-1&avatar-answer-boundary=1"></script>
+<script src="/static/js/socket/runtime-actions.js?v=size-sequence-1&attach-preview-1&avatar-answer-boundary=1&active-memory-state=1&restricted-write=1&visual-bubbles=1&avatar-motion=1&active-memory-update-bubble=1&active-memory-full-hover=3&active-memory-update-highlight=1&deep-search-open-bubble=2"></script>
+<script src="/static/js/socket/event-handlers.js?v=stream-avatar-1&avatar-answer-boundary=1&bootstrap-tail-boundary=1&bubble-utility-retry=1"></script>
 <script src="/static/js/socket/input.js?v=jin-size-1&memory-reference-turn-reset=1&avatar-toggle-only=1&input-focus=3"></script>
 </body>
 

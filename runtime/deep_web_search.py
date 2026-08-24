@@ -41,7 +41,7 @@ Rules:
 - The report field is for JIN, not for diagnostics: write clean structured text with source notes such as "Reddit says ..." or "Wikipedia says ...".
 - Do not include XML tags, JSON snippets, query IDs, raw search-result dumps, budgets, or links in the report.
 
-Return JSON only:
+Return JSON only, as exactly one JSON object (never multiple adjacent objects):
 {"queries":["..."],"spawn":["..."],"report":"...","done":false}
 Set done=true when this worker has enough evidence or cannot improve it further.
 """
@@ -157,43 +157,77 @@ def _normalize_string_list(value, *, limit: int = 3) -> list[str]:
     return items
 
 
+def _extract_json_dicts(source: str) -> list[dict]:
+    """Recover complete JSON objects from a worker response.
+
+    The service model is instructed to return one object, but can occasionally
+    emit two adjacent objects. raw_decode keeps the recovery JSON-aware, so
+    braces and escapes inside quoted strings are handled correctly.
+    """
+    decoder = json.JSONDecoder()
+    items = []
+    offset = 0
+
+    while offset < len(source):
+        start = source.find("{", offset)
+        if start < 0:
+            break
+        try:
+            parsed, end = decoder.raw_decode(source, start)
+        except json.JSONDecodeError:
+            offset = start + 1
+            continue
+
+        if isinstance(parsed, dict):
+            items.append(parsed)
+        offset = max(end, start + 1)
+
+    return items
+
+
+def _merge_worker_json_objects(items: list[dict]) -> dict:
+    queries = []
+    spawn = []
+    reports = []
+    done = False
+
+    for item in items:
+        queries.extend(_normalize_string_list(item.get("queries"), limit=3))
+        spawn.extend(_normalize_string_list(item.get("spawn"), limit=3))
+
+        report = _clean_report_text(item.get("report"), limit=1800)
+        if report:
+            reports.append(report)
+
+        # Only a real JSON boolean is authoritative. bool("false") is True.
+        if isinstance(item.get("done"), bool):
+            done = item["done"]
+
+    return {
+        "queries": _normalize_string_list(queries, limit=3),
+        "spawn": _normalize_string_list(spawn, limit=3),
+        "report": _clean_report_text("\n".join(reports), limit=1800),
+        "done": done,
+        "invalid_json": False,
+    }
+
+
 def parse_deep_search_worker_response(text: str) -> dict:
     source = str(text or "").strip()
     if source.startswith("```"):
         source = re.sub(r"^```(?:json)?\s*", "", source, flags=re.IGNORECASE)
         source = re.sub(r"\s*```$", "", source)
 
-    candidates = [source]
-    start = source.find("{")
-    end = source.rfind("}")
-    if start >= 0 and end > start:
-        candidates.append(source[start : end + 1])
-
-    data = None
-    for candidate in candidates:
-        try:
-            parsed = json.loads(candidate)
-        except (TypeError, ValueError, json.JSONDecodeError):
-            continue
-        if isinstance(parsed, dict):
-            data = parsed
-            break
-
-    if data is None:
-        return {
-            "queries": [],
-            "spawn": [],
-            "report": _clean_report_text(source, limit=900),
-            "done": True,
-            "invalid_json": True,
-        }
+    items = _extract_json_dicts(source)
+    if items:
+        return _merge_worker_json_objects(items)
 
     return {
-        "queries": _normalize_string_list(data.get("queries"), limit=3),
-        "spawn": _normalize_string_list(data.get("spawn"), limit=3),
-        "report": _clean_report_text(data.get("report"), limit=1800),
-        "done": bool(data.get("done", False)),
-        "invalid_json": False,
+        "queries": [],
+        "spawn": [],
+        "report": _clean_report_text(source, limit=900),
+        "done": True,
+        "invalid_json": True,
     }
 
 
@@ -408,10 +442,28 @@ async def _call_worker(
     )
 
 
-async def _record_sequence_line(context, text: str) -> None:
+async def _record_sequence_line(
+    context,
+    text: str,
+    *,
+    hover_text: str = "",
+) -> None:
+    normalized_hover_text = _normalize_text(
+        hover_text
+    )
+    display_parts = (
+        [{
+            "text": text,
+            "context_detail": normalized_hover_text,
+        }]
+        if normalized_hover_text
+        else None
+    )
+
     record_session_action_history(
         context,
         text,
+        display_parts=display_parts,
         preserve_separate=True,
         plain_sequence=True,
     )
@@ -811,6 +863,7 @@ async def run_deep_web_search(
     await _record_sequence_line(
         context,
         f"DEEP_WEB_SEARCH complete: {pool.used}/{pool.max_queries} searches",
+        hover_text=f"DEEP_WEB_SEARCH: {normalized_objective}",
     )
 
     return build_deep_search_result(pool, final_report)

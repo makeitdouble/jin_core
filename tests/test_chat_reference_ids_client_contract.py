@@ -11,7 +11,7 @@ INDEX_HTML = ROOT / "ui" / "templates" / "index.html"
 
 class ChatReferenceIdsClientContractTests(unittest.TestCase):
 
-    def test_answer_ids_resolve_only_against_live_file_and_delayed_stores(self):
+    def test_answer_ids_resolve_against_live_file_delayed_and_l4_stores(self):
         source = REFERENCE_JS.read_text(encoding="utf-8")
 
         self.assertIn("window.JinFiles.getFiles()", source)
@@ -19,6 +19,9 @@ class ChatReferenceIdsClientContractTests(unittest.TestCase):
         self.assertIn("runtime.getDelayedMemoryReports()", source)
         self.assertIn('kind: "file"', source)
         self.assertIn('kind: "delayed"', source)
+        self.assertIn("window.JinRuntime.l4Memory", source)
+        self.assertIn('kind: "l4"', source)
+        self.assertIn("normalizeLongTermFactId", source)
         self.assertIn('references.has(id)', source)
         self.assertIn('new RegExp(`\\\\b(?:${ids.map(escapeRegex).join("|")})\\\\b`', source)
 
@@ -29,13 +32,15 @@ class ChatReferenceIdsClientContractTests(unittest.TestCase):
         self.assertIn("{ hoverPreviewMaxPx: 100 }", source)
         self.assertIn("window.openJinAttachmentModal(reference.record)", source)
 
-    def test_text_ids_show_clean_filename_and_delayed_ids_open_report_modal(self):
+    def test_text_and_l4_ids_show_descriptive_hover_titles(self):
         source = REFERENCE_JS.read_text(encoding="utf-8")
 
         self.assertIn("cleanPersistentFileName", source)
         self.assertIn('element.title = cleanPersistentFileName(reference.record) || reference.id;', source)
         self.assertIn("memoryView.openDelayedMemoryReportModal(reference.record)", source)
         self.assertIn("reference.record && reference.record.title", source)
+        self.assertIn("buildLongTermFactTitle(reference.record)", source)
+        self.assertIn("parseLongTermFactTimestamp(record.created_at)", source)
 
     def test_stream_render_decorates_ids_without_replacing_chat_parser(self):
         source = CHAT_JS.read_text(encoding="utf-8")
@@ -52,7 +57,7 @@ class ChatReferenceIdsClientContractTests(unittest.TestCase):
 
     def test_reference_parser_is_loaded_before_chat_renderer(self):
         source = INDEX_HTML.read_text(encoding="utf-8")
-        reference_script = '/static/js/chat-reference-ids.js?v=reference-ids-1'
+        reference_script = '/static/js/chat-reference-ids.js?v=reference-ids-2'
         chat_script = '/static/js/chat.js?v='
 
         self.assertIn(reference_script, source)

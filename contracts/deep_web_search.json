@@ -3,6 +3,8 @@
     "version": 1,
     "description": "Starts a bounded multi-step web research sequence using the service model as research workers.",
     "runtime_action": "DEEP_WEB_SEARCH",
+    "enable_flag": "CAN_DEEP_WEB_SEARCH",
+    "runtime_order": 10,
     "private_marker": "<DEEP_WEB_SEARCH>",
     "triggers": [],
     "blockers": [],

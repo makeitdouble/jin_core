@@ -1,54 +1,11 @@
 import asyncio
 import contextlib
-from collections import deque
 
 from .logger import WebSocketLogger
 
 from runtime.runtime_context import RuntimeContext
 from runtime.L1_memory import schedule_interrupted_runtime_memory_update
 from utils.runtime_action_abort import abort_active_runtime_actions
-
-
-class PendingRequestQueue(asyncio.Queue):
-
-    def _init(self, maxsize):
-        self._idle_followups = deque()
-        self._regular_requests = deque()
-
-    @staticmethod
-    def _is_idle_followup(item) -> bool:
-        return (
-            isinstance(item, dict)
-            and item.get("type") == "idle_followup"
-            and isinstance(
-                item.get("idle_followup"),
-                dict,
-            )
-        )
-
-    def qsize(self) -> int:
-        return (
-            len(self._idle_followups)
-            + len(self._regular_requests)
-        )
-
-    def empty(self) -> bool:
-        return self.qsize() == 0
-
-    def _put(self, item) -> None:
-        target = (
-            self._idle_followups
-            if self._is_idle_followup(item)
-            else self._regular_requests
-        )
-        target.append(item)
-
-    def _get(self):
-        if self._idle_followups:
-            return self._idle_followups.popleft()
-
-        return self._regular_requests.popleft()
-
 
 async def cancel_current_task(
     task: asyncio.Task | None,

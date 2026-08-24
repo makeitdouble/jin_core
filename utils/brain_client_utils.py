@@ -67,7 +67,6 @@ from contracts.rules_assembler import (
     RUNTIME_ACTION_CHECK_TODO,
     RUNTIME_ACTION_CREATE_TODO_LIST,
     RUNTIME_ACTION_SAVE_ACTIVE_MEMORY,
-    RUNTIME_ACTION_IDLE,
     RUNTIME_ACTION_JIN_COLOR,
     RUNTIME_ACTION_CLEAN_TOOL_RESULTS,
     RUNTIME_ACTION_UNLOAD_DELAYED_MEMORY,
@@ -114,7 +113,6 @@ from utils.actions import (
     normalize_active_memory_custom_field_value,
     parse_delayed_memory_payload,
     parse_update_active_memory_payload,
-    parse_idle_seconds,
     normalize_jin_color_payload,
     normalize_delayed_memory_attachment_ids,
     normalize_delayed_memory_fact_ids,
@@ -139,9 +137,6 @@ from utils.tool_results import (
     clear_runtime_tool_results,
     record_runtime_tool_result,
     remove_runtime_tool_results,
-)
-from utils.tool_results_context import (
-    strip_tools_results_context,
 )
 from utils.runtime_todo import (
     apply_runtime_todo_action_result,
@@ -3017,235 +3012,6 @@ async def log_runtime_action_marker_removals(
             await log_runtime(
                 message
             )
-
-
-def _track_background_task(
-    context,
-    task: asyncio.Task,
-) -> None:
-
-    tasks = getattr(
-        context,
-        "background_tasks",
-        None,
-    )
-
-    if not isinstance(tasks, set):
-        tasks = set()
-        setattr(
-            context,
-            "background_tasks",
-            tasks,
-        )
-
-    tasks.add(task)
-    task.add_done_callback(
-        tasks.discard
-    )
-
-
-async def _enqueue_idle_followup_after_delay(
-    context,
-    record: dict,
-) -> None:
-
-    seconds = max(
-        0,
-        int(record.get("seconds", 0) or 0),
-    )
-
-    await asyncio.sleep(seconds)
-
-    scheduled_generation = int(
-        record.get(
-            "tool_results_generation",
-            0,
-        )
-        or 0
-    )
-    current_generation = int(
-        getattr(
-            context,
-            "runtime_tool_results_generation",
-            0,
-        )
-        or 0
-    )
-    context_snapshot = deepcopy(
-        record.get(
-            "context_snapshot",
-            {},
-        )
-    )
-    if not isinstance(
-        context_snapshot,
-        dict,
-    ):
-        context_snapshot = {}
-
-    if scheduled_generation != current_generation:
-        context_snapshot["system_prompt"] = (
-            strip_tools_results_context(
-                context_snapshot.get(
-                    "system_prompt",
-                    "",
-                )
-            )
-        )
-
-    record = {
-        **record,
-        "context_snapshot": context_snapshot,
-        "tool_results_generation": current_generation,
-        "fired_at": time.time(),
-    }
-    queue = getattr(
-        context,
-        "runtime_pending_requests_queue",
-        None,
-    )
-
-    if queue is not None:
-        await queue.put({
-            "type": "idle_followup",
-            "idle_followup": record,
-        })
-        return
-
-    pending = getattr(
-        context,
-        "runtime_pending_idle_followups",
-        None,
-    )
-    if not isinstance(pending, list):
-        pending = []
-        setattr(
-            context,
-            "runtime_pending_idle_followups",
-            pending,
-        )
-
-    pending.append(record)
-
-
-def schedule_idle_followup(
-    context,
-    *,
-    seconds: int,
-    source_message: str,
-    user_message: str,
-    context_snapshot: dict | None,
-) -> dict:
-
-    sequence = int(
-        getattr(
-            context,
-            "runtime_idle_action_sequence",
-            0,
-        )
-        or 0
-    ) + 1
-    context.runtime_idle_action_sequence = sequence
-
-    scheduled_at = time.time()
-    sequence_turn_id = str(
-        getattr(
-            context,
-            "runtime_current_sequence_turn_id",
-            "",
-        )
-        or getattr(
-            context,
-            "runtime_current_turn_id",
-            "",
-        )
-        or ""
-    ).strip()
-    sequence_started_at = getattr(
-        context,
-        "runtime_current_sequence_started_at",
-        None,
-    )
-    if not isinstance(
-        sequence_started_at,
-        (int, float),
-    ) or sequence_started_at <= 0:
-        sequence_started_at = getattr(
-            context,
-            "runtime_turn_started_at",
-            scheduled_at,
-        )
-    if not isinstance(
-        sequence_started_at,
-        (int, float),
-    ) or sequence_started_at <= 0:
-        sequence_started_at = scheduled_at
-    current_attachments = getattr(
-        context,
-        "runtime_turn_attachments",
-        [],
-    )
-    sequence_attachment_turn_id = str(
-        getattr(
-            context,
-            "runtime_current_sequence_attachments_turn_id",
-            "",
-        )
-        or ""
-    ).strip()
-    sequence_attachments = getattr(
-        context,
-        "runtime_current_sequence_attachments",
-        [],
-    )
-    if (
-        not current_attachments
-        and sequence_attachment_turn_id == sequence_turn_id
-    ):
-        current_attachments = sequence_attachments
-
-    record = {
-        "id": build_runtime_action_id(
-            RUNTIME_ACTION_IDLE,
-            sequence,
-        ),
-        "action": "idle",
-        "seconds": seconds,
-        "scheduled_at": scheduled_at,
-        "due_at": scheduled_at + seconds,
-        "source_message": str(source_message or ""),
-        "origin_user_request": str(user_message or ""),
-        "sequence_turn_id": sequence_turn_id,
-        "sequence_started_at": float(sequence_started_at),
-        "context_snapshot": deepcopy(context_snapshot)
-        if isinstance(context_snapshot, dict)
-        else {},
-        "tool_results_generation": int(
-            getattr(
-                context,
-                "runtime_tool_results_generation",
-                0,
-            )
-            or 0
-        ),
-        "attachments": deepcopy(
-            current_attachments
-            or []
-        ),
-    }
-
-    task = asyncio.create_task(
-        _enqueue_idle_followup_after_delay(
-            context,
-            record,
-        )
-    )
-    _track_background_task(
-        context,
-        task,
-    )
-
-    return record
 
 
 async def apply_runtime_action_calls(

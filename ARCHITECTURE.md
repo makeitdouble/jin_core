@@ -41,7 +41,7 @@ The surrounding modules have narrow ownership:
 
 The browser uses `/ws/chat` as the live runtime channel. `websocket/bootstrap.py` creates a new `RuntimeContext` or reconnects the socket to resumable state, then hydrates memory, delayed reports, files, counters, and browser-provided session data.
 
-Each context owns a `PendingRequestQueue`. User messages and internal continuation ticks run serially through that queue, which keeps turn order stable while generation, actions, and memory updates overlap in time.
+Each context owns a normal `asyncio.Queue` for pending requests. User messages and internal continuation ticks run serially through that queue, which keeps turn order stable while generation, actions, and memory updates overlap in time.
 
 A socket and a logical runtime have separate identities. Reconnect can attach a fresh transport to an existing context. Explicit session bootstrap can restore saved L1/L3 state and related runtime metadata.
 

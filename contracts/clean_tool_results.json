@@ -3,6 +3,8 @@
     "version": 1,
     "description": "Allows the model to clean redundant tool results.",
     "runtime_action": "CLEAN_TOOL_RESULTS",
+    "enable_flag": "CAN_CLEAN_TOOL_RESULTS",
+    "runtime_order": 30,
     "private_marker": "<CLEAN_TOOL_RESULTS>",
     "triggers": [],
     "blockers": [],

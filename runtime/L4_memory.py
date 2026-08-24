@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
 import re
 import time
@@ -72,10 +73,8 @@ from runtime.memory_common import (
 
 
 L4_LOG_LEVEL = "L4"
-L4_DEFAULT_IDLE_SECONDS = 60
-# Client ticks at 60s. Keep the server guard slightly below that interval so
-# normal network/timer jitter never turns a one-minute cadence into two minutes.
-L4_IDLE_SERVER_THROTTLE_SECONDS = 55
+L4_DEFAULT_IDLE_SECONDS = 15
+L4_CLOSED_TABS_INTERVAL_DIVISOR = 3
 L4_MERGE_RETRY_BASE_SECONDS = 60
 L4_MERGE_RETRY_MAX_SECONDS = 300
 L4_MERGE_VALIDATION_RETRY_SECONDS = 50
@@ -800,9 +799,201 @@ def l4_memory_enabled() -> bool:
 
 
 def get_l4_idle_seconds() -> int:
-    return int(
-        getattr(config, "L4_IDLE_SECONDS", L4_DEFAULT_IDLE_SECONDS)
+    return (
+        _positive_int(
+            getattr(
+                config,
+                "L4_IDLE_SECONDS",
+                L4_DEFAULT_IDLE_SECONDS,
+            )
+        )
         or L4_DEFAULT_IDLE_SECONDS
+    )
+
+
+def get_l4_scheduler_interval_seconds(
+    *,
+    tabs_open: bool,
+) -> float:
+    idle_seconds = float(get_l4_idle_seconds())
+    if tabs_open:
+        return idle_seconds
+    return idle_seconds / float(L4_CLOSED_TABS_INTERVAL_DIVISOR)
+
+
+def _l4_scheduler_wake_event(app_state):
+    if app_state is None:
+        return None
+    return getattr(
+        app_state,
+        "l4_memory_scheduler_wake_event",
+        None,
+    )
+
+
+def wake_l4_memory_server_scheduler(context) -> None:
+    app_state = getattr(
+        context,
+        "runtime_l4_app_state",
+        None,
+    )
+    wake_event = _l4_scheduler_wake_event(app_state)
+    if wake_event is not None:
+        wake_event.set()
+
+
+def bind_l4_runtime_app_state(
+    context,
+    app_state,
+) -> None:
+    context.runtime_l4_app_state = app_state
+    wake_l4_memory_server_scheduler(context)
+
+
+def register_l4_websocket_connection(
+    context,
+    *,
+    app_state,
+    websocket,
+) -> None:
+    bind_l4_runtime_app_state(
+        context,
+        app_state,
+    )
+    connection_ids = getattr(
+        app_state,
+        "l4_open_websocket_ids",
+        None,
+    )
+    if connection_ids is None:
+        connection_ids = set()
+        app_state.l4_open_websocket_ids = connection_ids
+    connection_ids.add(id(websocket))
+    context.runtime_l4_websocket_connected = True
+    wake_l4_memory_server_scheduler(context)
+
+
+def unregister_l4_websocket_connection(
+    context,
+    *,
+    app_state,
+    websocket,
+) -> None:
+    connection_ids = getattr(
+        app_state,
+        "l4_open_websocket_ids",
+        None,
+    )
+    if isinstance(connection_ids, set):
+        connection_ids.discard(id(websocket))
+
+    if getattr(context, "websocket", None) is websocket:
+        context.runtime_l4_websocket_connected = False
+
+    wake_l4_memory_server_scheduler(context)
+
+
+def note_l4_user_activity(context) -> None:
+    now = time.monotonic()
+    app_state = getattr(
+        context,
+        "runtime_l4_app_state",
+        None,
+    )
+    if app_state is not None:
+        app_state.l4_last_user_activity_at = now
+    wake_l4_memory_server_scheduler(context)
+
+
+def note_l4_foreground_state(
+    context,
+    *,
+    running: bool,
+) -> None:
+    context.runtime_foreground_turn_running = bool(running)
+    wake_l4_memory_server_scheduler(context)
+
+
+def _facts_memory_identity(
+    session_id: str,
+    key: str,
+    field: dict,
+) -> tuple[str, str, str]:
+    return (
+        normalize_l4_text(session_id),
+        normalize_l4_key(key),
+        normalize_l4_text(field.get("l4_content_hash")),
+    )
+
+
+def _preserve_server_analyzed_facts_memory(
+    incoming_records: list[dict],
+    server_records: list[dict],
+) -> list[dict]:
+    analyzed_by_identity = {}
+    for record in normalize_facts_memory_records(server_records):
+        session_id = record.get("session_id", "")
+        for key, field in record.get("signals", {}).items():
+            if field.get("l4_status") != "analyzed":
+                continue
+            analyzed_by_identity[
+                _facts_memory_identity(session_id, key, field)
+            ] = str(field.get("l4_analyzed_at", "") or "")
+
+    reconciled = normalize_facts_memory_records(incoming_records)
+    for record in reconciled:
+        session_id = record.get("session_id", "")
+        for key, field in record.get("signals", {}).items():
+            analyzed_at = analyzed_by_identity.get(
+                _facts_memory_identity(session_id, key, field)
+            )
+            if analyzed_at is None:
+                continue
+            field["l4_status"] = "analyzed"
+            field["l4_analyzed_at"] = analyzed_at
+
+    return reconciled
+
+
+def _publish_server_facts_memory_state(context) -> None:
+    app_state = getattr(
+        context,
+        "runtime_l4_app_state",
+        None,
+    )
+    if app_state is None:
+        return
+    if bool(
+        getattr(
+            context,
+            "runtime_persistent_writes_restricted",
+            False,
+        )
+    ):
+        return
+
+    app_state.l4_facts_memory_records = normalize_facts_memory_records(
+        getattr(context, "runtime_facts_memory_records", [])
+    )
+    app_state.l4_runtime_context = context
+    context.runtime_l4_profile_sync_at = time.monotonic()
+    wake_l4_memory_server_scheduler(context)
+
+
+def l4_memory_has_pending_work(context) -> bool:
+    if collect_pending_facts_memory_fields(
+        getattr(
+            context,
+            "runtime_facts_memory_records",
+            [],
+        )
+    ):
+        return True
+
+    return bool(
+        ensure_runtime_l4_state(context).get(
+            "pending_facts"
+        )
     )
 
 
@@ -1123,8 +1314,38 @@ def ensure_runtime_l4_state(context) -> dict:
 
 
 def apply_facts_memory_store_sync(context, raw_records) -> dict:
-    records = normalize_facts_memory_records(raw_records)
+    incoming_records = normalize_facts_memory_records(raw_records)
+    restricted = bool(
+        getattr(
+            context,
+            "runtime_persistent_writes_restricted",
+            False,
+        )
+    )
+    app_state = getattr(
+        context,
+        "runtime_l4_app_state",
+        None,
+    )
+    server_records = (
+        getattr(
+            app_state,
+            "l4_facts_memory_records",
+            [],
+        )
+        if app_state is not None
+        else []
+    )
+    records = (
+        incoming_records
+        if restricted
+        else _preserve_server_analyzed_facts_memory(
+            incoming_records,
+            server_records,
+        )
+    )
     context.runtime_facts_memory_records = records
+    _publish_server_facts_memory_state(context)
     return {
         "records_count": len(records),
         "signals_count": sum(int(record.get("signal_count") or 0) for record in records),
@@ -1181,8 +1402,8 @@ async def cancel_l4_memory_idle_update(
     consolidation result is committed, so cancelling an in-flight model request
     leaves them available for the next genuine idle window.
     """
-    # Every real user turn starts a new background-idle cycle even when no L4
-    # task happens to be running at this exact moment.
+    # Every real user turn starts a new configured background-idle cycle even
+    # when no L4 task happens to be running at this exact moment.
     context.runtime_l4_idle_last_started_at = time.monotonic()
 
     task = getattr(context, "runtime_l4_memory_update_task", None)
@@ -1895,6 +2116,7 @@ async def run_l4_extraction_phase(
         pending_fields,
     )
     context.runtime_facts_memory_records = records
+    _publish_server_facts_memory_state(context)
 
     if records_changed:
         await emit_facts_memory_store_update(context)
@@ -3131,9 +3353,15 @@ async def run_l4_jin_note(
             },
         )
 
+    selected_fact_id_set = set(selected_fact_ids)
+    focused_existing_facts = [
+        fact
+        for fact in base_store.get("facts", []) or []
+        if fact.get("id") in selected_fact_id_set
+    ]
     system_prompt = build_l4_jin_note_system_prompt()
     user_prompt = build_l4_jin_note_user_prompt(
-        existing_facts=base_store.get("facts") or [],
+        existing_facts=focused_existing_facts,
         selected_fact_ids=selected_fact_ids,
         message=message,
         requested_action=requested_action,
@@ -3301,21 +3529,33 @@ async def maybe_update_runtime_l4_memory(
         if service_client is None:
             return {"status": "skipped", "reason": "service_client_unavailable"}
 
+        extraction_result = None
         pending_fields = collect_pending_facts_memory_fields(
             getattr(context, "runtime_facts_memory_records", [])
         )
         if pending_fields:
-            return await run_l4_extraction_phase(
+            extraction_result = await run_l4_extraction_phase(
                 context=context,
                 service_client=service_client,
                 pending_fields=pending_fields,
             )
+            if extraction_result.get("status") != "completed":
+                return extraction_result
 
         if ensure_runtime_l4_state(context).get("pending_facts"):
-            return await run_l4_merge_phase(
+            merge_result = await run_l4_merge_phase(
                 context=context,
                 service_client=service_client,
             )
+            if extraction_result is not None:
+                return {
+                    **merge_result,
+                    "extraction_result": extraction_result,
+                }
+            return merge_result
+
+        if extraction_result is not None:
+            return extraction_result
 
         reset_l4_merge_recovery_state(context)
         return {"status": "skipped", "reason": "nothing_pending"}
@@ -3346,6 +3586,7 @@ def schedule_l4_memory_idle_update(
     *,
     context,
     user_idle_seconds: int | None = None,
+    minimum_interval_seconds: float | None = None,
 ) -> asyncio.Task | None:
     if bool(
         getattr(
@@ -3370,13 +3611,24 @@ def schedule_l4_memory_idle_update(
     if runtime_l4_memory_update_running(context):
         return getattr(context, "runtime_l4_memory_update_task", None)
 
+    if not l4_memory_has_pending_work(context):
+        # An empty browser tick is only a poll. It must not consume the
+        # configured cadence and delay work that appears a moment later.
+        reset_l4_merge_recovery_state(context)
+        return None
+
     now = time.monotonic()
     last_started_at = float(
         getattr(context, "runtime_l4_idle_last_started_at", 0.0) or 0.0
     )
+    interval_seconds = (
+        float(minimum_interval_seconds)
+        if minimum_interval_seconds is not None
+        else float(get_l4_idle_seconds())
+    )
     if (
         last_started_at > 0
-        and now - last_started_at < L4_IDLE_SERVER_THROTTLE_SECONDS
+        and now - last_started_at < interval_seconds
     ):
         return None
 
@@ -3397,6 +3649,240 @@ def schedule_l4_memory_idle_update(
     background_tasks.add(task)
     task.add_done_callback(background_tasks.discard)
     return task
+
+
+def _l4_server_contexts(app_state) -> list:
+    store = getattr(
+        app_state,
+        "websocket_runtime_contexts",
+        None,
+    )
+    if not isinstance(store, dict):
+        return []
+    return [
+        context
+        for context in store.values()
+        if context is not None
+    ]
+
+
+def _l4_server_context(app_state):
+    context = getattr(
+        app_state,
+        "l4_runtime_context",
+        None,
+    )
+    if (
+        context is not None
+        and not bool(
+            getattr(
+                context,
+                "runtime_persistent_writes_restricted",
+                False,
+            )
+        )
+    ):
+        return context
+
+    candidates = [
+        candidate
+        for candidate in _l4_server_contexts(app_state)
+        if not bool(
+            getattr(
+                candidate,
+                "runtime_persistent_writes_restricted",
+                False,
+            )
+        )
+    ]
+    if not candidates:
+        return None
+
+    context = max(
+        candidates,
+        key=lambda candidate: float(
+            getattr(candidate, "runtime_l4_profile_sync_at", 0.0)
+            or 0.0
+        ),
+    )
+    app_state.l4_runtime_context = context
+    return context
+
+
+def _l4_server_tabs_open(app_state) -> bool:
+    connection_ids = getattr(
+        app_state,
+        "l4_open_websocket_ids",
+        None,
+    )
+    return bool(connection_ids)
+
+
+def _l4_server_foreground_busy(app_state) -> bool:
+    for context in _l4_server_contexts(app_state):
+        if bool(
+            getattr(
+                context,
+                "runtime_foreground_turn_running",
+                False,
+            )
+        ):
+            return True
+
+        queue = getattr(
+            context,
+            "runtime_pending_requests_queue",
+            None,
+        )
+        if queue is not None:
+            try:
+                if not queue.empty():
+                    return True
+            except Exception:
+                pass
+
+    return False
+
+
+async def _wait_for_l4_scheduler_wake(
+    wake_event,
+    *,
+    timeout: float | None = None,
+) -> None:
+    if timeout is None:
+        await wake_event.wait()
+        return
+
+    try:
+        await asyncio.wait_for(
+            wake_event.wait(),
+            timeout=max(0.0, float(timeout)),
+        )
+    except asyncio.TimeoutError:
+        pass
+
+
+async def run_l4_memory_server_scheduler(app_state) -> None:
+    wake_event = _l4_scheduler_wake_event(app_state)
+    if wake_event is None:
+        wake_event = asyncio.Event()
+        app_state.l4_memory_scheduler_wake_event = wake_event
+
+    while True:
+        wake_event.clear()
+
+        context = _l4_server_context(app_state)
+        if context is None or not l4_memory_enabled():
+            await _wait_for_l4_scheduler_wake(wake_event)
+            continue
+
+        if _l4_server_foreground_busy(app_state):
+            await _wait_for_l4_scheduler_wake(
+                wake_event,
+                timeout=0.25,
+            )
+            continue
+
+        if not l4_memory_has_pending_work(context):
+            await _wait_for_l4_scheduler_wake(wake_event)
+            continue
+
+        tabs_open = _l4_server_tabs_open(app_state)
+        interval_seconds = get_l4_scheduler_interval_seconds(
+            tabs_open=tabs_open,
+        )
+        now = time.monotonic()
+        last_user_activity_at = float(
+            getattr(app_state, "l4_last_user_activity_at", 0.0)
+            or 0.0
+        )
+        last_started_at = float(
+            getattr(context, "runtime_l4_idle_last_started_at", 0.0)
+            or 0.0
+        )
+        profile_sync_at = float(
+            getattr(context, "runtime_l4_profile_sync_at", 0.0)
+            or 0.0
+        )
+        cadence_anchor = max(
+            last_user_activity_at,
+            last_started_at,
+            profile_sync_at,
+        )
+        remaining_seconds = (
+            interval_seconds
+            - max(0.0, now - cadence_anchor)
+        )
+        if remaining_seconds > 0:
+            await _wait_for_l4_scheduler_wake(
+                wake_event,
+                timeout=remaining_seconds,
+            )
+            continue
+
+        task = schedule_l4_memory_idle_update(
+            context=context,
+            minimum_interval_seconds=interval_seconds,
+        )
+        if task is None:
+            await _wait_for_l4_scheduler_wake(
+                wake_event,
+                timeout=min(0.25, interval_seconds),
+            )
+            continue
+
+        try:
+            await asyncio.shield(task)
+        except asyncio.CancelledError:
+            scheduler_task = asyncio.current_task()
+            if (
+                scheduler_task is not None
+                and scheduler_task.cancelling()
+            ):
+                if not task.done():
+                    task.cancel()
+                raise
+            if task.cancelled():
+                continue
+            raise
+
+
+def start_l4_memory_server_scheduler(app_state) -> asyncio.Task:
+    existing = getattr(
+        app_state,
+        "l4_memory_scheduler_task",
+        None,
+    )
+    if existing is not None and not existing.done():
+        return existing
+
+    app_state.l4_open_websocket_ids = set()
+    app_state.l4_facts_memory_records = []
+    app_state.l4_last_user_activity_at = 0.0
+    app_state.l4_memory_scheduler_wake_event = asyncio.Event()
+    task = asyncio.create_task(
+        run_l4_memory_server_scheduler(app_state)
+    )
+    app_state.l4_memory_scheduler_task = task
+    return task
+
+
+async def stop_l4_memory_server_scheduler(app_state) -> None:
+    task = getattr(
+        app_state,
+        "l4_memory_scheduler_task",
+        None,
+    )
+    if task is None:
+        return
+
+    task.cancel()
+    with contextlib.suppress(
+        asyncio.CancelledError,
+        Exception,
+    ):
+        await task
+    app_state.l4_memory_scheduler_task = None
 
 
 def l4_fact_matches_archived_ids(

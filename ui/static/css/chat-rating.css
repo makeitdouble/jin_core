@@ -397,3 +397,107 @@
 .jin-chat-bubble-rateable.jin-rating-committed .jin-chat-pre {
     pointer-events: auto;
 }
+
+/* =========================
+   RELEASE BUBBLE UTILITIES
+   Rating implementation above is intentionally kept dormant. Only the
+   bubble's empty padding owns gestures; rendered text stays selectable.
+   ========================= */
+
+body:not(.jin-answer-rating-enabled) .jin-chat-bubble-rateable,
+body:not(.jin-answer-rating-enabled) .jin-chat-bubble-service,
+body:not(.jin-answer-rating-enabled) .jin-chat-bubble-brain {
+    cursor: default;
+}
+
+body:not(.jin-answer-rating-enabled) .jin-chat-bubble-rateable .jin-chat-pre,
+body:not(.jin-answer-rating-enabled) .jin-chat-bubble-service .jin-chat-pre,
+body:not(.jin-answer-rating-enabled) .jin-chat-bubble-brain .jin-chat-pre {
+    pointer-events: auto;
+    cursor: text;
+    user-select: text;
+    -webkit-user-select: text;
+    transform: none;
+}
+
+.jin-bubble-utility-enabled .jin-bubble-utility-zones {
+    position: absolute;
+    inset: 0;
+    z-index: 7;
+    border-radius: inherit;
+    pointer-events: none;
+}
+
+.jin-bubble-utility-enabled .jin-bubble-utility-zone {
+    position: absolute;
+    display: block;
+    background: transparent;
+    pointer-events: auto;
+    cursor: pointer;
+    touch-action: manipulation;
+}
+
+/* Match the normal chat bubble padding (14px 18px) so controls never cover
+   message text. Win95 uses the same horizontal padding and a 12-14px vertical
+   edge, therefore these strips remain inside its empty frame too. */
+.jin-bubble-utility-enabled .jin-bubble-utility-zone-top {
+    top: 0;
+    right: 0;
+    left: 0;
+    height: 14px;
+}
+
+.jin-bubble-utility-enabled .jin-bubble-utility-zone-bottom {
+    right: 0;
+    bottom: 0;
+    left: 0;
+    height: 14px;
+}
+
+.jin-bubble-utility-enabled .jin-bubble-utility-zone-left {
+    top: 14px;
+    bottom: 14px;
+    left: 0;
+    width: 18px;
+}
+
+.jin-bubble-utility-enabled .jin-bubble-utility-zone-right {
+    top: 14px;
+    right: 0;
+    bottom: 14px;
+    width: 18px;
+}
+
+/* Reuse the old neutral rating glow for the whole bubble. No red/green edge,
+   skew or directional motion survives while rating is disabled. */
+body:not(.jin-answer-rating-enabled) .jin-bubble-utility-enabled:hover {
+    box-shadow:
+            0 14px 42px rgba(0, 0, 0, 0.24),
+            0 0 30px rgba(226, 232, 240, 0.070),
+            0 0 28px rgba(45, 212, 191, 0.040),
+            inset 0 1px 0 rgba(248, 250, 252, 0.060),
+            inset 0 0 24px rgba(226, 232, 240, 0.035),
+            inset 0 0 30px rgba(103, 232, 249, 0.010);
+    filter: brightness(1.03);
+}
+
+body:not(.jin-answer-rating-enabled) .jin-bubble-utility-enabled:hover::before,
+body:not(.jin-answer-rating-enabled) .jin-bubble-utility-enabled:hover::after {
+    opacity: 0;
+    animation: none;
+}
+
+body:not(.jin-answer-rating-enabled) .jin-bubble-utility-enabled:hover .jin-chat-pre {
+    transform: none;
+    text-shadow:
+            0 0 10px rgba(226, 232, 240, 0.070),
+            0 0 14px rgba(103, 232, 249, 0.018);
+}
+
+body.theme-win95:not(.jin-answer-rating-enabled) .jin-bubble-utility-enabled:hover {
+    box-shadow:
+            1px 1px 0 var(--win95-text),
+            0 8px 18px rgba(0, 0, 0, 0.16),
+            0 0 0 1px rgba(255, 255, 255, 0.14);
+    filter: brightness(1.025);
+}

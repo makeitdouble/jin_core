@@ -10,7 +10,11 @@ import json
 
 from .logger import WebSocketLogger
 
-from runtime.L1_memory import apply_runtime_response_feedback
+from runtime.L1_memory import (
+    apply_runtime_response_feedback,
+    discard_latest_runtime_memory_pending_turn,
+    resume_runtime_memory_pending_update,
+)
 from runtime.L1_memory_utils import (
     emit_runtime_l1_diff_update,
 )
@@ -22,8 +26,12 @@ from runtime.L4_memory import (
     emit_facts_memory_store_update,
     restore_l4_memory_fact,
     emit_l4_memory_update,
+    note_l4_foreground_state,
+    note_l4_user_activity,
+    register_l4_websocket_connection,
     runtime_l4_memory_update_running,
     schedule_l4_memory_idle_update,
+    unregister_l4_websocket_connection,
 )
 from runtime.fact_check import run_fact_check_once
 from runtime.anonymous_mode import (
@@ -46,6 +54,7 @@ from .bootstrap import (
     apply_runtime_memory_slot_delete,
     apply_runtime_resume,
     apply_session_bootstrap,
+    build_session_bootstrap_chat_tail,
     emit_current_runtime_memory,
     emit_delayed_memory_store_snapshot,
     ensure_initial_runtime_snapshot,
@@ -55,8 +64,8 @@ from .bootstrap import (
 )
 from .messages import (
     build_runtime_action_guard_retry_request,
+    build_user_retry_request,
     emit_runtime_action_guard_confirmation_failure,
-    merge_runtime_idle_followup_turn,
     process_message,
     receive_message,
     refresh_pending_brain_usage,
@@ -65,7 +74,6 @@ from .messages import (
     wait_for_runtime_memory_update,
 )
 from .tasks import (
-    PendingRequestQueue,
     cancel_current_task,
 )
 
@@ -123,18 +131,8 @@ async def websocket_endpoint(
     )
 
     current_task = None
-    pending_requests = PendingRequestQueue()
+    pending_requests = asyncio.Queue()
     context.runtime_pending_requests_queue = pending_requests
-
-    pending_idle_followups = list(
-        getattr(
-            context,
-            "runtime_pending_idle_followups",
-            [],
-        )
-        or []
-    )
-    context.runtime_pending_idle_followups = []
 
     async def process_pending_requests():
         nonlocal current_task
@@ -145,49 +143,45 @@ async def websocket_endpoint(
 
             try:
 
-                is_idle_followup = (
-                    message_data.get("type") == "idle_followup"
-                    and isinstance(
-                        message_data.get("idle_followup"),
-                        dict,
-                    )
-                )
                 user_text = (
                     str(
-                        (
-                            message_data.get("idle_followup", {}).get(
-                                "origin_user_request",
-                                "",
-                            )
-                            if is_idle_followup
-                            else message_data.get(
-                                "text",
-                                "",
-                            )
+                        message_data.get(
+                            "text",
+                            "",
                         )
                     ).strip()
                 )
 
-                await wait_for_runtime_memory_update(
-                    context
-                )
-                if not is_idle_followup:
-                    await apply_runtime_response_feedback(
-                        context,
-                        (
-                            message_data.get(
-                                "pending_last_response_rating",
-                            )
-                            or message_data.get(
-                                "runtime_response_feedback",
-                            )
-                        ),
+                if message_data.get("type") == "retry_last_response":
+                    await discard_latest_runtime_memory_pending_turn(
+                        context
+                    )
+                    # If an older batch remains after removing the discarded
+                    # answer, let it settle before building the replacement.
+                    await wait_for_runtime_memory_update(
+                        context
+                    )
+                else:
+                    await wait_for_runtime_memory_update(
+                        context
                     )
 
-                    await refresh_pending_brain_usage(
-                        context,
-                        user_text,
-                    )
+                await apply_runtime_response_feedback(
+                    context,
+                    (
+                        message_data.get(
+                            "pending_last_response_rating",
+                        )
+                        or message_data.get(
+                            "runtime_response_feedback",
+                        )
+                    ),
+                )
+
+                await refresh_pending_brain_usage(
+                    context,
+                    user_text,
+                )
 
                 active_task = asyncio.create_task(
                     process_message(
@@ -196,6 +190,10 @@ async def websocket_endpoint(
                     )
                 )
                 current_task = active_task
+                note_l4_foreground_state(
+                    context,
+                    running=True,
+                )
 
                 try:
                     await active_task
@@ -211,6 +209,10 @@ async def websocket_endpoint(
                 finally:
                     if current_task is active_task:
                         current_task = None
+                    note_l4_foreground_state(
+                        context,
+                        running=False,
+                    )
 
             finally:
                 pending_requests.task_done()
@@ -219,18 +221,18 @@ async def websocket_endpoint(
         process_pending_requests()
     )
 
+    register_l4_websocket_connection(
+        context,
+        app_state=websocket.app.state,
+        websocket=websocket,
+    )
+
     try:
 
         await initialize_connection(
             context,
             skip_initial_runtime_state=skip_initial_runtime_state,
         )
-
-        for idle_followup in pending_idle_followups:
-            await pending_requests.put({
-                "type": "idle_followup",
-                "idle_followup": idle_followup,
-            })
 
         while True:
 
@@ -263,6 +265,17 @@ async def websocket_endpoint(
                     context,
                     message_data,
                 )
+
+                resumed_memory_task = (
+                    resume_runtime_memory_pending_update(
+                        context
+                    )
+                )
+
+                if resumed_memory_task is not None:
+                    await logger.log_runtime(
+                        "[MEMORY:L1] pending update resumed after reconnect"
+                    )
 
                 if restored:
                     await logger.log_system(
@@ -604,6 +617,23 @@ async def websocket_endpoint(
                         current_sequence=False,
                     )
 
+                chat_tail = build_session_bootstrap_chat_tail(
+                    context
+                )
+                if chat_tail:
+                    await context.emitter.emit({
+                        "type": "session_bootstrap_chat_tail",
+                        "source_session_id": str(
+                            getattr(
+                                context,
+                                "previous_session_id",
+                                "",
+                            )
+                            or ""
+                        ).strip(),
+                        "turns": chat_tail,
+                    })
+
                 continue
 
             if message_type == "archived_session_resume":
@@ -663,6 +693,57 @@ async def websocket_endpoint(
                 )
                 await logger.log_runtime(
                     "[RUNTIME ACTION] stale guard confirmation failed"
+                )
+                continue
+
+            if message_type == "retry_last_response":
+                if (
+                    current_task is not None
+                    and not current_task.done()
+                ):
+                    await websocket.send_json({
+                        "type": "retry_last_response_rejected",
+                        "reason": "generation_running",
+                    })
+                    await logger.log_runtime(
+                        "[USER RETRY] rejected: generation is running"
+                    )
+                    continue
+
+                retry_request = build_user_retry_request(
+                    context,
+                    message_data,
+                )
+                if retry_request is None:
+                    await websocket.send_json({
+                        "type": "retry_last_response_rejected",
+                        "reason": "no_retryable_response",
+                    })
+                    await logger.log_runtime(
+                        "[USER RETRY] rejected: no live retry source"
+                    )
+                    continue
+
+                note_l4_user_activity(context)
+                await cancel_l4_memory_idle_update(
+                    context,
+                    reason="user_retry",
+                )
+
+                if await reject_when_all_models_offline(
+                    context
+                ):
+                    await websocket.send_json({
+                        "type": "retry_last_response_rejected",
+                        "reason": "models_offline",
+                    })
+                    continue
+
+                await pending_requests.put(
+                    retry_request
+                )
+                await logger.log_runtime(
+                    "[USER RETRY] queued replacement for latest JIN answer"
                 )
                 continue
 
@@ -769,6 +850,7 @@ async def websocket_endpoint(
             # Cancelling here aborts the in-flight background model request
             # before this user turn enters the generation queue; pending L4
             # facts remain in their stores for the next true idle window.
+            note_l4_user_activity(context)
             await cancel_l4_memory_idle_update(
                 context,
                 reason="user_message",
@@ -850,6 +932,12 @@ async def websocket_endpoint(
         )
 
     finally:
+        unregister_l4_websocket_connection(
+            context,
+            app_state=websocket.app.state,
+            websocket=websocket,
+        )
+
         if getattr(
             context,
             "runtime_pending_requests_queue",
@@ -865,54 +953,11 @@ async def websocket_endpoint(
         ):
             await pending_processor
 
-        pending_idle_records = getattr(
-            context,
-            "runtime_pending_idle_followups",
-            None,
-        )
-        if not isinstance(pending_idle_records, list):
-            pending_idle_records = []
-            context.runtime_pending_idle_followups = (
-                pending_idle_records
-            )
-
-        pending_idle_ids = {
-            str(record.get("id", "") or "")
-            for record in pending_idle_records
-            if isinstance(record, dict)
-        }
-
         while True:
             try:
-                queued_message = pending_requests.get_nowait()
+                pending_requests.get_nowait()
             except asyncio.QueueEmpty:
                 break
-
-            try:
-                idle_record = queued_message.get(
-                    "idle_followup",
-                )
-                if not isinstance(idle_record, dict):
-                    continue
-
-                idle_id = str(
-                    idle_record.get(
-                        "id",
-                        "",
-                    )
-                    or ""
-                )
-                if idle_id and idle_id in pending_idle_ids:
-                    continue
-
-                pending_idle_records.append(
-                    idle_record
-                )
-                if idle_id:
-                    pending_idle_ids.add(
-                        idle_id
-                    )
-            finally:
-                pending_requests.task_done()
+            pending_requests.task_done()
 
 

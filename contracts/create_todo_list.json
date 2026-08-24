@@ -3,6 +3,8 @@
     "version": 1,
     "description": "Allows the model to create a runtime TODO list.",
     "runtime_action": "CREATE_TODO_LIST",
+    "enable_flag": "CAN_RUNTIME_TODO",
+    "runtime_order": 150,
     "private_marker": "<TODO_LIST>",
     "triggers": [],
     "blockers": [],

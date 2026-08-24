@@ -3,6 +3,8 @@
     "version": 1,
     "description": "Attaches one persistent file to the JIN context.",
     "runtime_action": "ATTACH_FILE",
+    "enable_flag": "CAN_USE_ASSETS",
+    "runtime_order": 130,
     "private_marker": "<ATTACH_FILE: id >",
     "triggers": [],
     "blockers": [],

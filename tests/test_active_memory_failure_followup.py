@@ -4,7 +4,6 @@ from unittest import IsolatedAsyncioTestCase
 
 from agent.nodes.brain import (
     BrainNode,
-    FOLLOWUP_SYSTEM_MESSAGE,
     action_event_requires_follow_up,
 )
 from runtime.runtime_context import RuntimeContext
@@ -138,7 +137,7 @@ class ActiveMemoryFailureFollowupTests(IsolatedAsyncioTestCase):
             latest_action="UPDATE_ACTIVE_MEMORY",
         )
 
-        self.assertTrue(prompt.startswith(FOLLOWUP_SYSTEM_MESSAGE))
+        self.assertNotIn("<FOLLOWUP_TICK>", prompt)
         mandatory = prompt.index("<MANDATORY_ACTION_RULES>")
         failed = prompt.index("<FAILED_MARKER_CONTENT>")
         tools = prompt.index("<TOOLS_RESULTS>")

@@ -464,6 +464,173 @@
 
   }
 
+  function splitMarkdownTableRow(line) {
+
+    let source =
+      String(line || "").trim();
+
+    if (!source.includes("|")) {
+      return null;
+    }
+
+    if (source.startsWith("|")) {
+      source = source.slice(1);
+    }
+
+    if (source.endsWith("|")) {
+      source = source.slice(0, -1);
+    }
+
+    const cells = [];
+    let cell = "";
+    let escaped = false;
+    let inCode = false;
+
+    for (let index = 0; index < source.length; index += 1) {
+      const char = source[index];
+
+      if (escaped) {
+        cell += char;
+        escaped = false;
+        continue;
+      }
+
+      if (char === "\\") {
+        escaped = true;
+        cell += char;
+        continue;
+      }
+
+      if (char === "`") {
+        inCode = !inCode;
+        cell += char;
+        continue;
+      }
+
+      if (char === "|" && !inCode) {
+        cells.push(cell.trim());
+        cell = "";
+        continue;
+      }
+
+      cell += char;
+    }
+
+    cells.push(cell.trim());
+    return cells;
+
+  }
+
+  function getTableStart(lines, startIndex) {
+
+    if (startIndex + 1 >= lines.length) {
+      return null;
+    }
+
+    const headerCells =
+      splitMarkdownTableRow(lines[startIndex]);
+    const delimiterCells =
+      splitMarkdownTableRow(lines[startIndex + 1]);
+
+    if (
+      !headerCells
+      || !delimiterCells
+      || headerCells.length < 2
+      || headerCells.length !== delimiterCells.length
+      || delimiterCells.some((cell) => !/^:?-{3,}:?$/.test(cell))
+    ) {
+      return null;
+    }
+
+    return {
+      headerCells,
+      delimiterCells,
+    };
+
+  }
+
+  function getTableAlignmentClass(delimiterCell) {
+
+    const source = String(delimiterCell || "");
+
+    if (source.startsWith(":") && source.endsWith(":")) {
+      return "jin-chat-table-align-center";
+    }
+
+    if (source.endsWith(":")) {
+      return "jin-chat-table-align-right";
+    }
+
+    return "";
+
+  }
+
+  function renderTableCells(cells, tag, alignmentClasses) {
+
+    return cells.map((cell, index) => {
+      const alignmentClass = alignmentClasses[index];
+      const classAttribute = alignmentClass
+        ? ` class="${alignmentClass}"`
+        : "";
+
+      return (
+        `<${tag}${classAttribute}>`
+        + renderInlineMarkdown(cell)
+        + `</${tag}>`
+      );
+    }).join("");
+
+  }
+
+  function renderTable(lines, startIndex) {
+
+    const tableStart = getTableStart(lines, startIndex);
+
+    if (!tableStart) {
+      return null;
+    }
+
+    const columnCount = tableStart.headerCells.length;
+    const alignmentClasses =
+      tableStart.delimiterCells.map(getTableAlignmentClass);
+    const rows = [];
+    let index = startIndex + 2;
+
+    while (index < lines.length) {
+      if (isBlank(lines[index])) {
+        break;
+      }
+
+      const cells = splitMarkdownTableRow(lines[index]);
+
+      if (!cells || cells.length !== columnCount) {
+        break;
+      }
+
+      rows.push(
+        "<tr>"
+        + renderTableCells(cells, "td", alignmentClasses)
+        + "</tr>"
+      );
+      index += 1;
+    }
+
+    return {
+      html: (
+        '<div class="jin-chat-table-wrap">'
+        + '<table class="jin-chat-table">'
+        + "<thead><tr>"
+        + renderTableCells(tableStart.headerCells, "th", alignmentClasses)
+        + "</tr></thead>"
+        + `<tbody>${rows.join("")}</tbody>`
+        + "</table>"
+        + "</div>"
+      ),
+      nextIndex: index,
+    };
+
+  }
+
   function isBlockStart(line) {
 
     return (
@@ -626,7 +793,10 @@
     while (index < lines.length) {
       if (
         index !== startIndex
-        && isBlockStart(lines[index])
+        && (
+          isBlockStart(lines[index])
+          || getTableStart(lines, index)
+        )
       ) {
         break;
       }
@@ -678,6 +848,21 @@
         );
         index =
           result.nextIndex;
+        continue;
+      }
+
+      const tableResult =
+        renderTable(
+          lines,
+          index
+        );
+
+      if (tableResult) {
+        blocks.push(
+          tableResult.html
+        );
+        index =
+          tableResult.nextIndex;
         continue;
       }
 

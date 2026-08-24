@@ -108,9 +108,9 @@ class AnswerRatingClientContractTests(unittest.TestCase):
     def test_cache_versions_are_bumped_for_rating_assets(self):
         source = INDEX_HTML.read_text(encoding="utf-8")
 
-        self.assertIn("/static/css/chat-rating.css?v=rating-persist-1", source)
+        self.assertIn("/static/css/chat-rating.css?v=rating-persist-1-rating-disable-2&bubble-utility-retry=1", source)
         self.assertIn("/static/css/theme-win95.css?v=l4-fact-report-link-1", source)
-        self.assertIn("/static/js/answer-rating.js?v=answer-rating-persist-1", source)
+        self.assertIn("/static/js/answer-rating.js?v=answer-rating-persist-1-rating-disable-2&hover-labels=2&bubble-utility-retry=1", source)
         self.assertIn(
             "/static/js/runtime/runtime-feedback.js?v=runtime-feedback-persist-1",
             source,

@@ -637,10 +637,19 @@
     runtimeMemoryLazyAppendBatch = null;
   }
 
-  function beginRuntimeMemoryLazyCollection(items, renderItem) {
+  function beginRuntimeMemoryLazyCollection(items, renderItem, options = {}) {
     const source = Array.isArray(items) ? items : [];
     const batchSize =
         getRuntimeMemoryLazyBatchSize(runtimeMemoryLazyMode);
+    const requestedInitialBatchSize =
+        Math.max(
+          0,
+          Math.floor(Number(options.initialBatchSize))
+        );
+    let nextBatchSize =
+        requestedInitialBatchSize > 0
+          ? requestedInitialBatchSize
+          : batchSize;
 
     clearRuntimeMemoryLazyCollection();
     runtimeMemoryLazyTotalCount = source.length;
@@ -649,7 +658,7 @@
       const start = runtimeMemoryLazyRenderedCount;
       const end = Math.min(
         runtimeMemoryLazyTotalCount,
-        start + batchSize
+        start + nextBatchSize
       );
 
       for (let index = start; index < end; index += 1) {
@@ -657,6 +666,7 @@
       }
 
       runtimeMemoryLazyRenderedCount = end;
+      nextBatchSize = batchSize;
 
       if (runtimeMemoryLazyRenderedCount >= runtimeMemoryLazyTotalCount) {
         runtimeMemoryLazyAppendBatch = null;
@@ -666,7 +676,7 @@
     };
 
     runtimeMemoryLazyAppendBatch = appendBatch;
-    appendBatch();
+    runtimeMemoryLazyAppendBatch();
   }
 
   function resetRuntimeMemoryLazyRows(options = {}) {
@@ -701,16 +711,45 @@
       return false;
     }
 
-    const appended = runtimeMemoryLazyAppendBatch();
+    let appendedAny = false;
+    let guard = 0;
 
-    if (!appended) {
+    while (typeof runtimeMemoryLazyAppendBatch === "function") {
+      const appended = runtimeMemoryLazyAppendBatch();
+
+      if (!appended) {
+        break;
+      }
+
+      appendedAny = true;
+      guard += 1;
+
+      applyMemoryReferenceHighlights({
+        animateSort: false,
+      });
+
+      if (
+        !memoryScroll
+        || guard >= 8
+      ) {
+        break;
+      }
+
+      const remaining =
+          memoryScroll.scrollHeight
+          - memoryScroll.clientHeight
+          - memoryScroll.scrollTop;
+
+      if (remaining > RUNTIME_MEMORY_LAZY_BOTTOM_THRESHOLD_PX) {
+        break;
+      }
+    }
+
+    if (!appendedAny) {
       return false;
     }
 
     runtimeMemoryLastBatchRevealAt = Date.now();
-    applyMemoryReferenceHighlights({
-      animateSort: false,
-    });
     return true;
   }
 
@@ -867,6 +906,10 @@
 
     const sourceText =
         getActiveMemoryReferenceText();
+    const longTermReferencedFactIds =
+        getLongTermMemoryReferencedFactIdsFromText(
+          sourceText
+        );
     const rows =
         Array.isArray(options.rows)
           ? options.rows
@@ -876,8 +919,8 @@
               )
             );
 
-    // L4 is citation-gated. Keep it completely out of generic alias matching
-    // instead of building aliases only to reject the row afterwards.
+    // L4 is citation-gated for key/value alias matching, but explicit F###
+    // ids in the answer or reasoning still count as direct row references.
     const persistentRows =
         rows.filter((row) => (
           !row.classList.contains("runtime-memory-l4-row")
@@ -893,14 +936,22 @@
         return;
       }
 
-      if (!row.classList.contains("runtime-memory-reference-hit")) {
-        return;
-      }
-
       const wasBubbled =
           isLongTermMemoryRowBubbled(row);
+      const factId =
+          normalizeDelayedMemoryFactId(
+            row.dataset.longTermFactId
+          );
+      const matched =
+          Boolean(
+            factId
+            && longTermReferencedFactIds.has(factId)
+          );
 
-      row.classList.remove("runtime-memory-reference-hit");
+      row.classList.toggle(
+        "runtime-memory-reference-hit",
+        matched
+      );
 
       if (wasBubbled !== isLongTermMemoryRowBubbled(row)) {
         syncLongTermMemoryRowValueDisplay(row);
@@ -1213,6 +1264,172 @@
     };
   }
 
+  function getLongTermMemoryReferencedFactIdsFromText(text) {
+    const matches =
+        String(text || "").match(/\bF[1-9]\d*\b/gi) || [];
+    const factIds = new Set();
+
+    matches.forEach((match) => {
+      const factId = normalizeDelayedMemoryFactId(match);
+
+      if (factId) {
+        factIds.add(factId);
+      }
+    });
+
+    return factIds;
+  }
+
+  function buildLongTermMemoryPriorityState(
+    records,
+    contextLoadedFactIds = new Set()
+  ) {
+    const activeIdentities =
+        getActiveThinkMemoryCitationIdentitySets();
+    const explicitFactIds =
+        getLongTermMemoryReferencedFactIdsFromText(
+          getActiveMemoryReferenceText()
+        );
+    const keyUsage = new Map();
+
+    records.forEach((fact) => {
+      const key =
+          normalizeRuntimeCitationIdentity(
+            String(fact && fact.key || "")
+          );
+
+      if (!key) {
+        return;
+      }
+
+      keyUsage.set(
+        key,
+        Number(keyUsage.get(key) || 0) + 1
+      );
+    });
+
+    const priorityFactIds = new Set();
+
+    records.forEach((fact) => {
+      const factId =
+          normalizeDelayedMemoryFactId(
+            fact && fact.id
+          );
+      const key =
+          String(fact && fact.key || "").trim();
+      const value =
+          String(fact && fact.value || "").trim();
+      const lineIdentity =
+          normalizeRuntimeCitationIdentity(
+            buildCitationRecordIdentity(
+              factId,
+              key,
+              value
+            )
+          );
+      const lineKey =
+          normalizeRuntimeCitationIdentity(key);
+      const lineText =
+          normalizeRuntimeCitationIdentity(
+            `${key}: ${value}`
+          );
+      const matchedByStructuredCitation =
+          Boolean(
+            lineIdentity
+            && activeIdentities.lineIdentities.has(lineIdentity)
+          )
+          || Boolean(
+            lineText
+            && activeIdentities.lineTexts.has(lineText)
+          )
+          || Boolean(
+            lineKey
+            && Number(keyUsage.get(lineKey) || 0) === 1
+            && activeIdentities.lineKeys.has(lineKey)
+          );
+
+      if (
+        !factId
+        || (
+          !contextLoadedFactIds.has(factId)
+          && !explicitFactIds.has(factId)
+          && !matchedByStructuredCitation
+        )
+      ) {
+        return;
+      }
+
+      priorityFactIds.add(factId);
+    });
+
+    return {
+      explicitFactIds,
+      priorityFactIds,
+    };
+  }
+
+  function syncLongTermMemoryPriorityRows() {
+    if (
+      getRuntimeMemoryDisplayMode() !== "long_term"
+      || !runtimeMemoryText
+    ) {
+      return false;
+    }
+
+    const records = getLongTermMemoryFactRecords();
+
+    if (!records.length) {
+      return false;
+    }
+
+    const delayedReports =
+        getDelayedMemoryReportRecords();
+    const contextLoadedFactIds =
+        buildContextLoadedDelayedMemoryFactIds(
+          delayedReports
+        );
+    const priorityState =
+        buildLongTermMemoryPriorityState(
+          records,
+          contextLoadedFactIds
+        );
+    const desiredPriorityIds =
+        priorityState.priorityFactIds;
+    const currentPriorityIds = new Set();
+
+    runtimeMemoryText
+      .querySelectorAll(".runtime-memory-l4-row[data-long-term-fact-id]")
+      .forEach((row) => {
+        const factId =
+            normalizeDelayedMemoryFactId(
+              row.dataset.longTermFactId
+            );
+
+        if (
+          factId
+          && (
+            row.classList.contains("runtime-memory-reference-hit")
+            || row.classList.contains("runtime-memory-citation-hit")
+            || row.classList.contains("runtime-memory-context-loaded-hit")
+          )
+        ) {
+          currentPriorityIds.add(factId);
+        }
+      });
+
+    if (
+      currentPriorityIds.size === desiredPriorityIds.size
+      && Array.from(desiredPriorityIds).every(
+        factId => currentPriorityIds.has(factId)
+      )
+    ) {
+      return false;
+    }
+
+    renderLongTermMemoryFacts();
+    return true;
+  }
+
   function applyThinkMemoryCitationHighlights(options = {}) {
     if (!runtimeMemoryText) {
       return;
@@ -1323,6 +1540,7 @@
 
     if (detail.active !== true) {
       activeThinkMemoryCitationSources.delete(sourceId);
+      syncLongTermMemoryPriorityRows();
       applyThinkMemoryCitationHighlights();
       return;
     }
@@ -1368,6 +1586,7 @@
       );
     }
 
+    syncLongTermMemoryPriorityRows();
     applyThinkMemoryCitationHighlights();
   }
 
@@ -1388,6 +1607,7 @@
     // reasoning analysis publishes its own exact runtime-line matches.
     activeThinkMemoryCitationSources.clear();
 
+    syncLongTermMemoryPriorityRows();
     applyMemoryReferenceHighlights();
   }
   function bindMemoryReferenceHighlightEvents() {
@@ -3337,6 +3557,18 @@
             activeMemoryId;
       }
 
+      if (options.interactiveLongTermMemory) {
+        const longTermFactId =
+            normalizeDelayedMemoryFactId(
+              line && line.id
+            );
+
+        if (longTermFactId) {
+          row.dataset.longTermFactId =
+              longTermFactId;
+        }
+      }
+
       setRuntimeMemoryRowState(
         row,
         {
@@ -3637,8 +3869,16 @@
             persistGlow
         );
       }
+    }, {
+      initialBatchSize: options.initialBatchSize,
     });
 
+    applyMemoryReferenceHighlights({
+      animateSort: false,
+    });
+    sortHighlightedMemoryRows({
+      animateSort: false,
+    });
   }
 
   function getRuntimeMemoryLineStatus(line) {
@@ -7857,6 +8097,38 @@
         buildDelayedMemoryFactReportIndex(
             delayedReports
         );
+    const priorityState =
+        buildLongTermMemoryPriorityState(
+          records,
+          contextLoadedFactIds
+        );
+    const priorityRecords = [];
+    const overflowRecords = [];
+
+    records.forEach((fact) => {
+      const factId =
+          normalizeDelayedMemoryFactId(
+            fact && fact.id
+          );
+
+      if (
+        factId
+        && priorityState.priorityFactIds.has(factId)
+      ) {
+        priorityRecords.push(fact);
+        return;
+      }
+
+      overflowRecords.push(fact);
+    });
+
+    const orderedRecords = [
+      ...priorityRecords,
+      ...overflowRecords,
+    ];
+    const initialBatchSize =
+        priorityRecords.length
+        + LONG_TERM_MEMORY_LAZY_BATCH_SIZE;
 
     if (runtimeMemoryText) {
       runtimeMemoryText.innerHTML = "";
@@ -7872,11 +8144,12 @@
           "No long-term facts stored.";
       } else {
         appendRuntimeMemoryLineRows(
-            records,
+            orderedRecords,
             false,
             {
               applyFlash: false,
               interactiveLongTermMemory: true,
+              initialBatchSize,
               buildLine: fact => buildLongTermMemoryLine(
                   fact,
                   contextLoadedFactIds,

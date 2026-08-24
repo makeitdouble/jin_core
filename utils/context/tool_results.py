@@ -1,9 +1,11 @@
 # Builds the full tool results context from search, asset, memory, and session results.
+import json
 import time
 from xml.sax.saxutils import escape
 
 from contracts.rules_assembler import (
     RUNTIME_ACTION_DEEP_WEB_SEARCH,
+    RUNTIME_ACTION_UPDATE_L4_FACTS,
     RUNTIME_ACTION_WEB_SEARCH,
 )
 from utils.brain_client_utils import (
@@ -17,6 +19,7 @@ from utils.tool_results import (
     TOOL_RESULT_KIND_DEEP_SEARCH,
     TOOL_RESULT_KIND_SEARCH,
     TOOL_RESULT_KIND_FILES,
+    TOOL_RESULT_KIND_L4,
     get_runtime_tool_result_created_at,
     get_runtime_tool_results,
 )
@@ -323,6 +326,38 @@ def _append_recorded_tool_results(
             if not payload:
                 payload = "No files."
             attrs = 'name="LIST_FILES"'
+            parts.append(
+                f"{_build_tool_result_open_tag(attrs, created_at=created_at, now=now)}\n"
+                f"{indent_xml(escape(payload))}\n"
+                "    </TOOL_RESULT>"
+            )
+            appended = True
+            continue
+
+        if kind == TOOL_RESULT_KIND_L4:
+            if not isinstance(result, dict):
+                continue
+
+            payload = json.dumps(
+                result,
+                ensure_ascii=False,
+                separators=(",", ":"),
+                sort_keys=True,
+            )
+            if not payload:
+                continue
+
+            attrs = f'name="{escape(RUNTIME_ACTION_UPDATE_L4_FACTS)}"'
+            result_id = str(
+                entry.get(
+                    "id",
+                    "",
+                )
+                or ""
+            ).strip()
+            if result_id:
+                attrs += f' id="{escape(result_id)}"'
+
             parts.append(
                 f"{_build_tool_result_open_tag(attrs, created_at=created_at, now=now)}\n"
                 f"{indent_xml(escape(payload))}\n"

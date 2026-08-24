@@ -3,6 +3,14 @@ let runtimeActionRowCounter = 0;
 
 let sceneSearchFadeTimer = null;
 const activeSceneSearchRuntimeActions = new Set();
+const DEEP_SEARCH_STACK_MOTION_MS = 220;
+const DEEP_SEARCH_STACK_COLLAPSED_REVEAL_PX = 0;
+const DEEP_SEARCH_STACK_FIRST_GAP_PX = 5;
+const DEEP_SEARCH_STACK_EXPANDED_GAP_PX = 4;
+const deepSearchStackAnimations = new Map();
+const deepSearchStackExpandedGroups = new Set();
+let deepSearchStackResizeFrameId = null;
+
 
 function getSceneRoot() {
   return document.querySelector("main");
@@ -528,15 +536,421 @@ function findDeepSearchGroupRows(
 
 }
 
-function setDeepSearchStackExpanded(
+function readDeepSearchStackMarginTop(
+  row
+) {
+
+  const marginTop = Number.parseFloat(
+    window.getComputedStyle(
+      row
+    ).marginTop || "0"
+  );
+
+  return Number.isFinite(marginTop)
+    ? marginTop
+    : 0;
+
+}
+
+function writeDeepSearchStackVisualOffset(
   row,
+  offset
+) {
+
+  const label = row.querySelector(
+    ":scope > .jin-runtime-action-label"
+  );
+
+  if (!label) {
+    return;
+  }
+
+  const normalizedOffset = Number.isFinite(offset)
+    ? offset
+    : 0;
+
+  if (Math.abs(normalizedOffset) <= 0.05) {
+    delete row.dataset.runtimeActionDeepSearchVisualOffset;
+    label.style.removeProperty(
+      "--jin-deep-search-stack-translate-y"
+    );
+    return;
+  }
+
+  row.dataset.runtimeActionDeepSearchVisualOffset =
+    String(normalizedOffset);
+  label.style.setProperty(
+    "--jin-deep-search-stack-translate-y",
+    `${normalizedOffset}px`
+  );
+
+}
+
+function writeDeepSearchStackMarginTop(
+  row,
+  marginTop
+) {
+
+  row.style.setProperty(
+    "margin-top",
+    `${marginTop}px`,
+    "important"
+  );
+
+}
+
+function buildDeepSearchStackTargetMargins(
+  childRows,
+  expanded
+) {
+
+  return childRows.map((childRow, index) => {
+    if (index === 0) {
+      return DEEP_SEARCH_STACK_FIRST_GAP_PX;
+    }
+
+    if (expanded) {
+      return DEEP_SEARCH_STACK_EXPANDED_GAP_PX;
+    }
+
+    const previousRow = childRows[index - 1];
+    const previousHeight = Math.max(
+      0,
+      previousRow.offsetHeight || 0
+    );
+
+    return (
+      DEEP_SEARCH_STACK_COLLAPSED_REVEAL_PX
+      - previousHeight
+    );
+  });
+
+}
+
+function syncDeepSearchStackScrollAnchor() {
+
+  if (!chatHistory) {
+    return;
+  }
+
+  chatHistory.classList.toggle(
+    "jin-deep-search-stack-animating",
+    deepSearchStackAnimations.size > 0
+  );
+
+}
+
+function clearDeepSearchStackMotionNode(
+  node
+) {
+
+  if (!node) {
+    return;
+  }
+
+  node.classList.remove(
+    "jin-deep-search-stack-motion",
+    "jin-deep-search-stack-motion-prep"
+  );
+  node.style.removeProperty(
+    "--jin-deep-search-stack-motion-y"
+  );
+
+}
+
+function cancelDeepSearchStackAnimation(
+  groupId
+) {
+
+  const activeAnimation =
+    deepSearchStackAnimations.get(
+      groupId
+    );
+
+  if (!activeAnimation) {
+    return;
+  }
+
+  if (activeAnimation.frameId !== null) {
+    window.cancelAnimationFrame(
+      activeAnimation.frameId
+    );
+  }
+
+  if (activeAnimation.cleanupTimer !== null) {
+    window.clearTimeout(
+      activeAnimation.cleanupTimer
+    );
+  }
+
+  (
+    activeAnimation.motionNodes || []
+  ).forEach(
+    clearDeepSearchStackMotionNode
+  );
+
+  deepSearchStackAnimations.delete(
+    groupId
+  );
+  syncDeepSearchStackScrollAnchor();
+
+}
+
+function buildDeepSearchStackMotionEntries(
+  groupRows,
+  childRows
+) {
+
+  const entries = [];
+  const seenNodes = new Set();
+
+  childRows.forEach((childRow) => {
+    const label = childRow.querySelector(
+      ":scope > .jin-runtime-action-label"
+    );
+
+    if (!label || seenNodes.has(childRow)) {
+      return;
+    }
+
+    seenNodes.add(childRow);
+    entries.push({
+      node: childRow,
+      measureNode: label,
+    });
+  });
+
+  const directGroupRows = groupRows.filter((groupRow) => (
+    groupRow.parentElement === chatHistory
+  ));
+  const lastGroupRow =
+    directGroupRows[directGroupRows.length - 1];
+  let sibling =
+    lastGroupRow
+      ? lastGroupRow.nextElementSibling
+      : null;
+
+  while (sibling) {
+    if (!seenNodes.has(sibling)) {
+      seenNodes.add(sibling);
+      entries.push({
+        node: sibling,
+        measureNode: sibling,
+      });
+    }
+
+    sibling = sibling.nextElementSibling;
+  }
+
+  return entries;
+
+}
+
+function captureDeepSearchStackMotionEntries(
+  groupRows,
+  childRows
+) {
+
+  return buildDeepSearchStackMotionEntries(
+    groupRows,
+    childRows
+  ).map((entry) => ({
+    ...entry,
+    beforeTop:
+      entry.measureNode.getBoundingClientRect().top,
+  }));
+
+}
+
+function finishDeepSearchStackAnimation(
+  groupId,
+  animationState
+) {
+
+  if (
+    deepSearchStackAnimations.get(
+      groupId
+    ) !== animationState
+  ) {
+    return;
+  }
+
+  (
+    animationState.motionNodes || []
+  ).forEach(
+    clearDeepSearchStackMotionNode
+  );
+
+  deepSearchStackAnimations.delete(
+    groupId
+  );
+  syncDeepSearchStackScrollAnchor();
+
+}
+
+function startDeepSearchStackFlip(
+  groupId,
+  motionEntries,
+  animationState
+) {
+
+  const movedEntries = [];
+
+  motionEntries.forEach((entry) => {
+    if (
+      !entry.node
+      || !entry.node.isConnected
+      || !entry.measureNode
+      || !entry.measureNode.isConnected
+    ) {
+      return;
+    }
+
+    const afterTop =
+      entry.measureNode.getBoundingClientRect().top;
+    const deltaY =
+      entry.beforeTop - afterTop;
+
+    if (Math.abs(deltaY) <= 0.1) {
+      return;
+    }
+
+    entry.node.classList.add(
+      "jin-deep-search-stack-motion",
+      "jin-deep-search-stack-motion-prep"
+    );
+    entry.node.style.setProperty(
+      "--jin-deep-search-stack-motion-y",
+      `${deltaY}px`
+    );
+    movedEntries.push(entry);
+  });
+
+  animationState.motionNodes =
+    movedEntries.map((entry) => entry.node);
+
+  if (!movedEntries.length) {
+    finishDeepSearchStackAnimation(
+      groupId,
+      animationState
+    );
+    return;
+  }
+
+  // Commit the inverse FLIP position with transitions disabled. The layout
+  // is already in its final state, so the rest of the chat does not reflow
+  // frame-by-frame while the visual motion plays on the compositor.
+  void chatHistory.offsetHeight;
+
+  movedEntries.forEach((entry) => {
+    entry.node.classList.remove(
+      "jin-deep-search-stack-motion-prep"
+    );
+  });
+
+  animationState.frameId =
+    window.requestAnimationFrame(() => {
+      if (
+        deepSearchStackAnimations.get(
+          groupId
+        ) !== animationState
+      ) {
+        return;
+      }
+
+      animationState.frameId = null;
+
+      movedEntries.forEach((entry) => {
+        entry.node.style.setProperty(
+          "--jin-deep-search-stack-motion-y",
+          "0px"
+        );
+      });
+
+      animationState.cleanupTimer =
+        window.setTimeout(() => {
+          finishDeepSearchStackAnimation(
+            groupId,
+            animationState
+          );
+        }, DEEP_SEARCH_STACK_MOTION_MS + 40);
+    });
+
+}
+
+function buildDeepSearchStackExpandedVisualOffsets(
+  childRows
+) {
+
+  let cumulativeOffset = 0;
+
+  return childRows.map((childRow, index) => {
+    if (index === 0) {
+      return 0;
+    }
+
+    const previousRow = childRows[index - 1];
+    const previousHeight = Math.max(
+      0,
+      previousRow.offsetHeight || 0
+    );
+
+    cumulativeOffset += (
+      previousHeight
+      + DEEP_SEARCH_STACK_EXPANDED_GAP_PX
+      - DEEP_SEARCH_STACK_COLLAPSED_REVEAL_PX
+    );
+
+    return cumulativeOffset;
+  });
+
+}
+
+function syncDeepSearchStackChildVisibility(
+  groupId,
+  expanded
+) {
+
+  findDeepSearchGroupRows(
+    groupId
+  ).filter((groupRow) => (
+    groupRow.classList.contains(
+      "jin-runtime-action-deep-search-child"
+    )
+  )).forEach((childRow, index) => {
+    childRow.classList.toggle(
+      "jin-runtime-action-deep-search-child-obscured",
+      !expanded && index > 0
+    );
+  });
+
+}
+
+function settleDeepSearchStackGeometry(
+  groupId,
   expanded
 ) {
 
   const groupRows = findDeepSearchGroupRows(
-    readDeepSearchGroupId(
-      row
+    groupId
+  );
+  const parentRow = groupRows.find((groupRow) => (
+    groupRow.classList.contains(
+      "jin-runtime-action-deep-search-parent"
     )
+  ));
+  const childRows = groupRows.filter((groupRow) => (
+    groupRow.classList.contains(
+      "jin-runtime-action-deep-search-child"
+    )
+  ));
+
+  if (!parentRow || !childRows.length) {
+    return;
+  }
+
+  cancelDeepSearchStackAnimation(
+    groupId
   );
 
   groupRows.forEach((groupRow) => {
@@ -546,25 +960,241 @@ function setDeepSearchStackExpanded(
     );
   });
 
+  const targetMargins =
+    buildDeepSearchStackTargetMargins(
+      childRows,
+      false
+    );
+  const targetVisualOffsets = expanded
+    ? buildDeepSearchStackExpandedVisualOffsets(
+      childRows
+    )
+    : childRows.map(() => 0);
+
+  childRows.forEach((childRow, index) => {
+    writeDeepSearchStackMarginTop(
+      childRow,
+      targetMargins[index]
+    );
+    writeDeepSearchStackVisualOffset(
+      childRow,
+      targetVisualOffsets[index]
+    );
+  });
+
+  syncDeepSearchStackChildVisibility(
+    groupId,
+    expanded
+  );
+
 }
 
-function bindDeepSearchStackHover(
+function primeDeepSearchInsertedChild(
+  row,
+  groupId,
+  expanded
+) {
+
+  if (!row || !row.offsetHeight) {
+    return false;
+  }
+
+  cancelDeepSearchStackAnimation(
+    groupId
+  );
+
+  writeDeepSearchStackMarginTop(
+    row,
+    -row.offsetHeight
+  );
+  writeDeepSearchStackVisualOffset(
+    row,
+    0
+  );
+
+  window.requestAnimationFrame(() => {
+    if (!row.isConnected) {
+      return;
+    }
+
+    settleDeepSearchStackGeometry(
+      groupId,
+      expanded
+    );
+  });
+
+  return true;
+
+}
+
+function setDeepSearchStackExpanded(
+  row,
+  expanded,
+  options = {}
+) {
+
+  const groupId = readDeepSearchGroupId(
+    row
+  );
+  const groupRows = findDeepSearchGroupRows(
+    groupId
+  );
+
+  if (!groupId || !groupRows.length) {
+    return;
+  }
+
+  const wasExpanded =
+    deepSearchStackExpandedGroups.has(
+      groupId
+    );
+
+  if (expanded) {
+    deepSearchStackExpandedGroups.add(
+      groupId
+    );
+  } else {
+    deepSearchStackExpandedGroups.delete(
+      groupId
+    );
+  }
+
+  const parentRow = groupRows.find((groupRow) => (
+    groupRow.classList.contains(
+      "jin-runtime-action-deep-search-parent"
+    )
+  ));
+  const childRows = groupRows.filter((groupRow) => (
+    groupRow.classList.contains(
+      "jin-runtime-action-deep-search-child"
+    )
+  ));
+
+  if (!parentRow || !childRows.length) {
+    return;
+  }
+
+  if (
+    wasExpanded === expanded
+    && options.force !== true
+  ) {
+    syncDeepSearchStackChildVisibility(
+      groupId,
+      expanded
+    );
+    return;
+  }
+
+  cancelDeepSearchStackAnimation(
+    groupId
+  );
+
+  const targetMargins =
+    buildDeepSearchStackTargetMargins(
+      childRows,
+      false
+    );
+  const targetVisualOffsets = expanded
+    ? buildDeepSearchStackExpandedVisualOffsets(
+      childRows
+    )
+    : childRows.map(() => 0);
+
+  childRows.forEach((childRow, index) => {
+    writeDeepSearchStackMarginTop(
+      childRow,
+      targetMargins[index]
+    );
+    writeDeepSearchStackVisualOffset(
+      childRow,
+      targetVisualOffsets[index]
+    );
+  });
+
+  groupRows.forEach((groupRow) => {
+    groupRow.classList.toggle(
+      "jin-runtime-action-deep-search-stack-expanded",
+      expanded
+    );
+  });
+
+  syncDeepSearchStackChildVisibility(
+    groupId,
+    expanded
+  );
+
+}
+
+function deepSearchStackHasSelectedText() {
+
+  if (!window.getSelection) {
+    return false;
+  }
+
+  const selection = window.getSelection();
+
+  return Boolean(
+    selection
+    && !selection.isCollapsed
+    && String(selection).trim()
+  );
+
+}
+
+function bindDeepSearchStackClick(
   row
 ) {
 
   if (
-      !row
-      || row.dataset.runtimeActionDeepSearchHoverBound === "true"
+    !row
+    || !row.classList.contains(
+      "jin-runtime-action-deep-search-child"
+    )
+    || row.dataset.runtimeActionDeepSearchClickBound === "true"
   ) {
     return;
   }
 
-  row.dataset.runtimeActionDeepSearchHoverBound =
+  const clickTarget = row.querySelector(
+    ":scope > .jin-runtime-action-label"
+  );
+
+  if (!clickTarget) {
+    return;
+  }
+
+  row.dataset.runtimeActionDeepSearchClickBound =
     "true";
 
-  row.addEventListener(
-    "mouseenter",
+  clickTarget.addEventListener(
+    "click",
     () => {
+      const groupId = readDeepSearchGroupId(
+        row
+      );
+
+      if (
+        !groupId
+        || deepSearchStackExpandedGroups.has(
+          groupId
+        )
+        || deepSearchStackHasSelectedText()
+      ) {
+        return;
+      }
+
+      const firstChildRow = findDeepSearchGroupRows(
+        groupId
+      ).find((groupRow) => (
+        groupRow.classList.contains(
+          "jin-runtime-action-deep-search-child"
+        )
+      ));
+
+      if (firstChildRow !== row) {
+        return;
+      }
+
       setDeepSearchStackExpanded(
         row,
         true
@@ -572,33 +1202,129 @@ function bindDeepSearchStackHover(
     }
   );
 
-  row.addEventListener(
-    "mouseleave",
-    (event) => {
-      const nextRow =
-        event.relatedTarget
-        && event.relatedTarget.closest
-          ? event.relatedTarget.closest(
-            ".jin-runtime-action-row"
-          )
-          : null;
+}
 
-      if (
-          nextRow
-          && readDeepSearchGroupId(
-            nextRow
-          ) === readDeepSearchGroupId(
-            row
-          )
-      ) {
-        return;
-      }
+function handleDeepSearchStackDocumentClick(
+  event
+) {
 
-      setDeepSearchStackExpanded(
-        row,
-        false
-      );
+  if (!deepSearchStackExpandedGroups.size) {
+    return;
+  }
+
+  const target = event.target;
+
+  Array.from(
+    deepSearchStackExpandedGroups
+  ).forEach((groupId) => {
+    const groupRows = findDeepSearchGroupRows(
+      groupId
+    );
+
+    if (
+      target
+      && groupRows.some((groupRow) => (
+        groupRow.contains(target)
+      ))
+    ) {
+      return;
     }
+
+    const anchorRow = groupRows[0];
+
+    if (!anchorRow) {
+      deepSearchStackExpandedGroups.delete(
+        groupId
+      );
+      return;
+    }
+
+    setDeepSearchStackExpanded(
+      anchorRow,
+      false
+    );
+  });
+
+}
+
+function scheduleDeepSearchStackGeometrySync() {
+
+  if (deepSearchStackResizeFrameId !== null) {
+    window.cancelAnimationFrame(
+      deepSearchStackResizeFrameId
+    );
+  }
+
+  deepSearchStackResizeFrameId = window.requestAnimationFrame(
+    () => {
+      deepSearchStackResizeFrameId = null;
+
+      const groupIds = new Set(
+        Array.from(
+          chatHistory.querySelectorAll(
+            ".jin-runtime-action-deep-search-parent"
+          )
+        ).map(
+          readDeepSearchGroupId
+        ).filter(Boolean)
+      );
+
+      groupIds.forEach((groupId) => {
+        settleDeepSearchStackGeometry(
+          groupId,
+          deepSearchStackExpandedGroups.has(
+            groupId
+          )
+        );
+      });
+    }
+  );
+
+}
+
+function syncRuntimeActionDetailHover(
+  row,
+  label,
+  detail,
+  suppress = false
+) {
+
+  const hoverDetail =
+    suppress
+      ? ""
+      : String(detail || "").trim();
+
+  if (hoverDetail) {
+    label.title = hoverDetail;
+    row.title = hoverDetail;
+    label
+      .querySelectorAll(
+        ".jin-runtime-action-name, .jin-runtime-action-marker-count"
+      )
+      .forEach(node => {
+        node.title = hoverDetail;
+      });
+    label.classList.add(
+      "cursor-help"
+    );
+    return;
+  }
+
+  label.removeAttribute(
+    "title"
+  );
+  row.removeAttribute(
+    "title"
+  );
+  label
+    .querySelectorAll(
+      ".jin-runtime-action-name, .jin-runtime-action-marker-count"
+    )
+    .forEach(node => {
+      node.removeAttribute("title");
+    });
+  label.classList.remove(
+    "cursor-help"
   );
 
 }
@@ -649,6 +1375,16 @@ function insertRuntimeActionRow(
     row.classList.add(
       "jin-runtime-action-enter"
     );
+
+    if (
+      row.classList.contains(
+        "jin-runtime-action-deep-search"
+      )
+    ) {
+      bindDeepSearchStackClick(
+        row
+      );
+    }
   }
 
   if (
@@ -709,6 +1445,14 @@ function insertRuntimeActionRow(
 
   syncDeepSearchChildStack(
     row
+  );
+
+  primeDeepSearchInsertedChild(
+    row,
+    groupId,
+    deepSearchStackExpandedGroups.has(
+      groupId
+    )
   );
 
 }
@@ -833,7 +1577,7 @@ function syncRuntimeActionSearchState(
       .forEach((icon) => {
         icon.remove();
       });
-    bindDeepSearchStackHover(
+    bindDeepSearchStackClick(
       row
     );
     syncDeepSearchChildStack(
@@ -843,7 +1587,7 @@ function syncRuntimeActionSearchState(
   }
 
   if (isDeepSearchParent) {
-    bindDeepSearchStackHover(
+    bindDeepSearchStackClick(
       row
     );
   }
@@ -2467,38 +3211,22 @@ function updateRuntimeActionRow(
       incomingDetail;
   }
 
-  if (detail) {
-    label.title = detail;
-    row.title = detail;
-    label
-      .querySelectorAll(
-        ".jin-runtime-action-name, .jin-runtime-action-marker-count"
-      )
-      .forEach(node => {
-        node.title = detail;
-      });
-    label.classList.add(
-      "cursor-help"
-    );
-  } else {
+  if (!detail) {
     delete row.dataset.runtimeActionDetail;
-    label.removeAttribute(
-      "title"
-    );
-    row.removeAttribute(
-      "title"
-    );
-    label
-      .querySelectorAll(
-        ".jin-runtime-action-name, .jin-runtime-action-marker-count"
-      )
-      .forEach(node => {
-        node.removeAttribute("title");
-      });
-    label.classList.remove(
-      "cursor-help"
-    );
   }
+
+  syncRuntimeActionDetailHover(
+    row,
+    label,
+    detail,
+    row.classList.contains(
+      "jin-runtime-action-deep-search-child"
+    )
+    || isDeepSearchChildRuntimeAction(
+      action,
+      options
+    )
+  );
 
   if (action === "asset_action") {
     bindAssetResultPreview(
@@ -3090,19 +3818,14 @@ function appendRuntimeAction(
   if (detail) {
     row.dataset.runtimeActionDetail =
       detail;
-    label.title = detail;
-    row.title = detail;
-    label
-      .querySelectorAll(
-        ".jin-runtime-action-name, .jin-runtime-action-marker-count"
-      )
-      .forEach(node => {
-        node.title = detail;
-      });
-    label.classList.add(
-      "cursor-help"
-    );
   }
+
+  syncRuntimeActionDetailHover(
+    row,
+    label,
+    detail,
+    omitIcon
+  );
 
   if (action === "asset_action") {
     bindAssetResultPreview(
@@ -3206,6 +3929,16 @@ function appendRuntimeAction(
 window.addEventListener(
   "resize",
   scheduleRuntimeActionGuardGeometryUpdate
+);
+
+window.addEventListener(
+  "resize",
+  scheduleDeepSearchStackGeometrySync
+);
+
+document.addEventListener(
+  "click",
+  handleDeepSearchStackDocumentClick
 );
 
 window.requestAnimationFrame(

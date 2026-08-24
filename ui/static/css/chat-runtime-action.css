@@ -6,6 +6,7 @@
     position: relative;
     perspective: 520px;
     transform-style: preserve-3d;
+    overflow: visible;
 }
 
 .jin-runtime-action-row.jin-runtime-action-enter {
@@ -32,10 +33,6 @@
 @media (prefers-reduced-motion: reduce) {
     .jin-runtime-action-row.jin-runtime-action-enter {
         animation: none;
-    }
-
-    .jin-runtime-action-deep-search-child {
-        transition: none;
     }
 }
 
@@ -119,39 +116,104 @@
 }
 
 .jin-runtime-action-deep-search-child {
-    --jin-deep-search-stack-motion: 150ms;
     --jin-runtime-action-label-nudge: 0px;
     padding-left: 104px;
     z-index: var(--jin-deep-search-stack-z);
-    transition:
-            margin-top var(--jin-deep-search-stack-motion) cubic-bezier(0.16, 1, 0.3, 1),
-            transform var(--jin-deep-search-stack-motion) cubic-bezier(0.16, 1, 0.3, 1),
-            opacity var(--jin-deep-search-stack-motion) cubic-bezier(0.16, 1, 0.3, 1);
-    will-change: margin-top, transform, opacity;
+    opacity: var(--jin-runtime-action-rest-opacity);
+    transition: opacity 220ms cubic-bezier(0.22, 0.72, 0.22, 1);
 }
 
-.jin-runtime-action-deep-search-child.jin-runtime-action-deep-search-stack-expanded {
-    transition-timing-function: cubic-bezier(0.55, 0.055, 0.675, 0.19);
+.jin-runtime-action-deep-search-child.jin-runtime-action-enter {
+    animation: jinDeepSearchChildFadeIn 120ms ease-out;
+}
+
+@keyframes jinDeepSearchChildFadeIn {
+    0% {
+        opacity: 0;
+    }
+
+    100% {
+        opacity: var(--jin-runtime-action-rest-opacity);
+    }
 }
 
 .jin-runtime-action-deep-search-child .jin-runtime-action-label {
+    position: relative;
     margin-left: 0;
     max-width: min(100%, 58rem);
+    transform: translate3d(
+            0,
+            var(--jin-deep-search-stack-translate-y, 0px),
+            0
+    );
+    will-change: transform, opacity;
+    transition-property: transform, color, background-color, border-color, opacity, box-shadow;
+    transition-duration: 220ms;
+    transition-timing-function: cubic-bezier(0.22, 0.72, 0.22, 1);
+    opacity: 1;
+    background: rgba(8, 14, 18, 0.75);
+    -webkit-user-select: text;
+    user-select: text;
+    cursor: text;
+    box-shadow:
+            0 10px 24px rgba(0, 0, 0, 0.36),
+            0 3px 8px rgba(0, 0, 0, 0.28),
+            0 0 0 1px rgba(34, 211, 238, 0.07);
+}
+
+.jin-runtime-action-deep-search-child[data-runtime-action-deep-search-index="1"]:not(.jin-runtime-action-deep-search-stack-expanded) .jin-runtime-action-label {
+    cursor: pointer;
+}
+
+.jin-runtime-action-deep-search-child.jin-runtime-action-deep-search-child-obscured .jin-runtime-action-label {
+    opacity: 0.1;
+    box-shadow: none;
+}
+
+.jin-runtime-action-deep-search-child.jin-runtime-action-deep-search-stack-expanded {
+    opacity: 1;
+}
+
+.jin-runtime-action-deep-search-child.jin-runtime-action-deep-search-stack-expanded .jin-runtime-action-label {
+    opacity: 1;
+}
+
+#chat-history.jin-deep-search-stack-animating {
+    overflow-anchor: none;
+}
+
+.jin-deep-search-stack-motion {
+    translate: 0 var(--jin-deep-search-stack-motion-y, 0px);
+    will-change: translate;
+    transition-property: translate !important;
+    transition-duration: 220ms !important;
+    transition-timing-function: cubic-bezier(0.22, 0.72, 0.22, 1) !important;
+}
+
+.jin-deep-search-stack-motion-prep {
+    transition-duration: 0ms !important;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .jin-deep-search-stack-motion {
+        transition-duration: 0ms !important;
+    }
 }
 
 #chat-history > .jin-runtime-action-deep-search-parent
 + .jin-runtime-action-deep-search-child {
-    margin-top: 0.35rem !important;
+    margin-top: 5px !important;
 }
 
 #chat-history > .jin-runtime-action-deep-search-child
 + .jin-runtime-action-deep-search-child {
-    margin-top: -1.35rem !important;
+    /* JS replaces this with an exact previous-height + 5px reveal. */
+    margin-top: -1.5rem !important;
 }
 
 #chat-history > .jin-runtime-action-deep-search-child.jin-runtime-action-deep-search-stack-expanded
 + .jin-runtime-action-deep-search-child.jin-runtime-action-deep-search-stack-expanded {
-    margin-top: 0.14rem !important;
+    margin-top: 4px !important;
 }
 
 .jin-runtime-action-confirm-prefix {

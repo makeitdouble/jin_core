@@ -3,13 +3,18 @@ import json
 import tempfile
 import unittest
 from datetime import datetime, timezone
+from types import SimpleNamespace
+from unittest.mock import patch
 
 from runtime.L4_memory import (
+    apply_facts_memory_store_sync,
     apply_l4_memory_store_sync,
+    bind_l4_runtime_app_state,
     build_runtime_l4_memory_context,
     cancel_l4_memory_idle_update,
     delete_l4_memory_fact,
     ensure_runtime_l4_state,
+    get_l4_scheduler_interval_seconds,
     maybe_update_runtime_l4_memory,
     remap_delayed_memory_l4_fact_ids,
     restore_l4_memory_fact,
@@ -17,6 +22,7 @@ from runtime.L4_memory import (
     runtime_l4_memory_update_running,
     schedule_l4_memory_idle_update,
 )
+import runtime.L4_memory as l4_memory_module
 from runtime.L4_memory_utils import (
     add_l4_pending_candidates,
     apply_l4_jin_note_result,
@@ -1797,13 +1803,30 @@ class L4MemoryTests(unittest.IsolatedAsyncioTestCase):
             ["PF1"],
         )
 
-    async def test_idle_scheduler_enforces_server_side_minute_cadence(self):
+    async def test_idle_scheduler_skips_empty_ticks_and_enforces_configured_cadence(self):
         context = RuntimeContext(
             websocket=None,
             emitter=FakeEmitter(),
             logger=FakeLogger(),
             clients={},
         )
+
+        context.runtime_l4_idle_last_started_at = 123.0
+        empty = schedule_l4_memory_idle_update(
+            context=context,
+            user_idle_seconds=61,
+        )
+        self.assertIsNone(empty)
+        self.assertEqual(context.runtime_l4_idle_last_started_at, 123.0)
+
+        context.runtime_long_term_memory_store = normalize_l4_store({
+            "pending_facts": [{
+                "id": "PF1",
+                "key": "project.pending",
+                "value": "Still pending.",
+                "category": "project_fact",
+            }],
+        })
 
         first = schedule_l4_memory_idle_update(
             context=context,
@@ -1814,7 +1837,7 @@ class L4MemoryTests(unittest.IsolatedAsyncioTestCase):
 
         second = schedule_l4_memory_idle_update(
             context=context,
-            user_idle_seconds=62,
+            user_idle_seconds=61,
         )
         self.assertIsNone(second)
 
@@ -1826,6 +1849,89 @@ class L4MemoryTests(unittest.IsolatedAsyncioTestCase):
             user_idle_seconds=1,
         )
         self.assertIsNone(third)
+
+    def test_server_scheduler_uses_exact_closed_tab_third_cadence(self):
+        with patch.object(
+            l4_memory_module.config,
+            "L4_IDLE_SECONDS",
+            15,
+        ):
+            self.assertEqual(
+                get_l4_scheduler_interval_seconds(
+                    tabs_open=True,
+                ),
+                15.0,
+            )
+            self.assertEqual(
+                get_l4_scheduler_interval_seconds(
+                    tabs_open=False,
+                ),
+                5.0,
+            )
+
+    def test_server_facts_memory_reconciles_analyzed_state_after_closed_tab_work(self):
+        app_state = SimpleNamespace(
+            l4_memory_scheduler_wake_event=asyncio.Event(),
+            l4_facts_memory_records=[],
+            l4_runtime_context=None,
+        )
+        analyzed_context = RuntimeContext(
+            websocket=None,
+            emitter=FakeEmitter(),
+            logger=FakeLogger(),
+            clients={},
+        )
+        bind_l4_runtime_app_state(
+            analyzed_context,
+            app_state,
+        )
+        analyzed_sync = apply_facts_memory_store_sync(
+            analyzed_context,
+            [{
+                "session_id": "session-a",
+                "signals": {
+                    "gpu": {
+                        "content": "RTX 4090",
+                        "runtime_snapshot_id": "runtime-a",
+                        "l4_status": "analyzed",
+                        "l4_analyzed_at": "2026-08-24T09:00:00Z",
+                    },
+                },
+            }],
+        )
+        self.assertEqual(analyzed_sync["pending_count"], 0)
+
+        reopened_context = RuntimeContext(
+            websocket=None,
+            emitter=FakeEmitter(),
+            logger=FakeLogger(),
+            clients={},
+        )
+        bind_l4_runtime_app_state(
+            reopened_context,
+            app_state,
+        )
+        stale_browser_sync = apply_facts_memory_store_sync(
+            reopened_context,
+            [{
+                "session_id": "session-a",
+                "signals": {
+                    "gpu": {
+                        "content": "RTX 4090",
+                        "runtime_snapshot_id": "runtime-a",
+                        "l4_status": "pending",
+                    },
+                },
+            }],
+        )
+
+        self.assertEqual(stale_browser_sync["pending_count"], 0)
+        field = reopened_context.runtime_facts_memory_records[0]["signals"]["gpu"]
+        self.assertEqual(field["l4_status"], "analyzed")
+        self.assertEqual(
+            field["l4_analyzed_at"],
+            "2026-08-24T09:00:00Z",
+        )
 
     async def test_user_activity_preempts_idle_l4_task_without_consuming_pending(self):
         context = RuntimeContext(
@@ -2939,7 +3045,7 @@ class L4MemoryTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("user.hardware.main_gpu:", prompt)
         self.assertIn("user.preference.response_style:", prompt)
 
-    async def test_idle_ticks_extract_until_facts_memory_is_drained_then_merge_once(self):
+    async def test_idle_job_chains_extraction_into_merge_without_waiting_for_next_tick(self):
         gpu_value = "User's main GPU is RTX 4090."
         language_value = "User prefers Russian replies."
         gpu_pending_id = build_l4_fact_id(sequence=1, pending=True)
@@ -2954,6 +3060,17 @@ class L4MemoryTests(unittest.IsolatedAsyncioTestCase):
               }}]
             }}''',
             f'''{{
+              "operations": [
+                {{
+                  "action": "create",
+                  "pending_id": "{gpu_pending_id}",
+                  "key": "user.hardware.main_gpu",
+                  "value": "{gpu_value}",
+                  "category": "environment"
+                }}
+              ]
+            }}''',
+            f'''{{
               "facts": [{{
                 "key": "user.preference.response_language",
                 "value": "{language_value}",
@@ -2963,13 +3080,6 @@ class L4MemoryTests(unittest.IsolatedAsyncioTestCase):
             }}''',
             f'''{{
               "operations": [
-                {{
-                  "action": "create",
-                  "pending_id": "{gpu_pending_id}",
-                  "key": "user.hardware.main_gpu",
-                  "value": "{gpu_value}",
-                  "category": "environment"
-                }},
                 {{
                   "action": "create",
                   "pending_id": "{language_pending_id}",
@@ -3002,9 +3112,12 @@ class L4MemoryTests(unittest.IsolatedAsyncioTestCase):
             context=context,
             user_idle_seconds=61,
         )
-        self.assertEqual(first["phase"], "extract")
-        self.assertEqual(len(context.runtime_long_term_memory_store["pending_facts"]), 1)
-        self.assertEqual(context.runtime_long_term_memory_store["facts"], [])
+        self.assertEqual(first["phase"], "merge")
+        self.assertEqual(first["status"], "completed")
+        self.assertEqual(first["extraction_result"]["phase"], "extract")
+        self.assertEqual(context.runtime_long_term_memory_store["pending_facts"], [])
+        self.assertEqual(len(context.runtime_long_term_memory_store["facts"]), 1)
+        self.assertEqual(len(service_client.calls), 2)
 
         context.runtime_facts_memory_records = normalize_facts_memory_records([
             {
@@ -3027,20 +3140,20 @@ class L4MemoryTests(unittest.IsolatedAsyncioTestCase):
             context=context,
             user_idle_seconds=61,
         )
-        self.assertEqual(second["phase"], "extract")
-        self.assertEqual(len(context.runtime_long_term_memory_store["pending_facts"]), 2)
-        self.assertEqual(context.runtime_long_term_memory_store["facts"], [])
-
-        third = await maybe_update_runtime_l4_memory(
-            context=context,
-            user_idle_seconds=61,
-        )
-        self.assertEqual(third["phase"], "merge")
+        self.assertEqual(second["phase"], "merge")
+        self.assertEqual(second["status"], "completed")
+        self.assertEqual(second["extraction_result"]["phase"], "extract")
         self.assertEqual(context.runtime_long_term_memory_store["pending_facts"], [])
         self.assertEqual(len(context.runtime_long_term_memory_store["facts"]), 2)
-        self.assertEqual(len(service_client.calls), 3)
-        self.assertIn("cross-session long-term memory", service_client.calls[0]["system_prompt"])
-        self.assertIn("consolidate pending candidates", service_client.calls[2]["system_prompt"].lower())
+        self.assertEqual(len(service_client.calls), 4)
+        self.assertIn(
+            "cross-session long-term memory",
+            service_client.calls[0]["system_prompt"],
+        )
+        self.assertIn(
+            "consolidate pending candidates",
+            service_client.calls[1]["system_prompt"].lower(),
+        )
 
     def test_restore_l4_fact_preserves_deleted_fact_object(self):
         fact = normalize_l4_store({

@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
+import time
 
 from contracts.rules_assembler import (
     RUNTIME_ACTION_UPDATE_L4_FACTS,
@@ -10,7 +12,111 @@ from contracts.rules_assembler import (
 )
 from runtime.L4_memory import run_l4_jin_note
 from utils.actions.update_l4_facts_utils import parse_update_l4_facts_payload
+from utils.chat_log import append_chat_runtime_event
+from utils.tool_results import (
+    TOOL_RESULT_KIND_L4,
+    record_runtime_tool_result,
+)
 from utils.runtime_action_abort import mark_runtime_action_completed
+
+
+def _build_update_l4_tool_result(
+    result: dict,
+    *,
+    note: dict,
+) -> dict:
+
+    change = (
+        result.get("change")
+        if isinstance(result.get("change"), dict)
+        else {}
+    )
+    status = str(result.get("status", "") or "").strip()
+    summary = {
+        "ok": status == "completed",
+        "changed": bool(result.get("changed") or change.get("changed")),
+    }
+
+    action = str(change.get("action", "") or "").strip()
+    if action:
+        summary["action"] = action
+
+    source_fact_ids = [
+        str(item or "").strip()
+        for item in (
+            change.get("selected_fact_ids", [])
+            or note.get("fact_ids", [])
+            or []
+        )
+        if str(item or "").strip()
+    ]
+    if source_fact_ids:
+        summary["source_fact_ids"] = source_fact_ids
+
+    output_facts = []
+    for key in ("replacement_facts", "new_facts"):
+        for fact in change.get(key, []) or []:
+            if not isinstance(fact, dict):
+                continue
+            compact_fact = {
+                field: str(fact.get(field, "") or "").strip()
+                for field in ("id", "key", "value", "category")
+                if str(fact.get(field, "") or "").strip()
+            }
+            if compact_fact:
+                output_facts.append(compact_fact)
+
+    if len(output_facts) == 1:
+        fact = output_facts[0]
+        if fact.get("id"):
+            summary["fact_id"] = fact["id"]
+        for field in ("key", "value", "category"):
+            if fact.get(field):
+                summary[field] = fact[field]
+    elif output_facts:
+        summary["facts"] = output_facts
+
+    if not summary["ok"]:
+        summary["error"] = str(
+            result.get("reason")
+            or "l4_update_failed"
+        ).strip()
+
+    return summary
+
+
+def _record_update_l4_tool_result(
+    context,
+    *,
+    action_id: str,
+    note: dict,
+    result: dict,
+) -> None:
+
+    created_at = time.time()
+    summary = _build_update_l4_tool_result(
+        result,
+        note=note,
+    )
+    record_runtime_tool_result(
+        context,
+        TOOL_RESULT_KIND_L4,
+        summary,
+        result_id=action_id,
+        created_at=created_at,
+    )
+
+    with contextlib.suppress(Exception):
+        append_chat_runtime_event(
+            context,
+            event="runtime_tool_result",
+            payload={
+                "kind": TOOL_RESULT_KIND_L4,
+                "id": action_id,
+                "result": summary,
+                "created_at": created_at,
+            },
+        )
 
 
 async def _emit_update_l4_facts_result(
@@ -83,18 +189,24 @@ async def _run_update_l4_facts_action(
             and previous_l4_task is not current_task
             and not previous_l4_task.done()
         ):
-            # An explicit JIN note is foreground memory work. It must not wait
-            # behind an idle consolidation that is using the same model.
+            # Explicit user-requested L4 work owns the foreground lane. Idle
+            # consolidation must be cancelled without becoming a prerequisite
+            # for the edit itself: a provider can take time to unwind a
+            # cancelled HTTP generation, and awaiting that task here makes the
+            # visible UPDATE_L4_FACTS bubble look stuck. Give cancellation one
+            # event-loop turn, then start the focused note immediately.
             if previous_l4_kind == "idle":
                 previous_l4_task.cancel()
-            try:
-                await previous_l4_task
-            except asyncio.CancelledError:
-                pass
-            except Exception:
-                # The note still gets its own attempt after a failed previous
-                # background consolidation.
-                pass
+                await asyncio.sleep(0)
+            else:
+                try:
+                    await previous_l4_task
+                except asyncio.CancelledError:
+                    pass
+                except Exception:
+                    # The note still gets its own attempt after a failed
+                    # previous foreground L4 edit.
+                    pass
 
         if getattr(context, "runtime_l4_memory_update_task", None) is current_task:
             context.runtime_l4_memory_update_kind = "jin_note"
@@ -113,6 +225,13 @@ async def _run_update_l4_facts_action(
                     else str(result.get("status") or "completed")
                 )
             )
+
+        _record_update_l4_tool_result(
+            context,
+            action_id=action_id,
+            note=note,
+            result=result,
+        )
 
         await _emit_update_l4_facts_result(
             context,
@@ -134,6 +253,12 @@ async def _run_update_l4_facts_action(
                 "[RUNTIME ACTION] update_l4_facts failed: "
                 f"{type(error).__name__}"
             )
+        _record_update_l4_tool_result(
+            context,
+            action_id=action_id,
+            note=note,
+            result=result,
+        )
         await _emit_update_l4_facts_result(
             context,
             action_id=action_id,
@@ -171,6 +296,34 @@ def schedule_update_l4_facts_actions(
         action_id = str(
             action_display_ids.get(id(action), "") or ""
         ).strip()
+        created_at = time.time()
+        message = str(note.get("message", "") or "").strip()
+        session_action = {
+            "text": (
+                f"UPDATE_L4_FACTS: {message}"
+                if message
+                else "UPDATE_L4_FACTS"
+            ),
+            "created_at": created_at,
+            "parts": [{
+                "text": "UPDATE_L4_FACTS",
+                **({"id": action_id} if action_id else {}),
+                **({"message": message} if message else {}),
+            }],
+        }
+        with contextlib.suppress(Exception):
+            append_chat_runtime_event(
+                context,
+                event="runtime_action_request",
+                payload={
+                    "action": RUNTIME_ACTION_UPDATE_L4_FACTS,
+                    "id": action_id,
+                    "fact_ids": list(note.get("fact_ids", []) or []),
+                    "message": message,
+                    "session_action": session_action,
+                    "created_at": created_at,
+                },
+            )
         previous_l4_task = getattr(
             context,
             "runtime_l4_memory_update_task",

@@ -15,6 +15,10 @@ from runtime.fact_check import (
 from runtime.L1_memory_rules import (
     build_runtime_memory_system_prompt,
 )
+from runtime.L1_memory_pending import (
+    clear_pending_l1_update,
+    persist_pending_l1_update,
+)
 from rules.signal import (
     RUNTIME_RESPONSE_FEEDBACK_RATINGS,
 )
@@ -951,6 +955,14 @@ async def summarize_runtime_memory_pending_turns(
                 if turn not in turns
             ]
 
+            if context.runtime_memory_pending_turns:
+                context.runtime_memory_pending_base_updates = (
+                    context.runtime_memory_updates
+                )
+                persist_pending_l1_update(
+                    context
+                )
+
             snapshot = await emit_runtime_memory_update(
                 context
             )
@@ -1005,42 +1017,9 @@ async def summarize_runtime_memory_pending_turns(
             context.runtime_memory_update_task = None
 
 
-def schedule_runtime_memory_update(
-        *,
+def _start_runtime_memory_update_task(
         context,
-        user_message: str,
-        assistant_message: str,
-) -> asyncio.Task | None:
-
-    # Normal turns without a visible assistant answer or a created
-    # active-memory record carry no
-    # textual signal of their own. Previously such turns were skipped
-    # outright — but "the model produced nothing" is itself a fact
-    # (e.g. the user explicitly asked for a blank/empty reply and got
-    # one), and silently dropping the turn means L1 never learns the
-    # request happened at all. Instead of skipping, such turns are still
-    # enqueued with an explicit placeholder describing the emptiness, so
-    # L1 records the exchange as resolved rather than losing it.
-    if (
-            not assistant_message.strip()
-            and not getattr(
-                context,
-                "runtime_active_memory_saved_this_turn",
-                False,
-            )
-    ):
-
-        if not user_message.strip():
-            return None
-
-        assistant_message = build_empty_assistant_message(
-            user_message=user_message,
-        )
-
-    context.runtime_memory_pending_turns.append({
-        "user_message": user_message,
-        "assistant_message": assistant_message,
-    })
+) -> asyncio.Task:
 
     previous_task = getattr(
         context,
@@ -1080,6 +1059,119 @@ def schedule_runtime_memory_update(
     )
 
     return task
+
+
+def resume_runtime_memory_pending_update(
+        context,
+) -> asyncio.Task | None:
+
+    pending_turns = getattr(
+        context,
+        "runtime_memory_pending_turns",
+        [],
+    )
+
+    if not pending_turns:
+        return None
+
+    running_task = getattr(
+        context,
+        "runtime_memory_update_task",
+        None,
+    )
+
+    if (
+            running_task is not None
+            and not running_task.done()
+    ):
+        return running_task
+
+    try:
+        base_updates = int(
+            getattr(
+                context,
+                "runtime_memory_pending_base_updates",
+                0,
+            )
+            or 0
+        )
+        current_updates = int(
+            getattr(
+                context,
+                "runtime_memory_updates",
+                0,
+            )
+            or 0
+        )
+    except (TypeError, ValueError):
+        base_updates = 0
+        current_updates = 0
+
+    # Keep the checkpoint through a successful server commit until the
+    # browser proves it persisted a newer L1 snapshot. That closes the
+    # crash window between commit and websocket delivery/localStorage.
+    if current_updates > base_updates:
+        context.runtime_memory_pending_turns = []
+        clear_pending_l1_update(
+            context
+        )
+        return None
+
+    return _start_runtime_memory_update_task(
+        context
+    )
+
+def schedule_runtime_memory_update(
+        *,
+        context,
+        user_message: str,
+        assistant_message: str,
+) -> asyncio.Task | None:
+
+    # Normal turns without a visible assistant answer or a created
+    # active-memory record carry no
+    # textual signal of their own. Previously such turns were skipped
+    # outright — but "the model produced nothing" is itself a fact
+    # (e.g. the user explicitly asked for a blank/empty reply and got
+    # one), and silently dropping the turn means L1 never learns the
+    # request happened at all. Instead of skipping, such turns are still
+    # enqueued with an explicit placeholder describing the emptiness, so
+    # L1 records the exchange as resolved rather than losing it.
+    if (
+            not assistant_message.strip()
+            and not getattr(
+                context,
+                "runtime_active_memory_saved_this_turn",
+                False,
+            )
+    ):
+
+        if not user_message.strip():
+            return None
+
+        assistant_message = build_empty_assistant_message(
+            user_message=user_message,
+        )
+
+    context.runtime_memory_pending_turns.append({
+        "user_message": user_message,
+        "assistant_message": assistant_message,
+    })
+
+    if len(context.runtime_memory_pending_turns) == 1:
+        context.runtime_memory_pending_base_updates = getattr(
+            context,
+            "runtime_memory_updates",
+            0,
+        )
+
+    persist_pending_l1_update(
+        context
+    )
+
+    return _start_runtime_memory_update_task(
+        context
+    )
 
 
 def schedule_interrupted_runtime_memory_update(
@@ -1167,3 +1259,47 @@ async def cancel_runtime_memory_update(
         await task
 
     context.runtime_memory_update_task = None
+
+
+async def discard_latest_runtime_memory_pending_turn(
+        context,
+) -> bool:
+    """Drop the pending L1 turn that is being replaced by a user retry."""
+
+    await cancel_runtime_memory_update(
+        context
+    )
+
+    pending_turns = list(
+        getattr(
+            context,
+            "runtime_memory_pending_turns",
+            [],
+        )
+        or []
+    )
+
+    if not pending_turns:
+        return False
+
+    pending_turns.pop()
+    context.runtime_memory_pending_turns = pending_turns
+
+    if pending_turns:
+        persist_pending_l1_update(
+            context
+        )
+        resume_runtime_memory_pending_update(
+            context
+        )
+    else:
+        context.runtime_memory_pending_base_updates = getattr(
+            context,
+            "runtime_memory_updates",
+            0,
+        )
+        clear_pending_l1_update(
+            context
+        )
+
+    return True

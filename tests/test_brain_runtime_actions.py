@@ -84,10 +84,6 @@ def expected_enabled_runtime_actions(runtime_actions: dict) -> tuple[str, ...]:
             "CLEAN_TOOL_RESULTS"
         )
 
-    if bool(runtime_actions.get("CAN_IDLE", False)):
-        expected_actions.append(
-            "IDLE"
-        )
 
     if bool(runtime_actions.get("CAN_JIN_COLOR", False)):
         expected_actions.append(
@@ -362,6 +358,83 @@ class BrainRuntimeActionTests(unittest.TestCase):
                 for chunk in chunks
             )
         )
+
+    def test_stream_rejected_update_l4_facts_marker_retires_started_bubble(self):
+
+        class FakeEmitter:
+
+            def __init__(self):
+                self.events = []
+
+            async def emit(self, payload):
+                self.events.append(dict(payload))
+
+        class FakeBrainClient:
+
+            async def stream(self, **_kwargs):
+                yield {
+                    "type": "content",
+                    "content": "Reply.\n<UPDATE_L4_FACTS>",
+                }
+                yield {
+                    "type": "content",
+                    "content": "\nDelete F1 from long-term memory.\n",
+                }
+                yield {
+                    "type": "content",
+                    "content": "</UPDATE_L4_FACTS>",
+                }
+
+        async def fake_apply_runtime_action_calls(
+            _context,
+            actions,
+            **_kwargs,
+        ):
+            applied.extend(actions)
+            return len(tuple(actions))
+
+        async def collect(context):
+            return [
+                chunk
+                async for chunk in ask_brain_stream(
+                    client=FakeBrainClient(),
+                    text="delete memory",
+                    context=context,
+                    runtime_actions={
+                        "CAN_UPDATE_L4_FACTS": True,
+                    },
+                )
+            ]
+
+        emitter = FakeEmitter()
+        context = SimpleNamespace(emitter=emitter)
+        applied = []
+        original_use_service_as_brain = config.USE_SERVICE_AS_BRAIN
+        config.USE_SERVICE_AS_BRAIN = False
+
+        try:
+            with patch(
+                "clients.brain_client.apply_runtime_action_calls",
+                new=fake_apply_runtime_action_calls,
+            ):
+                asyncio.run(collect(context))
+        finally:
+            config.USE_SERVICE_AS_BRAIN = original_use_service_as_brain
+
+        lifecycle = [
+            event
+            for event in emitter.events
+            if event.get("action") == "update_l4_facts"
+            and event.get("id")
+            and event.get("status") in {"started", "failed"}
+        ]
+
+        self.assertEqual([event["status"] for event in lifecycle], [
+            "started",
+            "failed",
+        ])
+        self.assertEqual(lifecycle[0]["id"], lifecycle[1]["id"])
+        self.assertEqual(applied, [])
 
     def test_image_attachments_do_not_enter_model_payload_by_default(self):
 
@@ -1657,7 +1730,6 @@ class BrainRuntimeActionTests(unittest.TestCase):
             [
                 RuntimeActionCall(name="WEB_SEARCH", payload="latest news"),
                 RuntimeActionCall(name="SAVE_ACTIVE_MEMORY", payload="remember coffee"),
-                RuntimeActionCall(name="IDLE", payload="5s"),
                 RuntimeActionCall(name="LOAD_SKILL", payload="wildcards"),
                 RuntimeActionCall(name="LOAD_SKILL", payload="file_manager"),
             ],
@@ -1668,7 +1740,6 @@ class BrainRuntimeActionTests(unittest.TestCase):
             [[
                 {"text": "WEB_SEARCH", "detail": "latest news"},
                 {"text": "SAVE_ACTIVE_MEMORY", "detail": "remember coffee"},
-                {"text": "IDLE", "detail": "5s"},
                 {"text": "LOAD_SKILL: wildcards"},
                 {"text": "LOAD_SKILL: file_manager"},
             ]],
@@ -4298,78 +4369,6 @@ class BrainRuntimeActionTests(unittest.TestCase):
         )
 
 
-    def test_idle_history_keeps_payloads_and_separate_turn_entries(self):
-
-        context = SimpleNamespace(
-            runtime_session_action_history=[],
-            runtime_current_turn_id="turn-1",
-        )
-
-        replace_session_action_history_since(
-            context,
-            0,
-            [
-                RuntimeActionCall(
-                    name="IDLE",
-                    payload="5s",
-                ),
-                RuntimeActionCall(
-                    name="IDLE",
-                    payload="12s",
-                ),
-            ],
-        )
-
-        self.assertEqual(
-            len(context.runtime_session_action_history),
-            1,
-        )
-        self.assertEqual(
-            context.runtime_session_action_history[0]["parts"],
-            [
-                {
-                    "text": "IDLE",
-                    "detail": "5s, 12s",
-                    "count": 2,
-                },
-            ],
-        )
-
-        context.runtime_current_turn_id = "turn-2"
-        replace_session_action_history_since(
-            context,
-            len(context.runtime_session_action_history),
-            [
-                RuntimeActionCall(
-                    name="IDLE",
-                    payload="7s",
-                ),
-            ],
-        )
-
-        self.assertEqual(
-            len(context.runtime_session_action_history),
-            2,
-        )
-        self.assertEqual(
-            context.runtime_session_action_history[1]["parts"],
-            [
-                {
-                    "text": "IDLE",
-                    "detail": "7s",
-                },
-            ],
-        )
-        self.assertEqual(
-            [
-                item.get("runtime_turn_id")
-                for item in context.runtime_session_action_history
-            ],
-            [
-                "turn-1",
-                "turn-2",
-            ],
-        )
 
 
 if __name__ == "__main__":

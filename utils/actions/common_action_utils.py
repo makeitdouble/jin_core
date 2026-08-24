@@ -15,7 +15,6 @@ from contracts.rules_assembler import (
     RUNTIME_ACTION_ASSET_ACTION,
     RUNTIME_ACTION_CHECK_TODO,
     RUNTIME_ACTION_CREATE_TODO_LIST,
-    RUNTIME_ACTION_IDLE,
     RUNTIME_ACTION_JIN_COLOR,
     RUNTIME_ACTION_JIN_SIZE,
     RUNTIME_ACTION_JIN_POSITION,
@@ -49,7 +48,6 @@ from .asset_action_utils import build_asset_action_payload
 from .check_todo_utils import build_check_todo_payload
 from .save_active_memory_utils import build_save_active_memory_payload
 from .create_todo_list_utils import build_create_todo_list_payload
-from .idle_utils import build_idle_payload
 from .jin_color_utils import build_jin_color_payload
 from .jin_size_utils import build_jin_size_payload
 from .jin_position_utils import build_jin_position_payload
@@ -107,7 +105,6 @@ CLOSE_TAG_RUNTIME_ACTIONS = frozenset(
 )
 
 REPEATABLE_RUNTIME_ACTIONS = frozenset({
-    RUNTIME_ACTION_IDLE,
     RUNTIME_ACTION_JIN_COLOR,
     RUNTIME_ACTION_JIN_SIZE,
     RUNTIME_ACTION_JIN_POSITION,
@@ -568,7 +565,6 @@ def normalize_runtime_action_name(
         "INTERNAL_ACTION_CREATE_TODO_LIST": RUNTIME_ACTION_CREATE_TODO_LIST,
         "RESOLVE_TODO": RUNTIME_ACTION_RESOLVE_TODO,
         "CHECK_TODO": RUNTIME_ACTION_CHECK_TODO,
-        "IDLE": RUNTIME_ACTION_IDLE,
         "JIN_SIZE": RUNTIME_ACTION_JIN_SIZE,
         "JIN_POSITION": RUNTIME_ACTION_JIN_POSITION,
         "JIN_SPEED": RUNTIME_ACTION_JIN_SPEED,
@@ -671,7 +667,6 @@ def build_deep_web_search_payload(
 
 
 _ACTION_PAYLOAD_BUILDERS = {
-    RUNTIME_ACTION_IDLE: build_idle_payload,
     RUNTIME_ACTION_JIN_COLOR: build_jin_color_payload,
     RUNTIME_ACTION_JIN_SIZE: build_jin_size_payload,
     RUNTIME_ACTION_JIN_POSITION: build_jin_position_payload,
@@ -1056,16 +1051,9 @@ def extract_runtime_actions(
         )
 
         if action is None:
-            # IDLE is intentionally numeric: ``IDLE: <digits>`` with an
-            # optional ``s``/``ms`` suffix is a runtime marker. The suffix is
-            # ignored and the number always means seconds. Plain prose and
-            # malformed candidates such as ``<IDLE: test>`` stay visible.
-            if (
-                normalized_action_name == RUNTIME_ACTION_IDLE
-                or _is_payloadless_jin_color_marker(
-                    raw_marker,
-                    query,
-                )
+            if _is_payloadless_jin_color_marker(
+                raw_marker,
+                query,
             ):
                 return raw_marker
 

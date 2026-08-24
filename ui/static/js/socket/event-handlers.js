@@ -10,6 +10,169 @@ function resolveMessageRole(
 
 }
 
+function appendSessionBootstrapBoundary(
+  chatHistory
+) {
+
+  if (!chatHistory) {
+    return null;
+  }
+
+  const now = new Date();
+  const months = [
+    "january",
+    "february",
+    "march",
+    "april",
+    "may",
+    "june",
+    "july",
+    "august",
+    "september",
+    "october",
+    "november",
+    "december",
+  ];
+  const weekdays = [
+    "Sunday",
+    "Monday",
+    "Tuesday",
+    "Wednesday",
+    "Thursday",
+    "Friday",
+    "Saturday",
+  ];
+  const labelText =
+    `${now.getDate()} `
+    + `${months[now.getMonth()]}, `
+    + weekdays[now.getDay()];
+
+  const divider =
+    document.createElement("div");
+  divider.className =
+    "jin-session-restore-divider";
+  divider.setAttribute(
+    "role",
+    "separator"
+  );
+  divider.setAttribute(
+    "aria-label",
+    `Current session: ${labelText}`
+  );
+
+  const label =
+    document.createElement("span");
+  label.className =
+    "jin-session-restore-divider-label";
+  label.textContent =
+    labelText;
+
+  divider.appendChild(
+    label
+  );
+  chatHistory.appendChild(
+    divider
+  );
+
+  return divider;
+
+}
+
+function handleSessionBootstrapChatTail(
+  data
+) {
+
+  if (
+      window.jinArchivedSessionRestorePayload
+      || !data
+      || !Array.isArray(data.turns)
+  ) {
+    return;
+  }
+
+  const chatHistory =
+    document.getElementById(
+      "chat-history"
+    );
+
+  if (!chatHistory) {
+    return;
+  }
+
+  const existingMessages =
+    chatHistory.querySelectorAll(
+      ".jin-message-shell"
+    );
+
+  if (existingMessages.length) {
+    return;
+  }
+
+  const turns = data.turns
+    .filter(turn => (
+      turn
+      && typeof turn === "object"
+      && String(turn.user || "").trim()
+      && String(turn.jin || "").trim()
+    ))
+    .slice(-3);
+
+  turns.forEach((turn, index) => {
+    appendChatMessage(
+      "user",
+      String(turn.user || "")
+    );
+
+    const messageId =
+      `bootstrap-tail-${String(
+        data.source_session_id
+        || "session"
+      ).replace(/[^a-zA-Z0-9_.:-]/g, "_")}-${index}`;
+
+    startStreamMessage(
+      messageId,
+      "brain",
+      null
+    );
+
+    const reasoning =
+      String(turn.reasoning || "").trim();
+
+    if (reasoning) {
+      appendThinkingChunk(
+        messageId,
+        reasoning
+      );
+    }
+
+    appendStreamChunk(
+      messageId,
+      String(turn.jin || "")
+    );
+    finishStreamMessage(
+      messageId,
+      { retryable: false }
+    );
+  });
+
+  const divider =
+    appendSessionBootstrapBoundary(
+      chatHistory
+    );
+
+  if (
+      divider
+      && typeof window.activateLiveUserTurnViewport
+        === "function"
+  ) {
+    window.activateLiveUserTurnViewport(
+      divider
+    );
+  }
+
+}
+
+
 function handleSessionActionsUpdate(
   data
 ) {
@@ -75,6 +238,12 @@ function handleSocketError(
   setGenerationState(
     false
   );
+
+  if (window.clearJinCompletedAnswerRetryCandidate) {
+    window.clearJinCompletedAnswerRetryCandidate();
+  }
+
+  window.jinCurrentResponseRetryable = false;
 
   if (window.releaseActiveStreamAvatar) {
     window.releaseActiveStreamAvatar();
@@ -153,13 +322,29 @@ function handleMetabolismUpdate(
   }
 }
 
-function handleAgentRuntimeStart() {
+function handleAgentRuntimeStart(data) {
+  window.jinCurrentResponseRetryable = Boolean(
+    data && data.retryable_response
+  );
+
+  if (window.confirmJinLastResponseRetryStarted) {
+    window.confirmJinLastResponseRetryStarted();
+  }
+
   setGenerationState(
     true
   );
 }
 
-function handleAgentRuntimeEnd() {
+function handleAgentRuntimeEnd(data) {
+
+  if (data && data.retryable_response === true) {
+    if (window.commitJinCompletedAnswerRetryCandidate) {
+      window.commitJinCompletedAnswerRetryCandidate();
+    }
+  } else if (window.clearJinCompletedAnswerRetryCandidate) {
+    window.clearJinCompletedAnswerRetryCandidate();
+  }
 
   if (window.releaseActiveStreamAvatar) {
     window.releaseActiveStreamAvatar();
@@ -175,6 +360,7 @@ function handleAgentRuntimeEnd() {
     false
   );
 
+  window.jinCurrentResponseRetryable = false;
   window.jinActiveTurnUserIdleSeconds = 0;
 
   if (window.jinResetUserIdleTimer) {
@@ -235,7 +421,12 @@ function handleMessageEnd(
   );
 
   finishStreamMessage(
-    data.message_id
+    data.message_id,
+    {
+      retryCandidate: Boolean(
+        window.jinCurrentResponseRetryable
+      )
+    }
   );
 
   if (window.flushRuntimeTelemetryRender) {
@@ -266,8 +457,15 @@ function handleMessageError(
   }
 
   finishStreamMessage(
-    data.message_id
+    data.message_id,
+    { retryable: false }
   );
+
+  if (window.clearJinCompletedAnswerRetryCandidate) {
+    window.clearJinCompletedAnswerRetryCandidate();
+  }
+
+  window.jinCurrentResponseRetryable = false;
 
   if (window.flushRuntimeTelemetryRender) {
     window.flushRuntimeTelemetryRender({
@@ -276,6 +474,34 @@ function handleMessageError(
   }
 
 }
+
+function handleRetryLastResponseRejected(
+  data
+) {
+  setGenerationState(
+    false
+  );
+
+  if (window.restoreJinDeletedRetryBubble) {
+    window.restoreJinDeletedRetryBubble();
+  }
+
+  appendLog(
+    "[RETRY]",
+    `Retry rejected: ${String(data && data.reason || "unavailable")}`
+  );
+}
+
+
+registerSocketMessageHandler(
+  "retry_last_response_rejected",
+  handleRetryLastResponseRejected
+);
+
+registerSocketMessageHandler(
+  "session_bootstrap_chat_tail",
+  handleSessionBootstrapChatTail
+);
 
 registerSocketMessageHandler(
   "session_actions_update",

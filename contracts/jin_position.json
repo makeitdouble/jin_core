@@ -3,6 +3,8 @@
     "version": 1,
     "description": "Allows the model to move the collapsed live JIN avatar to a new position inside the current browser window.",
     "runtime_action": "JIN_POSITION",
+    "enable_flag": "CAN_JIN_POSITION",
+    "runtime_order": 60,
     "private_marker": "<JIN_POSITION>",
     "triggers": [],
     "blockers": [],

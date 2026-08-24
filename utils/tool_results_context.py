@@ -13,10 +13,6 @@ TOOL_RESULT_BLOCK_RE = re.compile(
     r"<TOOL_RESULT(?:\s[^>]*)?>.*?</TOOL_RESULT>",
     re.IGNORECASE | re.DOTALL,
 )
-IDLE_TOOL_RESULTS_RE = re.compile(
-    r"<TOOL_RESULTS\b[^>]*\btype\s*=\s*['\"]idle['\"][^>]*>",
-    re.IGNORECASE,
-)
 TOOLS_RESULTS_CONTEXT_RE = re.compile(
     r"<TOOLS_RESULTS(?:\s[^>]*)?>.*?</TOOLS_RESULTS>"
     r"|<TOOL_RESULTS(?:\s[^>]*)?>.*?</TOOL_RESULTS>",
@@ -116,13 +112,3 @@ def strip_tools_results_context(
         text
     )
     return remainder
-
-
-def is_idle_tool_results_block(
-    block: str,
-) -> bool:
-    return bool(
-        IDLE_TOOL_RESULTS_RE.search(
-            str(block or "")
-        )
-    )

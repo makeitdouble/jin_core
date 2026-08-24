@@ -3,6 +3,8 @@
     "version": 1,
     "description": "Allows the model to resolve active memory.",
     "runtime_action": "RESOLVE_ACTIVE_MEMORY",
+    "enable_flag": "CAN_SAVE_ACTIVE_MEMORY",
+    "runtime_order": 220,
     "private_marker": "<RESOLVE_ACTIVE_MEMORY: active_memory_id >",
     "triggers": [],
     "blockers": [],

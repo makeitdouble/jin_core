@@ -3,6 +3,8 @@
     "version": 2,
     "description": "Allows the model to load a delayed memory report into the session context.",
     "runtime_action": "LOAD_DELAYED_MEMORY",
+    "enable_flag": "CAN_SAVE_DELAYED_MEMORY",
+    "runtime_order": 190,
     "private_marker": "<LOAD_DELAYED_MEMORY: id >",
     "triggers": [],
     "blockers": [],

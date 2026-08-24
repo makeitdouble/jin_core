@@ -38,7 +38,10 @@ class RuntimeMemoryLazyRowsClientContractTests(unittest.TestCase):
             "getRuntimeMemoryLazyBatchSize(runtimeMemoryLazyMode)",
             source,
         )
-        self.assertIn("start + batchSize", source)
+        self.assertIn("start + nextBatchSize", source)
+        self.assertIn("nextBatchSize = batchSize", source)
+        self.assertIn("options.initialBatchSize", source)
+        self.assertIn("const initialBatchSize =", source)
         self.assertNotIn(
             "const RUNTIME_MEMORY_LAZY_BATCH_SIZE =",
             source,
@@ -88,7 +91,8 @@ class RuntimeMemoryLazyRowsClientContractTests(unittest.TestCase):
     def test_memory_view_cache_key_is_bumped_for_l4_lazy_optimization(self):
         source = INDEX_HTML.read_text(encoding="utf-8")
 
-        self.assertIn("lazy-rows=4", source)
+        self.assertIn("lazy-rows=5", source)
+        self.assertIn("l4-priority-bubble=1", source)
 
 
 if __name__ == "__main__":

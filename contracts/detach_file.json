@@ -3,6 +3,8 @@
     "version": 1,
     "description": "Removes one persistent file from the JIN context without deleting it.",
     "runtime_action": "DETACH_FILE",
+    "enable_flag": "CAN_USE_ASSETS",
+    "runtime_order": 140,
     "private_marker": "<DETACH_FILE: id >",
     "triggers": [],
     "blockers": [],

@@ -22,7 +22,7 @@ class L4MemoryClientContractTests(unittest.TestCase):
             source,
         )
 
-    def test_idle_l4_waits_a_full_minute_and_resets_while_user_idle_is_paused(self):
+    def test_idle_l4_scheduler_is_not_driven_by_browser_javascript(self):
         source = (
             ROOT
             / "ui"
@@ -31,12 +31,30 @@ class L4MemoryClientContractTests(unittest.TestCase):
             / "runtime"
             / "runtime-l4-memory.js"
         ).read_text(encoding="utf-8")
+        template = (
+            ROOT
+            / "ui"
+            / "templates"
+            / "index.html"
+        ).read_text(encoding="utf-8")
+        runtime_source = (
+            ROOT
+            / "ui"
+            / "static"
+            / "js"
+            / "runtime"
+            / "runtime.js"
+        ).read_text(encoding="utf-8")
 
-        self.assertIn("const idleTickIntervalMs = 60000;", source)
-        self.assertIn("const idleMinimumSeconds = 60;", source)
-        self.assertIn("if (idleContext.user_idle_paused)", source)
-        self.assertIn("lastIdleTickAt = now;", source)
-        self.assertIn("if (userIdleSeconds < idleMinimumSeconds)", source)
+        self.assertNotIn("l4_memory_idle_tick", source)
+        self.assertNotIn("startIdleMonitor", source)
+        self.assertNotIn("maybeSendIdleTick", source)
+        self.assertNotIn('id="jin-l4-config"', template)
+        self.assertIn(
+            'typeof window.syncFactsMemoryToRuntime === "function"',
+            runtime_source,
+        )
+        self.assertIn("window.syncFactsMemoryToRuntime();", runtime_source)
 
     def test_equal_revision_update_cannot_replace_larger_local_snapshot(self):
         source = (

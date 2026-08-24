@@ -137,7 +137,9 @@ SERVICE_IMAGE_INPUT_ENABLED = False
 # ---------------------------------------------------------
 
 L4_MEMORY_ENABLED = True
-L4_IDLE_SECONDS = 60
+# Server-side L4 cadence while at least one tab is connected. With every tab
+# closed, the backend keeps running L4 at exactly one third of this interval.
+L4_IDLE_SECONDS = 15
 
 # ---------------------------------------------------------
 # WEB_SEARCH

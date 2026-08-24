@@ -12,11 +12,6 @@
 
   const longTermFactsStorageKey = "jin.longTermFacts.v1";
   const anonymousLongTermFactsStorageKey = "jin.longTermFacts.anonymous.v1";
-  const idleTickIntervalMs = 60000;
-  const idleMinimumSeconds = 60;
-
-  let lastIdleTickAt = 0;
-  let idleTimer = null;
 
   function normalizeText(value) {
     return String(value || "")
@@ -647,63 +642,6 @@
     });
   }
 
-  function maybeSendIdleTick() {
-    if (
-      typeof window.getJinUserIdleContext !== "function"
-      || typeof window.isJinGenerationRunning !== "function"
-      || window.isJinGenerationRunning()
-    ) {
-      return false;
-    }
-
-    const idleContext = window.getJinUserIdleContext();
-    if (!idleContext) {
-      return false;
-    }
-
-    const now = Date.now();
-    const userIdleSeconds = Math.floor(
-      Number(idleContext.user_idle_seconds || 0)
-    );
-
-    // While the user is actively typing/interacting, the shared idle clock is
-    // paused. Reset the L4 cadence too: when activity stops, background L4
-    // maintenance must earn a fresh full idle minute before it can run again.
-    if (idleContext.user_idle_paused) {
-      lastIdleTickAt = now;
-      return false;
-    }
-
-    if (userIdleSeconds < idleMinimumSeconds) {
-      return false;
-    }
-
-    if (now - lastIdleTickAt < idleTickIntervalMs) {
-      return false;
-    }
-
-    const sent = sendIfOpen({
-      type: "l4_memory_idle_tick",
-      user_idle_seconds: userIdleSeconds,
-      records: storage.collectFactsMemoryRecords
-        ? storage.collectFactsMemoryRecords()
-        : [],
-      store: readStore(),
-    });
-
-    if (sent) {
-      lastIdleTickAt = now;
-    }
-    return sent;
-  }
-
-  function startIdleMonitor() {
-    if (idleTimer !== null) {
-      return;
-    }
-    idleTimer = window.setInterval(maybeSendIdleTick, 5000);
-  }
-
   const api = {
     readStore,
     writeStore,
@@ -723,20 +661,10 @@
     deleteFactLocally,
     requestFactDelete,
     requestFactRestore,
-    maybeSendIdleTick,
-    startIdleMonitor,
   };
 
   window.JINRuntimeL4Memory = api;
   window.JinRuntime.l4Memory = api;
   window.syncFactsMemoryToRuntime = syncFactsMemoryToRuntime;
   window.syncLongTermMemoryToRuntime = syncLongTermMemoryToRuntime;
-
-  if (document.readyState === "loading") {
-    document.addEventListener("DOMContentLoaded", startIdleMonitor, {
-      once: true,
-    });
-  } else {
-    window.setTimeout(startIdleMonitor, 0);
-  }
 }());

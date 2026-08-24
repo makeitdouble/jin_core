@@ -3,6 +3,8 @@
     "version": 2,
     "description": "Allows the model to update the collapsed JIN runtime avatar size for the current live session.",
     "runtime_action": "JIN_SIZE",
+    "enable_flag": "CAN_JIN_SIZE",
+    "runtime_order": 50,
     "private_marker": "<JIN_SIZE>",
     "triggers": [],
     "blockers": [],

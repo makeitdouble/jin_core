@@ -3,6 +3,8 @@
     "version": 1,
     "description": "Allows the model to request a runtime web search.",
     "runtime_action": "WEB_SEARCH",
+    "enable_flag": "CAN_WEB_SEARCH",
+    "runtime_order": 20,
     "private_marker": "<WEB_SEARCH: plain text query >",
     "triggers": [],
     "blockers": [],

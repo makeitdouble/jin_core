@@ -33,6 +33,322 @@
         + ".jin-chat-bubble-brain.jin-rating-selected-active:not(.jin-rating-committed)";
     let latestRatingBubbleSequence = 0;
 
+    // Rating stays in the codebase, but the release interaction is now the
+    // neutral bubble utility surface. Flip this back to true to restore the
+    // old three-zone rating behavior without resurrecting deleted code.
+    const ANSWER_RATING_ENABLED = false;
+    const BUBBLE_RETRY_HOLD_MS = 1500;
+    const bubbleUtilitySelector =
+        ".jin-chat-bubble-service, .jin-chat-bubble-brain";
+    const bubbleCopyText = new WeakMap();
+    let latestRetryableBubble = null;
+    let retryableBubbleCandidate = null;
+    let pendingRetryRemoval = null;
+
+    if (document.body) {
+        document.body.classList.toggle(
+            "jin-answer-rating-enabled",
+            ANSWER_RATING_ENABLED
+        );
+    }
+
+    function getBubbleUtilityText(bubble) {
+        const storedText = bubbleCopyText.get(bubble);
+        if (typeof storedText === "string" && storedText.trim()) {
+            return storedText;
+        }
+
+        const content = bubble && bubble.querySelector
+            ? bubble.querySelector(".jin-chat-pre")
+            : null;
+        return String(
+            content && (content.innerText || content.textContent) || ""
+        ).trim();
+    }
+
+    async function copyBubbleUtilityText(bubble) {
+        const text = getBubbleUtilityText(bubble);
+        if (!text) {
+            return false;
+        }
+
+        try {
+            if (navigator.clipboard && navigator.clipboard.writeText) {
+                await navigator.clipboard.writeText(text);
+                return true;
+            }
+        } catch (error) {
+            // Fall through to the old textarea copy path.
+        }
+
+        const textarea = document.createElement("textarea");
+        textarea.value = text;
+        textarea.setAttribute("readonly", "");
+        textarea.style.position = "fixed";
+        textarea.style.opacity = "0";
+        document.body.appendChild(textarea);
+        textarea.select();
+
+        let copied = false;
+        try {
+            copied = document.execCommand("copy");
+        } catch (error) {
+            copied = false;
+        }
+
+        textarea.remove();
+        return copied;
+    }
+
+    function getBubbleUtilityLabel(bubble) {
+        return bubble && bubble.classList.contains("jin-bubble-utility-retryable")
+            ? "Double-click: Copy all\nLong-tap: Delete"
+            : "Double-click: Copy all";
+    }
+
+    function syncBubbleUtilityLabels(bubble) {
+        if (!bubble) {
+            return;
+        }
+
+        const label = getBubbleUtilityLabel(bubble);
+        bubble
+            .querySelectorAll(":scope > .jin-bubble-utility-zones > .jin-bubble-utility-zone")
+            .forEach((zone) => {
+                zone.title = label;
+                zone.setAttribute("aria-label", label.replace("\n", "; "));
+            });
+    }
+
+    function clearRetryableBubble() {
+        if (!latestRetryableBubble) {
+            return;
+        }
+
+        latestRetryableBubble.classList.remove("jin-bubble-utility-retryable");
+        delete latestRetryableBubble.dataset.bubbleUtilityRetryable;
+        syncBubbleUtilityLabels(latestRetryableBubble);
+        latestRetryableBubble = null;
+    }
+
+    function restoreBubbleAfterCancelledHold(bubble) {
+        if (!bubble || !bubble.isConnected) {
+            return;
+        }
+
+        bubble.style.transition = "opacity 0.18s ease";
+        bubble.style.opacity = "1";
+        window.setTimeout(() => {
+            if (!bubble.isConnected) {
+                return;
+            }
+            bubble.style.removeProperty("transition");
+            bubble.style.removeProperty("opacity");
+        }, 190);
+    }
+
+    function restorePendingRetryRemoval() {
+        const pending = pendingRetryRemoval;
+        pendingRetryRemoval = null;
+        if (!pending || !pending.parent || !pending.wrapper) {
+            return false;
+        }
+
+        const reference = (
+            pending.nextSibling
+            && pending.nextSibling.parentNode === pending.parent
+        )
+            ? pending.nextSibling
+            : null;
+        pending.parent.insertBefore(pending.wrapper, reference);
+        restoreBubbleAfterCancelledHold(pending.bubble);
+
+        latestRetryableBubble = pending.bubble;
+        pending.bubble.classList.add("jin-bubble-utility-retryable");
+        pending.bubble.dataset.bubbleUtilityRetryable = "true";
+        syncBubbleUtilityLabels(pending.bubble);
+        return true;
+    }
+
+    window.restoreJinDeletedRetryBubble = restorePendingRetryRemoval;
+    window.confirmJinLastResponseRetryStarted = function () {
+        pendingRetryRemoval = null;
+    };
+
+    function startBubbleRetryHold(event, bubble) {
+        if (
+            event.button !== 0
+            || bubble !== latestRetryableBubble
+            || bubble.dataset.bubbleUtilityRetryable !== "true"
+            || isRatingInteractionBlocked()
+        ) {
+            return;
+        }
+
+        const zone = event.currentTarget;
+        const state = {
+            triggered: false,
+            timer: null,
+        };
+        zone.__jinBubbleHoldState = state;
+
+        bubble.style.transition = `opacity ${BUBBLE_RETRY_HOLD_MS}ms linear`;
+        bubble.style.opacity = "0";
+
+        state.timer = window.setTimeout(() => {
+            state.triggered = true;
+            state.timer = null;
+
+            const requestRetry = window.requestJinLastResponseRetry;
+            const sent = requestRetry ? requestRetry() : false;
+            if (!sent) {
+                restoreBubbleAfterCancelledHold(bubble);
+                return;
+            }
+
+            clearRetryableBubble();
+
+            const wrapper = bubble.closest(".jin-stream-wrapper")
+                || bubble.closest(".jin-message-row")
+                || bubble;
+            const parent = wrapper.parentNode;
+            if (parent) {
+                pendingRetryRemoval = {
+                    wrapper,
+                    bubble,
+                    parent,
+                    nextSibling: wrapper.nextSibling,
+                };
+                wrapper.remove();
+            }
+        }, BUBBLE_RETRY_HOLD_MS);
+    }
+
+    function cancelBubbleRetryHold(event, bubble) {
+        const zone = event.currentTarget;
+        const state = zone.__jinBubbleHoldState;
+        if (!state || state.triggered) {
+            return;
+        }
+
+        if (state.timer !== null) {
+            window.clearTimeout(state.timer);
+        }
+        zone.__jinBubbleHoldState = null;
+        restoreBubbleAfterCancelledHold(bubble);
+    }
+
+    function bindBubbleUtilityInteractions(bubble) {
+        if (!bubble || bubble.dataset.bubbleUtilityBound === "true") {
+            return;
+        }
+
+        bubble.dataset.bubbleUtilityBound = "true";
+        bubble.classList.add("jin-bubble-utility-enabled");
+
+        // Clear dormant rating presentation only; all rating implementation
+        // remains below this release feature flag.
+        bubble.classList.remove(
+            ...ratingSelectionClasses,
+            "jin-rating-disabled",
+            "jin-rating-l1-waiting",
+            "jin-rating-interaction-blocked"
+        );
+        const oldRatingZones = bubble.querySelector(":scope > .jin-rating-hover-zones");
+        if (oldRatingZones) {
+            oldRatingZones.remove();
+        }
+
+        const zones = document.createElement("div");
+        zones.className = "jin-bubble-utility-zones";
+        zones.setAttribute("aria-hidden", "true");
+
+        ["top", "right", "bottom", "left"].forEach((edge) => {
+            const zone = document.createElement("div");
+            zone.className = `jin-bubble-utility-zone jin-bubble-utility-zone-${edge}`;
+
+            zone.addEventListener("dblclick", (event) => {
+                event.preventDefault();
+                event.stopPropagation();
+                void copyBubbleUtilityText(bubble);
+            });
+
+            zone.addEventListener("pointerdown", (event) => {
+                startBubbleRetryHold(event, bubble);
+            });
+            ["pointerup", "pointerleave", "pointercancel"].forEach((eventName) => {
+                zone.addEventListener(eventName, (event) => {
+                    cancelBubbleRetryHold(event, bubble);
+                });
+            });
+            zones.appendChild(zone);
+        });
+
+        bubble.appendChild(zones);
+        syncBubbleUtilityLabels(bubble);
+    }
+
+    function addBubbleUtilityZones(root) {
+        const scope = root instanceof Element ? root : document;
+        const bubbles = Array.from(scope.querySelectorAll(bubbleUtilitySelector));
+        if (
+            scope !== document
+            && scope.matches
+            && scope.matches(bubbleUtilitySelector)
+        ) {
+            bubbles.unshift(scope);
+        }
+        bubbles.forEach(bindBubbleUtilityInteractions);
+    }
+
+    function markBubbleRetryable(bubble) {
+        if (!bubble) {
+            return;
+        }
+
+        clearRetryableBubble();
+        latestRetryableBubble = bubble;
+        bubble.classList.add("jin-bubble-utility-retryable");
+        bubble.dataset.bubbleUtilityRetryable = "true";
+        syncBubbleUtilityLabels(bubble);
+    }
+
+    window.markJinCompletedAnswerBubble = function (bubble, copyText, options = {}) {
+        if (!bubble) {
+            return;
+        }
+
+        bindBubbleUtilityInteractions(bubble);
+        bubbleCopyText.set(bubble, String(copyText || ""));
+
+        if (options.retryCandidate === true) {
+            retryableBubbleCandidate = bubble;
+        }
+
+        if (options.retryable === true) {
+            retryableBubbleCandidate = null;
+            markBubbleRetryable(bubble);
+            return;
+        }
+
+        syncBubbleUtilityLabels(bubble);
+    };
+
+    window.commitJinCompletedAnswerRetryCandidate = function () {
+        const bubble = retryableBubbleCandidate;
+        retryableBubbleCandidate = null;
+        if (!bubble || !bubble.isConnected) {
+            return false;
+        }
+
+        markBubbleRetryable(bubble);
+        return true;
+    };
+
+    window.clearJinCompletedAnswerRetryCandidate = function () {
+        retryableBubbleCandidate = null;
+    };
+
     function isRatingInteractionBlocked() {
         return Boolean(
             (
@@ -582,6 +898,11 @@
     }
 
     function addRatingHoverZones(root) {
+        if (!ANSWER_RATING_ENABLED) {
+            addBubbleUtilityZones(root);
+            return;
+        }
+
         const scope = root instanceof Element ? root : document;
         syncLatestRateableBubbleState(scope);
 
@@ -733,6 +1054,9 @@
     });
 
     window.addEventListener("jin:generation-state-changed", () => {
+        if (!ANSWER_RATING_ENABLED) {
+            return;
+        }
         document
             .querySelectorAll(ratingBubbleSelector)
             .forEach(markBubbleRatingL1State);
@@ -761,6 +1085,12 @@
     const chatForm = document.getElementById("chat-form");
     if (chatForm) {
         chatForm.addEventListener("submit", () => {
+            clearRetryableBubble();
+            retryableBubbleCandidate = null;
+            if (!ANSWER_RATING_ENABLED) {
+                return;
+            }
+
             document
                 .querySelectorAll(ratingBubbleSelector)
                 .forEach((bubble) => {

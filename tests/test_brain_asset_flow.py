@@ -7,13 +7,10 @@ from unittest.mock import patch
 
 from agent.nodes.brain import (
     BrainNode,
-    FOLLOWUP_SYSTEM_MESSAGE,
     POTENTIAL_LOOP_FOLLOWUP_MESSAGE,
     action_batch_requires_follow_up,
     action_event_requires_follow_up,
-    build_idle_followup_system_prompt,
     build_context_limit_recovery_context,
-    build_followup_system_message,
     build_reasoning_recovery_context,
     format_followup_action_from_event,
     format_followup_actions_from_events,
@@ -85,17 +82,12 @@ def _assert_latest_request_payload(
         payload,
         "",
     )
-    expected_followup_message = build_followup_system_message(
-        latest_action_fragment or "",
-    )
     test_case.assertTrue(
-        system_prompt.startswith(
-            expected_followup_message
-        ),
-        system_prompt,
+        call_kwargs.get("followup_tick"),
+        call_kwargs,
     )
-    test_case.assertIn(
-        expected_followup_message,
+    test_case.assertNotIn(
+        "<FOLLOWUP_TICK>",
         system_prompt,
     )
     test_case.assertLess(
@@ -265,31 +257,22 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
             prompt,
         )
 
-    async def test_followup_places_runtime_instruction_under_header(self):
+    async def test_followup_places_generic_instruction_without_followup_header(self):
 
-        instruction = (
-            "Action-specific follow-up instruction."
-        )
+        instruction = "Generic follow-up instruction."
         prompt = BrainNode.build_followup_system_prompt(
             "system rules",
             "continue the task",
             instruction=instruction,
-            latest_action="web_search",
         )
 
-        self.assertLess(
-            prompt.index(
-                "This is follow-up tick for JIN latest action: web_search."
-            ),
-            prompt.index(instruction),
+        self.assertNotIn(
+            "<FOLLOWUP_TICK>",
+            prompt,
         )
         self.assertLess(
             prompt.index(instruction),
-            prompt.index("<CURRENT_SEQUENCE>"),
-        )
-        self.assertLess(
-            prompt.index("<CURRENT_SEQUENCE>"),
-            prompt.index("<TOOLS_RESULTS>"),
+            prompt.index("<CURRENT_CONCERNS>"),
         )
 
     async def test_followup_places_confirm_result_inside_tool_results(self):
@@ -432,10 +415,8 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
             "continue",
         )
 
-        self.assertTrue(
-            prompt.startswith(
-                build_followup_system_message()
-            ),
+        self.assertNotIn(
+            "<FOLLOWUP_TICK>",
             prompt,
         )
         self.assertLess(
@@ -815,19 +796,13 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
                 context
             )
         )
-        self.assertTrue(
-            prompt.startswith(
-                build_followup_system_message()
-            ),
+        self.assertNotIn(
+            "<FOLLOWUP_TICK>",
             prompt,
         )
         self.assertLess(
             prompt.index("</CURRENT_SEQUENCE>"),
             prompt.index("<TOOLS_RESULTS>"),
-        )
-        self.assertIn(
-            build_followup_system_message(),
-            prompt,
         )
         self.assertIn(
             "INITIAL_SEQUENCE_INSTRUCTION: append the delayed memory",
@@ -1009,59 +984,6 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
             prompt,
         )
 
-    async def test_idle_followup_keeps_original_sequence_action_history(self):
-
-        context = SimpleNamespace(
-            runtime_current_turn_id="idle_000002",
-            runtime_current_sequence_turn_id="turn_000001",
-            runtime_turn_started_at=1031.0,
-            runtime_current_sequence_started_at=1000.0,
-            runtime_action_sequence_turn_ids=[],
-            runtime_session_action_history=[
-                {
-                    "text": "IDLE - 30s",
-                    "created_at": 1000.0,
-                    "runtime_turn_id": "turn_000001",
-                },
-                {
-                    "text": "IDLE - 20s, WEB_SEARCH",
-                    "created_at": 1031.0,
-                    "runtime_turn_id": "turn_000001",
-                },
-            ],
-            runtime_recent_turns=[],
-            runtime_loaded_delayed_memory={},
-        )
-
-        with patch(
-            "utils.context.context_exports.time.time",
-            return_value=1032.0,
-        ):
-            prompt = BrainNode.build_followup_system_prompt(
-                "<RUNTIME_MEMORY>state</RUNTIME_MEMORY>",
-                "first idle 30s, then idle 20s and search",
-                context=context,
-                latest_action="web_search, idle",
-            )
-
-        self.assertIn(
-            "turn_000001",
-            context.runtime_action_sequence_turn_ids,
-        )
-        self.assertIn(
-            "<CURRENT_SEQUENCE>\n"
-            "INITIAL_SEQUENCE_INSTRUCTION: first idle 30s, then idle 20s and search ( 32s ago )\n"
-            "DO NOT FOLLOW INITIAL_SEQUENCE_INSTRUCTION EXPLICITLY, CHECK CURRENT_SEQUENCE HISTORY BELOW!\n"
-            "    --- Sequence started ---\n"
-            "    JIN message 1 executed: IDLE: 30s ( 32s ago )\n"
-            "    JIN message 2 executed: IDLE: 20s, WEB_SEARCH ( 1s ago )\n"
-            "</CURRENT_SEQUENCE>",
-            prompt,
-        )
-        self.assertIn(
-            "first idle 30s, then idle 20s and search ( 32s ago )",
-            prompt,
-        )
 
     async def test_list_skills_followup_text_is_emitted_when_no_asset_action_follows(self):
 
@@ -1365,11 +1287,10 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
                 context=context,
                 brain_runtime=_brain_runtime(),
                 brain_client=object(),
-                system_prompt=build_followup_system_message(
-                    "list_skills"
-                ),
+                system_prompt="system prompt",
                 brain_payload="",
                 runtime_actions={},
+                followup_tick=True,
             )
 
         self.assertIn(
@@ -1688,13 +1609,11 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
                     "",
                 )
                 self.assertTrue(
-                    kwargs["system_prompt"].startswith(
-                        FOLLOWUP_SYSTEM_MESSAGE
-                    ),
-                    kwargs["system_prompt"],
+                    kwargs.get("followup_tick"),
+                    kwargs,
                 )
-                self.assertIn(
-                    FOLLOWUP_SYSTEM_MESSAGE,
+                self.assertNotIn(
+                    "<FOLLOWUP_TICK>",
                     kwargs["system_prompt"],
                 )
                 return (
@@ -1769,13 +1688,11 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
                     "",
                 )
                 self.assertTrue(
-                    kwargs["system_prompt"].startswith(
-                        FOLLOWUP_SYSTEM_MESSAGE
-                    ),
-                    kwargs["system_prompt"],
+                    kwargs.get("followup_tick"),
+                    kwargs,
                 )
-                self.assertIn(
-                    FOLLOWUP_SYSTEM_MESSAGE,
+                self.assertNotIn(
+                    "<FOLLOWUP_TICK>",
                     kwargs["system_prompt"],
                 )
                 return (
@@ -1896,9 +1813,11 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
                     "",
                 )
                 self.assertTrue(
-                    system_prompt.startswith(
-                        FOLLOWUP_SYSTEM_MESSAGE
-                    ),
+                    kwargs.get("followup_tick"),
+                    kwargs,
+                )
+                self.assertNotIn(
+                    "<FOLLOWUP_TICK>",
                     system_prompt,
                 )
                 self.assertIn(
@@ -1932,9 +1851,11 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
                     "",
                 )
                 self.assertTrue(
-                    system_prompt.startswith(
-                        FOLLOWUP_SYSTEM_MESSAGE
-                    ),
+                    kwargs.get("followup_tick"),
+                    kwargs,
+                )
+                self.assertNotIn(
+                    "<FOLLOWUP_TICK>",
                     system_prompt,
                 )
                 self.assertEqual(
@@ -2816,213 +2737,8 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
         )
 
 
-    async def test_idle_action_never_triggers_immediate_follow_up(self):
 
-        self.assertFalse(
-            action_batch_requires_follow_up(
-                [
-                    {
-                        "name": "idle",
-                        "seconds": 0,
-                        "deferred_follow_up": True,
-                    },
-                ],
-                "",
-            )
-        )
 
-        self.assertFalse(
-            action_batch_requires_follow_up(
-                [
-                    {
-                        "name": "idle",
-                        "seconds": 1,
-                        "deferred_follow_up": True,
-                    },
-                    {
-                        "name": "idle",
-                        "seconds": 2,
-                        "deferred_follow_up": True,
-                    },
-                ],
-                "",
-            )
-        )
-
-    async def test_idle_runtime_turn_restores_sequence_origin_and_history(self):
-
-        calls = []
-
-        async def fake_run_brain_stream(**kwargs):
-            calls.append(kwargs)
-            return "Sequence complete.", ""
-
-        origin_request = (
-            "first idle 30s, then idle 20s and search"
-        )
-        context = _context()
-        context.runtime_current_turn_id = "idle_000002"
-        context.runtime_current_sequence_turn_id = "turn_000001"
-        context.runtime_turn_started_at = 1030.0
-        context.runtime_current_sequence_started_at = 1000.0
-        context.runtime_turn_user_message = origin_request
-        context.runtime_action_sequence_turn_ids = []
-        context.runtime_session_action_history = [
-            {
-                "text": "IDLE - 30s",
-                "created_at": 1000.0,
-                "runtime_turn_id": "turn_000001",
-            },
-        ]
-        context.runtime_recent_turns = []
-        context.runtime_loaded_delayed_memory = {}
-
-        state = AgentState(
-            user_input=origin_request,
-        )
-        state.user_input = origin_request
-        state.metadata["idle_followup"] = {
-            "id": "idle_001",
-            "seconds": 30,
-            "origin_user_request": origin_request,
-            "context_snapshot": {
-                "system_prompt": (
-                    "<SEQUENCE_ORIGIN_REQUEST>stale</SEQUENCE_ORIGIN_REQUEST>\n"
-                    "<CURRENT_SEQUENCE>stale</CURRENT_SEQUENCE>\n"
-                    "<PREVIOUS_CHAT_MESSAGES>stale</PREVIOUS_CHAT_MESSAGES>\n"
-                    "<RUNTIME_MEMORY>frozen state</RUNTIME_MEMORY>"
-                ),
-            },
-        }
-
-        with patch(
-            "agent.nodes.brain.get_brain_runtime_config",
-            return_value=_brain_runtime(),
-        ), patch(
-            "agent.nodes.brain.emit_active_memory_records_update_if_dirty",
-            new=lambda _context: _async_noop(),
-        ), patch.object(
-            BrainNode,
-            "run_brain_stream",
-            staticmethod(fake_run_brain_stream),
-        ), patch(
-            "utils.context.context_exports.time.time",
-            return_value=1030.0,
-        ):
-            await BrainNode().run(
-                state,
-                context,
-            )
-
-        self.assertEqual(
-            len(calls),
-            1,
-        )
-        prompt = calls[0]["system_prompt"]
-        idle_instruction = (
-            "This is a follow-up tick from an IDLE timer JIN chose to set."
-        )
-        self.assertEqual(
-            prompt.count(idle_instruction),
-            1,
-            prompt,
-        )
-        self.assertLess(
-            prompt.index(
-                "This is follow-up tick for JIN latest action: idle."
-            ),
-            prompt.index(idle_instruction),
-        )
-        self.assertLess(
-            prompt.index(idle_instruction),
-            prompt.index("<CURRENT_SEQUENCE>"),
-        )
-        self.assertLess(
-            prompt.index("</CURRENT_SEQUENCE>"),
-            prompt.index("<LATEST_USER_INPUT"),
-        )
-        self.assertLess(
-            prompt.index("</LATEST_USER_INPUT>"),
-            prompt.index("<TOOLS_RESULTS>"),
-        )
-        self.assertEqual(
-            prompt.count("<SEQUENCE_ORIGIN_REQUEST>"),
-            0,
-            prompt,
-        )
-        self.assertEqual(
-            prompt.count("<CURRENT_SEQUENCE>"),
-            1,
-            prompt,
-        )
-        self.assertEqual(
-            prompt.count("<PREVIOUS_CHAT_MESSAGES>"),
-            0,
-            prompt,
-        )
-        self.assertIn(
-            origin_request + " ( 30s ago )",
-            prompt,
-        )
-        self.assertIn(
-            "JIN message 1 executed: IDLE: 30s ( 30s ago )",
-            prompt,
-        )
-        self.assertNotIn(
-            ">stale<",
-            prompt,
-        )
-
-    async def test_idle_followup_prompt_contains_tool_result_and_frozen_context(self):
-
-        with patch(
-            "agent.nodes.brain.time.time",
-            return_value=1150.0,
-        ):
-            prompt = build_idle_followup_system_prompt({
-                "id": "idle_1",
-                "seconds": 5,
-                "origin_user_request": "original request",
-                "source_message": "reason <IDLE: 5s />",
-                "sequence_started_at": 1000.0,
-                "context_snapshot": {
-                    "system_prompt": (
-                        "<RUNTIME_MEMORY>frozen state</RUNTIME_MEMORY>"
-                    ),
-                },
-            })
-
-        self.assertIn(
-            '<TOOL_RESULTS type="idle">',
-            prompt,
-        )
-        self.assertNotIn(
-            "original request",
-            prompt,
-        )
-        self.assertNotIn(
-            "reason &lt;IDLE: 5s /&gt;",
-            prompt,
-        )
-        self.assertTrue(
-            prompt.startswith(
-                "<TOOLS_RESULTS>"
-            ),
-            prompt,
-        )
-        self.assertEqual(
-            prompt.count(
-                "<TOOLS_RESULTS>"
-            ),
-            1,
-        )
-        self.assertIn(
-            (
-                "<PREVIOUS_RUNTIME_STATE ( 2m 30s ago ) >"
-                "frozen state</PREVIOUS_RUNTIME_STATE>"
-            ),
-            prompt,
-        )
 
     async def test_no_follow_up_action_without_visible_answer_does_not_trigger_tick(self):
 

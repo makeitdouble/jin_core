@@ -86,6 +86,99 @@
     }).filter(Boolean);
   }
 
+  function normalizeLongTermFactId(value) {
+    const match = String(value || "").trim().match(/^F([1-9]\d*)$/i);
+    return match ? `f${Number(match[1])}` : "";
+  }
+
+  function parseLongTermFactTimestamp(value) {
+    if (value === null || value === undefined || value === "") {
+      return null;
+    }
+
+    const numeric = Number(value);
+    if (Number.isFinite(numeric) && numeric > 0) {
+      return numeric;
+    }
+
+    const milliseconds = Date.parse(String(value));
+    if (!Number.isFinite(milliseconds) || milliseconds <= 0) {
+      return null;
+    }
+
+    return milliseconds / 1000;
+  }
+
+  function formatLongTermFactAgeLabel(timestamp, now = Date.now() / 1000) {
+    const createdAt = Number(timestamp);
+    if (!Number.isFinite(createdAt) || createdAt <= 0) {
+      return "";
+    }
+
+    const seconds = Math.max(1, Math.floor(Number(now) - createdAt));
+    if (seconds < 60) return `${seconds}s ago`;
+
+    const minutes = Math.floor(seconds / 60);
+    if (minutes < 60) return `${minutes}m ago`;
+
+    const hours = Math.floor(minutes / 60);
+    if (hours < 24) return `${hours}h ago`;
+
+    const days = Math.floor(hours / 24);
+    return `${days}d ago`;
+  }
+
+  function getLongTermFacts() {
+    const l4Memory =
+      window.JinRuntime
+      && window.JinRuntime.l4Memory;
+
+    if (!l4Memory) {
+      return [];
+    }
+
+    try {
+      if (typeof l4Memory.getFacts === "function") {
+        return l4Memory.getFacts() || [];
+      }
+      if (typeof l4Memory.getVisibleFacts === "function") {
+        return l4Memory.getVisibleFacts() || [];
+      }
+    } catch (_error) {
+      return [];
+    }
+
+    return [];
+  }
+
+  function buildLongTermFactTitle(record) {
+    if (!record || typeof record !== "object" || Array.isArray(record)) {
+      return "";
+    }
+
+    const key = String(record.key || "").trim();
+    const value = String(record.value || record.content || "").trim();
+    const age = formatLongTermFactAgeLabel(
+      parseLongTermFactTimestamp(record.created_at)
+    );
+    const parts = [];
+
+    if (key || value) {
+      parts.push([key, value].filter(Boolean).join(": "));
+    }
+
+    if (age) {
+      const lastIndex = parts.length - 1;
+      if (lastIndex >= 0) {
+        parts[lastIndex] = `${parts[lastIndex]} (${age})`;
+      } else {
+        parts.push(age);
+      }
+    }
+
+    return parts.join(" ").trim();
+  }
+
   function buildReferenceCache() {
     const references = new Map();
 
@@ -113,6 +206,17 @@
         kind: "delayed",
         id,
         record: report,
+      });
+    });
+
+    getLongTermFacts().forEach((fact) => {
+      const id = normalizeLongTermFactId(fact && fact.id);
+      if (!id || references.has(id)) return;
+
+      references.set(id, {
+        kind: "l4",
+        id,
+        record: fact,
       });
     });
 
@@ -186,6 +290,7 @@
 
     if (reference.kind === "file") {
       openFileReference(reference);
+      return;
     }
   }
 
@@ -238,6 +343,8 @@
         element.title = cleanPersistentFileName(reference.record) || reference.id;
       }
       bindImageHoverPreview(element, reference);
+    } else if (reference.kind === "l4") {
+      element.title = buildLongTermFactTitle(reference.record) || reference.id.toUpperCase();
     }
 
     element.addEventListener("click", (event) => {

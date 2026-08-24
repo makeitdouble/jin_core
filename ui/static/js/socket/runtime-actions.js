@@ -901,6 +901,27 @@ function buildRuntimeActionDisplayText(
 
 }
 
+function shouldUseDeepSearchStartedDisplayNameOnly(
+  action,
+  status,
+  deepSearchParent,
+  deepSearchPayloadReady
+) {
+
+  return (
+    action === "deep_web_search"
+    && deepSearchParent
+    && [
+      "started",
+      "start",
+      "pending",
+      "running",
+    ].includes(status)
+    && !deepSearchPayloadReady
+  );
+
+}
+
 function readRuntimeActionObjectValue(
   value
 ) {
@@ -1471,30 +1492,6 @@ function handleRuntimeAction(
       ).trim()
       : "";
 
-  const displayText =
-    activeMemoryUpdateTitle
-      ? (
-        `${getRuntimeActionDisplayName(data, action)}: `
-        + activeMemoryUpdateTitle
-      )
-      : updateL4FactsMessage
-      ? (
-        `${getRuntimeActionDisplayName(data, action)}: `
-        + updateL4FactsMessage
-      )
-      : reportScopedDelayedAction
-      && delayedMemoryPreview.title
-      ? (
-        `${getRuntimeActionDisplayName(data, action)}: `
-        + delayedMemoryPreview.title
-        + (
-          delayedMemoryTriggerDetail
-            ? ` - ${delayedMemoryTriggerDetail}`
-            : ""
-        )
-      )
-      : baseDisplayText;
-
   const displayName =
     getRuntimeActionDisplayName(
       data,
@@ -1512,6 +1509,40 @@ function handleRuntimeAction(
   const deepSearchParent =
     data.deep_search_parent === true
     || data.deepSearchParent === true;
+  const deepSearchPayloadReady =
+    data.deep_search_payload_ready === true
+    || data.deepSearchPayloadReady === true;
+
+  const displayText =
+    shouldUseDeepSearchStartedDisplayNameOnly(
+      action,
+      status,
+      deepSearchParent,
+      deepSearchPayloadReady
+    )
+      ? displayName
+      : activeMemoryUpdateTitle
+      ? (
+        `${displayName}: `
+        + activeMemoryUpdateTitle
+      )
+      : updateL4FactsMessage
+      ? (
+        `${displayName}: `
+        + updateL4FactsMessage
+      )
+      : reportScopedDelayedAction
+      && delayedMemoryPreview.title
+      ? (
+        `${displayName}: `
+        + delayedMemoryPreview.title
+        + (
+          delayedMemoryTriggerDetail
+            ? ` - ${delayedMemoryTriggerDetail}`
+            : ""
+        )
+      )
+      : baseDisplayText;
   const deepSearchParentId =
     String(
       data.deep_search_parent_id

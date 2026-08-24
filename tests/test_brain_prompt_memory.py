@@ -1037,12 +1037,6 @@ class BrainPromptMemoryTests(
                     "payloads": ["x:120px y:80px"],
                     "raw_payloads": ["x:120px y:80px"],
                 },
-                {
-                    "name": "IDLE",
-                    "marker_count": 1,
-                    "payloads": ["30s"],
-                    "raw_payloads": ["30s"],
-                },
             ]
 
             with patch(
@@ -1069,8 +1063,7 @@ class BrainPromptMemoryTests(
                 (
                     "1. JIN_SIZE: w:300px h:300px, "
                     "JIN_COLOR: #ff00ff, "
-                    "JIN_POSITION: x:120px y:80px, "
-                    "IDLE: 30s ( 1h ago )"
+                    "JIN_POSITION: x:120px y:80px ( 1h ago )"
                 ),
                 history,
             )

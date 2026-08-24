@@ -23,13 +23,11 @@ from rules.brain_context_builder import (
 from rules.runtime import (
     ANSWERING_RECOVERY_MESSAGE,
     CONTEXT_LIMIT_RECOVERY_MESSAGE,
-    IDLE_FOLLOWUP_MESSAGE,
     REASONING_RECOVERY_MESSAGE,
 )
 from contracts.rules_assembler import (
     RUNTIME_ACTION_ATTACH_FILE,
     RUNTIME_ACTION_DEEP_WEB_SEARCH,
-    RUNTIME_ACTION_IDLE,
     RUNTIME_ACTION_JIN_COLOR,
     RUNTIME_ACTION_JIN_POSITION,
     RUNTIME_ACTION_JIN_SIZE,
@@ -88,7 +86,6 @@ from utils.tool_results import (
 )
 from utils.tool_results_context import (
     build_tools_results_context,
-    is_idle_tool_results_block,
     split_tools_results_context,
 )
 
@@ -314,12 +311,7 @@ def action_event_defers_follow_up(event) -> bool:
     if not isinstance(event, dict):
         return False
 
-    name = str(event.get("name", "") or "").strip().casefold()
-
-    return (
-        name == RUNTIME_ACTION_IDLE.casefold()
-        or bool(event.get("deferred_follow_up"))
-    )
+    return bool(event.get("deferred_follow_up"))
 
 
 async def replay_session_restore_resource_actions(
@@ -729,15 +721,6 @@ POTENTIAL_LOOP_FOLLOWUP_MESSAGE = (
 )
 
 
-FOLLOWUP_SYSTEM_MESSAGE = (
-    "<FOLLOWUP_TICK>\n"
-    "    <REQUEST_SOURCE>CURRENT_REQUEST_FLOW</REQUEST_SOURCE>\n"
-    "    <SESSION_HISTORY_ROLE>BACKGROUND_ONLY</SESSION_HISTORY_ROLE>\n"
-    "    <NEW_REQUEST>FALSE</NEW_REQUEST>\n"
-    "</FOLLOWUP_TICK>"
-)
-
-
 def _compact_followup_value(
         value,
 ) -> str:
@@ -1013,106 +996,6 @@ def rename_runtime_memory_for_followup(
     )
 
 
-def build_idle_followup_tool_results(
-        idle_followup: dict,
-) -> str:
-
-    seconds = int(
-        idle_followup.get(
-            "seconds",
-            0,
-        )
-        or 0
-    )
-    idle_id = escape(
-        str(
-            idle_followup.get(
-                "id",
-                "",
-            )
-            or ""
-        )
-    )
-
-    return (
-        '<TOOL_RESULTS type="idle">\n'
-        "  <IDLE_FOLLOWUP>\n"
-        f"    <id>{idle_id}</id>\n"
-        f"    <elapsed_seconds>{seconds}</elapsed_seconds>\n"
-        "  </IDLE_FOLLOWUP>\n"
-        "</TOOL_RESULTS>"
-    )
-
-
-def build_idle_followup_system_prompt(
-        idle_followup: dict,
-) -> str:
-
-    snapshot = idle_followup.get(
-        "context_snapshot",
-        {},
-    )
-    if not isinstance(snapshot, dict):
-        snapshot = {}
-
-    frozen_system_prompt = str(
-        snapshot.get(
-            "system_prompt",
-            "",
-        )
-        or ""
-    )
-    inherited_tool_results, frozen_system_prompt = (
-        split_tools_results_context(
-            frozen_system_prompt
-        )
-    )
-    inherited_tool_results = [
-        block
-        for block in inherited_tool_results
-        if not is_idle_tool_results_block(
-            block
-        )
-    ]
-    inherited_tool_results.append(
-        build_idle_followup_tool_results(
-            idle_followup
-        )
-    )
-
-    sections = [
-        build_tools_results_context(
-            inherited_tool_results
-        ),
-    ]
-
-    if frozen_system_prompt:
-        sections.append(
-            rename_runtime_memory_for_followup(
-                frozen_system_prompt,
-                sequence_started_at=idle_followup.get(
-                    "sequence_started_at"
-                ),
-            )
-        )
-
-    return "\n\n".join(
-        section
-        for section in sections
-        if str(section or "").strip()
-    )
-
-
-def build_followup_system_message(
-        latest_action: str = "",
-) -> str:
-
-    # Kept as an argument for existing callers; action identity lives only in
-    # CURRENT_REQUEST_FLOW so the follow-up prompt has one focused source of truth.
-    _ = latest_action
-    return FOLLOWUP_SYSTEM_MESSAGE
-
-
 def restore_sequence_attachments_for_followup(
         context,
 ) -> None:
@@ -1286,12 +1169,6 @@ class BrainNode(BaseNode):
                 POTENTIAL_LOOP_FOLLOWUP_MESSAGE
             )
             context.runtime_potential_loop_detected_pending = False
-
-        sections.append(
-            build_followup_system_message(
-                latest_action
-            )
-        )
 
         failed_action_context = (
             build_failed_runtime_action_followup_contexts(
@@ -1755,21 +1632,13 @@ class BrainNode(BaseNode):
             emit_content_to_chat: bool = True,
             filter_runtime_actions: bool = True,
             preserve_runtime_action_markers: bool = False,
+            followup_tick: bool = False,
     ) -> tuple[str, str]:
 
         logger = context.logger
 
-        is_followup_tick = (
-            not str(
-                brain_payload
-                or ""
-            ).strip()
-            and str(
-                system_prompt
-                or ""
-            ).lstrip().startswith(
-                FOLLOWUP_SYSTEM_MESSAGE
-            )
+        is_followup_tick = bool(
+            followup_tick
         )
         previous_followup_tick = getattr(
             context,
@@ -2011,12 +1880,6 @@ class BrainNode(BaseNode):
         # (e.g. the user explicitly asked JIN to emit only the marker).
         context.runtime_active_memory_saved_this_turn = False
         context.runtime_active_memory_refresh_tick = 0
-        idle_followup = state.metadata.get(
-            "idle_followup",
-        )
-        if not isinstance(idle_followup, dict):
-            idle_followup = {}
-
         action_guard_retry = getattr(
             context,
             "runtime_action_guard_retry",
@@ -2033,86 +1896,59 @@ class BrainNode(BaseNode):
         if not isinstance(retry_context_snapshot, dict):
             retry_context_snapshot = {}
 
-        if idle_followup:
-            idle_system_prompt = build_idle_followup_system_prompt(
-                idle_followup
+        retry_system_prompt = str(
+            retry_context_snapshot.get(
+                "system_prompt",
+                "",
             )
-            sequence_origin_request = str(
-                idle_followup.get(
-                    "origin_user_request",
-                    "",
-                )
-                or state.user_input
-                or getattr(
-                    context,
-                    "runtime_turn_user_message",
-                    "",
-                )
-                or ""
-            ).strip()
-            system_prompt = self.build_followup_system_prompt(
-                idle_system_prompt,
-                sequence_origin_request,
-                context=context,
-                instruction=IDLE_FOLLOWUP_MESSAGE,
-                latest_action="idle",
+            or ""
+        )
+        retry_user_prompt = str(
+            retry_context_snapshot.get(
+                "user_prompt",
+                "",
             )
-            brain_payload = ""
-            sequence_user_request = sequence_origin_request
+            or ""
+        )
+
+        if retry_system_prompt:
+            system_prompt = retry_system_prompt
+            brain_payload = retry_user_prompt
         else:
-            retry_system_prompt = str(
-                retry_context_snapshot.get(
-                    "system_prompt",
-                    "",
-                )
-                or ""
-            )
-            retry_user_prompt = str(
-                retry_context_snapshot.get(
-                    "user_prompt",
-                    "",
-                )
-                or ""
-            )
-
-            if retry_system_prompt:
-                system_prompt = retry_system_prompt
-                brain_payload = retry_user_prompt
-            else:
-                system_prompt = (
-                    build_brain_context(
-                        context,
-                        runtime_actions=runtime_actions,
-                        user_input=state.user_input,
-                        commit_active_memory_refresh=True,
-                        include_previous_reasoning=bool(
-                            getattr(
-                                context,
-                                "runtime_session_restore_priming",
-                                False,
-                            )
-                        ),
-                    )
-                )
-                brain_payload = (
-                    build_brain_payload(
-                        state.user_input,
-                        context=context,
-                    )
-                )
-
-            sequence_user_request = str(
-                getattr(
+            system_prompt = (
+                build_brain_context(
                     context,
-                    "runtime_turn_user_message",
-                    "",
+                    runtime_actions=runtime_actions,
+                    user_input=state.user_input,
+                    commit_active_memory_refresh=True,
+                    include_previous_reasoning=bool(
+                        getattr(
+                            context,
+                            "runtime_session_restore_priming",
+                            False,
+                        )
+                    ),
                 )
-                or state.user_input
-                or ""
             )
-            sequence_user_request = sanitize_sequence_user_request(
-                sequence_user_request
+            brain_payload = (
+                build_brain_payload(
+                    state.user_input,
+                    context=context,
+                )
             )
+
+        sequence_user_request = str(
+            getattr(
+                context,
+                "runtime_turn_user_message",
+                "",
+            )
+            or state.user_input
+            or ""
+        )
+        sequence_user_request = sanitize_sequence_user_request(
+            sequence_user_request
+        )
 
         await emit_active_memory_records_update_if_dirty(
             context
@@ -2492,6 +2328,7 @@ class BrainNode(BaseNode):
                     brain_client=brain_client,
                     system_prompt=followup_system_prompt,
                     brain_payload="",
+                    followup_tick=True,
                     runtime_actions=followup_runtime_actions,
                     emit_content_to_chat=True,
                     filter_runtime_actions=True,
@@ -2548,6 +2385,7 @@ class BrainNode(BaseNode):
                     "scene_effect": "search",
                     "context": deep_search_call.get("context"),
                     "deep_search_parent": True,
+                    "deep_search_payload_ready": True,
                 })
                 mark_runtime_action_completed(
                     context,
@@ -2591,13 +2429,6 @@ class BrainNode(BaseNode):
                     sequence_user_request,
                     context=context,
                     latest_action=latest_followup_action,
-                    instruction=(
-                        "Answer the latest user request from the trusted "
-                        "DEEP_WEB_SEARCH report. Use it as the prepared "
-                        "research brief. If the user request still needs more "
-                        "research, you may emit another WEB_SEARCH or "
-                        "DEEP_WEB_SEARCH action."
-                    ),
                 )
 
                 await emit_active_memory_records_update_if_dirty(context)
@@ -2609,6 +2440,7 @@ class BrainNode(BaseNode):
                     brain_client=brain_client,
                     system_prompt=followup_system_prompt,
                     brain_payload="",
+                    followup_tick=True,
                     runtime_actions=followup_runtime_actions,
                     emit_content_to_chat=True,
                     filter_runtime_actions=True,
@@ -2722,12 +2554,6 @@ class BrainNode(BaseNode):
                         sequence_user_request,
                         context=context,
                         latest_action=latest_followup_action,
-                        instruction=(
-                            "Answer the latest user request using the "
-                            "WEB_SEARCH tool result from trusted runtime "
-                            "context. Mention the quoted source data when "
-                            "it helps, then continue the workflow."
-                        ),
                     )
                 )
 
@@ -2742,6 +2568,7 @@ class BrainNode(BaseNode):
                     brain_client=brain_client,
                     system_prompt=followup_system_prompt,
                     brain_payload="",
+                    followup_tick=True,
                     runtime_actions=followup_runtime_actions,
                     emit_content_to_chat=True,
                 )
@@ -2807,6 +2634,7 @@ class BrainNode(BaseNode):
                     brain_client=brain_client,
                     system_prompt=followup_system_prompt,
                     brain_payload="",
+                    followup_tick=True,
                     runtime_actions=followup_runtime_actions,
                     emit_content_to_chat=True,
                     filter_runtime_actions=True,
@@ -2877,6 +2705,7 @@ class BrainNode(BaseNode):
                     brain_client=brain_client,
                     system_prompt=followup_system_prompt,
                     brain_payload="",
+                    followup_tick=True,
                     runtime_actions=followup_runtime_actions,
                     emit_content_to_chat=True,
                     filter_runtime_actions=True,
@@ -2969,6 +2798,7 @@ class BrainNode(BaseNode):
                     brain_client=brain_client,
                     system_prompt=followup_system_prompt,
                     brain_payload="",
+                    followup_tick=True,
                     runtime_actions=followup_runtime_actions,
                     emit_content_to_chat=True,
                     filter_runtime_actions=True,
@@ -3022,6 +2852,7 @@ class BrainNode(BaseNode):
                 brain_client=brain_client,
                 system_prompt=followup_system_prompt,
                 brain_payload="",
+                followup_tick=True,
                 runtime_actions=followup_runtime_actions,
                 emit_content_to_chat=True,
                 filter_runtime_actions=True,
@@ -3117,6 +2948,7 @@ class BrainNode(BaseNode):
                 brain_client=brain_client,
                 system_prompt=final_system_prompt,
                 brain_payload="",
+                followup_tick=True,
                 runtime_actions=final_runtime_actions,
                 emit_content_to_chat=True,
                 filter_runtime_actions=False,
@@ -3124,7 +2956,7 @@ class BrainNode(BaseNode):
             )
 
         state.brain_response = text or ""
-        if context is not None and not idle_followup:
+        if context is not None:
             remember_successful_previous_reasoning(
                 context,
                 reasoning,

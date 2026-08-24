@@ -94,6 +94,52 @@ class BehaviorContractTests(unittest.TestCase):
                     ("second trigger",),
                 )
 
+    def test_runtime_action_enablement_comes_from_contract_metadata(self):
+
+        with tempfile.TemporaryDirectory() as directory:
+            contracts_dir = Path(directory)
+            (contracts_dir / "custom_action.json").write_text(
+                json.dumps({
+                    "custom_action": {
+                        "runtime_action": "CUSTOM_ACTION",
+                        "enable_flag": "CAN_CUSTOM_ACTION",
+                        "runtime_order": 10,
+                    },
+                }),
+                encoding="utf-8",
+            )
+
+            with patch.object(
+                rules_assembler,
+                "CONTRACTS_DIR",
+                contracts_dir,
+            ):
+                self.assertEqual(
+                    rules_assembler.get_enabled_runtime_actions({
+                        "CAN_CUSTOM_ACTION": True,
+                    }),
+                    ("CUSTOM_ACTION",),
+                )
+                self.assertEqual(
+                    rules_assembler.get_enabled_runtime_actions({
+                        "CAN_CUSTOM_ACTION": False,
+                    }),
+                    (),
+                )
+
+    def test_all_contracts_define_runtime_enable_metadata(self):
+
+        for name, contract in get_behavior_contract()["action_guards"].items():
+            self.assertTrue(
+                str(contract.get("enable_flag", "") or "").strip(),
+                msg=f"{name}.enable_flag must be set",
+            )
+            self.assertIsInstance(
+                contract.get("runtime_order"),
+                int,
+                msg=f"{name}.runtime_order must be an int",
+            )
+
     def test_all_contracts_have_trigger_words_and_blockers_as_lists(self):
 
         for name, contract in get_behavior_contract()["action_guards"].items():
@@ -313,7 +359,7 @@ class BehaviorContractTests(unittest.TestCase):
 
         instructions = build_runtime_action_instructions((
             "CLEAN_TOOL_RESULTS",
-            "IDLE",
+            "JIN_COLOR",
         ))
 
         self.assertIn(
@@ -321,7 +367,7 @@ class BehaviorContractTests(unittest.TestCase):
                 "Emit at any moment in you answer to clean redundant "
                 "tool results and only if they are present in the context "
                 "inside <TOOLS_RESULTS> block.\n\n"
-                "<IDLE: Ns >"
+                "<JIN_COLOR>"
             ),
             instructions,
         )

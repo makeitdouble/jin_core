@@ -2508,7 +2508,8 @@ function appendStreamChunk(
 // STREAM END
 
 function finishStreamMessage(
-  messageId
+  messageId,
+  options = {}
 ) {
 
   const stream =
@@ -2587,6 +2588,33 @@ function finishStreamMessage(
       flushRuntimeActionsAfterResponse(
         stream.role
       );
+
+      const answerBubble = (
+        stream.group.answerContent
+        && stream.group.answerContent.closest
+      )
+        ? stream.group.answerContent.closest(".jin-chat-bubble")
+        : null;
+
+      if (
+        answerBubble
+        && window.markJinCompletedAnswerBubble
+      ) {
+        const visibleAnswerText = String(
+          stream.group.answerContent.innerText
+          || stream.group.answerContent.textContent
+          || stream.answer
+          || ""
+        ).trim();
+        window.markJinCompletedAnswerBubble(
+          answerBubble,
+          visibleAnswerText,
+          {
+            retryable: options.retryable === true,
+            retryCandidate: options.retryCandidate === true,
+          }
+        );
+      }
     }
 
     window.JinThinkCitations.startThinkRuleCitationAnalysis(

@@ -3,6 +3,8 @@
     "version": 1,
     "description": "Allows the model to run an asset action block.",
     "runtime_action": "ASSET_ACTION",
+    "enable_flag": "CAN_USE_ASSETS",
+    "runtime_order": 110,
     "private_marker": "<ASSET_ACTION>",
     "triggers": [],
     "blockers": [],

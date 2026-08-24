@@ -43,7 +43,6 @@ from .delayed_memory_utils import (
     is_delayed_memory_report_id,
     slugify_delayed_memory_title,
 )
-from .idle_utils import parse_idle_seconds
 from .update_l4_facts_utils import parse_update_l4_facts_payload
 from .update_active_memory_utils import parse_update_active_memory_payload
 from .jin_color_utils import (
@@ -155,7 +154,6 @@ __all__ = [
     "normalize_delayed_memory_fact_roles",
     "normalize_long_term_fact_ids",
     "parse_delayed_memory_payload",
-    "parse_idle_seconds",
     "parse_jin_position_payload",
     "parse_jin_size_payload",
     "refresh_active_memory_runtime_metadata",

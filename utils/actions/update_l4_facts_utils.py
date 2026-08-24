@@ -8,8 +8,13 @@ MAX_UPDATE_L4_FACTS_MESSAGE_CHARS = 1200
 L4_FACT_ID_RE = re.compile(r"^F[1-9]\d*$", re.IGNORECASE)
 L4_FACT_ID_SCAN_RE = re.compile(r"\bF[1-9]\d*\b", re.IGNORECASE)
 FORBIDDEN_UPDATE_L4_FACTS_NOTE_RE = re.compile(
-    r"\b(delete|deleted|deleting|remove|removed|removing|erase|erased|"
-    r"erasing|drop|dropped|dropping|purge|purged|purging)\b",
+    (
+        r"\b(?:delete|erase|drop|purge|remove)\b\s+"
+        r"(?:(?:the|this)\s+)?"
+        r"(?:(?:l4|long[- ]term)\s+)?"
+        r"(?:fact\s+)?"
+        r"(?:F[1-9]\d*|fact\b|memory\b)"
+    ),
     re.IGNORECASE,
 )
 

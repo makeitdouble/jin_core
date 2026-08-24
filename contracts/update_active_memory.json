@@ -3,6 +3,8 @@
     "version": 2,
     "description": "Allows JIN to update state fields already fixed on an active memory record.",
     "runtime_action": "UPDATE_ACTIVE_MEMORY",
+    "enable_flag": "CAN_SAVE_ACTIVE_MEMORY",
+    "runtime_order": 230,
     "private_marker": "<UPDATE_ACTIVE_MEMORY>",
     "triggers": [],
     "blockers": [],

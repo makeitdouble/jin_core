@@ -126,6 +126,266 @@ for (const [input, expected] of cases) {
             )
 
 
+    def test_deep_search_stack_opens_by_first_child_click_and_closes_outside(self):
+        chat_runtime_source = CHAT_RUNTIME_ACTIONS_JS.read_text(
+            encoding="utf-8"
+        )
+        chat_runtime_css = (
+            ROOT
+            / "ui"
+            / "static"
+            / "css"
+            / "chat-runtime-action.css"
+        ).read_text(encoding="utf-8")
+
+        self.assertIn(
+            "function bindDeepSearchStackClick(",
+            chat_runtime_source,
+        )
+        self.assertIn(
+            'row.dataset.runtimeActionDeepSearchClickBound === "true"',
+            chat_runtime_source,
+        )
+        self.assertIn(
+            "if (firstChildRow !== row)",
+            chat_runtime_source,
+        )
+        self.assertIn(
+            "deepSearchStackHasSelectedText()",
+            chat_runtime_source,
+        )
+        self.assertIn(
+            "function handleDeepSearchStackDocumentClick(",
+            chat_runtime_source,
+        )
+        self.assertIn(
+            "groupRow.contains(target)",
+            chat_runtime_source,
+        )
+        self.assertIn(
+            'document.addEventListener(\n  "click",\n  handleDeepSearchStackDocumentClick',
+            chat_runtime_source,
+        )
+        self.assertNotIn(
+            "function isDeepSearchGroupPointerWithinHoverZone(",
+            chat_runtime_source,
+        )
+        self.assertNotIn(
+            "scheduleDeepSearchHoverValidation(",
+            chat_runtime_source,
+        )
+        self.assertNotIn(
+            '"pointermove",\n  handleDeepSearchStackPointerMove',
+            chat_runtime_source,
+        )
+        self.assertIn(
+            'const DEEP_SEARCH_STACK_COLLAPSED_REVEAL_PX = 0;',
+            chat_runtime_source,
+        )
+        self.assertIn(
+            'jin-runtime-action-deep-search-child-obscured',
+            chat_runtime_css,
+        )
+        self.assertIn(
+            'opacity: 0.1;',
+            chat_runtime_css,
+        )
+        self.assertIn(
+            '-webkit-user-select: text;',
+            chat_runtime_css,
+        )
+        self.assertIn(
+            'user-select: text;',
+            chat_runtime_css,
+        )
+        self.assertIn(
+            '[data-runtime-action-deep-search-index="1"]:not(.jin-runtime-action-deep-search-stack-expanded)',
+            chat_runtime_css,
+        )
+        self.assertIn(
+            'transition-duration: 220ms;',
+            chat_runtime_css,
+        )
+
+    @unittest.skipUnless(
+        shutil.which("node"),
+        "node is required for the deep-search click interaction test",
+    )
+    def test_deep_search_stack_click_interaction_routes_only_expected_clicks(self):
+        script = r'''
+const fs = require("fs");
+const source = fs.readFileSync(process.argv[1], "utf8");
+const start = source.indexOf("function deepSearchStackHasSelectedText()");
+const end = source.indexOf("function scheduleDeepSearchStackGeometrySync(", start);
+
+if (start < 0 || end < 0) {
+  throw new Error("deep-search click helpers were not found");
+}
+
+let selectedText = "";
+const deepSearchStackExpandedGroups = new Set();
+const rowsByGroup = new Map();
+const stateChanges = [];
+
+global.window = {
+  getSelection() {
+    return {
+      isCollapsed: !selectedText,
+      toString() {
+        return selectedText;
+      },
+    };
+  },
+};
+
+function makeRow(kind, name) {
+  const listeners = {};
+  const label = {
+    name: `${name}-label`,
+    addEventListener(type, callback) {
+      listeners[type] = callback;
+    },
+  };
+
+  const row = {
+    name,
+    dataset: {},
+    classList: {
+      contains(value) {
+        return value === `jin-runtime-action-deep-search-${kind}`;
+      },
+    },
+    querySelector() {
+      return label;
+    },
+    contains(target) {
+      return target === row || target === label;
+    },
+    listeners,
+    label,
+  };
+
+  return row;
+}
+
+const parent = makeRow("parent", "parent");
+const first = makeRow("child", "first");
+const second = makeRow("child", "second");
+[parent, first, second].forEach((row) => {
+  row.dataset.runtimeActionDeepSearchGroup = "group-1";
+});
+rowsByGroup.set("group-1", [parent, first, second]);
+
+function readDeepSearchGroupId(row) {
+  return row.dataset.runtimeActionDeepSearchGroup || "";
+}
+
+function findDeepSearchGroupRows(groupId) {
+  return rowsByGroup.get(groupId) || [];
+}
+
+function setDeepSearchStackExpanded(row, expanded) {
+  const groupId = readDeepSearchGroupId(row);
+  stateChanges.push([row.name, expanded]);
+  if (expanded) {
+    deepSearchStackExpandedGroups.add(groupId);
+  } else {
+    deepSearchStackExpandedGroups.delete(groupId);
+  }
+}
+
+eval(source.slice(start, end));
+
+bindDeepSearchStackClick(first);
+bindDeepSearchStackClick(second);
+
+second.listeners.click();
+if (stateChanges.length !== 0) {
+  throw new Error("non-first child opened the stack");
+}
+
+selectedText = "copy me";
+first.listeners.click();
+if (stateChanges.length !== 0) {
+  throw new Error("text selection triggered stack opening");
+}
+
+selectedText = "";
+first.listeners.click();
+if (stateChanges.length !== 1 || stateChanges[0][1] !== true) {
+  throw new Error("first child click did not open the stack");
+}
+
+first.listeners.click();
+if (stateChanges.length !== 1) {
+  throw new Error("clicking a bubble while expanded changed stack state");
+}
+
+handleDeepSearchStackDocumentClick({ target: second.label });
+if (stateChanges.length !== 1) {
+  throw new Error("clicking inside a child bubble collapsed the stack");
+}
+
+handleDeepSearchStackDocumentClick({ target: { name: "outside" } });
+if (stateChanges.length !== 2 || stateChanges[1][1] !== false) {
+  throw new Error("outside click did not collapse the stack");
+}
+'''
+        completed = subprocess.run(
+            [
+                shutil.which("node"),
+                "-e",
+                script,
+                str(CHAT_RUNTIME_ACTIONS_JS),
+            ],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+
+        self.assertEqual(
+            completed.returncode,
+            0,
+            completed.stderr or completed.stdout,
+        )
+
+    def test_deep_search_parent_waits_for_close_tag_before_showing_objective(self):
+        socket_runtime_source = SOCKET_RUNTIME_ACTIONS_JS.read_text(
+            encoding="utf-8"
+        )
+
+        self.assertIn(
+            "function shouldUseDeepSearchStartedDisplayNameOnly(",
+            socket_runtime_source,
+        )
+        self.assertIn(
+            'action === "deep_web_search"',
+            socket_runtime_source,
+        )
+        self.assertIn(
+            'data.deep_search_parent === true',
+            socket_runtime_source,
+        )
+        self.assertIn(
+            'data.deep_search_payload_ready === true',
+            socket_runtime_source,
+        )
+        self.assertIn(
+            "&& !deepSearchPayloadReady",
+            socket_runtime_source,
+        )
+        self.assertIn(
+            """shouldUseDeepSearchStartedDisplayNameOnly(
+      action,
+      status,
+      deepSearchParent,
+      deepSearchPayloadReady
+    )
+      ? displayName""",
+            socket_runtime_source,
+        )
+
+
     def test_save_active_memory_does_not_add_second_token_hot_path_parser(self):
         runtime_stream_source = RUNTIME_STREAM_PY.read_text(
             encoding="utf-8"
@@ -249,11 +509,11 @@ for (const [input, expected] of cases) {
             socket_runtime_source,
         )
         self.assertIn(
-            'node.title = detail;',
+            'node.title = hoverDetail;',
             chat_runtime_source,
         )
         self.assertIn(
-            'row.title = detail;',
+            'row.title = hoverDetail;',
             chat_runtime_source,
         )
         self.assertIn(
@@ -323,8 +583,44 @@ for (const [input, expected] of cases) {
             runtime_action_css,
         )
         self.assertIn(
-            "margin-top: -1.35rem",
+            "const DEEP_SEARCH_STACK_MOTION_MS = 220;",
+            chat_runtime_source,
+        )
+        self.assertNotIn(
+            "DEEP_SEARCH_STACK_FLOW_MOTION_MS",
+            chat_runtime_source,
+        )
+        self.assertIn(
+            "const DEEP_SEARCH_STACK_COLLAPSED_REVEAL_PX = 0;",
+            chat_runtime_source,
+        )
+        self.assertIn(
+            "function startDeepSearchStackFlip(",
+            chat_runtime_source,
+        )
+        self.assertIn(
+            "captureDeepSearchStackMotionEntries(",
+            chat_runtime_source,
+        )
+        self.assertIn(
+            "--jin-deep-search-stack-motion-y",
             runtime_action_css,
+        )
+        self.assertIn(
+            "transition-duration: 220ms !important;",
+            runtime_action_css,
+        )
+        self.assertIn(
+            "function primeDeepSearchInsertedChild(",
+            chat_runtime_source,
+        )
+        self.assertIn(
+            "settleDeepSearchStackGeometry(",
+            chat_runtime_source,
+        )
+        self.assertNotIn(
+            "DEEP_SEARCH_STACK_COLLAPSE_DELAY_MS",
+            chat_runtime_source,
         )
         self.assertIn(
             "function insertRuntimeActionRow(",
@@ -339,15 +635,27 @@ for (const [input, expected] of cases) {
             chat_runtime_source,
         )
         self.assertIn(
-            "--jin-deep-search-stack-motion: 150ms",
+            "function bindDeepSearchStackClick(",
+            chat_runtime_source,
+        )
+        self.assertIn(
+            "clickTarget.addEventListener(",
+            chat_runtime_source,
+        )
+        self.assertIn(
+            "function handleDeepSearchStackDocumentClick(",
+            chat_runtime_source,
+        )
+        self.assertIn(
+            "--jin-deep-search-stack-translate-y",
             runtime_action_css,
         )
         self.assertIn(
-            "margin-top var(--jin-deep-search-stack-motion) cubic-bezier(0.16, 1, 0.3, 1)",
+            "overflow-anchor: none",
             runtime_action_css,
         )
         self.assertIn(
-            "transition-timing-function: cubic-bezier(0.55, 0.055, 0.675, 0.19)",
+            "0 10px 24px rgba(0, 0, 0, 0.36)",
             runtime_action_css,
         )
         self.assertIn(

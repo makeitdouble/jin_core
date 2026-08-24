@@ -3,6 +3,8 @@
     "version": 1,
     "description": "Allows the model to load skills.",
     "runtime_action": "LOAD_SKILL",
+    "enable_flag": "CAN_USE_ASSETS",
+    "runtime_order": 90,
     "private_marker": "<LOAD_SKILL: name of skill >",
     "triggers": [],
     "blockers": [],

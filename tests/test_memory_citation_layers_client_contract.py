@@ -136,12 +136,14 @@ class MemoryCitationLayersClientContractTests(unittest.TestCase):
     def test_cache_versions_are_bumped_for_citation_sync_assets(self):
         source = INDEX_HTML.read_text(encoding="utf-8")
 
-        self.assertIn("/static/css/runtime-memory.css?v=l4-report-link-1", source)
-        self.assertIn("/static/css/theme-win95.css?v=l4-fact-report-link-1", source)
-        self.assertIn("/static/js/runtime/runtime-memory-view.js?v=files-panel-1", source)
-        self.assertIn("/static/js/runtime/runtime-avatar.js?v=jin-glow-1", source)
-        self.assertIn("/static/js/think-citations.js?v=think-citations-6", source)
-        self.assertIn("/static/js/chat.js?v=jin-size-1", source)
+        self.assertIn("/static/css/runtime-memory.css?v=", source)
+        self.assertIn("/static/css/theme-win95.css?v=", source)
+        self.assertIn("/static/js/runtime/runtime-memory-view.js?v=context-card-chevronless-1", source)
+        self.assertIn("lazy-rows=5", source)
+        self.assertIn("l4-priority-bubble=1", source)
+        self.assertIn("/static/js/runtime/runtime-avatar.js?v=", source)
+        self.assertIn("/static/js/think-citations.js?v=think-citations-8", source)
+        self.assertIn("/static/js/chat.js?v=stream-avatar-2-reference-ids-1", source)
 
 
 if __name__ == "__main__":

@@ -34,7 +34,6 @@ SERVICE_AS_BRAIN_RUNTIME_ACTIONS = {
     "CAN_SAVE_ACTIVE_MEMORY": True,
     "CAN_RUNTIME_TODO": False,
     "CAN_CLEAN_TOOL_RESULTS": True,
-    "CAN_IDLE": True,
     "CAN_JIN_COLOR": True,
     "CAN_JIN_SIZE": True,
     "CAN_JIN_POSITION": True,
@@ -50,7 +49,6 @@ BRAIN_RUNTIME_ACTIONS = {
     "CAN_SAVE_ACTIVE_MEMORY": True,
     "CAN_RUNTIME_TODO": False,
     "CAN_CLEAN_TOOL_RESULTS": True,
-    "CAN_IDLE": True,
     "CAN_JIN_COLOR": True,
     "CAN_JIN_SIZE": True,
     "CAN_JIN_POSITION": True,
@@ -226,6 +224,41 @@ def _append_user_feedback(
         format_user_feedback(
             user_feedback
         )
+    )
+
+
+def _append_user_retry_context(
+    parts: list[str],
+    context=None,
+) -> None:
+
+    if (
+        context is None
+        or not getattr(
+            context,
+            "runtime_user_retry_active",
+            False,
+        )
+    ):
+        return
+
+    attempt = int(
+        getattr(
+            context,
+            "runtime_user_retry_count",
+            0,
+        )
+        or 0
+    )
+    parts.append(
+        "\n".join([
+            f'<USER_RETRY attempt="{max(1, attempt)}">',
+            "The user explicitly retried JIN's immediately previous answer.",
+            "That previous JIN answer has been discarded and is not part of the dialogue.",
+            "Answer the same current user request again as a fresh replacement.",
+            "Do not describe the retry itself unless it is directly useful to the answer.",
+            "</USER_RETRY>",
+        ])
     )
 
 
@@ -1250,6 +1283,13 @@ def build_brain_context(
         context,
     )
 
+    # A user retry is a transient replacement instruction. The discarded JIN
+    # answer is removed from rolling dialogue/reasoning before this is built.
+    _append_user_retry_context(
+        runtime_context_parts,
+        context,
+    )
+
     # Silent metabolism block: the current state is allowed to modulate
     # attention/continuity but is never a conversational topic by default.
     try:
@@ -1368,10 +1408,14 @@ def build_brain_context(
         or ""
     ).strip()
 
-    if restore_priming and restore_reasoning_dump:
-        prompt_parts.append(
+    if restore_priming:
+        if (
             restore_reasoning_dump
-        )
+            and "<JIN_REASONING" not in restored_session_dialog
+        ):
+            prompt_parts.append(
+                restore_reasoning_dump
+            )
     else:
         previous_reasoning_loop_context = (
             build_previous_reasoning_loop_context(

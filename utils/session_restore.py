@@ -16,7 +16,7 @@ from utils.actions import normalize_jin_position_dict, normalize_jin_speed_value
 
 BLOCK_RE_TEMPLATE = r"<{name}(?:\s+[^>]*)?>\s*(?P<body>[\s\S]*?)\s*</{name}>"
 TOOL_RESULT_RE = re.compile(
-    r'<TOOL_RESULT\s+name="(?P<name>[^"]+)"[^>]*>\s*(?P<body>[\s\S]*?)\s*</TOOL_RESULT>',
+    r'<TOOL_RESULT\s+name="(?P<name>[^"]+)"(?P<attrs>[^>]*)>\s*(?P<body>[\s\S]*?)\s*</TOOL_RESULT>',
     re.IGNORECASE,
 )
 TRUSTED_VALUE_RE = re.compile(
@@ -30,6 +30,12 @@ ATTACHED_FILE_ID_RE = re.compile(
 L4_FACT_ID_RE = re.compile(
     r"(?<![a-zA-Z0-9_])F(?P<number>\d+)(?![a-zA-Z0-9_])",
     re.IGNORECASE,
+)
+UPDATE_L4_FACTS_BLOCK_RE = re.compile(
+    r"^[ \t]*<UPDATE_L4_FACTS(?:\s+[^>]*)?>[ \t]*\r?\n"
+    r"(?P<body>[\s\S]*?)"
+    r"^[ \t]*</UPDATE_L4_FACTS>[ \t]*[\"'`]*$",
+    re.IGNORECASE | re.MULTILINE,
 )
 
 
@@ -200,26 +206,93 @@ def _append_restored_dialog_entry(lines: list[str], entry: dict) -> None:
     lines.append(f"<{tag}{timestamp_attr}>{escape(text)}</{tag}>")
 
 
+def _append_restored_reasoning_entry(
+    lines: list[str],
+    jin_entry: dict,
+    reasoning_by_turn_id: dict[str, str],
+) -> None:
+    turn_id = str(jin_entry.get("turn_id", "") or "").strip()
+    reasoning = _crop_restore_reasoning(
+        reasoning_by_turn_id.get(turn_id, "")
+    )
+    if not reasoning:
+        return
+
+    timestamp = str(jin_entry.get("ts", "") or "").strip()
+    attrs = []
+    if turn_id:
+        attrs.append(f'turn_id="{escape(turn_id)}"')
+    if timestamp:
+        attrs.append(f'ts="{escape(timestamp)}"')
+    attr_text = (" " + " ".join(attrs)) if attrs else ""
+    lines.append(
+        f"<JIN_REASONING{attr_text}>\n{reasoning}\n</JIN_REASONING>"
+    )
+
+
 def _build_restored_dialog_context(
     entries: list[dict],
     session_id: str,
+    reasoning_by_turn_id: dict[str, str],
 ) -> str:
     lines = [
         f'<RESTORED_SESSION_DIALOG session_id="{escape(session_id)}">',
-        "This is the exact visible dialogue restored from the archived session. The three newest complete USER/JIN pairs are shown in chronological order, ending at the latest archived JIN response; continue from that interaction state and do not summarize or re-introduce it unless the user asks.",
+        "This is the exact visible dialogue restored from the archived session. The newest complete USER/JIN pairs are shown in chronological order. For the latest pair, archived JIN reasoning is placed between the USER message and the visible JIN answer when available; continue from that interaction state and do not summarize or re-introduce it unless the user asks.",
     ]
 
-    for user_entry, jin_entry in _recent_restored_dialog_pairs(entries):
+    pairs = _recent_restored_dialog_pairs(entries)
+    latest_user_entry = next(
+        (
+            entry
+            for entry in reversed(entries)
+            if str(entry.get("role", "")).strip().lower() == "user"
+            and str(entry.get("text", "") or "").strip()
+        ),
+        None,
+    )
+    latest_user_is_unpaired = bool(
+        latest_user_entry is not None
+        and (not pairs or pairs[-1][0] is not latest_user_entry)
+    )
+    if latest_user_is_unpaired:
+        pairs = pairs[-max(RECENT_MESSAGES_MAX_PAIRS - 1, 0):]
+
+    for index, (user_entry, jin_entry) in enumerate(pairs):
         _append_restored_dialog_entry(lines, user_entry)
+        if index == len(pairs) - 1 and not latest_user_is_unpaired:
+            _append_restored_reasoning_entry(
+                lines,
+                jin_entry,
+                reasoning_by_turn_id,
+            )
         _append_restored_dialog_entry(lines, jin_entry)
+
+    if latest_user_is_unpaired:
+        _append_restored_dialog_entry(lines, latest_user_entry)
 
     lines.append("</RESTORED_SESSION_DIALOG>")
     return "\n".join(lines)
 
 
-def _build_recent_turns(entries: list[dict]) -> list[dict]:
+def _extract_reasoning_body(text: str) -> str:
+    source = str(text or "").strip()
+    if not source:
+        return ""
+
+    marker = "--- REASONING ---"
+    if marker not in source:
+        return source
+
+    return source.split(marker, 1)[1].strip()
+
+
+def _build_recent_turns(
+    entries: list[dict],
+    reasoning_by_turn_id: dict[str, str] | None = None,
+) -> list[dict]:
     turns: dict[int, dict] = {}
     ordered_turns = []
+    reasoning_by_turn_id = reasoning_by_turn_id or {}
 
     for entry in entries:
         try:
@@ -249,15 +322,24 @@ def _build_recent_turns(entries: list[dict]) -> list[dict]:
                 turn["user_created_at"] = timestamp
         elif role in {"jin", "assistant", "brain", "service"}:
             turn["jin"] = text
+            reasoning = _extract_reasoning_body(
+                reasoning_by_turn_id.get(
+                    str(entry.get("turn_id", "") or "").strip(),
+                    "",
+                )
+            )
+            if reasoning:
+                turn["reasoning"] = reasoning
             if timestamp:
                 turn["jin_created_at"] = timestamp
 
     ordered_turns.sort(key=lambda item: item[0])
-    return [
+    complete_turns = [
         item
-        for _, item in ordered_turns[-RECENT_MESSAGES_MAX_PAIRS:]
-        if item.get("user") or item.get("jin")
+        for _, item in ordered_turns
+        if item.get("user") and item.get("jin")
     ]
+    return complete_turns[-RECENT_MESSAGES_MAX_PAIRS:]
 
 
 def _read_reasoning(session_directory: Path, entries: list[dict]) -> dict[str, str]:
@@ -554,6 +636,8 @@ def _tool_result_kind(name: str) -> str:
         "ATTACH_FILE",
     }:
         return "files"
+    if action_name == "UPDATE_L4_FACTS":
+        return "l4"
     return ""
 
 
@@ -601,11 +685,30 @@ def _parse_restore_tool_results(
         if not body:
             continue
 
-        items.append({
+        result = body
+        if kind == "l4":
+            try:
+                parsed_result = json.loads(body)
+            except (TypeError, ValueError, json.JSONDecodeError):
+                parsed_result = None
+            if isinstance(parsed_result, dict):
+                result = parsed_result
+
+        item = {
             "kind": kind,
-            "result": body,
+            "result": result,
             "created_at": fallback_created_at + offset,
-        })
+        }
+        attrs = str(match.group("attrs") or "")
+        id_match = re.search(
+            r'\bid="(?P<id>[^"]+)"',
+            attrs,
+            re.IGNORECASE,
+        )
+        if id_match is not None:
+            item["id"] = unescape(id_match.group("id").strip())
+
+        items.append(item)
         offset += 0.001
 
     return items[-20:]
@@ -677,6 +780,142 @@ def _build_session_actions(context_text: str, fallback_created_at: float) -> lis
         })
 
     return items
+
+
+def _runtime_event_created_at(entry: dict, payload: dict) -> float:
+    try:
+        created_at = float(payload.get("created_at", 0) or 0)
+    except (TypeError, ValueError):
+        created_at = 0.0
+    return created_at if created_at > 0 else _entry_timestamp(entry)
+
+
+def _build_runtime_event_session_actions(entries: list[dict]) -> list[dict]:
+    items = []
+
+    for entry in entries:
+        if str(entry.get("event", "") or "").strip() != "runtime_action_request":
+            continue
+        payload = entry.get("payload")
+        if not isinstance(payload, dict):
+            continue
+        if str(payload.get("action", "") or "").strip().upper() != "UPDATE_L4_FACTS":
+            continue
+
+        raw_action = payload.get("session_action")
+        raw_action = raw_action if isinstance(raw_action, dict) else {}
+        message = " ".join(str(payload.get("message", "") or "").split()).strip()
+        text = str(raw_action.get("text", "") or "").strip()
+        if not text:
+            text = "UPDATE_L4_FACTS" + (f": {message}" if message else "")
+
+        part = {"text": "UPDATE_L4_FACTS"}
+        if message:
+            part["message"] = message
+        action_id = str(payload.get("id", "") or "").strip()
+        if action_id:
+            part["id"] = action_id
+
+        item = {
+            "text": text,
+            "created_at": _runtime_event_created_at(entry, payload),
+            "parts": [part],
+        }
+        items.append(item)
+
+    return items[-200:]
+
+
+def _build_runtime_event_tool_results(entries: list[dict]) -> list[dict]:
+    items = []
+
+    for entry in entries:
+        if str(entry.get("event", "") or "").strip() != "runtime_tool_result":
+            continue
+        payload = entry.get("payload")
+        if not isinstance(payload, dict):
+            continue
+        kind = str(payload.get("kind", "") or "").strip().casefold()
+        if kind != "l4":
+            continue
+        result = payload.get("result")
+        if not isinstance(result, dict):
+            continue
+
+        item = {
+            "kind": "l4",
+            "result": result,
+            "created_at": _runtime_event_created_at(entry, payload),
+        }
+        result_id = str(payload.get("id", "") or "").strip()
+        if result_id:
+            item["id"] = result_id
+        items.append(item)
+
+    return items[-20:]
+
+
+def _build_reasoning_l4_fallback_action(
+    entries: list[dict],
+    reasoning_by_turn_id: dict[str, str],
+) -> dict | None:
+    for entry in reversed(entries):
+        role = str(entry.get("role", "") or "").strip().casefold()
+        if role not in {"jin", "assistant", "brain", "service"}:
+            continue
+        turn_id = str(entry.get("turn_id", "") or "").strip()
+        reasoning = str(reasoning_by_turn_id.get(turn_id, "") or "")
+        matches = list(UPDATE_L4_FACTS_BLOCK_RE.finditer(reasoning))
+        if not matches:
+            continue
+
+        body = unescape(matches[-1].group("body")).strip()
+        if not body:
+            continue
+        message = body
+        try:
+            parsed = json.loads(body)
+        except (TypeError, ValueError, json.JSONDecodeError):
+            parsed = None
+        if isinstance(parsed, dict):
+            message = str(parsed.get("message", "") or "").strip() or body
+        message = " ".join(message.split()).strip()
+        if not message:
+            continue
+
+        return {
+            "text": f"UPDATE_L4_FACTS: {message}",
+            "created_at": _entry_timestamp(entry),
+            "parts": [{
+                "text": "UPDATE_L4_FACTS",
+                "message": message,
+            }],
+        }
+
+    return None
+
+
+def _merge_restore_tool_results(
+    context_results: list[dict],
+    runtime_results: list[dict],
+) -> list[dict]:
+    merged = []
+    keyed_indexes = {}
+
+    for item in [*context_results, *runtime_results]:
+        if not isinstance(item, dict):
+            continue
+        kind = str(item.get("kind", "") or "").strip().casefold()
+        result_id = str(item.get("id", "") or "").strip()
+        key = (kind, result_id) if kind and result_id else None
+        if key is not None and key in keyed_indexes:
+            merged[keyed_indexes[key]] = item
+            continue
+        if key is not None:
+            keyed_indexes[key] = len(merged)
+        merged.append(item)
+
+    return merged[-20:]
 
 
 def _parse_trusted_values(context_text: str) -> dict:
@@ -920,10 +1159,55 @@ def build_archived_session_restore_payload(
 
     fallback_created_at = _entry_timestamp(visible_entries[0]) or dialog_path.stat().st_mtime
     session_actions = _build_session_actions(context_text, fallback_created_at)
-    tool_results = _parse_restore_tool_results(
-        context_text,
-        fallback_created_at,
+    runtime_session_actions = _build_runtime_event_session_actions(entries)
+    if runtime_session_actions:
+        session_actions = [
+            item
+            for item in session_actions
+            if not (
+                isinstance(item, dict)
+                and any(
+                    isinstance(part, dict)
+                    and str(part.get("text", "") or "").strip()
+                    == ACTION_LABELS["UPDATE_L4_FACTS"]
+                    for part in item.get("parts", []) or []
+                )
+            )
+        ]
+        session_actions.extend(runtime_session_actions)
+    elif not any(
+        isinstance(item, dict)
+        and any(
+            isinstance(part, dict)
+            and str(part.get("text", "") or "").strip()
+            in {"UPDATE_L4_FACTS", ACTION_LABELS["UPDATE_L4_FACTS"]}
+            for part in item.get("parts", []) or []
+        )
+        for item in session_actions
+    ):
+        fallback_l4_action = _build_reasoning_l4_fallback_action(
+            visible_entries,
+            reasoning_by_turn_id,
+        )
+        if fallback_l4_action is not None:
+            session_actions.append(fallback_l4_action)
+    session_actions = session_actions[-200:]
+
+    tool_results = _merge_restore_tool_results(
+        _parse_restore_tool_results(
+            context_text,
+            fallback_created_at,
+        ),
+        _build_runtime_event_tool_results(entries),
     )
+
+    archive_tail_at = ""
+    archive_tail_timestamp = 0.0
+    for entry in entries:
+        entry_timestamp = _entry_timestamp(entry)
+        if entry_timestamp >= archive_tail_timestamp:
+            archive_tail_timestamp = entry_timestamp
+            archive_tail_at = str(entry.get("ts", "") or "").strip()
 
     ui_messages = []
     for entry in visible_entries:
@@ -954,11 +1238,16 @@ def build_archived_session_restore_payload(
         "dialog_file": dialog_path.name,
         "context_file": context_path.name if context_path.is_file() else "",
         "messages": ui_messages,
+        "archive_tail_at": archive_tail_at,
         "dialog_context": _build_restored_dialog_context(
             visible_entries,
             _clean_session_id(session_id),
+            reasoning_by_turn_id,
         ),
-        "recent_turns": _build_recent_turns(visible_entries),
+        "recent_turns": _build_recent_turns(
+            visible_entries,
+            reasoning_by_turn_id,
+        ),
         "previous_reasoning": latest_reasoning,
         "restore_reasoning_dump": restore_reasoning_dump,
         "restore_l4_fact_ids": restore_l4_fact_ids,

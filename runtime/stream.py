@@ -57,7 +57,6 @@ from contracts.rules_assembler import (
     RUNTIME_ACTION_LOAD_DELAYED_MEMORY,
     RUNTIME_ACTION_LOAD_SKILL,
     RUNTIME_ACTION_ASSET_ACTION,
-    RUNTIME_ACTION_IDLE,
     RUNTIME_ACTION_JIN_COLOR,
     RUNTIME_ACTION_JIN_SIZE,
     RUNTIME_ACTION_SAVE_ACTIVE_MEMORY,
@@ -192,6 +191,7 @@ class RuntimeStream:
         self.jin_color_action_id = ""
         self.jin_size_action_ids = {}
         self.deep_web_search_action_ids = {}
+        self.started_deep_web_search_action_ids = []
         self.update_l4_facts_action_ids = {}
         self.last_jin_color_action_color = ""
         self.last_jin_size_action_size = ""
@@ -200,7 +200,6 @@ class RuntimeStream:
         self.delayed_memory_action_payload = ""
         self.raw_content_parts = []
         self.raw_model_output = ""
-        self.pending_idle_actions = []
         self.action_filter = RuntimeActionStreamFilter(
             enabled_actions=self.runtime_actions,
             preserve_action_marker=self.should_preserve_action_marker,
@@ -1497,19 +1496,7 @@ class RuntimeStream:
                 source="runtime stream content",
             )
 
-            idle_actions = tuple(
-                action
-                for action in actions
-                if action.name == RUNTIME_ACTION_IDLE
-            )
-            immediate_actions = tuple(
-                action
-                for action in actions
-                if action.name != RUNTIME_ACTION_IDLE
-            )
-            self.pending_idle_actions.extend(
-                idle_actions
-            )
+            immediate_actions = tuple(actions)
 
             if immediate_actions:
                 duplicate_detected = False
@@ -1698,6 +1685,20 @@ class RuntimeStream:
                     deep_search_action_ids
                 )
 
+            started_action_ids = getattr(
+                self,
+                "started_deep_web_search_action_ids",
+                None,
+            )
+            if not isinstance(
+                started_action_ids,
+                list,
+            ):
+                started_action_ids = []
+                self.started_deep_web_search_action_ids = (
+                    started_action_ids
+                )
+
             action_id = (
                 deep_search_action_ids.get(
                     payload_key,
@@ -1706,6 +1707,21 @@ class RuntimeStream:
                 if payload_key
                 else ""
             )
+
+            # Pair the opening marker and closing block to one UI row.
+            if (
+                not action_id
+                and payload_key
+                and started_action_ids
+            ):
+                action_id = str(
+                    started_action_ids.pop(0)
+                    or ""
+                ).strip()
+                if action_id:
+                    deep_search_action_ids[payload_key] = (
+                        action_id
+                    )
 
             if not action_id:
                 existing_count = len([
@@ -1744,6 +1760,10 @@ class RuntimeStream:
 
                 if payload_key:
                     deep_search_action_ids[payload_key] = (
+                        action_id
+                    )
+                elif action_id not in started_action_ids:
+                    started_action_ids.append(
                         action_id
                     )
 
@@ -2621,6 +2641,7 @@ class RuntimeStream:
 
                 if action.name == RUNTIME_ACTION_DEEP_WEB_SEARCH:
                     payload["deep_search_parent"] = True
+                    payload["deep_search_payload_ready"] = False
                     payload["scene_effect"] = "search"
 
                     if search_query:
@@ -2859,35 +2880,6 @@ class RuntimeStream:
         self.started_delayed_memory_action_ids.clear()
         self.delayed_memory_action_payload = ""
         self.context.runtime_delayed_memory_save_rejected_confirmation_id = ""
-
-    async def flush_pending_idle_actions(
-        self,
-    ) -> None:
-
-        if not self.pending_idle_actions:
-            return
-
-        from utils.brain_client_utils import (
-            apply_runtime_action_calls,
-        )
-
-        idle_actions = tuple(
-            self.pending_idle_actions
-        )
-        self.pending_idle_actions.clear()
-
-        await apply_runtime_action_calls(
-            self.context,
-            idle_actions,
-            context_snapshot=self.context_snapshot,
-            assistant_message="".join(
-                self.raw_content_parts
-            ),
-            runtime_message_id=(
-                self.stream.message_id
-            ),
-        )
-
 
     async def flush_runtime_action_content(
         self,
@@ -3227,8 +3219,6 @@ class RuntimeStream:
                         and self.emit_content_to_chat
                     ),
                 )
-
-            await self.flush_pending_idle_actions()
 
             if self.action_guard_rejected_aborted:
                 await self.fail_unfinished_delayed_memory_actions()

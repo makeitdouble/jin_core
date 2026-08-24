@@ -631,6 +631,7 @@
         session_snapshot: {
           ...previousSessionSnapshot,
           tool_results: [],
+          tool_results_cleared_at: new Date().toISOString(),
         },
       });
 

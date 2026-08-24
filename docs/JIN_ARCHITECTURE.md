@@ -32,7 +32,7 @@ The codebase is intentionally not structured as a generic autonomous-agent frame
 Browser UI
    <-> FastAPI / WebSocket (/ws/chat)
        -> RuntimeContext
-       -> PendingRequestQueue
+       -> asyncio.Queue
        -> process_message()
        -> AgentRuntime
        -> BrainNode
@@ -98,20 +98,15 @@ Main ownership by package:
 
 Do not create a parallel state container for a concept already owned here unless the lifetime is intentionally browser-only or filesystem-persistent.
 
-### 3.2 PendingRequestQueue
+### 3.2 Pending request queue
 
-`websocket/tasks.py::PendingRequestQueue` serializes work. It currently keeps two deques:
-
-- idle follow-ups;
-- regular requests.
-
-`_get()` returns an idle follow-up before a regular request when one is queued. Foreground work still has explicit guards around background L4 processing. Any change to queue priority must be treated as a behavioral change, not a harmless refactor.
+The websocket endpoint uses a normal `asyncio.Queue` to serialize queued requests in FIFO order. Foreground work still has explicit guards around background L4 processing.
 
 ### 3.3 Foreground turn
 
 `websocket/messages.py::process_message()` currently performs the foreground lifecycle:
 
-1. classify ordinary turn vs IDLE follow-up vs action-guard retry vs archived-session resume tick;
+1. classify ordinary turn vs action-guard retry vs archived-session resume tick;
 2. resolve current attachments;
 3. establish turn ID and sequence ID;
 4. reset per-turn transient state;
@@ -202,7 +197,6 @@ Current action names in the contract table:
 - `DEEP_WEB_SEARCH`
 - `WEB_SEARCH`
 - `CLEAN_TOOL_RESULTS`
-- `IDLE`
 - `JIN_COLOR`
 - `JIN_SIZE`
 - `JIN_POSITION`

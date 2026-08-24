@@ -3,6 +3,8 @@
     "version": 1,
     "description": "Allows the model to unload skills.",
     "runtime_action": "UNLOAD_SKILL",
+    "enable_flag": "CAN_USE_ASSETS",
+    "runtime_order": 100,
     "private_marker": "<UNLOAD_SKILL: name of skill >",
     "triggers": [],
     "blockers": [],

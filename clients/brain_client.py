@@ -7,10 +7,10 @@ from config_loader import (
     config,
 )
 from contracts.rules_assembler import (
+    RUNTIME_ACTION_DEEP_WEB_SEARCH,
     RUNTIME_ACTION_LOAD_DELAYED_MEMORY,
     RUNTIME_ACTION_LOAD_SKILL,
     RUNTIME_ACTION_ASSET_ACTION,
-    RUNTIME_ACTION_IDLE,
     RUNTIME_ACTION_JIN_COLOR,
     RUNTIME_ACTION_JIN_SIZE,
     RUNTIME_ACTION_UPDATE_L4_FACTS,
@@ -707,6 +707,7 @@ async def ask_brain_stream(
     stop_for_runtime_action = False
     delayed_memory_bubble_started = False
     active_memory_pending_bubble_ids = []
+    deep_web_search_pending_bubble_ids = []
     update_l4_facts_pending_bubble_ids = []
     asset_action_bubble_started = False
     asset_action_bubble_id = ""
@@ -743,7 +744,6 @@ async def ask_brain_stream(
     session_action_message_parts = []
     session_action_message_content = ""
     session_action_marker_seen = False
-    pending_idle_action_calls = []
     confirmed_action_guard_names = set()
     rejected_action_guard_names = set()
     action_guard_display_state = {}
@@ -1476,6 +1476,123 @@ async def ask_brain_stream(
             if action_id:
                 action_display_ids[id(action)] = action_id
 
+    async def emit_deep_web_search_bubble_started(
+        result,
+    ):
+
+        started_actions = tuple(
+            getattr(
+                result,
+                "started_actions",
+                (),
+            )
+            or ()
+        )
+
+        started_count = sum(
+            1
+            for action in started_actions
+            if action.name == RUNTIME_ACTION_DEEP_WEB_SEARCH
+        )
+
+        if not started_count:
+            return
+
+        emitter = getattr(
+            context,
+            "emitter",
+            None,
+        )
+        emit = getattr(
+            emitter,
+            "emit",
+            None,
+        )
+
+        if emit is None:
+            return
+
+        existing_count = sum(
+            1
+            for event in getattr(
+                context,
+                "runtime_action_events",
+                [],
+            )
+            or []
+            if isinstance(event, dict)
+            and event.get("name")
+            == RUNTIME_ACTION_DEEP_WEB_SEARCH.lower()
+        )
+
+        for _ in range(started_count):
+            sequence = max(
+                int(
+                    getattr(
+                        context,
+                        "runtime_deep_web_search_action_sequence",
+                        0,
+                    )
+                    or 0
+                ),
+                existing_count,
+            ) + 1
+            context.runtime_deep_web_search_action_sequence = sequence
+            existing_count = sequence
+
+            action_id = build_runtime_action_id(
+                RUNTIME_ACTION_DEEP_WEB_SEARCH,
+                sequence,
+            )
+            deep_web_search_pending_bubble_ids.append(
+                action_id
+            )
+
+            payload = {
+                "type": "runtime_action",
+                "action": RUNTIME_ACTION_DEEP_WEB_SEARCH.lower(),
+                "id": action_id,
+                "status": "started",
+                "runtime_message_id": runtime_message_id,
+                "display_name": get_runtime_action_display_name(
+                    RUNTIME_ACTION_DEEP_WEB_SEARCH
+                ),
+                "text": build_runtime_action_display_text(
+                    RUNTIME_ACTION_DEEP_WEB_SEARCH
+                ),
+                "scene_effect": "search",
+                "deep_search_parent": True,
+                "deep_search_payload_ready": False,
+                "close_tag": runtime_action_has_close_tag(
+                    RUNTIME_ACTION_DEEP_WEB_SEARCH
+                ),
+            }
+
+            if action_context_snapshot:
+                payload["context"] = action_context_snapshot
+
+            await emit(
+                payload
+            )
+
+    def assign_deep_web_search_bubble_ids(
+        actions,
+        action_display_ids,
+    ):
+
+        for action in actions:
+            if action.name != RUNTIME_ACTION_DEEP_WEB_SEARCH:
+                continue
+
+            action_id = (
+                deep_web_search_pending_bubble_ids.pop(0)
+                if deep_web_search_pending_bubble_ids
+                else ""
+            )
+
+            if action_id:
+                action_display_ids[id(action)] = action_id
+
     async def emit_update_l4_facts_bubble_started(
         result,
     ):
@@ -1572,6 +1689,75 @@ async def ask_brain_stream(
 
             if action_id:
                 action_display_ids[id(action)] = action_id
+
+
+    async def emit_rejected_update_l4_facts_bubble_finished(
+        result,
+    ):
+
+        removed_update_markers = sum(
+            1
+            for marker in (
+                getattr(result, "removed_markers", ())
+                or ()
+            )
+            if re.search(
+                r"<\s*UPDATE_L4_FACTS(?:\s|>)",
+                str(marker or ""),
+                flags=re.IGNORECASE,
+            )
+        )
+        parsed_update_actions = sum(
+            1
+            for action in (
+                getattr(result, "observed_actions", ())
+                or ()
+            )
+            if action.name == RUNTIME_ACTION_UPDATE_L4_FACTS
+        )
+        rejected_count = max(
+            0,
+            removed_update_markers - parsed_update_actions,
+        )
+
+        if not rejected_count:
+            return
+
+        emitter = getattr(context, "emitter", None)
+        emit = getattr(emitter, "emit", None)
+
+        for _ in range(rejected_count):
+            action_id = (
+                update_l4_facts_pending_bubble_ids.pop(0)
+                if update_l4_facts_pending_bubble_ids
+                else ""
+            )
+
+            if not action_id or emit is None:
+                continue
+
+            payload = {
+                "type": "runtime_action",
+                "action": "update_l4_facts",
+                "id": action_id,
+                "status": "failed",
+                "runtime_message_id": runtime_message_id,
+                "display_name": get_runtime_action_display_name(
+                    RUNTIME_ACTION_UPDATE_L4_FACTS
+                ),
+                "text": build_runtime_action_display_text(
+                    RUNTIME_ACTION_UPDATE_L4_FACTS
+                ),
+                "detail": "Invalid L4 update note was ignored.",
+                "close_tag": runtime_action_has_close_tag(
+                    RUNTIME_ACTION_UPDATE_L4_FACTS
+                ),
+            }
+
+            if action_context_snapshot:
+                payload["context"] = action_context_snapshot
+
+            await emit(payload)
 
 
     async def emit_asset_action_bubble_started(
@@ -1783,7 +1969,16 @@ async def ask_brain_stream(
         await emit_active_memory_bubble_started(
             result
         )
+        await emit_deep_web_search_bubble_started(
+            result
+        )
         await emit_update_l4_facts_bubble_started(
+            result
+        )
+        # The opening tag lights the bubble before its body is validated. If
+        # the completed marker is rejected, retire that exact pending bubble
+        # now; otherwise its queued id gets stolen by the next valid update.
+        await emit_rejected_update_l4_facts_bubble_finished(
             result
         )
         await emit_asset_action_bubble_started(
@@ -1914,20 +2109,7 @@ async def ask_brain_stream(
         if not runtime_action_calls:
             return False
 
-        idle_action_calls = tuple(
-            action
-            for action in runtime_action_calls
-            if action.name == RUNTIME_ACTION_IDLE
-        )
-        immediate_action_calls = tuple(
-            action
-            for action in runtime_action_calls
-            if action.name != RUNTIME_ACTION_IDLE
-        )
-
-        pending_idle_action_calls.extend(
-            idle_action_calls
-        )
+        immediate_action_calls = runtime_action_calls
 
         if immediate_action_calls:
             (
@@ -1949,6 +2131,10 @@ async def ask_brain_stream(
                 immediate_action_calls,
                 action_display_ids,
             )
+            assign_deep_web_search_bubble_ids(
+                immediate_action_calls,
+                action_display_ids,
+            )
             assign_update_l4_facts_bubble_ids(
                 immediate_action_calls,
                 action_display_ids,
@@ -1967,46 +2153,6 @@ async def ask_brain_stream(
             )
 
         return True
-
-    async def flush_pending_idle_actions() -> None:
-
-        if not pending_idle_action_calls:
-            return
-
-        idle_actions = tuple(
-            pending_idle_action_calls
-        )
-        pending_idle_action_calls.clear()
-
-        (
-            confirmed_action_ids,
-            rejected_action_ids,
-            guard_confirmation_ids,
-            action_display_ids,
-        ) = await confirm_runtime_action_guards(
-            context,
-            idle_actions,
-            user_message=text,
-            context_snapshot=action_context_snapshot,
-            confirmed_guard_names=confirmed_action_guard_names,
-            rejected_guard_names=rejected_action_guard_names,
-            display_state=action_guard_display_state,
-        )
-
-        await apply_runtime_action_calls(
-            context,
-            idle_actions,
-            user_message=text,
-            context_snapshot=action_context_snapshot,
-            assistant_message="".join(
-                raw_content_parts
-            ),
-            confirmed_action_ids=confirmed_action_ids,
-            rejected_action_ids=rejected_action_ids,
-            guard_confirmation_ids=guard_confirmation_ids,
-            action_display_ids=action_display_ids,
-            runtime_message_id=runtime_message_id,
-        )
 
     # -----------------------------------------------------
     # SERVICE AS BRAIN
@@ -2080,8 +2226,6 @@ async def ask_brain_stream(
                 await finalize_session_action_history()
                 yield build_raw_model_output_chunk()
                 return
-            await flush_pending_idle_actions()
-
             content_tail = tail_result.text
             if (
                 content_tail
@@ -2191,8 +2335,6 @@ async def ask_brain_stream(
             await finalize_session_action_history()
             yield build_raw_model_output_chunk()
             return
-        await flush_pending_idle_actions()
-
         content_tail = tail_result.text
         if (
             content_tail

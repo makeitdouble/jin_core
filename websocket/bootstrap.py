@@ -15,6 +15,9 @@ from runtime.L1_memory import (
     build_runtime_memory_snapshot,
     parse_runtime_memory_lines,
 )
+from runtime.L1_memory_pending import (
+    restore_pending_l1_update,
+)
 from runtime.L1_memory_utils import (
     build_runtime_memory_context_text,
     canonicalize_runtime_memory_key,
@@ -73,6 +76,7 @@ BOOTSTRAP_TOOL_RESULT_KINDS = {
     "deep_search",
     "delayed_memory",
     "files",
+    "l4",
     "search",
 }
 
@@ -322,6 +326,13 @@ def apply_archived_session_continuation_state(
                 "jin": jin_text,
             }
 
+            reasoning = clean_bootstrap_memory(
+                turn.get("reasoning", ""),
+                limit=32000,
+            )
+            if reasoning:
+                normalized_turn["reasoning"] = reasoning
+
             for source_key, target_key in (
                 ("user_created_at", "user_created_at"),
                 ("jin_created_at", "jin_created_at"),
@@ -374,6 +385,19 @@ def apply_archived_session_continuation_state(
             previous_reasoning
         )
         context.runtime_previous_reasoning_loop_contents = []
+
+        recent_turns = getattr(
+            context,
+            "runtime_recent_turns",
+            [],
+        )
+        if (
+            isinstance(recent_turns, list)
+            and recent_turns
+            and isinstance(recent_turns[-1], dict)
+            and not str(recent_turns[-1].get("reasoning", "") or "").strip()
+        ):
+            recent_turns[-1]["reasoning"] = previous_reasoning
 
     session_actions = message_data.get(
         "session_actions",
@@ -1521,6 +1545,9 @@ def get_or_create_connection_context(
         context,
         anonymous_mode_enabled,
     )
+    restore_pending_l1_update(
+        context
+    )
 
     store[client_id] = context
 
@@ -2280,6 +2307,18 @@ def apply_runtime_resume(
     return True
 
 
+def _bootstrap_iso_timestamp(value) -> float:
+    text = str(value or "").strip()
+    if not text:
+        return 0.0
+    try:
+        return datetime.fromisoformat(
+            text.replace("Z", "+00:00")
+        ).timestamp()
+    except (TypeError, ValueError):
+        return 0.0
+
+
 def enrich_session_bootstrap_from_archive(
     message_data: dict,
 ) -> dict:
@@ -2325,26 +2364,31 @@ def enrich_session_bootstrap_from_archive(
         limit=80,
     )
     archive_messages = archived.get("messages", [])
+    archive_tail_at = clean_bootstrap_memory(
+        archived.get("archive_tail_at", ""),
+        limit=80,
+    )
+    if (
+        not archive_tail_at
+        and isinstance(archive_messages, list)
+        and archive_messages
+        and isinstance(archive_messages[-1], dict)
+    ):
+        archive_tail_at = clean_bootstrap_memory(
+            archive_messages[-1].get("ts", ""),
+            limit=80,
+        )
 
-    if saved_at and isinstance(archive_messages, list) and archive_messages:
-        archive_tail_at = str(
-            archive_messages[-1].get("ts", "")
-            if isinstance(archive_messages[-1], dict)
-            else ""
-        ).strip()
-        if archive_tail_at:
-            try:
-                checkpoint_at = datetime.fromisoformat(
-                    saved_at.replace("Z", "+00:00")
-                ).replace(microsecond=0)
-                archive_tail_at = datetime.fromisoformat(
-                    archive_tail_at.replace("Z", "+00:00")
-                ).replace(microsecond=0)
-                archive_reaches_saved_checkpoint = (
-                    archive_tail_at >= checkpoint_at
-                )
-            except (TypeError, ValueError):
-                pass
+    if saved_at and archive_tail_at:
+        checkpoint_at = _bootstrap_iso_timestamp(saved_at)
+        archive_tail_timestamp = _bootstrap_iso_timestamp(archive_tail_at)
+        if checkpoint_at and archive_tail_timestamp:
+            # Keep the pre-existing whole-second tolerance: browser checkpoints
+            # often carry sub-second precision while JSONL rows are second-only.
+            archive_reaches_saved_checkpoint = (
+                int(archive_tail_timestamp) >= int(checkpoint_at)
+            )
+
 
     # Never mix a newer browser save with an older raw log tail.
     if archive_reaches_saved_checkpoint:
@@ -2402,6 +2446,59 @@ def enrich_session_bootstrap_from_archive(
         if value not in (None, "", [], {}):
             enriched[field] = value
 
+    # The browser checkpoint is authoritative for ordinary tool results, but
+    # an UPDATE_L4_FACTS response can finish after that checkpoint was written.
+    # Replay only those newer append-only L4 results. A CLEAN_TOOL_RESULTS
+    # timestamp remains a hard lower bound so cleared results never resurrect.
+    browser_tool_results = message_data.get("tool_results")
+    if isinstance(browser_tool_results, list):
+        saved_at_timestamp = _bootstrap_iso_timestamp(saved_at)
+        cleared_at_timestamp = _bootstrap_iso_timestamp(
+            message_data.get("tool_results_cleared_at", "")
+        )
+        tool_result_cutoff = max(
+            saved_at_timestamp,
+            cleared_at_timestamp,
+        )
+        archived_tool_results = archived.get("tool_results", [])
+        if tool_result_cutoff > 0 and isinstance(archived_tool_results, list):
+            late_l4_results = []
+            for item in archived_tool_results:
+                if not isinstance(item, dict):
+                    continue
+                if str(item.get("kind", "") or "").strip().casefold() != "l4":
+                    continue
+                try:
+                    created_at = float(item.get("created_at", 0) or 0)
+                except (TypeError, ValueError):
+                    created_at = 0.0
+                if created_at <= tool_result_cutoff:
+                    continue
+                late_l4_results.append(item)
+
+            if late_l4_results:
+                merged_tool_results = list(browser_tool_results)
+                keyed_indexes = {}
+                for index, item in enumerate(merged_tool_results):
+                    if not isinstance(item, dict):
+                        continue
+                    kind = str(item.get("kind", "") or "").strip().casefold()
+                    result_id = str(item.get("id", "") or "").strip()
+                    if kind and result_id:
+                        keyed_indexes[(kind, result_id)] = index
+
+                for item in late_l4_results:
+                    result_id = str(item.get("id", "") or "").strip()
+                    key = ("l4", result_id) if result_id else None
+                    if key is not None and key in keyed_indexes:
+                        merged_tool_results[keyed_indexes[key]] = item
+                    else:
+                        if key is not None:
+                            keyed_indexes[key] = len(merged_tool_results)
+                        merged_tool_results.append(item)
+
+                enriched["tool_results"] = merged_tool_results[-50:]
+
     enriched["source_session_id"] = source_session_id
     if archived.get("source_session_date"):
         enriched["source_session_date"] = archived["source_session_date"]
@@ -2410,6 +2507,74 @@ def enrich_session_bootstrap_from_archive(
     # be mixed into the browser checkpoint; restore priming must remain active.
     enriched["archived_session_restore"] = True
     return enriched
+
+
+def build_session_bootstrap_chat_tail(
+    context,
+) -> list[dict]:
+
+    turns = getattr(
+        context,
+        "runtime_recent_turns",
+        [],
+    )
+    if not isinstance(turns, list):
+        return []
+
+    complete_turns = []
+    for turn in turns:
+        if not isinstance(turn, dict):
+            continue
+
+        user_text = clean_bootstrap_memory(
+            turn.get("user", ""),
+            limit=12000,
+        )
+        attachment_context_marker = "\n\nAttached context:\n"
+        if attachment_context_marker in user_text:
+            user_text = user_text.split(
+                attachment_context_marker,
+                1,
+            )[0].rstrip()
+
+        jin_text = clean_bootstrap_memory(
+            turn.get("jin", ""),
+            limit=12000,
+        )
+        if not user_text or not jin_text:
+            continue
+
+        item = {
+            "user": user_text,
+            "jin": jin_text,
+        }
+        reasoning = clean_bootstrap_memory(
+            turn.get("reasoning", ""),
+            limit=32000,
+        )
+        reasoning_marker = "--- REASONING ---"
+        if reasoning_marker in reasoning:
+            reasoning = reasoning.split(
+                reasoning_marker,
+                1,
+            )[1].strip()
+        if reasoning:
+            item["reasoning"] = reasoning
+
+        for key in (
+            "user_created_at",
+            "jin_created_at",
+        ):
+            try:
+                created_at = float(turn.get(key, 0) or 0)
+            except (TypeError, ValueError):
+                created_at = 0.0
+            if created_at > 0:
+                item[key] = created_at
+
+        complete_turns.append(item)
+
+    return complete_turns[-RECENT_MESSAGES_MAX_PAIRS:]
 
 
 def apply_session_bootstrap(

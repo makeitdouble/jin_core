@@ -3,6 +3,8 @@
     "version": 1,
     "description": "Allows the model to check a TODO item.",
     "runtime_action": "CHECK_TODO",
+    "enable_flag": "CAN_RUNTIME_TODO",
+    "runtime_order": 170,
     "private_marker": "<CHECK_TODO: todo_item_id >",
     "triggers": [],
     "blockers": [],

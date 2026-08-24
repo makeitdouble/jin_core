@@ -15,34 +15,6 @@ CONTRACTS_DIR = Path(__file__).resolve().parent
 CONTRACT_VERSION = 1
 
 
-ACTION_CONFIG_KEYS = (
-    ("DEEP_WEB_SEARCH", "CAN_DEEP_WEB_SEARCH"),
-    ("WEB_SEARCH", "CAN_WEB_SEARCH"),
-    ("CLEAN_TOOL_RESULTS", "CAN_CLEAN_TOOL_RESULTS"),
-    ("IDLE", "CAN_IDLE"),
-    ("JIN_COLOR", "CAN_JIN_COLOR"),
-    ("JIN_SIZE", "CAN_JIN_SIZE"),
-    ("JIN_POSITION", "CAN_JIN_POSITION"),
-    ("JIN_SPEED", "CAN_JIN_SPEED"),
-    ("UPDATE_L4_FACTS", "CAN_UPDATE_L4_FACTS"),
-    ("LOAD_SKILL", "CAN_USE_ASSETS"),
-    ("UNLOAD_SKILL", "CAN_USE_ASSETS"),
-    ("ASSET_ACTION", "CAN_USE_ASSETS"),
-    ("LIST_FILES", "CAN_USE_ASSETS"),
-    ("ATTACH_FILE", "CAN_USE_ASSETS"),
-    ("DETACH_FILE", "CAN_USE_ASSETS"),
-    ("CREATE_TODO_LIST", "CAN_RUNTIME_TODO"),
-    ("RESOLVE_TODO", "CAN_RUNTIME_TODO"),
-    ("CHECK_TODO", "CAN_RUNTIME_TODO"),
-    ("SAVE_DELAYED_MEMORY", "CAN_SAVE_DELAYED_MEMORY"),
-    ("LOAD_DELAYED_MEMORY", "CAN_SAVE_DELAYED_MEMORY"),
-    ("UNLOAD_DELAYED_MEMORY", "CAN_SAVE_DELAYED_MEMORY"),
-    ("SAVE_ACTIVE_MEMORY", "CAN_SAVE_ACTIVE_MEMORY"),
-    ("RESOLVE_ACTIVE_MEMORY", "CAN_SAVE_ACTIVE_MEMORY"),
-    ("UPDATE_ACTIVE_MEMORY", "CAN_SAVE_ACTIVE_MEMORY"),
-)
-
-
 ACTIVE_MEMORY_ENTRY_RE = re.compile(
     r"^\s*-?\s*active_memory(?:_\d+)?\s*:",
     re.IGNORECASE | re.MULTILINE,
@@ -277,11 +249,22 @@ def runtime_action_follows_up_on_fail(runtime_action: str) -> bool:
 
 
 def get_enabled_runtime_actions(runtime_actions=None) -> tuple[str, ...]:
-    enabled_actions = []
     action_flags = runtime_actions or {}
+    contracts = sorted(
+        get_action_contracts().values(),
+        key=lambda contract: int(contract.get("runtime_order", 0) or 0),
+    )
+    enabled_actions = []
 
-    for action_name, config_key in ACTION_CONFIG_KEYS:
-        if bool(action_flags.get(config_key, False)):
+    for contract in contracts:
+        enable_flag = str(contract.get("enable_flag", "") or "").strip()
+        if not enable_flag or not bool(action_flags.get(enable_flag, False)):
+            continue
+
+        action_name = _normalize_action_name(
+            contract.get("runtime_action", "")
+        )
+        if action_name and action_name not in enabled_actions:
             enabled_actions.append(action_name)
 
     return tuple(enabled_actions)
@@ -625,7 +608,6 @@ RUNTIME_ACTION_DETACH_FILE = get_runtime_action_name("detach_file")
 RUNTIME_ACTION_CREATE_TODO_LIST = get_runtime_action_name("create_todo_list")
 RUNTIME_ACTION_RESOLVE_TODO = get_runtime_action_name("resolve_todo")
 RUNTIME_ACTION_CHECK_TODO = get_runtime_action_name("check_todo")
-RUNTIME_ACTION_IDLE = get_runtime_action_name("idle")
 RUNTIME_ACTION_JIN_COLOR = get_runtime_action_name("jin_color")
 RUNTIME_ACTION_JIN_SIZE = get_runtime_action_name("jin_size")
 RUNTIME_ACTION_JIN_POSITION = get_runtime_action_name("jin_position")

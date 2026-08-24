@@ -3,6 +3,8 @@
     "version": 2,
     "description": "Allows the model to update the JIN runtime avatar center point color and its subtle glow for the current live session.",
     "runtime_action": "JIN_COLOR",
+    "enable_flag": "CAN_JIN_COLOR",
+    "runtime_order": 40,
     "private_marker": "<JIN_COLOR>",
     "triggers": [],
     "blockers": [],

@@ -3,6 +3,8 @@
     "version": 4,
     "description": "Allows JIN to save active memory conditions.",
     "runtime_action": "SAVE_ACTIVE_MEMORY",
+    "enable_flag": "CAN_SAVE_ACTIVE_MEMORY",
+    "runtime_order": 210,
     "private_marker": "<SAVE_ACTIVE_MEMORY>",
     "triggers": [],
     "blockers": [],

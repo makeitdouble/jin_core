@@ -31,33 +31,18 @@ ACTION_BLOCKED_TRIGGER_WORD_MESSAGE = (
     "Action failed. DO NOT REPEAT THIS ACTION! Blocked trigger word: {blocked_trigger_word}"
 )
 
-IDLE_FOLLOWUP_MESSAGE = (
-    "This is a follow-up tick from an IDLE timer JIN chose to set.\n"
-    "Timer metadata is provided in TOOLS_RESULTS. Continue the existing "
-    "sequence and non-executed actions derived from CURRENT_REQUEST_FLOW.\n"
-)
-
 SESSION_RESTORE_REASONING_COUNT = 2
 SESSION_RESTORE_REASONING_CHAR_LIMIT = 2000
 SESSION_RESTORE_MESSAGE = (
     "<CONVERSATION_CONTINUE_RULES>\n"
-    "!!!USER DIDN'T SENT A NEW MESSAGE!!!\n"
-    "!!!USER OPENED A NEW TAB OR LOADED A PREVIOUS SESSION!!!\n"
-    "!!!JIN CURRENTLY IS IN BOOTSTRAP FOLLOW UP TICK!!!\n"
-    "The session was bootstrapped in a browser tab!\n"
-    "Now derive user language and conversation tone from a context.\n"
+    "Current session was bootstrapped in a browser tab!\n"
     "Think deep and fresh, extract all vibe and re-enable the archived conversation as fluently as possible.\n"
-    "Keep the established tone, cadence, assumptions, unresolved "
-    "thread and established conversational vibe instead of summarizing or re-explaining them.\n"
-    "Skip all done topics or  performed actions as past and done and do not rise up them.\n"
-    "Do not invent missing context and do not treat this bootstrap as permission to start "
-    "new work or runtime actions. Respond briefly and naturally, acknowledge that JIN is "
-    "back in place, and make it easy for the user to continue from exactly where we left off and move on.\n"
-    "Use the language of the most recent non-empty user message in PREVIOUS_CHAT_MESSAGES.\n"
+    "Respond briefly and naturally and make it easy for the user to continue from exactly where we left off and move on.\n"
+    "Answer in language of user message in PREVIOUS_CHAT_MESSAGES.\n"
     "</CONVERSATION_CONTINUE_RULES>"
 )
-
-RUNTIME_ACTIONS_RULES = (
+RUNTIME_ACTIONS_RULES = ""
+RUNTIME_ACTIONS_RULES_ = (
     "RUNTIME ACTION EXECUTION RULES:\n"
     "Use follow-up system ticks in sequence for multi-step tasks.\n"
     "In case of conflict, ignore PREVIOUS_CHAT_MESSAGES and keep the ORIGINAL_USER_REQUEST inside CURRENT_REQUEST_FLOW.\n"
@@ -66,8 +51,8 @@ RUNTIME_ACTIONS_RULES = (
     "SESSION_ACTIONS_HISTORY is full-session background history; it is not a pending task list.\n"
     "When no actions needed or sequence is done stop instantly and notify user naturally.\n"
 )
-
-SKILL_ROUTING_RULES = ("\n"
+SKILL_ROUTING_RULES = ""
+SKILL_ROUTING_RULES_ = ("\n"
     "\n"
     "SKILL ROUTING RULES:\n"
     "1. For extended tasks (e.g. file creation, console, and much more) determine whether the request requires a skill.\n"

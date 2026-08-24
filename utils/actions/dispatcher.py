@@ -7,7 +7,6 @@ from contracts.rules_assembler import (
     RUNTIME_ACTION_CHECK_TODO,
     RUNTIME_ACTION_CREATE_TODO_LIST,
     RUNTIME_ACTION_SAVE_ACTIVE_MEMORY,
-    RUNTIME_ACTION_IDLE,
     RUNTIME_ACTION_JIN_COLOR,
     RUNTIME_ACTION_JIN_SIZE,
     RUNTIME_ACTION_JIN_POSITION,
@@ -51,7 +50,6 @@ from utils.actions import (
     normalize_jin_speed_value,
     normalize_jin_size_dict,
     normalize_jin_size_payload,
-    parse_idle_seconds,
     parse_update_active_memory_payload,
 )
 from utils.skills_asset_utils import (
@@ -86,9 +84,6 @@ from utils.actions.attachment_actions import (
     apply_attachment_actions,
 )
 from utils.actions.update_l4_facts_actions import schedule_update_l4_facts_actions
-from utils.actions.jin_color_actions import (
-    apply_idle_actions,
-)
 from utils.actions.jin_visual_sequence_actions import (
     emit_jin_visual_sequences,
 )
@@ -266,7 +261,6 @@ async def apply_runtime_action_calls(
     skill_workflow_action_names = {
         *skill_state_action_names,
         RUNTIME_ACTION_CLEAN_TOOL_RESULTS,
-        RUNTIME_ACTION_IDLE,
         RUNTIME_ACTION_DEEP_WEB_SEARCH,
         RUNTIME_ACTION_WEB_SEARCH,
         RUNTIME_ACTION_JIN_COLOR,
@@ -397,18 +391,6 @@ async def apply_runtime_action_calls(
             }:
                 payload_identity = normalize_skill_name(
                     action.payload
-                )
-            elif action_name == RUNTIME_ACTION_IDLE:
-                seconds = parse_idle_seconds(
-                    action.payload
-                )
-                payload_identity = (
-                    f"{seconds}s"
-                    if seconds is not None
-                    else str(
-                        action.payload
-                        or ""
-                    )
                 )
             else:
                 payload_identity = str(
@@ -776,27 +758,6 @@ async def apply_runtime_action_calls(
                 )
 
             rejected_action_events[id(action)] = rejection_event
-            continue
-
-        if action.name == RUNTIME_ACTION_IDLE:
-            seconds = parse_idle_seconds(
-                action.payload
-            )
-            if seconds is None:
-                continue
-
-            if not accept_runtime_action_once_per_message(
-                action,
-                f"{seconds}s",
-            ):
-                continue
-
-            accepted_action_names.add(
-                action_event_name
-            )
-            filtered_actions.append(
-                action
-            )
             continue
 
         if action.name == RUNTIME_ACTION_JIN_COLOR:
@@ -1331,15 +1292,6 @@ async def apply_runtime_action_calls(
                 "context": action_context_snapshot,
             })
 
-        elif action.name == RUNTIME_ACTION_IDLE:
-            idle_seconds = parse_idle_seconds(
-                action.payload
-            )
-            if idle_seconds is not None:
-                action_event["seconds"] = idle_seconds
-                action_event["payload"] = f"{idle_seconds}s"
-                action_event["deferred_follow_up"] = True
-
         elif action.name == RUNTIME_ACTION_JIN_COLOR:
             color = normalize_jin_color_payload(
                 action.payload
@@ -1461,33 +1413,6 @@ async def apply_runtime_action_calls(
                     f"{deep_search_objective}"
                 )
 
-            deep_search_was_already_started = any(
-                isinstance(
-                    record,
-                    dict,
-                )
-                and str(
-                    record.get(
-                        "action",
-                        "",
-                    )
-                    or ""
-                ).strip().lower() == RUNTIME_ACTION_DEEP_WEB_SEARCH.lower()
-                and str(
-                    record.get(
-                        "id",
-                        "",
-                    )
-                    or ""
-                ).strip() == runtime_action_id
-                for record in getattr(
-                    context,
-                    "runtime_active_action_markers",
-                    [],
-                )
-                or []
-            )
-
             mark_runtime_action_started(
                 context,
                 action=action_event.get(
@@ -1514,10 +1439,7 @@ async def apply_runtime_action_calls(
                 context_snapshot=action_context_snapshot,
             )
 
-            if (
-                deep_search_objective
-                and not deep_search_was_already_started
-            ):
+            if deep_search_objective:
                 emitter = getattr(
                     context,
                     "emitter",
@@ -1534,12 +1456,13 @@ async def apply_runtime_action_calls(
                         "type": "runtime_action",
                         "action": RUNTIME_ACTION_DEEP_WEB_SEARCH.lower(),
                         "id": runtime_action_id,
-                        "status": "started",
+                        "status": "running",
                         "display_name": runtime_action_display_name,
                         "text": runtime_action_display_text,
                         "query": deep_search_objective,
                         "scene_effect": "search",
                         "deep_search_parent": True,
+                        "deep_search_payload_ready": True,
                         "close_tag": runtime_action_has_close_tag(
                             action.name
                         ),
@@ -1749,12 +1672,6 @@ async def apply_runtime_action_calls(
         if action.name == RUNTIME_ACTION_CLEAN_TOOL_RESULTS
     ]
 
-    idle_actions = [
-        action
-        for action in filtered_actions
-        if action.name == RUNTIME_ACTION_IDLE
-    ]
-
     jin_color_actions = [
         action
         for action in filtered_actions
@@ -1837,12 +1754,12 @@ async def apply_runtime_action_calls(
         None,
     )
 
-    idle_records = await apply_idle_actions(
+    # Explicit L4 edits start immediately on their own background lane.
+    # Do not make them wait behind unrelated runtime action handlers.
+    schedule_update_l4_facts_actions(
         context,
-        idle_actions,
-        assistant_message=assistant_message,
-        resolved_user_message=resolved_user_message,
-        action_context_snapshot=action_context_snapshot,
+        update_l4_facts_actions,
+        action_display_ids=action_display_ids,
         log_runtime=log_runtime,
         with_action_context=with_action_context,
     )
@@ -1959,14 +1876,6 @@ async def apply_runtime_action_calls(
         with_action_context=with_action_context,
     )
 
-    schedule_update_l4_facts_actions(
-        context,
-        update_l4_facts_actions,
-        action_display_ids=action_display_ids,
-        log_runtime=log_runtime,
-        with_action_context=with_action_context,
-    )
-
     await emit_saved_asset_results(
         context,
         saved_asset_results,
@@ -2028,9 +1937,6 @@ async def apply_runtime_action_calls(
         )
         + len(
             clean_tool_result_actions
-        )
-        + len(
-            idle_records
         )
         + len(
             jin_color_actions

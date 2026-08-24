@@ -136,6 +136,56 @@ class DeepWebSearchFlowTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(parsed["report"], "ok")
         self.assertFalse(parsed["done"])
 
+    def test_worker_response_parser_recovers_adjacent_json_objects(self):
+        parsed = parse_deep_search_worker_response(
+            '{"queries":["dark trip-hop cinematic score industrial ambient",'
+            '"Nordic Noir electronic soundtrack minimalist techno",'
+            '"industrial ambient noir music artists"]}\n'
+            '{"spawn":[],"report":"Search those three directions.",'
+            '"done":false}'
+        )
+
+        self.assertEqual(
+            parsed["queries"],
+            [
+                "dark trip-hop cinematic score industrial ambient",
+                "Nordic Noir electronic soundtrack minimalist techno",
+                "industrial ambient noir music artists",
+            ],
+        )
+        self.assertEqual(parsed["spawn"], [])
+        self.assertEqual(parsed["report"], "Search those three directions.")
+        self.assertFalse(parsed["done"])
+        self.assertFalse(parsed["invalid_json"])
+
+    async def test_adjacent_json_worker_response_still_executes_searches(self):
+        service = FakeServiceClient([
+            (
+                '{"queries":["q1","q2","q3"]}\n'
+                '{"spawn":[],"report":"continue research","done":false}'
+            ),
+            worker_response([], report="enough evidence", done=True),
+            worker_response([], report="final report", done=True),
+        ])
+        provider = FakeSearchProvider()
+        context = make_context(service, provider)
+
+        result = await run_deep_web_search(
+            context=context,
+            objective="research split json handling",
+        )
+
+        self.assertEqual(provider.queries, ["q1", "q2", "q3"])
+        self.assertIn("final report", result)
+
+    def test_worker_response_parser_does_not_truthify_string_false(self):
+        parsed = parse_deep_search_worker_response(
+            '{"queries":["q1"],"spawn":[],"report":"ok","done":"false"}'
+        )
+
+        self.assertEqual(parsed["queries"], ["q1"])
+        self.assertFalse(parsed["done"])
+
     def test_current_sequence_contains_shared_budget_and_previous_steps(self):
         pool = DeepSearchPool(
             objective="find similar music",

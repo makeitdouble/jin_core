@@ -54,6 +54,10 @@ from websocket import (
 
 from clients.registry import build_clients
 from runtime.client import RuntimeClient
+from runtime.L4_memory import (
+    start_l4_memory_server_scheduler,
+    stop_l4_memory_server_scheduler,
+)
 
 from runtime.state import RUNTIME_MEMORY_SUMMARIZER_LABEL
 from runtime.behavior_contract import (
@@ -117,12 +121,19 @@ async def lifespan(application: FastAPI):
         application.state.http_client
     )
 
+    start_l4_memory_server_scheduler(
+        application.state
+    )
+
     yield
 
     # -----------------------------------------------------
     # SHUTDOWN
     # -----------------------------------------------------
 
+    await stop_l4_memory_server_scheduler(
+        application.state
+    )
     await application.state.http_client.aclose()
 
 

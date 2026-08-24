@@ -1216,6 +1216,225 @@ def build_chat_log_entry(
     }
 
 
+def _append_chat_log_json_entry(
+    path: Path,
+    entry: dict,
+) -> None:
+
+    path.parent.mkdir(
+        parents=True,
+        exist_ok=True,
+    )
+
+    needs_separator = False
+    try:
+        if path.is_file() and path.stat().st_size > 0:
+            with path.open("rb") as existing_log:
+                existing_log.seek(-1, 2)
+                needs_separator = existing_log.read(1) not in {b"\n", b"\r"}
+    except OSError:
+        needs_separator = False
+
+    with path.open(
+        "a",
+        encoding="utf-8",
+        newline="\n",
+    ) as log_file:
+        if needs_separator:
+            log_file.write("\n")
+
+        log_file.write(
+            json.dumps(
+                entry,
+                ensure_ascii=False,
+                separators=(
+                    ",",
+                    ":",
+                ),
+            )
+            + "\n"
+        )
+
+
+def append_chat_runtime_event(
+    context,
+    *,
+    event: str,
+    payload: dict | None = None,
+    now: datetime | None = None,
+    root: Path | str | None = None,
+) -> Path | None:
+
+    if not chat_logging_enabled():
+        return None
+
+    normalized_event = str(
+        event
+        or ""
+    ).strip()
+    if not normalized_event:
+        return None
+
+    timestamp = now or _now()
+    path = get_chat_log_path(
+        context,
+        now=timestamp,
+        root=root,
+    )
+    entry = {
+        "ts": timestamp.isoformat(timespec="seconds"),
+        "turn": int(
+            getattr(context, "runtime_turn_counter", 0)
+            or 0
+        ),
+        "turn_id": str(
+            getattr(context, "runtime_current_turn_id", "")
+            or ""
+        ),
+        "session_id": str(
+            getattr(context, "session_id", "")
+            or getattr(context, "runtime_chat_log_session_id", "")
+            or ""
+        ),
+        "role": "runtime",
+        "text": "",
+        "event": normalized_event,
+        "payload": dict(payload or {}),
+        "dialog_path": _public_project_path(path),
+    }
+
+    _append_chat_log_json_entry(
+        path,
+        entry,
+    )
+    return path
+
+
+def replace_latest_chat_log_entry(
+    context,
+    *,
+    role: str,
+    text: str,
+    now: datetime | None = None,
+    root: Path | str | None = None,
+) -> Path | None:
+    """Replace the latest matching visible dialogue entry in-place.
+
+    Retry uses this instead of appending a second JIN answer, so bootstrap and
+    archived chat history keep the same user/JIN pair rather than exposing a
+    hidden retry turn. Runtime event rows are left untouched.
+    """
+
+    if not chat_logging_enabled():
+        return None
+
+    timestamp = now or _now()
+    path = get_chat_log_path(
+        context,
+        now=timestamp,
+        root=root,
+    )
+
+    if not path.is_file():
+        return append_chat_log_entry(
+            context,
+            role=role,
+            text=text,
+            now=timestamp,
+            root=root,
+        )
+
+    try:
+        raw_lines = path.read_text(
+            encoding="utf-8",
+            errors="replace",
+        ).splitlines()
+    except OSError:
+        return append_chat_log_entry(
+            context,
+            role=role,
+            text=text,
+            now=timestamp,
+            root=root,
+        )
+
+    normalized_role = str(role or "").casefold()
+    replacement_index = None
+    previous_entry = None
+
+    for index in range(len(raw_lines) - 1, -1, -1):
+        try:
+            candidate = json.loads(raw_lines[index])
+        except (TypeError, ValueError):
+            continue
+
+        if (
+            isinstance(candidate, dict)
+            and str(candidate.get("role") or "").casefold() == normalized_role
+        ):
+            replacement_index = index
+            previous_entry = candidate
+            break
+
+    if replacement_index is None:
+        return append_chat_log_entry(
+            context,
+            role=role,
+            text=text,
+            now=timestamp,
+            root=root,
+        )
+
+    entry = build_chat_log_entry(
+        context,
+        role=role,
+        text=text,
+        now=timestamp,
+    )
+    entry["dialog_path"] = _public_project_path(path)
+
+    # Preserve the visible turn identity. The retry is an internal generation,
+    # not an extra dialogue turn.
+    for field_name in ("turn", "turn_id", "session_id"):
+        if field_name in previous_entry:
+            entry[field_name] = previous_entry[field_name]
+
+    context_path = get_chat_context_path(
+        context,
+        now=timestamp,
+        root=root,
+    )
+    if context_path.exists():
+        entry["context_path"] = _public_project_path(context_path)
+
+    reasoning_path = str(
+        getattr(
+            context,
+            "runtime_turn_reasoning_log_path",
+            "",
+        )
+        or ""
+    ).strip()
+    if (
+        normalized_role == "jin"
+        and reasoning_path
+        and Path(reasoning_path).exists()
+    ):
+        entry["reasoning_path"] = _public_project_path(Path(reasoning_path))
+
+    raw_lines[replacement_index] = json.dumps(
+        entry,
+        ensure_ascii=False,
+        separators=(",", ":"),
+    )
+    path.write_text(
+        "\n".join(raw_lines) + "\n",
+        encoding="utf-8",
+        newline="\n",
+    )
+    return path
+
+
 def append_chat_log_entry(
     context,
     *,
@@ -1272,38 +1491,8 @@ def append_chat_log_entry(
             Path(reasoning_path)
         )
 
-    path.parent.mkdir(
-        parents=True,
-        exist_ok=True,
+    _append_chat_log_json_entry(
+        path,
+        entry,
     )
-
-    needs_separator = False
-    try:
-        if path.is_file() and path.stat().st_size > 0:
-            with path.open("rb") as existing_log:
-                existing_log.seek(-1, 2)
-                needs_separator = existing_log.read(1) not in {b"\n", b"\r"}
-    except OSError:
-        needs_separator = False
-
-    with path.open(
-        "a",
-        encoding="utf-8",
-        newline="\n",
-    ) as log_file:
-        if needs_separator:
-            log_file.write("\n")
-
-        log_file.write(
-            json.dumps(
-                entry,
-                ensure_ascii=False,
-                separators=(
-                    ",",
-                    ":",
-                ),
-            )
-            + "\n"
-        )
-
     return path

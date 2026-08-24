@@ -1289,7 +1289,6 @@ def _build_session_action_marker_detail(
     if normalized_name in {
         "SAVE_ACTIVE_MEMORY",
         "RESOLVE_ACTIVE_MEMORY",
-        "IDLE",
         "LOAD_DELAYED_MEMORY",
         "UNLOAD_DELAYED_MEMORY",
         "ATTACH_FILE",

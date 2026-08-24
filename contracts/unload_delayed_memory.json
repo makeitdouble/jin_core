@@ -3,6 +3,8 @@
     "version": 2,
     "description": "Allows the model to unload a delayed memory report from the session context.",
     "runtime_action": "UNLOAD_DELAYED_MEMORY",
+    "enable_flag": "CAN_SAVE_DELAYED_MEMORY",
+    "runtime_order": 200,
     "private_marker": "<UNLOAD_DELAYED_MEMORY: id >",
     "triggers": [],
     "blockers": [],

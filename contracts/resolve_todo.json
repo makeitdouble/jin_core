@@ -3,6 +3,8 @@
     "version": 1,
     "description": "Allows the model to resolve a TODO item.",
     "runtime_action": "RESOLVE_TODO",
+    "enable_flag": "CAN_RUNTIME_TODO",
+    "runtime_order": 160,
     "private_marker": "<RESOLVE_TODO: todo_item_id >",
     "triggers": [],
     "blockers": [],

@@ -169,6 +169,71 @@ function sendSocketMessage(
 
 window.sendSocketMessage = sendSocketMessage;
 
+window.requestJinLastResponseRetry = function () {
+  if (
+    generationRunning
+    || !isWebSocketOpen()
+  ) {
+    return false;
+  }
+
+  const runtimeStatus = (
+    window.jinRuntimeConfig
+    && window.jinRuntimeConfig.runtimeStatus
+  ) || {};
+  if (
+    runtimeStatus.brain === false
+    && runtimeStatus.service === false
+  ) {
+    return false;
+  }
+
+  const payload = {
+    type: "retry_last_response",
+  };
+
+  if (
+    window.JinPanels
+    && typeof window.JinPanels.getRuntimeAvatarSnapshot === "function"
+  ) {
+    payload.runtime_avatar =
+      window.JinPanels.getRuntimeAvatarSnapshot();
+  }
+
+  if (
+    window.JinRuntime
+    && window.JinRuntime.runtime
+    && window.JinRuntime.runtime.getActiveMemoryRecords
+  ) {
+    payload.active_memory_records =
+      window.JinRuntime.runtime.getActiveMemoryRecords();
+  }
+
+  if (window.clearLatestJinMemoryReferenceText) {
+    window.clearLatestJinMemoryReferenceText();
+  }
+
+  if (window.focusBrainContextTab) {
+    window.focusBrainContextTab();
+  }
+
+  const sent = sendSocketMessage(
+    payload
+  );
+  if (!sent) {
+    return false;
+  }
+
+  if (window.markSessionActivityDirty) {
+    window.markSessionActivityDirty();
+  }
+
+  setGenerationState(
+    true
+  );
+  return true;
+};
+
 window.sendRuntimeMemoryDeleteSlot = function (payload) {
   const key = String(
     payload

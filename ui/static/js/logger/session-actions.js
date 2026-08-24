@@ -28,6 +28,35 @@ function normalizeSessionActionName(value) {
     .toUpperCase();
 }
 
+function normalizeDeepSearchSessionActionDisplay(
+  text,
+  detail = "",
+) {
+  const normalizedText =
+    String(text || "").trim();
+  const normalizedDetail =
+    String(detail || "").trim();
+  const queryMatch =
+    normalizedText.match(
+      /^DEEP_WEB_SEARCH\s*:\s*(.+)$/i
+    );
+
+  if (!queryMatch) {
+    return {
+      text: normalizedText,
+      detail: normalizedDetail,
+    };
+  }
+
+  const query =
+    String(queryMatch[1] || "").trim();
+
+  return {
+    text: "DEEP_WEB_SEARCH",
+    detail: query || normalizedDetail,
+  };
+}
+
 function normalizeSessionActionColor(value) {
   const match = String(value || "")
     .trim()
@@ -186,18 +215,27 @@ function normalizeSessionActionParts(
             return null;
           }
 
-          const text =
+          let text =
             String(part.text || "").trim();
 
           if (!text) {
             return null;
           }
 
-          const detail =
+          let detail =
             String(part.detail || "").trim();
+
+          ({ text, detail } =
+            normalizeDeepSearchSessionActionDisplay(
+              text,
+              detail
+            ));
 
           const message =
             String(part.message || "").trim();
+
+          const contextDetail =
+            String(part.context_detail || "").trim();
 
           const id =
             String(part.id || "").trim();
@@ -224,6 +262,7 @@ function normalizeSessionActionParts(
             text,
             detail,
             message,
+            contextDetail,
             id,
             colors,
             count,
@@ -243,6 +282,26 @@ function normalizeSessionActionParts(
 
   if (!text) {
     return [];
+  }
+
+  const deepSearchDisplay =
+    normalizeDeepSearchSessionActionDisplay(
+      text
+    );
+
+  if (
+    deepSearchDisplay.text === "DEEP_WEB_SEARCH"
+    && deepSearchDisplay.detail
+  ) {
+    return [{
+      text: deepSearchDisplay.text,
+      detail: deepSearchDisplay.detail,
+      message: "",
+      id: "",
+      colors: [],
+      count: 0,
+      cancelled: false,
+    }];
   }
 
   const detailSeparator =
@@ -575,8 +634,20 @@ function buildSessionActionRow(
       );
     }
 
+    const isDeepWebSearchAction =
+      normalizedActionName === "DEEP_WEB_SEARCH"
+      || normalizedActionName.startsWith(
+        "DEEP_WEB_SEARCH "
+      );
+
     const hoverText =
-      part.message || part.detail;
+      part.message
+      || part.detail
+      || (
+        isDeepWebSearchAction
+          ? part.contextDetail
+          : ""
+      );
 
     if (hoverText) {
       action.title =
@@ -1092,6 +1163,7 @@ function markSessionActionCancelled(
         text: part.text,
         detail: part.detail,
         message: part.message,
+        context_detail: part.contextDetail,
         id: part.id,
         colors: part.colors,
         count: part.count,

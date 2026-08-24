@@ -101,6 +101,22 @@ class RuntimeUpdateL4FactsTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result.text, "before\nafter")
         self.assertEqual(result.actions, ())
 
+    def test_marker_allows_removing_content_from_existing_fact(self):
+        result = extract_runtime_actions(
+            (
+                "<UPDATE_L4_FACTS>\n"
+                "Update F305: Remove white bonfire with cutout from the "
+                "description. Keep coffee, bong, and bricks.\n"
+                "</UPDATE_L4_FACTS>"
+            ),
+            enabled_actions=(RUNTIME_ACTION_UPDATE_L4_FACTS,),
+        )
+
+        self.assertEqual(len(result.actions), 1)
+        payload = json.loads(result.actions[0].payload)
+        self.assertEqual(payload["fact_ids"], ["F305"])
+        self.assertIn("Remove white bonfire", payload["message"])
+
     def test_invalid_note_marker_is_removed_without_action(self):
         result = extract_runtime_actions(
             (
@@ -231,6 +247,68 @@ class RuntimeUpdateL4FactsTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(
             any(event.get("status") == "failed" for event in lifecycle)
         )
+
+    async def test_runtime_action_does_not_wait_for_cancelled_idle_l4_task(self):
+        emitter = FakeEmitter()
+        logger = FakeLogger()
+        context = RuntimeContext(
+            websocket=None,
+            emitter=emitter,
+            logger=logger,
+            clients={},
+        )
+        release_idle = asyncio.Event()
+        note_started = asyncio.Event()
+
+        async def stubborn_idle_task():
+            try:
+                await release_idle.wait()
+            except asyncio.CancelledError:
+                # Simulate a provider request that takes time to unwind after
+                # local cancellation. Foreground L4 must not wait for it.
+                await release_idle.wait()
+
+        async def fake_run_l4_jin_note(*, context, note):
+            del context, note
+            note_started.set()
+            return {
+                "phase": "jin_note",
+                "status": "completed",
+                "changed": False,
+                "change": {},
+            }
+
+        idle_task = asyncio.create_task(stubborn_idle_task())
+        context.runtime_l4_memory_update_task = idle_task
+        context.runtime_l4_memory_update_kind = "idle"
+        action = RuntimeActionCall(
+            name=RUNTIME_ACTION_UPDATE_L4_FACTS,
+            payload=json.dumps({
+                "fact_ids": ["F1"],
+                "message": "Update F1: keep the clarified wording.",
+            }),
+        )
+
+        try:
+            from unittest.mock import patch
+
+            with patch(
+                "utils.actions.update_l4_facts_actions.run_l4_jin_note",
+                new=fake_run_l4_jin_note,
+            ):
+                applied = await apply_runtime_action_calls(
+                    context,
+                    (action,),
+                    action_display_ids={id(action): "update_l4_facts_001"},
+                )
+
+                self.assertEqual(applied, 1)
+                await asyncio.wait_for(note_started.wait(), timeout=0.2)
+                tasks = list(getattr(context, "background_tasks", set()))
+                await asyncio.wait_for(asyncio.gather(*tasks), timeout=0.2)
+        finally:
+            release_idle.set()
+            await asyncio.gather(idle_task, return_exceptions=True)
 
     async def test_runtime_action_can_create_l4_without_selected_facts(self):
         emitter = FakeEmitter()

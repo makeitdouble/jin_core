@@ -14,6 +14,7 @@ from utils.chat_log import (
     get_chat_log_path,
     migrate_legacy_chat_logs,
     resume_chat_log_session,
+    replace_latest_chat_log_entry,
     save_chat_bootstrap_context_snapshot,
     save_chat_context_snapshot,
     save_turn_reasoning,
@@ -216,6 +217,62 @@ class ChatLogTests(unittest.TestCase):
                 "48ggds",
             ],
         )
+
+    def test_replace_latest_jin_entry_keeps_single_visible_pair(self):
+
+        context = SimpleNamespace(
+            session_id="retry-session",
+            runtime_turn_counter=1,
+            runtime_current_turn_id="turn_000001",
+            runtime_turn_attachments=[],
+            active_memory_records=[],
+            runtime_loaded_delayed_memory_ids=[],
+            runtime_turn_reasoning_log_path="",
+        )
+        now = datetime(
+            2026,
+            8,
+            24,
+            17,
+            10,
+            0,
+            tzinfo=timezone.utc,
+        )
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            path = append_chat_log_entry(
+                context,
+                role="user",
+                text="same request",
+                now=now,
+                root=root,
+            )
+            append_chat_log_entry(
+                context,
+                role="jin",
+                text="old answer",
+                now=now,
+                root=root,
+            )
+
+            context.runtime_current_turn_id = "user_retry_000002"
+            replace_latest_chat_log_entry(
+                context,
+                role="jin",
+                text="new answer",
+                now=now,
+                root=root,
+            )
+
+            entries = [
+                json.loads(line)
+                for line in path.read_text(encoding="utf-8").splitlines()
+            ]
+
+        self.assertEqual([entry["role"] for entry in entries], ["user", "jin"])
+        self.assertEqual(entries[-1]["text"], "new answer")
+        self.assertEqual(entries[-1]["turn_id"], "turn_000001")
 
     def test_append_chat_log_entry_repairs_missing_trailing_newline(self):
         context = SimpleNamespace(

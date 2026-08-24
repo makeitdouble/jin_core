@@ -132,7 +132,6 @@ The contract assembler currently maps these actions:
 DEEP_WEB_SEARCH
 WEB_SEARCH
 CLEAN_TOOL_RESULTS
-IDLE
 JIN_COLOR
 JIN_SIZE
 JIN_POSITION
@@ -390,7 +389,7 @@ Runtime-action bubbles persist their detail in DOM dataset state. Counter-only u
 - the latest manually chosen reasoning collapsed/expanded preference is persisted and reused by new reasoning blocks;
 - live-turn top-lock releases once the user turn reaches the viewport bottom, after which normal overflow autoscroll can resume;
 - clicking usable form padding focuses the JIN user input;
-- answer-rating controls use directional hover titles (`Dislike answer` / `Like answer`) and do not put a count tooltip on the rated bubble;
+- answer-rating implementation remains in the client but is release-gated off; assistant bubbles now reuse the neutral hover primitive on empty padding, with double-click copy and latest-completed-answer long-tap replacement retry;
 - Win95 theme localStorage reads/writes are guarded so restricted storage contexts do not break theme switching.
 
 ---

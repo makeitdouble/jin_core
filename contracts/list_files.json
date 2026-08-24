@@ -3,6 +3,8 @@
     "version": 1,
     "description": "Lists persistent files available to JIN.",
     "runtime_action": "LIST_FILES",
+    "enable_flag": "CAN_USE_ASSETS",
+    "runtime_order": 120,
     "private_marker": "<LIST_FILES>",
     "triggers": [],
     "blockers": [],

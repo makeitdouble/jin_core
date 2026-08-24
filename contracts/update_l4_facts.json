@@ -3,6 +3,8 @@
     "version": 1,
     "description": "Lets JIN send a focused update, merge, or create instruction to the L4 maintainer.",
     "runtime_action": "UPDATE_L4_FACTS",
+    "enable_flag": "CAN_UPDATE_L4_FACTS",
+    "runtime_order": 80,
     "private_marker": "<UPDATE_L4_FACTS>",
     "triggers": [],
     "blockers": [],

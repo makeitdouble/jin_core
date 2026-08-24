@@ -503,6 +503,52 @@
     white-space: pre;
 }
 
+.jin-chat-markdown .jin-chat-table-wrap {
+    margin: 0.7em 0 0.95em;
+    width: fit-content;
+    max-width: 100%;
+    overflow: hidden;
+}
+
+.jin-chat-markdown .jin-chat-table {
+    width: 100%;
+    max-width: 100%;
+    border-collapse: collapse;
+    table-layout: auto;
+    font-size: 0.96em;
+    line-height: 1.5;
+}
+
+.jin-chat-markdown .jin-chat-table th,
+.jin-chat-markdown .jin-chat-table td {
+    min-width: 0;
+    border: 1px solid rgba(148, 163, 184, 0.18);
+    padding: 0.45em 0.62em;
+    vertical-align: top;
+    text-align: left;
+    white-space: normal;
+    overflow-wrap: anywhere;
+    word-break: break-word;
+}
+
+.jin-chat-markdown .jin-chat-table th {
+    background: rgba(148, 163, 184, 0.055);
+    color: rgba(230, 247, 250, 0.94);
+    font-weight: 700;
+}
+
+.jin-chat-markdown .jin-chat-table tbody tr:nth-child(even) td {
+    background: rgba(148, 163, 184, 0.018);
+}
+
+.jin-chat-markdown .jin-chat-table .jin-chat-table-align-center {
+    text-align: center;
+}
+
+.jin-chat-markdown .jin-chat-table .jin-chat-table-align-right {
+    text-align: right;
+}
+
 .jin-chat-markdown blockquote {
     margin: 0.65em 0 0.95em;
     border-left: 2px solid rgba(165, 180, 252, 0.34);
@@ -547,10 +593,10 @@
 
     /* Think чуть мельче обычного ответа. */
     font-size: var(--theme-dark-think-font-size);
-    line-height: 1.65;
+    line-height: 1.5;
 
-    /* Курсив отделяет мысль от обычного голоса. */
-    font-style: italic;
+    /* Reasoning остаётся визуально тихим без курсивного наклона. */
+    font-style: normal;
 
     /* Сохраняет переносы текста think. */
     white-space: pre-wrap;
@@ -597,11 +643,28 @@
 }
 
 .jin-think-content.is-collapsed {
-    max-height: calc(1lh + 28px);
+    position: relative;
+    max-height: calc(1lh + 32px);
     border-color: rgba(148, 163, 184, 0.11);
     box-shadow:
             0 6px 20px rgba(0, 0, 0, 0.22),
             inset 0 -18px 18px rgba(12, 12, 14, 0.42);
+}
+
+body:not(.theme-win95) .jin-think-content.is-collapsed::after {
+    content: "";
+    position: absolute;
+    right: 0;
+    bottom: 0;
+    left: 0;
+    height: 12px;
+    border-radius: 0 0 9px 9px;
+    background: linear-gradient(
+            to bottom,
+            rgba(12, 12, 14, 0),
+            rgba(12, 12, 14, 0.22)
+    );
+    pointer-events: none;
 }
 
 .think-rule-hit {

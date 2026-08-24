@@ -157,12 +157,6 @@ class RuntimeContext:
 
     runtime_turn_interrupted_memory_update_scheduled: bool = False
 
-    runtime_idle_action_sequence: int = 0
-
-    runtime_pending_idle_followups: list[dict] = field(
-        default_factory=list
-    )
-
     runtime_action_guard_confirmations: dict[str, object] = field(
         default_factory=dict
     )
@@ -240,6 +234,10 @@ class RuntimeContext:
     runtime_l4_merge_force_single_batch_once: bool = False
     runtime_l4_memory_update_kind: str = ""
     runtime_l4_idle_last_started_at: float = 0.0
+    runtime_l4_profile_sync_at: float = 0.0
+    runtime_l4_websocket_connected: bool = False
+    runtime_l4_app_state: object | None = None
+    runtime_foreground_turn_running: bool = False
 
     runtime_usage_events: list[dict] = field(
         default_factory=list
@@ -299,9 +297,22 @@ class RuntimeContext:
         default_factory=list
     )
 
+    runtime_memory_pending_base_updates: int = 0
+
     runtime_recent_turns: list[dict] = field(
         default_factory=list
     )
+
+    # The last real user request is retained only in the live runtime so the
+    # latest completed JIN answer can be replaced in-place by a user retry.
+    # It is intentionally not part of bootstrap/history state.
+    runtime_last_retryable_request: dict = field(
+        default_factory=dict
+    )
+
+    runtime_user_retry_active: bool = False
+
+    runtime_user_retry_count: int = 0
 
     runtime_restored_session_dialog: str = ""
 

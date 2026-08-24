@@ -100,6 +100,20 @@ class ChatReasoningSpacingClientContractTests(unittest.TestCase):
         self.assertIn('"scroll"', source)
         self.assertIn("TRANSIENT_SCROLLBAR_HIDE_MS", source)
 
+
+    def test_collapsed_reasoning_is_upright_roomier_and_softly_faded(self):
+        css = CHAT_CSS.read_text(encoding="utf-8")
+
+        self.assertIn("line-height: 1.5;", css)
+        self.assertIn("font-style: normal;", css)
+        self.assertIn("max-height: calc(1lh + 32px);", css)
+        self.assertIn(
+            "body:not(.theme-win95) .jin-think-content.is-collapsed::after",
+            css,
+        )
+        self.assertIn("height: 12px;", css)
+        self.assertIn("rgba(12, 12, 14, 0.22)", css)
+
     def test_cache_versions_are_bumped_for_reasoning_spacing_assets(self):
         source = INDEX_HTML.read_text(encoding="utf-8")
 
