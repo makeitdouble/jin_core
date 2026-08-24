@@ -30,6 +30,11 @@ logs/*
 logs/**/*
 !logs/**/
 !logs/**/.gitkeep
+logs_anon/*
+!logs_anon/.gitkeep
+logs_anon/**/*
+!logs_anon/**/
+!logs_anon/**/.gitkeep
 
 # Keep empty memory directory structure
 !memory/**/.gitkeep

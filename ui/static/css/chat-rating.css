@@ -471,13 +471,14 @@ body:not(.jin-answer-rating-enabled) .jin-chat-bubble-brain .jin-chat-pre {
 /* Reuse the old neutral rating glow for the whole bubble. No red/green edge,
    skew or directional motion survives while rating is disabled. */
 body:not(.jin-answer-rating-enabled) .jin-bubble-utility-enabled:hover {
+    /* Keep the neutral hover as an outer lift. The old 24/30px inset blurs
+       overlap on one-line bubbles and turn the whole interior into a muddy
+       band, which looks like a broken inner shadow. */
     box-shadow:
             0 14px 42px rgba(0, 0, 0, 0.24),
             0 0 30px rgba(226, 232, 240, 0.070),
             0 0 28px rgba(45, 212, 191, 0.040),
-            inset 0 1px 0 rgba(248, 250, 252, 0.060),
-            inset 0 0 24px rgba(226, 232, 240, 0.035),
-            inset 0 0 30px rgba(103, 232, 249, 0.010);
+            inset 0 1px 0 rgba(248, 250, 252, 0.060);
     filter: brightness(1.03);
 }
 

@@ -113,6 +113,52 @@ class L4MemoryTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(field["l4_status"], "pending")
         self.assertTrue(field["l4_content_hash"])
 
+
+    def test_facts_memory_drops_l4_fact_reference_bookkeeping_keys(self):
+        records = normalize_facts_memory_records([
+            {
+                "session_id": "session-a",
+                "signals": {
+                    "L4 fact #305": {
+                        "content": (
+                            "The description now excludes white bonfire."
+                        ),
+                    },
+                    "environment_physical_setup": {
+                        "content": "The setup includes coffee, bong, and bricks.",
+                    },
+                },
+            },
+        ])
+
+        self.assertEqual(len(records), 1)
+        self.assertEqual(
+            list(records[0]["signals"]),
+            ["environment_physical_setup"],
+        )
+        self.assertEqual(
+            [field["key"] for field in collect_pending_facts_memory_fields(records)],
+            ["environment_physical_setup"],
+        )
+        self.assertEqual(
+            normalize_l4_candidates(
+                {
+                    "facts": [{
+                        "key": "l4_fact_305",
+                        "value": "Bookkeeping about the L4 update.",
+                        "category": "other",
+                        "source_keys": ["l4_fact_305"],
+                    }],
+                },
+                source_fields=[{
+                    "key": "l4_fact_305",
+                    "content": "The description now excludes white bonfire.",
+                    "session_id": "session-a",
+                }],
+            ),
+            [],
+        )
+
     def test_mark_analyzed_only_marks_matching_content_hash(self):
         records = normalize_facts_memory_records([
             {

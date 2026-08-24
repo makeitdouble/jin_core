@@ -58,6 +58,7 @@
       keys: runtimeStorageKeys,
       removeBrowserMemory,
       readLatestRuntimeMemory,
+      writeLatestRuntimeMemory,
       writeLatestSavedSessionSnapshot,
       readLatestSavedSessionSnapshot,
       writeLatestSavedRuntimeMemory,
@@ -66,6 +67,7 @@
       setBootSourceRuntimeSessionId,
       cloneRuntimeMemoryToCurrentSession,
       readLatestPreviousRuntimeMemory,
+      readLatestCompletedConversationRuntimeMemory,
       collectOtherLatestRuntimeMemorySnapshots,
       clearOtherLatestRuntimeMemorySnapshots,
       getSavedRuntimeMemoryFallback,
@@ -541,6 +543,23 @@
         && String(previousCheckpoint.session_id || "").trim()
           === currentSessionId
       );
+      const completedTurnCommit = Boolean(
+        data
+        && data.completed_turn_commit === true
+      );
+
+      // The global checkpoint represents the latest completed conversation,
+      // not the most recently opened tab. A boot-only/stale tab may keep its
+      // own per-session L1 cache, but it must not steal bootstrap ownership
+      // through a reconnect/duplicate/background L1 echo. Ownership moves to
+      // another tab only when that tab finishes a visible USER -> JIN turn.
+      if (
+          previousCheckpoint
+          && !sameSession
+          && !completedTurnCommit
+      ) {
+        return false;
+      }
       const previousSessionId =
         String(
           currentRuntime.previous_session_id
@@ -566,6 +585,39 @@
           data || {},
           previousSessionSnapshot
         );
+      const previousConversationCommittedAt =
+        String(
+          currentRuntime.conversation_committed_at
+          || (
+            sameSession
+            && previousCheckpoint
+            && previousCheckpoint.conversation_committed_at
+          )
+          || ""
+        ).trim();
+      const conversationCommittedAt =
+        completedTurnCommit
+          ? savedAt
+          : previousConversationCommittedAt;
+
+      // Persist the conversation owner on this session's own record. Unlike
+      // saved_at (which advances on L1 updates/reconnects), this timestamp
+      // advances only after a visible USER -> JIN turn has completed. A blank
+      // tab or a late L1 echo therefore cannot become the next bootstrap owner.
+      if (completedTurnCommit) {
+        writeLatestRuntimeMemory({
+          ...currentRuntime,
+          version: currentRuntime.version || 1,
+          session_id: currentSessionId,
+          previous_session_id: previousSessionId,
+          conversation_committed_at: conversationCommittedAt,
+          session_snapshot: sessionSnapshot,
+          runtime_snapshot:
+            buildCheckpointRuntimeSnapshot(
+              currentRuntime.runtime_snapshot
+            ),
+        });
+      }
 
       writeLatestSavedRuntimeMemory({
         ...currentRuntime,
@@ -573,6 +625,8 @@
         session_id: currentSessionId,
         previous_session_id: previousSessionId,
         saved_at: savedAt,
+        conversation_committed_at: conversationCommittedAt,
+        session_snapshot: sessionSnapshot,
         runtime_snapshot:
           buildCheckpointRuntimeSnapshot(
             currentRuntime.runtime_snapshot
@@ -584,6 +638,7 @@
         session_id: currentSessionId,
         previous_session_id: previousSessionId,
         saved_at: savedAt,
+        conversation_committed_at: conversationCommittedAt,
         loaded_memory_ids:
           sessionSnapshot.loaded_memory_ids,
         session_snapshot: sessionSnapshot,
@@ -1322,12 +1377,9 @@
             bootstrap.runtime_snapshot || null,
         });
 
-        // The fresh tab immediately becomes the new live checkpoint, even
-        // before the user sends another message. This keeps last-saved lineage
-        // one hop wide instead of leaving it pointed at the older source tab.
-        persistLiveSessionCheckpoint(
-          bootstrap
-        );
+        // Do not advance the global conversation checkpoint on page load.
+        // This tab becomes the next bootstrap predecessor only after it
+        // completes a visible USER -> JIN turn.
       }
 
       if (
@@ -1438,27 +1490,158 @@
         readLatestPreviousRuntimeMemory
           ? readLatestPreviousRuntimeMemory()
           : null;
+      const latestCompletedConversationRuntime =
+        readLatestCompletedConversationRuntimeMemory
+          ? readLatestCompletedConversationRuntimeMemory()
+          : null;
+
+      const parseCommitTimestamp = value => {
+        const parsed = Date.parse(
+          String(value || "").trim()
+        );
+        return Number.isFinite(parsed)
+          ? parsed
+          : 0;
+      };
+      const checkpointCommittedAt =
+        parseCommitTimestamp(
+          browserCheckpoint
+          && browserCheckpoint.conversation_committed_at
+        );
+      const perSessionCommittedAt =
+        parseCommitTimestamp(
+          latestCompletedConversationRuntime
+          && latestCompletedConversationRuntime.conversation_committed_at
+        );
+      const perSessionConversationWins = Boolean(
+        latestCompletedConversationRuntime
+        && perSessionCommittedAt
+        && (
+          !checkpointCommittedAt
+          || perSessionCommittedAt > checkpointCommittedAt
+        )
+      );
+
+      // Dialogue ownership comes from an actual completed turn, never from the
+      // most recently touched L1 record. This heals stale global checkpoints
+      // left by older builds while keeping empty/reconnected tabs ineligible.
+      const conversationCheckpoint =
+        perSessionConversationWins
+          ? {
+              version: 1,
+              session_id:
+                latestCompletedConversationRuntime.session_id,
+              previous_session_id:
+                latestCompletedConversationRuntime.previous_session_id
+                || latestCompletedConversationRuntime.booted_from_session_id
+                || null,
+              saved_at:
+                latestCompletedConversationRuntime.saved_at
+                || latestCompletedConversationRuntime.conversation_committed_at
+                || "",
+              conversation_committed_at:
+                latestCompletedConversationRuntime.conversation_committed_at,
+              loaded_memory_ids:
+                (
+                  latestCompletedConversationRuntime.session_snapshot
+                  && Array.isArray(
+                    latestCompletedConversationRuntime.session_snapshot.loaded_memory_ids
+                  )
+                )
+                  ? latestCompletedConversationRuntime.session_snapshot.loaded_memory_ids
+                  : [],
+              session_snapshot:
+                (
+                  latestCompletedConversationRuntime.session_snapshot
+                  && typeof latestCompletedConversationRuntime.session_snapshot === "object"
+                  && !Array.isArray(
+                    latestCompletedConversationRuntime.session_snapshot
+                  )
+                )
+                  ? {
+                      ...latestCompletedConversationRuntime.session_snapshot,
+                    }
+                  : {},
+            }
+          : browserCheckpoint;
+
+      const checkpointSessionId =
+        String(
+          conversationCheckpoint
+          && conversationCheckpoint.session_id
+          || ""
+        ).trim();
+      const savedRuntimeSessionId =
+        String(
+          browserLatestSavedRuntimeMemory
+          && browserLatestSavedRuntimeMemory.session_id
+          || ""
+        ).trim();
+      const pairedSavedRuntime = Boolean(
+        checkpointSessionId
+        && browserLatestSavedRuntimeMemory
+        && typeof browserLatestSavedRuntimeMemory === "object"
+        && !Array.isArray(browserLatestSavedRuntimeMemory)
+        && savedRuntimeSessionId === checkpointSessionId
+        && String(
+          browserLatestSavedRuntimeMemory.runtime_memory
+          || ""
+        ).trim()
+      )
+        ? browserLatestSavedRuntimeMemory
+        : null;
+      const checkpointRuntime =
+        (
+          checkpointSessionId
+          && collectOtherLatestRuntimeMemorySnapshots
+        )
+          ? collectOtherLatestRuntimeMemorySnapshots()
+              .find(snapshot => (
+                snapshot
+                && String(snapshot.session_id || "").trim()
+                  === checkpointSessionId
+                && String(snapshot.runtime_memory || "").trim()
+              ))
+          : null;
+      const completedConversationRuntime = Boolean(
+        checkpointSessionId
+        && latestCompletedConversationRuntime
+        && String(
+          latestCompletedConversationRuntime.session_id
+          || ""
+        ).trim() === checkpointSessionId
+        && String(
+          latestCompletedConversationRuntime.runtime_memory
+          || ""
+        ).trim()
+      )
+        ? latestCompletedConversationRuntime
+        : null;
 
       let runtimeMemory =
-        (
+        completedConversationRuntime
+        || pairedSavedRuntime
+        || checkpointRuntime
+        || (
+          browserLatestRuntimeMemory
+          && typeof browserLatestRuntimeMemory === "object"
+          && !Array.isArray(browserLatestRuntimeMemory)
+          && String(
+            browserLatestRuntimeMemory.runtime_memory
+            || ""
+          ).trim()
+            ? browserLatestRuntimeMemory
+            : null
+        )
+        || (
           browserLatestSavedRuntimeMemory
-          && typeof browserLatestSavedRuntimeMemory === "object"
-          && !Array.isArray(browserLatestSavedRuntimeMemory)
           && String(
             browserLatestSavedRuntimeMemory.runtime_memory
             || ""
           ).trim()
-        )
-          ? browserLatestSavedRuntimeMemory
-          : (
-              browserLatestRuntimeMemory
-              && String(
-                browserLatestRuntimeMemory.runtime_memory
-                || ""
-              ).trim()
-                ? browserLatestRuntimeMemory
-                : null
-            );
+            ? browserLatestSavedRuntimeMemory
+            : null
+        );
 
       if (!runtimeMemory) {
         const savedRuntimeFallback =
@@ -1497,18 +1680,18 @@
         ).trim();
 
       const checkpointMatchesSource = Boolean(
-        browserCheckpoint
-        && typeof browserCheckpoint === "object"
-        && !Array.isArray(browserCheckpoint)
+        conversationCheckpoint
+        && typeof conversationCheckpoint === "object"
+        && !Array.isArray(conversationCheckpoint)
         && (
           !sourceSessionId
-          || String(browserCheckpoint.session_id || "").trim()
+          || String(conversationCheckpoint.session_id || "").trim()
             === sourceSessionId
         )
       );
       const checkpoint =
         checkpointMatchesSource
-          ? browserCheckpoint
+          ? conversationCheckpoint
           : null;
 
       if (!sourceSessionId && checkpoint) {

@@ -295,6 +295,30 @@ const FACTS_MEMORY_EXCLUDED_KEYS = new Set([
   "user_idle",
 ]);
 
+const FACTS_MEMORY_EXCLUDED_KEY_PATTERNS = [
+  /^l4_fact_?f?[1-9]\d*$/i,
+];
+
+function isFactsMemoryExcludedKey(
+  key
+) {
+
+  const normalizedKey =
+    normalizeRuntimeMemoryKey(
+      key
+    );
+
+  return (
+      FACTS_MEMORY_EXCLUDED_KEYS.has(
+        normalizedKey
+      )
+      || FACTS_MEMORY_EXCLUDED_KEY_PATTERNS.some(
+        pattern => pattern.test(normalizedKey)
+      )
+  );
+
+}
+
 const deletedFactsMemoryKeys =
   new Set();
 
@@ -341,6 +365,14 @@ function persistRuntimeFactsMemory(
           line && line.key
         );
 
+      if (
+          key
+          && isFactsMemoryExcludedKey(key)
+      ) {
+        delete fields[key];
+        return;
+      }
+
       const content =
         String(
           stripRuntimeMemoryMeta(
@@ -354,7 +386,6 @@ function persistRuntimeFactsMemory(
           || deletedFactsMemoryKeys.has(
             getFactsMemoryIdentity(key)
           )
-          || FACTS_MEMORY_EXCLUDED_KEYS.has(key)
           || isJinResponseRuntimeMemoryKey(key)
           || isActiveMemoryRuntimeMemoryLine(line)
       ) {

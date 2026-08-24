@@ -24,7 +24,10 @@ from runtime.L1_memory import (
     schedule_interrupted_runtime_memory_update,
     schedule_runtime_memory_update,
 )
-from runtime.L1_memory_utils import record_runtime_memory_reasoning_quotes
+from runtime.L1_memory_utils import (
+    build_runtime_session_checkpoint,
+    record_runtime_memory_reasoning_quotes,
+)
 from runtime.metabolism import (
     append_metabolism_turn,
     cancel_metabolism_update,
@@ -1332,46 +1335,15 @@ async def process_message(
         ):
             return
 
-        await emit_session_actions_update(
-            context,
-            current_sequence=False,
-        )
-
-        await logger.log(
-            "[FLOW TELEMETRY]",
-            format_token_usage_summary(
-                context
-            ),
-        )
-
         assistant_message = (
-                state.brain_response
-                or context.runtime_turn_assistant_response
-        )
-        retryable_response = bool(
-            not is_action_guard_retry
-            and not is_session_restore_resume
-            and not getattr(
-                context,
-                "runtime_turn_interrupted",
-                False,
-            )
-            and str(assistant_message or "").strip()
+            state.brain_response
+            or context.runtime_turn_assistant_response
         )
 
-        if retryable_response:
-            context.runtime_last_retryable_request = deepcopy(
-                retry_source_candidate
-            )
-
-        await logger.log_system(
-            "[WS] agent runtime end"
-        )
-
-        await websocket.send_json({
-            "type": "agent_runtime_end",
-            "retryable_response": retryable_response,
-        })
+        # The last visible message_end already persisted a browser-side preview
+        # of this turn. Commit the same completed turn to the raw archive and
+        # runtime history before agent_runtime_end so both bootstrap sources
+        # converge immediately.
         if not is_action_guard_retry:
             try:
                 if is_user_retry:
@@ -1426,6 +1398,71 @@ async def process_message(
                 ),
                 feedback=metabolism_turn_feedback,
             )
+
+        if not is_action_guard_retry and not is_user_retry:
+            context.assistant_message_count += 1
+            context.turn_number += 1
+
+        completed_session_snapshot = (
+            build_runtime_session_checkpoint(context)
+        )
+
+        await emit_session_actions_update(
+            context,
+            current_sequence=False,
+        )
+
+        await logger.log(
+            "[FLOW TELEMETRY]",
+            format_token_usage_summary(
+                context
+            ),
+        )
+
+        retryable_response = bool(
+            not is_action_guard_retry
+            and not is_session_restore_resume
+            and not getattr(
+                context,
+                "runtime_turn_interrupted",
+                False,
+            )
+            and str(assistant_message or "").strip()
+        )
+
+        if retryable_response:
+            context.runtime_last_retryable_request = deepcopy(
+                retry_source_candidate
+            )
+
+        completed_turn_commit = bool(
+            not is_action_guard_retry
+            and not is_session_restore_resume
+            and not getattr(
+                context,
+                "runtime_turn_interrupted",
+                False,
+            )
+            and not getattr(
+                context,
+                "runtime_turn_discard_requested",
+                False,
+            )
+            and str(user_text or "").strip()
+        )
+
+        await logger.log_system(
+            "[WS] agent runtime end"
+        )
+
+        await websocket.send_json({
+            "type": "agent_runtime_end",
+            "retryable_response": retryable_response,
+            "session_snapshot": completed_session_snapshot,
+            "completed_turn_commit": completed_turn_commit,
+        })
+
+        if not is_action_guard_retry:
             # Runtime actions/validators leave a small causal trace immediately.
             # The slower SERVICE integration still runs afterwards and may
             # correct the reflex from the full turn snapshot.
@@ -1488,11 +1525,6 @@ async def process_message(
                 ),
                 assistant_message=assistant_message,
             )
-
-        if not is_action_guard_retry and not is_user_retry:
-            context.assistant_message_count += 1
-        if not is_action_guard_retry and not is_user_retry:
-            context.turn_number += 1
 
         # Background fact-checking is intentionally not armed here.
         # Fact-checking runs only from the explicit UI request path.

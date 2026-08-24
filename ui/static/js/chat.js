@@ -23,6 +23,8 @@ const MEMORY_REFERENCE_HIGHLIGHT_EVENT =
 
 let liveUserTurnAnchor = null;
 let keepLiveUserTurnAtTop = false;
+let expandedReasoningFollowStream = null;
+let expandedReasoningFollowFrame = null;
 let jinThinkCollapsedPreference = true;
 
 
@@ -604,8 +606,206 @@ function scrollLiveUserTurnToTop() {
 }
 
 
+function stopExpandedReasoningFollow(
+  stream = null
+) {
+
+  if (
+    stream
+    && expandedReasoningFollowStream !== stream
+  ) {
+    return;
+  }
+
+  expandedReasoningFollowStream = null;
+
+  if (expandedReasoningFollowFrame) {
+    cancelAnimationFrame(
+      expandedReasoningFollowFrame
+    );
+    expandedReasoningFollowFrame = null;
+  }
+
+}
+
+
+function canFollowExpandedReasoning(
+  stream
+) {
+
+  return Boolean(
+    chatHistory
+    && stream
+    && stream.group
+    && stream.runtimeAvatarReasoningActive
+    && stream.group.createdThinking
+    && !stream.group.createdAnswer
+    && stream.group.thinkContent
+    && stream.group.thinkContent.isConnected
+    && !stream.group.thinkContent.classList.contains(
+      "is-collapsed"
+    )
+    && stream.group.avatarSlot
+    && stream.group.avatarSlot.isConnected
+  );
+
+}
+
+
+function getExpandedReasoningFollowTarget(
+  stream
+) {
+
+  if (!canFollowExpandedReasoning(stream)) {
+    return null;
+  }
+
+  const historyRect =
+    chatHistory.getBoundingClientRect();
+  const avatarRect =
+    stream.group.avatarSlot.getBoundingClientRect();
+  const visibleBottom =
+    historyRect.bottom
+    - getChatInputOverlaySpace()
+    - getChatHistoryTopGap();
+  const overflow =
+    avatarRect.bottom - visibleBottom;
+
+  if (overflow <= 0.5) {
+    return chatHistory.scrollTop;
+  }
+
+  const maxScrollTop =
+    Math.max(
+      0,
+      chatHistory.scrollHeight
+      - chatHistory.clientHeight
+    );
+
+  return Math.min(
+    maxScrollTop,
+    chatHistory.scrollTop + overflow
+  );
+
+}
+
+
+function runExpandedReasoningFollowFrame() {
+
+  expandedReasoningFollowFrame = null;
+
+  const stream =
+    expandedReasoningFollowStream;
+
+  if (!canFollowExpandedReasoning(stream)) {
+    stopExpandedReasoningFollow(
+      stream
+    );
+    return;
+  }
+
+  updateLiveUserTurnBottomSpace();
+
+  const targetTop =
+    getExpandedReasoningFollowTarget(
+      stream
+    );
+
+  if (targetTop === null) {
+    stopExpandedReasoningFollow(
+      stream
+    );
+    return;
+  }
+
+  const delta =
+    targetTop - chatHistory.scrollTop;
+
+  if (delta <= 0.5) {
+    return;
+  }
+
+  chatHistory.scrollTop =
+    Math.min(
+      targetTop,
+      chatHistory.scrollTop
+      + Math.max(
+        1,
+        delta * 0.24
+      )
+    );
+
+  if (
+    targetTop - chatHistory.scrollTop
+    > 0.5
+  ) {
+    expandedReasoningFollowFrame =
+      requestAnimationFrame(
+        runExpandedReasoningFollowFrame
+      );
+  }
+
+}
+
+
+function queueExpandedReasoningFollow() {
+
+  if (
+    expandedReasoningFollowFrame
+    || !canFollowExpandedReasoning(
+      expandedReasoningFollowStream
+    )
+  ) {
+    return;
+  }
+
+  expandedReasoningFollowFrame =
+    requestAnimationFrame(
+      runExpandedReasoningFollowFrame
+    );
+
+}
+
+
+function startExpandedReasoningFollow(
+  stream
+) {
+
+  if (!canFollowExpandedReasoning(stream)) {
+    return;
+  }
+
+  if (
+    expandedReasoningFollowStream
+    && expandedReasoningFollowStream !== stream
+  ) {
+    stopExpandedReasoningFollow();
+  }
+
+  expandedReasoningFollowStream =
+    stream;
+
+  // Manual expansion hands scroll ownership from the pinned USER row to the
+  // live reasoning tail. From here the viewport follows the moving avatar
+  // only when it reaches the usable bottom edge of the chat.
+  keepLiveUserTurnAtTop = false;
+  updateLiveUserTurnBottomSpace();
+  queueExpandedReasoningFollow();
+
+}
+
+
+function releaseLiveUserTurnViewportControl() {
+
+  releaseLiveUserTurnTopLock();
+  stopExpandedReasoningFollow();
+
+}
+
+
 function prepareLiveUserTurnViewport() {
 
+  stopExpandedReasoningFollow();
   liveUserTurnAnchor = null;
   keepLiveUserTurnAtTop = false;
 
@@ -657,6 +857,32 @@ function releaseLiveUserTurnTopLock() {
 }
 
 
+function syncLiveUserTurnViewportForLayoutChange() {
+
+  if (
+    !liveUserTurnAnchor
+    || !liveUserTurnAnchor.isConnected
+  ) {
+    return;
+  }
+
+  // A reasoning max-height transition changes the visible tail height without
+  // producing a stream frame. Keep the compensating bottom spacer in lockstep
+  // so the browser never has to clamp chatHistory.scrollTop mid-collapse.
+  if (keepLiveUserTurnAtTop) {
+    scrollLiveUserTurnToTop();
+    return;
+  }
+
+  updateLiveUserTurnBottomSpace();
+
+  if (expandedReasoningFollowStream) {
+    queueExpandedReasoningFollow();
+  }
+
+}
+
+
 function scrollChatHistoryAfterAppend() {
 
   if (!chatHistory) {
@@ -667,6 +893,11 @@ function scrollChatHistoryAfterAppend() {
 
   if (keepLiveUserTurnAtTop) {
     scrollLiveUserTurnToTop();
+    return;
+  }
+
+  if (expandedReasoningFollowStream) {
+    queueExpandedReasoningFollow();
     return;
   }
 
@@ -702,13 +933,13 @@ function shouldAutoScroll() {
 if (chatHistory) {
   chatHistory.addEventListener(
     "wheel",
-    releaseLiveUserTurnTopLock,
+    releaseLiveUserTurnViewportControl,
     { passive: true }
   );
 
   chatHistory.addEventListener(
     "touchstart",
-    releaseLiveUserTurnTopLock,
+    releaseLiveUserTurnViewportControl,
     { passive: true }
   );
 }
@@ -720,7 +951,7 @@ window.addEventListener(
       event.detail
       && event.detail.active === false
     ) {
-      releaseLiveUserTurnTopLock();
+      releaseLiveUserTurnViewportControl();
     }
   }
 );
@@ -733,6 +964,8 @@ window.addEventListener(
 
     if (keepLiveUserTurnAtTop) {
       scrollLiveUserTurnToTop();
+    } else if (expandedReasoningFollowStream) {
+      queueExpandedReasoningFollow();
     }
   }
 );
@@ -887,6 +1120,10 @@ function flushStreamFrame() {
         !stream.group.createdAnswer
       ) {
 
+        stopExpandedReasoningFollow(
+          stream
+        );
+
         stream.group.wrapper.classList.remove(
           "is-awaiting-model"
         );
@@ -930,7 +1167,10 @@ function flushStreamFrame() {
   let liveTurnOverflowAutoscroll =
     false;
 
-  if (liveUserTurnReachedViewportBottom()) {
+  if (
+    !expandedReasoningFollowStream
+    && liveUserTurnReachedViewportBottom()
+  ) {
     releaseLiveUserTurnTopLock();
     liveTurnOverflowAutoscroll =
       true;
@@ -938,6 +1178,8 @@ function flushStreamFrame() {
 
   if (keepLiveUserTurnAtTop) {
     scrollLiveUserTurnToTop();
+  } else if (expandedReasoningFollowStream) {
+    queueExpandedReasoningFollow();
   } else if (
     (
       autoscroll
@@ -1525,12 +1767,22 @@ function trackStreamAvatarLayoutTransition(
   if (
     !stream
     || !stream.group
-    || !stream.group.avatarSlot
   ) {
     return;
   }
 
   const group = stream.group;
+
+  if (
+    !group.avatarSlot
+    && !(
+      liveUserTurnAnchor
+      && liveUserTurnAnchor.isConnected
+    )
+  ) {
+    return;
+  }
+
   const trackId =
     (group.avatarLayoutTrackId || 0) + 1;
   const startedAt = nowMs();
@@ -1542,15 +1794,35 @@ function trackStreamAvatarLayoutTransition(
 
     if (
       group.avatarLayoutTrackId !== trackId
-      || !group.avatarSlot
-      || !group.avatarSlot.isConnected
     ) {
       return;
     }
 
-    syncStreamAvatarPosition(
-      stream
-    );
+    const avatarConnected =
+      Boolean(
+        group.avatarSlot
+        && group.avatarSlot.isConnected
+      );
+    const liveTurnConnected =
+      Boolean(
+        liveUserTurnAnchor
+        && liveUserTurnAnchor.isConnected
+      );
+
+    if (
+      !avatarConnected
+      && !liveTurnConnected
+    ) {
+      return;
+    }
+
+    if (avatarConnected) {
+      syncStreamAvatarPosition(
+        stream
+      );
+    }
+
+    syncLiveUserTurnViewportForLayoutChange();
 
     if (
       nowMs() - startedAt
@@ -1562,9 +1834,13 @@ function trackStreamAvatarLayoutTransition(
       return;
     }
 
-    syncStreamAvatarPosition(
-      stream
-    );
+    if (avatarConnected) {
+      syncStreamAvatarPosition(
+        stream
+      );
+    }
+
+    syncLiveUserTurnViewportForLayoutChange();
 
   };
 
@@ -1573,6 +1849,7 @@ function trackStreamAvatarLayoutTransition(
   );
 
 }
+
 
 function installStreamThinkResizeObserver(
   stream
@@ -1603,6 +1880,12 @@ function installStreamThinkResizeObserver(
       queueStreamAvatarPositionSync(
         stream
       );
+
+      if (
+        expandedReasoningFollowStream === stream
+      ) {
+        queueExpandedReasoningFollow();
+      }
     }
   );
 
@@ -1799,10 +2082,11 @@ function scrollCollapsedThinkToLatest(
     return;
   }
 
-  thinkContent.scrollTo({
-    top: thinkContent.scrollHeight,
-    behavior: "smooth",
-  });
+  // The collapsed preview must land on the latest reasoning immediately.
+  // A smooth inner scroll runs at the same time as the max-height collapse
+  // and makes the whole interaction look like the chat is still moving.
+  thinkContent.scrollTop =
+    thinkContent.scrollHeight;
 
 }
 
@@ -1962,6 +2246,17 @@ function createStreamGroup(
         ? "false"
         : "true"
     );
+
+    if (
+      typeof thinkContent.__jinExpandedReasoningFollow
+      === "function"
+    ) {
+      thinkContent.__jinExpandedReasoningFollow(
+        !collapsed
+      );
+    }
+
+    syncLiveUserTurnViewportForLayoutChange();
 
     if (collapsed) {
       requestAnimationFrame(
@@ -2189,6 +2484,20 @@ function ensureStreamGroup(
         stream
       );
       trackStreamAvatarLayoutTransition(
+        stream
+      );
+    };
+
+  stream.group.thinkContent.__jinExpandedReasoningFollow =
+    (expanded) => {
+      if (expanded) {
+        startExpandedReasoningFollow(
+          stream
+        );
+        return;
+      }
+
+      stopExpandedReasoningFollow(
         stream
       );
     };

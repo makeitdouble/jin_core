@@ -12,6 +12,7 @@ from config_loader import (
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 CHAT_LOG_ROOT = PROJECT_ROOT / "logs"
+CHAT_LOG_ANON_ROOT = PROJECT_ROOT / "logs_anon"
 CHAT_LOG_SESSION_ID_MAX_CHARS = 80
 CHAT_LOG_SESSION_ID_RE = re.compile(
     r"[^a-zA-Z0-9_.-]"
@@ -43,6 +44,39 @@ def chat_logging_enabled() -> bool:
 def _now() -> datetime:
 
     return datetime.now().astimezone()
+
+
+def chat_log_root_for_context(
+    context,
+    *,
+    root: Path | str | None = None,
+) -> Path:
+
+    if root is not None:
+        return Path(root)
+
+    return (
+        CHAT_LOG_ANON_ROOT
+        if bool(
+            getattr(
+                context,
+                "runtime_anonymous_mode",
+                False,
+            )
+        )
+        else CHAT_LOG_ROOT
+    )
+
+
+def chat_log_root_for_mode(
+    anonymous_mode: bool,
+) -> Path:
+
+    return (
+        CHAT_LOG_ANON_ROOT
+        if bool(anonymous_mode)
+        else CHAT_LOG_ROOT
+    )
 
 
 def _clean_session_id(
@@ -138,10 +172,9 @@ def _existing_session_chat_logs(
     root: Path | str | None = None,
 ) -> list[Path]:
 
-    root_path = Path(
-        root
-        if root is not None
-        else CHAT_LOG_ROOT
+    root_path = chat_log_root_for_context(
+        context,
+        root=root,
     )
     session_id = _context_session_id(
         context
@@ -315,10 +348,9 @@ def get_chat_log_path(
         )
 
     timestamp = now or _now()
-    root_path = Path(
-        root
-        if root is not None
-        else CHAT_LOG_ROOT
+    root_path = chat_log_root_for_context(
+        context,
+        root=root,
     )
     session_id = _context_session_id(
         context

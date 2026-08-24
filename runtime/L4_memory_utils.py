@@ -26,6 +26,10 @@ L4_FACT_ID_PREFIX = "F"
 L4_PENDING_FACT_ID_PREFIX = "PF"
 L4_FACT_ID_RE = re.compile(r"^F([1-9]\d*)$", re.IGNORECASE)
 L4_PENDING_FACT_ID_RE = re.compile(r"^PF([1-9]\d*)$", re.IGNORECASE)
+L4_FACT_REFERENCE_MEMORY_KEY_RE = re.compile(
+    r"^l4_fact_?f?[1-9]\d*$",
+    re.IGNORECASE,
+)
 L4_LEGACY_FACT_ID_RE = re.compile(r"^l4_[a-z0-9_-]+$", re.IGNORECASE)
 L4_LEGACY_PENDING_FACT_ID_RE = re.compile(r"^l4p_[a-z0-9_-]+$", re.IGNORECASE)
 L4_FIELD_STATUS_PENDING = "pending"
@@ -1011,6 +1015,14 @@ def normalize_l4_key(value) -> str:
     key = re.sub(r"[^a-z0-9а-яё._-]+", "_", key)
     key = re.sub(r"_+", "_", key)
     return key.strip("._-")
+
+
+def is_l4_fact_reference_memory_key(value) -> bool:
+    return bool(
+        L4_FACT_REFERENCE_MEMORY_KEY_RE.fullmatch(
+            normalize_l4_key(value)
+        )
+    )
 
 
 def normalize_l4_category(value) -> str:
@@ -1999,6 +2011,8 @@ def normalize_facts_memory_records(value) -> list[dict]:
         signals = {}
         for key, field in raw_signals.items():
             normalized_key = normalize_l4_key(key)
+            if is_l4_fact_reference_memory_key(normalized_key):
+                continue
             normalized_field = normalize_facts_memory_field(
                 key=normalized_key,
                 field=field,
@@ -2126,7 +2140,7 @@ def normalize_l4_candidates(
         if not isinstance(field, dict):
             continue
         key = normalize_l4_key(field.get("key"))
-        if key:
+        if key and not is_l4_fact_reference_memory_key(key):
             fields_by_key.setdefault(key, []).append(field)
 
     candidates = []

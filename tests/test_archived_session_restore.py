@@ -641,7 +641,7 @@ open_question: continue
         self.assertEqual(context.runtime_attached_file_ids, [])
 
 
-    def test_browser_checkpoint_does_not_mix_in_older_raw_dialogue(self):
+    def test_runtime_saved_at_does_not_block_missing_browser_dialogue_tail(self):
         archived = {
             "source_session_id": "archive-session",
             "messages": [
@@ -687,10 +687,16 @@ open_question: continue
             enriched["runtime_memory"],
             "active_topic: Cooking instructions for macaroni and sausages",
         )
-        self.assertNotIn("dialog_context", enriched)
-        self.assertNotIn("recent_turns", enriched)
-        self.assertNotIn("previous_reasoning", enriched)
-        self.assertNotIn("restore_reasoning_dump", enriched)
+        # Runtime saved_at is newer than the raw log, but it contains no
+        # dialogue tail. The archive must still supply the source session's
+        # latest conversation instead of pinning bootstrap to an older clone.
+        self.assertIn("Enderman", enriched["dialog_context"])
+        self.assertEqual(enriched["recent_turns"], archived["recent_turns"])
+        self.assertEqual(
+            enriched["previous_reasoning"],
+            "reasoning about Enderman",
+        )
+        self.assertIn("Enderman", enriched["restore_reasoning_dump"])
         self.assertTrue(enriched["archived_session_restore"])
 
     def test_browser_checkpoint_explicit_empty_tool_results_stays_empty(self):

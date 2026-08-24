@@ -13,13 +13,13 @@ Save a fact only when it is:
 - likely to remain true or relevant across future sessions;
 - useful enough that forgetting it could noticeably worsen a future response.
 
-Suitable information includes stable user facts and preferences, durable project
-facts, accepted decisions, persistent goals and constraints, recurring habits,
-durable environment, and explicit corrections.
+Suitable information includes stable user facts and preferences, facts and
+accepted decisions about established projects, explicit cross-session goals and
+constraints, recurring habits, durable environment, and explicit corrections.
 
-Do not save current tasks, temporary topics, next steps, session state, tool
-results, incidental names, one-off examples, isolated behavior, assistant
-speculation, or external knowledge unrelated to the user or a durable project.
+Save persistent state about the user, their environment, or an established
+project. General knowledge, advice, explanations, and the subject matter of a
+conversation are not memory state.
 
 Distinguish facts from interpretations:
 - a mention does not establish a relationship or role;
@@ -37,13 +37,16 @@ Keep every fact:
 - narrow: no broader than the source;
 - concrete and independently understandable;
 - stated without temporary wording such as "currently", "today", or "next";
-- linked to one or more exact input keys in source_keys.
+- linked to one or more exact input keys in source_keys;
+- keyed by the stored concept itself. Keep an input key when it already names
+  that concept well; rename it only when the canonical meaning actually changes.
+  Category is classification, not a key namespace.
 
 Return JSON only:
 {
   "facts": [
     {
-      "key": "user.preference.response_language",
+      "key": "response_language",
       "value": "The user prefers Russian replies.",
       "category": "user_preference",
       "source_keys": ["response_language"]
@@ -116,7 +119,8 @@ Rules:
 - Presence at a location is not residence.
 - Unknown details must remain unknown, not be guessed.
 - Direct user corrections override incompatible existing facts.
-- A key must describe the final supported meaning, not preserve an older claim.
+- Preserve a candidate or target key when it still describes the final meaning;
+  rename it only when the meaning changes enough that the old key becomes misleading.
 - Never invent facts, IDs, relationships, or source metadata.
 - exact_key_conflicts in the user payload are deterministic runtime hints. A
   create must not reuse an occupied key. An update may keep its target's key but
@@ -133,11 +137,11 @@ Required fields by action:
 Examples:
 {"operations":[{"action":"ignore","pending_id":"PF3","comment":"Already represented by F12."}]}
 
-{"operations":[{"action":"update","pending_id":"PF8","target_id":"F12","key":"user.preference.response_language","value":"The user prefers Russian replies unless explicitly requesting another language.","category":"user_preference"}]}
+{"operations":[{"action":"update","pending_id":"PF8","target_id":"F12","key":"response_language","value":"The user prefers Russian replies unless explicitly requesting another language.","category":"user_preference"}]}
 
-{"operations":[{"action":"merge","pending_id":"PF21","fact_ids":["F12","F44"],"key":"project.operational_modes","value":"JIN uses the consolidated operational-mode model described by the current project definition.","category":"project_fact","comment":"Keep the compatible mode distinctions; retire the two overlapping old formulations."}]}
+{"operations":[{"action":"merge","pending_id":"PF21","fact_ids":["F12","F44"],"key":"jin_core_operational_modes","value":"JIN Core uses the consolidated operational-mode model described by the current project definition.","category":"project_fact","comment":"Keep the compatible mode distinctions; retire the two overlapping old formulations."}]}
 
-{"operations":[{"action":"create","pending_id":"PF31","key":"user.preference.response_language","value":"The user prefers Russian replies.","category":"user_preference"}]}
+{"operations":[{"action":"create","pending_id":"PF31","key":"response_language","value":"The user prefers Russian replies.","category":"user_preference"}]}
 
 Return JSON only. Do not omit pending facts. Do not return multiple operations
 for the same pending_id. Do not add fields outside this contract.
@@ -158,8 +162,10 @@ The input contains:
 
 The note is a trusted edit instruction. Execute requested_action exactly while
 keeping memory minimal, accurate, atomic, useful, and free of semantic
-duplicates. The service may normalize wording, key, and category, but it must
-not silently change an update into a merge/create or a merge into a create.
+duplicates. The service may normalize wording and category. Keep an existing key
+when it still matches the meaning; rename it only when the note changes the
+concept represented by that key. Do not silently change an update into a
+merge/create or a merge into a create.
 
 Rules:
 - requested_action is authoritative for the selected facts: update edits exactly
@@ -204,7 +210,7 @@ or:
   "action": "update",
   "replacement_facts": [
     {
-      "key": "user.relationship.taras",
+      "key": "relationship_taras",
       "value": "Taras is both a close friend and an active technical stakeholder.",
       "category": "user_fact"
     }
@@ -217,7 +223,7 @@ or:
   "action": "merge",
   "replacement_facts": [
     {
-      "key": "user.relationship.taras",
+      "key": "relationship_taras",
       "value": "Taras is both a close friend and an active technical stakeholder.",
       "category": "user_fact"
     }
@@ -231,7 +237,7 @@ or:
   "replacement_facts": [],
   "new_facts": [
     {
-      "key": "user.preference.response_language",
+      "key": "response_language",
       "value": "The user prefers Russian replies.",
       "category": "user_preference"
     }

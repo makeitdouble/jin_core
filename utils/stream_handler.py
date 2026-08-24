@@ -376,6 +376,7 @@ class StreamHandler:
         self,
         *,
         emit: bool = True,
+        end_payload_builder=None,
     ):
 
         await self.flush_validator_tail(
@@ -385,9 +386,21 @@ class StreamHandler:
         if not emit:
             return
 
-        await self.websocket.send_json({
+        payload = {
             "type": "message_end",
             "message_id": (
                 self.message_id
             ),
-        })
+        }
+
+        if callable(end_payload_builder):
+            try:
+                extra_payload = end_payload_builder()
+            except Exception:
+                extra_payload = None
+            if isinstance(extra_payload, dict):
+                payload.update(extra_payload)
+
+        await self.websocket.send_json(
+            payload
+        )

@@ -29,6 +29,23 @@ class UiFixBundleContractTests(unittest.TestCase):
         self.assertIn("releaseLiveUserTurnTopLock();", source)
         self.assertIn("liveTurnOverflowAutoscroll =", source)
 
+    def test_reasoning_collapse_keeps_live_turn_viewport_stable(self):
+        source = CHAT_JS.read_text(encoding="utf-8")
+
+        self.assertIn(
+            "function syncLiveUserTurnViewportForLayoutChange()",
+            source,
+        )
+        self.assertIn(
+            "syncLiveUserTurnViewportForLayoutChange();",
+            source,
+        )
+        self.assertIn(
+            "thinkContent.scrollTop =\n    thinkContent.scrollHeight;",
+            source,
+        )
+        self.assertNotIn('behavior: "smooth"', source)
+
     def test_input_focus_and_form_padding_click(self):
         socket_source = SOCKET_JS.read_text(encoding="utf-8")
         input_source = INPUT_JS.read_text(encoding="utf-8")
@@ -60,6 +77,7 @@ class UiFixBundleContractTests(unittest.TestCase):
             "&reasoning-state=1&live-turn-overflow-scroll=2",
             source,
         )
+        self.assertIn("&reasoning-collapse-stability=1", source)
         self.assertIn("&input-focus=2", source)
         self.assertIn("&input-focus=3", source)
 

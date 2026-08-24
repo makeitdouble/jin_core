@@ -102,6 +102,26 @@ class SessionBootstrapChatTailTests(unittest.TestCase):
             ],
         )
 
+    def test_bootstrap_tail_keeps_committed_user_only_action_turn(self):
+        context = SimpleNamespace(
+            runtime_recent_turns=[{
+                "user": "поставь себе цвет ff0000",
+                "jin": "",
+                "user_created_at": 100.0,
+                "jin_created_at": 101.0,
+            }],
+        )
+
+        self.assertEqual(
+            build_session_bootstrap_chat_tail(context),
+            [{
+                "user": "поставь себе цвет ff0000",
+                "jin": "",
+                "user_created_at": 100.0,
+                "jin_created_at": 101.0,
+            }],
+        )
+
     def test_live_recent_turn_persists_reasoning(self):
         context = SimpleNamespace(
             runtime_recent_turns=[],
@@ -131,6 +151,28 @@ class SessionBootstrapChatTailTests(unittest.TestCase):
         self.assertIn("finishStreamMessage(", source)
         self.assertIn("window.jinArchivedSessionRestorePayload", source)
         self.assertIn(".slice(-3)", source)
+
+    def test_client_keeps_user_only_turn_without_blank_br_bubble(self):
+        source = SOCKET_HANDLERS_JS.read_text(encoding="utf-8")
+        handler_start = source.index(
+            "function handleSessionBootstrapChatTail"
+        )
+        handler_end = source.index(
+            "function handleSessionActionsUpdate",
+            handler_start,
+        )
+        handler_source = source[handler_start:handler_end]
+
+        self.assertIn(
+            '&& String(turn.user || "").trim()',
+            handler_source,
+        )
+        self.assertNotIn(
+            '&& String(turn.jin || "").trim()',
+            handler_source,
+        )
+        self.assertIn("if (!jinText)", handler_source)
+        self.assertIn("appendSessionBootstrapBoundary", handler_source)
 
     def test_client_places_current_session_boundary_above_new_response(self):
         source = SOCKET_HANDLERS_JS.read_text(encoding="utf-8")

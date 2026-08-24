@@ -634,7 +634,55 @@
     value
   ) {
 
+    const previousValue =
+      sanitizeRuntimeMemoryRecord(
+        readRuntimeSessionMemory(
+          latestRuntimeMemoryStorageKey
+        )
+      );
+
     value = sanitizeRuntimeMemoryRecord(value);
+
+    if (
+        value
+        && typeof value === "object"
+        && !Array.isArray(value)
+        && previousValue
+        && typeof previousValue === "object"
+        && !Array.isArray(previousValue)
+    ) {
+      const previousCommittedAt =
+        String(
+          previousValue.conversation_committed_at
+          || ""
+        ).trim();
+
+      if (
+          previousCommittedAt
+          && !String(
+            value.conversation_committed_at
+            || ""
+          ).trim()
+      ) {
+        value.conversation_committed_at =
+          previousCommittedAt;
+      }
+
+      if (
+          previousValue.session_snapshot
+          && typeof previousValue.session_snapshot === "object"
+          && !Array.isArray(previousValue.session_snapshot)
+          && !(
+            value.session_snapshot
+            && typeof value.session_snapshot === "object"
+            && !Array.isArray(value.session_snapshot)
+          )
+      ) {
+        value.session_snapshot = {
+          ...previousValue.session_snapshot,
+        };
+      }
+    }
 
     const normalizedValue =
       (
@@ -713,6 +761,8 @@
         String(value.previous_session_id || "").trim() || null,
       saved_at:
         String(value.saved_at || "").trim(),
+      conversation_committed_at:
+        String(value.conversation_committed_at || "").trim(),
       loaded_memory_ids:
         Array.isArray(value.loaded_memory_ids)
           ? value.loaded_memory_ids
@@ -2059,11 +2109,12 @@
     writeLatestRuntimeMemory({
       version:
         runtimeMemory.version || 1,
-      // This is a snapshot of the new session at boot time, not a copy of
-      // the predecessor timestamp. That guarantees newest-by-saved_at
-      // resolves to the direct previous session on the following boot.
+      // Opening a tab is not conversation activity. Keep the predecessor's
+      // causal timestamp until this tab produces a real L1 update / completed
+      // turn; otherwise empty tabs outrank the session the user actually used.
       saved_at:
-        new Date().toISOString(),
+        String(runtimeMemory.saved_at || "").trim()
+        || new Date().toISOString(),
       runtime_memory:
         runtimeMemory.runtime_memory || "",
       runtime_memory_updates:
@@ -2176,6 +2227,23 @@
               && value.saved_at
             )
             || null,
+          conversation_committed_at:
+            (
+              value
+              && value.conversation_committed_at
+            )
+            || null,
+          session_snapshot:
+            (
+              value
+              && value.session_snapshot
+              && typeof value.session_snapshot === "object"
+              && !Array.isArray(value.session_snapshot)
+            )
+              ? {
+                  ...value.session_snapshot,
+                }
+              : null,
           runtime_memory_updates:
             (
               value
@@ -2241,6 +2309,74 @@
 
     const snapshots =
       collectOtherLatestRuntimeMemorySnapshots();
+
+    if (!snapshots.length) {
+      return null;
+    }
+
+    const latest = snapshots[0];
+    const value = readBrowserMemory(
+      latest.key
+    );
+
+    if (
+        !value
+        || typeof value !== "object"
+        || Array.isArray(value)
+    ) {
+      return null;
+    }
+
+    const sourceSessionId =
+      String(
+        value.session_id
+        || latest.key_session_id
+        || ""
+      ).trim();
+
+    if (!sourceSessionId) {
+      return null;
+    }
+
+    return {
+      ...value,
+      session_id: sourceSessionId,
+      storage_key: latest.key,
+    };
+
+  }
+
+
+  function readLatestCompletedConversationRuntimeMemory() {
+
+    if (shouldIsolateAnonymousStorage()) {
+      return null;
+    }
+
+    const snapshots =
+      collectOtherLatestRuntimeMemorySnapshots()
+        .filter(snapshot => (
+          snapshot
+          && String(
+            snapshot.conversation_committed_at
+            || ""
+          ).trim()
+          && String(
+            snapshot.runtime_memory
+            || ""
+          ).trim()
+        ))
+        .sort((left, right) => (
+          String(
+            right.conversation_committed_at
+            || ""
+          ).localeCompare(
+            String(
+              left.conversation_committed_at
+              || ""
+            )
+          )
+        ));
 
     if (!snapshots.length) {
       return null;
@@ -2583,6 +2719,7 @@
     cloneBootRuntimeMemoryIfNeeded,
     collectOtherLatestRuntimeMemorySnapshots,
     readLatestPreviousRuntimeMemory,
+    readLatestCompletedConversationRuntimeMemory,
     clearOtherLatestRuntimeMemorySnapshots,
     extractSavedRuntimeConstant,
     parseSavedRuntimeText,

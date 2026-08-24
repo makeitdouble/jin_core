@@ -10,7 +10,11 @@ from rules.runtime import (
     SESSION_RESTORE_REASONING_CHAR_LIMIT,
     SESSION_RESTORE_REASONING_COUNT,
 )
-from utils.chat_log import CHAT_LOG_ROOT, _clean_session_id
+from utils.chat_log import (
+    CHAT_LOG_ROOT,
+    _clean_session_id,
+    chat_log_root_for_mode,
+)
 from utils.actions import normalize_jin_position_dict, normalize_jin_speed_value
 
 
@@ -306,6 +310,7 @@ def _build_recent_turns(
             turn = {
                 "user": "",
                 "jin": "",
+                "_jin_row_seen": False,
             }
             turns[turn_number] = turn
             ordered_turns.append((turn_number, turn))
@@ -321,6 +326,10 @@ def _build_recent_turns(
             if timestamp:
                 turn["user_created_at"] = timestamp
         elif role in {"jin", "assistant", "brain", "service"}:
+            # A JIN row is appended only after runtime.run returns. Even when
+            # marker stripping leaves no visible answer text, that empty row
+            # is the durable commit marker for a real USER-only turn.
+            turn["_jin_row_seen"] = True
             turn["jin"] = text
             reasoning = _extract_reasoning_body(
                 reasoning_by_turn_id.get(
@@ -334,12 +343,17 @@ def _build_recent_turns(
                 turn["jin_created_at"] = timestamp
 
     ordered_turns.sort(key=lambda item: item[0])
-    complete_turns = [
-        item
-        for _, item in ordered_turns
-        if item.get("user") and item.get("jin")
-    ]
-    return complete_turns[-RECENT_MESSAGES_MAX_PAIRS:]
+    committed_turns = []
+    for _, item in ordered_turns:
+        if not item.get("user") or not item.get("_jin_row_seen"):
+            continue
+        committed_turns.append({
+            key: value
+            for key, value in item.items()
+            if not key.startswith("_")
+        })
+
+    return committed_turns[-RECENT_MESSAGES_MAX_PAIRS:]
 
 
 def _read_reasoning(session_directory: Path, entries: list[dict]) -> dict[str, str]:
@@ -1046,12 +1060,114 @@ def _parse_jin_size(value: str):
     }
 
 
+def find_latest_completed_session_restore_payload(
+    *,
+    root: Path | str | None = None,
+    anonymous_mode: bool | None = None,
+) -> dict | None:
+    """Return the newest raw-log session containing a committed user turn.
+
+    A normal USER/JIN pair qualifies, and so does a USER followed by an empty
+    JIN row after an action-only response. A bare USER row does not qualify, so
+    bootstrap-only/in-flight sessions remain ignored.
+    """
+    root_path = Path(
+        root
+        if root is not None
+        else chat_log_root_for_mode(
+            bool(anonymous_mode)
+        )
+    )
+    if not root_path.is_dir():
+        return None
+
+    date_directories = sorted(
+        (
+            path
+            for path in root_path.iterdir()
+            if path.is_dir()
+            and re.fullmatch(r"\d{4}-\d{2}-\d{2}", path.name)
+        ),
+        key=lambda path: path.name,
+        reverse=True,
+    )
+
+    for date_directory in date_directories:
+        best_session_id = ""
+        best_turn_timestamp = 0.0
+
+        for session_directory in date_directory.iterdir():
+            if not session_directory.is_dir():
+                continue
+
+            dialog_paths = sorted(
+                (
+                    path
+                    for path in session_directory.glob("*.jsonl")
+                    if path.is_file()
+                ),
+                key=lambda path: path.name,
+            )
+            if not dialog_paths:
+                continue
+
+            # Match build_archived_session_restore_payload: the last JSONL is
+            # the authoritative dialogue file for this runtime session.
+            entries = _load_dialog(dialog_paths[-1])
+            recent_turns = _build_recent_turns(entries)
+            if not recent_turns:
+                continue
+
+            latest_turn = recent_turns[-1]
+            try:
+                turn_timestamp = float(
+                    latest_turn.get("jin_created_at", 0)
+                    or latest_turn.get("user_created_at", 0)
+                    or 0
+                )
+            except (TypeError, ValueError):
+                turn_timestamp = 0.0
+
+            if turn_timestamp <= best_turn_timestamp:
+                continue
+
+            best_turn_timestamp = turn_timestamp
+            best_session_id = _clean_session_id(
+                session_directory.name
+            )
+
+        if not best_session_id:
+            continue
+
+        payload = build_archived_session_restore_payload(
+            best_session_id,
+            root=root_path,
+        )
+        if isinstance(payload, dict):
+            payload = dict(payload)
+            payload["latest_completed_turn_at"] = (
+                best_turn_timestamp
+            )
+            return payload
+
+    return None
+
+
 def build_archived_session_restore_payload(
     session_id: str,
     *,
     root: Path | str | None = None,
+    anonymous_mode: bool | None = None,
 ) -> dict | None:
-    root_path = Path(root if root is not None else CHAT_LOG_ROOT)
+    root_path = Path(
+        root
+        if root is not None
+        else (
+            chat_log_root_for_mode(bool(anonymous_mode))
+            if anonymous_mode is not None
+            else CHAT_LOG_ROOT
+        )
+    )
     session_directory = _find_session_directory(session_id, root_path)
     if session_directory is None:
         return None
@@ -1245,7 +1361,7 @@ def build_archived_session_restore_payload(
             reasoning_by_turn_id,
         ),
         "recent_turns": _build_recent_turns(
-            visible_entries,
+            entries,
             reasoning_by_turn_id,
         ),
         "previous_reasoning": latest_reasoning,

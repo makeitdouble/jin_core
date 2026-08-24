@@ -113,15 +113,25 @@ function handleSessionBootstrapChatTail(
       turn
       && typeof turn === "object"
       && String(turn.user || "").trim()
-      && String(turn.jin || "").trim()
     ))
     .slice(-3);
 
   turns.forEach((turn, index) => {
+    const userText =
+      String(turn.user || "").trim();
+    const jinText =
+      String(turn.jin || "").trim();
+
     appendChatMessage(
       "user",
-      String(turn.user || "")
+      userText
     );
+
+    // Marker/action-only turns have no visible JIN answer. Keep the USER
+    // bubble above the divider, but never manufacture an empty BR bubble.
+    if (!jinText) {
+      return;
+    }
 
     const messageId =
       `bootstrap-tail-${String(
@@ -147,7 +157,7 @@ function handleSessionBootstrapChatTail(
 
     appendStreamChunk(
       messageId,
-      String(turn.jin || "")
+      jinText
     );
     finishStreamMessage(
       messageId,
@@ -338,6 +348,24 @@ function handleAgentRuntimeStart(data) {
 
 function handleAgentRuntimeEnd(data) {
 
+  const runtimeSession =
+    window.JinRuntime
+    && window.JinRuntime.session;
+
+  if (
+      data
+      && data.session_snapshot
+      && runtimeSession
+      && typeof runtimeSession.persistLiveSessionCheckpoint === "function"
+  ) {
+    runtimeSession.persistLiveSessionCheckpoint({
+      session_snapshot: data.session_snapshot,
+      completed_turn_commit: Boolean(
+        data.completed_turn_commit === true
+      ),
+    });
+  }
+
   if (data && data.retryable_response === true) {
     if (window.commitJinCompletedAnswerRetryCandidate) {
       window.commitJinCompletedAnswerRetryCandidate();
@@ -415,6 +443,24 @@ function handleMessageChunk(
 function handleMessageEnd(
   data
 ) {
+
+  const runtimeSession =
+    window.JinRuntime
+    && window.JinRuntime.session;
+
+  if (
+      data
+      && data.session_snapshot
+      && runtimeSession
+      && typeof runtimeSession.persistLiveSessionCheckpoint === "function"
+  ) {
+    runtimeSession.persistLiveSessionCheckpoint({
+      session_snapshot: data.session_snapshot,
+      completed_turn_commit: Boolean(
+        data.completed_turn_commit === true
+      ),
+    });
+  }
 
   clearDelayedMemoryContentFilter(
     data.message_id

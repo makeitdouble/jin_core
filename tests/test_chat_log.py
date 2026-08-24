@@ -104,6 +104,50 @@ class ChatLogTests(unittest.TestCase):
             ],
         )
 
+    def test_anonymous_chat_log_uses_separate_root_without_row_flag(self):
+
+        context = SimpleNamespace(
+            session_id="anon-tab",
+            runtime_anonymous_mode=True,
+            runtime_turn_counter=1,
+            runtime_current_turn_id="turn_000001",
+            runtime_turn_attachments=[],
+            active_memory_records=[],
+            runtime_loaded_delayed_memory_ids=[],
+        )
+        now = datetime(
+            2026,
+            8,
+            24,
+            20,
+            0,
+            0,
+            tzinfo=timezone.utc,
+        )
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_root = Path(temp_dir)
+            normal_root = temp_root / "logs"
+            anonymous_root = temp_root / "logs_anon"
+            from unittest.mock import patch
+
+            with (
+                patch("utils.chat_log.CHAT_LOG_ROOT", normal_root),
+                patch("utils.chat_log.CHAT_LOG_ANON_ROOT", anonymous_root),
+            ):
+                path = append_chat_log_entry(
+                    context,
+                    role="user",
+                    text="anonymous hello",
+                    now=now,
+                )
+
+            self.assertTrue(path.is_relative_to(anonymous_root))
+            self.assertFalse(normal_root.exists())
+            row = json.loads(path.read_text(encoding="utf-8").strip())
+            self.assertNotIn("anonymous_mode", row)
+            self.assertEqual(row["text"], "anonymous hello")
+
     def test_append_chat_log_entry_uses_date_session_directory(self):
 
         context = SimpleNamespace(

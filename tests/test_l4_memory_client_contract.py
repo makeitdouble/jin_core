@@ -56,6 +56,30 @@ class L4MemoryClientContractTests(unittest.TestCase):
         )
         self.assertIn("window.syncFactsMemoryToRuntime();", runtime_source)
 
+
+    def test_l4_fact_reference_runtime_keys_do_not_feed_facts_memory(self):
+        source = (
+            ROOT
+            / "ui"
+            / "static"
+            / "js"
+            / "runtime"
+            / "runtime.js"
+        ).read_text(encoding="utf-8")
+
+        self.assertIn(
+            "FACTS_MEMORY_EXCLUDED_KEY_PATTERNS",
+            source,
+        )
+        self.assertIn(
+            r"/^l4_fact_?f?[1-9]\d*$/i",
+            source,
+        )
+        self.assertIn(
+            "delete fields[key];",
+            source,
+        )
+
     def test_equal_revision_update_cannot_replace_larger_local_snapshot(self):
         source = (
             ROOT

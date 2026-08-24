@@ -1532,6 +1532,10 @@ def get_or_create_connection_context(
         clients=websocket.app.state.clients,
         session_id=client_id,
     )
+    configure_runtime_anonymous_mode(
+        context,
+        anonymous_mode_enabled,
+    )
     resume_chat_log_session(
         context
     )
@@ -1540,10 +1544,6 @@ def get_or_create_connection_context(
     )
     hydrate_attached_files_from_store(
         context
-    )
-    configure_runtime_anonymous_mode(
-        context,
-        anonymous_mode_enabled,
     )
     restore_pending_l1_update(
         context
@@ -2319,8 +2319,31 @@ def _bootstrap_iso_timestamp(value) -> float:
         return 0.0
 
 
+def _bootstrap_recent_turns_tail_timestamp(value) -> float:
+    if not isinstance(value, list):
+        return 0.0
+
+    newest = 0.0
+    for turn in value:
+        if not isinstance(turn, dict):
+            continue
+        for field in (
+            "jin_created_at",
+            "user_created_at",
+        ):
+            raw = turn.get(field)
+            try:
+                timestamp = float(raw or 0)
+            except (TypeError, ValueError):
+                timestamp = _bootstrap_iso_timestamp(raw)
+            newest = max(newest, timestamp)
+    return newest
+
+
 def enrich_session_bootstrap_from_archive(
     message_data: dict,
+    *,
+    anonymous_mode: bool | None = None,
 ) -> dict:
 
     if not isinstance(message_data, dict):
@@ -2345,13 +2368,66 @@ def enrich_session_bootstrap_from_archive(
     try:
         from utils.session_restore import (
             build_archived_session_restore_payload,
+            find_latest_completed_session_restore_payload,
         )
 
         archived = build_archived_session_restore_payload(
-            source_session_id
+            source_session_id,
+            anonymous_mode=anonymous_mode,
+        )
+        latest_completed_archive = (
+            find_latest_completed_session_restore_payload(
+                anonymous_mode=anonymous_mode,
+            )
         )
     except Exception:
         archived = None
+        latest_completed_archive = None
+
+    # source_session_id comes from browser persistence and can be stale. The
+    # raw JSONL dialogue is authoritative: if another session has a strictly
+    # newer COMPLETE USER/JIN turn, continue from that session instead. Empty
+    # bootstrap-only sessions never qualify for this override.
+    if isinstance(latest_completed_archive, dict):
+        latest_source_session_id = clean_bootstrap_memory(
+            latest_completed_archive.get(
+                "source_session_id",
+                "",
+            ),
+            limit=80,
+        )
+        latest_dialog_tail_timestamp = (
+            _bootstrap_recent_turns_tail_timestamp(
+                latest_completed_archive.get(
+                    "recent_turns",
+                    [],
+                )
+            )
+        )
+        requested_dialog_tail_timestamp = (
+            _bootstrap_recent_turns_tail_timestamp(
+                archived.get("recent_turns", [])
+                if isinstance(archived, dict)
+                else []
+            )
+        )
+        browser_dialog_tail_timestamp = (
+            _bootstrap_recent_turns_tail_timestamp(
+                message_data.get("recent_turns", [])
+            )
+        )
+
+        if (
+            latest_source_session_id
+            and latest_source_session_id != source_session_id
+            and latest_dialog_tail_timestamp
+            > max(
+                requested_dialog_tail_timestamp,
+                browser_dialog_tail_timestamp,
+            )
+        ):
+            archived = latest_completed_archive
+            source_session_id = latest_source_session_id
 
     if not isinstance(archived, dict):
         return message_data
@@ -2389,22 +2465,78 @@ def enrich_session_bootstrap_from_archive(
                 int(archive_tail_timestamp) >= int(checkpoint_at)
             )
 
+    # Dialogue freshness is independent from runtime-snapshot freshness. A fresh
+    # tab clone advances saved_at even when it contains no newer conversation,
+    # so comparing a chat-log tail to saved_at can pin bootstrap to an old turn
+    # forever. Compare chat tail to chat tail instead.
+    browser_recent_turns = message_data.get("recent_turns", [])
+    archived_recent_turns = archived.get("recent_turns", [])
+    browser_dialog_tail_timestamp = (
+        _bootstrap_recent_turns_tail_timestamp(browser_recent_turns)
+    )
+    archive_dialog_tail_timestamp = (
+        _bootstrap_recent_turns_tail_timestamp(archived_recent_turns)
+    )
 
-    # Never mix a newer browser save with an older raw log tail.
-    if archive_reaches_saved_checkpoint:
+    if not archive_dialog_tail_timestamp and archive_tail_at:
+        archive_dialog_tail_timestamp = _bootstrap_iso_timestamp(
+            archive_tail_at
+        )
+
+    archive_reaches_dialog_checkpoint = False
+    browser_has_recent_turns = bool(
+        isinstance(browser_recent_turns, list)
+        and browser_recent_turns
+    )
+    archive_has_recent_turns = bool(
+        isinstance(archived_recent_turns, list)
+        and archived_recent_turns
+    )
+
+    if (
+        not browser_has_recent_turns
+        and (
+            archive_has_recent_turns
+            or archive_dialog_tail_timestamp
+            or clean_bootstrap_memory(
+                archived.get("dialog_context", "")
+            )
+        )
+    ):
+        # Legacy browser checkpoints may have no per-turn timestamps at all.
+        # If the browser has no dialogue tail, the source session's raw log is
+        # the only authoritative dialogue source regardless of runtime saved_at.
+        archive_reaches_dialog_checkpoint = True
+    elif archive_dialog_tail_timestamp and browser_dialog_tail_timestamp:
+        archive_reaches_dialog_checkpoint = (
+            int(archive_dialog_tail_timestamp)
+            >= int(browser_dialog_tail_timestamp)
+        )
+
+    if archive_reaches_dialog_checkpoint:
         for field in (
             "dialog_context",
             "recent_turns",
             "previous_reasoning",
             "restore_reasoning_dump",
             "restore_l4_fact_ids",
-            "restore_delayed_memory_metadata",
-            "restore_attached_file_metadata",
-            "session_actions",
             "runtime_turn_counter",
             "turn_number",
             "user_message_count",
             "assistant_message_count",
+        ):
+            value = archived.get(field)
+            if value not in (None, "", [], {}):
+                enriched[field] = value
+
+    # Runtime/resource checkpoint freshness still uses saved_at. Those fields
+    # are not safe to replace from an older archive just because its dialogue
+    # tail is newer than the browser's copied chat tail.
+    if archive_reaches_saved_checkpoint:
+        for field in (
+            "restore_delayed_memory_metadata",
+            "restore_attached_file_metadata",
+            "session_actions",
             "attached_file_ids",
         ):
             value = archived.get(field)
@@ -2521,7 +2653,7 @@ def build_session_bootstrap_chat_tail(
     if not isinstance(turns, list):
         return []
 
-    complete_turns = []
+    committed_turns = []
     for turn in turns:
         if not isinstance(turn, dict):
             continue
@@ -2541,7 +2673,10 @@ def build_session_bootstrap_chat_tail(
             turn.get("jin", ""),
             limit=12000,
         )
-        if not user_text or not jin_text:
+        # runtime_recent_turns contains committed turns. An action-only
+        # completion can legitimately have no visible JIN text, but its USER
+        # bubble still belongs to the predecessor chat tail.
+        if not user_text:
             continue
 
         item = {
@@ -2572,9 +2707,9 @@ def build_session_bootstrap_chat_tail(
             if created_at > 0:
                 item[key] = created_at
 
-        complete_turns.append(item)
+        committed_turns.append(item)
 
-    return complete_turns[-RECENT_MESSAGES_MAX_PAIRS:]
+    return committed_turns[-RECENT_MESSAGES_MAX_PAIRS:]
 
 
 def apply_session_bootstrap(
@@ -2583,7 +2718,14 @@ def apply_session_bootstrap(
 ) -> bool:
 
     message_data = enrich_session_bootstrap_from_archive(
-        message_data
+        message_data,
+        anonymous_mode=bool(
+            getattr(
+                context,
+                "runtime_anonymous_mode",
+                False,
+            )
+        ),
     )
 
     apply_active_memory_records(

@@ -2,6 +2,7 @@ import asyncio
 import contextlib
 import traceback
 import uuid
+import time
 
 import httpx
 
@@ -10,6 +11,14 @@ import httpx
 from runtime.state_sync import (
     refresh_runtime_state,
 )
+
+from runtime.L1_memory_utils import (
+    build_runtime_session_checkpoint,
+)
+from runtime.runtime_context import (
+    RECENT_MESSAGES_MAX_PAIRS,
+)
+
 
 from runtime.client import (
     LMStudioAPIError,
@@ -697,6 +706,116 @@ class RuntimeStream:
         self.context.runtime_turn_assistant_response = (
             self.stream.response
         )
+
+    def build_message_end_checkpoint_payload(self) -> dict:
+        if not self.is_brain_context():
+            return {}
+
+        user_message = str(
+            getattr(
+                self.context,
+                "runtime_turn_user_message",
+                "",
+            )
+            or ""
+        ).strip()
+        assistant_message = str(
+            getattr(
+                self.stream,
+                "response",
+                "",
+            )
+            or ""
+        ).strip()
+
+        # An action-only/internal stream has no visible completed USER/JIN pair.
+        # Its later follow-up stream will carry the actual visible checkpoint.
+        if not user_message or not assistant_message:
+            return {}
+
+        session_snapshot = build_runtime_session_checkpoint(
+            self.context
+        )
+        recent_turns = [
+            dict(turn)
+            for turn in session_snapshot.get(
+                "recent_turns",
+                [],
+            )
+            if isinstance(turn, dict)
+        ]
+        reasoning = str(
+            getattr(
+                self.stream,
+                "reasoning",
+                "",
+            )
+            or ""
+        ).strip()
+        now = time.time()
+        current_turn = {
+            "user": user_message,
+            "jin": assistant_message,
+            "user_created_at": float(
+                getattr(
+                    self.context,
+                    "runtime_turn_started_at",
+                    now,
+                )
+                or now
+            ),
+            "jin_created_at": now,
+        }
+        if reasoning:
+            current_turn["reasoning"] = reasoning
+
+        session_snapshot["recent_turns"] = (
+            recent_turns + [current_turn]
+        )[-RECENT_MESSAGES_MAX_PAIRS:]
+        session_snapshot["previous_reasoning"] = reasoning
+
+        if not getattr(
+            self.context,
+            "runtime_user_retry_active",
+            False,
+        ):
+            session_snapshot["assistant_message_count"] = (
+                int(
+                    session_snapshot.get(
+                        "assistant_message_count",
+                        0,
+                    )
+                    or 0
+                )
+                + 1
+            )
+            session_snapshot["turn_number"] = (
+                int(
+                    session_snapshot.get(
+                        "turn_number",
+                        0,
+                    )
+                    or 0
+                )
+                + 1
+            )
+
+        return {
+            "session_snapshot": session_snapshot,
+            "completed_turn_commit": not bool(
+                getattr(
+                    self.context,
+                    "runtime_turn_interrupted",
+                    False,
+                )
+                or getattr(
+                    self.context,
+                    "runtime_turn_discard_requested",
+                    False,
+                )
+            ),
+        }
+
 
     def detect_context_limit_stage(self) -> str:
 
@@ -3224,7 +3343,12 @@ class RuntimeStream:
                 await self.fail_unfinished_delayed_memory_actions()
 
             await self.stream.finish(
-                emit=self.emit_to_chat
+                emit=self.emit_to_chat,
+                end_payload_builder=(
+                    self.build_message_end_checkpoint_payload
+                    if self.emit_to_chat
+                    else None
+                ),
             )
 
             await self.refresh_token_usage()
