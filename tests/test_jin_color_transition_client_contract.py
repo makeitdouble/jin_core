@@ -92,6 +92,9 @@ class JinColorTransitionClientContractTests(unittest.TestCase):
         self.assertNotIn("saved_at:", persist_block)
         self.assertNotIn("colorOnly", persist_block)
         self.assertIn("currentSessionId !== checkpointSessionId", persist_block)
+        self.assertIn("&& !reconcileCurrentColor", persist_block)
+        self.assertIn("roomStateColorReconcilePending = true;", persist_block)
+        self.assertIn("roomStateColorReconcilePending = false;", persist_block)
         self.assertLess(
             persist_block.index("currentSessionId !== checkpointSessionId"),
             persist_block.index("const roomState = getRoomState(previousRoomState);"),
@@ -106,6 +109,7 @@ class JinColorTransitionClientContractTests(unittest.TestCase):
             init_block,
         )
         self.assertIn("event.detail.immediate === true", init_block)
+        self.assertIn("reconcileCurrentColor: true", init_block)
         self.assertNotIn("colorOnly", init_block)
         self.assertNotIn("applyBootstrapSceneTintShift", init_block)
         self.assertIn("enableRoomStatePersistence(false);", init_block)
@@ -144,7 +148,8 @@ class JinColorTransitionClientContractTests(unittest.TestCase):
         self.assertIn("runtime-session.js?v=", index_source)
         self.assertIn("&room-state=8&", index_source)
         self.assertIn("logger.js?v=", index_source)
-        self.assertIn("&room-state=6&", index_source)
+        self.assertIn("&room-state=7&", index_source)
+        self.assertIn("&bootstrap-color=2", index_source)
 
 
 if __name__ == "__main__":

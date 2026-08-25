@@ -3503,6 +3503,7 @@ const ROOM_STATE_PERSIST_DELAY_MS = 160;
 let roomStatePersistTimer = null;
 let roomStatePersistenceEnabled = false;
 let applyingRoomState = false;
+let roomStateColorReconcilePending = false;
 
 function isRoomStateObject(value) {
     return Boolean(
@@ -3800,7 +3801,10 @@ function finishRoomStateRestore(sequence) {
     roomStateRestoreFinishTimer = null;
     roomStateRestoreInProgress = false;
 
-    if (roomStateRestoreShouldPersist) {
+    if (
+        roomStateRestoreShouldPersist
+        || roomStateColorReconcilePending
+    ) {
         scheduleRoomStatePersist();
     }
 }
@@ -4031,7 +4035,14 @@ function applyRoomState(roomState, options = {}) {
     return true;
 }
 
-function persistRoomStateNow() {
+function persistRoomStateNow(options = {}) {
+    if (options.reconcileCurrentColor === true) {
+        roomStateColorReconcilePending = true;
+    }
+
+    const reconcileCurrentColor =
+        roomStateColorReconcilePending;
+
     if (
         !roomStatePersistenceEnabled
         || applyingRoomState
@@ -4078,12 +4089,16 @@ function persistRoomStateNow() {
 
     // Room/avatar writes are field-local. They may update the current
     // session checkpoint, but they never decide that a freshly opened tab
-    // became a new conversation. The full checkpoint path does that only
-    // after real session activity; until then leave the predecessor intact.
+    // became a new conversation. JIN_COLOR is the one synchronous exception:
+    // reconcile the room into the existing common checkpoint even before the
+    // full turn promotes this runtime session. This keeps the checkpoint's
+    // session id, lineage and saved_at untouched while preventing an older
+    // color from being replayed on every reload.
     if (
         currentSessionId
         && checkpointSessionId
         && currentSessionId !== checkpointSessionId
+        && !reconcileCurrentColor
     ) {
         return false;
     }
@@ -4124,10 +4139,16 @@ function persistRoomStateNow() {
         };
     }
 
-    return storage.writeLatestSavedSessionSnapshot({
+    const written = storage.writeLatestSavedSessionSnapshot({
         ...checkpoint,
         session_snapshot: sessionSnapshot,
     });
+
+    if (written && reconcileCurrentColor) {
+        roomStateColorReconcilePending = false;
+    }
+
+    return written;
 }
 
 function scheduleRoomStatePersist() {
@@ -4284,7 +4305,9 @@ function initRoomStatePersistence() {
         "jin:avatar-room-state-changed",
         (event) => {
             if (event.detail && event.detail.immediate === true) {
-                persistRoomStateNow();
+                persistRoomStateNow({
+                    reconcileCurrentColor: true,
+                });
                 return;
             }
             scheduleRoomStatePersist();

@@ -208,7 +208,7 @@ class BootstrapColorActionRegressionTests(unittest.TestCase):
         self.assertIn("data.bootstrap_restore === true", handler_source)
         self.assertIn("data.current_jin_color", handler_source)
         self.assertIn("initialBootstrap: true", handler_source)
-        self.assertIn("persist: false", handler_source)
+        self.assertIn("persist: true", handler_source)
         self.assertIn('payload["current_jin_color"]', history_source)
         self.assertNotIn("resolveBootstrapJinColor", handler_source)
         self.assertNotIn("applyBootstrapSceneTintShift", handler_source)

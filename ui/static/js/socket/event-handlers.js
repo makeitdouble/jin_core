@@ -197,7 +197,7 @@ function handleSessionActionsUpdate(
       data.current_jin_color,
       {
         initialBootstrap: true,
-        persist: false,
+        persist: true,
       }
     );
   }

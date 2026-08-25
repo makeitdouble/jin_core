@@ -75,7 +75,7 @@ class SessionBootstrapLineageClientContractTests(unittest.TestCase):
         self.assertNotIn("applyBootstrapSceneTintShift", source)
         self.assertIn("data.current_jin_color", handlers)
         self.assertIn("initialBootstrap: true", handlers)
-        self.assertIn("persist: false", handlers)
+        self.assertIn("persist: true", handlers)
 
     def test_early_room_restore_uses_common_checkpoint_color(self):
         logger_source = (
@@ -100,6 +100,7 @@ class SessionBootstrapLineageClientContractTests(unittest.TestCase):
         )
         init_block = logger_source[init_start:init_end]
         self.assertIn("initialBootstrapColor: true", init_block)
+        self.assertIn("reconcileCurrentColor: true", init_block)
         self.assertNotIn("applyBootstrapSceneTintShift", init_block)
 
     def test_live_bootstrap_preserves_tool_results(self):

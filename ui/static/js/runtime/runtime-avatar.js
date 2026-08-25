@@ -4972,15 +4972,15 @@
       return false;
     }
 
-
+    if (initialBootstrap && initialBootstrapColorPending) {
+      initialBootstrapColorPending = false;
+    }
 
     if (normalizedColor === centerColor) {
       return true;
     }
 
-    if (initialBootstrap && initialBootstrapColorPending) {
-      initialBootstrapColorPending = false;
-    }
+
 
     prepareCenterColorTransition(transitionDurationMs);
     applyCenterColor(normalizedColor, options);

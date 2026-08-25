@@ -198,6 +198,8 @@ class LiveSessionCheckpointTests(unittest.TestCase):
 
         self.assertIn("storage.getCurrentRuntimeSessionId", block)
         self.assertIn("currentSessionId !== checkpointSessionId", block)
+        self.assertIn("&& !reconcileCurrentColor", block)
+        self.assertIn("roomStateColorReconcilePending", block)
         self.assertLess(
             block.index("currentSessionId !== checkpointSessionId"),
             block.index("const roomState = getRoomState(previousRoomState);"),
@@ -214,6 +216,7 @@ class LiveSessionCheckpointTests(unittest.TestCase):
 
         self.assertEqual(block.count("writeLatestSavedSessionSnapshot"), 2)
         self.assertIn("sessionSnapshot.current_jin_color = avatar.color;", block)
+        self.assertIn("reconcileCurrentColor", block)
         self.assertNotIn("saved_at:", block)
         self.assertNotIn("colorOnly", block)
 
