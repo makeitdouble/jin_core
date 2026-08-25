@@ -35,6 +35,7 @@ from runtime.anonymous_mode import (
 from utils.actions import (
     is_active_memory_key,
     is_delayed_memory_report_id,
+    normalize_jin_color_payload,
     normalize_jin_speed_value,
     refresh_active_memory_runtime_metadata,
     remove_active_memory_entries,
@@ -544,6 +545,15 @@ def apply_archived_session_continuation_state(
                     item["session_id"] = current_session_id
 
         context.runtime_session_action_history = normalized_actions
+
+    restored_jin_color = normalize_jin_color_payload(
+        message_data.get("current_jin_color", "")
+    )
+    if restored_jin_color:
+        # Normal next-tab bootstrap owns the live color too. Previously only
+        # explicit archived restores staged it, leaving RuntimeContext on the
+        # default #1f4f8f even after the action trail was recovered.
+        context.jin_color = restored_jin_color
 
     if bool(
         message_data.get("archived_session_restore")
@@ -2340,6 +2350,130 @@ def _bootstrap_recent_turns_tail_timestamp(value) -> float:
     return newest
 
 
+def _bootstrap_session_action_identity(item: dict) -> str:
+    explicit_id = clean_bootstrap_memory(
+        item.get("id", ""),
+        limit=200,
+    )
+    if explicit_id:
+        return "id:" + explicit_id
+
+    runtime_turn_id = clean_bootstrap_memory(
+        item.get("runtime_turn_id", ""),
+        limit=120,
+    )
+    part_names = [
+        clean_bootstrap_memory(
+            part.get("text", ""),
+            limit=600,
+        ).upper()
+        for part in item.get("parts", [])
+        if isinstance(part, dict)
+        and clean_bootstrap_memory(
+            part.get("text", ""),
+            limit=600,
+        )
+    ] if isinstance(item.get("parts"), list) else []
+
+    if runtime_turn_id and part_names:
+        return "turn:" + runtime_turn_id + ":" + "|".join(part_names)
+
+    try:
+        created_at = int(float(item.get("created_at", 0) or 0))
+    except (TypeError, ValueError):
+        created_at = 0
+    text = clean_bootstrap_memory(
+        item.get("text", ""),
+        limit=2000,
+    )
+    colors = []
+    for part in item.get("parts", []) if isinstance(item.get("parts"), list) else []:
+        if not isinstance(part, dict):
+            continue
+        raw_colors = part.get("colors", [])
+        if isinstance(raw_colors, (str, bytes)):
+            raw_colors = [raw_colors]
+        if isinstance(raw_colors, list):
+            colors.extend(
+                str(color or "").strip().lower()
+                for color in raw_colors
+                if str(color or "").strip()
+            )
+
+    return json.dumps(
+        [created_at, text, part_names, colors],
+        ensure_ascii=False,
+        separators=(",", ":"),
+    )
+
+
+def _bootstrap_session_action_timestamp(item: dict) -> float:
+    raw = item.get("created_at")
+    try:
+        return float(raw or 0)
+    except (TypeError, ValueError):
+        return _bootstrap_iso_timestamp(raw)
+
+
+def _bootstrap_latest_session_action_color(value) -> str:
+    if not isinstance(value, list):
+        return ""
+
+    for item in reversed(value):
+        if not isinstance(item, dict):
+            continue
+        parts = item.get("parts", [])
+        if not isinstance(parts, list):
+            continue
+        for part in reversed(parts):
+            if (
+                not isinstance(part, dict)
+                or clean_bootstrap_memory(
+                    part.get("text", ""),
+                    limit=600,
+                ).upper() != "JIN_COLOR"
+            ):
+                continue
+            colors = part.get("colors", [])
+            if isinstance(colors, (str, bytes)):
+                colors = [colors]
+            if not isinstance(colors, list):
+                continue
+            for raw_color in reversed(colors):
+                color = normalize_jin_color_payload(raw_color)
+                if color:
+                    return color
+
+    return ""
+
+
+def _merge_bootstrap_session_actions(
+    browser_actions,
+    archive_actions,
+) -> list[dict]:
+    merged = []
+    seen = set()
+
+    for item in [
+        *(browser_actions if isinstance(browser_actions, list) else []),
+        *(archive_actions if isinstance(archive_actions, list) else []),
+    ]:
+        if not isinstance(item, dict):
+            continue
+        identity = _bootstrap_session_action_identity(item)
+        if identity in seen:
+            continue
+        seen.add(identity)
+        merged.append(dict(item))
+
+    # Archive-derived actions can be older than the browser checkpoint even
+    # when they are appended later during enrichment. Sort by their real
+    # timestamp so a stale archive item cannot push the just-completed
+    # JIN_COLOR action out of the restored three-item tail.
+    merged.sort(key=_bootstrap_session_action_timestamp)
+    return merged[-200:]
+
+
 def enrich_session_bootstrap_from_archive(
     message_data: dict,
     *,
@@ -2536,12 +2670,46 @@ def enrich_session_bootstrap_from_archive(
         for field in (
             "restore_delayed_memory_metadata",
             "restore_attached_file_metadata",
-            "session_actions",
             "attached_file_ids",
         ):
             value = archived.get(field)
             if value not in (None, "", [], {}):
                 enriched[field] = value
+
+    # Actions have their own causal timestamps and are recovered from raw-log
+    # predecessor lineage. Merge that exact stream independently of saved_at:
+    # saved_at can advance after a harmless browser room-state/L1 write, while
+    # the JSONL action is still the authoritative missing middle event.
+    browser_actions = enriched.get("session_actions", [])
+    archive_actions = archived.get("session_actions", [])
+    if archive_actions not in (None, "", [], {}):
+        enriched["session_actions"] = (
+            _merge_bootstrap_session_actions(
+                browser_actions,
+                archive_actions,
+            )
+        )
+
+    browser_color = normalize_jin_color_payload(
+        enriched.get("current_jin_color", "")
+    )
+    if browser_color:
+        # The browser checkpoint is updated in the same tick that JIN_COLOR is
+        # applied. Session actions remain history; they only recover color for
+        # checkpoints created before that field-local write existed.
+        enriched["current_jin_color"] = browser_color
+    else:
+        archived_color = normalize_jin_color_payload(
+            archived.get("current_jin_color", "")
+        )
+        action_color = _bootstrap_latest_session_action_color(
+            enriched.get("session_actions", [])
+        )
+
+        if action_color:
+            enriched["current_jin_color"] = action_color
+        elif archived_color:
+            enriched["current_jin_color"] = archived_color
 
     # Browser persistence is the exact checkpoint when available. Fall back
     # to archived PREVIOUS_RUNTIME_STATE/resources only when the browser half

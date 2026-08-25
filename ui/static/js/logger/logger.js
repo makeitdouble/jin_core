@@ -4024,11 +4024,16 @@ function applyRoomState(roomState, options = {}) {
     return true;
 }
 
-function persistRoomStateNow() {
+function persistRoomStateNow(options = {}) {
+    const colorOnly = options.colorOnly === true;
+
     if (
-        !roomStatePersistenceEnabled
-        || applyingRoomState
-        || roomStateRestoreInProgress
+        !colorOnly
+        && (
+            !roomStatePersistenceEnabled
+            || applyingRoomState
+            || roomStateRestoreInProgress
+        )
     ) {
         return false;
     }
@@ -4055,6 +4060,79 @@ function persistRoomStateNow() {
     if (
         !checkpoint
         || !isRoomStateObject(checkpoint.session_snapshot)
+    ) {
+        return false;
+    }
+
+    if (colorOnly) {
+        const avatarApi =
+            window.JinRuntime
+            && window.JinRuntime.avatar;
+        const color =
+            String(
+                avatarApi
+                && typeof avatarApi.getCenterColor === "function"
+                    ? avatarApi.getCenterColor()
+                    : ""
+            )
+                .trim()
+                .toLowerCase();
+
+        if (!/^#[0-9a-f]{6}$/.test(color)) {
+            return false;
+        }
+
+        const previousSnapshot =
+            checkpoint.session_snapshot;
+        const nextSnapshot = {
+            ...previousSnapshot,
+            current_jin_color: color,
+        };
+
+        if (isRoomStateObject(previousSnapshot.room_state)) {
+            const previousRoomState =
+                previousSnapshot.room_state;
+            const previousAvatar =
+                isRoomStateObject(previousRoomState.avatar)
+                    ? previousRoomState.avatar
+                    : {};
+
+            nextSnapshot.room_state = {
+                ...previousRoomState,
+                avatar: {
+                    ...previousAvatar,
+                    color,
+                },
+            };
+        }
+
+        // JIN_COLOR is a field-local mutation of this same checkpoint. Do not
+        // advance saved_at or replace its owner, lineage, actions or room data.
+        storage.writeLatestSavedSessionSnapshot({
+            ...checkpoint,
+            session_snapshot: nextSnapshot,
+        });
+
+        return true;
+    }
+
+    const currentSessionId =
+        typeof storage.getCurrentRuntimeSessionId === "function"
+            ? String(
+                storage.getCurrentRuntimeSessionId()
+                || ""
+            ).trim()
+            : "";
+    const checkpointSessionId =
+        String(checkpoint.session_id || "").trim();
+
+    // The room state is part of the same bootstrap checkpoint as its action
+    // history. A newly opened/background tab must not repaint the predecessor
+    // checkpoint before it has completed a visible turn and taken ownership.
+    if (
+        currentSessionId
+        && checkpointSessionId
+        && currentSessionId !== checkpointSessionId
     ) {
         return false;
     }
@@ -4165,7 +4243,34 @@ function getStoredRoomState() {
     const snapshot = checkpoint.session_snapshot;
 
     if (isRoomStateObject(snapshot.room_state)) {
-        return snapshot.room_state;
+        const roomState = {
+            ...snapshot.room_state,
+        };
+        const color =
+            String(
+                snapshot.current_jin_color
+                || (
+                    roomState.avatar
+                    && roomState.avatar.color
+                )
+                || ""
+            ).trim();
+
+        if (isRoomStateObject(roomState.avatar)) {
+            roomState.avatar = {
+                ...roomState.avatar,
+            };
+
+            if (color) {
+                roomState.avatar.color = color;
+            }
+        } else if (color) {
+            roomState.avatar = {
+                color,
+            };
+        }
+
+        return roomState;
     }
 
     if (
@@ -4199,9 +4304,12 @@ function getStoredRoomState() {
     };
 }
 
-function enableRoomStatePersistence() {
+function enableRoomStatePersistence(scheduleInitialPersist = true) {
     roomStatePersistenceEnabled = true;
-    scheduleRoomStatePersist();
+
+    if (scheduleInitialPersist) {
+        scheduleRoomStatePersist();
+    }
 }
 
 function initRoomStatePersistence() {
@@ -4225,7 +4333,10 @@ function initRoomStatePersistence() {
 
     window.addEventListener(
         "jin:avatar-room-state-changed",
-        scheduleRoomStatePersist
+        () => {
+            persistRoomStateNow({ colorOnly: true });
+            scheduleRoomStatePersist();
+        }
     );
     window.addEventListener(
         "beforeunload",
@@ -4235,19 +4346,19 @@ function initRoomStatePersistence() {
     const storedRoomState = getStoredRoomState();
 
     if (storedRoomState) {
-        const applyStoredRoomState = () => {
-            return applyRoomState(
-                storedRoomState,
-                {
-                    persist: false,
-                    animateTint: false,
-                }
-            );
-        };
-        const avatarState =
-            isRoomStateObject(storedRoomState.avatar)
-                ? storedRoomState.avatar
-                : {};
+        const applyStoredRoomState = () => applyRoomState(
+            storedRoomState,
+            {
+                persist: false,
+                animateTint: false,
+            }
+        );
+        const color =
+            String(
+                storedRoomState.avatar
+                && storedRoomState.avatar.color
+                || ""
+            ).trim();
         const sceneTintShift =
             window.JinRuntime
             && window.JinRuntime.session
@@ -4256,19 +4367,16 @@ function initRoomStatePersistence() {
                 ? window.JinRuntime.session.applyBootstrapSceneTintShift
                 : null;
 
-        if (
-            sceneTintShift
-            && String(avatarState.color || "").trim()
-        ) {
+        if (color && sceneTintShift) {
             sceneTintShift(
                 applyStoredRoomState,
-                avatarState.color
+                color
             );
         } else {
             applyStoredRoomState();
         }
 
-        enableRoomStatePersistence();
+        enableRoomStatePersistence(false);
         return;
     }
 

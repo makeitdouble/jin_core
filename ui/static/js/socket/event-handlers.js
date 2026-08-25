@@ -187,6 +187,43 @@ function handleSessionActionsUpdate(
   data
 ) {
 
+  const runtimeSession =
+    window.JinRuntime
+    && window.JinRuntime.session;
+
+  if (
+      data
+      && data.bootstrap_restore === true
+      && runtimeSession
+      && typeof runtimeSession.resolveBootstrapJinColor === "function"
+  ) {
+    const color = runtimeSession.resolveBootstrapJinColor({
+      session_actions:
+        Array.isArray(data.items)
+          ? data.items
+          : [],
+    });
+    const applyColor = () => Boolean(
+      color
+      && window.JinRuntime.avatar
+      && typeof window.JinRuntime.avatar.setCenterColor === "function"
+      && window.JinRuntime.avatar.setCenterColor(color)
+    );
+
+    if (color) {
+      if (
+          typeof runtimeSession.applyBootstrapSceneTintShift === "function"
+      ) {
+        runtimeSession.applyBootstrapSceneTintShift(
+          applyColor,
+          color
+        );
+      } else {
+        applyColor();
+      }
+    }
+  }
+
   if (window.updateSessionActionsLog) {
     window.updateSessionActionsLog(
       data
@@ -358,12 +395,24 @@ function handleAgentRuntimeEnd(data) {
       && runtimeSession
       && typeof runtimeSession.persistLiveSessionCheckpoint === "function"
   ) {
-    runtimeSession.persistLiveSessionCheckpoint({
+    const persisted = runtimeSession.persistLiveSessionCheckpoint({
       session_snapshot: data.session_snapshot,
       completed_turn_commit: Boolean(
         data.completed_turn_commit === true
       ),
     });
+
+    // A fresh continuation cannot repaint its predecessor while booting.
+    // Right after the first real turn takes checkpoint ownership, save the
+    // actual client room state once so the just-applied JIN color is retained.
+    if (
+        persisted
+        && data.completed_turn_commit === true
+        && window.JinPanels
+        && typeof window.JinPanels.persistRoomStateNow === "function"
+    ) {
+      window.JinPanels.persistRoomStateNow();
+    }
   }
 
   if (data && data.retryable_response === true) {

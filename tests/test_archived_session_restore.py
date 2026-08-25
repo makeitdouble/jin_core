@@ -286,6 +286,51 @@ session_snapshot_last_turn: 1
         self.assertEqual(payload["tool_results"][0]["kind"], "search")
         self.assertIn("People recommend cold noir music.", payload["tool_results"][0]["result"])
 
+    def test_runtime_color_event_restores_color_and_structured_action(self):
+        root, session_id = self._build_fixture()
+        dialog_path = (
+            root
+            / "2026-08-16"
+            / session_id
+            / "222828.jsonl"
+        )
+        color_event = {
+            "ts": "2026-08-16T23:09:38+03:00",
+            "turn": 5,
+            "turn_id": "turn_000005",
+            "session_id": session_id,
+            "role": "runtime",
+            "text": "",
+            "event": "runtime_action_request",
+            "payload": {
+                "action": "JIN_COLOR",
+                "color": "#ff0000",
+                "payload": "#ff0000",
+                "created_at": 1776370178.5,
+            },
+        }
+        with dialog_path.open("a", encoding="utf-8") as handle:
+            handle.write(
+                "\n" + json.dumps(color_event, ensure_ascii=False)
+            )
+
+        payload = build_archived_session_restore_payload(
+            session_id,
+            root=root,
+        )
+
+        self.assertEqual(payload["current_jin_color"], "#ff0000")
+        color_action = payload["session_actions"][-1]
+        self.assertEqual(color_action["text"], "JIN_COLOR")
+        self.assertEqual(
+            color_action["parts"][0]["colors"],
+            ["#ff0000"],
+        )
+        self.assertEqual(
+            color_action["runtime_turn_id"],
+            "turn_000005",
+        )
+
 
     def test_restore_payload_uses_primary_context_and_ignores_bootstrap_snapshot(self):
         root, session_id = self._build_fixture()
@@ -734,6 +779,87 @@ open_question: continue
 
         self.assertIn("tool_results", enriched)
         self.assertEqual(enriched["tool_results"], [])
+
+    def test_common_browser_checkpoint_color_wins_over_action_history(self):
+        archived = {
+            "source_session_id": "archive-session",
+            "archive_tail_at": "2026-08-23T10:30:00+03:00",
+            "session_actions": [{
+                "text": "JIN_COLOR",
+                "created_at": 10.0,
+                "parts": [{
+                    "text": "JIN_COLOR",
+                    "colors": ["#1f4f8f"],
+                }],
+            }],
+            "current_jin_color": "#1f4f8f",
+        }
+        browser_color_action = {
+            "text": "JIN_COLOR",
+            "created_at": 20.0,
+            "runtime_turn_id": "turn_000034",
+            "parts": [{
+                "text": "JIN_COLOR",
+                "colors": ["#ff0000"],
+            }],
+        }
+
+        with (
+            patch(
+                "utils.session_restore.build_archived_session_restore_payload",
+                return_value=archived,
+            ),
+            patch(
+                "utils.session_restore.find_latest_completed_session_restore_payload",
+                return_value=None,
+            ),
+        ):
+            enriched = enrich_session_bootstrap_from_archive({
+                "type": "session_bootstrap",
+                "source_session_id": "archive-session",
+                "saved_at": "2026-08-23T10:29:00+03:00",
+                "session_actions": [browser_color_action],
+                "current_jin_color": "#00ff00",
+            })
+
+        self.assertEqual(enriched["current_jin_color"], "#00ff00")
+        self.assertEqual(
+            enriched["session_actions"][-1]["parts"][0]["colors"],
+            ["#ff0000"],
+        )
+
+    def test_action_history_recovers_color_when_checkpoint_has_none(self):
+        archived = {
+            "source_session_id": "archive-session",
+            "archive_tail_at": "2026-08-23T10:30:00+03:00",
+            "session_actions": [{
+                "text": "JIN_COLOR",
+                "created_at": 20.0,
+                "parts": [{
+                    "text": "JIN_COLOR",
+                    "colors": ["#ff0000"],
+                }],
+            }],
+            "current_jin_color": "#1f4f8f",
+        }
+
+        with (
+            patch(
+                "utils.session_restore.build_archived_session_restore_payload",
+                return_value=archived,
+            ),
+            patch(
+                "utils.session_restore.find_latest_completed_session_restore_payload",
+                return_value=None,
+            ),
+        ):
+            enriched = enrich_session_bootstrap_from_archive({
+                "type": "session_bootstrap",
+                "source_session_id": "archive-session",
+                "saved_at": "2026-08-23T10:29:00+03:00",
+            })
+
+        self.assertEqual(enriched["current_jin_color"], "#ff0000")
 
     def test_empty_memory_collections_keep_archive_fallback_semantics(self):
         archived = {

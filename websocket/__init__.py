@@ -615,6 +615,7 @@ async def websocket_endpoint(
                     await emit_session_actions_update(
                         context,
                         current_sequence=False,
+                        bootstrap_restore=True,
                     )
 
                 chat_tail = build_session_bootstrap_chat_tail(

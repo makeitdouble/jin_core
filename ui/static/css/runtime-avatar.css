@@ -916,13 +916,14 @@
 .jin-avatar-center-core,
 .jin-avatar-center-point {
     transition:
-        fill 0.16s ease-out,
-        fill-opacity 0.16s ease-out,
-        opacity 0.16s ease-out;
+        fill var(--jin-avatar-center-color-transition-duration, 0.16s) ease-out,
+        fill-opacity var(--jin-avatar-center-color-transition-duration, 0.16s) ease-out,
+        opacity var(--jin-avatar-center-color-transition-duration, 0.16s) ease-out;
 }
 
 .jin-avatar-center-glow-stop {
-    transition: stop-color 0.16s ease-out;
+    transition:
+        stop-color var(--jin-avatar-center-color-transition-duration, 0.16s) ease-out;
 }
 
 .jin-avatar-orbit-entry {

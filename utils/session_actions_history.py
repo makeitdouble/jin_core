@@ -3023,6 +3023,7 @@ async def emit_session_actions_update(
     context,
     *,
     current_sequence: bool,
+    bootstrap_restore: bool = False,
 ) -> None:
 
     items = build_session_actions_update_items(
@@ -3060,6 +3061,7 @@ async def emit_session_actions_update(
         "sequence_id": get_current_action_sequence_turn_id(
             context
         ),
+        "bootstrap_restore": bool(bootstrap_restore),
         "items": items,
     })
 

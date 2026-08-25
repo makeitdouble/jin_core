@@ -762,6 +762,7 @@ async def apply_runtime_action_calls(
 
         if action.name == RUNTIME_ACTION_JIN_COLOR:
             current_jin_color = jin_color
+            context.jin_color = jin_color
             jin_color_last_by_message[
                 jin_color_message_scope
             ] = jin_color

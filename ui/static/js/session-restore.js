@@ -380,20 +380,54 @@
       return merged;
     }
 
+    const restoreSourceSessionId =
+      String(
+        merged.source_session_id
+        || sourceSessionId
+        || ""
+      ).trim();
     const checkpoint =
       storage.readLatestSavedSessionSnapshot();
-    const snapshot =
+    const checkpointSnapshot =
       checkpoint
       && String(checkpoint.session_id || "").trim()
-        === String(
-          merged.source_session_id
-          || sourceSessionId
-          || ""
-        ).trim()
+        === restoreSourceSessionId
       && checkpoint.session_snapshot
       && typeof checkpoint.session_snapshot === "object"
         ? checkpoint.session_snapshot
         : null;
+    const completedRuntimeSnapshot =
+      restoreSourceSessionId
+      && typeof storage.collectOtherLatestRuntimeMemorySnapshots
+        === "function"
+        ? storage.collectOtherLatestRuntimeMemorySnapshots()
+          .find(item => (
+            item
+            && String(
+              item.session_id
+              || item.key_session_id
+              || ""
+            ).trim() === restoreSourceSessionId
+            && item.session_snapshot
+            && typeof item.session_snapshot === "object"
+            && !Array.isArray(item.session_snapshot)
+          ))
+        : null;
+    const completedSnapshot =
+      completedRuntimeSnapshot
+      && completedRuntimeSnapshot.session_snapshot
+        ? completedRuntimeSnapshot.session_snapshot
+        : null;
+
+    // Layout stays on the normal saved-session checkpoint. Actions and color
+    // prefer the completed record for this exact archived session, so a later
+    // room-state write cannot erase the final JIN_COLOR turn.
+    const snapshot =
+      checkpointSnapshot
+      || completedSnapshot;
+    const actionSnapshot =
+      completedSnapshot
+      || checkpointSnapshot;
 
     const savedRuntime =
       typeof storage.readLatestSavedRuntimeMemory === "function"
@@ -404,11 +438,7 @@
       && typeof savedRuntime === "object"
       && !Array.isArray(savedRuntime)
       && String(savedRuntime.session_id || "").trim()
-        === String(
-          merged.source_session_id
-          || sourceSessionId
-          || ""
-        ).trim()
+        === restoreSourceSessionId
     );
 
     if (savedRuntimeMatchesSource) {
@@ -442,8 +472,71 @@
       return merged;
     }
 
+    let sessionActions = null;
+
+    if (
+      actionSnapshot
+      && Array.isArray(actionSnapshot.session_actions)
+    ) {
+      sessionActions = actionSnapshot.session_actions
+        .filter(item => (
+          item
+          && typeof item === "object"
+          && !Array.isArray(item)
+        ))
+        .slice(-200)
+        .map(item => ({ ...item }));
+      merged.session_actions = sessionActions;
+    } else if (Array.isArray(snapshot.session_actions)) {
+      // Compatibility fallback for checkpoints written before per-session
+      // completed snapshots existed.
+      merged.session_actions = snapshot.session_actions
+        .filter(item => (
+          item
+          && typeof item === "object"
+          && !Array.isArray(item)
+        ))
+        .slice(-200)
+        .map(item => ({ ...item }));
+      sessionActions = merged.session_actions;
+    }
+
+    const latestColorPart =
+      (sessionActions || [])
+        .slice()
+        .reverse()
+        .flatMap(item => (
+          Array.isArray(item.parts)
+            ? item.parts.slice().reverse()
+            : []
+        ))
+        .find(part => (
+          part
+          && typeof part === "object"
+          && !Array.isArray(part)
+          && String(part.text || "")
+            .trim()
+            .toUpperCase() === "JIN_COLOR"
+        ));
+    const actionColor =
+      latestColorPart
+      && Array.isArray(latestColorPart.colors)
+      && latestColorPart.colors.length
+        ? String(
+            latestColorPart.colors[
+              latestColorPart.colors.length - 1
+            ]
+            || ""
+          ).trim()
+        : "";
     const color =
-      String(snapshot.current_jin_color || "").trim();
+      actionColor
+      || String(
+        actionSnapshot
+        && actionSnapshot.current_jin_color
+        || ""
+      ).trim()
+      || String(snapshot.current_jin_color || "").trim();
 
     if (color) {
       merged.current_jin_color = color;
@@ -462,7 +555,23 @@
         && typeof value === "object"
         && !Array.isArray(value)
       ) {
-        merged[key] = { ...value };
+        if (
+          key === "room_state"
+          && color
+          && value.avatar
+          && typeof value.avatar === "object"
+          && !Array.isArray(value.avatar)
+        ) {
+          merged[key] = {
+            ...value,
+            avatar: {
+              ...value.avatar,
+              color,
+            },
+          };
+        } else {
+          merged[key] = { ...value };
+        }
       }
     }
 

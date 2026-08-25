@@ -83,8 +83,13 @@ def test_archive_dialogue_freshness_is_not_blocked_by_newer_runtime_saved_at():
 
     assert enriched["recent_turns"] == archived["recent_turns"]
     assert enriched["previous_reasoning"] == "new reasoning"
-    # Runtime/resource state still obeys runtime checkpoint freshness.
-    assert enriched["session_actions"] == [{"id": "browser-action"}]
+    # Resources still obey runtime checkpoint freshness. Actions carry their
+    # own timestamps/ids, so an archive action cannot disappear merely because
+    # saved_at advanced after a harmless browser write.
+    assert enriched["session_actions"] == [
+        {"id": "browser-action"},
+        {"id": "archive-action"},
+    ]
 
 
 def test_agent_runtime_end_commits_user_only_completed_turn_checkpoint():

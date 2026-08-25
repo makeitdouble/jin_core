@@ -15,7 +15,11 @@ from utils.chat_log import (
     _clean_session_id,
     chat_log_root_for_mode,
 )
-from utils.actions import normalize_jin_position_dict, normalize_jin_speed_value
+from utils.actions import (
+    normalize_jin_color_payload,
+    normalize_jin_position_dict,
+    normalize_jin_speed_value,
+)
 
 
 BLOCK_RE_TEMPLATE = r"<{name}(?:\s+[^>]*)?>\s*(?P<body>[\s\S]*?)\s*</{name}>"
@@ -40,6 +44,10 @@ UPDATE_L4_FACTS_BLOCK_RE = re.compile(
     r"(?P<body>[\s\S]*?)"
     r"^[ \t]*</UPDATE_L4_FACTS>[ \t]*[\"'`]*$",
     re.IGNORECASE | re.MULTILINE,
+)
+RESTORED_DIALOG_SOURCE_RE = re.compile(
+    r'<RESTORED_SESSION_DIALOG\b[^>]*\bsession_id="(?P<session_id>[^"]+)"',
+    re.IGNORECASE,
 )
 
 
@@ -813,7 +821,57 @@ def _build_runtime_event_session_actions(entries: list[dict]) -> list[dict]:
         payload = entry.get("payload")
         if not isinstance(payload, dict):
             continue
-        if str(payload.get("action", "") or "").strip().upper() != "UPDATE_L4_FACTS":
+
+        action_name = str(
+            payload.get("action", "")
+            or ""
+        ).strip().upper()
+        created_at = _runtime_event_created_at(entry, payload)
+        runtime_turn_id = str(
+            entry.get("turn_id", "")
+            or ""
+        ).strip()
+
+        if action_name == "JIN_COLOR":
+            color = normalize_jin_color_payload(
+                payload.get("color")
+                or payload.get("payload")
+            )
+            if not color:
+                continue
+
+            if (
+                items
+                and runtime_turn_id
+                and items[-1].get("runtime_turn_id") == runtime_turn_id
+                and len(items[-1].get("parts", [])) == 1
+                and str(
+                    items[-1]["parts"][0].get("text", "")
+                    or ""
+                ).strip().upper() == "JIN_COLOR"
+            ):
+                colors = items[-1]["parts"][0].setdefault(
+                    "colors",
+                    [],
+                )
+                if color not in colors:
+                    colors.append(color)
+                continue
+
+            item = {
+                "text": "JIN_COLOR",
+                "created_at": created_at,
+                "parts": [{
+                    "text": "JIN_COLOR",
+                    "colors": [color],
+                }],
+            }
+            if runtime_turn_id:
+                item["runtime_turn_id"] = runtime_turn_id
+            items.append(item)
+            continue
+
+        if action_name != "UPDATE_L4_FACTS":
             continue
 
         raw_action = payload.get("session_action")
@@ -832,12 +890,90 @@ def _build_runtime_event_session_actions(entries: list[dict]) -> list[dict]:
 
         item = {
             "text": text,
-            "created_at": _runtime_event_created_at(entry, payload),
+            "created_at": created_at,
             "parts": [part],
         }
+        if runtime_turn_id:
+            item["runtime_turn_id"] = runtime_turn_id
         items.append(item)
 
     return items[-200:]
+
+
+def _build_predecessor_runtime_event_session_actions(
+    context_text: str,
+    root: Path,
+    *,
+    seen_session_ids: set[str],
+    remaining_sessions: int = 3,
+) -> list[dict]:
+    """Recover inherited actions from the real direct-predecessor log chain."""
+    if remaining_sessions <= 0:
+        return []
+
+    match = RESTORED_DIALOG_SOURCE_RE.search(str(context_text or ""))
+    if match is None:
+        return []
+
+    source_session_id = _clean_session_id(match.group("session_id"))
+    if not source_session_id or source_session_id in seen_session_ids:
+        return []
+
+    seen_session_ids.add(source_session_id)
+    session_directory = _find_session_directory(source_session_id, root)
+    if session_directory is None:
+        return []
+
+    dialog_paths = sorted(
+        (path for path in session_directory.glob("*.jsonl") if path.is_file()),
+        key=lambda path: path.name,
+    )
+    if not dialog_paths:
+        return []
+
+    dialog_path = dialog_paths[-1]
+    entries = _load_dialog(dialog_path)
+    context_path = dialog_path.with_suffix(".txt")
+    try:
+        predecessor_context = (
+            context_path.read_text(encoding="utf-8", errors="replace")
+            if context_path.is_file()
+            else ""
+        )
+    except OSError:
+        predecessor_context = ""
+
+    older_actions = _build_predecessor_runtime_event_session_actions(
+        predecessor_context,
+        root,
+        seen_session_ids=seen_session_ids,
+        remaining_sessions=remaining_sessions - 1,
+    )
+    return (
+        older_actions
+        + _build_runtime_event_session_actions(entries)
+    )[-200:]
+
+
+def _latest_runtime_jin_color(entries: list[dict]) -> str:
+    for entry in reversed(entries):
+        if str(entry.get("event", "") or "").strip() != "runtime_action_request":
+            continue
+
+        payload = entry.get("payload")
+        if not isinstance(payload, dict):
+            continue
+        if str(payload.get("action", "") or "").strip().upper() != "JIN_COLOR":
+            continue
+
+        color = normalize_jin_color_payload(
+            payload.get("color")
+            or payload.get("payload")
+        )
+        if color:
+            return color
+
+    return ""
 
 
 def _build_runtime_event_tool_results(entries: list[dict]) -> list[dict]:
@@ -1275,7 +1411,14 @@ def build_archived_session_restore_payload(
 
     fallback_created_at = _entry_timestamp(visible_entries[0]) or dialog_path.stat().st_mtime
     session_actions = _build_session_actions(context_text, fallback_created_at)
-    runtime_session_actions = _build_runtime_event_session_actions(entries)
+    runtime_session_actions = (
+        _build_predecessor_runtime_event_session_actions(
+            context_text,
+            root_path,
+            seen_session_ids={_clean_session_id(session_id)},
+        )
+        + _build_runtime_event_session_actions(entries)
+    )[-200:]
     if runtime_session_actions:
         session_actions = [
             item
@@ -1381,7 +1524,10 @@ def build_archived_session_restore_payload(
         "turn_number": max_turn,
         "user_message_count": len(user_entries),
         "assistant_message_count": len(jin_entries),
-        "current_jin_color": trusted_values.get("CURRENT_JIN_COLOR", ""),
+        "current_jin_color": (
+            _latest_runtime_jin_color(entries)
+            or trusted_values.get("CURRENT_JIN_COLOR", "")
+        ),
         "current_jin_size": _parse_jin_size(
             trusted_values.get("CURRENT_JIN_SIZE", "")
         ),

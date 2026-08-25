@@ -62,6 +62,8 @@
     Object.freeze(["delayed", "l4", "active"]);
   const SNAPSHOT_GLOW_CLEAR_DELAY_MS = 360;
   const CENTER_COLOR_STEP_MS = 120;
+  const DEFAULT_CENTER_COLOR_TRANSITION_MS = 2000;
+  const CENTER_COLOR_TRANSITION_RESET_BUFFER_MS = 80;
   const MEMORY_LAYERS_HIDDEN_CLASS = "is-memory-layers-hidden";
   const MEMORY_LAYERS_DORMANT_CLASS = "is-memory-layers-dormant";
   const MEMORY_LAYERS_FADE_MS = 420;
@@ -139,6 +141,7 @@
   let centerColor = DEFAULT_CENTER_COLOR;
   let centerColorTransitionQueue = [];
   let centerColorTransitionTimer = null;
+  let centerColorTransitionStyleTimer = null;
   const reasoningMotionSources = new Set();
   const requestedAnimationPlaybackRates = new WeakMap();
   let avatarRotationAnimationsCache = null;
@@ -4883,22 +4886,92 @@
     }
   }
 
-  function processCenterColorQueue() {
-    const nextColor = centerColorTransitionQueue.shift();
+  function prepareCenterColorTransition(durationMs) {
+    const duration = Math.max(0, Number(durationMs) || 0);
+    const rootStyle = document.documentElement.style;
 
-    if (!nextColor) {
+    if (centerColorTransitionStyleTimer) {
+      window.clearTimeout(centerColorTransitionStyleTimer);
+      centerColorTransitionStyleTimer = null;
+    }
+
+    if (!duration) {
+      avatarRoot.style.removeProperty(
+        "--jin-avatar-center-color-transition-duration"
+      );
+      rootStyle.removeProperty(
+        "--scene-jin-tint-transition-duration"
+      );
+      return 0;
+    }
+
+    const durationValue = `${duration}ms`;
+
+    avatarRoot.style.setProperty(
+      "--jin-avatar-center-color-transition-duration",
+      durationValue
+    );
+    rootStyle.setProperty(
+      "--scene-jin-tint-transition-duration",
+      durationValue
+    );
+
+    // Commit the transition duration before changing either the SVG paint or
+    // the scene variables. This keeps both projections on the same 2s ramp.
+    avatarRoot.getBoundingClientRect();
+
+    centerColorTransitionStyleTimer = window.setTimeout(
+      () => {
+        avatarRoot.style.removeProperty(
+          "--jin-avatar-center-color-transition-duration"
+        );
+        rootStyle.removeProperty(
+          "--scene-jin-tint-transition-duration"
+        );
+        centerColorTransitionStyleTimer = null;
+      },
+      duration + CENTER_COLOR_TRANSITION_RESET_BUFFER_MS
+    );
+
+    return duration;
+  }
+
+  function processCenterColorQueue() {
+    const nextTransition = centerColorTransitionQueue.shift();
+
+    if (!nextTransition) {
       centerColorTransitionTimer = null;
       return;
     }
 
-    applyCenterColor(nextColor);
+    const transitionDurationMs = prepareCenterColorTransition(
+      nextTransition.transitionDurationMs
+    );
+
+    applyCenterColor(nextTransition.color);
 
     centerColorTransitionTimer =
-      setTimeout(processCenterColorQueue, CENTER_COLOR_STEP_MS);
+      window.setTimeout(
+        processCenterColorQueue,
+        Math.max(CENTER_COLOR_STEP_MS, transitionDurationMs)
+      );
   }
 
-  function setCenterColor(color) {
+  function setCenterColor(color, options = {}) {
     const normalizedColor = normalizeHexColor(color);
+    const hasExplicitTransitionDuration = Boolean(
+      options
+      && Object.prototype.hasOwnProperty.call(
+        options,
+        "transitionDurationMs"
+      )
+    );
+    const transitionDurationMs = hasExplicitTransitionDuration
+      ? Math.max(
+        0,
+        Number(options.transitionDurationMs) || 0
+      )
+      : DEFAULT_CENTER_COLOR_TRANSITION_MS;
 
     if (!normalizedColor) {
       return false;
@@ -4911,7 +4984,10 @@
       return true;
     }
 
-    centerColorTransitionQueue.push(normalizedColor);
+    centerColorTransitionQueue.push({
+      color: normalizedColor,
+      transitionDurationMs,
+    });
 
     if (!centerColorTransitionTimer) {
       processCenterColorQueue();

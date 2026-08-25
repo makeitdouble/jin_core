@@ -22,6 +22,22 @@ RUNTIME_JS = (
     / "runtime"
     / "runtime.js"
 )
+LOGGER_JS = (
+    ROOT
+    / "ui"
+    / "static"
+    / "js"
+    / "logger"
+    / "logger.js"
+)
+EVENT_HANDLERS_JS = (
+    ROOT
+    / "ui"
+    / "static"
+    / "js"
+    / "socket"
+    / "event-handlers.js"
+)
 
 
 class LiveSessionCheckpointTests(unittest.TestCase):
@@ -159,6 +175,53 @@ class LiveSessionCheckpointTests(unittest.TestCase):
     return;
   }'''
         self.assertIn(duplicate, source)
+
+
+    def test_room_state_does_not_repaint_predecessor_checkpoint(self):
+        source = LOGGER_JS.read_text(encoding="utf-8")
+        start = source.index("function persistRoomStateNow(")
+        end = source.index("function scheduleRoomStatePersist()", start)
+        block = source[start:end]
+
+        self.assertIn("storage.getCurrentRuntimeSessionId", block)
+        self.assertIn("currentSessionId !== checkpointSessionId", block)
+        self.assertIn("return false", block)
+
+    def test_color_updates_the_same_checkpoint_before_owner_switch(self):
+        source = LOGGER_JS.read_text(encoding="utf-8")
+        start = source.index("function persistRoomStateNow(")
+        end = source.index("function scheduleRoomStatePersist()", start)
+        block = source[start:end]
+
+        self.assertIn("current_jin_color: color", block)
+        self.assertIn("previousSnapshot.room_state", block)
+        self.assertIn("...checkpoint", block)
+        self.assertNotIn("saved_at:", block)
+        self.assertLess(
+            block.index("if (colorOnly)"),
+            block.index("currentSessionId !== checkpointSessionId"),
+        )
+
+    def test_completed_turn_repersists_room_state_after_owner_switch(self):
+        handlers = EVENT_HANDLERS_JS.read_text(encoding="utf-8")
+        start = handlers.index("function handleAgentRuntimeEnd(data)")
+        end = handlers.index("function handleMessageStart(", start)
+        block = handlers[start:end]
+
+        self.assertIn("data.completed_turn_commit === true", block)
+        self.assertIn("const persisted = runtimeSession.persistLiveSessionCheckpoint", block)
+        self.assertIn("window.JinPanels.persistRoomStateNow()", block)
+
+    def test_restore_merges_checkpoint_session_actions(self):
+        source = (ROOT / "ui" / "static" / "js" / "session-restore.js").read_text(encoding="utf-8")
+        start = source.index("function mergeLatestVisualCheckpoint(")
+        end = source.index("function restoreVisualState(", start)
+        block = source[start:end]
+
+        self.assertIn("Array.isArray(snapshot.session_actions)", block)
+        self.assertIn("merged.session_actions = snapshot.session_actions", block)
+        self.assertNotIn("rejectCheckpointColor", block)
+
 
 
 if __name__ == "__main__":

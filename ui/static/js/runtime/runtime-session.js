@@ -11,6 +11,8 @@
     isReconnectInitialRuntimeMemoryUpdate: notInitialized,
     isLatestRuntimeMemoryDuplicate: notInitialized,
     isBootstrapRuntimeMemoryDuplicate: notInitialized,
+    resolveBootstrapJinColor: notInitialized,
+    resolveBootstrapRoomState: notInitialized,
     applyBootstrapSceneTintShift: notInitialized,
     applyBootstrapRuntimeMemoryUpdate: notInitialized,
   };
@@ -102,6 +104,177 @@
       );
     }
 
+    function normalizeBootstrapJinColor(value) {
+      const match = String(value || "")
+        .trim()
+        .match(/^#?([0-9a-f]{3}|[0-9a-f]{6})$/i);
+
+      if (!match) {
+        return "";
+      }
+
+      let color = match[1].toLowerCase();
+
+      if (color.length === 3) {
+        color = color
+          .split("")
+          .map(char => char + char)
+          .join("");
+      }
+
+      return `#${color}`;
+    }
+
+    function resolvePersistedJinColor() {
+      const checkpoint =
+        readLatestSavedSessionSnapshot();
+      const snapshot =
+        checkpoint
+        && checkpoint.session_snapshot
+        && typeof checkpoint.session_snapshot === "object"
+        && !Array.isArray(checkpoint.session_snapshot)
+          ? checkpoint.session_snapshot
+          : null;
+
+      if (!snapshot) {
+        return "";
+      }
+
+      return normalizeBootstrapJinColor(
+        snapshot.current_jin_color
+        || (
+          snapshot.room_state
+          && snapshot.room_state.avatar
+          && snapshot.room_state.avatar.color
+        )
+      );
+    }
+
+    function resolveBootstrapJinColor(bootstrap) {
+      const source =
+        bootstrap
+        && typeof bootstrap === "object"
+        && !Array.isArray(bootstrap)
+          ? bootstrap
+          : {};
+      const persistedColor =
+        resolvePersistedJinColor();
+
+      if (persistedColor) {
+        return persistedColor;
+      }
+
+      const actions = Array.isArray(source.session_actions)
+        ? source.session_actions
+        : [];
+
+      for (let actionIndex = actions.length - 1; actionIndex >= 0; actionIndex -= 1) {
+        const action = actions[actionIndex];
+        const parts =
+          action
+          && Array.isArray(action.parts)
+            ? action.parts
+            : [];
+
+        for (let partIndex = parts.length - 1; partIndex >= 0; partIndex -= 1) {
+          const part = parts[partIndex];
+
+          if (
+              !part
+              || typeof part !== "object"
+              || Array.isArray(part)
+              || String(part.text || "").trim().toUpperCase() !== "JIN_COLOR"
+          ) {
+            continue;
+          }
+
+          const colors = Array.isArray(part.colors)
+            ? part.colors
+            : [];
+
+          for (let colorIndex = colors.length - 1; colorIndex >= 0; colorIndex -= 1) {
+            const color = normalizeBootstrapJinColor(
+              colors[colorIndex]
+            );
+
+            if (color) {
+              return color;
+            }
+          }
+        }
+      }
+
+      const currentColor = normalizeBootstrapJinColor(
+        source.current_jin_color
+      );
+
+      if (currentColor) {
+        return currentColor;
+      }
+
+      return normalizeBootstrapJinColor(
+        source.room_state
+        && source.room_state.avatar
+        && source.room_state.avatar.color
+      );
+    }
+
+    function resolveBootstrapRoomState(bootstrap) {
+      const source =
+        bootstrap
+        && typeof bootstrap === "object"
+        && !Array.isArray(bootstrap)
+          ? bootstrap
+          : {};
+      const roomState =
+        source.room_state
+        && typeof source.room_state === "object"
+        && !Array.isArray(source.room_state)
+          ? source.room_state
+          : null;
+
+      if (!roomState) {
+        return null;
+      }
+
+      const restoredColor =
+        resolveBootstrapJinColor(source);
+      const sourceAvatarState =
+        roomState.avatar
+        && typeof roomState.avatar === "object"
+        && !Array.isArray(roomState.avatar)
+          ? roomState.avatar
+          : {};
+
+      if (!restoredColor) {
+        return roomState;
+      }
+
+      return {
+        ...roomState,
+        avatar: {
+          ...sourceAvatarState,
+          color: restoredColor,
+        },
+      };
+    }
+
+    function clearBootstrapSceneTintInlineStyles(
+      sceneMain,
+      sceneTint
+    ) {
+      if (sceneMain) {
+        sceneMain.style.removeProperty("transition");
+        sceneMain.style.removeProperty("background-color");
+      }
+
+      if (sceneTint) {
+        sceneTint.style.removeProperty("transition");
+        sceneTint.style.removeProperty("background-color");
+        sceneTint.style.removeProperty("opacity");
+      }
+    }
+
     function applyBootstrapSceneTintShift(
       apply,
       targetColor = ""
@@ -130,6 +303,19 @@
         document.getElementById("scene-jin-tint");
 
       if (
+          activeBootstrapSceneTintColor
+          && normalizedTargetColor !== activeBootstrapSceneTintColor
+      ) {
+        // A newer authoritative bootstrap color is retargeting an in-flight
+        // local checkpoint transition. Release that helper's inline paint
+        // first; otherwise its stale color becomes the next cleanup baseline.
+        clearBootstrapSceneTintInlineStyles(
+          sceneMain,
+          sceneTint
+        );
+      }
+
+      if (
           prefersReducedSceneTintMotion()
           || (!sceneMain && !sceneTint)
       ) {
@@ -141,19 +327,6 @@
 
       const root =
         document.documentElement;
-      const previousMain = sceneMain
-        ? {
-            transition: sceneMain.style.transition,
-            backgroundColor: sceneMain.style.backgroundColor,
-          }
-        : null;
-      const previousTint = sceneTint
-        ? {
-            transition: sceneTint.style.transition,
-            backgroundColor: sceneTint.style.backgroundColor,
-            opacity: sceneTint.style.opacity,
-          }
-        : null;
 
       if (sceneMain) {
         const style =
@@ -229,22 +402,10 @@
           }
 
           activeBootstrapSceneTintColor = "";
-
-          if (sceneMain) {
-            sceneMain.style.transition =
-              previousMain.transition;
-            sceneMain.style.backgroundColor =
-              previousMain.backgroundColor;
-          }
-
-          if (sceneTint) {
-            sceneTint.style.transition =
-              previousTint.transition;
-            sceneTint.style.backgroundColor =
-              previousTint.backgroundColor;
-            sceneTint.style.opacity =
-              previousTint.opacity;
-          }
+          clearBootstrapSceneTintInlineStyles(
+            sceneMain,
+            sceneTint
+          );
         }, BOOTSTRAP_SCENE_TINT_SHIFT_MS + 80);
       });
 
@@ -1389,30 +1550,32 @@
           && window.JinPanels
           && typeof window.JinPanels.applyRoomState === "function"
       ) {
-        const applyRoomState = () => {
-          return window.JinPanels.applyRoomState(
-            bootstrap.room_state,
-            {
-              persist: false,
-              animateTint: false,
-            }
-          );
-        };
+        const restoredRoomState =
+          resolveBootstrapRoomState(bootstrap);
         const avatarState =
-          bootstrap.room_state.avatar
-          && typeof bootstrap.room_state.avatar === "object"
-          && !Array.isArray(bootstrap.room_state.avatar)
-            ? bootstrap.room_state.avatar
+          restoredRoomState.avatar
+          && typeof restoredRoomState.avatar === "object"
+          && !Array.isArray(restoredRoomState.avatar)
+            ? restoredRoomState.avatar
             : {};
+        const localRoomState = {
+          ...restoredRoomState,
+          avatar: {
+            ...avatarState,
+          },
+        };
 
-        if (String(avatarState.color || "").trim()) {
-          applyBootstrapSceneTintShift(
-            applyRoomState,
-            avatarState.color
-          );
-        } else {
-          applyRoomState();
-        }
+        // This is the browser checkpoint sent before archive enrichment.
+        // Apply layout now, but let the authoritative bootstrap action event
+        // own the only visible color change from the built-in default.
+        delete localRoomState.avatar.color;
+        window.JinPanels.applyRoomState(
+          localRoomState,
+          {
+            persist: false,
+            animateTint: false,
+          }
+        );
       }
 
       if (
@@ -1820,6 +1983,8 @@
     session.isReconnectInitialRuntimeMemoryUpdate = isReconnectInitialRuntimeMemoryUpdate;
     session.isLatestRuntimeMemoryDuplicate = isLatestRuntimeMemoryDuplicate;
     session.isBootstrapRuntimeMemoryDuplicate = isBootstrapRuntimeMemoryDuplicate;
+    session.resolveBootstrapJinColor = resolveBootstrapJinColor;
+    session.resolveBootstrapRoomState = resolveBootstrapRoomState;
     session.applyBootstrapSceneTintShift = applyBootstrapSceneTintShift;
     session.applyBootstrapRuntimeMemoryUpdate = applyBootstrapRuntimeMemoryUpdate;
     session.rememberStableRuntimeSnapshot = rememberStableRuntimeSnapshot;

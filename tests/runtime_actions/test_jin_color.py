@@ -305,6 +305,10 @@ class RuntimeJinColorActionTests(RuntimeActionTestCase):
                     "#ff00aa",
                 ],
             )
+            self.assertEqual(
+                context.jin_color,
+                "#ff00aa",
+            )
 
         asyncio.run(run_case())
 

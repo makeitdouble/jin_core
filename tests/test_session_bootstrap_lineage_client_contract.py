@@ -60,6 +60,72 @@ class SessionBootstrapLineageClientContractTests(unittest.TestCase):
         self.assertIn("bootstrap.source_session_id", block)
         self.assertIn("bootstrap.runtime_memory", block)
 
+    def test_boot_color_prefers_common_checkpoint_then_action_fallback(self):
+        source = RUNTIME_SESSION_JS.read_text(encoding="utf-8")
+        resolver_start = source.index("function resolveBootstrapJinColor(")
+        resolver_end = source.index(
+            "function applyBootstrapSceneTintShift(",
+            resolver_start,
+        )
+        resolver = source[resolver_start:resolver_end]
+
+        self.assertLess(
+            resolver.index("resolvePersistedJinColor()"),
+            resolver.index("source.session_actions"),
+        )
+        self.assertLess(
+            resolver.index("source.session_actions"),
+            resolver.index("source.current_jin_color"),
+        )
+        self.assertIn("readLatestSavedSessionSnapshot()", source)
+        self.assertIn('toUpperCase() !== "JIN_COLOR"', resolver)
+        self.assertIn("part.colors", resolver)
+
+        apply_start = source.index(
+            "function applyPersistedSessionBootstrap(bootstrap)"
+        )
+        apply_end = source.index(
+            "function getPersistedSessionBootstrap()",
+            apply_start,
+        )
+        apply_block = source[apply_start:apply_end]
+        self.assertIn("resolveBootstrapRoomState(bootstrap)", apply_block)
+        self.assertIn("delete localRoomState.avatar.color;", apply_block)
+        self.assertNotIn("applyBootstrapSceneTintShift(", apply_block)
+
+    def test_early_room_restore_uses_common_checkpoint_color(self):
+        runtime_source = RUNTIME_SESSION_JS.read_text(encoding="utf-8")
+        helper_start = runtime_source.index(
+            "function resolveBootstrapRoomState("
+        )
+        helper_end = runtime_source.index(
+            "function applyBootstrapSceneTintShift(",
+            helper_start,
+        )
+        helper = runtime_source[helper_start:helper_end]
+
+        self.assertIn("resolveBootstrapJinColor(source)", helper)
+        self.assertIn("color: restoredColor", helper)
+        self.assertIn(
+            "session.resolveBootstrapRoomState = resolveBootstrapRoomState",
+            runtime_source,
+        )
+
+        logger_source = (
+            ROOT / "ui" / "static" / "js" / "logger" / "logger.js"
+        ).read_text(encoding="utf-8")
+        stored_start = logger_source.index("function getStoredRoomState()")
+        stored_end = logger_source.index(
+            "function enableRoomStatePersistence(",
+            stored_start,
+        )
+        stored_block = logger_source[stored_start:stored_end]
+
+        self.assertNotIn("resolveBootstrapRoomState", stored_block)
+        self.assertIn("snapshot.current_jin_color", stored_block)
+        self.assertIn("roomState.avatar.color = color;", stored_block)
+        self.assertNotIn("delete roomState.avatar.color;", stored_block)
+
     def test_live_bootstrap_preserves_tool_results(self):
         source = RUNTIME_SESSION_JS.read_text(encoding="utf-8")
         start = source.index("function normalizeLiveSessionSnapshot(")

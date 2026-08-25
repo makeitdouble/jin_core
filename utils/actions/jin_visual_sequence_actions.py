@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import contextlib
+import time
 from uuid import uuid4
 
 from contracts.rules_assembler import (
@@ -17,6 +19,7 @@ from utils.actions import (
     normalize_jin_size_dict,
     normalize_jin_speed_value,
 )
+from utils.chat_log import append_chat_runtime_event
 
 
 JIN_VISUAL_ACTION_NAMES = {
@@ -158,6 +161,10 @@ async def emit_jin_visual_sequences(
         for sequence_index, (action, event) in enumerate(prepared):
             action_name = getattr(action, "name", "")
             payload = event["payload"]
+            action_display_id = str(
+                action_display_ids.get(id(action), "")
+                or ""
+            ).strip()
 
             if action_name == RUNTIME_ACTION_JIN_SPEED:
                 context.runtime_avatar_move_speed = event["speed"]
@@ -166,14 +173,43 @@ async def emit_jin_visual_sequences(
                     "x": event["x"],
                     "y": event["y"],
                 }
+            elif action_name == RUNTIME_ACTION_JIN_COLOR:
+                created_at = time.time()
+                color = event["color"]
+                session_action = {
+                    "text": "JIN_COLOR",
+                    "created_at": created_at,
+                    "runtime_turn_id": str(
+                        getattr(
+                            context,
+                            "runtime_current_turn_id",
+                            "",
+                        )
+                        or ""
+                    ).strip(),
+                    "parts": [{
+                        "text": "JIN_COLOR",
+                        "colors": [color],
+                    }],
+                }
+                with contextlib.suppress(Exception):
+                    append_chat_runtime_event(
+                        context,
+                        event="runtime_action_request",
+                        payload={
+                            "action": RUNTIME_ACTION_JIN_COLOR,
+                            "id": action_display_id,
+                            "color": color,
+                            "payload": color,
+                            "session_action": session_action,
+                            "created_at": created_at,
+                        },
+                    )
 
             await emit(with_action_context({
                 "type": "runtime_action",
                 "action": event["action"],
-                "id": str(
-                    action_display_ids.get(id(action), "")
-                    or ""
-                ).strip(),
+                "id": action_display_id,
                 "status": "completed",
                 **build_runtime_action_event_display_fields(
                     action_name,

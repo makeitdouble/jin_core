@@ -10,7 +10,7 @@ const JIN_VISUAL_SEQUENCE_ACTIONS = new Set([
   "jin_speed",
   "jin_position",
 ]);
-const JIN_VISUAL_SEQUENCE_COLOR_MS = 160;
+const JIN_VISUAL_SEQUENCE_COLOR_MS = 2000;
 const JIN_VISUAL_SEQUENCE_SIZE_MS = 320;
 const JIN_VISUAL_SEQUENCE_CROSS_STAGE_RATIO = 0.58;
 const jinVisualSequenceBuffers = new Map();
@@ -43,7 +43,12 @@ function applyJinVisualSequenceCommand(command) {
         && window.JinRuntime
         && window.JinRuntime.avatar
         && typeof window.JinRuntime.avatar.setCenterColor === "function"
-        && window.JinRuntime.avatar.setCenterColor(command.color)
+        && window.JinRuntime.avatar.setCenterColor(
+          command.color,
+          {
+            transitionDurationMs: JIN_VISUAL_SEQUENCE_COLOR_MS,
+          }
+        )
       );
 
     return {
@@ -1791,7 +1796,10 @@ function handleRuntimeAction(
         && typeof window.JinRuntime.avatar.setCenterColor === "function"
       ) {
         window.JinRuntime.avatar.setCenterColor(
-          color
+          color,
+          {
+            transitionDurationMs: JIN_VISUAL_SEQUENCE_COLOR_MS,
+          }
         );
       }
     }
