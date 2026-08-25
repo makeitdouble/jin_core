@@ -33,13 +33,13 @@ class SessionBootstrapLineageClientContractTests(unittest.TestCase):
     def test_session_save_uses_current_runtime_id_not_restored_facts_id(self):
         source = RUNTIME_SESSION_JS.read_text(encoding="utf-8")
         start = source.index("function getCurrentSavedSessionId()")
-        end = source.index("function buildSessionSaveRuntimeSnapshot", start)
+        end = source.index("function normalizeLiveSessionSnapshot", start)
         block = source[start:end]
 
         self.assertIn("getCurrentRuntimeSessionId()", block)
         self.assertNotIn("getCurrentFactsMemorySessionId()", block)
 
-    def test_normal_boot_prefers_latest_live_runtime_snapshot(self):
+    def test_normal_boot_uses_common_checkpoint_and_only_matching_l1(self):
         source = RUNTIME_SESSION_JS.read_text(encoding="utf-8")
         start = source.index("function getPersistedSessionBootstrap()")
         end = source.index("function clearPersistedSessionBootstrap()", start)
@@ -47,8 +47,13 @@ class SessionBootstrapLineageClientContractTests(unittest.TestCase):
 
         self.assertIn("readLatestPreviousRuntimeMemory()", block)
         self.assertIn("browserLatestRuntimeMemory", block)
-        self.assertIn("saved_runtime.txt is a last-resort compatibility fallback", block)
-        self.assertIn("if (!sessionText && !runtimeText)", block)
+        self.assertIn(
+            "browserCheckpoint || legacyCompletedCheckpoint",
+            block,
+        )
+        self.assertIn("String(record.session_id || \"\").trim()", block)
+        self.assertIn("=== checkpointSessionId", block)
+        self.assertIn("!runtimeMemory && !conversationCheckpoint", block)
 
     def test_boot_materializes_current_session_as_next_direct_predecessor(self):
         source = RUNTIME_SESSION_JS.read_text(encoding="utf-8")
@@ -60,57 +65,19 @@ class SessionBootstrapLineageClientContractTests(unittest.TestCase):
         self.assertIn("bootstrap.source_session_id", block)
         self.assertIn("bootstrap.runtime_memory", block)
 
-    def test_boot_color_prefers_common_checkpoint_then_action_fallback(self):
+    def test_boot_color_has_one_local_and_one_server_reconciliation_path(self):
         source = RUNTIME_SESSION_JS.read_text(encoding="utf-8")
-        resolver_start = source.index("function resolveBootstrapJinColor(")
-        resolver_end = source.index(
-            "function applyBootstrapSceneTintShift(",
-            resolver_start,
-        )
-        resolver = source[resolver_start:resolver_end]
+        handlers = (
+            ROOT / "ui" / "static" / "js" / "socket" / "event-handlers.js"
+        ).read_text(encoding="utf-8")
 
-        self.assertLess(
-            resolver.index("resolvePersistedJinColor()"),
-            resolver.index("source.session_actions"),
-        )
-        self.assertLess(
-            resolver.index("source.session_actions"),
-            resolver.index("source.current_jin_color"),
-        )
-        self.assertIn("readLatestSavedSessionSnapshot()", source)
-        self.assertIn('toUpperCase() !== "JIN_COLOR"', resolver)
-        self.assertIn("part.colors", resolver)
-
-        apply_start = source.index(
-            "function applyPersistedSessionBootstrap(bootstrap)"
-        )
-        apply_end = source.index(
-            "function getPersistedSessionBootstrap()",
-            apply_start,
-        )
-        apply_block = source[apply_start:apply_end]
-        self.assertIn("resolveBootstrapRoomState(bootstrap)", apply_block)
-        self.assertIn("delete localRoomState.avatar.color;", apply_block)
-        self.assertNotIn("applyBootstrapSceneTintShift(", apply_block)
+        self.assertNotIn("resolveBootstrapJinColor", source)
+        self.assertNotIn("applyBootstrapSceneTintShift", source)
+        self.assertIn("data.current_jin_color", handlers)
+        self.assertIn("initialBootstrap: true", handlers)
+        self.assertIn("persist: false", handlers)
 
     def test_early_room_restore_uses_common_checkpoint_color(self):
-        runtime_source = RUNTIME_SESSION_JS.read_text(encoding="utf-8")
-        helper_start = runtime_source.index(
-            "function resolveBootstrapRoomState("
-        )
-        helper_end = runtime_source.index(
-            "function applyBootstrapSceneTintShift(",
-            helper_start,
-        )
-        helper = runtime_source[helper_start:helper_end]
-
-        self.assertIn("resolveBootstrapJinColor(source)", helper)
-        self.assertIn("color: restoredColor", helper)
-        self.assertIn(
-            "session.resolveBootstrapRoomState = resolveBootstrapRoomState",
-            runtime_source,
-        )
-
         logger_source = (
             ROOT / "ui" / "static" / "js" / "logger" / "logger.js"
         ).read_text(encoding="utf-8")
@@ -125,6 +92,15 @@ class SessionBootstrapLineageClientContractTests(unittest.TestCase):
         self.assertIn("snapshot.current_jin_color", stored_block)
         self.assertIn("roomState.avatar.color = color;", stored_block)
         self.assertNotIn("delete roomState.avatar.color;", stored_block)
+
+        init_start = logger_source.index("function initRoomStatePersistence()")
+        init_end = logger_source.index(
+            "function clearConsoleStreamDetachTimer()",
+            init_start,
+        )
+        init_block = logger_source[init_start:init_end]
+        self.assertIn("initialBootstrapColor: true", init_block)
+        self.assertNotIn("applyBootstrapSceneTintShift", init_block)
 
     def test_live_bootstrap_preserves_tool_results(self):
         source = RUNTIME_SESSION_JS.read_text(encoding="utf-8")
@@ -153,7 +129,8 @@ class SessionBootstrapLineageClientContractTests(unittest.TestCase):
         self.assertIn("setBootSourceRuntimeSessionId", source)
         self.assertIn("readLatestPreviousRuntimeMemory", source)
         self.assertIn("collectOtherLatestRuntimeMemorySnapshots", source)
-        self.assertIn("saved_at:\n        new Date().toISOString()", source)
+        self.assertIn("Opening a tab is not conversation activity", source)
+        self.assertIn("|| new Date().toISOString()", source)
 
     def test_persisted_runtime_snapshot_keeps_its_origin_session_id(self):
         storage_source = RUNTIME_STORAGE_JS.read_text(encoding="utf-8")

@@ -186,42 +186,20 @@ function handleSessionBootstrapChatTail(
 function handleSessionActionsUpdate(
   data
 ) {
-
-  const runtimeSession =
-    window.JinRuntime
-    && window.JinRuntime.session;
-
   if (
       data
       && data.bootstrap_restore === true
-      && runtimeSession
-      && typeof runtimeSession.resolveBootstrapJinColor === "function"
-  ) {
-    const color = runtimeSession.resolveBootstrapJinColor({
-      session_actions:
-        Array.isArray(data.items)
-          ? data.items
-          : [],
-    });
-    const applyColor = () => Boolean(
-      color
+      && data.current_jin_color
       && window.JinRuntime.avatar
       && typeof window.JinRuntime.avatar.setCenterColor === "function"
-      && window.JinRuntime.avatar.setCenterColor(color)
-    );
-
-    if (color) {
-      if (
-          typeof runtimeSession.applyBootstrapSceneTintShift === "function"
-      ) {
-        runtimeSession.applyBootstrapSceneTintShift(
-          applyColor,
-          color
-        );
-      } else {
-        applyColor();
+  ) {
+    window.JinRuntime.avatar.setCenterColor(
+      data.current_jin_color,
+      {
+        initialBootstrap: true,
+        persist: false,
       }
-    }
+    );
   }
 
   if (window.updateSessionActionsLog) {
@@ -383,6 +361,54 @@ function handleAgentRuntimeStart(data) {
   );
 }
 
+function withCurrentRoomState(sessionSnapshot) {
+  const roomState =
+    window.JinPanels
+    && typeof window.JinPanels.getRoomState === "function"
+      ? window.JinPanels.getRoomState(
+          sessionSnapshot.room_state || null
+        )
+      : null;
+  const avatarState =
+    roomState
+    && roomState.avatar
+    && typeof roomState.avatar === "object"
+      ? roomState.avatar
+      : null;
+
+  if (!avatarState) {
+    return sessionSnapshot;
+  }
+
+  return {
+    ...sessionSnapshot,
+    room_state: roomState,
+    current_jin_color: avatarState.color,
+    current_jin_collapsed: Boolean(avatarState.collapsed),
+    current_jin_speed: Number(
+      avatarState.speed_px_per_second || 900
+    ),
+    current_window_size: {
+      width: avatarState.window_width,
+      height: avatarState.window_height,
+    },
+    ...(
+      avatarState.geometry_known
+        ? {
+            current_jin_size: {
+              width: avatarState.width,
+              height: avatarState.height,
+            },
+            current_jin_position: {
+              x: avatarState.x,
+              y: avatarState.y,
+            },
+          }
+        : {}
+    ),
+  };
+}
+
 function handleAgentRuntimeEnd(data) {
 
   const runtimeSession =
@@ -395,24 +421,14 @@ function handleAgentRuntimeEnd(data) {
       && runtimeSession
       && typeof runtimeSession.persistLiveSessionCheckpoint === "function"
   ) {
-    const persisted = runtimeSession.persistLiveSessionCheckpoint({
-      session_snapshot: data.session_snapshot,
+    runtimeSession.persistLiveSessionCheckpoint({
+      session_snapshot: withCurrentRoomState(
+        data.session_snapshot
+      ),
       completed_turn_commit: Boolean(
         data.completed_turn_commit === true
       ),
     });
-
-    // A fresh continuation cannot repaint its predecessor while booting.
-    // Right after the first real turn takes checkpoint ownership, save the
-    // actual client room state once so the just-applied JIN color is retained.
-    if (
-        persisted
-        && data.completed_turn_commit === true
-        && window.JinPanels
-        && typeof window.JinPanels.persistRoomStateNow === "function"
-    ) {
-      window.JinPanels.persistRoomStateNow();
-    }
   }
 
   if (data && data.retryable_response === true) {
@@ -504,7 +520,9 @@ function handleMessageEnd(
       && typeof runtimeSession.persistLiveSessionCheckpoint === "function"
   ) {
     runtimeSession.persistLiveSessionCheckpoint({
-      session_snapshot: data.session_snapshot,
+      session_snapshot: withCurrentRoomState(
+        data.session_snapshot
+      ),
       completed_turn_commit: Boolean(
         data.completed_turn_commit === true
       ),

@@ -443,6 +443,18 @@ def apply_archived_session_continuation_state(
                 "text": text,
             }
 
+            for identity_field, limit in (
+                ("id", 200),
+                ("event_id", 200),
+                ("runtime_turn_id", 120),
+            ):
+                identity_value = clean_bootstrap_memory(
+                    item.get(identity_field, ""),
+                    limit=limit,
+                )
+                if identity_value:
+                    normalized_item[identity_field] = identity_value
+
             item_session_id = clean_bootstrap_memory(
                 item.get(
                     "session_id",
@@ -522,8 +534,7 @@ def apply_archived_session_continuation_state(
                                     for char in color
                                 )
                             normalized_color = f"#{color}"
-                            if normalized_color not in colors:
-                                colors.append(normalized_color)
+                            colors.append(normalized_color)
                         if colors:
                             normalized_part["colors"] = colors
 
@@ -2352,7 +2363,8 @@ def _bootstrap_recent_turns_tail_timestamp(value) -> float:
 
 def _bootstrap_session_action_identity(item: dict) -> str:
     explicit_id = clean_bootstrap_memory(
-        item.get("id", ""),
+        item.get("id", "")
+        or item.get("event_id", ""),
         limit=200,
     )
     if explicit_id:
@@ -2375,33 +2387,49 @@ def _bootstrap_session_action_identity(item: dict) -> str:
         )
     ] if isinstance(item.get("parts"), list) else []
 
-    if runtime_turn_id and part_names:
-        return "turn:" + runtime_turn_id + ":" + "|".join(part_names)
-
     try:
-        created_at = int(float(item.get("created_at", 0) or 0))
+        created_at = float(item.get("created_at", 0) or 0)
     except (TypeError, ValueError):
         created_at = 0
     text = clean_bootstrap_memory(
         item.get("text", ""),
         limit=2000,
     )
-    colors = []
+    normalized_parts = []
     for part in item.get("parts", []) if isinstance(item.get("parts"), list) else []:
         if not isinstance(part, dict):
             continue
+        normalized_part = {
+            "text": clean_bootstrap_memory(
+                part.get("text", ""),
+                limit=600,
+            ).upper(),
+            "detail": clean_bootstrap_memory(
+                part.get("detail", ""),
+                limit=1200,
+            ),
+            "message": clean_bootstrap_memory(
+                part.get("message", ""),
+                limit=2400,
+            ),
+            "id": clean_bootstrap_memory(
+                part.get("id", ""),
+                limit=200,
+            ),
+        }
         raw_colors = part.get("colors", [])
         if isinstance(raw_colors, (str, bytes)):
             raw_colors = [raw_colors]
         if isinstance(raw_colors, list):
-            colors.extend(
+            normalized_part["colors"] = [
                 str(color or "").strip().lower()
                 for color in raw_colors
                 if str(color or "").strip()
-            )
+            ]
+        normalized_parts.append(normalized_part)
 
     return json.dumps(
-        [created_at, text, part_names, colors],
+        [created_at, runtime_turn_id, text, part_names, normalized_parts],
         ensure_ascii=False,
         separators=(",", ":"),
     )
@@ -2498,6 +2526,7 @@ def enrich_session_bootstrap_from_archive(
     )
     if not source_session_id:
         return message_data
+    browser_source_session_id = source_session_id
 
     try:
         from utils.session_restore import (
@@ -2520,8 +2549,9 @@ def enrich_session_bootstrap_from_archive(
 
     # source_session_id comes from browser persistence and can be stale. The
     # raw JSONL dialogue is authoritative: if another session has a strictly
-    # newer COMPLETE USER/JIN turn, continue from that session instead. Empty
-    # bootstrap-only sessions never qualify for this override.
+    # newer real USER move, continue from that session immediately. A stopped
+    # generation may therefore restore as USER-only; opening a blank tab still
+    # does nothing because bootstrap-only sessions contain no real USER row.
     if isinstance(latest_completed_archive, dict):
         latest_source_session_id = clean_bootstrap_memory(
             latest_completed_archive.get(
@@ -2676,12 +2706,33 @@ def enrich_session_bootstrap_from_archive(
             if value not in (None, "", [], {}):
                 enriched[field] = value
 
-    # Actions have their own causal timestamps and are recovered from raw-log
-    # predecessor lineage. Merge that exact stream independently of saved_at:
-    # saved_at can advance after a harmless browser room-state/L1 write, while
-    # the JSONL action is still the authoritative missing middle event.
-    browser_actions = enriched.get("session_actions", [])
+    # The common checkpoint owns all actions committed before its saved_at.
+    # Raw JSONL contributes only a newer tail (or the whole fallback when the
+    # checkpoint has no actions), so the same marker cannot appear once from
+    # localStorage and again from the file log.
+    source_changed = source_session_id != browser_source_session_id
+    browser_actions = (
+        []
+        if source_changed
+        else enriched.get("session_actions", [])
+    )
     archive_actions = archived.get("session_actions", [])
+    if (
+        browser_actions
+        and isinstance(archive_actions, list)
+        and not source_changed
+    ):
+        checkpoint_timestamp = _bootstrap_iso_timestamp(
+            message_data.get("saved_at", "")
+        )
+        if checkpoint_timestamp:
+            archive_actions = [
+                item
+                for item in archive_actions
+                if isinstance(item, dict)
+                and _bootstrap_session_action_timestamp(item)
+                > checkpoint_timestamp
+            ]
     if archive_actions not in (None, "", [], {}):
         enriched["session_actions"] = (
             _merge_bootstrap_session_actions(
@@ -2690,8 +2741,12 @@ def enrich_session_bootstrap_from_archive(
             )
         )
 
-    browser_color = normalize_jin_color_payload(
-        enriched.get("current_jin_color", "")
+    browser_color = (
+        ""
+        if source_changed
+        else normalize_jin_color_payload(
+            enriched.get("current_jin_color", "")
+        )
     )
     if browser_color:
         # The browser checkpoint is updated in the same tick that JIN_COLOR is
@@ -2841,9 +2896,9 @@ def build_session_bootstrap_chat_tail(
             turn.get("jin", ""),
             limit=12000,
         )
-        # runtime_recent_turns contains committed turns. An action-only
-        # completion can legitimately have no visible JIN text, but its USER
-        # bubble still belongs to the predecessor chat tail.
+        # runtime_recent_turns contains the latest real USER moves. A stopped
+        # turn or action-only completion can legitimately have no visible JIN
+        # text; its USER bubble still belongs to the predecessor chat tail.
         if not user_text:
             continue
 
@@ -3110,6 +3165,9 @@ def apply_session_bootstrap(
 
     return bool(
         runtime_memory
+        or source_session_id
+        or getattr(context, "runtime_session_action_history", [])
+        or getattr(context, "runtime_recent_turns", [])
     )
 
 

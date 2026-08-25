@@ -21,12 +21,12 @@ INDEX_HTML = ROOT / "ui" / "templates" / "index.html"
 
 class JinColorTransitionClientContractTests(unittest.TestCase):
 
-    def test_live_jin_color_uses_one_two_second_avatar_and_tint_transition(self):
+    def test_live_jin_color_uses_one_333ms_avatar_and_tint_transition(self):
         actions_source = RUNTIME_ACTIONS_JS.read_text(encoding="utf-8")
         avatar_source = AVATAR_JS.read_text(encoding="utf-8")
         avatar_css = AVATAR_CSS.read_text(encoding="utf-8")
 
-        self.assertIn("const JIN_VISUAL_SEQUENCE_COLOR_MS = 2000;", actions_source)
+        self.assertIn("const JIN_VISUAL_SEQUENCE_COLOR_MS = 333;", actions_source)
         self.assertEqual(
             actions_source.count(
                 "transitionDurationMs: JIN_VISUAL_SEQUENCE_COLOR_MS"
@@ -41,28 +41,28 @@ class JinColorTransitionClientContractTests(unittest.TestCase):
             '"--jin-avatar-center-color-transition-duration",\n      durationValue',
             avatar_source,
         )
+        self.assertNotIn("centerColorTransitionQueue", avatar_source)
+        self.assertNotIn("processCenterColorQueue", avatar_source)
         self.assertIn(
-            "Math.max(CENTER_COLOR_STEP_MS, transitionDurationMs)",
-            avatar_source,
-        )
-        self.assertIn(
-            "var(--jin-avatar-center-color-transition-duration, 0.16s)",
+            "var(--jin-avatar-center-color-transition-duration, 333ms)",
             avatar_css,
         )
 
-    def test_every_center_color_change_defaults_to_two_seconds(self):
+    def test_only_first_bootstrap_color_uses_two_seconds(self):
         avatar_source = AVATAR_JS.read_text(encoding="utf-8")
 
         self.assertIn(
-            "const DEFAULT_CENTER_COLOR_TRANSITION_MS = 2000;",
+            "const INITIAL_BOOTSTRAP_COLOR_TRANSITION_MS = 2000;",
             avatar_source,
         )
         self.assertIn(
-            ": DEFAULT_CENTER_COLOR_TRANSITION_MS;",
+            "const DEFAULT_CENTER_COLOR_TRANSITION_MS = 333;",
             avatar_source,
         )
+        self.assertIn("let initialBootstrapColorPending = true;", avatar_source)
+        self.assertIn("initialBootstrapColorPending = false;", avatar_source)
 
-    def test_common_checkpoint_color_is_immediate_and_boots_first(self):
+    def test_common_checkpoint_color_is_immediate_within_same_session_and_boots_first(self):
         logger_source = LOGGER_JS.read_text(encoding="utf-8")
         session_source = RUNTIME_SESSION_JS.read_text(encoding="utf-8")
         storage_source = RUNTIME_STORAGE_JS.read_text(encoding="utf-8")
@@ -86,29 +86,33 @@ class JinColorTransitionClientContractTests(unittest.TestCase):
         )
         init_block = logger_source[init_start:init_end]
 
-        self.assertIn("current_jin_color: color", persist_block)
-        self.assertIn("previousSnapshot.room_state", persist_block)
+        self.assertIn("const roomState = getRoomState(previousRoomState);", persist_block)
+        self.assertIn("sessionSnapshot.current_jin_color = avatar.color;", persist_block)
         self.assertIn("...checkpoint", persist_block)
         self.assertNotIn("saved_at:", persist_block)
+        self.assertNotIn("colorOnly", persist_block)
+        self.assertIn("currentSessionId !== checkpointSessionId", persist_block)
         self.assertLess(
-            persist_block.index("if (colorOnly)"),
-            persist_block.index("const currentSessionId"),
+            persist_block.index("currentSessionId !== checkpointSessionId"),
+            persist_block.index("const roomState = getRoomState(previousRoomState);"),
         )
 
         self.assertIn("snapshot.current_jin_color", stored_block)
         self.assertIn("roomState.avatar.color = color;", stored_block)
         self.assertNotIn("delete roomState.avatar.color;", stored_block)
         self.assertNotIn("resolveBootstrapRoomState", stored_block)
-        self.assertIn("applyBootstrapSceneTintShift", init_block)
         self.assertIn(
-            "persistRoomStateNow({ colorOnly: true });",
+            "initialBootstrapColor: true",
             init_block,
         )
+        self.assertIn("event.detail.immediate === true", init_block)
+        self.assertNotIn("colorOnly", init_block)
+        self.assertNotIn("applyBootstrapSceneTintShift", init_block)
         self.assertIn("enableRoomStatePersistence(false);", init_block)
         self.assertNotIn("latestJinColor", storage_source)
 
         bootstrap_start = bootstrap_source.index(
-            "browser_color = normalize_jin_color_payload("
+            "browser_color = ("
         )
         bootstrap_end = bootstrap_source.index(
             "# Browser persistence is the exact checkpoint when available.",
@@ -116,8 +120,8 @@ class JinColorTransitionClientContractTests(unittest.TestCase):
         )
         bootstrap_block = bootstrap_source[bootstrap_start:bootstrap_end]
 
+        self.assertIn("if source_changed", bootstrap_block)
         self.assertIn("if browser_color:", bootstrap_block)
-        self.assertIn("else:", bootstrap_block)
         self.assertIn("_bootstrap_latest_session_action_color", bootstrap_block)
 
         apply_start = session_source.index(
@@ -129,17 +133,18 @@ class JinColorTransitionClientContractTests(unittest.TestCase):
         )
         apply_block = session_source[apply_start:apply_end]
 
-        self.assertIn("delete localRoomState.avatar.color;", apply_block)
+        self.assertNotIn("applyRoomState", apply_block)
+        self.assertNotIn("resolveBootstrapJinColor", session_source)
         self.assertNotIn("applyBootstrapSceneTintShift(", apply_block)
 
     def test_changed_assets_have_matching_cache_bumps(self):
         index_source = INDEX_HTML.read_text(encoding="utf-8")
 
-        self.assertEqual(index_source.count("jin-color-transition=2"), 2)
+        self.assertEqual(index_source.count("jin-color-transition=3"), 2)
         self.assertIn("runtime-session.js?v=", index_source)
-        self.assertIn("&room-state=7&", index_source)
+        self.assertIn("&room-state=8&", index_source)
         self.assertIn("logger.js?v=", index_source)
-        self.assertIn("&room-state=5&", index_source)
+        self.assertIn("&room-state=6&", index_source)
 
 
 if __name__ == "__main__":

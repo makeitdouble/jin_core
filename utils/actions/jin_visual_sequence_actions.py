@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-import contextlib
+import logging
 import time
 from uuid import uuid4
 
@@ -20,6 +20,9 @@ from utils.actions import (
     normalize_jin_speed_value,
 )
 from utils.chat_log import append_chat_runtime_event
+
+
+LOGGER = logging.getLogger(__name__)
 
 
 JIN_VISUAL_ACTION_NAMES = {
@@ -176,7 +179,9 @@ async def emit_jin_visual_sequences(
             elif action_name == RUNTIME_ACTION_JIN_COLOR:
                 created_at = time.time()
                 color = event["color"]
+                event_id = f"{sequence_id}:{sequence_index}"
                 session_action = {
+                    "id": event_id,
                     "text": "JIN_COLOR",
                     "created_at": created_at,
                     "runtime_turn_id": str(
@@ -192,11 +197,12 @@ async def emit_jin_visual_sequences(
                         "colors": [color],
                     }],
                 }
-                with contextlib.suppress(Exception):
+                try:
                     append_chat_runtime_event(
                         context,
                         event="runtime_action_request",
                         payload={
+                            "event_id": event_id,
                             "action": RUNTIME_ACTION_JIN_COLOR,
                             "id": action_display_id,
                             "color": color,
@@ -204,6 +210,11 @@ async def emit_jin_visual_sequences(
                             "session_action": session_action,
                             "created_at": created_at,
                         },
+                    )
+                except Exception:
+                    LOGGER.exception(
+                        "Failed to persist JIN_COLOR runtime event %s",
+                        event_id,
                     )
 
             await emit(with_action_context({

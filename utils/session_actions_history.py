@@ -5,6 +5,7 @@ import time
 from utils.actions.action_counter_utils import (
     format_runtime_action_count,
 )
+from utils.actions.jin_color_utils import normalize_jin_color_payload
 from utils.actions.jin_position_utils import (
     normalize_jin_position_payload,
 )
@@ -3031,7 +3032,7 @@ async def emit_session_actions_update(
         current_sequence=current_sequence,
     )
 
-    if not items:
+    if not items and not bootstrap_restore:
         return
 
     emitter = getattr(
@@ -3048,7 +3049,7 @@ async def emit_session_actions_update(
     if emit is None:
         return
 
-    await emit({
+    payload = {
         "type": "session_actions_update",
         "session_id": get_session_action_session_id(
             context
@@ -3063,7 +3064,14 @@ async def emit_session_actions_update(
         ),
         "bootstrap_restore": bool(bootstrap_restore),
         "items": items,
-    })
+    }
+    current_jin_color = normalize_jin_color_payload(
+        getattr(context, "jin_color", "")
+    )
+    if current_jin_color:
+        payload["current_jin_color"] = current_jin_color
+
+    await emit(payload)
 
 
 def mark_current_action_sequence(

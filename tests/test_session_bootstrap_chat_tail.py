@@ -18,7 +18,7 @@ SOCKET_HANDLERS_JS = (
 
 class SessionBootstrapChatTailTests(unittest.TestCase):
 
-    def test_archive_tail_keeps_three_newest_complete_pairs_with_reasoning(self):
+    def test_archive_tail_keeps_three_newest_user_moves_with_reasoning(self):
         entries = []
         reasoning = {}
         for turn in range(1, 5):
@@ -46,14 +46,14 @@ class SessionBootstrapChatTailTests(unittest.TestCase):
         self.assertEqual(
             [(turn["user"], turn["jin"]) for turn in turns],
             [
-                ("user 1", "jin 1"),
                 ("user 2", "jin 2"),
+                ("user 3", ""),
                 ("user 4", "jin 4"),
             ],
         )
         self.assertEqual(
-            [turn["reasoning"] for turn in turns],
-            ["reasoning 1", "reasoning 2", "reasoning 4"],
+            [turn.get("reasoning", "") for turn in turns],
+            ["reasoning 2", "", "reasoning 4"],
         )
 
     def test_bootstrap_hydration_preserves_turn_reasoning_and_ui_tail(self):
@@ -100,6 +100,24 @@ class SessionBootstrapChatTailTests(unittest.TestCase):
                     "reasoning": "saved reasoning",
                 }
             ],
+        )
+
+    def test_bootstrap_tail_keeps_interrupted_user_move_without_jin(self):
+        context = SimpleNamespace(
+            runtime_recent_turns=[{
+                "user": "я отправил и сразу остановил",
+                "jin": "",
+                "user_created_at": 100.0,
+            }],
+        )
+
+        self.assertEqual(
+            build_session_bootstrap_chat_tail(context),
+            [{
+                "user": "я отправил и сразу остановил",
+                "jin": "",
+                "user_created_at": 100.0,
+            }],
         )
 
     def test_bootstrap_tail_keeps_committed_user_only_action_turn(self):

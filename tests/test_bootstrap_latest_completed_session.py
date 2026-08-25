@@ -107,7 +107,7 @@ def test_normal_bootstrap_never_reads_newer_anonymous_log_root(tmp_path):
     assert enriched["recent_turns"][-1]["jin"] == "normal jin"
 
 
-def test_bootstrap_replaces_stale_source_with_newer_complete_raw_session():
+def test_bootstrap_replaces_stale_source_with_newer_user_move():
     stale = {
         "source_session_id": "stale-session",
         "recent_turns": [{
@@ -122,9 +122,8 @@ def test_bootstrap_replaces_stale_source_with_newer_complete_raw_session():
         "source_session_id": "fresh-session",
         "recent_turns": [{
             "user": "напиши быстро тест",
-            "jin": "Тест пройден",
+            "jin": "",
             "user_created_at": 200.0,
-            "jin_created_at": 201.0,
         }],
         "dialog_context": "<RESTORED_SESSION_DIALOG>fresh</RESTORED_SESSION_DIALOG>",
     }
@@ -223,7 +222,43 @@ def test_latest_selector_accepts_committed_user_only_action_turn(tmp_path):
     assert payload["recent_turns"][-1]["jin"] == ""
 
 
-def test_latest_selector_ignores_unfinished_bare_user_turn(tmp_path):
+def test_latest_selector_keeps_raw_color_before_jin_or_l1(tmp_path):
+    previous_session = "previous"
+    color_session = "color-move"
+
+    _write_dialog(tmp_path, previous_session, "201000", [
+        {"ts": "2026-08-24T20:10:00+03:00", "turn": 1, "role": "user", "text": "old"},
+        {"ts": "2026-08-24T20:10:05+03:00", "turn": 1, "role": "jin", "text": "old answer"},
+    ])
+    _write_dialog(tmp_path, color_session, "201500", [
+        {"ts": "2026-08-24T20:15:00+03:00", "turn": 2, "turn_id": "turn_000002", "role": "user", "text": "стань красным"},
+        {
+            "ts": "2026-08-24T20:15:01+03:00",
+            "turn": 2,
+            "turn_id": "turn_000002",
+            "role": "runtime",
+            "text": "",
+            "event": "runtime_action_request",
+            "payload": {
+                "action": "JIN_COLOR",
+                "event_id": "jin-color-event",
+                "color": "#ff0000",
+                "created_at": 1724519701.0,
+            },
+        },
+    ])
+
+    payload = find_latest_completed_session_restore_payload(root=tmp_path)
+
+    assert payload is not None
+    assert payload["source_session_id"] == color_session
+    assert payload["recent_turns"][-1]["user"] == "стань красным"
+    assert payload["recent_turns"][-1]["jin"] == ""
+    assert payload["current_jin_color"] == "#ff0000"
+    assert payload["session_actions"][-1]["parts"][0]["colors"] == ["#ff0000"]
+
+
+def test_latest_selector_promotes_newer_bare_user_move(tmp_path):
     complete_session = "complete"
     interrupted_session = "interrupted"
 
@@ -238,5 +273,7 @@ def test_latest_selector_ignores_unfinished_bare_user_turn(tmp_path):
     payload = find_latest_completed_session_restore_payload(root=tmp_path)
 
     assert payload is not None
-    assert payload["source_session_id"] == complete_session
-    assert payload["recent_turns"][-1]["jin"] == "complete jin"
+    assert payload["source_session_id"] == interrupted_session
+    assert payload["recent_turns"][-1]["user"] == "in flight"
+    assert payload["recent_turns"][-1]["jin"] == ""
+    assert "jin_created_at" not in payload["recent_turns"][-1]

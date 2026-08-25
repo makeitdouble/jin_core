@@ -446,8 +446,10 @@
         key,
         JSON.stringify(value)
       );
+      return true;
     } catch (error) {
-      // Browser memory is helpful, not required for chat.
+      console.warn("Failed to persist browser checkpoint", key, error);
+      return false;
     }
 
   }
@@ -830,16 +832,21 @@
   ) {
 
     if (shouldIsolateAnonymousStorage()) {
-      return;
+      return false;
     }
 
-    writeBrowserMemory(
+    const written = writeBrowserMemory(
       latestSavedSessionSnapshotStorageKey,
       normalizeSavedSessionSnapshot(value)
     );
+    if (!written) {
+      return false;
+    }
     removeBrowserMemory(
       legacyLatestSavedSessionSnapshotStorageKey
     );
+
+    return true;
 
   }
 
@@ -2110,8 +2117,8 @@
       version:
         runtimeMemory.version || 1,
       // Opening a tab is not conversation activity. Keep the predecessor's
-      // causal timestamp until this tab produces a real L1 update / completed
-      // turn; otherwise empty tabs outrank the session the user actually used.
+      // causal timestamp until a real user move is checkpointed; otherwise an
+      // untouched tab can outrank the session the user actually used.
       saved_at:
         String(runtimeMemory.saved_at || "").trim()
         || new Date().toISOString(),

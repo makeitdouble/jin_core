@@ -10,7 +10,7 @@ const JIN_VISUAL_SEQUENCE_ACTIONS = new Set([
   "jin_speed",
   "jin_position",
 ]);
-const JIN_VISUAL_SEQUENCE_COLOR_MS = 2000;
+const JIN_VISUAL_SEQUENCE_COLOR_MS = 333;
 const JIN_VISUAL_SEQUENCE_SIZE_MS = 320;
 const JIN_VISUAL_SEQUENCE_CROSS_STAGE_RATIO = 0.58;
 const jinVisualSequenceBuffers = new Map();

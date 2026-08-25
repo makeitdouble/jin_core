@@ -68,7 +68,7 @@ body.jin-scrollbar-active,
     --jin-color: #1f4f8f;
     --scene-base-color: #122540;
     --scene-jin-tint-alpha: 0.048;
-    --scene-jin-tint-transition-duration: 0.22s;
+    --scene-jin-tint-transition-duration: 333ms;
 
     --scene-layer-base: 0;
     --scene-layer-context: 1;

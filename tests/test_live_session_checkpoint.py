@@ -177,7 +177,20 @@ class LiveSessionCheckpointTests(unittest.TestCase):
         self.assertIn(duplicate, source)
 
 
-    def test_room_state_does_not_repaint_predecessor_checkpoint(self):
+    def test_real_user_activity_can_advance_checkpoint_before_completed_answer(self):
+        source = RUNTIME_SESSION_JS.read_text(encoding="utf-8")
+        start = source.index("function persistLiveSessionCheckpoint(data)")
+        end = source.index("function clearPersistedToolResultsCheckpoint()", start)
+        block = source[start:end]
+
+        self.assertIn("const sessionMoved = Boolean(", block)
+        self.assertIn("hasUnsavedSessionActivity", block)
+        self.assertIn("|| completedTurnCommit", block)
+        self.assertIn("&& !sessionMoved", block)
+        self.assertIn("hasUnsavedSessionActivity = false;", block)
+        self.assertIn("return Boolean(checkpointWritten);", block)
+
+    def test_room_state_never_switches_the_session_checkpoint(self):
         source = LOGGER_JS.read_text(encoding="utf-8")
         start = source.index("function persistRoomStateNow(")
         end = source.index("function scheduleRoomStatePersist()", start)
@@ -185,32 +198,35 @@ class LiveSessionCheckpointTests(unittest.TestCase):
 
         self.assertIn("storage.getCurrentRuntimeSessionId", block)
         self.assertIn("currentSessionId !== checkpointSessionId", block)
-        self.assertIn("return false", block)
+        self.assertLess(
+            block.index("currentSessionId !== checkpointSessionId"),
+            block.index("const roomState = getRoomState(previousRoomState);"),
+        )
+        self.assertIn("room_state: roomState", block)
+        self.assertIn("sessionSnapshot.current_jin_color = avatar.color;", block)
+        self.assertNotIn("colorOnly", block)
 
-    def test_color_updates_the_same_checkpoint_before_owner_switch(self):
+    def test_color_has_no_separate_checkpoint_writer(self):
         source = LOGGER_JS.read_text(encoding="utf-8")
         start = source.index("function persistRoomStateNow(")
         end = source.index("function scheduleRoomStatePersist()", start)
         block = source[start:end]
 
-        self.assertIn("current_jin_color: color", block)
-        self.assertIn("previousSnapshot.room_state", block)
-        self.assertIn("...checkpoint", block)
+        self.assertEqual(block.count("writeLatestSavedSessionSnapshot"), 2)
+        self.assertIn("sessionSnapshot.current_jin_color = avatar.color;", block)
         self.assertNotIn("saved_at:", block)
-        self.assertLess(
-            block.index("if (colorOnly)"),
-            block.index("currentSessionId !== checkpointSessionId"),
-        )
+        self.assertNotIn("colorOnly", block)
 
-    def test_completed_turn_repersists_room_state_after_owner_switch(self):
+    def test_completed_turn_persists_server_and_room_as_one_snapshot(self):
         handlers = EVENT_HANDLERS_JS.read_text(encoding="utf-8")
         start = handlers.index("function handleAgentRuntimeEnd(data)")
         end = handlers.index("function handleMessageStart(", start)
         block = handlers[start:end]
 
         self.assertIn("data.completed_turn_commit === true", block)
-        self.assertIn("const persisted = runtimeSession.persistLiveSessionCheckpoint", block)
-        self.assertIn("window.JinPanels.persistRoomStateNow()", block)
+        self.assertIn("withCurrentRoomState(", block)
+        self.assertIn("runtimeSession.persistLiveSessionCheckpoint", block)
+        self.assertNotIn("window.JinPanels.persistRoomStateNow()", block)
 
     def test_restore_merges_checkpoint_session_actions(self):
         source = (ROOT / "ui" / "static" / "js" / "session-restore.js").read_text(encoding="utf-8")
@@ -218,9 +234,9 @@ class LiveSessionCheckpointTests(unittest.TestCase):
         end = source.index("function restoreVisualState(", start)
         block = source[start:end]
 
-        self.assertIn("Array.isArray(snapshot.session_actions)", block)
-        self.assertIn("merged.session_actions = snapshot.session_actions", block)
-        self.assertNotIn("rejectCheckpointColor", block)
+        self.assertIn("const candidates = [];", block)
+        self.assertIn("Object.assign(merged, selected.snapshot);", block)
+        self.assertNotIn("actionSnapshot", block)
 
 
 

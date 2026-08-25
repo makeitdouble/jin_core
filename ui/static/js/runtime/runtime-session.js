@@ -11,9 +11,6 @@
     isReconnectInitialRuntimeMemoryUpdate: notInitialized,
     isLatestRuntimeMemoryDuplicate: notInitialized,
     isBootstrapRuntimeMemoryDuplicate: notInitialized,
-    resolveBootstrapJinColor: notInitialized,
-    resolveBootstrapRoomState: notInitialized,
-    applyBootstrapSceneTintShift: notInitialized,
     applyBootstrapRuntimeMemoryUpdate: notInitialized,
   };
 
@@ -84,332 +81,12 @@
     let lastStableRuntimeMemorySnapshot = null;
     let persistedSessionBootstrapCleared = false;
     let hasUnsavedSessionActivity = false;
-    const BOOTSTRAP_SCENE_TINT_SHIFT_MS = 2000;
-    let bootstrapSceneTintShiftSequence = 0;
-    let activeBootstrapSceneTintColor = "";
 
     function getCurrentSavedSessionId() {
       return String(
         getCurrentRuntimeSessionId()
         || ""
       ).trim();
-    }
-
-    function prefersReducedSceneTintMotion() {
-      return Boolean(
-        window.matchMedia
-        && window.matchMedia(
-          "(prefers-reduced-motion: reduce)"
-        ).matches
-      );
-    }
-
-    function normalizeBootstrapJinColor(value) {
-      const match = String(value || "")
-        .trim()
-        .match(/^#?([0-9a-f]{3}|[0-9a-f]{6})$/i);
-
-      if (!match) {
-        return "";
-      }
-
-      let color = match[1].toLowerCase();
-
-      if (color.length === 3) {
-        color = color
-          .split("")
-          .map(char => char + char)
-          .join("");
-      }
-
-      return `#${color}`;
-    }
-
-    function resolvePersistedJinColor() {
-      const checkpoint =
-        readLatestSavedSessionSnapshot();
-      const snapshot =
-        checkpoint
-        && checkpoint.session_snapshot
-        && typeof checkpoint.session_snapshot === "object"
-        && !Array.isArray(checkpoint.session_snapshot)
-          ? checkpoint.session_snapshot
-          : null;
-
-      if (!snapshot) {
-        return "";
-      }
-
-      return normalizeBootstrapJinColor(
-        snapshot.current_jin_color
-        || (
-          snapshot.room_state
-          && snapshot.room_state.avatar
-          && snapshot.room_state.avatar.color
-        )
-      );
-    }
-
-    function resolveBootstrapJinColor(bootstrap) {
-      const source =
-        bootstrap
-        && typeof bootstrap === "object"
-        && !Array.isArray(bootstrap)
-          ? bootstrap
-          : {};
-      const persistedColor =
-        resolvePersistedJinColor();
-
-      if (persistedColor) {
-        return persistedColor;
-      }
-
-      const actions = Array.isArray(source.session_actions)
-        ? source.session_actions
-        : [];
-
-      for (let actionIndex = actions.length - 1; actionIndex >= 0; actionIndex -= 1) {
-        const action = actions[actionIndex];
-        const parts =
-          action
-          && Array.isArray(action.parts)
-            ? action.parts
-            : [];
-
-        for (let partIndex = parts.length - 1; partIndex >= 0; partIndex -= 1) {
-          const part = parts[partIndex];
-
-          if (
-              !part
-              || typeof part !== "object"
-              || Array.isArray(part)
-              || String(part.text || "").trim().toUpperCase() !== "JIN_COLOR"
-          ) {
-            continue;
-          }
-
-          const colors = Array.isArray(part.colors)
-            ? part.colors
-            : [];
-
-          for (let colorIndex = colors.length - 1; colorIndex >= 0; colorIndex -= 1) {
-            const color = normalizeBootstrapJinColor(
-              colors[colorIndex]
-            );
-
-            if (color) {
-              return color;
-            }
-          }
-        }
-      }
-
-      const currentColor = normalizeBootstrapJinColor(
-        source.current_jin_color
-      );
-
-      if (currentColor) {
-        return currentColor;
-      }
-
-      return normalizeBootstrapJinColor(
-        source.room_state
-        && source.room_state.avatar
-        && source.room_state.avatar.color
-      );
-    }
-
-    function resolveBootstrapRoomState(bootstrap) {
-      const source =
-        bootstrap
-        && typeof bootstrap === "object"
-        && !Array.isArray(bootstrap)
-          ? bootstrap
-          : {};
-      const roomState =
-        source.room_state
-        && typeof source.room_state === "object"
-        && !Array.isArray(source.room_state)
-          ? source.room_state
-          : null;
-
-      if (!roomState) {
-        return null;
-      }
-
-      const restoredColor =
-        resolveBootstrapJinColor(source);
-      const sourceAvatarState =
-        roomState.avatar
-        && typeof roomState.avatar === "object"
-        && !Array.isArray(roomState.avatar)
-          ? roomState.avatar
-          : {};
-
-      if (!restoredColor) {
-        return roomState;
-      }
-
-      return {
-        ...roomState,
-        avatar: {
-          ...sourceAvatarState,
-          color: restoredColor,
-        },
-      };
-    }
-
-    function clearBootstrapSceneTintInlineStyles(
-      sceneMain,
-      sceneTint
-    ) {
-      if (sceneMain) {
-        sceneMain.style.removeProperty("transition");
-        sceneMain.style.removeProperty("background-color");
-      }
-
-      if (sceneTint) {
-        sceneTint.style.removeProperty("transition");
-        sceneTint.style.removeProperty("background-color");
-        sceneTint.style.removeProperty("opacity");
-      }
-    }
-
-    function applyBootstrapSceneTintShift(
-      apply,
-      targetColor = ""
-    ) {
-      if (typeof apply !== "function") {
-        return false;
-      }
-
-      const normalizedTargetColor =
-        String(targetColor || "").trim().toLowerCase();
-
-      if (
-          normalizedTargetColor
-          && normalizedTargetColor === activeBootstrapSceneTintColor
-      ) {
-        return Boolean(apply());
-      }
-
-      bootstrapSceneTintShiftSequence += 1;
-      const sequence =
-        bootstrapSceneTintShiftSequence;
-
-      const sceneMain =
-        document.querySelector("main");
-      const sceneTint =
-        document.getElementById("scene-jin-tint");
-
-      if (
-          activeBootstrapSceneTintColor
-          && normalizedTargetColor !== activeBootstrapSceneTintColor
-      ) {
-        // A newer authoritative bootstrap color is retargeting an in-flight
-        // local checkpoint transition. Release that helper's inline paint
-        // first; otherwise its stale color becomes the next cleanup baseline.
-        clearBootstrapSceneTintInlineStyles(
-          sceneMain,
-          sceneTint
-        );
-      }
-
-      if (
-          prefersReducedSceneTintMotion()
-          || (!sceneMain && !sceneTint)
-      ) {
-        return Boolean(apply());
-      }
-
-      activeBootstrapSceneTintColor =
-        normalizedTargetColor;
-
-      const root =
-        document.documentElement;
-
-      if (sceneMain) {
-        const style =
-          window.getComputedStyle(sceneMain);
-        sceneMain.style.transition = "none";
-        sceneMain.style.backgroundColor =
-          style.backgroundColor;
-      }
-
-      if (sceneTint) {
-        const style =
-          window.getComputedStyle(sceneTint);
-        sceneTint.style.transition = "none";
-        sceneTint.style.backgroundColor =
-          style.backgroundColor;
-        sceneTint.style.opacity =
-          style.opacity;
-      }
-
-      if (sceneMain) {
-        sceneMain.getBoundingClientRect();
-      } else if (sceneTint) {
-        sceneTint.getBoundingClientRect();
-      }
-
-      const applied =
-        Boolean(apply());
-      const rootStyle =
-        window.getComputedStyle(root);
-      const targetMainColor =
-        rootStyle.getPropertyValue("--scene-base-color").trim();
-      const targetTintColor =
-        rootStyle.getPropertyValue("--jin-color").trim();
-      const targetTintOpacity =
-        rootStyle.getPropertyValue("--scene-jin-tint-alpha").trim();
-
-      const transition =
-        `background-color ${BOOTSTRAP_SCENE_TINT_SHIFT_MS}ms ease`;
-
-      // Do not rely on a custom-property duration changing in the same style
-      // recalculation as the restored color. On a fresh tab that can collapse
-      // into one paint and make the inherited room color appear instantly.
-      // Keep the actually painted colors inline, then explicitly release them
-      // towards the restored values on the next frame.
-      if (sceneMain) {
-        sceneMain.style.transition = transition;
-      }
-
-      if (sceneTint) {
-        sceneTint.style.transition =
-          `${transition}, opacity ${BOOTSTRAP_SCENE_TINT_SHIFT_MS}ms ease`;
-      }
-
-      window.requestAnimationFrame(() => {
-        if (sceneMain && targetMainColor) {
-          sceneMain.style.backgroundColor =
-            targetMainColor;
-        }
-
-        if (sceneTint && targetTintColor) {
-          sceneTint.style.backgroundColor =
-            targetTintColor;
-        }
-
-        if (sceneTint && targetTintOpacity) {
-          sceneTint.style.opacity =
-            targetTintOpacity;
-        }
-
-        window.setTimeout(() => {
-          if (sequence !== bootstrapSceneTintShiftSequence) {
-            return;
-          }
-
-          activeBootstrapSceneTintColor = "";
-          clearBootstrapSceneTintInlineStyles(
-            sceneMain,
-            sceneTint
-          );
-        }, BOOTSTRAP_SCENE_TINT_SHIFT_MS + 80);
-      });
-
-      return applied;
     }
 
     function normalizeLiveSessionSnapshot(
@@ -708,16 +385,19 @@
         data
         && data.completed_turn_commit === true
       );
+      const sessionMoved = Boolean(
+        hasUnsavedSessionActivity
+        || completedTurnCommit
+      );
 
-      // The global checkpoint represents the latest completed conversation,
-      // not the most recently opened tab. A boot-only/stale tab may keep its
-      // own per-session L1 cache, but it must not steal bootstrap ownership
-      // through a reconnect/duplicate/background L1 echo. Ownership moves to
-      // another tab only when that tab finishes a visible USER -> JIN turn.
+      // Opening/reloading a tab creates a runtime id, not a new conversation.
+      // The common checkpoint switches to this session only after a real move.
+      // A user send marks activity immediately; completedTurnCommit is only a
+      // server-side fallback for paths that reached us without that UI mark.
       if (
           previousCheckpoint
           && !sameSession
-          && !completedTurnCommit
+          && !sessionMoved
       ) {
         return false;
       }
@@ -761,10 +441,9 @@
           ? savedAt
           : previousConversationCommittedAt;
 
-      // Persist the conversation owner on this session's own record. Unlike
-      // saved_at (which advances on L1 updates/reconnects), this timestamp
-      // advances only after a visible USER -> JIN turn has completed. A blank
-      // tab or a late L1 echo therefore cannot become the next bootstrap owner.
+      // Keep completed-turn time separate from session movement. A USER-only
+      // interrupted session may already be the latest checkpoint, but this
+      // timestamp still advances only after a completed visible turn.
       if (completedTurnCommit) {
         writeLatestRuntimeMemory({
           ...currentRuntime,
@@ -794,18 +473,26 @@
           ),
       });
 
-      writeLatestSavedSessionSnapshot({
-        version: 1,
-        session_id: currentSessionId,
-        previous_session_id: previousSessionId,
-        saved_at: savedAt,
-        conversation_committed_at: conversationCommittedAt,
-        loaded_memory_ids:
-          sessionSnapshot.loaded_memory_ids,
-        session_snapshot: sessionSnapshot,
-      });
+      const checkpointWritten =
+        writeLatestSavedSessionSnapshot({
+          version: 1,
+          session_id: currentSessionId,
+          previous_session_id: previousSessionId,
+          saved_at: savedAt,
+          conversation_committed_at: conversationCommittedAt,
+          loaded_memory_ids:
+            sessionSnapshot.loaded_memory_ids,
+          session_snapshot: sessionSnapshot,
+        });
 
-      return true;
+      if (checkpointWritten) {
+        // The move is now represented by a full current-session checkpoint.
+        // Clear the dirty bit so a late background echo from this tab cannot
+        // later rewind a newer session that has already moved.
+        hasUnsavedSessionActivity = false;
+      }
+
+      return Boolean(checkpointWritten);
     }
 
     function clearPersistedToolResultsCheckpoint() {
@@ -1538,44 +1225,9 @@
             bootstrap.runtime_snapshot || null,
         });
 
-        // Do not advance the global conversation checkpoint on page load.
-        // This tab becomes the next bootstrap predecessor only after it
-        // completes a visible USER -> JIN turn.
-      }
-
-      if (
-          bootstrap
-          && bootstrap.room_state
-          && typeof bootstrap.room_state === "object"
-          && window.JinPanels
-          && typeof window.JinPanels.applyRoomState === "function"
-      ) {
-        const restoredRoomState =
-          resolveBootstrapRoomState(bootstrap);
-        const avatarState =
-          restoredRoomState.avatar
-          && typeof restoredRoomState.avatar === "object"
-          && !Array.isArray(restoredRoomState.avatar)
-            ? restoredRoomState.avatar
-            : {};
-        const localRoomState = {
-          ...restoredRoomState,
-          avatar: {
-            ...avatarState,
-          },
-        };
-
-        // This is the browser checkpoint sent before archive enrichment.
-        // Apply layout now, but let the authoritative bootstrap action event
-        // own the only visible color change from the built-in default.
-        delete localRoomState.avatar.color;
-        window.JinPanels.applyRoomState(
-          localRoomState,
-          {
-            persist: false,
-            animateTint: false,
-          }
-        );
+        // Do not advance the common conversation checkpoint on page load.
+        // A real user move may advance it later even if generation is stopped
+        // before JIN finishes.
       }
 
       if (
@@ -1658,38 +1310,15 @@
           ? readLatestCompletedConversationRuntimeMemory()
           : null;
 
-      const parseCommitTimestamp = value => {
-        const parsed = Date.parse(
-          String(value || "").trim()
-        );
-        return Number.isFinite(parsed)
-          ? parsed
-          : 0;
-      };
-      const checkpointCommittedAt =
-        parseCommitTimestamp(
-          browserCheckpoint
-          && browserCheckpoint.conversation_committed_at
-        );
-      const perSessionCommittedAt =
-        parseCommitTimestamp(
-          latestCompletedConversationRuntime
-          && latestCompletedConversationRuntime.conversation_committed_at
-        );
-      const perSessionConversationWins = Boolean(
-        latestCompletedConversationRuntime
-        && perSessionCommittedAt
-        && (
-          !checkpointCommittedAt
-          || perSessionCommittedAt > checkpointCommittedAt
-        )
+      const isRuntimeRecord = value => Boolean(
+        value
+        && typeof value === "object"
+        && !Array.isArray(value)
+        && String(value.runtime_memory || "").trim()
       );
-
-      // Dialogue ownership comes from an actual completed turn, never from the
-      // most recently touched L1 record. This heals stale global checkpoints
-      // left by older builds while keeping empty/reconnected tabs ineligible.
-      const conversationCheckpoint =
-        perSessionConversationWins
+      const legacyCompletedCheckpoint =
+        !browserCheckpoint
+        && isRuntimeRecord(latestCompletedConversationRuntime)
           ? {
               version: 1,
               session_id:
@@ -1703,7 +1332,8 @@
                 || latestCompletedConversationRuntime.conversation_committed_at
                 || "",
               conversation_committed_at:
-                latestCompletedConversationRuntime.conversation_committed_at,
+                latestCompletedConversationRuntime.conversation_committed_at
+                || "",
               loaded_memory_ids:
                 (
                   latestCompletedConversationRuntime.session_snapshot
@@ -1726,7 +1356,13 @@
                     }
                   : {},
             }
-          : browserCheckpoint;
+          : null;
+
+      // The common checkpoint names the last session that actually moved.
+      // Per-session records only provide its matching L1 payload, or a legacy
+      // fallback when no common checkpoint exists at all.
+      const conversationCheckpoint =
+        browserCheckpoint || legacyCompletedCheckpoint;
 
       const checkpointSessionId =
         String(
@@ -1734,79 +1370,29 @@
           && conversationCheckpoint.session_id
           || ""
         ).trim();
-      const savedRuntimeSessionId =
-        String(
-          browserLatestSavedRuntimeMemory
-          && browserLatestSavedRuntimeMemory.session_id
-          || ""
-        ).trim();
-      const pairedSavedRuntime = Boolean(
-        checkpointSessionId
-        && browserLatestSavedRuntimeMemory
-        && typeof browserLatestSavedRuntimeMemory === "object"
-        && !Array.isArray(browserLatestSavedRuntimeMemory)
-        && savedRuntimeSessionId === checkpointSessionId
-        && String(
-          browserLatestSavedRuntimeMemory.runtime_memory
-          || ""
-        ).trim()
-      )
-        ? browserLatestSavedRuntimeMemory
-        : null;
-      const checkpointRuntime =
-        (
-          checkpointSessionId
-          && collectOtherLatestRuntimeMemorySnapshots
-        )
+      const otherRuntimeRecords =
+        collectOtherLatestRuntimeMemorySnapshots
           ? collectOtherLatestRuntimeMemorySnapshots()
-              .find(snapshot => (
-                snapshot
-                && String(snapshot.session_id || "").trim()
-                  === checkpointSessionId
-                && String(snapshot.runtime_memory || "").trim()
-              ))
-          : null;
-      const completedConversationRuntime = Boolean(
-        checkpointSessionId
-        && latestCompletedConversationRuntime
-        && String(
-          latestCompletedConversationRuntime.session_id
-          || ""
-        ).trim() === checkpointSessionId
-        && String(
-          latestCompletedConversationRuntime.runtime_memory
-          || ""
-        ).trim()
-      )
-        ? latestCompletedConversationRuntime
-        : null;
+          : [];
+      const runtimeCandidates = [
+        browserLatestSavedRuntimeMemory,
+        latestCompletedConversationRuntime,
+        ...(
+          Array.isArray(otherRuntimeRecords)
+            ? otherRuntimeRecords
+            : []
+        ),
+        browserLatestRuntimeMemory,
+      ].filter(isRuntimeRecord);
 
-      let runtimeMemory =
-        completedConversationRuntime
-        || pairedSavedRuntime
-        || checkpointRuntime
-        || (
-          browserLatestRuntimeMemory
-          && typeof browserLatestRuntimeMemory === "object"
-          && !Array.isArray(browserLatestRuntimeMemory)
-          && String(
-            browserLatestRuntimeMemory.runtime_memory
-            || ""
-          ).trim()
-            ? browserLatestRuntimeMemory
-            : null
-        )
-        || (
-          browserLatestSavedRuntimeMemory
-          && String(
-            browserLatestSavedRuntimeMemory.runtime_memory
-            || ""
-          ).trim()
-            ? browserLatestSavedRuntimeMemory
-            : null
-        );
+      let runtimeMemory = checkpointSessionId
+        ? runtimeCandidates.find(record => (
+            String(record.session_id || "").trim()
+              === checkpointSessionId
+          )) || null
+        : runtimeCandidates[0] || null;
 
-      if (!runtimeMemory) {
+      if (!runtimeMemory && !conversationCheckpoint) {
         const savedRuntimeFallback =
           getSavedRuntimeMemoryFallback();
 
@@ -1818,44 +1404,32 @@
         }
       }
 
-      if (!runtimeMemory) {
-        return null;
-      }
-
       const runtimeText =
         String(
-          runtimeMemory.runtime_memory
+          runtimeMemory && runtimeMemory.runtime_memory
           || ""
         ).trim();
 
-      if (!runtimeText) {
+      if (!conversationCheckpoint && !runtimeText) {
         return null;
       }
 
       let sourceSessionId =
         String(
-          runtimeMemory.session_id
+          checkpointSessionId
           || (
-            runtimeMemory.runtime_snapshot
+            runtimeMemory
+            && runtimeMemory.session_id
+          )
+          || (
+            runtimeMemory
+            && runtimeMemory.runtime_snapshot
             && runtimeMemory.runtime_snapshot.session_id
           )
           || ""
         ).trim();
 
-      const checkpointMatchesSource = Boolean(
-        conversationCheckpoint
-        && typeof conversationCheckpoint === "object"
-        && !Array.isArray(conversationCheckpoint)
-        && (
-          !sourceSessionId
-          || String(conversationCheckpoint.session_id || "").trim()
-            === sourceSessionId
-        )
-      );
-      const checkpoint =
-        checkpointMatchesSource
-          ? conversationCheckpoint
-          : null;
+      const checkpoint = conversationCheckpoint;
 
       if (!sourceSessionId && checkpoint) {
         sourceSessionId =
@@ -1868,8 +1442,8 @@
             checkpoint
             && checkpoint.previous_session_id
           )
-          || runtimeMemory.previous_session_id
-          || runtimeMemory.booted_from_session_id
+          || (runtimeMemory && runtimeMemory.previous_session_id)
+          || (runtimeMemory && runtimeMemory.booted_from_session_id)
           || ""
         ).trim();
       const sessionSnapshot =
@@ -1893,20 +1467,20 @@
         );
       }
 
-      const runtimeDisplaySnapshot =
-        buildRuntimeMemoryDisplaySnapshot({
-          runtime_memory: runtimeText,
-          runtime_memory_updates:
-            Number(
-              runtimeMemory.runtime_memory_updates
-              || 0
-            ),
-          runtime_snapshot:
-            runtimeMemory.runtime_snapshot || null,
-          source_session_id: sourceSessionId || null,
-          previous_session_id: previousSessionId || null,
-        })
-        || buildDefaultRuntimeMemorySnapshot();
+      const runtimeDisplaySnapshot = runtimeText
+        ? buildRuntimeMemoryDisplaySnapshot({
+            runtime_memory: runtimeText,
+            runtime_memory_updates:
+              Number(
+                runtimeMemory.runtime_memory_updates
+                || 0
+              ),
+            runtime_snapshot:
+              runtimeMemory.runtime_snapshot || null,
+            source_session_id: sourceSessionId || null,
+            previous_session_id: previousSessionId || null,
+          })
+        : null;
 
       return {
         ...sessionSnapshot,
@@ -1915,8 +1489,8 @@
         previous_session_id: previousSessionId || null,
         saved_at:
           String(
-            runtimeMemory.saved_at
-            || (checkpoint && checkpoint.saved_at)
+            (checkpoint && checkpoint.saved_at)
+            || (runtimeMemory && runtimeMemory.saved_at)
             || ""
           ).trim(),
         loaded_memory_ids:
@@ -1938,11 +1512,11 @@
         runtime_memory: runtimeText,
         runtime_memory_updates:
           Number(
-            runtimeMemory.runtime_memory_updates
+            runtimeMemory && runtimeMemory.runtime_memory_updates
             || 0
           ),
         runtime_snapshot:
-          runtimeMemory.runtime_snapshot || null,
+          runtimeMemory && runtimeMemory.runtime_snapshot || null,
         runtime_display_snapshot: runtimeDisplaySnapshot,
       };
     }
@@ -1983,9 +1557,6 @@
     session.isReconnectInitialRuntimeMemoryUpdate = isReconnectInitialRuntimeMemoryUpdate;
     session.isLatestRuntimeMemoryDuplicate = isLatestRuntimeMemoryDuplicate;
     session.isBootstrapRuntimeMemoryDuplicate = isBootstrapRuntimeMemoryDuplicate;
-    session.resolveBootstrapJinColor = resolveBootstrapJinColor;
-    session.resolveBootstrapRoomState = resolveBootstrapRoomState;
-    session.applyBootstrapSceneTintShift = applyBootstrapSceneTintShift;
     session.applyBootstrapRuntimeMemoryUpdate = applyBootstrapRuntimeMemoryUpdate;
     session.rememberStableRuntimeSnapshot = rememberStableRuntimeSnapshot;
 

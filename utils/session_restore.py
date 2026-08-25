@@ -351,17 +351,22 @@ def _build_recent_turns(
                 turn["jin_created_at"] = timestamp
 
     ordered_turns.sort(key=lambda item: item[0])
-    committed_turns = []
+    visible_turns = []
     for _, item in ordered_turns:
-        if not item.get("user") or not item.get("_jin_row_seen"):
+        # A real USER row is the session move. Keep it immediately even when
+        # generation was stopped before JIN produced a row. The missing JIN
+        # side stays empty, so interrupted and action-only turns remain
+        # distinguishable by their durable timestamps/rows rather than being
+        # rewritten as a completed exchange.
+        if not item.get("user"):
             continue
-        committed_turns.append({
+        visible_turns.append({
             key: value
             for key, value in item.items()
             if not key.startswith("_")
         })
 
-    return committed_turns[-RECENT_MESSAGES_MAX_PAIRS:]
+    return visible_turns[-RECENT_MESSAGES_MAX_PAIRS:]
 
 
 def _read_reasoning(session_directory: Path, entries: list[dict]) -> dict[str, str]:
@@ -839,35 +844,30 @@ def _build_runtime_event_session_actions(entries: list[dict]) -> list[dict]:
             )
             if not color:
                 continue
-
-            if (
-                items
-                and runtime_turn_id
-                and items[-1].get("runtime_turn_id") == runtime_turn_id
-                and len(items[-1].get("parts", [])) == 1
-                and str(
-                    items[-1]["parts"][0].get("text", "")
-                    or ""
-                ).strip().upper() == "JIN_COLOR"
-            ):
-                colors = items[-1]["parts"][0].setdefault(
-                    "colors",
-                    [],
-                )
-                if color not in colors:
-                    colors.append(color)
-                continue
-
+            raw_action = payload.get("session_action")
+            raw_action = raw_action if isinstance(raw_action, dict) else {}
             item = {
-                "text": "JIN_COLOR",
+                "text": str(raw_action.get("text", "") or "JIN_COLOR").strip(),
                 "created_at": created_at,
                 "parts": [{
                     "text": "JIN_COLOR",
                     "colors": [color],
                 }],
             }
-            if runtime_turn_id:
-                item["runtime_turn_id"] = runtime_turn_id
+            event_id = str(
+                raw_action.get("id", "")
+                or payload.get("event_id", "")
+                or ""
+            ).strip()
+            if event_id:
+                item["id"] = event_id
+            action_turn_id = str(
+                raw_action.get("runtime_turn_id", "")
+                or runtime_turn_id
+                or ""
+            ).strip()
+            if action_turn_id:
+                item["runtime_turn_id"] = action_turn_id
             items.append(item)
             continue
 
@@ -893,6 +893,13 @@ def _build_runtime_event_session_actions(entries: list[dict]) -> list[dict]:
             "created_at": created_at,
             "parts": [part],
         }
+        event_id = str(
+            raw_action.get("id", "")
+            or payload.get("event_id", "")
+            or ""
+        ).strip()
+        if event_id:
+            item["id"] = event_id
         if runtime_turn_id:
             item["runtime_turn_id"] = runtime_turn_id
         items.append(item)
@@ -1201,11 +1208,11 @@ def find_latest_completed_session_restore_payload(
     root: Path | str | None = None,
     anonymous_mode: bool | None = None,
 ) -> dict | None:
-    """Return the newest raw-log session containing a committed user turn.
+    """Return the newest raw-log session containing a real user move.
 
-    A normal USER/JIN pair qualifies, and so does a USER followed by an empty
-    JIN row after an action-only response. A bare USER row does not qualify, so
-    bootstrap-only/in-flight sessions remain ignored.
+    A USER row qualifies immediately, even if generation was stopped before a
+    JIN row or L1 update. Bootstrap-only sessions with no real USER row do not
+    qualify, so merely opening/stopping a fresh tab keeps the predecessor.
     """
     root_path = Path(
         root
@@ -1419,7 +1426,17 @@ def build_archived_session_restore_payload(
         )
         + _build_runtime_event_session_actions(entries)
     )[-200:]
-    if runtime_session_actions:
+    runtime_has_l4_action = any(
+        isinstance(item, dict)
+        and any(
+            isinstance(part, dict)
+            and str(part.get("text", "") or "").strip().upper()
+            == "UPDATE_L4_FACTS"
+            for part in item.get("parts", []) or []
+        )
+        for item in runtime_session_actions
+    )
+    if runtime_has_l4_action:
         session_actions = [
             item
             for item in session_actions
@@ -1433,6 +1450,7 @@ def build_archived_session_restore_payload(
                 )
             )
         ]
+    if runtime_session_actions:
         session_actions.extend(runtime_session_actions)
     elif not any(
         isinstance(item, dict)

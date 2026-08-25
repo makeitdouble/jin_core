@@ -388,208 +388,96 @@
       ).trim();
     const checkpoint =
       storage.readLatestSavedSessionSnapshot();
-    const checkpointSnapshot =
-      checkpoint
-      && String(checkpoint.session_id || "").trim()
-        === restoreSourceSessionId
-      && checkpoint.session_snapshot
-      && typeof checkpoint.session_snapshot === "object"
-        ? checkpoint.session_snapshot
-        : null;
-    const completedRuntimeSnapshot =
-      restoreSourceSessionId
-      && typeof storage.collectOtherLatestRuntimeMemorySnapshots
-        === "function"
-        ? storage.collectOtherLatestRuntimeMemorySnapshots()
-          .find(item => (
-            item
-            && String(
-              item.session_id
-              || item.key_session_id
-              || ""
-            ).trim() === restoreSourceSessionId
-            && item.session_snapshot
-            && typeof item.session_snapshot === "object"
-            && !Array.isArray(item.session_snapshot)
-          ))
-        : null;
-    const completedSnapshot =
-      completedRuntimeSnapshot
-      && completedRuntimeSnapshot.session_snapshot
-        ? completedRuntimeSnapshot.session_snapshot
-        : null;
-
-    // Layout stays on the normal saved-session checkpoint. Actions and color
-    // prefer the completed record for this exact archived session, so a later
-    // room-state write cannot erase the final JIN_COLOR turn.
-    const snapshot =
-      checkpointSnapshot
-      || completedSnapshot;
-    const actionSnapshot =
-      completedSnapshot
-      || checkpointSnapshot;
-
-    const savedRuntime =
+    const runtimeRecords = [];
+    const latestSavedRuntime =
       typeof storage.readLatestSavedRuntimeMemory === "function"
         ? storage.readLatestSavedRuntimeMemory()
         : null;
-    const savedRuntimeMatchesSource = Boolean(
-      savedRuntime
-      && typeof savedRuntime === "object"
-      && !Array.isArray(savedRuntime)
-      && String(savedRuntime.session_id || "").trim()
-        === restoreSourceSessionId
-    );
 
-    if (savedRuntimeMatchesSource) {
-      const runtimeMemory =
-        String(savedRuntime.runtime_memory || "").trim();
-      const runtimeSnapshot =
-        savedRuntime.runtime_snapshot
-        && typeof savedRuntime.runtime_snapshot === "object"
-        && !Array.isArray(savedRuntime.runtime_snapshot)
-          ? savedRuntime.runtime_snapshot
-          : null;
-
-      if (runtimeMemory) {
-        merged.runtime_memory = runtimeMemory;
+    if (latestSavedRuntime) {
+      runtimeRecords.push(latestSavedRuntime);
+    }
+    if (
+      typeof storage.collectOtherLatestRuntimeMemorySnapshots
+        === "function"
+    ) {
+      const collected =
+        storage.collectOtherLatestRuntimeMemorySnapshots();
+      if (Array.isArray(collected)) {
+        runtimeRecords.push(...collected);
       }
-
-      if (runtimeSnapshot) {
-        merged.runtime_snapshot = {
-          ...runtimeSnapshot,
-        };
-      }
-
-      merged.runtime_memory_updates = Number(
-        savedRuntime.runtime_memory_updates
-        || merged.runtime_memory_updates
-        || 0
-      );
     }
 
-    if (!snapshot) {
+    const timestamp = value => {
+      const parsed = Date.parse(String(value || "").trim());
+      return Number.isFinite(parsed) ? parsed : 0;
+    };
+    const candidates = [];
+    const addCandidate = (record, snapshot) => {
+      if (
+        !record
+        || String(
+          record.session_id
+          || record.key_session_id
+          || ""
+        ).trim() !== restoreSourceSessionId
+        || !snapshot
+        || typeof snapshot !== "object"
+        || Array.isArray(snapshot)
+      ) {
+        return;
+      }
+
+      candidates.push({
+        record,
+        snapshot,
+        savedAt: Math.max(
+          timestamp(record.conversation_committed_at),
+          timestamp(record.saved_at),
+          timestamp(
+            snapshot.room_state
+            && snapshot.room_state.saved_at
+          )
+        ),
+      });
+    };
+
+    addCandidate(
+      checkpoint,
+      checkpoint && checkpoint.session_snapshot
+    );
+    runtimeRecords.forEach(record => {
+      addCandidate(record, record.session_snapshot);
+    });
+    candidates.sort((left, right) => right.savedAt - left.savedAt);
+
+    const selected = candidates[0];
+    const archiveTailAt = timestamp(merged.archive_tail_at);
+    if (
+      !selected
+      || (archiveTailAt && selected.savedAt < archiveTailAt)
+    ) {
       return merged;
     }
 
-    let sessionActions = null;
+    Object.assign(merged, selected.snapshot);
 
+    const runtimeMemory =
+      String(selected.record.runtime_memory || "").trim();
+    if (runtimeMemory) {
+      merged.runtime_memory = runtimeMemory;
+      merged.runtime_memory_updates = Number(
+        selected.record.runtime_memory_updates || 0
+      );
+    }
     if (
-      actionSnapshot
-      && Array.isArray(actionSnapshot.session_actions)
+      selected.record.runtime_snapshot
+      && typeof selected.record.runtime_snapshot === "object"
+      && !Array.isArray(selected.record.runtime_snapshot)
     ) {
-      sessionActions = actionSnapshot.session_actions
-        .filter(item => (
-          item
-          && typeof item === "object"
-          && !Array.isArray(item)
-        ))
-        .slice(-200)
-        .map(item => ({ ...item }));
-      merged.session_actions = sessionActions;
-    } else if (Array.isArray(snapshot.session_actions)) {
-      // Compatibility fallback for checkpoints written before per-session
-      // completed snapshots existed.
-      merged.session_actions = snapshot.session_actions
-        .filter(item => (
-          item
-          && typeof item === "object"
-          && !Array.isArray(item)
-        ))
-        .slice(-200)
-        .map(item => ({ ...item }));
-      sessionActions = merged.session_actions;
-    }
-
-    const latestColorPart =
-      (sessionActions || [])
-        .slice()
-        .reverse()
-        .flatMap(item => (
-          Array.isArray(item.parts)
-            ? item.parts.slice().reverse()
-            : []
-        ))
-        .find(part => (
-          part
-          && typeof part === "object"
-          && !Array.isArray(part)
-          && String(part.text || "")
-            .trim()
-            .toUpperCase() === "JIN_COLOR"
-        ));
-    const actionColor =
-      latestColorPart
-      && Array.isArray(latestColorPart.colors)
-      && latestColorPart.colors.length
-        ? String(
-            latestColorPart.colors[
-              latestColorPart.colors.length - 1
-            ]
-            || ""
-          ).trim()
-        : "";
-    const color =
-      actionColor
-      || String(
-        actionSnapshot
-        && actionSnapshot.current_jin_color
-        || ""
-      ).trim()
-      || String(snapshot.current_jin_color || "").trim();
-
-    if (color) {
-      merged.current_jin_color = color;
-    }
-
-    for (const key of [
-      "current_jin_size",
-      "current_jin_position",
-      "current_window_size",
-      "room_state",
-    ]) {
-      const value = snapshot[key];
-
-      if (
-        value
-        && typeof value === "object"
-        && !Array.isArray(value)
-      ) {
-        if (
-          key === "room_state"
-          && color
-          && value.avatar
-          && typeof value.avatar === "object"
-          && !Array.isArray(value.avatar)
-        ) {
-          merged[key] = {
-            ...value,
-            avatar: {
-              ...value.avatar,
-              color,
-            },
-          };
-        } else {
-          merged[key] = { ...value };
-        }
-      }
-    }
-
-    const speed =
-      Number(snapshot.current_jin_speed || 0);
-
-    if (speed > 0) {
-      merged.current_jin_speed = speed;
-    }
-
-    if (
-      Object.prototype.hasOwnProperty.call(
-        snapshot,
-        "current_jin_collapsed"
-      )
-    ) {
-      merged.current_jin_collapsed =
-        Boolean(snapshot.current_jin_collapsed);
+      merged.runtime_snapshot = {
+        ...selected.record.runtime_snapshot,
+      };
     }
 
     return merged;
@@ -613,7 +501,10 @@
         === "function"
       && window.JinPanels.applyRoomState(
         roomState,
-        { persist: false }
+        {
+          persist: false,
+          initialBootstrapColor: true,
+        }
       )
     ) {
       return;
@@ -633,7 +524,11 @@
         === "function"
     ) {
       window.JinRuntime.avatar.setCenterColor(
-        color
+        color,
+        {
+          initialBootstrap: true,
+          persist: false,
+        }
       );
     }
 
@@ -691,7 +586,10 @@
               memory_layers_hidden: false,
             },
           },
-          { persist: false }
+          {
+            persist: false,
+            initialBootstrapColor: true,
+          }
         )
       ) {
         return;

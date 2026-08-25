@@ -61,8 +61,8 @@
   const MEMORY_SIGNAL_KIND_ORDER =
     Object.freeze(["delayed", "l4", "active"]);
   const SNAPSHOT_GLOW_CLEAR_DELAY_MS = 360;
-  const CENTER_COLOR_STEP_MS = 120;
-  const DEFAULT_CENTER_COLOR_TRANSITION_MS = 2000;
+  const INITIAL_BOOTSTRAP_COLOR_TRANSITION_MS = 2000;
+  const DEFAULT_CENTER_COLOR_TRANSITION_MS = 333;
   const CENTER_COLOR_TRANSITION_RESET_BUFFER_MS = 80;
   const MEMORY_LAYERS_HIDDEN_CLASS = "is-memory-layers-hidden";
   const MEMORY_LAYERS_DORMANT_CLASS = "is-memory-layers-dormant";
@@ -139,9 +139,8 @@
   }
 
   let centerColor = DEFAULT_CENTER_COLOR;
-  let centerColorTransitionQueue = [];
-  let centerColorTransitionTimer = null;
   let centerColorTransitionStyleTimer = null;
+  let initialBootstrapColorPending = true;
   const reasoningMotionSources = new Set();
   const requestedAnimationPlaybackRates = new WeakMap();
   let avatarRotationAnimationsCache = null;
@@ -4815,9 +4814,16 @@
     lastAuxiliaryRenderSignatures = auxiliarySignatures;
   }
 
-  function notifyRoomStateChanged() {
+  function notifyRoomStateChanged(options = {}) {
     window.dispatchEvent(
-      new CustomEvent("jin:avatar-room-state-changed")
+      new CustomEvent(
+        "jin:avatar-room-state-changed",
+        {
+          detail: {
+            immediate: options.immediate === true,
+          },
+        }
+      )
     );
   }
 
@@ -4831,7 +4837,7 @@
     );
   }
 
-  function applyCenterColor(color) {
+  function applyCenterColor(color, options = {}) {
     const svg = avatarRoot.querySelector("svg");
     const overallColor =
       avatarRoot.style.getPropertyValue("--jin-avatar-overall-color").trim()
@@ -4851,7 +4857,9 @@
       String(0.12 * sceneColorIntensity)
     );
 
-    notifyRoomStateChanged();
+    if (options.persist !== false) {
+      notifyRoomStateChanged({ immediate: true });
+    }
 
     if (!svg) {
       renderAvatar(getLatestSnapshot(), {
@@ -4916,8 +4924,8 @@
       durationValue
     );
 
-    // Commit the transition duration before changing either the SVG paint or
-    // the scene variables. This keeps both projections on the same 2s ramp.
+    // Commit the duration before changing either projection so avatar and
+    // scene tint always share one transition.
     avatarRoot.getBoundingClientRect();
 
     centerColorTransitionStyleTimer = window.setTimeout(
@@ -4936,29 +4944,11 @@
     return duration;
   }
 
-  function processCenterColorQueue() {
-    const nextTransition = centerColorTransitionQueue.shift();
-
-    if (!nextTransition) {
-      centerColorTransitionTimer = null;
-      return;
-    }
-
-    const transitionDurationMs = prepareCenterColorTransition(
-      nextTransition.transitionDurationMs
-    );
-
-    applyCenterColor(nextTransition.color);
-
-    centerColorTransitionTimer =
-      window.setTimeout(
-        processCenterColorQueue,
-        Math.max(CENTER_COLOR_STEP_MS, transitionDurationMs)
-      );
-  }
-
   function setCenterColor(color, options = {}) {
     const normalizedColor = normalizeHexColor(color);
+    const initialBootstrap = Boolean(
+      options && options.initialBootstrap === true
+    );
     const hasExplicitTransitionDuration = Boolean(
       options
       && Object.prototype.hasOwnProperty.call(
@@ -4971,27 +4961,29 @@
         0,
         Number(options.transitionDurationMs) || 0
       )
-      : DEFAULT_CENTER_COLOR_TRANSITION_MS;
+      : (
+          initialBootstrap
+          && initialBootstrapColorPending
+            ? INITIAL_BOOTSTRAP_COLOR_TRANSITION_MS
+            : DEFAULT_CENTER_COLOR_TRANSITION_MS
+        );
 
     if (!normalizedColor) {
       return false;
     }
 
-    if (
-      normalizedColor === centerColor
-      && centerColorTransitionQueue.length === 0
-    ) {
+
+
+    if (normalizedColor === centerColor) {
       return true;
     }
 
-    centerColorTransitionQueue.push({
-      color: normalizedColor,
-      transitionDurationMs,
-    });
-
-    if (!centerColorTransitionTimer) {
-      processCenterColorQueue();
+    if (initialBootstrap && initialBootstrapColorPending) {
+      initialBootstrapColorPending = false;
     }
+
+    prepareCenterColorTransition(transitionDurationMs);
+    applyCenterColor(normalizedColor, options);
 
     return true;
   }
