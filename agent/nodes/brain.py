@@ -1676,13 +1676,10 @@ class BrainNode(BaseNode):
             system_prompt=system_prompt,
             user_prompt=effective_brain_payload,
             runtime_actions=runtime_actions,
-            include_previous_reasoning=bool(
-                getattr(
-                    context,
-                    "runtime_session_restore_priming",
-                    False,
-                )
-            ),
+            # Keep the visible context snapshot aligned with the ordinary
+            # model prompt. Action follow-ups intentionally build their own
+            # reasoning context and stay excluded here.
+            include_previous_reasoning=not is_followup_tick,
         )
 
         if preserve_runtime_action_markers:
@@ -1921,13 +1918,10 @@ class BrainNode(BaseNode):
                     runtime_actions=runtime_actions,
                     user_input=state.user_input,
                     commit_active_memory_refresh=True,
-                    include_previous_reasoning=bool(
-                        getattr(
-                            context,
-                            "runtime_session_restore_priming",
-                            False,
-                        )
-                    ),
+                    # Ordinary user turns must carry the previous completed
+                    # reasoning block. Follow-up builders disable it explicitly
+                    # where they need the current turn reasoning instead.
+                    include_previous_reasoning=True,
                 )
             )
             brain_payload = (

@@ -1739,6 +1739,60 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
             "I am JIN.",
         )
 
+    async def test_regular_brain_run_includes_previous_reasoning_in_initial_prompt(self):
+
+        build_calls = []
+
+        def fake_build_brain_context(*args, **kwargs):
+            build_calls.append(kwargs)
+            return "system prompt"
+
+        async def fake_run_brain_stream(**kwargs):
+            return (
+                "I am JIN.",
+                "new reasoning",
+            )
+
+        context = _context()
+        context.runtime_previous_reasoning_content = (
+            "previous reasoning opening "
+            + "m" * 2600
+            + " previous reasoning ending"
+        )
+        state = AgentState(
+            user_input="hello",
+        )
+
+        with patch(
+            "agent.nodes.brain.get_brain_runtime_config",
+            return_value=_brain_runtime(),
+        ), patch(
+            "agent.nodes.brain.build_brain_context",
+            side_effect=fake_build_brain_context,
+        ), patch(
+            "agent.nodes.brain.build_brain_payload",
+            return_value="brain payload",
+        ), patch(
+            "agent.nodes.brain.emit_active_memory_records_update_if_dirty",
+            new=lambda _context: _async_noop(),
+        ), patch.object(
+            BrainNode,
+            "run_brain_stream",
+            staticmethod(fake_run_brain_stream),
+        ):
+            await BrainNode().run(
+                state,
+                context,
+            )
+
+        self.assertTrue(build_calls)
+        self.assertIs(
+            build_calls[0].get(
+                "include_previous_reasoning"
+            ),
+            True,
+        )
+
     async def test_regular_brain_run_stores_reasoning_for_next_chat_prompt(self):
 
         async def fake_run_brain_stream(**kwargs):

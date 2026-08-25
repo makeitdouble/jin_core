@@ -4,22 +4,18 @@ from datetime import datetime
 from math import isfinite
 from xml.sax.saxutils import escape
 
-from runtime.runtime_context import (
-    RECENT_MESSAGE_MAX_CHARS,
-    RECENT_MESSAGES_MAX_PAIRS,
-)
+from runtime.runtime_context import RECENT_MESSAGES_MAX_PAIRS
 
 from .session_actions import (
     format_session_action_age,
 )
 
 
-def crop_recent_message_text(
+def normalize_recent_message_text(
     text: str,
-    max_chars: int = RECENT_MESSAGE_MAX_CHARS,
 ) -> str:
 
-    cleaned = str(
+    return str(
         text
         or ""
     ).replace(
@@ -28,26 +24,10 @@ def crop_recent_message_text(
     ).replace(
         "\r",
         "\n",
-    )
-
-    cleaned = cleaned.replace(
+    ).replace(
         "\n",
         "\\n",
     ).strip()
-
-    if max_chars <= 0:
-        return ""
-
-    if len(cleaned) <= max_chars:
-        return cleaned
-
-    if max_chars <= 3:
-        return "." * max_chars
-
-    return (
-        cleaned[: max_chars - 3].rstrip()
-        + "..."
-    )
 
 
 def format_context_message_age_suffix(
@@ -164,13 +144,13 @@ def build_previous_chat_messages_context_text(
         ):
             continue
 
-        user_text = crop_recent_message_text(
+        user_text = normalize_recent_message_text(
             turn.get(
                 "user",
                 "",
             )
         )
-        jin_text = crop_recent_message_text(
+        jin_text = normalize_recent_message_text(
             turn.get(
                 "jin",
                 "",
@@ -208,7 +188,7 @@ def build_previous_chat_messages_context_text(
                 f"<JIN>{escape(jin_text)}"
             )
 
-    extra_user_text = crop_recent_message_text(
+    extra_user_text = normalize_recent_message_text(
         extra_user_message
     )
 

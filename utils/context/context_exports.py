@@ -30,7 +30,7 @@ from .messages import (
     append_previous_chat_messages,
     build_previous_chat_messages_context,
     build_previous_chat_messages_context_text,
-    crop_recent_message_text,
+    normalize_recent_message_text,
     format_context_message_age_suffix,
 )
 from .assets import (
@@ -55,7 +55,7 @@ __all__ = [
     "build_current_runtime_context",
     "build_session_actions_history_context",
     "build_tool_results_context",
-    "crop_recent_message_text",
+    "normalize_recent_message_text",
     "format_active_memory_result_sections",
     "format_asset_result_sections",
     "format_context_message_age_suffix",
