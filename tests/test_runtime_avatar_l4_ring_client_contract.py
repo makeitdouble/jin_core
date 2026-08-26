@@ -45,16 +45,18 @@ class RuntimeAvatarL4RingClientContractTests(unittest.TestCase):
         self.assertIn("id,\n              key,", source)
         self.assertIn("referenceAliases: record.referenceAliases", source)
         self.assertIn("dot: record.archived", source)
-        self.assertIn(
-            '"data-delayed-memory-fact-ids":',
-            source,
-        )
-        self.assertIn(
-            '"data-delayed-memory-anchor-fact-ids":',
-            source,
-        )
-        self.assertIn('"data-l4-fact-ids":', source)
-        self.assertIn('"data-avatar-memory-angle": options.angle', source)
+        self.assertIn("const avatarNodeState = new WeakMap();", source)
+        self.assertIn("delayedMemoryFactIds:", source)
+        self.assertIn("normalizeL4FactIds(options.delayedMemoryFactIds)", source)
+        self.assertIn("delayedMemoryAnchorFactIds:", source)
+        self.assertIn("normalizeL4FactIds(options.delayedMemoryAnchorFactIds)", source)
+        self.assertIn("l4FactIds:", source)
+        self.assertIn("normalizeL4FactIds(options.l4FactIds)", source)
+        self.assertIn("nodeState.avatarMemoryAngle = Number(options.angle);", source)
+        self.assertNotIn('"data-delayed-memory-fact-ids"', source)
+        self.assertNotIn('"data-delayed-memory-anchor-fact-ids"', source)
+        self.assertNotIn('"data-l4-fact-ids"', source)
+        self.assertNotIn('"data-avatar-memory-angle"', source)
         self.assertIn('class: "jin-avatar-center"', source)
         self.assertIn("function syncMemorySignalLayer(kind", source)
         self.assertIn("function syncL4MemoryArchiveState()", source)
@@ -206,10 +208,8 @@ class RuntimeAvatarL4RingClientContractTests(unittest.TestCase):
             "const slotDegrees = 360 / records.length;",
             source,
         )
-        self.assertIn(
-            "title: `Active memory ${record.index + 1}: ${record.value || record.text}`",
-            source,
-        )
+        self.assertNotIn('createSvgElement("title")', source)
+        self.assertNotIn("appendTitle(", source)
 
     def test_memory_ring_changes_can_sync_without_avatar_refresh(self):
         source = RUNTIME_JS.read_text(encoding="utf-8")

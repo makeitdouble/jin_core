@@ -11,8 +11,6 @@
     "jin:delayed-memory-report-active";
   const MEMORY_REFERENCE_HIGHLIGHT_EVENT =
     "jin:memory-reference-highlight";
-  const MEMORY_REFERENCE_ALIAS_DATASET_KEY =
-    "memoryReferenceAliases";
 
   const CENTER = 180;
   const INNER_RING_SCALE = 0.90;
@@ -155,6 +153,35 @@
   const memoryReferenceHighlightState = {
     persistentText: "",
   };
+  // Keep matching/link payload in JS. The SVG is a visual projection, not a
+  // second serialized copy of runtime/L4/delayed/file state. WeakMap also
+  // lets rebuilt rings release their payload together with detached nodes.
+  const avatarNodeState = new WeakMap();
+
+  function getAvatarNodeState(node, create = false) {
+    if (!node) {
+      return null;
+    }
+
+    let state = avatarNodeState.get(node) || null;
+
+    if (!state && create) {
+      state = Object.create(null);
+      avatarNodeState.set(node, state);
+    }
+
+    return state;
+  }
+
+  function setAvatarNodeState(node, values) {
+    if (!node || !values || typeof values !== "object") {
+      return null;
+    }
+
+    const state = getAvatarNodeState(node, true);
+    Object.assign(state, values);
+    return state;
+  }
 
   function clamp(value, min, max) {
     return Math.max(min, Math.min(max, Number(value) || 0));
@@ -214,7 +241,6 @@
         dashGroup.dataset.activeMemoryId
       );
       const path = dashGroup.querySelector("path");
-      const dot = dashGroup.querySelector(".jin-avatar-memory-dot");
 
       if (path) {
         path.setAttribute(
@@ -222,16 +248,6 @@
           opacity.toFixed(3)
         );
       }
-      if (dot) {
-        dot.setAttribute(
-          "fill-opacity",
-          opacity.toFixed(3)
-        );
-      }
-      dashGroup.style.setProperty(
-        "--jin-avatar-memory-dot-opacity",
-        opacity.toFixed(3)
-      );
     });
   }
 
@@ -292,32 +308,17 @@
 
     const normalizedAliases =
       normalizeMemoryReferenceAliases(aliases);
+    const state = getAvatarNodeState(node, true);
 
-    if (!normalizedAliases.length) {
-      delete node.dataset[MEMORY_REFERENCE_ALIAS_DATASET_KEY];
-      return;
-    }
-
-    node.dataset[MEMORY_REFERENCE_ALIAS_DATASET_KEY] =
-      JSON.stringify(normalizedAliases);
+    state.referenceAliases = normalizedAliases;
   }
 
   function getAvatarMemoryReferenceAliases(node) {
-    if (!node || !node.dataset) {
-      return [];
-    }
+    const state = getAvatarNodeState(node);
 
-    const raw = node.dataset[MEMORY_REFERENCE_ALIAS_DATASET_KEY];
-
-    if (!raw) {
-      return [];
-    }
-
-    try {
-      return normalizeMemoryReferenceAliases(JSON.parse(raw));
-    } catch (error) {
-      return [];
-    }
+    return normalizeMemoryReferenceAliases(
+      state && state.referenceAliases
+    );
   }
 
   function getAvatarMemoryReferenceDisplayKey(value) {
@@ -1034,12 +1035,6 @@
     deactivateReasoningMotion();
   }
 
-  function appendTitle(node, text) {
-    const title = createSvgElement("title");
-    title.textContent = String(text || "");
-    node.appendChild(title);
-  }
-
   function normalizeL4FactIds(value) {
     const source =
       Array.isArray(value)
@@ -1108,20 +1103,6 @@
     return factIds;
   }
 
-  function serializeL4FactIds(value) {
-    const factIds =
-      normalizeL4FactIds(value);
-
-    return factIds.length
-      ? factIds.join(",")
-      : null;
-  }
-
-  function addL4FactIds(target, value) {
-    normalizeL4FactIds(value)
-      .forEach(factId => target.add(factId));
-  }
-
   function l4FactIdSetsIntersect(left, right) {
     if (!left || !right || !left.size || !right.size) {
       return false;
@@ -1165,14 +1146,6 @@
     });
 
     return ids;
-  }
-
-  function serializeShortRuntimeIds(value) {
-    const ids = normalizeShortRuntimeIds(value);
-
-    return ids.length
-      ? ids.join(",")
-      : null;
   }
 
   function shortRuntimeIdSetsIntersect(left, right) {
@@ -1851,12 +1824,6 @@
             ]),
           citationText:
             normalizeRuntimeCitationIdentity(lineText),
-          citationIdentity:
-            activeMemoryId
-              ? normalizeRuntimeCitationIdentity(
-                  `active:${activeMemoryId}`
-                )
-              : "",
         };
       })
       .filter(record => record && record.citationText);
@@ -2013,8 +1980,6 @@
               key,
               getAvatarMemoryReferenceDisplayKey(key),
             ]),
-          citationText:
-            normalizeRuntimeCitationIdentity(lineText),
         };
       })
       .filter(Boolean)
@@ -2136,20 +2101,7 @@
       );
     const startAngle = options.angle - arcDegrees / 2;
     const endAngle = options.angle + arcDegrees / 2;
-    const color = options.color;
-    const glowColor = options.glowColor || color;
-    const metabolismChannel =
-      String(options.metabolismChannel || "").trim();
-    const renderedColor =
-      getMetabolismTintedColor(
-        color,
-        metabolismChannel
-      );
-    const renderedGlowColor =
-      getMetabolismTintedColor(
-        glowColor,
-        metabolismChannel
-      );
+    const renderedColor = options.color;
     const isDot = Boolean(options.dot);
     const dotRadius =
       isDot
@@ -2179,38 +2131,39 @@
     const dashGroup = createSvgElement("g", {
       class: classNames.join(" "),
       "data-avatar-memory-hover-id": options.avatarMemoryHoverId || null,
-      "data-runtime-line-key": options.citationKey || null,
-      "data-runtime-line-text": options.citationText || null,
-      "data-runtime-line-identity": options.citationIdentity || null,
       "data-active-memory-id": options.activeMemoryId || null,
       "data-delayed-memory-id": options.delayedMemoryId || null,
-      "data-delayed-memory-fact-ids":
-        serializeL4FactIds(options.delayedMemoryFactIds),
-      "data-delayed-memory-anchor-fact-ids":
-        serializeL4FactIds(options.delayedMemoryAnchorFactIds),
       "data-l4-fact-id": options.l4FactId || null,
-      "data-l4-fact-ids": serializeL4FactIds(options.l4FactIds),
-      "data-avatar-memory-angle": options.angle,
-      "data-metabolism-channel": metabolismChannel || null,
-      "data-metabolism-base-color": color,
-      "data-metabolism-glow-color": glowColor,
     });
+
+    const nodeState = Object.create(null);
+
+    if (options.citationKey) {
+      nodeState.runtimeLineKey = options.citationKey;
+    }
+    if (options.citationText) {
+      nodeState.runtimeLineText = options.citationText;
+    }
+    if (options.citationIdentity) {
+      nodeState.runtimeLineIdentity = options.citationIdentity;
+    }
+    if (options.kind === "delayed") {
+      nodeState.delayedMemoryFactIds =
+        normalizeL4FactIds(options.delayedMemoryFactIds);
+      nodeState.delayedMemoryAnchorFactIds =
+        normalizeL4FactIds(options.delayedMemoryAnchorFactIds);
+    }
+    if (options.kind === "l4") {
+      nodeState.l4FactIds =
+        normalizeL4FactIds(options.l4FactIds);
+      nodeState.avatarMemoryAngle = Number(options.angle);
+    }
+
+    setAvatarNodeState(dashGroup, nodeState);
 
     setAvatarMemoryReferenceAliases(
       dashGroup,
       options.referenceAliases
-    );
-
-    setMemoryDashGlowVariables(
-      dashGroup,
-      renderedGlowColor,
-      layout.strokeWidth + 0.75,
-      dotRadius
-    );
-
-    appendTitle(
-      dashGroup,
-      options.title
     );
 
     dashGroup.appendChild(createSvgElement("path", {
@@ -2225,11 +2178,6 @@
 
     if (isDot) {
       const dotPoint = polarPoint(layout.radius, options.angle);
-
-      dashGroup.style.setProperty(
-        "--jin-avatar-memory-dot-opacity",
-        Number(options.opacity || 0.28).toFixed(2)
-      );
       dashGroup.appendChild(createSvgElement("circle", {
         class: "jin-avatar-memory-dot",
         cx: dotPoint.x.toFixed(3),
@@ -2306,82 +2254,83 @@
   }
 
   function refreshRenderedMetabolismTints() {
-    avatarRoot.querySelectorAll(
-      ".jin-avatar-memory-dash[data-metabolism-channel]"
-    ).forEach((dashGroup) => {
-      const channel =
-        String(dashGroup.dataset.metabolismChannel || "").trim();
-      const baseColor =
-        String(dashGroup.dataset.metabolismBaseColor || "").trim();
-      const glowColor =
-        String(dashGroup.dataset.metabolismGlowColor || baseColor).trim();
+    const channel = getMetabolismChannel();
 
-      if (!channel || !baseColor) {
-        return;
-      }
+    if (!channel) {
+      return;
+    }
 
-      const renderedColor =
-        getMetabolismTintedColor(
-          baseColor,
-          channel
-        );
-      const renderedGlowColor =
-        getMetabolismTintedColor(
-          glowColor || baseColor,
-          channel
-        );
-      const path =
-        dashGroup.querySelector("path");
+    const overallColor =
+      avatarRoot.style
+        .getPropertyValue("--jin-avatar-overall-color")
+        .trim() || DEFAULT_RING_COLOR;
 
-      if (path) {
-        path.setAttribute(
-          "stroke",
-          renderedColor
-        );
-      }
+    Object.entries(MEMORY_RING_LAYOUT)
+      .forEach(([kind, layout]) => {
+        const ring =
+          avatarRoot.querySelector(
+            `.jin-avatar-memory-ring-${kind}`
+          );
 
-      dashGroup.querySelectorAll(
-        ".jin-avatar-memory-dot"
-      ).forEach((dot) => {
-        dot.setAttribute(
-          "fill",
-          renderedColor
+        if (!ring) {
+          return;
+        }
+
+        const colors =
+          getMemorySignalColors(kind, overallColor);
+        const renderedColor =
+          getMetabolismTintedColor(
+            colors.color,
+            channel
+          );
+        const renderedGlowColor =
+          getMetabolismTintedColor(
+            colors.glowColor,
+            channel
+          );
+
+        ring.querySelectorAll(
+          ".jin-avatar-memory-dash > path"
+        ).forEach((path) => {
+          path.setAttribute(
+            "stroke",
+            renderedColor
+          );
+        });
+        ring.querySelectorAll(
+          ".jin-avatar-memory-dot"
+        ).forEach((dot) => {
+          dot.setAttribute(
+            "fill",
+            renderedColor
+          );
+        });
+
+        setMemoryDashGlowVariables(
+          ring,
+          renderedGlowColor,
+          layout.strokeWidth + 0.75,
+          kind === "l4"
+            ? getMemoryDotRadius(layout)
+            : 0
         );
       });
 
-      let layout = MEMORY_RING_LAYOUT.active;
-      if (dashGroup.classList.contains("jin-avatar-memory-dash-delayed")) {
-        layout = MEMORY_RING_LAYOUT.delayed;
-      } else if (dashGroup.classList.contains("jin-avatar-memory-dash-l4")) {
-        layout = MEMORY_RING_LAYOUT.l4;
-      }
-
-      const dotRadius =
-        dashGroup.classList.contains("is-memory-dot")
-          ? getMemoryDotRadius(layout)
-          : 0;
-
-      setMemoryDashGlowVariables(
-        dashGroup,
-        renderedGlowColor,
-        layout.strokeWidth + 0.75,
-        dotRadius
-      );
-    });
-
     avatarRoot.querySelectorAll(
-      ".jin-avatar-file-dot[data-metabolism-channel]"
+      ".jin-avatar-file-dot"
     ).forEach((dotGroup) => {
-      const channel =
-        String(dotGroup.dataset.metabolismChannel || "").trim();
+      const active = Boolean(
+        dotGroup.classList.contains("is-memory-pinned")
+        || dotGroup.classList.contains("is-context-loaded")
+      );
       const baseColor =
-        String(dotGroup.dataset.metabolismBaseColor || "").trim();
+        active
+          ? FILE_RING_ACTIVE_COLOR
+          : FILE_RING_COLOR;
       const glowColor =
-        String(dotGroup.dataset.metabolismGlowColor || baseColor).trim();
-
-      if (!channel || !baseColor) {
-        return;
-      }
+        active
+          ? FILE_RING_ACTIVE_COLOR
+          : FILE_RING_LAYOUT.glowColor;
 
       const renderedColor =
         getMetabolismTintedColor(
@@ -2390,7 +2339,7 @@
         );
       const renderedGlowColor =
         getMetabolismTintedColor(
-          glowColor || baseColor,
+          glowColor,
           channel
         );
       const core =
@@ -2435,6 +2384,38 @@
     };
   }
 
+  function getMemorySignalColors(kind, overallColor) {
+    if (kind === "active") {
+      return {
+        color: mixColors(
+          ACTIVE_MEMORY_RING_COLOR,
+          overallColor,
+          0.18
+        ),
+        glowColor: ACTIVE_MEMORY_RING_COLOR,
+      };
+    }
+
+    if (kind === "l4") {
+      return {
+        color: mixColors(
+          L4_MEMORY_RING_COLOR,
+          overallColor,
+          0.08
+        ),
+        glowColor: L4_MEMORY_RING_COLOR,
+      };
+    }
+
+    const color =
+      mixColors(DELAYED_MEMORY_RING_COLOR, overallColor, 0.12);
+
+    return {
+      color,
+      glowColor: color,
+    };
+  }
+
   function appendMemorySignalRing(svg, records, layout, kind, overallColor) {
     if (!records.length) {
       return;
@@ -2462,6 +2443,36 @@
       kind === "delayed" ? 0.94 : 0.82
     );
     ring.appendChild(reasoningMotion.layer);
+    const ringColors =
+      getMemorySignalColors(kind, overallColor);
+    const metabolismChannel = getMetabolismChannel();
+    const renderedColor =
+      getMetabolismTintedColor(
+        ringColors.color,
+        metabolismChannel
+      );
+    const renderedGlowColor =
+      getMetabolismTintedColor(
+        ringColors.glowColor,
+        metabolismChannel
+      );
+    const dotRadius =
+      kind === "l4"
+        ? getMemoryDotRadius(layout)
+        : 0;
+
+    setMemoryDashGlowVariables(
+      ring,
+      renderedGlowColor,
+      layout.strokeWidth + 0.75,
+      dotRadius
+    );
+    if (kind === "l4") {
+      ring.style.setProperty(
+        "--jin-avatar-memory-dot-opacity",
+        "0.26"
+      );
+    }
     const slotDegrees = 360 / records.length;
     const arcDegrees =
       getMemoryDashArcDegrees(
@@ -2477,13 +2488,6 @@
           return;
         }
 
-        const color =
-          mixColors(
-            ACTIVE_MEMORY_RING_COLOR,
-            overallColor,
-            0.18
-          );
-
         appendMemoryDashSegment(
           reasoningMotion.content,
           layout,
@@ -2491,31 +2495,19 @@
             kind,
             angle,
             arcDegrees,
-            metabolismChannel: getMetabolismChannel(index, kind),
-            color,
-            glowColor: ACTIVE_MEMORY_RING_COLOR,
+            color: renderedColor,
             opacity: getActiveMemoryMetabolicOpacity(record.id),
             avatarMemoryHoverId: record.avatarMemoryHoverId,
             activeMemoryId: record.id,
             citationKey:
               normalizeRuntimeCitationIdentity(record.key),
-            citationText: record.citationText,
-            citationIdentity: record.citationIdentity,
             referenceAliases: record.referenceAliases,
-            title: `Active memory ${record.index + 1}: ${record.value || record.text}`,
           }
         );
         return;
       }
 
       if (kind === "l4") {
-        const color =
-          mixColors(
-            L4_MEMORY_RING_COLOR,
-            overallColor,
-            0.08
-          );
-
         appendMemoryDashSegment(
           reasoningMotion.content,
           layout,
@@ -2523,21 +2515,17 @@
             kind,
             angle,
             arcDegrees,
-            metabolismChannel: getMetabolismChannel(index, kind),
-            color,
-            glowColor: L4_MEMORY_RING_COLOR,
+            color: renderedColor,
             opacity: record.archived ? 0.26 : 0.52,
             archived: record.archived,
             dot: record.archived,
             avatarMemoryHoverId: record.avatarMemoryHoverId,
             citationKey:
               normalizeRuntimeCitationIdentity(record.key),
-            citationText: record.citationText,
             citationIdentity: record.citationIdentity,
             l4FactId: record.id,
             l4FactIds: record.l4FactIds,
             referenceAliases: record.referenceAliases,
-            title: `L4 ${record.id} · ${record.key}: ${record.value}`,
           }
         );
         return;
@@ -2548,9 +2536,6 @@
       const active = pinned || contextLoaded;
       // Delayed memory has one base hue. Direct state and references are
       // expressed only through the two CSS highlight tiers.
-      const color =
-        mixColors(DELAYED_MEMORY_RING_COLOR, overallColor, 0.12);
-
       appendMemoryDashSegment(
         reasoningMotion.content,
         layout,
@@ -2558,9 +2543,7 @@
           kind,
           angle,
           arcDegrees,
-          metabolismChannel: getMetabolismChannel(index, kind),
-          color,
-          glowColor: color,
+          color: renderedColor,
           opacity: active ? 0.82 : 0.36,
           pinned,
           contextLoaded,
@@ -2571,7 +2554,6 @@
           delayedMemoryFactIds: record.linkedFactIds,
           delayedMemoryAnchorFactIds: record.anchorFactIds,
           referenceAliases: record.referenceAliases,
-          title: `${record.title}${record.summary ? `: ${record.summary}` : ""}`,
         }
       );
     });
@@ -2623,7 +2605,7 @@
         ? FILE_RING_ACTIVE_COLOR
         : FILE_RING_LAYOUT.glowColor;
       const metabolismChannel =
-        getMetabolismChannel(index, "file");
+        getMetabolismChannel();
       const renderedColor =
         getMetabolismTintedColor(
           color,
@@ -2638,13 +2620,23 @@
         class: "jin-avatar-file-dot",
         "data-avatar-memory-hover-id": record.avatarMemoryHoverId || null,
         "data-file-id": record.id,
-        "data-linked-delayed-memory-ids": serializeShortRuntimeIds(record.linkedReportIds),
-        "data-runtime-line-key": normalizeRuntimeCitationIdentity(record.id),
-        "data-runtime-line-text": normalizeRuntimeCitationIdentity([record.name, record.contextPath].filter(Boolean).join(" · ")),
-        "data-metabolism-channel": metabolismChannel || null,
-        "data-metabolism-base-color": color,
-        "data-metabolism-glow-color": glowColor,
       });
+
+      setAvatarNodeState(
+        dotGroup,
+        {
+          linkedDelayedMemoryIds:
+            normalizeShortRuntimeIds(record.linkedReportIds),
+          runtimeLineKey:
+            normalizeRuntimeCitationIdentity(record.id),
+          runtimeLineText:
+            normalizeRuntimeCitationIdentity(
+              [record.name, record.contextPath]
+                .filter(Boolean)
+                .join(" · ")
+            ),
+        }
+      );
 
       if (record.pinned) {
         dotGroup.classList.add("is-memory-pinned");
@@ -2665,10 +2657,6 @@
       setFileDotGlowVariables(
         dotGroup,
         renderedGlowColor
-      );
-      appendTitle(
-        dotGroup,
-        `${record.name} · ${record.id}`
       );
       dotGroup.appendChild(createSvgElement("circle", {
         class: "jin-avatar-file-dot-core",
@@ -2836,32 +2824,27 @@
       dashGroup.classList.contains("is-context-loaded");
     const nextActive =
       nextPinned || nextContextLoaded;
-    const nextColor =
-      mixColors(DELAYED_MEMORY_RING_COLOR, overallColor, 0.12);
+    const colors =
+      getMemorySignalColors("delayed", overallColor);
 
     dashGroup.classList.toggle(
       "is-memory-pinned",
       nextPinned
     );
-    const metabolismChannel =
-      String(dashGroup.dataset.metabolismChannel || "").trim();
-    const nextGlowColor = nextColor;
+    const metabolismChannel = getMetabolismChannel();
     const renderedColor =
       getMetabolismTintedColor(
-        nextColor,
+        colors.color,
         metabolismChannel
       );
     const renderedGlowColor =
       getMetabolismTintedColor(
-        nextGlowColor,
+        colors.glowColor,
         metabolismChannel
       );
 
-    dashGroup.dataset.metabolismBaseColor = nextColor;
-    dashGroup.dataset.metabolismGlowColor = nextGlowColor;
-
     setMemoryDashGlowVariables(
-      dashGroup,
+      dashGroup.closest(".jin-avatar-memory-ring-delayed") || dashGroup,
       renderedGlowColor,
       MEMORY_RING_LAYOUT.delayed.strokeWidth + 0.75
     );
@@ -2927,16 +2910,13 @@
     const overallColor =
       avatarRoot.style.getPropertyValue("--jin-avatar-overall-color").trim()
       || DEFAULT_RING_COLOR;
-    const nextColor =
-      mixColors(
-        L4_MEMORY_RING_COLOR,
-        overallColor,
-        0.08
-      );
+    const colors =
+      getMemorySignalColors("l4", overallColor);
     const dotRadius =
       getMemoryDotRadius(MEMORY_RING_LAYOUT.l4);
+    const state = getAvatarNodeState(dashGroup);
     const angle =
-      Number(dashGroup.dataset.avatarMemoryAngle);
+      Number(state && state.avatarMemoryAngle);
 
     if (nextArchived && !Number.isFinite(angle)) {
       return false;
@@ -2951,27 +2931,23 @@
       nextArchived
     );
 
-    const metabolismChannel =
-      String(dashGroup.dataset.metabolismChannel || "").trim();
+    const metabolismChannel = getMetabolismChannel();
     const renderedColor =
       getMetabolismTintedColor(
-        nextColor,
+        colors.color,
         metabolismChannel
       );
     const renderedGlowColor =
       getMetabolismTintedColor(
-        L4_MEMORY_RING_COLOR,
+        colors.glowColor,
         metabolismChannel
       );
 
-    dashGroup.dataset.metabolismBaseColor = nextColor;
-    dashGroup.dataset.metabolismGlowColor = L4_MEMORY_RING_COLOR;
-
     setMemoryDashGlowVariables(
-      dashGroup,
+      dashGroup.closest(".jin-avatar-memory-ring-l4") || dashGroup,
       renderedGlowColor,
       MEMORY_RING_LAYOUT.l4.strokeWidth + 0.75,
-      nextArchived ? dotRadius : 0
+      dotRadius
     );
 
     path.classList.toggle(
@@ -2990,9 +2966,6 @@
     if (!nextArchived) {
       dashGroup.querySelectorAll(".jin-avatar-memory-dot")
         .forEach(dot => dot.remove());
-      dashGroup.style.removeProperty(
-        "--jin-avatar-memory-dot-opacity"
-      );
       return true;
     }
 
@@ -3011,10 +2984,6 @@
       dashGroup.appendChild(dot);
     }
 
-    dashGroup.style.setProperty(
-      "--jin-avatar-memory-dot-opacity",
-      nextOpacity.toFixed(2)
-    );
     dot.setAttribute("cx", dotPoint.x.toFixed(3));
     dot.setAttribute("cy", dotPoint.y.toFixed(3));
     dot.setAttribute("r", dotRadius.toFixed(2));
@@ -3059,10 +3028,19 @@
         return;
       }
 
-      dashGroup.dataset.delayedMemoryFactIds =
-        serializeL4FactIds(record.linkedFactIds) || "";
-      dashGroup.dataset.delayedMemoryAnchorFactIds =
-        serializeL4FactIds(record.anchorFactIds) || "";
+      setAvatarNodeState(
+        dashGroup,
+        {
+          delayedMemoryFactIds:
+            normalizeL4FactIds(record.linkedFactIds),
+          delayedMemoryAnchorFactIds:
+            normalizeL4FactIds(record.anchorFactIds),
+        }
+      );
+      setAvatarMemoryReferenceAliases(
+        dashGroup,
+        record.referenceAliases
+      );
       dashGroup.classList.toggle(
         "is-context-loaded",
         Boolean(record.loaded)
@@ -3117,14 +3095,17 @@
         return;
       }
 
-      dashGroup.dataset.l4FactIds =
-        serializeL4FactIds(record.l4FactIds) || "";
-      dashGroup.dataset.runtimeLineKey =
-        normalizeRuntimeCitationIdentity(record.key);
-      dashGroup.dataset.runtimeLineText =
-        record.citationText || "";
-      dashGroup.dataset.runtimeLineIdentity =
-        record.citationIdentity || "";
+      setAvatarNodeState(
+        dashGroup,
+        {
+          l4FactIds:
+            normalizeL4FactIds(record.l4FactIds),
+          runtimeLineKey:
+            normalizeRuntimeCitationIdentity(record.key),
+          runtimeLineIdentity:
+            record.citationIdentity || "",
+        }
+      );
       setAvatarMemoryReferenceAliases(
         dashGroup,
         record.referenceAliases
@@ -3239,16 +3220,21 @@
       );
       dotGroup.dataset.avatarMemoryHoverId =
         record.avatarMemoryHoverId || "";
-      dotGroup.dataset.linkedDelayedMemoryIds =
-        serializeShortRuntimeIds(record.linkedReportIds) || "";
-      dotGroup.dataset.runtimeLineKey =
-        normalizeRuntimeCitationIdentity(record.id);
-      dotGroup.dataset.runtimeLineText =
-        normalizeRuntimeCitationIdentity(
-          [record.name, record.contextPath]
-            .filter(Boolean)
-            .join(" · ")
-        );
+      setAvatarNodeState(
+        dotGroup,
+        {
+          linkedDelayedMemoryIds:
+            normalizeShortRuntimeIds(record.linkedReportIds),
+          runtimeLineKey:
+            normalizeRuntimeCitationIdentity(record.id),
+          runtimeLineText:
+            normalizeRuntimeCitationIdentity(
+              [record.name, record.contextPath]
+                .filter(Boolean)
+                .join(" · ")
+            ),
+        }
+      );
 
       setAvatarMemoryReferenceAliases(
         dotGroup,
@@ -3262,8 +3248,7 @@
         active
           ? FILE_RING_ACTIVE_COLOR
           : FILE_RING_LAYOUT.glowColor;
-      const metabolismChannel =
-        String(dotGroup.dataset.metabolismChannel || "").trim();
+      const metabolismChannel = getMetabolismChannel();
       const renderedColor =
         getMetabolismTintedColor(
           baseColor,
@@ -3275,18 +3260,10 @@
           metabolismChannel
         );
 
-      dotGroup.dataset.metabolismBaseColor = baseColor;
-      dotGroup.dataset.metabolismGlowColor = glowColor;
-
       setFileDotGlowVariables(
         dotGroup,
         renderedGlowColor
       );
-
-      const title = dotGroup.querySelector("title");
-      if (title) {
-        title.textContent = `${record.name} · ${record.id}`;
-      }
 
       if (core) {
         core.setAttribute(
@@ -3652,16 +3629,6 @@
       "pointer-events": "none",
     });
 
-    appendTitle(
-      markerGroup,
-      `${record.key} · ${isNew ? "new runtime line" : "runtime line changed"}`
-      + (
-        isNew
-          ? ""
-          : ` · ${Math.round(ratio * 100)}%`
-      )
-    );
-
     if (!isNew) {
       markerGroup.appendChild(createSvgElement("circle", {
         class: "jin-avatar-runtime-change-marker-ring",
@@ -3754,10 +3721,15 @@
       orbitGroup.dataset.avatarMemoryHoverId =
         record.avatarMemoryHoverId;
     }
-    orbitGroup.dataset.runtimeLineKey =
-      normalizeRuntimeCitationIdentity(record.key);
-    orbitGroup.dataset.runtimeLineText =
-      normalizeRuntimeCitationIdentity(record.text);
+    setAvatarNodeState(
+      orbitGroup,
+      {
+        runtimeLineKey:
+          normalizeRuntimeCitationIdentity(record.key),
+        runtimeLineText:
+          normalizeRuntimeCitationIdentity(record.text),
+      }
+    );
     if (record.activeMemoryId) {
       orbitGroup.dataset.activeMemoryId =
         String(record.activeMemoryId).trim().toLowerCase();
@@ -3765,11 +3737,6 @@
     setAvatarMemoryReferenceAliases(
       orbitGroup,
       record.referenceAliases
-    );
-
-    appendTitle(
-      orbitGroup,
-      `${record.key} · ${record.length} chars · ${Math.round(diffPercent)}% diff`
     );
 
     const strokeWidth = 0.48 + random() * 2.25;
@@ -3911,12 +3878,14 @@
     ].filter(Boolean));
   }
 
-  function getAvatarDashFactIdSet(node, datasetKey) {
+  function getAvatarDashFactIdSet(node, stateKey) {
+    const state = getAvatarNodeState(node);
+
     return new Set(
       normalizeL4FactIds(
-        node && node.dataset
-          ? node.dataset[datasetKey]
-          : ""
+        state
+          ? state[stateKey]
+          : []
       )
     );
   }
@@ -3945,10 +3914,10 @@
         + ".jin-avatar-memory-dash-delayed.is-context-loaded"
       )
     ).forEach((node) => {
-      addL4FactIds(
-        factIds,
-        node.dataset.delayedMemoryFactIds
-      );
+      getAvatarDashFactIdSet(
+        node,
+        "delayedMemoryFactIds"
+      ).forEach(factId => factIds.add(factId));
     });
 
     getFocusedMemoryDashNodes(svg)
@@ -3958,10 +3927,10 @@
         )
       ))
       .forEach((node) => {
-        addL4FactIds(
-          factIds,
-          node.dataset.delayedMemoryFactIds
-        );
+        getAvatarDashFactIdSet(
+          node,
+          "delayedMemoryFactIds"
+        ).forEach(factId => factIds.add(factId));
       });
 
     return factIds;
@@ -3977,10 +3946,10 @@
         )
       ))
       .forEach((node) => {
-        addL4FactIds(
-          factIds,
-          node.dataset.l4FactIds
-        );
+        getAvatarDashFactIdSet(
+          node,
+          "l4FactIds"
+        ).forEach(factId => factIds.add(factId));
       });
 
     return factIds;
@@ -4119,12 +4088,14 @@
     Array.from(
       svg.querySelectorAll(".jin-avatar-file-dot")
     ).forEach((node) => {
+      const state = getAvatarNodeState(node);
+
       node.classList.toggle(
         "is-delayed-memory-linked-hit",
         shortRuntimeIdSetsIntersect(
           new Set(
             normalizeShortRuntimeIds(
-              node.dataset.linkedDelayedMemoryIds
+              state && state.linkedDelayedMemoryIds
             )
           ),
           focusedDelayedIds
@@ -4153,9 +4124,7 @@
     const activeHoverIds =
       getActiveAvatarMemoryHoverIds();
 
-    svg.querySelectorAll(
-      ".jin-avatar-orbit, .jin-avatar-counter-orbit, .jin-avatar-memory-dash, .jin-avatar-file-dot"
-    ).forEach((node) => {
+    getAvatarPayloadNodes(svg).forEach((node) => {
       const hoverId =
         String(node.dataset.avatarMemoryHoverId || "");
       const matched = Boolean(
@@ -4267,6 +4236,21 @@
     };
   }
 
+  function getAvatarPayloadNodes(svg) {
+    if (!svg) {
+      return [];
+    }
+
+    return Array.from(
+      svg.querySelectorAll(
+        ".jin-avatar-orbit[data-runtime-line-index], "
+        + ".jin-avatar-counter-orbit[data-runtime-line-index], "
+        + ".jin-avatar-memory-dash, "
+        + ".jin-avatar-file-dot"
+      )
+    );
+  }
+
   function applyThinkRuntimeCitationGlow() {
     const svg = avatarRoot.querySelector("svg");
 
@@ -4277,17 +4261,14 @@
     const activeIdentities =
       getActiveThinkRuntimeCitationIdentitySets();
 
-    const citationNodes = Array.from(
-      svg.querySelectorAll(
-        ".jin-avatar-orbit[data-runtime-line-key], .jin-avatar-counter-orbit[data-runtime-line-key], .jin-avatar-memory-dash, .jin-avatar-file-dot[data-runtime-line-key]"
-      )
-    );
+    const citationNodes = getAvatarPayloadNodes(svg);
     const lineKeyUsage = new Map();
 
     citationNodes.forEach((node) => {
+      const state = getAvatarNodeState(node);
       const lineKey =
         normalizeRuntimeCitationIdentity(
-          node.dataset.runtimeLineKey
+          state && state.runtimeLineKey
         );
 
       if (!lineKey) {
@@ -4301,9 +4282,10 @@
     });
 
     citationNodes.forEach((orbitGroup) => {
+      const state = getAvatarNodeState(orbitGroup);
       const lineIdentity =
         normalizeRuntimeCitationIdentity(
-          orbitGroup.dataset.runtimeLineIdentity
+          state && state.runtimeLineIdentity
         );
       const activeMemoryId =
         normalizeShortRuntimeIds(
@@ -4311,11 +4293,11 @@
         )[0] || "";
       const lineKey =
         normalizeRuntimeCitationIdentity(
-          orbitGroup.dataset.runtimeLineKey
+          state && state.runtimeLineKey
         );
       const lineText =
         normalizeRuntimeCitationIdentity(
-          orbitGroup.dataset.runtimeLineText
+          state && state.runtimeLineText
         );
       const exactTextMatch = Boolean(
         lineText
@@ -4361,6 +4343,8 @@
       return "";
     }
 
+    const state = getAvatarNodeState(node);
+
     const activeMemoryId =
       normalizeShortRuntimeIds(
         node.dataset.activeMemoryId
@@ -4399,7 +4383,7 @@
 
     const lineIdentity =
       normalizeRuntimeCitationIdentity(
-        node.dataset.runtimeLineIdentity
+        state && state.runtimeLineIdentity
       );
 
     if (lineIdentity) {
@@ -4407,8 +4391,8 @@
     }
 
     return [
-      node.dataset.runtimeLineKey,
-      node.dataset.runtimeLineText,
+      state && state.runtimeLineKey,
+      state && state.runtimeLineText,
       node.dataset.avatarMemoryHoverId,
     ]
       .map(normalizeRuntimeCitationIdentity)
@@ -4459,9 +4443,7 @@
     }
 
     const sourceText = getActiveMemoryReferenceText();
-    const recordNodes = Array.from(
-      svg.querySelectorAll("[data-memory-reference-aliases]")
-    );
+    const recordNodes = getAvatarPayloadNodes(svg);
     const aliasUsage =
       buildAvatarMemoryReferenceAliasUsage(recordNodes);
     const canonicalActiveMemoryIds = new Set(
