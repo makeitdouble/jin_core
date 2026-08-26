@@ -261,7 +261,7 @@ if (helpers.normalizeJinSizePayload("120em") !== null) {
         source = INDEX_HTML.read_text(encoding="utf-8")
 
         self.assertIn(
-            "/static/js/runtime/runtime-panel.js?v=context-bar-resize-1",
+            "/static/js/runtime/runtime-panel.js?v=context-bar-resize-1&status-bootstrap=1",
             source,
         )
         self.assertIn(

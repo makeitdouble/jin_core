@@ -464,7 +464,7 @@ The client rebuilds the tail through the existing chat primitives. It keeps a re
 Archived restore is a distinct path:
 
 1. HTTP endpoint `/api/sessions/{session_id}/restore` builds payload from logs via `utils/session_restore.py`.
-2. Browser renders archived visible messages and sends a `session_bootstrap`/restore payload.
+2. Browser renders the same bounded three-USER-move tail carried by the restore payload and sends a `session_bootstrap`/restore payload. Saved reasoning is attached to its owning JIN turn after archive-file metadata is removed; later visible JIN-only restore rows remain in order.
 3. Backend sets `runtime_session_restore_priming` and stages historical resource IDs/metadata.
 4. A hidden `archived_session_resume` Brain tick receives restore-specific context.
 5. The restore prompt includes the newest complete visible dialog pairs plus a bounded recent reasoning dump.
@@ -472,7 +472,11 @@ Archived restore is a distinct path:
 7. `BrainNode` consumes the staged restore envelope and replays those resources through the normal runtime-action dispatcher.
 8. The WebSocket tail performs defensive cleanup only; it must not apply the same resources a second time.
 
+The restore instruction is stamped at prompt-build time with the current timezone-aware bootstrap time immediately before `Current session was bootstrapped in a browser tab!`. Archived USER timestamps remain historical dialogue metadata and are never reused as the bootstrap time.
+
 Constants in the current source limit the restore reasoning dump to two recent reasoning items with a per-item character cap. Restored visible dialogue uses the normal three-pair limit and, like ordinary recent-message context, does not impose a per-message character cap.
+
+The RESTORE endpoint owns archived dialogue, reasoning, and L1 for explicit URL checkout. A same-session browser checkpoint may contribute a newer room/avatar and Session Actions projection, but it cannot overwrite only `recent_turns`, reasoning, or runtime memory and thereby create a mixed conversation source. The restore instruction names `RESTORED_SESSION_DIALOG` as the newest conversational authority; L1 remains background state and may legitimately predate the final archived turn.
 
 `utils/session_restore.py` still understands historical `SAVE_SESSION` labels in archived logs. That is restore compatibility, not proof of a current `SAVE_SESSION` runtime action.
 

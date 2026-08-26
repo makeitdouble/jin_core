@@ -53,6 +53,10 @@ class AnonymousModeClientContractTests(unittest.TestCase):
             '"anonymousMode": anonymous_mode_config',
             template_source,
         )
+        self.assertNotIn('"runtimeStatus": runtime_status', template_source)
+        self.assertNotIn('"runtimeConfig": runtime_config', template_source)
+        self.assertNotIn('"useServiceAsBrain": use_service_as_brain', template_source)
+        self.assertNotIn('"formatResponse": format_response', template_source)
         self.assertIn("build_anonymous_mode_config", app_source)
         self.assertIn(
             '"ENABLE_DEFAULT_ANONYMOUS_MODE"',

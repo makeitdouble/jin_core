@@ -165,6 +165,22 @@ def _load_dialog(path: Path) -> list[dict]:
     return entries
 
 
+def _dialog_turn_key(entry: dict, index: int) -> object:
+    try:
+        turn_number = int(entry.get("turn", 0) or 0)
+    except (TypeError, ValueError):
+        turn_number = 0
+
+    turn_id = str(entry.get("turn_id", "") or "").strip()
+    if turn_number > 0:
+        return ("turn", turn_number)
+    if turn_id:
+        return ("turn_id", turn_id)
+
+    # A legacy row without a turn identity cannot be paired safely.
+    return ("row", index)
+
+
 def _recent_restored_dialog_pairs(entries: list[dict]) -> list[tuple[dict, dict]]:
     """Return the newest complete USER/JIN pairs in chronological order."""
     turns: dict[object, dict[str, dict]] = {}
@@ -179,20 +195,7 @@ def _recent_restored_dialog_pairs(entries: list[dict]) -> list[tuple[dict, dict]
         if not text:
             continue
 
-        try:
-            turn_number = int(entry.get("turn", 0) or 0)
-        except (TypeError, ValueError):
-            turn_number = 0
-
-        turn_id = str(entry.get("turn_id", "") or "").strip()
-        if turn_number > 0:
-            key: object = ("turn", turn_number)
-        elif turn_id:
-            key = ("turn_id", turn_id)
-        else:
-            # Legacy rows without a turn identity cannot be paired safely.
-            # Keep them isolated rather than accidentally joining unrelated text.
-            key = ("row", index)
+        key = _dialog_turn_key(entry, index)
 
         if key not in turns:
             turns[key] = {}
@@ -207,6 +210,43 @@ def _recent_restored_dialog_pairs(entries: list[dict]) -> list[tuple[dict, dict]
         if "user" in turns[key] and "jin" in turns[key]
     ]
     return complete_pairs[-RECENT_MESSAGES_MAX_PAIRS:]
+
+
+def _recent_visible_dialog_entries(entries: list[dict]) -> list[dict]:
+    """Project the same bounded USER-owned tail used by continuation state."""
+
+    user_turn_keys = []
+    seen = set()
+    for index, entry in enumerate(entries):
+        if str(entry.get("role", "")).strip().lower() != "user":
+            continue
+        if not (
+            str(entry.get("text", "") or "").strip()
+            or bool(entry.get("attachments", []) or [])
+        ):
+            continue
+
+        key = _dialog_turn_key(entry, index)
+        if key in seen:
+            continue
+        seen.add(key)
+        user_turn_keys.append(key)
+
+    selected_keys = user_turn_keys[-RECENT_MESSAGES_MAX_PAIRS:]
+    if not selected_keys:
+        return []
+
+    first_selected_key = selected_keys[0]
+    for index, entry in enumerate(entries):
+        if (
+            str(entry.get("role", "")).strip().lower() == "user"
+            and _dialog_turn_key(entry, index) == first_selected_key
+        ):
+            # Keep later JIN-only continuation rows too: an earlier archived
+            # restore greeting is a visible move even though it has no USER row.
+            return entries[index:]
+
+    return []
 
 
 def _append_restored_dialog_entry(lines: list[str], entry: dict) -> None:
@@ -225,7 +265,9 @@ def _append_restored_reasoning_entry(
 ) -> None:
     turn_id = str(jin_entry.get("turn_id", "") or "").strip()
     reasoning = _crop_restore_reasoning(
-        reasoning_by_turn_id.get(turn_id, "")
+        _extract_reasoning_body(
+            reasoning_by_turn_id.get(turn_id, "")
+        )
     )
     if not reasoning:
         return
@@ -455,7 +497,9 @@ def _build_restore_reasoning_dump(
 
         turn_id = str(entry.get("turn_id", "") or "").strip()
         reasoning = _crop_restore_reasoning(
-            reasoning_by_turn_id.get(turn_id, "")
+            _extract_reasoning_body(
+                reasoning_by_turn_id.get(turn_id, "")
+            )
         )
         if not reasoning:
             continue
@@ -1383,7 +1427,9 @@ def build_archived_session_restore_payload(
         if not latest_jin_text:
             latest_jin_text = str(entry.get("text", "") or "").strip()
         turn_id = str(entry.get("turn_id", "") or "").strip()
-        latest_reasoning = reasoning_by_turn_id.get(turn_id, "")
+        latest_reasoning = _extract_reasoning_body(
+            reasoning_by_turn_id.get(turn_id, "")
+        )
         if latest_reasoning:
             break
 
@@ -1487,7 +1533,7 @@ def build_archived_session_restore_payload(
             archive_tail_at = str(entry.get("ts", "") or "").strip()
 
     ui_messages = []
-    for entry in visible_entries:
+    for entry in _recent_visible_dialog_entries(visible_entries):
         role = str(entry.get("role", "")).strip().lower()
         if role not in {"user", "jin", "assistant", "brain", "service"}:
             continue
@@ -1501,7 +1547,13 @@ def build_archived_session_restore_payload(
             "attachments": entry.get("attachments", []) or [],
             "delayed_memory_ids": entry.get("delayed_memory_ids", []) or [],
             "active_memory_ids": entry.get("active_memory_ids", []) or [],
-            "reasoning": reasoning_by_turn_id.get(turn_id, ""),
+            "reasoning": (
+                _extract_reasoning_body(
+                    reasoning_by_turn_id.get(turn_id, "")
+                )
+                if role != "user"
+                else ""
+            ),
         })
 
     runtime_mode = trusted_values.get("RUNTIME_MODE", "BRAIN").strip().upper()

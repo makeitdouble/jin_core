@@ -1217,12 +1217,7 @@ brainStatusButton?.addEventListener(
 
 void loadBehaviorContract();
 
-void updateRuntime({
-    showChecking: !(
-        window.jinRuntimeConfig
-        && window.jinRuntimeConfig.runtimeStatus
-    ),
-});
+void updateRuntime();
 
 window.addEventListener(
     "focus",

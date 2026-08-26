@@ -460,25 +460,29 @@
       return merged;
     }
 
-    Object.assign(merged, selected.snapshot);
-
-    const runtimeMemory =
-      String(selected.record.runtime_memory || "").trim();
-    if (runtimeMemory) {
-      merged.runtime_memory = runtimeMemory;
-      merged.runtime_memory_updates = Number(
-        selected.record.runtime_memory_updates || 0
-      );
-    }
-    if (
-      selected.record.runtime_snapshot
-      && typeof selected.record.runtime_snapshot === "object"
-      && !Array.isArray(selected.record.runtime_snapshot)
-    ) {
-      merged.runtime_snapshot = {
-        ...selected.record.runtime_snapshot,
-      };
-    }
+    // The RESTORE endpoint owns archived dialogue, reasoning and L1. A local
+    // checkpoint for the same session may contain a newer room/logger
+    // projection, but it must never replace only one side of the archived
+    // conversation and create a mixed bootstrap prompt.
+    [
+      "session_actions",
+      "current_jin_color",
+      "current_jin_size",
+      "current_jin_position",
+      "current_jin_speed",
+      "current_jin_collapsed",
+      "current_window_size",
+      "room_state",
+    ].forEach(fieldName => {
+      if (
+        Object.prototype.hasOwnProperty.call(
+          selected.snapshot,
+          fieldName
+        )
+      ) {
+        merged[fieldName] = selected.snapshot[fieldName];
+      }
+    });
 
     return merged;
   }

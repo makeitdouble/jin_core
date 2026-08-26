@@ -211,14 +211,19 @@ class LiveSessionCheckpointTests(unittest.TestCase):
         self.assertIn("runtimeSession.persistLiveSessionCheckpoint", block)
         self.assertNotIn("window.JinPanels.persistRoomStateNow()", block)
 
-    def test_restore_merges_checkpoint_session_actions(self):
+    def test_url_restore_merges_only_checkpoint_presentation_state(self):
         source = (ROOT / "ui" / "static" / "js" / "session-restore.js").read_text(encoding="utf-8")
         start = source.index("function mergeLatestVisualCheckpoint(")
         end = source.index("function restoreVisualState(", start)
         block = source[start:end]
 
         self.assertIn("const candidates = [];", block)
-        self.assertIn("Object.assign(merged, selected.snapshot);", block)
+        self.assertIn('"session_actions",', block)
+        self.assertIn('"room_state",', block)
+        self.assertNotIn("Object.assign(merged, selected.snapshot);", block)
+        self.assertNotIn("selected.record.runtime_memory", block)
+        self.assertNotIn('"recent_turns",', block)
+        self.assertNotIn('"previous_reasoning",', block)
         self.assertNotIn("actionSnapshot", block)
 
 

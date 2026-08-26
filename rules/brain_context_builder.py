@@ -1171,9 +1171,24 @@ def build_brain_context(
 
         # This remains the first restore-specific prompt block, immediately
         # below optional CURRENT_RUNTIME_SETTINGS. It is a hidden restore tick,
-        # not a user request.
+        # not a user request. Timestamp the bootstrap itself; archived message
+        # timestamps describe the old dialogue and must not be used here.
+        bootstrap_timestamp = (
+            datetime.now()
+            .astimezone()
+            .isoformat(timespec="seconds")
+        )
+        restore_message = SESSION_RESTORE_MESSAGE.replace(
+            "Current session was bootstrapped in a browser tab!",
+            (
+                f"{bootstrap_timestamp}\n"
+                "Current session was bootstrapped in a browser tab!"
+            ),
+            1,
+        )
+
         prompt_parts.append(
-            SESSION_RESTORE_MESSAGE
+            restore_message
         )
 
     enabled_actions = get_enabled_runtime_actions(

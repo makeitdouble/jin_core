@@ -57,26 +57,7 @@
 
   function readInitialRuntimeConfig() {
 
-    if (window.jinRuntimeConfig) {
-      return window.jinRuntimeConfig;
-    }
-
-    const configTemplate =
-      document.getElementById(
-        "jin-runtime-config"
-      );
-
-    if (!configTemplate) {
-      return {};
-    }
-
-    try {
-      return JSON.parse(
-        configTemplate.textContent || "{}"
-      );
-    } catch (error) {
-      return {};
-    }
+    return window.jinRuntimeConfig || {};
 
   }
 

@@ -484,7 +484,9 @@ The first bootstrap color uses the one 2-second avatar-and-scene transition. Lat
 
 **Status:** Accepted / implemented
 
-Normal bootstrap renders the three newest real USER moves with JIN/reasoning where present, then places the current-session date divider and starts the live viewport there. USER-only turns remain visible without an empty JIN bubble. Explicit archived restore uses its own history renderer and must not duplicate this tail.
+Normal bootstrap renders the three newest real USER moves with JIN/reasoning where present, then places the current-session date divider and starts the live viewport there. USER-only turns remain visible without an empty JIN bubble. Explicit archived restore uses its own history renderer but projects the same bounded USER-owned tail, keeps later visible JIN-only continuation rows, and must not duplicate the normal-bootstrap tail. Its reasoning bubbles contain the reasoning body, not archive-file headers.
+
+For explicit URL restore, the server archive owns dialogue, reasoning, and L1 as one causal bundle. A same-session browser checkpoint can recover presentation state (room/avatar and Session Actions), but cannot replace individual conversation fields inside that bundle. `RESTORED_SESSION_DIALOG` is the newest conversation authority during the one-shot priming turn; restored L1 is background and may be one update behind the final visible turn.
 
 **Why:** the user can scroll slightly upward for immediate continuity while the current response begins from a clean, stable boundary.
 

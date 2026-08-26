@@ -8,7 +8,6 @@ from unittest.mock import patch
 from agent.nodes.brain import replay_session_restore_resource_actions
 from rules.brain_context_builder import build_brain_context
 from rules.runtime import (
-    SESSION_RESTORE_MESSAGE,
     SESSION_RESTORE_REASONING_CHAR_LIMIT,
     SESSION_RESTORE_REASONING_COUNT,
 )
@@ -289,6 +288,83 @@ session_snapshot_last_turn: 1
         self.assertEqual(payload["session_actions"][0]["parts"][0]["text"], "Saved session")
         self.assertEqual(payload["tool_results"][0]["kind"], "search")
         self.assertIn("People recommend cold noir music.", payload["tool_results"][0]["result"])
+
+    def test_url_restore_ui_uses_same_bounded_tail_and_clean_reasoning(self):
+        root = Path(tempfile.mkdtemp())
+        session_id = "bounded-url-restore"
+        session_dir = root / "2026-08-16" / session_id
+        reasoning_dir = session_dir / "reasoning"
+        reasoning_dir.mkdir(parents=True)
+
+        entries = []
+        for turn in range(1, 6):
+            turn_id = f"turn_{turn:06d}"
+            entries.extend([
+                {
+                    "ts": f"2026-08-16T20:{turn:02d}:00+03:00",
+                    "turn": turn,
+                    "turn_id": turn_id,
+                    "session_id": session_id,
+                    "role": "user",
+                    "text": f"user {turn}",
+                },
+                {
+                    "ts": f"2026-08-16T20:{turn:02d}:30+03:00",
+                    "turn": turn,
+                    "turn_id": turn_id,
+                    "session_id": session_id,
+                    "role": "jin",
+                    "text": f"jin {turn}",
+                    "reasoning_path": (
+                        f"/logs/2026-08-16/{session_id}/reasoning/"
+                        f"session_{turn_id}.txt"
+                    ),
+                },
+            ])
+            (reasoning_dir / f"session_{turn_id}.txt").write_text(
+                "captured_at: now\n"
+                f"turn_id: {turn_id}\n\n"
+                "--- REASONING ---\n"
+                f"reasoning {turn}",
+                encoding="utf-8",
+            )
+
+        (session_dir / "session.jsonl").write_text(
+            "\n".join(
+                json.dumps(item, ensure_ascii=False)
+                for item in entries
+            ),
+            encoding="utf-8",
+        )
+
+        payload = build_archived_session_restore_payload(
+            session_id,
+            root=root,
+        )
+
+        self.assertEqual(
+            [item["text"] for item in payload["messages"]],
+            [
+                "user 3", "jin 3",
+                "user 4", "jin 4",
+                "user 5", "jin 5",
+            ],
+        )
+        self.assertEqual(
+            payload["messages"][3]["reasoning"],
+            "reasoning 4",
+        )
+        self.assertNotIn(
+            "captured_at",
+            payload["messages"][3]["reasoning"],
+        )
+        self.assertNotIn("captured_at", payload["dialog_context"])
+        self.assertNotIn("captured_at", payload["restore_reasoning_dump"])
+        self.assertEqual(payload["previous_reasoning"], "reasoning 5")
+        self.assertEqual(
+            [turn["user"] for turn in payload["recent_turns"]],
+            ["user 3", "user 4", "user 5"],
+        )
 
     def test_runtime_color_event_restores_color_and_structured_action(self):
         root, session_id = self._build_fixture()
@@ -1082,7 +1158,17 @@ open_question: continue
                 runtime_actions={"CAN_WEB_SEARCH": True},
             )
 
-        self.assertTrue(prompt.startswith(SESSION_RESTORE_MESSAGE))
+        self.assertTrue(
+            prompt.startswith("<CONVERSATION_CONTINUE_RULES>\n")
+        )
+        self.assertIn(
+            "\nCurrent session was bootstrapped in a browser tab!\n",
+            prompt,
+        )
+        self.assertIn(
+            "RESTORED_SESSION_DIALOG is the authoritative newest visible conversation state.",
+            prompt,
+        )
         self.assertIn("EXACT OLD FLOW", prompt)
         self.assertIn("RAW REASONING", prompt)
         self.assertIn("Old report [ id: abc123 ]", prompt)
