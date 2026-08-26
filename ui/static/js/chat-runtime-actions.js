@@ -1945,38 +1945,50 @@ function extractRuntimeActionColorFromText(text) {
 
 function normalizeRuntimeActionSize(value) {
 
+  const formatter =
+    window.JinResponseFormatter
+    && typeof window.JinResponseFormatter.normalizeJinSizeMarker === "function"
+      ? window.JinResponseFormatter.normalizeJinSizeMarker
+      : null;
+
   if (
     value
     && typeof value === "object"
   ) {
-    const width =
-      Number.parseInt(
-        value.width || value.w || 0,
-        10
-      );
-    const height =
-      Number.parseInt(
-        value.height || value.h || width || 0,
-        10
+    const nestedPayload = String(
+      value.size || value.payload || ""
+    ).trim();
+
+    if (nestedPayload && formatter) {
+      const normalizedPayload = formatter(
+        nestedPayload
       );
 
+      if (normalizedPayload) {
+        return normalizedPayload;
+      }
+    }
+
+    const rawWidth = value.width ?? value.w;
+    const rawHeight = value.height ?? value.h ?? rawWidth;
+
     if (
-      Number.isFinite(width)
-      && Number.isFinite(height)
-      && width > 0
-      && height > 0
+      rawWidth !== undefined
+      && rawHeight !== undefined
+      && formatter
     ) {
-      return width === height
-        ? `${width}px`
-        : `w:${width}px h:${height}px`;
+      const normalizedDimensions = formatter(
+        `w:${rawWidth} h:${rawHeight}`
+      );
+
+      if (normalizedDimensions) {
+        return normalizedDimensions;
+      }
     }
   }
 
-  if (
-    window.JinResponseFormatter
-    && typeof window.JinResponseFormatter.normalizeJinSizeMarker === "function"
-  ) {
-    return window.JinResponseFormatter.normalizeJinSizeMarker(
+  if (formatter) {
+    return formatter(
       value
     );
   }

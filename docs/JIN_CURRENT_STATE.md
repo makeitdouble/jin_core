@@ -1,8 +1,8 @@
 # JIN Core Engine — Current State / Migration Notes
 
-**Snapshot inspected:** `jin_core(20260823-114203).zip`
-**Inspection date:** 2026-08-23  
-**Context reference:** `JIN_CORE_CONTEXT_TRANSPLANT_2026-08-23.md`
+**Snapshot inspected:** `jin_core(20260826-090339).zip`<br>
+**Inspection date:** 2026-08-26<br>
+**Context reference:** current source/tests plus the accumulated 2026-08-23--26 project decisions
 
 This is the document to read before touching transitional code. It lists what is true in the inspected snapshot, what is legacy residue, and where product intent and implementation currently differ.
 
@@ -20,7 +20,13 @@ The runtime is already on the post-L2/L3 architecture in the actual source tree,
 - search action exposure now follows real configured provider availability rather than feature flags alone;
 - `CLEAN_TOOL_RESULTS` now has explicit cleared-state bootstrap semantics so old tool results cannot resurrect without falsifying checkpoint freshness;
 - session-action logger metadata survives bootstrap, including JIN_COLOR swatches/hex hover;
-- the full test suite is currently far from green on this snapshot.
+- `JIN_COLOR`/`JIN_SIZE` now advertise paired XML, while legacy inline forms remain parser-only compatibility;
+- normal bootstrap restores a bounded three-USER-move chat tail plus a current-session divider, including interrupted/action-only USER-only rows;
+- Brain recent-message context keeps the newest three pairs in full, with newline/XML normalization but no per-message character crop;
+- ordinary Brain turns again include the previous successful reasoning block with explicit middle-crop semantics, while follow-ups keep their dedicated reasoning context;
+- common-checkpoint ownership, per-session L1 lineage, completed-turn time, and dialogue freshness are now explicitly separated;
+- JIN color now round-trips through server context, raw runtime events, the common checkpoint, early local room restore, and one server reconciliation without a parallel color store;
+- the full suite is still not certified green; the 2026-08-26 documentation environment also lacks required `httpx`/`fastapi` dependencies.
 
 New agents must not “repair” these contradictions by restoring the old architecture.
 
@@ -160,7 +166,11 @@ Default Brain action flags currently set `CAN_RUNTIME_TODO=False`; the other map
 
 `CLEAN_TOOL_RESULTS` is a no-payload action. The canonical bare `<CLEAN_TOOL_RESULTS>` marker and a redundant paired-looking `<CLEAN_TOOL_RESULTS>...</CLEAN_TOOL_RESULTS>` form resolve to one cleanup; the closing tag is consumed as parser noise, including when split across stream chunks.
 
-`JIN_SIZE` contract version 2 currently advertises `<JIN_SIZE> w:120 h:120 </JIN_SIZE>`; a single value such as `<JIN_SIZE> 120px </JIN_SIZE>` means square size. Size values may use px, percent, or vw/vh, with px as the default unit.
+`JIN_SIZE` contract version 2 currently advertises `<JIN_SIZE> w:120 h:120 </JIN_SIZE>`; a single value such as `<JIN_SIZE> 120px </JIN_SIZE>` means square size. Positive decimal values may use `px`, `vw`, `vh`, or `%`, with unitless values defaulting to `px`. The backend preserves those units in the canonical action payload. The browser resolves them against the live viewport when the action is applied: width `%` uses viewport width, height `%` uses viewport height, `vw` always uses viewport width, and `vh` always uses viewport height. The applied/clamped room geometry is then persisted in pixels. Unsupported suffixes such as `em` are rejected instead of being silently reinterpreted as pixels.
+
+`JIN_COLOR` contract version 2 likewise advertises `<JIN_COLOR> #00f2ff </JIN_COLOR>`. Both actions put payload in a paired tag body. Localized parsing still accepts old colon/space inline variants, but those are not model-facing syntax. Current parser/formatter tests require ordinary `before`/`after` answer text to survive marker removal and cover split-chunk completion.
+
+The JIN visual sequence path preserves the model's marker order across color/size/speed/position. Color and size filtering removes only a no-op against the last applied value in the same runtime-message scope; an alternating sequence is not a repetition failure, and the same color can be requested in another message.
 
 ---
 
@@ -239,6 +249,9 @@ Current `build_brain_context()` order is intentionally structured. Important anc
 - file + delayed inventories sit near the top on ordinary turns;
 - Active/L1/loaded Delayed/L4 live together in the runtime-context group;
 - restored exact dialog replaces the normal recent-dialog window for the one-shot restore path;
+- ordinary `<PREVIOUS_CHAT_MESSAGES>` keeps the newest three pairs without per-message character cropping; physical newlines become literal `\\n` and XML-sensitive characters are escaped;
+- ordinary initial turns include the previous successful reasoning; blocks over 2000 characters keep the first and last 25% with an explicit middle-cut marker;
+- action/recovery follow-ups suppress that ordinary previous-reasoning block and inject their current-turn/loop reasoning through dedicated builders;
 - action contracts remain present even on restore ticks, subject to effective capability filtering;
 - both search contracts disappear from the prompt when `settings.CAN_SEARCH` is false;
 - identity and loop rules are at the bottom.
@@ -249,22 +262,59 @@ Any prompt-order change can alter behavior materially. Do not reorder sections f
 
 ## 9. Bootstrap / archived restore — verified behavior
 
-### Browser predecessor bootstrap / archive enrichment
+### 9.1 Common checkpoint and lineage
 
-A browser checkpoint may be enriched from the predecessor raw log, but only when the archive is not older than the checkpoint freshness boundary. `saved_at` therefore means “this whole checkpoint is current through here,” not “some field was touched recently.” Advancing it for a one-field cleanup can suppress otherwise valid archive enrichment of dialogue/reasoning/session-actions/files.
+The browser common checkpoint is the last session that actually moved, not the most recently opened runtime ID. `applyPersistedSessionBootstrap()` may clone inherited L1 into the current per-session storage record and set `booted_from_session_id`, but it deliberately does not advance the common checkpoint on page load.
 
-The repaired `CLEAN_TOOL_RESULTS` path now mutates only the existing checkpoint's `session_snapshot.tool_results` to `[]`; it preserves `saved_at`, session lineage, and every unrelated checkpoint field. On bootstrap, explicit presence of `tool_results: []` is authoritative and blocks archive fallback for that field. Empty `loaded_memory_ids` and `active_memory_records` deliberately keep their prior archive-fallback semantics.
+A user send marks the session dirty immediately. The next live-checkpoint write can promote that session even if generation is stopped before a visible answer. `completed_turn_commit` is a server fallback and separately advances `conversation_committed_at`; that timestamp is not the definition of every session move.
 
-Session-action normalization also preserves structured `parts[].colors` metadata. Valid `#rgb`/`#rrggbb` colors are normalized to lowercase six-digit hex, allowing restored JIN_COLOR history to render the same color square and hex hover as live history.
+Per-session L1/runtime candidates are used only when their `session_id` matches the common checkpoint. `runtime_snapshot.session_id` preserves the snapshot's origin rather than being rewritten to the container/current runtime ID. Room/avatar persistence normally rejects cross-session writes and never changes checkpoint lineage.
 
-### Archived restore
+The server supplies `session_snapshot` on `message_end` and `agent_runtime_end`. The browser adds current room/avatar state and persists before finishing the visible message bubble, so completed turn data and room state are committed through one common snapshot path.
+
+### 9.2 Raw-log source selection and split freshness
+
+Despite its historical name, `find_latest_completed_session_restore_payload()` now selects the newest raw-log session containing a real USER move. A blank bootstrap-only session is ignored. A stopped USER-only move qualifies, as does an action-only completion whose durable JIN row has empty visible text. Normal and anonymous selectors read their own log roots only.
+
+If raw logs prove a different session has a strictly newer USER tail than both the requested archive and browser tail, bootstrap switches `source_session_id` and discards the stale source's browser actions/color with it.
+
+Archive enrichment now has two clocks:
+
+- dialogue, reasoning, and dialogue counters compare archive recent-turn tail to browser recent-turn tail;
+- runtime/resource fields use whole-checkpoint `saved_at` against the archive tail.
+
+This fixes the case where a newly cloned runtime snapshot has a newer `saved_at` but still carries older copied dialogue. A field-local write must still preserve `saved_at`; it is not a generic last-touched value.
+
+Session actions are merged by event ID when present or by structured identity otherwise, sorted by real timestamp, and capped. For the same source, the common checkpoint owns actions at or before `saved_at`; raw JSONL supplies only later actions. Structured color arrays are part of identity and are preserved as normalized lowercase six-digit hex.
+
+### 9.3 Field-specific enrichment
+
+The repaired `CLEAN_TOOL_RESULTS` path mutates only the existing checkpoint's `session_snapshot.tool_results` to `[]` and records `tool_results_cleared_at`; it preserves `saved_at`, session lineage, and every unrelated checkpoint field. Explicit presence of `tool_results: []` is authoritative. Empty `loaded_memory_ids` and `active_memory_records` deliberately keep their prior archive-fallback semantics.
+
+A newer raw `runtime_tool_result` of kind `l4` may still append after the greater of checkpoint `saved_at` and `tool_results_cleared_at`. Other archived tool results cannot cross the tombstone.
+
+### 9.4 JIN color bootstrap
+
+Accepted JIN_COLOR now updates `context.jin_color` before checkpoint construction and is also appended to JSONL as an ordered `runtime_action_request` containing color, event ID, timestamp, turn ID, and structured Session Action metadata. Archive restore can recover color events through up to three direct-predecessor links. Raw color recovery and context-text L4 action recovery coexist; one no longer suppresses the other.
+
+For the same source session, explicit browser `current_jin_color` wins. If absent, the newest structured JIN_COLOR Session Action wins, then the raw/trusted archive color. When the authoritative source session changes, stale browser color is not carried over.
+
+Early room restore applies the common checkpoint color locally. The backend then emits one `session_actions_update` with `bootstrap_restore=true` and `current_jin_color` for reconciliation. The old client resolver/tint-shift path and separate latest-color storage are absent.
+
+The first bootstrap color consumes a synchronized 2000 ms avatar-center + scene-tint transition. Later/live changes use 333 ms. A live color dispatch requests immediate field-local checkpoint reconciliation; this is the only room writer allowed across a fresh-tab/common-checkpoint ID mismatch, and it preserves checkpoint `session_id`, lineage, and `saved_at`.
+
+### 9.5 Normal bootstrap chat tail
+
+The backend emits at most three newest real USER moves from `runtime_recent_turns`, with JIN, reasoning, and original timestamps where available. The browser rebuilds them through existing chat primitives, strips synthetic attached-context boilerplate from USER display, keeps USER-only moves without an empty BR bubble, appends the current date/session divider, and activates the live viewport at that divider. Explicit archived restore suppresses this duplicate normal-bootstrap tail.
+
+### 9.6 Archived restore
 
 Current restore code deliberately prevents the “double apply” class of bugs.
 
 Verified behavior:
 
 - archived visible dialogue is rebuilt from logs;
-- the newest complete USER/JIN pairs are used for the restore context;
+- the newest three real USER moves are used for the restore context in chronological order, with empty JIN retained where the turn was interrupted/action-only;
 - a bounded recent reasoning dump is included;
 - loaded Delayed IDs, attached files, and avatar state are staged;
 - restore Brain response occurs before normal resource reactivation;
@@ -392,9 +442,19 @@ Runtime-action bubbles persist their detail in DOM dataset state. Counter-only u
 - answer-rating implementation remains in the client but is release-gated off; assistant bubbles now reuse the neutral hover primitive on empty padding, with double-click copy and latest-completed-answer long-tap replacement retry;
 - Win95 theme localStorage reads/writes are guarded so restricted storage contexts do not break theme switching.
 
+### 13.8 Normal bootstrap tail
+
+Normal bootstrap renders the inherited three-USER-move tail above a date-labelled current-session divider and places the live viewport at the divider. Saved reasoning is rendered through the existing reasoning bubble path. A USER-only interrupted/action-only move remains visible without a blank BR bubble. Archived restore has its own renderer and blocks this path.
+
+### 13.9 JIN color projection
+
+JIN visual-action chat bubbles are currently gated off by `ENABLE_JIN_VISUAL_ACTION_BUBBLES=false`; parsing, execution, avatar updates, raw action logging, and Session Actions remain live.
+
+Avatar center and scene tint now share one transition duration variable set. First bootstrap color uses 2000 ms once; all later/live color changes use 333 ms. There is no center-color queue, secondary bootstrap tint shift, or separate client color resolver in this snapshot.
+
 ---
 
-## 14. Test suite status on this exact snapshot
+## 14. Test status for this exact snapshot
 
 Command run:
 
@@ -402,19 +462,22 @@ Command run:
 python -m unittest discover -s tests
 ```
 
-Result on the inspected archive:
+Result in the 2026-08-26 documentation environment:
 
 ```text
-Ran 837 tests in 28.927s
-FAILED (failures=67, errors=32, skipped=9)
+Ran 431 tests in 3.973s
+FAILED (failures=28, errors=68)
 ```
 
 Important implications:
 
 - the repository is **not green** in this snapshot;
-- some collection/import errors are directly explained by stale L2/L3 tests importing deleted modules;
-- several `tests/runtime_actions/*` modules also fail import because they still depend on the removed `clients.brain_client.should_execute_save_session` symbol;
-- many additional failures/errors remain beyond those stale imports, including older prompt/follow-up/session-action/search expectations;
+- this count is **not comparable** to the previous 2026-08-23 run: the current environment lacks project dependencies including `httpx` and `fastapi`, so many modules fail during import before their tests can be collected;
+- accessible tests still include unrelated client-contract failures, so dependency errors are not the only reason the command is red;
+- a dependency-light targeted run of `test_previous_chat_messages_context`, `test_bootstrap_color_action_regression`, `test_jin_color_transition_client_contract`, and `test_session_bootstrap_lineage_client_contract` runs 18 tests and passes all 18;
+- `test_brain_asset_flow`, including the ordinary-turn previous-reasoning regression, cannot import in this environment because `runtime/stream.py` requires the missing `httpx` dependency;
+- bootstrap/latest-session/chat-tail/live-checkpoint suites that import `websocket` or L1 client modules cannot be executed in this environment until the missing dependencies are installed;
+- stale L2/L3 and old `SAVE_SESSION` tests remain repository debt even though this particular environment reaches dependency failures first;
 - do not use “full suite currently fails” as permission to ignore targeted regressions;
 - for any patch, run the smallest relevant target set and report exact pass/fail counts.
 

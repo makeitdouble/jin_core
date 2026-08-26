@@ -1,3 +1,4 @@
+import math
 import re
 
 from contracts.rules_assembler import RUNTIME_ACTION_JIN_SIZE
@@ -8,21 +9,66 @@ DEFAULT_RUNTIME_JIN_SIZE = {
     "height": 120,
 }
 
-MAX_RUNTIME_JIN_SIZE_PIXELS = 10000
+MAX_RUNTIME_JIN_SIZE_VALUE = 10000
 
 JIN_SIZE_NUMBER_RE = re.compile(
-    r"^(?P<value>\d+)(?:px)?$",
+    r"^(?P<value>[+-]?(?:\d+(?:\.\d+)?|\.\d+))"
+    r"\s*(?P<unit>px|vw|vh|%)?$",
     re.IGNORECASE,
 )
 
 JIN_SIZE_VALUE_RE = re.compile(
-    r"[+-]?\d+",
+    r"(?<![a-zA-Z0-9_.])"
+    r"(?P<value>[+-]?(?:\d+(?:\.\d+)?|\.\d+)"
+    r"\s*(?:px|vw|vh|%)?)"
+    r"(?![a-zA-Z0-9_.%])",
+    re.IGNORECASE,
+)
+
+JIN_SIZE_LABEL_PREFIX_RE = re.compile(
+    r"(?<![a-zA-Z0-9_])(?:width|height|w|h)\s*[:=]",
+    re.IGNORECASE,
+)
+
+JIN_SIZE_EXPLICIT_ALPHA_UNIT_RE = re.compile(
+    r"(?<![a-zA-Z0-9_.])"
+    r"[+-]?(?:\d+(?:\.\d+)?|\.\d+)\s*"
+    r"(?P<unit>[a-zA-Z]+)"
+    r"(?![a-zA-Z0-9_])"
+    r"(?!\s*[:=])",
+    re.IGNORECASE,
+)
+
+JIN_SIZE_LABELED_VALUE_RE = re.compile(
+    r"(?<![a-zA-Z0-9_])"
+    r"(?P<label>width|height|w|h)\s*[:=]\s*"
+    r"(?P<value>[+-]?(?:\d+(?:\.\d+)?|\.\d+)"
+    r"\s*(?:px|vw|vh|%)?)"
+    r"(?![a-zA-Z0-9_.%])",
+    re.IGNORECASE,
 )
 
 
-def _parse_size_number(
+def _format_size_number(
+    value: float,
+) -> str:
+
+    if value.is_integer():
+        return str(int(value))
+
+    return (
+        f"{value:.6f}"
+        .rstrip("0")
+        .rstrip(".")
+    )
+
+
+def _parse_size_value(
     value,
-) -> int | None:
+) -> int | float | str | None:
+
+    if isinstance(value, bool):
+        return None
 
     match = JIN_SIZE_NUMBER_RE.fullmatch(
         str(value or "").strip()
@@ -32,7 +78,7 @@ def _parse_size_number(
         return None
 
     try:
-        number = int(
+        number = float(
             match.group("value")
         )
     except (
@@ -42,17 +88,49 @@ def _parse_size_number(
         return None
 
     if (
-        number <= 0
-        or number > MAX_RUNTIME_JIN_SIZE_PIXELS
+        not math.isfinite(number)
+        or number <= 0
+        or number > MAX_RUNTIME_JIN_SIZE_VALUE
     ):
         return None
 
-    return number
+    unit = str(
+        match.group("unit")
+        or "px"
+    ).casefold()
+
+    if unit == "px":
+        return (
+            int(number)
+            if number.is_integer()
+            else number
+        )
+
+    return f"{_format_size_number(number)}{unit}"
+
+
+def format_jin_size_value(
+    value,
+) -> str:
+
+    normalized = _parse_size_value(
+        value
+    )
+
+    if normalized is None:
+        return ""
+
+    if isinstance(normalized, str):
+        return normalized
+
+    return (
+        f"{_format_size_number(float(normalized))}px"
+    )
 
 
 def parse_jin_size_payload(
     payload: str,
-) -> dict[str, int] | None:
+) -> dict[str, int | float | str] | None:
 
     text = str(
         payload
@@ -62,37 +140,104 @@ def parse_jin_size_payload(
     if not text:
         return None
 
-    raw_numbers = [
-        match.group(0)
+    if any(
+        str(match.group("unit") or "").casefold()
+        not in {"px", "vw", "vh"}
+        for match in JIN_SIZE_EXPLICIT_ALPHA_UNIT_RE.finditer(
+            text
+        )
+    ):
+        return None
+
+    label_prefixes = list(
+        JIN_SIZE_LABEL_PREFIX_RE.finditer(
+            text
+        )
+    )
+
+    if label_prefixes:
+        labeled_matches = list(
+            JIN_SIZE_LABELED_VALUE_RE.finditer(
+                text
+            )
+        )
+
+        if len(labeled_matches) != len(label_prefixes):
+            return None
+
+        dimensions = {}
+
+        for match in labeled_matches:
+            label = str(
+                match.group("label")
+                or ""
+            ).casefold()
+            dimension = (
+                "width"
+                if label in {"w", "width"}
+                else "height"
+            )
+
+            if dimension in dimensions:
+                return None
+
+            normalized = _parse_size_value(
+                match.group("value")
+            )
+
+            if normalized is None:
+                return None
+
+            dimensions[dimension] = normalized
+
+        width = dimensions.get("width")
+        height = dimensions.get("height")
+
+        if width is None:
+            width = height
+
+        if height is None:
+            height = width
+
+        if width is None or height is None:
+            return None
+
+        return {
+            "width": width,
+            "height": height,
+        }
+
+    raw_values = [
+        match.group("value")
         for match in JIN_SIZE_VALUE_RE.finditer(text)
     ]
 
-    if not raw_numbers:
+    if not raw_values:
         return None
 
-    numbers = []
+    values = []
 
-    for raw_number in raw_numbers[:2]:
-        number = _parse_size_number(
-            raw_number
+    for raw_value in raw_values[:2]:
+        normalized = _parse_size_value(
+            raw_value
         )
 
-        if number is None:
+        if normalized is None:
             return None
 
-        numbers.append(
-            number
+        values.append(
+            normalized
         )
 
-    if len(numbers) == 1:
+    if len(values) == 1:
         return {
-            "width": numbers[0],
-            "height": numbers[0],
+            "width": values[0],
+            "height": values[0],
         }
 
     return {
-        "width": numbers[0],
-        "height": numbers[1],
+        "width": values[0],
+        "height": values[1],
     }
 
 
@@ -106,29 +251,24 @@ def format_jin_size_payload(
     ):
         return ""
 
-    try:
-        width = int(
-            size.get("width")
-        )
-        height = int(
-            size.get("height")
-        )
-    except (
-        TypeError,
-        ValueError,
-    ):
+    normalized = normalize_jin_size_dict(
+        size
+    )
+
+    if not normalized:
         return ""
 
-    if (
-        width <= 0
-        or height <= 0
-    ):
-        return ""
+    width = format_jin_size_value(
+        normalized["width"]
+    )
+    height = format_jin_size_value(
+        normalized["height"]
+    )
 
     if width == height:
-        return f"{width}px"
+        return width
 
-    return f"w:{width}px h:{height}px"
+    return f"w:{width} h:{height}"
 
 
 def normalize_jin_size_payload(
@@ -144,7 +284,7 @@ def normalize_jin_size_payload(
 
 def normalize_jin_size_dict(
     value,
-) -> dict[str, int] | None:
+) -> dict[str, int | float | str] | None:
 
     if isinstance(
         value,
@@ -169,22 +309,22 @@ def normalize_jin_size_dict(
         if width is None:
             width = height
 
-        width_number = _parse_size_number(
+        width_value = _parse_size_value(
             width
         )
-        height_number = _parse_size_number(
+        height_value = _parse_size_value(
             height
         )
 
         if (
-            width_number is None
-            or height_number is None
+            width_value is None
+            or height_value is None
         ):
             return None
 
         return {
-            "width": width_number,
-            "height": height_number,
+            "width": width_value,
+            "height": height_value,
         }
 
     parsed = parse_jin_size_payload(
@@ -196,7 +336,7 @@ def normalize_jin_size_dict(
 
 def get_applied_jin_size(
     context=None,
-) -> dict[str, int]:
+) -> dict[str, int | float | str]:
 
     current_size = dict(
         DEFAULT_RUNTIME_JIN_SIZE

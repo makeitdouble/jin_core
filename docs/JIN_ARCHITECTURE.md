@@ -1,7 +1,8 @@
 # JIN Core Engine — Current Architecture
 
-**Verified snapshot:** `jin_core(20260823-114203).zip`
-**Intent source used for reconciliation:** `JIN_CORE_CONTEXT_TRANSPLANT_2026-08-23.md`  
+**Verified snapshot:** `jin_core(20260826-090339).zip`<br>
+**Inspection date:** 2026-08-26<br>
+**Intent sources used for reconciliation:** current source/tests plus the accumulated 2026-08-23--26 project decisions<br>
 **Purpose:** describe the architecture that is actually visible in the current source tree, while explicitly separating legacy compatibility from active design.
 
 This document supersedes the architectural parts of the old root `ARCHITECTURE.md` and `README.md` wherever they still describe L2/L3 as live architectural layers or `SAVE_SESSION` as a current model action.
@@ -172,6 +173,10 @@ The current high-level order is:
 14. identity block;
 15. turn/loop rules.
 
+On ordinary turns, `<PREVIOUS_CHAT_MESSAGES>` takes the newest three recent USER/JIN pairs. The bound is pair count only: selected message bodies are no longer character-cropped. CRLF/CR is normalized, physical newlines are serialized as literal `\\n`, surrounding whitespace is stripped, and XML-sensitive characters are escaped without removing the remaining text.
+
+The ordinary initial Brain prompt also includes the previous successfully completed reasoning in `<PREVIOUS_REASONING_CONTENT>`. Up to 2000 characters are kept whole; above that threshold the projection keeps the first and last 25% and replaces the middle with `CUTTED N chars`. Interrupted/recovery reasoning is tracked separately. Action and recovery follow-ups explicitly assemble their own current-turn/loop reasoning context instead of duplicating the ordinary previous-reasoning block. The visible TODO context snapshot mirrors the same ordinary-vs-follow-up choice.
+
 Prompt text is a transient projection. Canonical state remains in `RuntimeContext`, browser persistence, and filesystem stores.
 
 ---
@@ -231,6 +236,8 @@ For close-tag actions, the canonical form remains a paired block. For short acti
 Important current compatibility boundaries:
 
 - `CLEAN_TOOL_RESULTS` is intentionally a no-payload bare marker. A redundant `</CLEAN_TOOL_RESULTS>` is consumed as parser-only noise, including when it arrives in a later stream chunk; the paired-looking form still means one action.
+- `JIN_COLOR` and `JIN_SIZE` advertise paired XML with their payload in the tag body. Legacy inline/colon/space forms remain parser compatibility only. The stream filter must remove only the marker and preserve ordinary answer text before and after it, even across chunk boundaries.
+- `JIN_SIZE` normalization preserves positive decimal `px`, `vw`, `vh`, and `%` values instead of stripping their units. Unitless values become `px`. The browser resolves relative values at application time against its live viewport: `%` uses the matching width/height axis, while `vw` and `vh` always use viewport width and height respectively. The ordinary room-state checkpoint still stores the clamped rendered pixel geometry, so reload does not reinterpret an old relative command against a different window.
 - `UPDATE_ACTIVE_MEMORY` is advertised as paired flat JSON, while localized compatibility code can also read a self-closing attribute form. That attribute form is compatibility, not the canonical model contract.
 - `SAVE_ACTIVE_MEMORY` does not infer custom fields from parenthesized plain prose. Only explicit JSON root fields are structural custom fields; non-JSON text remains the `conditions` value.
 
@@ -242,7 +249,20 @@ Important current compatibility boundaries:
 
 Action-specific rules should stay in contracts. `rules/runtime.py` should remain limited to cross-action sequence behavior and recovery rules.
 
-### 6.5 Session-action telemetry is causal
+### 6.5 JIN visual action state
+
+`utils/actions/jin_visual_sequence_actions.py` emits each contiguous color/size/position/speed run in original marker order with a shared sequence ID. The browser buffers the run and plays it as one ordered visual sequence instead of regrouping actions by type.
+
+JIN_COLOR has additional persistence semantics:
+
+- accepted color updates set `RuntimeContext.jin_color` before the completed session snapshot is built;
+- only a true no-op against the last applied color in the same runtime-message scope is skipped, so ordered alternation remains valid and a later message may request the same color again;
+- each applied color is appended to the raw JSONL log as a `runtime_action_request` with a stable event ID, turn ID, timestamp, normalized color, and structured `session_action.parts[].colors` payload;
+- a log-write failure is reported but does not block the already-valid UI event.
+
+The raw event is the durable archive recovery path. It is not a second live state owner.
+
+### 6.6 Session-action telemetry is causal
 
 Session-action history is not only an end-of-turn summary. `runtime/stream.py` records and emits interruption/recovery entries at the moment the cause is detected so the logger changes before any automatic follow-up begins. This applies to reasoning/content validator loops and model context/output-limit recovery; `context_overflow` is treated as a context-limit finish reason.
 
@@ -402,15 +422,44 @@ JIN deliberately splits persistence by owner/lifetime.
 
 `ui/static/js/runtime/runtime-session.js` persists live checkpoints and sends `session_bootstrap` data when appropriate. The backend normalizes and hydrates the browser-provided snapshot in `websocket/bootstrap.py`.
 
-For a predecessor/browser checkpoint, `websocket/bootstrap.py::enrich_session_bootstrap_from_archive()` may enrich dialogue, reasoning, action history, files, counters, and selected runtime state from the raw archived log. The browser checkpoint `saved_at` is the freshness boundary: if the archive tail predates that checkpoint, archive-derived dialogue/reasoning/actions/files are intentionally not mixed into newer browser state. Therefore `saved_at` must represent a real whole-checkpoint refresh, not any incidental field mutation.
+The browser uses one common checkpoint to name the last runtime session that actually moved. Merely opening/reloading a tab can clone inherited L1 into a fresh per-session record and record `booted_from_session_id`, but it does not promote that fresh runtime ID to the common conversation checkpoint. A real user send marks session activity immediately; a later server `completed_turn_commit` is the fallback commit signal. `conversation_committed_at` advances only for a completed turn, so it remains distinct from USER-only session movement.
+
+Per-session runtime records are candidates for the checkpoint's L1 payload only when their `session_id` matches the common checkpoint. Nested runtime snapshots preserve their own origin session ID; lineage is not rewritten merely because the containing browser record belongs to the new tab.
+
+The server sends a normalized `session_snapshot` at visible `message_end` and again at `agent_runtime_end`. The client merges the current room state into that snapshot and persists it before finishing the visible bubble. Completed state and room/avatar state therefore land as one checkpoint rather than racing through separate full writers.
+
+For a predecessor/browser checkpoint, `websocket/bootstrap.py::enrich_session_bootstrap_from_archive()` may enrich dialogue, reasoning, action history, files, counters, and selected runtime state from raw logs. Normal and anonymous modes use separate log roots.
+
+The latest raw-log selector chooses the session containing the newest real USER move. A blank bootstrap-only session with no USER row cannot win. A stopped USER-only move and a completed action-only move with an empty visible JIN row can win and remain distinguishable by whether a durable JIN row/timestamp exists. The legacy function name `find_latest_completed_session_restore_payload()` is therefore narrower than its current semantics.
+
+Bootstrap uses two freshness clocks:
+
+- dialogue/reasoning/counters compare the browser recent-turn tail to the archive recent-turn tail;
+- runtime/resource fields still use checkpoint `saved_at` against archive tail time.
+
+This separation prevents a harmless fresh-tab clone or room-state write from pinning dialogue to an older turn. `saved_at` must still represent a whole-checkpoint refresh, not an incidental field mutation.
+
+Session actions are merged by stable ID when available, otherwise by structured identity, sorted by real `created_at`, and bounded. For an unchanged source session the common checkpoint owns actions at or before `saved_at`; raw logs may append only a newer tail. If raw dialogue proves that another source session has a strictly newer USER move, the stale browser source, its actions, and its color are discarded together.
 
 `CLEAN_TOOL_RESULTS` has an explicit field-local persistence rule. On successful cleanup, the browser rewrites only `session_snapshot.tool_results` to `[]` inside the existing checkpoint and preserves checkpoint timestamp/lineage verbatim. During enrichment, the mere presence of `tool_results` (including `[]`) is authoritative, so old archived search/tool output cannot resurrect in a new tab. This exact-empty rule is intentionally **not** shared by `loaded_memory_ids` or `active_memory_records`; their empty browser collections still use the established archive fallback behavior.
 
+Late append-only L4 tool results are the one post-checkpoint tool-result enrichment: a newer raw `runtime_tool_result` of kind `l4` may be merged after the greater of checkpoint time and `tool_results_cleared_at`. Other old tool results remain blocked by the browser checkpoint/tombstone.
+
 Session-action parts are structured continuity data. Bootstrap normalization currently preserves `text/detail/message/id` plus recognized `colors`; color metadata is normalized to lowercase `#rrggbb` (including expansion from `#rgb`) so restored JIN_COLOR actions keep the same swatch and hex hover metadata as live actions.
+
+Current JIN color is part of the same checkpoint. For the same source session, explicit browser `current_jin_color` wins over action history and archived trusted state. If that field is absent, the newest structured JIN_COLOR session action is the first fallback, followed by the raw archive/trusted color. Applied colors are also recorded as raw runtime events so a direct-predecessor chain can recover both final color and ordered history.
+
+Room-state persistence is field-local. It normally refuses to write across a session-ID mismatch and never changes checkpoint `session_id`, lineage, or `saved_at`. JIN_COLOR uses one synchronous reconciliation exception: after the UI applies a live color it may merge that color into the existing common checkpoint even before the new runtime session is promoted, while preserving checkpoint ownership and freshness metadata.
 
 Old L3-era fields can still appear in tests/compatibility paths, but there is no active L3 memory module.
 
-### 9.3 Archived session restore
+### 9.3 Normal bootstrap chat tail
+
+After backend hydration, normal bootstrap emits at most the three newest `runtime_recent_turns` to the browser. Each item may carry USER text, JIN text, saved reasoning, and original timestamps. Attachment-context boilerplate is removed from the visible USER bubble.
+
+The client rebuilds the tail through the existing chat primitives. It keeps a real USER-only interrupted/action-only turn but does not manufacture an empty BR bubble. It then appends a date-labelled current-session divider and activates the live-turn viewport at that boundary, leaving the inherited three-turn history immediately above the initial screen. Explicit archived restore owns its own rendering path and suppresses this normal-bootstrap tail.
+
+### 9.4 Archived session restore
 
 Archived restore is a distinct path:
 
@@ -423,11 +472,11 @@ Archived restore is a distinct path:
 7. `BrainNode` consumes the staged restore envelope and replays those resources through the normal runtime-action dispatcher.
 8. The WebSocket tail performs defensive cleanup only; it must not apply the same resources a second time.
 
-Constants in the current source limit the restore reasoning dump to two recent reasoning items with a per-item character cap, while restored visible dialogue uses the normal recent-pair limit.
+Constants in the current source limit the restore reasoning dump to two recent reasoning items with a per-item character cap. Restored visible dialogue uses the normal three-pair limit and, like ordinary recent-message context, does not impose a per-message character cap.
 
 `utils/session_restore.py` still understands historical `SAVE_SESSION` labels in archived logs. That is restore compatibility, not proof of a current `SAVE_SESSION` runtime action.
 
-### 9.4 Timestamp invariant
+### 9.5 Timestamp invariant
 
 Modern records/snapshots should retain original creation timestamps across serialize -> reload -> hydrate. `now()` is only a fallback for truly legacy records without a timestamp. Rendering/loading must not rewrite historical time.
 
@@ -463,7 +512,7 @@ Browser behavior can isolate session-facing stores in private/incognito mode. Do
 
 `process_message()` later routes interrupted turns through `schedule_interrupted_runtime_memory_update()` instead of pretending the turn completed normally.
 
-The Brain/stream layer also contains recovery for reasoning repetition and model/context output limits. Follow-up ticks preserve sequence identity rather than starting a new user request. The corresponding session-action interruption entry is emitted before that recovery/follow-up starts, not deferred until the final answer.
+The Brain/stream layer also contains recovery for reasoning repetition and model/context output limits. Follow-up ticks preserve sequence identity rather than starting a new user request. They explicitly suppress the ordinary previous-reasoning projection and carry the relevant current-turn or loop-recovery reasoning through their dedicated builder. The corresponding session-action interruption entry is emitted before that recovery/follow-up starts, not deferred until the final answer.
 
 ---
 
@@ -491,6 +540,12 @@ Do not collapse these into a generic highlight state.
 The L4 panel deliberately separates compact browsing from surfaced evidence: ordinary fact rows use a 50-character value preview, while a row bubbled by runtime reference, explicit reasoning citation, or context-loaded state renders its full value. The storage value is never truncated; this is projection-only behavior.
 
 Session-action logger rows are also a projection of structured history. The compact logger keeps the most recent five items in chronological order with their original numbering and reuses the existing attached-files header/button primitive for `FULL`. JIN_COLOR parts render one swatch per applied color and expose the normalized hex on hover; bootstrap must preserve the `colors` payload for this to work after reload. Runtime-action bubble details are retained across counter-only updates so a count refresh cannot erase existing hover metadata.
+
+JIN visual-action chat bubbles are currently release-gated off, but parsing, execution, avatar updates, raw event persistence, and Session Actions logging remain active. A UI visibility flag must not be mistaken for a disabled runtime action.
+
+Color has one visual transition owner in the avatar API. The initial bootstrap application consumes the one 2000 ms transition; later/live JIN_COLOR applications use 333 ms. The API writes the same temporary duration to avatar-center and scene-tint CSS variables before applying the color, so both projections move together. The old color queue and separate bootstrap tint-shift helper are absent.
+
+Normal session bootstrap applies the color from the common local checkpoint during early room restoration, then accepts one server `session_actions_update` reconciliation with `bootstrap_restore=true`. There is no client-side color resolver scanning competing sources.
 
 ### Header auto-hide
 
@@ -539,9 +594,13 @@ Do not infer architecture from these alone:
 - comments mentioning “L1/L2/L3 glow”;
 - stale CodeGraph/search indexes;
 - historical field names like `runtime_l3_session_memory`;
+- the name `find_latest_completed_session_restore_payload()`; current selection is newest real USER move, including USER-only interruption;
 - treating any write to a browser checkpoint as permission to advance `saved_at`;
+- using runtime `saved_at` to decide whether copied dialogue is current;
+- treating a newly opened runtime ID as the newest conversation before a real USER move;
 - assuming an empty collection always means "missing" during archive enrichment;
 - sanitizing session actions down to text while dropping structured UI metadata such as `parts[].colors`.
+- adding a separate JIN color key/resolver/queue instead of reconciling the common checkpoint and raw action log.
 
 The verified filesystem has no active L2/L3 modules and no current `SAVE_SESSION` contract.
 

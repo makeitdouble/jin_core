@@ -31,10 +31,15 @@ A current implementation can still violate a product decision. Do not hide that.
 - L2 and L3 are **removed architectural layers**. Do not restore them from old README/tests/indexes. Any surviving L2/L3 names must be classified as compatibility, stale tests/docs, UI residue, or dead legacy before touching them.
 - Durable facts belong in L4. Do not reintroduce a durable-L1/L2/L3 memory hierarchy.
 - Active Memory, Delayed Memory, L4 facts, persistent Files, live L1/runtime memory, and session checkpoints are different systems with different lifetimes. Do not collapse them into one generic memory store.
-- Session continuity must distinguish completed turns from interrupted turns and must preserve original timestamps where available.
-- Browser checkpoint `saved_at` is a causal freshness boundary for archive enrichment, not a generic "last touched" timestamp. A field-local mutation must not advance it unless the whole checkpoint is genuinely refreshed.
+- Session continuity must distinguish a real USER move, a completed turn, an interrupted USER-only turn, an action-only completion, and a blank bootstrap tab. A real USER row can become the newest conversation move without a visible JIN row; a blank tab cannot.
+- The common browser checkpoint names the last runtime session that actually moved. Opening a tab may clone inherited L1 under a fresh runtime ID, but must not promote that ID until real user activity or a server-confirmed completed-turn commit.
+- Preserve checkpoint lineage: `session_id`, `previous_session_id`, `booted_from_session_id`, nested runtime-snapshot origin, and `conversation_committed_at` have different meanings. Room/avatar field writes must not switch the checkpoint owner.
+- Browser checkpoint `saved_at` is a causal freshness boundary for runtime/resource archive enrichment, not a generic "last touched" timestamp. Dialogue freshness is compared tail-to-tail independently. A field-local mutation must not advance `saved_at` unless the whole checkpoint is genuinely refreshed.
 - In predecessor bootstrap, an explicitly present `tool_results: []` is an authoritative cleared value. Do **not** generalize that tombstone rule to `loaded_memory_ids` or `active_memory_records`; their empty browser values still retain archive-fallback semantics.
 - Session-action history is structured continuity data. Preserve supported part metadata across persistence/bootstrap (for example JIN_COLOR `parts[].colors`), not only the visible action text.
+- JIN color belongs to the common `session_snapshot`/room state and server `RuntimeContext`, not to a parallel `latestJinColor` store. The browser checkpoint wins for the same source session; structured action history and raw archive events are recovery sources only.
+- Ordinary Brain turns include the previous successful reasoning block. Its projection keeps both edges and may replace only the middle with an explicit `CUTTED N chars` separator; action/recovery follow-ups build their own reasoning context and must not duplicate the ordinary block.
+- `<PREVIOUS_CHAT_MESSAGES>` is bounded by the newest three pairs, not by a per-message character cap. Preserve each selected USER/JIN message in full; normalize physical newlines to literal `\\n` without silently truncating content.
 - Archived restore intentionally stages historical resources and replays them through the real action path after the one-shot restore response. Do not add a second late apply path.
 - Anonymous/shadow mode may read global durable context but must not silently perform restricted persistent writes.
 
@@ -45,6 +50,9 @@ A current implementation can still violate a product decision. Do not hide that.
 - Every new action needs: contract -> parser/normalization -> guard if needed -> dispatcher/handler -> emitted state/result -> tests.
 - Streaming can split markers at arbitrary chunk boundaries. Always test complete, split, repeated, incomplete, false-prefix, and flush/stop cases.
 - Do not let private action markers leak into visible answer text.
+- Canonical `JIN_COLOR` and `JIN_SIZE` syntax is paired XML with the payload in the body: `<JIN_COLOR> #00f2ff </JIN_COLOR>` and `<JIN_SIZE> w:120 h:120 </JIN_SIZE>`. Inline/colon forms are localized legacy compatibility only. Marker removal must preserve ordinary visible text on both sides of the marker.
+- `JIN_SIZE` accepts positive decimal `px`, `vw`, `vh`, and `%` values; unitless values mean `px`. Preserve relative units through parsing/events and resolve them against the live browser viewport only when applying the action. `%` is axis-relative (width -> viewport width, height -> viewport height); `vw` and `vh` always use their named viewport axis. Persist the resulting rendered room geometry in pixels.
+- Consecutive JIN visual markers are ordered state events. Drop only a true adjacent/no-op repetition in the same runtime-message scope; preserve alternation such as red -> blue -> red and allow the same color again in a later message.
 - Do not emit the same action twice because two parser paths recognized the same marker.
 - Current Delayed save contract is `<SAVE_DELAYED_MEMORY>` with a JSON body. The old `<SAVE_DELAYED_MEMORY_CONTENT>` key/value format is legacy only.
 - Current Active create/update model boundary is flat JSON. `SAVE_ACTIVE_MEMORY` custom fields must come from explicit structured JSON; plain prose such as a trailing `(field: value)` is still prose/conditions, not schema. Legacy nested update payloads and self-closing UPDATE attributes may be accepted locally for compatibility; do not advertise them as preferred syntax.
@@ -62,6 +70,8 @@ Before introducing any visual state, find and reuse the closest existing JIN UI 
 - Loaded context, mere ID reference, pin state, pause state, inspect/modal open, and delete/restore are different semantics. Do not map all of them to one generic `highlight()` call.
 - For UI fixes, verify the actual rendered DOM/event path, not only data/state mutation.
 - For bootstrap/restore visual fixes, locate every writer and prove there is one authoritative final apply path.
+- Normal bootstrap renders at most the three newest real USER moves with their JIN/reasoning when present, followed by the current-session date divider. Preserve USER-only interrupted/action-only moves without manufacturing an empty JIN bubble, and do not duplicate this tail during explicit archived restore.
+- The first bootstrap color transition is the one 2-second transition; ordinary/live color changes use the shared 333 ms avatar-and-scene transition. Do not restore an old tint queue or add a second transition writer.
 - Session-action interruption telemetry is causal UI state: validator/reasoning loops and context/output-limit recovery entries must be recorded/emitted when detected, before automatic follow-up/recovery starts.
 - L4 rows use a short default preview (currently 50 characters), but a fact that is bubbled by reference/citation/context-loaded state must show its full value rather than a truncated citation.
 - Hover/detail metadata must survive non-semantic refreshes: counter-only runtime-action updates and bootstrap normalization must not silently erase tooltip/swatch data.
@@ -97,14 +107,19 @@ At minimum, run the checks that apply to the change:
 - duplicate writer/listener/timer search;
 - serialize -> reload -> hydrate round trip for restore/state changes;
 - explicit-empty-vs-missing tests for bootstrap fields, plus checkpoint timestamp/lineage invariance for field-only cleanup;
+- blank-tab vs completed vs interrupted USER-only vs action-only latest-session selection, separately for normal and anonymous log roots;
+- dialogue-tail freshness independent of runtime `saved_at`, and matching-session L1 selection for the common checkpoint;
 - structured session-action metadata round trip (including JIN_COLOR swatch/hex hover);
+- JIN_COLOR server-context -> raw runtime log -> common checkpoint -> local early apply -> one server reconciliation round trip, including stale-source replacement and repeated reload;
+- full-text recent-message context tests beyond the former character cap, including physical-newline escaping and the three-pair limit;
+- ordinary-turn previous-reasoning inclusion and middle-crop tests, plus absence of duplicate ordinary reasoning in action/recovery follow-ups;
 - chunk-boundary tests for stream/action parsing;
 - legacy-record + modern-record tests for compatibility/timestamps;
 - real DOM/render-path check for UI behavior;
 - search capability tests with configured/blank/placeholder provider credentials when touching search contracts or prompt exposure;
 - patch apply check against the exact source snapshot when delivering `.patch`.
 
-Do not claim the repository is green unless the relevant tests actually pass. See `docs/JIN_CURRENT_STATE.md` for the current full-suite status of the 2026-08-23 snapshot.
+Do not claim the repository is green unless the relevant tests actually pass. See `docs/JIN_CURRENT_STATE.md` for the full-suite status of the exact inspected snapshot.
 
 ## Handoff format
 

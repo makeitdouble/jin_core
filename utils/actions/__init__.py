@@ -67,6 +67,7 @@ from .jin_speed_utils import (
     normalize_jin_speed_value,
 )
 from .jin_size_utils import (
+    format_jin_size_value,
     format_jin_size_payload,
     get_applied_jin_size,
     is_noop_jin_size_action,
@@ -165,5 +166,6 @@ __all__ = [
     "format_jin_position_payload",
     "format_jin_speed_payload",
     "format_jin_size_payload",
+    "format_jin_size_value",
     "DEFAULT_RUNTIME_JIN_SPEED",
 ]

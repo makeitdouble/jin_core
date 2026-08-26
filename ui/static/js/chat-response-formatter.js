@@ -194,26 +194,44 @@
       return "";
     }
 
-    const numberPattern =
-      /^(\d+)(?:px)?$/i;
+    const normalizeLength = (rawValue) => {
+      const match = String(rawValue || "").trim().match(
+        /^([+]?(?:\d+(?:\.\d+)?|\.\d+))\s*(px|vw|vh|%)?$/i
+      );
+
+      if (!match) {
+        return "";
+      }
+
+      const amount = Number.parseFloat(match[1]);
+
+      if (!Number.isFinite(amount) || amount <= 0) {
+        return "";
+      }
+
+      const normalizedAmount = Number.isInteger(amount)
+        ? String(amount)
+        : String(amount).replace(/0+$/, "").replace(/\.$/, "");
+      const unit = String(match[2] || "px").toLowerCase();
+
+      return `${normalizedAmount}${unit}`;
+    };
     const labeledPattern =
-      /([wh])\s*:\s*(\d+)(?:px)?/gi;
+      /(width|height|w|h)\s*:\s*([+]?(?:\d+(?:\.\d+)?|\.\d+)\s*(?:px|vw|vh|%)?)/gi;
     const labeled = {};
     const spans = [];
     let match = null;
 
     while ((match = labeledPattern.exec(source)) !== null) {
       const label =
-        match[1].toLowerCase();
+        match[1].toLowerCase().startsWith("w")
+          ? "w"
+          : "h";
       const size =
-        Number.parseInt(
-          match[2],
-          10
-        );
+        normalizeLength(match[2]);
 
       if (
-        !Number.isFinite(size)
-        || size <= 0
+        !size
         || labeled[label]
       ) {
         return "";
@@ -249,7 +267,7 @@
         Object.values(labeled);
 
       if (values.length === 1) {
-        return `${values[0]}px`;
+        return values[0];
       }
 
       if (
@@ -257,8 +275,8 @@
         && labeled.h
       ) {
         return labeled.w === labeled.h
-          ? `${labeled.w}px`
-          : `w:${labeled.w}px h:${labeled.h}px`;
+          ? labeled.w
+          : `w:${labeled.w} h:${labeled.h}`;
       }
 
       return "";
@@ -274,37 +292,21 @@
       return "";
     }
 
-    const numbers =
-      parts.map((part) => {
-        const numberMatch =
-          part.match(numberPattern);
-
-        if (!numberMatch) {
-          return 0;
-        }
-
-        return Number.parseInt(
-          numberMatch[1],
-          10
-        );
-      });
+    const sizes = parts.map(normalizeLength);
 
     if (
-      numbers.some((number) => (
-        !Number.isFinite(number)
-        || number <= 0
-      ))
+      sizes.some((size) => !size)
     ) {
       return "";
     }
 
-    if (numbers.length === 1) {
-      return `${numbers[0]}px`;
+    if (sizes.length === 1) {
+      return sizes[0];
     }
 
-    return numbers[0] === numbers[1]
-      ? `${numbers[0]}px`
-      : `w:${numbers[0]}px h:${numbers[1]}px`;
+    return sizes[0] === sizes[1]
+      ? sizes[0]
+      : `w:${sizes[0]} h:${sizes[1]}`;
 
   }
 

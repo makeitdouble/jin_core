@@ -185,6 +185,54 @@ if (!html.includes("w:220px h:440px")) {
             completed.stderr or completed.stdout,
         )
 
+    @unittest.skipUnless(
+        shutil.which("node"),
+        "node is required for the browser-side response formatter test",
+    )
+    def test_jin_size_marker_preserves_supported_relative_units(self):
+        script = r'''
+const fs = require("fs");
+global.window = {};
+eval(fs.readFileSync(process.argv[1], "utf8"));
+
+const normalize = window.JinResponseFormatter.normalizeJinSizeMarker;
+const cases = [
+  ["120", "120px"],
+  ["12.5vw", "12.5vw"],
+  ["w:25vw h:40vh", "w:25vw h:40vh"],
+  ["width:50% height:25%", "w:50% h:25%"],
+  ["200px 30vh", "w:200px h:30vh"],
+];
+
+for (const [input, expected] of cases) {
+  const actual = normalize(input);
+  if (actual !== expected) {
+    throw new Error(`unexpected normalized size for ${input}: ${actual}`);
+  }
+}
+
+if (normalize("120em") !== "") {
+  throw new Error("unsupported CSS unit must not be displayed as px");
+}
+'''
+        completed = subprocess.run(
+            [
+                shutil.which("node"),
+                "-e",
+                script,
+                str(FORMATTER_JS),
+            ],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+
+        self.assertEqual(
+            completed.returncode,
+            0,
+            completed.stderr or completed.stdout,
+        )
+
     def test_formatter_script_cache_version_is_bumped(self):
         source = INDEX_HTML.read_text(encoding="utf-8")
 

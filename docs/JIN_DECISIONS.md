@@ -1,6 +1,6 @@
 # JIN Core Engine — Durable Decisions
 
-**Decision baseline:** reconciled on 2026-08-23 against `jin_core(20260823-114203).zip` and the accumulated project context.
+**Decision baseline:** reconciled on 2026-08-26 against `jin_core(20260826-090339).zip` and the accumulated project context.
 
 This file records product/architecture intent that should survive refactors. It is not a changelog and not a dump of historical experiments.
 
@@ -190,7 +190,7 @@ Archived restore first gives Brain bounded exact historical context, then reacti
 
 **Status:** Accepted / implemented
 
-Stop/cancel/repetition/context-limit interruption must preserve separate lifecycle semantics. Partial reasoning/answer plus user silence must not be silently serialized as a normal finished exchange.
+Stop/cancel/repetition/context-limit interruption must preserve separate lifecycle semantics. A real USER move is retained in the latest-session/bootstrap tail even when no JIN row exists, but it must remain USER-only rather than being rewritten as a completed exchange. An action-only completed turn may also have no visible JIN text; its durable empty JIN row/timestamp is the completion marker.
 
 **Why:** bootstrap continuity must reflect what actually happened.
 
@@ -265,9 +265,11 @@ Memory/file items use a shared interaction language where applicable: long press
 
 ## D019 — Consecutive JIN visual actions should read as one sequence
 
-**Status:** Accepted / implementation-specific
+**Status:** Accepted / implemented
 
 Consecutive color/size/position/speed actions should be visually sequenced rather than looking like unrelated mechanical phases. Position movement should ease in/out while respecting semantic speed.
+
+Only adjacent/no-op repetitions in the same runtime-message scope are removed. Alternation such as red -> blue -> red must remain ordered, and a later message may intentionally request the same color again.
 
 **Why:** the Live Avatar is a runtime expression channel, not four disconnected CSS toggles.
 
@@ -410,3 +412,106 @@ The ordinary L4 panel uses a compact 50-character value preview. A fact bubbled 
 **Why:** the panel should remain scan-friendly by default, while evidence JIN actually surfaced must be readable in full. The expansion is a UI projection and must not mutate canonical L4 storage/order.
 
 **Rejected alternatives:** truncating surfaced citations; expanding every L4 row all the time.
+
+---
+
+## D031 — JIN color and size use paired XML at the model boundary
+
+**Status:** Accepted / implemented with localized legacy compatibility
+
+Canonical forms put payload in the body:
+
+```text
+<JIN_COLOR> #00f2ff </JIN_COLOR>
+<JIN_SIZE> w:120 h:120 </JIN_SIZE>
+```
+
+Inline/colon/space forms may still be recognized by compatibility parsing, but contracts and prompt instructions teach only the paired form. Removing a marker must preserve ordinary visible answer text on both sides and across arbitrary stream chunk boundaries.
+
+`JIN_SIZE` values preserve their declared unit across the model/parser/event boundary. Positive decimal `px`, `vw`, `vh`, and `%` values are supported; a missing unit means `px`. Relative units are resolved only in the live browser: `%` follows the corresponding width/height viewport axis, while `vw` and `vh` always follow viewport width and height. Persistence records the resulting rendered pixel geometry rather than the unresolved command.
+
+**Why:** a real closing boundary prevents an inline marker parser from swallowing the answer tail and gives streaming one deterministic completion point.
+
+**Rejected alternative:** advertising legacy `<JIN_COLOR: ...>` / `<JIN_SIZE ...>` as the preferred syntax.
+
+---
+
+## D032 — The newest real USER move owns normal continuation
+
+**Status:** Accepted / implemented
+
+The common browser checkpoint identifies the last runtime session that actually moved. Opening a tab may clone inherited L1 but does not promote the new runtime ID. A real USER send may promote the session before a visible answer finishes; a server completed-turn commit is the fallback signal. A blank bootstrap-only tab never outranks its predecessor.
+
+Raw-log selection follows the same rule: the newest real USER move wins even when it is interrupted and has no JIN row. `conversation_committed_at` remains a separate completed-turn timestamp.
+
+**Why:** continuity follows the conversation the user actually touched, not whichever tab most recently initialized or flushed background state.
+
+**Rejected alternatives:** newest runtime ID wins; newest `saved_at` wins regardless of USER activity; dropping interrupted USER-only moves.
+
+---
+
+## D033 — Bootstrap has separate dialogue and runtime freshness clocks
+
+**Status:** Accepted / implemented
+
+Dialogue/reasoning freshness is decided by comparing browser and archive recent-turn tails. Runtime/resource archive enrichment continues to use checkpoint `saved_at`. Field-local room/color/tool-result writes preserve checkpoint freshness metadata.
+
+Session actions use stable identity plus timestamp ordering: the common checkpoint owns actions at or before its save boundary, and raw logs contribute only a newer tail unless the authoritative source session itself changes.
+
+**Why:** a fresh runtime clone or room write must not block a newer raw dialogue tail, while an old archive must not overwrite newer browser runtime/resource state.
+
+**Rejected alternative:** one global timestamp deciding every bootstrap field.
+
+---
+
+## D034 — JIN color has one checkpoint and one bootstrap reconciliation path
+
+**Status:** Accepted / implemented
+
+Accepted JIN_COLOR updates `RuntimeContext.jin_color`, emits the live visual event, records an ordered raw runtime event, and is folded into the common session snapshot/room state. There is no separate latest-color storage key.
+
+On normal boot, the common local checkpoint color is applied during early room restore. The server then sends one authoritative color on `session_actions_update` with `bootstrap_restore=true`. Same-source browser color wins; structured action/raw archive color is fallback. A source change discards the stale browser color with the rest of that source.
+
+The first bootstrap color uses the one 2-second avatar-and-scene transition. Later/live colors use 333 ms. Field-local color reconciliation may write across the fresh-tab/common-checkpoint ID mismatch only while preserving checkpoint ID, lineage, and `saved_at`.
+
+**Why:** this removes the pink/gray/red flash-and-revert class caused by multiple color owners and late writers.
+
+**Rejected alternatives:** `latestJinColor`, `colorOnly` checkpoints, a client source-scanning resolver, a second tint-shift helper, or a delayed color queue.
+
+---
+
+## D035 — Normal bootstrap shows a bounded inherited chat tail
+
+**Status:** Accepted / implemented
+
+Normal bootstrap renders the three newest real USER moves with JIN/reasoning where present, then places the current-session date divider and starts the live viewport there. USER-only turns remain visible without an empty JIN bubble. Explicit archived restore uses its own history renderer and must not duplicate this tail.
+
+**Why:** the user can scroll slightly upward for immediate continuity while the current response begins from a clean, stable boundary.
+
+**Rejected alternatives:** starting with an empty chat; dumping the whole archive; auto-scrolling inherited history below the current-session boundary.
+
+---
+
+## D036 — Recent model dialogue is bounded by pairs, not character-cropped
+
+**Status:** Accepted / implemented
+
+`<PREVIOUS_CHAT_MESSAGES>` contains the newest three recent USER/JIN pairs. Every selected message body is preserved in full after newline normalization, literal `\\n` serialization, whitespace trimming, and XML escaping. There is no per-message character cap.
+
+**Why:** pair-count bounding already limits history breadth; silently cutting the substance of one selected message breaks exact conversational continuity.
+
+**Rejected alternative:** restoring `RECENT_MESSAGE_MAX_CHARS` or an equivalent hidden per-message slice without an explicit prompt-budget decision and regression coverage.
+
+---
+
+## D037 — Ordinary turns retain the previous completed reasoning edges
+
+**Status:** Accepted / implemented
+
+An ordinary user turn includes the previous successful reasoning in `<PREVIOUS_REASONING_CONTENT>`. The projection preserves the whole block through 2000 characters; for a larger block it keeps the first and last 25% and replaces only the middle with an explicit `CUTTED N chars` separator.
+
+Action/recovery follow-ups do not append this ordinary block again. They construct the relevant current-turn or loop-recovery reasoning context explicitly, and the visible TODO context snapshot follows the same distinction.
+
+**Why:** the opening and conclusion preserve the previous line of thought without spending the entire context window on its middle, while dedicated follow-up context avoids stale or duplicated reasoning.
+
+**Rejected alternatives:** exposing previous reasoning only during session-restore priming; dropping the block from ordinary turns; duplicating it inside action/recovery follow-ups; trimming only one edge.

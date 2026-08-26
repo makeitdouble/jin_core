@@ -126,47 +126,37 @@ function getInternalActionJinSizeHover(data) {
     return "";
   }
 
-  let width = Number.parseInt(
-    data.width || 0,
-    10
-  );
-  let height = Number.parseInt(
-    data.height || 0,
-    10
-  );
-
-  if (!(width > 0) || !(height > 0)) {
-    const source = String(
-      data.size
-      || data.payload
-      || (
-        Array.isArray(data.sizes)
-          ? data.sizes[data.sizes.length - 1]
-          : ""
-      )
-      || ""
-    );
-    const numbers = Array.from(
-      source.matchAll(/\d+/g)
+  const source = String(
+    data.size
+    || data.payload
+    || (
+      Array.isArray(data.sizes)
+        ? data.sizes[data.sizes.length - 1]
+        : ""
     )
-      .slice(0, 2)
-      .map((match) => Number.parseInt(match[0], 10))
-      .filter((value) => Number.isFinite(value) && value > 0);
+    || (
+      data.width
+        ? `w:${data.width} h:${data.height || data.width}`
+        : ""
+    )
+  ).trim();
+  const normalized =
+    window.JinResponseFormatter
+    && typeof window.JinResponseFormatter.normalizeJinSizeMarker === "function"
+      ? window.JinResponseFormatter.normalizeJinSizeMarker(source)
+      : "";
 
-    if (!(width > 0) && numbers.length) {
-      width = numbers[0];
-    }
-
-    if (!(height > 0)) {
-      height = numbers[1] || width;
-    }
-  }
-
-  if (!(width > 0) || !(height > 0)) {
+  if (!normalized) {
     return "";
   }
 
-  return `width: ${width}px\nheight: ${height}px`;
+  const labeled = normalized.match(
+    /^w:([^\s]+)\s+h:([^\s]+)$/i
+  );
+  const width = labeled ? labeled[1] : normalized;
+  const height = labeled ? labeled[2] : normalized;
+
+  return `width: ${width}\nheight: ${height}`;
 }
 
 function formatInternalActionPayload(payload) {

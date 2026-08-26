@@ -557,21 +557,97 @@ const consolePanel = document.getElementById("console-panel");
         );
     }
 
+    function normalizeJinSizeLength(value) {
+        const source = String(value || "").trim();
+        const match = source.match(
+            /^([+]?(?:\d+(?:\.\d+)?|\.\d+))\s*(px|vw|vh|%)?$/i
+        );
+
+        if (!match) {
+            return null;
+        }
+
+        const amount = Number.parseFloat(match[1]);
+
+        if (!Number.isFinite(amount) || amount <= 0) {
+            return null;
+        }
+
+        return {
+            amount,
+            unit: String(match[2] || "px").toLowerCase(),
+        };
+    }
+
+    function getJinSizeViewportPixels() {
+        const root = document.documentElement;
+        const width = Number(
+            window.innerWidth
+            || (root && root.clientWidth)
+            || 0
+        );
+        const height = Number(
+            window.innerHeight
+            || (root && root.clientHeight)
+            || 0
+        );
+
+        return {
+            width: Math.max(1, width),
+            height: Math.max(1, height),
+        };
+    }
+
+    function resolveJinSizeLengthPixels(value, axis) {
+        const normalized = normalizeJinSizeLength(value);
+
+        if (!normalized) {
+            return Number.NaN;
+        }
+
+        const viewport = getJinSizeViewportPixels();
+        let pixels = normalized.amount;
+
+        if (normalized.unit === "vw") {
+            pixels = viewport.width * normalized.amount / 100;
+        } else if (normalized.unit === "vh") {
+            pixels = viewport.height * normalized.amount / 100;
+        } else if (normalized.unit === "%") {
+            pixels = viewport[axis] * normalized.amount / 100;
+        }
+
+        return Math.round(pixels);
+    }
+
     function normalizeJinSizePayload(value) {
         if (
             value
             && typeof value === "object"
         ) {
-            const width =
-                Number.parseInt(
-                    value.width || value.w || 0,
-                    10
+            const nestedPayload = String(
+                value.size || value.payload || ""
+            ).trim();
+
+            if (nestedPayload) {
+                const nestedSize = normalizeJinSizePayload(
+                    nestedPayload
                 );
-            const height =
-                Number.parseInt(
-                    value.height || value.h || width || 0,
-                    10
-                );
+
+                if (nestedSize) {
+                    return nestedSize;
+                }
+            }
+
+            const rawWidth = value.width ?? value.w;
+            const rawHeight = value.height ?? value.h ?? rawWidth;
+            const width = resolveJinSizeLengthPixels(
+                rawWidth,
+                "width"
+            );
+            const height = resolveJinSizeLengthPixels(
+                rawHeight,
+                "height"
+            );
 
             if (
                 Number.isFinite(width)
@@ -586,46 +662,61 @@ const consolePanel = document.getElementById("console-panel");
             }
         }
 
-        const source =
-            String(
-                value || ""
-            ).trim();
+        const source = String(value || "").trim();
 
         if (!source) {
             return null;
         }
 
-        const single =
-            source.match(
-                /^(\d+)(?:px)?$/i
-            );
+        const length =
+            "([+]?(?:\\d+(?:\\.\\d+)?|\\.\\d+)\\s*(?:px|vw|vh|%)?)";
+        const single = source.match(
+            new RegExp(`^${length}$`, "i")
+        );
+        const labeled = source.match(
+            new RegExp(
+                `^(?:w|width)\\s*:\\s*${length}\\s+`
+                + `(?:h|height)\\s*:\\s*${length}$`,
+                "i"
+            )
+        );
+        const plain = source.match(
+            new RegExp(`^${length}\\s+${length}$`, "i")
+        );
 
-        if (single) {
-            const size =
-                Number.parseInt(
-                    single[1],
-                    10
-                );
+        const rawWidth = single
+            ? single[1]
+            : (labeled ? labeled[1] : (plain ? plain[1] : ""));
+        const rawHeight = single
+            ? single[1]
+            : (labeled ? labeled[2] : (plain ? plain[2] : ""));
 
-            return {
-                width: size,
-                height: size,
-            };
+        if (!rawWidth || !rawHeight) {
+            return null;
         }
 
-        const labeled =
-            source.match(
-                /^w\s*:\s*(\d+)(?:px)?\s+h\s*:\s*(\d+)(?:px)?$/i
-            );
+        const width = resolveJinSizeLengthPixels(
+            rawWidth,
+            "width"
+        );
+        const height = resolveJinSizeLengthPixels(
+            rawHeight,
+            "height"
+        );
 
-        if (labeled) {
-            return {
-                width: Number.parseInt(labeled[1], 10),
-                height: Number.parseInt(labeled[2], 10),
-            };
+        if (
+            !Number.isFinite(width)
+            || !Number.isFinite(height)
+            || width <= 0
+            || height <= 0
+        ) {
+            return null;
         }
 
-        return null;
+        return {
+            width,
+            height,
+        };
     }
 
     function normalizeJinPositionPayload(value) {
