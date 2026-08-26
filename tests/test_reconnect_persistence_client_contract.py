@@ -17,7 +17,7 @@ WEBSOCKET_INIT = ROOT / "websocket" / "__init__.py"
 
 class ReconnectPersistenceClientContractTests(unittest.TestCase):
 
-    def test_soft_reconnect_carries_saved_session_state(self):
+    def test_soft_reconnect_carries_live_runtime_state_without_removed_l3_memory(self):
 
         source = RUNTIME_SESSION_JS.read_text(
             encoding="utf-8"
@@ -32,19 +32,23 @@ class ReconnectPersistenceClientContractTests(unittest.TestCase):
         block = source[start:end]
 
         self.assertIn(
-            "getPersistedSessionBootstrap()",
+            "runtime_memory: runtimeText,",
             block,
         )
         self.assertIn(
-            "session_memory:",
-            block,
-        )
-        self.assertIn(
-            "session_memory_updates:",
+            "runtime_snapshot:",
             block,
         )
         self.assertIn(
             "loaded_memory_ids:",
+            block,
+        )
+        self.assertNotIn(
+            "session_memory:",
+            block,
+        )
+        self.assertNotIn(
+            "session_memory_updates:",
             block,
         )
 
@@ -66,7 +70,7 @@ class ReconnectPersistenceClientContractTests(unittest.TestCase):
         )
 
         self.assertIn(
-            "runtime-session.js?v=delayed-load-contract-1-reconnect-persistence-1",
+            "runtime-session.js?v=avatar-motion-1&delayed-load-contract-1-reconnect-persistence-1",
             source,
         )
 

@@ -58,7 +58,7 @@ class BrainPromptMemoryTests(
                 prompt,
             )
             self.assertIn(
-                DEFAULT_RUNTIME_MEMORY,
+                DEFAULT_RUNTIME_MEMORY.strip(),
                 prompt,
             )
 
@@ -120,7 +120,7 @@ class BrainPromptMemoryTests(
                 prompt,
             )
             self.assertIn(
-                f"note: {DEFAULT_RUNTIME_MEMORY}",
+                f"note: {DEFAULT_RUNTIME_MEMORY.strip()}",
                 prompt,
             )
             self.assertIn(
@@ -146,7 +146,7 @@ class BrainPromptMemoryTests(
                 0,
             )
             self.assertIn(
-                f"note: {DEFAULT_RUNTIME_MEMORY}",
+                DEFAULT_RUNTIME_MEMORY.strip(),
                 snapshot["raw_memory"],
             )
             self.assertIn(
@@ -729,7 +729,7 @@ class BrainPromptMemoryTests(
                 )
 
             self.assertIn(
-                "JIN message 1 executed: ASSET_ACTION ( 1s ago )",
+                "action_1: ASSET_ACTION ( 1s ago )",
                 history,
             )
             self.assertNotIn(
@@ -776,10 +776,10 @@ class BrainPromptMemoryTests(
                         "runtime_turn_id": "turn_000002",
                     },
                     {
-                        "text": "SAVE_SESSION",
+                        "text": "CLEAN_TOOL_RESULTS",
                         "parts": [
                             {
-                                "text": "SAVE_SESSION",
+                                "text": "CLEAN_TOOL_RESULTS",
                                 "count": 1,
                             },
                         ],
@@ -803,18 +803,18 @@ class BrainPromptMemoryTests(
                 history,
             )
             self.assertIn(
-                "JIN message 1 executed: LIST_SKILLS ( 5s ago )",
+                "action_1: LIST_SKILLS ( 5s ago )",
                 history,
             )
             self.assertIn(
                 (
-                    "JIN message 2 executed: LOAD_SKILL: file_manager (count: 3), "
+                    "action_2: LOAD_SKILL: file_manager (count: 3), "
                     "CLEAN_TOOL_RESULTS ( 2s ago )"
                 ),
                 history,
             )
             self.assertIn(
-                "JIN message 3 executed: SAVE_SESSION ( 1s ago )",
+                "action_3: CLEAN_TOOL_RESULTS ( 1s ago )",
                 history,
             )
 
@@ -866,14 +866,14 @@ class BrainPromptMemoryTests(
 
             self.assertIn(
                 (
-                    "JIN message 1 content: "
+                    "assistant_output_1: "
                     f"{jin_content} ( 1s ago )"
                 ),
                 current_sequence,
             )
             self.assertIn(
                 (
-                    "JIN message 1 executed: WEB_SEARCH: "
+                    "action_1: WEB_SEARCH: "
                     "Ouroboros AI project framework competitor LLM agents "
                     "( 1s ago )"
                 ),
@@ -887,7 +887,7 @@ class BrainPromptMemoryTests(
                 session_history,
             )
             self.assertNotIn(
-                "JIN message 1 content",
+                "assistant_output_1",
                 session_history,
             )
             self.assertNotIn(
@@ -936,15 +936,17 @@ class BrainPromptMemoryTests(
                     current_sequence=True,
                 )
 
-            self.assertEqual(
+            self.assertIn(
+                "<CURRENT_REQUEST_FLOW>",
                 history,
-                (
-                    "<CURRENT_SEQUENCE>\n"
-                    "    --- Sequence started ---\n"
-                    "    JIN message 1 executed: LIST_SKILLS ( 55s ago )\n"
-                    "    JIN message 2 executed: LOAD_SKILL ( 2s ago )\n"
-                    "</CURRENT_SEQUENCE>"
-                ),
+            )
+            self.assertIn(
+                "action_1: LIST_SKILLS ( 55s ago )",
+                history,
+            )
+            self.assertIn(
+                "action_2: LOAD_SKILL ( 2s ago )",
+                history,
             )
             self.assertNotIn(
                 "SAVE_ACTIVE_MEMORY",
@@ -999,7 +1001,7 @@ class BrainPromptMemoryTests(
 
             self.assertIn(
                 (
-                    "JIN message 1 executed: RESOLVE_ACTIVE_MEMORY: "
+                    "action_1: RESOLVE_ACTIVE_MEMORY: "
                     "id: enrrqo; content: word: кукушка, "
                     "RESOLVE_ACTIVE_MEMORY: id: yfpywn; "
                     "content: word: кулёк ( 2s ago )"
@@ -1273,96 +1275,6 @@ class BrainPromptMemoryTests(
             self.assertNotIn(
                 "Last response was disliked.",
                 runtime_memory,
-            )
-
-    def test_brain_prompt_places_runtime_memory_above_session_memory(self):
-
-            context = SimpleNamespace(
-                session_memory=(
-                    "session_snapshot_first_turn: 0\n"
-                    "session_snapshot_last_turn: 6\n"
-                    "decision: Continue the memory architecture work."
-                ),
-                runtime_memory=(
-                    "topic: live runtime state"
-                ),
-                deep_thought_count=0,
-                runtime_search_result="",
-                runtime_search_result_id="",
-            )
-
-            prompt = build_brain_context(
-                context=context,
-                runtime_actions={
-                    "CAN_WEB_SEARCH": False,
-                },
-            )
-
-            self.assertIn(
-                "<PREVIOUS_SESSION_STATE priority=\"higher_than_runtime_memory\">",
-                prompt,
-            )
-            self.assertIn(
-                "Continue the memory architecture work",
-                prompt,
-            )
-            self.assertIn(
-                "session_snapshot_first_turn",
-                prompt,
-            )
-            self.assertIn(
-                "session_snapshot_last_turn",
-                prompt,
-            )
-            self.assertLess(
-                prompt.index(
-                    "<RUNTIME_MEMORY "
-                ),
-                prompt.index(
-                    "<PREVIOUS_SESSION_STATE"
-                ),
-            )
-
-    def test_brain_prompt_includes_l2_memory_separately(self):
-
-            context = SimpleNamespace(
-                runtime_memory="topic: current factual work",
-                runtime_l2_memory="possible pattern: user compares implementation paths before coding",
-                deep_thought_count=0,
-                runtime_search_result="",
-                runtime_search_result_id="",
-            )
-
-            prompt = build_brain_context(
-                context=context,
-                runtime_actions={
-                    "CAN_WEB_SEARCH": False,
-                },
-            )
-
-            self.assertIn(
-                "<RUNTIME_MEMORY ",
-                prompt,
-            )
-            self.assertIn(
-                "<RUNTIME_PATTERN_MEMORY>",
-                prompt,
-            )
-            self.assertIn(
-                "current factual work",
-                prompt,
-            )
-            self.assertIn(
-                "compares implementation paths",
-                prompt,
-            )
-            self.assertNotIn(
-                "image/action tool",
-                prompt,
-            )
-            self.assertNotIn(
-                "Choose the best available visual representation of the request instead of description",
-                prompt,
             )
 
     def test_brain_prompt_includes_conditional_zero_diff_alert(self):

@@ -72,7 +72,7 @@ class ChatStreamAvatarClientContractTests(unittest.TestCase):
         self.assertIn("/static/css/base.css?v=stream-avatar-1", source)
         self.assertIn("/static/css/chat.css?v=stream-avatar-1", source)
         self.assertIn("/static/js/chat.js?v=stream-avatar-2", source)
-        self.assertIn("/static/js/socket.js?v=stream-avatar-1", source)
+        self.assertIn("/static/js/socket.js?v=avatar-geometry-1&stream-avatar-1-archived-session-restore-3&anonymous-mode=1&input-focus=2&bubble-utility-retry=1", source)
         self.assertIn(
             "/static/js/socket/event-handlers.js?v=stream-avatar-1",
             source,

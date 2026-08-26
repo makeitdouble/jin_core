@@ -149,7 +149,7 @@ class L1MemoryTests(
                 prompt,
             )
 
-    def test_runtime_memory_user_prompt_omits_default_note_line(self):
+    def test_runtime_memory_user_prompt_keeps_default_note_line(self):
 
             prompt = build_runtime_memory_user_prompt(
                 current_memory=(
@@ -159,11 +159,11 @@ class L1MemoryTests(
                 assistant_message="hi",
             )
 
-            self.assertNotIn(
-                DEFAULT_RUNTIME_MEMORY,
+            self.assertIn(
+                f"note: {DEFAULT_RUNTIME_MEMORY.strip()}",
                 prompt,
             )
-            self.assertNotIn(
+            self.assertIn(
                 "Current runtime memory:",
                 prompt,
             )

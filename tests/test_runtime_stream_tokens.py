@@ -1003,31 +1003,31 @@ class RuntimeStreamTokenTests(unittest.IsolatedAsyncioTestCase):
         )
 
         self.assertIn(
-            "JIN message 1 executed: WEB_SEARCH",
+            "action_1: WEB_SEARCH (",
             sequence_context,
         )
         self.assertIn(
             (
-                "JIN message 2 executed: stuck in a reasoning loop with "
+                "action_2: stuck in a reasoning loop with "
                 '"* Wait, I\'ll use the search marker."'
             ),
             sequence_context,
         )
         self.assertIn(
-            "JIN message 3 executed: WEB_SEARCH",
+            "action_3: WEB_SEARCH (",
             sequence_context,
         )
         self.assertLess(
-            sequence_context.index("JIN message 1 executed: WEB_SEARCH"),
+            sequence_context.index("action_1: WEB_SEARCH ("),
             sequence_context.index(
-                "JIN message 2 executed: stuck in a reasoning loop"
+                "action_2: stuck in a reasoning loop"
             ),
         )
         self.assertLess(
             sequence_context.index(
-                "JIN message 2 executed: stuck in a reasoning loop"
+                "action_2: stuck in a reasoning loop"
             ),
-            sequence_context.index("JIN message 3 executed: WEB_SEARCH"),
+            sequence_context.index("action_3: WEB_SEARCH ("),
         )
 
         errors = [
@@ -1951,7 +1951,11 @@ class RuntimeStreamTokenTests(unittest.IsolatedAsyncioTestCase):
         )
 
         self.assertIn(
-            "JIN message 1 executed: SAVE_DELAYED_MEMORY: failed: Unrequested report",
+            "1. SAVE_DELAYED_MEMORY: failed: Unrequested report",
+            followup_prompt,
+        )
+        self.assertIn(
+            "action_1: SAVE_DELAYED_MEMORY: failed: Unrequested report",
             followup_prompt,
         )
         self.assertFalse(
@@ -2516,6 +2520,7 @@ class RuntimeStreamTokenTests(unittest.IsolatedAsyncioTestCase):
                 "colors": [
                     "#0000ff",
                 ],
+                "context_detail": "#0000ff",
             }],
         )
         self.assertEqual(
@@ -2526,6 +2531,7 @@ class RuntimeStreamTokenTests(unittest.IsolatedAsyncioTestCase):
                     "#0000ff",
                     "#ff0000",
                 ],
+                "context_detail": "#0000ff, #ff0000",
                 "count": 2,
             }],
         )
@@ -2638,6 +2644,7 @@ class RuntimeStreamTokenTests(unittest.IsolatedAsyncioTestCase):
                     "#0000ff",
                     "#ff0000",
                 ],
+                "context_detail": "#0000ff, #ff0000",
                 "count": 9,
             }],
         )
@@ -2748,75 +2755,6 @@ class RuntimeStreamTokenTests(unittest.IsolatedAsyncioTestCase):
             {
                 stream.stream.message_id,
             },
-        )
-
-    async def test_matching_blocker_skips_action_without_confirmation(self):
-
-        async def save_session_generator():
-
-            yield {
-                "type": "content",
-                "content": "<SAVE_SESSION>",
-            }
-
-        context = SimpleNamespace(
-            websocket=FakeWebSocket(),
-            logger=FakeLogger(),
-            emitter=FakeEmitter(),
-            active_streams={},
-            runtime_action_events=[],
-            runtime_usage_events=[],
-            runtime_asset_results=[],
-            runtime_delayed_memory_results=[],
-            runtime_session_action_history=[],
-            runtime_action_guard_confirmations={},
-            delayed_memory_reports={},
-            active_memory_records=[],
-            runtime_turn_user_message="покажи тег",
-            runtime_current_turn_id="turn_save_session_blocker",
-            runtime_turn_started_at=0,
-            session_id="session-1",
-            timestamp="2026-07-20T18:00:00",
-        )
-
-        stream = RuntimeStream(
-            context=context,
-            runtime_id=settings.SERVICE_MODEL_UID,
-            role="service",
-            context_window=settings.SERVICE_CONTEXT_WINDOW,
-            log_method=context.logger.log_service,
-            runtime_actions={
-                "CAN_SAVE_SESSION": True,
-            },
-        )
-
-        await stream.run(
-            save_session_generator()
-        )
-
-        confirmation_events = [
-            event
-            for event in context.emitter.events
-            if event.get("type")
-            == "runtime_action_guard_confirmation"
-        ]
-        runtime_events = [
-            event
-            for event in context.emitter.events
-            if event.get("type") == "runtime_action"
-        ]
-
-        self.assertEqual(
-            confirmation_events,
-            [],
-        )
-        self.assertEqual(
-            [event.get("status") for event in runtime_events],
-            ["counted", "failed", "counter_final"],
-        )
-        self.assertEqual(
-            context.runtime_action_events[-1]["error"],
-            "behavior_contract_blocker_matched",
         )
 
     async def test_runtime_groups_inner_and_outer_markers_from_one_message(self):
@@ -2933,14 +2871,14 @@ class RuntimeStreamTokenTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertIn(
             (
-                "JIN message 1 executed: SAVE_ACTIVE_MEMORY: "
+                "action_1: SAVE_ACTIVE_MEMORY: "
                 "current session context and task status, "
                 "SAVE_DELAYED_MEMORY: failed: Unrequested report"
             ),
             sequence_context,
         )
         self.assertNotIn(
-            "JIN message 2 executed:",
+            "action_2:",
             sequence_context,
         )
 

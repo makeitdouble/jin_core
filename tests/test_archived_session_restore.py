@@ -7,7 +7,11 @@ from unittest.mock import patch
 
 from agent.nodes.brain import replay_session_restore_resource_actions
 from rules.brain_context_builder import build_brain_context
-from rules.runtime import SESSION_RESTORE_MESSAGE
+from rules.runtime import (
+    SESSION_RESTORE_MESSAGE,
+    SESSION_RESTORE_REASONING_CHAR_LIMIT,
+    SESSION_RESTORE_REASONING_COUNT,
+)
 from runtime.client import RuntimeClient
 from runtime.runtime_context import RuntimeContext
 from utils.context.session_actions import build_session_actions_history_context
@@ -589,7 +593,7 @@ open_question: continue
 
         self.assertIsNotNone(payload)
         dump = payload["restore_reasoning_dump"]
-        self.assertEqual(dump.count("<REASONING "), 5)
+        self.assertEqual(dump.count("<REASONING "), SESSION_RESTORE_REASONING_COUNT)
         self.assertLess(
             dump.index('turn_id="turn_000006"'),
             dump.index('turn_id="turn_000005"'),
@@ -601,7 +605,7 @@ open_question: continue
 
         latest_block = dump.split("</REASONING>", 1)[0]
         latest_body = latest_block.split("<REASONING ", 1)[1].split(">\n", 1)[1].rstrip("\n")
-        self.assertLessEqual(len(latest_body), 5000)
+        self.assertLessEqual(len(latest_body), SESSION_RESTORE_REASONING_CHAR_LIMIT)
         self.assertEqual(
             payload["restore_l4_fact_ids"],
             ["F99", "F42"],
@@ -644,8 +648,6 @@ open_question: continue
             "attached_file_ids": ["file1"],
             "runtime_memory": "archive runtime",
             "runtime_memory_updates": 9,
-            "session_memory": "archive session",
-            "session_memory_updates": 1,
             "loaded_memory_ids": ["abc123"],
             "active_memory_records": [],
         }
@@ -659,8 +661,6 @@ open_question: continue
                 {
                     "type": "session_bootstrap",
                     "source_session_id": "archive-session",
-                    "session_memory": "browser L3 checkpoint",
-                    "session_memory_updates": 1,
                     "runtime_memory": "browser L1 checkpoint",
                     "runtime_memory_updates": 9,
                     "loaded_memory_ids": ["abc123"],
@@ -674,7 +674,6 @@ open_question: continue
         self.assertIn("raw", context.runtime_session_restore_reasoning_dump)
         self.assertEqual(context.runtime_session_restore_l4_fact_ids, ["F7"])
         self.assertIn("browser L1 checkpoint", context.runtime_memory)
-        self.assertEqual(context.session_memory, "browser L3 checkpoint")
         self.assertEqual(
             context.runtime_session_restore_pending_loaded_memory_ids,
             ["abc123"],
@@ -1073,10 +1072,6 @@ open_question: continue
         context.runtime_loaded_delayed_memory_ids = ["abc123"]
         context.delayed_memory_reports = dict(context.runtime_loaded_delayed_memory)
         context.runtime_attached_file_ids = ["file1"]
-        context.session_memory = (
-            "session_status: STALE CHECKPOINT\n"
-            "open_question: STALE OLD QUESTION"
-        )
 
         with patch(
             "runtime.L4_memory.build_runtime_l4_memory_context",
@@ -1100,6 +1095,7 @@ open_question: continue
         l4_builder.assert_called_once_with(
             context=context,
             fact_ids=["F42"],
+            user_input="",
         )
 
         context.runtime_session_restore_priming = False
@@ -1109,8 +1105,8 @@ open_question: continue
         )
         self.assertNotIn("RAW REASONING", ordinary_prompt)
         self.assertIn("HEAVY DELAYED BODY", ordinary_prompt)
-        self.assertIn("<PREVIOUS_SESSION_STATE", ordinary_prompt)
-        self.assertIn("STALE CHECKPOINT", ordinary_prompt)
+        self.assertNotIn("<PREVIOUS_SESSION_STATE", ordinary_prompt)
+        self.assertNotIn("STALE CHECKPOINT", ordinary_prompt)
 
     def test_restore_tick_uses_provider_whitespace_without_fake_user_text(self):
         context = RuntimeContext(
@@ -1168,7 +1164,14 @@ open_question: continue
         self.assertGreaterEqual(context.user_message_count, 6)
         self.assertGreaterEqual(context.assistant_message_count, 6)
 
-    def test_session_bootstrap_restores_tool_results_and_previous_actions(self):
+    @patch(
+        "websocket.bootstrap.enrich_session_bootstrap_from_archive",
+        side_effect=lambda payload, **_: payload,
+    )
+    def test_session_bootstrap_restores_tool_results_and_previous_actions(
+        self,
+        _enrich_session_bootstrap_from_archive,
+    ):
         context = RuntimeContext(
             websocket=None,
             emitter=None,
@@ -1184,10 +1187,26 @@ open_question: continue
                 "source_session_id": "old-session",
                 "runtime_memory": "topic: restored",
                 "session_actions": [
-                    {"text": "JIN_COLOR: #111111", "created_at": 1.0},
-                    {"text": "JIN_COLOR: #222222", "created_at": 2.0},
-                    {"text": "JIN_COLOR: #333333", "created_at": 3.0},
-                    {"text": "JIN_COLOR: #444444", "created_at": 4.0},
+                    {
+                        "text": "JIN_COLOR",
+                        "created_at": 1.0,
+                        "parts": [{"text": "JIN_COLOR", "colors": ["#111111"]}],
+                    },
+                    {
+                        "text": "JIN_COLOR",
+                        "created_at": 2.0,
+                        "parts": [{"text": "JIN_COLOR", "colors": ["#222222"]}],
+                    },
+                    {
+                        "text": "JIN_COLOR",
+                        "created_at": 3.0,
+                        "parts": [{"text": "JIN_COLOR", "colors": ["#333333"]}],
+                    },
+                    {
+                        "text": "JIN_COLOR",
+                        "created_at": 4.0,
+                        "parts": [{"text": "JIN_COLOR", "colors": ["#444444"]}],
+                    },
                 ],
                 "tool_results": [
                     {
@@ -1203,9 +1222,20 @@ open_question: continue
         self.assertEqual(
             [item["text"] for item in context.runtime_session_action_history],
             [
-                "JIN_COLOR: #222222",
-                "JIN_COLOR: #333333",
-                "JIN_COLOR: #444444",
+                "JIN_COLOR",
+                "JIN_COLOR",
+                "JIN_COLOR",
+            ],
+        )
+        self.assertEqual(
+            [
+                item["parts"][0]["colors"]
+                for item in context.runtime_session_action_history
+            ],
+            [
+                ["#222222"],
+                ["#333333"],
+                ["#444444"],
             ],
         )
         self.assertTrue(
@@ -1224,7 +1254,7 @@ open_question: continue
         )
         self.assertIn("----- Previous actions -----", session_actions)
         self.assertIn("----- Current session actions -----", session_actions)
-        self.assertIn("JIN_COLOR: #222222", session_actions)
+        self.assertIn("JIN_COLOR", session_actions)
         self.assertIn("WEB_SEARCH: new session query", session_actions)
 
         tool_results = build_tool_results_context(
@@ -1269,7 +1299,7 @@ class ArchivedSessionRestoreClientContractTests(unittest.TestCase):
         self.assertIn("appendRestoreBoundary(payload)", restore_script)
         self.assertIn("appendThinkingChunk", restore_script)
         self.assertIn("replaceLoadedDelayedMemoryReportIds", restore_script)
-        self.assertIn("updateSessionActionsLog", restore_script)
+        self.assertIn("applyPersistedSessionBootstrap", restore_script)
         self.assertIn("readLatestSavedRuntimeMemory", restore_script)
         self.assertIn("payload.runtime_snapshot", restore_script)
         self.assertIn("jinArchivedSessionBootstrap", runtime_session)

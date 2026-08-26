@@ -25,7 +25,7 @@ class UiFixBundleContractTests(unittest.TestCase):
 
         self.assertIn("function liveUserTurnReachedViewportBottom()", source)
         self.assertIn("metrics.bottomSpace <= 1", source)
-        self.assertIn("if (liveUserTurnReachedViewportBottom()) {", source)
+        self.assertIn("&& liveUserTurnReachedViewportBottom()", source)
         self.assertIn("releaseLiveUserTurnTopLock();", source)
         self.assertIn("liveTurnOverflowAutoscroll =", source)
 

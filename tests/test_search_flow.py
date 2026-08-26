@@ -753,7 +753,15 @@ class SearchFlowTests(
             logger_text,
         )
         self.assertIn(
-            f"INITIAL_SEQUENCE_INSTRUCTION: {state.user_input}",
+            "<CURRENT_REQUEST_FLOW>",
+            brain_client.prompts[1]["system_prompt"],
+        )
+        self.assertIn(
+            f"<ORIGINAL_USER_REQUEST>\n        {state.user_input}",
+            brain_client.prompts[1]["system_prompt"],
+        )
+        self.assertIn(
+            "<LAST_EXECUTED_ACTION>WEB_SEARCH</LAST_EXECUTED_ACTION>",
             brain_client.prompts[1]["system_prompt"],
         )
         self.assertNotIn(
@@ -1070,8 +1078,8 @@ class SearchFlowTests(
             ],
         )
         self.assertEqual(
-            len(deep_search_events),
-            2,
+            [event.get("status") for event in deep_search_events],
+            ["started", "running", "completed"],
         )
         self.assertFalse(
             any(
@@ -1081,6 +1089,10 @@ class SearchFlowTests(
         )
         self.assertEqual(
             deep_search_lifecycle_events[0].get("text"),
+            "DEEP_WEB_SEARCH",
+        )
+        self.assertEqual(
+            deep_search_lifecycle_events[1].get("text"),
             "DEEP_WEB_SEARCH: Research blue tomato varieties.",
         )
         self.assertEqual(

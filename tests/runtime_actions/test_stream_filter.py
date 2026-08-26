@@ -8,7 +8,6 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 from clients.brain_client import apply_runtime_action_calls
-from clients.brain_client import should_execute_save_session
 from contracts.rules_assembler import (
     RUNTIME_ACTION_CLEAN_TOOL_RESULTS,
     RUNTIME_ACTION_JIN_COLOR,
@@ -52,7 +51,6 @@ from utils.tool_results import (
     TOOL_RESULT_KIND_ASSET,
     TOOL_RESULT_KIND_DELAYED_MEMORY,
     TOOL_RESULT_KIND_SEARCH,
-    TOOL_RESULT_KIND_SESSION,
     begin_runtime_tool_results_turn,
     record_runtime_tool_result,
 )
@@ -524,31 +522,6 @@ class RuntimeStreamFilterTests(RuntimeActionTestCase):
             )
 
 
-    def test_extracts_bracketed_save_session_marker(self):
-
-        result = extract_runtime_actions(
-            "<SAVE_SESSION>",
-            enabled_actions=[
-                "CAN_SAVE_SESSION",
-            ],
-        )
-
-        self.assertEqual(
-            result.text,
-            "",
-        )
-        self.assertEqual(
-            result.count("SAVE_SESSION"),
-            1,
-        )
-        self.assertEqual(
-            result.removed_markers,
-            (
-                "<SAVE_SESSION>",
-            ),
-        )
-
-
     def test_extracts_clean_tool_results_marker(self):
 
         result = extract_runtime_actions(
@@ -626,7 +599,6 @@ class RuntimeStreamFilterTests(RuntimeActionTestCase):
     def test_extracts_self_closing_runtime_markers_without_blocks(self):
 
         cases = (
-            ("<SAVE_SESSION/>", "SAVE_SESSION", ""),
             (
                 "<WEB_SEARCH: blue tomato/>",
                 "WEB_SEARCH",
@@ -845,24 +817,6 @@ class RuntimeStreamFilterTests(RuntimeActionTestCase):
             ),
             (
                 (
-                    "Before "
-                    "<SAVE_SESSION>"
-                    " middle "
-                    "<SAVE_SESSION>"
-                    " after"
-                ),
-                [
-                    "CAN_SAVE_SESSION",
-                ],
-                (
-                    RuntimeActionCall(
-                        name="SAVE_SESSION",
-                    ),
-                ),
-                "Before middle after",
-            ),
-            (
-                (
                     "Before\n"
                     "<SAVE_ACTIVE_MEMORY>Remind to drink coffee</SAVE_ACTIVE_MEMORY>\n"
                     "<SAVE_ACTIVE_MEMORY>Remind to drink coffee</SAVE_ACTIVE_MEMORY>\n"
@@ -875,23 +829,6 @@ class RuntimeStreamFilterTests(RuntimeActionTestCase):
                     RuntimeActionCall(
                         name="SAVE_ACTIVE_MEMORY",
                         payload="Remind to drink coffee",
-                    ),
-                ),
-                "Before\nAfter",
-            ),
-            (
-                (
-                    "Before\n"
-                    "<SAVE_SESSION>\n"
-                    "<SAVE_SESSION>\n"
-                    "After"
-                ),
-                [
-                    "CAN_SAVE_SESSION",
-                ],
-                (
-                    RuntimeActionCall(
-                        name="SAVE_SESSION",
                     ),
                 ),
                 "Before\nAfter",
@@ -1938,181 +1875,6 @@ class RuntimeStreamFilterTests(RuntimeActionTestCase):
         )
 
 
-    def test_bracketed_save_session_marker_allowed_by_save_request(self):
-
-        Context = FakeContext
-
-        context = Context()
-        result = extract_runtime_actions(
-            "<SAVE_SESSION>",
-            enabled_actions=[
-                "CAN_SAVE_SESSION",
-            ],
-        )
-
-        applied_count = asyncio.run(
-            apply_runtime_action_calls(
-                context,
-                result.actions,
-                user_message="save session",
-            )
-        )
-
-        self.assertEqual(
-            result.text,
-            "",
-        )
-        self.assertEqual(
-            applied_count,
-            1,
-        )
-        self.assertTrue(
-            context.runtime_save_session_requested,
-        )
-
-
-    def test_save_session_marker_is_allowed_after_same_turn_l3_commit(self):
-
-        Context = FakeContext
-
-        context = Context()
-        # A previous SAVE_SESSION may already have completed earlier in the
-        # same user turn (for example via the deterministic direct trigger).
-        # A marker emitted by the next internal follow-up is a new model
-        # message and must be allowed to request a fresh snapshot.
-        context.runtime_save_session_memory_committed_this_turn = True
-        result = extract_runtime_actions(
-            "<SAVE_SESSION>",
-            enabled_actions=[
-                "CAN_SAVE_SESSION",
-            ],
-        )
-
-        applied_count = asyncio.run(
-            apply_runtime_action_calls(
-                context,
-                result.actions,
-                user_message="save session",
-                runtime_message_id="followup-2",
-            )
-        )
-
-        self.assertEqual(
-            applied_count,
-            1,
-        )
-        self.assertTrue(
-            getattr(
-                context,
-                "runtime_save_session_requested",
-                False,
-            ),
-        )
-
-
-    def test_bracketed_save_session_marker_allowed_by_trigger(self):
-
-        Context = FakeContext
-
-        context = Context()
-        result = extract_runtime_actions(
-            "<SAVE_SESSION>",
-            enabled_actions=[
-                "CAN_SAVE_SESSION",
-            ],
-        )
-
-        applied_count = asyncio.run(
-            apply_runtime_action_calls(
-                context,
-                result.actions,
-                user_message="save session",
-            )
-        )
-
-        self.assertEqual(
-            applied_count,
-            1,
-        )
-        self.assertTrue(
-            context.runtime_save_session_requested,
-        )
-
-
-    def test_bracketed_save_session_marker_blocked_by_meta_request(self):
-
-        Context = FakeContext
-
-        context = Context()
-        result = extract_runtime_actions(
-            "<SAVE_SESSION>",
-            enabled_actions=[
-                "CAN_SAVE_SESSION",
-            ],
-        )
-
-        applied_count = asyncio.run(
-            apply_runtime_action_calls(
-                context,
-                result.actions,
-                user_message="show tag",
-            )
-        )
-
-        self.assertEqual(
-            result.text,
-            "",
-        )
-        self.assertEqual(
-            applied_count,
-            0,
-        )
-        self.assertFalse(
-            hasattr(
-                context,
-                "runtime_save_session_requested",
-            )
-        )
-        self.assertEqual(
-            context.runtime_action_events[-1]["status"],
-            "failed",
-        )
-
-
-    def test_save_session_guard_intents(self):
-
-        self.assertTrue(
-            should_execute_save_session(
-                "save session"
-            )
-        )
-        self.assertFalse(
-            should_execute_save_session(
-                "show tag"
-            )
-        )
-        self.assertFalse(
-            should_execute_save_session(
-                "normal message"
-            )
-        )
-        self.assertTrue(
-            should_execute_save_session(
-                "давай зафиналим сессию, от души посидели"
-            )
-        )
-        self.assertTrue(
-            should_execute_save_session(
-                "да, сохраняй сессию"
-            )
-        )
-        self.assertTrue(
-            should_execute_save_session(
-                "финализируй сессию"
-            )
-        )
-
-
     def test_apply_runtime_action_calls_repairs_backslash_separated_content(self):
 
         Emitter = FakeEmitter
@@ -2283,12 +2045,8 @@ class RuntimeStreamFilterTests(RuntimeActionTestCase):
         )
         record_runtime_tool_result(
             context,
-            TOOL_RESULT_KIND_SESSION,
-            {
-                "ok": True,
-                "action": "save_session",
-                "session_snapshot": "session saved",
-            },
+            TOOL_RESULT_KIND_SEARCH,
+            "<RESULTS>fresh search result</RESULTS>",
             created_at=999.0,
         )
 
@@ -2305,7 +2063,7 @@ class RuntimeStreamFilterTests(RuntimeActionTestCase):
             tool_results,
         )
         self.assertIn(
-            '<TOOL_RESULT name="SAVE_SESSION" ( 1s ago ) >',
+            '<TOOL_RESULT name="WEB_SEARCH" ( 1s ago ) >',
             tool_results,
         )
 

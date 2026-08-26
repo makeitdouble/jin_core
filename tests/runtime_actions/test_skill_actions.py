@@ -8,7 +8,6 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 from clients.brain_client import apply_runtime_action_calls
-from clients.brain_client import should_execute_save_session
 from contracts.rules_assembler import (
     RUNTIME_ACTION_CLEAN_TOOL_RESULTS,
     RUNTIME_ACTION_JIN_COLOR,
@@ -462,7 +461,6 @@ class RuntimeSkillActionTests(RuntimeActionTestCase):
             return False
 
         text = (
-            "<SAVE_SESSION>\n"
             "<LOAD_SKILL: file_manager >\n"
             "<LOAD_SKILL: image_prompt_generator >\n"
             "<LOAD_SKILL: wildcards >\n"
@@ -474,7 +472,6 @@ class RuntimeSkillActionTests(RuntimeActionTestCase):
         result = extract_runtime_actions(
             text,
             enabled_actions=[
-                "CAN_SAVE_SESSION",
                 "CAN_USE_ASSETS",
             ],
             preserve_action_marker=preserve_duplicate_load_skill,
@@ -483,9 +480,6 @@ class RuntimeSkillActionTests(RuntimeActionTestCase):
         self.assertEqual(
             result.actions,
             (
-                RuntimeActionCall(
-                    name="SAVE_SESSION",
-                ),
                 RuntimeActionCall(
                     name="LOAD_SKILL",
                     payload="file_manager",
@@ -518,7 +512,7 @@ class RuntimeSkillActionTests(RuntimeActionTestCase):
         )
         self.assertEqual(
             len(result.removed_markers),
-            5,
+            4,
         )
 
 

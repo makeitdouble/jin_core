@@ -24,7 +24,7 @@ class CleanToolResultsBootstrapCheckpointContractTests(unittest.TestCase):
         self.assertIn("...previousCheckpoint", block)
         self.assertIn("...previousSessionSnapshot", block)
         self.assertIn("tool_results: []", block)
-        self.assertNotIn("new Date().toISOString()", block)
+        self.assertIn("tool_results_cleared_at: new Date().toISOString()", block)
         self.assertNotIn("saved_at:", block)
         self.assertNotIn("writeLatestSavedRuntimeMemory", block)
 

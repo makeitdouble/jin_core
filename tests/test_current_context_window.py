@@ -74,7 +74,7 @@ class CurrentContextWindowTests(
         )
         self.assertLess(
             prepared.system_prompt.index(
-                "<BRAIN_MODEL_UID>"
+                "<SERVICE_MODEL_UID>"
             ),
             prepared.system_prompt.index(
                 "<CURRENT_CONTEXT_WINDOW>"

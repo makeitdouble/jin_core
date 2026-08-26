@@ -50,7 +50,7 @@ class BehaviorContractTests(unittest.TestCase):
             contract["action_guards"],
             dict,
         )
-        self.assertIn(
+        self.assertNotIn(
             "save_session",
             contract["action_guards"],
         )
@@ -243,24 +243,6 @@ class BehaviorContractTests(unittest.TestCase):
             ),
         )
 
-    def test_save_session_guard_exists(self):
-
-        guard = get_action_guard(
-            "save_session"
-        )
-
-        self.assertEqual(
-            guard["runtime_action"],
-            "SAVE_SESSION",
-        )
-        self.assertEqual(
-            guard["private_marker"],
-            "<SAVE_SESSION>",
-        )
-        self.assertTrue(
-            guard["effects"]["emit_followup"],
-        )
-
     def test_save_delayed_memory_contract_has_close_tag(self):
 
         guard = get_action_guard(
@@ -319,11 +301,11 @@ class BehaviorContractTests(unittest.TestCase):
             )
         )
         self.assertIn(
-            "active memory is an autonomous runtime action",
+            "Follow-up: false",
             instructions,
         )
         self.assertIn(
-            "briefly notify the user in natural text",
+            '{"conditions":"","custom_field_name":""}',
             instructions,
         )
 
@@ -374,48 +356,48 @@ class BehaviorContractTests(unittest.TestCase):
 
     def test_configured_triggers_require_confirmation_and_allow_matching_text(self):
 
-        save_session_triggers = get_action_guard_triggers(
-            "save_session"
+        save_delayed_memory_triggers = get_action_guard_triggers(
+            "save_delayed_memory"
         )
-        if not save_session_triggers:
+        if not save_delayed_memory_triggers:
             self.skipTest(
-                "save_session contract has no triggers configured"
+                "save_delayed_memory contract has no triggers configured"
             )
 
         self.assertTrue(
             should_pause_action_guard_for_confirmation(
-                "save_session",
+                "save_delayed_memory",
                 "normal message",
             )
         )
         self.assertTrue(
             should_execute_action_guard(
-                "save_session",
-                save_session_triggers[0],
+                "save_delayed_memory",
+                save_delayed_memory_triggers[0],
             )
         )
 
     def test_exact_trigger_match_requires_bare_contract_trigger(self):
 
         trigger = get_action_guard_triggers(
-            "save_session"
+            "save_delayed_memory"
         )[0]
 
         self.assertTrue(
             action_guard_has_exact_trigger_match(
-                "save_session",
+                "save_delayed_memory",
                 f"  {trigger}  ",
             )
         )
         self.assertFalse(
             action_guard_has_exact_trigger_match(
-                "save_session",
+                "save_delayed_memory",
                 f"{trigger}!",
             )
         )
         self.assertFalse(
             action_guard_has_exact_trigger_match(
-                "save_session",
+                "save_delayed_memory",
                 f"пожалуйста, {trigger}",
             )
         )
@@ -423,22 +405,22 @@ class BehaviorContractTests(unittest.TestCase):
     def test_matching_blocker_skips_without_confirmation(self):
 
         blockers = get_action_guard_blockers(
-            "save_session"
+            "save_delayed_memory"
         )
         if not blockers:
             self.skipTest(
-                "save_session contract has no blockers configured"
+                "save_delayed_memory contract has no blockers configured"
             )
 
         self.assertFalse(
             should_pause_action_guard_for_confirmation(
-                "save_session",
+                "save_delayed_memory",
                 blockers[0],
             )
         )
         self.assertFalse(
             should_execute_action_guard(
-                "save_session",
+                "save_delayed_memory",
                 blockers[0],
             )
         )

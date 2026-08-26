@@ -150,7 +150,7 @@ class MemoryReferenceSyncClientContractTests(unittest.TestCase):
         css_source = RUNTIME_MEMORY_CSS.read_text(encoding="utf-8")
 
         self.assertIn(
-            "const MEMORY_ROW_REORDER_TRANSITION_MAX_ROWS = 10;",
+            "const MEMORY_ROW_REORDER_TRANSITION_FALLBACK_MS = 230;",
             source,
         )
         self.assertIn(
@@ -170,7 +170,7 @@ class MemoryReferenceSyncClientContractTests(unittest.TestCase):
             source,
         )
         self.assertIn(
-            "rows.length <= MEMORY_ROW_REORDER_TRANSITION_MAX_ROWS",
+            "rows.length > 1",
             source,
         )
         self.assertIn(
@@ -292,7 +292,7 @@ class MemoryReferenceSyncClientContractTests(unittest.TestCase):
         reset_end = source.index("function finishCollapsedAvatarResetAndExpand", reset_start)
         reset_body = source[reset_start:reset_end]
         handler_start = source.index(
-            'memoryDragHandle.addEventListener("dblclick"'
+            'memoryDragHandle.addEventListener("click"'
         )
         handler_end = source.index(
             "togglePanelCollapseFromHeader(",
@@ -489,7 +489,7 @@ class MemoryReferenceSyncClientContractTests(unittest.TestCase):
             source,
         )
         self.assertIn(
-            'item.title =',
+            'bindRuntimeMemoryHoverTitle(\n        item,\n        title',
             source,
         )
         self.assertIn(
@@ -786,7 +786,7 @@ const presentation = memoryModel.buildRuntimeMemoryValuePresentation({
   created_at: "2026-08-12T11:59:55Z",
 });
 
-if (presentation.text !== `${"x".repeat(100)}...`) {
+if (presentation.text !== `${"x".repeat(50)}...`) {
   throw new Error(`unexpected visible text: ${presentation.text}`);
 }
 
@@ -848,11 +848,11 @@ if (!userMessagePresentation.raw.includes("[ repeated: 3 ]")) {
         source = INDEX_HTML.read_text(encoding="utf-8")
 
         self.assertIn(
-            '/static/css/runtime-memory.css?v=l4-report-link-1',
+            '/static/css/runtime-memory.css?v=delayed-collapsible-cards-2',
             source,
         )
         self.assertIn(
-            '/static/js/runtime/runtime-memory-view.js?v=files-panel-1',
+            '/static/js/runtime/runtime-memory-view.js?v=context-card-chevronless-1',
             source,
         )
         self.assertIn(
@@ -860,11 +860,11 @@ if (!userMessagePresentation.raw.includes("[ repeated: 3 ]")) {
             source,
         )
         self.assertIn(
-            '/static/js/runtime/runtime.js?v=delayed-load-highlight-1',
+            '/static/js/runtime/runtime.js?v=facts-memory-server-sync-1',
             source,
         )
         self.assertIn(
-            '/static/js/chat.js?v=jin-size-1',
+            '/static/js/chat.js?v=stream-avatar-2-reference-ids-1',
             source,
         )
 

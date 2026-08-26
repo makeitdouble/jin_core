@@ -14,7 +14,7 @@ def test_attached_files_plaque_is_a_fixed_console_footer():
     attached_files = source.index('id="attached-files"')
     console_end = source.index("</section>", console_stream)
     assert console_stream < attached_files < console_end
-    assert "/static/js/dragdrop.js?v=persistent-files-3-max5-1" in source
+    assert "/static/js/dragdrop.js?v=console-auto-expand-2&file-restore-2&empty-files-plaque=1&unpin-logger-card=1" in source
 
 
 def test_dragdrop_uses_persistent_api_and_max_five_context_files():
@@ -80,11 +80,12 @@ def test_files_panel_shows_file_count_and_reuses_100px_image_hover_preview():
     assert "bindPersistentFileHoverPreview" in runtime_view
     assert "window.bindJinAttachmentHoverPreview(element, record" in runtime_view
     assert "bindPersistentFileHoverPreview(pinButton, record);" in runtime_view
-    assert 'pinButton.title = String(record.id || "")' in runtime_view
+    assert "bindRuntimeMemoryHoverTitle(" in runtime_view
+    assert 'String(record.id || "")' in runtime_view
     assert "hoverPreviewMaxPx: 100" in runtime_view
     assert "window.bindJinAttachmentHoverPreview" in attachments
-    assert "/static/js/runtime/runtime-memory-view.js?v=files-panel-hover-3-delayed-attachments-1-avatar-l1-sync-1" in index
-    assert "/static/js/chat-attachments.js?v=attached-files-3" in index
+    assert "/static/js/runtime/runtime-memory-view.js?v=context-card-chevronless-1&delayed-fact-paste=2&numeric-fact-order=1&l4-fact-age=1&hold-delete-1&modal-title-editor=1&active-citations=4&runtime-memory-title=2&lazy-rows=5&hover-title=1&row-payload=1&l4-citation-gate=1&delayed-pin-link-isolation=1&delayed-highlight-contract=1&active-memory-activity-order=1&l4-two-line-layout=1&l4-value-fill=1&l4-priority-bubble=1" in index
+    assert "/static/js/chat-attachments.js?v=attached-files-3-attachment-modal-id-1&hold-delete-1&runtime-action-preview-2" in index
 
 
 def test_delayed_memory_modal_links_existing_files_by_original_name():

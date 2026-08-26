@@ -8,7 +8,6 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 from clients.brain_client import apply_runtime_action_calls
-from clients.brain_client import should_execute_save_session
 from contracts.rules_assembler import (
     RUNTIME_ACTION_CLEAN_TOOL_RESULTS,
     RUNTIME_ACTION_JIN_COLOR,

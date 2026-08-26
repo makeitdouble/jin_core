@@ -279,7 +279,7 @@ class SkillMarkerSemanticsTests(RuntimeActionTestCase):
         runtime_source = RUNTIME_ACTIONS_JS.read_text(encoding="utf-8")
         index_source = INDEX_HTML.read_text(encoding="utf-8")
 
-        self.assertIn("keepSkillMarkerSeparate", logger_source)
+        self.assertIn("keepActionInstanceSeparate", logger_source)
         self.assertIn('"LOAD_SKILLS"', logger_source)
         self.assertIn('"load_skills"', runtime_source)
         self.assertIn("suppressMarkerCount", runtime_source)

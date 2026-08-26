@@ -223,7 +223,7 @@ class RuntimeTodoTests(unittest.TestCase):
         self.assertTrue(
             snapshot["hide_internal_action_rules"],
         )
-        self.assertIn(
+        self.assertNotIn(
             "RUNTIME ACTION EXECUTION RULES:",
             snapshot["system_prompt"],
         )

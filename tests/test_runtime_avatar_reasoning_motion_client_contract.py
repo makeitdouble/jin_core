@@ -24,8 +24,8 @@ class RuntimeAvatarReasoningMotionClientContractTests(unittest.TestCase):
         self.assertGreater(thinking_start, 0)
 
         answer_pos = source.index("stream.answer += chunk;")
-        answer_stop = source.rfind("stopStreamRuntimeAvatarReasoning(", 0, answer_pos)
-        self.assertGreater(answer_stop, thinking_pos)
+        answer_start = source.rfind("startStreamRuntimeAvatarReasoning(", 0, answer_pos)
+        self.assertGreater(answer_start, thinking_pos)
 
         finish_start = source.index("function finishStreamMessage(")
         finish_end = source.index("window.normalizeJinLoopInput", finish_start)
@@ -44,7 +44,7 @@ class RuntimeAvatarReasoningMotionClientContractTests(unittest.TestCase):
         self.assertIn("syncMemorySignalLayer(kind, { applyGlows: false })", source)
 
         render_start = source.index("function renderAvatar(snapshot, options = {})")
-        render_end = source.index("function applyCenterColor(color)", render_start)
+        render_end = source.index("function applyCenterColor(color, options = {})", render_start)
         render_body = source[render_start:render_end]
         guard_pos = render_body.index("if (runtimeGeometryUnchanged)")
         replace_pos = render_body.index("avatarRoot.replaceChildren(svg);")
@@ -190,7 +190,7 @@ class RuntimeAvatarReasoningMotionClientContractTests(unittest.TestCase):
         self.assertIn('"data-avatar-rotation-key": rotationKey', source)
 
         render_start = source.index("function renderAvatar(snapshot, options = {})")
-        render_end = source.index("function applyCenterColor(color)", render_start)
+        render_end = source.index("function applyCenterColor(color, options = {})", render_start)
         render_body = source[render_start:render_end]
         capture_pos = render_body.index("captureAvatarRotationPhases()")
         replace_pos = render_body.index("avatarRoot.replaceChildren(svg);")
@@ -261,7 +261,7 @@ class RuntimeAvatarReasoningMotionClientContractTests(unittest.TestCase):
         self.assertNotIn("getAnimations()", ramp_body)
 
         render_start = source.index("function renderAvatar(snapshot, options = {})")
-        render_end = source.index("function applyCenterColor(color)", render_start)
+        render_end = source.index("function applyCenterColor(color, options = {})", render_start)
         render_body = source[render_start:render_end]
         invalidate_pos = render_body.index("invalidateAvatarRotationAnimationsCache();")
         replace_pos = render_body.index("avatarRoot.replaceChildren(svg);")

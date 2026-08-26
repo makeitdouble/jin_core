@@ -16,7 +16,7 @@ class JinMotionClientContractTests(unittest.TestCase):
         self.assertIn("window_width: Math.max(1, Math.round(window.innerWidth))", source)
         self.assertIn("window_height: Math.max(1, Math.round(window.innerHeight))", source)
         self.assertIn("rect.left + (rect.width / 2)", source)
-        self.assertIn("rect.top + (rect.height / 2)", source)
+        self.assertIn("rect.top\n                    + (rect.height / 2)\n                    - headerShift", source)
 
     def test_position_coordinates_target_avatar_center(self):
         source = LOGGER_JS.read_text(encoding="utf-8")

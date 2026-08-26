@@ -8,7 +8,6 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 from clients.brain_client import apply_runtime_action_calls
-from clients.brain_client import should_execute_save_session
 from contracts.rules_assembler import (
     RUNTIME_ACTION_CLEAN_TOOL_RESULTS,
     RUNTIME_ACTION_JIN_COLOR,
@@ -425,7 +424,7 @@ class RuntimeActiveMemoryTests(RuntimeActionTestCase):
         )
         self.assertEqual(
             context.emitter.events[0]["text"],
-            "SAVE_ACTIVE_MEMORY: remind later",
+            "SAVE_ACTIVE_MEMORY",
         )
         self.assertEqual(
             context.emitter.events[0]["display_name"],
@@ -449,6 +448,7 @@ class RuntimeActiveMemoryTests(RuntimeActionTestCase):
                 r"\[ created_jin_message_number: 3 \] "
                 r"\[ elapsed_time: 00:00:00 \] "
                 r"\[ elapsed_jin_message_number: 0 \] "
+                r"\[ significance: 0\.000 \] "
                 r"\[ status: pending \]$"
             ),
         )
@@ -555,8 +555,8 @@ class RuntimeActiveMemoryTests(RuntimeActionTestCase):
                 if not event.get("status")
             ],
             [
-                "SAVE_ACTIVE_MEMORY: first reminder",
-                "SAVE_ACTIVE_MEMORY: second reminder",
+                "SAVE_ACTIVE_MEMORY",
+                "SAVE_ACTIVE_MEMORY",
             ],
         )
         self.assertEqual(
@@ -619,7 +619,7 @@ class RuntimeActiveMemoryTests(RuntimeActionTestCase):
         )
         self.assertEqual(
             context.emitter.events[0]["text"],
-            "SAVE_ACTIVE_MEMORY: Experiment Progress: 2m elapsed",
+            "SAVE_ACTIVE_MEMORY",
         )
         self.assertEqual(
             context.runtime_action_events[0]["payload"],
@@ -639,6 +639,7 @@ class RuntimeActiveMemoryTests(RuntimeActionTestCase):
                 r"\[ created_jin_message_number: 8 \] "
                 r"\[ elapsed_time: 00:00:00 \] "
                 r"\[ elapsed_jin_message_number: 0 \] "
+                r"\[ significance: 0\.000 \] "
                 r"\[ status: pending \]$"
             ),
         )
@@ -768,7 +769,7 @@ class RuntimeActiveMemoryTests(RuntimeActionTestCase):
         )
 
 
-    def test_save_active_memory_materializes_hidden_custom_state_fields(self):
+    def test_save_active_memory_materializes_json_custom_state_fields(self):
 
         context = FakeContext()
         context.emitter = FakeEmitter()
@@ -783,9 +784,9 @@ class RuntimeActiveMemoryTests(RuntimeActionTestCase):
                     RuntimeActionCall(
                         name="SAVE_ACTIVE_MEMORY",
                         payload=(
-                            "Once a day ask for a photo. "
-                            "(last_photo_id: qamzck) "
-                            "(current_photo_count: 1)"
+                            '{"conditions":"Once a day ask for a photo.",'
+                            '"last_photo_id":"qamzck",'
+                            '"current_photo_count":1}'
                         ),
                     ),
                 ),
@@ -805,7 +806,7 @@ class RuntimeActiveMemoryTests(RuntimeActionTestCase):
         self.assertNotIn("(current_photo_count:", record)
         self.assertEqual(
             context.emitter.events[0]["text"],
-            "SAVE_ACTIVE_MEMORY: Once a day ask for a photo.",
+            "SAVE_ACTIVE_MEMORY",
         )
         self.assertEqual(
             context.emitter.events[0]["payload"],
@@ -828,9 +829,9 @@ class RuntimeActiveMemoryTests(RuntimeActionTestCase):
                     RuntimeActionCall(
                         name="SAVE_ACTIVE_MEMORY",
                         payload=(
-                            "Once a day ask for a photo. "
-                            "(last_photo_id: qamzck) "
-                            "(current_photo_count: 1)"
+                            '{"conditions":"Once a day ask for a photo.",'
+                            '"last_photo_id":"qamzck",'
+                            '"current_photo_count":1}'
                         ),
                     ),
                 ),
@@ -903,9 +904,9 @@ class RuntimeActiveMemoryTests(RuntimeActionTestCase):
                     RuntimeActionCall(
                         name="SAVE_ACTIVE_MEMORY",
                         payload=(
-                            "Once a day ask for a photo. "
-                            "(last_photo_id: qamzck) "
-                            "(current_photo_count: 1)"
+                            '{"conditions":"Once a day ask for a photo.",'
+                            '"last_photo_id":"qamzck",'
+                            '"current_photo_count":1}'
                         ),
                     ),
                 ),
@@ -963,9 +964,9 @@ class RuntimeActiveMemoryTests(RuntimeActionTestCase):
                     RuntimeActionCall(
                         name="SAVE_ACTIVE_MEMORY",
                         payload=(
-                            "Once a day ask for a photo. "
-                            "(last_photo_id: qamzck) "
-                            "(current_date: 2026-08-21)"
+                            '{"conditions":"Once a day ask for a photo.",'
+                            '"last_photo_id":"qamzck",'
+                            '"current_date":"2026-08-21"}'
                         ),
                     ),
                 ),
@@ -1024,9 +1025,9 @@ class RuntimeActiveMemoryTests(RuntimeActionTestCase):
                     RuntimeActionCall(
                         name="SAVE_ACTIVE_MEMORY",
                         payload=(
-                            "Once a day ask for a photo. "
-                            "(last_photo_id: qamzck) "
-                            "(current_date: 2026-08-21)"
+                            '{"conditions":"Once a day ask for a photo.",'
+                            '"last_photo_id":"qamzck",'
+                            '"current_date":"2026-08-21"}'
                         ),
                     ),
                 ),
@@ -1086,9 +1087,9 @@ class RuntimeActiveMemoryTests(RuntimeActionTestCase):
                     RuntimeActionCall(
                         name="SAVE_ACTIVE_MEMORY",
                         payload=(
-                            "Once a day ask for a photo. "
-                            "(current_photo_id: qamzck) "
-                            "(current_photo_count: 1)"
+                            '{"conditions":"Once a day ask for a photo.",'
+                            '"current_photo_id":"qamzck",'
+                            '"current_photo_count":1}'
                         ),
                     ),
                 ),
@@ -1158,9 +1159,9 @@ class RuntimeActiveMemoryTests(RuntimeActionTestCase):
                     RuntimeActionCall(
                         name="SAVE_ACTIVE_MEMORY",
                         payload=(
-                            "Once a day ask for a photo. "
-                            "(last_photo_id: qamzck) "
-                            "(current_date: 2026-08-21)"
+                            '{"conditions":"Once a day ask for a photo.",'
+                            '"last_photo_id":"qamzck",'
+                            '"current_date":"2026-08-21"}'
                         ),
                     ),
                 ),
@@ -1302,8 +1303,8 @@ class RuntimeActiveMemoryTests(RuntimeActionTestCase):
                     RuntimeActionCall(
                         name="SAVE_ACTIVE_MEMORY",
                         payload=(
-                            "Once a day ask for a photo. "
-                            "(last_photo_id: qamzck)"
+                            '{"conditions":"Once a day ask for a photo.",'
+                            '"last_photo_id":"qamzck"}'
                         ),
                     ),
                 ),
@@ -1360,8 +1361,8 @@ class RuntimeActiveMemoryTests(RuntimeActionTestCase):
                     RuntimeActionCall(
                         name="SAVE_ACTIVE_MEMORY",
                         payload=(
-                            "Once a day ask for a photo. "
-                            "(last_photo_id: qamzck)"
+                            '{"conditions":"Once a day ask for a photo.",'
+                            '"last_photo_id":"qamzck"}'
                         ),
                     ),
                 ),
@@ -1421,8 +1422,8 @@ class RuntimeActiveMemoryTests(RuntimeActionTestCase):
                     RuntimeActionCall(
                         name="SAVE_ACTIVE_MEMORY",
                         payload=(
-                            "Once a day ask for a photo. "
-                            "(last_photo_id: qamzck)"
+                            '{"conditions":"Once a day ask for a photo.",'
+                            '"last_photo_id":"qamzck"}'
                         ),
                     ),
                 ),
@@ -1471,8 +1472,8 @@ class RuntimeActiveMemoryTests(RuntimeActionTestCase):
                     RuntimeActionCall(
                         name="SAVE_ACTIVE_MEMORY",
                         payload=(
-                            "Once a day ask for a photo. "
-                            "(last_photo_id: qamzck)"
+                            '{"conditions":"Once a day ask for a photo.",'
+                            '"last_photo_id":"qamzck"}'
                         ),
                     ),
                 ),
@@ -1508,7 +1509,7 @@ class RuntimeActiveMemoryTests(RuntimeActionTestCase):
         )
 
 
-    def test_save_active_memory_rejects_more_than_three_custom_fields(self):
+    def test_save_active_memory_caps_custom_fields_at_three(self):
 
         context = FakeContext()
         context.emitter = FakeEmitter()
@@ -1523,22 +1524,23 @@ class RuntimeActiveMemoryTests(RuntimeActionTestCase):
                     RuntimeActionCall(
                         name="SAVE_ACTIVE_MEMORY",
                         payload=(
-                            "Track a small state. "
-                            "(field_one: 1) "
-                            "(field_two: 2) "
-                            "(field_three: 3) "
-                            "(field_four: 4)"
+                            '{"conditions":"Track a small state.",'
+                            '"field_one":1,'
+                            '"field_two":2,'
+                            '"field_three":3,'
+                            '"field_four":4}'
                         ),
                     ),
                 ),
             )
         )
 
-        self.assertEqual(applied_count, 0)
-        self.assertEqual(
-            getattr(context, "active_memory_records", []),
-            [],
-        )
+        self.assertEqual(applied_count, 1)
+        record = context.active_memory_records[0]
+        self.assertIn("[ field_one: 1 ]", record)
+        self.assertIn("[ field_two: 2 ]", record)
+        self.assertIn("[ field_three: 3 ]", record)
+        self.assertNotIn("field_four", record)
 
 
     def test_save_active_memory_accepts_flat_json_and_keeps_last_duplicate(self):
@@ -1660,6 +1662,7 @@ class RuntimeActiveMemoryTests(RuntimeActionTestCase):
                 r"\[ created_jin_message_number: 7 \] "
                 r"\[ elapsed_time: 00:00:00 \] "
                 r"\[ elapsed_jin_message_number: 0 \] "
+                r"\[ significance: 0\.000 \] "
                 r"\[ status: pending \]$"
             ),
         )
@@ -1673,7 +1676,7 @@ class RuntimeActiveMemoryTests(RuntimeActionTestCase):
         )
         self.assertEqual(
             context.emitter.events[0]["text"],
-            "SAVE_ACTIVE_MEMORY: Drink coffee | Trigger in 5 minutes | coffee",
+            "SAVE_ACTIVE_MEMORY",
         )
         self.assertEqual(
             context.emitter.events[0]["display_name"],
@@ -1749,7 +1752,7 @@ class RuntimeActiveMemoryTests(RuntimeActionTestCase):
                     "action": "save_active_memory",
                     "id": "save_active_memory_001",
                     "display_name": "SAVE_ACTIVE_MEMORY",
-                    "text": "SAVE_ACTIVE_MEMORY: remember cuckoo",
+                    "text": "SAVE_ACTIVE_MEMORY",
                     "payload": "remember cuckoo",
                     "close_tag": True,
                 },
@@ -1823,7 +1826,7 @@ class RuntimeActiveMemoryTests(RuntimeActionTestCase):
                     "action": "save_active_memory",
                     "id": "save_active_memory_001",
                     "display_name": "SAVE_ACTIVE_MEMORY",
-                    "text": "SAVE_ACTIVE_MEMORY: remember cuckoo",
+                    "text": "SAVE_ACTIVE_MEMORY",
                     "payload": "remember cuckoo",
                     "close_tag": True,
                 },

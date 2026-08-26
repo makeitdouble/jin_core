@@ -2,7 +2,6 @@ import unittest
 import asyncio
 from types import SimpleNamespace
 
-from runtime.L1_memory_utils import emit_runtime_session_memory_update
 from runtime.action_guard import confirm_runtime_action_guards
 from runtime.registry import runtime_state
 from config_loader import (
@@ -18,7 +17,6 @@ from websocket import (
     apply_runtime_resume,
     build_runtime_action_guard_retry_request,
     apply_session_bootstrap,
-    arm_save_session_from_user_text,
     cancel_current_task,
     emit_runtime_action_guard_confirmation_failure,
     reject_when_all_models_offline,
@@ -306,14 +304,9 @@ class WebSocketPendingUsageTests(unittest.IsolatedAsyncioTestCase):
         )
 
         wrong_action = RuntimeActionCall(
-            name="SAVE_SESSION",
+            name="SAVE_DELAYED_MEMORY",
+            payload="title: Second report",
         )
-        context.runtime_action_guard_retry_consumed = False
-        context.runtime_action_guard_retry = {
-            **context.runtime_action_guard_retry,
-            "action": "save_delayed_memory",
-            "guard": "save_delayed_memory",
-        }
         context.runtime_action_guard_confirmations = {}
 
         async def reject_new_confirmation(event):
@@ -332,7 +325,7 @@ class WebSocketPendingUsageTests(unittest.IsolatedAsyncioTestCase):
         confirmed, rejected, _, _ = await confirm_runtime_action_guards(
             context,
             (wrong_action,),
-            user_message="сохрани сесию",
+            user_message="сделай ещё один отчёт",
         )
 
         self.assertEqual(confirmed, set())
@@ -389,41 +382,6 @@ class WebSocketPendingUsageTests(unittest.IsolatedAsyncioTestCase):
             "SAVE_DELAYED_MEMORY: ABORTED",
         )
 
-
-
-
-
-
-    async def test_arm_save_session_prearms_without_banner(self):
-
-        context = SimpleNamespace(
-            emitter=FakeEmitter(),
-            logger=FakeLogger(),
-            runtime_save_session_armed=False,
-            runtime_save_session_requested=False,
-        )
-
-        armed = await arm_save_session_from_user_text(
-            context,
-            "\u0441\u043e\u0445\u0440\u0430\u043d\u0438 \u0441\u0435\u0441\u0441\u0438\u044e",
-        )
-
-        self.assertTrue(
-            armed,
-        )
-        self.assertTrue(
-            context.runtime_save_session_armed,
-        )
-        self.assertFalse(
-            context.runtime_save_session_requested,
-        )
-        self.assertFalse(
-            context.runtime_save_session_action_emitted,
-        )
-        self.assertEqual(
-            context.emitter.events,
-            [],
-        )
 
     async def test_rejects_user_request_when_all_models_are_offline(self):
 
@@ -531,22 +489,6 @@ class WebSocketPendingUsageTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertTrue(
             restored
-        )
-        self.assertEqual(
-            context.session_memory,
-            "decision: Resume memory work",
-        )
-        self.assertEqual(
-            context.runtime_l3_session_memory,
-            "decision: Resume memory work",
-        )
-        self.assertEqual(
-            context.runtime_session_memory_updates,
-            2,
-        )
-        self.assertEqual(
-            context.session_memory_source,
-            "browser_localStorage",
         )
         self.assertEqual(
             context.runtime_memory,
@@ -702,32 +644,13 @@ class WebSocketPendingUsageTests(unittest.IsolatedAsyncioTestCase):
             11,
         )
         self.assertEqual(
-            context.session_memory,
-            "decision: keep reconnect persistence",
-        )
-        self.assertEqual(
-            context.runtime_l3_session_memory,
-            "decision: keep reconnect persistence",
-        )
-        self.assertEqual(
-            context.runtime_session_memory_updates,
-            5,
-        )
-        self.assertIsNone(
-            context.runtime_l3_saved_runtime_snapshot_index
-        )
-        self.assertEqual(
-            context.session_memory_source,
-            "browser_soft_reconnect",
-        )
-        self.assertEqual(
             context.runtime_loaded_delayed_memory_ids,
             [
                 "48ggds",
             ],
         )
 
-    async def test_runtime_resume_can_restore_session_without_live_l1(self):
+    async def test_runtime_resume_ignores_removed_l3_only_payload_without_live_l1(self):
 
         context = SimpleNamespace(
             runtime_memory="session status: New session",
@@ -739,11 +662,6 @@ class WebSocketPendingUsageTests(unittest.IsolatedAsyncioTestCase):
             turn_number=0,
             user_message_count=0,
             assistant_message_count=0,
-            session_memory="",
-            runtime_l3_session_memory="",
-            runtime_session_memory_updates=0,
-            runtime_l3_saved_runtime_snapshot_index=None,
-            session_memory_source="",
             delayed_memory_reports={},
         )
 
@@ -752,24 +670,16 @@ class WebSocketPendingUsageTests(unittest.IsolatedAsyncioTestCase):
             {
                 "type": "runtime_resume",
                 "runtime_memory": "",
-                "session_memory": "decision: restore L3 only",
+                "session_memory": "decision: restore legacy L3 only",
                 "session_memory_source": "browser_soft_reconnect",
                 "session_memory_updates": 2,
             },
         )
 
-        self.assertTrue(restored)
+        self.assertFalse(restored)
         self.assertEqual(
-            context.session_memory,
-            "decision: restore L3 only",
-        )
-        self.assertEqual(
-            context.runtime_l3_session_memory,
-            "decision: restore L3 only",
-        )
-        self.assertEqual(
-            context.runtime_session_memory_updates,
-            2,
+            context.runtime_memory,
+            "session status: New session",
         )
 
     async def test_runtime_resume_hydrates_active_memory_lifecycle_counters(self):
@@ -890,27 +800,6 @@ class WebSocketPendingUsageTests(unittest.IsolatedAsyncioTestCase):
             context.active_memory_records[0],
         )
 
-    async def test_runtime_session_memory_update_is_not_browser_persisted_by_default(self):
-
-        context = SimpleNamespace(
-            emitter=FakeEmitter(),
-            runtime_l3_session_memory="topic: restored but not saved",
-            session_memory="",
-            session_memory_source="browser_localStorage",
-            runtime_session_memory_updates=1,
-        )
-
-        await emit_runtime_session_memory_update(
-            context
-        )
-
-        self.assertEqual(
-            context.emitter.events[-1]["type"],
-            "runtime_session_memory_update",
-        )
-        self.assertFalse(
-            context.emitter.events[-1]["persist"],
-        )
 
     async def test_pending_brain_usage_emits_before_stream_start(self):
 

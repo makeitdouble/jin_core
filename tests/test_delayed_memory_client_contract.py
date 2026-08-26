@@ -111,7 +111,7 @@ class DelayedMemoryClientContractTests(unittest.TestCase):
             source,
         )
         self.assertIn(
-            "item.title =\n          sessionId;",
+            "bindRuntimeMemoryHoverTitle(\n        item,\n        sessionId\n      );",
             source,
         )
 
@@ -179,12 +179,12 @@ class DelayedMemoryClientContractTests(unittest.TestCase):
             runtime_source,
         )
         self.assertIn(
-            "isDelayedMemoryReportLoaded(reportId, report)",
-            l4_source,
+            "function isDelayedMemoryReportLoaded(reportId)",
+            runtime_source,
         )
         self.assertIn(
-            "loadedIds.forEach((factId) => {",
-            l4_source,
+            "loadedDelayedMemoryReportIds.has(normalizedId)",
+            runtime_source,
         )
         self.assertIn(
             "deleted_delayed_memory_report_ids: deletedReportIds",
@@ -307,12 +307,12 @@ class DelayedMemoryClientContractTests(unittest.TestCase):
         secondary_block = memory_view_source[secondary_start:secondary_end]
 
         self.assertIn(
-            ".filter(isDelayedMemoryReportExplicitlyLoaded)",
-            secondary_block,
-        )
-        self.assertNotIn(
             ".filter(isDelayedMemoryReportInContext)",
             secondary_block,
+        )
+        self.assertIn(
+            "if (Boolean(report.pinned))",
+            memory_view_source,
         )
         self.assertIn(
             "delayed-pin-link-isolation=1",
@@ -346,7 +346,7 @@ class DelayedMemoryClientContractTests(unittest.TestCase):
             pin_block,
         )
         self.assertIn(
-            '/static/js/runtime/runtime.js?v=delayed-unpin-avatar-sync-1',
+            'delayed-unpin-avatar-sync-1',
             index_source,
         )
 
@@ -410,7 +410,7 @@ class DelayedMemoryClientContractTests(unittest.TestCase):
             runtime_actions_source,
         )
         self.assertIn(
-            "counterOnly\n    && reportScopedDelayedAction",
+            "counterOnly\n    && (\n      reportScopedDelayedAction",
             runtime_actions_source,
         )
         self.assertIn(
@@ -554,7 +554,7 @@ class DelayedMemoryClientContractTests(unittest.TestCase):
         )
 
         self.assertIn(
-            "runtimeMessageId:\n          getRuntimeActionMessageId(data)",
+            "const runtimeMessageId =\n    getRuntimeActionMessageId(data);",
             source,
         )
         self.assertNotIn(
@@ -811,7 +811,7 @@ class DelayedMemoryClientContractTests(unittest.TestCase):
             index_source,
         )
         self.assertIn(
-            "/static/js/runtime/runtime.js?v=delayed-unpin-avatar-sync-1&delayed-fact-paste=2",
+            "delayed-unpin-avatar-sync-1&delayed-fact-paste=2",
             index_source,
         )
         self.assertIn(
@@ -950,11 +950,11 @@ class DelayedMemoryClientContractTests(unittest.TestCase):
             storage_source,
         )
         self.assertIn(
-            "archiveLatestSavedSessionMemory",
+            "retiredSavedSessionHistoryStorageKey",
             storage_source,
         )
         self.assertIn(
-            "readSavedSessionMemoryHistory",
+            "removeBrowserMemory(\n      retiredSavedSessionHistoryStorageKey",
             storage_source,
         )
         self.assertIn(

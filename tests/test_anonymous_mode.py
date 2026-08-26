@@ -188,7 +188,7 @@ class AnonymousModeTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(emitter.events[0]["error"], RESTRICTED_WRITE_ERROR)
         self.assertEqual(
             emitter.events[0]["detail"],
-            "",
+            RESTRICTED_WRITE_REASON,
         )
         self.assertEqual(
             context.runtime_action_events[0]["failure_reason"],

@@ -73,11 +73,11 @@ class FactsMemoryClientContractTests(unittest.TestCase):
             source,
         )
         self.assertIn(
-            "writeBrowserMemory(\n      targetStorageKey,\n      signals",
+            "writeFactsStorageMemory(\n      targetStorageKey,\n      signals",
             source,
         )
         self.assertIn(
-            "removeBrowserMemory(\n      storageKey",
+            "removeFactsStorageMemory(\n      storageKey",
             source,
         )
 
@@ -112,7 +112,7 @@ class FactsMemoryClientContractTests(unittest.TestCase):
             source,
         )
 
-    def test_explicit_session_save_uses_active_facts_memory_session_id(self):
+    def test_bootstrap_activates_source_facts_memory_without_forking_runtime_session(self):
         source = (
             ROOT
             / "ui"
@@ -123,7 +123,7 @@ class FactsMemoryClientContractTests(unittest.TestCase):
         ).read_text(encoding="utf-8")
 
         self.assertIn(
-            "getCurrentFactsMemorySessionId,",
+            "activateFactsMemorySession,",
             source,
         )
         self.assertIn(
@@ -131,21 +131,18 @@ class FactsMemoryClientContractTests(unittest.TestCase):
             source,
         )
         self.assertIn(
-            "getCurrentFactsMemorySessionId()",
+            "getCurrentRuntimeSessionId()",
             source,
         )
-        self.assertGreaterEqual(
-            source.count("getCurrentSavedSessionId(),"),
-            3,
-        )
         self.assertIn(
-            "function buildSessionSaveRuntimeSnapshot(snapshot)",
+            "activateFactsMemorySession(\n          bootstrap.source_session_id",
             source,
         )
         self.assertIn(
             "window.refreshFactsMemoryAppendButtons();",
             source,
         )
+
 
 
 if __name__ == "__main__":

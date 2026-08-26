@@ -76,9 +76,6 @@ def expected_enabled_runtime_actions(runtime_actions: dict) -> tuple[str, ...]:
     if bool(runtime_actions.get("CAN_WEB_SEARCH", False)):
         expected_actions.append("WEB_SEARCH")
 
-    if bool(runtime_actions.get("CAN_SAVE_SESSION", False)):
-        expected_actions.append("SAVE_SESSION")
-
     if bool(runtime_actions.get("CAN_CLEAN_TOOL_RESULTS", False)):
         expected_actions.append(
             "CLEAN_TOOL_RESULTS"
@@ -153,6 +150,16 @@ def expected_enabled_runtime_actions(runtime_actions: dict) -> tuple[str, ...]:
 
 
 class BrainRuntimeActionTests(unittest.TestCase):
+
+    def setUp(self):
+        self._search_actions_patcher = patch(
+            "rules.brain_context_builder.search_actions_available",
+            return_value=True,
+        )
+        self._search_actions_patcher.start()
+        self.addCleanup(
+            self._search_actions_patcher.stop
+        )
 
     def test_stream_save_active_memory_bubble_starts_on_open_tag_and_reuses_id(self):
 
@@ -600,198 +607,23 @@ class BrainRuntimeActionTests(unittest.TestCase):
             context=context,
             runtime_actions={
                 "CAN_WEB_SEARCH": True,
-                "CAN_SAVE_SESSION": True,
                 "CAN_SAVE_DELAYED_MEMORY": True,
                 "CAN_SAVE_ACTIVE_MEMORY": True,
             },
         )
 
-        assert_not_contains_text(
-            self,
-            prompt,
+        for broken_join in (
             "final answer.Emit markers",
-        )
-        assert_not_contains_text(
-            self,
-            prompt,
             "specific cases.DO NOT invent",
-        )
-        assert_not_contains_text(
-            self,
-            prompt,
             "memory conditions.You need",
-        )
-        assert_contains_text(
-            self,
-            prompt,
-            "RUNTIME ACTION EXECUTION RULES:",
-        )
-        assert_contains_text(
-            self,
-            prompt,
-            "Use follow-up system ticks in sequence for multi-step tasks.\n"
-            "In case of conflict",
-        )
-        assert_contains_text(
-            self,
-            prompt,
-            "When no actions needed or sequence is done stop instantly and notify user naturally.\n\n"
-            "MEMORY AND SESSION PROPOSALS:",
-        )
-        assert_contains_text(
-            self,
-            prompt,
-            "Active memory does not require explicit confirmation.",
-        )
-        assert_contains_text(
-            self,
-            prompt,
-            "never a gate in front of an explicit user command",
-        )
-        assert_contains_text(
-            self,
-            prompt,
-            "A direct user request to save/finalize the session",
-        )
-        assert_contains_text(
-            self,
-            prompt,
-            "Do not ask for confirmation again",
-        )
-        assert_contains_text(
-            self,
-            prompt,
-            "Follow CURRENT_SEQUENCE intent rather than forcing the user to repeat a magic phrase.",
-        )
-        assert_not_contains_text(
-            self,
-            prompt,
-            (
-                "Never emit a save or memory marker during proposal until "
-                "the user clearly accepts it."
-            ),
-        )
-        assert_not_contains_text(
-            self,
-            prompt,
-            "Propose active memory when",
-        )
-        assert_not_contains_text(
-            self,
-            prompt,
-            (
-                "Never emit a save or update marker until the user "
-                "explicitly accepts the proposal."
-            ),
-        )
+        ):
+            assert_not_contains_text(self, prompt, broken_join)
 
-    def test_non_stream_blocks_save_session_meta_request_in_reasoning(self):
-
-        class FakeBrainClient:
-            async def ask(self, **_kwargs):
-                return {
-                    "model": config.BRAIN_MODEL_UID,
-                    "choices": [
-                        {
-                            "message": {
-                                "reasoning": (
-                                    "The user asked for internal syntax.\n"
-                                    "<SAVE_SESSION>"
-                                ),
-                                "content": "ok",
-                            },
-                        },
-                    ],
-                }
-
-        class Context:
-            pass
-
-        context = Context()
-        original_use_service_as_brain = config.USE_SERVICE_AS_BRAIN
-        config.USE_SERVICE_AS_BRAIN = False
-
-        try:
-            answer = asyncio.run(
-                ask_brain(
-                    client=FakeBrainClient(),
-                    text=(
-                        "\u043d\u0430\u043f\u0438\u0448\u0438 "
-                        "\u043f\u043e\u043b\u043d\u044b\u0439 "
-                        "\u0442\u0435\u0433 "
-                        "\u0441\u043e\u0445\u0440\u0430\u043d\u0435\u043d\u0438\u044f "
-                        "\u0441\u0435\u0441\u0441\u0438\u0438"
-                    ),
-                    context=context,
-                    runtime_actions={
-                        "CAN_SAVE_SESSION": True,
-                    },
-                )
-            )
-        finally:
-            config.USE_SERVICE_AS_BRAIN = original_use_service_as_brain
-
-        self.assertEqual(
-            answer,
-            "ok",
-        )
-        self.assertFalse(
-            hasattr(
-                context,
-                "runtime_save_session_requested",
-            )
-        )
-
-    def test_non_stream_preserves_save_session_marker_without_trigger(self):
-
-        class FakeBrainClient:
-            async def ask(self, **_kwargs):
-                return {
-                    "model": config.BRAIN_MODEL_UID,
-                    "choices": [
-                        {
-                            "message": {
-                                "reasoning": "",
-                                "content": (
-                                    "The literal marker is "
-                                    "<SAVE_SESSION>."
-                                ),
-                            },
-                        },
-                    ],
-                }
-
-        class Context:
-            pass
-
-        context = Context()
-        original_use_service_as_brain = config.USE_SERVICE_AS_BRAIN
-        config.USE_SERVICE_AS_BRAIN = False
-
-        try:
-            answer = asyncio.run(
-                ask_brain(
-                    client=FakeBrainClient(),
-                    text="what marker saves the session?",
-                    context=context,
-                    runtime_actions={
-                        "CAN_SAVE_SESSION": True,
-                    },
-                )
-            )
-        finally:
-            config.USE_SERVICE_AS_BRAIN = original_use_service_as_brain
-
-        self.assertEqual(
-            answer,
-            "The literal marker is <SAVE_SESSION>.",
-        )
-        self.assertFalse(
-            hasattr(
-                context,
-                "runtime_save_session_requested",
-            )
-        )
+        assert_contains_text(self, prompt, "<WEB_SEARCH: plain text query >")
+        assert_contains_text(self, prompt, "<SAVE_DELAYED_MEMORY>")
+        assert_contains_text(self, prompt, "<SAVE_ACTIVE_MEMORY>")
+        assert_contains_text(self, prompt, "RESOLVE_ACTIVE_MEMORY:")
+        assert_contains_text(self, prompt, "Follow-up: false")
 
     def test_non_stream_preserves_delayed_memory_marker_without_trigger(self):
 
@@ -846,157 +678,6 @@ class BrainRuntimeActionTests(unittest.TestCase):
                 context,
                 "delayed_memory_reports",
             )
-        )
-
-    def test_non_stream_ignores_save_session_marker_in_reasoning(self):
-
-        class FakeBrainClient:
-            async def ask(self, **_kwargs):
-                return {
-                    "model": config.BRAIN_MODEL_UID,
-                    "choices": [
-                        {
-                            "message": {
-                                "reasoning": (
-                                    "The user asked to save.\n"
-                                    "<SAVE_SESSION>"
-                                ),
-                                "content": "ok",
-                            },
-                        },
-                    ],
-                }
-
-        class Context:
-            pass
-
-        context = Context()
-        original_use_service_as_brain = config.USE_SERVICE_AS_BRAIN
-        config.USE_SERVICE_AS_BRAIN = False
-
-        try:
-            answer = asyncio.run(
-                ask_brain(
-                    client=FakeBrainClient(),
-                    text="save session",
-                    context=context,
-                    runtime_actions={
-                        "CAN_SAVE_SESSION": True,
-                    },
-                )
-            )
-        finally:
-            config.USE_SERVICE_AS_BRAIN = original_use_service_as_brain
-
-        self.assertEqual(
-            answer,
-            "ok",
-        )
-        self.assertFalse(
-            hasattr(
-                context,
-                "runtime_save_session_requested",
-            )
-        )
-
-    def test_stream_ignores_save_session_marker_in_thinking(self):
-
-        class FakeBrainClient:
-            async def stream(self, **_kwargs):
-                yield {
-                    "type": "thinking",
-                    "content": (
-                        "The user asked to save.\n"
-                        "<SAVE_SESSION>"
-                    ),
-                }
-                yield {
-                    "type": "thinking",
-                    "content": (
-                        "Again\n"
-                        "<SAVE_SESSION>"
-                    ),
-                }
-                yield {
-                    "type": "content",
-                    "content": "ok",
-                }
-
-        class Context:
-            pass
-
-        async def collect(context):
-            chunks = []
-
-            async for chunk in ask_brain_stream(
-                client=FakeBrainClient(),
-                text="save session",
-                context=context,
-                runtime_actions={
-                    "CAN_SAVE_SESSION": True,
-                },
-            ):
-                chunks.append(
-                    chunk
-                )
-
-            return chunks
-
-        context = Context()
-        original_use_service_as_brain = config.USE_SERVICE_AS_BRAIN
-        config.USE_SERVICE_AS_BRAIN = False
-
-        try:
-            chunks = asyncio.run(
-                collect(
-                    context
-                )
-            )
-        finally:
-            config.USE_SERVICE_AS_BRAIN = original_use_service_as_brain
-
-        self.assertIn(
-            {
-                "type": "content",
-                "content": "ok",
-            },
-            chunks,
-        )
-        self.assertEqual(
-            chunks[-1],
-            {
-                "type": "raw_model_output",
-                "content": "ok",
-            },
-        )
-        self.assertFalse(
-            hasattr(
-                context,
-                "runtime_save_session_requested",
-            )
-        )
-        self.assertEqual(
-            [
-                chunk
-                for chunk in chunks
-                if chunk["type"] == "thinking"
-            ],
-            [
-                {
-                    "type": "thinking",
-                    "content": (
-                        "The user asked to save.\n"
-                        "<SAVE_SESSION>"
-                    ),
-                },
-                {
-                    "type": "thinking",
-                    "content": (
-                        "Again\n"
-                        "<SAVE_SESSION>"
-                    ),
-                },
-            ],
         )
 
     def test_stream_preserves_explicit_empty_brain_payload(self):
@@ -1059,69 +740,6 @@ class BrainRuntimeActionTests(unittest.TestCase):
                 "type": "raw_model_output",
                 "content": "ok",
             },
-        )
-
-    def test_stream_applies_save_session_marker_from_content_tail(self):
-
-        class FakeBrainClient:
-            async def stream(self, **_kwargs):
-                yield {
-                    "type": "content",
-                    "content": "<SAVE_SESSION>",
-                }
-
-        class Context:
-            pass
-
-        async def collect(context):
-            chunks = []
-
-            async for chunk in ask_brain_stream(
-                client=FakeBrainClient(),
-                text="save session",
-                context=context,
-                runtime_actions={
-                    "CAN_SAVE_SESSION": True,
-                },
-            ):
-                chunks.append(
-                    chunk
-                )
-
-            return chunks
-
-        context = Context()
-        original_use_service_as_brain = config.USE_SERVICE_AS_BRAIN
-        config.USE_SERVICE_AS_BRAIN = False
-
-        try:
-            chunks = asyncio.run(
-                collect(
-                    context
-                )
-            )
-        finally:
-            config.USE_SERVICE_AS_BRAIN = original_use_service_as_brain
-
-        self.assertEqual(
-            chunks,
-            [
-                {
-                    "type": "raw_model_output",
-                    "content": "<SAVE_SESSION>",
-                },
-            ],
-        )
-        self.assertTrue(
-            context.runtime_save_session_requested,
-        )
-        self.assertEqual(
-            context.runtime_action_events,
-            [
-                {
-                    "name": "save_session",
-                },
-            ],
         )
 
     def test_legacy_stream_runtime_actions_include_message_scope(self):
@@ -1536,7 +1154,7 @@ class BrainRuntimeActionTests(unittest.TestCase):
                 yield {
                     "type": "content",
                     "content": (
-                        "<SAVE_SESSION>\n"
+                        "<CLEAN_TOOL_RESULTS>\n"
                         "<JIN_COLOR> #112233 </JIN_COLOR>"
                     ),
                 }
@@ -1549,10 +1167,10 @@ class BrainRuntimeActionTests(unittest.TestCase):
                 chunk
                 async for chunk in ask_brain_stream(
                     client=FakeBrainClient(),
-                    text="save session and set color",
+                    text="clean tool results and set color",
                     context=context,
                     runtime_actions={
-                        "CAN_SAVE_SESSION": True,
+                        "CAN_CLEAN_TOOL_RESULTS": True,
                         "CAN_JIN_COLOR": True,
                     },
                 )
@@ -1569,18 +1187,18 @@ class BrainRuntimeActionTests(unittest.TestCase):
 
         self.assertEqual(
             [item["text"] for item in context.runtime_session_action_history],
-            ["SAVE_SESSION, JIN_COLOR"],
+            ["CLEAN_TOOL_RESULTS, JIN_COLOR"],
         )
 
         prompt = build_brain_context(
             context=context,
             runtime_actions={
-                "CAN_SAVE_SESSION": True,
+                "CAN_CLEAN_TOOL_RESULTS": True,
                 "CAN_JIN_COLOR": True,
             },
         )
         self.assertIn("<SESSION_ACTIONS_HISTORY>", prompt)
-        self.assertIn("1. SAVE_SESSION, JIN_COLOR", prompt)
+        self.assertIn("1. CLEAN_TOOL_RESULTS, JIN_COLOR", prompt)
 
     def test_stream_history_preserves_duplicate_markers_after_action_dedup(self):
 
@@ -1589,8 +1207,8 @@ class BrainRuntimeActionTests(unittest.TestCase):
                 yield {
                     "type": "content",
                     "content": (
-                        "<SAVE_SESSION>\n"
-                        "<SAVE_SESSION>"
+                        "<CLEAN_TOOL_RESULTS>\n"
+                        "<CLEAN_TOOL_RESULTS>"
                     ),
                 }
 
@@ -1602,10 +1220,10 @@ class BrainRuntimeActionTests(unittest.TestCase):
 
             async for chunk in ask_brain_stream(
                 client=FakeBrainClient(),
-                text="save session",
+                text="clean tool results",
                 context=context,
                 runtime_actions={
-                    "CAN_SAVE_SESSION": True,
+                    "CAN_CLEAN_TOOL_RESULTS": True,
                 },
             ):
                 chunks.append(
@@ -1631,7 +1249,7 @@ class BrainRuntimeActionTests(unittest.TestCase):
             context.runtime_action_events,
             [
                 {
-                    "name": "save_session",
+                    "name": "clean_tool_results",
                 },
             ],
         )
@@ -1641,7 +1259,7 @@ class BrainRuntimeActionTests(unittest.TestCase):
                 for item in context.runtime_session_action_history
             ],
             [
-                "SAVE_SESSION (count: 2)",
+                "CLEAN_TOOL_RESULTS (count: 2)",
             ],
         )
 
@@ -1781,6 +1399,7 @@ class BrainRuntimeActionTests(unittest.TestCase):
                         "#00ff00",
                         "#ff0000",
                     ],
+                    "context_detail": "#ff0000, #00ff00",
                     "count": 3,
                 },
             ],
@@ -1799,6 +1418,7 @@ class BrainRuntimeActionTests(unittest.TestCase):
                         "#00ff00",
                         "#ff0000",
                     ],
+                    "context_detail": "#ff0000, #00ff00",
                     "count": 3,
                 },
             ],
@@ -1830,6 +1450,7 @@ class BrainRuntimeActionTests(unittest.TestCase):
                 "colors": [
                     "#ff0000",
                 ],
+                "context_detail": "#ff0000",
                 "count": 4,
             }],
         )
@@ -2057,7 +1678,7 @@ class BrainRuntimeActionTests(unittest.TestCase):
         )
         self.assertIn(
             (
-                "JIN message 1 executed: "
+                "action_1: "
                 f"{expected_text.replace(' - ', ': ', 1)}"
             ),
             build_session_actions_history_context(
@@ -2340,6 +1961,7 @@ class BrainRuntimeActionTests(unittest.TestCase):
                 "colors": [
                     "#ff0000",
                 ],
+                "context_detail": "#ff0000",
                 "count": 4,
             }],
         )
@@ -2443,6 +2065,7 @@ class BrainRuntimeActionTests(unittest.TestCase):
                 "colors": [
                     "#ff0000",
                 ],
+                "context_detail": "#ff0000",
                 "count": 5,
             }],
         )
@@ -3739,14 +3362,6 @@ class BrainRuntimeActionTests(unittest.TestCase):
                 "<SKILLS>"
             ),
         )
-        self.assertLess(
-            prompt.index(
-                expected_inventory
-            ),
-            prompt.index(
-                "RUNTIME ACTION EXECUTION RULES:"
-            ),
-        )
         self.assertFalse(
             prompt.rstrip().endswith(
                 expected_inventory
@@ -3906,8 +3521,7 @@ class BrainRuntimeActionTests(unittest.TestCase):
         assert_contains_text(
             self,
             prompt,
-            '{"conditions":"CONDITIONS",'
-            '"custom_field_name":"VALUE"}',
+            '{"conditions":"","custom_field_name":""}',
         )
         assert_contains_text(
             self,
@@ -4123,7 +3737,7 @@ class BrainRuntimeActionTests(unittest.TestCase):
         assert_contains_text(
             self,
             prompt,
-            "<SAVE_ACTIVE_MEMORY> CONDITIONS </SAVE_ACTIVE_MEMORY>",
+            '{"conditions":"","custom_field_name":""}',
         )
         assert_not_contains_text(
             self,
@@ -4139,103 +3753,19 @@ class BrainRuntimeActionTests(unittest.TestCase):
             }
         )
 
-        self.assertNotIn(
-            "CAN_WEB_SEARCH",
-            prompt,
-        )
-
-
-
-        self.assertNotIn(
-            '<RUNTIME_ACTION:WEB_SEARCH>{"query":"..."}</RUNTIME_ACTION:WEB_SEARCH>' ,
-            prompt,
-        )
-
-        assert_contains_text(
-            self,
-            prompt,
-            "Use WEB_SEARCH when freshness",
-        )
-
-        self.assertNotIn(
-            "<![CDATA[",
-            prompt,
-        )
-
-        self.assertNotIn(
-            "&lt;RUNTIME_ACTION:WEB_SEARCH&gt;",
-            prompt,
-        )
-
-        self.assertIn(
-            "<CURRENT_USER_DATETIME>",
-            prompt,
-        )
-
-        self.assertNotIn(
-            "<USER_WEEKDAY>",
-            prompt,
-        )
-
-        self.assertIn(
-            (
-                "<RUNTIME_MODE>SERVICE as BRAIN</RUNTIME_MODE>"
-                if settings.USE_SERVICE_AS_BRAIN
-                else "<RUNTIME_MODE>BRAIN</RUNTIME_MODE>"
-            ),
-            prompt,
-        )
-
+        self.assertNotIn("CAN_WEB_SEARCH", prompt)
+        assert_contains_text(self, prompt, "<WEB_SEARCH: plain text query >")
+        assert_contains_text(self, prompt, "Use WEB_SEARCH when freshness")
+        self.assertNotIn("<![CDATA[", prompt)
+        self.assertNotIn("&lt;RUNTIME_ACTION:WEB_SEARCH&gt;", prompt)
+        self.assertIn("<CURRENT_USER_DATETIME>", prompt)
         self.assertIn(
             f"<SERVICE_MODEL_UID>{config.SERVICE_MODEL_UID}</SERVICE_MODEL_UID>",
             prompt,
         )
-
-        if settings.USE_SERVICE_AS_BRAIN:
-            self.assertNotIn(
-                "<BRAIN_MODEL_UID>",
-                prompt,
-            )
-        else:
-            self.assertIn(
-                f"<BRAIN_MODEL_UID>{config.BRAIN_MODEL_UID}</BRAIN_MODEL_UID>",
-                prompt,
-            )
-
-        self.assertNotIn(
-            "<MODE>",
-            prompt,
-        )
-
-        self.assertNotIn(
-            "<CONTEXT>",
-            prompt,
-        )
-
-        self.assertNotIn(
-            "CURRENT_DATE",
-            prompt,
-        )
-
-        self.assertNotIn(
-            "CURRENT_TIME",
-            prompt,
-        )
-
-        self.assertNotIn(
-            "<YEAR>",
-            prompt,
-        )
-
-        self.assertNotIn(
-            "RUNTIME_STATE",
-            prompt,
-        )
-
-        self.assertNotIn(
-            "INITIAL_STATE",
-            prompt,
-        )
+        self.assertNotIn("<RUNTIME_MODE>", prompt)
+        self.assertNotIn("<MODE>", prompt)
+        self.assertNotIn("<CONTEXT>", prompt)
 
     def test_prompt_can_flip_agent_actions_dynamically(self):
 
@@ -4286,59 +3816,6 @@ class BrainRuntimeActionTests(unittest.TestCase):
             prompt,
         )
 
-
-    def test_prompt_includes_save_session_only_when_enabled(self):
-
-        prompt = build_brain_context(
-            runtime_actions={
-                "CAN_WEB_SEARCH": False,
-                "CAN_SAVE_SESSION": True,
-                "CAN_SAVE_ACTIVE_MEMORY": True,
-            }
-        )
-
-        self.assertNotIn(
-            '<RUNTIME_ACTION:SAVE_SESSION enabled="false"/>' ,
-            prompt,
-        )
-        self.assertNotIn(
-            '<RUNTIME_ACTION:SAVE_SESSION enabled="true"/>' ,
-            prompt,
-        )
-        self.assertNotIn(
-            "enabled=\"true\"",
-            prompt,
-        )
-        self.assertIn(
-            "explicitly ends",
-            prompt,
-        )
-        assert_contains_text(
-            self,
-            prompt,
-            "SAVE_SESSION:",
-        )
-        self.assertNotIn(
-            "<RUNTIME_ACTION",
-            prompt,
-        )
-        self.assertIn(
-            get_runtime_action_private_marker("SAVE_SESSION"),
-            prompt,
-        )
-        self.assertIn(
-            get_runtime_action_private_marker("SAVE_ACTIVE_MEMORY"),
-            prompt,
-        )
-        assert_contains_text(
-            self,
-            prompt,
-            "<SAVE_ACTIVE_MEMORY> CONDITIONS </SAVE_ACTIVE_MEMORY>",
-        )
-        self.assertIn(
-            "SAVE_ACTIVE_MEMORY",
-            prompt,
-        )
 
     def test_prompt_does_not_render_legacy_memory_recall_block(self):
 

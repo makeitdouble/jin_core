@@ -98,12 +98,12 @@ class L4LoggerCardsClientContractTests(unittest.TestCase):
     def test_cache_versions_are_bumped(self):
         source = INDEX_HTML.read_text(encoding="utf-8")
 
-        self.assertIn('/static/css/runtime-memory.css?v=l4-report-link-1', source)
-        self.assertIn('/static/js/runtime/runtime-l4-memory.js?v=delayed-loaded-facts-1', source)
-        self.assertIn('/static/js/logger/logger.js?v=jin-size-5', source)
-        self.assertIn('/static/js/logger/trace-modal.js?v=attached-files-1', source)
-        self.assertIn('/static/js/logger/log-entries.js?v=delayed-fact-unlink-1', source)
-        self.assertIn('/static/js/socket/event-handlers.js?v=l4-restore-2', source)
+        self.assertIn('/static/css/runtime-memory.css?v=delayed-collapsible-cards-2', source)
+        self.assertIn('/static/js/runtime/runtime-l4-memory.js?v=server-l4-scheduler-1', source)
+        self.assertIn('/static/js/logger/logger.js?v=delayed-context-plaque-3', source)
+        self.assertIn('/static/js/logger/trace-modal.js?v=context-session-actions-1', source)
+        self.assertIn('/static/js/logger/log-entries.js?v=update-l4-message-1', source)
+        self.assertIn('/static/js/socket/event-handlers.js?v=stream-avatar-1', source)
 
 
 if __name__ == "__main__":

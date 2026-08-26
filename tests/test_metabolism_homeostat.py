@@ -213,7 +213,7 @@ class MetabolismHomeostatTests(unittest.TestCase):
             user_input="продолжим наш JIN",
         )
 
-        self.assertIn("Instructions: Use shared history only where it helps", prompt)
+        self.assertIn("Possible reaction: Use shared history only where it helps", prompt)
         self.assertNotIn("Oxytocin is elevated", prompt)
         self.assertNotIn("Serotonin is elevated", prompt)
         self.assertIn('role="silent_homeostat"', prompt)

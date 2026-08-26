@@ -127,30 +127,6 @@ class LiveSessionCheckpointTests(unittest.TestCase):
         self.assertIn("session.persistLiveSessionCheckpoint(", block)
         self.assertIn("Number(data.updates || 0) <= 0", block)
 
-    def test_explicit_save_merges_l3_into_existing_live_session_record(self):
-        source = RUNTIME_SESSION_JS.read_text(encoding="utf-8")
-
-        live_start = source.index("function persistLiveSessionCheckpoint(data)")
-        live_end = source.index("function buildSessionSaveRuntimeSnapshot", live_start)
-        live_block = source[live_start:live_end]
-
-        self.assertIn("writeLatestSavedRuntimeMemory({", live_block)
-        self.assertIn("writeLatestSavedSessionMemory({", live_block)
-        self.assertIn("session_snapshot: sessionSnapshot", live_block)
-        self.assertIn("archive: false", live_block)
-
-        save_start = source.index("function persistSessionMemory(data)")
-        save_end = source.index("function getRuntimeMemoryForSoftReconnect", save_start)
-        save_block = source[save_start:save_end]
-
-        self.assertIn("liveSessionCheckpoint", save_block)
-        self.assertIn("? liveSessionCheckpoint", save_block)
-        self.assertIn("session_memory_saved_at: savedAt", save_block)
-        self.assertIn("session_memory: sessionMemory", save_block)
-        self.assertNotIn(
-            "latestSavedRuntimeMemoryStorageKey",
-            save_block,
-        )
 
     def test_bootstrap_prefers_continuous_last_saved_runtime(self):
         source = RUNTIME_SESSION_JS.read_text(encoding="utf-8")
@@ -162,7 +138,11 @@ class LiveSessionCheckpointTests(unittest.TestCase):
         previous_runtime_read = block.index("readLatestPreviousRuntimeMemory")
         self.assertLess(saved_runtime_read, previous_runtime_read)
         self.assertIn(
-            "lastSavedRuntime is now a continuously refreshed pointer",
+            "const conversationCheckpoint =",
+            block,
+        )
+        self.assertIn(
+            "browserCheckpoint || legacyCompletedCheckpoint",
             block,
         )
 

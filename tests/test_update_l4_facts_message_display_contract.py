@@ -74,7 +74,7 @@ class UpdateL4FactsMessageDisplayContractTests(unittest.TestCase):
 
         self.assertIn('String(part.message || "").trim()', source)
         self.assertIn('`: ${part.message}`', source)
-        self.assertIn('part.message || part.detail', source)
+        self.assertIn('part.message\n      || part.detail', source)
         self.assertIn('message: part.message,', source)
 
     def test_chat_bubble_and_logger_tooltips_use_update_message(self):
@@ -85,14 +85,14 @@ class UpdateL4FactsMessageDisplayContractTests(unittest.TestCase):
         self.assertIn('`${getRuntimeActionDisplayName(data, action)}: `', socket_source)
         self.assertIn('updateL4FactsMessage\n      || buildRuntimeActionDetail(', socket_source)
         self.assertIn('function getInternalActionUpdateL4Message(data)', logger_source)
-        self.assertIn('logDiv.title =\n      updateL4Message;', logger_source)
+        self.assertIn('logDiv.title =\n      updateL4Message || jinSizeHover;', logger_source)
 
     def test_cache_versions_are_bumped(self):
         source = INDEX_HTML.read_text(encoding="utf-8")
 
-        self.assertIn('/static/js/logger/session-actions.js?v=logger-session-actions-7', source)
+        self.assertIn('/static/js/logger/session-actions.js?v=logger-session-actions-13', source)
         self.assertIn('/static/js/logger/log-entries.js?v=update-l4-message-1', source)
-        self.assertIn('/static/js/socket/runtime-actions.js?v=update-l4-message-1', source)
+        self.assertIn('/static/js/socket/runtime-actions.js?v=size-sequence-1', source)
 
 
 if __name__ == "__main__":

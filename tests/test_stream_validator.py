@@ -287,7 +287,7 @@ def test_stream_validator_stops_repeated_sentence_sequence_with_markers():
         "* *Wait*, I'll just do the search."
     )
     assert validator.last_failure_loop_preview == (
-        "* *Wait*, I'll just do the search."
+        "* *Actually*, I'll do:\\n* *Wait*, I'll just do the search."
     )
 
 
@@ -656,7 +656,7 @@ def test_stream_validator_stops_reasoning_loop_with_changing_quoted_checks():
     )
     assert validator.last_failure_preview == (
         '*Final check of the prompt: "I respect the consistency '
-        'and reliability of my context.*The response is good.'
+        'and reliability of my context.\\n*The response is good.'
     )
 
 
