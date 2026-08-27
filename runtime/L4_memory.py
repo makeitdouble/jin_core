@@ -1128,12 +1128,63 @@ def get_loaded_delayed_memory_reports(
     )
 
 
+def get_context_delayed_memory_reports(
+    context,
+) -> dict:
+
+    loaded_reports = get_loaded_delayed_memory_reports(
+        context
+    )
+    context_reports = {
+        report_id: {
+            **report,
+            "id": report_id,
+        }
+        for report_id, report in loaded_reports.items()
+        if isinstance(report, dict)
+    }
+    stored_reports = getattr(
+        context,
+        "delayed_memory_reports",
+        {},
+    )
+
+    if not isinstance(stored_reports, dict):
+        return context_reports
+
+    # Pinning is a direct context state, just like an explicit load. Keep this
+    # helper pure: L4 visibility must not depend on another prompt builder
+    # having called include_pinned_delayed_memory_reports() first.
+    for raw_report_id, report in stored_reports.items():
+        if (
+            not isinstance(report, dict)
+            or not bool(report.get("pinned", False))
+        ):
+            continue
+
+        report_id = str(
+            raw_report_id
+            or report.get("id", "")
+            or ""
+        ).strip().casefold()
+
+        if not report_id:
+            continue
+
+        context_reports[report_id] = {
+            **report,
+            "id": report_id,
+        }
+
+    return context_reports
+
+
 def collect_loaded_delayed_memory_fact_ids(
     context,
 ) -> set[str]:
 
     return collect_long_term_fact_ids_from_reports(
-        get_loaded_delayed_memory_reports(
+        get_context_delayed_memory_reports(
             context
         )
     )
@@ -1143,7 +1194,7 @@ def collect_loaded_delayed_memory_fact_report_ids(
     context,
 ) -> dict[str, list[str]]:
 
-    reports = get_loaded_delayed_memory_reports(
+    reports = get_context_delayed_memory_reports(
         context
     )
 

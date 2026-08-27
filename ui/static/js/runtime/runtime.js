@@ -718,7 +718,108 @@ function refreshRuntimeAvatar() {
   }
 }
 
+function getContextLoadedLongTermFactIds() {
+  const factIds = new Set();
+  const reports = readDelayedMemoryReports();
+
+  Object.entries(
+    reports && typeof reports === "object" && !Array.isArray(reports)
+      ? reports
+      : {}
+  ).forEach(([rawReportId, report]) => {
+    if (
+        !report
+        || typeof report !== "object"
+        || Array.isArray(report)
+    ) {
+      return;
+    }
+
+    const reportId =
+      normalizeRuntimeDelayedMemoryReportId(rawReportId);
+    const inContext =
+      Boolean(report.pinned)
+      || Boolean(
+        reportId
+        && loadedDelayedMemoryReportIds.has(reportId)
+      );
+
+    if (!inContext) {
+      return;
+    }
+
+    normalizeRuntimeLongTermFactIds([
+      report.anchor_fact_ids,
+      report.facts_ids,
+      report.absorbed_fact_ids,
+      report.long_term_facts_ids,
+    ]).forEach(factId => factIds.add(factId));
+  });
+
+  return factIds;
+}
+
+function longTermFactMatchesIdSet(
+  fact,
+  factIds
+) {
+  if (
+      !fact
+      || typeof fact !== "object"
+      || Array.isArray(fact)
+      || !(factIds instanceof Set)
+      || !factIds.size
+  ) {
+    return false;
+  }
+
+  return normalizeRuntimeLongTermFactIds([
+    fact.id,
+    fact.source_fact_ids,
+  ]).some(factId => factIds.has(factId));
+}
+
+function stripLongTermFactArchiveState(fact) {
+  if (
+      !fact
+      || typeof fact !== "object"
+      || Array.isArray(fact)
+  ) {
+    return fact;
+  }
+
+  const visibleFact = {
+    ...fact,
+  };
+
+  delete visibleFact.archived;
+  delete visibleFact.hidden_from_context;
+
+  return visibleFact;
+}
+
 function getVisibleLongTermMemoryFacts() {
+  if (
+      l4Memory
+      && typeof l4Memory.getFactsWithArchiveState === "function"
+  ) {
+    const contextLoadedFactIds =
+      getContextLoadedLongTermFactIds();
+
+    return l4Memory.getFactsWithArchiveState()
+      .filter((fact) => (
+        !Boolean(
+          fact
+          && (fact.archived || fact.hidden_from_context)
+        )
+        || longTermFactMatchesIdSet(
+          fact,
+          contextLoadedFactIds
+        )
+      ))
+      .map(stripLongTermFactArchiveState);
+  }
+
   if (
       l4Memory
       && typeof l4Memory.getVisibleFacts === "function"
@@ -1460,9 +1561,10 @@ function setDelayedMemoryReportPinned(
     reports
   );
 
-  if (runtimeMemoryDisplayMode === "delayed") {
-    renderRuntimeMemorySnapshot();
-  }
+  // Pinning changes context visibility for linked L4 facts (and can affect
+  // other linked-memory rows), so refresh the currently open panel
+  // immediately instead of waiting for the next message/server echo.
+  renderRuntimeMemorySnapshot();
 
   // Pin state affects more than the delayed-memory dash itself: it also
   // controls linked L4/attachment highlights. Re-sync the whole delayed

@@ -1856,6 +1856,16 @@
         : l4Memory && typeof l4Memory.getFacts === "function"
         ? l4Memory.getFacts()
         : [];
+    const contextLoadedFactIds = new Set();
+
+    getDelayedMemoryAvatarRecords()
+      .filter(record => Boolean(
+        record && (record.pinned || record.loaded)
+      ))
+      .forEach((record) => {
+        normalizeL4FactIds(record.linkedFactIds)
+          .forEach(factId => contextLoadedFactIds.add(factId));
+      });
 
     return (Array.isArray(facts) ? facts : [])
       .map((fact) => {
@@ -1891,6 +1901,9 @@
             Boolean(
               fact.archived
               || fact.hidden_from_context
+            )
+            && !l4FactIds.some(
+              factId => contextLoadedFactIds.has(factId)
             ),
           avatarMemoryHoverId:
             buildAvatarMemoryHoverId(

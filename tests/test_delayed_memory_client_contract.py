@@ -267,6 +267,58 @@ class DelayedMemoryClientContractTests(unittest.TestCase):
         self.assertIn("loaded_delayed_memory_ids", socket_source)
         self.assertIn("replaceLoadedDelayedMemoryReportIds", socket_source)
 
+    def test_context_loaded_report_facts_override_l4_archive_filter(self):
+
+        runtime_source = (
+            ROOT / "ui" / "static" / "js" / "runtime" / "runtime.js"
+        ).read_text(encoding="utf-8")
+        avatar_source = (
+            ROOT / "ui" / "static" / "js" / "runtime" / "runtime-avatar.js"
+        ).read_text(encoding="utf-8")
+
+        visible_start = runtime_source.index(
+            "function getContextLoadedLongTermFactIds()"
+        )
+        visible_end = runtime_source.index(
+            "function setDelayedMemoryPinnedOnAvatar(",
+            visible_start,
+        )
+        visible_block = runtime_source[visible_start:visible_end]
+
+        self.assertIn(
+            "loadedDelayedMemoryReportIds.has(reportId)",
+            visible_block,
+        )
+        self.assertIn("Boolean(report.pinned)", visible_block)
+        self.assertIn("report.facts_ids", visible_block)
+        self.assertIn("report.absorbed_fact_ids", visible_block)
+        self.assertIn("report.long_term_facts_ids", visible_block)
+        self.assertIn("fact.source_fact_ids", visible_block)
+        self.assertIn("getFactsWithArchiveState", visible_block)
+        self.assertIn("longTermFactMatchesIdSet", visible_block)
+
+        pin_start = runtime_source.index(
+            "function setDelayedMemoryReportPinned("
+        )
+        pin_end = runtime_source.index(
+            "function setDelayedMemoryReportAnchorFactIds(",
+            pin_start,
+        )
+        pin_block = runtime_source[pin_start:pin_end]
+        self.assertIn("renderRuntimeMemorySnapshot();", pin_block)
+
+        avatar_start = avatar_source.index(
+            "function getL4MemoryAvatarRecords()"
+        )
+        avatar_end = avatar_source.index(
+            "function getPersistentFileAvatarRecords()",
+            avatar_start,
+        )
+        avatar_block = avatar_source[avatar_start:avatar_end]
+        self.assertIn("record.pinned || record.loaded", avatar_block)
+        self.assertIn("contextLoadedFactIds", avatar_block)
+        self.assertIn("record.linkedFactIds", avatar_block)
+
     def test_pinning_delayed_memory_does_not_create_secondary_report_glow(self):
 
         memory_view_source = (

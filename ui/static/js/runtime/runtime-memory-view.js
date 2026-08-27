@@ -2496,6 +2496,211 @@
 
   const runtimeMemoryHoverTitleSources = new WeakMap();
   const runtimeMemoryHoverTitleBoundNodes = new WeakSet();
+  let longTermMemoryHoverCard = null;
+  let longTermMemoryHoverCardAnchor = null;
+
+  function appendLongTermMemoryHoverMetadataRow(
+    container,
+    key,
+    value
+  ) {
+    const row = document.createElement("div");
+    const keyNode = document.createElement("span");
+    const valueNode = document.createElement("span");
+
+    row.className =
+        "runtime-memory-l4-hover-metadata-row";
+    keyNode.className =
+        "runtime-memory-l4-hover-metadata-key";
+    keyNode.textContent = key ? `${key}:` : "";
+    valueNode.className =
+        "runtime-memory-l4-hover-metadata-value";
+    valueNode.textContent = String(value || "");
+
+    row.appendChild(keyNode);
+    row.appendChild(valueNode);
+    container.appendChild(row);
+  }
+
+  function positionLongTermMemoryHoverCard(card, anchor) {
+    if (!card || !anchor || !anchor.isConnected) {
+      return;
+    }
+
+    const anchorRect = anchor.getBoundingClientRect();
+    const panelRect = memoryPanel
+      ? memoryPanel.getBoundingClientRect()
+      : anchorRect;
+    const cardRect = card.getBoundingClientRect();
+    const viewportWidth = Math.max(
+        document.documentElement.clientWidth || 0,
+        window.innerWidth || 0
+    );
+    const viewportHeight = Math.max(
+        document.documentElement.clientHeight || 0,
+        window.innerHeight || 0
+    );
+    const margin = 12;
+    const gap = 14;
+    const anchorCenterY =
+        anchorRect.top + (anchorRect.height / 2);
+    const left = Math.min(
+        Math.max(
+            margin,
+            panelRect.left - cardRect.width - gap
+        ),
+        Math.max(
+            margin,
+            viewportWidth - cardRect.width - margin
+        )
+    );
+    const top = Math.min(
+        Math.max(
+            margin,
+            anchorCenterY - (cardRect.height / 2)
+        ),
+        Math.max(
+            margin,
+            viewportHeight - cardRect.height - margin
+        )
+    );
+    const arrowY = Math.min(
+        Math.max(18, anchorCenterY - top),
+        Math.max(18, cardRect.height - 18)
+    );
+
+    card.style.left = `${Math.round(left)}px`;
+    card.style.top = `${Math.round(top)}px`;
+    card.style.setProperty(
+        "--runtime-memory-l4-hover-arrow-y",
+        `${Math.round(arrowY)}px`
+    );
+  }
+
+  function hideLongTermMemoryHoverCard(anchor = null) {
+    if (
+        anchor
+        && longTermMemoryHoverCardAnchor
+        && anchor !== longTermMemoryHoverCardAnchor
+    ) {
+      return;
+    }
+
+    if (
+        longTermMemoryHoverCard
+        && longTermMemoryHoverCard.isConnected
+    ) {
+      longTermMemoryHoverCard.remove();
+    }
+
+    longTermMemoryHoverCard = null;
+    longTermMemoryHoverCardAnchor = null;
+  }
+
+  function showLongTermMemoryHoverCard(anchor, line) {
+    if (!anchor || !line) {
+      return;
+    }
+
+    hideLongTermMemoryHoverCard();
+
+    const valuePresentation =
+        memoryModel.splitMemoryMeta(line.value || "");
+    const card = document.createElement("div");
+    const header = document.createElement("div");
+    const title = document.createElement("span");
+    const age = document.createElement("span");
+    const metadata = document.createElement("div");
+    const displayKey =
+        memoryModel.runtimeMemoryDisplay.convertKeyToName(
+          String(line.key || "")
+        )
+        || String(line.key || "").trim()
+        || "Long term memory";
+
+    card.className =
+        "runtime-memory-l4-hover-card";
+    card.setAttribute("role", "tooltip");
+    header.className =
+        "runtime-memory-l4-hover-header";
+    title.className =
+        "runtime-memory-l4-hover-title";
+    title.textContent = displayKey;
+    age.className =
+        "runtime-memory-l4-hover-age";
+    metadata.className =
+        "runtime-memory-l4-hover-metadata";
+
+    if (
+        Number.isFinite(Number(line.context_age_timestamp))
+        && Number(line.context_age_timestamp) > 0
+    ) {
+      age.textContent =
+          formatLongTermFactAgeLabel(
+              line.context_age_timestamp
+          );
+    }
+
+    header.appendChild(title);
+
+    if (age.textContent) {
+      header.appendChild(age);
+    }
+
+    card.appendChild(header);
+
+    if (String(valuePresentation.text || "").trim()) {
+      const summary = document.createElement("div");
+
+      summary.className =
+          "runtime-memory-l4-hover-summary";
+      summary.textContent = String(
+          valuePresentation.text || ""
+      ).replace(/\\n/g, " ↵ ");
+      card.appendChild(summary);
+    }
+
+    valuePresentation.tags.forEach((tag) => {
+      appendLongTermMemoryHoverMetadataRow(
+          metadata,
+          String(tag && tag.key || ""),
+          String(tag && tag.value || "")
+      );
+    });
+
+    if (metadata.childElementCount) {
+      card.appendChild(metadata);
+    }
+
+    longTermMemoryHoverCard = card;
+    longTermMemoryHoverCardAnchor = anchor;
+    document.body.appendChild(card);
+    positionLongTermMemoryHoverCard(card, anchor);
+  }
+
+  function bindLongTermMemoryHoverCard(row, line) {
+    if (!row || !line) {
+      return;
+    }
+
+    row.removeAttribute("title");
+    row.addEventListener("mouseenter", () => {
+      showLongTermMemoryHoverCard(row, line);
+    });
+    row.addEventListener("mouseleave", () => {
+      hideLongTermMemoryHoverCard(row);
+    });
+  }
+
+  window.addEventListener("resize", () => {
+    hideLongTermMemoryHoverCard();
+  });
+
+  if (memoryScroll) {
+    memoryScroll.addEventListener("scroll", () => {
+      hideLongTermMemoryHoverCard();
+    }, { passive: true });
+  }
 
   function resolveRuntimeMemoryHoverTitle(node) {
     if (!node) {
@@ -3796,21 +4001,28 @@
               runtimeMemoryValueFontWeight(line)
           );
 
-      let hoverTitle = null;
+      if (options.interactiveLongTermMemory) {
+        bindLongTermMemoryHoverCard(
+            row,
+            line
+        );
+      } else {
+        let hoverTitle = null;
 
-      bindRuntimeMemoryHoverTitle(
-        row,
-        () => {
-          if (hoverTitle === null) {
-            hoverTitle =
-                formatRuntimeMemoryHoverTitle(
-                    `${key}: ${valuePresentation.raw}`
-                );
+        bindRuntimeMemoryHoverTitle(
+          row,
+          () => {
+            if (hoverTitle === null) {
+              hoverTitle =
+                  formatRuntimeMemoryHoverTitle(
+                      `${key}: ${valuePresentation.raw}`
+                  );
+            }
+
+            return hoverTitle;
           }
-
-          return hoverTitle;
-        }
-      );
+        );
+      }
 
       if (longTermHeader) {
         row.appendChild(longTermHeader);
@@ -4203,6 +4415,8 @@
     configureRuntimeMemoryDeleteHold(
         row,
         () => {
+          hideLongTermMemoryHoverCard(row);
+
           if (typeof deleteLongTermMemoryFact === "function") {
             deleteLongTermMemoryFact(
                 line.id
@@ -8098,6 +8312,8 @@
 
 
   function renderLongTermMemoryFacts() {
+    hideLongTermMemoryHoverCard();
+
     const records =
         getLongTermMemoryFactRecords();
     const delayedReports =

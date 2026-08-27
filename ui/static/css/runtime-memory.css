@@ -193,6 +193,110 @@
     -webkit-line-clamp: 2;
 }
 
+.runtime-memory-l4-hover-card {
+    --runtime-memory-l4-hover-arrow-y: 50%;
+    position: fixed;
+    z-index: 90;
+    width: min(430px, calc(100vw - 24px));
+    box-sizing: border-box;
+    pointer-events: none;
+    border: 1px solid rgba(148, 163, 184, 0.52);
+    border-radius: 8px;
+    background: rgba(17, 20, 25, 0.97);
+    box-shadow:
+            0 18px 42px rgba(0, 0, 0, 0.44),
+            inset 0 1px 0 rgba(255, 255, 255, 0.035);
+    padding: 12px 14px 13px;
+    color: rgba(228, 228, 231, 0.92);
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+    font-size: 11px;
+    line-height: 1.45;
+}
+
+.runtime-memory-l4-hover-card::before,
+.runtime-memory-l4-hover-card::after {
+    position: absolute;
+    top: var(--runtime-memory-l4-hover-arrow-y);
+    width: 0;
+    height: 0;
+    content: "";
+    transform: translateY(-50%);
+}
+
+.runtime-memory-l4-hover-card::before {
+    right: -10px;
+    border-top: 10px solid transparent;
+    border-bottom: 10px solid transparent;
+    border-left: 10px solid rgba(148, 163, 184, 0.52);
+}
+
+.runtime-memory-l4-hover-card::after {
+    right: -8px;
+    border-top: 8px solid transparent;
+    border-bottom: 8px solid transparent;
+    border-left: 8px solid rgba(17, 20, 25, 0.97);
+}
+
+.runtime-memory-l4-hover-header {
+    display: flex;
+    align-items: center;
+    min-width: 0;
+    gap: 9px;
+    margin-bottom: 9px;
+}
+
+
+.runtime-memory-l4-hover-title {
+    min-width: 0;
+    overflow: hidden;
+    flex: 1 1 auto;
+    color: rgba(244, 244, 245, 0.97);
+    font-size: 12px;
+    font-weight: 600;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.runtime-memory-l4-hover-age {
+    flex: 0 0 auto;
+    color: rgba(161, 161, 170, 0.78);
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+}
+
+.runtime-memory-l4-hover-summary {
+    margin: 0 0 10px;
+    padding: 0 0 10px;
+    border-bottom: 1px solid rgba(82, 82, 91, 0.52);
+    color: rgba(212, 212, 216, 0.78);
+    overflow-wrap: anywhere;
+}
+
+.runtime-memory-l4-hover-metadata {
+    display: grid;
+    gap: 4px;
+}
+
+.runtime-memory-l4-hover-metadata-row {
+    display: grid;
+    grid-template-columns: minmax(118px, 0.9fr) minmax(0, 1.8fr);
+    align-items: baseline;
+    gap: 10px;
+}
+
+.runtime-memory-l4-hover-metadata-key {
+    min-width: 0;
+    color: rgba(161, 161, 170, 0.86);
+    overflow-wrap: anywhere;
+}
+
+.runtime-memory-l4-hover-metadata-value {
+    min-width: 0;
+    color: rgba(226, 232, 240, 0.90);
+    font-variant-numeric: tabular-nums;
+    overflow-wrap: anywhere;
+}
+
 .runtime-memory-key,
 .runtime-memory-value {
     color: rgba(244,244,245,0.62);
