@@ -725,6 +725,21 @@ body:not(.theme-win95) .jin-think-content.is-collapsed::after {
     text-shadow: 0 0 6px rgba(249, 115, 22, 0.17);
 }
 
+.jin-think-content.has-rule-highlights .think-citation-delayed.exact {
+    color: rgba(103, 232, 249, 0.98);
+    text-shadow: 0 0 10px rgba(34, 211, 238, 0.38);
+}
+
+.jin-think-content.has-rule-highlights .think-citation-delayed.near {
+    color: rgba(103, 232, 249, 0.88);
+    text-shadow: 0 0 8px rgba(34, 211, 238, 0.28);
+}
+
+.jin-think-content.has-rule-highlights .think-citation-delayed.compressed {
+    color: rgba(103, 232, 249, 0.78);
+    text-shadow: 0 0 6px rgba(34, 211, 238, 0.19);
+}
+
 .jin-think-content.has-rule-highlights .think-citation-l4.exact {
     color: rgba(129, 230, 217, 0.98);
     text-shadow: 0 0 10px rgba(45, 212, 191, 0.38);

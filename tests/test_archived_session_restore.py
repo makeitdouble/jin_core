@@ -1380,6 +1380,13 @@ class ArchivedSessionRestoreClientContractTests(unittest.TestCase):
             index.index("socket.js"),
         )
         self.assertIn("jinArchivedSessionRestoreReady", restore_script)
+        self.assertIn("clearRestoreSessionParam", restore_script)
+        self.assertIn('url.searchParams.delete(\n      "restore_session"', restore_script)
+        self.assertIn("window.history.replaceState", restore_script)
+        self.assertIn("status === 404", restore_script)
+        self.assertIn("jinArchivedSessionRestoreFailure", restore_script)
+        self.assertIn('"[SESSION ERROR]"', restore_script)
+        self.assertIn("session: ${failedSessionId}", restore_script)
         self.assertIn("jin-session-restore-divider", restore_script)
         self.assertIn("formatRestoreBoundaryTimestamp", restore_script)
         self.assertIn("appendRestoreBoundary(payload)", restore_script)
@@ -1397,6 +1404,9 @@ class ArchivedSessionRestoreClientContractTests(unittest.TestCase):
         )
         self.assertIn("runtimeMemory.saved_at", runtime_session)
         self.assertIn('type: "archived_session_resume"', socket_script)
+        self.assertIn("logArchivedRestoreFallbackSession", socket_script)
+        self.assertIn("jinArchivedSessionRestoreFailure", socket_script)
+        self.assertIn("loaded session\\nsession: ${loadedSessionId}", socket_script)
         self.assertNotIn(
             'bootstrap.archived_session_restore !== true',
             socket_script,

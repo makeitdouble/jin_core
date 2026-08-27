@@ -587,6 +587,39 @@ function requestArchivedSessionResume(
 }
 
 
+function logArchivedRestoreFallbackSession(
+  bootstrap
+) {
+  const failure =
+    window.jinArchivedSessionRestoreFailure;
+
+  if (
+      !failure
+      || failure.fallback_logged
+      || !bootstrap
+  ) {
+    return;
+  }
+
+  const loadedSessionId =
+    String(
+      bootstrap.source_session_id
+      || ""
+    ).trim();
+
+  if (!loadedSessionId) {
+    return;
+  }
+
+  failure.fallback_logged = true;
+
+  appendLog(
+    "[SESSION]",
+    `loaded session\nsession: ${loadedSessionId}`
+  );
+}
+
+
 function handleSocketMessage(event) {
 
   /** @type {SocketMessage} */
@@ -728,6 +761,10 @@ async function handleSocketOpen() {
     window.getPersistedSessionBootstrap();
 
   if (bootstrap) {
+    logArchivedRestoreFallbackSession(
+      bootstrap
+    );
+
     if (
         window.JinRuntime
         && window.JinRuntime.runtime

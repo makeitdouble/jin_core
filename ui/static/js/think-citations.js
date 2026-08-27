@@ -39,6 +39,15 @@
       : "";
   }
 
+  function normalizeDelayedMemoryId(value) {
+    const normalized =
+      String(value || "").trim().toLowerCase();
+
+    return /^[a-z0-9]{6}$/.test(normalized)
+      ? normalized
+      : "";
+  }
+
   function normalizeActiveMemoryKey(value) {
     const normalized =
       String(value || "").trim().toLowerCase();
@@ -180,6 +189,62 @@
 
     return (Array.isArray(records) ? records : [])
       .map(parseActiveMemoryCitationRecord)
+      .filter(Boolean);
+  }
+
+  function getDelayedMemoryCitationRecords() {
+    const runtimeApi =
+      window.JinRuntime
+      && window.JinRuntime.runtime;
+    const reports =
+      runtimeApi
+      && typeof runtimeApi.getDelayedMemoryReports === "function"
+        ? runtimeApi.getDelayedMemoryReports()
+        : {};
+
+    if (
+      !reports
+      || typeof reports !== "object"
+      || Array.isArray(reports)
+    ) {
+      return [];
+    }
+
+    return Object.entries(reports)
+      .map(([storageKey, report]) => {
+        if (
+          !report
+          || typeof report !== "object"
+          || Array.isArray(report)
+        ) {
+          return null;
+        }
+
+        const id =
+          normalizeDelayedMemoryId(report._storage_key)
+          || normalizeDelayedMemoryId(report.id)
+          || normalizeDelayedMemoryId(storageKey);
+
+        if (!id) {
+          return null;
+        }
+
+        const title =
+          String(report.title || "")
+            .replace(/\s+/g, " ")
+            .trim();
+        const summary =
+          String(report.summary || "")
+            .replace(/\s+/g, " ")
+            .trim();
+
+        return {
+          id,
+          title,
+          summary,
+          identity: `delayed:${id}`,
+        };
+      })
       .filter(Boolean);
   }
 
@@ -386,6 +451,13 @@
 
     if (
       match
+      && match.sourceType === "delayed"
+    ) {
+      return 1;
+    }
+
+    if (
+      match
       && match.sourceType === "l4"
     ) {
       return 1;
@@ -505,8 +577,10 @@
         ? "RUNTIME"
         : match.sourceType === "active"
           ? "ACTIVE"
-          : match.sourceType === "l4"
-            ? "L4"
+          : match.sourceType === "delayed"
+            ? "DELAYED"
+            : match.sourceType === "l4"
+              ? "L4"
             : match.sourceType === "session"
               ? "SESSION"
               : "RULE";
@@ -528,8 +602,10 @@
         ? "runtime"
         : match.sourceType === "active"
           ? "active"
-          : match.sourceType === "l4"
-            ? "l4"
+          : match.sourceType === "delayed"
+            ? "delayed"
+            : match.sourceType === "l4"
+              ? "l4"
             : match.sourceType === "session"
               ? "session"
               : "rule";
@@ -973,6 +1049,7 @@
   function fastCitationSourcePriority(candidate) {
     if (candidate && candidate.sourceType === "active") return 3;
     if (candidate && candidate.sourceType === "runtime") return 2;
+    if (candidate && candidate.sourceType === "delayed") return 1;
     if (candidate && candidate.sourceType === "l4") return 1;
     return 0;
   }
@@ -1109,6 +1186,29 @@
         layer: "active",
         citationType: "active_memory_citation",
       });
+    });
+
+    getDelayedMemoryCitationRecords().forEach((record) => {
+      const lineText = [
+        record.id,
+        record.title,
+        record.summary,
+      ].filter(Boolean).join(": ");
+
+      addLine(
+        "delayed",
+        `delayedMemory[${record.id}]`,
+        lineText,
+        {
+          id: record.id,
+          key: record.id,
+          identity: record.identity,
+          includeKeyAlias: false,
+          titleText: record.title || lineText,
+          layer: "delayed",
+          citationType: "delayed_memory_citation",
+        }
+      );
     });
 
     const l4Memory = window.JinRuntime && window.JinRuntime.l4Memory;
@@ -1501,7 +1601,7 @@
       filterLiveActiveMemoryMatches(matches)
         .filter(match => (
           match
-          && ["runtime", "active", "l4"].includes(
+          && ["runtime", "active", "delayed", "l4"].includes(
             match.sourceType
           )
         ));

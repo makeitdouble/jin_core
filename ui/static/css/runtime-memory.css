@@ -894,7 +894,7 @@
 }
 
 .delayed-memory-report-modal {
-    z-index: 60;
+    z-index: 60 !important;
 }
 
 .delayed-memory-modal-section > .delayed-memory-modal-fields {

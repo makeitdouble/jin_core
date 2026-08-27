@@ -966,6 +966,23 @@ class DelayedMemoryClientContractTests(unittest.TestCase):
             session_source,
         )
 
+    def test_delayed_memory_report_modal_stays_above_context_modal(self):
+        css_source = (
+            ROOT / "ui" / "static" / "css" / "runtime-memory.css"
+        ).read_text(encoding="utf-8")
+        index_source = (
+            ROOT / "ui" / "templates" / "index.html"
+        ).read_text(encoding="utf-8")
+
+        self.assertIn(
+            ".delayed-memory-report-modal {\n    z-index: 60 !important;\n}",
+            css_source,
+        )
+        self.assertIn(
+            "&report-modal-stack=1",
+            index_source,
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

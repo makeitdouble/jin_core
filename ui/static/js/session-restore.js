@@ -17,6 +17,26 @@
     return;
   }
 
+  function clearRestoreSessionParam() {
+    const url = new URL(
+      window.location.href
+    );
+
+    if (!url.searchParams.has("restore_session")) {
+      return;
+    }
+
+    url.searchParams.delete(
+      "restore_session"
+    );
+
+    window.history.replaceState(
+      window.history.state,
+      "",
+      `${url.pathname}${url.search}${url.hash}`
+    );
+  }
+
   const chatHistory =
     document.getElementById(
       "chat-history"
@@ -818,9 +838,12 @@
     );
 
     if (!response.ok) {
-      throw new Error(
+      const error = new Error(
         `session restore failed: ${response.status}`
       );
+      error.status = response.status;
+      error.sessionId = sourceSessionId;
+      throw error;
     }
 
     const payload =
@@ -865,15 +888,39 @@
   window.jinArchivedSessionRestoreReady =
     restoreArchivedSession()
       .catch((error) => {
+        const status = Number(
+          error && error.status
+          || 0
+        );
+        const failedSessionId = String(
+          error && error.sessionId
+          || sourceSessionId
+          || ""
+        ).trim();
+
+        if (status === 404) {
+          clearRestoreSessionParam();
+          window.jinArchivedSessionRestoreFailure = {
+            requested_session_id: failedSessionId,
+            status,
+            fallback_logged: false,
+          };
+        }
+
         console.error(
           "[SESSION RESTORE]",
+          failedSessionId,
           error
         );
 
         if (typeof window.appendLog === "function") {
+          const statusLine = status
+            ? `\nstatus: ${status}`
+            : "";
+
           window.appendLog(
-            "[SESSION]",
-            `restore failed: ${error.message || error}`
+            "[SESSION ERROR]",
+            `restore failed\nsession: ${failedSessionId}${statusLine}`
           );
         }
 

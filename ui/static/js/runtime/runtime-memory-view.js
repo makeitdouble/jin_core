@@ -4743,6 +4743,21 @@
               "delayed",
               reportId || report._storage_key
             );
+        setRuntimeMemoryRowState(
+          row,
+          {
+            runtimeMemoryLineIdentity:
+              reportId
+                ? normalizeRuntimeCitationIdentity(
+                    `delayed:${reportId}`
+                  )
+                : "",
+            runtimeMemoryLineKey:
+              normalizeRuntimeCitationIdentity(reportId),
+            runtimeMemoryLineText:
+              normalizeRuntimeCitationIdentity(hoverTitle),
+          }
+        );
         setMemoryReferenceAliases(
           row,
           collectMemoryRecordReferenceAliases(

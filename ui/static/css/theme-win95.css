@@ -1091,6 +1091,18 @@ body.theme-win95 .jin-think-content.has-rule-highlights .think-citation-runtime.
     color: #168041;
 }
 
+body.theme-win95 .jin-think-content.has-rule-highlights .think-citation-delayed.exact {
+    color: #007f8f;
+}
+
+body.theme-win95 .jin-think-content.has-rule-highlights .think-citation-delayed.near {
+    color: #0a8795;
+}
+
+body.theme-win95 .jin-think-content.has-rule-highlights .think-citation-delayed.compressed {
+    color: #208c97;
+}
+
 body.theme-win95 .jin-think-content.has-rule-highlights .think-citation-session.exact {
     color: #5f22b3;
 }
