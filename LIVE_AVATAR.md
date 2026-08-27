@@ -65,7 +65,7 @@ Other visual/state knobs:
 
 The radar avatar is drawn as a single SVG inside `#jin-runtime-avatar`. A full render replaces the old SVG, but state-only changes are deliberately synchronized in place where possible so a pin/load transition does not unnecessarily reshuffle or restart visual geometry.
 
-The SVG is intentionally only the visual projection. Rich matching/link payload (`citationIdentity`, citation key/text, reference aliases, delayed/L4 relation ids, file links, and the L4 archive angle) lives in the private `avatarNodeState` `WeakMap` in `runtime-avatar.js`, not in `data-*` attributes. Keep only lightweight canonical ids and synchronization hooks in the DOM; do not serialize full values or derived payload back into SVG nodes. Ring-wide metabolism/glow variables belong on the ring group rather than being duplicated on every memory dash.
+The SVG is intentionally only the visual projection. Rich matching/link payload (`citationIdentity`, citation key/text, reference aliases, delayed/L4 relation ids, file links, and the L4 archive angle) lives in the private `avatarNodeState` `WeakMap` in `runtime-avatar.js`, not in `data-*` attributes. Keep only lightweight canonical ids and synchronization hooks in the DOM; do not serialize full values or derived payload back into SVG nodes. Ring-wide glow variables belong on the ring group rather than being duplicated on every memory dash.
 
 The stack is built in this order:
 

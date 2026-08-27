@@ -202,7 +202,7 @@ Stop/cancel/repetition/context-limit interruption must preserve separate lifecyc
 
 Serialize/deserialize must preserve entity/snapshot timestamps. `now()` is only a fallback for a truly legacy record with no timestamp.
 
-**Why:** ordering, age, metabolism, and visible history become false if reload mutates time.
+**Why:** ordering, age, context relevance, and visible history become false if reload mutates time.
 
 **Rejected alternative:** stamping restored rows with current time for convenience.
 
@@ -517,3 +517,17 @@ Action/recovery follow-ups do not append this ordinary block again. They constru
 **Why:** the opening and conclusion preserve the previous line of thought without spending the entire context window on its middle, while dedicated follow-up context avoids stale or duplicated reasoning.
 
 **Rejected alternatives:** exposing previous reasoning only during session-restore priming; dropping the block from ordinary turns; duplicating it inside action/recovery follow-ups; trimming only one edge.
+
+---
+
+## D038 — Memory Attention replaces metabolism
+
+**Status:** Accepted / implemented
+
+The metabolism subsystem is removed. The retained `runtime/memory_attention.py` module performs only prompt-local Active lexical/context relevance, Delayed inventory bubble matching, and a narrow 1–3 fact L4 focus.
+
+Memory Attention is deterministic and stateless: it does not call SERVICE, change Brain temperature, generate hidden instructions, learn phrase associations, mutate memory while building context, persist significance, or drive avatar chemistry.
+
+**Why:** the useful behavior was retrieval/ranking. The causal homeostat duplicated model work, obscured sampling, and leaked event-wide significance through L1 into durable L4.
+
+**Rejected alternatives:** keeping observer-only chemistry; keeping significance as an independent durable score; preserving the metabolic UI without the backend.

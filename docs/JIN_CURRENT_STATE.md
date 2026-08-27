@@ -46,7 +46,7 @@ Present and active:
 - `runtime/stream.py`
 - `runtime/L1_memory.py`, `L1_memory_rules.py`, `L1_memory_utils.py`
 - `runtime/L4_memory.py`, `L4_memory_rules.py`, `L4_memory_utils.py`
-- `runtime/metabolism.py`
+- `runtime/memory_attention.py`
 - `runtime/anonymous_mode.py`
 - `contracts/*.json`
 - `utils/actions/*`
@@ -231,7 +231,7 @@ The self-closing attribute form is compatibility only; the model-facing contract
 
 ### Current internal representation
 
-Active records are still stored/transported in a string-oriented record format with metadata suffixes. Prompt assembly refreshes metadata, removes paused items, and may rank the prompt view by metabolism salience.
+Active records are still stored/transported in a string-oriented record format with metadata suffixes. Prompt assembly refreshes metadata, removes paused items, and may rank the prompt view by lexical/context relevance.
 
 ### Risk
 
@@ -357,24 +357,19 @@ This is the current performance/ordering contract. Do not move L4 onto every for
 
 ---
 
-## 11. Metabolism status
+## 11. Memory Attention status
 
-`runtime/metabolism.py` is large and actively wired into the foreground/L1 flow.
+The metabolism subsystem has been removed. `runtime/memory_attention.py` retains only prompt-local retrieval behavior:
 
-Verified active pieces include:
+- Active lexical/context relevance;
+- Delayed bubble matching;
+- L4 1–3 fact focus.
 
-- pre-Brain foreground impulse;
-- post-turn settling;
-- Active/Delayed/L4 significance/salience scoring;
-- temperature adjustment;
-- recent-turn memory;
-- association learning;
-- SERVICE update scheduled after successful L1 diff commit;
-- bootstrap state support.
+There is no metabolic SERVICE pass, homeostat, learned association state, temperature modulation, Brain instruction, L1 strength bias, significance persistence, bootstrap chemistry, logger trace, or avatar chemistry. Historical significance fields are discarded while normalizing old Active/Facts/L4 records.
 
 ### Not proven
 
-The older concept of a full nightly self-review cycle that reads cropped reasoning/context and emits a morning cleanup report is **not proven complete** by this snapshot. Do not describe it as finished architecture without finding the actual scheduler/storage/report path.
+The older concept of a full nightly self-review cycle that reads cropped reasoning/context and emits a morning cleanup report is **not proven complete** by this snapshot. Do not describe it as finished architecture without finding the actual scheduler/storage/report path; Memory Attention is unrelated to that cycle.
 
 ---
 

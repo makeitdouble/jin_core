@@ -41,9 +41,9 @@ class L4ContextFocusContractTests(unittest.TestCase):
 
         self.assertLess(block.index("[ id: F22 ]"), block.index("[ id: F10 ]"))
         self.assertLess(block.index("[ id: F10 ]"), block.index("[ id: F2 ]"))
-        self.assertEqual(context.runtime_metabolism_l4_focus_ids, [])
+        self.assertEqual(context.runtime_memory_attention_l4_focus_ids, [])
 
-    def test_metabolism_focus_promotes_only_prompt_view(self):
+    def test_memory_attention_focus_promotes_only_prompt_view(self):
         context = self.make_context([
             {"id": "F1", "key": "project.unrelated", "value": "Unrelated durable fact."},
             {
@@ -64,13 +64,13 @@ class L4ContextFocusContractTests(unittest.TestCase):
         )
 
         self.assertLess(block.index("[ id: F22 ]"), block.index("[ id: F1 ]"))
-        self.assertEqual(context.runtime_metabolism_l4_focus_ids, ["F22"])
+        self.assertEqual(context.runtime_memory_attention_l4_focus_ids, ["F22"])
         self.assertEqual(
             [fact["id"] for fact in context.runtime_long_term_memory_store["facts"]],
             stored_ids_before,
         )
 
-    def test_metabolism_focus_can_open_to_three_prompt_facts(self):
+    def test_memory_attention_focus_can_open_to_three_prompt_facts(self):
         context = self.make_context([
             {"id": "F227", "key": "fresh.latest", "value": "Fresh but unrelated."},
             {"id": "F226", "key": "fresh.previous", "value": "Also unrelated."},
@@ -78,13 +78,6 @@ class L4ContextFocusContractTests(unittest.TestCase):
             {"id": "F60", "key": "topic.secondary", "value": "Secondary resonant fact."},
             {"id": "F40", "key": "topic.tertiary", "value": "Tertiary resonant fact."},
         ])
-        context.runtime_metabolism_levels = {
-            "dopamine": 0.72,
-            "serotonin": 0.58,
-            "oxytocin": 0.66,
-            "norepinephrine": 0.76,
-            "cortisol": 0.18,
-        }
         scores = {
             "F80": 0.62,
             "F60": 0.53,
@@ -94,7 +87,7 @@ class L4ContextFocusContractTests(unittest.TestCase):
         }
 
         with patch(
-            "runtime.metabolism.score_l4_fact_context_focus",
+            "runtime.memory_attention.score_l4_fact_context_focus",
             side_effect=lambda fact, **_kwargs: scores[fact["id"]],
         ):
             block = build_runtime_l4_memory_context(
@@ -107,11 +100,11 @@ class L4ContextFocusContractTests(unittest.TestCase):
         self.assertLess(block.index("[ id: F40 ]"), block.index("[ id: F227 ]"))
         self.assertLess(block.index("[ id: F227 ]"), block.index("[ id: F226 ]"))
         self.assertEqual(
-            context.runtime_metabolism_l4_focus_ids,
+            context.runtime_memory_attention_l4_focus_ids,
             ["F80", "F60", "F40"],
         )
 
-    def test_metabolism_focus_does_not_pad_with_unrelated_facts(self):
+    def test_memory_attention_focus_does_not_pad_with_unrelated_facts(self):
         context = self.make_context([
             {"id": "F227", "key": "fresh.latest", "value": "Fresh unrelated."},
             {"id": "F22", "key": "topic.primary", "value": "Primary resonant fact."},
@@ -120,7 +113,7 @@ class L4ContextFocusContractTests(unittest.TestCase):
         scores = {"F22": 0.58, "F21": 0.13, "F227": 0.04}
 
         with patch(
-            "runtime.metabolism.score_l4_fact_context_focus",
+            "runtime.memory_attention.score_l4_fact_context_focus",
             side_effect=lambda fact, **_kwargs: scores[fact["id"]],
         ):
             block = build_runtime_l4_memory_context(
@@ -130,7 +123,7 @@ class L4ContextFocusContractTests(unittest.TestCase):
 
         self.assertLess(block.index("[ id: F22 ]"), block.index("[ id: F227 ]"))
         self.assertLess(block.index("[ id: F227 ]"), block.index("[ id: F21 ]"))
-        self.assertEqual(context.runtime_metabolism_l4_focus_ids, ["F22"])
+        self.assertEqual(context.runtime_memory_attention_l4_focus_ids, ["F22"])
 
     def test_l4_visual_focus_is_explicit_reasoning_citation_only(self):
         memory_view = MEMORY_VIEW_JS.read_text(encoding="utf-8")

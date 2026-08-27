@@ -46,9 +46,6 @@ from runtime.action_guard import (
     confirm_runtime_action_guards,
     get_action_guard_display_id,
 )
-from runtime.metabolism import (
-    resolve_metabolism_temperature,
-)
 from utils.session_actions_history import (
     attach_session_action_jin_message_since,
     build_asset_action_marker_text,
@@ -378,10 +375,7 @@ async def ask_brain(
                 client=client,
                 user_prompt=model_user_prompt,
                 system_prompt=system_prompt,
-                temperature=resolve_metabolism_temperature(
-                    config.BRAIN_TEMPERATURE,
-                    context,
-                ),
+                temperature=config.BRAIN_TEMPERATURE,
                 max_tokens=None,
             )
 
@@ -471,10 +465,7 @@ async def ask_brain(
         result = await client.ask(
             system_prompt=system_prompt,
             user_prompt=model_user_prompt,
-            temperature=resolve_metabolism_temperature(
-                config.BRAIN_TEMPERATURE,
-                context,
-            ),
+            temperature=config.BRAIN_TEMPERATURE,
             max_tokens=None,
         )
 
@@ -2172,10 +2163,7 @@ async def ask_brain_stream(
                     system_prompt=(
                         resolved_system_prompt
                     ),
-                    temperature=resolve_metabolism_temperature(
-                        config.BRAIN_TEMPERATURE,
-                        context,
-                    ),
+                    temperature=config.BRAIN_TEMPERATURE,
                     max_tokens=None,
                 )
             ):
@@ -2278,10 +2266,7 @@ async def ask_brain_stream(
                     resolved_system_prompt
                 ),
                 user_prompt=model_user_prompt,
-                temperature=resolve_metabolism_temperature(
-                    config.BRAIN_TEMPERATURE,
-                    context,
-                ),
+                temperature=config.BRAIN_TEMPERATURE,
                 max_tokens=None,
             )
         ):

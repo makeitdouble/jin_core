@@ -125,13 +125,6 @@
     typeof memoryReferenceHelpers.collectMetadataAliases === "function"
       ? memoryReferenceHelpers.collectMetadataAliases
       : () => [];
-  const metabolismApi =
-    window.JinRuntime.metabolism || null;
-  const METABOLISM_UPDATE_EVENT =
-    metabolismApi && metabolismApi.UPDATE_EVENT
-      ? metabolismApi.UPDATE_EVENT
-      : "jin:metabolism-update";
-
   if (!avatarRoot) {
     return;
   }
@@ -185,70 +178,6 @@
 
   function clamp(value, min, max) {
     return Math.max(min, Math.min(max, Number(value) || 0));
-  }
-
-  function getMetabolismChannel() {
-    // Metabolism is a single ambient layer over memory, not a semantic label
-    // assigned to individual records. Keep one marker only so already-rendered
-    // SVG nodes can be refreshed when the five-channel state changes.
-    return metabolismApi ? "ambient" : "";
-  }
-
-  function getMetabolismTintedColor(baseColor, channel) {
-    if (
-        metabolismApi
-        && typeof metabolismApi.tintColor === "function"
-        && channel
-    ) {
-      return metabolismApi.tintColor(
-        baseColor
-      );
-    }
-
-    return baseColor;
-  }
-
-  function getActiveMemoryMetabolicOpacity(activeMemoryId) {
-    if (
-      !metabolismApi
-      || typeof metabolismApi.getActiveMemorySalience !== "function"
-    ) {
-      return 0.76;
-    }
-
-    const salience = metabolismApi.getActiveMemorySalience(
-      activeMemoryId
-    );
-
-    if (!Number.isFinite(Number(salience))) {
-      return 0.76;
-    }
-
-    // Salience only breathes inside the established opacity language. A
-    // reasoning citation/hover still owns the strong highlight on top.
-    return clamp(
-      0.70 + Number(salience) * 0.16,
-      0.70,
-      0.86
-    );
-  }
-
-  function refreshActiveMemoryMetabolicOpacity() {
-    avatarRoot.querySelectorAll(
-      ".jin-avatar-memory-dash-active[data-active-memory-id]"
-    ).forEach((dashGroup) => {
-      const opacity = getActiveMemoryMetabolicOpacity(
-        dashGroup.dataset.activeMemoryId
-      );
-      const path = dashGroup.querySelector("path");
-
-      if (path) {
-        path.setAttribute(
-          "stroke-opacity",
-          opacity.toFixed(3)
-        );
-      }
-    });
   }
 
   function degreesFromArcPixels(pixels, radius) {
@@ -2253,114 +2182,6 @@
     );
   }
 
-  function refreshRenderedMetabolismTints() {
-    const channel = getMetabolismChannel();
-
-    if (!channel) {
-      return;
-    }
-
-    const overallColor =
-      avatarRoot.style
-        .getPropertyValue("--jin-avatar-overall-color")
-        .trim() || DEFAULT_RING_COLOR;
-
-    Object.entries(MEMORY_RING_LAYOUT)
-      .forEach(([kind, layout]) => {
-        const ring =
-          avatarRoot.querySelector(
-            `.jin-avatar-memory-ring-${kind}`
-          );
-
-        if (!ring) {
-          return;
-        }
-
-        const colors =
-          getMemorySignalColors(kind, overallColor);
-        const renderedColor =
-          getMetabolismTintedColor(
-            colors.color,
-            channel
-          );
-        const renderedGlowColor =
-          getMetabolismTintedColor(
-            colors.glowColor,
-            channel
-          );
-
-        ring.querySelectorAll(
-          ".jin-avatar-memory-dash > path"
-        ).forEach((path) => {
-          path.setAttribute(
-            "stroke",
-            renderedColor
-          );
-        });
-        ring.querySelectorAll(
-          ".jin-avatar-memory-dot"
-        ).forEach((dot) => {
-          dot.setAttribute(
-            "fill",
-            renderedColor
-          );
-        });
-
-        setMemoryDashGlowVariables(
-          ring,
-          renderedGlowColor,
-          layout.strokeWidth + 0.75,
-          kind === "l4"
-            ? getMemoryDotRadius(layout)
-            : 0
-        );
-      });
-
-    avatarRoot.querySelectorAll(
-      ".jin-avatar-file-dot"
-    ).forEach((dotGroup) => {
-      const active = Boolean(
-        dotGroup.classList.contains("is-memory-pinned")
-        || dotGroup.classList.contains("is-context-loaded")
-      );
-      const baseColor =
-        active
-          ? FILE_RING_ACTIVE_COLOR
-          : FILE_RING_COLOR;
-      const glowColor =
-        active
-          ? FILE_RING_ACTIVE_COLOR
-          : FILE_RING_LAYOUT.glowColor;
-
-      const renderedColor =
-        getMetabolismTintedColor(
-          baseColor,
-          channel
-        );
-      const renderedGlowColor =
-        getMetabolismTintedColor(
-          glowColor,
-          channel
-        );
-      const core =
-        dotGroup.querySelector(
-          ".jin-avatar-file-dot-core"
-        );
-
-      if (core) {
-        core.setAttribute(
-          "fill",
-          renderedColor
-        );
-      }
-
-      setFileDotGlowVariables(
-        dotGroup,
-        renderedGlowColor
-      );
-    });
-  }
-
   function getMemoryRingAnimation(records, kind) {
     const seedText = records
       .map(record => (
@@ -2445,17 +2266,6 @@
     ring.appendChild(reasoningMotion.layer);
     const ringColors =
       getMemorySignalColors(kind, overallColor);
-    const metabolismChannel = getMetabolismChannel();
-    const renderedColor =
-      getMetabolismTintedColor(
-        ringColors.color,
-        metabolismChannel
-      );
-    const renderedGlowColor =
-      getMetabolismTintedColor(
-        ringColors.glowColor,
-        metabolismChannel
-      );
     const dotRadius =
       kind === "l4"
         ? getMemoryDotRadius(layout)
@@ -2463,7 +2273,7 @@
 
     setMemoryDashGlowVariables(
       ring,
-      renderedGlowColor,
+      ringColors.glowColor,
       layout.strokeWidth + 0.75,
       dotRadius
     );
@@ -2495,8 +2305,8 @@
             kind,
             angle,
             arcDegrees,
-            color: renderedColor,
-            opacity: getActiveMemoryMetabolicOpacity(record.id),
+            color: ringColors.color,
+            opacity: 0.76,
             avatarMemoryHoverId: record.avatarMemoryHoverId,
             activeMemoryId: record.id,
             citationKey:
@@ -2515,7 +2325,7 @@
             kind,
             angle,
             arcDegrees,
-            color: renderedColor,
+            color: ringColors.color,
             opacity: record.archived ? 0.26 : 0.52,
             archived: record.archived,
             dot: record.archived,
@@ -2543,7 +2353,7 @@
           kind,
           angle,
           arcDegrees,
-          color: renderedColor,
+          color: ringColors.color,
           opacity: active ? 0.82 : 0.36,
           pinned,
           contextLoaded,
@@ -2604,18 +2414,6 @@
       const glowColor = record.pinned
         ? FILE_RING_ACTIVE_COLOR
         : FILE_RING_LAYOUT.glowColor;
-      const metabolismChannel =
-        getMetabolismChannel();
-      const renderedColor =
-        getMetabolismTintedColor(
-          color,
-          metabolismChannel
-        );
-      const renderedGlowColor =
-        getMetabolismTintedColor(
-          glowColor,
-          metabolismChannel
-        );
       const dotGroup = createSvgElement("g", {
         class: "jin-avatar-file-dot",
         "data-avatar-memory-hover-id": record.avatarMemoryHoverId || null,
@@ -2656,14 +2454,14 @@
       );
       setFileDotGlowVariables(
         dotGroup,
-        renderedGlowColor
+        glowColor
       );
       dotGroup.appendChild(createSvgElement("circle", {
         class: "jin-avatar-file-dot-core",
         cx: point.x.toFixed(3),
         cy: point.y.toFixed(3),
         r: FILE_RING_LAYOUT.dotRadius,
-        fill: renderedColor,
+        fill: color,
         "fill-opacity": opacity.toFixed(2),
       }));
       reasoningMotion.content.appendChild(dotGroup);
@@ -2831,28 +2629,16 @@
       "is-memory-pinned",
       nextPinned
     );
-    const metabolismChannel = getMetabolismChannel();
-    const renderedColor =
-      getMetabolismTintedColor(
-        colors.color,
-        metabolismChannel
-      );
-    const renderedGlowColor =
-      getMetabolismTintedColor(
-        colors.glowColor,
-        metabolismChannel
-      );
-
     setMemoryDashGlowVariables(
       dashGroup.closest(".jin-avatar-memory-ring-delayed") || dashGroup,
-      renderedGlowColor,
+      colors.glowColor,
       MEMORY_RING_LAYOUT.delayed.strokeWidth + 0.75
     );
 
     if (path) {
       path.setAttribute(
         "stroke",
-        renderedColor
+        colors.color
       );
       path.setAttribute(
         "stroke-opacity",
@@ -2931,21 +2717,9 @@
       nextArchived
     );
 
-    const metabolismChannel = getMetabolismChannel();
-    const renderedColor =
-      getMetabolismTintedColor(
-        colors.color,
-        metabolismChannel
-      );
-    const renderedGlowColor =
-      getMetabolismTintedColor(
-        colors.glowColor,
-        metabolismChannel
-      );
-
     setMemoryDashGlowVariables(
       dashGroup.closest(".jin-avatar-memory-ring-l4") || dashGroup,
-      renderedGlowColor,
+      colors.glowColor,
       MEMORY_RING_LAYOUT.l4.strokeWidth + 0.75,
       dotRadius
     );
@@ -2956,7 +2730,7 @@
     );
     path.setAttribute(
       "stroke",
-      renderedColor
+      colors.color
     );
     path.setAttribute(
       "stroke-opacity",
@@ -2987,7 +2761,7 @@
     dot.setAttribute("cx", dotPoint.x.toFixed(3));
     dot.setAttribute("cy", dotPoint.y.toFixed(3));
     dot.setAttribute("r", dotRadius.toFixed(2));
-    dot.setAttribute("fill", renderedColor);
+    dot.setAttribute("fill", colors.color);
     dot.setAttribute("fill-opacity", nextOpacity.toFixed(2));
 
     return true;
@@ -3248,27 +3022,15 @@
         active
           ? FILE_RING_ACTIVE_COLOR
           : FILE_RING_LAYOUT.glowColor;
-      const metabolismChannel = getMetabolismChannel();
-      const renderedColor =
-        getMetabolismTintedColor(
-          baseColor,
-          metabolismChannel
-        );
-      const renderedGlowColor =
-        getMetabolismTintedColor(
-          glowColor,
-          metabolismChannel
-        );
-
       setFileDotGlowVariables(
         dotGroup,
-        renderedGlowColor
+        glowColor
       );
 
       if (core) {
         core.setAttribute(
           "fill",
-          renderedColor
+          baseColor
         );
         core.setAttribute(
           "fill-opacity",
@@ -5247,14 +5009,6 @@
       : null;
     scheduleSnapshotRender(snapshot, snapshotIndex);
   });
-
-  window.addEventListener(
-    METABOLISM_UPDATE_EVENT,
-    function () {
-      refreshRenderedMetabolismTints();
-      refreshActiveMemoryMetabolicOpacity();
-    }
-  );
 
   window.addEventListener(
     MEMORY_REFERENCE_HIGHLIGHT_EVENT,

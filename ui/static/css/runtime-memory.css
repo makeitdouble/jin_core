@@ -1432,23 +1432,3 @@ button.jin-context-l4-fact-id.is-linked:focus-visible {
         gap: 4px;
     }
 }
-
-/* Metabolism logger card: keep the existing neutral logger plaque and lay all
-   five live channels over it as very soft, independently weighted tints. */
-.jin-metabolism-card {
-    background-color: rgba(63, 63, 70, 0.10) !important;
-    background-image:
-        radial-gradient(circle at 8% 18%, color-mix(in srgb, #fbbf24 var(--jin-metabolism-dopamine, 8.62%), transparent) 0%, transparent 48%),
-        radial-gradient(circle at 27% 84%, color-mix(in srgb, #60a5fa var(--jin-metabolism-serotonin, 10.38%), transparent) 0%, transparent 52%),
-        radial-gradient(circle at 51% 20%, color-mix(in srgb, #f472b6 var(--jin-metabolism-oxytocin, 9.06%), transparent) 0%, transparent 50%),
-        radial-gradient(circle at 74% 82%, color-mix(in srgb, #f97316 var(--jin-metabolism-norepinephrine, 8.18%), transparent) 0%, transparent 52%),
-        radial-gradient(circle at 94% 24%, color-mix(in srgb, #34d399 var(--jin-metabolism-cortisol, 6.64%), transparent) 0%, transparent 48%) !important;
-    border-color: rgba(113, 113, 122, 0.20) !important;
-    transition:
-        background-color 420ms ease,
-        border-color 420ms ease;
-}
-
-.jin-metabolism-card .logger-tag {
-    color: rgb(212 212 216) !important;
-}

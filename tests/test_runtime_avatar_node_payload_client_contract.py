@@ -36,9 +36,6 @@ class RuntimeAvatarNodePayloadClientContractTests(unittest.TestCase):
             "data-delayed-memory-anchor-fact-ids",
             "data-avatar-memory-angle",
             "data-linked-delayed-memory-ids",
-            "data-metabolism-channel",
-            "data-metabolism-base-color",
-            "data-metabolism-glow-color",
         ):
             self.assertNotIn(attribute, source)
 
@@ -60,7 +57,7 @@ class RuntimeAvatarNodePayloadClientContractTests(unittest.TestCase):
         self.assertIn("getAvatarNodeState(node)", source)
         self.assertIn("getAvatarMemoryReferenceAliases(node)", source)
 
-    def test_dead_svg_titles_and_per_record_metabolism_payload_are_gone(self):
+    def test_dead_svg_titles_and_per_record_visual_payload_are_gone(self):
         source = AVATAR_JS.read_text(encoding="utf-8")
 
         self.assertNotIn('createSvgElement("title")', source)

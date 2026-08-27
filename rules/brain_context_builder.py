@@ -417,10 +417,10 @@ def _append_L1_runtime_memory(
             )
         ]
 
-        # Metabolism changes attention, not the persistent record order. The
-        # prompt gets a salience-ranked view while storage/UI stay canonical.
+        # Memory attention changes only the prompt projection. Storage/UI keep
+        # their canonical order and records are never rewritten while reading.
         try:
-            from runtime.metabolism import rank_active_memory_records
+            from runtime.memory_attention import rank_active_memory_records
 
             active_memory_context_records = rank_active_memory_records(
                 active_memory_context_records,
@@ -584,7 +584,7 @@ def build_delayed_memory_inventory_context(
     )
 
     try:
-        from runtime.metabolism import (
+        from runtime.memory_attention import (
             delayed_memory_bubble_tier,
             score_delayed_memory_report,
         )
@@ -656,7 +656,7 @@ def build_delayed_memory_inventory_context(
     if not report_names:
         return ""
 
-    # last_loaded_date remains the canonical order. A live lexical/metabolic
+    # last_loaded_date remains the canonical order. A live lexical/context
     # match only adds a temporary prompt-only bubble tier; storage/UI order is
     # untouched. Strongly relevant reports may surface above newer unrelated
     # ones, while weak/no-match inventories stay purely recency-sorted.
@@ -1304,22 +1304,6 @@ def build_brain_context(
         runtime_context_parts,
         context,
     )
-
-    # Silent metabolism block: the current state is allowed to modulate
-    # attention/continuity but is never a conversational topic by default.
-    try:
-        from runtime.metabolism import build_metabolism_brain_context
-
-        metabolism_context = build_metabolism_brain_context(
-            context,
-            user_input=user_input,
-        )
-        if metabolism_context:
-            runtime_context_parts.append(
-                metabolism_context
-            )
-    except Exception:
-        pass
 
     # L1 memory block: includes active memory records and live runtime memory.
     _append_L1_runtime_memory(

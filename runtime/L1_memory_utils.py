@@ -1937,58 +1937,6 @@ def compute_line_strength(
     )
 
 
-def apply_metabolic_runtime_memory_salience(
-        lines: list[dict],
-        context=None,
-) -> list[dict]:
-    """Apply the silent homeostat as a small L1 encoding-strength bias.
-
-    This never adds/rewrites memory content. It only reuses the existing
-    ``strength`` metadata that the runtime already visualizes.
-    """
-
-    if context is None:
-        return lines
-
-    try:
-        from runtime.metabolism import (
-            current_metabolic_event_significance,
-            metabolic_memory_strength_boost,
-        )
-    except Exception:
-        return lines
-
-    event_significance = current_metabolic_event_significance(context)
-
-    for line in lines:
-        if not isinstance(line, dict):
-            continue
-
-        try:
-            boost, salience, channel = metabolic_memory_strength_boost(
-                context,
-                key=line.get("key", ""),
-                value=line.get("value", ""),
-                status=line.get("status", "same"),
-            )
-        except Exception:
-            continue
-
-        base_strength = float(line.get("strength", 0.0) or 0.0)
-        line["strength"] = round(
-            min(1.0, max(0.0, base_strength + boost)),
-            4,
-        )
-        line["metabolic_salience"] = salience
-        line["metabolic_significance"] = event_significance
-        if channel:
-            line["metabolic_channel"] = channel
-        else:
-            line.pop("metabolic_channel", None)
-
-    return lines
-
-
 def runtime_memory_line_identity(
         line: dict,
 ) -> str:
@@ -2810,10 +2758,7 @@ def apply_runtime_memory_diff(
                 quote_boost=quote_boost,
             )
 
-        return apply_metabolic_runtime_memory_salience(
-            current_lines,
-            context,
-        )
+        return current_lines
 
     previous_lines = (
             previous_snapshot.get(
@@ -3002,10 +2947,7 @@ def apply_runtime_memory_diff(
             quote_boost=quote_boost,
         )
 
-    return apply_metabolic_runtime_memory_salience(
-        current_lines,
-        context,
-    )
+    return current_lines
 
 
 def build_runtime_memory_patch(
@@ -3579,46 +3521,6 @@ def build_runtime_session_checkpoint(
         "loaded_memory_ids": loaded_memory_ids,
         "attached_file_ids": attached_file_ids,
         "active_memory_records": active_memory_records,
-        "metabolism_levels": dict(
-            getattr(
-                context,
-                "runtime_metabolism_levels",
-                {},
-            )
-            or {}
-        ),
-        "metabolism_updated_at": float(
-            getattr(
-                context,
-                "runtime_metabolism_last_tick_at",
-                0.0,
-            )
-            or 0.0
-        ),
-        "metabolism_instruction": str(
-            getattr(
-                context,
-                "runtime_metabolism_instruction",
-                "",
-            )
-            or ""
-        )[:900].strip(),
-        "metabolism_associations": _dict_list(
-            getattr(
-                context,
-                "runtime_metabolism_associations",
-                [],
-            ),
-            limit=96,
-        ),
-        "metabolism_last_committed_l1_id": str(
-            getattr(
-                context,
-                "runtime_metabolism_last_committed_l1_id",
-                "",
-            )
-            or ""
-        ).strip(),
         "current_jin_color": str(
             getattr(
                 context,
@@ -3817,20 +3719,6 @@ async def record_runtime_l1_diff(
     )
 
     await emit_runtime_l1_diff_update(context)
-
-    # Semantic metabolism is committed at the same cadence as L1, not chat.
-    # One successful L1 batch -> at most one debounced SERVICE integration.
-    try:
-        from runtime.metabolism import schedule_metabolism_update
-
-        schedule_metabolism_update(
-            context,
-            committed_snapshot=snapshot,
-            committed_turns=observed_turns,
-        )
-    except Exception:
-        # Metabolism is ambient and must never invalidate a committed L1 batch.
-        pass
 
 
 async def emit_runtime_memory_update(

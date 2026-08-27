@@ -50,7 +50,6 @@ Background / secondary paths:
    completed foreground turn
        -> L1 SERVICE summarization
        -> L1 diff + Facts Memory companion state
-       -> metabolism integration
 
    browser idle tick
        -> L4 extraction/merge pipeline
@@ -70,7 +69,7 @@ Main ownership by package:
 | `rules/brain_context_builder.py` | deterministic Brain prompt assembly from current state |
 | `runtime/L1_memory*` | live runtime-memory summarization, snapshots, diffs, interrupted-turn memory path |
 | `runtime/L4_memory*` | Facts Memory ingestion, durable L4 extraction/merge, reconciliation, delete/restore |
-| `runtime/metabolism.py` | active homeostat/salience system and SERVICE integration |
+| `runtime/memory_attention.py` | prompt-only Active/Delayed/L4 relevance ranking |
 | `utils/*_store.py` | durable file/report/fact stores |
 | `ui/static/js/runtime/` | browser-side runtime state, persistence, session checkpointing, memory UI, avatar |
 | `ui/static/js/logger/` | inspectable logger/action/memory projections |
@@ -93,7 +92,7 @@ Main ownership by package:
 - attached file IDs and sequence attachments;
 - session/reconnect/archived-restore metadata;
 - L4/background tasks;
-- metabolism state;
+- prompt-only L4 focus diagnostics;
 - avatar color/size/position/speed related state;
 - message/turn/sequence counters.
 
@@ -111,13 +110,12 @@ The websocket endpoint uses a normal `asyncio.Queue` to serialize queued request
 2. resolve current attachments;
 3. establish turn ID and sequence ID;
 4. reset per-turn transient state;
-5. on ordinary turns: apply browser idle/Active/pattern/avatar state, prepare metabolism, and auto-load Delayed Memory by user-typed tags;
+5. on ordinary turns: apply browser idle/Active/pattern/avatar state and auto-load Delayed Memory by user-typed tags;
 6. append the user turn to the local chat log;
 7. build `AgentState` and execute `AgentRuntime`;
 8. persist reasoning log and emit action/session telemetry;
 9. append visible JIN output to chat log/recent-turn state;
-10. settle immediate metabolism effects;
-11. schedule normal or interrupted L1 memory integration.
+10. schedule normal or interrupted L1 memory integration.
 
 A later foreground turn can wait for a pending L1 update through `wait_for_runtime_memory_update()` so the Brain does not race stale live memory.
 
@@ -136,7 +134,7 @@ There is no active planner/router node in front of Brain.
 Physical model endpoints are resolved through the client/config layer. Logical roles remain:
 
 - **BRAIN** — foreground reasoning, visible answer, runtime decisions;
-- **SERVICE** — L1 integration, metabolism/L4/supporting model work.
+- **SERVICE** — L1/L4 integration and supporting model work.
 
 `USE_SERVICE_AS_BRAIN=True` may map both logical roles to one endpoint without removing the role distinction.
 
@@ -159,7 +157,6 @@ The current high-level order is:
 9. loaded skill content;
 10. runtime-context group:
    - explicit user feedback;
-   - silent metabolism state;
    - Active Memory view;
    - L1/runtime memory snapshot;
    - visible session counters;
@@ -364,7 +361,7 @@ Creation custom fields are explicit structure only: JSON root fields beside `con
 
 Compatibility code still accepts legacy nested `fields`/`updates`, older line-based update payloads, and a self-closing UPDATE attribute form. Those are localized reader compatibility. Internally/browser-side, Active Memory is still represented in a transitional string-record format with metadata suffixes; that is an implementation detail, not the desired model-facing schema.
 
-Paused Active records are removed from the Brain prompt. Metabolism may reorder the prompt projection by salience without changing canonical storage order.
+Paused Active records are removed from the Brain prompt. Memory Attention may reorder the prompt projection by lexical/context relevance without changing canonical storage order.
 
 ### 7.7 Persistent Files
 
@@ -378,24 +375,15 @@ Persistent uploads are owned by `utils/attached_files_store.py` and `assets/file
 
 ---
 
-## 8. Metabolism
+## 8. Memory Attention
 
-`runtime/metabolism.py` is a real active runtime subsystem in this snapshot, not merely a future night-cycle idea.
+`runtime/memory_attention.py` is a small, deterministic prompt-projection module. It implements only:
 
-It currently implements:
+- lexical/current-context relevance ordering for Active Memory;
+- temporary bubble tiers for Delayed Memory inventory matching;
+- a narrow 1–3 relevant-fact focus cone for L4.
 
-- continuous homeostat levels;
-- immediate foreground impulse before Brain generation;
-- outcome settling after a turn;
-- active-memory salience;
-- delayed-memory scoring;
-- L4 context-focus/significance scoring;
-- lexical/association signals;
-- temperature modulation;
-- debounced SERVICE integration after committed L1 updates;
-- browser state emission/persistence support.
-
-This does **not** prove that the older concept of a full nightly self-review/consolidation cycle is complete. That remains a separate product direction and must not be inferred from the existence of `metabolism.py`.
+Memory Attention is stateless. It does not call SERVICE, mutate or persist memory records, add prompt instructions, modify Brain temperature, drive avatar state, or maintain significance scores. Canonical storage/UI order remains independent from the prompt projection.
 
 ---
 

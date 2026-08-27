@@ -28,12 +28,6 @@ from runtime.L1_memory_utils import (
     build_runtime_session_checkpoint,
     record_runtime_memory_reasoning_quotes,
 )
-from runtime.metabolism import (
-    append_metabolism_turn,
-    cancel_metabolism_update,
-    prepare_metabolism_for_turn,
-    settle_metabolism_after_turn,
-)
 from runtime.state_sync import refresh_runtime_state
 from utils.brain_client_utils import (
     get_brain_runtime_config,
@@ -865,14 +859,6 @@ def discard_latest_visible_turn_for_user_retry(
         if isinstance(candidate, dict):
             previous_turn = candidate
 
-    metabolism_turns = getattr(
-        context,
-        "runtime_metabolism_recent_turns",
-        None,
-    )
-    if isinstance(metabolism_turns, list) and metabolism_turns:
-        metabolism_turns.pop()
-
     # The previous reasoning belongs to the discarded answer and must not be
     # re-injected beside the explicit retry marker.
     context.runtime_previous_reasoning_content = ""
@@ -1069,21 +1055,6 @@ async def process_message(
         is_action_guard_retry = bool(
             action_guard_retry
         )
-        metabolism_turn_feedback = deepcopy(
-            getattr(
-                context,
-                "runtime_last_response_feedback",
-                None,
-            )
-        )
-
-        if not is_action_guard_retry:
-            # A real foreground turn always wins over the previous background
-            # metabolism estimate, especially when SERVICE is also the brain.
-            cancel_metabolism_update(
-                context
-            )
-
         if is_session_restore_resume:
             # The restore tick has no user message, so take the live browser
             # geometry from the resume request before building its context.
@@ -1209,17 +1180,6 @@ async def process_message(
                 context,
                 message_data,
             )
-
-            if not is_user_retry:
-                # Homeostat first: the current user event must be able to affect
-                # this very generation, not only the next one. No bubble/event
-                # card is emitted; only the existing ambient metabolism signal.
-                await prepare_metabolism_for_turn(
-                    context,
-                    get_message_user_text(
-                        message_data
-                    ),
-                )
 
             context.runtime_turn_memory_user_message = (
                 format_runtime_memory_user_message(
@@ -1387,18 +1347,6 @@ async def process_message(
                 ),
                 assistant_created_at=assistant_created_at,
             )
-            append_metabolism_turn(
-                context,
-                user_message=user_text,
-                assistant_message=assistant_message,
-                reasoning=getattr(
-                    context,
-                    "runtime_turn_reasoning_content",
-                    "",
-                ),
-                feedback=metabolism_turn_feedback,
-            )
-
         if not is_action_guard_retry and not is_user_retry:
             context.assistant_message_count += 1
             context.turn_number += 1
@@ -1461,14 +1409,6 @@ async def process_message(
             "session_snapshot": completed_session_snapshot,
             "completed_turn_commit": completed_turn_commit,
         })
-
-        if not is_action_guard_retry:
-            # Runtime actions/validators leave a small causal trace immediately.
-            # The slower SERVICE integration still runs afterwards and may
-            # correct the reflex from the full turn snapshot.
-            await settle_metabolism_after_turn(
-                context
-            )
 
         if is_session_restore_resume:
             # The Brain node consumes restore priming immediately after the

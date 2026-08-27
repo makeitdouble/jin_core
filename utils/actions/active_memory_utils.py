@@ -34,8 +34,6 @@ ACTIVE_MEMORY_RUNTIME_LINE_RE = re.compile(
 )
 
 ACTIVE_MEMORY_UPDATED_AT_SUFFIX_NAME = "updated_at"
-ACTIVE_MEMORY_SIGNIFICANCE_SUFFIX_NAME = "significance"
-
 ACTIVE_MEMORY_LIFECYCLE_SUFFIX_NAMES = (
     "creation_time",
     "created_session_id",
@@ -47,7 +45,9 @@ ACTIVE_MEMORY_LIFECYCLE_SUFFIX_NAMES = (
 ACTIVE_MEMORY_RUNTIME_MANAGED_SUFFIX_NAMES = (
     "active_memory_id",
     *ACTIVE_MEMORY_LIFECYCLE_SUFFIX_NAMES,
-    ACTIVE_MEMORY_SIGNIFICANCE_SUFFIX_NAME,
+    # Removed metadata is still consumed so historical records cannot expose
+    # it as a custom field after the attention-only migration.
+    "significance",
     "status",
     ACTIVE_MEMORY_UPDATED_AT_SUFFIX_NAME,
 )
@@ -828,6 +828,12 @@ def _attach_active_memory_lifecycle_suffixes_to_value(
     cleaned = ACTIVE_MEMORY_LIFECYCLE_SUFFIX_RE.sub(
         " ",
         str(value or ""),
+    )
+    cleaned = re.sub(
+        r"\s*\[\s*significance\s*:\s*[^\]]*\]\s*",
+        " ",
+        cleaned,
+        flags=re.IGNORECASE,
     )
     cleaned = re.sub(
         r"\s+",

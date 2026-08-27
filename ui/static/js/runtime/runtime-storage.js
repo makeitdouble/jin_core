@@ -1154,6 +1154,9 @@
               ? String(field.l4_analyzed_at || "").trim()
               : "",
         };
+        delete signals[normalizedKey].significance;
+        delete signals[normalizedKey].metabolic_significance;
+        delete signals[normalizedKey].significance_updated_at;
       }
     );
 

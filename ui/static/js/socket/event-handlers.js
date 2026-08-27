@@ -330,23 +330,6 @@ function handleThinkingChunk(
 
 }
 
-function handleMetabolismUpdate(
-  data
-) {
-  const metabolism =
-    window.JinRuntime
-    && window.JinRuntime.metabolism;
-
-  if (
-      metabolism
-      && typeof metabolism.applyServerUpdate === "function"
-  ) {
-    metabolism.applyServerUpdate(
-      data
-    );
-  }
-}
-
 function handleAgentRuntimeStart(data) {
   window.jinCurrentResponseRetryable = Boolean(
     data && data.retryable_response
@@ -655,11 +638,6 @@ registerSocketMessageHandler(
 registerSocketMessageHandler(
   "thinking_chunk",
   handleThinkingChunk
-);
-
-registerSocketMessageHandler(
-  "metabolism_update",
-  handleMetabolismUpdate
 );
 
 registerSocketMessageHandler(

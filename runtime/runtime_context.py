@@ -441,67 +441,9 @@ class RuntimeContext:
 
     runtime_last_response_feedback: dict | None = None
 
-    runtime_metabolism_levels: dict = field(
-        default_factory=lambda: {
-            "dopamine": 0.42,
-            "serotonin": 0.58,
-            "oxytocin": 0.46,
-            "norepinephrine": 0.38,
-            "cortisol": 0.24,
-        }
-    )
-
-    runtime_metabolism_recent_turns: list[dict] = field(
+    runtime_memory_attention_l4_focus_ids: list[str] = field(
         default_factory=list
     )
-
-    runtime_metabolism_task: object | None = None
-
-    runtime_metabolism_last_tick_at: float = 0.0
-
-    runtime_metabolism_last_delta: dict = field(
-        default_factory=dict
-    )
-
-    runtime_metabolism_last_event: str = ""
-
-    runtime_metabolism_last_signal_delta: dict = field(
-        default_factory=dict
-    )
-
-    runtime_metabolism_last_signal_event: str = ""
-
-    runtime_metabolism_last_signal_at: float = 0.0
-
-    runtime_metabolism_active_memory_salience: dict = field(
-        default_factory=dict
-    )
-
-    runtime_metabolism_memory_significance_events: dict = field(
-        default_factory=dict
-    )
-
-    runtime_metabolism_active_memory_significance_seen_at: dict = field(
-        default_factory=dict
-    )
-
-    runtime_metabolism_l4_significance_seen_at: dict = field(
-        default_factory=dict
-    )
-
-    runtime_metabolism_l4_significance_dirty: bool = False
-
-    runtime_metabolism_policy: dict = field(
-        default_factory=dict
-    )
-
-    runtime_metabolism_instruction: str = ""
-
-    runtime_metabolism_associations: list[dict] = field(
-        default_factory=list
-    )
-
-    runtime_metabolism_last_committed_l1_id: str = ""
 
     runtime_avatar_panel_collapsed: bool = False
 

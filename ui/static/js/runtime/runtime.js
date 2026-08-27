@@ -400,14 +400,6 @@ function persistRuntimeFactsMemory(
               content
             )
           : content;
-      const metabolicSignificance = Math.max(
-        0,
-        Math.min(
-          1,
-          Number(line && line.metabolic_significance) || 0
-        )
-      );
-
       if (!existing) {
         fields[key] = {
           content,
@@ -416,7 +408,6 @@ function persistRuntimeFactsMemory(
           l4_status: "pending",
           l4_content_hash: contentHash,
           l4_analyzed_at: "",
-          significance: metabolicSignificance,
         };
 
         return;
@@ -446,11 +437,10 @@ function persistRuntimeFactsMemory(
         l4_analyzed_at: contentChanged
           ? ""
           : String(existing.l4_analyzed_at || "").trim(),
-        significance: Math.max(
-          Number(existing.significance) || 0,
-          metabolicSignificance
-        ),
       };
+      delete fields[key].significance;
+      delete fields[key].metabolic_significance;
+      delete fields[key].significance_updated_at;
     }
   );
 

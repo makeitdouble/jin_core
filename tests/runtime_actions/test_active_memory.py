@@ -448,7 +448,6 @@ class RuntimeActiveMemoryTests(RuntimeActionTestCase):
                 r"\[ created_jin_message_number: 3 \] "
                 r"\[ elapsed_time: 00:00:00 \] "
                 r"\[ elapsed_jin_message_number: 0 \] "
-                r"\[ significance: 0\.000 \] "
                 r"\[ status: pending \]$"
             ),
         )
@@ -639,7 +638,6 @@ class RuntimeActiveMemoryTests(RuntimeActionTestCase):
                 r"\[ created_jin_message_number: 8 \] "
                 r"\[ elapsed_time: 00:00:00 \] "
                 r"\[ elapsed_jin_message_number: 0 \] "
-                r"\[ significance: 0\.000 \] "
                 r"\[ status: pending \]$"
             ),
         )
@@ -1662,7 +1660,6 @@ class RuntimeActiveMemoryTests(RuntimeActionTestCase):
                 r"\[ created_jin_message_number: 7 \] "
                 r"\[ elapsed_time: 00:00:00 \] "
                 r"\[ elapsed_jin_message_number: 0 \] "
-                r"\[ significance: 0\.000 \] "
                 r"\[ status: pending \]$"
             ),
         )

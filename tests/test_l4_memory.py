@@ -2332,7 +2332,7 @@ class L4MemoryTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn(
             (
                 "user.current_focus: User is tuning JIN context freshness. "
-                "[ id: F9 ] [ significance: 0.000 ] ( 5m ago )"
+                "[ id: F9 ] ( 5m ago )"
             ),
             context_block,
         )
@@ -2559,7 +2559,7 @@ class L4MemoryTests(unittest.IsolatedAsyncioTestCase):
         )
 
         self.assertIn(
-            "user.name: Sergey [ id: F1 ] [ significance: 0.000 ] "
+            "user.name: Sergey [ id: F1 ] "
             "[ delayed_memory_id: abc123 ]",
             context_block,
         )
@@ -2614,13 +2614,13 @@ class L4MemoryTests(unittest.IsolatedAsyncioTestCase):
         )
 
         self.assertIn(
-            "user.name: Sergey [ id: F1 ] [ significance: 0.000 ] "
+            "user.name: Sergey [ id: F1 ] "
             "[ delayed_memory_id: abc123 ]",
             context_block,
         )
         self.assertIn(
             "social.friend: Taras is a personal friend. [ id: F2 ] "
-            "[ significance: 0.000 ] [ delayed_memory_id: abc123 ]",
+            "[ delayed_memory_id: abc123 ]",
             context_block,
         )
         self.assertEqual(

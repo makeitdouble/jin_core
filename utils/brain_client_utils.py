@@ -1904,16 +1904,6 @@ async def save_active_memory_runtime_record(
         context=context,
     )
 
-    try:
-        from runtime.metabolism import seed_active_memory_significance
-
-        active_memory_line = seed_active_memory_significance(
-            active_memory_line,
-            context=context,
-        )
-    except Exception:
-        pass
-
     active_records = getattr(
         context,
         "active_memory_records",

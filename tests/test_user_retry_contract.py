@@ -131,7 +131,6 @@ class UserRetryContractTests(unittest.TestCase):
     def test_retry_discards_previous_prompt_turn_and_reasoning(self):
         context = SimpleNamespace(
             runtime_recent_turns=[{"user": "u", "jin": "old"}],
-            runtime_metabolism_recent_turns=[{"user": "u", "jin": "old"}],
             runtime_previous_reasoning_content="old reasoning",
             runtime_previous_reasoning_loop_contents=["old loop"],
         )
@@ -140,7 +139,6 @@ class UserRetryContractTests(unittest.TestCase):
 
         self.assertEqual(previous["jin"], "old")
         self.assertEqual(context.runtime_recent_turns, [])
-        self.assertEqual(context.runtime_metabolism_recent_turns, [])
         self.assertEqual(context.runtime_previous_reasoning_content, "")
         self.assertEqual(context.runtime_previous_reasoning_loop_contents, [])
 

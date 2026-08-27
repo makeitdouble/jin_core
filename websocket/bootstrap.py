@@ -132,69 +132,6 @@ def apply_active_memory_records(
     context.active_memory_records = records
 
 
-def apply_metabolism_bootstrap_state(
-    context,
-    message_data: dict,
-) -> None:
-
-    from runtime.metabolism import (
-        METABOLISM_DEFAULT_LEVELS,
-        normalize_metabolism_associations,
-        normalize_metabolism_levels,
-    )
-
-    raw_levels = message_data.get(
-        "metabolism_levels",
-        None,
-    )
-
-    if isinstance(raw_levels, dict):
-        context.runtime_metabolism_levels = normalize_metabolism_levels(
-            raw_levels
-        )
-    else:
-        context.runtime_metabolism_levels = normalize_metabolism_levels(
-            getattr(
-                context,
-                "runtime_metabolism_levels",
-                METABOLISM_DEFAULT_LEVELS,
-            )
-        )
-
-    try:
-        updated_at = float(
-            message_data.get(
-                "metabolism_updated_at",
-                0.0,
-            )
-            or 0.0
-        )
-    except (TypeError, ValueError):
-        updated_at = 0.0
-
-    context.runtime_metabolism_last_tick_at = max(0.0, updated_at)
-    context.runtime_metabolism_instruction = str(
-        message_data.get(
-            "metabolism_instruction",
-            getattr(context, "runtime_metabolism_instruction", ""),
-        )
-        or ""
-    )[:900].strip()
-    context.runtime_metabolism_associations = normalize_metabolism_associations(
-        message_data.get(
-            "metabolism_associations",
-            getattr(context, "runtime_metabolism_associations", []),
-        )
-    )
-    context.runtime_metabolism_last_committed_l1_id = str(
-        message_data.get(
-            "metabolism_last_committed_l1_id",
-            getattr(context, "runtime_metabolism_last_committed_l1_id", ""),
-        )
-        or ""
-    ).strip()
-
-
 def active_memory_records_text(context) -> str:
 
     return "\n".join(
@@ -2137,10 +2074,6 @@ def apply_runtime_resume(
         context,
         message_data,
     )
-    apply_metabolism_bootstrap_state(
-        context,
-        message_data,
-    )
     apply_delayed_memory_reports(
         context,
         message_data,
@@ -2955,10 +2888,6 @@ def apply_session_bootstrap(
         context,
         message_data,
     )
-    apply_metabolism_bootstrap_state(
-        context,
-        message_data,
-    )
     apply_delayed_memory_reports(
         context,
         message_data,
@@ -3238,14 +3167,6 @@ async def initialize_connection(
         change={
             "source": "file_bootstrap",
         },
-    )
-
-    # Chemistry is runtime state, not a page artifact. Re-emit it immediately
-    # on connect/reconnect so the avatar never falls back to browser defaults.
-    from runtime.metabolism import emit_metabolism_state
-
-    await emit_metabolism_state(
-        context
     )
 
     if skip_initial_runtime_state:

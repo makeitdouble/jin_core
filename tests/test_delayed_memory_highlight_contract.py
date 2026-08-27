@@ -67,9 +67,6 @@ class DelayedMemoryHighlightContractTests(unittest.TestCase):
             'getMemorySignalColors("delayed", overallColor)',
             avatar,
         )
-        self.assertNotIn("data-metabolism-base-color", avatar)
-        self.assertNotIn("data-metabolism-glow-color", avatar)
-
     def test_direct_dm_links_all_own_l4_facts_but_secondary_does_not(self):
         avatar = AVATAR_JS.read_text(encoding="utf-8")
         view = MEMORY_VIEW_JS.read_text(encoding="utf-8")
