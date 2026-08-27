@@ -1085,26 +1085,25 @@ def build_previous_reasoning_loop_context(
     ):
         return ""
 
-    blocks = []
-
-    for reasoning in loop_reasonings:
+    # Keep this defensive too: even if older/stale state contains several
+    # entries, only the latest non-empty failed reasoning belongs in the
+    # current recovery prompt.
+    for reasoning in reversed(
+        loop_reasonings
+    ):
         if not str(
             reasoning
             or ""
         ).strip():
             continue
 
-        blocks.append(
-            _format_previous_reasoning_context(
-                tag_name="PREVIOUS_REASONING_LOOP_CONTENT",
-                reasoning=reasoning,
-                edge_percent=PREVIOUS_REASONING_LOOP_EDGE_PERCENT,
-            )
+        return _format_previous_reasoning_context(
+            tag_name="PREVIOUS_REASONING_LOOP_CONTENT",
+            reasoning=reasoning,
+            edge_percent=PREVIOUS_REASONING_LOOP_EDGE_PERCENT,
         )
 
-    return "\n".join(
-        blocks
-    )
+    return ""
 
 
 # Runtime action rules are assembled from contracts/rules_assembler.py.

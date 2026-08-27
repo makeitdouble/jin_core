@@ -28,10 +28,6 @@ from rules.runtime import (
 from contracts.rules_assembler import (
     RUNTIME_ACTION_ATTACH_FILE,
     RUNTIME_ACTION_DEEP_WEB_SEARCH,
-    RUNTIME_ACTION_JIN_COLOR,
-    RUNTIME_ACTION_JIN_POSITION,
-    RUNTIME_ACTION_JIN_SIZE,
-    RUNTIME_ACTION_JIN_SPEED,
     RUNTIME_ACTION_LOAD_DELAYED_MEMORY,
     RUNTIME_ACTION_WEB_SEARCH,
 )
@@ -354,40 +350,12 @@ async def replay_session_restore_resource_actions(
         file_seen.add(file_id)
         file_ids.append(file_id)
 
-    jin_color = str(
-        getattr(
-            context,
-            "runtime_session_restore_pending_jin_color",
-            "",
-        )
-        or ""
-    ).strip()
-    jin_size = getattr(
-        context,
-        "runtime_session_restore_pending_jin_size",
-        None,
-    )
-    jin_position = getattr(
-        context,
-        "runtime_session_restore_pending_jin_position",
-        None,
-    )
-    jin_speed = getattr(
-        context,
-        "runtime_session_restore_pending_jin_speed",
-        None,
-    )
-
     # Consume the restoration envelope before any possible contract-driven
     # follow-up. The initial answer was generated with metadata only; from
     # this point forward the normal runtime action pipeline owns the loaded
     # resources and any follow-up sees their real context.
     context.runtime_session_restore_pending_loaded_memory_ids = []
     context.runtime_session_restore_pending_attached_file_ids = []
-    context.runtime_session_restore_pending_jin_color = ""
-    context.runtime_session_restore_pending_jin_size = None
-    context.runtime_session_restore_pending_jin_position = None
-    context.runtime_session_restore_pending_jin_speed = None
     context.runtime_session_restore_priming = False
     context.runtime_session_restore_reasoning_dump = ""
     context.runtime_session_restore_l4_fact_ids = []
@@ -409,30 +377,6 @@ async def replay_session_restore_resource_actions(
             )
             for file_id in file_ids
         ]
-        + ([
-            RuntimeActionCall(
-                name=RUNTIME_ACTION_JIN_COLOR,
-                payload=jin_color,
-            )
-        ] if jin_color else [])
-        + ([
-            RuntimeActionCall(
-                name=RUNTIME_ACTION_JIN_SIZE,
-                payload=jin_size,
-            )
-        ] if jin_size else [])
-        + ([
-            RuntimeActionCall(
-                name=RUNTIME_ACTION_JIN_POSITION,
-                payload=jin_position,
-            )
-        ] if jin_position else [])
-        + ([
-            RuntimeActionCall(
-                name=RUNTIME_ACTION_JIN_SPEED,
-                payload=jin_speed,
-            )
-        ] if jin_speed else [])
     )
 
     if not actions:
@@ -663,22 +607,12 @@ def remember_recovery_reasoning_for_followup(
     if not normalized_reasoning:
         return
 
-    loop_contents = getattr(
-        context,
-        "runtime_previous_reasoning_loop_contents",
-        [],
-    )
-
-    if not isinstance(
-        loop_contents,
-        list,
-    ):
-        loop_contents = []
-
-    loop_contents.append(
+    # Recovery follow-ups only need the immediately preceding failed
+    # reasoning. Replacing the slot prevents repeated loop retries from
+    # accumulating older reasoning blocks in the next prompt.
+    context.runtime_previous_reasoning_loop_contents = [
         normalized_reasoning
-    )
-    context.runtime_previous_reasoning_loop_contents = loop_contents
+    ]
 
 
 def remember_successful_previous_reasoning(
@@ -2006,7 +1940,7 @@ class BrainNode(BaseNode):
             if replayed_restore_actions:
                 # ATTACH_FILE / LOAD_DELAYED_MEMORY replay after the very first
                 # restored JIN message is state reconstruction, not a new model
-                # decision. Run the real action dispatcher (bubbles, avatar,
+                # decision. Run the real action dispatcher (bubbles,
                 # tool results, pinning, etc.) but consume its action/results as
                 # already handled so the follow-up scheduler cannot fire even
                 # when the normal runtime contract says emit_followup=true.

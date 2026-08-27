@@ -100,7 +100,7 @@ MAX_REPEAT_SENTENCES = configured_int(
 )
 MAX_REPEAT_SYMBOLIC_MOTIFS = configured_int(
     "STREAM_VALIDATOR_MAX_REPEAT_SYMBOLIC_MOTIFS",
-    4,
+    8,
     minimum=3,
     zero_disables=True,
 )
@@ -109,6 +109,13 @@ SYMBOLIC_MOTIF_HISTORY_LINES = configured_int(
     48,
     minimum=8,
 )
+# Inline symbol degeneration is deliberately conservative. A finite geometric
+# drawing may repeat the same visual pattern for several rows, so line breaks
+# are hard boundaries here. Only a long low-period run inside one physical line
+# counts as strong evidence of a loop.
+INLINE_SYMBOLIC_LOOP_MIN_CHARS = 96
+INLINE_SYMBOLIC_LOOP_MAX_MOTIF_SIZE = 16
+INLINE_SYMBOLIC_LOOP_MIN_REPETITIONS = 8
 MAX_SENTENCE_LOOP_SEQUENCE_SIZE = configured_int(
     "STREAM_VALIDATOR_MAX_SENTENCE_LOOP_SEQUENCE_SIZE",
     16,
@@ -780,6 +787,82 @@ class StreamValidator:
     # -----------------------------------------------------
 
     @staticmethod
+    def find_inline_symbolic_loop(
+        line: str,
+    ) -> tuple[str, str]:
+        """Return (motif, repeated_tail) for an obvious one-line symbol loop."""
+
+        line = str(line or "").rstrip("\r")
+
+        runs = []
+        current_run = []
+
+        for char in line:
+            category = unicodedata.category(char)
+
+            # Layout spacing and lightweight markdown wrappers do not change a
+            # visual motif, but a physical newline is never present here: the
+            # caller checks one completed/current line at a time.
+            if char.isspace() or char in "`*_~":
+                continue
+
+            if category[:1] in {"P", "S"}:
+                current_run.append(char)
+                continue
+
+            if category in {"Cf", "Mn", "Me"}:
+                continue
+
+            if current_run:
+                runs.append("".join(current_run))
+                current_run = []
+
+        if current_run:
+            runs.append("".join(current_run))
+
+        for run in reversed(runs):
+            if len(run) < INLINE_SYMBOLIC_LOOP_MIN_CHARS:
+                continue
+
+            max_motif_size = min(
+                INLINE_SYMBOLIC_LOOP_MAX_MOTIF_SIZE,
+                len(run) // INLINE_SYMBOLIC_LOOP_MIN_REPETITIONS,
+            )
+
+            for motif_size in range(2, max_motif_size + 1):
+                motif = run[-motif_size:]
+
+                # A solid bar / divider is common intentional ASCII art.
+                # The failure we care about has an actual repeating pattern.
+                if len(set(motif)) < 2:
+                    continue
+
+                repetitions = 0
+                offset = len(run)
+
+                while (
+                    offset >= motif_size
+                    and run[offset - motif_size:offset] == motif
+                ):
+                    repetitions += 1
+                    offset -= motif_size
+
+                repeated_length = repetitions * motif_size
+
+                if (
+                    repetitions < INLINE_SYMBOLIC_LOOP_MIN_REPETITIONS
+                    or repeated_length < INLINE_SYMBOLIC_LOOP_MIN_CHARS
+                ):
+                    continue
+
+                return (
+                    motif,
+                    run[len(run) - repeated_length:],
+                )
+
+        return "", ""
+
+    @staticmethod
     def normalize_symbolic_motif(
         line: str,
     ) -> str:
@@ -797,9 +880,10 @@ class StreamValidator:
             return ""
 
         # Pure ASCII art commonly repeats structural rows (pipes,
-        # slashes, underscores, etc.) on purpose. Keep this visual
-        # guard scoped to non-ASCII symbolic motifs so ASCII layouts
-        # cannot be mistaken for a reasoning loop.
+        # slashes, underscores, etc.) on purpose. Keep the cross-line
+        # motif guard scoped to non-ASCII symbols. Extremely long
+        # low-period runs inside one line are handled separately by
+        # ``find_inline_symbolic_loop``.
         if stripped.isascii():
             return ""
 
@@ -867,6 +951,33 @@ class StreamValidator:
         else:
             complete_lines = lines[:-1]
             self.symbolic_line_fragment = lines[-1]
+
+        # Do not collapse separate rows into one symbol stream. Repeated rows
+        # are valid structure in ASCII/Unicode art; only an obviously runaway
+        # low-period sequence inside one physical line is rejected here.
+        inline_lines = list(complete_lines)
+        if self.symbolic_line_fragment:
+            inline_lines.append(self.symbolic_line_fragment)
+
+        for raw_line in inline_lines:
+            inline_motif, repeated_tail = self.find_inline_symbolic_loop(
+                raw_line
+            )
+
+            if not inline_motif:
+                continue
+
+            self.last_failure_reason = (
+                "Repeated symbolic motif loop detected."
+            )
+            self.last_failure_preview = build_preview(
+                repeated_tail
+            )
+            self.last_failure_loop_preview = build_loop_preview(
+                inline_motif
+            )
+
+            return False
 
         for raw_line in complete_lines:
             self.symbolic_line_index += 1

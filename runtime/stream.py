@@ -1485,7 +1485,7 @@ class RuntimeStream:
         record_session_action_history(
             self.context,
             (
-                "SAVE_DELAYED_MEMORY - failed: "
+                "SAVE_DELAYED_MEMORY: failed - "
                 f"{duplicate_title} "
                 "(duplicate delayed memory title; potential loop blocked)"
             ),

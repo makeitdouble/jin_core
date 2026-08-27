@@ -266,6 +266,16 @@ def _format_session_action_context_parts(
             )
             continue
 
+        if (
+            part_text.upper()
+            == "SAVE_DELAYED_MEMORY: FAILED"
+            and part_detail
+        ):
+            context_parts.append(
+                f"{part_text}: {part_detail}"
+            )
+            continue
+
         context_detail = str(
             part.get(
                 "context_detail",

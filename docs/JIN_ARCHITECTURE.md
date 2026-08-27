@@ -456,8 +456,8 @@ Archived restore is a distinct path:
 3. Backend sets `runtime_session_restore_priming` and stages historical resource IDs/metadata.
 4. A hidden `archived_session_resume` Brain tick receives restore-specific context.
 5. The restore prompt includes the newest complete visible dialog pairs plus a bounded recent reasoning dump.
-6. Historical loaded Delayed IDs, attached files, and avatar state are not blindly applied before the restore greeting.
-7. `BrainNode` consumes the staged restore envelope and replays those resources through the normal runtime-action dispatcher.
+6. Historical loaded Delayed IDs and attached files are staged until after the restore greeting; room/avatar state is already restored by the bootstrap path and is not replayed as runtime actions.
+7. `BrainNode` consumes the staged restore envelope and replays only those delayed-memory/file resources through the normal runtime-action dispatcher.
 8. The WebSocket tail performs defensive cleanup only; it must not apply the same resources a second time.
 
 The restore instruction is stamped at prompt-build time with the current timezone-aware bootstrap time immediately before `Current session was bootstrapped in a browser tab!`. Archived USER timestamps remain historical dialogue metadata and are never reused as the bootstrap time.
@@ -530,6 +530,8 @@ The Live Avatar and memory panels consume the same identities but may show diffe
 Do not collapse these into a generic highlight state.
 
 The L4 panel deliberately separates compact browsing from surfaced evidence: ordinary fact rows use a 50-character value preview, while a row bubbled by runtime reference, explicit reasoning citation, or context-loaded state renders its full value. The storage value is never truncated; this is projection-only behavior.
+
+The memory panel exposes five persistent navigation tabs: `FRAME` (live runtime-memory snapshots), `ACTIVE`, `DELAYED`, `L-T` (L4), and `FILES`. Their shared count control is projected below the active tab; only FRAME exposes previous/next snapshot controls. The temporary unprocessed-facts projection is intentionally omitted from the tab bar.
 
 Session-action logger rows are also a projection of structured history. The compact logger keeps the most recent five items in chronological order with their original numbering and reuses the existing attached-files header/button primitive for `FULL`. JIN_COLOR parts render one swatch per applied color and expose the normalized hex on hover; bootstrap must preserve the `colors` payload for this to work after reload. Runtime-action bubble details are retained across counter-only updates so a count refresh cannot erase existing hover metadata.
 

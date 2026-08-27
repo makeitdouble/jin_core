@@ -1026,11 +1026,6 @@ open_question: continue
             "file001",
             "file001",
         ]
-        context.runtime_session_restore_pending_jin_color = "#9370db"
-        context.runtime_session_restore_pending_jin_size = {
-            "width": 333,
-            "height": 333,
-        }
         context.runtime_session_restore_reasoning_dump = "reasoning"
         context.runtime_session_restore_l4_fact_ids = ["F7"]
         context.runtime_session_restore_delayed_memory_metadata = [
@@ -1064,14 +1059,12 @@ open_question: continue
                 )
             )
 
-        self.assertEqual(applied, 4)
+        self.assertEqual(applied, 2)
         self.assertEqual(
             [action.name for action in captured["actions"]],
             [
                 "LOAD_DELAYED_MEMORY",
                 "ATTACH_FILE",
-                "JIN_COLOR",
-                "JIN_SIZE",
             ],
         )
         self.assertEqual(
@@ -1079,8 +1072,6 @@ open_question: continue
             [
                 "abc123",
                 "file001",
-                "#9370db",
-                {"width": 333, "height": 333},
             ],
         )
         self.assertEqual(
@@ -1099,13 +1090,6 @@ open_question: continue
         self.assertEqual(
             context.runtime_session_restore_pending_attached_file_ids,
             [],
-        )
-        self.assertEqual(
-            context.runtime_session_restore_pending_jin_color,
-            "",
-        )
-        self.assertIsNone(
-            context.runtime_session_restore_pending_jin_size
         )
         self.assertEqual(context.runtime_session_restore_reasoning_dump, "")
         self.assertEqual(context.runtime_session_restore_l4_fact_ids, [])

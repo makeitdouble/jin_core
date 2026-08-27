@@ -316,9 +316,9 @@ Verified behavior:
 - archived visible dialogue is rebuilt from logs;
 - the newest three real USER moves are used for the restore context in chronological order, with empty JIN retained where the turn was interrupted/action-only;
 - a bounded recent reasoning dump is included;
-- loaded Delayed IDs, attached files, and avatar state are staged;
+- loaded Delayed IDs and attached files are staged; room/avatar state is restored by bootstrap and is not replayed as runtime actions;
 - restore Brain response occurs before normal resource reactivation;
-- `BrainNode.replay_session_restore_resource_actions()` consumes the staged envelope and applies it through the real action dispatcher;
+- `BrainNode.replay_session_restore_resource_actions()` consumes the staged Delayed/file envelope and applies only those resources through the real action dispatcher;
 - WebSocket tail only clears defensive state and explicitly warns against mutating/emitting resource state a second time.
 
 This is a strong architectural clue for future restore fixes: find duplicate writers before adding another apply.
@@ -407,9 +407,9 @@ Owner intent from the latest UX pass was approximately 250 ms reveal and 1 s hid
 
 ### 13.2 FRAME naming
 
-Owner prefers `FRAME` over generic `STATE` for the question -> answer -> live-context cycle.
+The live runtime-memory view is now the `FRAME` tab. The rename is deliberately limited to that visible tab; internal runtime/state names remain unchanged.
 
-**State:** preference recorded, but this snapshot does not establish a safe complete rename target. Do not global-replace `RUNTIME`/`STATE`.
+The panel always shows `FRAME`, `ACTIVE`, `DELAYED`, `L-T`, and `FILES`, even when a non-FRAME view is empty. The shared counter moves below the selected tab; FRAME keeps the existing snapshot arrows while the other tabs show only their record count. The temporary unprocessed-facts projection is not exposed as a tab.
 
 ### 13.3 Visual reuse
 
@@ -529,7 +529,6 @@ Do not present these as settled without fresh code evidence:
 - which remaining L2/L3-named compatibility fields are still required for real historical data;
 - whether all old `SAVE_SESSION` tests should be deleted or rewritten around checkpoints;
 - final intended internal storage format for Active Memory after the flat-JSON boundary migration;
-- exact final semantics/name for the UI `FRAME` label;
 - whether reveal debounce should now be restored from 333 ms to the earlier 250 ms preference;
 - final canonical list of supported noncanonical action marker aliases after compatibility cleanup;
 - which current full-suite failures are regressions versus intentionally stale tests;

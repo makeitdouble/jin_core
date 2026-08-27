@@ -350,15 +350,6 @@ class RuntimeContext:
         default_factory=list
     )
 
-    # Archived avatar state is replayed through the normal runtime-action
-    # pipeline after the hidden restore greeting, exactly like restored files
-    # and delayed memory. This keeps visual restoration visible as action bubbles
-    # instead of silently mutating the browser before JIN resumes.
-    runtime_session_restore_pending_jin_color: str = ""
-    runtime_session_restore_pending_jin_size: object | None = None
-    runtime_session_restore_pending_jin_position: object | None = None
-    runtime_session_restore_pending_jin_speed: int | None = None
-
     runtime_memory_update_task: object | None = None
 
     fact_check_idle_task: object | None = None

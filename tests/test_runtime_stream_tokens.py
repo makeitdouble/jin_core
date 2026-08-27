@@ -1940,8 +1940,16 @@ class RuntimeStreamTokenTests(unittest.IsolatedAsyncioTestCase):
             0,
         )
         self.assertIn(
-            "SAVE_DELAYED_MEMORY - failed: Unrequested report",
+            "SAVE_DELAYED_MEMORY: failed - Unrequested report",
             context.runtime_session_action_history[-1]["text"],
+        )
+        self.assertEqual(
+            context.runtime_session_action_history[-1]["parts"][0]["text"],
+            "SAVE_DELAYED_MEMORY: failed",
+        )
+        self.assertIn(
+            "Unrequested report",
+            context.runtime_session_action_history[-1]["parts"][0]["detail"],
         )
         followup_prompt = BrainNode.build_followup_system_prompt(
             "<TOOL_RESULTS>\n</TOOL_RESULTS>",
@@ -2857,7 +2865,7 @@ class RuntimeStreamTokenTests(unittest.IsolatedAsyncioTestCase):
             (
                 "SAVE_ACTIVE_MEMORY - "
                 "current session context and task status, "
-                "SAVE_DELAYED_MEMORY - failed: Unrequested report "
+                "SAVE_DELAYED_MEMORY: failed - Unrequested report "
                 "(user did not provided system allowed trigger words for this action)"
             ),
         )
@@ -2906,9 +2914,9 @@ class RuntimeStreamTokenTests(unittest.IsolatedAsyncioTestCase):
                     "detail": "current session context and task status",
                 },
                 {
-                    "text": "SAVE_DELAYED_MEMORY",
+                    "text": "SAVE_DELAYED_MEMORY: failed",
                     "detail": (
-                        "failed: Unrequested report "
+                        "Unrequested report "
                         "(user did not provided system allowed trigger words for this action)"
                     ),
                 },

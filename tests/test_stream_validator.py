@@ -324,19 +324,15 @@ def test_stream_validator_stops_repeated_short_word_sequence():
 def test_stream_validator_stops_repeated_complex_symbolic_motif_in_mixed_reasoning():
     validator = StreamValidator()
 
-    blocks = [
-        "Wait, I'll do:\n```\n  (😼) ⚡\n```\nLet's go.\n",
-        "*Final decision:*\n```\n  (😼) ⚡\n```\nActually, I'll do it.\n",
-        "Let's inspect one more thing.\n```\n  (😼) ⚡\n```\nThen continue.\n",
-        "*Actually, I'll do:*\n```\n  (😼) ⚡\n```\nLet's go.\n",
-    ]
-
-    assert len(blocks) == MAX_REPEAT_SYMBOLIC_MOTIFS
-
-    for repeat_index, block in enumerate(blocks):
-        clean, is_valid = validator.filter_chunk(
-            block
+    for repeat_index in range(MAX_REPEAT_SYMBOLIC_MOTIFS):
+        block = (
+            f"alpha{repeat_index} beta{repeat_index} gamma{repeat_index}\n"
+            "```\n"
+            "  (😼) ⚡\n"
+            "```\n"
+            f"delta{repeat_index} epsilon{repeat_index} zeta{repeat_index}\n"
         )
+        clean, is_valid = validator.filter_chunk(block)
 
         if repeat_index < MAX_REPEAT_SYMBOLIC_MOTIFS - 1:
             assert clean == block
@@ -350,6 +346,88 @@ def test_stream_validator_stops_repeated_complex_symbolic_motif_in_mixed_reasoni
         "Repeated symbolic motif loop detected."
     )
     assert validator.last_failure_loop_preview == "(😼) ⚡"
+
+def test_stream_validator_stops_long_inline_symbolic_motif():
+    validator = StreamValidator()
+    motif = "▙▟▛"
+
+    # The real failure from the captured MHTML was one physical line with the
+    # same three-character motif repeated for hundreds of characters. Provider
+    # chunk boundaries must not hide that, but shorter intentional art should
+    # remain valid.
+    for repeat_index, chunk in enumerate([
+        motif * 12,
+        motif * 12,
+        motif * 12,
+    ]):
+        clean, is_valid = validator.filter_chunk(chunk)
+
+        if repeat_index < 2:
+            assert clean == chunk
+            assert is_valid
+            continue
+
+        assert clean == ""
+        assert not is_valid
+
+    assert validator.last_failure_reason == (
+        "Repeated symbolic motif loop detected."
+    )
+    assert validator.last_failure_loop_preview == motif
+
+def test_stream_validator_allows_spaced_geometric_art_across_uneven_rows():
+    validator = StreamValidator()
+    art = (
+        "```\n"
+        "      ◢ ◤ ◢ ◤ ◢ ◤ ◢ ◤\n"
+        "   ◢ ◤ ◢ ◤ ◢ ◤\n"
+        "       ◢ ◤ ◢ ◤ ◢ ◤ ◢ ◤\n"
+        "  ◢ ◤ ◢ ◤ ◢ ◤ ◢ ◤ ◢ ◤\n"
+        "     ◢ ◤ ◢ ◤ ◢ ◤ ◢ ◤\n"
+        "        ◢ ◤ ◢ ◤ ◢ ◤\n"
+        "    ◢ ◤ ◢ ◤ ◢ ◤ ◢ ◤ ◢ ◤\n"
+        "```\n"
+    )
+
+    # A finite patterned drawing is allowed even though adjacent rows share a
+    # tiny visual motif. Newlines are intentional structure, not loop evidence.
+    text = collect(
+        validator,
+        [
+            art[:47],
+            art[47:103],
+            art[103:],
+        ],
+    )
+
+    assert text == art
+    assert validator.last_failure_reason is None
+    assert validator.last_failure_loop_preview == ""
+
+def test_stream_validator_allows_short_spaced_geometric_art():
+    validator = StreamValidator()
+    art = (
+        "```\n"
+        "◢ ◤ ◢ ◤ ◢ ◤\n"
+        "  ◢ ◤ ◢ ◤ ◢ ◤\n"
+    )
+
+    clean, is_valid = validator.filter_chunk(art)
+
+    assert clean == art
+    assert is_valid
+    assert validator.last_failure_reason is None
+
+
+def test_stream_validator_allows_long_single_symbol_art_row():
+    validator = StreamValidator()
+    line = "█" * 160 + "\n"
+
+    clean, is_valid = validator.filter_chunk(line)
+
+    assert clean == line
+    assert is_valid
+    assert validator.last_failure_reason is None
 
 
 def test_stream_validator_allows_repeated_ascii_art_rows():

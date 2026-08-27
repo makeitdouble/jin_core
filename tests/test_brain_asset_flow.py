@@ -1794,15 +1794,15 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
                     system_prompt.count(
                         "<PREVIOUS_REASONING_LOOP_CONTENT>"
                     ),
-                    2,
+                    1,
                 )
-                self.assertLess(
-                    system_prompt.index(
-                        "first failed reasoning"
-                    ),
-                    system_prompt.index(
-                        "second failed reasoning"
-                    ),
+                self.assertNotIn(
+                    "first failed reasoning",
+                    system_prompt,
+                )
+                self.assertIn(
+                    "second failed reasoning",
+                    system_prompt,
                 )
                 context.runtime_turn_interrupted = False
                 return (

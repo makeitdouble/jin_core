@@ -3574,6 +3574,7 @@ const consolePanel = document.getElementById("console-panel");
 
 const memoryPanel = document.getElementById("memory-panel");
 const memoryDragHandle = document.getElementById("memory-drag-handle");
+const memoryPanelDragSpacer = document.getElementById("memory-panel-drag-spacer");
 const consoleStreamPlaceholder =
     document.createComment(
         "console-stream detached while console panel is collapsed"
@@ -4975,7 +4976,7 @@ let memoryDragStartX = 0;
 let memoryDragStartY = 0;
 let memoryHasMoved = false;
 
-memoryDragHandle.addEventListener("mousedown", (event) => {
+function beginMemoryPanelDrag(event) {
     if (event.detail > 1) {
         return;
     }
@@ -4994,7 +4995,16 @@ memoryDragHandle.addEventListener("mousedown", (event) => {
     memoryHasMoved = false;
 
     document.body.style.userSelect = "none";
-});
+}
+
+memoryDragHandle.addEventListener("mousedown", beginMemoryPanelDrag);
+
+if (memoryPanelDragSpacer) {
+    memoryPanelDragSpacer.addEventListener(
+        "mousedown",
+        beginMemoryPanelDrag
+    );
+}
 
 window.addEventListener("mousemove", (event) => {
     if (!isMemoryDragging) return;

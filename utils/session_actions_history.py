@@ -1178,13 +1178,15 @@ def build_delayed_memory_save_rejected_history_text(
         or ""
     ).strip()
 
-    text = "SAVE_DELAYED_MEMORY - failed"
-
-    if normalized_title:
-        text = f"{text}: {normalized_title}"
+    detail = (
+        f"{normalized_title} "
+        if normalized_title
+        else ""
+    )
 
     return (
-        f"{text} "
+        "SAVE_DELAYED_MEMORY: failed - "
+        f"{detail}"
         "(user did not provided system allowed trigger words for this action)"
     )
 

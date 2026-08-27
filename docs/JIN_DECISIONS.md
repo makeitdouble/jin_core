@@ -329,13 +329,15 @@ The existing JIN skeleton already has state, named prompt sections, dynamic cont
 
 ---
 
-## D024 — `FRAME` is the preferred conceptual direction over generic `STATE`, but rename is not automatic
+## D024 — `FRAME` names the live runtime-memory tab, not the runtime system
 
-**Status:** Accepted / not fully implemented
+**Status:** Accepted / implemented
 
-The owner prefers `FRAME` for the concrete question -> answer -> live-context cycle because `STATE` is too broad.
+The first memory-panel tab is labelled `FRAME`. It presents the live runtime-memory snapshot and retains the existing snapshot/diff paging controls.
 
-**Constraint:** do not perform a blind RUNTIME/STATE -> FRAME rename. First identify the exact UI label and its semantic scope.
+**Constraint:** this is a UI label with a narrow scope. Do not globally rename runtime/state concepts, identifiers, events, or storage fields to `FRAME`.
+
+The memory panel always exposes exactly five tabs: `FRAME`, `ACTIVE`, `DELAYED`, `L-T`, and `FILES`. The temporary unprocessed-facts view is not part of this tab bar. The shared count/paging control sits below the active tab; arrows are visible only for `FRAME`.
 
 ---
 

@@ -379,12 +379,30 @@ body.theme-win95 #context-panel-model {
 }
 
 body.theme-win95 .runtime-memory-header {
-    border-bottom: 1px solid var(--win95-mid);
+    border-bottom: 0;
     font-size: 14px;
     font-weight: 500;
     letter-spacing: 0;
     padding-bottom: 8px;
     text-transform: uppercase;
+}
+
+body.theme-win95 .runtime-memory-tab {
+    border-right-color: var(--win95-mid);
+    padding:4px 11px 4px;
+}
+
+body.theme-win95 .runtime-memory-tab[aria-selected="true"] {
+    font-weight: 700 !important;
+}
+
+body.theme-win95 .runtime-memory-navigation::before {
+    border-top-color: var(--win95-mid);
+}
+
+body.theme-win95 .runtime-memory-navigation-controls {
+    background: var(--win95-face);
+    gap: 0.1rem;
 }
 
 body.theme-win95 #runtime-memory-prev,
@@ -413,18 +431,9 @@ body.theme-win95 #runtime-memory-next {
     line-height: 1;
 }
 
-body.theme-win95 #runtime-memory-title.runtime-memory-title-clickable {
-    cursor: pointer;
-}
-
-body.theme-win95 #runtime-memory-title.runtime-memory-title-clickable:hover {
-    color: #00824a;
-    text-shadow: none;
-}
-
 body.theme-win95 #runtime-memory-prev:hover,
 body.theme-win95 #runtime-memory-next:hover,
-body.theme-win95 #runtime-memory-position:hover {
+body.theme-win95 .runtime-memory-navigation[data-active-mode="runtime"] #runtime-memory-position:hover {
     background: var(--win95-face);
     border-top-color: var(--win95-light);
     border-left-color: var(--win95-light);

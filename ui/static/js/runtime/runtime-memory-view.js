@@ -58,6 +58,7 @@
   let memoryReferenceEventsBound = false;
   let runtimeMemorySortTransitionSequence = 0;
   let longTermMemoryAgeTimer = null;
+  let runtimeMemoryTabsResizeObserver = null;
 
 
   const pinnedRuntimeMemorySnapshotIndexes = new Set();
@@ -92,6 +93,14 @@
 
   const runtimeMemoryTitle =
       document.getElementById("runtime-memory-title");
+
+  const runtimeMemoryTabs =
+      Array.from(
+          document.querySelectorAll("[data-runtime-memory-mode]")
+      );
+
+  const runtimeMemoryNavigation =
+      document.getElementById("runtime-memory-navigation");
 
   const runtimeMemoryPosition =
       document.getElementById("runtime-memory-position");
@@ -137,6 +146,13 @@
   const LONG_TERM_MEMORY_VALUE_DISPLAY_MAX_CHARS = 78;
   const FILES_MEMORY_LAZY_BATCH_SIZE = 50;
   const RUNTIME_MEMORY_LAZY_BOTTOM_THRESHOLD_PX = 160;
+  const RUNTIME_MEMORY_DISPLAY_MODES = [
+    "runtime",
+    "active",
+    "delayed",
+    "long_term",
+    "files",
+  ];
 
   let runtimeMemoryLazyMode = "";
   let runtimeMemoryLazyTotalCount = 0;
@@ -2159,126 +2175,8 @@
       });
   }
 
-  function hasActiveMemoryRecords() {
-    const records =
-        typeof getActiveMemoryRecords === "function"
-          ? getActiveMemoryRecords()
-          : [];
-
-    return Array.isArray(records) && records.length > 0;
-  }
-
-  function hasDelayedMemoryReportRecords() {
-    const reports =
-        typeof getDelayedMemoryReports === "function"
-          ? getDelayedMemoryReports()
-          : {};
-
-    return Boolean(
-      reports
-      && typeof reports === "object"
-      && !Array.isArray(reports)
-      && Object.values(reports).some(report => (
-        report
-        && typeof report === "object"
-        && !Array.isArray(report)
-      ))
-    );
-  }
-
-  function hasFactsMemoryFieldRecords() {
-    const fields =
-        typeof getFactsMemoryFields === "function"
-          ? getFactsMemoryFields()
-          : {};
-
-    return Boolean(
-      fields
-      && typeof fields === "object"
-      && !Array.isArray(fields)
-      && Object.values(fields).some((field) => (
-        field
-        && typeof field === "object"
-        && !Array.isArray(field)
-        && String(field.content || "").trim()
-        && String(field.l4_status || "pending")
-          .trim()
-          .toLocaleLowerCase() !== "analyzed"
-      ))
-    );
-  }
-
-  function hasLongTermMemoryFactRecords() {
-    const facts =
-        typeof getLongTermMemoryFacts === "function"
-          ? getLongTermMemoryFacts()
-          : [];
-
-    return Boolean(
-      Array.isArray(facts)
-      && facts.some(fact => (
-        fact
-        && typeof fact === "object"
-        && !Array.isArray(fact)
-        && String(fact.key || "").trim()
-        && String(fact.value || "").trim()
-      ))
-    );
-  }
-
-  function hasPersistentFileRecords() {
-    const records =
-        window.JinFiles
-        && typeof window.JinFiles.getFiles === "function"
-          ? window.JinFiles.getFiles()
-          : [];
-
-    return Boolean(
-      Array.isArray(records)
-      && records.some(record => (
-        record
-        && record.id
-        && record.name
-      ))
-    );
-  }
-
   function getAvailableRuntimeMemoryDisplayModes() {
-    const modes = [
-      "runtime",
-    ];
-
-    if (hasActiveMemoryRecords()) {
-      modes.push(
-          "active"
-      );
-    }
-
-    if (hasDelayedMemoryReportRecords()) {
-      modes.push(
-          "delayed"
-      );
-    }
-
-    if (hasFactsMemoryFieldRecords()) {
-      modes.push(
-          "facts"
-      );
-    }
-
-    if (hasLongTermMemoryFactRecords()) {
-      modes.push(
-          "long_term"
-      );
-    }
-
-    if (hasPersistentFileRecords()) {
-      modes.push(
-          "files"
-      );
-    }
-
-    return modes;
+    return RUNTIME_MEMORY_DISPLAY_MODES.slice();
   }
 
   function ensureRuntimeMemoryDisplayModeAvailable(availableModes = null) {
@@ -2301,11 +2199,7 @@
     return "runtime";
   }
 
-  function updateRuntimeMemoryTitleState(availableModes = null) {
-    if (!runtimeMemoryTitle) {
-      return;
-    }
-
+  function updateRuntimeMemoryTabsState(availableModes = null) {
     const modes =
         Array.isArray(availableModes)
           ? availableModes
@@ -2319,47 +2213,104 @@
           ? currentMode
           : "runtime";
 
-    runtimeMemoryTitle.textContent =
-        displayMode === "active"
-          ? "[ active memory ]"
-          : displayMode === "delayed"
-            ? "[ delayed memory ]"
-            : displayMode === "facts"
-              ? "[ facts memory ]"
-              : displayMode === "long_term"
-                ? "[ long term memory ]"
-                : displayMode === "files"
-                  ? "[ files ]"
-                  : "[ runtime memory ]";
-
-    const hasAlternativeMemory =
-        modes.length > 1;
-
-    runtimeMemoryTitle.classList.toggle(
-        "runtime-memory-title-clickable",
-        hasAlternativeMemory
+    const activeIndex = Math.max(
+        0,
+        RUNTIME_MEMORY_DISPLAY_MODES.indexOf(displayMode)
     );
 
-    if (hasAlternativeMemory) {
-      runtimeMemoryTitle.setAttribute(
-          "role",
-          "button"
-      );
+    runtimeMemoryTabs.forEach((tab) => {
+      const selected =
+          tab.dataset.runtimeMemoryMode === displayMode;
 
-      runtimeMemoryTitle.setAttribute(
-          "tabindex",
-          "0"
+      tab.setAttribute(
+          "aria-selected",
+          selected ? "true" : "false"
       );
+      tab.tabIndex = selected ? 0 : -1;
+    });
+
+    if (runtimeMemoryNavigation) {
+      runtimeMemoryNavigation.dataset.activeIndex =
+          String(activeIndex);
+      runtimeMemoryNavigation.dataset.activeMode =
+          displayMode;
+    }
+
+    syncRuntimeMemoryNavigationGeometry(displayMode);
+
+    if (runtimeMemoryPosition) {
+      if (displayMode === "runtime") {
+        runtimeMemoryPosition.setAttribute("role", "button");
+        runtimeMemoryPosition.setAttribute("tabindex", "0");
+        runtimeMemoryPosition.setAttribute(
+            "title",
+            "Toggle persistent runtime memory highlight"
+        );
+      } else {
+        runtimeMemoryPosition.removeAttribute("role");
+        runtimeMemoryPosition.removeAttribute("tabindex");
+        runtimeMemoryPosition.removeAttribute("title");
+      }
+    }
+  }
+
+  function syncRuntimeMemoryNavigationGeometry(displayMode = null) {
+    if (!runtimeMemoryNavigation) {
       return;
     }
 
-    runtimeMemoryTitle.removeAttribute(
-        "role"
-    );
+    const mode =
+        String(displayMode || getRuntimeMemoryDisplayMode()).trim();
+    const activeTab =
+        runtimeMemoryTabs.find(
+            tab => tab.dataset.runtimeMemoryMode === mode
+        ) || runtimeMemoryTitle;
 
-    runtimeMemoryTitle.removeAttribute(
-        "tabindex"
+    if (!activeTab || !activeTab.isConnected) {
+      return;
+    }
+
+    const navigationRect =
+        runtimeMemoryNavigation.getBoundingClientRect();
+    const tabRect =
+        activeTab.getBoundingClientRect();
+
+    if (
+        !Number.isFinite(navigationRect.left)
+        || !Number.isFinite(tabRect.left)
+        || tabRect.width <= 0
+    ) {
+      return;
+    }
+
+    runtimeMemoryNavigation.style.setProperty(
+        "--runtime-memory-active-tab-left",
+        `${Math.max(0, tabRect.left - navigationRect.left)}px`
     );
+    runtimeMemoryNavigation.style.setProperty(
+        "--runtime-memory-active-tab-width",
+        `${tabRect.width}px`
+    );
+  }
+
+  function bindRuntimeMemoryTabsGeometryObserver() {
+    if (
+        runtimeMemoryTabsResizeObserver
+        || !runtimeMemoryNavigation
+        || typeof ResizeObserver !== "function"
+    ) {
+      return;
+    }
+
+    runtimeMemoryTabsResizeObserver =
+        new ResizeObserver(() => {
+          syncRuntimeMemoryNavigationGeometry();
+        });
+
+    runtimeMemoryTabs.forEach((tab) => {
+      runtimeMemoryTabsResizeObserver.observe(tab);
+    });
+    runtimeMemoryTabsResizeObserver.observe(runtimeMemoryNavigation);
   }
 
   function updateUserIdleTimerText(
@@ -2694,6 +2645,7 @@
 
   window.addEventListener("resize", () => {
     hideLongTermMemoryHoverCard();
+    syncRuntimeMemoryNavigationGeometry();
   });
 
   if (memoryScroll) {
@@ -2850,8 +2802,18 @@
       : 0;
   }
 
+  function getRuntimeMemoryMetricsTab() {
+    const displayMode = getRuntimeMemoryDisplayMode();
+
+    return runtimeMemoryTabs.find(
+        tab => tab.dataset.runtimeMemoryMode === displayMode
+    ) || runtimeMemoryTitle;
+  }
+
   function bindRuntimeMemoryTitleMetrics(charCount) {
-    if (!runtimeMemoryTitle) {
+    const metricsTab = getRuntimeMemoryMetricsTab();
+
+    if (!metricsTab) {
       return;
     }
 
@@ -2863,7 +2825,7 @@
         );
 
     bindRuntimeMemoryHoverTitle(
-      runtimeMemoryTitle,
+      metricsTab,
       `${normalizedCharCount} chars / ~${tokenCount} tokens`
     );
   }
@@ -2928,7 +2890,7 @@
   }
 
   function updateRuntimeMemoryTitleMetrics(snapshot) {
-    if (!runtimeMemoryTitle) {
+    if (!getRuntimeMemoryMetricsTab()) {
       return;
     }
 
@@ -2941,7 +2903,7 @@
   }
 
   function updateRuntimeMemoryTitleMetricsFromText(text) {
-    if (!runtimeMemoryTitle) {
+    if (!getRuntimeMemoryMetricsTab()) {
       return;
     }
 
@@ -2957,7 +2919,9 @@
     items,
     resolveText
   ) {
-    if (!runtimeMemoryTitle) {
+    const metricsTab = getRuntimeMemoryMetricsTab();
+
+    if (!metricsTab) {
       return;
     }
 
@@ -2969,7 +2933,7 @@
     let cachedTitle = null;
 
     bindRuntimeMemoryHoverTitle(
-      runtimeMemoryTitle,
+      metricsTab,
       () => {
         if (cachedTitle !== null) {
           return cachedTitle;
@@ -3120,7 +3084,7 @@
     const displayMode =
         ensureRuntimeMemoryDisplayModeAvailable(availableModes);
 
-    updateRuntimeMemoryTitleState(availableModes);
+    updateRuntimeMemoryTabsState(availableModes);
 
     const renderHighlightOptions = {
       animateSort: false,
@@ -8562,49 +8526,6 @@
     runtimeMemoryNext.classList.toggle("text-slate-600", !canGoNext);
   }
 
-  function toggleRuntimeMemoryDisplayMode(direction = 1) {
-    const modes =
-        getAvailableRuntimeMemoryDisplayModes();
-
-    if (modes.length <= 1) {
-      return;
-    }
-
-    const currentMode =
-        getRuntimeMemoryDisplayMode();
-
-    const currentIndex =
-        modes.indexOf(currentMode);
-
-    const step = direction < 0 ? -1 : 1;
-    const nextIndex =
-        (currentIndex + step + modes.length) % modes.length;
-
-    setRuntimeMemoryDisplayMode(
-        modes[nextIndex]
-    );
-
-    renderRuntimeMemorySnapshot({
-      availableModes: modes,
-    });
-  }
-
-  function isRuntimeMemoryTitleBackZone(event) {
-    if (!runtimeMemoryTitle) {
-      return false;
-    }
-
-    const rect = runtimeMemoryTitle.getBoundingClientRect();
-    const fontSize = parseFloat(
-        window.getComputedStyle(runtimeMemoryTitle).fontSize
-    ) || 11;
-
-    // Opening bracket acts as the backward navigation zone for every memory title.
-    const backZoneWidth = Math.max(12, fontSize * 1.35);
-
-    return (event.clientX - rect.left) <= backZoneWidth;
-  }
-
   function bindRuntimeMemoryNavigation() {
     if (initialized) {
       return;
@@ -8698,22 +8619,23 @@
       runtimeMemoryPosition.click();
     });
 
-    runtimeMemoryTitle?.addEventListener("click", (event) => {
-      toggleRuntimeMemoryDisplayMode(
-          isRuntimeMemoryTitleBackZone(event) ? -1 : 1
-      );
-    });
+    runtimeMemoryTabs.forEach((tab) => {
+      tab.addEventListener("click", () => {
+        const displayMode =
+            String(tab.dataset.runtimeMemoryMode || "").trim();
 
-    runtimeMemoryTitle?.addEventListener("keydown", (event) => {
-      if (
-          event.key !== "Enter"
-          && event.key !== " "
-      ) {
-        return;
-      }
+        if (
+            !RUNTIME_MEMORY_DISPLAY_MODES.includes(displayMode)
+            || displayMode === getRuntimeMemoryDisplayMode()
+        ) {
+          return;
+        }
 
-      event.preventDefault();
-      toggleRuntimeMemoryDisplayMode();
+        setRuntimeMemoryDisplayMode(displayMode);
+        renderRuntimeMemorySnapshot({
+          availableModes: getAvailableRuntimeMemoryDisplayModes(),
+        });
+      });
     });
 
     runtimeDiffToggle?.addEventListener("click", () => {
@@ -8799,6 +8721,7 @@
 
     bindRuntimeMemoryLazyScroll();
     bindRuntimeMemoryNavigation();
+    bindRuntimeMemoryTabsGeometryObserver();
     renderRuntimeMemorySnapshot();
     renderRuntimeDiffs();
   }

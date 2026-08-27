@@ -24,7 +24,7 @@ class RuntimeMemoryTitleClientContractTests(unittest.TestCase):
             source,
         )
         self.assertIn(
-            ': "[ runtime memory ]";',
+            'const RUNTIME_MEMORY_DISPLAY_MODES = [',
             source,
         )
 

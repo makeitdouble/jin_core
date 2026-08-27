@@ -1223,11 +1223,72 @@ async def ask_brain_stream(
                 get_action_counter_display_payloads()
             ),
         )
-        replace_session_action_history_since(
+
+        history = getattr(
             context,
-            session_action_history_start,
-            marker_actions,
+            "runtime_session_action_history",
+            None,
         )
+        saved_delayed_memory_items = []
+        safe_start_index = 0
+
+        if isinstance(history, list):
+            safe_start_index = max(
+                0,
+                min(
+                    int(
+                        session_action_history_start
+                        or 0
+                    ),
+                    len(history),
+                ),
+            )
+            saved_delayed_memory_items = [
+                dict(item)
+                for item in history[
+                    safe_start_index:
+                ]
+                if isinstance(item, dict)
+                and item.get(
+                    "runtime_session_action_marker_item"
+                ) is not True
+                and str(
+                    item.get("text", "")
+                    or ""
+                ).strip().startswith(
+                    "Delayed memory saved:"
+                )
+            ]
+
+        if saved_delayed_memory_items:
+            remaining_marker_actions = [
+                action
+                for action in marker_actions
+                if str(
+                    action.get("name", "")
+                    or ""
+                ).strip().upper()
+                != RUNTIME_ACTION_SAVE_DELAYED_MEMORY
+            ]
+
+            if remaining_marker_actions:
+                replace_session_action_history_since(
+                    context,
+                    session_action_history_start,
+                    remaining_marker_actions,
+                )
+            else:
+                del history[safe_start_index:]
+
+            history.extend(
+                saved_delayed_memory_items
+            )
+        else:
+            replace_session_action_history_since(
+                context,
+                session_action_history_start,
+                marker_actions,
+            )
 
         if marker_actions and session_action_message_content:
             attach_session_action_jin_message_since(

@@ -677,12 +677,10 @@ class BrainPromptMemoryTests(
 
             self.assertEqual(
                 prompt.count("<PREVIOUS_REASONING_LOOP_CONTENT>"),
-                2,
+                1,
             )
-            self.assertIn(
-                (
-                    "---------------------------- CUTTED "
-                ),
+            self.assertNotIn(
+                "loop one opening",
                 prompt,
             )
             self.assertIn(

@@ -2873,6 +2873,15 @@ class BrainRuntimeActionTests(unittest.TestCase):
             lifecycle_events[1]["text"],
             "Saved delayed memory: Test delayed memory report",
         )
+        self.assertEqual(
+            [
+                item["text"]
+                for item in context.runtime_session_action_history
+            ],
+            [
+                "Delayed memory saved: Test delayed memory report",
+            ],
+        )
 
     def test_agent_runtime_action_flags_follow_assembler_constants(self):
 

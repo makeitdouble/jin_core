@@ -36,7 +36,6 @@ from utils.actions import (
     is_active_memory_key,
     is_delayed_memory_report_id,
     normalize_jin_color_payload,
-    normalize_jin_speed_value,
     refresh_active_memory_runtime_metadata,
     remove_active_memory_entries,
 )
@@ -511,16 +510,8 @@ def apply_archived_session_continuation_state(
             context,
             message_data,
         )
-        stage_session_restore_visual_state(
-            context,
-            message_data,
-        )
     else:
         context.runtime_session_restore_pending_attached_file_ids = []
-        context.runtime_session_restore_pending_jin_color = ""
-        context.runtime_session_restore_pending_jin_size = None
-        context.runtime_session_restore_pending_jin_position = None
-        context.runtime_session_restore_pending_jin_speed = None
         attached_file_ids = [
             str(file_id or "").strip()
             for file_id in message_data.get(
@@ -673,34 +664,6 @@ def apply_loaded_delayed_memory_ids(
 
 
 
-
-def stage_session_restore_visual_state(
-    context,
-    message_data: dict,
-) -> None:
-
-    color = clean_bootstrap_memory(
-        message_data.get("current_jin_color", ""),
-        limit=32,
-    ).strip()
-    size = message_data.get("current_jin_size")
-    position = message_data.get("current_jin_position")
-    speed = normalize_jin_speed_value(
-        message_data.get("current_jin_speed")
-    )
-
-    context.runtime_session_restore_pending_jin_color = color
-    context.runtime_session_restore_pending_jin_size = (
-        dict(size)
-        if isinstance(size, dict)
-        else None
-    )
-    context.runtime_session_restore_pending_jin_position = (
-        dict(position)
-        if isinstance(position, dict)
-        else None
-    )
-    context.runtime_session_restore_pending_jin_speed = speed
 
 def stage_session_restore_attached_file_ids(
     context,
