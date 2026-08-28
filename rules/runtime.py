@@ -34,14 +34,14 @@ ACTION_BLOCKED_TRIGGER_WORD_MESSAGE = (
 SESSION_RESTORE_REASONING_COUNT = 2
 SESSION_RESTORE_REASONING_CHAR_LIMIT = 2000
 SESSION_RESTORE_MESSAGE = (
-    "<CONVERSATION_CONTINUE_RULES>\n"
-    "Current session was bootstrapped in a browser tab!\n"
-    "RESTORED_SESSION_DIALOG is the authoritative newest visible conversation state.\n"
-    "RUNTIME_MEMORY is background state and may predate the last restored dialogue turn; never treat its keys as a newer user message.\n"
-    "Continue from the latest USER entry in RESTORED_SESSION_DIALOG and answer in that user's language.\n"
-    "Think deep and fresh, extract the conversation's tone and resume it fluently.\n"
-    "Respond briefly and naturally without summarizing or re-introducing the restored exchange unless the user asks.\n"
-    "</CONVERSATION_CONTINUE_RULES>"
+    "<RESTORED_SESSION_INSTRUCTIONS>\n"
+    "This is session boostrap system message!\n"
+    "User opened runtime in a new tab!\n"
+    "You must think and derive current time and pending tasks before continue!\n"
+    "Analyze PREVIOUS_CHAT_MESSAGES and answer in language of user message.\n"
+    "Think deep and fresh, extract all vibe and re-enable the archived conversation as fluently as possible.\n"
+    "Respond briefly and naturally, quickly acknowledge your presence and make it easy for the user to continue from exactly where we left off and move on.\n"
+    "</RESTORED_SESSION_INSTRUCTIONS>"
 )
 RUNTIME_ACTIONS_RULES = ""
 RUNTIME_ACTIONS_RULES_ = (
