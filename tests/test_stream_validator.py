@@ -451,6 +451,53 @@ def test_stream_validator_allows_repeated_ascii_art_rows():
     assert validator.last_failure_loop_preview == ""
 
 
+def test_stream_validator_stops_runaway_ascii_diagonal_drift():
+    validator = StreamValidator()
+    row = "\\                          \\"
+
+    for line_index in range(
+        stream_validator_module.ASCII_DRIFT_LOOP_MIN_LINES
+    ):
+        chunk = " " * line_index + row + "\n"
+        clean, is_valid = validator.filter_chunk(chunk)
+
+        if line_index < stream_validator_module.ASCII_DRIFT_LOOP_MIN_LINES - 1:
+            assert clean == chunk
+            assert is_valid
+            continue
+
+        assert clean == ""
+        assert not is_valid
+
+    assert validator.last_failure_reason == (
+        "Repeated symbolic motif loop detected."
+    )
+    assert validator.last_failure_loop_preview == row
+
+
+def test_stream_validator_allows_finite_ascii_diagonal_drift():
+    validator = StreamValidator()
+    row = "\\                          \\"
+    line_count = stream_validator_module.ASCII_DRIFT_LOOP_MIN_LINES - 4
+    art = "".join(
+        " " * line_index + row + "\n"
+        for line_index in range(line_count)
+    )
+
+    text = collect(
+        validator,
+        [
+            art[:73],
+            art[73:211],
+            art[211:],
+        ],
+    )
+
+    assert text == art
+    assert validator.last_failure_reason is None
+    assert validator.last_failure_loop_preview == ""
+
+
 def test_stream_validator_allows_bare_two_emoji_lines_even_when_repeated():
     validator = StreamValidator()
     line = "😂 ⚡\n"

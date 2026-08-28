@@ -116,6 +116,10 @@ SYMBOLIC_MOTIF_HISTORY_LINES = configured_int(
 INLINE_SYMBOLIC_LOOP_MIN_CHARS = 96
 INLINE_SYMBOLIC_LOOP_MAX_MOTIF_SIZE = 16
 INLINE_SYMBOLIC_LOOP_MIN_REPETITIONS = 8
+# Same symbol-only ASCII row drifting one column per newline is a distinct
+# runaway shape. Keep this deliberately high so finite diagonals stay valid.
+ASCII_DRIFT_LOOP_MIN_LINES = 24
+ASCII_DRIFT_LOOP_MIN_BODY_WIDTH = 12
 MAX_SENTENCE_LOOP_SEQUENCE_SIZE = configured_int(
     "STREAM_VALIDATOR_MAX_SENTENCE_LOOP_SEQUENCE_SIZE",
     16,
@@ -261,6 +265,7 @@ class StreamValidator:
         self.symbolic_line_fragment = ""
         self.symbolic_line_index = 0
         self.symbolic_motif_history = []
+        self.ascii_drift_history = []
         self.validation_marker_buffer = ""
         self.validation_excluded_block_name = ""
 
@@ -935,6 +940,111 @@ class StreamValidator:
             )
         )
 
+    @staticmethod
+    def get_ascii_drift_candidate(
+        line: str,
+    ) -> tuple[int, str] | None:
+        line = str(line or "").rstrip("\r")
+        stripped = line.strip(" ")
+
+        if (
+            not stripped
+            or "\t" in line
+            or not line.isascii()
+            or len(stripped) < ASCII_DRIFT_LOOP_MIN_BODY_WIDTH
+            or any(char.isalnum() for char in stripped)
+        ):
+            return None
+
+        visible = [
+            char
+            for char in stripped
+            if not char.isspace()
+        ]
+
+        if (
+            len(visible) < 2
+            or any(
+                not (
+                    unicodedata.category(char).startswith("P")
+                    or unicodedata.category(char).startswith("S")
+                )
+                for char in visible
+            )
+        ):
+            return None
+
+        return (
+            len(line) - len(line.lstrip(" ")),
+            stripped,
+        )
+
+    def validate_ascii_drift_line(
+        self,
+        line: str,
+    ) -> bool:
+        candidate = self.get_ascii_drift_candidate(
+            line
+        )
+
+        if candidate is None:
+            self.ascii_drift_history = []
+            return True
+
+        indent, body = candidate
+
+        if (
+            self.ascii_drift_history
+            and self.ascii_drift_history[-1][1] != body
+        ):
+            self.ascii_drift_history = []
+
+        self.ascii_drift_history.append((
+            indent,
+            body,
+            line.rstrip("\r"),
+        ))
+        self.ascii_drift_history = self.ascii_drift_history[
+            -ASCII_DRIFT_LOOP_MIN_LINES:
+        ]
+
+        if len(self.ascii_drift_history) < ASCII_DRIFT_LOOP_MIN_LINES:
+            return True
+
+        step = (
+            self.ascii_drift_history[1][0]
+            - self.ascii_drift_history[0][0]
+        )
+
+        if (
+            abs(step) != 1
+            or any(
+                current[0] - previous[0] != step
+                for previous, current in zip(
+                    self.ascii_drift_history,
+                    self.ascii_drift_history[1:],
+                )
+            )
+        ):
+            return True
+
+        preview = "\n".join(
+            item[2]
+            for item in self.ascii_drift_history
+        )
+
+        self.last_failure_reason = (
+            "Repeated symbolic motif loop detected."
+        )
+        self.last_failure_preview = build_preview(
+            preview
+        )
+        self.last_failure_loop_preview = build_loop_preview(
+            body
+        )
+
+        return False
+
     def validate_symbolic_motif_loops(
         self,
         chunk: str,
@@ -980,6 +1090,11 @@ class StreamValidator:
             return False
 
         for raw_line in complete_lines:
+            if not self.validate_ascii_drift_line(
+                raw_line
+            ):
+                return False
+
             self.symbolic_line_index += 1
 
             line = raw_line.rstrip("\r")
