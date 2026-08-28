@@ -164,17 +164,9 @@ const {
 } = memoryModel;
 
 const {
-  keys: runtimeStorageKeys,
-  removeBrowserMemory,
   readLatestRuntimeMemory,
   writeLatestRuntimeMemory,
-  readLatestSavedRuntimeMemory,
-  writeLatestSavedRuntimeMemory,
   buildPersistedRuntimeSnapshot,
-  cloneBootRuntimeMemoryIfNeeded,
-  collectOtherLatestRuntimeMemorySnapshots,
-  clearOtherLatestRuntimeMemorySnapshots,
-  getSavedRuntimeMemoryFallback,
   readActiveMemoryRecords,
   writeActiveMemoryRecords,
   clearActiveMemoryRecords,

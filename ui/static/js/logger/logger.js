@@ -4149,8 +4149,8 @@ function persistRoomStateNow(options = {}) {
 
     if (
         !storage
-        || typeof storage.readLatestSavedSessionSnapshot !== "function"
-        || typeof storage.writeLatestSavedSessionSnapshot !== "function"
+        || typeof storage.readSessionCheckpoint !== "function"
+        || typeof storage.writeSessionCheckpoint !== "function"
         || (
             typeof storage.shouldIsolateAnonymousStorage === "function"
             && storage.shouldIsolateAnonymousStorage()
@@ -4160,7 +4160,7 @@ function persistRoomStateNow(options = {}) {
     }
 
     const checkpoint =
-        storage.readLatestSavedSessionSnapshot();
+        storage.readSessionCheckpoint();
 
     if (
         !checkpoint
@@ -4231,7 +4231,7 @@ function persistRoomStateNow(options = {}) {
         };
     }
 
-    const written = storage.writeLatestSavedSessionSnapshot({
+    const written = storage.writeSessionCheckpoint({
         ...checkpoint,
         session_snapshot: sessionSnapshot,
     });
@@ -4272,13 +4272,13 @@ function getStoredRoomState() {
 
     if (
         !storage
-        || typeof storage.readLatestSavedSessionSnapshot !== "function"
+        || typeof storage.readSessionCheckpoint !== "function"
     ) {
         return null;
     }
 
     const checkpoint =
-        storage.readLatestSavedSessionSnapshot();
+        storage.readSessionCheckpoint();
 
     if (
         !checkpoint

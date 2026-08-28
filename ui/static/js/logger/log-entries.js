@@ -2753,9 +2753,6 @@ function appendLog(
   } else if (normalizedTag.includes("SESSION")) {
     logKind =
       "session";
-  } else if (normalizedTag.includes("LATEST SNAPSHOTS")) {
-    logKind =
-      "session";
   } else if (normalizedTag.includes("ACTIVE_MEMORY")) {
     logKind =
       "active-memory";
@@ -2889,21 +2886,6 @@ function appendLog(
   }
 
   if (tag.includes("SESSION")) {
-    tagClass =
-      "text-cyan-300 font-bold";
-
-    logDiv.classList.add(
-      "font-mono",
-      "text-[12px]",
-      "bg-cyan-500/5",
-      "p-2",
-      "rounded",
-      "border",
-      "border-cyan-500/10",
-    );
-  }
-
-  if (tag.includes("LATEST SNAPSHOTS")) {
     tagClass =
       "text-cyan-300 font-bold";
 
@@ -3118,9 +3100,6 @@ function appendLog(
     const isSession =
       tag.includes("SESSION");
 
-    const isLatestSnapshots =
-      tag.includes("LATEST SNAPSHOTS");
-
     const isActiveMemory =
       tag.includes("ACTIVE_MEMORY");
 
@@ -3200,14 +3179,14 @@ function appendLog(
         ? "inline-flex items-center rounded border border-zinc-600/40 px-2 py-1 text-[10px] uppercase tracking-wider text-zinc-300 hover:bg-zinc-700/40 transition"
         : isSummarizer
         ? "mt-2 inline-flex items-center rounded border border-blue-500/20 px-2 py-1 text-[10px] uppercase tracking-wider text-blue-300 hover:bg-blue-500/10 transition"
-        : isSession || isLatestSnapshots
+        : isSession
         ? "inline-flex items-center rounded border border-cyan-500/20 px-2 py-1 text-[10px] uppercase tracking-wider text-cyan-300 hover:bg-cyan-500/10 transition"
         : "mt-2 inline-flex items-center rounded border border-red-500/20 px-2 py-1 text-[10px] uppercase tracking-wider text-red-300 hover:bg-red-500/10 transition";
 
     traceButton.textContent =
       isModelOutput
         ? "payload"
-        : isSession || isLatestSnapshots || isActiveMemory || isFactsMemory
+        : isSession || isActiveMemory || isFactsMemory
         ? "show"
         : isSummarizer
         ? "payload"
@@ -3233,9 +3212,7 @@ function appendLog(
             : prettifyTraceDetails(normalized.details),
           getTraceTitle(
             normalized.details,
-            isLatestSnapshots
-              ? "Latest snapshots"
-              : isSession
+            isSession
               ? "Session bootstrap"
               : tag.includes("ACTIVE_MEMORY")
               ? "Active memory payload"
@@ -3264,7 +3241,6 @@ function appendLog(
 
     if (
         isSession
-        || isLatestSnapshots
         || isActiveMemory
         || isFactsMemory
     ) {
@@ -3285,12 +3261,7 @@ function appendLog(
       clearButton.addEventListener(
         "click",
         function () {
-          if (
-              isLatestSnapshots
-              && window.clearOtherLatestRuntimeMemorySnapshots
-          ) {
-            window.clearOtherLatestRuntimeMemorySnapshots();
-          } else if (isActiveMemory) {
+          if (isActiveMemory) {
             if (
                 window.JinRuntime
                 && window.JinRuntime.runtime

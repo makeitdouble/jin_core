@@ -393,7 +393,8 @@ JIN deliberately splits persistence by owner/lifetime.
 
 | State | Current storage/owner |
 | --- | --- |
-| live runtime checkpoint / browser-facing session state | browser storage via runtime/session modules |
+| live runtime FRAME for soft reconnect | `sessionStorage`: `jin.liveRuntimeMemory.v2` |
+| atomic browser session checkpoint | `localStorage`: `jin.sessionCheckpoint.v2` |
 | Active Memory | browser runtime storage; anonymous mode can isolate it |
 | Facts Memory candidate buckets | browser storage per facts-memory session ID |
 | Delayed Memory | `memory/delayed/*.json` |
@@ -410,9 +411,13 @@ JIN deliberately splits persistence by owner/lifetime.
 
 `ui/static/js/runtime/runtime-session.js` persists live checkpoints and sends `session_bootstrap` data when appropriate. The backend normalizes and hydrates the browser-provided snapshot in `websocket/bootstrap.py`.
 
-The browser uses one common checkpoint to name the last runtime session that actually moved. Merely opening/reloading a tab can clone inherited L1 into a fresh per-session record and record `booted_from_session_id`, but it does not promote that fresh runtime ID to the common conversation checkpoint. A real user send marks session activity immediately; a later server `completed_turn_commit` is the fallback commit signal. `conversation_committed_at` advances only for a completed turn, so it remains distinct from USER-only session movement.
+Browser runtime continuity has two intentionally different lifetimes. `jin.liveRuntimeMemory.v2` exists only in the current page's `sessionStorage` and supports soft WebSocket reconnect. The module clears that key on page execution, so reload and new-tab bootstrap cannot inherit a copied live FRAME. `jin.sessionCheckpoint.v2` is the single durable, atomic `localStorage` record containing lineage, runtime memory and update count, runtime snapshot, and `session_snapshot`.
 
-Per-session runtime records are candidates for the checkpoint's L1 payload only when their `session_id` matches the common checkpoint. Nested runtime snapshots preserve their own origin session ID; lineage is not rewritten merely because the containing browser record belongs to the new tab.
+The atomic checkpoint names the last runtime session that actually moved. Merely opening/reloading a tab hydrates inherited L1 into the fresh page's ephemeral live record and records its source lineage, but it does not promote the fresh runtime ID. A successfully emitted real USER message marks session activity immediately; a later server `completed_turn_commit` is the fallback commit signal. Retry, bootstrap, reconnect, and passive UI/runtime events do not mark activity. `conversation_committed_at` advances only for a completed turn, so it remains distinct from USER-only session movement. Nested runtime snapshots preserve their own origin session ID.
+
+Session CLEAR replaces the durable record with a version-2 `state: "cleared"` tombstone and clears the current page's live FRAME plus all legacy runtime keys. Other already-open tabs cannot passively resurrect state. The first later checkpoint is allowed only after a successful new USER send; it carries the clear boundary forward so a still-older tab cannot overwrite the new owner after the tombstone has been replaced.
+
+One-time migration runs only after normal/anonymous storage isolation is known. A legacy common snapshot owns selection and may join only a matching `latestSavedRuntimeMemory` or the exact per-session runtime key. Without a common snapshot, only the self-contained `latestSavedRuntimeMemory` may migrate. Orphan per-session keys become a cleared tombstone and are never ranked by freshness. Legacy keys are removed only after the v2 write succeeds; failed writes preserve them for retry. Anonymous mode neither reads nor migrates the normal-profile checkpoint.
 
 The server sends a normalized `session_snapshot` at visible `message_end` and again at `agent_runtime_end`. The client merges the current room state into that snapshot and persists it before finishing the visible bubble. Completed state and room/avatar state therefore land as one checkpoint rather than racing through separate full writers.
 
@@ -425,7 +430,7 @@ Bootstrap uses two freshness clocks:
 - dialogue/reasoning/counters compare the browser recent-turn tail to the archive recent-turn tail;
 - runtime/resource fields still use checkpoint `saved_at` against archive tail time.
 
-This separation prevents a harmless fresh-tab clone or room-state write from pinning dialogue to an older turn. `saved_at` must still represent a whole-checkpoint refresh, not an incidental field mutation.
+This separation prevents a harmless fresh-page hydration or room-state write from pinning dialogue to an older turn. `saved_at` must still represent a whole-checkpoint refresh, not an incidental field mutation.
 
 Session actions are merged by stable ID when available, otherwise by structured identity, sorted by real `created_at`, and bounded. For an unchanged source session the common checkpoint owns actions at or before `saved_at`; raw logs may append only a newer tail. If raw dialogue proves that another source session has a strictly newer USER move, the stale browser source, its actions, and its color are discarded together.
 

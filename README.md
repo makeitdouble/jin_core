@@ -130,12 +130,12 @@ On Windows, the LM Studio launcher can fill unset/default model ids from a loade
 
 JIN stores persistent runtime state locally through:
 
-* browser storage for resumable session-facing state, Active Memory, and explicit save/bootstrap data;
+* `jin.liveRuntimeMemory.v2` in `sessionStorage` for the current page's soft-reconnect FRAME;
+* one atomic `jin.sessionCheckpoint.v2` in `localStorage` for new-tab/reload continuity;
 * `memory/delayed/*.json` for Delayed Memory reports;
 * `memory/facts/long_term_facts.json` for the canonical L4 store;
 * `assets/files/` plus its local index for persistent uploaded files;
-* `logs/` for chat and per-turn reasoning logs;
-* optional `saved_runtime.txt` runtime/session fallback data.
+* `logs/` for chat and per-turn reasoning logs.
 
 Model and search traffic goes to the endpoints and providers configured for the runtime.
 
@@ -179,8 +179,7 @@ JIN can inspect available skills, attach the one required for the current task, 
 |-- requirements.txt           # Python dependencies
 |-- package.json               # Test and probe commands
 |-- ARCHITECTURE.md            # Runtime ownership, data flow, persistence
-|-- LIVE_AVATAR.md             # Avatar visual-state contract
-`-- saved_runtime.example.txt  # Optional runtime/session fallback template
+`-- LIVE_AVATAR.md             # Avatar visual-state contract
 ```
 
 ## Setup and Quick Start

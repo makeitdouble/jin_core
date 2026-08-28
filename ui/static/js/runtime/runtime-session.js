@@ -54,23 +54,15 @@
     } = memoryModel;
 
     const {
-      keys: runtimeStorageKeys,
-      removeBrowserMemory,
       readLatestRuntimeMemory,
       writeLatestRuntimeMemory,
-      writeLatestSavedSessionSnapshot,
-      readLatestSavedSessionSnapshot,
-      writeLatestSavedRuntimeMemory,
-      readLatestSavedRuntimeMemory,
+      writeSessionCheckpoint,
+      readSessionCheckpoint,
+      clearSessionCheckpoint,
+      markSessionCheckpointUserActivity,
       buildPersistedRuntimeSnapshot,
       setBootSourceRuntimeSessionId,
-      cloneRuntimeMemoryToCurrentSession,
-      readLatestPreviousRuntimeMemory,
-      readLatestCompletedConversationRuntimeMemory,
-      collectOtherLatestRuntimeMemorySnapshots,
-      clearOtherLatestRuntimeMemorySnapshots,
-      getSavedRuntimeMemoryFallback,
-      getCurrentLatestRuntimeMemoryStorageKey,
+      hydrateLiveRuntimeMemoryFromCheckpoint,
       getCurrentRuntimeSessionId,
       activateFactsMemorySession,
       shouldIsolateAnonymousStorage,
@@ -79,7 +71,6 @@
 
     let pendingBootstrapRuntimeMemorySnapshot = null;
     let lastStableRuntimeMemorySnapshot = null;
-    let persistedSessionBootstrapCleared = false;
     let hasUnsavedSessionActivity = false;
 
     function getCurrentSavedSessionId() {
@@ -373,7 +364,7 @@
       const savedAt =
         new Date().toISOString();
       const previousCheckpoint =
-        readLatestSavedSessionSnapshot();
+        readSessionCheckpoint();
       const sameSession = Boolean(
         previousCheckpoint
         && typeof previousCheckpoint === "object"
@@ -459,29 +450,22 @@
         });
       }
 
-      writeLatestSavedRuntimeMemory({
-        ...currentRuntime,
-        version: currentRuntime.version || 1,
-        session_id: currentSessionId,
-        previous_session_id: previousSessionId,
-        saved_at: savedAt,
-        conversation_committed_at: conversationCommittedAt,
-        session_snapshot: sessionSnapshot,
-        runtime_snapshot:
-          buildCheckpointRuntimeSnapshot(
-            currentRuntime.runtime_snapshot
-          ),
-      });
-
       const checkpointWritten =
-        writeLatestSavedSessionSnapshot({
-          version: 1,
+        writeSessionCheckpoint({
+          version: 2,
+          state: "checkpoint",
           session_id: currentSessionId,
           previous_session_id: previousSessionId,
           saved_at: savedAt,
           conversation_committed_at: conversationCommittedAt,
-          loaded_memory_ids:
-            sessionSnapshot.loaded_memory_ids,
+          runtime_memory:
+            currentRuntime.runtime_memory,
+          runtime_memory_updates:
+            Number(currentRuntime.runtime_memory_updates || 0),
+          runtime_snapshot:
+            buildCheckpointRuntimeSnapshot(
+              currentRuntime.runtime_snapshot
+            ),
           session_snapshot: sessionSnapshot,
         });
 
@@ -506,7 +490,7 @@
       }
 
       const previousCheckpoint =
-        readLatestSavedSessionSnapshot();
+        readSessionCheckpoint();
 
       if (
           !previousCheckpoint
@@ -529,7 +513,7 @@
       // checkpoint timestamp/lineage verbatim: advancing saved_at here makes
       // the browser checkpoint look newer than the raw chat-log tail, which
       // suppresses archive enrichment for dialogue/reasoning/actions/files.
-      writeLatestSavedSessionSnapshot({
+      writeSessionCheckpoint({
         ...previousCheckpoint,
         session_snapshot: {
           ...previousSessionSnapshot,
@@ -1003,7 +987,7 @@
       const restoredRuntimeSnapshot = {
         ...data.snapshot,
         index: 0,
-        display_source: "saved_runtime_checkpoint",
+        display_source: "session_checkpoint",
         restored_from_checkpoint: true,
         runtime_memory_updates: Number(
           data.updates
@@ -1114,7 +1098,7 @@
           || (data && data.previous_session_id)
           || "browser_restore",
         index: 0,
-        display_source: "saved_runtime_checkpoint",
+        display_source: "session_checkpoint",
         raw_memory: runtimeMemory,
         lines:
           sourceSnapshotMatches
@@ -1209,25 +1193,28 @@
           bootstrap
           && bootstrap.source_session_id
           && String(bootstrap.runtime_memory || "").trim()
-          && cloneRuntimeMemoryToCurrentSession
+          && hydrateLiveRuntimeMemoryFromCheckpoint
       ) {
-        // Materialize the inherited L1 immediately under this fresh runtime
-        // session id. Its new saved_at makes this session the direct
-        // predecessor for the next boot, while booted_from_session_id keeps
-        // the one-hop lineage explicit.
-        cloneRuntimeMemoryToCurrentSession({
-          version: 1,
+        // Materialize inherited L1 only in this page's ephemeral live cache.
+        // Opening a tab does not create another durable per-session record and
+        // does not advance the common conversation checkpoint.
+        hydrateLiveRuntimeMemoryFromCheckpoint({
+          version: 2,
           session_id: bootstrap.source_session_id,
+          previous_session_id:
+            bootstrap.previous_session_id || null,
+          saved_at:
+            String(bootstrap.saved_at || "").trim(),
+          conversation_committed_at:
+            String(
+              bootstrap.conversation_committed_at || ""
+            ).trim(),
           runtime_memory: bootstrap.runtime_memory,
           runtime_memory_updates:
             bootstrap.runtime_memory_updates || 0,
           runtime_snapshot:
             bootstrap.runtime_snapshot || null,
         });
-
-        // Do not advance the common conversation checkpoint on page load.
-        // A real user move may advance it later even if generation is stopped
-        // before JIN finishes.
       }
 
       if (
@@ -1297,159 +1284,24 @@
         };
       }
 
-      const browserCheckpoint =
-        readLatestSavedSessionSnapshot();
-      const browserLatestSavedRuntimeMemory =
-        readLatestSavedRuntimeMemory();
-      const browserLatestRuntimeMemory =
-        readLatestPreviousRuntimeMemory
-          ? readLatestPreviousRuntimeMemory()
-          : null;
-      const latestCompletedConversationRuntime =
-        readLatestCompletedConversationRuntimeMemory
-          ? readLatestCompletedConversationRuntimeMemory()
-          : null;
+      const checkpoint =
+        readSessionCheckpoint();
 
-      const isRuntimeRecord = value => Boolean(
-        value
-        && typeof value === "object"
-        && !Array.isArray(value)
-        && String(value.runtime_memory || "").trim()
-      );
-      const legacyCompletedCheckpoint =
-        !browserCheckpoint
-        && isRuntimeRecord(latestCompletedConversationRuntime)
-          ? {
-              version: 1,
-              session_id:
-                latestCompletedConversationRuntime.session_id,
-              previous_session_id:
-                latestCompletedConversationRuntime.previous_session_id
-                || latestCompletedConversationRuntime.booted_from_session_id
-                || null,
-              saved_at:
-                latestCompletedConversationRuntime.saved_at
-                || latestCompletedConversationRuntime.conversation_committed_at
-                || "",
-              conversation_committed_at:
-                latestCompletedConversationRuntime.conversation_committed_at
-                || "",
-              loaded_memory_ids:
-                (
-                  latestCompletedConversationRuntime.session_snapshot
-                  && Array.isArray(
-                    latestCompletedConversationRuntime.session_snapshot.loaded_memory_ids
-                  )
-                )
-                  ? latestCompletedConversationRuntime.session_snapshot.loaded_memory_ids
-                  : [],
-              session_snapshot:
-                (
-                  latestCompletedConversationRuntime.session_snapshot
-                  && typeof latestCompletedConversationRuntime.session_snapshot === "object"
-                  && !Array.isArray(
-                    latestCompletedConversationRuntime.session_snapshot
-                  )
-                )
-                  ? {
-                      ...latestCompletedConversationRuntime.session_snapshot,
-                    }
-                  : {},
-            }
-          : null;
-
-      // The common checkpoint names the last session that actually moved.
-      // Per-session records only provide its matching L1 payload, or a legacy
-      // fallback when no common checkpoint exists at all.
-      const conversationCheckpoint =
-        browserCheckpoint || legacyCompletedCheckpoint;
-
-      const checkpointSessionId =
-        String(
-          conversationCheckpoint
-          && conversationCheckpoint.session_id
-          || ""
-        ).trim();
-      const otherRuntimeRecords =
-        collectOtherLatestRuntimeMemorySnapshots
-          ? collectOtherLatestRuntimeMemorySnapshots()
-          : [];
-      const runtimeCandidates = [
-        browserLatestSavedRuntimeMemory,
-        latestCompletedConversationRuntime,
-        ...(
-          Array.isArray(otherRuntimeRecords)
-            ? otherRuntimeRecords
-            : []
-        ),
-        browserLatestRuntimeMemory,
-      ].filter(isRuntimeRecord);
-
-      let runtimeMemory = checkpointSessionId
-        ? runtimeCandidates.find(record => (
-            String(record.session_id || "").trim()
-              === checkpointSessionId
-          )) || null
-        : runtimeCandidates[0] || null;
-
-      if (!runtimeMemory && !conversationCheckpoint) {
-        const savedRuntimeFallback =
-          getSavedRuntimeMemoryFallback();
-
-        if (savedRuntimeFallback) {
-          runtimeMemory =
-            savedRuntimeFallback.latest_saved_runtime_memory
-            || savedRuntimeFallback.runtime_memory
-            || null;
-        }
-      }
-
-      const runtimeText =
-        String(
-          runtimeMemory && runtimeMemory.runtime_memory
-          || ""
-        ).trim();
-
-      if (!conversationCheckpoint && !runtimeText) {
+      if (!checkpoint) {
         return null;
       }
 
-      let sourceSessionId =
-        String(
-          checkpointSessionId
-          || (
-            runtimeMemory
-            && runtimeMemory.session_id
-          )
-          || (
-            runtimeMemory
-            && runtimeMemory.runtime_snapshot
-            && runtimeMemory.runtime_snapshot.session_id
-          )
-          || ""
-        ).trim();
-
-      const checkpoint = conversationCheckpoint;
-
-      if (!sourceSessionId && checkpoint) {
-        sourceSessionId =
-          String(checkpoint.session_id || "").trim();
-      }
+      const sourceSessionId =
+        String(checkpoint.session_id || "").trim();
 
       const previousSessionId =
         String(
-          (
-            checkpoint
-            && checkpoint.previous_session_id
-          )
-          || (runtimeMemory && runtimeMemory.previous_session_id)
-          || (runtimeMemory && runtimeMemory.booted_from_session_id)
+          checkpoint.previous_session_id
           || ""
         ).trim();
       const sessionSnapshot =
         (
-          checkpoint
-          && checkpoint.session_snapshot
+          checkpoint.session_snapshot
           && typeof checkpoint.session_snapshot === "object"
           && !Array.isArray(checkpoint.session_snapshot)
         )
@@ -1467,16 +1319,15 @@
         );
       }
 
+      const runtimeText =
+        String(checkpoint.runtime_memory || "").trim();
       const runtimeDisplaySnapshot = runtimeText
         ? buildRuntimeMemoryDisplaySnapshot({
             runtime_memory: runtimeText,
             runtime_memory_updates:
-              Number(
-                runtimeMemory.runtime_memory_updates
-                || 0
-              ),
+              Number(checkpoint.runtime_memory_updates || 0),
             runtime_snapshot:
-              runtimeMemory.runtime_snapshot || null,
+              checkpoint.runtime_snapshot || null,
             source_session_id: sourceSessionId || null,
             previous_session_id: previousSessionId || null,
           })
@@ -1487,42 +1338,30 @@
         type: "session_bootstrap",
         source_session_id: sourceSessionId || null,
         previous_session_id: previousSessionId || null,
-        saved_at:
+        conversation_committed_at:
           String(
-            (checkpoint && checkpoint.saved_at)
-            || (runtimeMemory && runtimeMemory.saved_at)
-            || ""
+            checkpoint.conversation_committed_at || ""
           ).trim(),
+        saved_at:
+          String(checkpoint.saved_at || "").trim(),
         loaded_memory_ids:
-          Array.from(new Set([
-            ...(
-              checkpoint
-              && Array.isArray(checkpoint.loaded_memory_ids)
-                ? checkpoint.loaded_memory_ids
-                : []
-            ),
-            ...(
-              Array.isArray(sessionSnapshot.loaded_memory_ids)
-                ? sessionSnapshot.loaded_memory_ids
-                : []
-            ),
-          ]))
+          Array.from(new Set(
+            Array.isArray(sessionSnapshot.loaded_memory_ids)
+              ? sessionSnapshot.loaded_memory_ids
+              : []
+          ))
             .map(item => String(item || "").trim())
             .filter(Boolean),
         runtime_memory: runtimeText,
         runtime_memory_updates:
-          Number(
-            runtimeMemory && runtimeMemory.runtime_memory_updates
-            || 0
-          ),
+          Number(checkpoint.runtime_memory_updates || 0),
         runtime_snapshot:
-          runtimeMemory && runtimeMemory.runtime_snapshot || null,
+          checkpoint.runtime_snapshot || null,
         runtime_display_snapshot: runtimeDisplaySnapshot,
       };
     }
 
     function clearPersistedSessionBootstrap() {
-      persistedSessionBootstrapCleared = true;
       hasUnsavedSessionActivity = false;
 
       if (
@@ -1534,19 +1373,11 @@
         return;
       }
 
-      removeBrowserMemory(
-        runtimeStorageKeys.latestSavedSessionSnapshotStorageKey
-      );
-      removeBrowserMemory(
-        runtimeStorageKeys.latestSavedRuntimeMemoryStorageKey
-      );
-      removeBrowserMemory(
-        getCurrentLatestRuntimeMemoryStorageKey()
-      );
+      clearSessionCheckpoint();
     }
 
     function markSessionActivityDirty() {
-      persistedSessionBootstrapCleared = false;
+      markSessionCheckpointUserActivity();
       hasUnsavedSessionActivity = true;
     }
 
@@ -1565,16 +1396,6 @@
     window.applyPersistedSessionBootstrap = applyPersistedSessionBootstrap;
     window.getPersistedSessionBootstrap = getPersistedSessionBootstrap;
     window.clearPersistedSessionBootstrap = clearPersistedSessionBootstrap;
-    window.getCurrentLatestRuntimeMemoryStorageKey = function () {
-      return getCurrentLatestRuntimeMemoryStorageKey();
-    };
-    window.getOtherLatestRuntimeMemorySnapshots = function () {
-      return collectOtherLatestRuntimeMemorySnapshots();
-    };
-    window.clearOtherLatestRuntimeMemorySnapshots = function () {
-      return clearOtherLatestRuntimeMemorySnapshots();
-    };
     window.markSessionActivityDirty = markSessionActivityDirty;
-    window.markSessionBootstrapActive = markSessionActivityDirty;
   }
 }());

@@ -533,3 +533,21 @@ Memory Attention is deterministic and stateless: it does not call SERVICE, chang
 **Why:** the useful behavior was retrieval/ranking. The causal homeostat duplicated model work, obscured sampling, and leaked event-wide significance through L1 into durable L4.
 
 **Rejected alternatives:** keeping observer-only chemistry; keeping significance as an independent durable score; preserving the metabolic UI without the backend.
+
+---
+
+## D039 — Browser runtime continuity has one atomic checkpoint
+
+**Status:** Accepted / implemented
+
+Normal browser continuity uses exactly `jin.liveRuntimeMemory.v2` in `sessionStorage` and `jin.sessionCheckpoint.v2` in `localStorage`. The live record is page-ephemeral and survives only soft WebSocket reconnect. Page execution clears it before bootstrap. Reload and new tabs read the one durable checkpoint, then hydrate only an ephemeral live record; there are no durable per-session FRAME records and no freshness scan.
+
+The durable checkpoint atomically stores session lineage, save/commit times, runtime memory and update count, runtime snapshot, and session snapshot. Session CLEAR writes a version-2 cleared tombstone. Passive writers cannot replace it; only a successfully emitted new USER move authorizes a later checkpoint, and the clear boundary continues to reject a late pre-clear tab.
+
+Legacy migration follows ownership rather than freshness: the common snapshot selects the session and may join only a matching saved runtime or its exact per-session record. A self-contained saved runtime is the only fallback without a common snapshot. Orphan per-session records are cleared. Legacy data is deleted only after a successful v2 write, and anonymous mode does not inspect normal-profile state.
+
+Explicit archived restore keeps dialogue, reasoning, and FRAME under server-archive ownership. A same-ID, fresh local v2 checkpoint may contribute only presentation state.
+
+**Why:** one atomic owner eliminates torn SAVE pairs, stale-key resurrection, ambiguous newest-record selection, and hidden bootstrap sources while preserving soft reconnect.
+
+**Rejected alternatives:** split saved-runtime/saved-session keys; durable per-session FRAME keys; newest-timestamp scans; physical deletion without a multi-tab tombstone; automatic `saved_runtime.txt` fallback.

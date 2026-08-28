@@ -1377,7 +1377,7 @@ class ArchivedSessionRestoreClientContractTests(unittest.TestCase):
         self.assertIn("appendThinkingChunk", restore_script)
         self.assertIn("replaceLoadedDelayedMemoryReportIds", restore_script)
         self.assertIn("applyPersistedSessionBootstrap", restore_script)
-        self.assertIn("readLatestSavedRuntimeMemory", restore_script)
+        self.assertIn("readSessionCheckpoint", restore_script)
         self.assertIn("payload.runtime_snapshot", restore_script)
         self.assertIn("jinArchivedSessionBootstrap", runtime_session)
         self.assertIn("snapshotRuntimeMemory", runtime_session)

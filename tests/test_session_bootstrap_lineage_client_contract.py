@@ -39,31 +39,28 @@ class SessionBootstrapLineageClientContractTests(unittest.TestCase):
         self.assertIn("getCurrentRuntimeSessionId()", block)
         self.assertNotIn("getCurrentFactsMemorySessionId()", block)
 
-    def test_normal_boot_uses_common_checkpoint_and_only_matching_l1(self):
+    def test_normal_boot_uses_the_atomic_v2_checkpoint(self):
         source = RUNTIME_SESSION_JS.read_text(encoding="utf-8")
         start = source.index("function getPersistedSessionBootstrap()")
         end = source.index("function clearPersistedSessionBootstrap()", start)
         block = source[start:end]
 
-        self.assertIn("readLatestPreviousRuntimeMemory()", block)
-        self.assertIn("browserLatestRuntimeMemory", block)
-        self.assertIn(
-            "browserCheckpoint || legacyCompletedCheckpoint",
-            block,
-        )
-        self.assertIn("String(record.session_id || \"\").trim()", block)
-        self.assertIn("=== checkpointSessionId", block)
-        self.assertIn("!runtimeMemory && !conversationCheckpoint", block)
+        self.assertIn("readSessionCheckpoint()", block)
+        self.assertIn("checkpoint.session_id", block)
+        self.assertIn("checkpoint.runtime_memory", block)
+        self.assertIn("checkpoint.session_snapshot", block)
+        self.assertNotIn("collectOtherLatestRuntimeMemorySnapshots", block)
 
-    def test_boot_materializes_current_session_as_next_direct_predecessor(self):
+    def test_boot_hydrates_only_the_ephemeral_live_runtime(self):
         source = RUNTIME_SESSION_JS.read_text(encoding="utf-8")
         start = source.index("function applyPersistedSessionBootstrap(bootstrap)")
         end = source.index("function getPersistedSessionBootstrap()", start)
         block = source[start:end]
 
-        self.assertIn("cloneRuntimeMemoryToCurrentSession", block)
+        self.assertIn("hydrateLiveRuntimeMemoryFromCheckpoint", block)
         self.assertIn("bootstrap.source_session_id", block)
         self.assertIn("bootstrap.runtime_memory", block)
+        self.assertNotIn("writeSessionCheckpoint", block)
 
     def test_boot_color_has_one_local_and_one_server_reconciliation_path(self):
         source = RUNTIME_SESSION_JS.read_text(encoding="utf-8")
@@ -128,10 +125,11 @@ class SessionBootstrapLineageClientContractTests(unittest.TestCase):
 
         self.assertIn("booted_from_session_id", source)
         self.assertIn("setBootSourceRuntimeSessionId", source)
-        self.assertIn("readLatestPreviousRuntimeMemory", source)
-        self.assertIn("collectOtherLatestRuntimeMemorySnapshots", source)
-        self.assertIn("Opening a tab is not conversation activity", source)
-        self.assertIn("|| new Date().toISOString()", source)
+        self.assertIn("hydrateLiveRuntimeMemoryFromCheckpoint", source)
+        self.assertIn("previous_session_id", source)
+        self.assertIn("jin.liveRuntimeMemory.v2", source)
+        self.assertIn("jin.sessionCheckpoint.v2", source)
+        self.assertNotIn("collectOtherLatestRuntimeMemorySnapshots", source)
 
     def test_persisted_runtime_snapshot_keeps_its_origin_session_id(self):
         storage_source = RUNTIME_STORAGE_JS.read_text(encoding="utf-8")
@@ -139,7 +137,7 @@ class SessionBootstrapLineageClientContractTests(unittest.TestCase):
             "function buildPersistedRuntimeSnapshot("
         )
         storage_end = storage_source.index(
-            "function cloneRuntimeMemoryToCurrentSession(",
+            "function hydrateLiveRuntimeMemoryFromCheckpoint(",
             storage_start,
         )
         storage_block = storage_source[storage_start:storage_end]

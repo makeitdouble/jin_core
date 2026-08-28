@@ -20,13 +20,14 @@ class CleanToolResultsBootstrapCheckpointContractTests(unittest.TestCase):
         end = source.index("function buildCheckpointRuntimeSnapshot", start)
         block = source[start:end]
 
-        self.assertIn("readLatestSavedSessionSnapshot()", block)
+        self.assertIn("readSessionCheckpoint()", block)
         self.assertIn("...previousCheckpoint", block)
         self.assertIn("...previousSessionSnapshot", block)
         self.assertIn("tool_results: []", block)
         self.assertIn("tool_results_cleared_at: new Date().toISOString()", block)
         self.assertNotIn("saved_at:", block)
         self.assertNotIn("writeLatestSavedRuntimeMemory", block)
+        self.assertEqual(block.count("writeSessionCheckpoint({"), 1)
 
     def test_clean_runtime_action_does_not_rewrite_full_live_checkpoint(self):
         source = RUNTIME_ACTIONS_JS.read_text(encoding="utf-8")

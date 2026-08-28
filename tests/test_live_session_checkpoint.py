@@ -128,23 +128,16 @@ class LiveSessionCheckpointTests(unittest.TestCase):
         self.assertIn("Number(data.updates || 0) <= 0", block)
 
 
-    def test_bootstrap_prefers_continuous_last_saved_runtime(self):
+    def test_bootstrap_reads_the_atomic_v2_checkpoint(self):
         source = RUNTIME_SESSION_JS.read_text(encoding="utf-8")
         start = source.index("function getPersistedSessionBootstrap()")
         end = source.index("function clearPersistedSessionBootstrap", start)
         block = source[start:end]
 
-        saved_runtime_read = block.index("readLatestSavedRuntimeMemory()")
-        previous_runtime_read = block.index("readLatestPreviousRuntimeMemory")
-        self.assertLess(saved_runtime_read, previous_runtime_read)
-        self.assertIn(
-            "const conversationCheckpoint =",
-            block,
-        )
-        self.assertIn(
-            "browserCheckpoint || legacyCompletedCheckpoint",
-            block,
-        )
+        self.assertIn("readSessionCheckpoint()", block)
+        self.assertIn("checkpoint.runtime_memory", block)
+        self.assertIn("checkpoint.session_snapshot", block)
+        self.assertNotIn("readLatestPreviousRuntimeMemory", block)
 
     def test_duplicate_l1_still_refreshes_live_session_checkpoint(self):
         source = RUNTIME_JS.read_text(encoding="utf-8")
@@ -194,7 +187,7 @@ class LiveSessionCheckpointTests(unittest.TestCase):
         end = source.index("function scheduleRoomStatePersist()", start)
         block = source[start:end]
 
-        self.assertEqual(block.count("writeLatestSavedSessionSnapshot"), 2)
+        self.assertEqual(block.count("writeSessionCheckpoint"), 2)
         self.assertIn("sessionSnapshot.current_jin_color = avatar.color;", block)
         self.assertIn("reconcileCurrentColor", block)
         self.assertNotIn("saved_at:", block)
@@ -217,7 +210,9 @@ class LiveSessionCheckpointTests(unittest.TestCase):
         end = source.index("function restoreVisualState(", start)
         block = source[start:end]
 
-        self.assertIn("const candidates = [];", block)
+        self.assertIn("storage.readSessionCheckpoint()", block)
+        self.assertIn("checkpointSessionId !== restoreSessionId", block)
+        self.assertNotIn("const candidates = [];", block)
         self.assertIn('"session_actions",', block)
         self.assertIn('"room_state",', block)
         self.assertNotIn("Object.assign(merged, selected.snapshot);", block)

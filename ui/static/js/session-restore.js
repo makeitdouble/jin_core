@@ -394,7 +394,7 @@
 
     if (
       !storage
-      || typeof storage.readLatestSavedSessionSnapshot
+      || typeof storage.readSessionCheckpoint
         !== "function"
     ) {
       return merged;
@@ -407,75 +407,37 @@
         || ""
       ).trim();
     const checkpoint =
-      storage.readLatestSavedSessionSnapshot();
-    const runtimeRecords = [];
-    const latestSavedRuntime =
-      typeof storage.readLatestSavedRuntimeMemory === "function"
-        ? storage.readLatestSavedRuntimeMemory()
-        : null;
-
-    if (latestSavedRuntime) {
-      runtimeRecords.push(latestSavedRuntime);
-    }
-    if (
-      typeof storage.collectOtherLatestRuntimeMemorySnapshots
-        === "function"
-    ) {
-      const collected =
-        storage.collectOtherLatestRuntimeMemorySnapshots();
-      if (Array.isArray(collected)) {
-        runtimeRecords.push(...collected);
-      }
-    }
+      storage.readSessionCheckpoint();
 
     const timestamp = value => {
       const parsed = Date.parse(String(value || "").trim());
       return Number.isFinite(parsed) ? parsed : 0;
     };
-    const candidates = [];
-    const addCandidate = (record, snapshot) => {
-      if (
-        !record
-        || String(
-          record.session_id
-          || record.key_session_id
-          || ""
-        ).trim() !== restoreSourceSessionId
-        || !snapshot
-        || typeof snapshot !== "object"
-        || Array.isArray(snapshot)
-      ) {
-        return;
-      }
-
-      candidates.push({
-        record,
-        snapshot,
-        savedAt: Math.max(
-          timestamp(record.conversation_committed_at),
-          timestamp(record.saved_at),
+    const snapshot =
+      checkpoint
+      && checkpoint.session_snapshot;
+    const checkpointMatchesRestore = Boolean(
+      checkpoint
+      && String(checkpoint.session_id || "").trim()
+        === restoreSourceSessionId
+      && snapshot
+      && typeof snapshot === "object"
+      && !Array.isArray(snapshot)
+    );
+    const checkpointSavedAt = checkpointMatchesRestore
+      ? Math.max(
+          timestamp(checkpoint.conversation_committed_at),
+          timestamp(checkpoint.saved_at),
           timestamp(
             snapshot.room_state
             && snapshot.room_state.saved_at
           )
-        ),
-      });
-    };
-
-    addCandidate(
-      checkpoint,
-      checkpoint && checkpoint.session_snapshot
-    );
-    runtimeRecords.forEach(record => {
-      addCandidate(record, record.session_snapshot);
-    });
-    candidates.sort((left, right) => right.savedAt - left.savedAt);
-
-    const selected = candidates[0];
+        )
+      : 0;
     const archiveTailAt = timestamp(merged.archive_tail_at);
     if (
-      !selected
-      || (archiveTailAt && selected.savedAt < archiveTailAt)
+      !checkpointMatchesRestore
+      || (archiveTailAt && checkpointSavedAt < archiveTailAt)
     ) {
       return merged;
     }
@@ -496,11 +458,11 @@
     ].forEach(fieldName => {
       if (
         Object.prototype.hasOwnProperty.call(
-          selected.snapshot,
+          snapshot,
           fieldName
         )
       ) {
-        merged[fieldName] = selected.snapshot[fieldName];
+        merged[fieldName] = snapshot[fieldName];
       }
     });
 

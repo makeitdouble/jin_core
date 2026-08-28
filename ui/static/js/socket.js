@@ -224,10 +224,6 @@ window.requestJinLastResponseRetry = function () {
     return false;
   }
 
-  if (window.markSessionActivityDirty) {
-    window.markSessionActivityDirty();
-  }
-
   setGenerationState(
     true
   );
@@ -742,14 +738,6 @@ async function handleSocketOpen() {
     }
   }
 
-  if (window.jinSavedRuntimeFallbackReady) {
-    try {
-      await window.jinSavedRuntimeFallbackReady;
-    } catch (error) {
-      // File fallback is optional. Browser memory still works.
-    }
-  }
-
   if (
       !ws
       || ws.readyState !== WebSocket.OPEN
@@ -1008,10 +996,6 @@ async function initializeSocketClient() {
     } catch (error) {
       // Detection failure falls back to normal mode.
     }
-  }
-
-  if (typeof logOtherLatestRuntimeMemorySnapshots === "function") {
-    logOtherLatestRuntimeMemorySnapshots();
   }
 
   if (typeof logActiveMemoryRecords === "function") {

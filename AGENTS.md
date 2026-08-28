@@ -32,7 +32,9 @@ A current implementation can still violate a product decision. Do not hide that.
 - Durable facts belong in L4. Do not reintroduce a durable-L1/L2/L3 memory hierarchy.
 - Active Memory, Delayed Memory, L4 facts, persistent Files, live L1/runtime memory, and session checkpoints are different systems with different lifetimes. Do not collapse them into one generic memory store.
 - Session continuity must distinguish a real USER move, a completed turn, an interrupted USER-only turn, an action-only completion, and a blank bootstrap tab. A real USER row can become the newest conversation move without a visible JIN row; a blank tab cannot.
-- The common browser checkpoint names the last runtime session that actually moved. Opening a tab may clone inherited L1 under a fresh runtime ID, but must not promote that ID until real user activity or a server-confirmed completed-turn commit.
+- Normal browser continuity has exactly two runtime stores: ephemeral `sessionStorage` key `jin.liveRuntimeMemory.v2` for the current page's soft reconnect, and atomic `localStorage` key `jin.sessionCheckpoint.v2` for reload/new-tab bootstrap. Do not add per-session runtime records or freshness scans.
+- The common browser checkpoint names the last runtime session that actually moved. Opening a tab may hydrate inherited L1 into the ephemeral live record, but must not promote the fresh runtime ID until real user activity or a server-confirmed completed-turn commit.
+- Session CLEAR writes a `state: "cleared"` tombstone. Passive runtime, room, color, bootstrap, reconnect, and retry paths must not replace it; only a successfully emitted new USER move may authorize a later checkpoint write.
 - Preserve checkpoint lineage: `session_id`, `previous_session_id`, `booted_from_session_id`, nested runtime-snapshot origin, and `conversation_committed_at` have different meanings. Room/avatar field writes must not switch the checkpoint owner.
 - Browser checkpoint `saved_at` is a causal freshness boundary for runtime/resource archive enrichment, not a generic "last touched" timestamp. Dialogue freshness is compared tail-to-tail independently. A field-local mutation must not advance `saved_at` unless the whole checkpoint is genuinely refreshed.
 - In predecessor bootstrap, an explicitly present `tool_results: []` is an authoritative cleared value. Do **not** generalize that tombstone rule to `loaded_memory_ids` or `active_memory_records`; their empty browser values still retain archive-fallback semantics.
@@ -108,7 +110,7 @@ At minimum, run the checks that apply to the change:
 - serialize -> reload -> hydrate round trip for restore/state changes;
 - explicit-empty-vs-missing tests for bootstrap fields, plus checkpoint timestamp/lineage invariance for field-only cleanup;
 - blank-tab vs completed vs interrupted USER-only vs action-only latest-session selection, separately for normal and anonymous log roots;
-- dialogue-tail freshness independent of runtime `saved_at`, and matching-session L1 selection for the common checkpoint;
+- dialogue-tail freshness independent of runtime `saved_at`, plus v1-to-v2 exact-owner migration, orphan rejection, write-failure preservation, and cleared-tombstone multi-tab protection;
 - structured session-action metadata round trip (including JIN_COLOR swatch/hex hover);
 - JIN_COLOR server-context -> raw runtime log -> common checkpoint -> local early apply -> one server reconciliation round trip, including stale-source replacement and repeated reload;
 - full-text recent-message context tests beyond the former character cap, including physical-newline escaping and the three-pair limit;

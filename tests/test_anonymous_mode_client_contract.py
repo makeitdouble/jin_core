@@ -76,8 +76,9 @@ class AnonymousModeClientContractTests(unittest.TestCase):
         self.assertIn("jin.activeMemory.anonymous.v1", source)
         self.assertIn("getActiveMemoryStorageKey", source)
         self.assertIn("shouldIsolateAnonymousStorage", source)
-        self.assertIn("readLatestSavedSessionSnapshot", source)
-        self.assertIn("writeLatestSavedSessionSnapshot", source)
+        self.assertIn("readSessionCheckpoint", source)
+        self.assertIn("writeSessionCheckpoint", source)
+        self.assertIn("shouldIsolateAnonymousStorage()", source)
 
     def test_socket_waits_for_detection_and_marks_anonymous_connection(self):
         source = (

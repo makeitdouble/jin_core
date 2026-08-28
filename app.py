@@ -11,9 +11,7 @@ from fastapi import (
 )
 
 from fastapi.responses import (
-    FileResponse,
     HTMLResponse,
-    Response,
 )
 
 from fastapi.staticfiles import (
@@ -279,26 +277,6 @@ async def api_preview_file(file_id: str):
         except OSError:
             payload["text_content"] = ""
     return payload
-
-
-@app.get(
-    "/saved_runtime.txt",
-)
-async def saved_runtime_file():
-
-    saved_runtime_path = Path(
-        "saved_runtime.txt"
-    )
-
-    if not saved_runtime_path.is_file():
-        return Response(
-            status_code=404
-        )
-
-    return FileResponse(
-        saved_runtime_path,
-        media_type="text/plain; charset=utf-8",
-    )
 
 
 # ---------------------------------------------------------

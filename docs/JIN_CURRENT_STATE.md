@@ -1,8 +1,8 @@
 # JIN Core Engine — Current State / Migration Notes
 
-**Snapshot inspected:** `jin_core(20260826-090339).zip`<br>
-**Inspection date:** 2026-08-26<br>
-**Context reference:** current source/tests plus the accumulated 2026-08-23--26 project decisions
+**Snapshot inspected:** `jin_core(20260828-060531).zip`<br>
+**Inspection date:** 2026-08-28<br>
+**Context reference:** current source/tests plus the accumulated 2026-08-23--28 project decisions
 
 This is the document to read before touching transitional code. It lists what is true in the inspected snapshot, what is legacy residue, and where product intent and implementation currently differ.
 
@@ -24,7 +24,9 @@ The runtime is already on the post-L2/L3 architecture in the actual source tree,
 - normal bootstrap restores a bounded three-USER-move chat tail plus a current-session divider, including interrupted/action-only USER-only rows;
 - Brain recent-message context keeps the newest three pairs in full, with newline/XML normalization but no per-message character crop;
 - ordinary Brain turns again include the previous successful reasoning block with explicit middle-crop semantics, while follow-ups keep their dedicated reasoning context;
-- common-checkpoint ownership, per-session L1 lineage, completed-turn time, and dialogue freshness are now explicitly separated;
+- browser continuity now uses page-ephemeral `jin.liveRuntimeMemory.v2` plus one atomic `jin.sessionCheckpoint.v2`; legacy per-session FRAME selection is migration-only and never freshness-scanned;
+- common-checkpoint ownership, L1 origin lineage, completed-turn time, and dialogue freshness are now explicitly separated;
+- Session CLEAR is a durable tombstone that blocks passive resurrection across already-open tabs until a new USER message is successfully sent;
 - JIN color now round-trips through server context, raw runtime events, the common checkpoint, early local room restore, and one server reconciliation without a parallel color store;
 - the full suite is still not certified green; the 2026-08-26 documentation environment also lacks required `httpx`/`fastapi` dependencies.
 
@@ -264,11 +266,15 @@ Any prompt-order change can alter behavior materially. Do not reorder sections f
 
 ### 9.1 Common checkpoint and lineage
 
-The browser common checkpoint is the last session that actually moved, not the most recently opened runtime ID. `applyPersistedSessionBootstrap()` may clone inherited L1 into the current per-session storage record and set `booted_from_session_id`, but it deliberately does not advance the common checkpoint on page load.
+The browser common checkpoint is the last session that actually moved, not the most recently opened runtime ID. It is one atomic `localStorage` record at `jin.sessionCheckpoint.v2`. `applyPersistedSessionBootstrap()` hydrates inherited L1 only into `jin.liveRuntimeMemory.v2` in the current page's `sessionStorage`; it does not create a durable per-session record or advance the common checkpoint on page load. The live key is cleared whenever the page module executes, so only soft reconnect inside the same running page can reuse it.
 
 A user send marks the session dirty immediately. The next live-checkpoint write can promote that session even if generation is stopped before a visible answer. `completed_turn_commit` is a server fallback and separately advances `conversation_committed_at`; that timestamp is not the definition of every session move.
 
-Per-session L1/runtime candidates are used only when their `session_id` matches the common checkpoint. `runtime_snapshot.session_id` preserves the snapshot's origin rather than being rewritten to the container/current runtime ID. Room/avatar persistence normally rejects cross-session writes and never changes checkpoint lineage.
+There is no normal per-session L1 candidate scan. `runtime_snapshot.session_id` preserves the FRAME's origin rather than being rewritten to the current runtime ID. Room/avatar persistence normally rejects cross-session writes and never changes checkpoint lineage.
+
+Session CLEAR writes `{version: 2, state: "cleared", cleared_at}` rather than merely deleting the key. Passive writers in any already-open tab remain blocked. Only a successfully emitted real USER message marks that page eligible to write the next checkpoint; retry, bootstrap, reconnect, and passive events do not. The first post-clear checkpoint retains a clear barrier so a pre-clear tab cannot overwrite the new owner later.
+
+Migration is one-time and normal-profile-only. A legacy common snapshot selects the owner; it may join a matching saved-runtime record or only that owner's exact per-session record. Without a common snapshot, only the self-contained saved-runtime record may migrate. Orphan per-session keys create a tombstone instead of restoring. Cleanup happens only after a successful v2 write, so quota/write failures preserve legacy data for retry.
 
 The server supplies `session_snapshot` on `message_end` and `agent_runtime_end`. The browser adds current room/avatar state and persists before finishing the visible message bubble, so completed turn data and room state are committed through one common snapshot path.
 
@@ -457,7 +463,7 @@ Command run:
 python -m unittest discover -s tests
 ```
 
-Result in the 2026-08-26 documentation environment:
+Historical result in the 2026-08-26 documentation environment:
 
 ```text
 Ran 431 tests in 3.973s
@@ -475,6 +481,8 @@ Important implications:
 - stale L2/L3 and old `SAVE_SESSION` tests remain repository debt even though this particular environment reaches dependency failures first;
 - do not use “full suite currently fails” as permission to ignore targeted regressions;
 - for any patch, run the smallest relevant target set and report exact pass/fail counts.
+
+For the 2026-08-28 browser-storage-v2 increment, the dependency-light targeted storage/bootstrap/anonymous/color/cleanup run executes 26 tests and passes all 26. It includes an executable Node storage round trip covering copied-live clearing, exact-owner migration, orphan rejection, migration write failure, multi-tab CLEAR protection, post-clear USER recovery, and anonymous isolation.
 
 Do not resurrect L2/L3 merely to make stale tests import again. The test suite itself needs a deliberate cleanup/migration task.
 

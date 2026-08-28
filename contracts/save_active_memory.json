@@ -17,7 +17,7 @@
       "Avoid duplicating with long term facts, basic rules or another active memories.",
       "Emit using exactly this schema:",
       "<SAVE_ACTIVE_MEMORY>",
-      "{\"conditions\":\"\",\"custom_field_name\":\"\"}",
+      "{\"conditions\":\"Descriptive conditions text\",\"custom_field\":\"Custom field value\"}",
       "</SAVE_ACTIVE_MEMORY>",
       "conditions is required and must be non-empty."
     ],

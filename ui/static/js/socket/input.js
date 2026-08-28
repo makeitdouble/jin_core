@@ -336,10 +336,6 @@ chatForm.addEventListener(
       );
     }
 
-    if (window.markSessionActivityDirty) {
-      window.markSessionActivityDirty();
-    }
-
     setGenerationState(
       true
     );
@@ -421,7 +417,14 @@ chatForm.addEventListener(
     const sent =
       sendSocketMessage(payload);
 
-    void sent;
+    if (
+        sent
+        && window.markSessionActivityDirty
+    ) {
+      // Only a successfully emitted real USER move may replace a cleared
+      // checkpoint tombstone. Retry/bootstrap/reconnect paths do not call this.
+      window.markSessionActivityDirty();
+    }
 
     if (window.jinFreezeUserIdleTimerAtSeconds) {
       window.jinFreezeUserIdleTimerAtSeconds(

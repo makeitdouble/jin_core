@@ -15,21 +15,18 @@ RUNTIME_SESSION_JS = (
 
 class BootstrapLatestSessionFixClientContractTests(unittest.TestCase):
 
-    def test_bootstrap_selects_runtime_record_for_common_checkpoint_session(self):
+    def test_bootstrap_reads_one_atomic_checkpoint(self):
         source = RUNTIME_SESSION_JS.read_text(encoding="utf-8")
         start = source.index("function getPersistedSessionBootstrap()")
         end = source.index("function clearPersistedSessionBootstrap()", start)
         block = source[start:end]
 
-        self.assertIn("const checkpointSessionId =", block)
-        self.assertIn("const runtimeCandidates = [", block)
-        self.assertIn("browserLatestSavedRuntimeMemory", block)
-        self.assertIn("latestCompletedConversationRuntime", block)
-        self.assertIn("...(", block)
-        self.assertIn("browserLatestRuntimeMemory", block)
-        self.assertIn("runtimeCandidates.find(record => (", block)
-        self.assertIn("=== checkpointSessionId", block)
-        self.assertIn("if (!runtimeMemory && !conversationCheckpoint)", block)
+        self.assertIn("const checkpoint =", block)
+        self.assertIn("readSessionCheckpoint()", block)
+        self.assertIn("checkpoint.session_id", block)
+        self.assertIn("checkpoint.runtime_memory", block)
+        self.assertNotIn("runtimeCandidates", block)
+        self.assertNotIn("collectOtherLatestRuntimeMemorySnapshots", block)
 
     def test_stale_tab_cannot_rewind_global_bootstrap_pointer(self):
         source = RUNTIME_SESSION_JS.read_text(encoding="utf-8")
@@ -45,12 +42,9 @@ class BootstrapLatestSessionFixClientContractTests(unittest.TestCase):
         self.assertIn(guard, persist)
         self.assertLess(
             persist.index(guard),
-            persist.index("writeLatestSavedRuntimeMemory({"),
+            persist.index("writeSessionCheckpoint({"),
         )
-        self.assertLess(
-            persist.index(guard),
-            persist.index("writeLatestSavedSessionSnapshot({"),
-        )
+        self.assertEqual(persist.count("writeSessionCheckpoint({"), 1)
         self.assertIn("hasUnsavedSessionActivity = false", persist)
 
 
