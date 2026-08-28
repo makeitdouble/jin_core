@@ -258,6 +258,11 @@ class RuntimeContext:
 
     runtime_memory_updates: int = 0
 
+    # Offset that maps the server snapshot index to the FRAME number shown in
+    # the right-panel UI. Fresh sessions start at 0; restored baselines can
+    # start at 1, and soft reconnects can resume at any visible FRAME number.
+    runtime_memory_display_index_offset: int = 0
+
     runtime_pattern_counter: int = 0
 
     runtime_repeated_input_count: int = 0
@@ -291,6 +296,13 @@ class RuntimeContext:
     user_message_count: int = 0
 
     assistant_message_count: int = 0
+
+    # CURRENT_SESSION_STATE is scoped to this live runtime session. The
+    # counters above remain monotonic across predecessor bootstrap because
+    # Active Memory lifecycle metadata uses that message scale.
+    current_session_user_message_count: int = 0
+
+    current_session_assistant_message_count: int = 0
 
     runtime_memory_pending_turns: list[dict] = field(
         default_factory=list
@@ -558,8 +570,7 @@ class ContextContract:
     compressed_history: str = ""
     system_state: str = "ACTIVE"
     current_session_id: str = ""
-    service_model_uid: str = ""
-    brain_model_uid: str = ""
+    current_model_uid: str = ""
     current_context_window: str = ""
     jin_color: str = DEFAULT_JIN_COLOR
     jin_size_context: str = ""
@@ -590,11 +601,8 @@ class ContextContract:
         if self.current_session_id:
             fields["CURRENT_SESSION_ID"] = self.current_session_id
 
-        if self.service_model_uid:
-            fields["SERVICE_MODEL_UID"] = self.service_model_uid
-
-        if self.brain_model_uid:
-            fields["BRAIN_MODEL_UID"] = self.brain_model_uid
+        if self.current_model_uid:
+            fields["CURRENT_MODEL_UID"] = self.current_model_uid
 
         if self.current_context_window:
             fields["CURRENT_CONTEXT_WINDOW"] = (

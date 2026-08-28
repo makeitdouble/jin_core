@@ -2447,8 +2447,10 @@
 
   const runtimeMemoryHoverTitleSources = new WeakMap();
   const runtimeMemoryHoverTitleBoundNodes = new WeakSet();
+  const longTermMemoryHoverRows = new WeakMap();
   let longTermMemoryHoverCard = null;
   let longTermMemoryHoverCardAnchor = null;
+  let longTermMemoryHoverSyncFrame = null;
 
   function appendLongTermMemoryHoverMetadataRow(
     container,
@@ -2634,6 +2636,7 @@
       return;
     }
 
+    longTermMemoryHoverRows.set(row, line);
     row.removeAttribute("title");
     row.addEventListener("mouseenter", () => {
       showLongTermMemoryHoverCard(row, line);
@@ -2643,6 +2646,51 @@
     });
   }
 
+  function syncLongTermMemoryHoverCardAfterScroll() {
+    longTermMemoryHoverSyncFrame = null;
+
+    if (!runtimeMemoryText || !runtimeMemoryText.isConnected) {
+      hideLongTermMemoryHoverCard();
+      return;
+    }
+
+    const hoveredRow = runtimeMemoryText.querySelector(
+        ".runtime-memory-line:hover"
+    );
+    const line = hoveredRow
+      ? longTermMemoryHoverRows.get(hoveredRow)
+      : null;
+
+    if (!hoveredRow || !line) {
+      hideLongTermMemoryHoverCard();
+      return;
+    }
+
+    if (
+        longTermMemoryHoverCardAnchor === hoveredRow
+        && longTermMemoryHoverCard
+        && longTermMemoryHoverCard.isConnected
+    ) {
+      positionLongTermMemoryHoverCard(
+          longTermMemoryHoverCard,
+          hoveredRow
+      );
+      return;
+    }
+
+    showLongTermMemoryHoverCard(hoveredRow, line);
+  }
+
+  function scheduleLongTermMemoryHoverCardScrollSync() {
+    if (longTermMemoryHoverSyncFrame !== null) {
+      return;
+    }
+
+    longTermMemoryHoverSyncFrame = window.requestAnimationFrame(
+        syncLongTermMemoryHoverCardAfterScroll
+    );
+  }
+
   window.addEventListener("resize", () => {
     hideLongTermMemoryHoverCard();
     syncRuntimeMemoryNavigationGeometry();
@@ -2650,7 +2698,7 @@
 
   if (memoryScroll) {
     memoryScroll.addEventListener("scroll", () => {
-      hideLongTermMemoryHoverCard();
+      scheduleLongTermMemoryHoverCardScrollSync();
     }, { passive: true });
   }
 
@@ -8324,6 +8372,19 @@
     const initialBatchSize =
         priorityRecords.length
         + LONG_TERM_MEMORY_LAZY_BATCH_SIZE;
+    const preservedRenderedCount =
+        runtimeMemoryLazyRenderedCount;
+    const preservedScrollTop =
+        memoryScroll
+          ? Math.max(0, memoryScroll.scrollTop)
+          : 0;
+    const renderBatchSize = Math.min(
+        orderedRecords.length,
+        Math.max(
+          initialBatchSize,
+          preservedRenderedCount
+        )
+    );
 
     if (runtimeMemoryText) {
       runtimeMemoryText.innerHTML = "";
@@ -8344,7 +8405,7 @@
             {
               applyFlash: false,
               interactiveLongTermMemory: true,
-              initialBatchSize,
+              initialBatchSize: renderBatchSize,
               buildLine: fact => buildLongTermMemoryLine(
                   fact,
                   contextLoadedFactIds,
@@ -8352,6 +8413,20 @@
               ),
             }
         );
+
+        if (memoryScroll && preservedScrollTop > 0) {
+          const maxScrollTop = Math.max(
+            0,
+            memoryScroll.scrollHeight - memoryScroll.clientHeight
+          );
+
+          memoryScroll.scrollTop = Math.min(
+            preservedScrollTop,
+            maxScrollTop
+          );
+          runtimeMemoryLastScrollTop =
+              Math.max(0, memoryScroll.scrollTop);
+        }
       }
     }
 

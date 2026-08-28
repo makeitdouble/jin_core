@@ -3260,6 +3260,25 @@ def build_runtime_memory_snapshot(
             "assistant_message_count",
             0,
         ),
+        # Keep the causal L1 revision inside the snapshot itself. The browser
+        # prefers its newest in-memory snapshot during a soft reconnect; if
+        # this field is missing it falls back to zero and the backend can
+        # replay an already committed crash-recovery journal after restart.
+        "runtime_memory_updates": getattr(
+            context,
+            "runtime_memory_updates",
+            0,
+        ),
+        "current_session_user_message_count": getattr(
+            context,
+            "current_session_user_message_count",
+            0,
+        ),
+        "current_session_assistant_message_count": getattr(
+            context,
+            "current_session_assistant_message_count",
+            0,
+        ),
         "created_at": format_runtime_memory_lifecycle_timestamp(
             snapshot_time
         ),
@@ -3506,6 +3525,22 @@ def build_runtime_session_checkpoint(
             getattr(
                 context,
                 "assistant_message_count",
+                0,
+            )
+            or 0
+        ),
+        "current_session_user_message_count": int(
+            getattr(
+                context,
+                "current_session_user_message_count",
+                0,
+            )
+            or 0
+        ),
+        "current_session_assistant_message_count": int(
+            getattr(
+                context,
+                "current_session_assistant_message_count",
                 0,
             )
             or 0

@@ -664,6 +664,10 @@
           payload.runtime_memory_updates
           || 0
         ),
+      frame_memory_index:
+        String(payload.runtime_memory || "").trim()
+          ? 1
+          : 0,
       runtime_snapshot:
         payload.runtime_snapshot
         && typeof payload.runtime_snapshot === "object"

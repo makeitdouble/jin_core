@@ -233,6 +233,7 @@ class L1MemoryTests(
             context.runtime_turn_counter = 19
             context.user_message_count = 15
             context.assistant_message_count = 14
+            context.runtime_memory_updates = 28
 
             snapshot = build_runtime_memory_snapshot(
                 context,
@@ -254,6 +255,10 @@ class L1MemoryTests(
             self.assertEqual(
                 snapshot["assistant_message_count"],
                 14,
+            )
+            self.assertEqual(
+                snapshot["runtime_memory_updates"],
+                28,
             )
             self.assertEqual(
                 snapshot["raw_memory"],

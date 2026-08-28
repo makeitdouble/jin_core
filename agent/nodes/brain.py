@@ -891,11 +891,18 @@ def rename_runtime_memory_for_followup(
         system_prompt
         or ""
     )
-    opening_tag_prefix = "<RUNTIME_MEMORY"
-    closing_tag = "</RUNTIME_MEMORY>"
+    opening_tag_prefix = "<FRAME_MEMORY_"
     opening_index = prompt.find(
         opening_tag_prefix
     )
+
+    # Keep old saved/follow-up contexts readable while current prompts use
+    # the numbered FRAME_MEMORY_N contract.
+    if opening_index < 0:
+        opening_tag_prefix = "<RUNTIME_MEMORY"
+        opening_index = prompt.find(
+            opening_tag_prefix
+        )
 
     if opening_index < 0:
         return prompt
@@ -908,6 +915,15 @@ def rename_runtime_memory_for_followup(
     if opening_end_index < 0:
         return prompt
 
+    opening_tag_name = (
+        prompt[opening_index + 1:opening_end_index]
+        .split(None, 1)[0]
+        .strip()
+    )
+    if not opening_tag_name:
+        return prompt
+
+    closing_tag = f"</{opening_tag_name}>"
     closing_index = prompt.find(
         closing_tag,
         opening_end_index + 1,

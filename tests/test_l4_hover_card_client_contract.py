@@ -62,10 +62,32 @@ class L4HoverCardClientContractTests(unittest.TestCase):
         self.assertIn(".runtime-memory-l4-hover-card::before", css)
         self.assertNotIn(".runtime-memory-l4-hover-icon", css)
 
+    def test_scroll_retargets_hover_card_under_stationary_pointer(self):
+        source = MEMORY_VIEW.read_text(encoding="utf-8")
+
+        self.assertIn(
+            "const longTermMemoryHoverRows = new WeakMap();",
+            source,
+        )
+        self.assertIn(
+            '".runtime-memory-line:hover"',
+            source,
+        )
+        self.assertIn(
+            "scheduleLongTermMemoryHoverCardScrollSync();",
+            source,
+        )
+        self.assertNotIn(
+            'memoryScroll.addEventListener("scroll", () => {\n'
+            '      hideLongTermMemoryHoverCard();',
+            source,
+        )
+
     def test_hover_card_assets_are_cache_busted(self):
         source = INDEX_HTML.read_text(encoding="utf-8")
 
-        self.assertEqual(source.count("l4-hover-card=2"), 2)
+        self.assertEqual(source.count("l4-hover-card=2"), 1)
+        self.assertEqual(source.count("l4-hover-card=3"), 1)
 
 
 if __name__ == "__main__":

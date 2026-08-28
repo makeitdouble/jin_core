@@ -33,6 +33,18 @@ class MemoryCitationLayersClientContractTests(unittest.TestCase):
         self.assertIn('match.sourceType === "active"', worker)
         self.assertIn('match.sourceType === "l4"', worker)
 
+    def test_note_key_is_not_an_exact_citation_alias_in_any_memory_layer(self):
+        source = THINK_CITATIONS_JS.read_text(encoding="utf-8")
+
+        self.assertIn(
+            '&& key.toLocaleLowerCase() !== "note"',
+            source,
+        )
+        self.assertNotIn(
+            'includeKeyAlias: key.toLocaleLowerCase() !== "note",',
+            source,
+        )
+
     def test_active_and_l4_reasoning_citation_colors_are_layer_specific(self):
         css = CHAT_CSS.read_text(encoding="utf-8")
 
@@ -139,10 +151,11 @@ class MemoryCitationLayersClientContractTests(unittest.TestCase):
         self.assertIn("/static/css/runtime-memory.css?v=", source)
         self.assertIn("/static/css/theme-win95.css?v=", source)
         self.assertIn("/static/js/runtime/runtime-memory-view.js?v=context-card-chevronless-1", source)
-        self.assertIn("lazy-rows=5", source)
+        self.assertIn("lazy-rows=6", source)
         self.assertIn("l4-priority-bubble=1", source)
         self.assertIn("/static/js/runtime/runtime-avatar.js?v=", source)
         self.assertIn("/static/js/think-citations.js?v=think-citations-8", source)
+        self.assertIn("note-key-skip=1", source)
         self.assertIn("/static/js/chat.js?v=stream-avatar-2-reference-ids-1", source)
 
 

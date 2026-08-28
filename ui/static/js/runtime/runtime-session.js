@@ -227,6 +227,40 @@
             || runtimeSnapshot.assistant_message_count
             || 0
           ),
+        current_session_user_message_count:
+          Number(
+            Object.prototype.hasOwnProperty.call(
+              source,
+              "current_session_user_message_count"
+            )
+              ? source.current_session_user_message_count
+              : (
+                  data
+                  && Object.prototype.hasOwnProperty.call(
+                    data,
+                    "current_session_user_message_count"
+                  )
+                    ? data.current_session_user_message_count
+                    : (runtimeSnapshot.current_session_user_message_count || 0)
+                )
+          ),
+        current_session_assistant_message_count:
+          Number(
+            Object.prototype.hasOwnProperty.call(
+              source,
+              "current_session_assistant_message_count"
+            )
+              ? source.current_session_assistant_message_count
+              : (
+                  data
+                  && Object.prototype.hasOwnProperty.call(
+                    data,
+                    "current_session_assistant_message_count"
+                  )
+                    ? data.current_session_assistant_message_count
+                    : (runtimeSnapshot.current_session_assistant_message_count || 0)
+                )
+          ),
         current_jin_color:
           String(
             source.current_jin_color
@@ -728,6 +762,11 @@
 
       return {
         type: "runtime_resume",
+        frame_memory_index: Math.max(
+          0,
+          Number(history.index || 0)
+            + Number(history.displayIndexOffset || 0)
+        ),
         source_session_id: sourceSessionId || null,
         previous_session_id: previousSessionId || null,
         runtime_memory: runtimeText,
@@ -1355,6 +1394,7 @@
         runtime_memory: runtimeText,
         runtime_memory_updates:
           Number(checkpoint.runtime_memory_updates || 0),
+        frame_memory_index: runtimeText ? 1 : 0,
         runtime_snapshot:
           checkpoint.runtime_snapshot || null,
         runtime_display_snapshot: runtimeDisplaySnapshot,

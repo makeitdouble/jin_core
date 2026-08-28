@@ -12,9 +12,13 @@
     display: flex;
     min-height: 22px;
     align-items: center;
-    max-width: 100%;
     overflow: hidden;
-    margin-left: -0.35rem;
+
+    width: auto;
+    margin-left: -8px;
+    margin-right: -8px;
+
+    max-width: none;
 }
 
 .runtime-memory-tab {
@@ -37,6 +41,7 @@
 }
 
 .runtime-memory-tab:last-child {
+    flex: 1 0 auto;
     border-right: 0;
 }
 
@@ -83,6 +88,7 @@
 
 .runtime-memory-navigation[data-active-mode="runtime"] .runtime-memory-navigation-controls {
     padding-left: 0;
+    transform: translateX(-2px);
 }
 
 .runtime-memory-navigation-controls {

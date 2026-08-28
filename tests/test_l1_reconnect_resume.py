@@ -293,5 +293,67 @@ class L1ReconnectResumeTests(
                 )
 
 
+    async def test_matching_browser_memory_discards_stale_pending_checkpoint(self):
+        with tempfile.TemporaryDirectory() as directory:
+            pending_dir = Path(directory)
+
+            with patch.object(
+                l1_pending,
+                "PENDING_L1_DIR",
+                pending_dir,
+            ):
+                source_context = self.build_context(
+                    service_client=FakeServiceClient("Unused."),
+                    runtime_memory_updates=27,
+                )
+                source_context.runtime_memory_pending_turns = [
+                    {
+                        "user_message": "Which film is this?",
+                        "assistant_message": "One Point O.",
+                    },
+                ]
+                source_context.runtime_memory_pending_base_updates = 27
+
+                self.assertTrue(
+                    l1_pending.persist_pending_l1_update(
+                        source_context
+                    )
+                )
+
+                restarted_service = FakeServiceClient("Must not run.")
+                restarted_context = self.build_context(
+                    service_client=restarted_service,
+                    runtime_memory_updates=0,
+                )
+                restarted_context.runtime_memory = (
+                    'user_message: "Which film is this?"\n'
+                    "last_jin_response: One Point O."
+                )
+                restarted_context.runtime_memory_stable = (
+                    restarted_context.runtime_memory
+                )
+
+                self.assertTrue(
+                    l1_pending.restore_pending_l1_update(
+                        restarted_context
+                    )
+                )
+
+                resumed_task = l1_memory.resume_runtime_memory_pending_update(
+                    restarted_context
+                )
+
+                self.assertIsNone(resumed_task)
+                self.assertEqual(restarted_service.calls, [])
+                self.assertEqual(
+                    restarted_context.runtime_memory_pending_turns,
+                    [],
+                )
+                self.assertEqual(
+                    list(pending_dir.glob("*.l1_pending.json")),
+                    [],
+                )
+
+
 if __name__ == "__main__":
     unittest.main()

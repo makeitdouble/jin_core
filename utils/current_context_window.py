@@ -181,6 +181,7 @@ def ensure_current_context_window_field(
         return prompt
 
     for tag in (
+        "CURRENT_MODEL_UID",
         "BRAIN_MODEL_UID",
         "SERVICE_MODEL_UID",
         "CURRENT_SESSION_ID",

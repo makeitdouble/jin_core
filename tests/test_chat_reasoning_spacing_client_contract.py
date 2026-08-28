@@ -108,9 +108,14 @@ class ChatReasoningSpacingClientContractTests(unittest.TestCase):
         self.assertIn("font-style: normal;", css)
         self.assertIn("max-height: calc(1lh + 32px);", css)
         self.assertIn(
-            "body:not(.theme-win95) .jin-think-content.is-collapsed::after",
+            "body:not(.theme-win95) .jin-think-wrapper:has(> .jin-think-content.is-collapsed)::after",
             css,
         )
+        self.assertNotIn(
+            ".jin-think-content.is-collapsed::after",
+            css,
+        )
+        self.assertIn(".jin-think-wrapper {\n    position: relative;", css)
         self.assertIn("height: 12px;", css)
         self.assertIn("rgba(12, 12, 14, 0.22)", css)
 
@@ -119,6 +124,7 @@ class ChatReasoningSpacingClientContractTests(unittest.TestCase):
 
         self.assertIn("/static/css/base.css?v=stream-avatar-1", source)
         self.assertIn("/static/css/chat.css?v=stream-avatar-1", source)
+        self.assertIn("reasoning-fade-anchor=1", source)
         self.assertIn("/static/js/chat.js?v=stream-avatar-2", source)
         self.assertIn(
             "/static/js/panel-inactivity.js?v=jin-size-1",

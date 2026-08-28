@@ -352,14 +352,18 @@ def build_compact_runtime_snapshot(
     )
 
     selected_blocks = []
-    for tag in (
+    for tag_pattern in (
+        r"FRAME_MEMORY_\d+",
         "RUNTIME_MEMORY",
         "ACTIVE_MEMORY",
         "DELAYED_MEMORY",
         "LONG_TERM_MEMORY",
     ):
         match = re.search(
-            rf"<{tag}(?:\s[^>]*)?>.*?</{tag}>",
+            (
+                rf"<(?P<tag>{tag_pattern})(?:\s[^>]*)?>"
+                rf".*?</(?P=tag)>"
+            ),
             system_prompt,
             flags=re.IGNORECASE | re.DOTALL,
         )

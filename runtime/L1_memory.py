@@ -44,14 +44,17 @@ from runtime.L1_memory_utils import (
 from runtime.L1_memory_utils import (
     build_empty_assistant_message,
     build_interrupted_assistant_message,
+    build_last_jin_response_fallback,
     build_runtime_response_feedback_value,
     build_runtime_memory_batch_user_prompt,
     build_runtime_memory_snapshot,
     build_runtime_memory_user_prompt,
     enforce_runtime_turn_fields,
+    find_runtime_memory_entry_value,
     get_strength_zones,
     normalize_compound_runtime_memory_lines,
     parse_runtime_memory_lines,
+    quote_runtime_user_message_value,
     remove_runtime_memory_placeholder_lines,
     remove_runtime_response_feedback_text,
     remove_runtime_user_idle_lines,
@@ -1110,7 +1113,44 @@ def resume_runtime_memory_pending_update(
     # Keep the checkpoint through a successful server commit until the
     # browser proves it persisted a newer L1 snapshot. That closes the
     # crash window between commit and websocket delivery/localStorage.
-    if current_updates > base_updates:
+    pending_turn_already_committed = False
+
+    if len(pending_turns) == 1:
+        pending_turn = pending_turns[0]
+        current_memory = str(
+            getattr(
+                context,
+                "runtime_memory",
+                "",
+            )
+            or ""
+        )
+        current_user_message = find_runtime_memory_entry_value(
+            current_memory,
+            "user_message",
+        )
+        current_jin_response = find_runtime_memory_entry_value(
+            current_memory,
+            "last_jin_response",
+        )
+        pending_turn_already_committed = bool(
+            current_user_message
+            == quote_runtime_user_message_value(
+                pending_turn.get("user_message", "")
+            )
+            and current_jin_response
+            and build_last_jin_response_fallback(
+                current_jin_response
+            )
+            == build_last_jin_response_fallback(
+                pending_turn.get("assistant_message", "")
+            )
+        )
+
+    if (
+            current_updates > base_updates
+            or pending_turn_already_committed
+    ):
         context.runtime_memory_pending_turns = []
         clear_pending_l1_update(
             context

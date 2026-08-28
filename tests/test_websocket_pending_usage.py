@@ -531,6 +531,8 @@ class WebSocketPendingUsageTests(unittest.IsolatedAsyncioTestCase):
             session_memory_source="",
             runtime_l3_session_memory="",
             runtime_session_memory_updates=0,
+            current_session_user_message_count=0,
+            current_session_assistant_message_count=0,
         )
 
         restored = apply_session_bootstrap(
@@ -544,6 +546,8 @@ class WebSocketPendingUsageTests(unittest.IsolatedAsyncioTestCase):
                     "turn_number": 14,
                     "user_message_count": 15,
                     "assistant_message_count": 14,
+                    "current_session_user_message_count": 15,
+                    "current_session_assistant_message_count": 14,
                     "raw_memory": "topic: restored runtime state",
                 },
             },
@@ -577,6 +581,26 @@ class WebSocketPendingUsageTests(unittest.IsolatedAsyncioTestCase):
             14,
         )
         self.assertEqual(
+            context.current_session_user_message_count,
+            0,
+        )
+        self.assertEqual(
+            context.current_session_assistant_message_count,
+            0,
+        )
+        self.assertEqual(
+            context.runtime_memory_snapshots[0][
+                "current_session_user_message_count"
+            ],
+            0,
+        )
+        self.assertEqual(
+            context.runtime_memory_snapshots[0][
+                "current_session_assistant_message_count"
+            ],
+            0,
+        )
+        self.assertEqual(
             context.runtime_memory_snapshots[0]["turn_number"],
             14,
         )
@@ -597,6 +621,8 @@ class WebSocketPendingUsageTests(unittest.IsolatedAsyncioTestCase):
             turn_number=3,
             user_message_count=3,
             assistant_message_count=3,
+            current_session_user_message_count=2,
+            current_session_assistant_message_count=2,
             session_memory="",
             runtime_l3_session_memory="",
             runtime_session_memory_updates=0,
@@ -622,6 +648,8 @@ class WebSocketPendingUsageTests(unittest.IsolatedAsyncioTestCase):
                     "runtime_turn_counter": 17,
                     "user_message_count": 11,
                     "assistant_message_count": 10,
+                    "current_session_user_message_count": 7,
+                    "current_session_assistant_message_count": 6,
                 },
                 "session_memory": "decision: keep reconnect persistence",
                 "session_memory_source": "browser_soft_reconnect",
@@ -642,6 +670,26 @@ class WebSocketPendingUsageTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(
             context.turn_number,
             11,
+        )
+        self.assertEqual(
+            context.current_session_user_message_count,
+            7,
+        )
+        self.assertEqual(
+            context.current_session_assistant_message_count,
+            6,
+        )
+        self.assertEqual(
+            context.runtime_memory_snapshots[0][
+                "current_session_user_message_count"
+            ],
+            7,
+        )
+        self.assertEqual(
+            context.runtime_memory_snapshots[0][
+                "current_session_assistant_message_count"
+            ],
+            6,
         )
         self.assertEqual(
             context.runtime_loaded_delayed_memory_ids,

@@ -1125,6 +1125,7 @@ def _parse_trusted_values(context_text: str) -> dict:
 
     for name in (
         "RUNTIME_MODE",
+        "CURRENT_MODEL_UID",
         "SERVICE_MODEL_UID",
         "BRAIN_MODEL_UID",
         "CURRENT_CONTEXT_WINDOW",

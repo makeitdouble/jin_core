@@ -3174,7 +3174,7 @@ class BrainRuntimeActionTests(unittest.TestCase):
         )
         self.assertLess(
             prompt.index("<LOADED_SKILLS_CONTENT>"),
-            prompt.index("<RUNTIME_MEMORY "),
+            prompt.index("<FRAME_MEMORY_"),
         )
         self.assertIn("asset result", prompt)
         self.assertIn("first line\n", prompt)
@@ -3568,21 +3568,32 @@ class BrainRuntimeActionTests(unittest.TestCase):
         )
         self.assertLess(
             prompt.index("<ACTIVE_MEMORY"),
-            prompt.index("<RUNTIME_MEMORY "),
+            prompt.index("<FRAME_MEMORY_"),
         )
         self.assertLess(
             runtime_context.index("<ACTIVE_MEMORY"),
-            runtime_context.index("<RUNTIME_MEMORY "),
+            runtime_context.index("<FRAME_MEMORY_"),
         )
 
-        runtime_memory_block = runtime_context.split(
-            "<RUNTIME_MEMORY ",
+        frame_memory_suffix = runtime_context.split(
+            "<FRAME_MEMORY_",
             1,
-        )[1].split(
+        )[1]
+        frame_memory_tag = (
+            "FRAME_MEMORY_"
+            + frame_memory_suffix.split(
+                None,
+                1,
+            )[0].split(
+                ">",
+                1,
+            )[0]
+        )
+        runtime_memory_block = frame_memory_suffix.split(
             ">",
             1,
         )[1].split(
-            "</RUNTIME_MEMORY>",
+            f"</{frame_memory_tag}>",
             1,
         )[0]
         assert_not_contains_text(
@@ -3768,10 +3779,17 @@ class BrainRuntimeActionTests(unittest.TestCase):
         self.assertNotIn("<![CDATA[", prompt)
         self.assertNotIn("&lt;RUNTIME_ACTION:WEB_SEARCH&gt;", prompt)
         self.assertIn("<CURRENT_USER_DATETIME>", prompt)
+        current_model_uid = (
+            config.SERVICE_MODEL_UID
+            if config.USE_SERVICE_AS_BRAIN
+            else config.BRAIN_MODEL_UID
+        )
         self.assertIn(
-            f"<SERVICE_MODEL_UID>{config.SERVICE_MODEL_UID}</SERVICE_MODEL_UID>",
+            f"<CURRENT_MODEL_UID>{current_model_uid}</CURRENT_MODEL_UID>",
             prompt,
         )
+        self.assertNotIn("<SERVICE_MODEL_UID>", prompt)
+        self.assertNotIn("<BRAIN_MODEL_UID>", prompt)
         self.assertNotIn("<RUNTIME_MODE>", prompt)
         self.assertNotIn("<MODE>", prompt)
         self.assertNotIn("<CONTEXT>", prompt)

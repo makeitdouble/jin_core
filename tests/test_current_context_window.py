@@ -38,7 +38,7 @@ class CurrentContextWindowTests(
     unittest.IsolatedAsyncioTestCase
 ):
 
-    async def test_prepare_inserts_detected_context_window_under_brain_model(self):
+    async def test_prepare_inserts_detected_context_window_under_current_model(self):
 
         context = SimpleNamespace(
             runtime_action_events=[],
@@ -74,7 +74,7 @@ class CurrentContextWindowTests(
         )
         self.assertLess(
             prepared.system_prompt.index(
-                "<SERVICE_MODEL_UID>"
+                "<CURRENT_MODEL_UID>"
             ),
             prepared.system_prompt.index(
                 "<CURRENT_CONTEXT_WINDOW>"

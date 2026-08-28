@@ -13,6 +13,7 @@ RUNTIME_SESSION_JS = (
 )
 INDEX_HTML = ROOT / "ui" / "templates" / "index.html"
 WEBSOCKET_INIT = ROOT / "websocket" / "__init__.py"
+L1_MEMORY_UTILS = ROOT / "runtime" / "L1_memory_utils.py"
 
 
 class ReconnectPersistenceClientContractTests(unittest.TestCase):
@@ -61,6 +62,33 @@ class ReconnectPersistenceClientContractTests(unittest.TestCase):
         self.assertIn(
             "soft_resume\n        and resumed_context",
             source.replace("\r\n", "\n"),
+        )
+
+    def test_soft_reconnect_snapshot_keeps_l1_revision(self):
+
+        source = L1_MEMORY_UTILS.read_text(
+            encoding="utf-8"
+        )
+        start = source.index(
+            "def build_runtime_memory_snapshot("
+        )
+        end = source.index(
+            "def build_runtime_session_checkpoint(",
+            start,
+        )
+        block = source[start:end]
+
+        self.assertIn(
+            '"runtime_memory_updates": getattr(',
+            block,
+        )
+
+        session_source = RUNTIME_SESSION_JS.read_text(
+            encoding="utf-8"
+        )
+        self.assertIn(
+            "snapshot.runtime_memory_updates",
+            session_source,
         )
 
     def test_runtime_session_cache_version_is_bumped(self):

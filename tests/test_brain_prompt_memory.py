@@ -54,7 +54,7 @@ class BrainPromptMemoryTests(
             )
 
             self.assertIn(
-                "<RUNTIME_MEMORY ",
+                "<FRAME_MEMORY_",
                 prompt,
             )
             self.assertIn(
@@ -87,9 +87,58 @@ class BrainPromptMemoryTests(
 
             self.assertIn(
                 (
-                    '<RUNTIME_MEMORY '
+                    '<FRAME_MEMORY_0 '
                     'ts="2026-08-18T23:12:31+03:00" '
                     'session_id="snapshot-session">'
+                ),
+                prompt,
+            )
+
+    def test_frame_memory_number_matches_ui_and_chat_sits_directly_above_it(self):
+
+            context = RuntimeContext(
+                websocket=object(),
+                emitter=object(),
+                logger=object(),
+                clients={},
+            )
+            context.runtime_memory = "topic: numbered frame"
+            context.runtime_memory_display_index_offset = 1
+            context.runtime_memory_snapshots = [
+                {
+                    "index": 4,
+                    "timestamp": "2026-08-28T18:41:32+03:00",
+                    "session_id": "frame-session",
+                }
+            ]
+            context.runtime_recent_turns = [
+                {
+                    "user": "latest user message",
+                    "jin": "latest jin message",
+                }
+            ]
+
+            prompt = build_brain_context(
+                context=context,
+                runtime_actions={
+                    "CAN_WEB_SEARCH": False,
+                },
+            )
+
+            self.assertIn(
+                (
+                    '<FRAME_MEMORY_5 '
+                    'ts="2026-08-28T18:41:32+03:00" '
+                    'session_id="frame-session">'
+                ),
+                prompt,
+            )
+            self.assertIn(
+                (
+                    "</PREVIOUS_CHAT_MESSAGES>\n"
+                    '<FRAME_MEMORY_5 '
+                    'ts="2026-08-28T18:41:32+03:00" '
+                    'session_id="frame-session">'
                 ),
                 prompt,
             )
@@ -116,7 +165,7 @@ class BrainPromptMemoryTests(
                 prompt,
             )
             self.assertIn(
-                "<RUNTIME_MEMORY ",
+                "<FRAME_MEMORY_",
                 prompt,
             )
             self.assertIn(
@@ -225,7 +274,7 @@ class BrainPromptMemoryTests(
             )
 
             self.assertIn(
-                "<RUNTIME_MEMORY ",
+                "<FRAME_MEMORY_",
                 prompt,
             )
             self.assertIn(
@@ -375,7 +424,7 @@ class BrainPromptMemoryTests(
             )
             self.assertLess(
                 prompt.index("<LOADED_SKILLS_CONTENT>"),
-                prompt.index("<RUNTIME_MEMORY "),
+                prompt.index("<FRAME_MEMORY_"),
             )
             self.assertLess(
                 prompt.index("<CURRENT_TRUSTED_RUNTIME_VARIABLES>"),
@@ -1154,6 +1203,52 @@ class BrainPromptMemoryTests(
                 session_state,
             )
 
+    def test_current_session_state_uses_session_local_counters(self):
+
+            context = RuntimeContext(
+                websocket=object(),
+                emitter=object(),
+                logger=object(),
+                clients={},
+            )
+            context.user_message_count = 699
+            context.assistant_message_count = 699
+            context.turn_number = 699
+            context.current_session_user_message_count = 2
+            context.current_session_assistant_message_count = 2
+
+            prompt = build_brain_context(
+                context=context,
+                runtime_actions={
+                    "CAN_WEB_SEARCH": False,
+                },
+            )
+
+            session_state = prompt.split(
+                "<CURRENT_SESSION_STATE>",
+                1,
+            )[1].split(
+                "</CURRENT_SESSION_STATE>",
+                1,
+            )[0]
+
+            self.assertIn(
+                "User messages count:          2",
+                session_state,
+            )
+            self.assertIn(
+                "JIN messages count:           2",
+                session_state,
+            )
+            self.assertIn(
+                "Total messages count:         4",
+                session_state,
+            )
+            self.assertNotIn(
+                "699",
+                session_state,
+            )
+
     def test_brain_prompt_anchors_short_feedback_to_last_jin_response(self):
 
             context = SimpleNamespace(
@@ -1173,7 +1268,7 @@ class BrainPromptMemoryTests(
             )
 
             self.assertIn(
-                "<RUNTIME_MEMORY ",
+                "<FRAME_MEMORY_",
                 prompt,
             )
             self.assertIn(
@@ -1219,14 +1314,25 @@ class BrainPromptMemoryTests(
                 "</LATEST_USER_FEEDBACK>",
                 1,
             )[0]
-            runtime_memory = prompt.split(
-                "<RUNTIME_MEMORY ",
+            frame_memory_suffix = prompt.split(
+                "<FRAME_MEMORY_",
                 1,
-            )[1].split(
+            )[1]
+            frame_memory_tag = (
+                "FRAME_MEMORY_"
+                + frame_memory_suffix.split(
+                    None,
+                    1,
+                )[0].split(
+                    ">",
+                    1,
+                )[0]
+            )
+            runtime_memory = frame_memory_suffix.split(
                 ">",
                 1,
             )[1].split(
-                "</RUNTIME_MEMORY>",
+                f"</{frame_memory_tag}>",
                 1,
             )[0]
 
@@ -1256,7 +1362,7 @@ class BrainPromptMemoryTests(
             )
             self.assertLess(
                 prompt.index("<LATEST_USER_FEEDBACK priority=HIGH_PRIORITY>"),
-                prompt.index("<RUNTIME_MEMORY "),
+                prompt.index("<FRAME_MEMORY_"),
             )
             self.assertNotIn(
                 "User feedback:",

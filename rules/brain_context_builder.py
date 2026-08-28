@@ -166,6 +166,7 @@ def _append_visible_session_state(
         format_session_state,
     )
     from utils.context.runtime_state import (
+        get_current_session_user_message_count,
         get_visible_assistant_message_count,
         get_visible_turn_count,
     )
@@ -178,7 +179,9 @@ def _append_visible_session_state(
             turn_number=get_visible_turn_count(
                 context
             ),
-            user_message_count=getattr(context, "user_message_count", 0),
+            user_message_count=get_current_session_user_message_count(
+                context
+            ),
             assistant_message_count=get_visible_assistant_message_count(
                 context
             ),
@@ -296,6 +299,7 @@ def _append_L1_runtime_memory(
     *,
     user_input: str = "",
     commit_active_memory_refresh: bool = False,
+    previous_chat_messages_context: str = "",
 ) -> None:
 
     from runtime.L1_memory_utils import (
@@ -441,6 +445,11 @@ def _append_L1_runtime_memory(
                 "</ACTIVE_MEMORY>"
             )
 
+    if previous_chat_messages_context:
+        parts.append(
+            previous_chat_messages_context
+        )
+
     if runtime_memory.strip():
         snapshots = getattr(
             context,
@@ -486,6 +495,32 @@ def _append_L1_runtime_memory(
                 )
             )
 
+        frame_memory_index = int(
+            getattr(
+                context,
+                "runtime_memory_display_index_offset",
+                0,
+            )
+            or 0
+        )
+        if isinstance(latest_snapshot, dict):
+            try:
+                frame_memory_index += int(
+                    latest_snapshot.get(
+                        "index",
+                        len(snapshots) - 1,
+                    )
+                    or 0
+                )
+            except (TypeError, ValueError):
+                frame_memory_index += max(
+                    len(snapshots) - 1,
+                    0,
+                )
+
+        frame_memory_tag = (
+            f"FRAME_MEMORY_{max(frame_memory_index, 0)}"
+        )
         runtime_memory_attrs = [
             f'ts="{escape(snapshot_timestamp)}"'
         ]
@@ -495,9 +530,9 @@ def _append_L1_runtime_memory(
             )
 
         parts.append(
-            f'<RUNTIME_MEMORY {" ".join(runtime_memory_attrs)}>\n'
+            f'<{frame_memory_tag} {" ".join(runtime_memory_attrs)}>\n'
             f"{indent_xml(escape(canonicalize_runtime_memory_text(runtime_memory)))}\n"
-            "</RUNTIME_MEMORY>"
+            f"</{frame_memory_tag}>"
         )
 
 
@@ -1155,6 +1190,14 @@ def build_brain_context(
             False,
         )
     )
+    restored_session_dialog = str(
+        getattr(
+            context,
+            "runtime_restored_session_dialog",
+            "",
+        )
+        or ""
+    ).strip()
 
     current_runtime_settings_context = (
         build_current_runtime_settings_context()
@@ -1304,12 +1347,25 @@ def build_brain_context(
         context,
     )
 
-    # L1 memory block: includes active memory records and live runtime memory.
+    previous_chat_messages_context = (
+        build_previous_chat_messages_context(
+            context
+        )
+        if (
+            include_previous_chat_messages
+            and not restored_session_dialog
+        )
+        else ""
+    )
+
+    # Keep the recent visible dialogue directly above the FRAME snapshot so
+    # those two views of the live conversation stay adjacent in the prompt.
     _append_L1_runtime_memory(
         runtime_context_parts,
         context,
         user_input=user_input,
         commit_active_memory_refresh=commit_active_memory_refresh,
+        previous_chat_messages_context=previous_chat_messages_context,
     )
 
     # Visible session state block: records visible turn and message counters.
@@ -1362,37 +1418,12 @@ def build_brain_context(
             )
         )
 
-    # Archived-session checkout gets one exact-dialogue priming turn before
-    # falling back to the normal rolling recent-chat window. This preserves
-    # the original conversational trajectory without permanently bloating
-    # every subsequent prompt.
-    restored_session_dialog = str(
-        getattr(
-            context,
-            "runtime_restored_session_dialog",
-            "",
-        )
-        or ""
-    ).strip()
-
+    # Archived-session checkout still gets its one-shot exact dialogue dump.
+    # Normal rolling chat already lives beside FRAME_MEMORY above.
     if restored_session_dialog:
         prompt_parts.append(
             restored_session_dialog
         )
-    else:
-        # Previous chat messages block: gives the brain the recent visible dialogue.
-        previous_chat_messages_context = (
-            build_previous_chat_messages_context(
-                context
-            )
-            if include_previous_chat_messages
-            else ""
-        )
-
-        if previous_chat_messages_context:
-            prompt_parts.append(
-                previous_chat_messages_context
-            )
 
     # Previous reasoning block: a restore tick receives a one-shot raw dump of
     # the latest archived reasonings (newest first). Ordinary turns keep the

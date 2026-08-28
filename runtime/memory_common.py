@@ -96,8 +96,12 @@ def build_runtime_summarizer_trusted_context(
     user_message_count = (
         getattr(
             context,
-            "user_message_count",
-            None,
+            "current_session_user_message_count",
+            getattr(
+                context,
+                "user_message_count",
+                None,
+            ),
         )
         if context is not None
         else None
@@ -105,8 +109,12 @@ def build_runtime_summarizer_trusted_context(
     assistant_message_count = (
         getattr(
             context,
-            "assistant_message_count",
-            None,
+            "current_session_assistant_message_count",
+            getattr(
+                context,
+                "assistant_message_count",
+                None,
+            ),
         )
         if context is not None
         else None

@@ -22,7 +22,7 @@
     --jin-chat-line-soft: rgba(103, 232, 249, 0.14);
 
     /* Базовое внешнее свечение обычного JIN-бабла. */
-    --jin-chat-glow: rgba(45, 212, 191, 0.12);
+    --jin-chat-glow: rgba(45, 212, 191, 0.08);
 
     /* Основной цвет текста JIN до переопределений ниже. */
     --jin-chat-text: rgba(154, 242, 251, 0.95);
@@ -31,10 +31,10 @@
     --jin-chat-muted: rgba(203, 213, 225, 0.62);
 
     /* Базовая масса обычной JIN-плашки: последнее число = плотность фона. */
-    --jin-chat-panel: rgba(8, 17, 22, 0.76);
+    --jin-chat-panel: rgba(8, 17, 22, 0.82);
 
     /* Базовая масса USER-плашки: главный регулятор прозрачности user-бабла. */
-    --jin-chat-panel-user: rgba(14, 21, 31, 0.76);
+    --jin-chat-panel-user: rgba(14, 21, 31, 0.80);
 
     /* Базовая масса think-плашки: чем меньше alpha, тем больше она "в воздухе". */
     --jin-chat-panel-think: rgba(12, 12, 14, 0.44);
@@ -322,48 +322,35 @@
 }
 
 .jin-chat-bubble-user {
-    /* Цвет текста USER. Alpha делает текст тише/ярче. */
-    color: rgba(226, 235, 246, 0.76);
+    /* Цвет текста USER. Чуть спокойнее и суше, чтобы плашка не светилась лишнего. */
+    color: rgba(223, 231, 240, 0.72);
 
     /* Радиус USER-бабла. Сейчас как у аватарки. */
     border-radius: 4px;
 
     /* Серо-голубая рамка USER-бабла, в тон US-аватарке. */
-    border-color: rgba(148, 163, 184, 0.26);
+    border-color: rgba(148, 163, 184, 0.22);
 
-    /* USER-фон:
-       1) верхний blue-блик,
-       2) правый мягкий blue-свет,
-       3) нижняя slate-глубина,
-       4) стеклянная вертикальная плёнка,
-       5) основная масса через --jin-chat-panel-user. */
+    /* USER-фон оставляем объёмным, но заметно тише: без агрессивных холодных пятен. */
     background:
-            radial-gradient(circle at 18% 0%, rgba(147, 197, 253, 0.052), transparent 44%),
-            radial-gradient(circle at 88% 20%, rgba(96, 165, 250, 0.034), transparent 42%),
-            radial-gradient(circle at 64% 100%, rgba(148, 163, 184, 0.026), transparent 48%),
-            linear-gradient(180deg, rgba(219, 234, 254, 0.034), rgba(15, 23, 42, 0.022)),
+            linear-gradient(180deg, rgba(219, 234, 254, 0.026), rgba(15, 23, 42, 0.018)),
+            linear-gradient(90deg, rgba(148, 163, 184, 0.020), rgba(148, 163, 184, 0.008)),
             var(--jin-chat-panel-user);
 
     /* Размытие USER-бабла. Уменьшай, если плашка слишком мутная. */
     /*backdrop-filter: blur(9.75px);*/
 
-    /* USER-тени:
-       1) физическая тень,
-       2) синее внешнее свечение,
-       3) широкая бледная blue-аура,
-       4-6) внутренние блики и объём. */
+    /* USER-тени приглушены, чтобы фон читался ровнее и без лишнего сияния. */
     box-shadow:
-            0 0 0 1px rgba(148, 163, 184, 0.050),
-            0 12px 32px rgba(0, 0, 0, 0.23),
-            0 0 28px rgba(96, 165, 250, 0.062),
-            0 0 42px rgba(147, 197, 253, 0.030),
-            inset 0 1px 0 rgba(219, 234, 254, 0.050),
-            inset 0 0 24px rgba(96, 165, 250, 0.018),
-            inset 0 0 28px rgba(147, 197, 253, 0.012);
+            0 0 0 1px rgba(148, 163, 184, 0.040),
+            0 12px 30px rgba(0, 0, 0, 0.21),
+            0 0 18px rgba(96, 165, 250, 0.036),
+            inset 0 1px 0 rgba(219, 234, 254, 0.040),
+            inset 0 0 18px rgba(96, 165, 250, 0.010);
 
     /* Очень слабое свечение текста USER. */
     text-shadow:
-            0 0 10px rgba(96, 165, 250, 0.030);
+            0 0 8px rgba(96, 165, 250, 0.016);
 }
 
 .jin-chat-bubble-brain {
@@ -570,6 +557,8 @@
 }
 
 .jin-think-wrapper {
+    position: relative;
+
     /* Ширина think-блока совпадает с шириной длинных баблов. */
     max-width: 720px;
 
@@ -651,12 +640,14 @@
             inset 0 -18px 18px rgba(12, 12, 14, 0.42);
 }
 
-body:not(.theme-win95) .jin-think-content.is-collapsed::after {
+/* Keep the fade outside the scrolled content: collapsed reasoning scrolls to
+   its latest line, so a content-owned pseudo-element would move with text. */
+body:not(.theme-win95) .jin-think-wrapper:has(> .jin-think-content.is-collapsed)::after {
     content: "";
     position: absolute;
-    right: 0;
-    bottom: 0;
-    left: 0;
+    right: 1px;
+    bottom: 1px;
+    left: 1px;
     height: 12px;
     border-radius: 0 0 9px 9px;
     background: linear-gradient(
@@ -779,65 +770,47 @@ body:not(.theme-win95) .jin-think-content.is-collapsed::after {
 }
 
 .jin-chat-bubble-service {
-    /* Финальный JIN-фон:
-       1) верхний cyan-блик,
-       2) правый teal-свет,
-       3) нижняя слабая indigo-глубина,
-       4) стеклянная вертикальная плёнка,
-       5) основная масса JIN-бабла. */
+    /* Финальный JIN-фон делаем ровнее: убираем круглые радиальные пятна,
+       из-за которых на широком/растущем бабле появлялась светлая половина. */
     background:
-            radial-gradient(circle at 18% 0%, rgba(103, 232, 249, 0.050), transparent 44%),
-            radial-gradient(circle at 86% 18%, rgba(45, 212, 191, 0.040), transparent 42%),
-            radial-gradient(circle at 64% 100%, rgba(129, 140, 248, 0.024), transparent 48%),
-            linear-gradient(180deg, rgba(204, 251, 241, 0.030), rgba(10, 18, 22, 0.022)),
-            rgba(10, 18, 22, 0.48);
+            linear-gradient(180deg, rgba(204, 251, 241, 0.026), rgba(10, 18, 22, 0.018)),
+            linear-gradient(90deg, rgba(45, 212, 191, 0.014), rgba(103, 232, 249, 0.008)),
+            rgba(10, 18, 22, 0.58);
 
-    /* Финальный цвет текста JIN. */
-    color: rgba(222, 238, 235, 0.69);
+    /* Финальный цвет текста JIN: чуть спокойнее, но без потери читабельности. */
+    color: rgba(220, 235, 232, 0.66);
 
-    /* Финальное JIN-свечение:
-       1) физическая тень,
-       2) teal-аура,
-       3) cyan-аура,
-       4) слабая indigo-глубина,
-       5-7) внутренний свет и объём. */
+    /* Финальное JIN-свечение приглушено, чтобы бабл выглядел одним ровным слоем. */
     box-shadow:
-            0 0 0 1px rgba(103, 232, 249, 0.060),
-            0 14px 42px rgba(0, 0, 0, 0.24),
-            0 0 32px rgba(45, 212, 191, 0.070),
-            0 0 44px rgba(103, 232, 249, 0.035),
-            0 0 34px rgba(129, 140, 248, 0.018),
-            inset 0 1px 0 rgba(204, 251, 241, 0.045),
-            inset 0 0 26px rgba(45, 212, 191, 0.020),
-            inset 0 0 30px rgba(103, 232, 249, 0.014);
+            0 0 0 1px rgba(103, 232, 249, 0.050),
+            0 14px 34px rgba(0, 0, 0, 0.22),
+            0 0 18px rgba(45, 212, 191, 0.040),
+            inset 0 1px 0 rgba(204, 251, 241, 0.034),
+            inset 0 0 16px rgba(45, 212, 191, 0.010);
 }
 
 .jin-chat-bubble-service .jin-chat-pre {
     /* Цвет текста внутри JIN-бабла дублируется здесь для надёжности. */
-    color: rgba(222, 238, 235, 0.69);
+    color: rgba(220, 235, 232, 0.66);
 
-    /* Свечение текста JIN: teal + cyan. */
+    /* Свечение текста JIN почти убрано: нужен спокойный, ровный текст без дымки. */
     text-shadow:
-            0 0 10px rgba(45, 212, 191, 0.040),
-            0 0 14px rgba(103, 232, 249, 0.024);
+            0 0 8px rgba(45, 212, 191, 0.018);
 }
 
 .jin-chat-bubble-service {
     border-color: color-mix(
             in srgb,
-            rgba(103, 232, 249, 0.20) calc(var(--jin-bubble-invert-off) * 100%),
+            rgba(103, 232, 249, 0.16) calc(var(--jin-bubble-invert-off) * 100%),
             rgba(255, 255, 255, 0.62) calc(var(--JIN_BUBBLE_INVERT) * 100%)
     );
     box-shadow:
             inset 0 0 0 9999px rgba(246, 249, 247, calc(var(--JIN_BUBBLE_INVERT) * 0.86)),
-            0 0 0 1px rgba(103, 232, 249, 0.060),
-            0 14px 42px rgba(0, 0, 0, 0.24),
-            0 0 32px rgba(45, 212, 191, calc(var(--jin-bubble-invert-off) * 0.070)),
-            0 0 44px rgba(103, 232, 249, calc(var(--jin-bubble-invert-off) * 0.035)),
-            0 0 34px rgba(129, 140, 248, calc(var(--jin-bubble-invert-off) * 0.018)),
-            inset 0 1px 0 rgba(204, 251, 241, 0.045),
-            inset 0 0 26px rgba(45, 212, 191, calc(var(--jin-bubble-invert-off) * 0.020)),
-            inset 0 0 30px rgba(103, 232, 249, calc(var(--jin-bubble-invert-off) * 0.014));
+            0 0 0 1px rgba(103, 232, 249, 0.050),
+            0 14px 34px rgba(0, 0, 0, 0.22),
+            0 0 18px rgba(45, 212, 191, calc(var(--jin-bubble-invert-off) * 0.040)),
+            inset 0 1px 0 rgba(204, 251, 241, 0.034),
+            inset 0 0 16px rgba(45, 212, 191, calc(var(--jin-bubble-invert-off) * 0.010));
 }
 
 .jin-chat-bubble-brain {
@@ -858,12 +831,11 @@ body:not(.theme-win95) .jin-think-content.is-collapsed::after {
 .jin-chat-bubble-service .jin-chat-pre {
     color: color-mix(
             in srgb,
-            rgba(222, 238, 235, 0.69) calc(var(--jin-bubble-invert-off) * 100%),
+            rgba(220, 235, 232, 0.66) calc(var(--jin-bubble-invert-off) * 100%),
             rgba(39, 45, 48, 0.92) calc(var(--JIN_BUBBLE_INVERT) * 100%)
     );
     text-shadow:
-            0 0 10px rgba(45, 212, 191, calc(var(--jin-bubble-invert-off) * 0.040)),
-            0 0 14px rgba(103, 232, 249, calc(var(--jin-bubble-invert-off) * 0.024));
+            0 0 8px rgba(45, 212, 191, calc(var(--jin-bubble-invert-off) * 0.018));
 }
 
 .jin-chat-bubble-brain .jin-chat-pre {

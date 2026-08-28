@@ -658,7 +658,7 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
         prompt = BrainNode.build_followup_system_prompt(
             (
                 "<ACTIVE_MEMORY>\nactive memory\n</ACTIVE_MEMORY>\n\n"
-                '<RUNTIME_MEMORY ts="2026-08-18T23:12:31+03:00">\nactive_topic: test\n</RUNTIME_MEMORY>\n\n'
+                '<FRAME_MEMORY_5 ts="2026-08-18T23:12:31+03:00">\nactive_topic: test\n</FRAME_MEMORY_5>\n\n'
                 "<RUNTIME_PATTERN_MEMORY>\npattern\n</RUNTIME_PATTERN_MEMORY>"
             ),
             "continue the task",
@@ -670,11 +670,11 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
             prompt,
         )
         self.assertNotIn(
-            "<RUNTIME_MEMORY",
+            "<FRAME_MEMORY_",
             prompt,
         )
         self.assertNotIn(
-            "</RUNTIME_MEMORY>",
+            "</FRAME_MEMORY_5>",
             prompt,
         )
         self.assertIn(

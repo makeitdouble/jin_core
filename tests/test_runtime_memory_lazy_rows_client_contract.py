@@ -88,10 +88,24 @@ class RuntimeMemoryLazyRowsClientContractTests(unittest.TestCase):
             scroll_handler,
         )
 
+    def test_l4_rerender_preserves_materialized_depth_and_scroll_position(self):
+        source = MEMORY_VIEW_JS.read_text(encoding="utf-8")
+        start = source.index("function renderLongTermMemoryFacts()")
+        end = source.index("function renderActiveMemoryRecords()", start)
+        block = source[start:end]
+
+        self.assertIn("const preservedRenderedCount =", block)
+        self.assertIn("runtimeMemoryLazyRenderedCount;", block)
+        self.assertIn("const preservedScrollTop =", block)
+        self.assertIn("initialBatchSize: renderBatchSize", block)
+        self.assertIn("memoryScroll.scrollTop = Math.min(", block)
+        self.assertIn("runtimeMemoryLastScrollTop =", block)
+
+
     def test_memory_view_cache_key_is_bumped_for_l4_lazy_optimization(self):
         source = INDEX_HTML.read_text(encoding="utf-8")
 
-        self.assertIn("lazy-rows=5", source)
+        self.assertIn("lazy-rows=6", source)
         self.assertIn("l4-priority-bubble=1", source)
 
 

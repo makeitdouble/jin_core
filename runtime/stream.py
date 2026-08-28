@@ -789,6 +789,18 @@ class RuntimeStream:
                 )
                 + 1
             )
+            session_snapshot[
+                "current_session_assistant_message_count"
+            ] = (
+                int(
+                    session_snapshot.get(
+                        "current_session_assistant_message_count",
+                        0,
+                    )
+                    or 0
+                )
+                + 1
+            )
             session_snapshot["turn_number"] = (
                 int(
                     session_snapshot.get(

@@ -68,6 +68,8 @@ class LiveSessionCheckpointTests(unittest.TestCase):
             turn_number=31,
             user_message_count=9,
             assistant_message_count=8,
+            current_session_user_message_count=2,
+            current_session_assistant_message_count=1,
             runtime_memory_updates=6,
             runtime_loaded_delayed_memory_ids=["dm-1", "dm-2"],
             runtime_attached_file_ids=["file-1"],
@@ -83,6 +85,14 @@ class LiveSessionCheckpointTests(unittest.TestCase):
         checkpoint = build_runtime_session_checkpoint(context)
 
         self.assertEqual(checkpoint["session_id"], "session-current")
+        self.assertEqual(
+            checkpoint["current_session_user_message_count"],
+            2,
+        )
+        self.assertEqual(
+            checkpoint["current_session_assistant_message_count"],
+            1,
+        )
         self.assertEqual(
             checkpoint["recent_turns"],
             context.runtime_recent_turns[-3:],
@@ -127,6 +137,17 @@ class LiveSessionCheckpointTests(unittest.TestCase):
         self.assertIn("session.persistLiveSessionCheckpoint(", block)
         self.assertIn("Number(data.updates || 0) <= 0", block)
 
+
+    def test_live_checkpoint_keeps_current_session_counters(self):
+        source = RUNTIME_SESSION_JS.read_text(encoding="utf-8")
+        start = source.index("function normalizeLiveSessionSnapshot(")
+        end = source.index("function persistLiveSessionCheckpoint(data)", start)
+        block = source[start:end]
+
+        self.assertIn("current_session_user_message_count", block)
+        self.assertIn("current_session_assistant_message_count", block)
+        self.assertIn("runtimeSnapshot.current_session_user_message_count", block)
+        self.assertIn("runtimeSnapshot.current_session_assistant_message_count", block)
 
     def test_bootstrap_reads_the_atomic_v2_checkpoint(self):
         source = RUNTIME_SESSION_JS.read_text(encoding="utf-8")

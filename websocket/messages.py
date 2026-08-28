@@ -1190,6 +1190,7 @@ async def process_message(
 
             if not is_user_retry:
                 context.user_message_count += 1
+                context.current_session_user_message_count += 1
                 # Tag auto-load is driven only by the text the user typed.
                 # Attachment text still stays in ``user_text`` and reaches JIN as
                 # context, but it must never behave like a tag command.
@@ -1349,6 +1350,8 @@ async def process_message(
             )
         if not is_action_guard_retry and not is_user_retry:
             context.assistant_message_count += 1
+            if not is_session_restore_resume:
+                context.current_session_assistant_message_count += 1
             context.turn_number += 1
 
         completed_session_snapshot = (

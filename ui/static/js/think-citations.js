@@ -1113,7 +1113,10 @@
       };
 
       add(options.id, base, true);
-      if (options.includeKeyAlias !== false) {
+      if (
+        options.includeKeyAlias !== false
+        && key.toLocaleLowerCase() !== "note"
+      ) {
         add(key, base, true);
       }
       if (activeMemoryId) {

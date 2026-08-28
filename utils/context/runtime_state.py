@@ -266,11 +266,10 @@ def build_runtime_xml(
                 )
                 or ""
             ).strip(),
-            service_model_uid=settings.SERVICE_MODEL_UID,
-            brain_model_uid=(
-                settings.BRAIN_MODEL_UID
-                if not settings.USE_SERVICE_AS_BRAIN
-                else ""
+            current_model_uid=(
+                settings.SERVICE_MODEL_UID
+                if settings.USE_SERVICE_AS_BRAIN
+                else settings.BRAIN_MODEL_UID
             ),
             current_context_window=getattr(
                 context,
@@ -317,28 +316,61 @@ def build_runtime_xml(
     )
 
 
-def get_visible_assistant_message_count(
+def get_current_session_user_message_count(
     context=None,
 ) -> int:
 
     if context is None:
         return 0
 
-    assistant_message_count = int(
+    return int(
         getattr(
             context,
-            "assistant_message_count",
-            0,
+            "current_session_user_message_count",
+            getattr(
+                context,
+                "user_message_count",
+                0,
+            ),
         )
         or 0
     )
-    user_message_count = int(
+
+
+def get_current_session_assistant_message_count(
+    context=None,
+) -> int:
+
+    if context is None:
+        return 0
+
+    return int(
         getattr(
             context,
-            "user_message_count",
-            0,
+            "current_session_assistant_message_count",
+            getattr(
+                context,
+                "assistant_message_count",
+                0,
+            ),
         )
         or 0
+    )
+
+
+def get_visible_assistant_message_count(
+    context=None,
+) -> int:
+
+    assistant_message_count = (
+        get_current_session_assistant_message_count(
+            context
+        )
+    )
+    user_message_count = (
+        get_current_session_user_message_count(
+            context
+        )
     )
     pending_response_count = (
         1
@@ -355,9 +387,6 @@ def get_visible_assistant_message_count(
 def get_visible_turn_count(
     context=None,
 ) -> int:
-
-    if context is None:
-        return 0
 
     turn_number = int(
         getattr(
