@@ -217,7 +217,7 @@
     color: rgba(153, 246, 228, 0.95);
 
     /* Типографика букв SV/US. */
-    font-size: 10px;
+    font-size: 14px;
     line-height: 1;
     letter-spacing: 0.04em;
 
@@ -770,12 +770,13 @@ body:not(.theme-win95) .jin-think-wrapper:has(> .jin-think-content.is-collapsed)
 }
 
 .jin-chat-bubble-service {
-    /* Финальный JIN-фон делаем ровнее: убираем круглые радиальные пятна,
-       из-за которых на широком/растущем бабле появлялась светлая половина. */
-    background:
-            linear-gradient(180deg, rgba(204, 251, 241, 0.026), rgba(10, 18, 22, 0.018)),
-            linear-gradient(90deg, rgba(45, 212, 191, 0.014), rgba(103, 232, 249, 0.008)),
-            rgba(10, 18, 22, 0.58);
+    /* Финальный JIN-фон делаем полностью ровным: без затемняющих градиентов
+       поверх текста, чтобы бабл читался одним чистым слоем. */
+    background: color-mix(
+            in srgb,
+            rgba(10, 18, 22, 0.58) calc(var(--jin-bubble-invert-off) * 100%),
+            rgba(246, 249, 247, 0.90) calc(var(--JIN_BUBBLE_INVERT) * 100%)
+    );
 
     /* Финальный цвет текста JIN: чуть спокойнее, но без потери читабельности. */
     color: rgba(220, 235, 232, 0.66);
@@ -814,6 +815,11 @@ body:not(.theme-win95) .jin-think-wrapper:has(> .jin-think-content.is-collapsed)
 }
 
 .jin-chat-bubble-brain {
+    background: color-mix(
+            in srgb,
+            rgba(10, 18, 22, 0.58) calc(var(--jin-bubble-invert-off) * 100%),
+            rgba(246, 249, 247, 0.90) calc(var(--JIN_BUBBLE_INVERT) * 100%)
+    );
     border-color: color-mix(
             in srgb,
             rgba(165, 180, 252, 0.20) calc(var(--jin-bubble-invert-off) * 100%),

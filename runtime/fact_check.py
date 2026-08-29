@@ -988,6 +988,7 @@ async def ask_fact_check_plan(
 
     response = await ask_service_model(
         client=service_client,
+        context=context,
         system_prompt=build_fact_check_plan_system_prompt(),
         user_prompt=build_fact_check_plan_user_prompt(
             candidate=candidate,
@@ -1326,6 +1327,7 @@ async def ask_fact_check_decision(
 
     response = await ask_service_model(
         client=service_client,
+        context=context,
         system_prompt=build_fact_check_judge_system_prompt(),
         user_prompt=build_fact_check_judge_user_prompt(
             candidate=candidate,

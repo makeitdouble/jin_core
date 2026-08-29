@@ -67,7 +67,7 @@ from runtime.memory_common import (
     log_memory_event,
     log_runtime_summarizer_payload,
     log_runtime_summarizer_result,
-    refresh_runtime_memory_summarizer_usage,
+    refresh_service_runtime_usage,
     safe_call,
 )
 
@@ -1894,7 +1894,7 @@ async def ask_l4_model(
         or 1
     )
 
-    await refresh_runtime_memory_summarizer_usage(
+    await refresh_service_runtime_usage(
         context,
         system_prompt=system_prompt,
         user_prompt=user_prompt,
@@ -1914,11 +1914,13 @@ async def ask_l4_model(
 
     response = await ask_service_model(
         client=service_client,
+        context=context,
         system_prompt=system_prompt,
         user_prompt=user_prompt,
         temperature=getattr(config, "SERVICE_TEMPERATURE", 0.1),
         max_tokens=effective_max_tokens,
         timeout=getattr(config, "SERVICE_REQUEST_TIMEOUT", 1000.0),
+        track_usage=False,
     )
     if isinstance(response, dict):
         response["_jin_l4_request_meta"] = {
@@ -1940,7 +1942,7 @@ async def ask_l4_model(
             label=label,
             result=response_text,
         )
-    await refresh_runtime_memory_summarizer_usage(
+    await refresh_service_runtime_usage(
         context,
         system_prompt=system_prompt,
         user_prompt=user_prompt,

@@ -833,8 +833,50 @@
     );
   }
 
+  function releaseRuntimeMemoryDynamicDom(options = {}) {
+    clearRuntimeMemoryLineAvatarHover();
+    clearDelayedMemoryAvatarHover();
+    hideLongTermMemoryHoverCard();
+
+    if (runtimeMemoryText) {
+      runtimeMemoryText.replaceChildren();
+      runtimeMemoryText.classList.remove(
+        "runtime-memory-text-pinned"
+      );
+      runtimeMemoryText.removeAttribute(
+        "title"
+      );
+    }
+
+    userIdleValueNode = null;
+
+    if (idle) {
+      idle.stop();
+    }
+
+    resetRuntimeMemoryLazyRows({
+      keepMode: true,
+    });
+
+    memoryHighlightsSuspended = true;
+
+    if (options.renderOnResume !== false) {
+      pendingRuntimeMemoryRender = true;
+    }
+  }
+
   function handleRuntimeMemoryPanelVisibilityChange() {
     if (isRuntimeMemoryViewSuspended()) {
+      // Keep the collapse animation intact while the scroll body is still
+      // mounted. Once logger.js detaches it, drop the dynamic rows too so
+      // avatar mode does not retain a hidden memory tree through JS refs.
+      if (!isRuntimeMemoryViewDomConnected()) {
+        releaseRuntimeMemoryDynamicDom({
+          renderOnResume: true,
+        });
+        return;
+      }
+
       resetRuntimeMemoryLazyRows({
         keepMode: true,
       });
@@ -6452,6 +6494,7 @@
     }
 
     closeActiveDelayedMemoryFactPicker();
+    closeActiveDelayedMemoryAttachmentPicker();
 
     if (options.save !== false) {
       commitDelayedMemoryModalEdits({
@@ -6476,6 +6519,16 @@
     delayedMemoryModal.classList.remove(
         "flex"
     );
+
+    // The report body can contain fact/file pickers and many rows. Do not
+    // keep that subtree alive merely because the modal shell is hidden.
+    if (delayedMemoryModalContent) {
+      delayedMemoryModalContent.replaceChildren();
+    }
+    if (delayedMemoryModalTitle) {
+      delayedMemoryModalTitle.textContent = "";
+    }
+
     delayedMemoryModalReport = null;
     delayedMemoryModalTitleEditor = null;
     delayedMemoryModalDetailsTitle = null;
@@ -8706,6 +8759,11 @@
           return;
         }
 
+        // Destroy the previous tab rows before switching modes. The next
+        // render is synchronous, so no inactive tab DOM is retained.
+        releaseRuntimeMemoryDynamicDom({
+          renderOnResume: false,
+        });
         setRuntimeMemoryDisplayMode(displayMode);
         renderRuntimeMemorySnapshot({
           availableModes: getAvailableRuntimeMemoryDisplayModes(),

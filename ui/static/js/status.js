@@ -806,9 +806,9 @@ function renderRuntimeStatusModal(role) {
             ],
             [
                 "route",
-                normalizedRole === "brain" && status.use_service_as_brain
-                    ? "service runtime"
-                    : "dedicated runtime",
+                normalizedRole === "brain"
+                    ? "primary runtime"
+                    : "dedicated worker",
             ],
         ]
     );
@@ -961,7 +961,23 @@ function setRuntimeChecking(dot, label, button, name) {
 }
 
 
-function setRuntimeState(dot, label, button, name, online) {
+function setRuntimeState(dot, label, button, name, online, configured = true) {
+
+    if (!configured) {
+
+        dot.className =
+            "h-2 w-2 rounded-full bg-slate-600 transition-all duration-300";
+
+        label.textContent =
+            name;
+
+        setRuntimeButtonInteractivity(
+            button,
+            false
+        );
+
+        return;
+    }
 
     if (online) {
 
@@ -997,7 +1013,8 @@ function applyRuntimeStatusSnapshot(data) {
       brainLabel,
       brainStatusButton,
       "BRAIN",
-      data.brain
+      data.brain,
+      true
     );
 
     setRuntimeState(
@@ -1005,14 +1022,13 @@ function applyRuntimeStatusSnapshot(data) {
       serviceLabel,
       serviceStatusButton,
       "SERVICE",
-      data.service
+      data.service,
+      Boolean(data.service_configured)
     );
 
     window.jinRuntimeConfig = {
-        useServiceAsBrain:
-            Boolean(
-                data.use_service_as_brain
-            ),
+        serviceConfigured:
+            Boolean(data.service_configured),
         formatResponse:
             data.format_response !== false,
         runtimeStatus: {
@@ -1061,12 +1077,17 @@ async function updateRuntime(options = {}) {
           "BRAIN"
         );
 
-        setRuntimeChecking(
-          serviceDot,
-          serviceLabel,
-          serviceStatusButton,
-          "SERVICE"
-        );
+        if (
+            window.jinRuntimeConfig
+            && window.jinRuntimeConfig.serviceConfigured
+        ) {
+            setRuntimeChecking(
+              serviceDot,
+              serviceLabel,
+              serviceStatusButton,
+              "SERVICE"
+            );
+        }
 
     }
 
@@ -1090,7 +1111,10 @@ async function updateRuntime(options = {}) {
         const offlineStatus = {
             brain: false,
             service: false,
-            use_service_as_brain: false,
+            service_configured: Boolean(
+                window.jinRuntimeConfig
+                && window.jinRuntimeConfig.serviceConfigured
+            ),
             format_response: (
                 window.jinRuntimeConfig
                 && window.jinRuntimeConfig.formatResponse
@@ -1125,15 +1149,8 @@ function runtimeStatusIsHealthy() {
         return false;
     }
 
-    const status =
-        runtimeConfig.runtimeStatus;
-
     return Boolean(
-        status.service
-        && (
-            runtimeConfig.useServiceAsBrain
-            || status.brain
-        )
+        runtimeConfig.runtimeStatus.brain
     );
 
 }

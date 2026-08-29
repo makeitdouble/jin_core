@@ -1,11 +1,11 @@
 # JIN Core Engine — Current Architecture
 
-**Verified snapshot:** `jin_core(20260826-090339).zip`<br>
-**Inspection date:** 2026-08-26<br>
-**Intent sources used for reconciliation:** current source/tests plus the accumulated 2026-08-23--26 project decisions<br>
+**Verified snapshot:** `jin_core(20260829-114751).zip`<br>
+**Inspection date:** 2026-08-29<br>
+**Intent sources used for reconciliation:** current source plus the accumulated 2026-08-23--29 project decisions; tests were intentionally not executed for this documentation audit<br>
 **Purpose:** describe the architecture that is actually visible in the current source tree, while explicitly separating legacy compatibility from active design.
 
-This document supersedes the architectural parts of the old root `ARCHITECTURE.md` and `README.md` wherever they still describe L2/L3 as live architectural layers or `SAVE_SESSION` as a current model action.
+This document is the current architectural baseline. `README.md` is kept as the shorter product-facing overview; legacy tests/comments remain lower-confidence historical evidence.
 
 ---
 
@@ -21,7 +21,7 @@ Core product properties:
 - session continuity across reloads/tabs/archived sessions;
 - persistent files and memory objects with stable IDs;
 - runtime state projected into the UI and Live Avatar;
-- separate BRAIN and SERVICE roles even when both roles resolve to the same physical model.
+- one foreground BRAIN route plus a logical background SERVICE role that may resolve to the same physical model.
 
 The codebase is intentionally not structured as a generic autonomous-agent framework. The main foreground path remains direct.
 
@@ -48,11 +48,13 @@ Browser UI
 
 Background / secondary paths:
    completed foreground turn
-       -> L1 SERVICE summarization
-       -> L1 diff + Facts Memory companion state
+       -> logical SERVICE route
+          -> dedicated Service client when configured
+          -> otherwise the same physical client as Brain
+       -> FRAME/L1 integration + diff + Facts Memory companion state
 
    browser idle tick
-       -> L4 extraction/merge pipeline
+       -> L4 extraction/merge pipeline through the same SERVICE route
 ```
 
 Main ownership by package:
@@ -62,12 +64,12 @@ Main ownership by package:
 | `app.py` | FastAPI app, HTTP APIs, static files, session-restore endpoint, WebSocket router registration |
 | `websocket/` | connection lifecycle, queueing, bootstrap/resume, foreground turn orchestration, server->browser events |
 | `runtime/runtime_context.py` | live in-process state hub for one logical runtime |
-| `agent/` | direct Brain execution and per-turn state |
+| `agent/` | direct foreground Brain execution and per-turn state |
 | `runtime/stream.py` | model stream handling, reasoning/content/action separation, recovery/limits |
 | `contracts/` | canonical model-facing runtime-action contracts and action rule assembly |
 | `utils/actions/` | payload normalization, action execution, storage/state mutation |
 | `rules/brain_context_builder.py` | deterministic Brain prompt assembly from current state |
-| `runtime/L1_memory*` | live runtime-memory summarization, snapshots, diffs, interrupted-turn memory path |
+| `runtime/L1_memory*` | FRAME/live runtime-memory integration, snapshots, diffs, interrupted-turn memory path |
 | `runtime/L4_memory*` | Facts Memory ingestion, durable L4 extraction/merge, reconciliation, delete/restore |
 | `runtime/memory_attention.py` | prompt-only Active/Delayed/L4 relevance ranking |
 | `utils/*_store.py` | durable file/report/fact stores |
@@ -133,10 +135,16 @@ There is no active planner/router node in front of Brain.
 
 Physical model endpoints are resolved through the client/config layer. Logical roles remain:
 
-- **BRAIN** — foreground reasoning, visible answer, runtime decisions;
-- **SERVICE** — L1/L4 integration and supporting model work.
+- **BRAIN** — the only foreground reasoning/visible-answer/runtime-decision route;
+- **SERVICE** — background FRAME/L1, L4, fact-check/research, document-skill, and supporting model work.
 
-`USE_SERVICE_AS_BRAIN=True` may map both logical roles to one endpoint without removing the role distinction.
+`utils/brain_client_utils.py::get_brain_runtime_config()` always returns label `brain`, and `BrainNode` resolves `context.clients["brain"]`. There is no active foreground branch to Service.
+
+`clients/registry.py` always builds the Brain client first and initially aliases `clients["service"]` to that same object. Only an explicitly configured `SERVICE_API_BASE` replaces the alias with a dedicated Service client. Therefore a one-model setup is the default topology, but the logical Service role remains background-only.
+
+`config_loader.py::normalize_model_role_config()` accepts `USE_SERVICE_AS_BRAIN=True` only as a migration adapter for old local configs: it promotes the old Service endpoint/settings into canonical Brain settings, clears the dedicated Service URL, deletes the legacy attribute, and then normalizes Service fallbacks. The Windows launcher contains matching legacy detection only so startup can find/migrate those old configs safely. No live runtime path reads the flag.
+
+Historical archives can still contain `role=service` / `RUNTIME_MODE=SERVICE`, and the logger UI retains presentation code for old `[SERVICE]` model-output cards. Those are reader compatibility paths, not a current response mode.
 
 ---
 
@@ -156,15 +164,16 @@ The current high-level order is:
 8. skills inventory;
 9. loaded skill content;
 10. runtime-context group:
-   - explicit user feedback;
+   - explicit user feedback / retry context when present;
    - Active Memory view;
-   - L1/runtime memory snapshot;
+   - ordinary turns: `<PREVIOUS_CHAT_MESSAGES>`;
+   - current `<FRAME_MEMORY_N ...>` snapshot;
    - visible session counters;
    - runtime TODO state;
    - loaded Delayed Memory bodies;
    - L4 long-term memory;
    - zero-diff stall alert;
-11. archived exact-dialogue priming block, otherwise rolling recent visible messages;
+11. archived exact-dialogue priming block when restoring; ordinary rolling chat is already adjacent to FRAME above;
 12. archived reasoning dump, otherwise previous-reasoning loop/crop;
 13. runtime-action instructions assembled from current contracts;
 14. identity block;
@@ -279,9 +288,9 @@ Active backend modules:
 - `runtime/L1_memory_rules.py`
 - `runtime/L1_memory_utils.py`
 
-L1 is the compact live runtime state used for the next turns. It is updated by SERVICE after foreground turns, has snapshots/diffs, and has a distinct interrupted-turn update path.
+L1 is the backend implementation of the compact live runtime state exposed as **FRAME** in the UI and as `<FRAME_MEMORY_N>` in Brain context. It is integrated through the logical Service route after foreground turns, has snapshots/diffs, and has a distinct interrupted-turn update path. With no dedicated Service endpoint, that background route deliberately reuses the Brain client.
 
-It is not a durable long-term memory tier.
+It is not a durable long-term memory tier, and `FRAME` is not a global rename of internal L1/runtime identifiers.
 
 ### 7.2 L2 and L3
 
@@ -585,13 +594,13 @@ Use existing semantic IDs/events and existing CSS/DOM primitives first. New visu
 
 ## 14. Known architectural traps
 
-Do not infer architecture from these alone:
+Do not infer current architecture from compatibility/history alone:
 
-- old root `README.md` / `ARCHITECTURE.md`;
-- `tests/test_l2_memory.py` and `tests/test_l3_session_memory.py`;
-- `SAVE_SESSION` references in old tests/log parsing;
-- comments mentioning “L1/L2/L3 glow”;
-- stale CodeGraph/search indexes;
+- `USE_SERVICE_AS_BRAIN`, archived `RUNTIME_MODE=SERVICE`, archived `role=service`, or old `[SERVICE]` logger-card code;
+- `SAVE_SESSION` references in tests/log parsing;
+- comments/log filters mentioning “L1/L2/L3 glow”;
+- pre-L3-removal storage migration keys/fields;
+- stale repository indexes or historical test assumptions;
 - historical field names like `runtime_l3_session_memory`;
 - the name `find_latest_completed_session_restore_payload()`; current selection is newest real USER move, including USER-only interruption;
 - treating any write to a browser checkpoint as permission to advance `saved_at`;

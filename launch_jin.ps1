@@ -244,6 +244,20 @@ function Test-AutoProviderBaseValue {
     )
 }
 
+function Test-LegacyServiceAsBrainEnabled {
+    param([string]$ConfigPath)
+
+    $value = Get-PythonConfigValue -Path $ConfigPath -Name "USE_SERVICE_AS_BRAIN"
+
+    if ($null -eq $value) {
+        return $false
+    }
+
+    $normalizedValue = $value.Trim().ToLowerInvariant()
+
+    return @("1", "true", "yes", "on") -contains $normalizedValue
+}
+
 function Ensure-JinConfig {
     $configPath = Join-Path $Root "config.py"
     $examplePath = Join-Path $Root "config.example.py"
@@ -266,10 +280,11 @@ function Get-ConfiguredBaseUrlCandidates {
     param([string]$ConfigPath)
 
     $baseUrls = New-Object System.Collections.Generic.List[string]
-    $baseNames = @(
-        "SERVICE_API_BASE",
-        "BRAIN_API_BASE"
-    )
+    $baseNames = @("BRAIN_API_BASE")
+
+    if (Test-LegacyServiceAsBrainEnabled -ConfigPath $ConfigPath) {
+        $baseNames = @("SERVICE_API_BASE")
+    }
 
     foreach ($name in $baseNames) {
         $value = Get-PythonConfigValue -Path $ConfigPath -Name $name
@@ -285,7 +300,10 @@ function Get-ConfiguredBaseUrlCandidates {
 }
 
 function Get-LmStudioModels {
-    param([string[]]$BaseUrls)
+    param(
+        [string[]]$BaseUrls,
+        [switch]$Optional
+    )
 
     $checkedUrls = New-Object System.Collections.Generic.List[string]
 
@@ -319,6 +337,12 @@ function Get-LmStudioModels {
     $checkedText = (
         $checkedUrls -join "`r`n"
     )
+
+    if ($Optional) {
+        Write-Host "Optional LM Studio service is unavailable. Checked endpoints:"
+        Write-Host $checkedText
+        return $null
+    }
 
     Fail-WithMessage "LM Studio is not running.`r`nOpen LM Studio, start Local Server, then run this script again.`r`nChecked endpoints:`r`n$checkedText"
 }
@@ -381,10 +405,44 @@ function Write-JinConfig {
     }
 
     Update-ProviderBaseConfig -ConfigPath $configPath -Name "BRAIN_API_BASE" -ActiveBaseUrl $ActiveBaseUrl
-    Update-ProviderBaseConfig -ConfigPath $configPath -Name "SERVICE_API_BASE" -ActiveBaseUrl $ActiveBaseUrl
 
     Update-ModelConfig -ConfigPath $configPath -Name "BRAIN_MODEL_UID" -SuggestedModel $suggestedModel
-    Update-ModelConfig -ConfigPath $configPath -Name "SERVICE_MODEL_UID" -SuggestedModel $suggestedModel
+}
+
+function Initialize-DedicatedServiceConfig {
+    param([string]$ConfigPath)
+
+    if (Test-LegacyServiceAsBrainEnabled -ConfigPath $ConfigPath) {
+        Write-Host "Legacy Service-as-Brain config detected. It will migrate to Brain at startup."
+        return
+    }
+
+    $serviceBaseUrl = Get-PythonConfigValue -Path $ConfigPath -Name "SERVICE_API_BASE"
+
+    if (Test-AutoProviderBaseValue -Name "SERVICE_API_BASE" -Value $serviceBaseUrl) {
+        Write-Host "SERVICE_API_BASE is empty. Service requests will use Brain."
+        return
+    }
+
+    Write-Host "Dedicated Service URL configured: $serviceBaseUrl"
+    $serviceRuntime = Get-LmStudioModels -BaseUrls @($serviceBaseUrl) -Optional
+
+    if ($null -eq $serviceRuntime) {
+        Write-Host "Keeping the dedicated Service config; JIN will start with its Service status offline."
+        return
+    }
+
+    $serviceModelIds = @($serviceRuntime.ModelIds)
+    $suggestedServiceModel = Find-GemmaModel -ModelIds $serviceModelIds
+
+    if (-not $suggestedServiceModel) {
+        Write-Host "No supported Gemma model found on the dedicated Service runtime."
+        Write-Host "Keeping SERVICE_MODEL_UID unchanged."
+        return
+    }
+
+    Write-Host "Found supported Service model: $suggestedServiceModel"
+    Update-ModelConfig -ConfigPath $ConfigPath -Name "SERVICE_MODEL_UID" -SuggestedModel $suggestedServiceModel
 }
 
 function Test-PythonCommand {
@@ -467,6 +525,7 @@ try {
     Write-Host ""
     Write-Host "Checking local config model IDs..."
     Write-JinConfig -ConfigPath $configPath -ActiveBaseUrl $LmStudioBaseUrl -ModelIds $modelIds
+    Initialize-DedicatedServiceConfig -ConfigPath $configPath
 
     $venvPath = Join-Path $Root ".venv"
     $venvPython = Join-Path $venvPath "Scripts\python.exe"

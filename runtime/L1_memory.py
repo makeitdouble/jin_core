@@ -34,7 +34,7 @@ from runtime.memory_common import (
     log_runtime_summarizer_payload,
     log_runtime_summarizer_stream_event,
     looks_like_incomplete_runtime_memory,
-    refresh_runtime_memory_summarizer_usage,
+    refresh_service_runtime_usage,
     runtime_prompt_is_context_overloaded,
 )
 from runtime.L1_memory_utils import (
@@ -253,11 +253,13 @@ async def ask_l1_summarizer(
     if not stream_enabled:
         return await ask_service_model(
             client=service_client,
+            context=context,
             system_prompt=system_prompt,
             user_prompt=user_prompt,
             temperature=temperature,
             max_tokens=max_tokens,
             timeout=config.SERVICE_REQUEST_TIMEOUT,
+            track_usage=False,
         )
 
     reasoning_parts = []
@@ -463,7 +465,7 @@ async def ask_runtime_memory_model(
             last_turn_context_overloaded=True,
         )
 
-    await refresh_runtime_memory_summarizer_usage(
+    await refresh_service_runtime_usage(
         context,
         system_prompt=system_prompt,
         user_prompt=user_prompt,
@@ -485,7 +487,7 @@ async def ask_runtime_memory_model(
         max_tokens=max_tokens,
     )
 
-    await refresh_runtime_memory_summarizer_usage(
+    await refresh_service_runtime_usage(
         context,
         system_prompt=system_prompt,
         user_prompt=user_prompt,
@@ -529,7 +531,7 @@ async def ask_runtime_memory_batch_model(
         ),
     )
 
-    await refresh_runtime_memory_summarizer_usage(
+    await refresh_service_runtime_usage(
         context,
         system_prompt=system_prompt,
         user_prompt=user_prompt,
@@ -555,7 +557,7 @@ async def ask_runtime_memory_batch_model(
         max_tokens=max_tokens,
     )
 
-    await refresh_runtime_memory_summarizer_usage(
+    await refresh_service_runtime_usage(
         context,
         system_prompt=system_prompt,
         user_prompt=user_prompt,

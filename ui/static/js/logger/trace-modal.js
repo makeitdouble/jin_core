@@ -201,6 +201,33 @@ function ensureTraceModal() {
       traceModalL1StreamFrame =
         null;
     }
+
+    // Keep only the tiny reusable modal shell. Context snapshots can be
+    // thousands of DOM nodes; once hidden they must not stay in live DOM.
+    if (traceModalContent) {
+      traceModalContent.replaceChildren();
+    }
+    traceModalContextCopyText = "";
+
+    if (traceModalCopyButton) {
+      traceModalCopyButton.classList.add(
+        "hidden"
+      );
+      traceModalCopyButton.classList.remove(
+        "is-copied"
+      );
+    }
+
+    if (traceModalReason) {
+      traceModalReason.textContent = "";
+      traceModalReason.classList.add(
+        "hidden"
+      );
+    }
+
+    traceModal.classList.remove(
+      "jin-context-trace-modal"
+    );
   }
 
   async function copyTraceModalContext() {

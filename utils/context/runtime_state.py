@@ -267,9 +267,7 @@ def build_runtime_xml(
                 or ""
             ).strip(),
             current_model_uid=(
-                settings.SERVICE_MODEL_UID
-                if settings.USE_SERVICE_AS_BRAIN
-                else settings.BRAIN_MODEL_UID
+                settings.BRAIN_MODEL_UID
             ),
             current_context_window=getattr(
                 context,

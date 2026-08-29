@@ -211,7 +211,6 @@ function allModelRuntimesOffline() {
 
   return (
     status.brain === false
-    && status.service === false
   );
 
 }
@@ -303,10 +302,6 @@ chatForm.addEventListener(
 
     if (window.clearLatestJinMemoryReferenceText) {
       window.clearLatestJinMemoryReferenceText();
-    }
-
-    if (window.focusBrainContextTab) {
-      window.focusBrainContextTab();
     }
 
     const attachments =

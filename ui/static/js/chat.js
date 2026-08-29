@@ -1241,7 +1241,7 @@ function getRoleConfig(role) {
 
     case "user":
       return {
-        avatar: "US",
+        avatar: "U",
         bubbleClass:
           "jin-chat-bubble jin-chat-bubble-user",
         avatarClass:
@@ -1260,7 +1260,7 @@ function getRoleConfig(role) {
     case "brain":
     default:
       return {
-        avatar: "BR",
+        avatar: "J",
         bubbleClass:
           "jin-chat-bubble jin-chat-bubble-brain jin-chat-bubble-rateable",
         avatarClass:

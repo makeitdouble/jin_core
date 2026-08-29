@@ -183,7 +183,6 @@ window.requestJinLastResponseRetry = function () {
   ) || {};
   if (
     runtimeStatus.brain === false
-    && runtimeStatus.service === false
   ) {
     return false;
   }
@@ -211,10 +210,6 @@ window.requestJinLastResponseRetry = function () {
 
   if (window.clearLatestJinMemoryReferenceText) {
     window.clearLatestJinMemoryReferenceText();
-  }
-
-  if (window.focusBrainContextTab) {
-    window.focusBrainContextTab();
   }
 
   const sent = sendSocketMessage(

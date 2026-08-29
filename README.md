@@ -8,7 +8,7 @@
 
 **JIN Core Engine** is an experimental cognitive runtime for OpenAI-compatible models with **visible memory, session continuity, and model-driven actions.**
 
-JIN is designed for long-running interaction. It carries model state forward, exposes the context shaping the current response, lets the model act on that state, and restores explicitly saved sessions through a compact session handoff.
+JIN is designed for long-running interaction. It carries model state forward, exposes the context shaping the current response, lets the model act on that state, and can restore archived sessions through the dedicated bootstrap/restore path.
 
 The main chat stays visually simple while memory layers, reasoning, context pressure, runtime actions, persistent files, and action history remain accessible in collapsible panels.
 
@@ -23,7 +23,7 @@ The JIN workspace combines the chat stream, draggable/collapsible runtime panels
 <tr>
 <td width="66%" valign="top">
 <p>Live Avatar visualizes JIN's runtime state in real time.</p>
-<p>Inner orbits react to live L1 memory changes, while outer signal rings track Delayed Memory, L4 facts, Active Memory, and persistent files.</p>
+<p>Inner orbits react to live FRAME/runtime-memory changes, while outer signal rings track Delayed Memory, L4 facts, Active Memory, and persistent files.</p>
 <p>The avatar is interactive: reasoning references light up matching runtime signals, and hovering linked signals reveals the related memory and files.</p>
 <p>During reasoning, the avatar shifts into a dedicated motion state. Runtime actions can also change its size and tint the workspace, giving the model a small visual language beyond text.</p>
 </td>
@@ -35,37 +35,36 @@ The JIN workspace combines the chat stream, draggable/collapsible runtime panels
 
 ## Memory Architecture
 
-JIN organizes memory by cognitive purpose across four layers and dedicated memory systems.
+JIN no longer uses the old four-layer L1/L2/L3/L4 hierarchy. The current user-facing memory panel has five stable views: **FRAME**, **ACTIVE**, **DELAYED**, **L-T**, and **FILES**.
 
-### The Four-Layer Memory Model
+### FRAME / Live Runtime Memory
 
-* **L1 — Live Facts:** The current topic, request, task state, decisions, feedback, and unresolved points needed for the next turn.
-* **L2 — Patterns:** Repeated inputs, stalled loops, and short-term interaction patterns that may require a strategy change.
-* **L3 — Session Digest:** A compact handoff created by an explicit session save. It preserves the state used to re-enter an archived conversation. Soft reconnect is a separate transport-resume path.
-* **L4 — Long-Term Facts:** Stable facts, preferences, project decisions, constraints, and environment details that should remain available across sessions.
-
-Every accepted L1 update is stored as a versioned snapshot. The runtime-memory timeline can be stepped through visually, with new and changed fields highlighted across snapshots.
+**FRAME** is the UI name for the current live runtime-memory snapshot. Backend implementation still lives under `runtime/L1_memory*`; the rename is intentionally presentation-only. FRAME keeps the current topic, request/task state, decisions, feedback, and unresolved points needed by upcoming turns. Accepted updates are versioned as snapshots so the UI can step through diffs and inspect what changed.
 
 ![Runtime memory snapshot timeline](ui/static/images/runtime-highlight.png)
 
-### Delayed Memory
-
-JIN uses **Delayed Memory** for larger pieces of context that enter the prompt when they are relevant. Discussions, specifications, and reports are stored as structured objects with tags and links to L4 facts or persistent files. Reports can be **loaded or unloaded by the runtime**, **pinned from the UI**, or **activated by matching user-text tags**.
-
 ### Active Memory
 
-**Active Memory** keeps unfinished intentions and pending commitments separate from the general conversation state. Conditions, recall rules, and other unresolved contracts remain active across turns until they are fulfilled, cancelled, or explicitly resolved. Relevant stored conditions are carried back into the Brain context on later turns.
+**Active Memory** keeps unfinished intentions and pending commitments separate from the general conversation state. Conditions and unresolved contracts remain active across turns until they are fulfilled, cancelled, paused, or explicitly resolved. Relevant active records are projected back into Brain context without changing their canonical storage order.
 
-### Facts Memory and L4 Consolidation
+### Delayed Memory
 
-**Facts Memory** is an inspectable index of durable context candidates collected from runtime state. During idle consolidation, JIN merges duplicate or overlapping facts with the existing L4 store. Delayed Memory reports can absorb ordinary L4 facts while essential anchor facts remain directly exposed, keeping the injected context compact.
+**Delayed Memory** stores larger structured context that should be available without living in every prompt. Reports can link L4 facts and persistent files, can be loaded/unloaded by runtime actions, pinned from the UI, or surfaced from matching user-text tags.
+
+### L-T / L4 Long-Term Facts
+
+**L-T** is the UI view of canonical L4 durable facts: stable user/project facts, preferences, constraints, decisions, and environment details that should survive sessions. An internal Facts Memory candidate buffer feeds idle L4 extraction/merge; it is not a sixth user-facing memory tab or a revived L2/L3 layer.
+
+### Files
+
+**FILES** exposes the persistent uploaded-file library. Stored files keep stable IDs and can be attached/detached across turns or linked from Delayed Memory.
 
 ## Core Capabilities
 
 * **Visible Reasoning:** Displays provider/model reasoning separately from the final answer when the backend exposes a reasoning stream.
 * **Reasoning References:** Maps direct references back to runtime rules, memory records, restored context, and linked runtime objects.
-* **Inspectable Memory:** Keeps live state, session handoff, long-term facts, delayed reports, and active commitments as separate visible systems.
-* **Session Continuity:** Supports soft WebSocket resume plus explicit session save and archived restore, with continuity state carried through memory and the session handoff.
+* **Inspectable Memory:** Keeps FRAME/live state, long-term facts, delayed reports, active commitments, persistent files, and continuity checkpoints as separate systems.
+* **Session Continuity:** Supports soft WebSocket resume, atomic browser checkpoints for reload/new-tab continuity, and explicit archived-session restore from persisted logs.
 * **Persistent Files:** Stores uploaded text, images, PDFs, and other files under stable ids; the same stored files can be attached to or detached from context across turns.
 * **Runtime Telemetry:** Shows model status, token usage, context pressure, memory updates, action state, and runtime logs.
 * **Interruptible Generation:** Stops an active response while preserving the logical session and a dedicated interrupted-memory path.
@@ -79,9 +78,8 @@ JIN can request an action while answering. The runtime validates and executes it
 Available actions include:
 
 * one-shot web search and bounded multi-query Deep Web Search;
-* explicit session save, with archived restore handled by the session bootstrap flow;
 * Active Memory creation and resolution;
-* Delayed Memory save, update, load, and unload;
+* Delayed Memory save, load, and unload;
 * persistent file listing, attachment, and detachment;
 * focused L4 fact updates and reconciliation;
 * asset and skill discovery, including bounded local Python skills;
@@ -102,8 +100,8 @@ A normal turn follows this path:
 3. The Brain streams reasoning and visible answer content through separate runtime channels.
 4. Stream validation guards repetition and malformed generation while private runtime-action markers are extracted.
 5. Runtime Actions can mutate state or return trusted results; actions that need another model step continue inside the same user sequence.
-6. After the visible turn completes, the Service model schedules the L1/L2 memory update.
-7. A later user turn waits for any pending memory update, then receives current L1/L2/L3/L4 state, relevant Delayed/Active Memory, files, skills, and action results.
+6. After the visible turn completes, the logical Service route performs background FRAME/L1 integration; if no dedicated Service endpoint is configured, this route reuses the Brain client.
+7. A later user turn waits for any pending FRAME/L1 update, then receives current Active Memory, recent chat beside `<FRAME_MEMORY_N>`, loaded Delayed Memory, L4 facts, files/skills, action history, and trusted tool results.
 
 The model path is intentionally direct:
 
@@ -122,9 +120,11 @@ The runtime separates model work into roles:
 * **Brain:** visible reasoning, responses, and runtime decisions;
 * **Service:** background memory updates and supporting work.
 
-JIN is model-agnostic at the API boundary. Brain and Service roles can use different models: the Brain benefits most from stronger reasoning, while the Service role can use a smaller/faster model for background work. `USE_SERVICE_AS_BRAIN = True` lets one configured model handle both roles while preserving their logical separation.
+JIN is model-agnostic at the API boundary. **Brain is the only foreground response route.** Service is background-only. `SERVICE_API_BASE` is optional: when it is empty, the Service client aliases the Brain client, so one physical model can handle both logical roles without changing foreground routing. Set `SERVICE_API_BASE` only when a dedicated background Service node exists.
 
-On Windows, the LM Studio launcher can fill unset/default model ids from a loaded Gemma-family model and currently recommends `google/gemma-3-12b-it`. Explicit provider URLs and model ids remain unchanged.
+Older local configs that still contain `USE_SERVICE_AS_BRAIN = True` are accepted only by a localized migration adapter: their old Service endpoint is promoted to the canonical Brain settings, the legacy flag is removed during normalization, and no runtime code branches on it. Archived `SERVICE` response labels are likewise reader compatibility, not a current response mode.
+
+On Windows, the LM Studio launcher can fill unset/default Brain model settings from a loaded Gemma-family model and can separately initialize a dedicated Service endpoint when one is configured. Explicit provider URLs and model ids remain unchanged.
 
 ### Runtime Storage
 
@@ -178,7 +178,7 @@ JIN can inspect available skills, attach the one required for the current task, 
 |-- launch_jin.ps1             # LM Studio readiness and startup script
 |-- requirements.txt           # Python dependencies
 |-- package.json               # Test and probe commands
-|-- ARCHITECTURE.md            # Runtime ownership, data flow, persistence
+|-- docs/                      # Current architecture, state, and durable decisions
 `-- LIVE_AVATAR.md             # Avatar visual-state contract
 ```
 
@@ -202,7 +202,7 @@ For LM Studio, JIN also probes the provider-native `/api/v1/models` metadata end
 
 ### Windows + LM Studio
 
-1. Install LM Studio and load the model or models you want JIN to use. A single model is enough when `USE_SERVICE_AS_BRAIN = True`; with untouched/default model ids, the launcher selects a loaded Gemma-family model automatically.
+1. Install LM Studio and load the Brain model you want JIN to use. A single model is enough by default: with `SERVICE_API_BASE` left empty, background Service work reuses Brain. Configure a second endpoint only if you want a dedicated Service model.
 2. Start the LM Studio Local Server.
 3. Run:
 
@@ -261,12 +261,11 @@ Copy `config.example.py` to `config.py`, then set the provider URLs and model ID
 
 | Option | Purpose |
 | --- | --- |
-| `USE_SERVICE_AS_BRAIN` | Use the service model for visible brain responses. |
-| `BRAIN_API_BASE`, `BRAIN_MODEL_UID` | Configure the Brain provider and model. |
-| `SERVICE_API_BASE`, `SERVICE_MODEL_UID` | Configure the Service provider and model. |
+| `BRAIN_API_BASE`, `BRAIN_MODEL_UID` | Configure the required foreground Brain provider and model. |
+| `SERVICE_API_BASE`, `SERVICE_MODEL_UID` | Optionally configure a dedicated background Service provider/model. Leave `SERVICE_API_BASE` empty to reuse Brain. |
 | `FOLLOW_UP_ON_LIMIT` | Continue a Brain generation in an internal tick when the provider stops at its output/context limit. |
-| `BRAIN_CONTEXT_WINDOW`, `SERVICE_CONTEXT_WINDOW` | Set UI/reference context denominators; live request budgets can come from the context window reported by the loaded model. |
-| `BRAIN_IMAGE_INPUT_ENABLED`, `SERVICE_IMAGE_INPUT_ENABLED` | Send image attachments to compatible model roles. |
+| `BRAIN_CONTEXT_WINDOW`, `SERVICE_CONTEXT_WINDOW` | Set UI/reference context denominators; optional Service values inherit Brain when no dedicated Service is configured. Live request budgets can come from the loaded model metadata. |
+| `BRAIN_IMAGE_INPUT_ENABLED` | Allow image attachments on the foreground Brain request when the selected provider/model supports OpenAI-compatible image input. |
 | `L4_MEMORY_ENABLED`, `L4_IDLE_SECONDS` | Enable L4 consolidation and set its idle delay. |
 | `SEARCH_SERPER_API_KEY`, `SEARCH_MAX_RESULTS` | Configure built-in web search. |
 | `DEEP_WEB_SEARCH_MAX_*` | Bound the Service-worker research sequence used by Deep Web Search. |

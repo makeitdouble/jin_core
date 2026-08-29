@@ -103,6 +103,127 @@ def apply_env_overrides(
     return config_module
 
 
+def normalize_model_role_config(
+    config_module,
+):
+    """Resolve the optional Service role onto the required Brain runtime.
+
+    ``USE_SERVICE_AS_BRAIN`` is accepted only as a legacy config adapter. It
+    is deliberately removed from the normalized module so no runtime path can
+    branch on the old topology.
+    """
+
+    legacy_service_as_brain = getattr(
+        config_module,
+        "USE_SERVICE_AS_BRAIN",
+        None,
+    )
+
+    if legacy_service_as_brain is True:
+        for suffix in (
+            "API_BASE",
+            "MODEL_UID",
+            "REQUEST_TIMEOUT",
+            "CONTEXT_WINDOW",
+        ):
+            service_name = f"SERVICE_{suffix}"
+            brain_name = f"BRAIN_{suffix}"
+            service_value = getattr(
+                config_module,
+                service_name,
+                None,
+            )
+            if service_value not in (
+                None,
+                "",
+                0,
+                0.0,
+            ):
+                setattr(
+                    config_module,
+                    brain_name,
+                    service_value,
+                )
+
+        # The legacy Service endpoint becomes the canonical Brain endpoint;
+        # background work therefore falls back to it instead of activating a
+        # second physical runtime accidentally.
+        setattr(
+            config_module,
+            "SERVICE_API_BASE",
+            "",
+        )
+
+    if hasattr(
+        config_module,
+        "USE_SERVICE_AS_BRAIN",
+    ):
+        delattr(
+            config_module,
+            "USE_SERVICE_AS_BRAIN",
+        )
+
+    raw_service_api_base = str(
+        getattr(
+            config_module,
+            "SERVICE_API_BASE",
+            "",
+        )
+        or ""
+    ).strip()
+    service_configured = bool(
+        raw_service_api_base
+    )
+
+    setattr(
+        config_module,
+        "SERVICE_CONFIGURED",
+        service_configured,
+    )
+
+    brain_fallbacks = {
+        "SERVICE_API_BASE": getattr(
+            config_module,
+            "BRAIN_API_BASE",
+        ),
+        "SERVICE_MODEL_UID": getattr(
+            config_module,
+            "BRAIN_MODEL_UID",
+        ),
+        "SERVICE_REQUEST_TIMEOUT": getattr(
+            config_module,
+            "BRAIN_REQUEST_TIMEOUT",
+        ),
+        "SERVICE_CONTEXT_WINDOW": getattr(
+            config_module,
+            "BRAIN_CONTEXT_WINDOW",
+        ),
+    }
+
+    for name, fallback in brain_fallbacks.items():
+        value = getattr(
+            config_module,
+            name,
+            None,
+        )
+        if (
+            not service_configured
+            or value in (
+                None,
+                "",
+                0,
+                0.0,
+            )
+        ):
+            setattr(
+                config_module,
+                name,
+                fallback,
+            )
+
+    return config_module
+
+
 def load_config_from_path(
     path: Path,
 ):
@@ -144,16 +265,20 @@ def load_config_module(
         example_path = ROOT / "config.example.py"
 
     if config_path.exists():
-        return apply_env_overrides(
-            load_config_from_path(
-                config_path
+        return normalize_model_role_config(
+            apply_env_overrides(
+                load_config_from_path(
+                    config_path
+                )
             )
         )
 
     if example_path.exists():
-        return apply_env_overrides(
-            load_config_from_path(
-                example_path
+        return normalize_model_role_config(
+            apply_env_overrides(
+                load_config_from_path(
+                    example_path
+                )
             )
         )
 

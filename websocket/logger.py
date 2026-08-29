@@ -155,15 +155,6 @@ class WebSocketLogger:
             active_memory_event=event,
         )
 
-    async def log_service_as_brain(self, message: str):
-        return None
-
-    async def log_service_as_brain_output(self, message: str):
-        await self._log_model_output(
-            "[SERVICE]",
-            message,
-        )
-
     async def log_error(
             self,
             message: str,

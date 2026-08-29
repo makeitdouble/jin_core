@@ -1,6 +1,6 @@
 # JIN Core Engine — Durable Decisions
 
-**Decision baseline:** reconciled on 2026-08-26 against `jin_core(20260826-090339).zip` and the accumulated project context.
+**Decision baseline:** reconciled on 2026-08-29 against `jin_core(20260829-114751).zip` and the accumulated project context. The 2026-08-29 reconciliation intentionally skipped tests and traced production source only.
 
 This file records product/architecture intent that should survive refactors. It is not a changelog and not a dump of historical experiments.
 
@@ -17,7 +17,7 @@ Status vocabulary:
 
 **Status:** Accepted / implemented
 
-JIN Core Engine is a model-agnostic cognitive runtime. BRAIN/SERVICE model choices are configuration, not architecture.
+JIN Core Engine is a model-agnostic cognitive runtime. The foreground BRAIN model and optional dedicated background SERVICE model are configuration choices, not product architecture.
 
 **Why:** continuity, visible memory, actions, restore, UI semantics, and runtime state must survive model replacement.
 
@@ -551,3 +551,26 @@ Explicit archived restore keeps dialogue, reasoning, and FRAME under server-arch
 **Why:** one atomic owner eliminates torn SAVE pairs, stale-key resurrection, ambiguous newest-record selection, and hidden bootstrap sources while preserving soft reconnect.
 
 **Rejected alternatives:** split saved-runtime/saved-session keys; durable per-session FRAME keys; newest-timestamp scans; physical deletion without a multi-tab tombstone; automatic `saved_runtime.txt` fallback.
+
+---
+
+## D040 — Brain is the only foreground model route
+
+**Status:** Accepted / implemented with localized legacy readers
+
+Foreground user work always follows:
+
+```text
+user -> AgentRuntime -> BrainNode -> clients["brain"]
+```
+
+SERVICE is a logical background role only. `clients/registry.py` aliases `clients["service"]` to the Brain client by default; an explicitly configured `SERVICE_API_BASE` replaces only that background client with a dedicated runtime. Foreground routing does not depend on Service availability or configuration.
+
+`USE_SERVICE_AS_BRAIN` is not a current runtime option. It is accepted only as old-config migration input: the loader promotes the legacy Service endpoint/settings into canonical Brain settings, clears the dedicated Service URL, removes the flag, and exposes normalized Brain-first configuration to the rest of the process. Launcher detection exists only to preserve this migration during startup.
+
+Archived `service` message roles, `RUNTIME_MODE=SERVICE`, and old `[SERVICE]` model-output logger cards may remain as reader compatibility until real historical data no longer needs them. They must not be used to reintroduce foreground Service execution.
+
+**Why:** the visible model path needs one canonical owner. A one-model installation should be possible without role inversion, while a second machine/model can still accelerate background memory/research work.
+
+**Rejected alternatives:** switching visible replies to Service; keeping `USE_SERVICE_AS_BRAIN` as a live runtime branch; requiring a dedicated Service endpoint; treating archived Service labels as evidence of current topology.
+

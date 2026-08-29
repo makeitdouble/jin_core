@@ -24,9 +24,7 @@ from runtime.L1_memory_rules import (
 from runtime.registry import (
     runtime_state,
 )
-from runtime.state import (
-    RUNTIME_MEMORY_SUMMARIZER_RUNTIME_ID,
-)
+from runtime.state import SERVICE_RUNTIME_ID
 from runtime.state_sync import (
     refresh_runtime_state,
 )
@@ -147,7 +145,7 @@ def build_runtime_summarizer_trusted_context(
             )
             or ""
         ).strip(),
-        service_model_uid=settings.SERVICE_MODEL_UID,
+        current_model_uid=settings.SERVICE_MODEL_UID,
         timestamp=str(timestamp),
         current_date=str(
             current_date
@@ -544,7 +542,7 @@ def looks_like_incomplete_runtime_memory(
     )
 
 
-async def refresh_runtime_memory_summarizer_usage(
+async def refresh_service_runtime_usage(
         context,
         *,
         system_prompt: str,
@@ -612,9 +610,7 @@ async def refresh_runtime_memory_summarizer_usage(
 
     await refresh_runtime_state(
         context,
-        runtime_id=(
-            RUNTIME_MEMORY_SUMMARIZER_RUNTIME_ID
-        ),
+        runtime_id=SERVICE_RUNTIME_ID,
         used_tokens=(
             total_tokens
             or context_tokens

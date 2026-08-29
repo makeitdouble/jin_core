@@ -1,8 +1,8 @@
 # JIN Core Engine — Current State / Migration Notes
 
-**Snapshot inspected:** `jin_core(20260828-060531).zip`<br>
-**Inspection date:** 2026-08-28<br>
-**Context reference:** current source/tests plus the accumulated 2026-08-23--28 project decisions
+**Snapshot inspected:** `jin_core(20260829-114751).zip`<br>
+**Inspection date:** 2026-08-29<br>
+**Context reference:** current production source plus the accumulated 2026-08-23--29 project decisions. Tests were explicitly excluded from this audit and were not executed.
 
 This is the document to read before touching transitional code. It lists what is true in the inspected snapshot, what is legacy residue, and where product intent and implementation currently differ.
 
@@ -10,27 +10,24 @@ This is the document to read before touching transitional code. It lists what is
 
 ## 1. Executive state
 
-The runtime is already on the post-L2/L3 architecture in the actual source tree, but the repository still contains substantial historical residue:
+The production runtime is on the post-L2/L3, Brain-first architecture and the root documentation is now synchronized with it.
 
-- old root documentation still describes four live layers;
-- L2/L3 tests still exist and import modules that no longer exist;
-- old session names/fields remain in compatibility/tests;
-- `SAVE_SESSION` remains in historical tests/log parsing but is not a current action contract;
-- Active Memory has a modern flat JSON action boundary but an older string-record internal/browser representation;
-- search action exposure now follows real configured provider availability rather than feature flags alone;
-- `CLEAN_TOOL_RESULTS` now has explicit cleared-state bootstrap semantics so old tool results cannot resurrect without falsifying checkpoint freshness;
-- session-action logger metadata survives bootstrap, including JIN_COLOR swatches/hex hover;
-- `JIN_COLOR`/`JIN_SIZE` now advertise paired XML, while legacy inline forms remain parser-only compatibility;
-- normal bootstrap restores a bounded three-USER-move chat tail plus a current-session divider, including interrupted/action-only USER-only rows;
-- Brain recent-message context keeps the newest three pairs in full, with newline/XML normalization but no per-message character crop;
-- ordinary Brain turns again include the previous successful reasoning block with explicit middle-crop semantics, while follow-ups keep their dedicated reasoning context;
-- browser continuity now uses page-ephemeral `jin.liveRuntimeMemory.v2` plus one atomic `jin.sessionCheckpoint.v2`; legacy per-session FRAME selection is migration-only and never freshness-scanned;
-- common-checkpoint ownership, L1 origin lineage, completed-turn time, and dialogue freshness are now explicitly separated;
+Current high-signal state:
+
+- foreground user turns always execute through `AgentRuntime -> BrainNode -> context.clients["brain"]`; no production branch can switch visible responses to Service;
+- Service is background-only. With `SERVICE_API_BASE` empty, `clients["service"]` intentionally aliases the Brain client; configuring a dedicated Service endpoint changes only background execution;
+- `USE_SERVICE_AS_BRAIN` survives only as a localized old-config migration input in `config_loader.py` plus launcher detection. Normalization promotes old Service settings to Brain, clears the dedicated Service URL, then deletes the legacy flag;
+- archived `role=service` / `RUNTIME_MODE=SERVICE` handling and the logger's old `[SERVICE]` output-card presentation are historical reader compatibility only; there is no current writer/foreground route for that mode;
+- L2/L3 remain removed architectural layers. Remaining production references are compatibility comments/log filters/storage migration residue, not active modules;
+- the memory UI exposes exactly `FRAME`, `ACTIVE`, `DELAYED`, `L-T`, and `FILES`; the internal Facts Memory candidate buffer is not a sixth tab;
+- Brain recent-message context is adjacent to `<FRAME_MEMORY_N>` and keeps the newest three pairs in full, with newline/XML normalization but no per-message character crop;
+- ordinary Brain turns include the previous successful reasoning block with explicit middle-crop semantics, while follow-ups keep their dedicated reasoning context;
+- browser continuity uses page-ephemeral `jin.liveRuntimeMemory.v2` plus one atomic `jin.sessionCheckpoint.v2`; legacy per-session FRAME selection is migration-only and never freshness-scanned;
 - Session CLEAR is a durable tombstone that blocks passive resurrection across already-open tabs until a new USER message is successfully sent;
-- JIN color now round-trips through server context, raw runtime events, the common checkpoint, early local room restore, and one server reconciliation without a parallel color store;
-- the full suite is still not certified green; the 2026-08-26 documentation environment also lacks required `httpx`/`fastapi` dependencies.
+- `SAVE_SESSION` is not a current runtime-action contract; archived-session restore is handled by the bootstrap/restore path;
+- tests still contain historical Brain-as-Service / `SAVE_SESSION` assumptions, but this audit intentionally skipped all test code and made no test changes.
 
-New agents must not “repair” these contradictions by restoring the old architecture.
+New agents must not “repair” compatibility residue by restoring the old topology.
 
 ---
 
@@ -55,6 +52,13 @@ Present and active:
 - `utils/context/*`
 - `utils/session_restore.py`
 
+Foreground/model-role invariants verified in production source:
+
+- `utils/brain_client_utils.py::get_brain_runtime_config()` returns only runtime id/label `brain`;
+- `agent/nodes/brain.py::BrainNode.run()` resolves that label directly from `context.clients`;
+- `clients/registry.py` aliases Service to Brain by default and replaces only the background Service client when `SERVICE_CONFIGURED` is true;
+- `websocket/messages.py` gates user sends on Brain availability only; an absent dedicated Service runtime does not block foreground chat.
+
 Not present:
 
 - `runtime/L2_memory.py`
@@ -64,39 +68,44 @@ Not present:
 - `runtime/L3_memory_utils.py`
 - `runtime/L3_memory_rules.py`
 
-Direct import check on the snapshot returns `ModuleNotFoundError` for the missing L2/L3 modules.
+Filesystem/source audit confirms those L2/L3 modules are absent from the inspected archive.
 
 ---
 
-## 3. L2/L3 legacy conflict
+## 3. L2/L3 and old-role residual compatibility
 
 ### Product intent
 
-L2 and L3 were removed as architectural layers on 2026-08-19/20.
+L2 and L3 were removed as architectural layers. Brain is the only foreground model role.
 
-### Current source
+### Current production source
 
-The runtime package agrees: the modules are gone.
+The runtime package agrees: L2/L3 modules are absent and the visible Brain path does not branch to Service.
 
-### Legacy residue still present
+### Production compatibility residue still present
 
-- root `README.md` still presents “The Four-Layer Memory Model”;
-- root `ARCHITECTURE.md` still describes `runtime/L2_memory.py` and `runtime/L3_memory.py` as active;
-- `tests/test_l2_memory.py` and `tests/test_l3_session_memory.py` still import the deleted modules;
-- additional tests reference `runtime_l3_session_memory` and old session semantics;
-- some JS comments/log filters mention L2/L3;
-- `runtime-storage.js` explicitly contains one-time compatibility wording for checkpoints created before L3 removal.
+- `runtime-storage.js` has one-time compatibility for checkpoints created before L3 removal;
+- a few UI memory-log filters/comments still recognize historical L2/L3 labels;
+- `config_loader.py` and `launch_jin.ps1` recognize `USE_SERVICE_AS_BRAIN` only to migrate old local configs;
+- `utils/session_restore.py` / `ui/static/js/session-restore.js` can render archived `service` roles and `RUNTIME_MODE=SERVICE`;
+- `ui/static/js/logger/log-entries.js` can present old `[SERVICE]` model-output cards, although current backend code has no `log_service_output` writer.
+
+These paths are localized compatibility readers/adapters. None changes current foreground routing.
+
+### Test residue
+
+Tests still contain historical assumptions around `USE_SERVICE_AS_BRAIN`, `CAN_SAVE_SESSION`, and old `<SAVE_SESSION>` parsing. Per the 2026-08-29 audit scope, test code was not inspected for correctness, executed, or modified beyond identifying those references by search.
 
 ### Rule for agents
 
-Do not restore deleted modules to satisfy stale tests/docs. Classify each remaining reference as:
+Classify every old-role/L2/L3 reference as one of:
 
 1. required backward compatibility;
-2. harmless historical wording;
-3. stale test/documentation that should eventually be removed or rewritten;
+2. stale test/documentation;
+3. harmless historical UI/log reader;
 4. accidental live dependency.
 
-Only category 4 is a runtime bug.
+Only category 4 is a production runtime bug. Do not turn categories 1–3 back into live architecture.
 
 ---
 
@@ -455,61 +464,31 @@ Avatar center and scene tint now share one transition duration variable set. Fir
 
 ---
 
-## 14. Test status for this exact snapshot
+## 14. Verification status for this exact snapshot
 
-Command run:
+This 2026-08-29 pass was intentionally a **production-code + documentation audit only**. Per task scope:
 
-```text
-python -m unittest discover -s tests
-```
+- no unit tests were run;
+- no browser/client-contract tests were run;
+- no model probes were run;
+- no files under `tests/` were edited.
 
-Historical result in the 2026-08-26 documentation environment:
+The audit used source tracing and targeted repository searches to verify the foreground model route and classify legacy compatibility. Therefore this document makes **no claim that the test suite is green**. Historical pass/fail counts from older snapshots are not evidence for this archive.
 
-```text
-Ran 431 tests in 3.973s
-FAILED (failures=28, errors=68)
-```
-
-Important implications:
-
-- the repository is **not green** in this snapshot;
-- this count is **not comparable** to the previous 2026-08-23 run: the current environment lacks project dependencies including `httpx` and `fastapi`, so many modules fail during import before their tests can be collected;
-- accessible tests still include unrelated client-contract failures, so dependency errors are not the only reason the command is red;
-- a dependency-light targeted run of `test_previous_chat_messages_context`, `test_bootstrap_color_action_regression`, `test_jin_color_transition_client_contract`, and `test_session_bootstrap_lineage_client_contract` runs 18 tests and passes all 18;
-- `test_brain_asset_flow`, including the ordinary-turn previous-reasoning regression, cannot import in this environment because `runtime/stream.py` requires the missing `httpx` dependency;
-- bootstrap/latest-session/chat-tail/live-checkpoint suites that import `websocket` or L1 client modules cannot be executed in this environment until the missing dependencies are installed;
-- stale L2/L3 and old `SAVE_SESSION` tests remain repository debt even though this particular environment reaches dependency failures first;
-- do not use “full suite currently fails” as permission to ignore targeted regressions;
-- for any patch, run the smallest relevant target set and report exact pass/fail counts.
-
-For the 2026-08-28 browser-storage-v2 increment, the dependency-light targeted storage/bootstrap/anonymous/color/cleanup run executes 26 tests and passes all 26. It includes an executable Node storage round trip covering copied-live clearing, exact-owner migration, orphan rejection, migration write failure, multi-tab CLEAR protection, post-clear USER recovery, and anonymous isolation.
-
-Do not resurrect L2/L3 merely to make stale tests import again. The test suite itself needs a deliberate cleanup/migration task.
+For future code changes, run the smallest relevant checks unless the task explicitly excludes tests. Do not resurrect L2/L3, foreground Service routing, or `SAVE_SESSION` merely to satisfy stale tests.
 
 ---
 
-## 15. Old documentation status
+## 15. Documentation status
 
-### Root `README.md`
+As of this snapshot, the documentation set has been synchronized with the production architecture:
 
-Currently stale in major architecture sections:
+- root `README.md` describes FRAME/L4/Active/Delayed/Files instead of a live four-layer L1/L2/L3/L4 model;
+- README model-role/setup/configuration text describes Brain as the only foreground route and Service as optional/dedicated background execution with Brain fallback;
+- `AGENTS.md` records the same routing invariant and explicitly classifies old `USE_SERVICE_AS_BRAIN` / archived Service labels as compatibility;
+- `docs/JIN_ARCHITECTURE.md`, `docs/JIN_DECISIONS.md`, and this file use the 2026-08-29 Brain-first topology as the baseline.
 
-- still describes L1/L2/L3/L4 as four active layers;
-- still describes L2 pattern updates and L3 session digest;
-- still describes old post-turn L1/L2 behavior;
-- lists current features mixed with removed architecture.
-
-### Root `ARCHITECTURE.md`
-
-Also stale:
-
-- describes `runtime/L2_memory.py` and `runtime/L3_memory.py` as active files;
-- describes Brain context as including live L2/L3 state;
-- describes `SAVE_SESSION`/L3 flow as current.
-
-### Rule
-
-Use `docs/JIN_ARCHITECTURE.md` + `docs/JIN_DECISIONS.md` + this file as the current architecture baseline. Updating/removing old docs should be a separate explicit cleanup diff so product changes and documentation cleanup are reviewable.
+There is no root `ARCHITECTURE.md` in the inspected archive. `docs/JIN_ARCHITECTURE.md` is the canonical architecture document.
 
 ---
 
@@ -534,27 +513,26 @@ Rule for future agents: assume pre-existing files/changes are user-owned; do not
 Do not present these as settled without fresh code evidence:
 
 - whether the full night self-review concept is implemented outside the inspected paths;
-- which remaining L2/L3-named compatibility fields are still required for real historical data;
-- whether all old `SAVE_SESSION` tests should be deleted or rewritten around checkpoints;
+- which remaining L2/L3-named compatibility fields/readers are still required for real historical data;
+- when stale tests that directly mutate `config.USE_SERVICE_AS_BRAIN` or expect `SAVE_SESSION` should be migrated to the Brain-first/checkpoint architecture;
 - final intended internal storage format for Active Memory after the flat-JSON boundary migration;
 - whether reveal debounce should now be restored from 333 ms to the earlier 250 ms preference;
 - final canonical list of supported noncanonical action marker aliases after compatibility cleanup;
-- which current full-suite failures are regressions versus intentionally stale tests;
+- which stale tests are still intentional compatibility coverage versus obsolete pre-Brain-first/pre-checkpoint expectations;
 - whether every linked-highlight/pin/pause/delete path is currently synchronized between panel, prompt-loaded state, and avatar.
 
 When one of these becomes the task, investigate first and record the resolved decision in `JIN_DECISIONS.md`.
 
 ---
 
-## 19. Recommended near-term documentation cleanup order
+## 19. Recommended near-term cleanup order
 
-When the owner explicitly asks for cleanup:
+When the owner explicitly asks for legacy cleanup:
 
-1. migrate/delete stale L2/L3 tests so the suite represents the post-L2/L3 architecture;
-2. rewrite root `ARCHITECTURE.md` to point to or mirror `docs/JIN_ARCHITECTURE.md`;
-3. update the README memory/session sections;
-4. remove misleading old `SAVE_SESSION` feature claims while preserving archive compatibility code;
-5. audit old comments/UI logger filters for L2/L3 wording;
-6. only then remove compatibility fields that are proven unused by real archived data.
+1. migrate stale tests away from direct `USE_SERVICE_AS_BRAIN` and old `SAVE_SESSION` assumptions;
+2. audit the historical `RUNTIME_MODE=SERVICE` / archived `role=service` readers against real old archives before deleting them;
+3. remove the logger's old `[SERVICE]` model-output presentation only after archive/log compatibility is proven unnecessary;
+4. audit L2/L3-named UI log filters/comments and pre-L3 storage migration paths against real persisted data;
+5. only then delete compatibility adapters/readers that are proven unused.
 
-Do not combine this cleanup with unrelated runtime behavior patches.
+Do not combine that cleanup with unrelated runtime behavior patches.

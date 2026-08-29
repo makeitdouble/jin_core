@@ -57,7 +57,11 @@ from runtime.L4_memory import (
     stop_l4_memory_server_scheduler,
 )
 
-from runtime.state import RUNTIME_MEMORY_SUMMARIZER_LABEL
+from runtime.registry import runtime_state
+from runtime.state import (
+    BRAIN_RUNTIME_ID,
+    SERVICE_RUNTIME_ID,
+)
 from runtime.behavior_contract import (
     get_behavior_contract,
 )
@@ -302,16 +306,7 @@ def build_anonymous_mode_config():
     }
 
 
-def build_runtime_config(
-    use_service_as_brain=None,
-):
-
-    effective_use_service_as_brain = (
-        config.USE_SERVICE_AS_BRAIN
-        if use_service_as_brain is None
-        else use_service_as_brain
-    )
-
+def build_runtime_config():
     return {
         "service": {
             "label": "service",
@@ -323,27 +318,11 @@ def build_runtime_config(
         },
         "brain": {
             "label": "brain",
-            "model": (
-                config.SERVICE_MODEL_UID
-                if effective_use_service_as_brain
-                else config.BRAIN_MODEL_UID
-            ),
+            "model": config.BRAIN_MODEL_UID,
             "used_tokens": 0,
             "context_tokens": 0,
             "total_tokens": 0,
-            "max_tokens": (
-                config.SERVICE_CONTEXT_WINDOW
-                if effective_use_service_as_brain
-                else config.BRAIN_CONTEXT_WINDOW
-            ),
-        },
-        RUNTIME_MEMORY_SUMMARIZER_LABEL: {
-            "label": RUNTIME_MEMORY_SUMMARIZER_LABEL,
-            "model": config.SERVICE_MODEL_UID,
-            "used_tokens": 0,
-            "context_tokens": 0,
-            "total_tokens": 0,
-            "max_tokens": config.SERVICE_CONTEXT_WINDOW,
+            "max_tokens": config.BRAIN_CONTEXT_WINDOW,
         },
     }
 
@@ -458,6 +437,40 @@ def apply_runtime_config_values(
                 value,
             )
 
+    if not settings.SERVICE_CONFIGURED:
+        fallback_pairs = {
+            "SERVICE_API_BASE": "BRAIN_API_BASE",
+            "SERVICE_MODEL_UID": "BRAIN_MODEL_UID",
+            "SERVICE_CONTEXT_WINDOW": "BRAIN_CONTEXT_WINDOW",
+            "SERVICE_REQUEST_TIMEOUT": "BRAIN_REQUEST_TIMEOUT",
+        }
+        for service_name, brain_name in fallback_pairs.items():
+            value = getattr(
+                config,
+                brain_name,
+            )
+            setattr(
+                config,
+                service_name,
+                value,
+            )
+            object.__setattr__(
+                settings,
+                service_name,
+                value,
+            )
+
+    runtime_state.update_runtime_state(
+        BRAIN_RUNTIME_ID,
+        model=settings.BRAIN_MODEL_UID,
+        max_tokens=settings.BRAIN_CONTEXT_WINDOW,
+    )
+    runtime_state.update_runtime_state(
+        SERVICE_RUNTIME_ID,
+        model=settings.SERVICE_MODEL_UID,
+        max_tokens=settings.SERVICE_CONTEXT_WINDOW,
+    )
+
     if (
         application is None
         or not hasattr(application.state, "http_client")
@@ -530,11 +543,6 @@ async def index(
         request,
         "index.html",
         {
-            "use_service_as_brain": (
-                status_snapshot[
-                    "use_service_as_brain"
-                ]
-            ),
             "runtime_config": (
                 status_snapshot[
                     "runtime_config"
@@ -543,6 +551,11 @@ async def index(
             "runtime_status": {
                 "brain": status_snapshot["brain"],
                 "service": status_snapshot["service"],
+                "service_configured": (
+                    status_snapshot[
+                        "service_configured"
+                    ]
+                ),
             },
             "format_response": (
                 status_snapshot["format_response"]
@@ -658,55 +671,54 @@ async def build_status_snapshot(
     client: httpx.AsyncClient,
 ):
 
-    service_request = fetch_runtime_model_status(
+    brain_request = fetch_runtime_model_status(
         client,
-        base_url=config.SERVICE_API_BASE,
-        model_uid=config.SERVICE_MODEL_UID,
+        base_url=config.BRAIN_API_BASE,
+        model_uid=config.BRAIN_MODEL_UID,
         configured_context_window=(
-            config.SERVICE_CONTEXT_WINDOW
+            config.BRAIN_CONTEXT_WINDOW
         ),
     )
 
-    if config.USE_SERVICE_AS_BRAIN:
-        service_status = await service_request
-        brain_status = service_status
-    else:
-        (
-            brain_status,
-            service_status,
-        ) = await asyncio.gather(
+    if settings.SERVICE_CONFIGURED:
+        brain_status, service_status = await asyncio.gather(
+            brain_request,
             fetch_runtime_model_status(
                 client,
-                base_url=config.BRAIN_API_BASE,
-                model_uid=config.BRAIN_MODEL_UID,
+                base_url=config.SERVICE_API_BASE,
+                model_uid=config.SERVICE_MODEL_UID,
                 configured_context_window=(
-                    config.BRAIN_CONTEXT_WINDOW
+                    config.SERVICE_CONTEXT_WINDOW
                 ),
             ),
-            service_request,
         )
+    else:
+        brain_status = await brain_request
+        service_status = {
+            "online": False,
+            "source": "",
+            "url": "",
+            "available_models": [],
+            "loaded": None,
+            "model": {},
+            "loaded_model": {},
+        }
 
     brain_online = bool(brain_status.get("online"))
     service_online = bool(service_status.get("online"))
 
-    effective_use_service_as_brain = (
-        config.USE_SERVICE_AS_BRAIN
-        and service_online
-    )
-
-    runtime_config = build_runtime_config(
-        use_service_as_brain=(
-            effective_use_service_as_brain
-        ),
-    )
+    runtime_config = build_runtime_config()
     runtime_config["service"]["lm_studio"] = service_status
     runtime_config["brain"]["lm_studio"] = brain_status
 
     return {
         "brain": brain_online,
         "service": service_online,
-        "use_service_as_brain": (
-            effective_use_service_as_brain
+        "service_configured": settings.SERVICE_CONFIGURED,
+        "service_route": (
+            "dedicated"
+            if settings.SERVICE_CONFIGURED
+            else "brain_fallback"
         ),
         "format_response": bool(
             getattr(
@@ -755,6 +767,17 @@ async def api_update_runtime_config(request: Request):
         raise HTTPException(
             status_code=400,
             detail="Invalid runtime role",
+        )
+
+    if (
+        role == "service"
+        and not settings.SERVICE_CONFIGURED
+    ):
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "Dedicated Service runtime is not configured"
+            ),
         )
 
     updates: dict[str, object] = {}

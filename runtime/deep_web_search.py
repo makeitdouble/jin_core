@@ -436,6 +436,7 @@ async def _call_worker(
 
     response = await ask_service_model(
         client=service_client,
+        context=context,
         system_prompt=DEEP_WEB_SEARCH_WORKER_SYSTEM_PROMPT,
         user_prompt=build_deep_search_current_sequence(pool, worker),
         temperature=float(getattr(config, "SERVICE_TEMPERATURE", 0.1) or 0.1),

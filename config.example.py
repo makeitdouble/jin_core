@@ -1,6 +1,5 @@
 # Copy this file to config.py and adjust values for your local nodes.
 
-USE_SERVICE_AS_BRAIN = True
 FORMAT_RESPONSE = True
 DEBUG_RULE_CITATIONS = True
 LOG_CHAT = True
@@ -114,23 +113,22 @@ BRAIN_MAX_FOLLOWUPS = 50
 BRAIN_IMAGE_INPUT_ENABLED = False
 
 # ---------------------------------------------------------
-# SERVICE MODEL
+# OPTIONAL SERVICE MODEL
 # ---------------------------------------------------------
 
-SERVICE_API_BASE = "http://service-host:1234"
+# Leave SERVICE_API_BASE empty to run L1/L4 and other background model work
+# through the Brain endpoint. Set it only when a dedicated Service node exists.
+SERVICE_API_BASE = ""
 
-SERVICE_MODEL_UID = "service-model"
+# Empty optional values inherit their Brain equivalents. The Windows launcher
+# fills SERVICE_MODEL_UID from the dedicated endpoint when only its URL is set.
+SERVICE_MODEL_UID = ""
 
-SERVICE_REQUEST_TIMEOUT = 1000.0
+SERVICE_REQUEST_TIMEOUT = 0.0
 
-SERVICE_CONTEXT_WINDOW = 4096
+SERVICE_CONTEXT_WINDOW = 0
 
 SERVICE_TEMPERATURE = 0.1
-
-
-# Enable only when the selected runtime/model accepts OpenAI-compatible
-# multimodal chat content with {"type": "image_url"} user message parts.
-SERVICE_IMAGE_INPUT_ENABLED = False
 
 # ---------------------------------------------------------
 # L4 LONG-TERM MEMORY

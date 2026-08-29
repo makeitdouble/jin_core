@@ -129,21 +129,12 @@ async def has_available_model_runtime(
     if http_client is None:
         return True
 
-    brain_status, service_status = await asyncio.gather(
-        check_model_status(
-            http_client,
-            config.BRAIN_API_BASE,
-        ),
-        check_model_status(
-            http_client,
-            config.SERVICE_API_BASE,
-        ),
+    brain_status = await check_model_status(
+        http_client,
+        config.BRAIN_API_BASE,
     )
 
-    return (
-        brain_status
-        or service_status
-    )
+    return brain_status
 
 
 async def reject_when_all_models_offline(
@@ -162,10 +153,10 @@ async def reject_when_all_models_offline(
     await context.websocket.send_json({
         "type": "error",
         "message": (
-            "All model runtimes are offline."
+            "Brain runtime is offline."
         ),
         "details": (
-            "Start BRAIN or SERVICE before sending a request."
+            "Start BRAIN before sending a request."
         ),
         "component": "runtime_status",
     })

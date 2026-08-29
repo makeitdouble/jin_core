@@ -54,11 +54,6 @@ from utils.session_actions_history import (
     upsert_session_action_marker_history_since,
 )
 
-from clients.service_client import (
-    ask_service_model,
-    ask_service_model_stream,
-)
-
 from clients.response_extractor import (
     ResponseExtractor,
 )
@@ -66,6 +61,7 @@ from clients.response_extractor import (
 from runtime.client import (
     LMStudioAPIError,
 )
+from runtime.state import BRAIN_RUNTIME_ID
 
 
 from utils.actions import (
@@ -92,21 +88,11 @@ from utils.skills_asset_utils import (
 
 
 def get_brain_runtime_id() -> str:
-
-    return (
-        config.SERVICE_MODEL_UID
-        if config.USE_SERVICE_AS_BRAIN
-        else config.BRAIN_MODEL_UID
-    )
+    return BRAIN_RUNTIME_ID
 
 
 def get_brain_fallback_context_window() -> int:
-
-    return (
-        config.SERVICE_CONTEXT_WINDOW
-        if config.USE_SERVICE_AS_BRAIN
-        else config.BRAIN_CONTEXT_WINDOW
-    )
+    return config.BRAIN_CONTEXT_WINDOW
 
 
 def get_response_enabled_runtime_actions(
@@ -196,21 +182,11 @@ def build_brain_user_prompt_content(
     context=None,
 ):
 
-    image_input_enabled = (
-        bool(
-            getattr(
-                config,
-                "SERVICE_IMAGE_INPUT_ENABLED",
-                False,
-            )
-        )
-        if config.USE_SERVICE_AS_BRAIN
-        else bool(
-            getattr(
-                config,
-                "BRAIN_IMAGE_INPUT_ENABLED",
-                False,
-            )
+    image_input_enabled = bool(
+        getattr(
+            config,
+            "BRAIN_IMAGE_INPUT_ENABLED",
+            False,
         )
     )
 
@@ -364,100 +340,7 @@ async def ask_brain(
     )
 
     # -----------------------------------------------------
-    # SERVICE AS BRAIN
-    # -----------------------------------------------------
-
-    if config.USE_SERVICE_AS_BRAIN:
-
-        try:
-
-            result = await ask_service_model(
-                client=client,
-                user_prompt=model_user_prompt,
-                system_prompt=system_prompt,
-                temperature=config.BRAIN_TEMPERATURE,
-                max_tokens=None,
-            )
-
-            reasoning = (
-                ResponseExtractor.extract_reasoning_text(
-                    result
-                )
-            )
-
-            content = (
-                ResponseExtractor
-                .extract_content_text(
-                    result
-                )
-            )
-
-            enabled_actions = get_response_enabled_runtime_actions(
-                runtime_actions,
-                text,
-            )
-
-            content_actions = (
-                extract_runtime_actions(
-                    content,
-                    enabled_actions=enabled_actions,
-                )
-            )
-
-            await log_runtime_action_marker_removals(
-                context,
-                content_actions,
-                source="brain content",
-            )
-
-            (
-                confirmed_action_ids,
-                rejected_action_ids,
-                guard_confirmation_ids,
-                action_display_ids,
-            ) = await confirm_runtime_action_guards(
-                context,
-                content_actions.actions,
-                user_message=text,
-                context_snapshot=action_context_snapshot,
-            )
-
-            await apply_runtime_action_calls(
-                context,
-                content_actions.actions,
-                user_message=text,
-                context_snapshot=action_context_snapshot,
-                assistant_message=content,
-                confirmed_action_ids=confirmed_action_ids,
-                rejected_action_ids=rejected_action_ids,
-                guard_confirmation_ids=guard_confirmation_ids,
-                action_display_ids=action_display_ids,
-                runtime_message_id=runtime_message_id,
-            )
-
-            return content_actions.text
-
-        except LMStudioAPIError:
-
-            raise
-
-        except Exception as error:
-
-            formatted_error = (
-                format_client_error(
-                    "service_as_brain",
-                    config.SERVICE_API_BASE,
-                    config.SERVICE_MODEL_UID,
-                    error,
-                )
-            )
-
-            raise RuntimeError(
-                formatted_error
-            )
-
-    # -----------------------------------------------------
-    # REAL BRAIN
+    # BRAIN
     # -----------------------------------------------------
 
     try:
@@ -2207,115 +2090,7 @@ async def ask_brain_stream(
         return True
 
     # -----------------------------------------------------
-    # SERVICE AS BRAIN
-    # -----------------------------------------------------
-
-    if config.USE_SERVICE_AS_BRAIN:
-
-        try:
-
-            async for model_chunk in (
-                ask_service_model_stream(
-                    context=context,
-                    client=client,
-                    user_prompt=(
-                        model_user_prompt
-                    ),
-                    system_prompt=(
-                        resolved_system_prompt
-                    ),
-                    temperature=config.BRAIN_TEMPERATURE,
-                    max_tokens=None,
-                )
-            ):
-
-                filtered_chunk = (
-                    await filter_runtime_action_chunk(
-                        model_chunk
-                    )
-                )
-
-                if filtered_chunk:
-                    yield filtered_chunk
-
-                if stop_for_runtime_action:
-                    break
-
-            tail_result = (
-                content_filter.flush_result()
-                if filter_runtime_actions
-                else RuntimeActionResult(text="")
-            )
-            tail_counter_entries = (
-                capture_observed_action_markers(
-                    tail_result
-                )
-            )
-            capture_session_action_message_preview(
-                tail_result,
-                tail_counter_entries,
-            )
-            await emit_action_counter_updates(
-                tail_counter_entries
-            )
-
-            await log_runtime_action_marker_removals(
-                context,
-                tail_result,
-                source="brain stream tail",
-            )
-
-            await apply_runtime_action_result(
-                tail_result
-            )
-
-            if await stop_on_marker_repetition(
-                tail_result
-            ):
-                await finalize_session_action_history()
-                yield build_raw_model_output_chunk()
-                return
-            content_tail = tail_result.text
-            if (
-                content_tail
-                and not stop_for_runtime_action
-            ):
-                yield {
-                    "type": "content",
-                    "content": content_tail,
-                }
-
-            await finalize_session_action_history()
-            yield build_raw_model_output_chunk()
-            return
-
-        except asyncio.CancelledError:
-            await finalize_session_action_history()
-            raise
-
-        except LMStudioAPIError:
-            await finalize_session_action_history()
-            raise
-
-        except Exception as error:
-
-            await finalize_session_action_history()
-
-            formatted_error = (
-                format_client_error(
-                    "service_as_brain",
-                    config.SERVICE_API_BASE,
-                    config.SERVICE_MODEL_UID,
-                    error,
-                )
-            )
-
-            raise RuntimeError(
-                formatted_error
-            )
-
-    # -----------------------------------------------------
-    # REAL BRAIN
+    # BRAIN
     # -----------------------------------------------------
 
     try:

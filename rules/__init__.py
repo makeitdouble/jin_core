@@ -13,7 +13,6 @@ __all__ = [
     "IDENTITY",
     "LOOP_RULES",
     "REASONING_REVIEW_RULE",
-    "SERVICE_AS_BRAIN_RUNTIME_ACTIONS",
     "build_brain_context",
 ]
 
@@ -21,18 +20,15 @@ __all__ = [
 def __getattr__(name):
     if name in {
         "BRAIN_RUNTIME_ACTIONS",
-        "SERVICE_AS_BRAIN_RUNTIME_ACTIONS",
         "build_brain_context",
     }:
         from .brain_context_builder import (
             BRAIN_RUNTIME_ACTIONS,
-            SERVICE_AS_BRAIN_RUNTIME_ACTIONS,
             build_brain_context,
         )
 
         exports = {
             "BRAIN_RUNTIME_ACTIONS": BRAIN_RUNTIME_ACTIONS,
-            "SERVICE_AS_BRAIN_RUNTIME_ACTIONS": SERVICE_AS_BRAIN_RUNTIME_ACTIONS,
             "build_brain_context": build_brain_context,
         }
 

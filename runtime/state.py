@@ -2,10 +2,8 @@ from app_settings import settings
 
 UNCHANGED = object()
 
-RUNTIME_MEMORY_SUMMARIZER_RUNTIME_ID = (
-    f"{settings.SERVICE_MODEL_UID}:runtime-memory"
-)
-RUNTIME_MEMORY_SUMMARIZER_LABEL = "summarizer"
+BRAIN_RUNTIME_ID = "brain"
+SERVICE_RUNTIME_ID = "service"
 
 
 class RuntimeState:
@@ -14,29 +12,22 @@ class RuntimeState:
 
         self.states = {}
 
-        runtimes = [
+        runtimes = (
             (
-                settings.SERVICE_MODEL_UID,
+                BRAIN_RUNTIME_ID,
+                "brain",
+                settings.BRAIN_MODEL_UID,
+                settings.BRAIN_CONTEXT_WINDOW,
+            ),
+            (
+                SERVICE_RUNTIME_ID,
                 "service",
+                settings.SERVICE_MODEL_UID,
                 settings.SERVICE_CONTEXT_WINDOW,
             ),
-            (
-                RUNTIME_MEMORY_SUMMARIZER_RUNTIME_ID,
-                RUNTIME_MEMORY_SUMMARIZER_LABEL,
-                settings.SERVICE_CONTEXT_WINDOW,
-            ),
-        ]
+        )
 
-        if not settings.USE_SERVICE_AS_BRAIN:
-            runtimes.append(
-                (
-                    settings.BRAIN_MODEL_UID,
-                    "brain",
-                    settings.BRAIN_CONTEXT_WINDOW,
-                )
-            )
-
-        for runtime_id, label, max_tokens in runtimes:
+        for runtime_id, label, model, max_tokens in runtimes:
 
             if runtime_id in self.states:
                 continue
@@ -44,7 +35,7 @@ class RuntimeState:
             self.states[runtime_id] = {
                 "id": runtime_id,
                 "label": label,
-                "model": runtime_id,
+                "model": model,
                 "used_tokens": 0,
                 "context_tokens": 0,
                 "total_tokens": 0,
@@ -56,6 +47,7 @@ class RuntimeState:
     def update_runtime_state(
         self,
         runtime_id: str,
+        model: str | None = None,
         used_tokens: int | None = None,
         context_tokens: int | None = None,
         total_tokens: int | None = None,
@@ -66,6 +58,9 @@ class RuntimeState:
     ):
 
         runtime_state = self.states[runtime_id]
+
+        if model is not None:
+            runtime_state["model"] = model
 
         if used_tokens is not None:
             runtime_state["used_tokens"] = used_tokens

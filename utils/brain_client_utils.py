@@ -2,39 +2,14 @@ from app_settings import settings
 
 from rules.brain_context_builder import (
     BRAIN_RUNTIME_ACTIONS,
-    SERVICE_AS_BRAIN_RUNTIME_ACTIONS,
 )
+from runtime.state import BRAIN_RUNTIME_ID
 
 
 def get_brain_runtime_config():
 
-    if settings.USE_SERVICE_AS_BRAIN:
-
-        return {
-            "runtime_id": (
-                settings
-                .SERVICE_MODEL_UID
-            ),
-            "label": "service",
-            "context_window": (
-                settings.SERVICE_CONTEXT_WINDOW
-            ),
-            "log_method": (
-                "log_service_as_brain"
-            ),
-            "model_output_log_method": (
-                "log_service_as_brain_output"
-            ),
-            "runtime_actions": (
-                SERVICE_AS_BRAIN_RUNTIME_ACTIONS
-            ),
-        }
-
     return {
-        "runtime_id": (
-            settings
-            .BRAIN_MODEL_UID
-        ),
+        "runtime_id": BRAIN_RUNTIME_ID,
         "label": "brain",
         "context_window": (
             settings

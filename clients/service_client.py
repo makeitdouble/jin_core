@@ -1,14 +1,20 @@
 import asyncio
 
+from runtime.memory_common import (
+    refresh_service_runtime_usage,
+)
+
 
 async def ask_service_model(
     *,
     client,
+    context=None,
     user_prompt,
     system_prompt: str = "",
     temperature: float,
     max_tokens: int | None,
     timeout: float | None = None,
+    track_usage: bool = True,
 ):
 
     request = {
@@ -21,9 +27,26 @@ async def ask_service_model(
     if timeout is not None:
         request["timeout"] = timeout
 
-    return await client.ask(
+    if track_usage:
+        await refresh_service_runtime_usage(
+            context,
+            system_prompt=system_prompt,
+            user_prompt=user_prompt,
+        )
+
+    response = await client.ask(
         **request
     )
+
+    if track_usage:
+        await refresh_service_runtime_usage(
+            context,
+            system_prompt=system_prompt,
+            user_prompt=user_prompt,
+            response=response,
+        )
+
+    return response
 
 
 async def ask_service_model_stream(

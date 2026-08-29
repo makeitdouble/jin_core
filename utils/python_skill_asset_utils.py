@@ -12,6 +12,7 @@ from pathlib import Path
 from time import monotonic
 
 from config_loader import config
+from clients.service_client import ask_service_model
 from utils import assets_utils as assets_common
 from utils.skills_asset_utils import normalize_skill_name
 from utils.tokens import estimate_tokens
@@ -753,7 +754,9 @@ async def _ask_document_reader_with_progress(
 ):
 
     request_task = asyncio.create_task(
-        client.ask(
+        ask_service_model(
+            client=client,
+            context=context,
             system_prompt=system_prompt,
             user_prompt=user_prompt,
             temperature=temperature,

@@ -10,7 +10,7 @@ This file is the mandatory entry point for any coding agent working in this repo
 4. Read `docs/JIN_CURRENT_STATE.md` for transitional formats, stale legacy, known conflicts, and test status.
 5. Inspect the current implementation end-to-end before editing it.
 
-Do not treat `README.md`, the old root `ARCHITECTURE.md`, old tests, comments, filenames, or search indexes as stronger evidence than the current source tree plus these documents. If sources conflict, report the conflict instead of silently choosing one.
+Do not treat README prose, historical docs/tests/comments, filenames, or search indexes as stronger evidence than the current source tree plus these documents. If sources conflict, report the conflict instead of silently choosing one.
 
 ## Source precedence
 
@@ -27,6 +27,9 @@ A current implementation can still violate a product decision. Do not hide that.
 
 - JIN Core Engine is a model-agnostic cognitive runtime, not a chatbot skin and not a framework tied to one LLM.
 - The normal model path is direct: user turn -> `AgentRuntime` -> `BrainNode`. Do not add a pre-Brain routing framework without an explicit task.
+- Brain is the only foreground response route. `BrainNode` must resolve the canonical `brain` runtime/client; Service must never become a foreground response mode through `SERVICE_CONFIGURED`, model availability, or a legacy flag.
+- Service is a logical background role. If no dedicated `SERVICE_API_BASE` is configured, `clients/registry.py` intentionally aliases the Service client to the Brain client; a dedicated Service endpoint changes only background execution.
+- `USE_SERVICE_AS_BRAIN` is legacy config input only. `config_loader.py` may migrate it once and then removes the attribute from normalized config; launcher detection exists only to preserve old local configs during startup. Archived `SERVICE` roles/`RUNTIME_MODE=SERVICE` and the logger's old Service-output presentation are reader compatibility, not live routing.
 - `RuntimeContext` is the in-process live state hub for a runtime session. Do not create parallel sources of truth for state it already owns.
 - L2 and L3 are **removed architectural layers**. Do not restore them from old README/tests/indexes. Any surviving L2/L3 names must be classified as compatibility, stale tests/docs, UI residue, or dead legacy before touching them.
 - Durable facts belong in L4. Do not reintroduce a durable-L1/L2/L3 memory hierarchy.

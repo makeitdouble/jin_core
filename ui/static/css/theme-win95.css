@@ -310,32 +310,6 @@ body.theme-win95 #memory-panel .memory-scroll > .grid:first-child {
     padding: 0 2px;
 }
 
-body.theme-win95 #memory-panel [data-context-tab] {
-    height: 32px;
-    background: var(--win95-face);
-    border: 1px solid var(--win95-shadow);
-    border-radius: 1px;
-    color: var(--win95-text);
-    font-family: Calibri, Arial, sans-serif;
-    font-size: 15px;
-    font-weight: 500;
-    letter-spacing: 0;
-    text-transform: uppercase;
-    text-shadow: none;
-    box-shadow:
-            inset 1px 1px 0 var(--win95-light),
-            inset -1px -1px 0 #8a8a8a;
-}
-
-body.theme-win95 #memory-panel [data-context-tab][aria-selected="true"] {
-    background: var(--win95-face-dark);
-    border-color: var(--win95-shadow);
-    box-shadow:
-            inset 1px 1px 0 #8a8a8a,
-            inset -1px -1px 0 #d6d6d6;
-    transform: none;
-}
-
 body.theme-win95 #context-runtime-panel,
 body.theme-win95 #runtime-memory-panel {
     background: var(--win95-face);
@@ -353,7 +327,6 @@ body.theme-win95 #context-runtime-panel .space-y-3 > :not([hidden]) ~ :not([hidd
     margin-top: 0 !important;
 }
 
-body.theme-win95 #context-panel-model,
 body.theme-win95 #runtime-memory-text,
 body.theme-win95 #context-summary-tokens,
 body.theme-win95 .runtime-memory-header,
@@ -369,13 +342,6 @@ body.theme-win95 #memory-panel button {
 body.theme-win95 #memory-panel #memory-layers-toggle {
     color: var(--win95-title-text) !important;
     text-shadow: 1px 1px 0 var(--win95-blue-shadow);
-}
-
-body.theme-win95 #context-panel-model {
-    font-size: 14px;
-    font-weight: 500;
-    padding-bottom: 8px;
-    border-bottom: 1px solid var(--win95-mid);
 }
 
 body.theme-win95 .runtime-memory-header {
@@ -506,24 +472,24 @@ body.theme-win95 #context-summary-max {
     white-space: nowrap;
 }
 
-body.theme-win95 #context-window-line,
-body.theme-win95 #summarizer-window-line {
+body.theme-win95 #brain-context-window-line,
+body.theme-win95 #service-context-window-line {
     align-items: center;
     gap: 10px;
     color: var(--win95-text) !important;
     font-size: 12px;
 }
 
-body.theme-win95 #context-window-percent,
-body.theme-win95 #summarizer-window-percent {
+body.theme-win95 #brain-context-window-percent,
+body.theme-win95 #service-context-window-percent {
     color: var(--win95-text) !important;
     width: 4ch;
     font-family: Calibri, Arial, sans-serif;
     font-size: 14px;
 }
 
-body.theme-win95 #context-window-bar,
-body.theme-win95 #summarizer-window-bar {
+body.theme-win95 #brain-context-window-bar,
+body.theme-win95 #service-context-window-bar {
     position: relative;
     height: 15px;
     min-width: 0;
@@ -538,13 +504,13 @@ body.theme-win95 #summarizer-window-bar {
     box-shadow: none;
 }
 
-body.theme-win95 #context-window-bar *,
-body.theme-win95 #summarizer-window-bar * {
+body.theme-win95 #brain-context-window-bar *,
+body.theme-win95 #service-context-window-bar * {
     color: transparent !important;
 }
 
-body.theme-win95 #context-window-bar::before,
-body.theme-win95 #summarizer-window-bar::before {
+body.theme-win95 #brain-context-window-bar::before,
+body.theme-win95 #service-context-window-bar::before {
     content: "";
     position: absolute;
     top: 2px;
@@ -562,8 +528,8 @@ body.theme-win95 #summarizer-window-bar::before {
             );
 }
 
-body.theme-win95 #context-window-bar::after,
-body.theme-win95 #summarizer-window-bar::after {
+body.theme-win95 #brain-context-window-bar::after,
+body.theme-win95 #service-context-window-bar::after {
     content: "";
     position: absolute;
     top: 2px;
