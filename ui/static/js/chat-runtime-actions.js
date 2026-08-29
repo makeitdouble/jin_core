@@ -215,10 +215,10 @@ const runtimeActionIconDefinitions = {
     tone: "memory",
     svg: '<path d="M7 5h10v15l-5-3-5 3z"></path><path d="M9 10h6"></path><path d="m13 8 2 2-2 2"></path>',
   },
-  resolve_active_memory: {
-    title: "resolve active memory",
-    tone: "resolve",
-    svg: '<circle cx="12" cy="12" r="7"></circle><path d="m8.5 12.3 2.2 2.2 4.8-5"></path>',
+  delete_active_memory: {
+    title: "delete active memory",
+    tone: "delete",
+    svg: '<path d="M9 4h6l1 2h4"></path><path d="M4 6h16"></path><path d="m7 9 .7 10h8.6L17 9"></path><path d="M10 11v5"></path><path d="M14 11v5"></path>',
   },
   clean_tool_results: {
     title: "clean tool results",

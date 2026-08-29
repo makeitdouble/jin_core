@@ -296,7 +296,7 @@ def normalize_runtime_action_names(enabled_actions=None) -> tuple[str, ...]:
         normalized_names = [normalized_name]
 
         if normalized_name == "SAVE_ACTIVE_MEMORY":
-            normalized_names.append("RESOLVE_ACTIVE_MEMORY")
+            normalized_names.append("DELETE_ACTIVE_MEMORY")
 
         if normalized_name == "SAVE_DELAYED_MEMORY":
             normalized_names.extend((
@@ -548,7 +548,7 @@ def build_runtime_action_instructions(
         ):
             continue
 
-        if normalized_name in {"RESOLVE_ACTIVE_MEMORY", "UPDATE_ACTIVE_MEMORY"} and not _context_has_active_memory(context):
+        if normalized_name in {"DELETE_ACTIVE_MEMORY", "UPDATE_ACTIVE_MEMORY"} and not _context_has_active_memory(context):
             continue
 
         if normalized_name in {
@@ -590,8 +590,8 @@ RUNTIME_ACTION_UNLOAD_DELAYED_MEMORY = get_runtime_action_name(
 RUNTIME_ACTION_SAVE_ACTIVE_MEMORY = get_runtime_action_name(
     "save_active_memory"
 )
-RUNTIME_ACTION_RESOLVE_ACTIVE_MEMORY = get_runtime_action_name(
-    "resolve_active_memory"
+RUNTIME_ACTION_DELETE_ACTIVE_MEMORY = get_runtime_action_name(
+    "delete_active_memory"
 )
 RUNTIME_ACTION_UPDATE_ACTIVE_MEMORY = get_runtime_action_name(
     "update_active_memory"

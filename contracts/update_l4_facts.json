@@ -1,7 +1,7 @@
 {
   "update_l4_facts": {
     "version": 1,
-    "description": "Lets JIN send a focused update, merge, or create instruction to the L4 maintainer.",
+    "description": "Lets JIN send a focused update, merge, or create instruction to the Long-Term facts maintainer.",
     "runtime_action": "UPDATE_L4_FACTS",
     "enable_flag": "CAN_UPDATE_L4_FACTS",
     "runtime_order": 80,
@@ -13,24 +13,12 @@
       "follow_up_on_fail": false
     },
     "rules": [
-      "JIN can update, merge, or create durable facts through this marker.",
-      "Use this marker only when a durable L4 fact needs an update, two or more durable L4 facts should be merged, or a genuinely new durable fact became clear.",
-      "Do not use it for harmless repetition between L4 and loaded delayed memory, stylistic rewording with no change of meaning, temporary session details, weak suspicions, or issues unrelated to durable memory.",
-      "Do not interrupt an unrelated conversation only to clean memory. Raise the issue when it affects the current answer or can be resolved naturally in the current topic.",
-      "When the user's meaning is not already clear, ask one brief natural question in the visible conversation. You may name the conflicting remembered meanings, but do not expose the marker or internal action mechanics.",
-      "Never emit the marker while ambiguity remains or on the same turn in which you ask for clarification. Emit it after the user resolves the issue, or immediately when the user's current message itself is an explicit correction.",
-      "Keep the visible reply natural and unobtrusive, then append the fulfilled marker after the user-facing text.",
-      "Emit the fulfilled form with plain English text inside the marker:",
+      "JIN can update, merge, or create durable Long-Term facts through this marker.",
+      "Use this marker only to update or merge existing durable facts, or create a genuinely new durable fact.",
+      "Emit fulfilled with plain English text inside the marker:",
       "<UPDATE_L4_FACTS>",
-      "Concise instruction for the L4 maintainer.",
-      "</UPDATE_L4_FACTS>",
-      "For updates, name the exact F<number> ID and the final clarified formulation. The maintainer must preserve that exact committed ID.",
-      "For merges, list every exact F<number> ID involved and add a concise comment describing what meaning to keep, combine, or discard. The maintainer retires all listed IDs, creates one canonical replacement with a new committed ID, and records the retired IDs in source_fact_ids.",
-      "For creations, describe the new durable fact; omit IDs when no existing fact is involved. Create allocates a new committed ID, and merge also allocates a new replacement ID after retiring the selected facts.",
-      "A single marker may combine an update or merge with creation when both are explicitly needed. In that case, name the existing F<number> IDs for the update/merge and separately say to create the independent new durable fact.",
-      "Use only exact fact IDs shown inside <LONG_TERM_MEMORY>. F<number> means a committed L4 fact; PF<number> means a pending fact and must never be used here.",
-      "Express the request only as update, merge, or create. Keep it direct, concise, and in English.",
-      "Do not emit any extra hidden instructions inside the marker and do not repeat the same note after it has been sent."
+      "Write concise English instruction. Update/merge: name exact F<number> IDs. Create: describe the new fact.",
+      "</UPDATE_L4_FACTS>"
     ],
     "close_tag": true
   }

@@ -13,13 +13,9 @@
       "follow_up_on_fail": false
     },
     "rules": [
-      "Use to move the collapsed live JIN avatar inside the current browser window as a non-verbal spatial gesture.",
-      "Emit marker using exactly this schema <JIN_POSITION> 120px 80px </JIN_POSITION>",
-      "Put only the position payload inside the tag body; do not put it in the opening tag.",
-      "The first number is x and the second number is y: they are the browser-window coordinates of the avatar panel's visual center, not its top-left corner.",
-      "Labeled payload values are also valid, for example <JIN_POSITION> x:120px y:80px </JIN_POSITION>.",
-      "CURRENT_JIN_POSITION reports that same avatar-center point. For example, the center of a 1920x1080 window is x:960px y:540px regardless of the avatar size; the UI offsets by the avatar's current rendered width and height and clamps the full avatar safely inside the viewport.",
-      "Movement uses the current JIN_SPEED. You may change JIN_SPEED immediately before JIN_POSITION to crawl slowly or move almost instantly."
+      "Use to move the live JIN Live Avatar inside the current browser window, center as pivot.",
+      "Schema:",
+      "<JIN_POSITION> x:120px y:80px </JIN_POSITION>"
     ],
     "close_tag": true
   }

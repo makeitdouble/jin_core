@@ -13,9 +13,7 @@
       "follow_up_on_fail": false
     },
     "rules": [
-      "Emit <LIST_FILES> when you need the persistent file inventory.",
-      "The result is placed in TOOLS_RESULTS as LIST_FILES and contains at most 100 records with ids, size, dimensions when known, and age.",
-      "After listing, use ATTACH_FILE for at most 5 files total."
+      ""
     ],
     "close_tag": false
   }

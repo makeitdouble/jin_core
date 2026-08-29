@@ -24,7 +24,7 @@ from utils.actions import (
     RuntimeActionCall,
     RuntimeActionRepetitionGuard,
     RuntimeActionStreamFilter,
-    extract_active_memory_resolve_slot_id,
+    extract_active_memory_delete_slot_id,
     extract_search_query,
     extract_runtime_actions,
     get_save_active_memory_marker_fields,
@@ -35,7 +35,7 @@ from utils.actions import (
 from utils.assets_utils import run_asset_action
 from utils.brain_client_utils import (
     record_delayed_memory_runtime_result,
-    flush_pending_active_memory_resolve_failure_history,
+    flush_pending_active_memory_delete_failure_history,
     update_active_memory_runtime_record,
 )
 from utils.context.context_exports import build_tool_results_context
@@ -174,11 +174,11 @@ class RuntimeActiveMemoryTests(RuntimeActionTestCase):
         )
 
 
-    def test_bare_resolve_active_memory_marker_stays_text(self):
+    def test_bare_delete_active_memory_marker_stays_text(self):
 
         text = (
-            "RESOLVE_ACTIVE_MEMORY: "
-            "active_memory_id=e2qxe7 STATUS=resolved\n"
+            "DELETE_ACTIVE_MEMORY: "
+            "active_memory_id=e2qxe7 STATUS=deleted\n"
             "\n"
             "Память очищена."
         )
@@ -193,12 +193,12 @@ class RuntimeActiveMemoryTests(RuntimeActionTestCase):
         self.assertEqual(result.actions, ())
         self.assertEqual(result.removed_markers, ())
 
-    def test_extracts_bracketed_resolve_active_memory_marker(self):
+    def test_extracts_bracketed_delete_active_memory_marker(self):
 
         result = extract_runtime_actions(
             (
                 "before "
-                "<RESOLVE_ACTIVE_MEMORY:e2qxe7 | resolved>"
+                "<DELETE_ACTIVE_MEMORY:e2qxe7 | deleted>"
                 " after"
             ),
             enabled_actions=[
@@ -211,25 +211,25 @@ class RuntimeActiveMemoryTests(RuntimeActionTestCase):
             "before after",
         )
         self.assertEqual(
-            result.count("RESOLVE_ACTIVE_MEMORY"),
+            result.count("DELETE_ACTIVE_MEMORY"),
             1,
         )
         self.assertEqual(
             result.actions[0].payload,
-            "e2qxe7 | resolved",
+            "e2qxe7 | deleted",
         )
 
 
-    def test_extract_active_memory_resolve_slot_id_accepts_loose_payload_shape(self):
+    def test_extract_active_memory_delete_slot_id_accepts_loose_payload_shape(self):
 
         self.assertEqual(
-            extract_active_memory_resolve_slot_id(
+            extract_active_memory_delete_slot_id(
                 "active_memory_id: 5fdg4g",
             ),
             "5fdg4g",
         )
         self.assertEqual(
-            extract_active_memory_resolve_slot_id(
+            extract_active_memory_delete_slot_id(
                 "resolve slot 5fdg4g please",
                 existing_ids={
                     "5fdg4g",
@@ -239,10 +239,10 @@ class RuntimeActiveMemoryTests(RuntimeActionTestCase):
         )
 
 
-    def test_extract_active_memory_resolve_slot_id_skips_non_existing_tokens(self):
+    def test_extract_active_memory_delete_slot_id_skips_non_existing_tokens(self):
 
         self.assertEqual(
-            extract_active_memory_resolve_slot_id(
+            extract_active_memory_delete_slot_id(
                 "active_memory_id | STATUS",
                 existing_ids={
                     "5fdg4g",
@@ -251,7 +251,7 @@ class RuntimeActiveMemoryTests(RuntimeActionTestCase):
             "",
         )
         self.assertEqual(
-            extract_active_memory_resolve_slot_id(
+            extract_active_memory_delete_slot_id(
                 "resolve status abc123",
                 existing_ids={
                     "5fdg4g",
@@ -1839,7 +1839,7 @@ class RuntimeActiveMemoryTests(RuntimeActionTestCase):
         )
 
 
-    def test_apply_runtime_action_calls_resolves_active_memory_by_id(self):
+    def test_apply_runtime_action_calls_deletes_active_memory_by_id(self):
 
         Emitter = FakeEmitter
 
@@ -1866,7 +1866,7 @@ class RuntimeActiveMemoryTests(RuntimeActionTestCase):
                 context,
                 (
                     RuntimeActionCall(
-                        name="RESOLVE_ACTIVE_MEMORY",
+                        name="DELETE_ACTIVE_MEMORY",
                         payload="active_memory_id: 5fdg4g",
                     ),
                 ),
@@ -1904,10 +1904,10 @@ class RuntimeActiveMemoryTests(RuntimeActionTestCase):
                     "kind": TOOL_RESULT_KIND_ACTIVE_MEMORY,
                     "result": {
                         "ok": True,
-                        "action": "resolve_active_memory",
+                        "action": "delete_active_memory",
                         "destination": (
                             "active_memory_records -> <ACTIVE_MEMORY> "
-                            "(resolved and removed)"
+                            "(deleted and removed)"
                         ),
                         "id": "5fdg4g",
                         "content": "remember cuckoo",
@@ -1924,7 +1924,7 @@ class RuntimeActiveMemoryTests(RuntimeActionTestCase):
             context
         )
         self.assertIn(
-            '<TOOL_RESULT name="RESOLVE_ACTIVE_MEMORY"',
+            '<TOOL_RESULT name="DELETE_ACTIVE_MEMORY"',
             tool_results,
         )
         self.assertIn(
@@ -1944,20 +1944,20 @@ class RuntimeActiveMemoryTests(RuntimeActionTestCase):
             [
                 {
                     "type": "runtime_action",
-                    "action": "resolve_active_memory",
+                    "action": "delete_active_memory",
                     "id": "5fdg4g",
-                    "display_name": "RESOLVE_ACTIVE_MEMORY",
+                    "display_name": "DELETE_ACTIVE_MEMORY",
                     "close_tag": False,
-                    "text": "Active memory resolved",
+                    "text": "Active memory deleted",
                     "payload": "5fdg4g",
                     "detail": "id: 5fdg4g; content: remember cuckoo",
                 },
                 {
                     "type": "runtime_action",
-                    "action": "resolve_active_memory",
+                    "action": "delete_active_memory",
                     "id": "5fdg4g",
                     "status": "completed",
-                    "display_name": "RESOLVE_ACTIVE_MEMORY",
+                    "display_name": "DELETE_ACTIVE_MEMORY",
                     "close_tag": False,
                     "payload": "5fdg4g",
                     "detail": "id: 5fdg4g; content: remember cuckoo",
@@ -1966,7 +1966,7 @@ class RuntimeActiveMemoryTests(RuntimeActionTestCase):
         )
 
 
-    def test_apply_runtime_action_calls_resolves_multiple_active_memories(self):
+    def test_apply_runtime_action_calls_deletes_multiple_active_memories(self):
 
         Emitter = FakeEmitter
 
@@ -1990,15 +1990,15 @@ class RuntimeActiveMemoryTests(RuntimeActionTestCase):
                 context,
                 (
                     RuntimeActionCall(
-                        name="RESOLVE_ACTIVE_MEMORY",
+                        name="DELETE_ACTIVE_MEMORY",
                         payload="one111",
                     ),
                     RuntimeActionCall(
-                        name="RESOLVE_ACTIVE_MEMORY",
+                        name="DELETE_ACTIVE_MEMORY",
                         payload="two222",
                     ),
                     RuntimeActionCall(
-                        name="RESOLVE_ACTIVE_MEMORY",
+                        name="DELETE_ACTIVE_MEMORY",
                         payload="tri333",
                     ),
                 ),
@@ -2049,7 +2049,7 @@ class RuntimeActiveMemoryTests(RuntimeActionTestCase):
         )
 
 
-    def test_apply_runtime_action_calls_does_not_resolve_paused_active_memory(self):
+    def test_apply_runtime_action_calls_does_not_delete_paused_active_memory(self):
 
         Emitter = FakeEmitter
 
@@ -2081,7 +2081,7 @@ class RuntimeActiveMemoryTests(RuntimeActionTestCase):
                 context,
                 (
                     RuntimeActionCall(
-                        name="RESOLVE_ACTIVE_MEMORY",
+                        name="DELETE_ACTIVE_MEMORY",
                         payload="active_memory_id: two222",
                     ),
                 ),
@@ -2114,7 +2114,7 @@ class RuntimeActiveMemoryTests(RuntimeActionTestCase):
         )
         self.assertEqual(
             context.runtime_tool_results[0]["result"]["error"],
-            "active_memory_not_resolved",
+            "active_memory_not_deleted",
         )
 
 
@@ -2196,11 +2196,11 @@ class RuntimeActiveMemoryTests(RuntimeActionTestCase):
                 context,
                 (
                     RuntimeActionCall(
-                        name="RESOLVE_ACTIVE_MEMORY",
+                        name="DELETE_ACTIVE_MEMORY",
                         payload="active_memory_10",
                     ),
                     RuntimeActionCall(
-                        name="RESOLVE_ACTIVE_MEMORY",
+                        name="DELETE_ACTIVE_MEMORY",
                         payload="active_memory_10",
                     ),
                     RuntimeActionCall(
@@ -2238,11 +2238,11 @@ class RuntimeActiveMemoryTests(RuntimeActionTestCase):
                     "kind": TOOL_RESULT_KIND_ACTIVE_MEMORY,
                     "result": {
                         "ok": False,
-                        "action": "resolve_active_memory",
+                        "action": "delete_active_memory",
                         "error": "invalid_active_memory_id",
                         "requested": "active_memory_10",
                         "detail": (
-                            "Active memory was not resolved. Use an exact "
+                            "Active memory was not deleted. Use an exact "
                             "6-character active_memory_id from <ACTIVE_MEMORY> "
                             "and retry only for a record that is still pending."
                         ),
@@ -2268,7 +2268,7 @@ class RuntimeActiveMemoryTests(RuntimeActionTestCase):
             context
         )
         self.assertIn(
-            '<TOOL_RESULT name="RESOLVE_ACTIVE_MEMORY"',
+            '<TOOL_RESULT name="DELETE_ACTIVE_MEMORY"',
             tool_results,
         )
         self.assertIn(
@@ -2284,11 +2284,11 @@ class RuntimeActiveMemoryTests(RuntimeActionTestCase):
             tool_results,
         )
 
-        flush_pending_active_memory_resolve_failure_history(
+        flush_pending_active_memory_delete_failure_history(
             context
         )
         self.assertIn(
-            "RESOLVE_ACTIVE_MEMORY - failed: active_memory_10",
+            "DELETE_ACTIVE_MEMORY - failed: active_memory_10",
             context.runtime_session_action_history[-1]["text"],
         )
 

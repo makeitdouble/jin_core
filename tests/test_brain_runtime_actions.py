@@ -141,7 +141,7 @@ def expected_enabled_runtime_actions(runtime_actions: dict) -> tuple[str, ...]:
         expected_actions.extend(
             (
                 "SAVE_ACTIVE_MEMORY",
-                "RESOLVE_ACTIVE_MEMORY",
+                "DELETE_ACTIVE_MEMORY",
                 "UPDATE_ACTIVE_MEMORY",
             )
         )
@@ -622,7 +622,7 @@ class BrainRuntimeActionTests(unittest.TestCase):
         assert_contains_text(self, prompt, "<WEB_SEARCH: plain text query >")
         assert_contains_text(self, prompt, "<SAVE_DELAYED_MEMORY>")
         assert_contains_text(self, prompt, "<SAVE_ACTIVE_MEMORY>")
-        assert_contains_text(self, prompt, "RESOLVE_ACTIVE_MEMORY:")
+        assert_contains_text(self, prompt, "DELETE_ACTIVE_MEMORY:")
         assert_contains_text(self, prompt, "Follow-up: false")
 
     def test_non_stream_preserves_delayed_memory_marker_without_trigger(self):
@@ -1273,13 +1273,13 @@ class BrainRuntimeActionTests(unittest.TestCase):
             context,
             0,
             [
-                "resolve_active_memory",
+                "delete_active_memory",
             ] * 24,
         )
 
         self.assertEqual(
             context.runtime_session_action_history[0]["text"],
-            "RESOLVE_ACTIVE_MEMORY (count: 24)",
+            "DELETE_ACTIVE_MEMORY (count: 24)",
         )
 
         prompt = build_brain_context(
@@ -1288,7 +1288,7 @@ class BrainRuntimeActionTests(unittest.TestCase):
         )
 
         self.assertIn(
-            "1. RESOLVE_ACTIVE_MEMORY (count: 24)",
+            "1. DELETE_ACTIVE_MEMORY (count: 24)",
             prompt,
         )
 
@@ -1492,7 +1492,7 @@ class BrainRuntimeActionTests(unittest.TestCase):
             ],
         )
 
-    def test_payload_distinct_resolve_active_memory_history_uses_separate_parts(self):
+    def test_payload_distinct_delete_active_memory_history_uses_separate_parts(self):
 
         context = SimpleNamespace(
             runtime_session_action_history=[],
@@ -1503,7 +1503,7 @@ class BrainRuntimeActionTests(unittest.TestCase):
             context,
             0,
             [{
-                "name": "RESOLVE_ACTIVE_MEMORY",
+                "name": "DELETE_ACTIVE_MEMORY",
                 "marker_count": 2,
                 "payloads": [
                     "enrrqo",
@@ -1516,11 +1516,11 @@ class BrainRuntimeActionTests(unittest.TestCase):
             context.runtime_session_action_history[0]["parts"],
             [
                 {
-                    "text": "RESOLVE_ACTIVE_MEMORY",
+                    "text": "DELETE_ACTIVE_MEMORY",
                     "detail": "enrrqo",
                 },
                 {
-                    "text": "RESOLVE_ACTIVE_MEMORY",
+                    "text": "DELETE_ACTIVE_MEMORY",
                     "detail": "yfpywn",
                 },
             ],
@@ -2070,7 +2070,7 @@ class BrainRuntimeActionTests(unittest.TestCase):
             }],
         )
 
-    def test_stream_stops_repeated_resolve_active_memory_markers(self):
+    def test_stream_stops_repeated_delete_active_memory_markers(self):
 
         class FakeBrainClient:
             async def stream(self, **_kwargs):
@@ -2078,7 +2078,7 @@ class BrainRuntimeActionTests(unittest.TestCase):
                     yield {
                         "type": "content",
                         "content": (
-                            "<RESOLVE_ACTIVE_MEMORY: "
+                            "<DELETE_ACTIVE_MEMORY: "
                             "active_memory_id: 5fdg4g>"
                         ),
                     }
@@ -2130,10 +2130,10 @@ class BrainRuntimeActionTests(unittest.TestCase):
                 {
                     "type": "raw_model_output",
                     "content": (
-                        "<RESOLVE_ACTIVE_MEMORY: active_memory_id: 5fdg4g>"
-                        "<RESOLVE_ACTIVE_MEMORY: active_memory_id: 5fdg4g>"
-                        "<RESOLVE_ACTIVE_MEMORY: active_memory_id: 5fdg4g>"
-                        "<RESOLVE_ACTIVE_MEMORY: active_memory_id: 5fdg4g>"
+                        "<DELETE_ACTIVE_MEMORY: active_memory_id: 5fdg4g>"
+                        "<DELETE_ACTIVE_MEMORY: active_memory_id: 5fdg4g>"
+                        "<DELETE_ACTIVE_MEMORY: active_memory_id: 5fdg4g>"
+                        "<DELETE_ACTIVE_MEMORY: active_memory_id: 5fdg4g>"
                     ),
                 },
             ],
@@ -2146,7 +2146,7 @@ class BrainRuntimeActionTests(unittest.TestCase):
             context.runtime_action_events,
             [
                 {
-                    "name": "resolve_active_memory",
+                    "name": "delete_active_memory",
                     "id": "5fdg4g",
                     "payload": "active_memory_id: 5fdg4g",
                 },
@@ -3500,7 +3500,7 @@ class BrainRuntimeActionTests(unittest.TestCase):
             prompt,
         )
 
-    def test_prompt_adds_resolve_active_memory_rules_from_active_records_only(self):
+    def test_prompt_adds_delete_active_memory_rules_from_active_records_only(self):
 
         context = SimpleNamespace(
             runtime_memory="session_status: active",
@@ -3535,7 +3535,7 @@ class BrainRuntimeActionTests(unittest.TestCase):
         assert_contains_text(
             self,
             prompt,
-            "RESOLVE_ACTIVE_MEMORY:",
+            "DELETE_ACTIVE_MEMORY:",
         )
         assert_contains_text(
             self,
@@ -3738,7 +3738,7 @@ class BrainRuntimeActionTests(unittest.TestCase):
             "[ status: paused ]",
         )
 
-    def test_prompt_omits_resolve_active_memory_rules_without_active_records(self):
+    def test_prompt_omits_delete_active_memory_rules_without_active_records(self):
 
         context = SimpleNamespace(
             runtime_memory="session_status: active",
@@ -3762,7 +3762,7 @@ class BrainRuntimeActionTests(unittest.TestCase):
         assert_not_contains_text(
             self,
             prompt,
-            "RESOLVE_ACTIVE_MEMORY:",
+            "DELETE_ACTIVE_MEMORY:",
         )
 
     def test_prompt_uses_passed_agent_runtime_actions(self):

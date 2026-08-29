@@ -13,12 +13,10 @@
       "follow_up_on_fail": false
     },
     "rules": [
-      "Use to set how quickly the collapsed live JIN avatar moves when JIN_POSITION is executed.",
-      "Emit marker using exactly this schema <JIN_SPEED> 600px/s </JIN_SPEED>",
-      "Put only the speed payload inside the tag body; do not put it in the opening tag.",
-      "The value is pixels per second and persists for later JIN_POSITION actions until changed.",
-      "Small values such as 20-80px/s create a slow crawl; large values such as 2000-6000px/s create a quick jump-like move.",
-      "Use CURRENT_JIN_SPEED as the current movement speed."
+      "Use to set how quickly the JIN Live Avatar moves when JIN_POSITION is executed.",
+      "Schema:",
+      "<JIN_SPEED> 600px/s </JIN_SPEED>",
+      "Small values such as 20-80px/s create a slow crawl; large values such as 2000-6000px/s create a quick jump-like move."
     ],
     "close_tag": true
   }

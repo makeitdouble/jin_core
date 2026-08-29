@@ -272,7 +272,7 @@ function getActiveMemoryRecordTitle(
 }
 
 
-function buildResolveActiveMemoryRuntimeActionText(
+function buildDeleteActiveMemoryRuntimeActionText(
   data,
   fallbackText
 ) {

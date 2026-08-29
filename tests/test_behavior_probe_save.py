@@ -44,7 +44,7 @@ Four-step probe:
 3. The user says thanks. Any answer is accepted.
 4. The user asks JIN to forget the word and resolve the task. Any answer is
    accepted, but JIN must see the active-memory record created from turn 2
-   and emit resolve_active_memory to resolve it.
+   and emit delete_active_memory to delete it.
 """
 
 # Add more turns by appending:
@@ -81,7 +81,7 @@ UNEXPECTED_TEXT_MEMORY_3 = []
 USER_TEXT_4 = f'теперь забудь слово "{WORD_TO_SAVE}" и зарезолви active memory'
 EXPECTED_TEXT_ANSWER_4 = []
 EXPECTED_TEXT_MEMORY_4 = []
-EXPECTED_RUNTIME_ACTION_4 = ["resolve_active_memory"]
+EXPECTED_RUNTIME_ACTION_4 = ["delete_active_memory"]
 UNEXPECTED_TEXT_ANSWER_4 = []
 UNEXPECTED_TEXT_MEMORY_4 = []
 
@@ -186,7 +186,7 @@ class BehaviorProbeShapeTests(unittest.TestCase):
         self.assertIn(WORD_TO_SAVE, steps[3]["user_text"])
         self.assertEqual(steps[3]["expected_answer"], [])
         self.assertEqual(steps[3]["expected_memory"], [])
-        self.assertEqual(steps[3]["expected_runtime_actions"], ["resolve_active_memory"])
+        self.assertEqual(steps[3]["expected_runtime_actions"], ["delete_active_memory"])
         self.assertEqual(steps[3]["unexpected_memory"], [])
 
     def test_evaluator_checks_word_inside_active_memory_line(self):
@@ -228,9 +228,9 @@ class BehaviorProbeShapeTests(unittest.TestCase):
                 expected_memory=[],
                 unexpected_answer=[],
                 unexpected_memory=["active_memory"],
-                expected_runtime_actions=["resolve_active_memory"],
+                expected_runtime_actions=["delete_active_memory"],
                 runtime_actions=[
-                    {"name": "resolve_active_memory", "payload": "abc123"}
+                    {"name": "delete_active_memory", "payload": "abc123"}
                 ],
             ),
         ]

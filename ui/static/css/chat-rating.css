@@ -399,20 +399,22 @@
 }
 
 /* =========================
-   RELEASE BUBBLE UTILITIES
-   Rating implementation above is intentionally kept dormant. Only the
-   bubble's empty padding owns gestures; rendered text stays selectable.
+   RELEASE COPY CONTROL
+   Rating implementation above is intentionally kept dormant. Chat bubbles
+   themselves stay visually static; copying lives under the avatar instead.
    ========================= */
 
 body:not(.jin-answer-rating-enabled) .jin-chat-bubble-rateable,
 body:not(.jin-answer-rating-enabled) .jin-chat-bubble-service,
-body:not(.jin-answer-rating-enabled) .jin-chat-bubble-brain {
+body:not(.jin-answer-rating-enabled) .jin-chat-bubble-brain,
+body:not(.jin-answer-rating-enabled) .jin-chat-bubble-user {
     cursor: default;
 }
 
 body:not(.jin-answer-rating-enabled) .jin-chat-bubble-rateable .jin-chat-pre,
 body:not(.jin-answer-rating-enabled) .jin-chat-bubble-service .jin-chat-pre,
-body:not(.jin-answer-rating-enabled) .jin-chat-bubble-brain .jin-chat-pre {
+body:not(.jin-answer-rating-enabled) .jin-chat-bubble-brain .jin-chat-pre,
+body:not(.jin-answer-rating-enabled) .jin-chat-bubble-user .jin-chat-pre {
     pointer-events: auto;
     cursor: text;
     user-select: text;
@@ -420,85 +422,114 @@ body:not(.jin-answer-rating-enabled) .jin-chat-bubble-brain .jin-chat-pre {
     transform: none;
 }
 
-.jin-bubble-utility-enabled .jin-bubble-utility-zones {
+/* The control is intentionally smaller than the 28px avatar and sits directly
+   below it without changing the chat row layout. */
+.jin-message-copy-control {
     position: absolute;
-    inset: 0;
-    z-index: 7;
-    border-radius: inherit;
-    pointer-events: none;
-}
-
-.jin-bubble-utility-enabled .jin-bubble-utility-zone {
-    position: absolute;
-    display: block;
-    background: transparent;
-    pointer-events: auto;
-    cursor: pointer;
-    touch-action: manipulation;
-}
-
-/* Match the normal chat bubble padding (14px 18px) so controls never cover
-   message text. Win95 uses the same horizontal padding and a 12-14px vertical
-   edge, therefore these strips remain inside its empty frame too. */
-.jin-bubble-utility-enabled .jin-bubble-utility-zone-top {
-    top: 0;
-    right: 0;
-    left: 0;
-    height: 14px;
-}
-
-.jin-bubble-utility-enabled .jin-bubble-utility-zone-bottom {
-    right: 0;
-    bottom: 0;
-    left: 0;
-    height: 14px;
-}
-
-.jin-bubble-utility-enabled .jin-bubble-utility-zone-left {
-    top: 14px;
-    bottom: 14px;
-    left: 0;
-    width: 18px;
-}
-
-.jin-bubble-utility-enabled .jin-bubble-utility-zone-right {
-    top: 14px;
-    right: 0;
-    bottom: 14px;
-    width: 18px;
-}
-
-/* Reuse the old neutral rating glow for the whole bubble. No red/green edge,
-   skew or directional motion survives while rating is disabled. */
-body:not(.jin-answer-rating-enabled) .jin-bubble-utility-enabled:hover {
-    /* Keep the neutral hover as an outer lift. The old 24/30px inset blurs
-       overlap on one-line bubbles and turn the whole interior into a muddy
-       band, which looks like a broken inner shadow. */
+    z-index: 9;
+    top: 34px;
+    width: 20px;
+    height: 20px;
+    box-sizing: border-box;
+    display: grid;
+    place-items: center;
+    padding: 0;
+    border: 1px solid rgba(103, 232, 249, 0.24);
+    border-radius: 4px;
+    background: rgba(7, 20, 26, 0.72);
+    color: rgba(191, 219, 254, 0.72);
     box-shadow:
-            0 14px 42px rgba(0, 0, 0, 0.24),
-            0 0 30px rgba(226, 232, 240, 0.070),
-            0 0 28px rgba(45, 212, 191, 0.040),
-            inset 0 1px 0 rgba(248, 250, 252, 0.060);
-    filter: brightness(1.03);
-}
-
-body:not(.jin-answer-rating-enabled) .jin-bubble-utility-enabled:hover::before,
-body:not(.jin-answer-rating-enabled) .jin-bubble-utility-enabled:hover::after {
+            0 0 0 1px rgba(0, 0, 0, 0.28),
+            inset 0 0 9px rgba(34, 211, 238, 0.035);
     opacity: 0;
-    animation: none;
+    pointer-events: none;
+    cursor: pointer;
+    transform: translate(-50%, -7px) scale(0.96);
+    transform-origin: 50% 50%;
+    transition:
+            opacity 110ms ease,
+            transform 135ms cubic-bezier(0.22, 0.72, 0.22, 1),
+            width 70ms cubic-bezier(0.22, 0.72, 0.22, 1),
+            height 70ms cubic-bezier(0.22, 0.72, 0.22, 1);
 }
 
-body:not(.jin-answer-rating-enabled) .jin-bubble-utility-enabled:hover .jin-chat-pre {
-    transform: none;
-    text-shadow:
-            0 0 10px rgba(226, 232, 240, 0.070),
-            0 0 14px rgba(103, 232, 249, 0.018);
+/* Normal USER/restored J rows position from the row's 54px left inset; streamed
+   J answers reuse the moving avatar slot and therefore only need 50%. */
+.jin-message-shell > .jin-message-copy-control {
+    left: 68px;
 }
 
-body.theme-win95:not(.jin-answer-rating-enabled) .jin-bubble-utility-enabled:hover {
-    box-shadow:
-            1px 1px 0 var(--win95-text),
-            0 8px 18px rgba(0, 0, 0, 0.16),
-            0 0 0 1px rgba(255, 255, 255, 0.14);
-    filter: brightness(1.025);
+.jin-stream-avatar-slot > .jin-message-copy-control {
+    left: 50%;
+}
+
+.jin-message-shell.jin-copy-ready:hover > .jin-message-copy-control,
+.jin-message-shell.jin-copy-ready > .jin-message-copy-control:focus-visible,
+.jin-stream-wrapper.jin-copy-ready:hover .jin-stream-avatar-slot > .jin-message-copy-control,
+.jin-stream-wrapper.jin-copy-ready .jin-stream-avatar-slot > .jin-message-copy-control:focus-visible {
+    opacity: 1;
+    pointer-events: auto;
+    transform: translate(-50%, 0) scale(1);
+}
+
+/* Mouse-down sinks the square by exactly 2px in both dimensions. On release it
+   overshoots by 1px, then settles back to 20px. */
+.jin-message-copy-control.is-pressed {
+    width: 18px;
+    height: 18px;
+}
+
+.jin-message-copy-control.is-rebound {
+    width: 21px;
+    height: 21px;
+}
+
+.jin-message-copy-control svg {
+    display: block;
+    width: 12px;
+    height: 12px;
+    stroke: currentColor;
+    stroke-width: 1.8;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+}
+
+.jin-message-copy-glyph,
+.jin-message-copy-check {
+    grid-area: 1 / 1;
+    display: grid;
+    place-items: center;
+    transition:
+            opacity 150ms ease,
+            transform 170ms cubic-bezier(0.22, 0.72, 0.22, 1),
+            color 150ms ease;
+}
+
+.jin-message-copy-glyph {
+    opacity: 1;
+    transform: scale(1);
+}
+
+.jin-message-copy-check {
+    color: rgba(74, 222, 128, 0.96);
+    opacity: 0;
+    transform: scale(0.72);
+}
+
+.jin-message-copy-control.is-copied .jin-message-copy-glyph {
+    opacity: 0;
+    transform: scale(0.72);
+}
+
+.jin-message-copy-control.is-copied .jin-message-copy-check {
+    opacity: 1;
+    transform: scale(1);
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .jin-message-copy-control,
+    .jin-message-copy-glyph,
+    .jin-message-copy-check {
+        transition: none;
+    }
 }

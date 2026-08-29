@@ -1,6 +1,6 @@
 from contracts.rules_assembler import (
     RUNTIME_ACTION_SAVE_ACTIVE_MEMORY,
-    RUNTIME_ACTION_RESOLVE_ACTIVE_MEMORY,
+    RUNTIME_ACTION_DELETE_ACTIVE_MEMORY,
     RUNTIME_ACTION_UPDATE_ACTIVE_MEMORY,
     build_runtime_action_display_text,
     get_runtime_action_display_name,
@@ -149,7 +149,7 @@ async def emit_rejected_active_memory_results(
     if not rejected_active_memory_results:
         return
 
-    from utils.brain_client_utils import queue_active_memory_resolve_failure
+    from utils.brain_client_utils import queue_active_memory_delete_failure
 
     emitter = getattr(
         context,
@@ -163,7 +163,7 @@ async def emit_rejected_active_memory_results(
     )
 
     for result in rejected_active_memory_results:
-        queue_active_memory_resolve_failure(
+        queue_active_memory_delete_failure(
             context,
             result,
         )
@@ -173,19 +173,19 @@ async def emit_rejected_active_memory_results(
 
         await emit(with_action_context({
             "type": "runtime_action",
-            "action": "resolve_active_memory",
+            "action": "delete_active_memory",
             "id": result.get(
                 "id",
                 "",
             ),
             "status": "failed",
             "display_name": get_runtime_action_display_name(
-                RUNTIME_ACTION_RESOLVE_ACTIVE_MEMORY
+                RUNTIME_ACTION_DELETE_ACTIVE_MEMORY
             ),
             "close_tag": runtime_action_has_close_tag(
-                RUNTIME_ACTION_RESOLVE_ACTIVE_MEMORY
+                RUNTIME_ACTION_DELETE_ACTIVE_MEMORY
             ),
-            "text": "Active memory resolve failed",
+            "text": "Active memory delete failed",
             "active_memory_result": result,
         }))
 
@@ -520,24 +520,24 @@ async def apply_update_active_memory_actions(
     return applied_count
 
 
-async def apply_resolve_active_memory_actions(
+async def apply_delete_active_memory_actions(
     context,
-    resolve_active_memory_actions,
+    delete_active_memory_actions,
     *,
     log_runtime,
     with_action_context,
 ):
     from utils.brain_client_utils import (
-        build_active_memory_resolve_failure_result,
+        build_active_memory_delete_failure_result,
         normalize_active_memory_content_for_duplicate_check,
-        queue_active_memory_resolve_failure,
-        resolve_active_memory_runtime_record,
+        queue_active_memory_delete_failure,
+        delete_active_memory_runtime_record,
     )
 
-    resolved_active_memory_count = 0
+    deleted_active_memory_count = 0
 
-    if not resolve_active_memory_actions:
-        return resolved_active_memory_count
+    if not delete_active_memory_actions:
+        return deleted_active_memory_count
 
     emitter = getattr(
         context,
@@ -550,32 +550,32 @@ async def apply_resolve_active_memory_actions(
         None,
     )
 
-    for action in resolve_active_memory_actions:
+    for action in delete_active_memory_actions:
         (
-            record_resolved,
+            record_deleted,
             active_memory_id,
-            resolved_record,
+            deleted_record,
         ) = (
-            await resolve_active_memory_runtime_record(
+            await delete_active_memory_runtime_record(
                 context,
                 action.payload,
             )
         )
 
-        if not record_resolved:
-            failure_result = build_active_memory_resolve_failure_result(
+        if not record_deleted:
+            failure_result = build_active_memory_delete_failure_result(
                 context,
                 action.payload,
-                error="active_memory_not_resolved",
+                error="active_memory_not_deleted",
             )
             if active_memory_id:
                 failure_result["id"] = active_memory_id
             failure_result["detail"] = (
-                "Active memory was not resolved. The record may be paused "
+                "Active memory was not deleted. The record may be paused "
                 "or may no longer exist. Do not claim that the action "
                 "completed."
             )
-            queue_active_memory_resolve_failure(
+            queue_active_memory_delete_failure(
                 context,
                 failure_result,
             )
@@ -583,38 +583,38 @@ async def apply_resolve_active_memory_actions(
             if emit is not None:
                 await emit(with_action_context({
                     "type": "runtime_action",
-                    "action": "resolve_active_memory",
+                    "action": "delete_active_memory",
                     "id": active_memory_id,
                     "status": "failed",
                     "display_name": get_runtime_action_display_name(
-                        RUNTIME_ACTION_RESOLVE_ACTIVE_MEMORY
+                        RUNTIME_ACTION_DELETE_ACTIVE_MEMORY
                     ),
                     "close_tag": runtime_action_has_close_tag(
-                        RUNTIME_ACTION_RESOLVE_ACTIVE_MEMORY
+                        RUNTIME_ACTION_DELETE_ACTIVE_MEMORY
                     ),
-                    "text": "Active memory resolve failed",
+                    "text": "Active memory delete failed",
                     "active_memory_result": failure_result,
                 }))
             continue
 
-        resolved_active_memory_count += 1
+        deleted_active_memory_count += 1
         record_runtime_tool_result(
             context,
             TOOL_RESULT_KIND_ACTIVE_MEMORY,
             {
                 "ok": True,
-                "action": "resolve_active_memory",
+                "action": "delete_active_memory",
                 "destination": (
                     "active_memory_records -> <ACTIVE_MEMORY> "
-                    "(resolved and removed)"
+                    "(deleted and removed)"
                 ),
                 "id": active_memory_id,
                 "content": (
                     normalize_active_memory_content_for_duplicate_check(
-                        resolved_record
+                        deleted_record
                     )
                 ),
-                "record": resolved_record,
+                "record": deleted_record,
             },
         )
 
@@ -623,46 +623,46 @@ async def apply_resolve_active_memory_actions(
 
         await emit(with_action_context({
             "type": "runtime_action",
-            "action": "resolve_active_memory",
+            "action": "delete_active_memory",
             "id": active_memory_id,
             "display_name": get_runtime_action_display_name(
-                RUNTIME_ACTION_RESOLVE_ACTIVE_MEMORY
+                RUNTIME_ACTION_DELETE_ACTIVE_MEMORY
             ),
             "close_tag": runtime_action_has_close_tag(
-                RUNTIME_ACTION_RESOLVE_ACTIVE_MEMORY
+                RUNTIME_ACTION_DELETE_ACTIVE_MEMORY
             ),
-            "text": "Active memory resolved",
+            "text": "Active memory deleted",
             "payload": active_memory_id,
             "detail": (
                 f"id: {active_memory_id}; "
                 "content: "
                 + normalize_active_memory_content_for_duplicate_check(
-                    resolved_record
+                    deleted_record
                 )
             ),
         }))
         await emit(with_action_context({
             "type": "runtime_action",
-            "action": "resolve_active_memory",
+            "action": "delete_active_memory",
             "id": active_memory_id,
             "status": "completed",
             "display_name": get_runtime_action_display_name(
-                RUNTIME_ACTION_RESOLVE_ACTIVE_MEMORY
+                RUNTIME_ACTION_DELETE_ACTIVE_MEMORY
             ),
             "close_tag": runtime_action_has_close_tag(
-                RUNTIME_ACTION_RESOLVE_ACTIVE_MEMORY
+                RUNTIME_ACTION_DELETE_ACTIVE_MEMORY
             ),
             "payload": active_memory_id,
             "detail": (
                 f"id: {active_memory_id}; "
                 "content: "
                 + normalize_active_memory_content_for_duplicate_check(
-                    resolved_record
+                    deleted_record
                 )
             ),
         }))
 
-    if resolved_active_memory_count:
+    if deleted_active_memory_count:
         context.runtime_active_memory_records_dirty = True
 
-    return resolved_active_memory_count
+    return deleted_active_memory_count

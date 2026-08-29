@@ -13,11 +13,7 @@
       "follow_up_on_fail": false
     },
     "rules": [
-      "DO NOT attach files if they are already present in user message with correct ids.",
-      "Emit one marker per file id to attach that saved file to context.",
-      "id is a placeholder; replace it with the 6-character id shown in <ATTACHED_FILES> or LIST_FILES.",
-      "At most 5 files may be attached at once. Loading a sixth file is rejected deterministically.",
-      "Text files are inserted as text context; image/document files are provided through the existing attachment pipeline."
+      ""
     ],
     "close_tag": false
   }

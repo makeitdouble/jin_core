@@ -30,12 +30,7 @@
       "  \"facts_ids\": [],",
       "  \"attachments_ids\": []",
       "}",
-      "</SAVE_DELAYED_MEMORY>",
-      "title, summary, tags, and body are required fields.",
-      "tags: concise comma-separated retrieval hooks. Include stable topic/project terms plus distinctive words or short phrases the USER actually used; avoid broad/common tags. Tag matching is case-insensitive and lexical.",
-      "facts_ids: exact F<number> ids represented by this report. anchor_fact_ids: 1-3 key ids from facts_ids that must remain visible in <LONG_TERM_MEMORY>; leave both empty when no L4 facts are consolidated.",
-      "attachments_ids: exact existing six-character file ids linked to the report; otherwise empty.",
-      "Use only ids visible in context; do not invent new ids. anchor_fact_ids must be a valid subset of facts_ids."
+      "</SAVE_DELAYED_MEMORY>"
     ],
     "close_tag": true
   }

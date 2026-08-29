@@ -52,6 +52,10 @@ from websocket import (
 
 from clients.registry import build_clients
 from runtime.client import RuntimeClient
+from runtime.model_switch import (
+    RuntimeModelSwitchError,
+    initialize_runtime_model,
+)
 from runtime.L4_memory import (
     start_l4_memory_server_scheduler,
     stop_l4_memory_server_scheduler,
@@ -310,6 +314,7 @@ def build_runtime_config():
     return {
         "service": {
             "label": "service",
+            "api_base": config.SERVICE_API_BASE,
             "model": config.SERVICE_MODEL_UID,
             "used_tokens": 0,
             "context_tokens": 0,
@@ -318,6 +323,7 @@ def build_runtime_config():
         },
         "brain": {
             "label": "brain",
+            "api_base": config.BRAIN_API_BASE,
             "model": config.BRAIN_MODEL_UID,
             "used_tokens": 0,
             "context_tokens": 0,
@@ -337,6 +343,14 @@ RUNTIME_CONFIG_WRITE_FIELDS = {
         "configured_context_window": "BRAIN_CONTEXT_WINDOW",
     },
 }
+
+RUNTIME_CONFIG_API_BASE_FIELDS = {
+    "service": "SERVICE_API_BASE",
+    "brain": "BRAIN_API_BASE",
+}
+
+def normalize_runtime_endpoint_base(base_url: object) -> str:
+    return str(base_url or "").strip().rstrip("/")
 
 
 def _format_config_literal(value):
@@ -501,6 +515,17 @@ def compact_runtime_model_options(models: list[dict]) -> list[dict]:
     seen = set()
 
     for model in models:
+        model_type = str(
+            model.get("type")
+            or model.get("model_type")
+            or ""
+        ).strip().casefold()
+        if model_type in {
+            "embedding",
+            "embeddings",
+        }:
+            continue
+
         model_id = (
             model.get("id")
             or model.get("key")
@@ -737,6 +762,171 @@ async def api_status():
     return await build_status_snapshot(
         app.state.http_client
     )
+
+
+
+
+@app.post("/api/runtime-model/switch")
+async def api_switch_runtime_model(request: Request):
+
+    try:
+        payload = await request.json()
+    except json.JSONDecodeError as error:
+        raise HTTPException(
+            status_code=400,
+            detail="Invalid JSON",
+        ) from error
+
+    if not isinstance(payload, dict):
+        raise HTTPException(
+            status_code=400,
+            detail="Invalid payload",
+        )
+
+    role = str(
+        payload.get("role") or ""
+    ).strip().lower()
+    role_fields = RUNTIME_CONFIG_WRITE_FIELDS.get(
+        role
+    )
+
+    if role_fields is None:
+        raise HTTPException(
+            status_code=400,
+            detail="Invalid runtime role",
+        )
+
+    if (
+        role == "service"
+        and not settings.SERVICE_CONFIGURED
+    ):
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "Dedicated Service runtime is not configured"
+            ),
+        )
+
+    model = str(
+        payload.get("model") or ""
+    ).strip()
+    if not model:
+        raise HTTPException(
+            status_code=400,
+            detail="Model is required",
+        )
+
+    current_base = normalize_runtime_endpoint_base(
+        getattr(
+            settings,
+            RUNTIME_CONFIG_API_BASE_FIELDS[role],
+        )
+    )
+    requested_base = normalize_runtime_endpoint_base(
+        payload.get("base_url") or current_base
+    )
+    if not current_base:
+        raise HTTPException(
+            status_code=400,
+            detail="Runtime endpoint is not configured",
+        )
+    if requested_base != current_base:
+        raise HTTPException(
+            status_code=400,
+            detail="Runtime endpoint cannot be switched here",
+        )
+
+    try:
+        switch_result = await initialize_runtime_model(
+            app.state.http_client,
+            role=role,
+            model_uid=model,
+            base_url=current_base,
+            cached_load_config=payload.get("load_config"),
+        )
+    except RuntimeModelSwitchError as error:
+        raise HTTPException(
+            status_code=502,
+            detail=str(error),
+        ) from error
+
+    updates: dict[str, object] = {
+        role_fields["model"]: model,
+    }
+
+    try:
+        write_runtime_config_values(updates)
+        apply_runtime_config_values(
+            updates,
+            app,
+        )
+    except Exception as error:
+        # LM Studio has already completed the load at this point. Keep a local
+        # sync failure distinct from a model-load failure in the modal.
+        raise HTTPException(
+            status_code=500,
+            detail=(
+                "Model loaded in LM Studio, but JIN failed to sync "
+                f"runtime config: {error}"
+            ),
+        ) from error
+
+    try:
+        snapshot = await build_status_snapshot(
+            app.state.http_client
+        )
+    except Exception as error:
+        # Status metadata is presentation data. A failed refresh must not turn
+        # an already completed model switch into a false HTTP 500.
+        switch_result["status_refresh_error"] = (
+            f"{type(error).__name__}: {error}"
+        )
+        runtime_config = build_runtime_config()
+        runtime_config[role]["lm_studio"] = {
+            "online": True,
+            "source": "native",
+            "url": current_base,
+            "available_models": [],
+            "loaded": True,
+            "model": {
+                "key": model,
+                "id": model,
+            },
+            "loaded_model": {
+                "id": switch_result.get("instance_id") or model,
+                "config": switch_result.get("load_config") or {},
+            },
+        }
+        snapshot = {
+            "brain": (
+                role == "brain"
+                or runtime_state.get_runtime_state(
+                    BRAIN_RUNTIME_ID
+                ).get("status") == "online"
+            ),
+            "service": (
+                settings.SERVICE_CONFIGURED
+                and (
+                    role == "service"
+                    or runtime_state.get_runtime_state(
+                        SERVICE_RUNTIME_ID
+                    ).get("status") == "online"
+                )
+            ),
+            "service_configured": settings.SERVICE_CONFIGURED,
+            "service_route": (
+                "dedicated"
+                if settings.SERVICE_CONFIGURED
+                else "brain_fallback"
+            ),
+            "format_response": bool(
+                getattr(config, "FORMAT_RESPONSE", True)
+            ),
+            "runtime_config": runtime_config,
+        }
+
+    snapshot["model_switch"] = switch_result
+    return snapshot
 
 
 @app.post("/api/runtime-config")

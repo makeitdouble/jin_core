@@ -226,7 +226,7 @@ Current action names in the contract table:
 - `LOAD_DELAYED_MEMORY`
 - `UNLOAD_DELAYED_MEMORY`
 - `SAVE_ACTIVE_MEMORY`
-- `RESOLVE_ACTIVE_MEMORY`
+- `DELETE_ACTIVE_MEMORY`
 - `UPDATE_ACTIVE_MEMORY`
 
 The default `rules/brain_context_builder.py` feature map currently disables runtime TODO (`CAN_RUNTIME_TODO=False`) while the other listed capabilities are enabled there. Search is an additional effective-capability gate: `WEB_SEARCH` and `DEEP_WEB_SEARCH` are removed from the model-facing action set unless `app_settings.settings.CAN_SEARCH` is true. `CAN_SEARCH` currently means provider `serper` plus a non-empty, non-placeholder configured key; the runtime deliberately does not guess a provider-specific key shape and leaves credential validation to Serper. The search client enforces the same gate before making a request.

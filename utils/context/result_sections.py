@@ -47,10 +47,10 @@ def format_active_memory_result_sections(
             )
             continue
 
-        if action == "resolve_active_memory":
+        if action == "delete_active_memory":
             sections.append(
                 (
-                    "RESOLVE_ACTIVE_MEMORY",
+                    "DELETE_ACTIVE_MEMORY",
                     format_tool_result_payload(
                         result
                     ),

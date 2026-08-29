@@ -13,9 +13,7 @@
       "follow_up_on_fail": false
     },
     "rules": [
-      "Emit one marker per report.",
-      "Use the 6-character id from <DELAYED_MEMORY> list.",
-      "Before load must check if it is already loaded in <LOADED_DELAYED_MEMORY> block"
+      ""
     ],
     "close_tag": false
   }

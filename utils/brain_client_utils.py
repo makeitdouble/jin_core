@@ -48,7 +48,7 @@ from contracts.rules_assembler import (
     RUNTIME_ACTION_UNLOAD_SKILL,
     RUNTIME_ACTION_RESOLVE_TODO,
     RUNTIME_ACTION_SAVE_DELAYED_MEMORY,
-    RUNTIME_ACTION_RESOLVE_ACTIVE_MEMORY,
+    RUNTIME_ACTION_DELETE_ACTIVE_MEMORY,
     RUNTIME_ACTION_WEB_SEARCH,
     build_runtime_action_display_text,
     get_runtime_action_display_name,
@@ -75,7 +75,7 @@ from utils.actions import (
     collect_active_memory_custom_fields,
     extract_active_memory_creation_custom_fields,
     get_active_memory_record_title,
-    extract_active_memory_resolve_slot_id,
+    extract_active_memory_delete_slot_id,
     extract_search_query,
     extract_runtime_actions,
     generate_active_memory_slot_id,
@@ -100,7 +100,7 @@ from utils.actions.update_active_memory_utils import (
     parse_update_active_memory_payload_fields,
 )
 from utils.session_actions_history import (
-    build_active_memory_resolve_failed_history_text,
+    build_active_memory_delete_failed_history_text,
     build_asset_action_history_text,
     build_asset_action_marker_text,
     record_session_action_history,
@@ -1371,7 +1371,7 @@ def find_active_memory_slot_record(
     return ""
 
 
-def build_active_memory_resolve_failure_result(
+def build_active_memory_delete_failure_result(
     context,
     payload: str,
     *,
@@ -1386,7 +1386,7 @@ def build_active_memory_resolve_failure_result(
             or ""
         ),
     ).strip()
-    requested_id = extract_active_memory_resolve_slot_id(
+    requested_id = extract_active_memory_delete_slot_id(
         payload
     )
     available_ids = sorted(
@@ -1403,14 +1403,14 @@ def build_active_memory_resolve_failure_result(
         )
     ).strip()
     detail = (
-        "Active memory was not resolved. "
+        "Active memory was not deleted. "
         "Use an exact 6-character active_memory_id from <ACTIVE_MEMORY> "
         "and retry only for a record that is still pending."
     )
 
     result = {
         "ok": False,
-        "action": "resolve_active_memory",
+        "action": "delete_active_memory",
         "error": normalized_error,
         "requested": requested,
         "detail": detail,
@@ -1423,7 +1423,7 @@ def build_active_memory_resolve_failure_result(
     return result
 
 
-def queue_active_memory_resolve_failure(
+def queue_active_memory_delete_failure(
     context,
     result: dict,
 ) -> None:
@@ -1436,7 +1436,7 @@ def queue_active_memory_resolve_failure(
 
     pending = getattr(
         context,
-        "runtime_active_memory_resolve_failures_pending",
+        "runtime_active_memory_delete_failures_pending",
         None,
     )
 
@@ -1447,7 +1447,7 @@ def queue_active_memory_resolve_failure(
         pending = []
         setattr(
             context,
-            "runtime_active_memory_resolve_failures_pending",
+            "runtime_active_memory_delete_failures_pending",
             pending,
         )
 
@@ -1456,13 +1456,13 @@ def queue_active_memory_resolve_failure(
     )
 
 
-def flush_pending_active_memory_resolve_failure_history(
+def flush_pending_active_memory_delete_failure_history(
     context,
 ) -> None:
 
     pending = getattr(
         context,
-        "runtime_active_memory_resolve_failures_pending",
+        "runtime_active_memory_delete_failures_pending",
         None,
     )
 
@@ -1481,7 +1481,7 @@ def flush_pending_active_memory_resolve_failure_history(
 
         record_session_action_history(
             context,
-            build_active_memory_resolve_failed_history_text(
+            build_active_memory_delete_failed_history_text(
                 result
             ),
         )
@@ -1754,7 +1754,7 @@ async def update_active_memory_runtime_record(
     return result
 
 
-async def resolve_active_memory_runtime_record(
+async def delete_active_memory_runtime_record(
     context,
     payload: str,
 ) -> tuple[bool, str, str]:
@@ -1766,7 +1766,7 @@ async def resolve_active_memory_runtime_record(
             "",
         )
 
-    active_memory_id = extract_active_memory_resolve_slot_id(
+    active_memory_id = extract_active_memory_delete_slot_id(
         payload,
         existing_ids=collect_context_active_memory_slot_ids(
             context
@@ -1780,7 +1780,7 @@ async def resolve_active_memory_runtime_record(
             "",
         )
 
-    resolved_record = find_active_memory_slot_record(
+    deleted_record = find_active_memory_slot_record(
         context,
         active_memory_id,
     )
@@ -1840,7 +1840,7 @@ async def resolve_active_memory_runtime_record(
     return (
         removed,
         active_memory_id,
-        resolved_record,
+        deleted_record,
     )
 
 

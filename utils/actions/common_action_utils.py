@@ -9,7 +9,7 @@ from contracts.rules_assembler import (
     RUNTIME_ACTION_LOAD_DELAYED_MEMORY,
     RUNTIME_ACTION_ATTACH_FILE,
     RUNTIME_ACTION_LIST_FILES,
-    RUNTIME_ACTION_RESOLVE_ACTIVE_MEMORY,
+    RUNTIME_ACTION_DELETE_ACTIVE_MEMORY,
     RUNTIME_ACTION_UPDATE_ACTIVE_MEMORY,
     RUNTIME_ACTION_SAVE_ACTIVE_MEMORY,
     RUNTIME_ACTION_ASSET_ACTION,
@@ -553,7 +553,7 @@ def normalize_runtime_action_name(
     aliases = {
         "SAVE_DELAYED_MEMORY": RUNTIME_ACTION_SAVE_DELAYED_MEMORY,
         "SAVE_ACTIVE_MEMORY": RUNTIME_ACTION_SAVE_ACTIVE_MEMORY,
-        "RESOLVE_ACTIVE_MEMORY": RUNTIME_ACTION_RESOLVE_ACTIVE_MEMORY,
+        "DELETE_ACTIVE_MEMORY": RUNTIME_ACTION_DELETE_ACTIVE_MEMORY,
         "USE_ASSETS": RUNTIME_ACTION_ASSET_ACTION,
         "CLEAN_TOOL_RESULTS": RUNTIME_ACTION_CLEAN_TOOL_RESULTS,
         "LOAD_SKILL": RUNTIME_ACTION_LOAD_SKILL,
@@ -613,7 +613,7 @@ def normalize_runtime_action_names(
 
         if normalized_name == RUNTIME_ACTION_SAVE_ACTIVE_MEMORY:
             normalized_names.append(
-                RUNTIME_ACTION_RESOLVE_ACTIVE_MEMORY
+                RUNTIME_ACTION_DELETE_ACTIVE_MEMORY
             )
             normalized_names.append(
                 RUNTIME_ACTION_UPDATE_ACTIVE_MEMORY
@@ -675,7 +675,7 @@ _ACTION_PAYLOAD_BUILDERS = {
     RUNTIME_ACTION_DEEP_WEB_SEARCH: build_deep_web_search_payload,
     RUNTIME_ACTION_WEB_SEARCH: build_web_search_payload,
     RUNTIME_ACTION_SAVE_ACTIVE_MEMORY: build_save_active_memory_payload,
-    RUNTIME_ACTION_RESOLVE_ACTIVE_MEMORY: build_resolve_action_payload,
+    RUNTIME_ACTION_DELETE_ACTIVE_MEMORY: build_resolve_action_payload,
     RUNTIME_ACTION_UPDATE_ACTIVE_MEMORY: build_update_active_memory_payload,
     RUNTIME_ACTION_CREATE_TODO_LIST: build_create_todo_list_payload,
     RUNTIME_ACTION_RESOLVE_TODO: build_resolve_action_payload,

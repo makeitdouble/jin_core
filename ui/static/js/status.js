@@ -13,6 +13,15 @@ const serviceLabel = document.querySelector("#service-label");
 const serviceStatusButton = document.querySelector("#service-status");
 
 const STATUS_REFRESH_COOLDOWN_MS = 1000;
+const RUNTIME_MODEL_LOAD_CACHE_STORAGE_KEY =
+    "jin.runtimeModelLoadConfig.v2";
+const RUNTIME_MODEL_LOAD_CONFIG_FIELDS = [
+    "context_length",
+    "eval_batch_size",
+    "flash_attention",
+    "num_experts",
+    "offload_kv_cache_to_gpu",
+];
 
 let runtimeStatusRequestInFlight = false;
 let lastRuntimeStatusStartedAt = 0;
@@ -21,6 +30,9 @@ let runtimeStatusModalTitle = null;
 let runtimeStatusModalContent = null;
 let activeRuntimeStatusRole = "";
 let activeRuntimeStatusModelPicker = null;
+let runtimeStatusModelSwitch = null;
+let runtimeStatusModelSwitchError = null;
+let runtimeStatusModelSwitchErrorTimer = null;
 
 function formatRuntimeStatusBytes(value) {
     const bytes = Number(value || 0);
@@ -226,6 +238,141 @@ function getRuntimeStatusModelName(model) {
     ).trim();
 }
 
+function normalizeRuntimeStatusModelLoadConfig(value) {
+    if (!value || typeof value !== "object" || Array.isArray(value)) {
+        return {};
+    }
+
+    const normalized = {};
+
+    RUNTIME_MODEL_LOAD_CONFIG_FIELDS.forEach((name) => {
+        if (!Object.prototype.hasOwnProperty.call(value, name)) {
+            return;
+        }
+
+        const rawValue = value[name];
+
+        if (
+            name === "flash_attention"
+            || name === "offload_kv_cache_to_gpu"
+        ) {
+            if (typeof rawValue === "boolean") {
+                normalized[name] = rawValue;
+            }
+            return;
+        }
+
+        const number = Number(rawValue);
+        if (Number.isFinite(number) && number > 0) {
+            normalized[name] = Math.trunc(number);
+        }
+    });
+
+    return normalized;
+}
+
+function normalizeRuntimeStatusBaseUrl(value) {
+    return String(value || "").trim().replace(/\/+$/, "");
+}
+
+function runtimeStatusModelLoadCacheKey(baseUrl, modelId) {
+    return `${normalizeRuntimeStatusBaseUrl(baseUrl)}::${String(modelId || "").trim()}`;
+}
+
+function readRuntimeStatusJsonCache(storageKey) {
+    try {
+        const rawValue = window.localStorage.getItem(storageKey);
+        const parsed = rawValue ? JSON.parse(rawValue) : {};
+        return (
+            parsed
+            && typeof parsed === "object"
+            && !Array.isArray(parsed)
+        )
+            ? parsed
+            : {};
+    } catch (error) {
+        return {};
+    }
+}
+
+function writeRuntimeStatusJsonCache(storageKey, cache) {
+    try {
+        window.localStorage.setItem(
+            storageKey,
+            JSON.stringify(cache)
+        );
+    } catch (error) {
+        // Runtime switching still works without persistent browser storage.
+    }
+}
+
+function readRuntimeStatusModelLoadCache() {
+    return readRuntimeStatusJsonCache(
+        RUNTIME_MODEL_LOAD_CACHE_STORAGE_KEY
+    );
+}
+
+function writeRuntimeStatusModelLoadCache(cache) {
+    writeRuntimeStatusJsonCache(
+        RUNTIME_MODEL_LOAD_CACHE_STORAGE_KEY,
+        cache
+    );
+}
+
+function getRuntimeStatusModelLoadConfig(baseUrl, modelId) {
+    const cache = readRuntimeStatusModelLoadCache();
+    return normalizeRuntimeStatusModelLoadConfig(
+        cache[
+            runtimeStatusModelLoadCacheKey(baseUrl, modelId)
+        ]
+    );
+}
+
+function rememberRuntimeStatusModelLoadConfig(baseUrl, modelId, value) {
+    const normalizedBase = normalizeRuntimeStatusBaseUrl(baseUrl);
+    const id = String(modelId || "").trim();
+    const loadConfig = normalizeRuntimeStatusModelLoadConfig(value);
+
+    if (
+        !normalizedBase
+        || !id
+        || !Object.keys(loadConfig).length
+    ) {
+        return;
+    }
+
+    const cache = readRuntimeStatusModelLoadCache();
+    const key = runtimeStatusModelLoadCacheKey(
+        normalizedBase,
+        id
+    );
+    cache[key] = {
+        ...normalizeRuntimeStatusModelLoadConfig(cache[key]),
+        ...loadConfig,
+    };
+    writeRuntimeStatusModelLoadCache(cache);
+}
+
+function runtimeStatusModelSwitchStatus(role) {
+    const normalizedRole = String(role || "").trim().toLowerCase();
+
+    if (
+        runtimeStatusModelSwitch
+        && runtimeStatusModelSwitch.role === normalizedRole
+    ) {
+        return `loading ${runtimeStatusModelSwitch.name || runtimeStatusModelSwitch.model}`;
+    }
+
+    if (
+        runtimeStatusModelSwitchError
+        && runtimeStatusModelSwitchError.role === normalizedRole
+    ) {
+        return `failed: ${runtimeStatusModelSwitchError.message}`;
+    }
+
+    return "";
+}
+
 function getRuntimeStatusModelOptions(lmStudio, configuredModel) {
     const options = [];
     const seen = new Set();
@@ -301,29 +448,225 @@ async function saveRuntimeStatusConfig(role, updates) {
         }
     );
 
+    let data = {};
+    try {
+        data = await response.json();
+    } catch (error) {
+        data = {};
+    }
+
     if (!response.ok) {
         throw new Error(
-            `HTTP ${response.status}`
+            String(data.detail || `HTTP ${response.status}`)
         );
     }
 
     applyRuntimeStatusSnapshot(
-        await response.json()
+        data
     );
+
+    if (updates.configured_context_window) {
+        const roleConfig = (
+            data.runtime_config
+            && data.runtime_config[role]
+        ) || {};
+        rememberRuntimeStatusModelLoadConfig(
+            roleConfig.api_base,
+            roleConfig.model,
+            {
+                context_length: updates.configured_context_window,
+            }
+        );
+    }
+}
+
+async function reconcileRuntimeStatusModelSwitch(role, model) {
+    const normalizedRole = String(role || "").trim().toLowerCase();
+    const targetModel = String(model || "").trim();
+
+    if (!normalizedRole || !targetModel) {
+        return false;
+    }
+
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+        if (attempt > 0) {
+            await new Promise(resolve => window.setTimeout(resolve, 150));
+        }
+
+        try {
+            const response = await fetch(
+                "/api/status",
+                {
+                    cache: "no-store",
+                }
+            );
+
+            if (!response.ok) {
+                continue;
+            }
+
+            const data = await response.json();
+            const roleConfig = (
+                data.runtime_config
+                && data.runtime_config[normalizedRole]
+            ) || {};
+            const lmStudio = roleConfig.lm_studio || {};
+            const configuredModel = String(
+                roleConfig.model || ""
+            ).trim();
+
+            if (
+                configuredModel !== targetModel
+                || lmStudio.loaded !== true
+            ) {
+                continue;
+            }
+
+            const loadedModel = lmStudio.loaded_model || {};
+            rememberRuntimeStatusModelLoadConfig(
+                roleConfig.api_base,
+                targetModel,
+                (
+                    loadedModel
+                    && typeof loadedModel === "object"
+                    && !Array.isArray(loadedModel)
+                    && loadedModel.config
+                ) || loadedModel
+            );
+            applyRuntimeStatusSnapshot(data);
+            return true;
+        } catch (error) {
+            // Preserve the original switch error if reconciliation also fails.
+        }
+    }
+
+    return false;
+}
+
+async function switchRuntimeStatusModel(role, baseUrl, option) {
+    const normalizedRole = String(role || "").trim().toLowerCase();
+    const normalizedBase = normalizeRuntimeStatusBaseUrl(baseUrl);
+    const model = String(option && option.id || "").trim();
+
+    if (
+        !normalizedRole
+        || !normalizedBase
+        || !model
+        || runtimeStatusModelSwitch
+    ) {
+        return;
+    }
+
+    window.clearTimeout(runtimeStatusModelSwitchErrorTimer);
+    runtimeStatusModelSwitchError = null;
+    runtimeStatusModelSwitch = {
+        role: normalizedRole,
+        base_url: normalizedBase,
+        model,
+        name: String(option && option.name || model).trim() || model,
+    };
+
+    if (activeRuntimeStatusRole === normalizedRole) {
+        renderRuntimeStatusModal(normalizedRole);
+    }
+
+    try {
+        const response = await fetch(
+            "/api/runtime-model/switch",
+            {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/json",
+                },
+                body: JSON.stringify({
+                    role: normalizedRole,
+                    model,
+                    load_config: getRuntimeStatusModelLoadConfig(
+                        normalizedBase,
+                        model
+                    ),
+                }),
+            }
+        );
+
+        let data = {};
+        try {
+            data = await response.json();
+        } catch (error) {
+            data = {};
+        }
+
+        if (!response.ok) {
+            throw new Error(
+                String(data.detail || `HTTP ${response.status}`)
+            );
+        }
+
+        const switchInfo = data.model_switch || {};
+        rememberRuntimeStatusModelLoadConfig(
+            normalizedBase,
+            model,
+            switchInfo.load_config
+        );
+
+        runtimeStatusModelSwitch = null;
+        applyRuntimeStatusSnapshot(data);
+    } catch (error) {
+        const errorMessage = String(
+            error && error.message
+            || error
+            || "model switch failed"
+        );
+        const reconciled = await reconcileRuntimeStatusModelSwitch(
+            normalizedRole,
+            model
+        );
+
+        runtimeStatusModelSwitch = null;
+
+        if (reconciled) {
+            runtimeStatusModelSwitchError = null;
+            if (activeRuntimeStatusRole === normalizedRole) {
+                renderRuntimeStatusModal(normalizedRole);
+            }
+            return;
+        }
+
+        runtimeStatusModelSwitchError = {
+            role: normalizedRole,
+            message: errorMessage,
+        };
+
+        if (activeRuntimeStatusRole === normalizedRole) {
+            renderRuntimeStatusModal(normalizedRole);
+        }
+
+        runtimeStatusModelSwitchErrorTimer = window.setTimeout(() => {
+            if (
+                runtimeStatusModelSwitchError
+                && runtimeStatusModelSwitchError.role === normalizedRole
+            ) {
+                runtimeStatusModelSwitchError = null;
+                if (activeRuntimeStatusRole === normalizedRole) {
+                    renderRuntimeStatusModal(normalizedRole);
+                }
+            }
+        }, 8000);
+    }
 }
 
 function createRuntimeStatusModelValue(
     role,
+    baseUrl,
     value,
     lmStudio,
-    online
+    selectionIsActive
 ) {
+    const normalizedBase = normalizeRuntimeStatusBaseUrl(
+        baseUrl
+    );
     const container = document.createElement("span");
     container.textContent = value;
-
-    if (!online) {
-        return container;
-    }
 
     const options = getRuntimeStatusModelOptions(
         lmStudio,
@@ -415,15 +758,18 @@ function createRuntimeStatusModelValue(
                 event.stopPropagation();
                 closePicker();
 
-                if (option.id === value) {
+                if (
+                    selectionIsActive
+                    && option.id === value
+                    && lmStudio.loaded === true
+                ) {
                     return;
                 }
 
-                void saveRuntimeStatusConfig(
+                void switchRuntimeStatusModel(
                     role,
-                    {
-                        model: option.id,
-                    }
+                    normalizedBase,
+                    option
                 );
             });
 
@@ -432,7 +778,7 @@ function createRuntimeStatusModelValue(
     }
 
     function openPicker() {
-        if (!online) {
+        if (runtimeStatusModelSwitch) {
             return;
         }
 
@@ -511,12 +857,15 @@ function createRuntimeStatusModelValue(
 
         closePicker();
 
-        if (nextOption.id !== value) {
-            void saveRuntimeStatusConfig(
+        if (
+            !selectionIsActive
+            || nextOption.id !== value
+            || lmStudio.loaded !== true
+        ) {
+            void switchRuntimeStatusModel(
                 role,
-                {
-                    model: nextOption.id,
-                }
+                normalizedBase,
+                nextOption
             );
         }
     });
@@ -747,6 +1096,50 @@ function formatRuntimeStatusCapabilities(value) {
     return value;
 }
 
+function cacheRuntimeStatusSnapshotEndpoints(data) {
+    const runtimeConfig = (
+        data
+        && data.runtime_config
+        && typeof data.runtime_config === "object"
+    )
+        ? data.runtime_config
+        : {};
+
+    ["brain", "service"].forEach((role) => {
+        if (
+            role === "service"
+            && !data.service_configured
+        ) {
+            return;
+        }
+
+        const roleConfig = runtimeConfig[role] || {};
+        const baseUrl = normalizeRuntimeStatusBaseUrl(
+            roleConfig.api_base
+        );
+        const modelId = String(roleConfig.model || "").trim();
+        const catalog = roleConfig.lm_studio || {};
+        const loadedModel = catalog.loaded_model || {};
+
+        if (!baseUrl) {
+            return;
+        }
+
+        if (modelId) {
+            rememberRuntimeStatusModelLoadConfig(
+                baseUrl,
+                modelId,
+                (
+                    loadedModel
+                    && typeof loadedModel === "object"
+                    && !Array.isArray(loadedModel)
+                    && loadedModel.config
+                ) || loadedModel
+            );
+        }
+    });
+}
+
 function renderRuntimeStatusModal(role) {
     const normalizedRole = String(role || "").trim().toLowerCase();
     const status = window.jinLatestStatus || {};
@@ -761,6 +1154,12 @@ function renderRuntimeStatusModal(role) {
         || getRuntimeStatusModelId(model)
         || getRuntimeStatusModelName(model)
     );
+    const currentBaseUrl = normalizeRuntimeStatusBaseUrl(
+        roleConfig.api_base
+    );
+    const runtimeUrl = String(
+        lmStudio.url || currentBaseUrl
+    ).trim();
 
     ensureRuntimeStatusModal();
     activeRuntimeStatusRole = normalizedRole;
@@ -793,15 +1192,19 @@ function renderRuntimeStatusModal(role) {
         runtimeStatusModalContent,
         "runtime",
         [
-            ["url", lmStudio.url],
+            [
+                "url",
+                runtimeUrl,
+            ],
             ["status", online ? "online" : "offline"],
             [
                 "model",
                 createRuntimeStatusModelValue(
                     normalizedRole,
+                    currentBaseUrl,
                     configuredModel,
                     lmStudio,
-                    online
+                    true
                 )
             ],
             [
@@ -809,6 +1212,12 @@ function renderRuntimeStatusModal(role) {
                 normalizedRole === "brain"
                     ? "primary runtime"
                     : "dedicated worker",
+            ],
+            [
+                "switch",
+                runtimeStatusModelSwitchStatus(
+                    normalizedRole
+                ),
             ],
         ]
     );
@@ -1005,6 +1414,10 @@ function setRuntimeState(dot, label, button, name, online, configured = true) {
 }
 
 function applyRuntimeStatusSnapshot(data) {
+    cacheRuntimeStatusSnapshotEndpoints(
+        data
+    );
+
     window.jinLatestStatus =
         data;
 

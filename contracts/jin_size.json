@@ -14,10 +14,10 @@
     },
     "rules": [
       "Use to set JIN Live Avatar size.",
-      "Emit marker using this schema <JIN_SIZE> w:120 h:120 </JIN_SIZE>",
-      "You may emit <JIN_SIZE> 120px </JIN_SIZE> to make the avatar square.",
-      "Each value may use px, vw, vh, or %. A unitless value defaults to px.",
-      "Percent values are axis-relative: width uses the current window width and height uses the current window height."
+      "Schema:",
+      "<JIN_SIZE> w:120 h:120 </JIN_SIZE>",
+      "Value may use px, vw, vh, or %. Default - px.",
+      "Percent values are axis-relative to current window."
     ],
     "close_tag": true
   }

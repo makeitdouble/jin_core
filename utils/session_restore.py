@@ -57,7 +57,7 @@ ACTION_LABELS = {
     "LOAD_DELAYED_MEMORY": "Loaded delayed memory",
     "UNLOAD_DELAYED_MEMORY": "Unloaded delayed memory",
     "SAVE_ACTIVE_MEMORY": "Saved active memory",
-    "RESOLVE_ACTIVE_MEMORY": "Resolved active memory",
+    "DELETE_ACTIVE_MEMORY": "Deleted active memory",
     "UPDATE_L4_FACTS": "Updated L4 facts",
     "ATTACH_FILE": "Attached file",
     "DETACH_FILE": "Detached file",
@@ -692,7 +692,7 @@ def _tool_result_kind(name: str) -> str:
         return "asset"
     if action_name in {
         "SAVE_ACTIVE_MEMORY",
-        "RESOLVE_ACTIVE_MEMORY",
+        "DELETE_ACTIVE_MEMORY",
         "UPDATE_ACTIVE_MEMORY",
     }:
         return "active_memory"

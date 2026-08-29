@@ -252,6 +252,10 @@ class RuntimeContext:
 
     runtime_current_context_window_text: str = ""
 
+    runtime_previous_answer_context_window: dict = field(
+        default_factory=dict
+    )
+
     runtime_memory: str = DEFAULT_RUNTIME_MEMORY
 
     runtime_memory_stable: str = DEFAULT_RUNTIME_MEMORY
@@ -284,6 +288,18 @@ class RuntimeContext:
     runtime_current_sequence_turn_id: str = ""
 
     runtime_turn_started_at: float = 0.0
+
+    runtime_user_waiting_for_jin_answer_session_id: str = ""
+
+    runtime_user_waiting_for_jin_answer_started_at: float = 0.0
+
+    runtime_user_waiting_for_jin_answer_last_seconds: float | None = None
+
+    runtime_user_waiting_for_jin_answer_total_seconds: float = 0.0
+
+    runtime_user_waiting_for_jin_answer_count: int = 0
+
+    runtime_user_waiting_for_jin_answer_tracking_enabled: bool = False
 
     runtime_current_sequence_started_at: float = 0.0
 
@@ -424,7 +440,7 @@ class RuntimeContext:
 
     runtime_delayed_memory_save_rejected_title: str = ""
 
-    runtime_active_memory_resolve_failures_pending: list[dict] = field(
+    runtime_active_memory_delete_failures_pending: list[dict] = field(
         default_factory=list
     )
 

@@ -13,8 +13,7 @@
       "follow_up_on_fail": false
     },
     "rules": [
-      "Emit <DETACH_FILE: id > to detach one file from context. The saved file remains in FILES storage.",
-      "id is a placeholder; replace it with the 6-character id shown in <ATTACHED_FILES> or LIST_FILES."
+      ""
     ],
     "close_tag": false
   }

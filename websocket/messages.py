@@ -599,6 +599,170 @@ async def wait_for_runtime_memory_update(
                 context.runtime_memory_update_task = None
 
 
+def begin_user_waiting_for_jin_answer_turn(
+    context,
+    *,
+    enabled: bool,
+) -> None:
+
+    current_session_id = str(
+        getattr(
+            context,
+            "session_id",
+            "",
+        )
+        or ""
+    ).strip()
+    tracked_session_id = str(
+        getattr(
+            context,
+            "runtime_user_waiting_for_jin_answer_session_id",
+            "",
+        )
+        or ""
+    ).strip()
+
+    if tracked_session_id != current_session_id:
+        context.runtime_user_waiting_for_jin_answer_session_id = (
+            current_session_id
+        )
+        context.runtime_user_waiting_for_jin_answer_last_seconds = None
+        context.runtime_user_waiting_for_jin_answer_total_seconds = 0.0
+        context.runtime_user_waiting_for_jin_answer_count = 0
+        context.runtime_previous_answer_context_window = {}
+
+    context.runtime_user_waiting_for_jin_answer_started_at = 0.0
+    context.runtime_user_waiting_for_jin_answer_tracking_enabled = bool(
+        enabled
+    )
+
+
+def remember_previous_answer_context_window(
+    context,
+) -> None:
+
+    current_context_window = getattr(
+        context,
+        "runtime_current_context_window",
+        {},
+    )
+
+    if not isinstance(
+        current_context_window,
+        dict,
+    ):
+        return
+
+    try:
+        used_tokens = int(
+            current_context_window.get(
+                "used_tokens",
+                0,
+            )
+            or 0
+        )
+        context_window = int(
+            current_context_window.get(
+                "context_window",
+                0,
+            )
+            or 0
+        )
+    except (TypeError, ValueError):
+        return
+
+    if context_window <= 0 or used_tokens < 0:
+        return
+
+    context.runtime_previous_answer_context_window = {
+        "runtime_id": str(
+            current_context_window.get(
+                "runtime_id",
+                "",
+            )
+            or ""
+        ),
+        "used_tokens": used_tokens,
+        "context_window": context_window,
+        "value": str(
+            current_context_window.get(
+                "value",
+                "",
+            )
+            or ""
+        ),
+    }
+
+
+def finish_user_waiting_for_jin_answer_turn(
+    context,
+) -> float | None:
+
+    # Context usage is independent from whether the answer exposed a visible
+    # reasoning stream. Capture the completed request context on every finish.
+    remember_previous_answer_context_window(
+        context
+    )
+
+    if not bool(
+        getattr(
+            context,
+            "runtime_user_waiting_for_jin_answer_tracking_enabled",
+            False,
+        )
+    ):
+        return None
+
+    context.runtime_user_waiting_for_jin_answer_tracking_enabled = False
+    started_at = float(
+        getattr(
+            context,
+            "runtime_user_waiting_for_jin_answer_started_at",
+            0.0,
+        )
+        or 0.0
+    )
+    context.runtime_user_waiting_for_jin_answer_started_at = 0.0
+
+    if started_at <= 0:
+        # No visible reasoning was emitted for this answer, so there is no
+        # truthful wait duration under the "first reasoning symbol -> complete
+        # answer" contract. Do not reuse an older answer as "previous".
+        context.runtime_user_waiting_for_jin_answer_last_seconds = None
+        return None
+
+    waited_seconds = max(
+        0.0,
+        time.monotonic() - started_at,
+    )
+    context.runtime_user_waiting_for_jin_answer_last_seconds = (
+        waited_seconds
+    )
+    context.runtime_user_waiting_for_jin_answer_total_seconds = (
+        float(
+            getattr(
+                context,
+                "runtime_user_waiting_for_jin_answer_total_seconds",
+                0.0,
+            )
+            or 0.0
+        )
+        + waited_seconds
+    )
+    context.runtime_user_waiting_for_jin_answer_count = (
+        int(
+            getattr(
+                context,
+                "runtime_user_waiting_for_jin_answer_count",
+                0,
+            )
+            or 0
+        )
+        + 1
+    )
+
+    return waited_seconds
+
 def parse_user_idle_seconds(
     value,
 ) -> int | None:
@@ -1088,6 +1252,20 @@ async def process_message(
 
         context.runtime_turn_user_message = user_text
         context.runtime_turn_started_at = time.time()
+        begin_user_waiting_for_jin_answer_turn(
+            context,
+            enabled=bool(
+                not is_action_guard_retry
+                and not is_session_restore_resume
+                and (
+                    is_user_retry
+                    or message_data.get(
+                        "type",
+                        "message",
+                    ) == "message"
+                )
+            ),
+        )
         context.runtime_turn_counter = (
             getattr(
                 context,
@@ -1245,6 +1423,9 @@ async def process_message(
         await runtime.run(
             state,
             context,
+        )
+        finish_user_waiting_for_jin_answer_turn(
+            context
         )
 
         try:
@@ -1516,6 +1697,13 @@ async def process_message(
         )
 
     finally:
+
+        # Normal turns finish immediately after AgentRuntime returns. This is
+        # only the fallback for cancellation/error paths that leave a visible
+        # reasoning stream without reaching that point.
+        finish_user_waiting_for_jin_answer_turn(
+            context
+        )
 
         if is_user_retry:
             context.runtime_user_retry_active = False

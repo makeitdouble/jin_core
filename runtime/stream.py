@@ -3205,15 +3205,45 @@ class RuntimeStream:
 
                 if chunk_type == "thinking":
 
+                    thinking_content = str(
+                        chunk.get(
+                            "content",
+                            "",
+                        )
+                        or ""
+                    )
                     is_valid = (
                         await self.stream.send_thinking(
-                            chunk.get(
-                                "content",
-                                "",
-                            ),
+                            thinking_content,
                             emit=self.emit_to_chat,
                         )
                     )
+
+                    if (
+                        is_valid
+                        and thinking_content.strip()
+                        and self.is_brain_context()
+                        and self.emit_to_chat
+                        and getattr(
+                            self.context,
+                            "runtime_user_waiting_for_jin_answer_tracking_enabled",
+                            False,
+                        )
+                        and not float(
+                            getattr(
+                                self.context,
+                                "runtime_user_waiting_for_jin_answer_started_at",
+                                0.0,
+                            )
+                            or 0.0
+                        )
+                    ):
+                        # Start only after the first visible reasoning chunk has
+                        # actually been emitted to the user. Follow-up Brain
+                        # streams in the same answer reuse this single timer.
+                        self.context.runtime_user_waiting_for_jin_answer_started_at = (
+                            time.monotonic()
+                        )
 
                     if not is_valid:
                         self.capture_runtime_turn_response()

@@ -18,7 +18,7 @@ from contracts.rules_assembler import (
     RUNTIME_ACTION_UNLOAD_SKILL,
     RUNTIME_ACTION_RESOLVE_TODO,
     RUNTIME_ACTION_SAVE_DELAYED_MEMORY,
-    RUNTIME_ACTION_RESOLVE_ACTIVE_MEMORY,
+    RUNTIME_ACTION_DELETE_ACTIVE_MEMORY,
     RUNTIME_ACTION_UPDATE_ACTIVE_MEMORY,
     RUNTIME_ACTION_DEEP_WEB_SEARCH,
     RUNTIME_ACTION_WEB_SEARCH,
@@ -40,7 +40,7 @@ from runtime.anonymous_mode import (
 from utils.assets_utils import ensure_assets_tree
 from utils.actions import (
     build_runtime_action_id,
-    extract_active_memory_resolve_slot_id,
+    extract_active_memory_delete_slot_id,
     extract_search_query,
     generate_active_memory_slot_key,
     normalize_jin_color_payload,
@@ -67,7 +67,7 @@ from utils.runtime_action_abort import (
 )
 from utils.actions.active_memory_actions import (
     apply_save_active_memory_actions,
-    apply_resolve_active_memory_actions,
+    apply_delete_active_memory_actions,
     apply_update_active_memory_actions,
     emit_rejected_active_memory_results,
 )
@@ -98,7 +98,7 @@ from utils.actions.todo_actions import (
 
 from utils.brain_client_utils import (
     build_action_missing_trigger_words_message,
-    build_active_memory_resolve_failure_result,
+    build_active_memory_delete_failure_result,
     build_active_memory_runtime_line,
     build_delayed_memory_report,
     collect_context_active_memory_slot_ids,
@@ -247,8 +247,8 @@ async def apply_runtime_action_calls(
     filtered_actions = []
     rejected_action_events = {}
     rejected_active_memory_results = []
-    resolve_active_memory_ids_seen = set()
-    resolve_active_memory_failures_seen = set()
+    delete_active_memory_ids_seen = set()
+    delete_active_memory_failures_seen = set()
     save_delayed_memory_seen = set()
     resolved_user_message = resolve_runtime_action_user_message(
         context,
@@ -981,8 +981,8 @@ async def apply_runtime_action_calls(
             )
             continue
 
-        if action.name == RUNTIME_ACTION_RESOLVE_ACTIVE_MEMORY:
-            active_memory_id = extract_active_memory_resolve_slot_id(
+        if action.name == RUNTIME_ACTION_DELETE_ACTIVE_MEMORY:
+            active_memory_id = extract_active_memory_delete_slot_id(
                 action.payload,
                 existing_ids=collect_context_active_memory_slot_ids(
                     context
@@ -990,7 +990,7 @@ async def apply_runtime_action_calls(
             )
 
             if not active_memory_id:
-                failure_result = build_active_memory_resolve_failure_result(
+                failure_result = build_active_memory_delete_failure_result(
                     context,
                     action.payload,
                 )
@@ -1006,10 +1006,10 @@ async def apply_runtime_action_calls(
                     or "unknown"
                 ).strip().casefold()
 
-                if failure_key in resolve_active_memory_failures_seen:
+                if failure_key in delete_active_memory_failures_seen:
                     continue
 
-                resolve_active_memory_failures_seen.add(
+                delete_active_memory_failures_seen.add(
                     failure_key
                 )
                 rejected_active_memory_results.append(
@@ -1029,7 +1029,7 @@ async def apply_runtime_action_calls(
                 }
                 continue
 
-            if active_memory_id in resolve_active_memory_ids_seen:
+            if active_memory_id in delete_active_memory_ids_seen:
                 continue
 
             if not accept_runtime_action_once_per_message(
@@ -1038,7 +1038,7 @@ async def apply_runtime_action_calls(
             ):
                 continue
 
-            resolve_active_memory_ids_seen.add(
+            delete_active_memory_ids_seen.add(
                 active_memory_id
             )
             accepted_action_names.add(
@@ -1249,8 +1249,8 @@ async def apply_runtime_action_calls(
                 action.payload
             )
 
-        if action.name == RUNTIME_ACTION_RESOLVE_ACTIVE_MEMORY:
-            active_memory_id = extract_active_memory_resolve_slot_id(
+        if action.name == RUNTIME_ACTION_DELETE_ACTIVE_MEMORY:
+            active_memory_id = extract_active_memory_delete_slot_id(
                 action.payload,
                 existing_ids=collect_context_active_memory_slot_ids(
                     context
@@ -1618,13 +1618,13 @@ async def apply_runtime_action_calls(
         if action.name == RUNTIME_ACTION_UPDATE_ACTIVE_MEMORY
     ]
 
-    resolve_active_memory_actions = [
+    delete_active_memory_actions = [
         action
         for action in filtered_actions
-        if action.name == RUNTIME_ACTION_RESOLVE_ACTIVE_MEMORY
+        if action.name == RUNTIME_ACTION_DELETE_ACTIVE_MEMORY
     ]
-    resolve_active_memory_count = len(
-        resolve_active_memory_actions
+    delete_active_memory_count = len(
+        delete_active_memory_actions
     )
 
     save_delayed_memory_actions = [
@@ -1916,9 +1916,9 @@ async def apply_runtime_action_calls(
         with_action_context=with_action_context,
     )
 
-    resolved_active_memory_count = await apply_resolve_active_memory_actions(
+    deleted_active_memory_count = await apply_delete_active_memory_actions(
         context,
-        resolve_active_memory_actions,
+        delete_active_memory_actions,
         log_runtime=log_runtime,
         with_action_context=with_action_context,
     )
@@ -1964,7 +1964,7 @@ async def apply_runtime_action_calls(
             attachment_results
         )
         + updated_active_memory_count
-        + resolved_active_memory_count
+        + deleted_active_memory_count
     )
 
     mark_runtime_actions_completed(

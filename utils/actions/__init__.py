@@ -75,7 +75,7 @@ from .jin_size_utils import (
     normalize_jin_size_payload,
     parse_jin_size_payload,
 )
-from .resolve_action_utils import extract_active_memory_resolve_slot_id
+from .resolve_action_utils import extract_active_memory_delete_slot_id
 from .regexp_utils import (
     REGEXP_TEMPLATES,
     compile_runtime_action_regexp,
@@ -106,7 +106,7 @@ __all__ = [
     "collect_active_memory_slot_ids",
     "collect_active_memory_custom_fields",
     "compile_runtime_action_regexp",
-    "extract_active_memory_resolve_slot_id",
+    "extract_active_memory_delete_slot_id",
     "extract_active_memory_creation_custom_fields",
     "extract_runtime_actions",
     "emit_runtime_action_counter_updates",

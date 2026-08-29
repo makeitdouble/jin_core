@@ -26,7 +26,7 @@ from utils.actions import (
     RuntimeActionCall,
     RuntimeActionRepetitionGuard,
     RuntimeActionStreamFilter,
-    extract_active_memory_resolve_slot_id,
+    extract_active_memory_delete_slot_id,
     extract_search_query,
     extract_runtime_actions,
     get_save_active_memory_marker_fields,
@@ -37,7 +37,7 @@ from utils.actions import (
 from utils.assets_utils import run_asset_action
 from utils.brain_client_utils import (
     record_delayed_memory_runtime_result,
-    flush_pending_active_memory_resolve_failure_history,
+    flush_pending_active_memory_delete_failure_history,
 )
 from utils.context.context_exports import build_tool_results_context
 from utils.file_manager_asset_utils import read_asset_text_preview
@@ -862,8 +862,8 @@ class RuntimeStreamFilterTests(RuntimeActionTestCase):
 
         cases = (
             (
-                "<RESOLVE_ACTIVE_MEMORY: **abc123**>",
-                "RESOLVE_ACTIVE_MEMORY",
+                "<DELETE_ACTIVE_MEMORY: **abc123**>",
+                "DELETE_ACTIVE_MEMORY",
                 "abc123",
             ),
             (
@@ -906,7 +906,7 @@ class RuntimeStreamFilterTests(RuntimeActionTestCase):
             "utils.actions.action_payload_utils.get_internal_actions_with_payload",
             return_value=(
                 "<WEB_SEARCH: plain text query >",
-                "<RESOLVE_ACTIVE_MEMORY: active_memory_id | STATUS >",
+                "<DELETE_ACTIVE_MEMORY: active_memory_id | STATUS >",
             ),
         ):
             search_result = extract_runtime_actions(
@@ -2262,11 +2262,11 @@ class RuntimeStreamFilterTests(RuntimeActionTestCase):
                 context,
                 (
                     RuntimeActionCall(
-                        name="RESOLVE_ACTIVE_MEMORY",
+                        name="DELETE_ACTIVE_MEMORY",
                         payload="one111",
                     ),
                     RuntimeActionCall(
-                        name="RESOLVE_ACTIVE_MEMORY",
+                        name="DELETE_ACTIVE_MEMORY",
                         payload="one111",
                     ),
                 ),

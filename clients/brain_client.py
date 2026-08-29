@@ -17,7 +17,7 @@ from contracts.rules_assembler import (
     RUNTIME_ACTION_UNLOAD_DELAYED_MEMORY,
     RUNTIME_ACTION_SAVE_DELAYED_MEMORY,
     RUNTIME_ACTION_SAVE_ACTIVE_MEMORY,
-    RUNTIME_ACTION_RESOLVE_ACTIVE_MEMORY,
+    RUNTIME_ACTION_DELETE_ACTIVE_MEMORY,
     RUNTIME_ACTION_WEB_SEARCH,
     build_runtime_action_display_text,
     get_runtime_action_display_name,
@@ -38,7 +38,7 @@ from utils.brain_client_utils import (
     apply_runtime_action_calls,
     build_pending_asset_action_preview,
     find_active_memory_slot_record,
-    flush_pending_active_memory_resolve_failure_history,
+    flush_pending_active_memory_delete_failure_history,
     log_runtime_action_marker_removals,
     should_execute_save_delayed_memory,
 )
@@ -71,7 +71,7 @@ from utils.actions import (
     RuntimeActionRepetitionGuard,
     RuntimeActionResult,
     RuntimeActionStreamFilter,
-    extract_active_memory_resolve_slot_id,
+    extract_active_memory_delete_slot_id,
     extract_runtime_actions,
     normalize_jin_color_payload,
     normalize_jin_size_payload,
@@ -612,7 +612,7 @@ async def ask_brain_stream(
         or []
     )
     action_counter = RuntimeActionCounter()
-    resolved_active_memory_display_payloads = {}
+    deleted_active_memory_display_payloads = {}
     raw_content_parts = []
     raw_model_output_parts = []
     session_action_message_parts = []
@@ -870,7 +870,7 @@ async def ask_brain_stream(
 
         return sizes
 
-    def get_resolve_active_memory_display_payload(
+    def get_delete_active_memory_display_payload(
         payload,
     ) -> str:
 
@@ -878,14 +878,14 @@ async def ask_brain_stream(
             payload
             or ""
         ).strip()
-        active_memory_id = extract_active_memory_resolve_slot_id(
+        active_memory_id = extract_active_memory_delete_slot_id(
             normalized_payload
         )
 
         if not active_memory_id:
             return normalized_payload
 
-        cached_content = resolved_active_memory_display_payloads.get(
+        cached_content = deleted_active_memory_display_payloads.get(
             active_memory_id,
             "",
         )
@@ -915,7 +915,7 @@ async def ask_brain_stream(
         ).strip()
 
         if content:
-            resolved_active_memory_display_payloads[
+            deleted_active_memory_display_payloads[
                 active_memory_id
             ] = content
             return content
@@ -939,22 +939,22 @@ async def ask_brain_stream(
                 RUNTIME_ACTION_JIN_SIZE
             ] = applied_sizes
 
-        for resolve_entry in action_counter.entries():
+        for delete_entry in action_counter.entries():
             if (
-                resolve_entry is None
-                or resolve_entry.name != RUNTIME_ACTION_RESOLVE_ACTIVE_MEMORY
-                or not resolve_entry.payloads
+                delete_entry is None
+                or delete_entry.name != RUNTIME_ACTION_DELETE_ACTIVE_MEMORY
+                or not delete_entry.payloads
             ):
                 continue
 
             display_payloads[(
-                resolve_entry.name,
-                resolve_entry.identity,
+                delete_entry.name,
+                delete_entry.identity,
             )] = [
-                get_resolve_active_memory_display_payload(
+                get_delete_active_memory_display_payload(
                     payload
                 )
-                for payload in resolve_entry.payloads
+                for payload in delete_entry.payloads
             ]
 
         delayed_memory_display_actions = (
@@ -1180,7 +1180,7 @@ async def ask_brain_stream(
                 session_action_message_content,
             )
 
-        flush_pending_active_memory_resolve_failure_history(
+        flush_pending_active_memory_delete_failure_history(
             context
         )
 

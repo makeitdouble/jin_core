@@ -1132,7 +1132,7 @@ function isGenericAssetActionDisplayText(
 const PAYLOAD_DISTINCT_RUNTIME_ACTIONS = new Set([
   "save_active_memory",
   "update_active_memory",
-  "resolve_active_memory",
+  "delete_active_memory",
   "save_delayed_memory",
   "load_delayed_memory",
   "unload_delayed_memory",
@@ -1454,8 +1454,8 @@ function handleRuntimeAction(
   }
 
   const baseDisplayText =
-    action === "resolve_active_memory"
-      ? buildResolveActiveMemoryRuntimeActionText(
+    action === "delete_active_memory"
+      ? buildDeleteActiveMemoryRuntimeActionText(
         data,
         text
       )
@@ -2130,7 +2130,7 @@ function handleRuntimeAction(
   }
 
   if (
-    action === "resolve_active_memory"
+    action === "delete_active_memory"
     && data.id
     && window.JinRuntime
     && window.JinRuntime.runtime

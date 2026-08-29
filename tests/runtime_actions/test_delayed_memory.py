@@ -25,7 +25,7 @@ from utils.actions import (
     RuntimeActionCall,
     RuntimeActionRepetitionGuard,
     RuntimeActionStreamFilter,
-    extract_active_memory_resolve_slot_id,
+    extract_active_memory_delete_slot_id,
     extract_search_query,
     extract_runtime_actions,
     get_save_active_memory_marker_fields,
@@ -37,7 +37,7 @@ from utils.assets_utils import run_asset_action
 from utils.brain_client_utils import (
     record_delayed_memory_runtime_result,
     build_delayed_memory_report,
-    flush_pending_active_memory_resolve_failure_history,
+    flush_pending_active_memory_delete_failure_history,
     include_pinned_delayed_memory_reports,
     load_delayed_memory_report,
 )

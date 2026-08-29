@@ -1,0 +1,21 @@
+{
+  "delete_active_memory": {
+    "version": 1,
+    "description": "Allows the model to delete active memory.",
+    "runtime_action": "DELETE_ACTIVE_MEMORY",
+    "enable_flag": "CAN_SAVE_ACTIVE_MEMORY",
+    "runtime_order": 220,
+    "private_marker": "<DELETE_ACTIVE_MEMORY: id >",
+    "triggers": [],
+    "blockers": [],
+    "effects": {
+      "emit_followup": false,
+      "follow_up_on_fail": false
+    },
+    "rules": [
+      "Schema:",
+      "<DELETE_ACTIVE_MEMORY: id >"
+    ],
+    "close_tag": false
+  }
+}

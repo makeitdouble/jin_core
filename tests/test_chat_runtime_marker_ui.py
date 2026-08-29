@@ -429,7 +429,7 @@ if (stateChanges.length !== 2 || stateChanges[1][1] !== false) {
             "load_delayed_memory",
             "save_active_memory",
             "update_active_memory",
-            "resolve_active_memory",
+            "delete_active_memory",
             "unload_delayed_memory",
             "clean_tool_results",
             "asset_action",

@@ -1018,15 +1018,15 @@ class BrainPromptMemoryTests(
                 ],
                 runtime_session_action_history=[
                     {
-                        "text": "RESOLVE_ACTIVE_MEMORY, RESOLVE_ACTIVE_MEMORY",
+                        "text": "DELETE_ACTIVE_MEMORY, DELETE_ACTIVE_MEMORY",
                         "parts": [
                             {
-                                "text": "RESOLVE_ACTIVE_MEMORY",
+                                "text": "DELETE_ACTIVE_MEMORY",
                                 "detail": "word: кукушка",
                                 "id": "enrrqo",
                             },
                             {
-                                "text": "RESOLVE_ACTIVE_MEMORY",
+                                "text": "DELETE_ACTIVE_MEMORY",
                                 "detail": "word: кулёк",
                                 "id": "yfpywn",
                             },
@@ -1048,9 +1048,9 @@ class BrainPromptMemoryTests(
 
             self.assertIn(
                 (
-                    "action_1: RESOLVE_ACTIVE_MEMORY: "
+                    "action_1: DELETE_ACTIVE_MEMORY: "
                     "id: enrrqo; content: word: кукушка, "
-                    "RESOLVE_ACTIVE_MEMORY: id: yfpywn; "
+                    "DELETE_ACTIVE_MEMORY: id: yfpywn; "
                     "content: word: кулёк ( 2s ago )"
                 ),
                 history,

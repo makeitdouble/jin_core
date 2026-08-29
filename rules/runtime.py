@@ -46,11 +46,7 @@ SESSION_RESTORE_MESSAGE = (
 RUNTIME_ACTIONS_RULES = ""
 RUNTIME_ACTIONS_RULES_ = (
     "RUNTIME ACTION EXECUTION RULES:\n"
-    "Use follow-up system ticks in sequence for multi-step tasks.\n"
-    "In case of conflict, ignore PREVIOUS_CHAT_MESSAGES and keep the ORIGINAL_USER_REQUEST inside CURRENT_REQUEST_FLOW.\n"
-    "When follow-up tick is active, use CURRENT_REQUEST_FLOW as the source of truth for the request in progress; use SESSION_ACTIONS_HISTORY only as background history.\n"
-    "CURRENT_REQUEST_FLOW contains the original user request, actions already executed for it, and the next decision branch.\n"
-    "SESSION_ACTIONS_HISTORY is full-session background history; it is not a pending task list.\n"
+    "Place runtime markers in your visible answer.\n"
     "When no actions needed or sequence is done stop instantly and notify user naturally.\n"
 )
 SKILL_ROUTING_RULES = ""

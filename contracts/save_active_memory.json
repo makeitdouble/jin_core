@@ -13,13 +13,11 @@
       "follow_up_on_fail": true
     },
     "rules": [
-      "Use when a clear, concrete unresolved intention, promise, condition, reminder, live rule, or future condition appears and keeping it pending would help the current or near-future conversation.",
-      "Avoid duplicating with long term facts, basic rules or another active memories.",
-      "Emit using exactly this schema:",
+      "Schema:",
       "<SAVE_ACTIVE_MEMORY>",
       "{\"conditions\":\"Descriptive conditions text\",\"custom_field\":\"Custom field value\"}",
       "</SAVE_ACTIVE_MEMORY>",
-      "conditions is required and must be non-empty."
+      "conditions - is required field. You may add up to 3 additional custom fields with custom values."
     ],
     "close_tag": true,
     "display_payload": false

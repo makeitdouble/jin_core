@@ -13,14 +13,7 @@
       "follow_up_on_fail": false
     },
     "rules": [
-      "LOAD / UNLOAD SKILLS:",
-      "Use LOAD_SKILL and UNLOAD_SKILL only for a single skill load or unload.",
-      "<LOAD_SKILL: name of skill >",
-      "<UNLOAD_SKILL: name of skill >",
-      "For multiple skills you can also use: <LOAD_SKILLS: name1, name2, name3 >",
-      "<UNLOAD_SKILLS: name1, name2, name3 >",
-      "You may load multiple skills at once.",
-      "Never load a skill already marked as loaded in <SKILLS>."
+      "For multiple skills use: <LOAD_SKILLS: name1, name2, name3 >"
     ],
     "close_tag": false
   }

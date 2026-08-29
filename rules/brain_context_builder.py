@@ -1150,7 +1150,9 @@ def build_brain_context(
         build_previous_chat_messages_context,
     )
     from utils.context.runtime_state import (
+        build_context_usage_context,
         build_runtime_xml,
+        build_user_waiting_for_jin_answer_context,
     )
     from utils.context.session_actions import (
         build_session_actions_history_context,
@@ -1240,6 +1242,26 @@ def build_brain_context(
             ),
         )
     )
+
+    user_waiting_context = (
+        build_user_waiting_for_jin_answer_context(
+            context
+        )
+    )
+    if user_waiting_context:
+        prompt_parts.append(
+            user_waiting_context
+        )
+
+    context_usage_context = (
+        build_context_usage_context(
+            context
+        )
+    )
+    if context_usage_context:
+        prompt_parts.append(
+            context_usage_context
+        )
 
     # Tool results block: places recent tool/action outputs near the top.
     tool_results_context = build_tool_results_context(

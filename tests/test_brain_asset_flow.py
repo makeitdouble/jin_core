@@ -591,11 +591,11 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(
             format_followup_actions_from_events([
                 {
-                    "name": "resolve_active_memory",
+                    "name": "delete_active_memory",
                     "id": "active_memory_1",
                 },
                 {
-                    "name": "resolve_active_memory",
+                    "name": "delete_active_memory",
                     "id": "active_memory_2",
                 },
                 {
@@ -604,7 +604,7 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
                     "payload": "ignored",
                 },
             ]),
-            "RESOLVE_ACTIVE_MEMORY (count: 2), SAVE_SESSION",
+            "DELETE_ACTIVE_MEMORY (count: 2), SAVE_SESSION",
         )
 
     async def test_previous_runtime_memory_tag_tracks_elapsed_sequence_time(self):
@@ -2817,7 +2817,7 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
                         "name": "clean_tool_results",
                     },
                     {
-                        "name": "resolve_active_memory",
+                        "name": "delete_active_memory",
                         "id": "active_memory_1",
                     },
                 ])
@@ -2964,7 +2964,7 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
                         "payload": "first",
                     },
                     {
-                        "name": "resolve_active_memory",
+                        "name": "delete_active_memory",
                         "id": "active_memory_1",
                     },
                 ])
@@ -2975,7 +2975,7 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
                 kwargs["system_prompt"],
             )
             self.assertIn(
-                'RESOLVE_ACTIVE_MEMORY',
+                'DELETE_ACTIVE_MEMORY',
                 kwargs["system_prompt"],
             )
             self.assertNotIn(

@@ -13,12 +13,10 @@
       "follow_up_on_fail": true
     },
     "rules": [
-      "Use to update active memory values.",
-      "Emit using exactly this schema:",
+      "Schema:",
       "<UPDATE_ACTIVE_MEMORY>",
-      "{\"active_memory_id\":\"\",\"custom_field_name\":\"\"}",
-      "</UPDATE_ACTIVE_MEMORY>",
-      "Put each existing custom field needed for update directly at the JSON root."
+      "{\"active_memory_id\":\"\",\"field_to_update\":\"new_value\"}",
+      "</UPDATE_ACTIVE_MEMORY>"
     ],
     "close_tag": true
   }

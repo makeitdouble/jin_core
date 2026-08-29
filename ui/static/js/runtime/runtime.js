@@ -2468,7 +2468,7 @@ function replaceDelayedMemoryReportsAndRender(
 const ACTIVE_MEMORY_RUNTIME_ACTIONS_TO_SILENCE_ON_L1 = [
   "save_active_memory",
   "update_active_memory",
-  "resolve_active_memory",
+  "delete_active_memory",
 ];
 
 function silenceActiveMemoryRuntimeActionsAfterL1(

@@ -7,6 +7,9 @@ from utils.brain_client_utils import (
     get_conversation_activity_diff,
     get_conversation_activity_percent,
 )
+from utils.current_context_window import (
+    CURRENT_AVAILABLE_TOKENS_PLACEHOLDER,
+)
 from rules.brain_context_builder import (
     build_conversation_activity_instruction,
     get_enabled_runtime_actions,
@@ -237,6 +240,140 @@ def get_current_window_size_context(
 
     return f"width: {width}px height: {height}px"
 
+
+def build_user_waiting_for_jin_answer_context(
+    context=None,
+) -> str:
+
+    average_value = "not_available_yet"
+    previous_value = "not_available_yet"
+
+    if context is not None:
+        current_session_id = str(
+            getattr(
+                context,
+                "session_id",
+                "",
+            )
+            or ""
+        ).strip()
+        tracked_session_id = str(
+            getattr(
+                context,
+                "runtime_user_waiting_for_jin_answer_session_id",
+                "",
+            )
+            or ""
+        ).strip()
+
+        if tracked_session_id == current_session_id:
+            try:
+                count = int(
+                    getattr(
+                        context,
+                        "runtime_user_waiting_for_jin_answer_count",
+                        0,
+                    )
+                    or 0
+                )
+                total_seconds = float(
+                    getattr(
+                        context,
+                        "runtime_user_waiting_for_jin_answer_total_seconds",
+                        0.0,
+                    )
+                    or 0.0
+                )
+                last_seconds = getattr(
+                    context,
+                    "runtime_user_waiting_for_jin_answer_last_seconds",
+                    None,
+                )
+            except (TypeError, ValueError):
+                count = 0
+                total_seconds = 0.0
+                last_seconds = None
+
+            if count > 0:
+                average_seconds = max(
+                    0.0,
+                    total_seconds / count,
+                )
+                average_value = f"{average_seconds:.1f}s"
+
+            try:
+                last_seconds = float(last_seconds)
+            except (TypeError, ValueError):
+                last_seconds = None
+
+            if last_seconds is not None and last_seconds >= 0:
+                previous_value = f"{last_seconds:.1f}s"
+
+    return (
+        "<USER_WAITING_FOR_JIN_ANSWER>\n"
+        f"waited_average_this_session: {average_value}\n"
+        f"waited_previous_answer: {previous_value}\n"
+        "</USER_WAITING_FOR_JIN_ANSWER>"
+    )
+
+
+def build_context_usage_context(
+    context=None,
+) -> str:
+
+    previous_usage_value = "not_available_yet"
+
+    previous_context_window = (
+        getattr(
+            context,
+            "runtime_previous_answer_context_window",
+            {},
+        )
+        if context is not None
+        else {}
+    )
+
+    if isinstance(
+        previous_context_window,
+        dict,
+    ):
+        try:
+            used_tokens = int(
+                previous_context_window.get(
+                    "used_tokens",
+                    0,
+                )
+                or 0
+            )
+            context_window = int(
+                previous_context_window.get(
+                    "context_window",
+                    0,
+                )
+                or 0
+            )
+        except (TypeError, ValueError):
+            used_tokens = 0
+            context_window = 0
+
+        if context_window > 0 and used_tokens >= 0:
+            usage_percent = min(
+                100.0,
+                max(
+                    0.0,
+                    (used_tokens / context_window) * 100.0,
+                ),
+            )
+            previous_usage_value = f"{usage_percent:.1f}%"
+
+    return (
+        "<CONTEXT_USAGE>\n"
+        "previous_answer_context_usage: "
+        f"{previous_usage_value}\n"
+        "current_available_tokens: "
+        f"{CURRENT_AVAILABLE_TOKENS_PLACEHOLDER}\n"
+        "</CONTEXT_USAGE>"
+    )
 
 def build_runtime_xml(
     context=None,

@@ -33,8 +33,8 @@
     /* Базовая масса обычной JIN-плашки: последнее число = плотность фона. */
     --jin-chat-panel: rgba(8, 17, 22, 0.82);
 
-    /* Базовая масса USER-плашки: главный регулятор прозрачности user-бабла. */
-    --jin-chat-panel-user: rgba(14, 21, 31, 0.80);
+    /* USER остаётся холодным slate/blue: немного плотнее, чтобы текст не терялся на фоне комнаты. */
+    --jin-chat-panel-user: rgba(13, 22, 36, 0.94);
 
     /* Базовая масса think-плашки: чем меньше alpha, тем больше она "в воздухе". */
     --jin-chat-panel-think: rgba(12, 12, 14, 0.44);
@@ -53,7 +53,7 @@
 
 .jin-stream-avatar-slot {
     position: absolute;
-    left: 48px;
+    left: 54px;
     top: 0;
     width: 28px;
     height: 28px;
@@ -179,16 +179,18 @@
 .jin-message-row {
     /* Горизонтальная строка: аватарка слева, бабл справа. */
     display: flex;
-    padding-left: 48px;
+    padding-left: 54px;
 
     /* Прижимает аватарку и бабл к верхнему краю строки. */
     align-items: flex-start;
 
-    /* Расстояние между аватаркой и баблом. */
-    gap: 12px;
+    /* Расстояние между аватаркой и баблом: ровно половина прежнего gap. */
+    gap: 6px;
 }
 
 .jin-runtime-action-row {
+    padding-left: 48px;
+    gap: 12px;
     align-items: center;
     margin-top: 0!important
 }
@@ -322,31 +324,31 @@
 }
 
 .jin-chat-bubble-user {
-    /* Цвет текста USER. Чуть спокойнее и суше, чтобы плашка не светилась лишнего. */
-    color: rgba(223, 231, 240, 0.72);
+    /* USER: чуть светлее прежнего, но сохраняем отдельный холодный slate/blue характер. */
+    color: rgba(220, 230, 244, 0.80);
 
     /* Радиус USER-бабла. Сейчас как у аватарки. */
     border-radius: 4px;
 
     /* Серо-голубая рамка USER-бабла, в тон US-аватарке. */
-    border-color: rgba(148, 163, 184, 0.22);
+    border-color: rgba(148, 163, 184, 0.26);
 
-    /* USER-фон оставляем объёмным, но заметно тише: без агрессивных холодных пятен. */
+    /* USER: мягкий blue/slate тинт. Чуть заметнее прежнего, без превращения в яркую синюю карточку. */
     background:
-            linear-gradient(180deg, rgba(219, 234, 254, 0.026), rgba(15, 23, 42, 0.018)),
-            linear-gradient(90deg, rgba(148, 163, 184, 0.020), rgba(148, 163, 184, 0.008)),
+            linear-gradient(180deg, rgba(147, 197, 253, 0.040), rgba(30, 41, 59, 0.020)),
+            linear-gradient(90deg, rgba(96, 165, 250, 0.022), rgba(148, 163, 184, 0.008)),
             var(--jin-chat-panel-user);
 
     /* Размытие USER-бабла. Уменьшай, если плашка слишком мутная. */
     /*backdrop-filter: blur(9.75px);*/
 
-    /* USER-тени приглушены, чтобы фон читался ровнее и без лишнего сияния. */
+    /* USER-тени остаются тихими, но blue-акцент чуть лучше отделяет бабл от фона комнаты. */
     box-shadow:
-            0 0 0 1px rgba(148, 163, 184, 0.040),
-            0 12px 30px rgba(0, 0, 0, 0.21),
-            0 0 18px rgba(96, 165, 250, 0.036),
-            inset 0 1px 0 rgba(219, 234, 254, 0.040),
-            inset 0 0 18px rgba(96, 165, 250, 0.010);
+            0 0 0 1px rgba(148, 163, 184, 0.045),
+            0 12px 30px rgba(0, 0, 0, 0.23),
+            0 0 18px rgba(96, 165, 250, 0.045),
+            inset 0 1px 0 rgba(219, 234, 254, 0.045),
+            inset 0 0 18px rgba(96, 165, 250, 0.014);
 
     /* Очень слабое свечение текста USER. */
     text-shadow:
@@ -770,16 +772,22 @@ body:not(.theme-win95) .jin-think-wrapper:has(> .jin-think-content.is-collapsed)
 }
 
 .jin-chat-bubble-service {
-    /* Финальный JIN-фон делаем полностью ровным: без затемняющих градиентов
-       поверх текста, чтобы бабл читался одним чистым слоем. */
-    background: color-mix(
-            in srgb,
-            rgba(10, 18, 22, 0.58) calc(var(--jin-bubble-invert-off) * 100%),
-            rgba(246, 249, 247, 0.90) calc(var(--JIN_BUBBLE_INVERT) * 100%)
-    );
+    /* JIN оставляем отдельным teal/cyan: фон чуть плотнее и светлее,
+       но заметно зеленее USER-бабла. */
+    background:
+            linear-gradient(
+                    180deg,
+                    rgba(45, 212, 191, calc(var(--jin-bubble-invert-off) * 0.030)),
+                    rgba(8, 47, 73, calc(var(--jin-bubble-invert-off) * 0.010))
+            ),
+            color-mix(
+                    in srgb,
+                    rgba(8, 21, 23, 0.72) calc(var(--jin-bubble-invert-off) * 100%),
+                    rgba(246, 249, 247, 0.90) calc(var(--JIN_BUBBLE_INVERT) * 100%)
+            );
 
-    /* Финальный цвет текста JIN: чуть спокойнее, но без потери читабельности. */
-    color: rgba(220, 235, 232, 0.66);
+    /* JIN: подтягиваем читаемость примерно к USER, сохраняя мягкий teal-оттенок. */
+    color: rgba(207, 235, 232, 0.80);
 
     /* Финальное JIN-свечение приглушено, чтобы бабл выглядел одним ровным слоем. */
     box-shadow:
@@ -792,7 +800,7 @@ body:not(.theme-win95) .jin-think-wrapper:has(> .jin-think-content.is-collapsed)
 
 .jin-chat-bubble-service .jin-chat-pre {
     /* Цвет текста внутри JIN-бабла дублируется здесь для надёжности. */
-    color: rgba(220, 235, 232, 0.66);
+    color: rgba(207, 235, 232, 0.80);
 
     /* Свечение текста JIN почти убрано: нужен спокойный, ровный текст без дымки. */
     text-shadow:
@@ -802,7 +810,7 @@ body:not(.theme-win95) .jin-think-wrapper:has(> .jin-think-content.is-collapsed)
 .jin-chat-bubble-service {
     border-color: color-mix(
             in srgb,
-            rgba(103, 232, 249, 0.16) calc(var(--jin-bubble-invert-off) * 100%),
+            rgba(94, 234, 212, 0.20) calc(var(--jin-bubble-invert-off) * 100%),
             rgba(255, 255, 255, 0.62) calc(var(--JIN_BUBBLE_INVERT) * 100%)
     );
     box-shadow:
@@ -817,7 +825,7 @@ body:not(.theme-win95) .jin-think-wrapper:has(> .jin-think-content.is-collapsed)
 .jin-chat-bubble-brain {
     background: color-mix(
             in srgb,
-            rgba(10, 18, 22, 0.58) calc(var(--jin-bubble-invert-off) * 100%),
+            rgba(20, 36, 44, 0.95) calc(var(--jin-bubble-invert-off) * 100%),
             rgba(246, 249, 247, 0.90) calc(var(--JIN_BUBBLE_INVERT) * 100%)
     );
     border-color: color-mix(
@@ -837,7 +845,7 @@ body:not(.theme-win95) .jin-think-wrapper:has(> .jin-think-content.is-collapsed)
 .jin-chat-bubble-service .jin-chat-pre {
     color: color-mix(
             in srgb,
-            rgba(220, 235, 232, 0.66) calc(var(--jin-bubble-invert-off) * 100%),
+            rgba(207, 235, 232, 0.80) calc(var(--jin-bubble-invert-off) * 100%),
             rgba(39, 45, 48, 0.92) calc(var(--JIN_BUBBLE_INVERT) * 100%)
     );
     text-shadow:

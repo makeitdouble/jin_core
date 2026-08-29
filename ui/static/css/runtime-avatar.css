@@ -9,7 +9,6 @@
     justify-content: center;
     padding: 8px 10px;
     overflow: hidden;
-    border-bottom-color: rgba(34, 211, 238, 0.13);
     background:
         radial-gradient(circle at 50% 47%, rgba(12, 91, 89, 0.16), transparent 42%),
         radial-gradient(circle at 50% 50%, rgba(0, 0, 0, 0) 46%, rgba(0, 0, 0, 0.44) 100%),
@@ -28,25 +27,6 @@
         linear-gradient(90deg, rgba(33, 226, 210, 0.025) 1px, transparent 1px);
     background-size: 18px 18px;
     mask-image: radial-gradient(circle at center, black 8%, transparent 72%);
-}
-
-#memory-drag-handle::after {
-    content: "";
-    position: absolute;
-    right: 14%;
-    bottom: -16%;
-    left: 14%;
-    height: 38%;
-    z-index: -1;
-    pointer-events: none;
-    border-radius: 50%;
-    opacity: 0.35;
-    background:
-        radial-gradient(
-            ellipse at center,
-            color-mix(in srgb, var(--jin-color, #1f4f8f) 20%, transparent),
-            transparent 70%
-        );
 }
 
 .jin-runtime-avatar-shell {

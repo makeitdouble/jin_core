@@ -314,7 +314,7 @@ ACTION_DISPLAY_ALIASES = {
     "read_asset_text": "Read asset text",
     "unload_delayed_memory": "Unloaded delayed memory",
     "unload_skill": "Unloaded skill",
-    "resolve_active_memory": "Resolved active memory",
+    "delete_active_memory": "Deleted active memory",
     "run_document_reader": "Read document iteratively",
     "run_python_skill": "Ran Python skill",
     "sample_wildcard": "Sampled wildcard",
@@ -1191,7 +1191,7 @@ def build_delayed_memory_save_rejected_history_text(
     )
 
 
-def build_active_memory_resolve_failed_history_text(
+def build_active_memory_delete_failed_history_text(
     result: dict,
 ) -> str:
 
@@ -1211,11 +1211,11 @@ def build_active_memory_resolve_failed_history_text(
             "error",
             "",
         )
-        or "active_memory_not_resolved"
+        or "active_memory_not_deleted"
     ).strip()
 
     return (
-        "RESOLVE_ACTIVE_MEMORY - failed: "
+        "DELETE_ACTIVE_MEMORY - failed: "
         f"{requested} ({error}; action was not executed)"
     )
 
@@ -1291,7 +1291,7 @@ def _build_session_action_marker_detail(
 
     if normalized_name in {
         "SAVE_ACTIVE_MEMORY",
-        "RESOLVE_ACTIVE_MEMORY",
+        "DELETE_ACTIVE_MEMORY",
         "LOAD_DELAYED_MEMORY",
         "UNLOAD_DELAYED_MEMORY",
         "ATTACH_FILE",
@@ -1321,7 +1321,7 @@ def _build_session_action_marker_detail(
 
 PAYLOAD_DISTINCT_SESSION_ACTIONS = {
     "SAVE_ACTIVE_MEMORY",
-    "RESOLVE_ACTIVE_MEMORY",
+    "DELETE_ACTIVE_MEMORY",
     "SAVE_DELAYED_MEMORY",
     "LOAD_DELAYED_MEMORY",
     "UNLOAD_DELAYED_MEMORY",

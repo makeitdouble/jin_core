@@ -10,7 +10,7 @@ const chatInputShell =
 const streamMessages =
   new Map();
 
-const STREAM_AVATAR_LEFT_PX = 48;
+const STREAM_AVATAR_LEFT_PX = 54;
 const STREAM_AVATAR_SIZE_PX = 28;
 const STREAM_AVATAR_HANDOFF_MS = 260;
 const STREAM_AVATAR_LAYOUT_TRACK_MS = 340;
@@ -1604,6 +1604,25 @@ function appendChatMessage(
     }
   );
 
+  const completedBubble = pre.closest(
+    ".jin-chat-bubble"
+  );
+  if (
+    completedBubble
+    && window.markJinCompletedAnswerBubble
+  ) {
+    const visibleMessageText = String(
+      pre.innerText
+      || pre.textContent
+      || text
+      || ""
+    ).trim();
+    window.markJinCompletedAnswerBubble(
+      completedBubble,
+      visibleMessageText
+    );
+  }
+
   if (role === "user") {
     const chips =
       createMessageAttachmentChips(
@@ -2917,11 +2936,7 @@ function finishStreamMessage(
         ).trim();
         window.markJinCompletedAnswerBubble(
           answerBubble,
-          visibleAnswerText,
-          {
-            retryable: options.retryable === true,
-            retryCandidate: options.retryCandidate === true,
-          }
+          visibleAnswerText
         );
       }
     }

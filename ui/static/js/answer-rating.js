@@ -33,17 +33,12 @@
         + ".jin-chat-bubble-brain.jin-rating-selected-active:not(.jin-rating-committed)";
     let latestRatingBubbleSequence = 0;
 
-    // Rating stays in the codebase, but the release interaction is now the
-    // neutral bubble utility surface. Flip this back to true to restore the
-    // old three-zone rating behavior without resurrecting deleted code.
+    // Rating stays in the codebase, but the release interaction is now a
+    // dedicated copy control under each chat avatar.
     const ANSWER_RATING_ENABLED = false;
-    const BUBBLE_RETRY_HOLD_MS = 1500;
     const bubbleUtilitySelector =
-        ".jin-chat-bubble-service, .jin-chat-bubble-brain";
+        ".jin-chat-bubble-user, .jin-chat-bubble-service, .jin-chat-bubble-brain";
     const bubbleCopyText = new WeakMap();
-    let latestRetryableBubble = null;
-    let retryableBubbleCandidate = null;
-    let pendingRetryRemoval = null;
 
     if (document.body) {
         document.body.classList.toggle(
@@ -78,7 +73,7 @@
                 return true;
             }
         } catch (error) {
-            // Fall through to the old textarea copy path.
+            // Fall through to the textarea copy path.
         }
 
         const textarea = document.createElement("textarea");
@@ -100,142 +95,129 @@
         return copied;
     }
 
-    function getBubbleUtilityLabel(bubble) {
-        return bubble && bubble.classList.contains("jin-bubble-utility-retryable")
-            ? "Double-click: Copy all\nLong-tap: Delete"
-            : "Double-click: Copy all";
-    }
-
-    function syncBubbleUtilityLabels(bubble) {
-        if (!bubble) {
-            return;
+    function getBubbleCopyHost(bubble) {
+        if (!bubble || !bubble.closest) {
+            return null;
         }
 
-        const label = getBubbleUtilityLabel(bubble);
-        bubble
-            .querySelectorAll(":scope > .jin-bubble-utility-zones > .jin-bubble-utility-zone")
-            .forEach((zone) => {
-                zone.title = label;
-                zone.setAttribute("aria-label", label.replace("\n", "; "));
-            });
-    }
-
-    function clearRetryableBubble() {
-        if (!latestRetryableBubble) {
-            return;
+        const streamWrapper = bubble.closest(".jin-stream-wrapper");
+        if (streamWrapper) {
+            const avatarSlot = streamWrapper.querySelector(".jin-stream-avatar-slot");
+            return avatarSlot
+                ? { host: avatarSlot, hoverRoot: streamWrapper }
+                : null;
         }
 
-        latestRetryableBubble.classList.remove("jin-bubble-utility-retryable");
-        delete latestRetryableBubble.dataset.bubbleUtilityRetryable;
-        syncBubbleUtilityLabels(latestRetryableBubble);
-        latestRetryableBubble = null;
-    }
-
-    function restoreBubbleAfterCancelledHold(bubble) {
-        if (!bubble || !bubble.isConnected) {
-            return;
-        }
-
-        bubble.style.transition = "opacity 0.18s ease";
-        bubble.style.opacity = "1";
-        window.setTimeout(() => {
-            if (!bubble.isConnected) {
-                return;
-            }
-            bubble.style.removeProperty("transition");
-            bubble.style.removeProperty("opacity");
-        }, 190);
-    }
-
-    function restorePendingRetryRemoval() {
-        const pending = pendingRetryRemoval;
-        pendingRetryRemoval = null;
-        if (!pending || !pending.parent || !pending.wrapper) {
-            return false;
-        }
-
-        const reference = (
-            pending.nextSibling
-            && pending.nextSibling.parentNode === pending.parent
-        )
-            ? pending.nextSibling
+        const messageShell = bubble.closest(".jin-message-shell");
+        return messageShell
+            ? { host: messageShell, hoverRoot: messageShell }
             : null;
-        pending.parent.insertBefore(pending.wrapper, reference);
-        restoreBubbleAfterCancelledHold(pending.bubble);
-
-        latestRetryableBubble = pending.bubble;
-        pending.bubble.classList.add("jin-bubble-utility-retryable");
-        pending.bubble.dataset.bubbleUtilityRetryable = "true";
-        syncBubbleUtilityLabels(pending.bubble);
-        return true;
     }
 
-    window.restoreJinDeletedRetryBubble = restorePendingRetryRemoval;
-    window.confirmJinLastResponseRetryStarted = function () {
-        pendingRetryRemoval = null;
-    };
-
-    function startBubbleRetryHold(event, bubble) {
-        if (
-            event.button !== 0
-            || bubble !== latestRetryableBubble
-            || bubble.dataset.bubbleUtilityRetryable !== "true"
-            || isRatingInteractionBlocked()
-        ) {
-            return;
+    function createBubbleCopyControl(bubble) {
+        const placement = getBubbleCopyHost(bubble);
+        if (!placement) {
+            return null;
         }
 
-        const zone = event.currentTarget;
-        const state = {
-            triggered: false,
-            timer: null,
-        };
-        zone.__jinBubbleHoldState = state;
+        const existing = placement.host.querySelector(
+            ":scope > .jin-message-copy-control"
+        );
+        if (existing) {
+            return {
+                button: existing,
+                hoverRoot: placement.hoverRoot,
+            };
+        }
 
-        bubble.style.transition = `opacity ${BUBBLE_RETRY_HOLD_MS}ms linear`;
-        bubble.style.opacity = "0";
+        const button = document.createElement("button");
+        button.type = "button";
+        button.className = "jin-message-copy-control";
+        button.title = "Copy all";
+        button.setAttribute("aria-label", "Copy all");
+        button.innerHTML = `
+            <span class="jin-message-copy-glyph" aria-hidden="true">
+                <svg viewBox="0 0 24 24" fill="none" focusable="false">
+                    <rect x="9" y="9" width="10" height="10" rx="1.5"></rect>
+                    <path d="M15 9V6.5A1.5 1.5 0 0 0 13.5 5h-8A1.5 1.5 0 0 0 4 6.5v8A1.5 1.5 0 0 0 5.5 16H9"></path>
+                </svg>
+            </span>
+            <span class="jin-message-copy-check" aria-hidden="true">
+                <svg viewBox="0 0 24 24" fill="none" focusable="false">
+                    <path d="m6.5 12.5 3.4 3.4 7.6-8"></path>
+                </svg>
+            </span>`;
 
-        state.timer = window.setTimeout(() => {
-            state.triggered = true;
-            state.timer = null;
+        let reboundTimer = null;
+        let copiedTimer = null;
 
-            const requestRetry = window.requestJinLastResponseRetry;
-            const sent = requestRetry ? requestRetry() : false;
-            if (!sent) {
-                restoreBubbleAfterCancelledHold(bubble);
+        const clearPressState = (withRebound) => {
+            button.classList.remove("is-pressed");
+            if (!withRebound) {
+                button.classList.remove("is-rebound");
                 return;
             }
 
-            clearRetryableBubble();
-
-            const wrapper = bubble.closest(".jin-stream-wrapper")
-                || bubble.closest(".jin-message-row")
-                || bubble;
-            const parent = wrapper.parentNode;
-            if (parent) {
-                pendingRetryRemoval = {
-                    wrapper,
-                    bubble,
-                    parent,
-                    nextSibling: wrapper.nextSibling,
-                };
-                wrapper.remove();
+            button.classList.add("is-rebound");
+            if (reboundTimer !== null) {
+                window.clearTimeout(reboundTimer);
             }
-        }, BUBBLE_RETRY_HOLD_MS);
+            reboundTimer = window.setTimeout(() => {
+                reboundTimer = null;
+                button.classList.remove("is-rebound");
+            }, 95);
+        };
+
+        button.addEventListener("pointerdown", (event) => {
+            if (event.button !== 0) {
+                return;
+            }
+            button.classList.remove("is-rebound");
+            button.classList.add("is-pressed");
+        });
+
+        button.addEventListener("pointerup", (event) => {
+            if (event.button === 0) {
+                clearPressState(true);
+            }
+        });
+        button.addEventListener("pointercancel", () => clearPressState(false));
+        button.addEventListener("pointerleave", (event) => {
+            if (event.buttons) {
+                clearPressState(false);
+            }
+        });
+
+        button.addEventListener("click", async (event) => {
+            event.preventDefault();
+            event.stopPropagation();
+
+            if (!await copyBubbleUtilityText(bubble)) {
+                return;
+            }
+
+            button.classList.add("is-copied");
+            if (copiedTimer !== null) {
+                window.clearTimeout(copiedTimer);
+            }
+            copiedTimer = window.setTimeout(() => {
+                copiedTimer = null;
+                button.classList.remove("is-copied");
+            }, 1050);
+        });
+
+        placement.host.appendChild(button);
+        return { button, hoverRoot: placement.hoverRoot };
     }
 
-    function cancelBubbleRetryHold(event, bubble) {
-        const zone = event.currentTarget;
-        const state = zone.__jinBubbleHoldState;
-        if (!state || state.triggered) {
+    function setBubbleCopyReady(bubble, ready = true) {
+        const control = createBubbleCopyControl(bubble);
+        if (!control) {
             return;
         }
 
-        if (state.timer !== null) {
-            window.clearTimeout(state.timer);
-        }
-        zone.__jinBubbleHoldState = null;
-        restoreBubbleAfterCancelledHold(bubble);
+        control.hoverRoot.classList.toggle("jin-copy-ready", Boolean(ready));
+        control.button.disabled = !ready;
     }
 
     function bindBubbleUtilityInteractions(bubble) {
@@ -244,7 +226,13 @@
         }
 
         bubble.dataset.bubbleUtilityBound = "true";
-        bubble.classList.add("jin-bubble-utility-enabled");
+
+        // Remove the old invisible edge gesture surface completely. Copy is now
+        // available only through the explicit control beneath the avatar.
+        bubble.classList.remove("jin-bubble-utility-enabled", "jin-bubble-utility-retryable");
+        bubble.querySelectorAll(
+            ":scope > .jin-bubble-utility-zones, :scope > .jin-rating-hover-zones"
+        ).forEach((node) => node.remove());
 
         // Clear dormant rating presentation only; all rating implementation
         // remains below this release feature flag.
@@ -254,38 +242,14 @@
             "jin-rating-l1-waiting",
             "jin-rating-interaction-blocked"
         );
-        const oldRatingZones = bubble.querySelector(":scope > .jin-rating-hover-zones");
-        if (oldRatingZones) {
-            oldRatingZones.remove();
+
+        createBubbleCopyControl(bubble);
+
+        // User messages are complete as soon as they appear. Model bubbles stay
+        // hidden until markJinCompletedAnswerBubble() is called at stream end.
+        if (bubble.classList.contains("jin-chat-bubble-user")) {
+            setBubbleCopyReady(bubble, true);
         }
-
-        const zones = document.createElement("div");
-        zones.className = "jin-bubble-utility-zones";
-        zones.setAttribute("aria-hidden", "true");
-
-        ["top", "right", "bottom", "left"].forEach((edge) => {
-            const zone = document.createElement("div");
-            zone.className = `jin-bubble-utility-zone jin-bubble-utility-zone-${edge}`;
-
-            zone.addEventListener("dblclick", (event) => {
-                event.preventDefault();
-                event.stopPropagation();
-                void copyBubbleUtilityText(bubble);
-            });
-
-            zone.addEventListener("pointerdown", (event) => {
-                startBubbleRetryHold(event, bubble);
-            });
-            ["pointerup", "pointerleave", "pointercancel"].forEach((eventName) => {
-                zone.addEventListener(eventName, (event) => {
-                    cancelBubbleRetryHold(event, bubble);
-                });
-            });
-            zones.appendChild(zone);
-        });
-
-        bubble.appendChild(zones);
-        syncBubbleUtilityLabels(bubble);
     }
 
     function addBubbleUtilityZones(root) {
@@ -301,52 +265,14 @@
         bubbles.forEach(bindBubbleUtilityInteractions);
     }
 
-    function markBubbleRetryable(bubble) {
-        if (!bubble) {
-            return;
-        }
-
-        clearRetryableBubble();
-        latestRetryableBubble = bubble;
-        bubble.classList.add("jin-bubble-utility-retryable");
-        bubble.dataset.bubbleUtilityRetryable = "true";
-        syncBubbleUtilityLabels(bubble);
-    }
-
-    window.markJinCompletedAnswerBubble = function (bubble, copyText, options = {}) {
+    window.markJinCompletedAnswerBubble = function (bubble, copyText) {
         if (!bubble) {
             return;
         }
 
         bindBubbleUtilityInteractions(bubble);
         bubbleCopyText.set(bubble, String(copyText || ""));
-
-        if (options.retryCandidate === true) {
-            retryableBubbleCandidate = bubble;
-        }
-
-        if (options.retryable === true) {
-            retryableBubbleCandidate = null;
-            markBubbleRetryable(bubble);
-            return;
-        }
-
-        syncBubbleUtilityLabels(bubble);
-    };
-
-    window.commitJinCompletedAnswerRetryCandidate = function () {
-        const bubble = retryableBubbleCandidate;
-        retryableBubbleCandidate = null;
-        if (!bubble || !bubble.isConnected) {
-            return false;
-        }
-
-        markBubbleRetryable(bubble);
-        return true;
-    };
-
-    window.clearJinCompletedAnswerRetryCandidate = function () {
-        retryableBubbleCandidate = null;
+        setBubbleCopyReady(bubble, true);
     };
 
     function isRatingInteractionBlocked() {
@@ -1085,8 +1011,6 @@
     const chatForm = document.getElementById("chat-form");
     if (chatForm) {
         chatForm.addEventListener("submit", () => {
-            clearRetryableBubble();
-            retryableBubbleCandidate = null;
             if (!ANSWER_RATING_ENABLED) {
                 return;
             }
