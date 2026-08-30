@@ -172,6 +172,32 @@
     outline: none;
 }
 
+.runtime-memory-file-row {
+    cursor: pointer;
+    border-radius: 4px;
+    padding: 5px 0;
+    margin: -5px 0 5px;
+    transition:
+            background-color 0.18s ease,
+            color 0.18s ease;
+}
+
+#runtime-memory-text .runtime-memory-file-row.runtime-memory-sort-transition {
+    transition:
+            transform 0.15s cubic-bezier(0.22, 0.61, 0.36, 1),
+            background-color 0.18s ease,
+            color 0.18s ease;
+}
+
+.runtime-memory-file-row:hover,
+.runtime-memory-file-row:focus-visible {
+    outline: none;
+}
+
+#runtime-memory-text .runtime-memory-file-row:last-child {
+    margin-bottom: -5px;
+}
+
 .runtime-memory-delayed-row-secondary-linked .runtime-memory-key,
 .runtime-memory-delayed-row-secondary-linked:not(.runtime-memory-kv-row) .runtime-memory-value,
 .runtime-memory-delayed-row-secondary-linked.runtime-memory-kv-row .runtime-memory-value {
@@ -389,6 +415,36 @@
     color: rgba(226, 232, 240, 0.90);
     font-variant-numeric: tabular-nums;
     overflow-wrap: anywhere;
+}
+
+
+.runtime-memory-file-hover-card {
+    --runtime-memory-file-hover-size: min(280px, calc(100vw - 24px), calc(100vh - 24px));
+    width: var(--runtime-memory-file-hover-size);
+    height: var(--runtime-memory-file-hover-size);
+    padding: 8px;
+}
+
+.runtime-memory-file-hover-image {
+    display: block;
+    width: 100%;
+    height: 100%;
+    border-radius: 4px;
+    object-fit: contain;
+    background: rgba(9, 9, 11, 0.38);
+}
+
+.runtime-memory-file-hover-text {
+    width: 100%;
+    height: 100%;
+    box-sizing: border-box;
+    margin: 0;
+    overflow: hidden;
+    color: rgba(226, 232, 240, 0.86);
+    font: inherit;
+    line-height: 1.45;
+    overflow-wrap: anywhere;
+    white-space: pre-wrap;
 }
 
 .runtime-memory-key,
@@ -990,7 +1046,9 @@
 }
 
 .runtime-memory-delayed-row-pinned .runtime-memory-key,
-.runtime-memory-delayed-row-pinned .runtime-memory-value {
+.runtime-memory-delayed-row-pinned .runtime-memory-value,
+.runtime-memory-file-row-pinned .runtime-memory-key,
+.runtime-memory-file-row-pinned .runtime-memory-value {
     color: rgba(244, 244, 245, 0.92);
     text-shadow:
             0 0 7px rgba(236, 253, 245, 0.28),
@@ -1119,20 +1177,33 @@
 .runtime-memory-delayed-row:focus-visible .runtime-memory-key,
 .runtime-memory-delayed-row:focus-visible .runtime-memory-value,
 .runtime-memory-delayed-row:hover .runtime-memory-delayed-pin,
-.runtime-memory-delayed-row:focus-visible .runtime-memory-delayed-pin {
+.runtime-memory-delayed-row:focus-visible .runtime-memory-delayed-pin,
+.runtime-memory-file-row:hover .runtime-memory-key,
+.runtime-memory-file-row:hover .runtime-memory-value,
+.runtime-memory-file-row:focus-visible .runtime-memory-key,
+.runtime-memory-file-row:focus-visible .runtime-memory-value,
+.runtime-memory-file-row:hover .runtime-memory-delayed-pin,
+.runtime-memory-file-row:focus-visible .runtime-memory-delayed-pin {
     color: rgba(196, 196, 198, 0.96);
 }
 
 .runtime-memory-delayed-row-pinned:hover .runtime-memory-key,
 .runtime-memory-delayed-row-pinned:hover .runtime-memory-value,
 .runtime-memory-delayed-row-pinned:focus-visible .runtime-memory-key,
-.runtime-memory-delayed-row-pinned:focus-visible .runtime-memory-value {
+.runtime-memory-delayed-row-pinned:focus-visible .runtime-memory-value,
+.runtime-memory-file-row-pinned:hover .runtime-memory-key,
+.runtime-memory-file-row-pinned:hover .runtime-memory-value,
+.runtime-memory-file-row-pinned:focus-visible .runtime-memory-key,
+.runtime-memory-file-row-pinned:focus-visible .runtime-memory-value {
     color: rgba(244, 244, 245, 0.92);
 }
 
 .runtime-memory-delayed-row-pinned .runtime-memory-delayed-pin,
 .runtime-memory-delayed-row-pinned:hover .runtime-memory-delayed-pin,
-.runtime-memory-delayed-row-pinned:focus-visible .runtime-memory-delayed-pin {
+.runtime-memory-delayed-row-pinned:focus-visible .runtime-memory-delayed-pin,
+.runtime-memory-file-row-pinned .runtime-memory-delayed-pin,
+.runtime-memory-file-row-pinned:hover .runtime-memory-delayed-pin,
+.runtime-memory-file-row-pinned:focus-visible .runtime-memory-delayed-pin {
     color: rgba(240, 253, 250, 0.98);
 }
 

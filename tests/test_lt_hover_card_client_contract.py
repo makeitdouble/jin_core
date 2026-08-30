@@ -83,11 +83,40 @@ class LTHoverCardClientContractTests(unittest.TestCase):
             source,
         )
 
+    def test_active_rows_reuse_the_same_detail_hover_card(self):
+        source = MEMORY_VIEW.read_text(encoding="utf-8")
+
+        self.assertIn(
+            "function buildMemoryDetailsHoverCard(",
+            source,
+        )
+        self.assertIn(
+            "} else if (options.interactiveActiveMemory) {\n"
+            "        bindActiveMemoryHoverCard(\n"
+            "            row,\n"
+            "            line\n"
+            "        );",
+            source,
+        )
+        self.assertIn(
+            '".runtime-memory-active-row:hover"',
+            source,
+        )
+        self.assertIn(
+            'valuePresentation.tags.forEach((tag) => {',
+            source,
+        )
+        self.assertIn(
+            '{ fallbackTitle: "Active memory" }',
+            source,
+        )
+
     def test_hover_card_assets_are_cache_busted(self):
         source = INDEX_HTML.read_text(encoding="utf-8")
 
         self.assertEqual(source.count("lt-hover-card=2"), 1)
         self.assertEqual(source.count("lt-hover-card=3"), 1)
+        self.assertEqual(source.count("active-hover-card=1"), 1)
 
 
 if __name__ == "__main__":

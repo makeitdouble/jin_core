@@ -779,6 +779,8 @@ def _append_delayed_memory_context_age(
 
 def build_loaded_delayed_memory_context(
     context=None,
+    *,
+    excluded_report_ids=None,
 ) -> str:
 
     from utils.context.formatting import (
@@ -792,6 +794,12 @@ def build_loaded_delayed_memory_context(
     if context is None:
         return ""
 
+    excluded_ids = {
+        str(report_id or "").strip().casefold()
+        for report_id in (excluded_report_ids or [])
+        if str(report_id or "").strip()
+    }
+
     loaded_reports = include_pinned_delayed_memory_reports(
         context
     )
@@ -802,6 +810,13 @@ def build_loaded_delayed_memory_context(
     blocks = []
 
     for report_id, report in loaded_reports.items():
+        normalized_report_id = str(
+            report_id or ""
+        ).strip().casefold()
+
+        if normalized_report_id in excluded_ids:
+            continue
+
         if not isinstance(
             report,
             dict,
@@ -1388,12 +1403,37 @@ def build_brain_context(
     )
 
     # Loaded delayed memory block: pins the selected delayed memory report.
+    # During archived restore, suppress only reports staged from the old
+    # session. A report loaded/pinned after an interrupted restore is live
+    # context and must survive a page reload.
+    restore_staged_delayed_memory_ids = []
+    if restore_priming:
+        restore_staged_delayed_memory_ids.extend(
+            getattr(
+                context,
+                "runtime_session_restore_pending_loaded_memory_ids",
+                [],
+            )
+            or []
+        )
+        restore_staged_delayed_memory_ids.extend(
+            item.get("id", "")
+            for item in (
+                getattr(
+                    context,
+                    "runtime_session_restore_delayed_memory_metadata",
+                    [],
+                )
+                or []
+            )
+            if isinstance(item, dict)
+        )
+
     loaded_delayed_memory_context = (
         build_loaded_delayed_memory_context(
-            context
+            context,
+            excluded_report_ids=restore_staged_delayed_memory_ids,
         )
-        if not restore_priming
-        else ""
     )
 
     if loaded_delayed_memory_context:

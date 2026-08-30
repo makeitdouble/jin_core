@@ -606,7 +606,10 @@ function buildSessionActionRow(
       );
     }
 
-    if (part.message) {
+    const isUpdateLTFactsAction =
+      normalizedActionName === "UPDATE_LT_FACTS";
+
+    if (part.message && !isUpdateLTFactsAction) {
       const message =
         document.createElement("span");
 

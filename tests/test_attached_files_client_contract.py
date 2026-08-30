@@ -70,22 +70,29 @@ def test_attached_files_plaque_reuses_attachment_modal_and_100px_image_hover():
     assert "background: transparent;" in base_css
     assert ".jin-attached-delayed-memory-name" in base_css
 
-def test_files_panel_shows_file_count_and_reuses_100px_image_hover_preview():
-    runtime_view = (ROOT / "ui/static/js/runtime/runtime-memory-view.js").read_text(encoding="utf-8")
-    attachments = CHAT_ATTACHMENTS.read_text(encoding="utf-8")
+def test_files_panel_shows_square_left_panel_image_and_text_hover_cards():
+    runtime_view = MEMORY_VIEW.read_text(encoding="utf-8")
+    memory_css = (ROOT / "ui/static/css/runtime-memory.css").read_text(encoding="utf-8")
     index = INDEX.read_text(encoding="utf-8")
 
     assert "const records = getPersistentFileRecords();" in runtime_view
     assert "runtimeMemoryPosition.textContent = String(records.length);" in runtime_view
-    assert "bindPersistentFileHoverPreview" in runtime_view
-    assert "window.bindJinAttachmentHoverPreview(element, record" in runtime_view
-    assert "bindPersistentFileHoverPreview(pinButton, record);" in runtime_view
-    assert "bindRuntimeMemoryHoverTitle(" in runtime_view
-    assert 'String(record.id || "")' in runtime_view
-    assert "hoverPreviewMaxPx: 100" in runtime_view
-    assert "window.bindJinAttachmentHoverPreview" in attachments
-    assert "/static/js/runtime/runtime-memory-view.js?v=context-card-chevronless-1&delayed-fact-paste=2&numeric-fact-order=1&amp;lt-fact-age=1&hold-delete-1&modal-title-editor=1&active-citations=4&runtime-memory-title=2&lazy-rows=6&hover-title=1&row-payload=1&amp;lt-citation-gate=1&delayed-pin-link-isolation=1&delayed-highlight-contract=1&active-memory-activity-order=1&amp;lt-two-line-layout=1&amp;lt-value-fill=1&amp;lt-priority-bubble=1&delayed-id-citations=1" in index
-    assert "/static/js/chat-attachments.js?v=attached-files-3-attachment-modal-id-1&hold-delete-1&runtime-action-preview-2" in index
+    assert "bindPersistentFileHoverPreview(row, record);" in runtime_view
+    assert '"runtime-memory-lt-hover-card runtime-memory-file-hover-card"' in runtime_view
+    assert "positionLongTermMemoryHoverCard(" in runtime_view
+    assert "window.JinFiles.resolveAttachment(record)" in runtime_view
+    assert 'text.textContent =\n          inlineText || "loading...";' in runtime_view
+    assert 'resolvedText || "[ empty file ]"' in runtime_view
+    assert ".runtime-memory-file-hover-card {" in memory_css
+    assert "--runtime-memory-file-hover-size: min(280px" in memory_css
+    assert "width: var(--runtime-memory-file-hover-size);" in memory_css
+    assert "height: var(--runtime-memory-file-hover-size);" in memory_css
+    assert ".runtime-memory-file-hover-image {" in memory_css
+    assert "object-fit: contain;" in memory_css
+    assert ".runtime-memory-file-hover-text {" in memory_css
+    assert "overflow: hidden;" in memory_css
+    assert "white-space: pre-wrap;" in memory_css
+    assert "file-preview-card=1" in index
 
 
 def test_delayed_memory_modal_links_existing_files_by_original_name():

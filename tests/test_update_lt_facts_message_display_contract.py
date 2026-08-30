@@ -69,12 +69,17 @@ class UpdateLTFactsMessageDisplayContractTests(unittest.TestCase):
             ),
         )
 
-    def test_session_actions_ui_renders_message_and_uses_it_as_hover_text(self):
+    def test_session_actions_ui_hides_update_message_but_keeps_hover_text(self):
         source = SESSION_ACTIONS_JS.read_text(encoding="utf-8")
 
         self.assertIn('String(part.message || "").trim()', source)
-        self.assertIn('`: ${part.message}`', source)
+        self.assertIn(
+            'normalizedActionName === "UPDATE_LT_FACTS"',
+            source,
+        )
+        self.assertIn('part.message && !isUpdateLTFactsAction', source)
         self.assertIn('part.message\n      || part.detail', source)
+        self.assertIn('"cursor-help"', source)
         self.assertIn('message: part.message,', source)
 
     def test_chat_bubble_and_logger_tooltips_use_update_message(self):
@@ -90,7 +95,7 @@ class UpdateLTFactsMessageDisplayContractTests(unittest.TestCase):
     def test_cache_versions_are_bumped(self):
         source = INDEX_HTML.read_text(encoding="utf-8")
 
-        self.assertIn('/static/js/logger/session-actions.js?v=logger-session-actions-13', source)
+        self.assertIn('/static/js/logger/session-actions.js?v=logger-session-actions-14', source)
         self.assertIn('/static/js/logger/log-entries.js?v=update-lt-message-1', source)
         self.assertIn('/static/js/socket/runtime-actions.js?v=size-sequence-1', source)
 

@@ -1518,6 +1518,41 @@ function updateDelayedMemoryReportFields(
 }
 
 
+function logDelayedMemoryUnpinned(reportId, report) {
+
+  const normalizedId =
+    String(reportId || "").trim().toLowerCase();
+
+  if (
+      !normalizedId
+      || !report
+      || typeof report !== "object"
+      || Array.isArray(report)
+      || typeof window.appendLog !== "function"
+  ) {
+    return false;
+  }
+
+  const unpinnedMemory = {
+    kind: "delayed",
+    id: normalizedId,
+    label: String(report.title || report.id || normalizedId),
+  };
+
+  window.appendLog(
+    "[MEMORY:UNPINNED]",
+    "Delayed memory unpinned",
+    JSON.stringify(unpinnedMemory, null, 2),
+    {
+      memory_event: "memory_unpinned",
+      unpinned_memory: unpinnedMemory,
+    }
+  );
+
+  return true;
+}
+
+
 function setDelayedMemoryReportPinned(
   reportId,
   pinned,
@@ -1585,22 +1620,10 @@ function setDelayedMemoryReportPinned(
       Boolean(report.pinned)
       && !Boolean(pinned)
       && options.log !== false
-      && typeof window.appendLog === "function"
   ) {
-    const unpinnedMemory = {
-      kind: "delayed",
-      id: normalizedId,
-      label: String(report.title || report.id || normalizedId),
-    };
-
-    window.appendLog(
-      "[MEMORY:UNPINNED]",
-      "Delayed memory unpinned",
-      JSON.stringify(unpinnedMemory, null, 2),
-      {
-        memory_event: "memory_unpinned",
-        unpinned_memory: unpinnedMemory,
-      }
+    logDelayedMemoryUnpinned(
+      normalizedId,
+      report
     );
   }
 
@@ -2681,6 +2704,7 @@ window.JinRuntime.runtime = {
   isDelayedMemoryReportLoaded,
   markDelayedMemoryReportLoaded,
   handleDelayedMemoryReportPinClick,
+  logDelayedMemoryUnpinned,
   setDelayedMemoryReportPinned,
   updateDelayedMemoryReportFields,
   setDelayedMemoryReportAnchorFactIds,

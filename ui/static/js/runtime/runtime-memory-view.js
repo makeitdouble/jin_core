@@ -837,6 +837,8 @@
     clearRuntimeMemoryLineAvatarHover();
     clearDelayedMemoryAvatarHover();
     hideLongTermMemoryHoverCard();
+    hideActiveMemoryHoverCard();
+    hidePersistentFileHoverCard();
 
     if (runtimeMemoryText) {
       runtimeMemoryText.replaceChildren();
@@ -2493,6 +2495,16 @@
   let longTermMemoryHoverCard = null;
   let longTermMemoryHoverCardAnchor = null;
   let longTermMemoryHoverSyncFrame = null;
+  const activeMemoryHoverRows = new WeakMap();
+  let activeMemoryHoverCard = null;
+  let activeMemoryHoverCardAnchor = null;
+  let activeMemoryHoverSyncFrame = null;
+  const persistentFileHoverRows = new WeakMap();
+  const persistentFileHoverTextCache = new Map();
+  let persistentFileHoverCard = null;
+  let persistentFileHoverCardAnchor = null;
+  let persistentFileHoverRequestSerial = 0;
+  let persistentFileHoverSyncFrame = null;
 
   function appendLongTermMemoryHoverMetadataRow(
     container,
@@ -2592,13 +2604,281 @@
     longTermMemoryHoverCardAnchor = null;
   }
 
-  function showLongTermMemoryHoverCard(anchor, line) {
-    if (!anchor || !line) {
+  function getPersistentFileHoverKind(record) {
+    return String(record && record.kind || "file")
+      .trim()
+      .toLowerCase();
+  }
+
+  function getPersistentFileHoverImageSource(record) {
+    return String(
+      record && (
+        record.data_url
+        || record.object_url
+        || record.url
+        || record.context_path
+      ) || ""
+    ).trim();
+  }
+
+  function getPersistentFileHoverInlineText(record) {
+    if (!record) {
+      return "";
+    }
+
+    const candidates = [
+      record.text_content,
+      record.text,
+      record.text_preview,
+    ];
+
+    for (const candidate of candidates) {
+      if (candidate !== undefined && candidate !== null) {
+        return String(candidate);
+      }
+    }
+
+    return "";
+  }
+
+  function resolvePersistentFileHoverText(record) {
+    const inlineText =
+        getPersistentFileHoverInlineText(record);
+
+    if (inlineText) {
+      return Promise.resolve(inlineText);
+    }
+
+    const fileId =
+        String(record && record.id || "")
+          .trim()
+          .toLowerCase();
+
+    if (
+        fileId
+        && persistentFileHoverTextCache.has(fileId)
+    ) {
+      return persistentFileHoverTextCache.get(fileId);
+    }
+
+    const previewPromise = Promise.resolve().then(async () => {
+      if (
+          !window.JinFiles
+          || typeof window.JinFiles.resolveAttachment !== "function"
+      ) {
+        return "";
+      }
+
+      const resolved =
+          await window.JinFiles.resolveAttachment(record);
+
+      return getPersistentFileHoverInlineText(
+          resolved
+      );
+    }).catch(() => "");
+
+    if (fileId) {
+      persistentFileHoverTextCache.set(
+          fileId,
+          previewPromise
+      );
+    }
+
+    return previewPromise;
+  }
+
+  function hidePersistentFileHoverCard(anchor = null) {
+    if (
+        anchor
+        && persistentFileHoverCardAnchor
+        && anchor !== persistentFileHoverCardAnchor
+    ) {
       return;
     }
 
-    hideLongTermMemoryHoverCard();
+    persistentFileHoverRequestSerial += 1;
 
+    if (
+        persistentFileHoverCard
+        && persistentFileHoverCard.isConnected
+    ) {
+      persistentFileHoverCard.remove();
+    }
+
+    persistentFileHoverCard = null;
+    persistentFileHoverCardAnchor = null;
+  }
+
+  function showPersistentFileHoverCard(anchor, record) {
+    if (!anchor || !record) {
+      return;
+    }
+
+    const kind =
+        getPersistentFileHoverKind(record);
+
+    if (kind !== "image" && kind !== "text") {
+      hidePersistentFileHoverCard();
+      return;
+    }
+
+    hidePersistentFileHoverCard();
+
+    const requestSerial =
+        ++persistentFileHoverRequestSerial;
+    const card = document.createElement("div");
+
+    card.className =
+        "runtime-memory-lt-hover-card runtime-memory-file-hover-card";
+    card.setAttribute("role", "tooltip");
+    card.setAttribute(
+        "aria-label",
+        `${String(record.name || "attachment")} preview`
+    );
+
+    if (kind === "image") {
+      const source =
+          getPersistentFileHoverImageSource(record);
+
+      if (!source) {
+        return;
+      }
+
+      const image = document.createElement("img");
+
+      image.className =
+          "runtime-memory-file-hover-image";
+      image.alt = "";
+      image.draggable = false;
+      image.src = source;
+      card.appendChild(image);
+    } else {
+      const text = document.createElement("pre");
+      const inlineText =
+          getPersistentFileHoverInlineText(record);
+
+      text.className =
+          "runtime-memory-file-hover-text";
+      text.textContent =
+          inlineText || "loading...";
+      card.appendChild(text);
+
+      if (!inlineText) {
+        void resolvePersistentFileHoverText(record)
+          .then((resolvedText) => {
+            if (
+                requestSerial !== persistentFileHoverRequestSerial
+                || persistentFileHoverCard !== card
+                || persistentFileHoverCardAnchor !== anchor
+                || !card.isConnected
+                || !anchor.isConnected
+                || !anchor.matches(":hover")
+            ) {
+              return;
+            }
+
+            text.textContent =
+                resolvedText || "[ empty file ]";
+            positionLongTermMemoryHoverCard(
+                card,
+                anchor
+            );
+          });
+      }
+    }
+
+    persistentFileHoverCard = card;
+    persistentFileHoverCardAnchor = anchor;
+    document.body.appendChild(card);
+    positionLongTermMemoryHoverCard(
+        card,
+        anchor
+    );
+  }
+
+  function bindPersistentFileHoverPreview(element, record) {
+    if (!element || !record) {
+      return;
+    }
+
+    persistentFileHoverRows.set(
+        element,
+        record
+    );
+    element.removeAttribute("title");
+
+    element.addEventListener("mouseenter", () => {
+      showPersistentFileHoverCard(
+          element,
+          record
+      );
+    });
+    element.addEventListener("mouseleave", () => {
+      hidePersistentFileHoverCard(
+          element
+      );
+    });
+    element.addEventListener("pointerdown", () => {
+      hidePersistentFileHoverCard(
+          element
+      );
+    });
+  }
+
+  function syncPersistentFileHoverCardAfterScroll() {
+    persistentFileHoverSyncFrame = null;
+
+    if (!runtimeMemoryText || !runtimeMemoryText.isConnected) {
+      hidePersistentFileHoverCard();
+      return;
+    }
+
+    const hoveredRow =
+        runtimeMemoryText.querySelector(
+            ".runtime-memory-file-row:hover"
+        );
+    const record = hoveredRow
+      ? persistentFileHoverRows.get(hoveredRow)
+      : null;
+
+    if (!hoveredRow || !record) {
+      hidePersistentFileHoverCard();
+      return;
+    }
+
+    if (
+        persistentFileHoverCardAnchor === hoveredRow
+        && persistentFileHoverCard
+        && persistentFileHoverCard.isConnected
+    ) {
+      positionLongTermMemoryHoverCard(
+          persistentFileHoverCard,
+          hoveredRow
+      );
+      return;
+    }
+
+    showPersistentFileHoverCard(
+        hoveredRow,
+        record
+    );
+  }
+
+  function schedulePersistentFileHoverCardScrollSync() {
+    if (persistentFileHoverSyncFrame !== null) {
+      return;
+    }
+
+    persistentFileHoverSyncFrame =
+        window.requestAnimationFrame(
+            syncPersistentFileHoverCardAfterScroll
+        );
+  }
+
+  function buildMemoryDetailsHoverCard(
+      line,
+      options = {}
+  ) {
     const valuePresentation =
         memoryModel.splitMemoryMeta(line.value || "");
     const card = document.createElement("div");
@@ -2608,10 +2888,10 @@
     const metadata = document.createElement("div");
     const displayKey =
         memoryModel.runtimeMemoryDisplay.convertKeyToName(
-          String(line.key || "")
+          String(line && line.key || "")
         )
-        || String(line.key || "").trim()
-        || "Long term memory";
+        || String(line && line.key || "").trim()
+        || String(options.fallbackTitle || "Memory");
 
     card.className =
         "runtime-memory-lt-hover-card";
@@ -2627,12 +2907,12 @@
         "runtime-memory-lt-hover-metadata";
 
     if (
-        Number.isFinite(Number(line.context_age_timestamp))
-        && Number(line.context_age_timestamp) > 0
+        Number.isFinite(Number(options.ageTimestamp))
+        && Number(options.ageTimestamp) > 0
     ) {
       age.textContent =
           formatLongTermFactAgeLabel(
-              line.context_age_timestamp
+              options.ageTimestamp
           );
     }
 
@@ -2667,8 +2947,64 @@
       card.appendChild(metadata);
     }
 
+    return card;
+  }
+
+  function showLongTermMemoryHoverCard(anchor, line) {
+    if (!anchor || !line) {
+      return;
+    }
+
+    hideLongTermMemoryHoverCard();
+
+    const card = buildMemoryDetailsHoverCard(
+        line,
+        {
+          fallbackTitle: "Long term memory",
+          ageTimestamp: line.context_age_timestamp,
+        }
+    );
+
     longTermMemoryHoverCard = card;
     longTermMemoryHoverCardAnchor = anchor;
+    document.body.appendChild(card);
+    positionLongTermMemoryHoverCard(card, anchor);
+  }
+
+  function hideActiveMemoryHoverCard(anchor = null) {
+    if (
+        anchor
+        && activeMemoryHoverCardAnchor
+        && anchor !== activeMemoryHoverCardAnchor
+    ) {
+      return;
+    }
+
+    if (
+        activeMemoryHoverCard
+        && activeMemoryHoverCard.isConnected
+    ) {
+      activeMemoryHoverCard.remove();
+    }
+
+    activeMemoryHoverCard = null;
+    activeMemoryHoverCardAnchor = null;
+  }
+
+  function showActiveMemoryHoverCard(anchor, line) {
+    if (!anchor || !line) {
+      return;
+    }
+
+    hideActiveMemoryHoverCard();
+
+    const card = buildMemoryDetailsHoverCard(
+        line,
+        { fallbackTitle: "Active memory" }
+    );
+
+    activeMemoryHoverCard = card;
+    activeMemoryHoverCardAnchor = anchor;
     document.body.appendChild(card);
     positionLongTermMemoryHoverCard(card, anchor);
   }
@@ -2733,14 +3069,78 @@
     );
   }
 
+  function bindActiveMemoryHoverCard(row, line) {
+    if (!row || !line) {
+      return;
+    }
+
+    activeMemoryHoverRows.set(row, line);
+    row.removeAttribute("title");
+    row.addEventListener("mouseenter", () => {
+      showActiveMemoryHoverCard(row, line);
+    });
+    row.addEventListener("mouseleave", () => {
+      hideActiveMemoryHoverCard(row);
+    });
+  }
+
+  function syncActiveMemoryHoverCardAfterScroll() {
+    activeMemoryHoverSyncFrame = null;
+
+    if (!runtimeMemoryText || !runtimeMemoryText.isConnected) {
+      hideActiveMemoryHoverCard();
+      return;
+    }
+
+    const hoveredRow = runtimeMemoryText.querySelector(
+        ".runtime-memory-active-row:hover"
+    );
+    const line = hoveredRow
+      ? activeMemoryHoverRows.get(hoveredRow)
+      : null;
+
+    if (!hoveredRow || !line) {
+      hideActiveMemoryHoverCard();
+      return;
+    }
+
+    if (
+        activeMemoryHoverCardAnchor === hoveredRow
+        && activeMemoryHoverCard
+        && activeMemoryHoverCard.isConnected
+    ) {
+      positionLongTermMemoryHoverCard(
+          activeMemoryHoverCard,
+          hoveredRow
+      );
+      return;
+    }
+
+    showActiveMemoryHoverCard(hoveredRow, line);
+  }
+
+  function scheduleActiveMemoryHoverCardScrollSync() {
+    if (activeMemoryHoverSyncFrame !== null) {
+      return;
+    }
+
+    activeMemoryHoverSyncFrame = window.requestAnimationFrame(
+        syncActiveMemoryHoverCardAfterScroll
+    );
+  }
+
   window.addEventListener("resize", () => {
     hideLongTermMemoryHoverCard();
+    hideActiveMemoryHoverCard();
+    hidePersistentFileHoverCard();
     syncRuntimeMemoryNavigationGeometry();
   });
 
   if (memoryScroll) {
     memoryScroll.addEventListener("scroll", () => {
       scheduleLongTermMemoryHoverCardScrollSync();
+      scheduleActiveMemoryHoverCardScrollSync();
+      schedulePersistentFileHoverCardScrollSync();
     }, { passive: true });
   }
 
@@ -3173,6 +3573,16 @@
           : getAvailableRuntimeMemoryDisplayModes();
     const displayMode =
         ensureRuntimeMemoryDisplayModeAvailable(availableModes);
+
+    if (displayMode !== "long_term") {
+      hideLongTermMemoryHoverCard();
+    }
+    if (displayMode !== "active") {
+      hideActiveMemoryHoverCard();
+    }
+    if (displayMode !== "files") {
+      hidePersistentFileHoverCard();
+    }
 
     updateRuntimeMemoryTabsState(availableModes);
 
@@ -4060,6 +4470,11 @@
             row,
             line
         );
+      } else if (options.interactiveActiveMemory) {
+        bindActiveMemoryHoverCard(
+            row,
+            line
+        );
       } else {
         let hoverTitle = null;
 
@@ -4656,25 +5071,6 @@
   }
 
 
-  function bindPersistentFileHoverPreview(element, record) {
-    if (!element || !record) return;
-
-    const bind = () => {
-      if (element.dataset.jinAttachmentHoverBound === "1") return true;
-      if (typeof window.bindJinAttachmentHoverPreview !== "function") return false;
-
-      window.bindJinAttachmentHoverPreview(element, record, {
-        hoverPreviewMaxPx: 100,
-      });
-      element.dataset.jinAttachmentHoverBound = "1";
-      return true;
-    };
-
-    if (!bind()) {
-      window.addEventListener("jin:attachment-ui-ready", bind, {once: true});
-    }
-  }
-
 
   function getPersistentFileReferenceAliases(record) {
     if (!record || typeof record !== "object") {
@@ -4746,6 +5142,8 @@
   function renderPersistentFiles() {
     if (!runtimeMemoryText) return;
 
+    hidePersistentFileHoverCard();
+
     const records = getPersistentFileRecords();
     const linkedStateByFileId = getPersistentFileContextLinkMap();
 
@@ -4769,12 +5167,12 @@
         "file",
         fileId
       );
-      row.className = "runtime-memory-line runtime-memory-delayed-row";
+      row.className = "runtime-memory-line runtime-memory-file-row";
       row.dataset.memoryHighlightSortIndex = String(index);
       row.setAttribute("role", "button");
       row.setAttribute("tabindex", "0");
-      bindRuntimeMemoryHoverTitle(
-        row,
+      row.setAttribute(
+        "aria-label",
         String(record.name || "attachment")
       );
       row.dataset.fileId = fileId;
@@ -4801,7 +5199,7 @@
         getPersistentFileReferenceAliases(record)
       );
       if (record.pinned) {
-        row.classList.add("runtime-memory-delayed-row-pinned");
+        row.classList.add("runtime-memory-file-row-pinned");
       }
       if (inContext) {
         row.classList.add("runtime-memory-context-loaded-hit");
@@ -4827,7 +5225,6 @@
           : `Attach ${record.id || "file"} to JIN context`
       );
       pinButton.dataset.fileId = String(record.id || "");
-      bindPersistentFileHoverPreview(pinButton, record);
       bindPersistentFileAvatarHoverTarget(pinButton, row);
       const togglePinnedFile = (event) => {
         event.preventDefault();
@@ -4852,10 +5249,10 @@
       const keySpan = document.createElement("span");
       keySpan.className = "runtime-memory-key";
       keySpan.textContent = String(record.name || "attachment");
-      bindPersistentFileHoverPreview(keySpan, record);
       bindPersistentFileAvatarHoverTarget(keySpan, row);
 
       row.append(pinButton, separator, keySpan);
+      bindPersistentFileHoverPreview(row, record);
 
       bindPersistentFileAvatarHoverTarget(row, row);
 
@@ -8547,6 +8944,8 @@
 
 
   function renderActiveMemoryRecords() {
+    hideActiveMemoryHoverCard();
+
     const records =
         getActiveMemoryRecordTexts();
 

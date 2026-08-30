@@ -4808,25 +4808,52 @@ function unloadConsoleDelayedMemoryReport(reportId) {
         return false;
     }
 
-    if (
-        Boolean(report.pinned)
-        && typeof runtime.setDelayedMemoryReportPinned === "function"
-    ) {
-        runtime.setDelayedMemoryReportPinned(normalizedId, false);
+    const wasPinned = Boolean(report.pinned);
+    const wasLoaded =
+        typeof runtime.isDelayedMemoryReportLoaded === "function"
+        && runtime.isDelayedMemoryReportLoaded(normalizedId);
+
+    if (!wasPinned && !wasLoaded) {
+        return false;
     }
 
     if (
-        typeof runtime.isDelayedMemoryReportLoaded === "function"
-        && runtime.isDelayedMemoryReportLoaded(normalizedId)
+        wasPinned
+        && typeof runtime.setDelayedMemoryReportPinned === "function"
+    ) {
+        const unpinned = runtime.setDelayedMemoryReportPinned(
+            normalizedId,
+            false,
+            {log: false}
+        );
+
+        if (!unpinned) {
+            return false;
+        }
+    }
+
+    if (
+        wasLoaded
         && typeof runtime.markDelayedMemoryReportLoaded === "function"
     ) {
-        runtime.markDelayedMemoryReportLoaded(
+        const unloaded = runtime.markDelayedMemoryReportLoaded(
             normalizedId,
             false,
             {
                 sync: true,
                 suppressNextTurn: true,
             }
+        );
+
+        if (!unloaded) {
+            return false;
+        }
+    }
+
+    if (typeof runtime.logDelayedMemoryUnpinned === "function") {
+        runtime.logDelayedMemoryUnpinned(
+            normalizedId,
+            report
         );
     }
 

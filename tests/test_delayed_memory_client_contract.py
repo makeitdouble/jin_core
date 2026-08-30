@@ -238,8 +238,62 @@ class DelayedMemoryClientContractTests(unittest.TestCase):
             logger_source,
         )
         self.assertIn(
-            '/static/js/logger/logger.js?v=delayed-context-plaque-3',
+            '/static/js/logger/logger.js?v=delayed-context-plaque-4',
             index_source,
+        )
+        self.assertIn(
+            'unpin-logger-card=2',
+            index_source,
+        )
+
+    def test_console_delayed_memory_unpin_emits_shared_pin_card(self):
+
+        logger_source = (
+            ROOT / "ui" / "static" / "js" / "logger" / "logger.js"
+        ).read_text(encoding="utf-8")
+        runtime_source = (
+            ROOT / "ui" / "static" / "js" / "runtime" / "runtime.js"
+        ).read_text(encoding="utf-8")
+        log_entries_source = (
+            ROOT / "ui" / "static" / "js" / "logger" / "log-entries.js"
+        ).read_text(encoding="utf-8")
+
+        unload_start = logger_source.index(
+            "function unloadConsoleDelayedMemoryReport(reportId)"
+        )
+        unload_end = logger_source.index(
+            "function openConsoleDelayedMemoryReport(report)",
+            unload_start,
+        )
+        unload_block = logger_source[unload_start:unload_end]
+
+        self.assertIn(
+            "function logDelayedMemoryUnpinned(reportId, report)",
+            runtime_source,
+        )
+        self.assertIn(
+            'memory_event: "memory_unpinned"',
+            runtime_source,
+        )
+        self.assertIn(
+            "{log: false}",
+            unload_block,
+        )
+        self.assertIn(
+            "runtime.logDelayedMemoryUnpinned(",
+            unload_block,
+        )
+        self.assertIn(
+            "logDelayedMemoryUnpinned,",
+            runtime_source,
+        )
+        self.assertIn(
+            'api.setDelayedMemoryReportPinned(\n            id,\n            true,\n            {log: false}',
+            log_entries_source,
+        )
+        self.assertIn(
+            "dismissLogAfterClear(\n        logDiv",
+            log_entries_source,
         )
 
     def test_context_loaded_delayed_memory_highlights_report_and_linked_lt(self):

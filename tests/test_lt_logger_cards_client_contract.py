@@ -100,7 +100,7 @@ class LTLoggerCardsClientContractTests(unittest.TestCase):
 
         self.assertIn('/static/css/runtime-memory.css?v=delayed-collapsible-cards-2', source)
         self.assertIn('/static/js/runtime/runtime-lt-memory.js?v=server-lt-scheduler-1', source)
-        self.assertIn('/static/js/logger/logger.js?v=delayed-context-plaque-3', source)
+        self.assertIn('/static/js/logger/logger.js?v=delayed-context-plaque-4', source)
         self.assertIn('/static/js/logger/trace-modal.js?v=context-session-actions-1', source)
         self.assertIn('/static/js/logger/log-entries.js?v=update-lt-message-1', source)
         self.assertIn('/static/js/socket/event-handlers.js?v=stream-avatar-1', source)
