@@ -1,9 +1,8 @@
-from app_settings import settings
-
 from rules.brain_context_builder import (
     BRAIN_RUNTIME_ACTIONS,
 )
 from runtime.state import BRAIN_RUNTIME_ID
+from runtime.registry import runtime_state
 
 
 def get_brain_runtime_config():
@@ -11,10 +10,9 @@ def get_brain_runtime_config():
     return {
         "runtime_id": BRAIN_RUNTIME_ID,
         "label": "brain",
-        "context_window": (
-            settings
-            .BRAIN_CONTEXT_WINDOW
-        ),
+        "context_window": runtime_state.get_runtime_state(
+            BRAIN_RUNTIME_ID
+        ).get("max_tokens", 0),
         "log_method": (
             "log_brain"
         ),

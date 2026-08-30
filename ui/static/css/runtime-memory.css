@@ -722,6 +722,11 @@
     box-shadow: 0 12px 28px rgba(0, 0, 0, 0.34);
 }
 
+.delayed-memory-modal-fact-ids .delayed-memory-modal-fact-dropdown {
+    left: auto;
+    right: 0;
+}
+
 .delayed-memory-modal-fact-option {
     width: 100%;
     display: grid;

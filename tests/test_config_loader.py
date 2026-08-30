@@ -72,7 +72,6 @@ class ConfigLoaderTests(unittest.TestCase):
             {
                 "BRAIN_MODEL_UID": "env-brain",
                 "USE_SERVICE_AS_BRAIN": "true",
-                "BRAIN_CONTEXT_WINDOW": "12345",
                 "SEARCH_TIMEOUT": "3.5",
             },
             clear=True,
@@ -94,11 +93,6 @@ class ConfigLoaderTests(unittest.TestCase):
         self.assertIs(
             config.USE_SERVICE_AS_BRAIN,
             True,
-        )
-
-        self.assertEqual(
-            config.BRAIN_CONTEXT_WINDOW,
-            12345,
         )
 
         self.assertEqual(

@@ -1620,6 +1620,9 @@ class BrainNode(BaseNode):
             force_refresh=True,
         )
         system_prompt = prepared_context_window.system_prompt
+        brain_runtime["context_window"] = (
+            prepared_context_window.context_window
+        )
 
         context_snapshot = build_brain_context_snapshot(
             context=context,

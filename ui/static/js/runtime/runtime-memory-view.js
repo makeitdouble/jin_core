@@ -5512,7 +5512,15 @@
     currentFactIds,
     query = ""
   ) {
-    return getLongTermMemoryFactRecords()
+    const ltMemory =
+        window.JinRuntime
+        && window.JinRuntime.ltMemory;
+    const availableFacts =
+        ltMemory && typeof ltMemory.getFacts === "function"
+          ? ltMemory.getFacts()
+          : getLongTermMemoryFactRecords();
+
+    return (Array.isArray(availableFacts) ? availableFacts : [])
       .map((fact) => {
         const factId =
             normalizeDelayedMemoryFactId(
@@ -5534,6 +5542,10 @@
             entry.fact,
             query
         )
+      ))
+      .sort((left, right) => (
+        getDelayedMemoryFactIdNumber(right.factId)
+        - getDelayedMemoryFactIdNumber(left.factId)
       ))
       .map((entry) => ({
         ...entry,
@@ -7016,6 +7028,24 @@
     return true;
   }
 
+  function focusDelayedMemoryTagInput() {
+    if (!delayedMemoryModalContent) {
+      return;
+    }
+
+    const nextInput = delayedMemoryModalContent.querySelector(
+        ".delayed-memory-modal-tag-input"
+    );
+
+    if (!nextInput) {
+      return;
+    }
+
+    nextInput.focus({
+      preventScroll: true,
+    });
+  }
+
   function appendDelayedMemoryTagField(parent, label, value) {
     const tags = normalizeDelayedMemoryTags(value);
     const list = document.createElement("div");
@@ -7105,7 +7135,9 @@
       resizeInput();
 
       if (String(input.value || "").includes(",")) {
-        commitInput();
+        if (commitInput()) {
+          focusDelayedMemoryTagInput();
+        }
       }
     });
 
@@ -7115,7 +7147,10 @@
       }
 
       event.preventDefault();
-      commitInput();
+
+      if (commitInput()) {
+        focusDelayedMemoryTagInput();
+      }
     });
 
     input.addEventListener("blur", () => {

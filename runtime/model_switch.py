@@ -60,14 +60,13 @@ def normalize_model_load_config(value: Any) -> dict[str, object]:
     return normalized
 
 
-def _runtime_values(role: str) -> tuple[str, str, int, float]:
+def _runtime_values(role: str) -> tuple[str, str, float]:
     normalized_role = str(role or "").strip().lower()
 
     if normalized_role == "brain":
         return (
             settings.BRAIN_API_BASE,
             settings.BRAIN_MODEL_UID,
-            settings.BRAIN_CONTEXT_WINDOW,
             settings.BRAIN_REQUEST_TIMEOUT,
         )
 
@@ -75,7 +74,6 @@ def _runtime_values(role: str) -> tuple[str, str, int, float]:
         return (
             settings.SERVICE_API_BASE,
             settings.SERVICE_MODEL_UID,
-            settings.SERVICE_CONTEXT_WINDOW,
             settings.SERVICE_REQUEST_TIMEOUT,
         )
 
@@ -414,7 +412,6 @@ async def initialize_runtime_model(
         (
             current_base_url,
             current_model_uid,
-            configured_context_window,
             request_timeout,
         ) = _runtime_values(normalized_role)
         target_base_url = (
@@ -455,10 +452,6 @@ async def initialize_runtime_model(
         current_instance_id = _instance_id(current_instance)
         current_load_config = _instance_load_config(current_instance)
         if current_instance is not None:
-            if not current_load_config and configured_context_window > 0:
-                current_load_config = {
-                    "context_length": configured_context_window,
-                }
             _remember_load_config(
                 base_url,
                 current_model_uid,
@@ -495,10 +488,6 @@ async def initialize_runtime_model(
                     base_url,
                     target_model_uid,
                 )
-            if not load_config and configured_context_window > 0:
-                load_config = {
-                    "context_length": configured_context_window,
-                }
             _remember_load_config(
                 base_url,
                 target_model_uid,
@@ -522,10 +511,6 @@ async def initialize_runtime_model(
                 base_url,
                 target_model_uid,
             )
-        if not requested_load_config and configured_context_window > 0:
-            requested_load_config = {
-                "context_length": configured_context_window,
-            }
 
         max_context = _model_max_context(target_model)
         requested_context = int(

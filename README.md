@@ -264,7 +264,7 @@ Copy `config.example.py` to `config.py`, then set the provider URLs and model ID
 | `BRAIN_API_BASE`, `BRAIN_MODEL_UID` | Configure the required foreground Brain provider and model. |
 | `SERVICE_API_BASE`, `SERVICE_MODEL_UID` | Optionally configure a dedicated background Service provider/model. Leave `SERVICE_API_BASE` empty to reuse Brain. |
 | `FOLLOW_UP_ON_LIMIT` | Continue a Brain generation in an internal tick when the provider stops at its output/context limit. |
-| `BRAIN_CONTEXT_WINDOW`, `SERVICE_CONTEXT_WINDOW` | Set UI/reference context denominators; optional Service values inherit Brain when no dedicated Service is configured. Live request budgets can come from the loaded model metadata. |
+| `NATIVE_MODELS_ENDPOINT` | Optional provider-native model metadata endpoint. JIN reads the active context window from the loaded model and uses the same live value for request budgeting and UI telemetry. |
 | `BRAIN_IMAGE_INPUT_ENABLED` | Allow image attachments on the foreground Brain request when the selected provider/model supports OpenAI-compatible image input. |
 | `LT_MEMORY_ENABLED`, `LT_IDLE_SECONDS` | Enable L-T consolidation and set its idle delay. |
 | `SEARCH_SERPER_API_KEY`, `SEARCH_MAX_RESULTS` | Configure built-in web search. |

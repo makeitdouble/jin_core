@@ -58,11 +58,6 @@ STREAM_VALIDATOR_MIN_RECURRENT_SENTENCE_ALNUM = 20
 # This prevents the request from filling the whole context window exactly.
 RUNTIME_OUTPUT_TOKEN_RESERVE = 256
 
-# SERVICE_CONTEXT_WINDOW / BRAIN_CONTEXT_WINDOW are display/reference values only.
-# Runtime request budgeting is resolved from the context window of the model that is
-# actually loaded in LM Studio. The configured values remain the denominator for the
-# UI percentage and may therefore legitimately display values above 100%.
-
 # ---------------------------------------------------------
 # DOCUMENT / PYTHON SKILLS
 # ---------------------------------------------------------
@@ -99,10 +94,6 @@ BRAIN_MODEL_UID = "brain-model"
 
 BRAIN_REQUEST_TIMEOUT = 1000.0
 
-BRAIN_CONTEXT_WINDOW = 8192
-
-NIGHT_BRAIN_CONTEXT_WINDOW = 16384
-
 BRAIN_TEMPERATURE = 0.7
 
 
@@ -125,8 +116,6 @@ SERVICE_API_BASE = ""
 SERVICE_MODEL_UID = ""
 
 SERVICE_REQUEST_TIMEOUT = 0.0
-
-SERVICE_CONTEXT_WINDOW = 0
 
 SERVICE_TEMPERATURE = 0.1
 

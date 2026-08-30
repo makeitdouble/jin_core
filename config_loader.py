@@ -124,7 +124,6 @@ def normalize_model_role_config(
             "API_BASE",
             "MODEL_UID",
             "REQUEST_TIMEOUT",
-            "CONTEXT_WINDOW",
         ):
             service_name = f"SERVICE_{suffix}"
             brain_name = f"BRAIN_{suffix}"
@@ -193,10 +192,6 @@ def normalize_model_role_config(
         "SERVICE_REQUEST_TIMEOUT": getattr(
             config_module,
             "BRAIN_REQUEST_TIMEOUT",
-        ),
-        "SERVICE_CONTEXT_WINDOW": getattr(
-            config_module,
-            "BRAIN_CONTEXT_WINDOW",
         ),
     }
 

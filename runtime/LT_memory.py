@@ -605,15 +605,9 @@ async def resolve_lt_request_limits(
         context_window = _positive_int(
             getattr(
                 service_client,
-                "configured_context_window",
-                None,
-            )
-            or getattr(
-                service_client,
                 "context_window",
                 None,
             )
-            or getattr(config, "SERVICE_CONTEXT_WINDOW", 0)
         )
 
     requested_limit = _positive_int(
@@ -2635,11 +2629,15 @@ async def run_lt_merge_phase(*, context, service_client) -> dict:
             runtime_context_window = 0
 
     if not runtime_context_window:
-        runtime_context_window = _positive_int(
-            getattr(service_client, "configured_context_window", 0)
-        ) or _positive_int(
-            getattr(config, "SERVICE_CONTEXT_WINDOW", 0)
-        ) or 4096
+        return await log_lt_skip_event(
+            context,
+            phase="merge",
+            message_phase="merge",
+            reason="context_window_unavailable",
+            details={
+                "model": getattr(service_client, "model_uid", ""),
+            },
+        )
 
     refresh_lt_merge_context_window_state(
         context,

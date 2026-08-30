@@ -341,7 +341,6 @@ class RuntimeClient:
             api_base: str,
             model_uid: str,
             timeout: float,
-            configured_context_window: int | None = None,
             configured_max_tokens: int | None = None,
             client: httpx.AsyncClient,
     ):
@@ -349,7 +348,6 @@ class RuntimeClient:
         self.api_base = api_base
         self.model_uid = model_uid
         self.timeout = timeout
-        self.configured_context_window = configured_context_window
         self.configured_max_tokens = configured_max_tokens
         self.client = client
         self.detected_context_window = None
@@ -934,13 +932,7 @@ class RuntimeClient:
             force_refresh=force_refresh,
         )
 
-        # *_CONTEXT_WINDOW is intentionally only the UI/reference denominator.
-        # It is used for requests only as an emergency fallback when LM Studio
-        # metadata cannot be read at all.
-        resolved_context_window = (
-            detected_context_window
-            or self.configured_context_window
-        )
+        resolved_context_window = detected_context_window
 
         if self.provider_context_window_ceiling:
             if resolved_context_window:
@@ -960,7 +952,7 @@ class RuntimeClient:
             requested_max_tokens: int | None,
             *,
             force_refresh: bool = False,
-    ) -> int:
+    ) -> int | None:
 
         try:
             explicit_limit = int(requested_max_tokens)
@@ -984,15 +976,14 @@ class RuntimeClient:
                 )
             return explicit_limit
 
-        return max(
-            1,
-            int(
-                detected_max_tokens
-                or detected_context_window
-                or self.configured_context_window
-                or 1
-            ),
+        detected_limit = (
+            detected_max_tokens
+            or detected_context_window
         )
+        if not detected_limit:
+            return None
+
+        return max(1, int(detected_limit))
 
     async def resolve_safe_max_tokens(
             self,
@@ -1001,7 +992,7 @@ class RuntimeClient:
             user_prompt,
             requested_max_tokens: int | None,
             force_refresh: bool = False,
-    ) -> int:
+    ) -> int | None:
 
         request_context_window = (
             await self.resolve_request_context_window(
@@ -1015,7 +1006,7 @@ class RuntimeClient:
             force_refresh=False,
         )
 
-        if not request_context_window:
+        if not request_context_window or not request_max_tokens:
             return request_max_tokens
 
         prompt_tokens = estimate_runtime_tokens(
@@ -1097,7 +1088,7 @@ class RuntimeClient:
             system_prompt: str,
             user_prompt,
             temperature: float,
-            max_tokens: int,
+            max_tokens: int | None,
             stream: bool = False,
     ) -> dict[str, object]:
 
@@ -1114,9 +1105,11 @@ class RuntimeClient:
                 },
             ],
             "temperature": temperature,
-            "max_tokens": max_tokens,
             "stream": stream,
         }
+
+        if max_tokens is not None and int(max_tokens) > 0:
+            payload["max_tokens"] = int(max_tokens)
 
         if stream:
 

@@ -34,6 +34,22 @@ class RuntimeAvatarLTRingClientContractTests(unittest.TestCase):
         self.assertEqual(radii["active"], 178)
         self.assertGreater(radii["lt"], 151)
 
+    def test_lt_ring_spills_into_new_outer_lanes_every_hundred_facts(self):
+        source = AVATAR_JS.read_text(encoding="utf-8")
+
+        self.assertIn("const LT_MEMORY_RING_MAX_FACTS = 100;", source)
+        self.assertIn("const LT_MEMORY_RING_RADIUS_STEP = 4;", source)
+        self.assertIn("function getLTMemoryRingBatches(records)", source)
+        self.assertIn("rotationKeySuffix: `:${laneIndex}`", source)
+        self.assertIn("records.slice(", source)
+        self.assertIn("startIndex + LT_MEMORY_RING_MAX_FACTS", source)
+        self.assertIn("+ LT_MEMORY_RING_RADIUS_STEP * laneIndex", source)
+        self.assertIn("appendLTMemorySignalRings(", source)
+        self.assertIn("captureMemoryRingPhases(svg, kind)", source)
+        self.assertIn("restoreMemoryRingPhases(", source)
+        self.assertIn("previousRotationPhases", source)
+        self.assertIn("nodeState.avatarMemoryRadius = Number(layout.radius);", source)
+
     def test_lt_facts_are_rendered_as_reference_aware_memory_dashes(self):
         source = AVATAR_JS.read_text(encoding="utf-8")
 
@@ -98,9 +114,9 @@ class RuntimeAvatarLTRingClientContractTests(unittest.TestCase):
         end = source.index("\n  function appendDefs(", start)
         body = source[start:end]
 
-        lt_index = body.index('"lt"')
-        delayed_index = body.index('"delayed"')
-        active_index = body.index('"active"')
+        delayed_index = body.index("appendMemorySignalRing(")
+        lt_index = body.index("appendLTMemorySignalRings(")
+        active_index = body.rindex("appendMemorySignalRing(")
 
         self.assertLess(delayed_index, lt_index)
         self.assertLess(lt_index, active_index)

@@ -429,7 +429,7 @@ class RuntimeStreamTokenTests(unittest.IsolatedAsyncioTestCase):
             context=context,
             runtime_id=runtime_id,
             role="service",
-            context_window=settings.SERVICE_CONTEXT_WINDOW,
+            context_window=8192,
             log_method=context.logger.log_service,
             context_snapshot={
                 "context_role": "brain",
@@ -488,7 +488,7 @@ class RuntimeStreamTokenTests(unittest.IsolatedAsyncioTestCase):
             context=context,
             runtime_id=runtime_id,
             role="service",
-            context_window=settings.SERVICE_CONTEXT_WINDOW,
+            context_window=8192,
             log_method=context.logger.log_service,
             context_snapshot={
                 "context_role": "brain",
@@ -535,7 +535,7 @@ class RuntimeStreamTokenTests(unittest.IsolatedAsyncioTestCase):
             context=context,
             runtime_id=runtime_id,
             role="service",
-            context_window=settings.SERVICE_CONTEXT_WINDOW,
+            context_window=8192,
             log_method=context.logger.log_service,
             context_snapshot={
                 "context_role": "brain",
@@ -578,7 +578,7 @@ class RuntimeStreamTokenTests(unittest.IsolatedAsyncioTestCase):
             context=context,
             runtime_id=runtime_id,
             role="service",
-            context_window=settings.SERVICE_CONTEXT_WINDOW,
+            context_window=8192,
             log_method=context.logger.log_service,
             context_snapshot={
                 "context_role": "brain",
@@ -612,7 +612,7 @@ class RuntimeStreamTokenTests(unittest.IsolatedAsyncioTestCase):
             context=context,
             runtime_id=runtime_id,
             role="service",
-            context_window=settings.SERVICE_CONTEXT_WINDOW,
+            context_window=8192,
             log_method=context.logger.log_service,
             context_snapshot={
                 "context_role": "brain",
@@ -657,7 +657,7 @@ class RuntimeStreamTokenTests(unittest.IsolatedAsyncioTestCase):
             runtime_id=runtime_id,
             role="service",
             context_window=(
-                settings.SERVICE_CONTEXT_WINDOW
+                8192
             ),
             log_method=(
                 context.logger.log_service
@@ -747,7 +747,7 @@ class RuntimeStreamTokenTests(unittest.IsolatedAsyncioTestCase):
             runtime_id=runtime_id,
             role="service",
             context_window=(
-                settings.SERVICE_CONTEXT_WINDOW
+                8192
             ),
             log_method=(
                 context.logger.log_service
@@ -833,7 +833,7 @@ class RuntimeStreamTokenTests(unittest.IsolatedAsyncioTestCase):
             runtime_id=runtime_id,
             role="service",
             context_window=(
-                settings.SERVICE_CONTEXT_WINDOW
+                8192
             ),
             log_method=(
                 context.logger.log_service
@@ -892,7 +892,7 @@ class RuntimeStreamTokenTests(unittest.IsolatedAsyncioTestCase):
             runtime_id=runtime_id,
             role="service",
             context_window=(
-                settings.SERVICE_CONTEXT_WINDOW
+                8192
             ),
             log_method=(
                 context.logger.log_service
@@ -954,7 +954,7 @@ class RuntimeStreamTokenTests(unittest.IsolatedAsyncioTestCase):
             runtime_id=runtime_id,
             role="service",
             context_window=(
-                settings.SERVICE_CONTEXT_WINDOW
+                8192
             ),
             log_method=(
                 context.logger.log_service
@@ -1069,7 +1069,7 @@ class RuntimeStreamTokenTests(unittest.IsolatedAsyncioTestCase):
             context=context,
             runtime_id=settings.SERVICE_MODEL_UID,
             role="service",
-            context_window=settings.SERVICE_CONTEXT_WINDOW,
+            context_window=8192,
             log_method=context.logger.log_service,
             context_snapshot={
                 "context_role": "brain",
@@ -1160,7 +1160,7 @@ class RuntimeStreamTokenTests(unittest.IsolatedAsyncioTestCase):
             runtime_id=runtime_id,
             role="service",
             context_window=(
-                settings.SERVICE_CONTEXT_WINDOW
+                8192
             ),
             log_method=(
                 context.logger.log_service
@@ -1247,7 +1247,7 @@ class RuntimeStreamTokenTests(unittest.IsolatedAsyncioTestCase):
             runtime_id=runtime_id,
             role="service",
             context_window=(
-                settings.SERVICE_CONTEXT_WINDOW
+                8192
             ),
             log_method=(
                 context.logger.log_service
@@ -1326,7 +1326,7 @@ class RuntimeStreamTokenTests(unittest.IsolatedAsyncioTestCase):
             runtime_id=runtime_id,
             role="service",
             context_window=(
-                settings.SERVICE_CONTEXT_WINDOW
+                8192
             ),
             log_method=(
                 context.logger.log_service
@@ -1421,7 +1421,7 @@ class RuntimeStreamTokenTests(unittest.IsolatedAsyncioTestCase):
                     runtime_id=runtime_id,
                     role="service",
                     context_window=(
-                        settings.SERVICE_CONTEXT_WINDOW
+                        8192
                     ),
                     log_method=(
                         context.logger.log_service
@@ -1538,7 +1538,7 @@ class RuntimeStreamTokenTests(unittest.IsolatedAsyncioTestCase):
                     runtime_id=runtime_id,
                     role="service",
                     context_window=(
-                        settings.SERVICE_CONTEXT_WINDOW
+                        8192
                     ),
                     log_method=(
                         context.logger.log_service
@@ -1697,7 +1697,7 @@ class RuntimeStreamTokenTests(unittest.IsolatedAsyncioTestCase):
             runtime_id=runtime_id,
             role="service",
             context_window=(
-                settings.SERVICE_CONTEXT_WINDOW
+                8192
             ),
             log_method=(
                 context.logger.log_service
@@ -1775,7 +1775,7 @@ class RuntimeStreamTokenTests(unittest.IsolatedAsyncioTestCase):
             runtime_id=runtime_id,
             role="service",
             context_window=(
-                settings.SERVICE_CONTEXT_WINDOW
+                8192
             ),
             log_method=(
                 context.logger.log_service
@@ -1897,7 +1897,7 @@ class RuntimeStreamTokenTests(unittest.IsolatedAsyncioTestCase):
             context=context,
             runtime_id=settings.SERVICE_MODEL_UID,
             role="service",
-            context_window=settings.SERVICE_CONTEXT_WINDOW,
+            context_window=8192,
             log_method=context.logger.log_service,
             runtime_actions={
                 "CAN_SAVE_DELAYED_MEMORY": True,
@@ -2050,7 +2050,7 @@ class RuntimeStreamTokenTests(unittest.IsolatedAsyncioTestCase):
             context=context,
             runtime_id=settings.SERVICE_MODEL_UID,
             role="service",
-            context_window=settings.SERVICE_CONTEXT_WINDOW,
+            context_window=8192,
             log_method=context.logger.log_service,
             runtime_actions={
                 "CAN_SAVE_DELAYED_MEMORY": True,
@@ -2144,7 +2144,7 @@ class RuntimeStreamTokenTests(unittest.IsolatedAsyncioTestCase):
             context=context,
             runtime_id=settings.SERVICE_MODEL_UID,
             role="service",
-            context_window=settings.SERVICE_CONTEXT_WINDOW,
+            context_window=8192,
             log_method=context.logger.log_service,
             runtime_actions={
                 "CAN_SAVE_DELAYED_MEMORY": True,
@@ -2234,7 +2234,7 @@ class RuntimeStreamTokenTests(unittest.IsolatedAsyncioTestCase):
             context=context,
             runtime_id=settings.SERVICE_MODEL_UID,
             role="service",
-            context_window=settings.SERVICE_CONTEXT_WINDOW,
+            context_window=8192,
             log_method=context.logger.log_service,
             runtime_actions={
                 "CAN_SAVE_DELAYED_MEMORY": True,
@@ -2322,7 +2322,7 @@ class RuntimeStreamTokenTests(unittest.IsolatedAsyncioTestCase):
             context=context,
             runtime_id=settings.SERVICE_MODEL_UID,
             role="service",
-            context_window=settings.SERVICE_CONTEXT_WINDOW,
+            context_window=8192,
             log_method=context.logger.log_service,
             runtime_actions={
                 "CAN_JIN_COLOR": True,
@@ -2404,7 +2404,7 @@ class RuntimeStreamTokenTests(unittest.IsolatedAsyncioTestCase):
             context=context,
             runtime_id=settings.SERVICE_MODEL_UID,
             role="service",
-            context_window=settings.SERVICE_CONTEXT_WINDOW,
+            context_window=8192,
             log_method=context.logger.log_service,
             runtime_actions={
                 "CAN_JIN_COLOR": True,
@@ -2478,7 +2478,7 @@ class RuntimeStreamTokenTests(unittest.IsolatedAsyncioTestCase):
             context=context,
             runtime_id=settings.SERVICE_MODEL_UID,
             role="service",
-            context_window=settings.SERVICE_CONTEXT_WINDOW,
+            context_window=8192,
             log_method=context.logger.log_service,
             runtime_actions={
                 "CAN_JIN_COLOR": True,
@@ -2584,7 +2584,7 @@ class RuntimeStreamTokenTests(unittest.IsolatedAsyncioTestCase):
             context=context,
             runtime_id=settings.SERVICE_MODEL_UID,
             role="service",
-            context_window=settings.SERVICE_CONTEXT_WINDOW,
+            context_window=8192,
             log_method=context.logger.log_service,
             runtime_actions={
                 "CAN_JIN_COLOR": True,
@@ -2712,7 +2712,7 @@ class RuntimeStreamTokenTests(unittest.IsolatedAsyncioTestCase):
             context=context,
             runtime_id=settings.SERVICE_MODEL_UID,
             role="service",
-            context_window=settings.SERVICE_CONTEXT_WINDOW,
+            context_window=8192,
             log_method=context.logger.log_service,
             runtime_actions={
                 "CAN_JIN_COLOR": True,
@@ -2843,7 +2843,7 @@ class RuntimeStreamTokenTests(unittest.IsolatedAsyncioTestCase):
             context=context,
             runtime_id=settings.SERVICE_MODEL_UID,
             role="service",
-            context_window=settings.SERVICE_CONTEXT_WINDOW,
+            context_window=8192,
             log_method=context.logger.log_service,
             runtime_actions={
                 "CAN_SAVE_DELAYED_MEMORY": True,
@@ -2957,7 +2957,7 @@ class RuntimeStreamTokenTests(unittest.IsolatedAsyncioTestCase):
             runtime_id=settings.SERVICE_MODEL_UID,
             role="service",
             context_window=(
-                settings.SERVICE_CONTEXT_WINDOW
+                8192
             ),
             log_method=(
                 context.logger.log_service

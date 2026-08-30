@@ -638,8 +638,10 @@
         ? Number(runtimeInfo.max_tokens || 0)
         : 0;
 
+    const hasKnownWindow = max > 0;
+
     const rawPercent =
-      max > 0
+      hasKnownWindow
         ? (used / max) * 100
         : 0;
 
@@ -653,8 +655,7 @@
       Math.round(rawPercent);
 
     const percentLabel =
-      used > 0
-      && rawPercent < 1
+      used > 0 && hasKnownWindow && rawPercent < 1
         ? "<1%"
         : `${percent}%`;
 
@@ -884,7 +885,7 @@
     if (summaryElement) {
       summaryElement.setAttribute(
         "aria-label",
-        `${brainLine.totalUsed} / ${brainLine.max}`
+        `${brainLine.totalUsed} / ${brainLine.max || "unknown"}`
       );
     }
 

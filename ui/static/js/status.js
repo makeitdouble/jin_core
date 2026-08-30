@@ -433,53 +433,6 @@ function runtimeStatusModelPickerContains(target) {
     return activeRuntimeStatusModelPicker.container.contains(target);
 }
 
-async function saveRuntimeStatusConfig(role, updates) {
-    const response = await fetch(
-        "/api/runtime-config",
-        {
-            method: "POST",
-            headers: {
-                "Content-Type": "application/json",
-            },
-            body: JSON.stringify({
-                role,
-                ...updates,
-            }),
-        }
-    );
-
-    let data = {};
-    try {
-        data = await response.json();
-    } catch (error) {
-        data = {};
-    }
-
-    if (!response.ok) {
-        throw new Error(
-            String(data.detail || `HTTP ${response.status}`)
-        );
-    }
-
-    applyRuntimeStatusSnapshot(
-        data
-    );
-
-    if (updates.configured_context_window) {
-        const roleConfig = (
-            data.runtime_config
-            && data.runtime_config[role]
-        ) || {};
-        rememberRuntimeStatusModelLoadConfig(
-            roleConfig.api_base,
-            roleConfig.model,
-            {
-                context_length: updates.configured_context_window,
-            }
-        );
-    }
-}
-
 async function reconcileRuntimeStatusModelSwitch(role, model) {
     const normalizedRole = String(role || "").trim().toLowerCase();
     const targetModel = String(model || "").trim();
@@ -876,90 +829,6 @@ function createRuntimeStatusModelValue(
     return container;
 }
 
-function createRuntimeStatusConfiguredValue(role, value) {
-    const editor = document.createElement("span");
-    const normalizedValue = Number(value || 0);
-    let savedValue = (
-        Number.isFinite(normalizedValue)
-        && normalizedValue > 0
-    )
-        ? String(Math.trunc(normalizedValue))
-        : "";
-    let saveTimer = null;
-
-    editor.textContent = savedValue;
-    editor.setAttribute("contenteditable", "plaintext-only");
-    editor.setAttribute("spellcheck", "false");
-    editor.setAttribute("role", "textbox");
-    editor.setAttribute("aria-label", "Configured context");
-    editor.classList.add("delayed-memory-modal-editable");
-
-    function readNextValue() {
-        return String(editor.textContent || "")
-            .replace(/[^\d]/g, "")
-            .trim();
-    }
-
-    function restoreSavedValue() {
-        editor.textContent = savedValue;
-    }
-
-    function persistValue() {
-        const nextValue = readNextValue();
-        const nextNumber = Number(nextValue || 0);
-
-        if (
-            !nextValue
-            || !Number.isFinite(nextNumber)
-            || nextNumber <= 0
-        ) {
-            restoreSavedValue();
-            return;
-        }
-
-        const nextText = String(Math.trunc(nextNumber));
-
-        if (nextText === savedValue) {
-            editor.textContent = savedValue;
-            return;
-        }
-
-        savedValue = nextText;
-        editor.textContent = savedValue;
-
-        void saveRuntimeStatusConfig(
-            role,
-            {
-                configured_context_window: Number(savedValue),
-            }
-        );
-    }
-
-    function schedulePersistValue() {
-        window.clearTimeout(saveTimer);
-        saveTimer = window.setTimeout(
-            persistValue,
-            350
-        );
-    }
-
-    editor.addEventListener("input", schedulePersistValue);
-    editor.addEventListener("blur", () => {
-        window.clearTimeout(saveTimer);
-        persistValue();
-    });
-    editor.addEventListener("keydown", (event) => {
-        if (event.key !== "Enter") {
-            return;
-        }
-
-        event.preventDefault();
-        editor.blur();
-    });
-
-    return editor;
-}
-
 function closeRuntimeStatusModal() {
     if (!runtimeStatusModal) {
         return;
@@ -1170,14 +1039,16 @@ function renderRuntimeStatusModal(role) {
     runtimeStatusModalContent.replaceChildren();
 
     const contextLength = Number(
-        findRuntimeStatusValue(
-            loadedModel,
-            "loaded_context_length",
-            "context_length",
-            "context_window",
-            "n_ctx",
-            "num_ctx"
-        ) || 0
+        roleConfig.max_tokens
+        || findRuntimeStatusValue(
+                loadedModel,
+                "loaded_context_length",
+                "context_length",
+                "context_window",
+                "n_ctx",
+                "num_ctx"
+            )
+        || 0
     );
     const maxContextLength = Number(
         findRuntimeStatusValue(
@@ -1226,14 +1097,7 @@ function renderRuntimeStatusModal(role) {
         runtimeStatusModalContent,
         "context",
         [
-            [
-                "configured",
-                createRuntimeStatusConfiguredValue(
-                    normalizedRole,
-                    roleConfig.max_tokens
-                ),
-            ],
-            ["loaded", contextLength > 0 ? contextLength : "unknown"],
+            ["active", contextLength > 0 ? contextLength : "unknown"],
             ["maximum", maxContextLength > 0 ? maxContextLength : "unknown"],
         ]
     );

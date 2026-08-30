@@ -1594,7 +1594,7 @@ class L1MemoryTests(
                 telemetry_events[-1]["runtime"][
                     RUNTIME_MEMORY_SUMMARIZER_RUNTIME_ID
                 ]["max_tokens"],
-                config.SERVICE_CONTEXT_WINDOW,
+                8192,
             )
 
     async def test_summarizer_uses_auto_runtime_output_budget(self):

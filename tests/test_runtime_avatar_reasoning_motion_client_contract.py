@@ -185,7 +185,7 @@ class RuntimeAvatarReasoningMotionClientContractTests(unittest.TestCase):
 
         self.assertIn("function captureAvatarRotationPhases(", source)
         self.assertIn("function restoreAvatarRotationPhases(", source)
-        self.assertIn('"data-avatar-rotation-key": `memory:${kind}`', source)
+        self.assertIn('"data-avatar-rotation-key": `memory:${kind}${rotationKeySuffix}`', source)
         self.assertIn('"data-avatar-rotation-key": "files"', source)
         self.assertIn('"data-avatar-rotation-key": rotationKey', source)
 

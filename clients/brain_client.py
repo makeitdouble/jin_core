@@ -91,10 +91,6 @@ def get_brain_runtime_id() -> str:
     return BRAIN_RUNTIME_ID
 
 
-def get_brain_fallback_context_window() -> int:
-    return config.BRAIN_CONTEXT_WINDOW
-
-
 def get_response_enabled_runtime_actions(
     runtime_actions=None,
     user_message: str = "",
@@ -324,7 +320,6 @@ async def ask_brain(
         runtime_id=get_brain_runtime_id(),
         system_prompt=system_prompt,
         user_prompt=model_user_prompt,
-        fallback_context_window=get_brain_fallback_context_window(),
         force_refresh=True,
     )
     system_prompt = prepared_context_window.system_prompt
@@ -518,7 +513,6 @@ async def ask_brain_stream(
         runtime_id=get_brain_runtime_id(),
         system_prompt=resolved_system_prompt,
         user_prompt=model_user_prompt,
-        fallback_context_window=get_brain_fallback_context_window(),
         force_refresh=True,
     )
     resolved_system_prompt = prepared_context_window.system_prompt

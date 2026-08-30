@@ -22,6 +22,8 @@
       .map(radius => radius * INNER_RING_SCALE);
   const STATIC_RADIAL_LINE_INNER_RADIUS = 38 * INNER_RING_SCALE;
   const STATIC_RADIAL_LINE_OUTER_RADIUS = 166 * INNER_RING_SCALE;
+  const LT_MEMORY_RING_MAX_FACTS = 100;
+  const LT_MEMORY_RING_RADIUS_STEP = 4;
   const MEMORY_RING_LAYOUT = Object.freeze({
     lt: Object.freeze({
       radius: 168,
@@ -2099,6 +2101,7 @@
       nodeState.ltFactIds =
         normalizeLTFactIds(options.ltFactIds);
       nodeState.avatarMemoryAngle = Number(options.angle);
+      nodeState.avatarMemoryRadius = Number(layout.radius);
     }
 
     setAvatarNodeState(dashGroup, nodeState);
@@ -2250,11 +2253,20 @@
     };
   }
 
-  function appendMemorySignalRing(svg, records, layout, kind, overallColor) {
+  function appendMemorySignalRing(
+    svg,
+    records,
+    layout,
+    kind,
+    overallColor,
+    options = {}
+  ) {
     if (!records.length) {
       return;
     }
 
+    const rotationKeySuffix =
+      String(options.rotationKeySuffix || "");
     const animation =
       getMemoryRingAnimation(records, kind);
     const ring = createSvgElement("g", {
@@ -2263,7 +2275,7 @@
         `jin-avatar-memory-ring-${kind}`,
         "jin-avatar-orbit",
       ].join(" "),
-      "data-avatar-rotation-key": `memory:${kind}`,
+      "data-avatar-rotation-key": `memory:${kind}${rotationKeySuffix}`,
       fill: "none",
       "pointer-events": "none",
       style: [
@@ -2273,7 +2285,7 @@
       ].join(";"),
     });
     const reasoningMotion = createReasoningMotionLayer(
-      `memory-ring:${kind}:${records.length}`,
+      `memory-ring:${kind}${rotationKeySuffix}:${records.length}`,
       kind === "delayed" ? 0.94 : 0.82
     );
     ring.appendChild(reasoningMotion.layer);
@@ -2489,6 +2501,99 @@
     }
   }
 
+  function getLTMemoryRingBatches(records) {
+    if (!Array.isArray(records) || !records.length) {
+      return [];
+    }
+
+    const ringBatches = [];
+
+    for (
+      let startIndex = 0, laneIndex = 0;
+      startIndex < records.length;
+      startIndex += LT_MEMORY_RING_MAX_FACTS, laneIndex += 1
+    ) {
+      ringBatches.push({
+        laneIndex,
+        rotationKeySuffix: `:${laneIndex}`,
+        layout: {
+          ...MEMORY_RING_LAYOUT.lt,
+          radius:
+            MEMORY_RING_LAYOUT.lt.radius
+            + LT_MEMORY_RING_RADIUS_STEP * laneIndex,
+        },
+        records:
+          records.slice(
+            startIndex,
+            startIndex + LT_MEMORY_RING_MAX_FACTS
+          ),
+      });
+    }
+
+    return ringBatches;
+  }
+
+  function appendLTMemorySignalRings(svg, records, overallColor) {
+    getLTMemoryRingBatches(records)
+      .forEach((batch) => {
+        appendMemorySignalRing(
+          svg,
+          batch.records,
+          batch.layout,
+          "lt",
+          overallColor,
+          {
+            rotationKeySuffix: batch.rotationKeySuffix,
+          }
+        );
+      });
+  }
+
+  function captureMemoryRingPhases(svg, kind) {
+    const phases = new Map();
+
+    if (!svg) {
+      return phases;
+    }
+
+    svg.querySelectorAll(
+      `.jin-avatar-memory-ring-${kind}[data-avatar-rotation-key]`
+    ).forEach((node) => {
+      const key =
+        String(node.dataset.avatarRotationKey || "").trim();
+
+      if (!key || phases.has(key)) {
+        return;
+      }
+
+      const phase = captureAvatarRotationPhase(node);
+
+      if (phase) {
+        phases.set(key, phase);
+      }
+    });
+
+    return phases;
+  }
+
+  function restoreMemoryRingPhases(svg, kind, phases) {
+    if (!svg || !(phases instanceof Map) || !phases.size) {
+      return;
+    }
+
+    svg.querySelectorAll(
+      `.jin-avatar-memory-ring-${kind}[data-avatar-rotation-key]`
+    ).forEach((node) => {
+      const key =
+        String(node.dataset.avatarRotationKey || "").trim();
+      const phase = phases.get(key);
+
+      if (phase) {
+        restoreAvatarRotationPhase(node, phase);
+      }
+    });
+  }
+
   function getMemorySignalRecords(kind) {
     if (kind === "active") {
       return getActiveMemoryAvatarRecords();
@@ -2557,6 +2662,10 @@
       svg.querySelector(`.jin-avatar-memory-ring-${kind}`);
     const previousRotationPhase =
       captureAvatarRotationPhase(previousRing);
+    const previousRotationPhases =
+      kind === "lt"
+        ? captureMemoryRingPhases(svg, kind)
+        : null;
 
     invalidateAvatarRotationAnimationsCache();
 
@@ -2567,31 +2676,52 @@
     if (records.length) {
       const temporaryParent =
         createSvgElement("g");
-
-      appendMemorySignalRing(
-        temporaryParent,
-        records,
-        layout,
-        kind,
+      const overallColor =
         avatarRoot.style
           .getPropertyValue("--jin-avatar-overall-color")
-          .trim() || DEFAULT_RING_COLOR
-      );
+          .trim() || DEFAULT_RING_COLOR;
 
-      const nextRing =
-        temporaryParent.firstElementChild;
+      if (kind === "lt") {
+        appendLTMemorySignalRings(
+          temporaryParent,
+          records,
+          overallColor
+        );
+      } else {
+        appendMemorySignalRing(
+          temporaryParent,
+          records,
+          layout,
+          kind,
+          overallColor
+        );
+      }
 
-      if (!nextRing) {
+      const nextRings =
+        Array.from(temporaryParent.children);
+
+      if (!nextRings.length) {
         return false;
       }
 
-      svg.insertBefore(
-        nextRing,
-        getMemorySignalInsertionReference(svg, kind)
-      );
+      const insertionReference =
+        getMemorySignalInsertionReference(svg, kind);
+
+      nextRings.forEach((ring) => {
+        svg.insertBefore(
+          ring,
+          insertionReference
+        );
+      });
     }
 
-    if (previousRotationPhase) {
+    if (kind === "lt") {
+      restoreMemoryRingPhases(
+        svg,
+        kind,
+        previousRotationPhases
+      );
+    } else if (previousRotationPhase) {
       restoreAvatarRotationPhase(
         svg.querySelector(`.jin-avatar-memory-ring-${kind}`),
         previousRotationPhase
@@ -2716,6 +2846,8 @@
     const state = getAvatarNodeState(dashGroup);
     const angle =
       Number(state && state.avatarMemoryAngle);
+    const radius =
+      Number(state && state.avatarMemoryRadius);
 
     if (nextArchived && !Number.isFinite(angle)) {
       return false;
@@ -2758,7 +2890,9 @@
 
     const dotPoint =
       polarPoint(
-        MEMORY_RING_LAYOUT.lt.radius,
+        Number.isFinite(radius)
+          ? radius
+          : MEMORY_RING_LAYOUT.lt.radius,
         angle
       );
     let dot =
@@ -3122,11 +3256,9 @@
       "delayed",
       overallColor
     );
-    appendMemorySignalRing(
+    appendLTMemorySignalRings(
       svg,
       ltMemoryRecords,
-      MEMORY_RING_LAYOUT.lt,
-      "lt",
       overallColor
     );
     appendMemorySignalRing(

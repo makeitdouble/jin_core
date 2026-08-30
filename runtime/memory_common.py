@@ -608,6 +608,16 @@ async def refresh_service_runtime_usage(
     if not context_tokens:
         return
 
+    live_context_window = coerce_positive_int(
+        context_window
+    )
+    if not live_context_window:
+        live_context_window = coerce_positive_int(
+            runtime_state.get_runtime_state(
+                SERVICE_RUNTIME_ID
+            ).get("max_tokens")
+        )
+
     await refresh_runtime_state(
         context,
         runtime_id=SERVICE_RUNTIME_ID,
@@ -620,10 +630,7 @@ async def refresh_service_runtime_usage(
             total_tokens
             or context_tokens
         ),
-        # Deliberately keep the configured service context as the UI
-        # denominator. The live LM Studio context is used for request
-        # budgeting elsewhere, so usage may legitimately exceed 100% here.
-        max_tokens=config.SERVICE_CONTEXT_WINDOW,
+        max_tokens=live_context_window or None,
         last_error=None,
         status="online",
     )
@@ -704,9 +711,8 @@ def latest_turn_context_is_overloaded(
             explicit_value
         )
 
-    # Runtime-state max_tokens is the manually configured UI denominator, not
-    # the provider request limit. Never let a >100% display value change memory
-    # behavior; actual prompt overload checks use the live LM Studio context.
+    # If the current request did not record an explicit overload decision,
+    # leave memory behavior unchanged. Runtime telemetry is presentation data.
     return False
 
 

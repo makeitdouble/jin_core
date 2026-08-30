@@ -443,6 +443,19 @@ def remember_current_context_window(
     context.runtime_current_context_window = value
     context.runtime_current_context_window_text = prepared.value
 
+    if prepared.context_window > 0:
+        from runtime.registry import runtime_state
+
+        try:
+            runtime_state.update_runtime_state(
+                runtime_id,
+                max_tokens=prepared.context_window,
+            )
+        except KeyError:
+            # Lightweight/custom runtime IDs can use the prompt helper without
+            # becoming one of the two UI telemetry owners.
+            pass
+
 
 async def resolve_current_context_window(
     client,

@@ -618,12 +618,7 @@ def build_lt_merge_batch_plan(
     protected_fact_ids=(),
     max_batch_count: int | None = None,
 ) -> dict:
-    """Select the largest FIFO pending slice that fits the live LM Studio budget.
-
-    The configured SERVICE_CONTEXT_WINDOW is intentionally not a request limit;
-    it remains a UI/reference denominator. L-T batching uses the context_length
-    of the model instance actually loaded in LM Studio.
-    """
+    """Select the largest FIFO pending slice that fits the live runtime budget."""
 
     try:
         context_window = max(1, int(runtime_context_window))

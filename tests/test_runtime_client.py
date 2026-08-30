@@ -213,7 +213,6 @@ class RuntimeClientTests(
             api_base="http://runtime.test",
             model_uid="test-model",
             timeout=30.0,
-            configured_context_window=4096,
             client=http_client,
         )
 
@@ -262,7 +261,6 @@ class RuntimeClientTests(
             api_base="http://runtime.test",
             model_uid="test-model",
             timeout=30.0,
-            configured_context_window=4096,
             client=http_client,
         )
 
@@ -282,7 +280,7 @@ class RuntimeClientTests(
             8192,
         )
 
-    async def test_falls_back_to_configured_context_window(self):
+    async def test_omits_max_tokens_when_api_reports_no_limits(self):
 
         http_client = FakeHttpClient(
             models_payload={
@@ -297,7 +295,6 @@ class RuntimeClientTests(
             api_base="http://runtime.test",
             model_uid="test-model",
             timeout=30.0,
-            configured_context_window=4096,
             client=http_client,
         )
 
@@ -305,12 +302,12 @@ class RuntimeClientTests(
             system_prompt="system " * 1000,
             user_prompt="user " * 1000,
             temperature=0.1,
-            max_tokens=4096,
+            max_tokens=None,
         )
 
-        self.assertEqual(
-            http_client.post_calls[0]["json"]["max_tokens"],
-            839,
+        self.assertNotIn(
+            "max_tokens",
+            http_client.post_calls[0]["json"],
         )
         self.assertIsNone(
             client.detected_context_window,
@@ -333,7 +330,6 @@ class RuntimeClientTests(
             api_base="http://runtime.test",
             model_uid="test-model",
             timeout=30.0,
-            configured_context_window=4096,
             client=http_client,
         )
 
@@ -379,7 +375,6 @@ class RuntimeClientTests(
             api_base="http://runtime.test",
             model_uid="test-model",
             timeout=30.0,
-            configured_context_window=4096,
             client=http_client,
         )
 
@@ -434,7 +429,6 @@ class RuntimeClientTests(
             api_base="http://runtime.test",
             model_uid="test-model",
             timeout=30.0,
-            configured_context_window=4096,
             client=http_client,
         )
 
@@ -475,7 +469,6 @@ class RuntimeClientTests(
             api_base="http://runtime.test",
             model_uid="test-model",
             timeout=30.0,
-            configured_context_window=4096,
             client=http_client,
         )
 
@@ -507,7 +500,6 @@ class RuntimeClientTests(
             api_base="http://runtime.test",
             model_uid="test-model",
             timeout=30.0,
-            configured_context_window=4096,
             client=http_client,
         )
 
@@ -543,7 +535,6 @@ class RuntimeClientTests(
             api_base="http://runtime.test",
             model_uid="test-model",
             timeout=30.0,
-            configured_context_window=4096,
             configured_max_tokens=4096,
             client=http_client,
         )
@@ -577,7 +568,6 @@ class RuntimeClientTests(
             api_base="http://runtime.test",
             model_uid="test-model",
             timeout=30.0,
-            configured_context_window=4096,
             configured_max_tokens=4096,
             client=http_client,
         )
@@ -610,7 +600,6 @@ class RuntimeClientTests(
             api_base="http://runtime.test",
             model_uid="test-model",
             timeout=30.0,
-            configured_context_window=4096,
             configured_max_tokens=4096,
             client=http_client,
         )
@@ -648,7 +637,6 @@ class RuntimeClientTests(
             api_base="http://runtime.test",
             model_uid="test-model",
             timeout=30.0,
-            configured_context_window=4096,
             client=http_client,
         )
         context = FakeStreamContextObject()
@@ -701,7 +689,6 @@ class RuntimeClientTests(
             api_base="http://runtime.test",
             model_uid="test-model",
             timeout=30.0,
-            configured_context_window=4096,
             client=http_client,
         )
         context = FakeStreamContextObject()
@@ -758,7 +745,6 @@ class RuntimeClientTests(
             api_base="http://runtime.test",
             model_uid="test-model",
             timeout=30.0,
-            configured_context_window=4096,
             client=http_client,
         )
         context = FakeStreamContextObject()
@@ -818,7 +804,6 @@ class RuntimeClientTests(
             api_base="http://runtime.test",
             model_uid="test-model",
             timeout=30.0,
-            configured_context_window=4096,
             client=http_client,
         )
         context = FakeStreamContextObject()
@@ -879,7 +864,6 @@ class RuntimeClientTests(
             api_base="http://runtime.test",
             model_uid="test-model",
             timeout=30.0,
-            configured_context_window=4096,
             client=http_client,
         )
         context = FakeStreamContextObject()
@@ -936,7 +920,6 @@ class RuntimeClientTests(
             api_base="http://runtime.test",
             model_uid="test-model",
             timeout=30.0,
-            configured_context_window=4096,
             client=http_client,
         )
         context = FakeStreamContextObject()

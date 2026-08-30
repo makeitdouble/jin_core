@@ -310,7 +310,28 @@ def build_anonymous_mode_config():
     }
 
 
-def build_runtime_config():
+def _runtime_status_context_window(status: dict | None) -> int:
+    try:
+        value = int((status or {}).get("context_window") or 0)
+    except (TypeError, ValueError):
+        return 0
+    return value if value > 0 else 0
+
+
+def build_runtime_config(
+    *,
+    brain_status: dict | None = None,
+    service_status: dict | None = None,
+):
+    brain_context_window = _runtime_status_context_window(
+        brain_status
+    )
+    service_context_window = _runtime_status_context_window(
+        service_status
+    )
+    if not settings.SERVICE_CONFIGURED:
+        service_context_window = brain_context_window
+
     return {
         "service": {
             "label": "service",
@@ -319,7 +340,7 @@ def build_runtime_config():
             "used_tokens": 0,
             "context_tokens": 0,
             "total_tokens": 0,
-            "max_tokens": config.SERVICE_CONTEXT_WINDOW,
+            "max_tokens": service_context_window,
         },
         "brain": {
             "label": "brain",
@@ -328,7 +349,7 @@ def build_runtime_config():
             "used_tokens": 0,
             "context_tokens": 0,
             "total_tokens": 0,
-            "max_tokens": config.BRAIN_CONTEXT_WINDOW,
+            "max_tokens": brain_context_window,
         },
     }
 
@@ -336,11 +357,9 @@ def build_runtime_config():
 RUNTIME_CONFIG_WRITE_FIELDS = {
     "service": {
         "model": "SERVICE_MODEL_UID",
-        "configured_context_window": "SERVICE_CONTEXT_WINDOW",
     },
     "brain": {
         "model": "BRAIN_MODEL_UID",
-        "configured_context_window": "BRAIN_CONTEXT_WINDOW",
     },
 }
 
@@ -455,7 +474,6 @@ def apply_runtime_config_values(
         fallback_pairs = {
             "SERVICE_API_BASE": "BRAIN_API_BASE",
             "SERVICE_MODEL_UID": "BRAIN_MODEL_UID",
-            "SERVICE_CONTEXT_WINDOW": "BRAIN_CONTEXT_WINDOW",
             "SERVICE_REQUEST_TIMEOUT": "BRAIN_REQUEST_TIMEOUT",
         }
         for service_name, brain_name in fallback_pairs.items():
@@ -477,12 +495,12 @@ def apply_runtime_config_values(
     runtime_state.update_runtime_state(
         BRAIN_RUNTIME_ID,
         model=settings.BRAIN_MODEL_UID,
-        max_tokens=settings.BRAIN_CONTEXT_WINDOW,
+        max_tokens=0,
     )
     runtime_state.update_runtime_state(
         SERVICE_RUNTIME_ID,
         model=settings.SERVICE_MODEL_UID,
-        max_tokens=settings.SERVICE_CONTEXT_WINDOW,
+        max_tokens=0,
     )
 
     if (
@@ -601,14 +619,12 @@ async def fetch_runtime_model_status(
     *,
     base_url: str,
     model_uid: str,
-    configured_context_window: int,
 ):
 
     runtime = RuntimeClient(
         api_base=base_url,
         model_uid=model_uid,
         timeout=STATUS_CHECK_TIMEOUT,
-        configured_context_window=configured_context_window,
         client=client,
     )
 
@@ -617,6 +633,7 @@ async def fetch_runtime_model_status(
     detected_url = ""
     detected_source = ""
     available_models = []
+    best_status = None
 
     for endpoint in runtime.model_limits_detection_endpoints():
         request_url = join_url(base_url, endpoint)
@@ -670,8 +687,11 @@ async def fetch_runtime_model_status(
             if isinstance(loaded_instances, list)
             else None
         )
+        context_window = runtime.extract_context_window_from_model(
+            loaded_model
+        )
 
-        return {
+        candidate_status = {
             "online": True,
             "source": detected_source,
             "url": detected_url,
@@ -679,7 +699,19 @@ async def fetch_runtime_model_status(
             "loaded": loaded,
             "model": model,
             "loaded_model": loaded_model or {},
+            "context_window": context_window or 0,
         }
+        if best_status is None:
+            best_status = candidate_status
+
+        # A catalog entry without a live context window is not enough for the
+        # panel. Keep probing the remaining provider endpoints until one of
+        # them reports the actual loaded n_ctx/context_length.
+        if context_window:
+            return candidate_status
+
+    if best_status is not None:
+        return best_status
 
     return {
         "online": online,
@@ -689,6 +721,7 @@ async def fetch_runtime_model_status(
         "loaded": None,
         "model": {},
         "loaded_model": {},
+        "context_window": 0,
     }
 
 
@@ -700,9 +733,6 @@ async def build_status_snapshot(
         client,
         base_url=config.BRAIN_API_BASE,
         model_uid=config.BRAIN_MODEL_UID,
-        configured_context_window=(
-            config.BRAIN_CONTEXT_WINDOW
-        ),
     )
 
     if settings.SERVICE_CONFIGURED:
@@ -712,9 +742,6 @@ async def build_status_snapshot(
                 client,
                 base_url=config.SERVICE_API_BASE,
                 model_uid=config.SERVICE_MODEL_UID,
-                configured_context_window=(
-                    config.SERVICE_CONTEXT_WINDOW
-                ),
             ),
         )
     else:
@@ -727,12 +754,41 @@ async def build_status_snapshot(
             "loaded": None,
             "model": {},
             "loaded_model": {},
+            "context_window": 0,
         }
 
     brain_online = bool(brain_status.get("online"))
     service_online = bool(service_status.get("online"))
 
-    runtime_config = build_runtime_config()
+    brain_context_window = _runtime_status_context_window(
+        brain_status
+    )
+    service_context_window = (
+        _runtime_status_context_window(service_status)
+        if settings.SERVICE_CONFIGURED
+        else brain_context_window
+    )
+    runtime_state.update_runtime_state(
+        BRAIN_RUNTIME_ID,
+        model=settings.BRAIN_MODEL_UID,
+        max_tokens=brain_context_window,
+        status="online" if brain_online else "offline",
+    )
+    runtime_state.update_runtime_state(
+        SERVICE_RUNTIME_ID,
+        model=settings.SERVICE_MODEL_UID,
+        max_tokens=service_context_window,
+        status=(
+            "online"
+            if settings.SERVICE_CONFIGURED and service_online
+            else "offline"
+        ),
+    )
+
+    runtime_config = build_runtime_config(
+        brain_status=brain_status,
+        service_status=service_status,
+    )
     runtime_config["service"]["lm_studio"] = service_status
     runtime_config["brain"]["lm_studio"] = brain_status
 
@@ -881,8 +937,7 @@ async def api_switch_runtime_model(request: Request):
         switch_result["status_refresh_error"] = (
             f"{type(error).__name__}: {error}"
         )
-        runtime_config = build_runtime_config()
-        runtime_config[role]["lm_studio"] = {
+        fallback_status = {
             "online": True,
             "source": "native",
             "url": current_base,
@@ -897,6 +952,27 @@ async def api_switch_runtime_model(request: Request):
                 "config": switch_result.get("load_config") or {},
             },
         }
+        fallback_status["context_window"] = (
+            RuntimeClient.extract_context_window_from_model(
+                fallback_status["loaded_model"]
+            )
+            or 0
+        )
+        brain_fallback_status = (
+            fallback_status
+            if role == "brain"
+            else None
+        )
+        service_fallback_status = (
+            fallback_status
+            if role == "service"
+            else None
+        )
+        runtime_config = build_runtime_config(
+            brain_status=brain_fallback_status,
+            service_status=service_fallback_status,
+        )
+        runtime_config[role]["lm_studio"] = fallback_status
         snapshot = {
             "brain": (
                 role == "brain"
@@ -984,30 +1060,6 @@ async def api_update_runtime_config(request: Request):
             )
 
         updates[role_fields["model"]] = model
-
-    if "configured_context_window" in payload:
-        try:
-            configured_context_window = int(
-                payload.get("configured_context_window")
-            )
-        except (
-            TypeError,
-            ValueError,
-        ) as error:
-            raise HTTPException(
-                status_code=400,
-                detail="Configured context must be an integer",
-            ) from error
-
-        if configured_context_window <= 0:
-            raise HTTPException(
-                status_code=400,
-                detail="Configured context must be positive",
-            )
-
-        updates[
-            role_fields["configured_context_window"]
-        ] = configured_context_window
 
     if not updates:
         raise HTTPException(

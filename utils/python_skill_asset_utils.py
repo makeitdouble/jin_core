@@ -1471,24 +1471,8 @@ async def _resolve_context_window(
                 resolved
             )
 
-    configured = getattr(
-        client,
-        "configured_context_window",
-        None,
-    )
-
-    if configured:
-        return int(
-            configured
-        )
-
-    return int(
-        getattr(
-            config,
-            "SERVICE_CONTEXT_WINDOW",
-            4096,
-        )
-        or 4096
+    raise RuntimeError(
+        "The runtime API did not report the active model context window"
     )
 
 

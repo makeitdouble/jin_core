@@ -17,17 +17,15 @@ class RuntimeState:
                 BRAIN_RUNTIME_ID,
                 "brain",
                 settings.BRAIN_MODEL_UID,
-                settings.BRAIN_CONTEXT_WINDOW,
             ),
             (
                 SERVICE_RUNTIME_ID,
                 "service",
                 settings.SERVICE_MODEL_UID,
-                settings.SERVICE_CONTEXT_WINDOW,
             ),
         )
 
-        for runtime_id, label, model, max_tokens in runtimes:
+        for runtime_id, label, model in runtimes:
 
             if runtime_id in self.states:
                 continue
@@ -39,7 +37,7 @@ class RuntimeState:
                 "used_tokens": 0,
                 "context_tokens": 0,
                 "total_tokens": 0,
-                "max_tokens": max_tokens,
+                "max_tokens": 0,
                 "status": "online",
                 "last_error": None,
             }

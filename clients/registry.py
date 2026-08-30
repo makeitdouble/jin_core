@@ -13,9 +13,6 @@ def build_clients(
         api_base=settings.BRAIN_API_BASE,
         model_uid=settings.BRAIN_MODEL_UID,
         timeout=settings.BRAIN_REQUEST_TIMEOUT,
-        configured_context_window=(
-            settings.BRAIN_CONTEXT_WINDOW
-        ),
         client=http_client,
     )
 
@@ -29,9 +26,6 @@ def build_clients(
             api_base=settings.SERVICE_API_BASE,
             model_uid=settings.SERVICE_MODEL_UID,
             timeout=settings.SERVICE_REQUEST_TIMEOUT,
-            configured_context_window=(
-                settings.SERVICE_CONTEXT_WINDOW
-            ),
             client=http_client,
         )
 
