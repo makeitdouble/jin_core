@@ -11,7 +11,7 @@ from contracts.rules_assembler import (
     RUNTIME_ACTION_JIN_SIZE,
     RUNTIME_ACTION_JIN_POSITION,
     RUNTIME_ACTION_JIN_SPEED,
-    RUNTIME_ACTION_UPDATE_L4_FACTS,
+    RUNTIME_ACTION_UPDATE_LT_FACTS,
     RUNTIME_ACTION_CLEAN_TOOL_RESULTS,
     RUNTIME_ACTION_UNLOAD_DELAYED_MEMORY,
     RUNTIME_ACTION_DETACH_FILE,
@@ -83,7 +83,7 @@ from utils.actions.delayed_memory_actions import (
 from utils.actions.attachment_actions import (
     apply_attachment_actions,
 )
-from utils.actions.update_l4_facts_actions import schedule_update_l4_facts_actions
+from utils.actions.update_lt_facts_actions import schedule_update_lt_facts_actions
 from utils.actions.jin_visual_sequence_actions import (
     emit_jin_visual_sequences,
 )
@@ -267,7 +267,7 @@ async def apply_runtime_action_calls(
         RUNTIME_ACTION_JIN_SIZE,
         RUNTIME_ACTION_JIN_POSITION,
         RUNTIME_ACTION_JIN_SPEED,
-        RUNTIME_ACTION_UPDATE_L4_FACTS,
+        RUNTIME_ACTION_UPDATE_LT_FACTS,
     }
     todo_action_names = {
         RUNTIME_ACTION_CREATE_TODO_LIST,
@@ -1661,10 +1661,10 @@ async def apply_runtime_action_calls(
         if action.name == RUNTIME_ACTION_DETACH_FILE
     ]
 
-    update_l4_facts_actions = [
+    update_lt_facts_actions = [
         action
         for action in filtered_actions
-        if action.name == RUNTIME_ACTION_UPDATE_L4_FACTS
+        if action.name == RUNTIME_ACTION_UPDATE_LT_FACTS
     ]
 
     clean_tool_result_actions = [
@@ -1755,11 +1755,11 @@ async def apply_runtime_action_calls(
         None,
     )
 
-    # Explicit L4 edits start immediately on their own background lane.
+    # Explicit L-T edits start immediately on their own background lane.
     # Do not make them wait behind unrelated runtime action handlers.
-    schedule_update_l4_facts_actions(
+    schedule_update_lt_facts_actions(
         context,
-        update_l4_facts_actions,
+        update_lt_facts_actions,
         action_display_ids=action_display_ids,
         log_runtime=log_runtime,
         with_action_context=with_action_context,
@@ -1949,7 +1949,7 @@ async def apply_runtime_action_calls(
             jin_motion_actions
         )
         + len(
-            update_l4_facts_actions
+            update_lt_facts_actions
         )
         + len(
             saved_active_memory_texts
@@ -1972,7 +1972,7 @@ async def apply_runtime_action_calls(
         filtered_actions,
         keep_actions={
             RUNTIME_ACTION_WEB_SEARCH,
-                    RUNTIME_ACTION_UPDATE_L4_FACTS,
+                    RUNTIME_ACTION_UPDATE_LT_FACTS,
         },
     )
 

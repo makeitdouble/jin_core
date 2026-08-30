@@ -642,9 +642,9 @@
           payload.restore_reasoning_dump
           || ""
         ),
-      restore_l4_fact_ids:
-        Array.isArray(payload.restore_l4_fact_ids)
-          ? payload.restore_l4_fact_ids
+      restore_lt_fact_ids:
+        Array.isArray(payload.restore_lt_fact_ids)
+          ? payload.restore_lt_fact_ids
           : [],
       restore_delayed_memory_metadata:
         Array.isArray(payload.restore_delayed_memory_metadata)

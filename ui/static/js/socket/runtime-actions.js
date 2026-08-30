@@ -230,9 +230,9 @@ function handleRuntimeActionGuardConfirmation(
     String(
       data.action || ""
     ).toLowerCase();
-  const updateL4FactsMessage =
-    action === "update_l4_facts"
-      ? getUpdateL4FactsMessage(data)
+  const updateLTFactsMessage =
+    action === "update_lt_facts"
+      ? getUpdateLTFactsMessage(data)
       : "";
   const baseText =
     buildRuntimeActionDisplayText(
@@ -244,10 +244,10 @@ function handleRuntimeActionGuardConfirmation(
       }
     );
   const text =
-    updateL4FactsMessage
+    updateLTFactsMessage
       ? (
         `${getRuntimeActionDisplayName(data, action)}: `
-        + updateL4FactsMessage
+        + updateLTFactsMessage
       )
       : baseText;
 
@@ -285,7 +285,7 @@ function handleRuntimeActionGuardConfirmation(
         contextSnapshot:
           data.context || null,
         detail:
-          updateL4FactsMessage
+          updateLTFactsMessage
           || data.detail
           || "",
         displayName:
@@ -394,7 +394,7 @@ function tryParseRuntimeActionJson(value) {
 
 }
 
-function getUpdateL4FactsMessage(data) {
+function getUpdateLTFactsMessage(data) {
 
   if (!data || typeof data !== "object") {
     return "";
@@ -1480,9 +1480,9 @@ function handleRuntimeAction(
       )
       : "";
 
-  const updateL4FactsMessage =
-    action === "update_l4_facts"
-      ? getUpdateL4FactsMessage(data)
+  const updateLTFactsMessage =
+    action === "update_lt_facts"
+      ? getUpdateLTFactsMessage(data)
       : "";
 
   const activeMemoryUpdateTitle =
@@ -1531,10 +1531,10 @@ function handleRuntimeAction(
         `${displayName}: `
         + activeMemoryUpdateTitle
       )
-      : updateL4FactsMessage
+      : updateLTFactsMessage
       ? (
         `${displayName}: `
-        + updateL4FactsMessage
+        + updateLTFactsMessage
       )
       : reportScopedDelayedAction
       && delayedMemoryPreview.title
@@ -1580,7 +1580,7 @@ function handleRuntimeAction(
           ? formatActiveMemoryUpdateDetail(data)
           : ""
       )
-      || updateL4FactsMessage
+      || updateLTFactsMessage
       || buildRuntimeActionDetail(
         data,
         closeTag
@@ -2238,7 +2238,7 @@ function handleRuntimeAction(
           markerCount:
             displayMarkerCount,
           reuseCompleted:
-            action === "update_l4_facts",
+            action === "update_lt_facts",
           contextSnapshot:
             data.context || null,
           assetResult:

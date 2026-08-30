@@ -6,46 +6,46 @@ from datetime import datetime, timezone
 from types import SimpleNamespace
 from unittest.mock import patch
 
-from runtime.L4_memory import (
+from runtime.LT_memory import (
     apply_facts_memory_store_sync,
-    apply_l4_memory_store_sync,
-    bind_l4_runtime_app_state,
-    build_runtime_l4_memory_context,
-    cancel_l4_memory_idle_update,
-    delete_l4_memory_fact,
-    ensure_runtime_l4_state,
-    get_l4_scheduler_interval_seconds,
-    maybe_update_runtime_l4_memory,
-    remap_delayed_memory_l4_fact_ids,
-    restore_l4_memory_fact,
-    run_l4_merge_phase,
-    runtime_l4_memory_update_running,
-    schedule_l4_memory_idle_update,
+    apply_lt_memory_store_sync,
+    bind_lt_runtime_app_state,
+    build_runtime_lt_memory_context,
+    cancel_lt_memory_idle_update,
+    delete_lt_memory_fact,
+    ensure_runtime_lt_state,
+    get_lt_scheduler_interval_seconds,
+    maybe_update_runtime_lt_memory,
+    remap_delayed_memory_lt_fact_ids,
+    restore_lt_memory_fact,
+    run_lt_merge_phase,
+    runtime_lt_memory_update_running,
+    schedule_lt_memory_idle_update,
 )
-import runtime.L4_memory as l4_memory_module
-from runtime.L4_memory_utils import (
-    add_l4_pending_candidates,
-    apply_l4_jin_note_result,
-    apply_l4_merge_operations,
-    build_l4_fact_id,
-    build_l4_double_batch_plan,
-    build_l4_jin_note_system_prompt,
-    build_l4_merge_batch_plan,
-    build_l4_merge_system_prompt,
-    build_l4_merge_user_prompt,
+import runtime.LT_memory as lt_memory_module
+from runtime.LT_memory_utils import (
+    add_lt_pending_candidates,
+    apply_lt_jin_note_result,
+    apply_lt_merge_operations,
+    build_lt_fact_id,
+    build_lt_double_batch_plan,
+    build_lt_jin_note_system_prompt,
+    build_lt_merge_batch_plan,
+    build_lt_merge_system_prompt,
+    build_lt_merge_user_prompt,
     collect_pending_facts_memory_fields,
-    extract_l4_json_payload,
-    format_l4_fact_line,
-    format_l4_merge_operation_details,
+    extract_lt_json_payload,
+    format_lt_fact_line,
+    format_lt_merge_operation_details,
     format_long_term_memory_context,
-    inspect_l4_merge_shard_scan,
+    inspect_lt_merge_shard_scan,
     mark_facts_memory_fields_analyzed,
-    merge_l4_store_snapshots,
+    merge_lt_store_snapshots,
     normalize_facts_memory_records,
-    normalize_l4_candidates,
-    normalize_l4_merge_operations,
-    normalize_l4_store,
-    restore_l4_fact_to_store,
+    normalize_lt_candidates,
+    normalize_lt_merge_operations,
+    normalize_lt_store,
+    restore_lt_fact_to_store,
 )
 from runtime.runtime_context import RuntimeContext
 from rules.brain_context_builder import build_brain_context
@@ -91,12 +91,12 @@ class CaptureMemoryLogger:
         })
 
 
-class L4MemoryTests(unittest.IsolatedAsyncioTestCase):
+class LTMemoryTests(unittest.IsolatedAsyncioTestCase):
 
     def test_facts_memory_normalization_adds_session_and_pending_status(self):
         records = normalize_facts_memory_records([
             {
-                "storage_key": "jin.factsMemory.session-a.v1",
+                "storage_key": "jin.factsMemory.session-a.v2",
                 "session_id": "session-a",
                 "signals": {
                     "User preference": {
@@ -110,16 +110,16 @@ class L4MemoryTests(unittest.IsolatedAsyncioTestCase):
         field = records[0]["signals"]["user_preference"]
         self.assertEqual(field["session_id"], "session-a")
         self.assertEqual(field["runtime_snapshot_id"], "runtime_001")
-        self.assertEqual(field["l4_status"], "pending")
-        self.assertTrue(field["l4_content_hash"])
+        self.assertEqual(field["lt_status"], "pending")
+        self.assertTrue(field["lt_content_hash"])
 
 
-    def test_facts_memory_drops_l4_fact_reference_bookkeeping_keys(self):
+    def test_facts_memory_drops_lt_fact_reference_bookkeeping_keys(self):
         records = normalize_facts_memory_records([
             {
                 "session_id": "session-a",
                 "signals": {
-                    "L4 fact #305": {
+                    "L-T fact #305": {
                         "content": (
                             "The description now excludes white bonfire."
                         ),
@@ -141,17 +141,17 @@ class L4MemoryTests(unittest.IsolatedAsyncioTestCase):
             ["environment_physical_setup"],
         )
         self.assertEqual(
-            normalize_l4_candidates(
+            normalize_lt_candidates(
                 {
                     "facts": [{
-                        "key": "l4_fact_305",
-                        "value": "Bookkeeping about the L4 update.",
+                        "key": "lt_fact_305",
+                        "value": "Bookkeeping about the L-T update.",
                         "category": "other",
-                        "source_keys": ["l4_fact_305"],
+                        "source_keys": ["lt_fact_305"],
                     }],
                 },
                 source_fields=[{
-                    "key": "l4_fact_305",
+                    "key": "lt_fact_305",
                     "content": "The description now excludes white bonfire.",
                     "session_id": "session-a",
                 }],
@@ -179,14 +179,14 @@ class L4MemoryTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertTrue(changed)
         self.assertEqual(
-            updated[0]["signals"][pending[0]["key"]]["l4_status"],
+            updated[0]["signals"][pending[0]["key"]]["lt_status"],
             "analyzed",
         )
         other_key = "language" if pending[0]["key"] == "gpu" else "gpu"
-        self.assertEqual(updated[0]["signals"][other_key]["l4_status"], "pending")
+        self.assertEqual(updated[0]["signals"][other_key]["lt_status"], "pending")
 
     def test_json_extraction_accepts_fenced_json(self):
-        payload = extract_l4_json_payload(
+        payload = extract_lt_json_payload(
             "text\n```json\n{\"facts\": []}\n```"
         )
         self.assertEqual(payload, {"facts": []})
@@ -206,7 +206,7 @@ class L4MemoryTests(unittest.IsolatedAsyncioTestCase):
                 "runtime_snapshot_id": "runtime_002",
             },
         ]
-        candidates = normalize_l4_candidates(
+        candidates = normalize_lt_candidates(
             {
                 "facts": [
                     {
@@ -229,9 +229,9 @@ class L4MemoryTests(unittest.IsolatedAsyncioTestCase):
         )
         self.assertEqual(candidates[0]["source_keys"], ["gpu"])
 
-    def test_l4_fact_normalization_ignores_legacy_score_field(self):
+    def test_lt_fact_normalization_ignores_legacy_score_field(self):
         legacy_field = "con" + "fidence"
-        store = normalize_l4_store({
+        store = normalize_lt_store({
             "facts": [
                 {
                     "id": "F1",
@@ -259,25 +259,25 @@ class L4MemoryTests(unittest.IsolatedAsyncioTestCase):
             "revision": 7,
             "facts": [
                 {
-                    "id": "l4_alpha123",
+                    "id": "lt_alpha123",
                     "key": "user.hardware.main_gpu",
                     "value": "User's main GPU is RTX 3080 Ti.",
                     "category": "environment",
-                    "source_fact_ids": ["l4p_processed123"],
+                    "source_fact_ids": ["ltp_processed123"],
                 },
             ],
             "pending_facts": [
                 {
-                    "id": "l4p_waiting123",
+                    "id": "ltp_waiting123",
                     "key": "user.preference.response_language",
                     "value": "User prefers Russian replies.",
                     "category": "user_preference",
                 },
             ],
-            "deleted_fact_ids": ["l4_deleted123"],
+            "deleted_fact_ids": ["lt_deleted123"],
         }
 
-        migrated = normalize_l4_store(legacy, now="2026-08-08T17:00:00Z")
+        migrated = normalize_lt_store(legacy, now="2026-08-08T17:00:00Z")
 
         self.assertEqual(migrated["version"], 2)
         self.assertEqual(migrated["revision"], 8)
@@ -288,7 +288,7 @@ class L4MemoryTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(migrated["next_fact_id"], 3)
         self.assertEqual(migrated["next_pending_fact_id"], 3)
 
-        normalized_again = normalize_l4_store(
+        normalized_again = normalize_lt_store(
             migrated,
             now="2026-08-08T17:01:00Z",
         )
@@ -296,7 +296,7 @@ class L4MemoryTests(unittest.IsolatedAsyncioTestCase):
 
     def test_file_store_fallback_survives_empty_browser_sync(self):
         with tempfile.TemporaryDirectory() as directory:
-            persisted_store = normalize_l4_store({
+            persisted_store = normalize_lt_store({
                 "revision": 4,
                 "facts": [
                     {
@@ -318,15 +318,15 @@ class L4MemoryTests(unittest.IsolatedAsyncioTestCase):
                 logger=None,
                 clients={},
             )
-            context.runtime_l4_file_store_enabled = True
-            context.runtime_l4_file_store_root = directory
+            context.runtime_lt_file_store_enabled = True
+            context.runtime_lt_file_store_root = directory
 
-            loaded = ensure_runtime_l4_state(
+            loaded = ensure_runtime_lt_state(
                 context,
             )
             self.assertEqual(len(loaded["facts"]), 1)
 
-            changed = apply_l4_memory_store_sync(
+            changed = apply_lt_memory_store_sync(
                 context,
                 {
                     "revision": 99,
@@ -345,7 +345,7 @@ class L4MemoryTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_deleted_fact_survives_server_restart_and_stale_profile_sync(self):
         with tempfile.TemporaryDirectory() as directory:
-            stale_browser_store = normalize_l4_store({
+            stale_browser_store = normalize_lt_store({
                 "revision": 154,
                 "updated_at": "2026-08-05T11:48:48Z",
                 "facts": [
@@ -367,11 +367,11 @@ class L4MemoryTests(unittest.IsolatedAsyncioTestCase):
                 logger=CaptureMemoryLogger(),
                 clients={},
             )
-            context.runtime_l4_file_store_enabled = True
-            context.runtime_l4_file_store_root = directory
-            ensure_runtime_l4_state(context)
+            context.runtime_lt_file_store_enabled = True
+            context.runtime_lt_file_store_root = directory
+            ensure_runtime_lt_state(context)
 
-            deleted = await delete_l4_memory_fact(
+            deleted = await delete_lt_memory_fact(
                 context,
                 "F1",
             )
@@ -393,11 +393,11 @@ class L4MemoryTests(unittest.IsolatedAsyncioTestCase):
                 logger=CaptureMemoryLogger(),
                 clients={},
             )
-            restarted_context.runtime_l4_file_store_enabled = True
-            restarted_context.runtime_l4_file_store_root = directory
-            ensure_runtime_l4_state(restarted_context)
+            restarted_context.runtime_lt_file_store_enabled = True
+            restarted_context.runtime_lt_file_store_root = directory
+            ensure_runtime_lt_state(restarted_context)
 
-            changed = apply_l4_memory_store_sync(
+            changed = apply_lt_memory_store_sync(
                 restarted_context,
                 stale_browser_store,
             )
@@ -414,7 +414,7 @@ class L4MemoryTests(unittest.IsolatedAsyncioTestCase):
             )
 
     def test_store_snapshot_merge_preserves_distinct_committed_ids_on_key_collision(self):
-        merged, change = merge_l4_store_snapshots(
+        merged, change = merge_lt_store_snapshots(
             {
                 "revision": 4,
                 "facts": [
@@ -459,7 +459,7 @@ class L4MemoryTests(unittest.IsolatedAsyncioTestCase):
         processed_pending_id = "PF1"
         waiting_pending_id = "PF2"
 
-        store = normalize_l4_store(
+        store = normalize_lt_store(
             {
                 "facts": [
                     {
@@ -496,7 +496,7 @@ class L4MemoryTests(unittest.IsolatedAsyncioTestCase):
     def test_store_merge_does_not_resurrect_processed_pending_fact(self):
         processed_pending_id = "PF1"
 
-        merged, change = merge_l4_store_snapshots(
+        merged, change = merge_lt_store_snapshots(
             {
                 "revision": 94,
                 "updated_at": "2026-08-04T17:34:05Z",
@@ -532,7 +532,7 @@ class L4MemoryTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(merged["pending_facts"], [])
 
     def test_pending_candidates_accumulate_without_touching_final_memory(self):
-        store = normalize_l4_store({
+        store = normalize_lt_store({
             "facts": [
                 {
                     "key": "project.identity",
@@ -540,7 +540,7 @@ class L4MemoryTests(unittest.IsolatedAsyncioTestCase):
                 },
             ],
         })
-        store, change = add_l4_pending_candidates(
+        store, change = add_lt_pending_candidates(
             store,
             [
                 {
@@ -568,8 +568,8 @@ class L4MemoryTests(unittest.IsolatedAsyncioTestCase):
         )
 
     def test_merge_requires_one_valid_operation_for_every_pending_fact(self):
-        store, _ = add_l4_pending_candidates(
-            normalize_l4_store({}),
+        store, _ = add_lt_pending_candidates(
+            normalize_lt_store({}),
             [
                 {
                     "key": "user.hardware.main_gpu",
@@ -578,9 +578,9 @@ class L4MemoryTests(unittest.IsolatedAsyncioTestCase):
             ],
             now="2026-08-02T12:00:00Z",
         )
-        before = normalize_l4_store(store, now="2026-08-02T12:00:00Z")
+        before = normalize_lt_store(store, now="2026-08-02T12:00:00Z")
 
-        after, change = apply_l4_merge_operations(
+        after, change = apply_lt_merge_operations(
             store,
             [],
             now="2026-08-02T12:01:00Z",
@@ -592,7 +592,7 @@ class L4MemoryTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(after["pending_facts"], before["pending_facts"])
 
     def test_sparse_merge_update_cannot_rekey_and_destroy_target_id(self):
-        store = normalize_l4_store({
+        store = normalize_lt_store({
             "facts": [
                 {"id": "F100", "key": "jin_identity", "value": "Existing identity."},
                 {"id": "F167", "key": "user.identity", "value": "JIN persists across model substrates."},
@@ -602,7 +602,7 @@ class L4MemoryTests(unittest.IsolatedAsyncioTestCase):
             ],
         })
 
-        after, change = apply_l4_merge_operations(
+        after, change = apply_lt_merge_operations(
             store,
             [{"action": "update", "pending_id": "PF354", "target_id": "F167"}],
             pending_ids=["PF354"],
@@ -614,7 +614,7 @@ class L4MemoryTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual([fact["id"] for fact in after["facts"]], ["F100", "F167"])
 
     def test_merge_update_rejects_key_collision_with_other_committed_fact(self):
-        store = normalize_l4_store({
+        store = normalize_lt_store({
             "facts": [
                 {"id": "F100", "key": "jin_identity", "value": "Existing identity."},
                 {"id": "F167", "key": "user.identity", "value": "JIN persists across model substrates."},
@@ -624,7 +624,7 @@ class L4MemoryTests(unittest.IsolatedAsyncioTestCase):
             ],
         })
 
-        after, change = apply_l4_merge_operations(
+        after, change = apply_lt_merge_operations(
             store,
             [{
                 "action": "update",
@@ -643,7 +643,7 @@ class L4MemoryTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual([fact["id"] for fact in after["facts"]], ["F100", "F167"])
 
     def test_merge_protocol_exposes_only_create_update_ignore_merge_actions(self):
-        prompt = build_l4_merge_system_prompt()
+        prompt = build_lt_merge_system_prompt()
 
         for action in ("create", "update", "ignore", "merge"):
             self.assertIn(action, prompt)
@@ -653,7 +653,7 @@ class L4MemoryTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("Optional comment", prompt)
 
     def test_merge_prompt_uses_slim_model_view_without_provenance_metadata(self):
-        prompt = build_l4_merge_user_prompt(
+        prompt = build_lt_merge_user_prompt(
             existing_facts=[
                 {
                     "id": "F2",
@@ -692,7 +692,7 @@ class L4MemoryTests(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn("updated_at", prompt)
 
     def test_merge_batch_plan_is_bounded_by_runtime_context_window(self):
-        existing_facts = normalize_l4_store({
+        existing_facts = normalize_lt_store({
             "facts": [
                 {
                     "id": f"F{index + 1}",
@@ -703,8 +703,8 @@ class L4MemoryTests(unittest.IsolatedAsyncioTestCase):
                 for index in range(20)
             ],
         })["facts"]
-        store, _ = add_l4_pending_candidates(
-            normalize_l4_store({"facts": existing_facts}),
+        store, _ = add_lt_pending_candidates(
+            normalize_lt_store({"facts": existing_facts}),
             [
                 {
                     "key": f"project.pending_{index}",
@@ -716,18 +716,18 @@ class L4MemoryTests(unittest.IsolatedAsyncioTestCase):
             now="2026-08-02T12:00:00Z",
         )
 
-        plan_4k = build_l4_merge_batch_plan(
+        plan_4k = build_lt_merge_batch_plan(
             existing_facts=store["facts"],
             pending_facts=store["pending_facts"],
-            system_prompt=build_l4_merge_system_prompt(),
+            system_prompt=build_lt_merge_system_prompt(),
             runtime_context_window=4096,
             requested_max_tokens=32768,
             runtime_output_reserve=256,
         )
-        plan_8k = build_l4_merge_batch_plan(
+        plan_8k = build_lt_merge_batch_plan(
             existing_facts=store["facts"],
             pending_facts=store["pending_facts"],
-            system_prompt=build_l4_merge_system_prompt(),
+            system_prompt=build_lt_merge_system_prompt(),
             runtime_context_window=8192,
             requested_max_tokens=32768,
             runtime_output_reserve=256,
@@ -740,7 +740,7 @@ class L4MemoryTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(plan_4k["requested_max_output_tokens"], 32768)
 
     def test_merge_batch_plan_squeezes_only_headroom_to_avoid_fifo_deadlock(self):
-        existing_facts = normalize_l4_store({
+        existing_facts = normalize_lt_store({
             "facts": [
                 {
                     "id": f"F{index + 1}",
@@ -751,8 +751,8 @@ class L4MemoryTests(unittest.IsolatedAsyncioTestCase):
                 for index in range(200)
             ],
         })["facts"]
-        store, _ = add_l4_pending_candidates(
-            normalize_l4_store({"facts": existing_facts}),
+        store, _ = add_lt_pending_candidates(
+            normalize_lt_store({"facts": existing_facts}),
             [{
                 "key": "project.pending",
                 "value": "Pending durable fact " + ("detail " * 20),
@@ -761,10 +761,10 @@ class L4MemoryTests(unittest.IsolatedAsyncioTestCase):
             now="2026-08-20T12:00:00Z",
         )
 
-        plan = build_l4_merge_batch_plan(
+        plan = build_lt_merge_batch_plan(
             existing_facts=store["facts"],
             pending_facts=store["pending_facts"],
-            system_prompt=build_l4_merge_system_prompt(),
+            system_prompt=build_lt_merge_system_prompt(),
             runtime_context_window=16384,
             requested_max_tokens=None,
             runtime_output_reserve=256,
@@ -780,7 +780,7 @@ class L4MemoryTests(unittest.IsolatedAsyncioTestCase):
         self.assertLessEqual(plan["estimated_total_tokens"], 16384)
 
     def test_double_batch_plan_falls_back_to_two_existing_fact_halves(self):
-        existing_facts = normalize_l4_store({
+        existing_facts = normalize_lt_store({
             "facts": [
                 {
                     "id": f"F{index + 1}",
@@ -791,8 +791,8 @@ class L4MemoryTests(unittest.IsolatedAsyncioTestCase):
                 for index in range(50)
             ],
         })["facts"]
-        store, _ = add_l4_pending_candidates(
-            normalize_l4_store({"facts": existing_facts}),
+        store, _ = add_lt_pending_candidates(
+            normalize_lt_store({"facts": existing_facts}),
             [
                 {
                     "key": f"project.pending_{index}",
@@ -804,10 +804,10 @@ class L4MemoryTests(unittest.IsolatedAsyncioTestCase):
             now="2026-08-21T12:00:00Z",
         )
 
-        plan = build_l4_double_batch_plan(
+        plan = build_lt_double_batch_plan(
             existing_facts=store["facts"],
             pending_facts=store["pending_facts"],
-            system_prompt=build_l4_merge_system_prompt(),
+            system_prompt=build_lt_merge_system_prompt(),
             runtime_context_window=4096,
             requested_max_tokens=None,
             runtime_output_reserve=256,
@@ -823,7 +823,7 @@ class L4MemoryTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(plan["plans"]), 2)
 
     def test_double_batch_plan_pauses_when_one_pending_cannot_fit_a_half(self):
-        existing_facts = normalize_l4_store({
+        existing_facts = normalize_lt_store({
             "facts": [
                 {
                     "id": f"F{index + 1}",
@@ -834,8 +834,8 @@ class L4MemoryTests(unittest.IsolatedAsyncioTestCase):
                 for index in range(100)
             ],
         })["facts"]
-        store, _ = add_l4_pending_candidates(
-            normalize_l4_store({"facts": existing_facts}),
+        store, _ = add_lt_pending_candidates(
+            normalize_lt_store({"facts": existing_facts}),
             [{
                 "key": "project.pending",
                 "value": "Pending durable fact " + ("detail " * 10),
@@ -844,10 +844,10 @@ class L4MemoryTests(unittest.IsolatedAsyncioTestCase):
             now="2026-08-21T12:00:00Z",
         )
 
-        plan = build_l4_double_batch_plan(
+        plan = build_lt_double_batch_plan(
             existing_facts=store["facts"],
             pending_facts=store["pending_facts"],
-            system_prompt=build_l4_merge_system_prompt(),
+            system_prompt=build_lt_merge_system_prompt(),
             runtime_context_window=4096,
             requested_max_tokens=None,
             runtime_output_reserve=256,
@@ -858,7 +858,7 @@ class L4MemoryTests(unittest.IsolatedAsyncioTestCase):
         self.assertGreater(plan["minimum_required_tokens"], 4096)
 
     async def test_merge_uses_two_existing_fact_shards_before_applying(self):
-        existing_facts = normalize_l4_store({
+        existing_facts = normalize_lt_store({
             "facts": [
                 {
                     "id": f"F{index + 1}",
@@ -869,8 +869,8 @@ class L4MemoryTests(unittest.IsolatedAsyncioTestCase):
                 for index in range(50)
             ],
         })["facts"]
-        store, _ = add_l4_pending_candidates(
-            normalize_l4_store({"facts": existing_facts}),
+        store, _ = add_lt_pending_candidates(
+            normalize_lt_store({"facts": existing_facts}),
             [
                 {
                     "key": f"project.pending_{index}",
@@ -916,7 +916,7 @@ class L4MemoryTests(unittest.IsolatedAsyncioTestCase):
         )
         context.runtime_long_term_memory_store = store
 
-        result = await run_l4_merge_phase(
+        result = await run_lt_merge_phase(
             context=context,
             service_client=service_client,
         )
@@ -925,8 +925,8 @@ class L4MemoryTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result["batch_count"], 3)
         self.assertEqual(result["remaining_pending_count"], 2)
         self.assertEqual(len(service_client.calls), 2)
-        self.assertEqual(context.runtime_l4_merge_existing_batch_mode, "halves")
-        self.assertEqual(context.runtime_l4_merge_batch_limit, 6)
+        self.assertEqual(context.runtime_lt_merge_existing_batch_mode, "halves")
+        self.assertEqual(context.runtime_lt_merge_batch_limit, 6)
 
         first_payload = json.loads(
             service_client.calls[0]["user_prompt"].split("\n\n", 1)[1]
@@ -939,7 +939,7 @@ class L4MemoryTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(second_payload["previous_shard_scan"]), 3)
 
     def test_shard_scan_inspection_keeps_valid_rows_when_one_row_is_bad(self):
-        inspection = inspect_l4_merge_shard_scan(
+        inspection = inspect_lt_merge_shard_scan(
             {
                 "scan": [
                     {
@@ -966,7 +966,7 @@ class L4MemoryTests(unittest.IsolatedAsyncioTestCase):
         )
 
     async def test_invalid_shard_row_gets_real_repair_before_finalize(self):
-        existing_facts = normalize_l4_store({
+        existing_facts = normalize_lt_store({
             "facts": [
                 {
                     "id": f"F{index + 1}",
@@ -977,8 +977,8 @@ class L4MemoryTests(unittest.IsolatedAsyncioTestCase):
                 for index in range(50)
             ],
         })["facts"]
-        store, _ = add_l4_pending_candidates(
-            normalize_l4_store({"facts": existing_facts}),
+        store, _ = add_lt_pending_candidates(
+            normalize_lt_store({"facts": existing_facts}),
             [
                 {
                     "key": "project.pending_1",
@@ -1034,7 +1034,7 @@ class L4MemoryTests(unittest.IsolatedAsyncioTestCase):
         )
         context.runtime_long_term_memory_store = store
 
-        result = await run_l4_merge_phase(
+        result = await run_lt_merge_phase(
             context=context,
             service_client=service_client,
         )
@@ -1045,7 +1045,7 @@ class L4MemoryTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(recovery["repair_attempted"])
         self.assertEqual(recovery["initial_invalid_pending_ids"], ["PF1"])
         self.assertEqual(recovery["repaired_pending_ids"], ["PF1"])
-        self.assertNotIn("PF1", context.runtime_l4_merge_deferred_pending_until)
+        self.assertNotIn("PF1", context.runtime_lt_merge_deferred_pending_until)
         repair_payload = json.loads(
             service_client.calls[1]["user_prompt"].split("\n\n", 1)[1]
         )
@@ -1056,7 +1056,7 @@ class L4MemoryTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("repair", repair_payload)
 
     async def test_bad_shard_row_is_deferred_without_blocking_valid_pending(self):
-        existing_facts = normalize_l4_store({
+        existing_facts = normalize_lt_store({
             "facts": [
                 {
                     "id": f"F{index + 1}",
@@ -1067,8 +1067,8 @@ class L4MemoryTests(unittest.IsolatedAsyncioTestCase):
                 for index in range(50)
             ],
         })["facts"]
-        store, _ = add_l4_pending_candidates(
-            normalize_l4_store({"facts": existing_facts}),
+        store, _ = add_lt_pending_candidates(
+            normalize_lt_store({"facts": existing_facts}),
             [
                 {
                     "key": "project.poison",
@@ -1135,7 +1135,7 @@ class L4MemoryTests(unittest.IsolatedAsyncioTestCase):
         )
         context.runtime_long_term_memory_store = store
 
-        first = await run_l4_merge_phase(
+        first = await run_lt_merge_phase(
             context=context,
             service_client=service_client,
         )
@@ -1147,9 +1147,9 @@ class L4MemoryTests(unittest.IsolatedAsyncioTestCase):
             [fact["id"] for fact in context.runtime_long_term_memory_store["pending_facts"]],
             ["PF1"],
         )
-        self.assertIn("PF1", context.runtime_l4_merge_deferred_pending_until)
-        self.assertIn("PF1", context.runtime_l4_merge_single_retry_pending_ids)
-        self.assertEqual(context.runtime_l4_merge_retry_not_before, 0.0)
+        self.assertIn("PF1", context.runtime_lt_merge_deferred_pending_until)
+        self.assertIn("PF1", context.runtime_lt_merge_single_retry_pending_ids)
+        self.assertEqual(context.runtime_lt_merge_retry_not_before, 0.0)
         final_payload = json.loads(
             service_client.calls[2]["user_prompt"].split("\n\n", 1)[1]
         )
@@ -1158,7 +1158,7 @@ class L4MemoryTests(unittest.IsolatedAsyncioTestCase):
             ["PF2"],
         )
 
-        next_store, _ = add_l4_pending_candidates(
+        next_store, _ = add_lt_pending_candidates(
             context.runtime_long_term_memory_store,
             [
                 {
@@ -1170,9 +1170,9 @@ class L4MemoryTests(unittest.IsolatedAsyncioTestCase):
             now="2026-08-21T12:01:00Z",
         )
         context.runtime_long_term_memory_store = next_store
-        context.runtime_l4_merge_deferred_pending_until["PF1"] = 0.0
+        context.runtime_lt_merge_deferred_pending_until["PF1"] = 0.0
 
-        second = await run_l4_merge_phase(
+        second = await run_lt_merge_phase(
             context=context,
             service_client=service_client,
         )
@@ -1190,10 +1190,10 @@ class L4MemoryTests(unittest.IsolatedAsyncioTestCase):
             [fact["id"] for fact in context.runtime_long_term_memory_store["pending_facts"]],
             ["PF3"],
         )
-        self.assertNotIn("PF1", context.runtime_l4_merge_single_retry_pending_ids)
+        self.assertNotIn("PF1", context.runtime_lt_merge_single_retry_pending_ids)
 
-    async def test_l4_pause_logs_once_and_starts_no_model_request(self):
-        existing_facts = normalize_l4_store({
+    async def test_lt_pause_logs_once_and_starts_no_model_request(self):
+        existing_facts = normalize_lt_store({
             "facts": [
                 {
                     "id": f"F{index + 1}",
@@ -1204,8 +1204,8 @@ class L4MemoryTests(unittest.IsolatedAsyncioTestCase):
                 for index in range(100)
             ],
         })["facts"]
-        store, _ = add_l4_pending_candidates(
-            normalize_l4_store({"facts": existing_facts}),
+        store, _ = add_lt_pending_candidates(
+            normalize_lt_store({"facts": existing_facts}),
             [{
                 "key": "project.pending",
                 "value": "Pending durable fact " + ("detail " * 10),
@@ -1223,11 +1223,11 @@ class L4MemoryTests(unittest.IsolatedAsyncioTestCase):
         )
         context.runtime_long_term_memory_store = store
 
-        first = await run_l4_merge_phase(
+        first = await run_lt_merge_phase(
             context=context,
             service_client=service_client,
         )
-        second = await run_l4_merge_phase(
+        second = await run_lt_merge_phase(
             context=context,
             service_client=service_client,
         )
@@ -1243,8 +1243,8 @@ class L4MemoryTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("Maximum available: 4096", logger.logs[0]["message"])
 
     async def test_successful_learned_pending_batch_expands_instead_of_sticking(self):
-        store, _ = add_l4_pending_candidates(
-            normalize_l4_store({}),
+        store, _ = add_lt_pending_candidates(
+            normalize_lt_store({}),
             [
                 {
                     "key": f"project.pending_{index}",
@@ -1288,25 +1288,25 @@ class L4MemoryTests(unittest.IsolatedAsyncioTestCase):
             clients={"service": service_client},
         )
         context.runtime_long_term_memory_store = store
-        context.runtime_l4_merge_batch_limit = 1
+        context.runtime_lt_merge_batch_limit = 1
 
-        first = await run_l4_merge_phase(
+        first = await run_lt_merge_phase(
             context=context,
             service_client=service_client,
         )
         self.assertEqual(first["batch_count"], 1)
-        self.assertEqual(context.runtime_l4_merge_batch_limit, 2)
+        self.assertEqual(context.runtime_lt_merge_batch_limit, 2)
 
-        second = await run_l4_merge_phase(
+        second = await run_lt_merge_phase(
             context=context,
             service_client=service_client,
         )
         self.assertEqual(second["batch_count"], 2)
-        self.assertEqual(context.runtime_l4_merge_batch_limit, 4)
+        self.assertEqual(context.runtime_lt_merge_batch_limit, 4)
 
-    async def test_live_context_window_change_releases_locked_l4_batch(self):
-        store, _ = add_l4_pending_candidates(
-            normalize_l4_store({}),
+    async def test_live_context_window_change_releases_locked_lt_batch(self):
+        store, _ = add_lt_pending_candidates(
+            normalize_lt_store({}),
             [
                 {
                     "key": f"project.pending_{index}",
@@ -1337,24 +1337,24 @@ class L4MemoryTests(unittest.IsolatedAsyncioTestCase):
             clients={"service": service_client},
         )
         context.runtime_long_term_memory_store = store
-        context.runtime_l4_merge_context_window_tokens = 4096
-        context.runtime_l4_merge_batch_limit = 1
-        context.runtime_l4_merge_last_success_batch_limit = 1
-        context.runtime_l4_merge_batch_locked = True
+        context.runtime_lt_merge_context_window_tokens = 4096
+        context.runtime_lt_merge_batch_limit = 1
+        context.runtime_lt_merge_last_success_batch_limit = 1
+        context.runtime_lt_merge_batch_locked = True
 
-        result = await run_l4_merge_phase(
+        result = await run_lt_merge_phase(
             context=context,
             service_client=service_client,
         )
 
         self.assertEqual(result["batch_count"], 4)
         self.assertEqual(result["remaining_pending_count"], 0)
-        self.assertFalse(context.runtime_l4_merge_batch_locked)
-        self.assertEqual(context.runtime_l4_merge_batch_limit, 0)
+        self.assertFalse(context.runtime_lt_merge_batch_locked)
+        self.assertEqual(context.runtime_lt_merge_batch_limit, 0)
 
     def test_merge_can_apply_one_batch_and_leave_rest_of_pending_queue(self):
-        store, _ = add_l4_pending_candidates(
-            normalize_l4_store({}),
+        store, _ = add_lt_pending_candidates(
+            normalize_lt_store({}),
             [
                 {
                     "key": f"project.fact_{index}",
@@ -1377,7 +1377,7 @@ class L4MemoryTests(unittest.IsolatedAsyncioTestCase):
             for fact in first_two
         ]
 
-        merged, change = apply_l4_merge_operations(
+        merged, change = apply_lt_merge_operations(
             store,
             operations,
             pending_ids=[fact["id"] for fact in first_two],
@@ -1394,7 +1394,7 @@ class L4MemoryTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(change["pending_count"], 1)
 
     def test_merge_applies_complete_batch_atomically(self):
-        existing = normalize_l4_store({
+        existing = normalize_lt_store({
             "facts": [
                 {
                     "id": "F1",
@@ -1404,7 +1404,7 @@ class L4MemoryTests(unittest.IsolatedAsyncioTestCase):
                 },
             ],
         })
-        store, _ = add_l4_pending_candidates(
+        store, _ = add_lt_pending_candidates(
             existing,
             [
                 {
@@ -1422,7 +1422,7 @@ class L4MemoryTests(unittest.IsolatedAsyncioTestCase):
             now="2026-08-02T12:00:00Z",
         )
         gpu_pending, task_pending = store["pending_facts"]
-        operations = normalize_l4_merge_operations({
+        operations = normalize_lt_merge_operations({
             "operations": [
                 {
                     "action": "update",
@@ -1439,7 +1439,7 @@ class L4MemoryTests(unittest.IsolatedAsyncioTestCase):
             ],
         })
 
-        merged, change = apply_l4_merge_operations(
+        merged, change = apply_lt_merge_operations(
             store,
             operations,
             now="2026-08-02T12:01:00Z",
@@ -1469,7 +1469,7 @@ class L4MemoryTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(ignore_detail["action"], "ignore")
         self.assertEqual(ignore_detail["pending_id"], task_pending["id"])
 
-        detail_text = format_l4_merge_operation_details(change)
+        detail_text = format_lt_merge_operation_details(change)
         self.assertIn("UPDATE", detail_text)
         self.assertIn("incoming: user.hardware.main_gpu", detail_text)
         self.assertIn("before:   user.hardware.main_gpu", detail_text)
@@ -1477,7 +1477,7 @@ class L4MemoryTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("IGNORE", detail_text)
 
     def test_merge_ignore_consumes_redundant_pending_fact_without_mutating_committed_fact(self):
-        existing = normalize_l4_store({
+        existing = normalize_lt_store({
             "facts": [
                 {
                     "id": "F2",
@@ -1488,7 +1488,7 @@ class L4MemoryTests(unittest.IsolatedAsyncioTestCase):
                 },
             ],
         })
-        store, _ = add_l4_pending_candidates(
+        store, _ = add_lt_pending_candidates(
             existing,
             [
                 {
@@ -1501,7 +1501,7 @@ class L4MemoryTests(unittest.IsolatedAsyncioTestCase):
             now="2026-08-02T12:00:00Z",
         )
         pending = store["pending_facts"][0]
-        operations = normalize_l4_merge_operations({
+        operations = normalize_lt_merge_operations({
             "operations": [
                 {
                     "action": "ignore",
@@ -1511,7 +1511,7 @@ class L4MemoryTests(unittest.IsolatedAsyncioTestCase):
             ],
         })
 
-        merged, change = apply_l4_merge_operations(
+        merged, change = apply_lt_merge_operations(
             store,
             operations,
             now="2026-08-02T12:01:00Z",
@@ -1524,11 +1524,11 @@ class L4MemoryTests(unittest.IsolatedAsyncioTestCase):
         detail = change["operation_details"][0]
         self.assertEqual(detail["action"], "ignore")
         self.assertEqual(detail["comment"], "Already represented by F2.")
-        detail_text = format_l4_merge_operation_details(change)
+        detail_text = format_lt_merge_operation_details(change)
         self.assertIn("IGNORE", detail_text)
 
     def test_merge_retires_old_facts_and_creates_new_canonical_id_with_lineage(self):
-        store = normalize_l4_store({
+        store = normalize_lt_store({
             "facts": [
                 {
                     "id": "F1",
@@ -1553,7 +1553,7 @@ class L4MemoryTests(unittest.IsolatedAsyncioTestCase):
                 },
             ],
         })
-        operations = normalize_l4_merge_operations({
+        operations = normalize_lt_merge_operations({
             "operations": [
                 {
                     "action": "merge",
@@ -1567,7 +1567,7 @@ class L4MemoryTests(unittest.IsolatedAsyncioTestCase):
             ],
         })
 
-        merged, change = apply_l4_merge_operations(
+        merged, change = apply_lt_merge_operations(
             store,
             operations,
             pending_ids=["PF1"],
@@ -1591,7 +1591,7 @@ class L4MemoryTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual([fact["id"] for fact in detail["merged_facts"]], ["F1", "F2"])
 
     async def test_merge_phase_logs_concrete_operation_details(self):
-        existing = normalize_l4_store({
+        existing = normalize_lt_store({
             "facts": [
                 {
                     "id": "F1",
@@ -1607,7 +1607,7 @@ class L4MemoryTests(unittest.IsolatedAsyncioTestCase):
                 },
             ],
         })
-        store, _ = add_l4_pending_candidates(
+        store, _ = add_lt_pending_candidates(
             existing,
             [
                 {
@@ -1650,7 +1650,7 @@ class L4MemoryTests(unittest.IsolatedAsyncioTestCase):
         )
         context.runtime_long_term_memory_store = store
 
-        result = await maybe_update_runtime_l4_memory(
+        result = await maybe_update_runtime_lt_memory(
             context=context,
             user_idle_seconds=61,
         )
@@ -1660,7 +1660,7 @@ class L4MemoryTests(unittest.IsolatedAsyncioTestCase):
         merge_logs = [
             details
             for message, details in logger.summarizer_logs
-            if message == "[MEMORY:L4] L4 merge applied"
+            if message == "[MEMORY:L-T] L-T merge applied"
         ]
         self.assertEqual(len(merge_logs), 1)
         detail_text = merge_logs[0]
@@ -1684,7 +1684,7 @@ class L4MemoryTests(unittest.IsolatedAsyncioTestCase):
             "both": {"facts_ids": ["F2", "F4"]},
         }
 
-        change = remap_delayed_memory_l4_fact_ids(
+        change = remap_delayed_memory_lt_fact_ids(
             context,
             removed_fact_ids=["F1", "F2", "F3", "F4"],
             replacement_fact_ids=["F5", "F6"],
@@ -1705,7 +1705,7 @@ class L4MemoryTests(unittest.IsolatedAsyncioTestCase):
         )
 
     async def test_merge_validation_failure_gets_one_structured_repair_pass(self):
-        store = normalize_l4_store({
+        store = normalize_lt_store({
             "facts": [
                 {
                     "id": "F1",
@@ -1755,7 +1755,7 @@ class L4MemoryTests(unittest.IsolatedAsyncioTestCase):
         )
         context.runtime_long_term_memory_store = store
 
-        result = await maybe_update_runtime_l4_memory(
+        result = await maybe_update_runtime_lt_memory(
             context=context,
             user_idle_seconds=61,
         )
@@ -1778,7 +1778,7 @@ class L4MemoryTests(unittest.IsolatedAsyncioTestCase):
         )
 
     async def test_failed_batch_isolated_then_poison_pending_is_deferred_without_blocking_queue(self):
-        store = normalize_l4_store({
+        store = normalize_lt_store({
             "pending_facts": [
                 {
                     "id": "PF1",
@@ -1819,26 +1819,26 @@ class L4MemoryTests(unittest.IsolatedAsyncioTestCase):
         )
         context.runtime_long_term_memory_store = store
 
-        first = await maybe_update_runtime_l4_memory(
+        first = await maybe_update_runtime_lt_memory(
             context=context,
             user_idle_seconds=61,
         )
         self.assertEqual(first["status"], "skipped")
-        self.assertTrue(context.runtime_l4_merge_force_single_batch_once)
+        self.assertTrue(context.runtime_lt_merge_force_single_batch_once)
         self.assertEqual(len(service_client.calls), 2)
 
         # Simulate the next one-minute idle tick after the validation backoff.
-        context.runtime_l4_merge_retry_not_before = 0.0
-        second = await maybe_update_runtime_l4_memory(
+        context.runtime_lt_merge_retry_not_before = 0.0
+        second = await maybe_update_runtime_lt_memory(
             context=context,
             user_idle_seconds=121,
         )
         self.assertEqual(second["status"], "skipped")
         self.assertEqual(len(service_client.calls), 4)
-        self.assertIn("PF1", context.runtime_l4_merge_deferred_pending_until)
+        self.assertIn("PF1", context.runtime_lt_merge_deferred_pending_until)
 
         # The poison PF stays pending, but it no longer owns the FIFO head.
-        third = await maybe_update_runtime_l4_memory(
+        third = await maybe_update_runtime_lt_memory(
             context=context,
             user_idle_seconds=181,
         )
@@ -1857,15 +1857,15 @@ class L4MemoryTests(unittest.IsolatedAsyncioTestCase):
             clients={},
         )
 
-        context.runtime_l4_idle_last_started_at = 123.0
-        empty = schedule_l4_memory_idle_update(
+        context.runtime_lt_idle_last_started_at = 123.0
+        empty = schedule_lt_memory_idle_update(
             context=context,
             user_idle_seconds=61,
         )
         self.assertIsNone(empty)
-        self.assertEqual(context.runtime_l4_idle_last_started_at, 123.0)
+        self.assertEqual(context.runtime_lt_idle_last_started_at, 123.0)
 
-        context.runtime_long_term_memory_store = normalize_l4_store({
+        context.runtime_long_term_memory_store = normalize_lt_store({
             "pending_facts": [{
                 "id": "PF1",
                 "key": "project.pending",
@@ -1874,14 +1874,14 @@ class L4MemoryTests(unittest.IsolatedAsyncioTestCase):
             }],
         })
 
-        first = schedule_l4_memory_idle_update(
+        first = schedule_lt_memory_idle_update(
             context=context,
             user_idle_seconds=61,
         )
         self.assertIsNotNone(first)
         await first
 
-        second = schedule_l4_memory_idle_update(
+        second = schedule_lt_memory_idle_update(
             context=context,
             user_idle_seconds=61,
         )
@@ -1889,8 +1889,8 @@ class L4MemoryTests(unittest.IsolatedAsyncioTestCase):
 
         # A foreground turn resets the server cadence too, even when no idle
         # task is currently in flight.
-        await cancel_l4_memory_idle_update(context, reason="user_message")
-        third = schedule_l4_memory_idle_update(
+        await cancel_lt_memory_idle_update(context, reason="user_message")
+        third = schedule_lt_memory_idle_update(
             context=context,
             user_idle_seconds=1,
         )
@@ -1898,18 +1898,18 @@ class L4MemoryTests(unittest.IsolatedAsyncioTestCase):
 
     def test_server_scheduler_uses_exact_closed_tab_third_cadence(self):
         with patch.object(
-            l4_memory_module.config,
-            "L4_IDLE_SECONDS",
+            lt_memory_module.config,
+            "LT_IDLE_SECONDS",
             15,
         ):
             self.assertEqual(
-                get_l4_scheduler_interval_seconds(
+                get_lt_scheduler_interval_seconds(
                     tabs_open=True,
                 ),
                 15.0,
             )
             self.assertEqual(
-                get_l4_scheduler_interval_seconds(
+                get_lt_scheduler_interval_seconds(
                     tabs_open=False,
                 ),
                 5.0,
@@ -1917,9 +1917,9 @@ class L4MemoryTests(unittest.IsolatedAsyncioTestCase):
 
     def test_server_facts_memory_reconciles_analyzed_state_after_closed_tab_work(self):
         app_state = SimpleNamespace(
-            l4_memory_scheduler_wake_event=asyncio.Event(),
-            l4_facts_memory_records=[],
-            l4_runtime_context=None,
+            lt_memory_scheduler_wake_event=asyncio.Event(),
+            lt_facts_memory_records=[],
+            lt_runtime_context=None,
         )
         analyzed_context = RuntimeContext(
             websocket=None,
@@ -1927,7 +1927,7 @@ class L4MemoryTests(unittest.IsolatedAsyncioTestCase):
             logger=FakeLogger(),
             clients={},
         )
-        bind_l4_runtime_app_state(
+        bind_lt_runtime_app_state(
             analyzed_context,
             app_state,
         )
@@ -1939,8 +1939,8 @@ class L4MemoryTests(unittest.IsolatedAsyncioTestCase):
                     "gpu": {
                         "content": "RTX 4090",
                         "runtime_snapshot_id": "runtime-a",
-                        "l4_status": "analyzed",
-                        "l4_analyzed_at": "2026-08-24T09:00:00Z",
+                        "lt_status": "analyzed",
+                        "lt_analyzed_at": "2026-08-24T09:00:00Z",
                     },
                 },
             }],
@@ -1953,7 +1953,7 @@ class L4MemoryTests(unittest.IsolatedAsyncioTestCase):
             logger=FakeLogger(),
             clients={},
         )
-        bind_l4_runtime_app_state(
+        bind_lt_runtime_app_state(
             reopened_context,
             app_state,
         )
@@ -1965,7 +1965,7 @@ class L4MemoryTests(unittest.IsolatedAsyncioTestCase):
                     "gpu": {
                         "content": "RTX 4090",
                         "runtime_snapshot_id": "runtime-a",
-                        "l4_status": "pending",
+                        "lt_status": "pending",
                     },
                 },
             }],
@@ -1973,20 +1973,20 @@ class L4MemoryTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(stale_browser_sync["pending_count"], 0)
         field = reopened_context.runtime_facts_memory_records[0]["signals"]["gpu"]
-        self.assertEqual(field["l4_status"], "analyzed")
+        self.assertEqual(field["lt_status"], "analyzed")
         self.assertEqual(
-            field["l4_analyzed_at"],
+            field["lt_analyzed_at"],
             "2026-08-24T09:00:00Z",
         )
 
-    async def test_user_activity_preempts_idle_l4_task_without_consuming_pending(self):
+    async def test_user_activity_preempts_idle_lt_task_without_consuming_pending(self):
         context = RuntimeContext(
             websocket=None,
             emitter=FakeEmitter(),
             logger=FakeLogger(),
             clients={},
         )
-        context.runtime_long_term_memory_store = normalize_l4_store({
+        context.runtime_long_term_memory_store = normalize_lt_store({
             "pending_facts": [
                 {
                     "id": "PF1",
@@ -2001,26 +2001,26 @@ class L4MemoryTests(unittest.IsolatedAsyncioTestCase):
             await asyncio.sleep(10)
 
         task = asyncio.create_task(idle_work())
-        context.runtime_l4_memory_update_task = task
-        context.runtime_l4_memory_update_kind = "idle"
+        context.runtime_lt_memory_update_task = task
+        context.runtime_lt_memory_update_kind = "idle"
 
-        cancelled = await cancel_l4_memory_idle_update(
+        cancelled = await cancel_lt_memory_idle_update(
             context,
             reason="user_message",
         )
 
         self.assertTrue(cancelled)
         self.assertTrue(task.cancelled())
-        self.assertIsNone(context.runtime_l4_memory_update_task)
-        self.assertEqual(context.runtime_l4_memory_update_kind, "")
+        self.assertIsNone(context.runtime_lt_memory_update_task)
+        self.assertEqual(context.runtime_lt_memory_update_kind, "")
         self.assertEqual(
             [fact["id"] for fact in context.runtime_long_term_memory_store["pending_facts"]],
             ["PF1"],
         )
 
     async def test_merge_phase_logs_skip_reason(self):
-        store, _ = add_l4_pending_candidates(
-            normalize_l4_store({}),
+        store, _ = add_lt_pending_candidates(
+            normalize_lt_store({}),
             [
                 {
                     "key": "system.identity_definition",
@@ -2045,7 +2045,7 @@ class L4MemoryTests(unittest.IsolatedAsyncioTestCase):
         )
         context.runtime_long_term_memory_store = store
 
-        result = await maybe_update_runtime_l4_memory(
+        result = await maybe_update_runtime_lt_memory(
             context=context,
             user_idle_seconds=61,
         )
@@ -2056,7 +2056,7 @@ class L4MemoryTests(unittest.IsolatedAsyncioTestCase):
         skip_logs = [
             details
             for message, details in logger.summarizer_logs
-            if message == "[MEMORY:L4] L4 merge skipped: operation_count_mismatch"
+            if message == "[MEMORY:L-T] L-T merge skipped: operation_count_mismatch"
         ]
         self.assertEqual(len(skip_logs), 1)
         skip_details = json.loads(skip_logs[0])
@@ -2117,7 +2117,7 @@ class L4MemoryTests(unittest.IsolatedAsyncioTestCase):
                                 "content": "",
                                 "reasoning_content": (
                                     "Internal analysis that must not be exposed "
-                                    "as the L4 response."
+                                    "as the L-T response."
                                 ),
                             },
                         },
@@ -2129,8 +2129,8 @@ class L4MemoryTests(unittest.IsolatedAsyncioTestCase):
                     },
                 }
 
-        store, _ = add_l4_pending_candidates(
-            normalize_l4_store({}),
+        store, _ = add_lt_pending_candidates(
+            normalize_lt_store({}),
             [
                 {
                     "key": "user.profile",
@@ -2150,7 +2150,7 @@ class L4MemoryTests(unittest.IsolatedAsyncioTestCase):
         )
         context.runtime_long_term_memory_store = store
 
-        result = await maybe_update_runtime_l4_memory(
+        result = await maybe_update_runtime_lt_memory(
             context=context,
             user_idle_seconds=61,
         )
@@ -2169,14 +2169,14 @@ class L4MemoryTests(unittest.IsolatedAsyncioTestCase):
         result_logs = [
             details
             for message, details in logger.summarizer_logs
-            if message == "[MEMORY:L4] L4 merge summarizer result"
+            if message == "[MEMORY:L-T] L-T merge summarizer result"
         ]
         self.assertEqual(result_logs, [])
 
         request_logs = [
             json.loads(details)
             for message, details in logger.summarizer_logs
-            if message == "[MEMORY:L4] L4 merge summarizer request"
+            if message == "[MEMORY:L-T] L-T merge summarizer request"
         ]
         self.assertEqual(request_logs[0]["max_tokens"], 3288)
 
@@ -2184,19 +2184,19 @@ class L4MemoryTests(unittest.IsolatedAsyncioTestCase):
             json.loads(details)
             for message, details in logger.summarizer_logs
             if message == (
-                "[MEMORY:L4] L4 merge skipped: "
+                "[MEMORY:L-T] L-T merge skipped: "
                 "output truncated before final response"
             )
         ]
         self.assertEqual(len(skip_logs), 1)
-        self.assertEqual(skip_logs[0]["kind"], "l4_skip")
+        self.assertEqual(skip_logs[0]["kind"], "lt_skip")
         self.assertEqual(skip_logs[0]["finish_reason"], "length")
         self.assertEqual(skip_logs[0]["adaptive_batch_limit"], 1)
         self.assertEqual(skip_logs[0]["retry_after_seconds"], 60)
         self.assertNotIn("reasoning_content", skip_logs[0])
         self.assertNotIn("Internal analysis", json.dumps(skip_logs[0]))
 
-        repeated = await maybe_update_runtime_l4_memory(
+        repeated = await maybe_update_runtime_lt_memory(
             context=context,
             user_idle_seconds=61,
         )
@@ -2207,8 +2207,8 @@ class L4MemoryTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(service_client.calls), 1)
 
     def test_merge_batch_plan_honors_adaptive_batch_cap_without_losing_queue_count(self):
-        store, _ = add_l4_pending_candidates(
-            normalize_l4_store({}),
+        store, _ = add_lt_pending_candidates(
+            normalize_lt_store({}),
             [
                 {
                     "key": f"project.pending_{index}",
@@ -2220,10 +2220,10 @@ class L4MemoryTests(unittest.IsolatedAsyncioTestCase):
             now="2026-08-06T12:00:00Z",
         )
 
-        plan = build_l4_merge_batch_plan(
+        plan = build_lt_merge_batch_plan(
             existing_facts=store["facts"],
             pending_facts=store["pending_facts"],
-            system_prompt=build_l4_merge_system_prompt(),
+            system_prompt=build_lt_merge_system_prompt(),
             runtime_context_window=16384,
             requested_max_tokens=None,
             runtime_output_reserve=256,
@@ -2236,7 +2236,7 @@ class L4MemoryTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(plan["remaining_pending_count"], 5)
         self.assertEqual(plan["adaptive_batch_limit"], 3)
 
-    async def test_runtime_l4_memory_update_running_tracks_active_task(self):
+    async def test_runtime_lt_memory_update_running_tracks_active_task(self):
         context = RuntimeContext(
             websocket=None,
             emitter=FakeEmitter(),
@@ -2245,22 +2245,22 @@ class L4MemoryTests(unittest.IsolatedAsyncioTestCase):
         )
 
         self.assertFalse(
-            runtime_l4_memory_update_running(context)
+            runtime_lt_memory_update_running(context)
         )
 
         task = asyncio.create_task(
             asyncio.sleep(0)
         )
-        context.runtime_l4_memory_update_task = task
+        context.runtime_lt_memory_update_task = task
 
         self.assertTrue(
-            runtime_l4_memory_update_running(context)
+            runtime_lt_memory_update_running(context)
         )
 
         await task
 
         self.assertFalse(
-            runtime_l4_memory_update_running(context)
+            runtime_lt_memory_update_running(context)
         )
 
     def test_store_does_not_truncate_values_or_fact_count(self):
@@ -2273,13 +2273,13 @@ class L4MemoryTests(unittest.IsolatedAsyncioTestCase):
             for index in range(350)
         ]
 
-        store = normalize_l4_store({"facts": raw_facts})
+        store = normalize_lt_store({"facts": raw_facts})
 
         self.assertEqual(len(store["facts"]), 350)
         self.assertEqual(store["facts"][0]["value"], (long_value + "0").strip())
 
     def test_context_formats_all_facts_without_metadata(self):
-        store = normalize_l4_store({
+        store = normalize_lt_store({
             "facts": [
                 {
                     "id": "F1",
@@ -2297,7 +2297,7 @@ class L4MemoryTests(unittest.IsolatedAsyncioTestCase):
         })
 
         context_block = format_long_term_memory_context(store["facts"])
-        ui_line = format_l4_fact_line(store["facts"][0], include_metadata=True)
+        ui_line = format_lt_fact_line(store["facts"][0], include_metadata=True)
 
         self.assertIn("user.hardware.main_gpu:", context_block)
         self.assertIn("user.preference.response_style:", context_block)
@@ -2338,7 +2338,7 @@ class L4MemoryTests(unittest.IsolatedAsyncioTestCase):
         )
 
     def test_jin_note_prompt_surfaces_only_update_merge_create(self):
-        prompt = build_l4_jin_note_system_prompt().casefold()
+        prompt = build_lt_jin_note_system_prompt().casefold()
 
         self.assertIn("update", prompt)
         self.assertIn("merge", prompt)
@@ -2347,7 +2347,7 @@ class L4MemoryTests(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn("remove", prompt)
 
     def test_jin_note_rejects_empty_replacement_facts(self):
-        store = normalize_l4_store({
+        store = normalize_lt_store({
             "facts": [
                 {
                     "id": "F1",
@@ -2357,7 +2357,7 @@ class L4MemoryTests(unittest.IsolatedAsyncioTestCase):
             ],
         })
 
-        next_store, change = apply_l4_jin_note_result(
+        next_store, change = apply_lt_jin_note_result(
             store,
             selected_fact_ids=["F1"],
             result={
@@ -2373,7 +2373,7 @@ class L4MemoryTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(change["changed"])
 
     def test_jin_note_update_preserves_selected_fact_id(self):
-        store = normalize_l4_store({
+        store = normalize_lt_store({
             "facts": [
                 {
                     "id": "F1",
@@ -2384,7 +2384,7 @@ class L4MemoryTests(unittest.IsolatedAsyncioTestCase):
             ],
         })
 
-        next_store, change = apply_l4_jin_note_result(
+        next_store, change = apply_lt_jin_note_result(
             store,
             selected_fact_ids=["F1"],
             result={
@@ -2414,13 +2414,13 @@ class L4MemoryTests(unittest.IsolatedAsyncioTestCase):
         )
 
     def test_jin_note_update_cannot_turn_into_create(self):
-        store = normalize_l4_store({
+        store = normalize_lt_store({
             "facts": [
                 {"id": "F167", "key": "user.identity", "value": "JIN persists across model substrates."},
             ],
         })
 
-        next_store, change = apply_l4_jin_note_result(
+        next_store, change = apply_lt_jin_note_result(
             store,
             selected_fact_ids=["F167"],
             expected_action="update",
@@ -2437,7 +2437,7 @@ class L4MemoryTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(change["reason"], "jin_note_action_mismatch")
 
     def test_jin_note_create_can_run_without_selected_facts(self):
-        store = normalize_l4_store({
+        store = normalize_lt_store({
             "facts": [
                 {
                     "id": "F1",
@@ -2447,7 +2447,7 @@ class L4MemoryTests(unittest.IsolatedAsyncioTestCase):
             ],
         })
 
-        next_store, change = apply_l4_jin_note_result(
+        next_store, change = apply_lt_jin_note_result(
             store,
             selected_fact_ids=[],
             result={
@@ -2475,7 +2475,7 @@ class L4MemoryTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(next_store["deleted_fact_ids"], [])
 
     def test_jin_note_merge_allocates_new_fact_id_and_preserves_old_ids_as_sources(self):
-        store = normalize_l4_store({
+        store = normalize_lt_store({
             "facts": [
                 {
                     "id": "F1",
@@ -2490,7 +2490,7 @@ class L4MemoryTests(unittest.IsolatedAsyncioTestCase):
             ],
         })
 
-        next_store, change = apply_l4_jin_note_result(
+        next_store, change = apply_lt_jin_note_result(
             store,
             selected_fact_ids=["F1", "F2"],
             result={
@@ -2532,7 +2532,7 @@ class L4MemoryTests(unittest.IsolatedAsyncioTestCase):
             logger=None,
             clients={},
         )
-        context.runtime_long_term_memory_store = normalize_l4_store({
+        context.runtime_long_term_memory_store = normalize_lt_store({
             "facts": [
                 {
                     "id": "F1",
@@ -2554,7 +2554,7 @@ class L4MemoryTests(unittest.IsolatedAsyncioTestCase):
             },
         }
 
-        context_block = build_runtime_l4_memory_context(
+        context_block = build_runtime_lt_memory_context(
             context=context
         )
 
@@ -2565,7 +2565,7 @@ class L4MemoryTests(unittest.IsolatedAsyncioTestCase):
         )
         self.assertNotIn("social.friend", context_block)
         self.assertEqual(
-            context.runtime_l4_archived_fact_ids,
+            context.runtime_lt_archived_fact_ids,
             {"F2"},
         )
 
@@ -2576,7 +2576,7 @@ class L4MemoryTests(unittest.IsolatedAsyncioTestCase):
             logger=None,
             clients={},
         )
-        context.runtime_long_term_memory_store = normalize_l4_store({
+        context.runtime_long_term_memory_store = normalize_lt_store({
             "facts": [
                 {
                     "id": "F1",
@@ -2609,7 +2609,7 @@ class L4MemoryTests(unittest.IsolatedAsyncioTestCase):
             },
         }
 
-        context_block = build_runtime_l4_memory_context(
+        context_block = build_runtime_lt_memory_context(
             context=context
         )
 
@@ -2624,7 +2624,7 @@ class L4MemoryTests(unittest.IsolatedAsyncioTestCase):
             context_block,
         )
         self.assertEqual(
-            context.runtime_l4_archived_fact_ids,
+            context.runtime_lt_archived_fact_ids,
             set(),
         )
 
@@ -2635,7 +2635,7 @@ class L4MemoryTests(unittest.IsolatedAsyncioTestCase):
             logger=None,
             clients={},
         )
-        context.runtime_long_term_memory_store = normalize_l4_store({
+        context.runtime_long_term_memory_store = normalize_lt_store({
             "facts": [
                 {
                     "id": "F1",
@@ -2663,7 +2663,7 @@ class L4MemoryTests(unittest.IsolatedAsyncioTestCase):
             },
         }
 
-        context_block = build_runtime_l4_memory_context(
+        context_block = build_runtime_lt_memory_context(
             context=context
         )
 
@@ -2678,7 +2678,7 @@ class L4MemoryTests(unittest.IsolatedAsyncioTestCase):
             context_block,
         )
         self.assertEqual(
-            context.runtime_l4_archived_fact_ids,
+            context.runtime_lt_archived_fact_ids,
             set(),
         )
 
@@ -2689,7 +2689,7 @@ class L4MemoryTests(unittest.IsolatedAsyncioTestCase):
             logger=None,
             clients={},
         )
-        context.runtime_long_term_memory_store = normalize_l4_store({
+        context.runtime_long_term_memory_store = normalize_lt_store({
             "facts": [
                 {
                     "id": "F1",
@@ -2710,20 +2710,20 @@ class L4MemoryTests(unittest.IsolatedAsyncioTestCase):
             },
         }
 
-        context_block = build_runtime_l4_memory_context(context=context)
+        context_block = build_runtime_lt_memory_context(context=context)
 
         self.assertIn("user.name: Sergey [ id: F1 ]", context_block)
         self.assertIn("[ delayed_memory_id: abc123 ]", context_block)
-        self.assertEqual(context.runtime_l4_archived_fact_ids, set())
+        self.assertEqual(context.runtime_lt_archived_fact_ids, set())
 
-    async def test_delete_l4_fact_cleans_delayed_memory_fact_arrays(self):
+    async def test_delete_lt_fact_cleans_delayed_memory_fact_arrays(self):
         context = RuntimeContext(
             websocket=None,
             emitter=FakeEmitter(),
             logger=None,
             clients={},
         )
-        context.runtime_long_term_memory_store = normalize_l4_store({
+        context.runtime_long_term_memory_store = normalize_lt_store({
             "facts": [
                 {
                     "id": "F1",
@@ -2746,7 +2746,7 @@ class L4MemoryTests(unittest.IsolatedAsyncioTestCase):
         }
         context.delayed_memory_file_store_enabled = False
 
-        self.assertTrue(await delete_l4_memory_fact(context, "F1"))
+        self.assertTrue(await delete_lt_memory_fact(context, "F1"))
         self.assertEqual(
             context.delayed_memory_reports["abc123"]["anchor_fact_ids"],
             [],
@@ -2756,7 +2756,7 @@ class L4MemoryTests(unittest.IsolatedAsyncioTestCase):
             ["F2"],
         )
 
-        self.assertTrue(await delete_l4_memory_fact(context, "F2"))
+        self.assertTrue(await delete_lt_memory_fact(context, "F2"))
         self.assertEqual(
             context.delayed_memory_reports["abc123"]["facts_ids"],
             [],
@@ -2778,7 +2778,7 @@ class L4MemoryTests(unittest.IsolatedAsyncioTestCase):
             2,
         )
 
-    async def test_delete_l4_fact_logs_report_refs_for_restore(self):
+    async def test_delete_lt_fact_logs_report_refs_for_restore(self):
         logger = CaptureMemoryLogger()
         context = RuntimeContext(
             websocket=None,
@@ -2786,7 +2786,7 @@ class L4MemoryTests(unittest.IsolatedAsyncioTestCase):
             logger=logger,
             clients={},
         )
-        context.runtime_long_term_memory_store = normalize_l4_store({
+        context.runtime_long_term_memory_store = normalize_lt_store({
             "facts": [{
                 "id": "F1",
                 "key": "project.restore.test",
@@ -2810,7 +2810,7 @@ class L4MemoryTests(unittest.IsolatedAsyncioTestCase):
         }
         context.delayed_memory_file_store_enabled = False
 
-        self.assertTrue(await delete_l4_memory_fact(context, "F1"))
+        self.assertTrue(await delete_lt_memory_fact(context, "F1"))
 
         deleted_fact = logger.logs[0]["deleted_fact"]
         restore_meta = deleted_fact["_restore_meta"]
@@ -2834,7 +2834,7 @@ class L4MemoryTests(unittest.IsolatedAsyncioTestCase):
             restore_meta,
         )
 
-    async def test_restore_l4_fact_restores_delayed_memory_report_refs(self):
+    async def test_restore_lt_fact_restores_delayed_memory_report_refs(self):
         logger = CaptureMemoryLogger()
         emitter = FakeEmitter()
         context = RuntimeContext(
@@ -2843,7 +2843,7 @@ class L4MemoryTests(unittest.IsolatedAsyncioTestCase):
             logger=logger,
             clients={},
         )
-        context.runtime_long_term_memory_store = normalize_l4_store({
+        context.runtime_long_term_memory_store = normalize_lt_store({
             "facts": [
                 {
                     "id": "F1",
@@ -2870,7 +2870,7 @@ class L4MemoryTests(unittest.IsolatedAsyncioTestCase):
         }
         context.delayed_memory_file_store_enabled = False
 
-        self.assertTrue(await delete_l4_memory_fact(context, "F1"))
+        self.assertTrue(await delete_lt_memory_fact(context, "F1"))
         deleted_fact = logger.logs[0]["deleted_fact"]
         self.assertEqual(
             context.delayed_memory_reports["abc123"]["anchor_fact_ids"],
@@ -2885,7 +2885,7 @@ class L4MemoryTests(unittest.IsolatedAsyncioTestCase):
             [],
         )
 
-        self.assertTrue(await restore_l4_memory_fact(context, deleted_fact))
+        self.assertTrue(await restore_lt_memory_fact(context, deleted_fact))
 
         self.assertEqual(
             [
@@ -2919,7 +2919,7 @@ class L4MemoryTests(unittest.IsolatedAsyncioTestCase):
             and event.get("change", {}).get("delayed_memory_report_ids")
             == ["abc123", "def456"]
             for event in emitter.events
-            if event.get("type") == "l4_memory_update"
+            if event.get("type") == "lt_memory_update"
         ))
 
     def test_delayed_report_fact_ids_hide_only_from_brain_context(self):
@@ -2929,7 +2929,7 @@ class L4MemoryTests(unittest.IsolatedAsyncioTestCase):
             logger=None,
             clients={},
         )
-        context.runtime_long_term_memory_store = normalize_l4_store({
+        context.runtime_long_term_memory_store = normalize_lt_store({
             "facts": [
                 {
                     "id": "F1",
@@ -2952,7 +2952,7 @@ class L4MemoryTests(unittest.IsolatedAsyncioTestCase):
             },
         }
 
-        context_block = build_runtime_l4_memory_context(
+        context_block = build_runtime_lt_memory_context(
             context=context
         )
 
@@ -2965,7 +2965,7 @@ class L4MemoryTests(unittest.IsolatedAsyncioTestCase):
             context_block,
         )
         self.assertEqual(
-            context.runtime_l4_archived_fact_ids,
+            context.runtime_lt_archived_fact_ids,
             {
                 "F1",
             },
@@ -2986,7 +2986,7 @@ class L4MemoryTests(unittest.IsolatedAsyncioTestCase):
             logger=None,
             clients={},
         )
-        context.runtime_long_term_memory_store = normalize_l4_store({
+        context.runtime_long_term_memory_store = normalize_lt_store({
             "facts": [
                 {
                     "id": "F1",
@@ -3008,7 +3008,7 @@ class L4MemoryTests(unittest.IsolatedAsyncioTestCase):
         }
 
         self.assertEqual(
-            build_runtime_l4_memory_context(
+            build_runtime_lt_memory_context(
                 context=context,
             ),
             "",
@@ -3038,7 +3038,7 @@ class L4MemoryTests(unittest.IsolatedAsyncioTestCase):
             logger=FakeLogger(),
             clients={},
         )
-        context.runtime_long_term_memory_store = normalize_l4_store({
+        context.runtime_long_term_memory_store = normalize_lt_store({
             "facts": [
                 {
                     "id": "F1",
@@ -3092,13 +3092,13 @@ class L4MemoryTests(unittest.IsolatedAsyncioTestCase):
             context.delayed_memory_reports["abc123"],
         )
         self.assertEqual(
-            context.runtime_l4_archived_fact_ids,
+            context.runtime_lt_archived_fact_ids,
             {
                 "F1",
             },
         )
         self.assertEqual(
-            build_runtime_l4_memory_context(
+            build_runtime_lt_memory_context(
                 context=context
             ),
             "",
@@ -3120,7 +3120,7 @@ class L4MemoryTests(unittest.IsolatedAsyncioTestCase):
             logger=None,
             clients={},
         )
-        context.runtime_long_term_memory_store = normalize_l4_store({
+        context.runtime_long_term_memory_store = normalize_lt_store({
             "facts": [
                 {
                     "key": "user.hardware.main_gpu",
@@ -3148,8 +3148,8 @@ class L4MemoryTests(unittest.IsolatedAsyncioTestCase):
     async def test_idle_job_chains_extraction_into_merge_without_waiting_for_next_tick(self):
         gpu_value = "User's main GPU is RTX 4090."
         language_value = "User prefers Russian replies."
-        gpu_pending_id = build_l4_fact_id(sequence=1, pending=True)
-        language_pending_id = build_l4_fact_id(sequence=2, pending=True)
+        gpu_pending_id = build_lt_fact_id(sequence=1, pending=True)
+        language_pending_id = build_lt_fact_id(sequence=2, pending=True)
         service_client = FakeServiceClient([
             f'''{{
               "facts": [{{
@@ -3208,7 +3208,7 @@ class L4MemoryTests(unittest.IsolatedAsyncioTestCase):
             },
         ])
 
-        first = await maybe_update_runtime_l4_memory(
+        first = await maybe_update_runtime_lt_memory(
             context=context,
             user_idle_seconds=61,
         )
@@ -3226,7 +3226,7 @@ class L4MemoryTests(unittest.IsolatedAsyncioTestCase):
                     "gpu": {
                         "content": "RTX 4090",
                         "runtime_snapshot_id": "runtime-a",
-                        "l4_status": "analyzed",
+                        "lt_status": "analyzed",
                     },
                     "language": {
                         "content": "Russian replies",
@@ -3236,7 +3236,7 @@ class L4MemoryTests(unittest.IsolatedAsyncioTestCase):
             },
         ])
 
-        second = await maybe_update_runtime_l4_memory(
+        second = await maybe_update_runtime_lt_memory(
             context=context,
             user_idle_seconds=61,
         )
@@ -3255,8 +3255,8 @@ class L4MemoryTests(unittest.IsolatedAsyncioTestCase):
             service_client.calls[1]["system_prompt"].lower(),
         )
 
-    def test_restore_l4_fact_preserves_deleted_fact_object(self):
-        fact = normalize_l4_store({
+    def test_restore_lt_fact_preserves_deleted_fact_object(self):
+        fact = normalize_lt_store({
             "facts": [{
                 "id": "F1",
                 "key": "project.restore.test",
@@ -3267,7 +3267,7 @@ class L4MemoryTests(unittest.IsolatedAsyncioTestCase):
             }],
         })["facts"][0]
 
-        restored_store, changed = restore_l4_fact_to_store(
+        restored_store, changed = restore_lt_fact_to_store(
             {"facts": []},
             fact,
             now="2026-08-05T10:00:00Z",
@@ -3286,7 +3286,7 @@ class L4MemoryTests(unittest.IsolatedAsyncioTestCase):
             logger=logger,
             clients={},
         )
-        context.runtime_long_term_memory_store = normalize_l4_store({
+        context.runtime_long_term_memory_store = normalize_lt_store({
             "facts": [{
                 "id": "F1",
                 "key": "project.restore.test",
@@ -3300,7 +3300,7 @@ class L4MemoryTests(unittest.IsolatedAsyncioTestCase):
             context.runtime_long_term_memory_store["facts"][0]
         )
 
-        deleted = await delete_l4_memory_fact(
+        deleted = await delete_lt_memory_fact(
             context,
             deleted_fact["id"],
         )
@@ -3319,7 +3319,7 @@ class L4MemoryTests(unittest.IsolatedAsyncioTestCase):
             deleted_fact,
         )
 
-        restored = await restore_l4_memory_fact(
+        restored = await restore_lt_memory_fact(
             context,
             deleted_fact,
         )

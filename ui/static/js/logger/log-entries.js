@@ -46,7 +46,7 @@ function getInternalActionPayload(data) {
   return null;
 }
 
-function getInternalActionUpdateL4Message(data) {
+function getInternalActionUpdateLTMessage(data) {
   if (!data || typeof data !== "object") {
     return "";
   }
@@ -698,9 +698,9 @@ function log_internal_action(
 
   const title =
     `[ ACTION : ${prettifyInternalActionName(actionName)} ]`;
-  const updateL4Message =
-    actionName === "UPDATE_L4_FACTS"
-      ? getInternalActionUpdateL4Message(
+  const updateLTMessage =
+    actionName === "UPDATE_LT_FACTS"
+      ? getInternalActionUpdateLTMessage(
         data
       )
       : "";
@@ -711,7 +711,7 @@ function log_internal_action(
       )
       : "";
   const text =
-    updateL4Message
+    updateLTMessage
     || String(
       data.text || data.query || ""
     ).trim();
@@ -780,9 +780,9 @@ function log_internal_action(
     );
   }
 
-  if (updateL4Message || jinSizeHover) {
+  if (updateLTMessage || jinSizeHover) {
     logDiv.title =
-      updateL4Message || jinSizeHover;
+      updateLTMessage || jinSizeHover;
     logDiv.classList.add(
       "cursor-help"
     );
@@ -1086,12 +1086,12 @@ function refreshFactsMemoryAppendButtons() {
   );
 }
 
-const l4SummarizerCards = {
+const ltSummarizerCards = {
   extraction: [],
   merge: [],
 };
 
-const l4DeletedFactCards =
+const ltDeletedFactCards =
   new Map();
 
 const delayedDeletedReportCards =
@@ -1103,7 +1103,7 @@ const delayedUnlinkedFactCards =
 const deletedFileCards =
   new Map();
 
-function parseL4JsonPayload(details) {
+function parseLTJsonPayload(details) {
   const text =
     String(details || "").trim();
 
@@ -1174,7 +1174,7 @@ function createNeutralMemoryLoggerCard(tag) {
   return logDiv;
 }
 
-function createL4LoggerCard(tag) {
+function createLTLoggerCard(tag) {
   const logDiv =
     document.createElement("div");
 
@@ -1205,7 +1205,7 @@ function createL4LoggerCard(tag) {
   return logDiv;
 }
 
-function createL4LoggerButton(
+function createLTLoggerButton(
   label,
   tone = "blue",
 ) {
@@ -1218,7 +1218,7 @@ function createL4LoggerButton(
   button.textContent =
     label;
 
-  setL4LoggerButtonTone(
+  setLTLoggerButtonTone(
     button,
     tone
   );
@@ -1226,7 +1226,7 @@ function createL4LoggerButton(
   return button;
 }
 
-function setL4LoggerButtonTone(
+function setLTLoggerButtonTone(
   button,
   tone,
 ) {
@@ -1236,7 +1236,7 @@ function setL4LoggerButtonTone(
       : "inline-flex items-center rounded border border-blue-500/20 px-2 py-1 text-[10px] uppercase tracking-wider text-blue-300 hover:bg-blue-500/10 transition";
 }
 
-function setL4LoggerButtonVisible(
+function setLTLoggerButtonVisible(
   button,
   visible,
 ) {
@@ -1247,29 +1247,29 @@ function setL4LoggerButtonVisible(
   );
 }
 
-function resolveL4SummarizerPhase(
+function resolveLTSummarizerPhase(
   message,
   meta,
 ) {
-  if (String(meta && meta.memory_level || "").toUpperCase() !== "L4") {
+  if (String(meta && meta.memory_level || "").toUpperCase() !== "L-T") {
     return "";
   }
 
   const normalized =
     String(message || "").toLowerCase();
 
-  if (normalized.startsWith("l4 extraction summarizer ")) {
+  if (normalized.startsWith("lt extraction summarizer ")) {
     return "extraction";
   }
 
-  if (normalized.startsWith("l4 merge summarizer ")) {
+  if (normalized.startsWith("lt merge summarizer ")) {
     return "merge";
   }
 
   return "";
 }
 
-function resolveL4SummarizerEvent(
+function resolveLTSummarizerEvent(
   message,
   meta,
 ) {
@@ -1294,7 +1294,7 @@ function resolveL4SummarizerEvent(
   return "";
 }
 
-function l4ResponseHasChanges(
+function ltResponseHasChanges(
   phase,
   payload,
 ) {
@@ -1313,7 +1313,7 @@ function l4ResponseHasChanges(
   return Object.keys(payload).length > 0;
 }
 
-function createL4SummarizerCard(
+function createLTSummarizerCard(
   phase,
   requestDetails = null,
 ) {
@@ -1321,8 +1321,8 @@ function createL4SummarizerCard(
     phase.toUpperCase();
 
   const logDiv =
-    createL4LoggerCard(
-      `[MEMORY:L4:${phaseLabel}]`
+    createLTLoggerCard(
+      `[MEMORY:L-T:${phaseLabel}]`
     );
 
   const actions =
@@ -1332,16 +1332,16 @@ function createL4SummarizerCard(
     "mt-2 flex flex-wrap items-center gap-2";
 
   const requestButton =
-    createL4LoggerButton(
+    createLTLoggerButton(
       "request"
     );
 
   const responseButton =
-    createL4LoggerButton(
+    createLTLoggerButton(
       "response"
     );
 
-  setL4LoggerButtonVisible(
+  setLTLoggerButtonVisible(
     responseButton,
     false
   );
@@ -1359,7 +1359,7 @@ function createL4SummarizerCard(
     responseButton,
   };
 
-  setL4LoggerButtonVisible(
+  setLTLoggerButtonVisible(
     requestButton,
     Boolean(requestDetails)
   );
@@ -1373,7 +1373,7 @@ function createL4SummarizerCard(
 
       showTrace(
         state.requestDetails,
-        `L4 ${phase} request`
+        `L-T ${phase} request`
       );
     }
   );
@@ -1387,13 +1387,13 @@ function createL4SummarizerCard(
 
       showTrace(
         JSON.stringify({
-          kind: "l4_summarizer_response",
+          kind: "lt_summarizer_response",
           phase,
           payload: state.responsePayload,
           raw: state.responseDetails,
           no_changes: !state.responseHasChanges,
         }),
-        `L4 ${phase} response`
+        `L-T ${phase} response`
       );
     }
   );
@@ -1402,18 +1402,18 @@ function createL4SummarizerCard(
   actions.appendChild(responseButton);
   logDiv.appendChild(actions);
 
-  l4SummarizerCards[phase].push(state);
+  ltSummarizerCards[phase].push(state);
 
   return state;
 }
 
-function handleL4SummarizerLog(
+function handleLTSummarizerLog(
   message,
   details,
   meta,
 ) {
   const phase =
-    resolveL4SummarizerPhase(
+    resolveLTSummarizerPhase(
       message,
       meta
     );
@@ -1423,13 +1423,13 @@ function handleL4SummarizerLog(
   }
 
   const event =
-    resolveL4SummarizerEvent(
+    resolveLTSummarizerEvent(
       message,
       meta
     );
 
   if (event === "summarizer_request") {
-    return createL4SummarizerCard(
+    return createLTSummarizerCard(
       phase,
       details
     ).logDiv;
@@ -1440,13 +1440,13 @@ function handleL4SummarizerLog(
   }
 
   let state =
-    [...l4SummarizerCards[phase]]
+    [...ltSummarizerCards[phase]]
       .reverse()
       .find((candidate) => !candidate.responseSettled);
 
   if (!state) {
     state =
-      createL4SummarizerCard(
+      createLTSummarizerCard(
         phase
       );
   }
@@ -1471,7 +1471,7 @@ function handleL4SummarizerLog(
     state.responseHasChanges =
       false;
 
-    setL4LoggerButtonVisible(
+    setLTLoggerButtonVisible(
       state.responseButton,
       false
     );
@@ -1480,22 +1480,22 @@ function handleL4SummarizerLog(
   }
 
   state.responsePayload =
-    parseL4JsonPayload(
+    parseLTJsonPayload(
       state.responseDetails
     );
   state.responseHasChanges =
     Boolean(state.responseDetails.trim())
-    && l4ResponseHasChanges(
+    && ltResponseHasChanges(
       phase,
       state.responsePayload
     );
 
-  setL4LoggerButtonVisible(
+  setLTLoggerButtonVisible(
     state.responseButton,
     true
   );
 
-  setL4LoggerButtonTone(
+  setLTLoggerButtonTone(
     state.responseButton,
     state.responseHasChanges
       ? "blue"
@@ -1506,7 +1506,7 @@ function handleL4SummarizerLog(
 }
 
 
-function settleL4SummarizerCardForTerminalEvent(
+function settleLTSummarizerCardForTerminalEvent(
   message,
   meta,
 ) {
@@ -1522,17 +1522,17 @@ function settleL4SummarizerCardForTerminalEvent(
       ? "extraction"
       : event.startsWith("merge_")
       ? "merge"
-      : resolveL4SummarizerPhase(
+      : resolveLTSummarizerPhase(
           message,
           meta
         );
 
-  if (!phase || !l4SummarizerCards[phase]) {
+  if (!phase || !ltSummarizerCards[phase]) {
     return;
   }
 
   const state =
-    [...l4SummarizerCards[phase]]
+    [...ltSummarizerCards[phase]]
       .reverse()
       .find((candidate) => !candidate.responseSettled);
 
@@ -1551,13 +1551,13 @@ function settleL4SummarizerCardForTerminalEvent(
   state.responseHasChanges =
     false;
 
-  setL4LoggerButtonVisible(
+  setLTLoggerButtonVisible(
     state.responseButton,
     false
   );
 }
 
-function resolveDeletedL4Fact(
+function resolveDeletedLTFact(
   details,
   meta,
 ) {
@@ -1570,7 +1570,7 @@ function resolveDeletedL4Fact(
   }
 
   const payload =
-    parseL4JsonPayload(details);
+    parseLTJsonPayload(details);
 
   if (
       payload
@@ -1583,7 +1583,7 @@ function resolveDeletedL4Fact(
   return null;
 }
 
-function resolveDeletedL4FactNumber(fact) {
+function resolveDeletedLTFactNumber(fact) {
   const match =
     String(fact && fact.id || "")
       .trim()
@@ -1600,21 +1600,21 @@ function resolveDeletedL4FactNumber(fact) {
     : null;
 }
 
-function handleL4DeletedFactLog(
+function handleLTDeletedFactLog(
   tag,
   details,
   meta,
 ) {
   const isDeleted =
     String(meta && meta.memory_event || "").toLowerCase() === "fact_deleted"
-    || String(tag || "").toUpperCase() === "[MEMORY:L4:DELETED]";
+    || String(tag || "").toUpperCase() === "[MEMORY:L-T:DELETED]";
 
   if (!isDeleted) {
     return null;
   }
 
   const fact =
-    resolveDeletedL4Fact(
+    resolveDeletedLTFact(
       details,
       meta
     );
@@ -1624,8 +1624,8 @@ function handleL4DeletedFactLog(
   }
 
   const logDiv =
-    createL4LoggerCard(
-      "[MEMORY:L4:DELETED]"
+    createLTLoggerCard(
+      "[MEMORY:L-T:DELETED]"
     );
 
   const key =
@@ -1635,9 +1635,9 @@ function handleL4DeletedFactLog(
     "block mt-2 text-zinc-200 font-semibold";
 
   const factNumber =
-    resolveDeletedL4FactNumber(fact);
+    resolveDeletedLTFactNumber(fact);
   const factTitle =
-    String(fact.key || fact.id || "L4 fact");
+    String(fact.key || fact.id || "L-T fact");
 
   key.textContent =
     factNumber !== null
@@ -1666,12 +1666,12 @@ function handleL4DeletedFactLog(
     "mt-2 flex flex-wrap items-center gap-2";
 
   const payloadButton =
-    createL4LoggerButton(
+    createLTLoggerButton(
       "payload"
     );
 
   const restoreButton =
-    createL4LoggerButton(
+    createLTLoggerButton(
       "restore"
     );
 
@@ -1680,10 +1680,10 @@ function handleL4DeletedFactLog(
     function () {
       showTrace(
         JSON.stringify({
-          kind: "l4_fact",
+          kind: "lt_fact",
           fact,
         }),
-        "L4 fact deleted"
+        "L-T fact deleted"
       );
     }
   );
@@ -1692,7 +1692,7 @@ function handleL4DeletedFactLog(
     "click",
     function () {
       const api =
-        window.JINRuntimeL4Memory;
+        window.JINRuntimeLTMemory;
 
       if (!api || typeof api.requestFactRestore !== "function") {
         return;
@@ -1725,7 +1725,7 @@ function handleL4DeletedFactLog(
         "opacity-50"
       );
 
-      l4DeletedFactCards.set(
+      ltDeletedFactCards.set(
         String(fact.id || ""),
         {
           logDiv,
@@ -1742,14 +1742,14 @@ function handleL4DeletedFactLog(
   return logDiv;
 }
 
-function handleL4MemoryRestoreResult(
+function handleLTMemoryRestoreResult(
   data
 ) {
   const factId =
     String(data && data.fact_id || "");
 
   const state =
-    l4DeletedFactCards.get(
+    ltDeletedFactCards.get(
       factId
     );
 
@@ -1757,7 +1757,7 @@ function handleL4MemoryRestoreResult(
     return;
   }
 
-  l4DeletedFactCards.delete(
+  ltDeletedFactCards.delete(
     factId
   );
 
@@ -1798,7 +1798,7 @@ function resolveDeletedFile(
   }
 
   const payload =
-    parseL4JsonPayload(details);
+    parseLTJsonPayload(details);
 
   if (
       payload
@@ -1927,7 +1927,7 @@ function resolveUnpinnedMemory(
   }
 
   const payload =
-    parseL4JsonPayload(details);
+    parseLTJsonPayload(details);
 
   return payload
     && typeof payload === "object"
@@ -1991,7 +1991,7 @@ function handleMemoryUnpinnedLog(
     "mt-2 flex flex-wrap items-center gap-2";
 
   const pinButton =
-    createL4LoggerButton(
+    createLTLoggerButton(
       "pin",
       "muted"
     );
@@ -2089,7 +2089,7 @@ function handleDeletedFileLog(
   }
 
   const logDiv =
-    createL4LoggerCard(
+    createLTLoggerCard(
       "[MEMORY:FILES:DELETED]"
     );
   const summary =
@@ -2117,11 +2117,11 @@ function handleDeletedFileLog(
     "mt-2 flex flex-wrap items-center gap-2";
 
   const payloadButton =
-    createL4LoggerButton(
+    createLTLoggerButton(
       "payload"
     );
   const restoreButton =
-    createL4LoggerButton(
+    createLTLoggerButton(
       "restore"
     );
 
@@ -2211,7 +2211,7 @@ function resolveDeletedDelayedMemoryReport(
   }
 
   const payload =
-    parseL4JsonPayload(details);
+    parseLTJsonPayload(details);
 
   if (
       payload
@@ -2265,7 +2265,7 @@ function handleDelayedMemoryDeletedReportLog(
   }
 
   const logDiv =
-    createL4LoggerCard(
+    createLTLoggerCard(
       "[MEMORY:DELAYED:DELETED]"
     );
 
@@ -2300,12 +2300,12 @@ function handleDelayedMemoryDeletedReportLog(
     "mt-2 flex flex-wrap items-center gap-2";
 
   const payloadButton =
-    createL4LoggerButton(
+    createLTLoggerButton(
       "payload"
     );
 
   const restoreButton =
-    createL4LoggerButton(
+    createLTLoggerButton(
       "restore"
     );
 
@@ -2398,7 +2398,7 @@ function resolveDelayedMemoryFactUnlink(
   }
 
   const payload =
-    parseL4JsonPayload(details);
+    parseLTJsonPayload(details);
 
   if (
       payload
@@ -2459,7 +2459,7 @@ function handleDelayedMemoryFactUnlinkedLog(
   }
 
   const logDiv =
-    createL4LoggerCard(
+    createLTLoggerCard(
       "[MEMORY:DELAYED:FACT_UNLINKED]"
     );
 
@@ -2513,12 +2513,12 @@ function handleDelayedMemoryFactUnlinkedLog(
     "mt-2 flex flex-wrap items-center gap-2";
 
   const payloadButton =
-    createL4LoggerButton(
+    createLTLoggerButton(
       "payload"
     );
 
   const restoreButton =
-    createL4LoggerButton(
+    createLTLoggerButton(
       "restore"
     );
 
@@ -2619,31 +2619,31 @@ function appendLog(
       details,
     );
 
-  settleL4SummarizerCardForTerminalEvent(
+  settleLTSummarizerCardForTerminalEvent(
     normalized.message,
     meta
   );
 
-  const l4SummarizerLog =
-    handleL4SummarizerLog(
+  const ltSummarizerLog =
+    handleLTSummarizerLog(
       normalized.message,
       normalized.details,
       meta
     );
 
-  if (l4SummarizerLog) {
-    return l4SummarizerLog;
+  if (ltSummarizerLog) {
+    return ltSummarizerLog;
   }
 
-  const l4DeletedFactLog =
-    handleL4DeletedFactLog(
+  const ltDeletedFactLog =
+    handleLTDeletedFactLog(
       tag,
       normalized.details,
       meta
     );
 
-  if (l4DeletedFactLog) {
-    return l4DeletedFactLog;
+  if (ltDeletedFactLog) {
+    return ltDeletedFactLog;
   }
 
   const memoryUnpinnedLog =
@@ -2722,8 +2722,8 @@ function appendLog(
   const normalizedTag =
     String(tag || "").toUpperCase();
 
-  const isL4Paused =
-    normalizedTag === "[MEMORY:L4:PAUSED]";
+  const isLTPaused =
+    normalizedTag === "[MEMORY:L-T:PAUSED]";
 
   const isBrainOutput =
     normalizedTag === "[BRAIN]";
@@ -2866,7 +2866,7 @@ function appendLog(
     );
   }
 
-  if (isL4Paused) {
+  if (isLTPaused) {
     tagClass =
       "text-red-300 font-bold";
 
@@ -3022,7 +3022,7 @@ function appendLog(
     document.createElement("span");
 
   messageSpan.className =
-    isL4Paused
+    isLTPaused
       ? "block mt-1 text-red-200/80"
       : "block mt-1 text-zinc-400";
 
@@ -3439,11 +3439,11 @@ function appendLog(
   return logDiv;
 }
 
-window.handleL4LoggerMemoryRestoreResult =
-  handleL4MemoryRestoreResult;
+window.handleLTLoggerMemoryRestoreResult =
+  handleLTMemoryRestoreResult;
 
-window.handleL4MemoryRestoreResult =
-  handleL4MemoryRestoreResult;
+window.handleLTMemoryRestoreResult =
+  handleLTMemoryRestoreResult;
 
 window.refreshFactsMemoryAppendButtons =
   refreshFactsMemoryAppendButtons;

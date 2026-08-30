@@ -746,7 +746,7 @@ function appendStructuredTraceFields(
   parent.appendChild(fields);
 }
 
-function renderL4FactTrace(parsed) {
+function renderLTFactTrace(parsed) {
   const fact =
     parsed && parsed.fact && typeof parsed.fact === "object"
       ? parsed.fact
@@ -771,7 +771,7 @@ function renderL4FactTrace(parsed) {
   );
 }
 
-function appendL4ResponseGroup(
+function appendLTResponseGroup(
   title,
   value,
 ) {
@@ -808,13 +808,13 @@ function appendL4ResponseGroup(
   );
 }
 
-function renderL4SummarizerResponseTrace(parsed) {
+function renderLTSummarizerResponseTrace(parsed) {
   if (parsed.no_changes) {
     const empty =
       document.createElement("div");
 
     empty.className =
-      "l4-trace-no-changes";
+      "lt-trace-no-changes";
 
     empty.textContent =
       "No changes";
@@ -828,7 +828,7 @@ function renderL4SummarizerResponseTrace(parsed) {
 
   if (phase === "extraction" && payload && Array.isArray(payload.facts)) {
     payload.facts.forEach((fact, index) => {
-      appendL4ResponseGroup(
+      appendLTResponseGroup(
         `Fact ${index + 1}`,
         fact
       );
@@ -843,7 +843,7 @@ function renderL4SummarizerResponseTrace(parsed) {
           ? ` · ${String(operation.action).toUpperCase()}`
           : "";
 
-      appendL4ResponseGroup(
+      appendLTResponseGroup(
         `Operation ${index + 1}${action}`,
         operation
       );
@@ -866,14 +866,14 @@ function renderL4SummarizerResponseTrace(parsed) {
   );
 }
 
-function renderL4SkipTrace(parsed) {
+function renderLTSkipTrace(parsed) {
   if (
     String(parsed.reason || "").toLowerCase()
       === "runtime_context_budget_exhausted"
   ) {
     appendTraceModalCard(
       traceModalContent,
-      "L4 MERGE BUDGET",
+      "L-T MERGE BUDGET",
       (body) => {
         const fields =
           document.createElement("section");
@@ -991,7 +991,7 @@ function renderL4SkipTrace(parsed) {
   appendTraceModalBody(
     traceModalContent,
     "What happened",
-    parsed.summary || "The L4 model response was not usable."
+    parsed.summary || "The L-T model response was not usable."
   );
 
   const fields =
@@ -1087,7 +1087,7 @@ function renderL4SkipTrace(parsed) {
   appendTraceModalBody(
     traceModalContent,
     "What JIN did",
-    "The incomplete response was discarded. No L4 facts were merged or removed."
+    "The incomplete response was discarded. No L-T facts were merged or removed."
   );
 
   appendTraceModalBody(
@@ -1910,23 +1910,23 @@ function renderContextLongTermMemoryBody(parent, content) {
 
   const list = contextElement(
     "div",
-    "jin-context-kv-list jin-context-l4-list"
+    "jin-context-kv-list jin-context-lt-list"
   );
 
   records.forEach((record) => {
     const row = contextElement(
       "div",
-      "jin-context-kv-row jin-context-l4-row"
+      "jin-context-kv-row jin-context-lt-row"
     );
     const keyCell = contextElement(
       "div",
-      "jin-context-kv-key jin-context-l4-key"
+      "jin-context-kv-key jin-context-lt-key"
     );
     const factId = record.delayedMemoryIds.length
       ? document.createElement("button")
       : document.createElement("span");
 
-    factId.className = "jin-context-l4-fact-id";
+    factId.className = "jin-context-lt-fact-id";
     factId.textContent = record.id;
 
     if (record.delayedMemoryIds.length) {
@@ -1969,14 +1969,14 @@ function renderContextLongTermMemoryBody(parent, content) {
     keyCell.appendChild(
       contextElement(
         "span",
-        "jin-context-l4-separator",
+        "jin-context-lt-separator",
         "·"
       )
     );
     keyCell.appendChild(
       contextElement(
         "span",
-        "jin-context-l4-fact-key",
+        "jin-context-lt-fact-key",
         record.key
       )
     );
@@ -1985,14 +1985,14 @@ function renderContextLongTermMemoryBody(parent, content) {
       keyCell.appendChild(
         contextElement(
           "span",
-          "jin-context-l4-separator",
+          "jin-context-lt-separator",
           "·"
         )
       );
       keyCell.appendChild(
         contextElement(
           "span",
-          "jin-context-l4-age",
+          "jin-context-lt-age",
           record.age
         )
       );
@@ -2002,7 +2002,7 @@ function renderContextLongTermMemoryBody(parent, content) {
     row.appendChild(
       contextElement(
         "div",
-        "jin-context-kv-value jin-context-l4-value",
+        "jin-context-kv-value jin-context-lt-value",
         record.value || "<empty>"
       )
     );
@@ -3133,9 +3133,9 @@ function renderTraceDetails(
 
   if (
       parsed
-      && parsed.kind === "l4_fact"
+      && parsed.kind === "lt_fact"
   ) {
-    renderL4FactTrace(
+    renderLTFactTrace(
       parsed
     );
 
@@ -3144,9 +3144,9 @@ function renderTraceDetails(
 
   if (
       parsed
-      && parsed.kind === "l4_summarizer_response"
+      && parsed.kind === "lt_summarizer_response"
   ) {
-    renderL4SummarizerResponseTrace(
+    renderLTSummarizerResponseTrace(
       parsed
     );
 
@@ -3155,9 +3155,9 @@ function renderTraceDetails(
 
   if (
       parsed
-      && parsed.kind === "l4_skip"
+      && parsed.kind === "lt_skip"
   ) {
-    renderL4SkipTrace(
+    renderLTSkipTrace(
       parsed
     );
 

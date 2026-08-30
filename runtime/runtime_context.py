@@ -200,42 +200,42 @@ class RuntimeContext:
         default_factory=dict
     )
 
-    runtime_l4_archived_fact_ids: set[str] = field(
+    runtime_lt_archived_fact_ids: set[str] = field(
         default_factory=set
     )
 
-    runtime_l4_explicit_edit_turn_id: str = ""
+    runtime_lt_explicit_edit_turn_id: str = ""
 
-    runtime_l4_explicit_edit_fact_ids: set[str] = field(
+    runtime_lt_explicit_edit_fact_ids: set[str] = field(
         default_factory=set
     )
 
-    runtime_l4_memory_update_task: object | None = None
+    runtime_lt_memory_update_task: object | None = None
 
     # Transient merge recovery state. A reasoning-heavy service model can
-    # consume the shared generation budget before emitting final L4 JSON; the
+    # consume the shared generation budget before emitting final L-T JSON; the
     # runtime learns a smaller FIFO batch and backs off instead of hammering
     # the identical pending queue on every idle tick.
-    runtime_l4_merge_batch_limit: int = 0
-    runtime_l4_merge_last_success_batch_limit: int = 0
-    runtime_l4_merge_batch_locked: bool = False
-    runtime_l4_merge_context_window_tokens: int = 0
-    runtime_l4_merge_existing_batch_mode: str = ""
-    runtime_l4_merge_paused_signature: str = ""
-    runtime_l4_merge_truncation_streak: int = 0
-    runtime_l4_merge_retry_not_before: float = 0.0
-    runtime_l4_merge_deferred_pending_until: dict[str, float] = field(
+    runtime_lt_merge_batch_limit: int = 0
+    runtime_lt_merge_last_success_batch_limit: int = 0
+    runtime_lt_merge_batch_locked: bool = False
+    runtime_lt_merge_context_window_tokens: int = 0
+    runtime_lt_merge_existing_batch_mode: str = ""
+    runtime_lt_merge_paused_signature: str = ""
+    runtime_lt_merge_truncation_streak: int = 0
+    runtime_lt_merge_retry_not_before: float = 0.0
+    runtime_lt_merge_deferred_pending_until: dict[str, float] = field(
         default_factory=dict
     )
-    runtime_l4_merge_single_retry_pending_ids: set[str] = field(
+    runtime_lt_merge_single_retry_pending_ids: set[str] = field(
         default_factory=set
     )
-    runtime_l4_merge_force_single_batch_once: bool = False
-    runtime_l4_memory_update_kind: str = ""
-    runtime_l4_idle_last_started_at: float = 0.0
-    runtime_l4_profile_sync_at: float = 0.0
-    runtime_l4_websocket_connected: bool = False
-    runtime_l4_app_state: object | None = None
+    runtime_lt_merge_force_single_batch_once: bool = False
+    runtime_lt_memory_update_kind: str = ""
+    runtime_lt_idle_last_started_at: float = 0.0
+    runtime_lt_profile_sync_at: float = 0.0
+    runtime_lt_websocket_connected: bool = False
+    runtime_lt_app_state: object | None = None
     runtime_foreground_turn_running: bool = False
 
     runtime_usage_events: list[dict] = field(
@@ -351,7 +351,7 @@ class RuntimeContext:
 
     runtime_session_restore_reasoning_dump: str = ""
 
-    runtime_session_restore_l4_fact_ids: list[str] = field(
+    runtime_session_restore_lt_fact_ids: list[str] = field(
         default_factory=list
     )
 
@@ -460,7 +460,7 @@ class RuntimeContext:
 
     runtime_last_response_feedback: dict | None = None
 
-    runtime_memory_attention_l4_focus_ids: list[str] = field(
+    runtime_memory_attention_lt_focus_ids: list[str] = field(
         default_factory=list
     )
 

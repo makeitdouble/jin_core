@@ -22,7 +22,7 @@ class RuntimeAvatarNodePayloadClientContractTests(unittest.TestCase):
         self.assertIn("referenceAliases", source)
         self.assertIn("delayedMemoryFactIds:", source)
         self.assertIn("delayedMemoryAnchorFactIds:", source)
-        self.assertIn("l4FactIds:", source)
+        self.assertIn("ltFactIds:", source)
         self.assertIn("linkedDelayedMemoryIds:", source)
         self.assertIn("nodeState.avatarMemoryAngle = Number(options.angle);", source)
 
@@ -31,7 +31,7 @@ class RuntimeAvatarNodePayloadClientContractTests(unittest.TestCase):
             "data-runtime-line-text",
             "data-runtime-line-identity",
             "data-memory-reference-aliases",
-            "data-l4-fact-ids",
+            "data-lt-fact-ids",
             "data-delayed-memory-fact-ids",
             "data-delayed-memory-anchor-fact-ids",
             "data-avatar-memory-angle",
@@ -46,7 +46,7 @@ class RuntimeAvatarNodePayloadClientContractTests(unittest.TestCase):
             "data-avatar-memory-hover-id",
             "data-active-memory-id",
             "data-delayed-memory-id",
-            "data-l4-fact-id",
+            "data-lt-fact-id",
             "data-file-id",
             "data-runtime-line-index",
             "data-avatar-rotation-key",

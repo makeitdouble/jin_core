@@ -440,7 +440,7 @@ if (stateChanges.length !== 2 || stateChanges[1][1] !== false) {
             "unload_skill",
             "idle",
             "jin_color",
-            "update_l4_facts",
+            "update_lt_facts",
         ):
             self.assertIn(
                 f"{action}: {{",

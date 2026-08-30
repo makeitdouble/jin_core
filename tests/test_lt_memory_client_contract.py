@@ -5,7 +5,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 
 
-class L4MemoryClientContractTests(unittest.TestCase):
+class LTMemoryClientContractTests(unittest.TestCase):
 
     def test_long_term_memory_keeps_shared_local_storage_key(self):
         source = (
@@ -14,7 +14,7 @@ class L4MemoryClientContractTests(unittest.TestCase):
             / "static"
             / "js"
             / "runtime"
-            / "runtime-l4-memory.js"
+            / "runtime-lt-memory.js"
         ).read_text(encoding="utf-8")
 
         self.assertIn(
@@ -22,14 +22,14 @@ class L4MemoryClientContractTests(unittest.TestCase):
             source,
         )
 
-    def test_idle_l4_scheduler_is_not_driven_by_browser_javascript(self):
+    def test_idle_lt_scheduler_is_not_driven_by_browser_javascript(self):
         source = (
             ROOT
             / "ui"
             / "static"
             / "js"
             / "runtime"
-            / "runtime-l4-memory.js"
+            / "runtime-lt-memory.js"
         ).read_text(encoding="utf-8")
         template = (
             ROOT
@@ -46,10 +46,10 @@ class L4MemoryClientContractTests(unittest.TestCase):
             / "runtime.js"
         ).read_text(encoding="utf-8")
 
-        self.assertNotIn("l4_memory_idle_tick", source)
+        self.assertNotIn("lt_memory_idle_tick", source)
         self.assertNotIn("startIdleMonitor", source)
         self.assertNotIn("maybeSendIdleTick", source)
-        self.assertNotIn('id="jin-l4-config"', template)
+        self.assertNotIn('id="jin-lt-config"', template)
         self.assertIn(
             'typeof window.syncFactsMemoryToRuntime === "function"',
             runtime_source,
@@ -57,7 +57,7 @@ class L4MemoryClientContractTests(unittest.TestCase):
         self.assertIn("window.syncFactsMemoryToRuntime();", runtime_source)
 
 
-    def test_l4_fact_reference_runtime_keys_do_not_feed_facts_memory(self):
+    def test_lt_fact_reference_runtime_keys_do_not_feed_facts_memory(self):
         source = (
             ROOT
             / "ui"
@@ -72,7 +72,7 @@ class L4MemoryClientContractTests(unittest.TestCase):
             source,
         )
         self.assertIn(
-            r"/^l4_fact_?f?[1-9]\d*$/i",
+            r"/^l-?t_fact_?#?f?[1-9]\d*$/i",
             source,
         )
         self.assertIn(
@@ -87,7 +87,7 @@ class L4MemoryClientContractTests(unittest.TestCase):
             / "static"
             / "js"
             / "runtime"
-            / "runtime-l4-memory.js"
+            / "runtime-lt-memory.js"
         ).read_text(encoding="utf-8")
 
         self.assertIn(

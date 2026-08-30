@@ -46,7 +46,7 @@
     "jin.factsMemory";
 
   const factsMemoryStorageKeyVersion =
-    "v1";
+    "v2";
 
   let bootSourceRuntimeSessionId = null;
   let sessionCheckpointMigrationAttempted = false;
@@ -1521,7 +1521,7 @@
 
         const contentHash =
           String(
-            field.l4_content_hash || ""
+            field.lt_content_hash || ""
           ).trim()
           || buildFactsMemoryContentHash(
             content
@@ -1530,16 +1530,16 @@
         signals[normalizedKey] = {
           ...field,
           content,
-          l4_status:
+          lt_status:
             normalizeFactsMemoryStatus(
-              field.l4_status
+              field.lt_status
             ),
-          l4_content_hash: contentHash,
-          l4_analyzed_at:
+          lt_content_hash: contentHash,
+          lt_analyzed_at:
             normalizeFactsMemoryStatus(
-              field.l4_status
+              field.lt_status
             ) === "analyzed"
-              ? String(field.l4_analyzed_at || "").trim()
+              ? String(field.lt_analyzed_at || "").trim()
               : "",
         };
         delete signals[normalizedKey].significance;
@@ -1777,7 +1777,7 @@
         !signalKeys.length
         || !signalKeys.every(
           function (signalKey) {
-            return signals[signalKey].l4_status === "analyzed";
+            return signals[signalKey].lt_status === "analyzed";
           }
         )
     ) {

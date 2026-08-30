@@ -12,8 +12,8 @@ from utils.actions.jin_position_utils import (
 from utils.actions.jin_size_utils import (
     normalize_jin_size_payload,
 )
-from utils.actions.update_l4_facts_utils import (
-    parse_update_l4_facts_payload,
+from utils.actions.update_lt_facts_utils import (
+    parse_update_lt_facts_payload,
 )
 from utils.actions.update_active_memory_utils import (
     parse_update_active_memory_payload_fields,
@@ -1276,8 +1276,8 @@ def _build_session_action_marker_detail(
             normalized_payload
         )
 
-    if normalized_name == "UPDATE_L4_FACTS":
-        parsed_payload = parse_update_l4_facts_payload(
+    if normalized_name == "UPDATE_LT_FACTS":
+        parsed_payload = parse_update_lt_facts_payload(
             normalized_payload
         )
 
@@ -1457,7 +1457,7 @@ def _build_payload_distinct_session_action_parts(
                 f"{action_name}: {display_payload}"
             )
         elif (
-            action_name == "UPDATE_L4_FACTS"
+            action_name == "UPDATE_LT_FACTS"
             and details
         ):
             part["message"] = ", ".join(
@@ -1960,7 +1960,7 @@ def _build_formatted_session_action_marker_parts(
                         f"{', '.join(asset_action_names)}"
                     )
             elif (
-                action_name == "UPDATE_L4_FACTS"
+                action_name == "UPDATE_LT_FACTS"
                 and details
             ):
                 part["message"] = ", ".join(

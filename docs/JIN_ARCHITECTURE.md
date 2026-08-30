@@ -54,7 +54,7 @@ Background / secondary paths:
        -> FRAME/L1 integration + diff + Facts Memory companion state
 
    browser idle tick
-       -> L4 extraction/merge pipeline through the same SERVICE route
+       -> L-T extraction/merge pipeline through the same SERVICE route
 ```
 
 Main ownership by package:
@@ -70,8 +70,8 @@ Main ownership by package:
 | `utils/actions/` | payload normalization, action execution, storage/state mutation |
 | `rules/brain_context_builder.py` | deterministic Brain prompt assembly from current state |
 | `runtime/L1_memory*` | FRAME/live runtime-memory integration, snapshots, diffs, interrupted-turn memory path |
-| `runtime/L4_memory*` | Facts Memory ingestion, durable L4 extraction/merge, reconciliation, delete/restore |
-| `runtime/memory_attention.py` | prompt-only Active/Delayed/L4 relevance ranking |
+| `runtime/LT_memory*` | Facts Memory ingestion, durable L-T extraction/merge, reconciliation, delete/restore |
+| `runtime/memory_attention.py` | prompt-only Active/Delayed/L-T relevance ranking |
 | `utils/*_store.py` | durable file/report/fact stores |
 | `ui/static/js/runtime/` | browser-side runtime state, persistence, session checkpointing, memory UI, avatar |
 | `ui/static/js/logger/` | inspectable logger/action/memory projections |
@@ -90,11 +90,11 @@ Main ownership by package:
 - live L1/runtime memory and snapshots;
 - Active Memory records;
 - Delayed Memory reports and loaded IDs;
-- Facts Memory records and L4 store;
+- Facts Memory records and L-T store;
 - attached file IDs and sequence attachments;
 - session/reconnect/archived-restore metadata;
-- L4/background tasks;
-- prompt-only L4 focus diagnostics;
+- L-T/background tasks;
+- prompt-only L-T focus diagnostics;
 - avatar color/size/position/speed related state;
 - message/turn/sequence counters.
 
@@ -102,7 +102,7 @@ Do not create a parallel state container for a concept already owned here unless
 
 ### 3.2 Pending request queue
 
-The websocket endpoint uses a normal `asyncio.Queue` to serialize queued requests in FIFO order. Foreground work still has explicit guards around background L4 processing.
+The websocket endpoint uses a normal `asyncio.Queue` to serialize queued requests in FIFO order. Foreground work still has explicit guards around background L-T processing.
 
 ### 3.3 Foreground turn
 
@@ -136,7 +136,7 @@ There is no active planner/router node in front of Brain.
 Physical model endpoints are resolved through the client/config layer. Logical roles remain:
 
 - **BRAIN** — the only foreground reasoning/visible-answer/runtime-decision route;
-- **SERVICE** — background FRAME/L1, L4, fact-check/research, document-skill, and supporting model work.
+- **SERVICE** — background FRAME/L1, L-T, fact-check/research, document-skill, and supporting model work.
 
 `utils/brain_client_utils.py::get_brain_runtime_config()` always returns label `brain`, and `BrainNode` resolves `context.clients["brain"]`. There is no active foreground branch to Service.
 
@@ -171,7 +171,7 @@ The current high-level order is:
    - visible session counters;
    - runtime TODO state;
    - loaded Delayed Memory bodies;
-   - L4 long-term memory;
+   - L-T long-term memory;
    - zero-diff stall alert;
 11. archived exact-dialogue priming block when restoring; ordinary rolling chat is already adjacent to FRAME above;
 12. archived reasoning dump, otherwise previous-reasoning loop/crop;
@@ -212,7 +212,7 @@ Current action names in the contract table:
 - `JIN_SIZE`
 - `JIN_POSITION`
 - `JIN_SPEED`
-- `UPDATE_L4_FACTS`
+- `UPDATE_LT_FACTS`
 - `LOAD_SKILL`
 - `UNLOAD_SKILL`
 - `ASSET_ACTION`
@@ -278,7 +278,7 @@ That ordering is part of observability semantics. Moving the emission back to fi
 
 ## 7. Memory architecture — current model
 
-The old four-layer L1/L2/L3/L4 architecture is not the current implementation.
+The old numbered four-layer architecture is not the current implementation.
 
 ### 7.1 L1 / live runtime memory
 
@@ -302,18 +302,18 @@ Remaining L2/L3 names occur in stale tests, old docs, comments, UI compatibility
 
 Facts Memory is a companion candidate index derived from persisted live runtime snapshots on the browser side. `ui/static/js/runtime/runtime-storage.js` stores per-session facts-memory buckets and synchronizes them to the backend through `facts_memory_store_sync`.
 
-Backend L4 code normalizes these records and marks analyzed fields. This is an intake/candidate mechanism for L4, not an independent durable product layer equivalent to old L2/L3.
+Backend L-T code normalizes these records and marks analyzed fields. This is an intake/candidate mechanism for L-T, not an independent durable product layer equivalent to old L2/L3.
 
-### 7.4 L4 long-term memory
+### 7.4 L-T long-term memory
 
 Active modules:
 
-- `runtime/L4_memory.py`
-- `runtime/L4_memory_rules.py`
-- `runtime/L4_memory_utils.py`
+- `runtime/LT_memory.py`
+- `runtime/LT_memory_rules.py`
+- `runtime/LT_memory_utils.py`
 - `utils/long_term_facts_file_store.py`
 
-L4 owns durable facts. The current L4 path includes:
+L-T owns durable facts. The current L-T path includes:
 
 - Facts Memory candidate ingestion;
 - extraction phase;
@@ -324,7 +324,7 @@ L4 owns durable facts. The current L4 path includes:
 - delete/restore reconciliation;
 - server/browser store synchronization.
 
-L4 work is scheduled from an explicit browser idle tick (`l4_memory_idle_tick`) and is guarded so it does not begin while foreground work is running or queued.
+L-T work is scheduled from an explicit browser idle tick (`lt_memory_idle_tick`) and is guarded so it does not begin while foreground work is running or queued.
 
 ### 7.5 Delayed Memory
 
@@ -349,7 +349,7 @@ Current save contract:
 Important semantics:
 
 - report inventory and loaded report body are different prompt concepts;
-- reports can link L4 facts and persistent files;
+- reports can link L-T facts and persistent files;
 - `anchor_fact_ids` must be a subset of `facts_ids` under the current contract;
 - loaded/pinned/referenced/inspected are different states;
 - old key/value `SAVE_DELAYED_MEMORY_CONTENT` form is legacy only.
@@ -390,7 +390,7 @@ Persistent uploads are owned by `utils/attached_files_store.py` and `assets/file
 
 - lexical/current-context relevance ordering for Active Memory;
 - temporary bubble tiers for Delayed Memory inventory matching;
-- a narrow 1–3 relevant-fact focus cone for L4.
+- a narrow 1–3 relevant-fact focus cone for L-T.
 
 Memory Attention is stateless. It does not call SERVICE, mutate or persist memory records, add prompt instructions, modify Brain temperature, drive avatar state, or maintain significance scores. Canonical storage/UI order remains independent from the prompt projection.
 
@@ -407,7 +407,7 @@ JIN deliberately splits persistence by owner/lifetime.
 | Active Memory | browser runtime storage; anonymous mode can isolate it |
 | Facts Memory candidate buckets | browser storage per facts-memory session ID |
 | Delayed Memory | `memory/delayed/*.json` |
-| L4 facts | `memory/facts/long_term_facts.json` |
+| L-T facts | `memory/facts/long_term_facts.json` |
 | persistent files | `assets/files/` + file index |
 | visible chat / reasoning logs | `logs/` |
 | live in-process orchestration | `RuntimeContext` |
@@ -445,7 +445,7 @@ Session actions are merged by stable ID when available, otherwise by structured 
 
 `CLEAN_TOOL_RESULTS` has an explicit field-local persistence rule. On successful cleanup, the browser rewrites only `session_snapshot.tool_results` to `[]` inside the existing checkpoint and preserves checkpoint timestamp/lineage verbatim. During enrichment, the mere presence of `tool_results` (including `[]`) is authoritative, so old archived search/tool output cannot resurrect in a new tab. This exact-empty rule is intentionally **not** shared by `loaded_memory_ids` or `active_memory_records`; their empty browser collections still use the established archive fallback behavior.
 
-Late append-only L4 tool results are the one post-checkpoint tool-result enrichment: a newer raw `runtime_tool_result` of kind `l4` may be merged after the greater of checkpoint time and `tool_results_cleared_at`. Other old tool results remain blocked by the browser checkpoint/tombstone.
+Late append-only L-T tool results are the one post-checkpoint tool-result enrichment: a newer raw `runtime_tool_result` of kind `lt` may be merged after the greater of checkpoint time and `tool_results_cleared_at`. Other old tool results remain blocked by the browser checkpoint/tombstone.
 
 Session-action parts are structured continuity data. Bootstrap normalization currently preserves `text/detail/message/id` plus recognized `colors`; color metadata is normalized to lowercase `#rrggbb` (including expansion from `#rgb`) so restored JIN_COLOR actions keep the same swatch and hex hover metadata as live actions.
 
@@ -497,7 +497,7 @@ Backend behavior:
 - runtime is marked anonymous and persistent writes restricted;
 - global Delayed Memory can still be hydrated/read;
 - Delayed file-store mutation is disabled;
-- `UPDATE_L4_FACTS` and `SAVE_DELAYED_MEMORY` are explicitly restricted;
+- `UPDATE_LT_FACTS` and `SAVE_DELAYED_MEMORY` are explicitly restricted;
 - persistent asset-write actions are restricted;
 - read-only/runtime-local actions remain available where safe.
 
@@ -530,7 +530,7 @@ Important shared identities include:
 
 - Active Memory IDs;
 - Delayed report IDs;
-- L4 fact IDs;
+- L-T fact IDs;
 - file IDs;
 - runtime action IDs;
 - turn/sequence IDs.
@@ -543,9 +543,9 @@ The Live Avatar and memory panels consume the same identities but may show diffe
 
 Do not collapse these into a generic highlight state.
 
-The L4 panel deliberately separates compact browsing from surfaced evidence: ordinary fact rows use a 50-character value preview, while a row bubbled by runtime reference, explicit reasoning citation, or context-loaded state renders its full value. The storage value is never truncated; this is projection-only behavior.
+The L-T panel deliberately separates compact browsing from surfaced evidence: ordinary fact rows use a 50-character value preview, while a row bubbled by runtime reference, explicit reasoning citation, or context-loaded state renders its full value. The storage value is never truncated; this is projection-only behavior.
 
-The memory panel exposes five persistent navigation tabs: `FRAME` (live runtime-memory snapshots), `ACTIVE`, `DELAYED`, `L-T` (L4), and `FILES`. Their shared count control is projected below the active tab; only FRAME exposes previous/next snapshot controls. The temporary unprocessed-facts projection is intentionally omitted from the tab bar.
+The memory panel exposes five persistent navigation tabs: `FRAME` (live runtime-memory snapshots), `ACTIVE`, `DELAYED`, `L-T`, and `FILES`. Their shared count control is projected below the active tab; only FRAME exposes previous/next snapshot controls. The temporary unprocessed-facts projection is intentionally omitted from the tab bar.
 
 Session-action logger rows are also a projection of structured history. The compact logger keeps the most recent five items in chronological order with their original numbering and reuses the existing attached-files header/button primitive for `FULL`. JIN_COLOR parts render one swatch per applied color and expose the normalized hex on hover; bootstrap must preserve the `colors` payload for this to work after reload. Runtime-action bubble details are retained across counter-only updates so a count refresh cannot erase existing hover metadata.
 

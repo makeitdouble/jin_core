@@ -20,19 +20,19 @@ class FakeWebSocket:
 
 class WebSocketLoggerModelOutputTests(unittest.IsolatedAsyncioTestCase):
 
-    async def test_memory_log_tag_suffix_preserves_l4_memory_level(self):
+    async def test_memory_log_tag_suffix_preserves_lt_memory_level(self):
         websocket = FakeWebSocket()
         logger = WebSocketLogger(websocket)
 
         await logger.log_memory(
-            "L4",
-            "L4 fact deleted",
+            "L-T",
+            "L-T fact deleted",
             event="fact_deleted",
             tag_suffix="DELETED",
         )
 
-        self.assertEqual(websocket.events[0]["tag"], "[MEMORY:L4:DELETED]")
-        self.assertEqual(websocket.events[0]["memory_level"], "L4")
+        self.assertEqual(websocket.events[0]["tag"], "[MEMORY:L-T:DELETED]")
+        self.assertEqual(websocket.events[0]["memory_level"], "L-T")
         self.assertEqual(websocket.events[0]["memory_event"], "fact_deleted")
 
     async def test_brain_output_over_150_chars_uses_100_char_preview_and_payload(self):

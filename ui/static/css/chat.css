@@ -733,17 +733,17 @@ body:not(.theme-win95) .jin-think-wrapper:has(> .jin-think-content.is-collapsed)
     text-shadow: 0 0 6px rgba(34, 211, 238, 0.19);
 }
 
-.jin-think-content.has-rule-highlights .think-citation-l4.exact {
+.jin-think-content.has-rule-highlights .think-citation-lt.exact {
     color: rgba(129, 230, 217, 0.98);
     text-shadow: 0 0 10px rgba(45, 212, 191, 0.38);
 }
 
-.jin-think-content.has-rule-highlights .think-citation-l4.near {
+.jin-think-content.has-rule-highlights .think-citation-lt.near {
     color: rgba(129, 230, 217, 0.88);
     text-shadow: 0 0 8px rgba(45, 212, 191, 0.28);
 }
 
-.jin-think-content.has-rule-highlights .think-citation-l4.compressed {
+.jin-think-content.has-rule-highlights .think-citation-lt.compressed {
     color: rgba(129, 230, 217, 0.78);
     text-shadow: 0 0 6px rgba(45, 212, 191, 0.19);
 }

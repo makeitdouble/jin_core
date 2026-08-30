@@ -118,7 +118,7 @@ class ActiveMemoryCitationMultiSourceClientContractTests(unittest.TestCase):
     def test_client_cache_keys_include_active_citation_revision(self):
         source = INDEX.read_text(encoding="utf-8")
 
-        self.assertIn("runtime-memory-view.js?v=context-card-chevronless-1&delayed-fact-paste=2&numeric-fact-order=1&l4-fact-age=1&hold-delete-1&modal-title-editor=1&active-citations=4", source)
+        self.assertIn("runtime-memory-view.js?v=context-card-chevronless-1&delayed-fact-paste=2&numeric-fact-order=1&amp;lt-fact-age=1&hold-delete-1&modal-title-editor=1&active-citations=4", source)
         self.assertIn("runtime-avatar.js?v=memory-layers-dormant-1&reasoning-whisper=3&stable-render=2&active-citations=4", source)
         self.assertIn("think-citations.js?v=think-citations-8&stream-exact-citations=4&active-citations=4", source)
 

@@ -62,7 +62,7 @@ Memory/context/reasoning/actions/state must be inspectable enough that the user 
 L2 and L3 are no longer live architectural layers. The current conceptual set is:
 
 - live L1/runtime frame;
-- L4 durable facts;
+- L-T durable facts;
 - Active Memory;
 - Delayed Memory;
 - Files;
@@ -74,15 +74,15 @@ L2 and L3 are no longer live architectural layers. The current conceptual set is
 
 ---
 
-## D005 — Durable L1 is rejected; durable facts go to L4
+## D005 — Durable L1 is rejected; durable facts go to L-T
 
 **Status:** Accepted / implemented
 
-L1 is live/operational state. Durable user/project facts belong in L4 rather than a persistent L1-like layer.
+L1 is live/operational state. Durable user/project facts belong in L-T rather than a persistent L1-like layer.
 
 **Why:** one durable fact owner is easier to reconcile, inspect, age, link, and clean.
 
-**Rejected alternative:** another long-lived “live memory” store parallel to L4.
+**Rejected alternative:** another long-lived “live memory” store parallel to L-T.
 
 ---
 
@@ -90,7 +90,7 @@ L1 is live/operational state. Durable user/project facts belong in L4 rather tha
 
 **Status:** Accepted / implemented
 
-Active Memory, Delayed Memory, L4, live L1, Files, and checkpoints are not interchangeable layers.
+Active Memory, Delayed Memory, L-T, live L1, Files, and checkpoints are not interchangeable layers.
 
 **Why:** they have different lifetimes, loading rules, UI semantics, and mutation paths.
 
@@ -212,7 +212,7 @@ Serialize/deserialize must preserve entity/snapshot timestamps. `now()` is only 
 
 **Status:** Accepted / implemented
 
-Anonymous windows keep isolated session-facing state while still being able to read global durable context where intended. Persistent L4/Delayed/asset mutation is restricted by the backend.
+Anonymous windows keep isolated session-facing state while still being able to read global durable context where intended. Persistent L-T/Delayed/asset mutation is restricted by the backend.
 
 **Why:** private experimentation should not contaminate durable user memory, while still keeping JIN useful.
 
@@ -405,15 +405,15 @@ Bootstrap sanitization must preserve recognized structured action-part metadata 
 
 ---
 
-## D030 — Surfaced L4 evidence expands; ordinary rows stay compact
+## D030 — Surfaced L-T evidence expands; ordinary rows stay compact
 
 **Status:** Accepted / implemented
 
-The ordinary L4 panel uses a compact 50-character value preview. A fact bubbled by runtime reference, explicit reasoning citation, or context-loaded state displays the full value with no truncation.
+The ordinary L-T panel uses a compact 50-character value preview. A fact bubbled by runtime reference, explicit reasoning citation, or context-loaded state displays the full value with no truncation.
 
-**Why:** the panel should remain scan-friendly by default, while evidence JIN actually surfaced must be readable in full. The expansion is a UI projection and must not mutate canonical L4 storage/order.
+**Why:** the panel should remain scan-friendly by default, while evidence JIN actually surfaced must be readable in full. The expansion is a UI projection and must not mutate canonical L-T storage/order.
 
-**Rejected alternatives:** truncating surfaced citations; expanding every L4 row all the time.
+**Rejected alternatives:** truncating surfaced citations; expanding every L-T row all the time.
 
 ---
 
@@ -526,11 +526,11 @@ Action/recovery follow-ups do not append this ordinary block again. They constru
 
 **Status:** Accepted / implemented
 
-The metabolism subsystem is removed. The retained `runtime/memory_attention.py` module performs only prompt-local Active lexical/context relevance, Delayed inventory bubble matching, and a narrow 1–3 fact L4 focus.
+The metabolism subsystem is removed. The retained `runtime/memory_attention.py` module performs only prompt-local Active lexical/context relevance, Delayed inventory bubble matching, and a narrow 1–3 fact L-T focus.
 
 Memory Attention is deterministic and stateless: it does not call SERVICE, change Brain temperature, generate hidden instructions, learn phrase associations, mutate memory while building context, persist significance, or drive avatar chemistry.
 
-**Why:** the useful behavior was retrieval/ranking. The causal homeostat duplicated model work, obscured sampling, and leaked event-wide significance through L1 into durable L4.
+**Why:** the useful behavior was retrieval/ranking. The causal homeostat duplicated model work, obscured sampling, and leaked event-wide significance through L1 into durable L-T.
 
 **Rejected alternatives:** keeping observer-only chemistry; keeping significance as an independent durable score; preserving the metabolic UI without the backend.
 

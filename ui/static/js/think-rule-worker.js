@@ -442,7 +442,7 @@ function sourcePriority(
 
   if (
     match
-    && match.sourceType === "l4"
+    && match.sourceType === "lt"
   ) {
     return 1;
   }

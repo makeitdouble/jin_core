@@ -79,9 +79,9 @@ def normalize_delayed_memory_fact_ids(
     legacy_absorbed_fact_ids=None,
     legacy_long_term_fact_ids=None,
 ) -> tuple[list[str], list[str]]:
-    """Normalize delayed-memory L4 references.
+    """Normalize delayed-memory L-T references.
 
-    ``facts_ids`` is the full set of L4 facts represented by the report.
+    ``facts_ids`` is the full set of L-T facts represented by the report.
     ``anchor_fact_ids`` is a visible, important subset and is always folded
     into ``facts_ids``.  Legacy absorbed/long-term fields are treated as
     non-anchor report facts for compatibility with older reports.
@@ -223,7 +223,7 @@ def collect_long_term_fact_ids_from_reports(
 def collect_anchor_fact_report_ids(
     reports,
 ) -> dict[str, list[str]]:
-    """Map each anchor L4 fact id to delayed-memory report ids referencing it."""
+    """Map each anchor L-T fact id to delayed-memory report ids referencing it."""
 
     if not isinstance(reports, dict):
         return {}

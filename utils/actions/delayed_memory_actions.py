@@ -316,11 +316,11 @@ async def apply_save_delayed_memory_actions(
             report
         )
 
-        from runtime.L4_memory import (
-            refresh_runtime_l4_archived_fact_ids,
+        from runtime.LT_memory import (
+            refresh_runtime_lt_archived_fact_ids,
         )
 
-        refresh_runtime_l4_archived_fact_ids(
+        refresh_runtime_lt_archived_fact_ids(
             context
         )
 

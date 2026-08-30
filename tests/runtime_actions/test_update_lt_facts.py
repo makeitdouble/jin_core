@@ -3,11 +3,11 @@ import json
 import unittest
 
 from contracts.rules_assembler import (
-    RUNTIME_ACTION_UPDATE_L4_FACTS,
+    RUNTIME_ACTION_UPDATE_LT_FACTS,
     build_runtime_action_contract_instructions,
     runtime_action_emits_followup,
 )
-from runtime.L4_memory_utils import normalize_l4_store
+from runtime.LT_memory_utils import normalize_lt_store
 from runtime.runtime_context import RuntimeContext
 from tests.helpers.memory import FakeLogger, FakeServiceClient
 from utils.actions import RuntimeActionCall, extract_runtime_actions
@@ -23,22 +23,22 @@ class FakeEmitter:
         self.events.append(payload)
 
 
-class RuntimeUpdateL4FactsTests(unittest.IsolatedAsyncioTestCase):
+class RuntimeUpdateLTFactsTests(unittest.IsolatedAsyncioTestCase):
 
     def test_marker_parses_focused_note_and_has_no_followup(self):
         result = extract_runtime_actions(
             (
                 "Memory clarified.\n"
-                "<UPDATE_L4_FACTS>\n"
+                "<UPDATE_LT_FACTS>\n"
                 "Merge F1 and F2 into one durable fact: both describe the same residence.\n"
-                "</UPDATE_L4_FACTS>"
+                "</UPDATE_LT_FACTS>"
             ),
-            enabled_actions=(RUNTIME_ACTION_UPDATE_L4_FACTS,),
+            enabled_actions=(RUNTIME_ACTION_UPDATE_LT_FACTS,),
         )
 
         self.assertEqual(result.text, "Memory clarified.")
         self.assertEqual(len(result.actions), 1)
-        self.assertEqual(result.actions[0].name, RUNTIME_ACTION_UPDATE_L4_FACTS)
+        self.assertEqual(result.actions[0].name, RUNTIME_ACTION_UPDATE_LT_FACTS)
         self.assertEqual(
             json.loads(result.actions[0].payload),
             {
@@ -50,11 +50,11 @@ class RuntimeUpdateL4FactsTests(unittest.IsolatedAsyncioTestCase):
             },
         )
         self.assertFalse(
-            runtime_action_emits_followup(RUNTIME_ACTION_UPDATE_L4_FACTS)
+            runtime_action_emits_followup(RUNTIME_ACTION_UPDATE_LT_FACTS)
         )
 
         instructions = build_runtime_action_contract_instructions(
-            RUNTIME_ACTION_UPDATE_L4_FACTS
+            RUNTIME_ACTION_UPDATE_LT_FACTS
         )
         self.assertIn("ask one brief natural question", instructions)
         self.assertIn("harmless repetition", instructions)
@@ -66,11 +66,11 @@ class RuntimeUpdateL4FactsTests(unittest.IsolatedAsyncioTestCase):
         result = extract_runtime_actions(
             (
                 "Memory clarified.\n"
-                "<UPDATE_L4_FACTS>\n"
+                "<UPDATE_LT_FACTS>\n"
                 "Create a new durable fact: the user prefers Russian replies.\n"
-                "</UPDATE_L4_FACTS>"
+                "</UPDATE_LT_FACTS>"
             ),
-            enabled_actions=(RUNTIME_ACTION_UPDATE_L4_FACTS,),
+            enabled_actions=(RUNTIME_ACTION_UPDATE_LT_FACTS,),
         )
 
         self.assertEqual(result.text, "Memory clarified.")
@@ -90,12 +90,12 @@ class RuntimeUpdateL4FactsTests(unittest.IsolatedAsyncioTestCase):
         result = extract_runtime_actions(
             (
                 "before\n"
-                "<UPDATE_L4_FACTS>\n"
+                "<UPDATE_LT_FACTS>\n"
                 "Delete F1 from long-term memory.\n"
-                "</UPDATE_L4_FACTS>\n"
+                "</UPDATE_LT_FACTS>\n"
                 "after"
             ),
-            enabled_actions=(RUNTIME_ACTION_UPDATE_L4_FACTS,),
+            enabled_actions=(RUNTIME_ACTION_UPDATE_LT_FACTS,),
         )
 
         self.assertEqual(result.text, "before\nafter")
@@ -104,12 +104,12 @@ class RuntimeUpdateL4FactsTests(unittest.IsolatedAsyncioTestCase):
     def test_marker_allows_removing_content_from_existing_fact(self):
         result = extract_runtime_actions(
             (
-                "<UPDATE_L4_FACTS>\n"
+                "<UPDATE_LT_FACTS>\n"
                 "Update F305: Remove white bonfire with cutout from the "
                 "description. Keep coffee, bong, and bricks.\n"
-                "</UPDATE_L4_FACTS>"
+                "</UPDATE_LT_FACTS>"
             ),
-            enabled_actions=(RUNTIME_ACTION_UPDATE_L4_FACTS,),
+            enabled_actions=(RUNTIME_ACTION_UPDATE_LT_FACTS,),
         )
 
         self.assertEqual(len(result.actions), 1)
@@ -121,18 +121,18 @@ class RuntimeUpdateL4FactsTests(unittest.IsolatedAsyncioTestCase):
         result = extract_runtime_actions(
             (
                 "before\n"
-                "<UPDATE_L4_FACTS>\n"
+                "<UPDATE_LT_FACTS>\n"
                 '{"fact_ids":["F1"],"message":""}\n'
-                "</UPDATE_L4_FACTS>\n"
+                "</UPDATE_LT_FACTS>\n"
                 "after"
             ),
-            enabled_actions=(RUNTIME_ACTION_UPDATE_L4_FACTS,),
+            enabled_actions=(RUNTIME_ACTION_UPDATE_LT_FACTS,),
         )
 
         self.assertEqual(result.text, "before\nafter")
         self.assertEqual(result.actions, ())
 
-    async def test_runtime_action_updates_l4_in_background(self):
+    async def test_runtime_action_updates_lt_in_background(self):
         emitter = FakeEmitter()
         logger = FakeLogger()
         service_client = FakeServiceClient(json.dumps({
@@ -154,9 +154,9 @@ class RuntimeUpdateL4FactsTests(unittest.IsolatedAsyncioTestCase):
             logger=logger,
             clients={"service": service_client},
         )
-        context.runtime_l4_file_store_enabled = False
+        context.runtime_lt_file_store_enabled = False
         context.delayed_memory_file_store_enabled = False
-        context.runtime_long_term_memory_store = normalize_l4_store({
+        context.runtime_long_term_memory_store = normalize_lt_store({
             "facts": [
                 {
                     "id": "F1",
@@ -182,7 +182,7 @@ class RuntimeUpdateL4FactsTests(unittest.IsolatedAsyncioTestCase):
             },
         }
         action = RuntimeActionCall(
-            name=RUNTIME_ACTION_UPDATE_L4_FACTS,
+            name=RUNTIME_ACTION_UPDATE_LT_FACTS,
             payload=json.dumps({
                 "fact_ids": ["F1", "F2"],
                 "message": (
@@ -195,7 +195,7 @@ class RuntimeUpdateL4FactsTests(unittest.IsolatedAsyncioTestCase):
         applied = await apply_runtime_action_calls(
             context,
             (action,),
-            action_display_ids={id(action): "update_l4_facts_001"},
+            action_display_ids={id(action): "update_lt_facts_001"},
         )
 
         self.assertEqual(applied, 1)
@@ -231,7 +231,7 @@ class RuntimeUpdateL4FactsTests(unittest.IsolatedAsyncioTestCase):
             event
             for event in emitter.events
             if event.get("type") == "runtime_action"
-            and event.get("action") == "update_l4_facts"
+            and event.get("action") == "update_lt_facts"
         ]
         self.assertTrue(any(event.get("status") == "completed" for event in lifecycle))
         completed_event = next(
@@ -239,16 +239,16 @@ class RuntimeUpdateL4FactsTests(unittest.IsolatedAsyncioTestCase):
             for event in lifecycle
             if event.get("status") == "completed"
         )
-        self.assertEqual(completed_event.get("text"), "UPDATE_L4_FACTS")
+        self.assertEqual(completed_event.get("text"), "UPDATE_LT_FACTS")
         self.assertTrue(any(
-            event.get("l4_result", {}).get("change", {}).get("action") == "merge"
+            event.get("lt_result", {}).get("change", {}).get("action") == "merge"
             for event in lifecycle
         ))
         self.assertFalse(
             any(event.get("status") == "failed" for event in lifecycle)
         )
 
-    async def test_runtime_action_does_not_wait_for_cancelled_idle_l4_task(self):
+    async def test_runtime_action_does_not_wait_for_cancelled_idle_lt_task(self):
         emitter = FakeEmitter()
         logger = FakeLogger()
         context = RuntimeContext(
@@ -265,10 +265,10 @@ class RuntimeUpdateL4FactsTests(unittest.IsolatedAsyncioTestCase):
                 await release_idle.wait()
             except asyncio.CancelledError:
                 # Simulate a provider request that takes time to unwind after
-                # local cancellation. Foreground L4 must not wait for it.
+                # local cancellation. Foreground L-T must not wait for it.
                 await release_idle.wait()
 
-        async def fake_run_l4_jin_note(*, context, note):
+        async def fake_run_lt_jin_note(*, context, note):
             del context, note
             note_started.set()
             return {
@@ -279,10 +279,10 @@ class RuntimeUpdateL4FactsTests(unittest.IsolatedAsyncioTestCase):
             }
 
         idle_task = asyncio.create_task(stubborn_idle_task())
-        context.runtime_l4_memory_update_task = idle_task
-        context.runtime_l4_memory_update_kind = "idle"
+        context.runtime_lt_memory_update_task = idle_task
+        context.runtime_lt_memory_update_kind = "idle"
         action = RuntimeActionCall(
-            name=RUNTIME_ACTION_UPDATE_L4_FACTS,
+            name=RUNTIME_ACTION_UPDATE_LT_FACTS,
             payload=json.dumps({
                 "fact_ids": ["F1"],
                 "message": "Update F1: keep the clarified wording.",
@@ -293,13 +293,13 @@ class RuntimeUpdateL4FactsTests(unittest.IsolatedAsyncioTestCase):
             from unittest.mock import patch
 
             with patch(
-                "utils.actions.update_l4_facts_actions.run_l4_jin_note",
-                new=fake_run_l4_jin_note,
+                "utils.actions.update_lt_facts_actions.run_lt_jin_note",
+                new=fake_run_lt_jin_note,
             ):
                 applied = await apply_runtime_action_calls(
                     context,
                     (action,),
-                    action_display_ids={id(action): "update_l4_facts_001"},
+                    action_display_ids={id(action): "update_lt_facts_001"},
                 )
 
                 self.assertEqual(applied, 1)
@@ -310,7 +310,7 @@ class RuntimeUpdateL4FactsTests(unittest.IsolatedAsyncioTestCase):
             release_idle.set()
             await asyncio.gather(idle_task, return_exceptions=True)
 
-    async def test_runtime_action_can_create_l4_without_selected_facts(self):
+    async def test_runtime_action_can_create_lt_without_selected_facts(self):
         emitter = FakeEmitter()
         logger = FakeLogger()
         service_client = FakeServiceClient(json.dumps({
@@ -330,11 +330,11 @@ class RuntimeUpdateL4FactsTests(unittest.IsolatedAsyncioTestCase):
             logger=logger,
             clients={"service": service_client},
         )
-        context.runtime_l4_file_store_enabled = False
+        context.runtime_lt_file_store_enabled = False
         context.delayed_memory_file_store_enabled = False
-        context.runtime_long_term_memory_store = normalize_l4_store({"facts": []})
+        context.runtime_long_term_memory_store = normalize_lt_store({"facts": []})
         action = RuntimeActionCall(
-            name=RUNTIME_ACTION_UPDATE_L4_FACTS,
+            name=RUNTIME_ACTION_UPDATE_LT_FACTS,
             payload=json.dumps({
                 "fact_ids": [],
                 "message": "Create a new durable fact: the user prefers Russian replies.",
@@ -344,7 +344,7 @@ class RuntimeUpdateL4FactsTests(unittest.IsolatedAsyncioTestCase):
         applied = await apply_runtime_action_calls(
             context,
             (action,),
-            action_display_ids={id(action): "update_l4_facts_001"},
+            action_display_ids={id(action): "update_lt_facts_001"},
         )
 
         self.assertEqual(applied, 1)
@@ -361,7 +361,7 @@ class RuntimeUpdateL4FactsTests(unittest.IsolatedAsyncioTestCase):
             event
             for event in emitter.events
             if event.get("type") == "runtime_action"
-            and event.get("action") == "update_l4_facts"
+            and event.get("action") == "update_lt_facts"
         ]
         self.assertTrue(any(
             event.get("status") == "completed"
@@ -398,9 +398,9 @@ class RuntimeUpdateL4FactsTests(unittest.IsolatedAsyncioTestCase):
             logger=logger,
             clients={"service": service_client},
         )
-        context.runtime_l4_file_store_enabled = False
+        context.runtime_lt_file_store_enabled = False
         context.delayed_memory_file_store_enabled = False
-        context.runtime_long_term_memory_store = normalize_l4_store({
+        context.runtime_long_term_memory_store = normalize_lt_store({
             "facts": [
                 {
                     "id": "F96",
@@ -411,7 +411,7 @@ class RuntimeUpdateL4FactsTests(unittest.IsolatedAsyncioTestCase):
             ],
         })
         action = RuntimeActionCall(
-            name=RUNTIME_ACTION_UPDATE_L4_FACTS,
+            name=RUNTIME_ACTION_UPDATE_LT_FACTS,
             payload=json.dumps({
                 "fact_ids": ["F96"],
                 "message": (
@@ -426,7 +426,7 @@ class RuntimeUpdateL4FactsTests(unittest.IsolatedAsyncioTestCase):
         applied = await apply_runtime_action_calls(
             context,
             (action,),
-            action_display_ids={id(action): "update_l4_facts_001"},
+            action_display_ids={id(action): "update_lt_facts_001"},
         )
 
         self.assertEqual(applied, 1)
@@ -443,7 +443,7 @@ class RuntimeUpdateL4FactsTests(unittest.IsolatedAsyncioTestCase):
             event
             for event in emitter.events
             if event.get("type") == "runtime_action"
-            and event.get("action") == "update_l4_facts"
+            and event.get("action") == "update_lt_facts"
         ]
         self.assertTrue(any(event.get("status") == "completed" for event in lifecycle))
         self.assertFalse(any(event.get("status") == "failed" for event in lifecycle))

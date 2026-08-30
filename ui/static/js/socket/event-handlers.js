@@ -215,37 +215,37 @@ function handleFactsMemoryStoreUpdate(
 ) {
 
   if (
-      window.JINRuntimeL4Memory
-      && window.JINRuntimeL4Memory.applyFactsMemoryRecordsUpdate
+      window.JINRuntimeLTMemory
+      && window.JINRuntimeLTMemory.applyFactsMemoryRecordsUpdate
   ) {
-    window.JINRuntimeL4Memory.applyFactsMemoryRecordsUpdate(
+    window.JINRuntimeLTMemory.applyFactsMemoryRecordsUpdate(
       data
     );
   }
 
 }
 
-function handleL4MemoryUpdate(
+function handleLTMemoryUpdate(
   data
 ) {
 
   if (
-      window.JINRuntimeL4Memory
-      && window.JINRuntimeL4Memory.applyServerUpdate
+      window.JINRuntimeLTMemory
+      && window.JINRuntimeLTMemory.applyServerUpdate
   ) {
-    window.JINRuntimeL4Memory.applyServerUpdate(
+    window.JINRuntimeLTMemory.applyServerUpdate(
       data
     );
   }
 
 }
 
-function handleSocketL4MemoryRestoreResult(
+function handleSocketLTMemoryRestoreResult(
   data
 ) {
 
-  if (typeof window.handleL4LoggerMemoryRestoreResult === "function") {
-    window.handleL4LoggerMemoryRestoreResult(
+  if (typeof window.handleLTLoggerMemoryRestoreResult === "function") {
+    window.handleLTLoggerMemoryRestoreResult(
       data
     );
   }
@@ -610,13 +610,13 @@ registerSocketMessageHandler(
 );
 
 registerSocketMessageHandler(
-  "l4_memory_update",
-  handleL4MemoryUpdate
+  "lt_memory_update",
+  handleLTMemoryUpdate
 );
 
 registerSocketMessageHandler(
-  "l4_memory_restore_result",
-  handleSocketL4MemoryRestoreResult
+  "lt_memory_restore_result",
+  handleSocketLTMemoryRestoreResult
 );
 
 [

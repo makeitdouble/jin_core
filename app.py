@@ -56,9 +56,9 @@ from runtime.model_switch import (
     RuntimeModelSwitchError,
     initialize_runtime_model,
 )
-from runtime.L4_memory import (
-    start_l4_memory_server_scheduler,
-    stop_l4_memory_server_scheduler,
+from runtime.LT_memory import (
+    start_lt_memory_server_scheduler,
+    stop_lt_memory_server_scheduler,
 )
 
 from runtime.registry import runtime_state
@@ -127,7 +127,7 @@ async def lifespan(application: FastAPI):
         application.state.http_client
     )
 
-    start_l4_memory_server_scheduler(
+    start_lt_memory_server_scheduler(
         application.state
     )
 
@@ -137,7 +137,7 @@ async def lifespan(application: FastAPI):
     # SHUTDOWN
     # -----------------------------------------------------
 
-    await stop_l4_memory_server_scheduler(
+    await stop_lt_memory_server_scheduler(
         application.state
     )
     await application.state.http_client.aclose()

@@ -458,7 +458,7 @@
 
     if (
       match
-      && match.sourceType === "l4"
+      && match.sourceType === "lt"
     ) {
       return 1;
     }
@@ -579,8 +579,8 @@
           ? "ACTIVE"
           : match.sourceType === "delayed"
             ? "DELAYED"
-            : match.sourceType === "l4"
-              ? "L4"
+            : match.sourceType === "lt"
+              ? "L-T"
             : match.sourceType === "session"
               ? "SESSION"
               : "RULE";
@@ -604,8 +604,8 @@
           ? "active"
           : match.sourceType === "delayed"
             ? "delayed"
-            : match.sourceType === "l4"
-              ? "l4"
+            : match.sourceType === "lt"
+              ? "lt"
             : match.sourceType === "session"
               ? "session"
               : "rule";
@@ -908,26 +908,26 @@
 
   }
 
-  function buildL4CitationFragments() {
+  function buildLTCitationFragments() {
 
-    const l4Memory =
+    const ltMemory =
       window.JinRuntime
-      && window.JinRuntime.l4Memory;
+      && window.JinRuntime.ltMemory;
 
     if (
-      !l4Memory
+      !ltMemory
       || (
-        typeof l4Memory.getFacts !== "function"
-        && typeof l4Memory.getVisibleFacts !== "function"
+        typeof ltMemory.getFacts !== "function"
+        && typeof ltMemory.getVisibleFacts !== "function"
       )
     ) {
       return [];
     }
 
     const facts =
-      typeof l4Memory.getVisibleFacts === "function"
-        ? l4Memory.getVisibleFacts()
-        : l4Memory.getFacts();
+      typeof ltMemory.getVisibleFacts === "function"
+        ? ltMemory.getVisibleFacts()
+        : ltMemory.getFacts();
 
     if (!Array.isArray(facts)) {
       return [];
@@ -962,11 +962,11 @@
       return buildMemoryCitationFragments(
         `${key}: ${value}`,
         {
-          source: `l4Fact[${id || index}]`,
-          sourceType: "l4",
-          citationType: "l4_citation",
-          layer: "l4",
-          idPrefix: `l4:${id || index}`,
+          source: `ltFact[${id || index}]`,
+          sourceType: "lt",
+          citationType: "lt_citation",
+          layer: "lt",
+          idPrefix: `lt:${id || index}`,
           defaultConstantName: key,
           sourceLineIdentity,
         }
@@ -1050,7 +1050,7 @@
     if (candidate && candidate.sourceType === "active") return 3;
     if (candidate && candidate.sourceType === "runtime") return 2;
     if (candidate && candidate.sourceType === "delayed") return 1;
-    if (candidate && candidate.sourceType === "l4") return 1;
+    if (candidate && candidate.sourceType === "lt") return 1;
     return 0;
   }
 
@@ -1214,11 +1214,11 @@
       );
     });
 
-    const l4Memory = window.JinRuntime && window.JinRuntime.l4Memory;
-    const facts = l4Memory && typeof l4Memory.getVisibleFacts === "function"
-      ? l4Memory.getVisibleFacts()
-      : l4Memory && typeof l4Memory.getFacts === "function"
-        ? l4Memory.getFacts()
+    const ltMemory = window.JinRuntime && window.JinRuntime.ltMemory;
+    const facts = ltMemory && typeof ltMemory.getVisibleFacts === "function"
+      ? ltMemory.getVisibleFacts()
+      : ltMemory && typeof ltMemory.getFacts === "function"
+        ? ltMemory.getFacts()
         : [];
     (Array.isArray(facts) ? facts : []).forEach((fact, index) => {
       if (!fact || typeof fact !== "object" || Array.isArray(fact)) return;
@@ -1226,10 +1226,10 @@
       const key = String(fact.key || "").trim();
       const value = String(fact.value || fact.content || "").trim();
       if (!key || !value) return;
-      addLine("l4", `l4Fact[${id || index}]`, `${key}: ${value}`, {
+      addLine("lt", `ltFact[${id || index}]`, `${key}: ${value}`, {
         id,
-        layer: "l4",
-        citationType: "l4_citation",
+        layer: "lt",
+        citationType: "lt_citation",
         identity: buildCitationRecordIdentity(id, key, value),
       });
     });
@@ -1604,7 +1604,7 @@
       filterLiveActiveMemoryMatches(matches)
         .filter(match => (
           match
-          && ["runtime", "active", "delayed", "l4"].includes(
+          && ["runtime", "active", "delayed", "lt"].includes(
             match.sourceType
           )
         ));
@@ -2348,10 +2348,10 @@
             currentJob.runtimeCitationIndex
           ),
           ...buildActiveMemoryCitationFragments(),
-          // L4 deliberately does not enter fuzzy/semantic citation matching.
+          // L-T deliberately does not enter fuzzy/semantic citation matching.
           // Its F-id and full key are already covered by the streaming exact
           // candidate path, which prevents incidental fact-value wording from
-          // flashing the L4 panel/avatar.
+          // flashing the L-T panel/avatar.
         ];
 
         if (!fragments.length) {

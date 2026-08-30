@@ -38,7 +38,7 @@ BRAIN_RUNTIME_ACTIONS = {
     "CAN_JIN_SIZE": True,
     "CAN_JIN_POSITION": True,
     "CAN_JIN_SPEED": True,
-    "CAN_UPDATE_L4_FACTS": True,
+    "CAN_UPDATE_LT_FACTS": True,
 }
 
 
@@ -908,7 +908,7 @@ def build_long_term_memory_context(
     if context is None:
         return ""
 
-    from runtime.L4_memory import build_runtime_l4_memory_context
+    from runtime.LT_memory import build_runtime_lt_memory_context
 
     restore_fact_ids = None
     if getattr(
@@ -919,13 +919,13 @@ def build_long_term_memory_context(
         restore_fact_ids = list(
             getattr(
                 context,
-                "runtime_session_restore_l4_fact_ids",
+                "runtime_session_restore_lt_fact_ids",
                 [],
             )
             or []
         )
 
-    return build_runtime_l4_memory_context(
+    return build_runtime_lt_memory_context(
         context=context,
         fact_ids=restore_fact_ids,
         user_input=user_input,
@@ -1401,7 +1401,7 @@ def build_brain_context(
             loaded_delayed_memory_context
         )
 
-    # L4 memory block: always-on canonical facts that survive sessions.
+    # L-T memory block: always-on canonical facts that survive sessions.
     long_term_memory_context = build_long_term_memory_context(
         context,
         user_input=user_input,

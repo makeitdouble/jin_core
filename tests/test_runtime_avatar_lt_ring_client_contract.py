@@ -13,13 +13,13 @@ INPUT_JS = ROOT / "ui" / "static" / "js" / "socket" / "input.js"
 INDEX_HTML = ROOT / "ui" / "templates" / "index.html"
 
 
-class RuntimeAvatarL4RingClientContractTests(unittest.TestCase):
+class RuntimeAvatarLTRingClientContractTests(unittest.TestCase):
 
-    def test_memory_rings_have_evenly_spaced_delayed_l4_active_radii(self):
+    def test_memory_rings_have_evenly_spaced_delayed_lt_active_radii(self):
         source = AVATAR_JS.read_text(encoding="utf-8")
 
         radii = {}
-        for kind in ("l4", "delayed", "active"):
+        for kind in ("lt", "delayed", "active"):
             match = re.search(
                 rf"{kind}: Object\.freeze\(\{{\s*radius: (\d+),",
                 source,
@@ -27,46 +27,46 @@ class RuntimeAvatarL4RingClientContractTests(unittest.TestCase):
             self.assertIsNotNone(match, kind)
             radii[kind] = int(match.group(1))
 
-        self.assertEqual(radii["l4"] - radii["delayed"], 10)
-        self.assertEqual(radii["active"] - radii["l4"], 10)
+        self.assertEqual(radii["lt"] - radii["delayed"], 10)
+        self.assertEqual(radii["active"] - radii["lt"], 10)
         self.assertEqual(radii["delayed"], 158)
-        self.assertEqual(radii["l4"], 168)
+        self.assertEqual(radii["lt"], 168)
         self.assertEqual(radii["active"], 178)
-        self.assertGreater(radii["l4"], 151)
+        self.assertGreater(radii["lt"], 151)
 
-    def test_l4_facts_are_rendered_as_reference_aware_memory_dashes(self):
+    def test_lt_facts_are_rendered_as_reference_aware_memory_dashes(self):
         source = AVATAR_JS.read_text(encoding="utf-8")
 
-        self.assertIn("function getL4MemoryAvatarRecords()", source)
-        self.assertIn("window.JinRuntime.l4Memory", source)
-        self.assertIn('typeof l4Memory.getFacts === "function"', source)
-        self.assertIn('"data-l4-fact-id": options.l4FactId || null', source)
-        self.assertIn('kind === "l4"', source)
+        self.assertIn("function getLTMemoryAvatarRecords()", source)
+        self.assertIn("window.JinRuntime.ltMemory", source)
+        self.assertIn('typeof ltMemory.getFacts === "function"', source)
+        self.assertIn('"data-lt-fact-id": options.ltFactId || null', source)
+        self.assertIn('kind === "lt"', source)
         self.assertIn("id,\n              key,", source)
         self.assertIn("referenceAliases: record.referenceAliases", source)
         self.assertIn("dot: record.archived", source)
         self.assertIn("const avatarNodeState = new WeakMap();", source)
         self.assertIn("delayedMemoryFactIds:", source)
-        self.assertIn("normalizeL4FactIds(options.delayedMemoryFactIds)", source)
+        self.assertIn("normalizeLTFactIds(options.delayedMemoryFactIds)", source)
         self.assertIn("delayedMemoryAnchorFactIds:", source)
-        self.assertIn("normalizeL4FactIds(options.delayedMemoryAnchorFactIds)", source)
-        self.assertIn("l4FactIds:", source)
-        self.assertIn("normalizeL4FactIds(options.l4FactIds)", source)
+        self.assertIn("normalizeLTFactIds(options.delayedMemoryAnchorFactIds)", source)
+        self.assertIn("ltFactIds:", source)
+        self.assertIn("normalizeLTFactIds(options.ltFactIds)", source)
         self.assertIn("nodeState.avatarMemoryAngle = Number(options.angle);", source)
         self.assertNotIn('"data-delayed-memory-fact-ids"', source)
         self.assertNotIn('"data-delayed-memory-anchor-fact-ids"', source)
-        self.assertNotIn('"data-l4-fact-ids"', source)
+        self.assertNotIn('"data-lt-fact-ids"', source)
         self.assertNotIn('"data-avatar-memory-angle"', source)
         self.assertIn('class: "jin-avatar-center"', source)
         self.assertIn("function syncMemorySignalLayer(kind", source)
-        self.assertIn("function syncL4MemoryArchiveState()", source)
+        self.assertIn("function syncLTMemoryArchiveState()", source)
         self.assertIn("function syncDelayedMemoryState()", source)
         self.assertIn("function syncActiveMemoryState()", source)
-        self.assertIn("function syncL4MemoryState()", source)
-        self.assertIn("setL4MemoryDashArchivedState(", source)
+        self.assertIn("function syncLTMemoryState()", source)
+        self.assertIn("setLTMemoryDashArchivedState(", source)
         self.assertIn("syncActiveMemoryState,", source)
         self.assertIn("syncDelayedMemoryState,", source)
-        self.assertIn("syncL4MemoryState,", source)
+        self.assertIn("syncLTMemoryState,", source)
         self.assertIn("applyDelayedMemoryFactLinkGlow()", source)
         self.assertIn("is-delayed-memory-linked-hit", source)
         self.assertIn("strokeWidth: 1.05", source)
@@ -78,32 +78,32 @@ class RuntimeAvatarL4RingClientContractTests(unittest.TestCase):
         self.assertIn("degreesFromArcPixels(\n        layout.arcTrimPixels,", source)
         self.assertNotIn("MEMORY_DASH_LENS_", source)
         self.assertNotIn("syncMemoryDashEmphasisGeometry", source)
-        l4_sync_start = source.index("function syncMemorySignalLayer(kind")
-        l4_sync_end = source.index("function setDelayedMemoryDashPinned(", l4_sync_start)
+        lt_sync_start = source.index("function syncMemorySignalLayer(kind")
+        lt_sync_end = source.index("function setDelayedMemoryDashPinned(", lt_sync_start)
         self.assertNotIn(
             "requestAnimationFrame",
-            source[l4_sync_start:l4_sync_end],
+            source[lt_sync_start:lt_sync_end],
         )
 
         css_source = AVATAR_CSS.read_text(encoding="utf-8")
-        self.assertIn(".jin-avatar-memory-dash-l4", css_source)
+        self.assertIn(".jin-avatar-memory-dash-lt", css_source)
         self.assertIn(".jin-avatar-memory-dash.is-memory-dot", css_source)
         self.assertIn(".is-delayed-memory-linked-hit", css_source)
         self.assertIn("@keyframes jin-avatar-memory-absorb-dot", css_source)
         self.assertIn("rgba(147, 197, 253, 0.30)", css_source)
 
-    def test_l4_ring_is_rendered_between_delayed_and_active_rings(self):
+    def test_lt_ring_is_rendered_between_delayed_and_active_rings(self):
         source = AVATAR_JS.read_text(encoding="utf-8")
         start = source.index("function appendMemorySignalRings(")
         end = source.index("\n  function appendDefs(", start)
         body = source[start:end]
 
-        l4_index = body.index('"l4"')
+        lt_index = body.index('"lt"')
         delayed_index = body.index('"delayed"')
         active_index = body.index('"active"')
 
-        self.assertLess(delayed_index, l4_index)
-        self.assertLess(l4_index, active_index)
+        self.assertLess(delayed_index, lt_index)
+        self.assertLess(lt_index, active_index)
 
     def test_runtime_orbit_radii_follow_snapshot_line_order(self):
         source = AVATAR_JS.read_text(encoding="utf-8")

@@ -34,10 +34,10 @@ class DeepWebSearchMarkerLifecycleTests(unittest.TestCase):
         runtime_stream.started_deep_web_search_action_ids = []
         runtime_stream.started_active_memory_action_ids = []
         runtime_stream.started_delayed_memory_action_ids = []
-        runtime_stream.started_update_l4_facts_action_ids = []
+        runtime_stream.started_update_lt_facts_action_ids = []
         runtime_stream.jin_color_action_id = ""
         runtime_stream.jin_size_action_ids = {}
-        runtime_stream.update_l4_facts_action_ids = {}
+        runtime_stream.update_lt_facts_action_ids = {}
         runtime_stream.action_guard_confirmation_ids = {}
         return runtime_stream, context
 

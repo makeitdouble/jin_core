@@ -38,11 +38,11 @@ const feedback =
   window.JinRuntime
   && window.JinRuntime.feedback;
 
-const l4Memory =
-  window.JINRuntimeL4Memory
+const ltMemory =
+  window.JINRuntimeLTMemory
   || (
     window.JinRuntime
-    && window.JinRuntime.l4Memory
+    && window.JinRuntime.ltMemory
   )
   || null;
 
@@ -288,7 +288,7 @@ const FACTS_MEMORY_EXCLUDED_KEYS = new Set([
 ]);
 
 const FACTS_MEMORY_EXCLUDED_KEY_PATTERNS = [
-  /^l4_fact_?f?[1-9]\d*$/i,
+  /^l-?t_fact_?#?f?[1-9]\d*$/i,
 ];
 
 function isFactsMemoryExcludedKey(
@@ -397,9 +397,9 @@ function persistRuntimeFactsMemory(
           content,
           runtime_snapshot_id: runtimeSnapshotId,
           session_id: sessionId,
-          l4_status: "pending",
-          l4_content_hash: contentHash,
-          l4_analyzed_at: "",
+          lt_status: "pending",
+          lt_content_hash: contentHash,
+          lt_analyzed_at: "",
         };
 
         return;
@@ -407,7 +407,7 @@ function persistRuntimeFactsMemory(
 
       const previousHash =
         String(
-          existing.l4_content_hash || ""
+          existing.lt_content_hash || ""
         ).trim();
       const contentChanged =
         previousHash !== contentHash
@@ -418,17 +418,17 @@ function persistRuntimeFactsMemory(
         content,
         runtime_snapshot_id: runtimeSnapshotId,
         session_id: sessionId,
-        l4_status: contentChanged
+        lt_status: contentChanged
           ? "pending"
           : (
-              existing.l4_status === "analyzed"
+              existing.lt_status === "analyzed"
                 ? "analyzed"
                 : "pending"
             ),
-        l4_content_hash: contentHash,
-        l4_analyzed_at: contentChanged
+        lt_content_hash: contentHash,
+        lt_analyzed_at: contentChanged
           ? ""
-          : String(existing.l4_analyzed_at || "").trim(),
+          : String(existing.lt_analyzed_at || "").trim(),
       };
       delete fields[key].significance;
       delete fields[key].metabolic_significance;
@@ -531,7 +531,7 @@ function persistRuntimeMemorySnapshot(
 
   // Facts Memory still originates in the browser profile, but scheduling no
   // longer does. Hand fresh pending fields to the backend immediately; from
-  // this point L4 consolidation is driven entirely by the server scheduler.
+  // this point L-T consolidation is driven entirely by the server scheduler.
   if (typeof window.syncFactsMemoryToRuntime === "function") {
     window.syncFactsMemoryToRuntime();
   }
@@ -792,13 +792,13 @@ function stripLongTermFactArchiveState(fact) {
 
 function getVisibleLongTermMemoryFacts() {
   if (
-      l4Memory
-      && typeof l4Memory.getFactsWithArchiveState === "function"
+      ltMemory
+      && typeof ltMemory.getFactsWithArchiveState === "function"
   ) {
     const contextLoadedFactIds =
       getContextLoadedLongTermFactIds();
 
-    return l4Memory.getFactsWithArchiveState()
+    return ltMemory.getFactsWithArchiveState()
       .filter((fact) => (
         !Boolean(
           fact
@@ -813,14 +813,14 @@ function getVisibleLongTermMemoryFacts() {
   }
 
   if (
-      l4Memory
-      && typeof l4Memory.getVisibleFacts === "function"
+      ltMemory
+      && typeof ltMemory.getVisibleFacts === "function"
   ) {
-    return l4Memory.getVisibleFacts();
+    return ltMemory.getVisibleFacts();
   }
 
-  return l4Memory && typeof l4Memory.getFacts === "function"
-    ? l4Memory.getFacts()
+  return ltMemory && typeof ltMemory.getFacts === "function"
+    ? ltMemory.getFacts()
     : [];
 }
 
@@ -1553,13 +1553,13 @@ function setDelayedMemoryReportPinned(
     reports
   );
 
-  // Pinning changes context visibility for linked L4 facts (and can affect
+  // Pinning changes context visibility for linked L-T facts (and can affect
   // other linked-memory rows), so refresh the currently open panel
   // immediately instead of waiting for the next message/server echo.
   renderRuntimeMemorySnapshot();
 
   // Pin state affects more than the delayed-memory dash itself: it also
-  // controls linked L4/attachment highlights. Re-sync the whole delayed
+  // controls linked L-T/attachment highlights. Re-sync the whole delayed
   // avatar state so unpinning cannot leave stale context-loaded classes.
   if (!syncDelayedMemoryStateToAvatar()) {
     refreshRuntimeAvatar();
@@ -1797,8 +1797,8 @@ function findLongTermMemoryFact(
   const normalizedFactId =
     normalizeLongTermFactId(factId);
   const facts =
-    l4Memory && typeof l4Memory.getFacts === "function"
-      ? l4Memory.getFacts()
+    ltMemory && typeof ltMemory.getFacts === "function"
+      ? ltMemory.getFacts()
       : getVisibleLongTermMemoryFacts();
 
   return (Array.isArray(facts) ? facts : [])
@@ -2370,8 +2370,8 @@ function deleteLongTermMemoryFactAndRender(
 ) {
 
   const deleted =
-    l4Memory && l4Memory.requestFactDelete
-      ? l4Memory.requestFactDelete(factId)
+    ltMemory && ltMemory.requestFactDelete
+      ? ltMemory.requestFactDelete(factId)
       : false;
 
   if (deleted !== false) {

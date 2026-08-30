@@ -16,7 +16,7 @@ LOG_ENTRIES_JS = ROOT / "ui" / "static" / "js" / "logger" / "log-entries.js"
 INDEX_HTML = ROOT / "ui" / "templates" / "index.html"
 
 
-class UpdateL4FactsMessageDisplayContractTests(unittest.TestCase):
+class UpdateLTFactsMessageDisplayContractTests(unittest.TestCase):
 
     def test_session_actions_and_context_keep_full_update_message(self):
         message = (
@@ -38,7 +38,7 @@ class UpdateL4FactsMessageDisplayContractTests(unittest.TestCase):
             context,
             0,
             [{
-                "name": "UPDATE_L4_FACTS",
+                "name": "UPDATE_LT_FACTS",
                 "payloads": [payload],
                 "raw_payloads": [payload],
                 "marker_count": 1,
@@ -53,16 +53,16 @@ class UpdateL4FactsMessageDisplayContractTests(unittest.TestCase):
         self.assertEqual(
             item["parts"],
             [{
-                "text": "UPDATE_L4_FACTS",
+                "text": "UPDATE_LT_FACTS",
                 "message": message,
             }],
         )
         self.assertEqual(
             item["text"],
-            f"UPDATE_L4_FACTS: {message}",
+            f"UPDATE_LT_FACTS: {message}",
         )
         self.assertIn(
-            f"UPDATE_L4_FACTS: {message}",
+            f"UPDATE_LT_FACTS: {message}",
             build_session_actions_history_context(
                 context,
                 current_sequence=False,
@@ -81,17 +81,17 @@ class UpdateL4FactsMessageDisplayContractTests(unittest.TestCase):
         socket_source = SOCKET_RUNTIME_ACTIONS_JS.read_text(encoding="utf-8")
         logger_source = LOG_ENTRIES_JS.read_text(encoding="utf-8")
 
-        self.assertIn('function getUpdateL4FactsMessage(data)', socket_source)
+        self.assertIn('function getUpdateLTFactsMessage(data)', socket_source)
         self.assertIn('`${getRuntimeActionDisplayName(data, action)}: `', socket_source)
-        self.assertIn('updateL4FactsMessage\n      || buildRuntimeActionDetail(', socket_source)
-        self.assertIn('function getInternalActionUpdateL4Message(data)', logger_source)
-        self.assertIn('logDiv.title =\n      updateL4Message || jinSizeHover;', logger_source)
+        self.assertIn('updateLTFactsMessage\n      || buildRuntimeActionDetail(', socket_source)
+        self.assertIn('function getInternalActionUpdateLTMessage(data)', logger_source)
+        self.assertIn('logDiv.title =\n      updateLTMessage || jinSizeHover;', logger_source)
 
     def test_cache_versions_are_bumped(self):
         source = INDEX_HTML.read_text(encoding="utf-8")
 
         self.assertIn('/static/js/logger/session-actions.js?v=logger-session-actions-13', source)
-        self.assertIn('/static/js/logger/log-entries.js?v=update-l4-message-1', source)
+        self.assertIn('/static/js/logger/log-entries.js?v=update-lt-message-1', source)
         self.assertIn('/static/js/socket/runtime-actions.js?v=size-sequence-1', source)
 
 

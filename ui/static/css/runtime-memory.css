@@ -216,7 +216,7 @@
     text-shadow: none !important;
 }
 
-.runtime-memory-l4-row .runtime-memory-l4-header {
+.runtime-memory-lt-row .runtime-memory-lt-header {
     display: flex;
     align-items: baseline;
     width: 100%;
@@ -224,7 +224,7 @@
     white-space: nowrap;
 }
 
-.runtime-memory-l4-row .runtime-memory-fact-number {
+.runtime-memory-lt-row .runtime-memory-fact-number {
     display: inline-block;
     flex: 0 0 auto;
     min-width: 3ch;
@@ -233,7 +233,7 @@
     text-align: right;
 }
 
-.runtime-memory-l4-row .runtime-memory-fact-report-link {
+.runtime-memory-lt-row .runtime-memory-fact-report-link {
     appearance: none;
     background: transparent;
     border: 0;
@@ -244,13 +244,13 @@
     text-decoration: none;
 }
 
-.runtime-memory-l4-row .runtime-memory-fact-report-link:hover,
-.runtime-memory-l4-row .runtime-memory-fact-report-link:focus-visible {
+.runtime-memory-lt-row .runtime-memory-fact-report-link:hover,
+.runtime-memory-lt-row .runtime-memory-fact-report-link:focus-visible {
     color: rgba(191, 219, 254, 0.95);
     outline: none;
 }
 
-.runtime-memory-l4-row .runtime-memory-fact-separator {
+.runtime-memory-lt-row .runtime-memory-fact-separator {
     display: inline-block;
     flex: 0 0 1.4em;
     width: 1.4em;
@@ -258,7 +258,7 @@
     text-align: center;
 }
 
-.runtime-memory-l4-row .runtime-memory-key {
+.runtime-memory-lt-row .runtime-memory-key {
     display: block;
     flex: 1 1 auto;
     min-width: 0;
@@ -267,7 +267,7 @@
     white-space: nowrap;
 }
 
-.runtime-memory-l4-row .runtime-memory-l4-age {
+.runtime-memory-lt-row .runtime-memory-lt-age {
     display: block;
     flex: 0 0 auto;
     color: rgba(161, 161, 170, 0.58);
@@ -275,20 +275,20 @@
     white-space: nowrap;
 }
 
-.runtime-memory-l4-row .runtime-memory-value {
+.runtime-memory-lt-row .runtime-memory-value {
     display: block;
     width: 100%;
 }
 
-.runtime-memory-l4-row:not(.runtime-memory-reference-hit):not(.runtime-memory-citation-hit):not(.runtime-memory-context-loaded-hit) .runtime-memory-value {
+.runtime-memory-lt-row:not(.runtime-memory-reference-hit):not(.runtime-memory-citation-hit):not(.runtime-memory-context-loaded-hit) .runtime-memory-value {
     display: -webkit-box;
     overflow: hidden;
     -webkit-box-orient: vertical;
     -webkit-line-clamp: 2;
 }
 
-.runtime-memory-l4-hover-card {
-    --runtime-memory-l4-hover-arrow-y: 50%;
+.runtime-memory-lt-hover-card {
+    --runtime-memory-lt-hover-arrow-y: 50%;
     position: fixed;
     z-index: 90;
     width: min(430px, calc(100vw - 24px));
@@ -307,31 +307,31 @@
     line-height: 1.45;
 }
 
-.runtime-memory-l4-hover-card::before,
-.runtime-memory-l4-hover-card::after {
+.runtime-memory-lt-hover-card::before,
+.runtime-memory-lt-hover-card::after {
     position: absolute;
-    top: var(--runtime-memory-l4-hover-arrow-y);
+    top: var(--runtime-memory-lt-hover-arrow-y);
     width: 0;
     height: 0;
     content: "";
     transform: translateY(-50%);
 }
 
-.runtime-memory-l4-hover-card::before {
+.runtime-memory-lt-hover-card::before {
     right: -10px;
     border-top: 10px solid transparent;
     border-bottom: 10px solid transparent;
     border-left: 10px solid rgba(148, 163, 184, 0.52);
 }
 
-.runtime-memory-l4-hover-card::after {
+.runtime-memory-lt-hover-card::after {
     right: -8px;
     border-top: 8px solid transparent;
     border-bottom: 8px solid transparent;
     border-left: 8px solid rgba(17, 20, 25, 0.97);
 }
 
-.runtime-memory-l4-hover-header {
+.runtime-memory-lt-hover-header {
     display: flex;
     align-items: center;
     min-width: 0;
@@ -340,7 +340,7 @@
 }
 
 
-.runtime-memory-l4-hover-title {
+.runtime-memory-lt-hover-title {
     min-width: 0;
     overflow: hidden;
     flex: 1 1 auto;
@@ -351,14 +351,14 @@
     white-space: nowrap;
 }
 
-.runtime-memory-l4-hover-age {
+.runtime-memory-lt-hover-age {
     flex: 0 0 auto;
     color: rgba(161, 161, 170, 0.78);
     font-variant-numeric: tabular-nums;
     white-space: nowrap;
 }
 
-.runtime-memory-l4-hover-summary {
+.runtime-memory-lt-hover-summary {
     margin: 0 0 10px;
     padding: 0 0 10px;
     border-bottom: 1px solid rgba(82, 82, 91, 0.52);
@@ -366,25 +366,25 @@
     overflow-wrap: anywhere;
 }
 
-.runtime-memory-l4-hover-metadata {
+.runtime-memory-lt-hover-metadata {
     display: grid;
     gap: 4px;
 }
 
-.runtime-memory-l4-hover-metadata-row {
+.runtime-memory-lt-hover-metadata-row {
     display: grid;
     grid-template-columns: minmax(118px, 0.9fr) minmax(0, 1.8fr);
     align-items: baseline;
     gap: 10px;
 }
 
-.runtime-memory-l4-hover-metadata-key {
+.runtime-memory-lt-hover-metadata-key {
     min-width: 0;
     color: rgba(161, 161, 170, 0.86);
     overflow-wrap: anywhere;
 }
 
-.runtime-memory-l4-hover-metadata-value {
+.runtime-memory-lt-hover-metadata-value {
     min-width: 0;
     color: rgba(226, 232, 240, 0.90);
     font-variant-numeric: tabular-nums;
@@ -1097,7 +1097,7 @@
     margin-top: 8px;
 }
 
-.l4-trace-no-changes {
+.lt-trace-no-changes {
     display: flex;
     min-height: 180px;
     align-items: center;
@@ -1378,11 +1378,11 @@
     line-height: 1.62;
 }
 
-.jin-context-l4-row {
+.jin-context-lt-row {
     grid-template-columns: minmax(300px, 0.34fr) minmax(0, 1fr);
 }
 
-.jin-context-l4-key {
+.jin-context-lt-key {
     display: flex;
     min-width: 0;
     flex-wrap: wrap;
@@ -1390,7 +1390,7 @@
     gap: 6px;
 }
 
-.jin-context-l4-fact-id {
+.jin-context-lt-fact-id {
     appearance: none;
     border: 0;
     background: transparent;
@@ -1405,34 +1405,34 @@
             opacity 0.14s ease;
 }
 
-button.jin-context-l4-fact-id.is-linked {
+button.jin-context-lt-fact-id.is-linked {
     color: rgba(244, 244, 245, 0.96);
     cursor: pointer;
 }
 
-button.jin-context-l4-fact-id.is-linked:hover,
-button.jin-context-l4-fact-id.is-linked:focus-visible {
+button.jin-context-lt-fact-id.is-linked:hover,
+button.jin-context-lt-fact-id.is-linked:focus-visible {
     outline: none;
     color: rgba(255, 255, 255, 1);
     text-shadow: 0 0 8px rgba(244, 244, 245, 0.18);
 }
 
-.jin-context-l4-separator {
+.jin-context-lt-separator {
     color: rgba(113, 113, 122, 0.56);
 }
 
-.jin-context-l4-fact-key {
+.jin-context-lt-fact-key {
     min-width: 0;
     overflow-wrap: anywhere;
     color: rgba(125, 211, 252, 0.72);
 }
 
-.jin-context-l4-age {
+.jin-context-lt-age {
     color: rgba(161, 161, 170, 0.56);
     white-space: nowrap;
 }
 
-.jin-context-l4-value {
+.jin-context-lt-value {
     color: rgba(228, 228, 231, 0.84);
 }
 
@@ -1623,7 +1623,7 @@ button.jin-context-l4-fact-id.is-linked:focus-visible {
         gap: 4px;
     }
 
-    .jin-context-l4-row {
+    .jin-context-lt-row {
         grid-template-columns: 1fr;
         gap: 4px;
     }

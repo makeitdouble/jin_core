@@ -519,7 +519,7 @@
   function isLongTermMemoryRowBubbled(row) {
     return Boolean(
       row
-      && row.classList.contains("runtime-memory-l4-row")
+      && row.classList.contains("runtime-memory-lt-row")
       && (
         row.classList.contains("runtime-memory-reference-hit")
         || row.classList.contains("runtime-memory-citation-hit")
@@ -553,7 +553,7 @@
   }
 
   function syncLongTermMemoryRowValueDisplay(row) {
-    if (!row || !row.classList.contains("runtime-memory-l4-row")) {
+    if (!row || !row.classList.contains("runtime-memory-lt-row")) {
       return;
     }
 
@@ -977,11 +977,11 @@
               )
             );
 
-    // L4 is citation-gated for key/value alias matching, but explicit F###
+    // L-T is citation-gated for key/value alias matching, but explicit F###
     // ids in the answer or reasoning still count as direct row references.
     const persistentRows =
         rows.filter((row) => (
-          !row.classList.contains("runtime-memory-l4-row")
+          !row.classList.contains("runtime-memory-lt-row")
           && getMemoryReferenceAliases(row).length
         ));
     const aliasUsage =
@@ -990,7 +990,7 @@
           : new Map();
 
     rows.forEach((row) => {
-      if (!row.classList.contains("runtime-memory-l4-row")) {
+      if (!row.classList.contains("runtime-memory-lt-row")) {
         return;
       }
 
@@ -1456,7 +1456,7 @@
     const currentPriorityIds = new Set();
 
     runtimeMemoryText
-      .querySelectorAll(".runtime-memory-l4-row[data-long-term-fact-id]")
+      .querySelectorAll(".runtime-memory-lt-row[data-long-term-fact-id]")
       .forEach((row) => {
         const factId =
             normalizeDelayedMemoryFactId(
@@ -1992,15 +1992,15 @@
 
         const content =
             String(field.content || "").trim();
-        const l4Status =
-            String(field.l4_status || "pending")
+        const ltStatus =
+            String(field.lt_status || "pending")
               .trim()
               .toLocaleLowerCase();
 
 
         if (
             !content
-            || l4Status === "analyzed"
+            || ltStatus === "analyzed"
         ) {
           return null;
         }
@@ -2124,11 +2124,11 @@
     const now = Date.now() / 1000;
 
     runtimeMemoryText
-      .querySelectorAll("[data-l4-fact-age-timestamp]")
+      .querySelectorAll("[data-lt-fact-age-timestamp]")
       .forEach((node) => {
         node.textContent =
             formatLongTermFactAgeLabel(
-                node.dataset.l4FactAgeTimestamp,
+                node.dataset.ltFactAgeTimestamp,
                 now
             );
       });
@@ -2504,12 +2504,12 @@
     const valueNode = document.createElement("span");
 
     row.className =
-        "runtime-memory-l4-hover-metadata-row";
+        "runtime-memory-lt-hover-metadata-row";
     keyNode.className =
-        "runtime-memory-l4-hover-metadata-key";
+        "runtime-memory-lt-hover-metadata-key";
     keyNode.textContent = key ? `${key}:` : "";
     valueNode.className =
-        "runtime-memory-l4-hover-metadata-value";
+        "runtime-memory-lt-hover-metadata-value";
     valueNode.textContent = String(value || "");
 
     row.appendChild(keyNode);
@@ -2567,7 +2567,7 @@
     card.style.left = `${Math.round(left)}px`;
     card.style.top = `${Math.round(top)}px`;
     card.style.setProperty(
-        "--runtime-memory-l4-hover-arrow-y",
+        "--runtime-memory-lt-hover-arrow-y",
         `${Math.round(arrowY)}px`
     );
   }
@@ -2614,17 +2614,17 @@
         || "Long term memory";
 
     card.className =
-        "runtime-memory-l4-hover-card";
+        "runtime-memory-lt-hover-card";
     card.setAttribute("role", "tooltip");
     header.className =
-        "runtime-memory-l4-hover-header";
+        "runtime-memory-lt-hover-header";
     title.className =
-        "runtime-memory-l4-hover-title";
+        "runtime-memory-lt-hover-title";
     title.textContent = displayKey;
     age.className =
-        "runtime-memory-l4-hover-age";
+        "runtime-memory-lt-hover-age";
     metadata.className =
-        "runtime-memory-l4-hover-metadata";
+        "runtime-memory-lt-hover-metadata";
 
     if (
         Number.isFinite(Number(line.context_age_timestamp))
@@ -2648,7 +2648,7 @@
       const summary = document.createElement("div");
 
       summary.className =
-          "runtime-memory-l4-hover-summary";
+          "runtime-memory-lt-hover-summary";
       summary.textContent = String(
           valuePresentation.text || ""
       ).replace(/\\n/g, " ↵ ");
@@ -3523,7 +3523,7 @@
   ) {
     const avatarMemoryHoverId =
         buildAvatarMemoryHoverId(
-          "l4",
+          "lt",
           factId
         );
 
@@ -3649,7 +3649,7 @@
               report.long_term_facts_ids,
             ]).map((factId) => (
               buildAvatarMemoryHoverId(
-                  "l4",
+                  "lt",
                   factId
               )
             )).filter(Boolean)
@@ -3919,13 +3919,13 @@
 
       if (options.interactiveLongTermMemory) {
         row.classList.add(
-          "runtime-memory-l4-row"
+          "runtime-memory-lt-row"
         );
 
         longTermHeader =
             document.createElement("div");
         longTermHeader.className =
-            "runtime-memory-l4-header";
+            "runtime-memory-lt-header";
 
         const factNumber =
             line && Number.isSafeInteger(
@@ -4010,8 +4010,8 @@
               "·";
 
           ageSpan.className =
-              "runtime-memory-l4-age";
-          ageSpan.dataset.l4FactAgeTimestamp =
+              "runtime-memory-lt-age";
+          ageSpan.dataset.ltFactAgeTimestamp =
               String(line.context_age_timestamp);
           ageSpan.textContent =
               formatLongTermFactAgeLabel(
@@ -5323,13 +5323,13 @@
           fact
       ));
 
-    const l4Memory =
+    const ltMemory =
         window.JinRuntime
-        && window.JinRuntime.l4Memory;
+        && window.JinRuntime.ltMemory;
 
     const allFacts =
-        l4Memory && typeof l4Memory.getFacts === "function"
-          ? l4Memory.getFacts()
+        ltMemory && typeof ltMemory.getFacts === "function"
+          ? ltMemory.getFacts()
           : [];
 
     (Array.isArray(allFacts) ? allFacts : [])
@@ -8207,9 +8207,9 @@
           [
             `runtime_snapshot_id: ${String(record.runtime_snapshot_id || "").trim()}`,
             `session_id: ${String(record.session_id || "").trim()}`,
-            `l4_status: ${String(record.l4_status || "pending").trim()}`,
-            `l4_content_hash: ${String(record.l4_content_hash || "").trim()}`,
-            `l4_analyzed_at: ${String(record.l4_analyzed_at || "").trim()}`,
+            `lt_status: ${String(record.lt_status || "pending").trim()}`,
+            `lt_content_hash: ${String(record.lt_content_hash || "").trim()}`,
+            `lt_analyzed_at: ${String(record.lt_analyzed_at || "").trim()}`,
           ]
       ),
       status: "same",
@@ -8349,7 +8349,7 @@
       ),
       avatar_memory_hover_id:
         buildAvatarMemoryHoverId(
-          "l4",
+          "lt",
           id
         ),
       citation_identity:

@@ -84,7 +84,7 @@ def test_files_panel_shows_file_count_and_reuses_100px_image_hover_preview():
     assert 'String(record.id || "")' in runtime_view
     assert "hoverPreviewMaxPx: 100" in runtime_view
     assert "window.bindJinAttachmentHoverPreview" in attachments
-    assert "/static/js/runtime/runtime-memory-view.js?v=context-card-chevronless-1&delayed-fact-paste=2&numeric-fact-order=1&l4-fact-age=1&hold-delete-1&modal-title-editor=1&active-citations=4&runtime-memory-title=2&lazy-rows=6&hover-title=1&row-payload=1&l4-citation-gate=1&delayed-pin-link-isolation=1&delayed-highlight-contract=1&active-memory-activity-order=1&l4-two-line-layout=1&l4-value-fill=1&l4-priority-bubble=1&delayed-id-citations=1" in index
+    assert "/static/js/runtime/runtime-memory-view.js?v=context-card-chevronless-1&delayed-fact-paste=2&numeric-fact-order=1&amp;lt-fact-age=1&hold-delete-1&modal-title-editor=1&active-citations=4&runtime-memory-title=2&lazy-rows=6&hover-title=1&row-payload=1&amp;lt-citation-gate=1&delayed-pin-link-isolation=1&delayed-highlight-contract=1&active-memory-activity-order=1&amp;lt-two-line-layout=1&amp;lt-value-fill=1&amp;lt-priority-bubble=1&delayed-id-citations=1" in index
     assert "/static/js/chat-attachments.js?v=attached-files-3-attachment-modal-id-1&hold-delete-1&runtime-action-preview-2" in index
 
 

@@ -13,7 +13,7 @@ from contracts.rules_assembler import (
     RUNTIME_ACTION_ASSET_ACTION,
     RUNTIME_ACTION_JIN_COLOR,
     RUNTIME_ACTION_JIN_SIZE,
-    RUNTIME_ACTION_UPDATE_L4_FACTS,
+    RUNTIME_ACTION_UPDATE_LT_FACTS,
     RUNTIME_ACTION_UNLOAD_DELAYED_MEMORY,
     RUNTIME_ACTION_SAVE_DELAYED_MEMORY,
     RUNTIME_ACTION_SAVE_ACTIVE_MEMORY,
@@ -582,7 +582,7 @@ async def ask_brain_stream(
     delayed_memory_bubble_started = False
     active_memory_pending_bubble_ids = []
     deep_web_search_pending_bubble_ids = []
-    update_l4_facts_pending_bubble_ids = []
+    update_lt_facts_pending_bubble_ids = []
     asset_action_bubble_started = False
     asset_action_bubble_id = ""
     asset_action_bubble_text = ""
@@ -1528,7 +1528,7 @@ async def ask_brain_stream(
             if action_id:
                 action_display_ids[id(action)] = action_id
 
-    async def emit_update_l4_facts_bubble_started(
+    async def emit_update_lt_facts_bubble_started(
         result,
     ):
 
@@ -1544,7 +1544,7 @@ async def ask_brain_stream(
         started_count = sum(
             1
             for action in started_actions
-            if action.name == RUNTIME_ACTION_UPDATE_L4_FACTS
+            if action.name == RUNTIME_ACTION_UPDATE_LT_FACTS
         )
 
         if not started_count:
@@ -1568,35 +1568,35 @@ async def ask_brain_stream(
             sequence = int(
                 getattr(
                     context,
-                    "runtime_update_l4_facts_action_sequence",
+                    "runtime_update_lt_facts_action_sequence",
                     0,
                 )
                 or 0
             ) + 1
-            context.runtime_update_l4_facts_action_sequence = sequence
+            context.runtime_update_lt_facts_action_sequence = sequence
 
             action_id = build_runtime_action_id(
-                RUNTIME_ACTION_UPDATE_L4_FACTS,
+                RUNTIME_ACTION_UPDATE_LT_FACTS,
                 sequence,
             )
-            update_l4_facts_pending_bubble_ids.append(
+            update_lt_facts_pending_bubble_ids.append(
                 action_id
             )
 
             payload = {
                 "type": "runtime_action",
-                "action": "update_l4_facts",
+                "action": "update_lt_facts",
                 "id": action_id,
                 "status": "started",
                 "runtime_message_id": runtime_message_id,
                 "display_name": get_runtime_action_display_name(
-                    RUNTIME_ACTION_UPDATE_L4_FACTS
+                    RUNTIME_ACTION_UPDATE_LT_FACTS
                 ),
                 "text": build_runtime_action_display_text(
-                    RUNTIME_ACTION_UPDATE_L4_FACTS
+                    RUNTIME_ACTION_UPDATE_LT_FACTS
                 ),
                 "close_tag": runtime_action_has_close_tag(
-                    RUNTIME_ACTION_UPDATE_L4_FACTS
+                    RUNTIME_ACTION_UPDATE_LT_FACTS
                 ),
             }
 
@@ -1607,18 +1607,18 @@ async def ask_brain_stream(
                 payload
             )
 
-    def assign_update_l4_facts_bubble_ids(
+    def assign_update_lt_facts_bubble_ids(
         actions,
         action_display_ids,
     ):
 
         for action in actions:
-            if action.name != RUNTIME_ACTION_UPDATE_L4_FACTS:
+            if action.name != RUNTIME_ACTION_UPDATE_LT_FACTS:
                 continue
 
             action_id = (
-                update_l4_facts_pending_bubble_ids.pop(0)
-                if update_l4_facts_pending_bubble_ids
+                update_lt_facts_pending_bubble_ids.pop(0)
+                if update_lt_facts_pending_bubble_ids
                 else ""
             )
 
@@ -1626,7 +1626,7 @@ async def ask_brain_stream(
                 action_display_ids[id(action)] = action_id
 
 
-    async def emit_rejected_update_l4_facts_bubble_finished(
+    async def emit_rejected_update_lt_facts_bubble_finished(
         result,
     ):
 
@@ -1637,7 +1637,7 @@ async def ask_brain_stream(
                 or ()
             )
             if re.search(
-                r"<\s*UPDATE_L4_FACTS(?:\s|>)",
+                r"<\s*UPDATE_LT_FACTS(?:\s|>)",
                 str(marker or ""),
                 flags=re.IGNORECASE,
             )
@@ -1648,7 +1648,7 @@ async def ask_brain_stream(
                 getattr(result, "observed_actions", ())
                 or ()
             )
-            if action.name == RUNTIME_ACTION_UPDATE_L4_FACTS
+            if action.name == RUNTIME_ACTION_UPDATE_LT_FACTS
         )
         rejected_count = max(
             0,
@@ -1663,8 +1663,8 @@ async def ask_brain_stream(
 
         for _ in range(rejected_count):
             action_id = (
-                update_l4_facts_pending_bubble_ids.pop(0)
-                if update_l4_facts_pending_bubble_ids
+                update_lt_facts_pending_bubble_ids.pop(0)
+                if update_lt_facts_pending_bubble_ids
                 else ""
             )
 
@@ -1673,19 +1673,19 @@ async def ask_brain_stream(
 
             payload = {
                 "type": "runtime_action",
-                "action": "update_l4_facts",
+                "action": "update_lt_facts",
                 "id": action_id,
                 "status": "failed",
                 "runtime_message_id": runtime_message_id,
                 "display_name": get_runtime_action_display_name(
-                    RUNTIME_ACTION_UPDATE_L4_FACTS
+                    RUNTIME_ACTION_UPDATE_LT_FACTS
                 ),
                 "text": build_runtime_action_display_text(
-                    RUNTIME_ACTION_UPDATE_L4_FACTS
+                    RUNTIME_ACTION_UPDATE_LT_FACTS
                 ),
-                "detail": "Invalid L4 update note was ignored.",
+                "detail": "Invalid L-T update note was ignored.",
                 "close_tag": runtime_action_has_close_tag(
-                    RUNTIME_ACTION_UPDATE_L4_FACTS
+                    RUNTIME_ACTION_UPDATE_LT_FACTS
                 ),
             }
 
@@ -1907,13 +1907,13 @@ async def ask_brain_stream(
         await emit_deep_web_search_bubble_started(
             result
         )
-        await emit_update_l4_facts_bubble_started(
+        await emit_update_lt_facts_bubble_started(
             result
         )
         # The opening tag lights the bubble before its body is validated. If
         # the completed marker is rejected, retire that exact pending bubble
         # now; otherwise its queued id gets stolen by the next valid update.
-        await emit_rejected_update_l4_facts_bubble_finished(
+        await emit_rejected_update_lt_facts_bubble_finished(
             result
         )
         await emit_asset_action_bubble_started(
@@ -2070,7 +2070,7 @@ async def ask_brain_stream(
                 immediate_action_calls,
                 action_display_ids,
             )
-            assign_update_l4_facts_bubble_ids(
+            assign_update_lt_facts_bubble_ids(
                 immediate_action_calls,
                 action_display_ids,
             )

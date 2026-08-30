@@ -358,7 +358,7 @@ async def replay_session_restore_resource_actions(
     context.runtime_session_restore_pending_attached_file_ids = []
     context.runtime_session_restore_priming = False
     context.runtime_session_restore_reasoning_dump = ""
-    context.runtime_session_restore_l4_fact_ids = []
+    context.runtime_session_restore_lt_fact_ids = []
     context.runtime_session_restore_delayed_memory_metadata = []
     context.runtime_session_restore_attached_file_metadata = []
 

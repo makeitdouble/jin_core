@@ -4,7 +4,7 @@ import unittest
 from contracts.rules_assembler import (
     RUNTIME_ACTION_ASSET_ACTION,
     RUNTIME_ACTION_SAVE_DELAYED_MEMORY,
-    RUNTIME_ACTION_UPDATE_L4_FACTS,
+    RUNTIME_ACTION_UPDATE_LT_FACTS,
 )
 from runtime.anonymous_mode import (
     RESTRICTED_WRITE_ERROR,
@@ -54,7 +54,7 @@ class AnonymousModeTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(
             runtime_action_write_is_restricted(
                 context,
-                RUNTIME_ACTION_UPDATE_L4_FACTS,
+                RUNTIME_ACTION_UPDATE_LT_FACTS,
                 "{}",
             )
         )
@@ -81,7 +81,7 @@ class AnonymousModeTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(
             runtime_action_write_is_restricted(
                 context,
-                RUNTIME_ACTION_UPDATE_L4_FACTS,
+                RUNTIME_ACTION_UPDATE_LT_FACTS,
                 "{}",
             )
         )
@@ -120,7 +120,7 @@ class AnonymousModeTests(unittest.IsolatedAsyncioTestCase):
 
     def test_restricted_event_contract_is_explicit(self):
         event = build_restricted_write_event(
-            RUNTIME_ACTION_UPDATE_L4_FACTS
+            RUNTIME_ACTION_UPDATE_LT_FACTS
         )
 
         self.assertEqual(event["status"], "failed")
@@ -132,12 +132,12 @@ class AnonymousModeTests(unittest.IsolatedAsyncioTestCase):
             RESTRICTED_WRITE_FOLLOWUP_MESSAGE,
         )
         no_followup_event = build_restricted_write_event(
-            RUNTIME_ACTION_UPDATE_L4_FACTS,
+            RUNTIME_ACTION_UPDATE_LT_FACTS,
             include_followup=False,
         )
         self.assertNotIn("failure_followup_message", no_followup_event)
 
-    async def test_dispatcher_rejects_l4_write_before_execution_and_emits_failure(self):
+    async def test_dispatcher_rejects_lt_write_before_execution_and_emits_failure(self):
         emitter = FakeEmitter()
         logger = FakeLogger()
         context = RuntimeContext(
@@ -154,7 +154,7 @@ class AnonymousModeTests(unittest.IsolatedAsyncioTestCase):
         }
 
         action = RuntimeActionCall(
-            name=RUNTIME_ACTION_UPDATE_L4_FACTS,
+            name=RUNTIME_ACTION_UPDATE_LT_FACTS,
             payload=json.dumps({
                 "fact_ids": [],
                 "message": "Create a durable fact.",
@@ -164,7 +164,7 @@ class AnonymousModeTests(unittest.IsolatedAsyncioTestCase):
         applied = await apply_runtime_action_calls(
             context,
             (action,),
-            action_display_ids={id(action): "update_l4_facts_001"},
+            action_display_ids={id(action): "update_lt_facts_001"},
         )
 
         self.assertEqual(applied, 0)
@@ -179,7 +179,7 @@ class AnonymousModeTests(unittest.IsolatedAsyncioTestCase):
         )
         self.assertTrue(
             any(
-                "update_l4_facts failed: restricted write" in line
+                "update_lt_facts failed: restricted write" in line
                 for line in logger.runtime_logs
             )
         )
@@ -199,7 +199,7 @@ class AnonymousModeTests(unittest.IsolatedAsyncioTestCase):
             context,
             0,
             [{
-                "name": RUNTIME_ACTION_UPDATE_L4_FACTS,
+                "name": RUNTIME_ACTION_UPDATE_LT_FACTS,
                 "payload": action.payload,
                 "payloads": [action.payload],
                 "raw_payloads": [action.payload],
@@ -207,7 +207,7 @@ class AnonymousModeTests(unittest.IsolatedAsyncioTestCase):
             }],
         )
         rendered = build_session_actions_history_context(context)
-        self.assertIn("UPDATE_L4_FACTS:failed", rendered)
+        self.assertIn("UPDATE_LT_FACTS:failed", rendered)
         self.assertIn("restricted write", rendered)
 
     async def test_dispatcher_rejects_mutating_asset_action_but_allows_read_classifier(self):
@@ -263,11 +263,11 @@ class AnonymousModeTests(unittest.IsolatedAsyncioTestCase):
 
         record_session_action_history(
             context,
-            "UPDATE_L4_FACTS:failed - restricted write",
+            "UPDATE_LT_FACTS:failed - restricted write",
         )
 
         rendered = build_session_actions_history_context(context)
-        self.assertIn("UPDATE_L4_FACTS:failed", rendered)
+        self.assertIn("UPDATE_LT_FACTS:failed", rendered)
         self.assertIn("restricted write", rendered)
 
 

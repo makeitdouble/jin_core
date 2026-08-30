@@ -22,6 +22,10 @@ class FactsMemoryClientContractTests(unittest.TestCase):
             source,
         )
         self.assertIn(
+            'const factsMemoryStorageKeyVersion =\n    "v2";',
+            source,
+        )
+        self.assertIn(
             "function isFactsMemoryStorageKey(",
             source,
         )

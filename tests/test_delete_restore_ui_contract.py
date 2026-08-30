@@ -5,7 +5,7 @@ MEMORY_VIEW = ROOT / "ui/static/js/runtime/runtime-memory-view.js"
 DRAGDROP = ROOT / "ui/static/js/dragdrop.js"
 CHAT_ATTACHMENTS = ROOT / "ui/static/js/chat-attachments.js"
 LOG_ENTRIES = ROOT / "ui/static/js/logger/log-entries.js"
-L4_MEMORY = ROOT / "ui/static/js/runtime/runtime-l4-memory.js"
+LT_MEMORY = ROOT / "ui/static/js/runtime/runtime-lt-memory.js"
 
 
 def test_files_and_delayed_rows_share_hold_delete_open_behavior():
@@ -43,9 +43,9 @@ def test_file_modal_delete_uses_same_hold_gesture():
     assert "deleteActiveAttachment" in source
 
 
-def test_l4_restore_button_resolves_current_socket_after_reconnect():
-    source = L4_MEMORY.read_text(encoding="utf-8")
+def test_lt_restore_button_resolves_current_socket_after_reconnect():
+    source = LT_MEMORY.read_text(encoding="utf-8")
 
     assert 'typeof window.sendSocketMessage !== "function"' in source
     assert "return window.sendSocketMessage(payload);" in source
-    assert 'type: "l4_memory_restore_fact"' in source
+    assert 'type: "lt_memory_restore_fact"' in source

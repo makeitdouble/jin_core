@@ -19,13 +19,13 @@ def function_block(source, start_marker, end_marker):
     return source[start:end]
 
 
-class RuntimeMemoryL4RenderPerfClientContractTests(unittest.TestCase):
+class RuntimeMemoryLTRenderPerfClientContractTests(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
         cls.source = MEMORY_VIEW_JS.read_text(encoding="utf-8")
 
-    def test_l4_line_objects_are_built_only_when_lazy_batch_materializes(self):
+    def test_lt_line_objects_are_built_only_when_lazy_batch_materializes(self):
         block = function_block(
             self.source,
             "function renderLongTermMemoryFacts()",
@@ -40,7 +40,7 @@ class RuntimeMemoryL4RenderPerfClientContractTests(unittest.TestCase):
         )
         self.assertNotIn("records.map(", block)
 
-    def test_delayed_report_links_are_indexed_once_per_l4_render(self):
+    def test_delayed_report_links_are_indexed_once_per_lt_render(self):
         block = function_block(
             self.source,
             "function renderLongTermMemoryFacts()",
@@ -61,7 +61,7 @@ class RuntimeMemoryL4RenderPerfClientContractTests(unittest.TestCase):
             self.source,
         )
 
-    def test_l4_metrics_are_lazy_and_do_not_build_a_giant_joined_string(self):
+    def test_lt_metrics_are_lazy_and_do_not_build_a_giant_joined_string(self):
         block = function_block(
             self.source,
             "function renderLongTermMemoryFacts()",
@@ -125,7 +125,7 @@ class RuntimeMemoryL4RenderPerfClientContractTests(unittest.TestCase):
             self.source,
         )
 
-    def test_l4_value_sync_skips_unchanged_dom_text(self):
+    def test_lt_value_sync_skips_unchanged_dom_text(self):
         block = function_block(
             self.source,
             "function syncLongTermMemoryRowValueDisplay(row)",

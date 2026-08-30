@@ -799,7 +799,7 @@ async function handleSocketOpen() {
       window.syncLongTermMemoryToRuntime();
     }
 
-    // WebSocket messages are ordered: bootstrap -> memory/L4 sync -> hidden
+    // WebSocket messages are ordered: bootstrap -> memory/L-T sync -> hidden
     // restore tick. The first model turn therefore sees restored stores but the
     // context builder can intentionally suppress their heavy contents.
     requestArchivedSessionResume(

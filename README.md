@@ -23,7 +23,7 @@ The JIN workspace combines the chat stream, draggable/collapsible runtime panels
 <tr>
 <td width="66%" valign="top">
 <p>Live Avatar visualizes JIN's runtime state in real time.</p>
-<p>Inner orbits react to live FRAME/runtime-memory changes, while outer signal rings track Delayed Memory, L4 facts, Active Memory, and persistent files.</p>
+<p>Inner orbits react to live FRAME/runtime-memory changes, while outer signal rings track Delayed Memory, L-T facts, Active Memory, and persistent files.</p>
 <p>The avatar is interactive: reasoning references light up matching runtime signals, and hovering linked signals reveals the related memory and files.</p>
 <p>During reasoning, the avatar shifts into a dedicated motion state. Runtime actions can also change its size and tint the workspace, giving the model a small visual language beyond text.</p>
 </td>
@@ -35,7 +35,7 @@ The JIN workspace combines the chat stream, draggable/collapsible runtime panels
 
 ## Memory Architecture
 
-JIN no longer uses the old four-layer L1/L2/L3/L4 hierarchy. The current user-facing memory panel has five stable views: **FRAME**, **ACTIVE**, **DELAYED**, **L-T**, and **FILES**.
+JIN no longer uses the old numbered four-layer hierarchy. The current user-facing memory panel has five stable views: **FRAME**, **ACTIVE**, **DELAYED**, **L-T**, and **FILES**.
 
 ### FRAME / Live Runtime Memory
 
@@ -49,11 +49,11 @@ JIN no longer uses the old four-layer L1/L2/L3/L4 hierarchy. The current user-fa
 
 ### Delayed Memory
 
-**Delayed Memory** stores larger structured context that should be available without living in every prompt. Reports can link L4 facts and persistent files, can be loaded/unloaded by runtime actions, pinned from the UI, or surfaced from matching user-text tags.
+**Delayed Memory** stores larger structured context that should be available without living in every prompt. Reports can link L-T facts and persistent files, can be loaded/unloaded by runtime actions, pinned from the UI, or surfaced from matching user-text tags.
 
-### L-T / L4 Long-Term Facts
+### L-T Long-Term Facts
 
-**L-T** is the UI view of canonical L4 durable facts: stable user/project facts, preferences, constraints, decisions, and environment details that should survive sessions. An internal Facts Memory candidate buffer feeds idle L4 extraction/merge; it is not a sixth user-facing memory tab or a revived L2/L3 layer.
+**L-T** is the UI view of canonical L-T durable facts: stable user/project facts, preferences, constraints, decisions, and environment details that should survive sessions. An internal Facts Memory candidate buffer feeds idle L-T extraction/merge; it is not a sixth user-facing memory tab or a revived L2/L3 layer.
 
 ### Files
 
@@ -81,7 +81,7 @@ Available actions include:
 * Active Memory creation and resolution;
 * Delayed Memory save, load, and unload;
 * persistent file listing, attachment, and detachment;
-* focused L4 fact updates and reconciliation;
+* focused L-T fact updates and reconciliation;
 * asset and skill discovery, including bounded local Python skills;
 * Live Avatar size changes and workspace tint/color changes.
 
@@ -101,7 +101,7 @@ A normal turn follows this path:
 4. Stream validation guards repetition and malformed generation while private runtime-action markers are extracted.
 5. Runtime Actions can mutate state or return trusted results; actions that need another model step continue inside the same user sequence.
 6. After the visible turn completes, the logical Service route performs background FRAME/L1 integration; if no dedicated Service endpoint is configured, this route reuses the Brain client.
-7. A later user turn waits for any pending FRAME/L1 update, then receives current Active Memory, recent chat beside `<FRAME_MEMORY_N>`, loaded Delayed Memory, L4 facts, files/skills, action history, and trusted tool results.
+7. A later user turn waits for any pending FRAME/L1 update, then receives current Active Memory, recent chat beside `<FRAME_MEMORY_N>`, loaded Delayed Memory, L-T facts, files/skills, action history, and trusted tool results.
 
 The model path is intentionally direct:
 
@@ -133,7 +133,7 @@ JIN stores persistent runtime state locally through:
 * `jin.liveRuntimeMemory.v2` in `sessionStorage` for the current page's soft-reconnect FRAME;
 * one atomic `jin.sessionCheckpoint.v2` in `localStorage` for new-tab/reload continuity;
 * `memory/delayed/*.json` for Delayed Memory reports;
-* `memory/facts/long_term_facts.json` for the canonical L4 store;
+* `memory/facts/long_term_facts.json` for the canonical L-T store;
 * `assets/files/` plus its local index for persistent uploaded files;
 * `logs/` for chat and per-turn reasoning logs.
 
@@ -165,7 +165,7 @@ JIN can inspect available skills, attach the one required for the current task, 
 |-- agent/                     # Direct Brain runtime, state, and Brain node
 |-- clients/                   # OpenAI-compatible client builders
 |-- runtime/                   # Context, memory, streams, telemetry, registry
-|-- memory/                    # Delayed/L4 runtime stores and placeholders
+|-- memory/                    # Delayed/L-T runtime stores and placeholders
 |-- assets/                    # Skills, persistent files, prompts, and generators
 |-- rules/                     # Brain and runtime rule blocks
 |-- utils/                     # Actions, assets, validation, and storage helpers
@@ -266,7 +266,7 @@ Copy `config.example.py` to `config.py`, then set the provider URLs and model ID
 | `FOLLOW_UP_ON_LIMIT` | Continue a Brain generation in an internal tick when the provider stops at its output/context limit. |
 | `BRAIN_CONTEXT_WINDOW`, `SERVICE_CONTEXT_WINDOW` | Set UI/reference context denominators; optional Service values inherit Brain when no dedicated Service is configured. Live request budgets can come from the loaded model metadata. |
 | `BRAIN_IMAGE_INPUT_ENABLED` | Allow image attachments on the foreground Brain request when the selected provider/model supports OpenAI-compatible image input. |
-| `L4_MEMORY_ENABLED`, `L4_IDLE_SECONDS` | Enable L4 consolidation and set its idle delay. |
+| `LT_MEMORY_ENABLED`, `LT_IDLE_SECONDS` | Enable L-T consolidation and set its idle delay. |
 | `SEARCH_SERPER_API_KEY`, `SEARCH_MAX_RESULTS` | Configure built-in web search. |
 | `DEEP_WEB_SEARCH_MAX_*` | Bound the Service-worker research sequence used by Deep Web Search. |
 | `BRAIN_MAX_FOLLOWUPS` | Limit internal action/follow-up continuation ticks per user turn. |

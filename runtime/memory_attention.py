@@ -2,7 +2,7 @@
 
 Memory attention is deliberately stateless: it does not call a model, mutate
 memory records, persist scores, or steer Brain sampling.  It only builds the
-current prompt projection for Active Memory, Delayed Memory and L4.
+current prompt projection for Active Memory, Delayed Memory and L-T.
 """
 
 from __future__ import annotations
@@ -117,7 +117,7 @@ def lexical_memory_match(query: Any, candidate: Any) -> float:
     )
 
 
-def _l4_fact_numeric_sort_key(fact: dict) -> tuple:
+def _lt_fact_numeric_sort_key(fact: dict) -> tuple:
     """Newest durable facts first; F ids are monotonic creation ids."""
 
     fact_id = str((fact or {}).get("id", "") or "").strip()
@@ -147,14 +147,14 @@ def _recent_user_memory_queries(context) -> list[str]:
     return result
 
 
-def _recent_l4_memory_queries(context) -> list[str]:
+def _recent_lt_memory_queries(context) -> list[str]:
     if context is None:
         return []
 
     store = getattr(context, "runtime_long_term_memory_store", {})
     facts = store.get("facts", []) if isinstance(store, dict) else []
     normalized = [fact for fact in facts or [] if isinstance(fact, dict)]
-    normalized.sort(key=_l4_fact_numeric_sort_key)
+    normalized.sort(key=_lt_fact_numeric_sort_key)
 
     result = []
     for fact in normalized[:MEMORY_RECENT_FACTS]:
@@ -177,7 +177,7 @@ def memory_context_relevance(
     user_input: str = "",
     context=None,
 ) -> float:
-    """Blend the current query with a small recent-dialogue/L4 context tail."""
+    """Blend the current query with a small recent-dialogue/L-T context tail."""
 
     current = lexical_memory_match(user_input, candidate)
     recent = max(
@@ -190,7 +190,7 @@ def memory_context_relevance(
     recent_fact = max(
         (
             lexical_memory_match(query, candidate)
-            for query in _recent_l4_memory_queries(context)
+            for query in _recent_lt_memory_queries(context)
         ),
         default=0.0,
     )
@@ -336,13 +336,13 @@ def delayed_memory_bubble_tier(score: float) -> int:
     return 0
 
 
-def score_l4_fact_context_focus(
+def score_lt_fact_context_focus(
     fact: dict,
     *,
     user_input: str,
     context=None,
 ) -> float:
-    """Return prompt-only L4 relevance without mutating storage or UI order."""
+    """Return prompt-only L-T relevance without mutating storage or UI order."""
 
     if not isinstance(fact, dict):
         return 0.0
@@ -364,8 +364,8 @@ def score_l4_fact_context_focus(
         ),
         default=0.0,
     )
-    # L4 facts must not become relevant by matching themselves through the
-    # recent-L4 context tail. Only the current/recent USER dialogue may focus
+    # L-T facts must not become relevant by matching themselves through the
+    # recent-L-T context tail. Only the current/recent USER dialogue may focus
     # the durable store.
     return round(
         min(1.0, current + (1.0 - current) * recent * 0.24),
@@ -373,7 +373,7 @@ def score_l4_fact_context_focus(
     )
 
 
-def _select_l4_focus(
+def _select_lt_focus(
     scored: list[tuple[float, int, dict]],
 ) -> list[tuple[float, int, dict]]:
     """Choose a coherent 1..3 fact cone instead of a fixed top-k."""
@@ -396,7 +396,7 @@ def _select_l4_focus(
     return focused
 
 
-def rank_l4_facts_for_context(
+def rank_lt_facts_for_context(
     facts: list[dict],
     *,
     context=None,
@@ -406,18 +406,18 @@ def rank_l4_facts_for_context(
 
     canonical = sorted(
         [fact for fact in (facts or []) if isinstance(fact, dict)],
-        key=_l4_fact_numeric_sort_key,
+        key=_lt_fact_numeric_sort_key,
     )
     if not canonical:
         if context is not None:
-            context.runtime_memory_attention_l4_focus_ids = []
+            context.runtime_memory_attention_lt_focus_ids = []
         return []
 
     focused_facts = []
     if str(user_input or "").strip():
-        focused = _select_l4_focus([
+        focused = _select_lt_focus([
             (
-                score_l4_fact_context_focus(
+                score_lt_fact_context_focus(
                     fact,
                     user_input=user_input,
                     context=context,
@@ -430,7 +430,7 @@ def rank_l4_facts_for_context(
         focused_facts = [item[2] for item in focused]
 
     if context is not None:
-        context.runtime_memory_attention_l4_focus_ids = [
+        context.runtime_memory_attention_lt_focus_ids = [
             str(fact.get("id", "") or "").strip()
             for fact in focused_facts
             if str(fact.get("id", "") or "").strip()

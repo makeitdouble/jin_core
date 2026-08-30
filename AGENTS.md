@@ -32,8 +32,8 @@ A current implementation can still violate a product decision. Do not hide that.
 - `USE_SERVICE_AS_BRAIN` is legacy config input only. `config_loader.py` may migrate it once and then removes the attribute from normalized config; launcher detection exists only to preserve old local configs during startup. Archived `SERVICE` roles/`RUNTIME_MODE=SERVICE` and the logger's old Service-output presentation are reader compatibility, not live routing.
 - `RuntimeContext` is the in-process live state hub for a runtime session. Do not create parallel sources of truth for state it already owns.
 - L2 and L3 are **removed architectural layers**. Do not restore them from old README/tests/indexes. Any surviving L2/L3 names must be classified as compatibility, stale tests/docs, UI residue, or dead legacy before touching them.
-- Durable facts belong in L4. Do not reintroduce a durable-L1/L2/L3 memory hierarchy.
-- Active Memory, Delayed Memory, L4 facts, persistent Files, live L1/runtime memory, and session checkpoints are different systems with different lifetimes. Do not collapse them into one generic memory store.
+- Durable facts belong in L-T. Do not reintroduce a durable-L1/L2/L3 memory hierarchy.
+- Active Memory, Delayed Memory, L-T facts, persistent Files, live L1/runtime memory, and session checkpoints are different systems with different lifetimes. Do not collapse them into one generic memory store.
 - Session continuity must distinguish a real USER move, a completed turn, an interrupted USER-only turn, an action-only completion, and a blank bootstrap tab. A real USER row can become the newest conversation move without a visible JIN row; a blank tab cannot.
 - Normal browser continuity has exactly two runtime stores: ephemeral `sessionStorage` key `jin.liveRuntimeMemory.v2` for the current page's soft reconnect, and atomic `localStorage` key `jin.sessionCheckpoint.v2` for reload/new-tab bootstrap. Do not add per-session runtime records or freshness scans.
 - The common browser checkpoint names the last runtime session that actually moved. Opening a tab may hydrate inherited L1 into the ephemeral live record, but must not promote the fresh runtime ID until real user activity or a server-confirmed completed-turn commit.
@@ -78,7 +78,7 @@ Before introducing any visual state, find and reuse the closest existing JIN UI 
 - Normal bootstrap renders at most the three newest real USER moves with their JIN/reasoning when present, followed by the current-session date divider. Preserve USER-only interrupted/action-only moves without manufacturing an empty JIN bubble, and do not duplicate this tail during explicit archived restore.
 - The first bootstrap color transition is the one 2-second transition; ordinary/live color changes use the shared 333 ms avatar-and-scene transition. Do not restore an old tint queue or add a second transition writer.
 - Session-action interruption telemetry is causal UI state: validator/reasoning loops and context/output-limit recovery entries must be recorded/emitted when detected, before automatic follow-up/recovery starts.
-- L4 rows use a short default preview (currently 50 characters), but a fact that is bubbled by reference/citation/context-loaded state must show its full value rather than a truncated citation.
+- L-T rows use a short default preview (currently 50 characters), but a fact that is bubbled by reference/citation/context-loaded state must show its full value rather than a truncated citation.
 - Hover/detail metadata must survive non-semantic refreshes: counter-only runtime-action updates and bootstrap normalization must not silently erase tooltip/swatch data.
 - Do not add `backdrop-filter`/blur or new translucent effects casually. Existing shadow/tint depth is deliberate.
 

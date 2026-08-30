@@ -44,7 +44,7 @@ Present and active:
 - `runtime/runtime_context.py`
 - `runtime/stream.py`
 - `runtime/L1_memory.py`, `L1_memory_rules.py`, `L1_memory_utils.py`
-- `runtime/L4_memory.py`, `L4_memory_rules.py`, `L4_memory_utils.py`
+- `runtime/LT_memory.py`, `LT_memory_rules.py`, `LT_memory_utils.py`
 - `runtime/memory_attention.py`
 - `runtime/anonymous_mode.py`
 - `contracts/*.json`
@@ -153,7 +153,7 @@ JIN_COLOR
 JIN_SIZE
 JIN_POSITION
 JIN_SPEED
-UPDATE_L4_FACTS
+UPDATE_LT_FACTS
 LOAD_SKILL
 UNLOAD_SKILL
 ASSET_ACTION
@@ -258,7 +258,7 @@ Current `build_brain_context()` order is intentionally structured. Important anc
 - restore instruction is next only for restore priming;
 - current concerns and trusted runtime XML precede tool/session/action state;
 - file + delayed inventories sit near the top on ordinary turns;
-- Active/L1/loaded Delayed/L4 live together in the runtime-context group;
+- Active/L1/loaded Delayed/L-T live together in the runtime-context group;
 - restored exact dialog replaces the normal recent-dialog window for the one-shot restore path;
 - ordinary `<PREVIOUS_CHAT_MESSAGES>` keeps the newest three pairs without per-message character cropping; physical newlines become literal `\\n` and XML-sensitive characters are escaped;
 - ordinary initial turns include the previous successful reasoning; blocks over 2000 characters keep the first and last 25% with an explicit middle-cut marker;
@@ -306,11 +306,11 @@ Session actions are merged by event ID when present or by structured identity ot
 
 The repaired `CLEAN_TOOL_RESULTS` path mutates only the existing checkpoint's `session_snapshot.tool_results` to `[]` and records `tool_results_cleared_at`; it preserves `saved_at`, session lineage, and every unrelated checkpoint field. Explicit presence of `tool_results: []` is authoritative. Empty `loaded_memory_ids` and `active_memory_records` deliberately keep their prior archive-fallback semantics.
 
-A newer raw `runtime_tool_result` of kind `l4` may still append after the greater of checkpoint `saved_at` and `tool_results_cleared_at`. Other archived tool results cannot cross the tombstone.
+A newer raw `runtime_tool_result` of kind `lt` may still append after the greater of checkpoint `saved_at` and `tool_results_cleared_at`. Other archived tool results cannot cross the tombstone.
 
 ### 9.4 JIN color bootstrap
 
-Accepted JIN_COLOR now updates `context.jin_color` before checkpoint construction and is also appended to JSONL as an ordered `runtime_action_request` containing color, event ID, timestamp, turn ID, and structured Session Action metadata. Archive restore can recover color events through up to three direct-predecessor links. Raw color recovery and context-text L4 action recovery coexist; one no longer suppresses the other.
+Accepted JIN_COLOR now updates `context.jin_color` before checkpoint construction and is also appended to JSONL as an ordered `runtime_action_request` containing color, event ID, timestamp, turn ID, and structured Session Action metadata. Archive restore can recover color events through up to three direct-predecessor links. Raw color recovery and context-text L-T action recovery coexist; one no longer suppresses the other.
 
 For the same source session, explicit browser `current_jin_color` wins. If absent, the newest structured JIN_COLOR Session Action wins, then the raw/trusted archive color. When the authoritative source session changes, stale browser color is not carried over.
 
@@ -340,15 +340,15 @@ This is a strong architectural clue for future restore fixes: find duplicate wri
 
 ---
 
-## 10. L4 / Facts Memory current path
+## 10. L-T / Facts Memory current path
 
 ### Facts Memory
 
 Browser runtime storage creates per-session facts-memory candidate buckets from persisted runtime snapshots and synchronizes them to backend with `facts_memory_store_sync`.
 
-### L4
+### L-T
 
-L4 has a real staged pipeline with:
+L-T has a real staged pipeline with:
 
 - pending candidate collection;
 - extraction;
@@ -360,15 +360,15 @@ L4 has a real staged pipeline with:
 - delete/restore;
 - file-store persistence.
 
-### L4 UI projection
+### L-T UI projection
 
-Ordinary L4 rows display a 50-character value preview. When a fact is bubbled because it was referenced, explicitly cited from reasoning, or loaded into context, the row displays the complete value with no preview truncation. This does not mutate or reorder the stored fact; it is a visibility rule for surfaced evidence.
+Ordinary L-T rows display a 50-character value preview. When a fact is bubbled because it was referenced, explicitly cited from reasoning, or loaded into context, the row displays the complete value with no preview truncation. This does not mutate or reorder the stored fact; it is a visibility rule for surfaced evidence.
 
 ### Scheduling
 
-L4 background work is started by browser `l4_memory_idle_tick`. Server refuses to begin it while a foreground task is active or the pending request queue is non-empty.
+L-T background work is started by browser `lt_memory_idle_tick`. Server refuses to begin it while a foreground task is active or the pending request queue is non-empty.
 
-This is the current performance/ordering contract. Do not move L4 onto every foreground turn to “make facts faster” without proving latency and ordering behavior.
+This is the current performance/ordering contract. Do not move L-T onto every foreground turn to “make facts faster” without proving latency and ordering behavior.
 
 ---
 
@@ -378,9 +378,9 @@ The metabolism subsystem has been removed. `runtime/memory_attention.py` retains
 
 - Active lexical/context relevance;
 - Delayed bubble matching;
-- L4 1–3 fact focus.
+- L-T 1–3 fact focus.
 
-There is no metabolic SERVICE pass, homeostat, learned association state, temperature modulation, Brain instruction, L1 strength bias, significance persistence, bootstrap chemistry, logger trace, or avatar chemistry. Historical significance fields are discarded while normalizing old Active/Facts/L4 records.
+There is no metabolic SERVICE pass, homeostat, learned association state, temperature modulation, Brain instruction, L1 strength bias, significance persistence, bootstrap chemistry, logger trace, or avatar chemistry. Historical significance fields are discarded while normalizing old Active/Facts/L-T records.
 
 ### Not proven
 
@@ -394,14 +394,14 @@ Backend `runtime/anonymous_mode.py` currently:
 
 - marks runtime persistent writes restricted;
 - disables Delayed file-store writes while allowing read hydration;
-- blocks `UPDATE_L4_FACTS`;
+- blocks `UPDATE_LT_FACTS`;
 - blocks `SAVE_DELAYED_MEMORY`;
 - blocks persistent asset-write actions;
 - leaves read-only/runtime-local paths available as appropriate.
 
 Browser runtime storage also contains isolation logic for anonymous/private windows.
 
-The intended product behavior remains: anonymous has its own Active/session state but can still see global L4/Delayed context. Verify both browser and backend sides before changing this.
+The intended product behavior remains: anonymous has its own Active/session state but can still see global L-T/Delayed context. Verify both browser and backend sides before changing this.
 
 ---
 
@@ -483,7 +483,7 @@ For future code changes, run the smallest relevant checks unless the task explic
 
 As of this snapshot, the documentation set has been synchronized with the production architecture:
 
-- root `README.md` describes FRAME/L4/Active/Delayed/Files instead of a live four-layer L1/L2/L3/L4 model;
+- root `README.md` describes FRAME/L-T/Active/Delayed/Files instead of the old numbered four-layer model;
 - README model-role/setup/configuration text describes Brain as the only foreground route and Service as optional/dedicated background execution with Brain fallback;
 - `AGENTS.md` records the same routing invariant and explicitly classifies old `USE_SERVICE_AS_BRAIN` / archived Service labels as compatibility;
 - `docs/JIN_ARCHITECTURE.md`, `docs/JIN_DECISIONS.md`, and this file use the 2026-08-29 Brain-first topology as the baseline.

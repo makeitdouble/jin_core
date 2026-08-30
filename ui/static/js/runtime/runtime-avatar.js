@@ -23,7 +23,7 @@
   const STATIC_RADIAL_LINE_INNER_RADIUS = 38 * INNER_RING_SCALE;
   const STATIC_RADIAL_LINE_OUTER_RADIUS = 166 * INNER_RING_SCALE;
   const MEMORY_RING_LAYOUT = Object.freeze({
-    l4: Object.freeze({
+    lt: Object.freeze({
       radius: 168,
       strokeWidth: 1.05,
       minArcDegrees: 3.2,
@@ -57,7 +57,7 @@
     startAngle: -12,
   });
   const MEMORY_SIGNAL_KIND_ORDER =
-    Object.freeze(["delayed", "l4", "active"]);
+    Object.freeze(["delayed", "lt", "active"]);
   const SNAPSHOT_GLOW_CLEAR_DELAY_MS = 360;
   const INITIAL_BOOTSTRAP_COLOR_TRANSITION_MS = 2000;
   const DEFAULT_CENTER_COLOR_TRANSITION_MS = 333;
@@ -93,7 +93,7 @@
   const AMBER_ACCENT = "#e3a64e";
   const ACTIVE_MEMORY_RING_COLOR = "#d7fff9";
   const DELAYED_MEMORY_RING_COLOR = "#7ab8d8";
-  const L4_MEMORY_RING_COLOR = "#93c5fd";
+  const LT_MEMORY_RING_COLOR = "#93c5fd";
   const FILE_RING_COLOR = DELAYED_MEMORY_RING_COLOR;
   const FILE_RING_ACTIVE_COLOR = "#efffff";
 
@@ -147,7 +147,7 @@
     persistentText: "",
   };
   // Keep matching/link payload in JS. The SVG is a visual projection, not a
-  // second serialized copy of runtime/L4/delayed/file state. WeakMap also
+  // second serialized copy of runtime/L-T/delayed/file state. WeakMap also
   // lets rebuilt rings release their payload together with detached nodes.
   const avatarNodeState = new WeakMap();
 
@@ -964,7 +964,7 @@
     deactivateReasoningMotion();
   }
 
-  function normalizeL4FactIds(value) {
+  function normalizeLTFactIds(value) {
     const source =
       Array.isArray(value)
         ? value
@@ -974,7 +974,7 @@
 
     source.forEach((item) => {
       if (Array.isArray(item)) {
-        normalizeL4FactIds(item).forEach((factId) => {
+        normalizeLTFactIds(item).forEach((factId) => {
           if (seen.has(factId)) {
             return;
           }
@@ -993,7 +993,7 @@
           const parsed = JSON.parse(text);
 
           if (Array.isArray(parsed)) {
-            normalizeL4FactIds(parsed).forEach((factId) => {
+            normalizeLTFactIds(parsed).forEach((factId) => {
               if (seen.has(factId)) {
                 return;
               }
@@ -1032,7 +1032,7 @@
     return factIds;
   }
 
-  function l4FactIdSetsIntersect(left, right) {
+  function ltFactIdSetsIntersect(left, right) {
     if (!left || !right || !left.size || !right.size) {
       return false;
     }
@@ -1790,11 +1790,11 @@
         const summary =
           String(report.summary || "").trim();
         const anchorFactIds =
-          normalizeL4FactIds(report.anchor_fact_ids);
+          normalizeLTFactIds(report.anchor_fact_ids);
         const factIds =
-          normalizeL4FactIds(report.facts_ids);
+          normalizeLTFactIds(report.facts_ids);
         const linkedFactIds =
-          normalizeL4FactIds([
+          normalizeLTFactIds([
             report.anchor_fact_ids,
             report.facts_ids,
             report.absorbed_fact_ids,
@@ -1847,14 +1847,14 @@
       });
   }
 
-  function getL4MemoryAvatarRecords() {
-    const l4Memory =
-      window.JinRuntime && window.JinRuntime.l4Memory;
+  function getLTMemoryAvatarRecords() {
+    const ltMemory =
+      window.JinRuntime && window.JinRuntime.ltMemory;
     const facts =
-      l4Memory && typeof l4Memory.getFactsWithArchiveState === "function"
-        ? l4Memory.getFactsWithArchiveState()
-        : l4Memory && typeof l4Memory.getFacts === "function"
-        ? l4Memory.getFacts()
+      ltMemory && typeof ltMemory.getFactsWithArchiveState === "function"
+        ? ltMemory.getFactsWithArchiveState()
+        : ltMemory && typeof ltMemory.getFacts === "function"
+        ? ltMemory.getFacts()
         : [];
     const contextLoadedFactIds = new Set();
 
@@ -1863,7 +1863,7 @@
         record && (record.pinned || record.loaded)
       ))
       .forEach((record) => {
-        normalizeL4FactIds(record.linkedFactIds)
+        normalizeLTFactIds(record.linkedFactIds)
           .forEach(factId => contextLoadedFactIds.add(factId));
       });
 
@@ -1881,8 +1881,8 @@
         const key = String(fact.key || "").trim();
         const value = String(fact.value || fact.content || "").trim();
         const lineText = `${key}: ${value}`.trim();
-        const l4FactIds =
-          normalizeL4FactIds([
+        const ltFactIds =
+          normalizeLTFactIds([
             id,
             fact.source_fact_ids,
           ]);
@@ -1896,18 +1896,18 @@
           key,
           value,
           text: lineText,
-          l4FactIds,
+          ltFactIds,
           archived:
             Boolean(
               fact.archived
               || fact.hidden_from_context
             )
-            && !l4FactIds.some(
+            && !ltFactIds.some(
               factId => contextLoadedFactIds.has(factId)
             ),
           avatarMemoryHoverId:
             buildAvatarMemoryHoverId(
-              "l4",
+              "lt",
               id
             ),
           citationIdentity:
@@ -2075,7 +2075,7 @@
       "data-avatar-memory-hover-id": options.avatarMemoryHoverId || null,
       "data-active-memory-id": options.activeMemoryId || null,
       "data-delayed-memory-id": options.delayedMemoryId || null,
-      "data-l4-fact-id": options.l4FactId || null,
+      "data-lt-fact-id": options.ltFactId || null,
     });
 
     const nodeState = Object.create(null);
@@ -2091,13 +2091,13 @@
     }
     if (options.kind === "delayed") {
       nodeState.delayedMemoryFactIds =
-        normalizeL4FactIds(options.delayedMemoryFactIds);
+        normalizeLTFactIds(options.delayedMemoryFactIds);
       nodeState.delayedMemoryAnchorFactIds =
-        normalizeL4FactIds(options.delayedMemoryAnchorFactIds);
+        normalizeLTFactIds(options.delayedMemoryAnchorFactIds);
     }
-    if (options.kind === "l4") {
-      nodeState.l4FactIds =
-        normalizeL4FactIds(options.l4FactIds);
+    if (options.kind === "lt") {
+      nodeState.ltFactIds =
+        normalizeLTFactIds(options.ltFactIds);
       nodeState.avatarMemoryAngle = Number(options.angle);
     }
 
@@ -2208,7 +2208,7 @@
     const animationProfile = {
       active: [38, 72],
       delayed: [54, 112],
-      l4: [46, 96],
+      lt: [46, 96],
     }[kind] || [54, 112];
     const [baseDuration, durationSpread] = animationProfile;
 
@@ -2230,14 +2230,14 @@
       };
     }
 
-    if (kind === "l4") {
+    if (kind === "lt") {
       return {
         color: mixColors(
-          L4_MEMORY_RING_COLOR,
+          LT_MEMORY_RING_COLOR,
           overallColor,
           0.08
         ),
-        glowColor: L4_MEMORY_RING_COLOR,
+        glowColor: LT_MEMORY_RING_COLOR,
       };
     }
 
@@ -2280,7 +2280,7 @@
     const ringColors =
       getMemorySignalColors(kind, overallColor);
     const dotRadius =
-      kind === "l4"
+      kind === "lt"
         ? getMemoryDotRadius(layout)
         : 0;
 
@@ -2290,7 +2290,7 @@
       layout.strokeWidth + 0.75,
       dotRadius
     );
-    if (kind === "l4") {
+    if (kind === "lt") {
       ring.style.setProperty(
         "--jin-avatar-memory-dot-opacity",
         "0.26"
@@ -2330,7 +2330,7 @@
         return;
       }
 
-      if (kind === "l4") {
+      if (kind === "lt") {
         appendMemoryDashSegment(
           reasoningMotion.content,
           layout,
@@ -2346,8 +2346,8 @@
             citationKey:
               normalizeRuntimeCitationIdentity(record.key),
             citationIdentity: record.citationIdentity,
-            l4FactId: record.id,
-            l4FactIds: record.l4FactIds,
+            ltFactId: record.id,
+            ltFactIds: record.ltFactIds,
             referenceAliases: record.referenceAliases,
           }
         );
@@ -2498,8 +2498,8 @@
       return getDelayedMemoryAvatarRecords();
     }
 
-    if (kind === "l4") {
-      return getL4MemoryAvatarRecords();
+    if (kind === "lt") {
+      return getLTMemoryAvatarRecords();
     }
 
     return null;
@@ -2690,7 +2690,7 @@
     };
   }
 
-  function setL4MemoryDashArchivedState(dashGroup, archived) {
+  function setLTMemoryDashArchivedState(dashGroup, archived) {
     if (!dashGroup) {
       return false;
     }
@@ -2710,9 +2710,9 @@
       avatarRoot.style.getPropertyValue("--jin-avatar-overall-color").trim()
       || DEFAULT_RING_COLOR;
     const colors =
-      getMemorySignalColors("l4", overallColor);
+      getMemorySignalColors("lt", overallColor);
     const dotRadius =
-      getMemoryDotRadius(MEMORY_RING_LAYOUT.l4);
+      getMemoryDotRadius(MEMORY_RING_LAYOUT.lt);
     const state = getAvatarNodeState(dashGroup);
     const angle =
       Number(state && state.avatarMemoryAngle);
@@ -2731,9 +2731,9 @@
     );
 
     setMemoryDashGlowVariables(
-      dashGroup.closest(".jin-avatar-memory-ring-l4") || dashGroup,
+      dashGroup.closest(".jin-avatar-memory-ring-lt") || dashGroup,
       colors.glowColor,
-      MEMORY_RING_LAYOUT.l4.strokeWidth + 0.75,
+      MEMORY_RING_LAYOUT.lt.strokeWidth + 0.75,
       dotRadius
     );
 
@@ -2758,7 +2758,7 @@
 
     const dotPoint =
       polarPoint(
-        MEMORY_RING_LAYOUT.l4.radius,
+        MEMORY_RING_LAYOUT.lt.radius,
         angle
       );
     let dot =
@@ -2819,9 +2819,9 @@
         dashGroup,
         {
           delayedMemoryFactIds:
-            normalizeL4FactIds(record.linkedFactIds),
+            normalizeLTFactIds(record.linkedFactIds),
           delayedMemoryAnchorFactIds:
-            normalizeL4FactIds(record.anchorFactIds),
+            normalizeLTFactIds(record.anchorFactIds),
         }
       );
       setAvatarMemoryReferenceAliases(
@@ -2847,7 +2847,7 @@
     return synced;
   }
 
-  function syncL4MemoryArchiveState() {
+  function syncLTMemoryArchiveState() {
     const svg =
       avatarRoot.querySelector("svg");
 
@@ -2855,25 +2855,25 @@
       return false;
     }
 
-    const l4MemoryRecords =
-      getL4MemoryAvatarRecords();
+    const ltMemoryRecords =
+      getLTMemoryAvatarRecords();
     const nodeLookup =
       getMemoryDashNodesByDataset(
         svg,
-        ".jin-avatar-memory-dash-l4",
-        "l4FactId"
+        ".jin-avatar-memory-dash-lt",
+        "ltFactId"
       );
 
     if (
       !nodeLookup
-      || nodeLookup.nodes.length !== l4MemoryRecords.length
+      || nodeLookup.nodes.length !== ltMemoryRecords.length
     ) {
       return false;
     }
 
     let synced = true;
 
-    l4MemoryRecords.forEach((record) => {
+    ltMemoryRecords.forEach((record) => {
       const dashGroup =
         nodeLookup.nodesById.get(record.id);
 
@@ -2885,8 +2885,8 @@
       setAvatarNodeState(
         dashGroup,
         {
-          l4FactIds:
-            normalizeL4FactIds(record.l4FactIds),
+          ltFactIds:
+            normalizeLTFactIds(record.ltFactIds),
           runtimeLineKey:
             normalizeRuntimeCitationIdentity(record.key),
           runtimeLineIdentity:
@@ -2899,7 +2899,7 @@
       );
 
       if (
-        !setL4MemoryDashArchivedState(
+        !setLTMemoryDashArchivedState(
           dashGroup,
           record.archived
         )
@@ -2918,14 +2918,14 @@
         "delayed",
         { applyGlows: false }
       );
-    const l4Synced =
-      syncL4MemoryArchiveState()
+    const ltSynced =
+      syncLTMemoryArchiveState()
       || syncMemorySignalLayer(
-        "l4",
+        "lt",
         { applyGlows: false }
       );
 
-    if (!delayedSynced || !l4Synced) {
+    if (!delayedSynced || !ltSynced) {
       return false;
     }
 
@@ -2939,8 +2939,8 @@
     return syncMemorySignalLayer("active");
   }
 
-  function syncL4MemoryState() {
-    return syncMemorySignalLayer("l4");
+  function syncLTMemoryState() {
+    return syncMemorySignalLayer("lt");
   }
 
   function syncFileSignalRingState(svg, records) {
@@ -3112,7 +3112,7 @@
     svg,
     activeMemoryRecords,
     delayedMemoryRecords,
-    l4MemoryRecords,
+    ltMemoryRecords,
     overallColor
   ) {
     appendMemorySignalRing(
@@ -3124,9 +3124,9 @@
     );
     appendMemorySignalRing(
       svg,
-      l4MemoryRecords,
-      MEMORY_RING_LAYOUT.l4,
-      "l4",
+      ltMemoryRecords,
+      MEMORY_RING_LAYOUT.lt,
+      "lt",
       overallColor
     );
     appendMemorySignalRing(
@@ -3657,7 +3657,7 @@
     const state = getAvatarNodeState(node);
 
     return new Set(
-      normalizeL4FactIds(
+      normalizeLTFactIds(
         state
           ? state[stateKey]
           : []
@@ -3680,7 +3680,7 @@
     ));
   }
 
-  function collectDelayedMemoryLinkedL4FactIds(svg) {
+  function collectDelayedMemoryLinkedLTFactIds(svg) {
     const factIds = new Set();
 
     Array.from(
@@ -3711,19 +3711,19 @@
     return factIds;
   }
 
-  function collectHoveredL4FactIds(svg) {
+  function collectHoveredLTFactIds(svg) {
     const factIds = new Set();
 
     getFocusedMemoryDashNodes(svg)
       .filter(node => (
         node.classList.contains(
-          "jin-avatar-memory-dash-l4"
+          "jin-avatar-memory-dash-lt"
         )
       ))
       .forEach((node) => {
         getAvatarDashFactIdSet(
           node,
-          "l4FactIds"
+          "ltFactIds"
         ).forEach(factId => factIds.add(factId));
       });
 
@@ -3736,7 +3736,7 @@
 
     // Pin and explicit load are both direct DM states. Either one may expose
     // a softer cross-report anchor signal, but that secondary target must not
-    // inherit the source report's direct L4 emphasis.
+    // inherit the source report's direct L-T emphasis.
     records
       .filter(record => Boolean(
         record && (record.pinned || record.loaded)
@@ -3761,7 +3761,7 @@
           }
 
           if (
-            l4FactIdSetsIntersect(
+            ltFactIdSetsIntersect(
               new Set(targetRecord.anchorFactIds),
               hiddenFactIds
             )
@@ -3782,19 +3782,19 @@
     }
 
     const delayedLinkedFactIds =
-      collectDelayedMemoryLinkedL4FactIds(svg);
-    const hoveredL4FactIds =
-      collectHoveredL4FactIds(svg);
+      collectDelayedMemoryLinkedLTFactIds(svg);
+    const hoveredLTFactIds =
+      collectHoveredLTFactIds(svg);
     const secondaryLinkedReportIds =
       getSecondaryLinkedDelayedMemoryReportIds();
 
     Array.from(
-      svg.querySelectorAll(".jin-avatar-memory-dash-l4")
+      svg.querySelectorAll(".jin-avatar-memory-dash-lt")
     ).forEach((node) => {
       node.classList.toggle(
         "is-delayed-memory-linked-hit",
-        l4FactIdSetsIntersect(
-          getAvatarDashFactIdSet(node, "l4FactIds"),
+        ltFactIdSetsIntersect(
+          getAvatarDashFactIdSet(node, "ltFactIds"),
           delayedLinkedFactIds
         )
       );
@@ -3805,12 +3805,12 @@
     ).forEach((node) => {
       node.classList.toggle(
         "is-delayed-memory-linked-hit",
-        l4FactIdSetsIntersect(
+        ltFactIdSetsIntersect(
           getAvatarDashFactIdSet(
             node,
             "delayedMemoryAnchorFactIds"
           ),
-          hoveredL4FactIds
+          hoveredLTFactIds
         )
       );
       const delayedMemoryId =
@@ -4138,13 +4138,13 @@
       return `delayed:${delayedMemoryId}`;
     }
 
-    const l4FactId =
-      String(node.dataset.l4FactId || "")
+    const ltFactId =
+      String(node.dataset.ltFactId || "")
         .trim()
         .toUpperCase();
 
-    if (l4FactId) {
-      return `l4:${l4FactId}`;
+    if (ltFactId) {
+      return `lt:${ltFactId}`;
     }
 
     const fileId =
@@ -4243,12 +4243,12 @@
             "jin-avatar-memory-dash-active"
           )
         );
-        // L4 is citation-gated: ambient/persistent text must not turn a
+        // L-T is citation-gated: ambient/persistent text must not turn a
         // durable fact into a visual focus merely because its value shares
         // wording with the latest answer. Explicit reasoning citations still
         // use the structured THINK_RUNTIME_CITATION_HIGHLIGHT_EVENT path.
         const persistentReferenceEligible =
-          !recordNode.classList.contains("jin-avatar-memory-dash-l4");
+          !recordNode.classList.contains("jin-avatar-memory-dash-lt");
         const matched = Boolean(
           persistentReferenceEligible
           && !mirroredActiveRuntimeNode
@@ -4322,7 +4322,7 @@
   function buildAuxiliaryRenderSignatures(
     activeMemoryRecords = [],
     delayedMemoryRecords = [],
-    l4MemoryRecords = [],
+    ltMemoryRecords = [],
     fileRecords = []
   ) {
     return {
@@ -4339,12 +4339,12 @@
         record.factIds.join(","),
         record.linkedFactIds.join(","),
       ].join("␟")).join("␞"),
-      l4: l4MemoryRecords.map(record => [
+      lt: ltMemoryRecords.map(record => [
         record.id,
         record.key,
         record.value,
         record.archived ? "archived" : "visible",
-        record.l4FactIds.join(","),
+        record.ltFactIds.join(","),
       ].join("␟")).join("␞"),
       files: fileRecords.map(record => [
         record.id,
@@ -4365,7 +4365,7 @@
     return Boolean(first && second)
       && first.active === second.active
       && first.delayed === second.delayed
-      && first.l4 === second.l4
+      && first.lt === second.lt
       && first.files === second.files;
   }
 
@@ -4390,7 +4390,7 @@
 
     syncMemoryLayer("active", "active");
     syncMemoryLayer("delayed", "delayed");
-    syncMemoryLayer("l4", "l4");
+    syncMemoryLayer("lt", "lt");
 
     if (
       !previousSignatures
@@ -4439,7 +4439,7 @@
         : null;
     const activeMemoryRecords = getActiveMemoryAvatarRecords();
     const delayedMemoryRecords = getDelayedMemoryAvatarRecords();
-    const l4MemoryRecords = getL4MemoryAvatarRecords();
+    const ltMemoryRecords = getLTMemoryAvatarRecords();
     const fileRecords = getPersistentFileAvatarRecords();
     const runtimeSignature =
       buildRuntimeRenderSignature(
@@ -4452,7 +4452,7 @@
       buildAuxiliaryRenderSignatures(
         activeMemoryRecords,
         delayedMemoryRecords,
-        l4MemoryRecords,
+        ltMemoryRecords,
         fileRecords
       );
     const existingSvg =
@@ -4541,7 +4541,7 @@
       svg,
       activeMemoryRecords,
       delayedMemoryRecords,
-      l4MemoryRecords,
+      ltMemoryRecords,
       overallColor
     );
     appendFileRing(
@@ -5109,7 +5109,7 @@
     setDelayedMemoryPinned: setDelayedMemoryDashPinned,
     syncActiveMemoryState,
     syncDelayedMemoryState,
-    syncL4MemoryState,
+    syncLTMemoryState,
     syncFilesState,
     get aggressivePalette() {
       return AGGRESSIVE_PALETTE;

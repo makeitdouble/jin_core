@@ -242,7 +242,7 @@ class RuntimeDelayedMemoryTests(RuntimeActionTestCase):
             ],
         )
 
-    def test_build_report_keeps_only_existing_l4_fact_ids(self):
+    def test_build_report_keeps_only_existing_lt_fact_ids(self):
 
         context = SimpleNamespace(
             session_id="session-1",
@@ -936,7 +936,7 @@ class RuntimeDelayedMemoryTests(RuntimeActionTestCase):
         )
 
 
-    def test_load_delayed_memory_prunes_missing_l4_fact_links(self):
+    def test_load_delayed_memory_prunes_missing_lt_fact_links(self):
 
         context = SimpleNamespace(
             delayed_memory_reports={

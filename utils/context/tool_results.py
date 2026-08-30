@@ -5,7 +5,7 @@ from xml.sax.saxutils import escape
 
 from contracts.rules_assembler import (
     RUNTIME_ACTION_DEEP_WEB_SEARCH,
-    RUNTIME_ACTION_UPDATE_L4_FACTS,
+    RUNTIME_ACTION_UPDATE_LT_FACTS,
     RUNTIME_ACTION_WEB_SEARCH,
 )
 from utils.brain_client_utils import (
@@ -19,7 +19,7 @@ from utils.tool_results import (
     TOOL_RESULT_KIND_DEEP_SEARCH,
     TOOL_RESULT_KIND_SEARCH,
     TOOL_RESULT_KIND_FILES,
-    TOOL_RESULT_KIND_L4,
+    TOOL_RESULT_KIND_LT,
     get_runtime_tool_result_created_at,
     get_runtime_tool_results,
 )
@@ -334,7 +334,7 @@ def _append_recorded_tool_results(
             appended = True
             continue
 
-        if kind == TOOL_RESULT_KIND_L4:
+        if kind == TOOL_RESULT_KIND_LT:
             if not isinstance(result, dict):
                 continue
 
@@ -347,7 +347,7 @@ def _append_recorded_tool_results(
             if not payload:
                 continue
 
-            attrs = f'name="{escape(RUNTIME_ACTION_UPDATE_L4_FACTS)}"'
+            attrs = f'name="{escape(RUNTIME_ACTION_UPDATE_LT_FACTS)}"'
             result_id = str(
                 entry.get(
                     "id",

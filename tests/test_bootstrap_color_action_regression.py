@@ -11,9 +11,9 @@ ROOT = Path(__file__).resolve().parents[1]
 
 class BootstrapColorActionRegressionTests(unittest.TestCase):
 
-    def test_raw_color_tail_does_not_delete_context_l4_action(self):
+    def test_raw_color_tail_does_not_delete_context_lt_action(self):
         root = Path(tempfile.mkdtemp())
-        session_id = "color-and-l4-session"
+        session_id = "color-and-lt-session"
         session_dir = root / "2026-08-25" / session_id
         session_dir.mkdir(parents=True)
         entries = [
@@ -54,7 +54,7 @@ class BootstrapColorActionRegressionTests(unittest.TestCase):
             encoding="utf-8",
         )
         (session_dir / "session.txt").write_text(
-            '<TOOL_RESULT name="UPDATE_L4_FACTS">\n'
+            '<TOOL_RESULT name="UPDATE_LT_FACTS">\n'
             '{"message":"kept fact"}\n'
             "</TOOL_RESULT>",
             encoding="utf-8",
@@ -70,7 +70,7 @@ class BootstrapColorActionRegressionTests(unittest.TestCase):
             for part in item.get("parts", [])
         ]
 
-        self.assertIn("Updated L4 facts", action_parts)
+        self.assertIn("Updated L-T facts", action_parts)
         self.assertIn("JIN_COLOR", action_parts)
 
     def test_archive_recovers_color_actions_from_direct_predecessor_logs(self):

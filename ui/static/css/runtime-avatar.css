@@ -563,17 +563,17 @@
         drop-shadow(0 0 10px var(--jin-avatar-memory-glow-mid, rgba(215, 255, 249, 0.54)));
 }
 
-/* L4 has many tiny segments. Keep the same ambient treatment on the shared
+/* L-T has many tiny segments. Keep the same ambient treatment on the shared
    rotating ring so Chromium composites one filtered surface instead of one
    filter surface per fact. Per-dash citation/hover/link filters below still
    layer on top when a specific fact needs emphasis. */
-.jin-avatar-memory-ring-l4 {
+.jin-avatar-memory-ring-lt {
     filter:
         brightness(1.06)
         drop-shadow(0 0 4px rgba(147, 197, 253, 0.30));
 }
 
-.jin-avatar-memory-dash-l4 {
+.jin-avatar-memory-dash-lt {
     filter: none;
 }
 
@@ -629,7 +629,7 @@
    Delayed-memory ring has exactly two highlight tiers over one base hue.
    Tier 2 = direct state: pinned or explicitly context-loaded.
    Tier 1 = indirect/transient signal: answer/reasoning citation, row/modal
-            focus, L4 anchor relation, or cross-linked delayed report.
+            focus, L-T anchor relation, or cross-linked delayed report.
    A Tier 1 class never downgrades a report that is already Tier 2.
 */
 .jin-avatar-memory-dash-delayed.is-memory-pinned,
@@ -673,10 +673,10 @@
     stroke-width: var(--jin-avatar-memory-hover-width, 2px);
 }
 
-/* Direct delayed-memory -> L4 propagation is Tier 1 only. Cross-linked
+/* Direct delayed-memory -> L-T propagation is Tier 1 only. Cross-linked
    delayed reports are deliberately excluded by the JS collector, so their
    facts never inherit this relation glow. */
-.jin-avatar-memory-dash-l4.is-delayed-memory-linked-hit {
+.jin-avatar-memory-dash-lt.is-delayed-memory-linked-hit {
     filter:
         brightness(1.46)
         saturate(1.32)
@@ -685,12 +685,12 @@
         drop-shadow(0 0 20px var(--jin-avatar-memory-glow-far, rgba(52, 211, 222, 0.12)));
 }
 
-.jin-avatar-memory-dash-l4:not(.is-memory-dot).is-delayed-memory-linked-hit path {
+.jin-avatar-memory-dash-lt:not(.is-memory-dot).is-delayed-memory-linked-hit path {
     stroke-opacity: 0.82 !important;
     stroke-width: var(--jin-avatar-memory-hover-width, 2px);
 }
 
-.jin-avatar-memory-dash-l4.is-memory-dot.is-delayed-memory-linked-hit circle {
+.jin-avatar-memory-dash-lt.is-memory-dot.is-delayed-memory-linked-hit circle {
     fill-opacity: 0.82 !important;
     r: var(--jin-avatar-memory-dot-radius, 1.6px);
 }

@@ -25,7 +25,7 @@ class MemoryReferenceSyncClientContractTests(unittest.TestCase):
         source = MEMORY_VIEW_JS.read_text(encoding="utf-8")
 
         self.assertIn(
-            'l4Status === "analyzed"',
+            'ltStatus === "analyzed"',
             source,
         )
         self.assertIn(
@@ -374,7 +374,7 @@ class MemoryReferenceSyncClientContractTests(unittest.TestCase):
             active_rule,
         )
 
-    def test_modal_l4_delete_cleans_local_report_refs_before_sync(self):
+    def test_modal_lt_delete_cleans_local_report_refs_before_sync(self):
         source = RUNTIME_JS.read_text(encoding="utf-8")
 
         self.assertIn(
@@ -398,7 +398,7 @@ class MemoryReferenceSyncClientContractTests(unittest.TestCase):
             source,
         )
 
-    def test_delayed_report_fact_chip_hover_targets_avatar_l4_dash(self):
+    def test_delayed_report_fact_chip_hover_targets_avatar_lt_dash(self):
         source = MEMORY_VIEW_JS.read_text(encoding="utf-8")
 
         self.assertIn(
@@ -406,7 +406,7 @@ class MemoryReferenceSyncClientContractTests(unittest.TestCase):
             source,
         )
         self.assertIn(
-            'buildAvatarMemoryHoverId(\n          "l4",',
+            'buildAvatarMemoryHoverId(\n          "lt",',
             source,
         )
         self.assertIn(
@@ -426,7 +426,7 @@ class MemoryReferenceSyncClientContractTests(unittest.TestCase):
             source,
         )
 
-    def test_l4_fact_id_opens_linked_delayed_report_only_when_available(self):
+    def test_lt_fact_id_opens_linked_delayed_report_only_when_available(self):
         source = MEMORY_VIEW_JS.read_text(encoding="utf-8")
         css_source = RUNTIME_MEMORY_CSS.read_text(encoding="utf-8")
 
@@ -529,7 +529,7 @@ class MemoryReferenceSyncClientContractTests(unittest.TestCase):
             source,
         )
         self.assertIn(
-            'l4Memory.getFacts()',
+            'ltMemory.getFacts()',
             source,
         )
         self.assertIn(

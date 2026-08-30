@@ -167,7 +167,7 @@ def build_action_missing_trigger_words_message(
     )
 
 
-def get_runtime_l4_fact_ids(
+def get_runtime_lt_fact_ids(
     context,
 ) -> set[str]:
 
@@ -214,7 +214,7 @@ def prune_missing_delayed_memory_fact_ids(
         None,
     )
 
-    # A missing/uninitialised L4 store must not erase delayed-memory links.
+    # A missing/uninitialised L-T store must not erase delayed-memory links.
     # Once the store exists, its facts list is the source of truth.
     if (
         not isinstance(store, dict)
@@ -228,7 +228,7 @@ def prune_missing_delayed_memory_fact_ids(
         legacy_absorbed_fact_ids=report.get("absorbed_fact_ids", []),
         legacy_long_term_fact_ids=report.get("long_term_facts_ids", []),
     )
-    available_fact_ids = get_runtime_l4_fact_ids(context)
+    available_fact_ids = get_runtime_lt_fact_ids(context)
     referenced_fact_ids = list(dict.fromkeys([
         *anchor_fact_ids,
         *facts_ids,
@@ -351,18 +351,18 @@ def build_delayed_memory_report(
                 legacy_long_term_fact_ids=value.get("long_term_facts_ids", []),
             )
         )
-        available_l4_fact_ids = get_runtime_l4_fact_ids(
+        available_lt_fact_ids = get_runtime_lt_fact_ids(
             context
         )
         anchor_fact_ids = [
             fact_id
             for fact_id in requested_anchor_fact_ids
-            if fact_id in available_l4_fact_ids
+            if fact_id in available_lt_fact_ids
         ]
         facts_ids = [
             fact_id
             for fact_id in requested_facts_ids
-            if fact_id in available_l4_fact_ids
+            if fact_id in available_lt_fact_ids
         ]
         anchor_fact_ids, facts_ids = normalize_delayed_memory_fact_ids(
             anchor_fact_ids,

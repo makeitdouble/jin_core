@@ -14,9 +14,9 @@ MEMORY_VIEW = (
 INDEX_HTML = ROOT / "ui" / "templates" / "index.html"
 
 
-class L4FactAgeClientContractTests(unittest.TestCase):
+class LTFactAgeClientContractTests(unittest.TestCase):
 
-    def test_l4_rows_show_live_context_age_in_header(self):
+    def test_lt_rows_show_live_context_age_in_header(self):
         source = MEMORY_VIEW.read_text(encoding="utf-8")
 
         self.assertIn(
@@ -36,11 +36,11 @@ class L4FactAgeClientContractTests(unittest.TestCase):
             source,
         )
         self.assertIn(
-            'ageSpan.className =\n              "runtime-memory-l4-age";',
+            'ageSpan.className =\n              "runtime-memory-lt-age";',
             source,
         )
         self.assertIn(
-            'longTermHeader.className =\n            "runtime-memory-l4-header";',
+            'longTermHeader.className =\n            "runtime-memory-lt-header";',
             source,
         )
         self.assertIn(
@@ -52,7 +52,7 @@ class L4FactAgeClientContractTests(unittest.TestCase):
             source,
         )
 
-    def test_l4_age_uses_same_bucket_format_as_brain_context(self):
+    def test_lt_age_uses_same_bucket_format_as_brain_context(self):
         source = MEMORY_VIEW.read_text(encoding="utf-8")
 
         self.assertIn("Math.max(\n      1,", source)
@@ -65,7 +65,7 @@ class L4FactAgeClientContractTests(unittest.TestCase):
             source,
         )
 
-    def test_l4_rows_use_fixed_header_and_separate_value_line(self):
+    def test_lt_rows_use_fixed_header_and_separate_value_line(self):
         source = MEMORY_VIEW.read_text(encoding="utf-8")
         css = (
             ROOT
@@ -76,7 +76,7 @@ class L4FactAgeClientContractTests(unittest.TestCase):
         ).read_text(encoding="utf-8")
 
         self.assertIn(
-            'longTermHeader.className =\n            "runtime-memory-l4-header";',
+            'longTermHeader.className =\n            "runtime-memory-lt-header";',
             source,
         )
         self.assertIn(
@@ -92,13 +92,13 @@ class L4FactAgeClientContractTests(unittest.TestCase):
             source,
         )
         self.assertIn(
-            ".runtime-memory-l4-row .runtime-memory-key {",
+            ".runtime-memory-lt-row .runtime-memory-key {",
             css,
         )
         self.assertIn("text-overflow: ellipsis;", css)
         self.assertIn("white-space: nowrap;", css)
         self.assertIn(
-            ".runtime-memory-l4-row .runtime-memory-value {",
+            ".runtime-memory-lt-row .runtime-memory-value {",
             css,
         )
         self.assertIn("display: block;", css)
@@ -109,10 +109,10 @@ class L4FactAgeClientContractTests(unittest.TestCase):
         self.assertIn(
             "/static/js/runtime/runtime-memory-view.js?"
             "v=context-card-chevronless-1&delayed-fact-paste=2&numeric-fact-order=1"
-            "&l4-fact-age=1",
+            "&amp;lt-fact-age=1",
             source,
         )
-        self.assertIn("&l4-two-line-layout=1", source)
+        self.assertIn("&amp;lt-two-line-layout=1", source)
 
 
 if __name__ == "__main__":

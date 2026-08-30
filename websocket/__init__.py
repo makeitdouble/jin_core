@@ -18,20 +18,20 @@ from runtime.L1_memory import (
 from runtime.L1_memory_utils import (
     emit_runtime_l1_diff_update,
 )
-from runtime.L4_memory import (
+from runtime.LT_memory import (
     apply_facts_memory_store_sync,
-    apply_l4_memory_store_sync,
-    cancel_l4_memory_idle_update,
-    delete_l4_memory_fact,
+    apply_lt_memory_store_sync,
+    cancel_lt_memory_idle_update,
+    delete_lt_memory_fact,
     emit_facts_memory_store_update,
-    restore_l4_memory_fact,
-    emit_l4_memory_update,
-    note_l4_foreground_state,
-    note_l4_user_activity,
-    register_l4_websocket_connection,
-    runtime_l4_memory_update_running,
-    schedule_l4_memory_idle_update,
-    unregister_l4_websocket_connection,
+    restore_lt_memory_fact,
+    emit_lt_memory_update,
+    note_lt_foreground_state,
+    note_lt_user_activity,
+    register_lt_websocket_connection,
+    runtime_lt_memory_update_running,
+    schedule_lt_memory_idle_update,
+    unregister_lt_websocket_connection,
 )
 from runtime.fact_check import run_fact_check_once
 from runtime.anonymous_mode import (
@@ -190,7 +190,7 @@ async def websocket_endpoint(
                     )
                 )
                 current_task = active_task
-                note_l4_foreground_state(
+                note_lt_foreground_state(
                     context,
                     running=True,
                 )
@@ -209,7 +209,7 @@ async def websocket_endpoint(
                 finally:
                     if current_task is active_task:
                         current_task = None
-                    note_l4_foreground_state(
+                    note_lt_foreground_state(
                         context,
                         running=False,
                     )
@@ -221,7 +221,7 @@ async def websocket_endpoint(
         process_pending_requests()
     )
 
-    register_l4_websocket_connection(
+    register_lt_websocket_connection(
         context,
         app_state=websocket.app.state,
         websocket=websocket,
@@ -426,8 +426,8 @@ async def websocket_endpoint(
                 )
                 continue
 
-            if message_type == "l4_memory_store_sync":
-                applied = apply_l4_memory_store_sync(
+            if message_type == "lt_memory_store_sync":
+                applied = apply_lt_memory_store_sync(
                     context,
                     message_data.get(
                         "store",
@@ -436,9 +436,9 @@ async def websocket_endpoint(
                 )
                 if applied:
                     await logger.log_system(
-                        "[WS] L4 memory store updated from browser profile"
+                        "[WS] L-T memory store updated from browser profile"
                     )
-                await emit_l4_memory_update(
+                await emit_lt_memory_update(
                     context,
                     change={
                         "synced": bool(applied),
@@ -446,8 +446,8 @@ async def websocket_endpoint(
                 )
                 continue
 
-            if message_type == "l4_memory_idle_tick":
-                # Never begin background L4 work while a foreground turn is
+            if message_type == "lt_memory_idle_tick":
+                # Never begin background L-T work while a foreground turn is
                 # running or already queued. Browser idle checks normally avoid
                 # this too; the server guard keeps foreground priority strict.
                 if (
@@ -467,11 +467,11 @@ async def websocket_endpoint(
 
                 if (
                     "store" in message_data
-                    and not runtime_l4_memory_update_running(
+                    and not runtime_lt_memory_update_running(
                         context
                     )
                 ):
-                    apply_l4_memory_store_sync(
+                    apply_lt_memory_store_sync(
                         context,
                         message_data.get(
                             "store",
@@ -479,7 +479,7 @@ async def websocket_endpoint(
                         ),
                     )
 
-                schedule_l4_memory_idle_update(
+                schedule_lt_memory_idle_update(
                     context=context,
                     user_idle_seconds=message_data.get(
                         "user_idle_seconds",
@@ -487,13 +487,13 @@ async def websocket_endpoint(
                 )
                 continue
 
-            if message_type == "l4_memory_delete_fact":
+            if message_type == "lt_memory_delete_fact":
                 if persistent_writes_restricted(context):
                     await logger.log_runtime(
-                        "[RUNTIME ACTION] l4_memory_delete_fact failed: "
+                        "[RUNTIME ACTION] lt_memory_delete_fact failed: "
                         + RESTRICTED_WRITE_REASON
                     )
-                    await emit_l4_memory_update(
+                    await emit_lt_memory_update(
                         context,
                         change={
                             "deleted": False,
@@ -501,7 +501,7 @@ async def websocket_endpoint(
                         },
                     )
                     continue
-                await delete_l4_memory_fact(
+                await delete_lt_memory_fact(
                     context,
                     str(
                         message_data.get(
@@ -513,24 +513,24 @@ async def websocket_endpoint(
                 )
                 continue
 
-            if message_type == "l4_memory_restore_fact":
+            if message_type == "lt_memory_restore_fact":
                 fact = message_data.get(
                     "fact",
                     {},
                 )
                 if persistent_writes_restricted(context):
                     await logger.log_runtime(
-                        "[RUNTIME ACTION] l4_memory_restore_fact failed: "
+                        "[RUNTIME ACTION] lt_memory_restore_fact failed: "
                         + RESTRICTED_WRITE_REASON
                     )
                     restored = False
                 else:
-                    restored = await restore_l4_memory_fact(
+                    restored = await restore_lt_memory_fact(
                         context,
                         fact,
                     )
                 await websocket.send_json({
-                    "type": "l4_memory_restore_result",
+                    "type": "lt_memory_restore_result",
                     "fact_id": str(
                         fact.get("id", "")
                         if isinstance(fact, dict)
@@ -544,7 +544,7 @@ async def websocket_endpoint(
                     ),
                 })
                 if persistent_writes_restricted(context):
-                    await emit_l4_memory_update(
+                    await emit_lt_memory_update(
                         context,
                         change={
                             "restored": False,
@@ -725,8 +725,8 @@ async def websocket_endpoint(
                     )
                     continue
 
-                note_l4_user_activity(context)
-                await cancel_l4_memory_idle_update(
+                note_lt_user_activity(context)
+                await cancel_lt_memory_idle_update(
                     context,
                     reason="user_retry",
                 )
@@ -847,12 +847,12 @@ async def websocket_endpoint(
 
                 continue
 
-            # Foreground conversation always wins over idle L4 maintenance.
+            # Foreground conversation always wins over idle L-T maintenance.
             # Cancelling here aborts the in-flight background model request
-            # before this user turn enters the generation queue; pending L4
+            # before this user turn enters the generation queue; pending L-T
             # facts remain in their stores for the next true idle window.
-            note_l4_user_activity(context)
-            await cancel_l4_memory_idle_update(
+            note_lt_user_activity(context)
+            await cancel_lt_memory_idle_update(
                 context,
                 reason="user_message",
             )
@@ -933,7 +933,7 @@ async def websocket_endpoint(
         )
 
     finally:
-        unregister_l4_websocket_connection(
+        unregister_lt_websocket_connection(
             context,
             app_state=websocket.app.state,
             websocket=websocket,

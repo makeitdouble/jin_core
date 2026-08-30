@@ -1,11 +1,11 @@
 {
-  "update_l4_facts": {
+  "update_lt_facts": {
     "version": 1,
     "description": "Lets JIN send a focused update, merge, or create instruction to the Long-Term facts maintainer.",
-    "runtime_action": "UPDATE_L4_FACTS",
-    "enable_flag": "CAN_UPDATE_L4_FACTS",
+    "runtime_action": "UPDATE_LT_FACTS",
+    "enable_flag": "CAN_UPDATE_LT_FACTS",
     "runtime_order": 80,
-    "private_marker": "<UPDATE_L4_FACTS>",
+    "private_marker": "<UPDATE_LT_FACTS>",
     "triggers": [],
     "blockers": [],
     "effects": {
@@ -16,9 +16,9 @@
       "JIN can update, merge, or create durable Long-Term facts through this marker.",
       "Use this marker only to update or merge existing durable facts, or create a genuinely new durable fact.",
       "Emit fulfilled with plain English text inside the marker:",
-      "<UPDATE_L4_FACTS>",
+      "<UPDATE_LT_FACTS>",
       "Write concise English instruction. Update/merge: name exact F<number> IDs. Create: describe the new fact.",
-      "</UPDATE_L4_FACTS>"
+      "</UPDATE_LT_FACTS>"
     ],
     "close_tag": true
   }

@@ -6,7 +6,7 @@
   const storage = window.JinRuntime.storage;
   if (!storage) {
     throw new Error(
-      "JinRuntime.storage must be loaded before runtime-l4-memory.js"
+      "JinRuntime.storage must be loaded before runtime-lt-memory.js"
     );
   }
 
@@ -149,8 +149,8 @@
       }
 
       const legacy = pending
-        ? /^l4p_[a-z0-9_-]+$/i.test(text)
-        : /^l4_[a-z0-9_-]+$/i.test(text);
+        ? /^ltp_[a-z0-9_-]+$/i.test(text)
+        : /^lt_[a-z0-9_-]+$/i.test(text);
       if (text && !legacy) {
         return "";
       }
@@ -196,7 +196,7 @@
       const text = normalizeText(rawId);
       const id = normalizeFactId(text, false)
         || idMap.get(text)
-        || (/^l4_[a-z0-9_-]+$/i.test(text) ? allocate(text, false) : "");
+        || (/^lt_[a-z0-9_-]+$/i.test(text) ? allocate(text, false) : "");
       if (id && !deletedFactIds.includes(id)) deletedFactIds.push(id);
     });
 
@@ -214,8 +214,8 @@
           return normalizeFactId(rawId, true)
             || normalizeFactId(rawId, false)
             || idMap.get(rawId)
-            || (/^l4p_[a-z0-9_-]+$/i.test(rawId) ? allocate(rawId, true) : "")
-            || (/^l4_[a-z0-9_-]+$/i.test(rawId) ? allocate(rawId, false) : "");
+            || (/^ltp_[a-z0-9_-]+$/i.test(rawId) ? allocate(rawId, true) : "")
+            || (/^lt_[a-z0-9_-]+$/i.test(rawId) ? allocate(rawId, false) : "");
         })
         .filter(Boolean);
     }
@@ -302,12 +302,12 @@
     return normalized;
   }
 
-  function syncL4MemoryStateToAvatar() {
+  function syncLTMemoryStateToAvatar() {
     if (
       window.JinRuntime.avatar
-      && typeof window.JinRuntime.avatar.syncL4MemoryState === "function"
+      && typeof window.JinRuntime.avatar.syncLTMemoryState === "function"
     ) {
-      return window.JinRuntime.avatar.syncL4MemoryState();
+      return window.JinRuntime.avatar.syncLTMemoryState();
     }
 
     if (
@@ -466,7 +466,7 @@
 
   function buildStoreSyncPayload() {
     return {
-      type: "l4_memory_store_sync",
+      type: "lt_memory_store_sync",
       store: readStore(),
     };
   }
@@ -524,7 +524,7 @@
     ) {
       window.JinRuntime.runtime.renderRuntimeMemorySnapshot();
     }
-    syncL4MemoryStateToAvatar();
+    syncLTMemoryStateToAvatar();
 
     return true;
   }
@@ -595,7 +595,7 @@
     ) {
       window.JinRuntime.runtime.renderRuntimeMemorySnapshot();
     }
-    syncL4MemoryStateToAvatar();
+    syncLTMemoryStateToAvatar();
     return store;
   }
 
@@ -605,7 +605,7 @@
       return false;
     }
     const sent = sendIfOpen({
-      type: "l4_memory_delete_fact",
+      type: "lt_memory_delete_fact",
       fact_id: id,
     });
     if (sent && deleteFactLocally(id)) {
@@ -632,7 +632,7 @@
         : null;
 
     return sendIfOpen({
-      type: "l4_memory_restore_fact",
+      type: "lt_memory_restore_fact",
       fact: restoreMeta
         ? {
             ...normalized,
@@ -663,8 +663,8 @@
     requestFactRestore,
   };
 
-  window.JINRuntimeL4Memory = api;
-  window.JinRuntime.l4Memory = api;
+  window.JINRuntimeLTMemory = api;
+  window.JinRuntime.ltMemory = api;
   window.syncFactsMemoryToRuntime = syncFactsMemoryToRuntime;
   window.syncLongTermMemoryToRuntime = syncLongTermMemoryToRuntime;
 }());

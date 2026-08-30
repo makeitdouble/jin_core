@@ -16,7 +16,7 @@ class DelayedMemoryCitationClientContractTests(unittest.TestCase):
         self.assertIn("function getDelayedMemoryCitationRecords()", source)
         self.assertIn('"delayed",\n        `delayedMemory[${record.id}]`', source)
         self.assertIn('citationType: "delayed_memory_citation"', source)
-        self.assertIn('["runtime", "active", "delayed", "l4"]', source)
+        self.assertIn('["runtime", "active", "delayed", "lt"]', source)
         self.assertIn('match.sourceType === "delayed"', source)
         self.assertIn('? "delayed"', source)
 

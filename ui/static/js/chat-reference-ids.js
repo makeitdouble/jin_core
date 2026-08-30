@@ -129,20 +129,20 @@
   }
 
   function getLongTermFacts() {
-    const l4Memory =
+    const ltMemory =
       window.JinRuntime
-      && window.JinRuntime.l4Memory;
+      && window.JinRuntime.ltMemory;
 
-    if (!l4Memory) {
+    if (!ltMemory) {
       return [];
     }
 
     try {
-      if (typeof l4Memory.getFacts === "function") {
-        return l4Memory.getFacts() || [];
+      if (typeof ltMemory.getFacts === "function") {
+        return ltMemory.getFacts() || [];
       }
-      if (typeof l4Memory.getVisibleFacts === "function") {
-        return l4Memory.getVisibleFacts() || [];
+      if (typeof ltMemory.getVisibleFacts === "function") {
+        return ltMemory.getVisibleFacts() || [];
       }
     } catch (_error) {
       return [];
@@ -214,7 +214,7 @@
       if (!id || references.has(id)) return;
 
       references.set(id, {
-        kind: "l4",
+        kind: "lt",
         id,
         record: fact,
       });
@@ -343,7 +343,7 @@
         element.title = cleanPersistentFileName(reference.record) || reference.id;
       }
       bindImageHoverPreview(element, reference);
-    } else if (reference.kind === "l4") {
+    } else if (reference.kind === "lt") {
       element.title = buildLongTermFactTitle(reference.record) || reference.id.toUpperCase();
     }
 

@@ -35,14 +35,14 @@ ATTACHED_FILE_ID_RE = re.compile(
     r"\[\s*id\s*:\s*(?P<id>[a-zA-Z0-9_.-]+)\s*\]",
     re.IGNORECASE,
 )
-L4_FACT_ID_RE = re.compile(
+LT_FACT_ID_RE = re.compile(
     r"(?<![a-zA-Z0-9_])F(?P<number>\d+)(?![a-zA-Z0-9_])",
     re.IGNORECASE,
 )
-UPDATE_L4_FACTS_BLOCK_RE = re.compile(
-    r"^[ \t]*<UPDATE_L4_FACTS(?:\s+[^>]*)?>[ \t]*\r?\n"
+UPDATE_LT_FACTS_BLOCK_RE = re.compile(
+    r"^[ \t]*<UPDATE_LT_FACTS(?:\s+[^>]*)?>[ \t]*\r?\n"
     r"(?P<body>[\s\S]*?)"
-    r"^[ \t]*</UPDATE_L4_FACTS>[ \t]*[\"'`]*$",
+    r"^[ \t]*</UPDATE_LT_FACTS>[ \t]*[\"'`]*$",
     re.IGNORECASE | re.MULTILINE,
 )
 RESTORED_DIALOG_SOURCE_RE = re.compile(
@@ -58,7 +58,7 @@ ACTION_LABELS = {
     "UNLOAD_DELAYED_MEMORY": "Unloaded delayed memory",
     "SAVE_ACTIVE_MEMORY": "Saved active memory",
     "DELETE_ACTIVE_MEMORY": "Deleted active memory",
-    "UPDATE_L4_FACTS": "Updated L4 facts",
+    "UPDATE_LT_FACTS": "Updated L-T facts",
     "ATTACH_FILE": "Attached file",
     "DETACH_FILE": "Detached file",
     "JIN_COLOR": "JIN color",
@@ -528,12 +528,12 @@ def _build_restore_reasoning_dump(
     )
 
 
-def _extract_l4_fact_ids(*texts: str) -> list[str]:
+def _extract_lt_fact_ids(*texts: str) -> list[str]:
     ids = []
     seen = set()
 
     for text in texts:
-        for match in L4_FACT_ID_RE.finditer(str(text or "")):
+        for match in LT_FACT_ID_RE.finditer(str(text or "")):
             fact_id = f"F{match.group('number')}".upper()
             if fact_id in seen:
                 continue
@@ -707,8 +707,8 @@ def _tool_result_kind(name: str) -> str:
         "ATTACH_FILE",
     }:
         return "files"
-    if action_name == "UPDATE_L4_FACTS":
-        return "l4"
+    if action_name == "UPDATE_LT_FACTS":
+        return "lt"
     return ""
 
 
@@ -757,7 +757,7 @@ def _parse_restore_tool_results(
             continue
 
         result = body
-        if kind == "l4":
+        if kind == "lt":
             try:
                 parsed_result = json.loads(body)
             except (TypeError, ValueError, json.JSONDecodeError):
@@ -915,7 +915,7 @@ def _build_runtime_event_session_actions(entries: list[dict]) -> list[dict]:
             items.append(item)
             continue
 
-        if action_name != "UPDATE_L4_FACTS":
+        if action_name != "UPDATE_LT_FACTS":
             continue
 
         raw_action = payload.get("session_action")
@@ -923,9 +923,9 @@ def _build_runtime_event_session_actions(entries: list[dict]) -> list[dict]:
         message = " ".join(str(payload.get("message", "") or "").split()).strip()
         text = str(raw_action.get("text", "") or "").strip()
         if not text:
-            text = "UPDATE_L4_FACTS" + (f": {message}" if message else "")
+            text = "UPDATE_LT_FACTS" + (f": {message}" if message else "")
 
-        part = {"text": "UPDATE_L4_FACTS"}
+        part = {"text": "UPDATE_LT_FACTS"}
         if message:
             part["message"] = message
         action_id = str(payload.get("id", "") or "").strip()
@@ -1037,14 +1037,14 @@ def _build_runtime_event_tool_results(entries: list[dict]) -> list[dict]:
         if not isinstance(payload, dict):
             continue
         kind = str(payload.get("kind", "") or "").strip().casefold()
-        if kind != "l4":
+        if kind != "lt":
             continue
         result = payload.get("result")
         if not isinstance(result, dict):
             continue
 
         item = {
-            "kind": "l4",
+            "kind": "lt",
             "result": result,
             "created_at": _runtime_event_created_at(entry, payload),
         }
@@ -1056,7 +1056,7 @@ def _build_runtime_event_tool_results(entries: list[dict]) -> list[dict]:
     return items[-20:]
 
 
-def _build_reasoning_l4_fallback_action(
+def _build_reasoning_lt_fallback_action(
     entries: list[dict],
     reasoning_by_turn_id: dict[str, str],
 ) -> dict | None:
@@ -1066,7 +1066,7 @@ def _build_reasoning_l4_fallback_action(
             continue
         turn_id = str(entry.get("turn_id", "") or "").strip()
         reasoning = str(reasoning_by_turn_id.get(turn_id, "") or "")
-        matches = list(UPDATE_L4_FACTS_BLOCK_RE.finditer(reasoning))
+        matches = list(UPDATE_LT_FACTS_BLOCK_RE.finditer(reasoning))
         if not matches:
             continue
 
@@ -1085,10 +1085,10 @@ def _build_reasoning_l4_fallback_action(
             continue
 
         return {
-            "text": f"UPDATE_L4_FACTS: {message}",
+            "text": f"UPDATE_LT_FACTS: {message}",
             "created_at": _entry_timestamp(entry),
             "parts": [{
-                "text": "UPDATE_L4_FACTS",
+                "text": "UPDATE_LT_FACTS",
                 "message": message,
             }],
         }
@@ -1438,7 +1438,7 @@ def build_archived_session_restore_payload(
         visible_entries,
         reasoning_by_turn_id,
     )
-    restore_l4_fact_ids = _extract_l4_fact_ids(
+    restore_lt_fact_ids = _extract_lt_fact_ids(
         latest_reasoning,
         latest_jin_text,
     )
@@ -1473,17 +1473,17 @@ def build_archived_session_restore_payload(
         )
         + _build_runtime_event_session_actions(entries)
     )[-200:]
-    runtime_has_l4_action = any(
+    runtime_has_lt_action = any(
         isinstance(item, dict)
         and any(
             isinstance(part, dict)
             and str(part.get("text", "") or "").strip().upper()
-            == "UPDATE_L4_FACTS"
+            == "UPDATE_LT_FACTS"
             for part in item.get("parts", []) or []
         )
         for item in runtime_session_actions
     )
-    if runtime_has_l4_action:
+    if runtime_has_lt_action:
         session_actions = [
             item
             for item in session_actions
@@ -1492,7 +1492,7 @@ def build_archived_session_restore_payload(
                 and any(
                     isinstance(part, dict)
                     and str(part.get("text", "") or "").strip()
-                    == ACTION_LABELS["UPDATE_L4_FACTS"]
+                    == ACTION_LABELS["UPDATE_LT_FACTS"]
                     for part in item.get("parts", []) or []
                 )
             )
@@ -1504,17 +1504,17 @@ def build_archived_session_restore_payload(
         and any(
             isinstance(part, dict)
             and str(part.get("text", "") or "").strip()
-            in {"UPDATE_L4_FACTS", ACTION_LABELS["UPDATE_L4_FACTS"]}
+            in {"UPDATE_LT_FACTS", ACTION_LABELS["UPDATE_LT_FACTS"]}
             for part in item.get("parts", []) or []
         )
         for item in session_actions
     ):
-        fallback_l4_action = _build_reasoning_l4_fallback_action(
+        fallback_lt_action = _build_reasoning_lt_fallback_action(
             visible_entries,
             reasoning_by_turn_id,
         )
-        if fallback_l4_action is not None:
-            session_actions.append(fallback_l4_action)
+        if fallback_lt_action is not None:
+            session_actions.append(fallback_lt_action)
     session_actions = session_actions[-200:]
 
     tool_results = _merge_restore_tool_results(
@@ -1580,7 +1580,7 @@ def build_archived_session_restore_payload(
         ),
         "previous_reasoning": latest_reasoning,
         "restore_reasoning_dump": restore_reasoning_dump,
-        "restore_l4_fact_ids": restore_l4_fact_ids,
+        "restore_lt_fact_ids": restore_lt_fact_ids,
         "restore_delayed_memory_metadata": restore_delayed_memory_metadata,
         "restore_attached_file_metadata": restore_attached_file_metadata,
         "runtime_memory": previous_runtime_state,

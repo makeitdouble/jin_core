@@ -15,23 +15,23 @@ INDEX_HTML = ROOT / "ui" / "templates" / "index.html"
 
 
 class MemoryCitationLayersClientContractTests(unittest.TestCase):
-    def test_reasoning_citations_cover_runtime_active_and_l4_layers(self):
+    def test_reasoning_citations_cover_runtime_active_and_lt_layers(self):
         source = THINK_CITATIONS_JS.read_text(encoding="utf-8")
         worker = THINK_WORKER_JS.read_text(encoding="utf-8")
 
         self.assertIn("function buildActiveMemoryCitationFragments()", source)
         self.assertIn('sourceType: "active"', source)
         self.assertIn('citationType: "active_memory_citation"', source)
-        self.assertIn("function buildL4CitationFragments()", source)
-        self.assertIn('sourceType: "l4"', source)
-        self.assertIn('citationType: "l4_citation"', source)
+        self.assertIn("function buildLTCitationFragments()", source)
+        self.assertIn('sourceType: "lt"', source)
+        self.assertIn('citationType: "lt_citation"', source)
         self.assertIn("...buildActiveMemoryCitationFragments(),", source)
-        self.assertNotIn("...buildL4CitationFragments(),", source)
-        self.assertIn('addLine("l4",', source)
+        self.assertNotIn("...buildLTCitationFragments(),", source)
+        self.assertIn('addLine("lt",', source)
         self.assertIn('match.sourceType === "active"', source)
-        self.assertIn('match.sourceType === "l4"', source)
+        self.assertIn('match.sourceType === "lt"', source)
         self.assertIn('match.sourceType === "active"', worker)
-        self.assertIn('match.sourceType === "l4"', worker)
+        self.assertIn('match.sourceType === "lt"', worker)
 
     def test_note_key_is_not_an_exact_citation_alias_in_any_memory_layer(self):
         source = THINK_CITATIONS_JS.read_text(encoding="utf-8")
@@ -45,12 +45,12 @@ class MemoryCitationLayersClientContractTests(unittest.TestCase):
             source,
         )
 
-    def test_active_and_l4_reasoning_citation_colors_are_layer_specific(self):
+    def test_active_and_lt_reasoning_citation_colors_are_layer_specific(self):
         css = CHAT_CSS.read_text(encoding="utf-8")
 
         self.assertIn(".think-citation-active.exact", css)
         self.assertIn("rgba(251, 191, 106, 0.96)", css)
-        self.assertIn(".think-citation-l4.exact", css)
+        self.assertIn(".think-citation-lt.exact", css)
         self.assertIn("rgba(129, 230, 217, 0.98)", css)
 
     def test_reasoning_citation_reveal_is_not_hover_gated(self):
@@ -138,10 +138,10 @@ class MemoryCitationLayersClientContractTests(unittest.TestCase):
         self.assertIn(".runtime-memory-context-loaded-hit {", css)
         self.assertIn(".runtime-memory-citation-hit .runtime-memory-key", css)
 
-    def test_win95_l4_fact_report_links_are_blue_and_bold(self):
+    def test_win95_lt_fact_report_links_are_blue_and_bold(self):
         css = WIN95_CSS.read_text(encoding="utf-8")
 
-        self.assertIn(".runtime-memory-l4-row .runtime-memory-fact-report-link", css)
+        self.assertIn(".runtime-memory-lt-row .runtime-memory-fact-report-link", css)
         self.assertIn("color: #0000ee !important;", css)
         self.assertIn("font-weight: 700 !important;", css)
 
@@ -152,7 +152,7 @@ class MemoryCitationLayersClientContractTests(unittest.TestCase):
         self.assertIn("/static/css/theme-win95.css?v=", source)
         self.assertIn("/static/js/runtime/runtime-memory-view.js?v=context-card-chevronless-1", source)
         self.assertIn("lazy-rows=6", source)
-        self.assertIn("l4-priority-bubble=1", source)
+        self.assertIn("lt-priority-bubble=1", source)
         self.assertIn("/static/js/runtime/runtime-avatar.js?v=", source)
         self.assertIn("/static/js/think-citations.js?v=think-citations-8", source)
         self.assertIn("note-key-skip=1", source)

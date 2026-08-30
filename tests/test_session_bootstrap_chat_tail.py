@@ -64,7 +64,7 @@ class SessionBootstrapChatTailTests(unittest.TestCase):
             runtime_session_restore_delayed_memory_metadata=[],
             runtime_session_restore_attached_file_metadata=[],
             runtime_session_restore_reasoning_dump="",
-            runtime_session_restore_l4_fact_ids=[],
+            runtime_session_restore_lt_fact_ids=[],
             runtime_session_restore_pending_attached_file_ids=[],
             runtime_archived_session_id="",
             runtime_session_restore_priming=False,

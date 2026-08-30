@@ -11,7 +11,7 @@ from runtime.stream import RuntimeStream
 from runtime.client import LMStudioAPIError
 from runtime.registry import runtime_state
 from utils.stream_validator import (
-    INCORRECT_L4_FACT_IDS_HALLUCINATION_REASON,
+    INCORRECT_LT_FACT_IDS_HALLUCINATION_REASON,
     MAX_REPEAT_SENTENCES,
     SAME_ANSWER_OUTPUT_REASON,
 )
@@ -231,13 +231,13 @@ async def fake_thinking_sentence_loop_generator():
         }
 
 
-async def fake_invalid_l4_fact_ids_thinking_generator():
+async def fake_invalid_lt_fact_ids_thinking_generator():
 
     for fact_id in range(257, 262):
         yield {
             "type": "thinking",
             "content": (
-                f"* F{fact_id}: fabricated L4 fact.\n"
+                f"* F{fact_id}: fabricated L-T fact.\n"
             ),
         }
 
@@ -1119,7 +1119,7 @@ class RuntimeStreamTokenTests(unittest.IsolatedAsyncioTestCase):
         )
 
 
-    async def test_thinking_invalid_l4_fact_id_streak_interrupts_and_arms_followup(self):
+    async def test_thinking_invalid_lt_fact_id_streak_interrupts_and_arms_followup(self):
 
         runtime_id = settings.SERVICE_MODEL_UID
         active_stream = FakeActiveStream()
@@ -1148,10 +1148,10 @@ class RuntimeStreamTokenTests(unittest.IsolatedAsyncioTestCase):
                 ],
             },
             runtime_session_action_history=[],
-            runtime_current_turn_id="turn-l4-hallucination",
+            runtime_current_turn_id="turn-lt-hallucination",
             runtime_turn_started_at=0,
             runtime_action_sequence_turn_ids=[
-                "turn-l4-hallucination",
+                "turn-lt-hallucination",
             ],
         )
 
@@ -1173,7 +1173,7 @@ class RuntimeStreamTokenTests(unittest.IsolatedAsyncioTestCase):
         )
 
         result = await stream.run(
-            fake_invalid_l4_fact_ids_thinking_generator()
+            fake_invalid_lt_fact_ids_thinking_generator()
         )
 
         self.assertIsNone(
@@ -1187,7 +1187,7 @@ class RuntimeStreamTokenTests(unittest.IsolatedAsyncioTestCase):
         )
         self.assertEqual(
             context.runtime_turn_interruption_reason,
-            INCORRECT_L4_FACT_IDS_HALLUCINATION_REASON,
+            INCORRECT_LT_FACT_IDS_HALLUCINATION_REASON,
         )
         self.assertEqual(
             context.runtime_turn_interruption_quote,
@@ -1200,7 +1200,7 @@ class RuntimeStreamTokenTests(unittest.IsolatedAsyncioTestCase):
             context.runtime_session_action_history[-1]["text"],
             (
                 'stuck in a reasoning loop reason '
-                '"incorrect L4 facts ids hallucination"'
+                '"incorrect L-T facts ids hallucination"'
             ),
         )
 
@@ -1212,7 +1212,7 @@ class RuntimeStreamTokenTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn(
             (
                 "<REASONING_RECOVERY_REASON>\n"
-                "incorrect L4 facts ids hallucination\n"
+                "incorrect L-T facts ids hallucination\n"
                 "</REASONING_RECOVERY_REASON>"
             ),
             followup_prompt,

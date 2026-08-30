@@ -67,7 +67,7 @@ class DelayedMemoryHighlightContractTests(unittest.TestCase):
             'getMemorySignalColors("delayed", overallColor)',
             avatar,
         )
-    def test_direct_dm_links_all_own_l4_facts_but_secondary_does_not(self):
+    def test_direct_dm_links_all_own_lt_facts_but_secondary_does_not(self):
         avatar = AVATAR_JS.read_text(encoding="utf-8")
         view = MEMORY_VIEW_JS.read_text(encoding="utf-8")
 
@@ -123,10 +123,10 @@ class DelayedMemoryHighlightContractTests(unittest.TestCase):
         self.assertIn("brightness(1.46)", tier1.group(1))
         self.assertNotIn("brightness(2.20)", tier1.group(1))
 
-    def test_dm_to_l4_relation_reuses_soft_tier(self):
+    def test_dm_to_lt_relation_reuses_soft_tier(self):
         css = AVATAR_CSS.read_text(encoding="utf-8")
         match = re.search(
-            r"\.jin-avatar-memory-dash-l4\.is-delayed-memory-linked-hit\s*\{([^}]*)\}",
+            r"\.jin-avatar-memory-dash-lt\.is-delayed-memory-linked-hit\s*\{([^}]*)\}",
             css,
             re.S,
         )

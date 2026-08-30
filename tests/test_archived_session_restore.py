@@ -683,7 +683,7 @@ open_question: continue
         latest_body = latest_block.split("<REASONING ", 1)[1].split(">\n", 1)[1].rstrip("\n")
         self.assertLessEqual(len(latest_body), SESSION_RESTORE_REASONING_CHAR_LIMIT)
         self.assertEqual(
-            payload["restore_l4_fact_ids"],
+            payload["restore_lt_fact_ids"],
             ["F99", "F42"],
         )
         self.assertEqual(
@@ -714,7 +714,7 @@ open_question: continue
             "recent_turns": [{"user": "old user", "jin": "old jin"}],
             "previous_reasoning": "latest raw reasoning",
             "restore_reasoning_dump": "<RESTORED_SESSION_REASONING_DUMP>raw</RESTORED_SESSION_REASONING_DUMP>",
-            "restore_l4_fact_ids": ["F7"],
+            "restore_lt_fact_ids": ["F7"],
             "restore_delayed_memory_metadata": [{"id": "abc123", "title": "Old report"}],
             "restore_attached_file_metadata": [{"id": "file1", "title": "old.txt"}],
             "session_actions": [],
@@ -748,7 +748,7 @@ open_question: continue
         self.assertEqual(context.runtime_archived_session_id, "archive-session")
         self.assertIn("old flow", context.runtime_restored_session_dialog)
         self.assertIn("raw", context.runtime_session_restore_reasoning_dump)
-        self.assertEqual(context.runtime_session_restore_l4_fact_ids, ["F7"])
+        self.assertEqual(context.runtime_session_restore_lt_fact_ids, ["F7"])
         self.assertIn("browser L1 checkpoint", context.runtime_memory)
         self.assertEqual(
             context.runtime_session_restore_pending_loaded_memory_ids,
@@ -1027,7 +1027,7 @@ open_question: continue
             "file001",
         ]
         context.runtime_session_restore_reasoning_dump = "reasoning"
-        context.runtime_session_restore_l4_fact_ids = ["F7"]
+        context.runtime_session_restore_lt_fact_ids = ["F7"]
         context.runtime_session_restore_delayed_memory_metadata = [
             {"id": "abc123", "title": "Old report"},
         ]
@@ -1092,7 +1092,7 @@ open_question: continue
             [],
         )
         self.assertEqual(context.runtime_session_restore_reasoning_dump, "")
-        self.assertEqual(context.runtime_session_restore_l4_fact_ids, [])
+        self.assertEqual(context.runtime_session_restore_lt_fact_ids, [])
         self.assertEqual(
             context.runtime_session_restore_delayed_memory_metadata,
             [],
@@ -1116,7 +1116,7 @@ open_question: continue
         context.runtime_session_restore_reasoning_dump = (
             "<RESTORED_SESSION_REASONING_DUMP>RAW REASONING</RESTORED_SESSION_REASONING_DUMP>"
         )
-        context.runtime_session_restore_l4_fact_ids = ["F42"]
+        context.runtime_session_restore_lt_fact_ids = ["F42"]
         context.runtime_session_restore_delayed_memory_metadata = [
             {"id": "abc123", "title": "Old report"},
         ]
@@ -1134,9 +1134,9 @@ open_question: continue
         context.runtime_attached_file_ids = ["file1"]
 
         with patch(
-            "runtime.L4_memory.build_runtime_l4_memory_context",
+            "runtime.LT_memory.build_runtime_lt_memory_context",
             return_value="<LONG_TERM_MEMORY>ONLY F42</LONG_TERM_MEMORY>",
-        ) as l4_builder:
+        ) as lt_builder:
             prompt = build_brain_context(
                 context=context,
                 runtime_actions={"CAN_WEB_SEARCH": True},
@@ -1162,7 +1162,7 @@ open_question: continue
         self.assertNotIn("STALE CHECKPOINT", prompt)
         self.assertNotIn("STALE OLD QUESTION", prompt)
         self.assertIn("ONLY F42", prompt)
-        l4_builder.assert_called_once_with(
+        lt_builder.assert_called_once_with(
             context=context,
             fact_ids=["F42"],
             user_input="",

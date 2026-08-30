@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 
-L4_EXTRACTION_SYSTEM_PROMPT = """
+LT_EXTRACTION_SYSTEM_PROMPT = """
 You extract candidates for JIN's cross-session long-term memory.
 
 The input contains changed Facts Memory fields. They may be compressed,
@@ -63,7 +63,7 @@ If nothing deserves always-on cross-session memory, return:
 """.strip()
 
 
-L4_MERGE_SYSTEM_PROMPT = """
+LT_MERGE_SYSTEM_PROMPT = """
 You consolidate pending candidates into JIN's current cross-session long-term
 memory.
 
@@ -79,8 +79,8 @@ candidate overlaps a protected fact, ignore that pending candidate instead of
 rewriting the protected fact or creating a duplicate.
 
 ID convention:
-- F<number> is a committed L4 fact (for example F1, F27, F255).
-- PF<number> is a pending L4 fact (for example PF1, PF8, PF42).
+- F<number> is a committed L-T fact (for example F1, F27, F255).
+- PF<number> is a pending L-T fact (for example PF1, PF8, PF42).
 - Copy these short IDs exactly from the input. Never invent, transform, expand,
   hash, or reinterpret an ID.
 
@@ -148,12 +148,12 @@ for the same pending_id. Do not add fields outside this contract.
 """.strip()
 
 
-L4_JIN_NOTE_SYSTEM_PROMPT = """
+LT_JIN_NOTE_SYSTEM_PROMPT = """
 You maintain JIN's current cross-session long-term memory from a focused note
 produced by JIN after live conversation with the user.
 
 The input contains:
-- the complete current L4 fact list;
+- the complete current L-T fact list;
 - selected_fact_ids: existing facts named by JIN for update or merge work; this
   list may be empty when the note only asks for a creation;
 - every selected fact ID uses F<number>; F means committed fact, while PF means
@@ -187,15 +187,15 @@ Rules:
 - Different wording or keys do not make a fact different.
 - A person may validly have several compatible roles; do not turn overlap into a
   contradiction.
-- Harmless repetition between L4 and a loaded report does not require an L4
+- Harmless repetition between L-T and a loaded report does not require an L-T
   change.
 - Keep separate durable facts separate when they express independent ideas.
 - Merge selected facts only when one canonical fact can represent their complete
   supported meaning without loss.
-- If the note is insufficient, irrelevant to L4, or does not justify a change,
+- If the note is insufficient, irrelevant to L-T, or does not justify a change,
   keep the selected facts unchanged.
 - Do not create a replacement whose key duplicates an unselected fact. If the
-  intended target is an existing L4 fact, JIN should have included its ID.
+  intended target is an existing L-T fact, JIN should have included its ID.
 - For update and merge, replacement_facts must contain at least one fact.
 
 Return JSON only in one of these forms:

@@ -31,7 +31,7 @@
     }
 
     // Keep the full normalized tuple instead of a lossy short hash. This is
-    // still a compact identity token in the UI, but cannot collapse two L4
+    // still a compact identity token in the UI, but cannot collapse two L-T
     // records merely because they share the same human-readable key.
     return JSON.stringify(parts);
   }

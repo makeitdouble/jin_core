@@ -116,7 +116,7 @@ BRAIN_IMAGE_INPUT_ENABLED = False
 # OPTIONAL SERVICE MODEL
 # ---------------------------------------------------------
 
-# Leave SERVICE_API_BASE empty to run L1/L4 and other background model work
+# Leave SERVICE_API_BASE empty to run L1/L-T and other background model work
 # through the Brain endpoint. Set it only when a dedicated Service node exists.
 SERVICE_API_BASE = ""
 
@@ -131,13 +131,13 @@ SERVICE_CONTEXT_WINDOW = 0
 SERVICE_TEMPERATURE = 0.1
 
 # ---------------------------------------------------------
-# L4 LONG-TERM MEMORY
+# L-T LONG-TERM MEMORY
 # ---------------------------------------------------------
 
-L4_MEMORY_ENABLED = True
-# Server-side L4 cadence while at least one tab is connected. With every tab
-# closed, the backend keeps running L4 at exactly one third of this interval.
-L4_IDLE_SECONDS = 15
+LT_MEMORY_ENABLED = True
+# Server-side L-T cadence while at least one tab is connected. With every tab
+# closed, the backend keeps running L-T at exactly one third of this interval.
+LT_IDLE_SECONDS = 15
 
 # ---------------------------------------------------------
 # WEB_SEARCH

@@ -9,7 +9,7 @@ sys.path.insert(
 import utils.stream_validator as stream_validator_module
 
 from utils.stream_validator import (
-    INCORRECT_L4_FACT_IDS_HALLUCINATION_REASON,
+    INCORRECT_LT_FACT_IDS_HALLUCINATION_REASON,
     MAX_REPEAT_SYMBOLIC_MOTIFS,
     MAX_REPEAT_SENTENCES,
     SAME_ANSWER_OUTPUT_REASON,
@@ -579,9 +579,9 @@ def test_stream_validator_does_not_split_fact_ids_at_provider_chunk_edges():
     assert validator.last_failure_loop_preview == ""
 
 
-def test_stream_validator_stops_after_five_consecutive_nonexistent_l4_fact_ids():
+def test_stream_validator_stops_after_five_consecutive_nonexistent_lt_fact_ids():
     validator = StreamValidator(
-        valid_l4_fact_ids={
+        valid_lt_fact_ids={
             "F1",
             "F190",
         }
@@ -607,16 +607,16 @@ def test_stream_validator_stops_after_five_consecutive_nonexistent_l4_fact_ids()
         assert not is_valid
 
     assert validator.last_failure_reason == (
-        INCORRECT_L4_FACT_IDS_HALLUCINATION_REASON
+        INCORRECT_LT_FACT_IDS_HALLUCINATION_REASON
     )
     assert validator.last_failure_loop_preview == (
         "F257, F258, F259, F260, F261"
     )
 
 
-def test_stream_validator_l4_fact_id_guard_handles_provider_chunk_splits():
+def test_stream_validator_lt_fact_id_guard_handles_provider_chunk_splits():
     validator = StreamValidator(
-        valid_l4_fact_ids={
+        valid_lt_fact_ids={
             "F1",
         }
     )
@@ -644,9 +644,9 @@ def test_stream_validator_l4_fact_id_guard_handles_provider_chunk_splits():
     )
 
 
-def test_stream_validator_existing_l4_fact_resets_invalid_id_streak():
+def test_stream_validator_existing_lt_fact_resets_invalid_id_streak():
     validator = StreamValidator(
-        valid_l4_fact_ids={
+        valid_lt_fact_ids={
             "F190",
         }
     )
@@ -672,7 +672,7 @@ def test_stream_validator_existing_l4_fact_resets_invalid_id_streak():
     )
 
 
-def test_stream_validator_l4_fact_id_guard_is_disabled_without_initialized_store():
+def test_stream_validator_lt_fact_id_guard_is_disabled_without_initialized_store():
     validator = StreamValidator()
 
     for fact_id in range(257, 267):

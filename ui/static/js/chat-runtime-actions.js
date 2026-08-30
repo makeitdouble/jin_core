@@ -270,8 +270,8 @@ const runtimeActionIconDefinitions = {
     tone: "size",
     svg: '<path d="M4 8V4h4"></path><path d="M20 8V4h-4"></path><path d="M4 16v4h4"></path><path d="M20 16v4h-4"></path>',
   },
-  update_l4_facts: {
-    title: "update L4 facts",
+  update_lt_facts: {
+    title: "update L-T facts",
     tone: "update",
     svg: '<ellipse cx="12" cy="6" rx="6" ry="3"></ellipse><path d="M6 6v6c0 1.7 2.7 3 6 3s6-1.3 6-3V6"></path><path d="M6 12v3c0 1.7 2.7 3 6 3 1.3 0 2.4-.2 3.4-.6"></path><path d="m16 16 2 2 3-4"></path>',
   },

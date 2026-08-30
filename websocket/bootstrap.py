@@ -76,7 +76,7 @@ BOOTSTRAP_TOOL_RESULT_KINDS = {
     "deep_search",
     "delayed_memory",
     "files",
-    "l4",
+    "lt",
     "search",
 }
 
@@ -185,18 +185,18 @@ def apply_archived_session_continuation_state(
         restore_reasoning_dump
     )
 
-    restore_l4_fact_ids = []
+    restore_lt_fact_ids = []
     for fact_id in message_data.get(
-        "restore_l4_fact_ids",
+        "restore_lt_fact_ids",
         [],
-    ) if isinstance(message_data.get("restore_l4_fact_ids", []), list) else []:
+    ) if isinstance(message_data.get("restore_lt_fact_ids", []), list) else []:
         normalized = clean_bootstrap_memory(
             fact_id,
             limit=80,
         ).upper()
-        if normalized and normalized not in restore_l4_fact_ids:
-            restore_l4_fact_ids.append(normalized)
-    context.runtime_session_restore_l4_fact_ids = restore_l4_fact_ids
+        if normalized and normalized not in restore_lt_fact_ids:
+            restore_lt_fact_ids.append(normalized)
+    context.runtime_session_restore_lt_fact_ids = restore_lt_fact_ids
 
     def _clean_restore_metadata(field_name: str) -> list[dict]:
         source = message_data.get(field_name, [])
@@ -652,11 +652,11 @@ def apply_loaded_delayed_memory_ids(
     context.runtime_loaded_delayed_memory = loaded_reports
     context.runtime_loaded_delayed_memory_ids = loaded_ids
 
-    from runtime.L4_memory import (
-        refresh_runtime_l4_archived_fact_ids,
+    from runtime.LT_memory import (
+        refresh_runtime_lt_archived_fact_ids,
     )
 
-    refresh_runtime_l4_archived_fact_ids(
+    refresh_runtime_lt_archived_fact_ids(
         context
     )
 
@@ -724,11 +724,11 @@ def stage_session_restore_loaded_delayed_memory_ids(
     context.runtime_loaded_delayed_memory = {}
     context.runtime_loaded_delayed_memory_ids = []
 
-    from runtime.L4_memory import (
-        refresh_runtime_l4_archived_fact_ids,
+    from runtime.LT_memory import (
+        refresh_runtime_lt_archived_fact_ids,
     )
 
-    refresh_runtime_l4_archived_fact_ids(
+    refresh_runtime_lt_archived_fact_ids(
         context
     )
 
@@ -871,11 +871,11 @@ def apply_delayed_memory_reports(
             not in deleted_report_id_set
         ]
 
-    from runtime.L4_memory import (
-        refresh_runtime_l4_archived_fact_ids,
+    from runtime.LT_memory import (
+        refresh_runtime_lt_archived_fact_ids,
     )
 
-    refresh_runtime_l4_archived_fact_ids(
+    refresh_runtime_lt_archived_fact_ids(
         context
     )
 
@@ -902,11 +902,11 @@ def hydrate_delayed_memory_reports_from_files(
         file_reports,
     )
 
-    from runtime.L4_memory import (
-        refresh_runtime_l4_archived_fact_ids,
+    from runtime.LT_memory import (
+        refresh_runtime_lt_archived_fact_ids,
     )
 
-    refresh_runtime_l4_archived_fact_ids(
+    refresh_runtime_lt_archived_fact_ids(
         context
     )
 
@@ -2660,7 +2660,7 @@ def enrich_session_bootstrap_from_archive(
             "recent_turns",
             "previous_reasoning",
             "restore_reasoning_dump",
-            "restore_l4_fact_ids",
+            "restore_lt_fact_ids",
             "runtime_turn_counter",
             "turn_number",
             "user_message_count",
@@ -2779,8 +2779,8 @@ def enrich_session_bootstrap_from_archive(
             enriched[field] = value
 
     # The browser checkpoint is authoritative for ordinary tool results, but
-    # an UPDATE_L4_FACTS response can finish after that checkpoint was written.
-    # Replay only those newer append-only L4 results. A CLEAN_TOOL_RESULTS
+    # an UPDATE_LT_FACTS response can finish after that checkpoint was written.
+    # Replay only those newer append-only L-T results. A CLEAN_TOOL_RESULTS
     # timestamp remains a hard lower bound so cleared results never resurrect.
     browser_tool_results = message_data.get("tool_results")
     if isinstance(browser_tool_results, list):
@@ -2794,11 +2794,11 @@ def enrich_session_bootstrap_from_archive(
         )
         archived_tool_results = archived.get("tool_results", [])
         if tool_result_cutoff > 0 and isinstance(archived_tool_results, list):
-            late_l4_results = []
+            late_lt_results = []
             for item in archived_tool_results:
                 if not isinstance(item, dict):
                     continue
-                if str(item.get("kind", "") or "").strip().casefold() != "l4":
+                if str(item.get("kind", "") or "").strip().casefold() != "lt":
                     continue
                 try:
                     created_at = float(item.get("created_at", 0) or 0)
@@ -2806,9 +2806,9 @@ def enrich_session_bootstrap_from_archive(
                     created_at = 0.0
                 if created_at <= tool_result_cutoff:
                     continue
-                late_l4_results.append(item)
+                late_lt_results.append(item)
 
-            if late_l4_results:
+            if late_lt_results:
                 merged_tool_results = list(browser_tool_results)
                 keyed_indexes = {}
                 for index, item in enumerate(merged_tool_results):
@@ -2819,9 +2819,9 @@ def enrich_session_bootstrap_from_archive(
                     if kind and result_id:
                         keyed_indexes[(kind, result_id)] = index
 
-                for item in late_l4_results:
+                for item in late_lt_results:
                     result_id = str(item.get("id", "") or "").strip()
-                    key = ("l4", result_id) if result_id else None
+                    key = ("lt", result_id) if result_id else None
                     if key is not None and key in keyed_indexes:
                         merged_tool_results[keyed_indexes[key]] = item
                     else:
@@ -3231,11 +3231,11 @@ async def initialize_connection(
         context
     )
 
-    from runtime.L4_memory import (
-        emit_l4_memory_update,
+    from runtime.LT_memory import (
+        emit_lt_memory_update,
     )
 
-    await emit_l4_memory_update(
+    await emit_lt_memory_update(
         context,
         change={
             "source": "file_bootstrap",

@@ -15,9 +15,9 @@ MEMORY_CSS = ROOT / "ui" / "static" / "css" / "runtime-memory.css"
 INDEX_HTML = ROOT / "ui" / "templates" / "index.html"
 
 
-class L4HoverCardClientContractTests(unittest.TestCase):
+class LTHoverCardClientContractTests(unittest.TestCase):
 
-    def test_l4_rows_use_custom_hover_card_instead_of_native_title(self):
+    def test_lt_rows_use_custom_hover_card_instead_of_native_title(self):
         source = MEMORY_VIEW.read_text(encoding="utf-8")
 
         self.assertIn(
@@ -30,7 +30,7 @@ class L4HoverCardClientContractTests(unittest.TestCase):
         )
         self.assertIn('row.removeAttribute("title");', source)
         self.assertIn('card.setAttribute("role", "tooltip");', source)
-        self.assertNotIn("runtime-memory-l4-hover-icon", source)
+        self.assertNotIn("runtime-memory-lt-hover-icon", source)
 
     def test_hover_card_reads_the_same_value_and_metadata_used_by_old_title(self):
         source = MEMORY_VIEW.read_text(encoding="utf-8")
@@ -53,14 +53,14 @@ class L4HoverCardClientContractTests(unittest.TestCase):
             source,
         )
         self.assertIn(
-            '"--runtime-memory-l4-hover-arrow-y"',
+            '"--runtime-memory-lt-hover-arrow-y"',
             source,
         )
-        self.assertIn(".runtime-memory-l4-hover-card {", css)
+        self.assertIn(".runtime-memory-lt-hover-card {", css)
         self.assertIn("position: fixed;", css)
         self.assertIn("pointer-events: none;", css)
-        self.assertIn(".runtime-memory-l4-hover-card::before", css)
-        self.assertNotIn(".runtime-memory-l4-hover-icon", css)
+        self.assertIn(".runtime-memory-lt-hover-card::before", css)
+        self.assertNotIn(".runtime-memory-lt-hover-icon", css)
 
     def test_scroll_retargets_hover_card_under_stationary_pointer(self):
         source = MEMORY_VIEW.read_text(encoding="utf-8")
@@ -86,8 +86,8 @@ class L4HoverCardClientContractTests(unittest.TestCase):
     def test_hover_card_assets_are_cache_busted(self):
         source = INDEX_HTML.read_text(encoding="utf-8")
 
-        self.assertEqual(source.count("l4-hover-card=2"), 1)
-        self.assertEqual(source.count("l4-hover-card=3"), 1)
+        self.assertEqual(source.count("lt-hover-card=2"), 1)
+        self.assertEqual(source.count("lt-hover-card=3"), 1)
 
 
 if __name__ == "__main__":

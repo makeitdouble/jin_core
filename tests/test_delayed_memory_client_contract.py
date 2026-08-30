@@ -127,13 +127,13 @@ class DelayedMemoryClientContractTests(unittest.TestCase):
         ).read_text(
             encoding="utf-8"
         )
-        l4_source = (
+        lt_source = (
             ROOT
             / "ui"
             / "static"
             / "js"
             / "runtime"
-            / "runtime-l4-memory.js"
+            / "runtime-lt-memory.js"
         ).read_text(
             encoding="utf-8"
         )
@@ -242,7 +242,7 @@ class DelayedMemoryClientContractTests(unittest.TestCase):
             index_source,
         )
 
-    def test_context_loaded_delayed_memory_highlights_report_and_linked_l4(self):
+    def test_context_loaded_delayed_memory_highlights_report_and_linked_lt(self):
 
         runtime_source = (
             ROOT / "ui" / "static" / "js" / "runtime" / "runtime.js"
@@ -263,11 +263,11 @@ class DelayedMemoryClientContractTests(unittest.TestCase):
         self.assertIn("getContextLoadedDelayedMemoryFactIds", memory_view_source)
         self.assertIn("isDelayedMemoryReportInContext", memory_view_source)
         self.assertIn("is-context-loaded", avatar_source)
-        self.assertIn("collectDelayedMemoryLinkedL4FactIds", avatar_source)
+        self.assertIn("collectDelayedMemoryLinkedLTFactIds", avatar_source)
         self.assertIn("loaded_delayed_memory_ids", socket_source)
         self.assertIn("replaceLoadedDelayedMemoryReportIds", socket_source)
 
-    def test_context_loaded_report_facts_override_l4_archive_filter(self):
+    def test_context_loaded_report_facts_override_lt_archive_filter(self):
 
         runtime_source = (
             ROOT / "ui" / "static" / "js" / "runtime" / "runtime.js"
@@ -308,7 +308,7 @@ class DelayedMemoryClientContractTests(unittest.TestCase):
         self.assertIn("renderRuntimeMemorySnapshot();", pin_block)
 
         avatar_start = avatar_source.index(
-            "function getL4MemoryAvatarRecords()"
+            "function getLTMemoryAvatarRecords()"
         )
         avatar_end = avatar_source.index(
             "function getPersistentFileAvatarRecords()",
@@ -335,7 +335,7 @@ class DelayedMemoryClientContractTests(unittest.TestCase):
             "function getDelayedMemoryAvatarRecords()"
         )
         records_end = avatar_source.index(
-            "function getL4MemoryAvatarRecords()",
+            "function getLTMemoryAvatarRecords()",
             records_start,
         )
         records_block = avatar_source[records_start:records_end]

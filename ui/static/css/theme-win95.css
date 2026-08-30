@@ -434,14 +434,14 @@ body.theme-win95 #runtime-memory-text .runtime-memory-value {
     text-shadow: none;
 }
 
-body.theme-win95 #memory-panel #runtime-memory-text .runtime-memory-l4-row .runtime-memory-fact-report-link {
+body.theme-win95 #memory-panel #runtime-memory-text .runtime-memory-lt-row .runtime-memory-fact-report-link {
     color: #0000ee !important;
     font-weight: 700 !important;
     text-shadow: none;
 }
 
-body.theme-win95 #memory-panel #runtime-memory-text .runtime-memory-l4-row .runtime-memory-fact-report-link:hover,
-body.theme-win95 #memory-panel #runtime-memory-text .runtime-memory-l4-row .runtime-memory-fact-report-link:focus-visible {
+body.theme-win95 #memory-panel #runtime-memory-text .runtime-memory-lt-row .runtime-memory-fact-report-link:hover,
+body.theme-win95 #memory-panel #runtime-memory-text .runtime-memory-lt-row .runtime-memory-fact-report-link:focus-visible {
     color: #0000aa !important;
 }
 

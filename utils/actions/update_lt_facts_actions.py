@@ -5,22 +5,22 @@ import contextlib
 import time
 
 from contracts.rules_assembler import (
-    RUNTIME_ACTION_UPDATE_L4_FACTS,
+    RUNTIME_ACTION_UPDATE_LT_FACTS,
     build_runtime_action_display_text,
     get_runtime_action_display_name,
     runtime_action_has_close_tag,
 )
-from runtime.L4_memory import run_l4_jin_note
-from utils.actions.update_l4_facts_utils import parse_update_l4_facts_payload
+from runtime.LT_memory import run_lt_jin_note
+from utils.actions.update_lt_facts_utils import parse_update_lt_facts_payload
 from utils.chat_log import append_chat_runtime_event
 from utils.tool_results import (
-    TOOL_RESULT_KIND_L4,
+    TOOL_RESULT_KIND_LT,
     record_runtime_tool_result,
 )
 from utils.runtime_action_abort import mark_runtime_action_completed
 
 
-def _build_update_l4_tool_result(
+def _build_update_lt_tool_result(
     result: dict,
     *,
     note: dict,
@@ -79,13 +79,13 @@ def _build_update_l4_tool_result(
     if not summary["ok"]:
         summary["error"] = str(
             result.get("reason")
-            or "l4_update_failed"
+            or "lt_update_failed"
         ).strip()
 
     return summary
 
 
-def _record_update_l4_tool_result(
+def _record_update_lt_tool_result(
     context,
     *,
     action_id: str,
@@ -94,13 +94,13 @@ def _record_update_l4_tool_result(
 ) -> None:
 
     created_at = time.time()
-    summary = _build_update_l4_tool_result(
+    summary = _build_update_lt_tool_result(
         result,
         note=note,
     )
     record_runtime_tool_result(
         context,
-        TOOL_RESULT_KIND_L4,
+        TOOL_RESULT_KIND_LT,
         summary,
         result_id=action_id,
         created_at=created_at,
@@ -111,7 +111,7 @@ def _record_update_l4_tool_result(
             context,
             event="runtime_tool_result",
             payload={
-                "kind": TOOL_RESULT_KIND_L4,
+                "kind": TOOL_RESULT_KIND_LT,
                 "id": action_id,
                 "result": summary,
                 "created_at": created_at,
@@ -119,7 +119,7 @@ def _record_update_l4_tool_result(
         )
 
 
-async def _emit_update_l4_facts_result(
+async def _emit_update_lt_facts_result(
     context,
     *,
     action_id: str,
@@ -144,40 +144,40 @@ async def _emit_update_l4_facts_result(
             detail_parts.append(f"{replacement_count} updated/merged fact(s)")
         if added_count:
             detail_parts.append(f"{added_count} new fact(s)")
-        detail = "L4 updated: " + ", ".join(detail_parts or ["changed"])
+        detail = "L-T updated: " + ", ".join(detail_parts or ["changed"])
     elif completed:
-        detail = "L4 note reviewed: no change"
+        detail = "L-T note reviewed: no change"
     else:
-        detail = str(result.get("reason") or "L4 note failed")
+        detail = str(result.get("reason") or "L-T note failed")
 
     await emit(with_action_context({
         "type": "runtime_action",
-        "action": "update_l4_facts",
+        "action": "update_lt_facts",
         "id": action_id,
         "status": "completed" if completed else "failed",
         "display_name": get_runtime_action_display_name(
-            RUNTIME_ACTION_UPDATE_L4_FACTS
+            RUNTIME_ACTION_UPDATE_LT_FACTS
         ),
         "text": build_runtime_action_display_text(
-            RUNTIME_ACTION_UPDATE_L4_FACTS
+            RUNTIME_ACTION_UPDATE_LT_FACTS
         ),
         "close_tag": runtime_action_has_close_tag(
-            RUNTIME_ACTION_UPDATE_L4_FACTS
+            RUNTIME_ACTION_UPDATE_LT_FACTS
         ),
         "payload": payload,
         "detail": detail,
-        "l4_result": result,
+        "lt_result": result,
     }))
 
 
-async def _run_update_l4_facts_action(
+async def _run_update_lt_facts_action(
     context,
     *,
     action_id: str,
     payload: str,
     note: dict,
-    previous_l4_task,
-    previous_l4_kind: str,
+    previous_lt_task,
+    previous_lt_kind: str,
     log_runtime,
     with_action_context,
 ) -> None:
@@ -185,40 +185,40 @@ async def _run_update_l4_facts_action(
 
     try:
         if (
-            previous_l4_task is not None
-            and previous_l4_task is not current_task
-            and not previous_l4_task.done()
+            previous_lt_task is not None
+            and previous_lt_task is not current_task
+            and not previous_lt_task.done()
         ):
-            # Explicit user-requested L4 work owns the foreground lane. Idle
+            # Explicit user-requested L-T work owns the foreground lane. Idle
             # consolidation must be cancelled without becoming a prerequisite
             # for the edit itself: a provider can take time to unwind a
             # cancelled HTTP generation, and awaiting that task here makes the
-            # visible UPDATE_L4_FACTS bubble look stuck. Give cancellation one
+            # visible UPDATE_LT_FACTS bubble look stuck. Give cancellation one
             # event-loop turn, then start the focused note immediately.
-            if previous_l4_kind == "idle":
-                previous_l4_task.cancel()
+            if previous_lt_kind == "idle":
+                previous_lt_task.cancel()
                 await asyncio.sleep(0)
             else:
                 try:
-                    await previous_l4_task
+                    await previous_lt_task
                 except asyncio.CancelledError:
                     pass
                 except Exception:
                     # The note still gets its own attempt after a failed
-                    # previous foreground L4 edit.
+                    # previous foreground L-T edit.
                     pass
 
-        if getattr(context, "runtime_l4_memory_update_task", None) is current_task:
-            context.runtime_l4_memory_update_kind = "jin_note"
+        if getattr(context, "runtime_lt_memory_update_task", None) is current_task:
+            context.runtime_lt_memory_update_kind = "jin_note"
 
-        result = await run_l4_jin_note(
+        result = await run_lt_jin_note(
             context=context,
             note=note,
         )
 
         if log_runtime is not None:
             await log_runtime(
-                "[RUNTIME ACTION] update_l4_facts "
+                "[RUNTIME ACTION] update_lt_facts "
                 + (
                     "applied"
                     if result.get("changed")
@@ -226,14 +226,14 @@ async def _run_update_l4_facts_action(
                 )
             )
 
-        _record_update_l4_tool_result(
+        _record_update_lt_tool_result(
             context,
             action_id=action_id,
             note=note,
             result=result,
         )
 
-        await _emit_update_l4_facts_result(
+        await _emit_update_lt_facts_result(
             context,
             action_id=action_id,
             payload=payload,
@@ -250,16 +250,16 @@ async def _run_update_l4_facts_action(
         }
         if log_runtime is not None:
             await log_runtime(
-                "[RUNTIME ACTION] update_l4_facts failed: "
+                "[RUNTIME ACTION] update_lt_facts failed: "
                 f"{type(error).__name__}"
             )
-        _record_update_l4_tool_result(
+        _record_update_lt_tool_result(
             context,
             action_id=action_id,
             note=note,
             result=result,
         )
-        await _emit_update_l4_facts_result(
+        await _emit_update_lt_facts_result(
             context,
             action_id=action_id,
             payload=payload,
@@ -269,16 +269,16 @@ async def _run_update_l4_facts_action(
     finally:
         mark_runtime_action_completed(
             context,
-            action="update_l4_facts",
+            action="update_lt_facts",
             action_id=action_id,
         )
-        if getattr(context, "runtime_l4_memory_update_task", None) is current_task:
-            context.runtime_l4_memory_update_task = None
-            if str(getattr(context, "runtime_l4_memory_update_kind", "") or "") == "jin_note":
-                context.runtime_l4_memory_update_kind = ""
+        if getattr(context, "runtime_lt_memory_update_task", None) is current_task:
+            context.runtime_lt_memory_update_task = None
+            if str(getattr(context, "runtime_lt_memory_update_kind", "") or "") == "jin_note":
+                context.runtime_lt_memory_update_kind = ""
 
 
-def schedule_update_l4_facts_actions(
+def schedule_update_lt_facts_actions(
     context,
     actions,
     *,
@@ -289,7 +289,7 @@ def schedule_update_l4_facts_actions(
     tasks = []
 
     for action in actions:
-        note = parse_update_l4_facts_payload(action.payload)
+        note = parse_update_lt_facts_payload(action.payload)
         if not note:
             continue
 
@@ -300,13 +300,13 @@ def schedule_update_l4_facts_actions(
         message = str(note.get("message", "") or "").strip()
         session_action = {
             "text": (
-                f"UPDATE_L4_FACTS: {message}"
+                f"UPDATE_LT_FACTS: {message}"
                 if message
-                else "UPDATE_L4_FACTS"
+                else "UPDATE_LT_FACTS"
             ),
             "created_at": created_at,
             "parts": [{
-                "text": "UPDATE_L4_FACTS",
+                "text": "UPDATE_LT_FACTS",
                 **({"id": action_id} if action_id else {}),
                 **({"message": message} if message else {}),
             }],
@@ -316,7 +316,7 @@ def schedule_update_l4_facts_actions(
                 context,
                 event="runtime_action_request",
                 payload={
-                    "action": RUNTIME_ACTION_UPDATE_L4_FACTS,
+                    "action": RUNTIME_ACTION_UPDATE_LT_FACTS,
                     "id": action_id,
                     "fact_ids": list(note.get("fact_ids", []) or []),
                     "message": message,
@@ -324,28 +324,28 @@ def schedule_update_l4_facts_actions(
                     "created_at": created_at,
                 },
             )
-        previous_l4_task = getattr(
+        previous_lt_task = getattr(
             context,
-            "runtime_l4_memory_update_task",
+            "runtime_lt_memory_update_task",
             None,
         )
-        previous_l4_kind = str(
-            getattr(context, "runtime_l4_memory_update_kind", "") or ""
+        previous_lt_kind = str(
+            getattr(context, "runtime_lt_memory_update_kind", "") or ""
         )
         task = asyncio.create_task(
-            _run_update_l4_facts_action(
+            _run_update_lt_facts_action(
                 context,
                 action_id=action_id,
                 payload=action.payload,
                 note=note,
-                previous_l4_task=previous_l4_task,
-                previous_l4_kind=previous_l4_kind,
+                previous_lt_task=previous_lt_task,
+                previous_lt_kind=previous_lt_kind,
                 log_runtime=log_runtime,
                 with_action_context=with_action_context,
             )
         )
-        context.runtime_l4_memory_update_task = task
-        context.runtime_l4_memory_update_kind = "jin_note"
+        context.runtime_lt_memory_update_task = task
+        context.runtime_lt_memory_update_kind = "jin_note"
 
         background_tasks = getattr(context, "background_tasks", None)
         if background_tasks is None:

@@ -5,8 +5,8 @@ import os
 from pathlib import Path
 from tempfile import NamedTemporaryFile
 
-from runtime.L4_memory_utils import (
-    normalize_l4_store,
+from runtime.LT_memory_utils import (
+    normalize_lt_store,
 )
 
 
@@ -33,7 +33,7 @@ def load_long_term_facts_store(
     )
 
     if not path.exists():
-        return normalize_l4_store({}), []
+        return normalize_lt_store({}), []
 
     try:
         raw_value = json.loads(
@@ -42,11 +42,11 @@ def load_long_term_facts_store(
             )
         )
     except (OSError, UnicodeError, json.JSONDecodeError) as error:
-        return normalize_l4_store({}), [
+        return normalize_lt_store({}), [
             f"cannot load {path.name}: {error}",
         ]
 
-    normalized = normalize_l4_store(
+    normalized = normalize_lt_store(
         raw_value,
     )
 
@@ -76,7 +76,7 @@ def persist_long_term_facts_store(
     destination = get_long_term_facts_path(
         root=root_path,
     )
-    payload = normalize_l4_store(
+    payload = normalize_lt_store(
         store,
     )
 

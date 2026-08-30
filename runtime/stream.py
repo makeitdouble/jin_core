@@ -29,7 +29,7 @@ from utils.stream_handler import (
     StreamHandler,
 )
 from utils.stream_validator import (
-    INCORRECT_L4_FACT_IDS_HALLUCINATION_REASON,
+    INCORRECT_LT_FACT_IDS_HALLUCINATION_REASON,
     SAME_ANSWER_OUTPUT_REASON,
 )
 
@@ -69,7 +69,7 @@ from contracts.rules_assembler import (
     RUNTIME_ACTION_JIN_COLOR,
     RUNTIME_ACTION_JIN_SIZE,
     RUNTIME_ACTION_SAVE_ACTIVE_MEMORY,
-    RUNTIME_ACTION_UPDATE_L4_FACTS,
+    RUNTIME_ACTION_UPDATE_LT_FACTS,
     RUNTIME_ACTION_UNLOAD_DELAYED_MEMORY,
     RUNTIME_ACTION_SAVE_DELAYED_MEMORY,
     build_runtime_action_display_text,
@@ -193,7 +193,7 @@ class RuntimeStream:
         self.context_limit_recovery_armed = False
         self.started_active_memory_action_ids = []
         self.started_delayed_memory_action_ids = []
-        self.started_update_l4_facts_action_ids = []
+        self.started_update_lt_facts_action_ids = []
         self.confirmed_action_guard_names = set()
         self.rejected_action_guard_names = set()
         self.action_guard_confirmation_ids = {}
@@ -201,7 +201,7 @@ class RuntimeStream:
         self.jin_size_action_ids = {}
         self.deep_web_search_action_ids = {}
         self.started_deep_web_search_action_ids = []
-        self.update_l4_facts_action_ids = {}
+        self.update_lt_facts_action_ids = {}
         self.last_jin_color_action_color = ""
         self.last_jin_size_action_size = ""
         self.runtime_action_event_offset = 0
@@ -234,14 +234,14 @@ class RuntimeStream:
                 if self.is_brain_context()
                 else ""
             ),
-            thinking_valid_l4_fact_ids=(
-                self.get_reasoning_l4_fact_ids()
+            thinking_valid_lt_fact_ids=(
+                self.get_reasoning_lt_fact_ids()
                 if self.is_brain_context()
                 else None
             ),
         )
 
-    def get_reasoning_l4_fact_ids(self) -> set[str] | None:
+    def get_reasoning_lt_fact_ids(self) -> set[str] | None:
 
         store = getattr(
             self.context,
@@ -1046,7 +1046,7 @@ class RuntimeStream:
                 'stuck in answering loop reason '
                 f'"{reason}"'
             )
-        elif reason == INCORRECT_L4_FACT_IDS_HALLUCINATION_REASON:
+        elif reason == INCORRECT_LT_FACT_IDS_HALLUCINATION_REASON:
             history_text = (
                 'stuck in a reasoning loop reason '
                 f'"{reason}"'
@@ -1900,39 +1900,39 @@ class RuntimeStream:
 
             return action_id
 
-        if action.name == RUNTIME_ACTION_UPDATE_L4_FACTS:
+        if action.name == RUNTIME_ACTION_UPDATE_LT_FACTS:
             payload_key = str(action.payload or "").strip()
             action_id = (
-                self.update_l4_facts_action_ids.get(payload_key, "")
+                self.update_lt_facts_action_ids.get(payload_key, "")
                 if payload_key
                 else ""
             )
 
             if not action_id:
-                if payload_key and self.started_update_l4_facts_action_ids:
-                    action_id = self.started_update_l4_facts_action_ids.pop(0)
+                if payload_key and self.started_update_lt_facts_action_ids:
+                    action_id = self.started_update_lt_facts_action_ids.pop(0)
                 else:
                     sequence = int(
                         getattr(
                             self.context,
-                            "runtime_update_l4_facts_action_sequence",
+                            "runtime_update_lt_facts_action_sequence",
                             0,
                         )
                         or 0
                     ) + 1
-                    self.context.runtime_update_l4_facts_action_sequence = sequence
+                    self.context.runtime_update_lt_facts_action_sequence = sequence
                     action_id = build_runtime_action_id(
-                        RUNTIME_ACTION_UPDATE_L4_FACTS,
+                        RUNTIME_ACTION_UPDATE_LT_FACTS,
                         sequence,
                     )
 
                     if not payload_key:
-                        self.started_update_l4_facts_action_ids.append(
+                        self.started_update_lt_facts_action_ids.append(
                             action_id
                         )
 
                 if payload_key:
-                    self.update_l4_facts_action_ids[payload_key] = action_id
+                    self.update_lt_facts_action_ids[payload_key] = action_id
 
             return action_id
 

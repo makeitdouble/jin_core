@@ -11,7 +11,7 @@ INDEX_HTML = ROOT / "ui" / "templates" / "index.html"
 
 class ChatReferenceIdsClientContractTests(unittest.TestCase):
 
-    def test_answer_ids_resolve_against_live_file_delayed_and_l4_stores(self):
+    def test_answer_ids_resolve_against_live_file_delayed_and_lt_stores(self):
         source = REFERENCE_JS.read_text(encoding="utf-8")
 
         self.assertIn("window.JinFiles.getFiles()", source)
@@ -19,8 +19,8 @@ class ChatReferenceIdsClientContractTests(unittest.TestCase):
         self.assertIn("runtime.getDelayedMemoryReports()", source)
         self.assertIn('kind: "file"', source)
         self.assertIn('kind: "delayed"', source)
-        self.assertIn("window.JinRuntime.l4Memory", source)
-        self.assertIn('kind: "l4"', source)
+        self.assertIn("window.JinRuntime.ltMemory", source)
+        self.assertIn('kind: "lt"', source)
         self.assertIn("normalizeLongTermFactId", source)
         self.assertIn('references.has(id)', source)
         self.assertIn('new RegExp(`\\\\b(?:${ids.map(escapeRegex).join("|")})\\\\b`', source)
@@ -32,7 +32,7 @@ class ChatReferenceIdsClientContractTests(unittest.TestCase):
         self.assertIn("{ hoverPreviewMaxPx: 100 }", source)
         self.assertIn("window.openJinAttachmentModal(reference.record)", source)
 
-    def test_text_and_l4_ids_show_descriptive_hover_titles(self):
+    def test_text_and_lt_ids_show_descriptive_hover_titles(self):
         source = REFERENCE_JS.read_text(encoding="utf-8")
 
         self.assertIn("cleanPersistentFileName", source)

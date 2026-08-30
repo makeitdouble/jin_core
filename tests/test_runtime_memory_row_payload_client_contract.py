@@ -84,7 +84,7 @@ class RuntimeMemoryRowPayloadClientContractTests(unittest.TestCase):
             source,
         )
         self.assertIn(
-            '!row.classList.contains("runtime-memory-l4-row")',
+            '!row.classList.contains("runtime-memory-lt-row")',
             source,
         )
         self.assertIn(

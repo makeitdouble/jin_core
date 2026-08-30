@@ -102,9 +102,9 @@ def expected_enabled_runtime_actions(runtime_actions: dict) -> tuple[str, ...]:
             "JIN_SPEED"
         )
 
-    if bool(runtime_actions.get("CAN_UPDATE_L4_FACTS", False)):
+    if bool(runtime_actions.get("CAN_UPDATE_LT_FACTS", False)):
         expected_actions.append(
-            "UPDATE_L4_FACTS"
+            "UPDATE_LT_FACTS"
         )
 
     if bool(runtime_actions.get("CAN_USE_ASSETS", False)):
@@ -266,7 +266,7 @@ class BrainRuntimeActionTests(unittest.TestCase):
             [],
         )
 
-    def test_stream_update_l4_facts_bubble_tracks_marker_write_lifecycle(self):
+    def test_stream_update_lt_facts_bubble_tracks_marker_write_lifecycle(self):
 
         class FakeEmitter:
 
@@ -281,7 +281,7 @@ class BrainRuntimeActionTests(unittest.TestCase):
             async def stream(self, **_kwargs):
                 yield {
                     "type": "content",
-                    "content": "Reply.\n<UPDATE_L4_FACTS>",
+                    "content": "Reply.\n<UPDATE_LT_FACTS>",
                 }
                 yield {
                     "type": "content",
@@ -292,7 +292,7 @@ class BrainRuntimeActionTests(unittest.TestCase):
                 }
                 yield {
                     "type": "content",
-                    "content": "</UPDATE_L4_FACTS>",
+                    "content": "</UPDATE_LT_FACTS>",
                 }
 
         async def fake_apply_runtime_action_calls(
@@ -311,7 +311,7 @@ class BrainRuntimeActionTests(unittest.TestCase):
                     text="clarify memory",
                     context=context,
                     runtime_actions={
-                        "CAN_UPDATE_L4_FACTS": True,
+                        "CAN_UPDATE_LT_FACTS": True,
                     },
                 )
             ]
@@ -338,7 +338,7 @@ class BrainRuntimeActionTests(unittest.TestCase):
         lifecycle = [
             event
             for event in emitter.events
-            if event.get("action") == "update_l4_facts"
+            if event.get("action") == "update_lt_facts"
             and event.get("id")
             and event.get("status") in {
                 "started",
@@ -348,12 +348,12 @@ class BrainRuntimeActionTests(unittest.TestCase):
 
         self.assertEqual(len(lifecycle), 1)
         self.assertEqual(lifecycle[0]["status"], "started")
-        self.assertEqual(lifecycle[0]["text"], "UPDATE_L4_FACTS")
+        self.assertEqual(lifecycle[0]["text"], "UPDATE_LT_FACTS")
 
         self.assertEqual(len(applied), 1)
         actions, kwargs = applied[0]
         self.assertEqual(len(actions), 1)
-        self.assertEqual(actions[0].name, "UPDATE_L4_FACTS")
+        self.assertEqual(actions[0].name, "UPDATE_LT_FACTS")
         self.assertEqual(
             kwargs["action_display_ids"][id(actions[0])],
             lifecycle[0]["id"],
@@ -366,7 +366,7 @@ class BrainRuntimeActionTests(unittest.TestCase):
             )
         )
 
-    def test_stream_rejected_update_l4_facts_marker_retires_started_bubble(self):
+    def test_stream_rejected_update_lt_facts_marker_retires_started_bubble(self):
 
         class FakeEmitter:
 
@@ -381,7 +381,7 @@ class BrainRuntimeActionTests(unittest.TestCase):
             async def stream(self, **_kwargs):
                 yield {
                     "type": "content",
-                    "content": "Reply.\n<UPDATE_L4_FACTS>",
+                    "content": "Reply.\n<UPDATE_LT_FACTS>",
                 }
                 yield {
                     "type": "content",
@@ -389,7 +389,7 @@ class BrainRuntimeActionTests(unittest.TestCase):
                 }
                 yield {
                     "type": "content",
-                    "content": "</UPDATE_L4_FACTS>",
+                    "content": "</UPDATE_LT_FACTS>",
                 }
 
         async def fake_apply_runtime_action_calls(
@@ -408,7 +408,7 @@ class BrainRuntimeActionTests(unittest.TestCase):
                     text="delete memory",
                     context=context,
                     runtime_actions={
-                        "CAN_UPDATE_L4_FACTS": True,
+                        "CAN_UPDATE_LT_FACTS": True,
                     },
                 )
             ]
@@ -431,7 +431,7 @@ class BrainRuntimeActionTests(unittest.TestCase):
         lifecycle = [
             event
             for event in emitter.events
-            if event.get("action") == "update_l4_facts"
+            if event.get("action") == "update_lt_facts"
             and event.get("id")
             and event.get("status") in {"started", "failed"}
         ]
