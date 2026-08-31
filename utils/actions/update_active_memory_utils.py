@@ -231,6 +231,46 @@ def _parse_update_active_memory_attribute_payload(
     )
 
 
+def _collect_update_active_memory_json_fields(
+    data: dict,
+) -> dict | None:
+
+    for wrapper_key in (
+        "fields_to_update",
+        "field_to_update",
+        "fields",
+        "updates",
+    ):
+        if wrapper_key not in data:
+            continue
+
+        candidate = data.get(wrapper_key)
+        if isinstance(candidate, dict):
+            if (
+                wrapper_key == "field_to_update"
+                and len(candidate) != 1
+            ):
+                return None
+
+            return candidate
+
+        if wrapper_key in {
+            "fields",
+            "updates",
+        }:
+            return None
+
+    return {
+        key: value
+        for key, value in data.items()
+        if str(key or "").strip().casefold()
+        not in {
+            "active_memory_id",
+            "id",
+        }
+    }
+
+
 def _parse_update_active_memory_json_payload(
     payload: str,
 ) -> tuple[str, tuple[tuple[str, str], ...]]:
@@ -264,22 +304,9 @@ def _parse_update_active_memory_json_payload(
     ):
         return "", ()
 
-    raw_fields = (
-        data.get("fields")
-        if "fields" in data
-        else data.get("updates")
+    raw_fields = _collect_update_active_memory_json_fields(
+        data
     )
-
-    if raw_fields is None:
-        raw_fields = {
-            key: value
-            for key, value in data.items()
-            if str(key or "").strip().casefold()
-            not in {
-                "active_memory_id",
-                "id",
-            }
-        }
 
     if not isinstance(
         raw_fields,
@@ -363,18 +390,9 @@ def parse_update_active_memory_payload_fields(
     if not ACTIVE_MEMORY_UPDATE_ID_RE.fullmatch(active_memory_id):
         return "", ()
 
-    raw_fields = (
-        data.get("fields")
-        if "fields" in data
-        else data.get("updates")
+    raw_fields = _collect_update_active_memory_json_fields(
+        data
     )
-    if raw_fields is None:
-        raw_fields = {
-            key: value
-            for key, value in data.items()
-            if str(key or "").strip().casefold()
-            not in {"active_memory_id", "id"}
-        }
     if not isinstance(raw_fields, dict) or not raw_fields:
         return "", ()
 

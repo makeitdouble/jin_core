@@ -1,6 +1,6 @@
 # Formats delayed memory tool results and loaded delayed memory context blocks.
-from .formatting import (
-    format_tool_result_payload,
+from .runtime_action_result_text import (
+    format_runtime_action_result,
 )
 
 
@@ -8,33 +8,9 @@ def format_delayed_memory_report_result(
     result: dict,
 ) -> str:
 
-    if result.get("ok") is False:
-        return format_delayed_memory_failure_result(
-            result
-        )
-
-    if result.get(
-        "destination"
-    ):
-        return format_tool_result_payload(
-            result
-        )
-
-    report = result.get(
-        "report",
-        {},
-    )
-
-    if not isinstance(
-        report,
-        dict,
-    ):
-        return format_tool_result_payload(
-            result
-        )
-
-    return format_tool_result_payload(
-        report
+    return format_runtime_action_result(
+        result,
+        runtime_action="SAVE_DELAYED_MEMORY",
     )
 
 
@@ -42,32 +18,15 @@ def format_delayed_memory_failure_result(
     result: dict,
 ) -> str:
 
-    failure = str(
-        result.get(
-            "failure",
-            "",
-        )
+    action = str(
+        result.get("action", "")
         or ""
-    ).strip()
+    ).strip().upper()
 
-    if failure:
-        return failure
-
-    failure_followup_message = str(
-        result.get(
-            "failure_followup_message",
-            "",
-        )
-        or ""
-    ).strip()
-
-    if failure_followup_message:
-        return f"Failure: {failure_followup_message}"
-
-    return format_tool_result_payload(
-        result
+    return format_runtime_action_result(
+        result,
+        runtime_action=action,
     )
-
 
 def format_delayed_memory_result_sections(
     payload,
@@ -106,12 +65,9 @@ def format_delayed_memory_result_sections(
             sections.append(
                 (
                     "UNLOAD_DELAYED_MEMORY",
-                    (
-                        format_delayed_memory_failure_result
-                        if result.get("ok") is False
-                        else format_tool_result_payload
-                    )(
-                        result
+                    format_runtime_action_result(
+                        result,
+                        runtime_action="UNLOAD_DELAYED_MEMORY",
                     ),
                 )
             )

@@ -446,6 +446,8 @@ async def apply_update_active_memory_actions(
                 result
             )
         )
+        if failure_reason:
+            result["detail"] = failure_reason
         _update_active_memory_action_event_outcome(
             context,
             action,

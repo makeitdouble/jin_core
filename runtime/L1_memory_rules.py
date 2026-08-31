@@ -1,3 +1,8 @@
+from utils.language import (
+    detect_language_name,
+)
+
+
 # Provides the initial runtime memory text for a brand-new session.
 DEFAULT_RUNTIME_MEMORY = (
     "This session has just begun. "
@@ -223,8 +228,19 @@ LIVE_INTERACTION_SIGNALS = (
     "\n"
 )
 
+# Enables automatic language forcing for generated L1 memory values.
+# Flip to False to remove the language instruction from the L1 system prompt.
+RUNTIME_MEMORY_VALUE_LANGUAGE_DETECTION_ENABLED = True
+# Intentionally repeated: small local models may ignore a single
+# language constraint when the surrounding prompt is predominantly English.
+OUTPUT_LANGUAGE_RULE_TEMPLATE = (
+    "!!!! MANDATORY OUTPUT VALUE LANGUAGE: {language} !!!!\n"
+    "!!!! MANDATORY OUTPUT VALUE LANGUAGE: {language} !!!!\n"
+    "!!!! MANDATORY OUTPUT VALUE LANGUAGE: {language} !!!!\n"
+    "Keep memory keys in English lowercase_snake_case.\n"
+)
+
 OUTPUT_FORMAT = (
-    "\n"
     "If no actionable facts or semantic updates - update session status.\n"
     "Decide how much new memory to add from the latest turn.\n"
     "Depth controls how much new content you add, not how much existing memory you keep.\n"
@@ -248,11 +264,22 @@ def build_runtime_memory_system_prompt(
         last_turn_context_overloaded: bool = False,
 ) -> str:
 
+    output_language_rule = ""
+
+    if RUNTIME_MEMORY_VALUE_LANGUAGE_DETECTION_ENABLED:
+        output_language = detect_language_name(
+            user_message
+        )
+        output_language_rule = OUTPUT_LANGUAGE_RULE_TEMPLATE.format(
+            language=output_language,
+        )
+
     prompt = (
         ROLE
         + KEY_SEMANTICS
         + LIVE_INTERACTION_SIGNALS
         + OUTPUT_FORMAT
+        + output_language_rule
     )
 
     return prompt

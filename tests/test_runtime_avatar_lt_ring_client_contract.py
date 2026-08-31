@@ -15,11 +15,11 @@ INDEX_HTML = ROOT / "ui" / "templates" / "index.html"
 
 class RuntimeAvatarLTRingClientContractTests(unittest.TestCase):
 
-    def test_memory_rings_have_evenly_spaced_delayed_lt_active_radii(self):
+    def test_memory_rings_expand_by_ten_pixels_and_active_is_dynamic_midpoint(self):
         source = AVATAR_JS.read_text(encoding="utf-8")
 
         radii = {}
-        for kind in ("lt", "delayed", "active"):
+        for kind in ("lt", "delayed"):
             match = re.search(
                 rf"{kind}: Object\.freeze\(\{{\s*radius: (\d+),",
                 source,
@@ -27,12 +27,38 @@ class RuntimeAvatarLTRingClientContractTests(unittest.TestCase):
             self.assertIsNotNone(match, kind)
             radii[kind] = int(match.group(1))
 
+        file_match = re.search(
+            r"FILE_RING_LAYOUT = Object\.freeze\(\{\s*radius: (\d+),",
+            source,
+        )
+        self.assertIsNotNone(file_match)
+        file_radius = int(file_match.group(1))
+
+        active_block = re.search(
+            r"active: Object\.freeze\(\{(?P<body>.*?)\n    \}\),",
+            source,
+            re.S,
+        )
+        self.assertIsNotNone(active_block)
+
+        self.assertEqual(radii["delayed"], 168)
+        self.assertEqual(radii["lt"], 178)
+        self.assertEqual(file_radius, 198)
         self.assertEqual(radii["lt"] - radii["delayed"], 10)
-        self.assertEqual(radii["active"] - radii["lt"], 10)
-        self.assertEqual(radii["delayed"], 158)
-        self.assertEqual(radii["lt"], 168)
-        self.assertEqual(radii["active"], 178)
-        self.assertGreater(radii["lt"], 151)
+        self.assertEqual(file_radius - 188, 10)
+        self.assertNotIn("radius:", active_block.group("body"))
+        self.assertIn("strokeWidth: 2.175", active_block.group("body"))
+        self.assertIn("function getOutermostLTMemoryRingRadius(records)", source)
+        self.assertIn("function getActiveMemoryRingLayout(ltMemoryRecords)", source)
+        self.assertIn("outermostLTRadius", source)
+        self.assertIn("+ FILE_RING_LAYOUT.radius", source)
+        self.assertIn(") / 2,", source)
+
+        # With 153 facts there are two L-T lanes: 178 / 182.
+        # ACTIVE therefore sits exactly at (182 + 198) / 2 = 190.
+        outermost_lt_radius = radii["lt"] + 4
+        self.assertEqual(outermost_lt_radius, 182)
+        self.assertEqual((outermost_lt_radius + file_radius) / 2, 190)
 
     def test_lt_ring_spills_into_new_outer_lanes_every_hundred_facts(self):
         source = AVATAR_JS.read_text(encoding="utf-8")
@@ -49,6 +75,19 @@ class RuntimeAvatarLTRingClientContractTests(unittest.TestCase):
         self.assertIn("restoreMemoryRingPhases(", source)
         self.assertIn("previousRotationPhases", source)
         self.assertIn("nodeState.avatarMemoryRadius = Number(layout.radius);", source)
+
+    def test_lt_sync_repositions_active_ring_when_lane_count_changes(self):
+        source = AVATAR_JS.read_text(encoding="utf-8")
+        start = source.index("function syncLTMemoryState()")
+        end = source.index("function syncFileSignalRingState", start)
+        body = source[start:end]
+
+        lt_index = body.index('"lt",')
+        active_index = body.index('"active",')
+
+        self.assertLess(lt_index, active_index)
+        self.assertIn("{ applyGlows: false }", body)
+        self.assertIn("applyAvatarReactiveGlows();", body)
 
     def test_lt_facts_are_rendered_as_reference_aware_memory_dashes(self):
         source = AVATAR_JS.read_text(encoding="utf-8")
@@ -87,6 +126,7 @@ class RuntimeAvatarLTRingClientContractTests(unittest.TestCase):
         self.assertIn("is-delayed-memory-linked-hit", source)
         self.assertIn("strokeWidth: 1.05", source)
         self.assertIn("strokeWidth: 3.10", source)
+        self.assertIn("strokeWidth: 2.175", source)
         self.assertIn("arcTrimPixels: 4", source)
         self.assertIn("function getMemoryDashArcDegrees(layout, slotDegrees)", source)
         self.assertIn("function getMemoryDotRadius(layout)", source)
@@ -426,6 +466,7 @@ class RuntimeAvatarLTRingClientContractTests(unittest.TestCase):
             "/static/js/runtime/runtime-avatar.js?v=memory-layers-dormant-1&reasoning-whisper=3&stable-render=2",
             source,
         )
+        self.assertIn("avatar-radius=2", source)
         self.assertIn(
             "/static/js/socket/input.js?v=jin-size-1",
             source,

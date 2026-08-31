@@ -1,8 +1,8 @@
 # Formats asset action results for runtime context output.
 import re
 
-from .formatting import (
-    format_tool_result_payload,
+from .runtime_action_result_text import (
+    format_runtime_action_result,
 )
 from .skills import (
     format_missing_skill_result,
@@ -62,8 +62,9 @@ def format_asset_result_sections(
         return [
             (
                 "ASSETS",
-                format_tool_result_payload(
-                    payload
+                format_runtime_action_result(
+                    payload,
+                    runtime_action="ASSET_ACTION",
                 ),
             ),
         ]
@@ -77,10 +78,15 @@ def format_asset_result_sections(
         sections.append(
             (
                 "ASSETS",
-                format_tool_result_payload(
-                    list(
-                        pending_results
+                "\n\n".join(
+                    format_runtime_action_result(
+                        result,
+                        runtime_action=(
+                            _format_action_result_name(result)
+                            or "ASSET_ACTION"
+                        ),
                     )
+                    for result in pending_results
                 ),
             )
         )
@@ -102,11 +108,17 @@ def format_asset_result_sections(
             and result.get("error") == "skill_not_found"
         ):
             flush_pending_results()
+            failure_result = dict(result)
+            failure_result.setdefault(
+                "detail",
+                format_missing_skill_result(result),
+            )
             sections.append(
                 (
-                    "SKILL_ERROR",
-                    format_missing_skill_result(
-                        result
+                    "LOAD_SKILL",
+                    format_runtime_action_result(
+                        failure_result,
+                        runtime_action="LOAD_SKILL",
                     ),
                 )
             )

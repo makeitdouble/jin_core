@@ -12,6 +12,7 @@
       "emit_followup": false,
       "follow_up_on_fail": false
     },
+    "schema": [],
     "rules": [
       "Use to move the live JIN Live Avatar inside the current browser window, center as pivot.",
       "Schema:",

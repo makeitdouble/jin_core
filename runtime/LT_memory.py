@@ -2262,6 +2262,17 @@ async def run_lt_extraction_phase(
     if pending_change.get("changed"):
         await emit_lt_memory_update(context, change=pending_change)
 
+    await log_memory_event(
+        context,
+        level=LT_LOG_LEVEL,
+        message="L-T extraction applied",
+        fallback_channel="summarizer",
+        event="extract_applied",
+        continues_to_merge=bool(
+            ensure_runtime_lt_state(context).get("pending_facts")
+        ),
+    )
+
     return {
         "phase": "extract",
         "status": "completed",
@@ -3423,15 +3434,14 @@ async def run_lt_merge_phase(*, context, service_client) -> dict:
     merge_details = format_lt_merge_operation_details(
         merge_change,
     )
-    if merge_details:
-        await log_memory_event(
-            context,
-            level=LT_LOG_LEVEL,
-            message="L-T merge applied",
-            details=merge_details,
-            fallback_channel="summarizer",
-            event="merge_applied",
-        )
+    await log_memory_event(
+        context,
+        level=LT_LOG_LEVEL,
+        message="L-T merge applied",
+        details=merge_details or "No changes",
+        fallback_channel="summarizer",
+        event="merge_applied",
+    )
     await emit_lt_memory_update(context, change=merge_change)
     if delayed_memory_change.get("changed"):
         await emit_delayed_memory_reference_update(context)
@@ -3716,6 +3726,7 @@ async def maybe_update_runtime_lt_memory(
                 traceback_text=traceback.format_exc(),
             ),
             fallback_channel="error",
+            event="update_failed",
         )
         return {"status": "failed", "reason": type(error).__name__}
     finally:

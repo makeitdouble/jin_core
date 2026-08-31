@@ -1086,10 +1086,7 @@ function refreshFactsMemoryAppendButtons() {
   );
 }
 
-const ltSummarizerCards = {
-  extraction: [],
-  merge: [],
-};
+let activeLTMemorySequence = null;
 
 const ltDeletedFactCards =
   new Map();
@@ -1236,17 +1233,6 @@ function setLTLoggerButtonTone(
       : "inline-flex items-center rounded border border-blue-500/20 px-2 py-1 text-[10px] uppercase tracking-wider text-blue-300 hover:bg-blue-500/10 transition";
 }
 
-function setLTLoggerButtonVisible(
-  button,
-  visible,
-) {
-  button.hidden = !visible;
-  button.classList.toggle(
-    "hidden",
-    !visible
-  );
-}
-
 function resolveLTSummarizerPhase(
   message,
   meta,
@@ -1257,16 +1243,14 @@ function resolveLTSummarizerPhase(
 
   const normalized =
     String(message || "").toLowerCase();
+  const match =
+    normalized.match(
+      /^l-?t\s+(extraction|merge)\s+summarizer\s+/
+    );
 
-  if (normalized.startsWith("lt extraction summarizer ")) {
-    return "extraction";
-  }
-
-  if (normalized.startsWith("lt merge summarizer ")) {
-    return "merge";
-  }
-
-  return "";
+  return match
+    ? match[1]
+    : "";
 }
 
 function resolveLTSummarizerEvent(
@@ -1294,7 +1278,210 @@ function resolveLTSummarizerEvent(
   return "";
 }
 
-function ltResponseHasChanges(
+function createLTMemorySequenceCard() {
+  const logDiv =
+    createLTLoggerCard(
+      "[MEMORY:L-T]"
+    );
+
+  logDiv.classList.add(
+    "jin-lt-sequence-card"
+  );
+
+  const track =
+    document.createElement("div");
+
+  track.className =
+    "jin-lt-sequence-track";
+
+  const createStep = function (
+    label,
+    phase,
+  ) {
+    const step =
+      document.createElement("button");
+
+    step.type = "button";
+    step.className =
+      "jin-lt-sequence-step";
+    step.textContent = label;
+    step.dataset.status = "idle";
+    step.disabled = true;
+    step.addEventListener(
+      "click",
+      function () {
+        inspectLTSequenceElement(
+          state,
+          phase,
+          "label"
+        );
+      }
+    );
+
+    return step;
+  };
+
+  const createArrow = function (phase) {
+    const arrow =
+      document.createElement("button");
+
+    arrow.type = "button";
+    arrow.className =
+      "jin-lt-sequence-arrow";
+    arrow.dataset.status = "idle";
+    arrow.disabled = true;
+    arrow.setAttribute(
+      "aria-label",
+      `${phase} result`
+    );
+    arrow.addEventListener(
+      "click",
+      function () {
+        inspectLTSequenceElement(
+          state,
+          phase,
+          "arrow"
+        );
+      }
+    );
+
+    return arrow;
+  };
+
+  const extractionStep =
+    createStep(
+      "extract",
+      "extraction"
+    );
+  const extractionArrow =
+    createArrow("extraction");
+  const mergeStep =
+    createStep(
+      "merge",
+      "merge"
+    );
+  const mergeArrow =
+    createArrow("merge");
+  const applyStep =
+    createStep(
+      "apply",
+      "apply"
+    );
+
+  track.append(
+    extractionStep,
+    extractionArrow,
+    mergeStep,
+    mergeArrow,
+    applyStep,
+  );
+
+  const showButton =
+    document.createElement("button");
+
+  showButton.type = "button";
+  showButton.className =
+    "jin-lt-sequence-show";
+  showButton.textContent = "show";
+  showButton.disabled = true;
+
+  const state = {
+    logDiv,
+    complete: false,
+    currentPhase: "",
+    diffDetails: "",
+    diffTitle: "L-T merge applied",
+    elements: {
+      extraction: {
+        label: extractionStep,
+        arrow: extractionArrow,
+      },
+      merge: {
+        label: mergeStep,
+        arrow: mergeArrow,
+      },
+      apply: {
+        label: applyStep,
+      },
+    },
+    phases: {
+      extraction: {
+        requestPending: false,
+        responseReceived: false,
+        requestDetails: "",
+        responseDetails: "",
+        terminalDetails: "",
+      },
+      merge: {
+        requestPending: false,
+        responseReceived: false,
+        requestDetails: "",
+        responseDetails: "",
+        terminalDetails: "",
+      },
+    },
+    showButton,
+  };
+
+  showButton.addEventListener(
+    "click",
+    function () {
+      if (
+        state.showButton.disabled
+        || !state.diffDetails
+      ) {
+        return;
+      }
+
+      showTrace(
+        state.diffDetails,
+        state.diffTitle
+      );
+    }
+  );
+
+  logDiv.append(track, showButton);
+  activeLTMemorySequence = state;
+
+  return state;
+}
+
+function getActiveLTMemorySequence() {
+  if (
+    !activeLTMemorySequence
+    || activeLTMemorySequence.complete
+  ) {
+    return createLTMemorySequenceCard();
+  }
+
+  return activeLTMemorySequence;
+}
+
+function setLTSequenceStatus(
+  element,
+  status,
+) {
+  if (element) {
+    element.dataset.status = status;
+  }
+}
+
+function setLTSequenceInspectable(
+  element,
+  inspectable,
+) {
+  if (!element) {
+    return;
+  }
+
+  element.disabled = !inspectable;
+  element.dataset.inspectable =
+    inspectable
+      ? "true"
+      : "false";
+}
+
+function ltSequenceResponseHasChanges(
   phase,
   payload,
 ) {
@@ -1313,248 +1500,446 @@ function ltResponseHasChanges(
   return Object.keys(payload).length > 0;
 }
 
-function createLTSummarizerCard(
+function buildLTSummarizerResponseTrace(
   phase,
-  requestDetails = null,
+  details,
+  forceNoChanges = false,
 ) {
-  const phaseLabel =
-    phase.toUpperCase();
-
-  const logDiv =
-    createLTLoggerCard(
-      `[MEMORY:L-T:${phaseLabel}]`
+  const responseDetails =
+    String(details || "").trim();
+  const responsePayload =
+    parseLTJsonPayload(
+      responseDetails
     );
 
-  const actions =
-    document.createElement("div");
+  return JSON.stringify({
+    kind: "lt_summarizer_response",
+    phase,
+    payload: responsePayload,
+    raw: responseDetails,
+    no_changes:
+      forceNoChanges
+      || !ltSequenceResponseHasChanges(
+        phase,
+        responsePayload
+      ),
+  });
+}
 
-  actions.className =
-    "mt-2 flex flex-wrap items-center gap-2";
+function inspectLTSequenceElement(
+  state,
+  phase,
+  part,
+) {
+  if (phase === "apply") {
+    if (!state.diffDetails) {
+      return;
+    }
 
-  const requestButton =
-    createLTLoggerButton(
-      "request"
+    showTrace(
+      state.diffDetails,
+      state.diffTitle
     );
+    return;
+  }
 
-  const responseButton =
-    createLTLoggerButton(
-      "response"
-    );
+  const phaseState =
+    state.phases[phase];
+  const elements =
+    state.elements[phase];
+  const status =
+    part === "arrow"
+      ? elements.arrow.dataset.status
+      : elements.label.dataset.status;
+  const failed =
+    status === "failed";
+  const titlePhase =
+    phase === "extraction"
+      ? "extraction"
+      : "merge";
 
-  setLTLoggerButtonVisible(
-    responseButton,
+  if (failed) {
+    const failureDetails =
+      String(
+        phaseState.terminalDetails
+        || phaseState.responseDetails
+        || phaseState.requestDetails
+        || ""
+      ).trim();
+
+    if (failureDetails) {
+      showTrace(
+        failureDetails,
+        `L-T ${titlePhase} failed`
+      );
+    }
+    return;
+  }
+
+  if (part === "label") {
+    const requestDetails =
+      String(
+        phaseState.requestDetails
+        || ""
+      ).trim();
+
+    if (requestDetails) {
+      showTrace(
+        requestDetails,
+        `L-T ${titlePhase} request`
+      );
+    }
+    return;
+  }
+
+  const responseDetails =
+    String(
+      phaseState.responseDetails
+      || ""
+    ).trim();
+
+  if (!responseDetails) {
+    return;
+  }
+
+  showTrace(
+    buildLTSummarizerResponseTrace(
+      phase,
+      responseDetails
+    ),
+    `L-T ${titlePhase} response`
+  );
+}
+
+function moveLTSequenceToLatestLog(state) {
+  if (
+    !state
+    || !state.logDiv.isConnected
+  ) {
+    return;
+  }
+
+  moveLogToBottomWithFlip(
+    state.logDiv
+  );
+
+  consoleStream.scrollTop =
+    consoleStream.scrollHeight;
+}
+
+function beginLTSequenceRequest(
+  state,
+  phase,
+  details,
+) {
+  const phaseState =
+    state.phases[phase];
+  const elements =
+    state.elements[phase];
+
+  phaseState.requestPending = true;
+  phaseState.responseReceived = false;
+  phaseState.requestDetails =
+    String(details || "");
+  phaseState.responseDetails = "";
+  phaseState.terminalDetails = "";
+  state.currentPhase = phase;
+
+  setLTSequenceStatus(
+    elements.label,
+    "pending"
+  );
+  setLTSequenceStatus(
+    elements.arrow,
+    "idle"
+  );
+  setLTSequenceInspectable(
+    elements.label,
+    false
+  );
+  setLTSequenceInspectable(
+    elements.arrow,
     false
   );
 
-  const state = {
-    logDiv,
-    phase,
-    requestDetails,
-    responseSettled: false,
-    responseReady: false,
-    responseDetails: null,
-    responsePayload: null,
-    responseHasChanges: false,
-    requestButton,
-    responseButton,
-  };
-
-  setLTLoggerButtonVisible(
-    requestButton,
-    Boolean(requestDetails)
-  );
-
-  requestButton.addEventListener(
-    "click",
-    function () {
-      if (!state.requestDetails) {
-        return;
-      }
-
-      showTrace(
-        state.requestDetails,
-        `L-T ${phase} request`
-      );
-    }
-  );
-
-  responseButton.addEventListener(
-    "click",
-    function () {
-      if (!state.responseReady) {
-        return;
-      }
-
-      showTrace(
-        JSON.stringify({
-          kind: "lt_summarizer_response",
-          phase,
-          payload: state.responsePayload,
-          raw: state.responseDetails,
-          no_changes: !state.responseHasChanges,
-        }),
-        `L-T ${phase} response`
-      );
-    }
-  );
-
-  actions.appendChild(requestButton);
-  actions.appendChild(responseButton);
-  logDiv.appendChild(actions);
-
-  ltSummarizerCards[phase].push(state);
-
-  return state;
+  if (phase === "merge") {
+    setLTSequenceStatus(
+      state.elements.apply.label,
+      "idle"
+    );
+    setLTSequenceInspectable(
+      state.elements.apply.label,
+      false
+    );
+  }
 }
 
-function handleLTSummarizerLog(
+function settleLTSequenceResponse(
+  state,
+  phase,
+  details,
+) {
+  const phaseState =
+    state.phases[phase];
+
+  phaseState.requestPending = false;
+  phaseState.responseReceived = true;
+  if (details !== undefined) {
+    phaseState.responseDetails =
+      String(details || "");
+  }
+
+  setLTSequenceStatus(
+    state.elements[phase].label,
+    "success"
+  );
+  setLTSequenceInspectable(
+    state.elements[phase].label,
+    Boolean(
+      phaseState.requestDetails
+    )
+  );
+}
+
+function failLTSequencePhase(
+  state,
+  phase,
+  details,
+) {
+  const phaseState =
+    state.phases[phase];
+  const elements =
+    state.elements[phase];
+
+  phaseState.terminalDetails =
+    String(details || "");
+
+  if (
+    phaseState.requestPending
+    || !phaseState.responseReceived
+  ) {
+    setLTSequenceStatus(
+      elements.label,
+      "failed"
+    );
+    setLTSequenceInspectable(
+      elements.label,
+      Boolean(
+        phaseState.terminalDetails
+        || phaseState.requestDetails
+      )
+    );
+  } else {
+    setLTSequenceStatus(
+      elements.arrow,
+      "failed"
+    );
+    setLTSequenceInspectable(
+      elements.arrow,
+      Boolean(
+        phaseState.terminalDetails
+        || phaseState.responseDetails
+      )
+    );
+  }
+
+  phaseState.requestPending = false;
+  state.complete = true;
+}
+
+function resolveLTTerminalPhase(
+  event,
+  state,
+) {
+  if (event.startsWith("extract_")) {
+    return "extraction";
+  }
+
+  if (event.startsWith("merge_")) {
+    return "merge";
+  }
+
+  if (
+    event === "update_failed"
+    && state.elements.extraction.arrow.dataset.status === "success"
+  ) {
+    return "merge";
+  }
+
+  return state.currentPhase;
+}
+
+function isLTSequenceTerminalFailure(event) {
+  if (event === "update_failed") {
+    return true;
+  }
+
+  return (
+    event.startsWith("extract_")
+    || event.startsWith("merge_")
+  ) && (
+    event.endsWith("_skipped")
+    || event.endsWith("_failed")
+  );
+}
+
+function handleLTMemorySequenceLog(
   message,
   details,
   meta,
 ) {
+  if (String(meta && meta.memory_level || "").toUpperCase() !== "L-T") {
+    return null;
+  }
+
+  const event =
+    String(meta && meta.memory_event || "").toLowerCase();
   const phase =
     resolveLTSummarizerPhase(
       message,
       meta
     );
-
-  if (!phase) {
-    return null;
-  }
-
-  const event =
+  const summarizerEvent =
     resolveLTSummarizerEvent(
       message,
       meta
     );
+  const handled = Boolean(
+    phase && summarizerEvent
+    || event === "extract_applied"
+    || event === "merge_applied"
+    || isLTSequenceTerminalFailure(event)
+  );
 
-  if (event === "summarizer_request") {
-    return createLTSummarizerCard(
-      phase,
-      details
-    ).logDiv;
-  }
-
-  if (event !== "summarizer_result") {
+  if (!handled) {
     return null;
   }
 
-  let state =
-    [...ltSummarizerCards[phase]]
-      .reverse()
-      .find((candidate) => !candidate.responseSettled);
+  const state =
+    getActiveLTMemorySequence();
 
-  if (!state) {
-    state =
-      createLTSummarizerCard(
-        phase
-      );
-  }
-
-  state.responseSettled =
-    true;
-  state.responseDetails =
-    String(details ?? "");
-
-  const responseText =
-    state.responseDetails.trim();
-
-  state.responseReady =
-    Boolean(
-      responseText
-      && responseText !== "<empty>"
-    );
-
-  if (!state.responseReady) {
-    state.responsePayload =
-      null;
-    state.responseHasChanges =
-      false;
-
-    setLTLoggerButtonVisible(
-      state.responseButton,
-      false
-    );
-
-    return state.logDiv;
-  }
-
-  state.responsePayload =
-    parseLTJsonPayload(
-      state.responseDetails
-    );
-  state.responseHasChanges =
-    Boolean(state.responseDetails.trim())
-    && ltResponseHasChanges(
+  if (summarizerEvent === "summarizer_request") {
+    beginLTSequenceRequest(
+      state,
       phase,
-      state.responsePayload
+      details
+    );
+  } else if (summarizerEvent === "summarizer_result") {
+    settleLTSequenceResponse(
+      state,
+      phase,
+      details
+    );
+  } else if (event === "extract_applied") {
+    settleLTSequenceResponse(
+      state,
+      "extraction"
+    );
+    setLTSequenceStatus(
+      state.elements.extraction.arrow,
+      "success"
+    );
+    setLTSequenceInspectable(
+      state.elements.extraction.arrow,
+      Boolean(
+        state.phases.extraction.responseDetails
+      )
     );
 
-  setLTLoggerButtonVisible(
-    state.responseButton,
-    true
-  );
+    if (meta.continues_to_merge === false) {
+      setLTSequenceStatus(
+        state.elements.extraction.arrow,
+        "idle"
+      );
+      setLTSequenceInspectable(
+        state.elements.extraction.arrow,
+        false
+      );
+      setLTSequenceStatus(
+        state.elements.merge.label,
+        "idle"
+      );
+      setLTSequenceStatus(
+        state.elements.merge.arrow,
+        "idle"
+      );
+      setLTSequenceInspectable(
+        state.elements.merge.label,
+        false
+      );
+      setLTSequenceInspectable(
+        state.elements.merge.arrow,
+        false
+      );
+      setLTSequenceStatus(
+        state.elements.apply.label,
+        "success"
+      );
 
-  setLTLoggerButtonTone(
-    state.responseButton,
-    state.responseHasChanges
-      ? "blue"
-      : "muted"
-  );
+      state.diffDetails =
+        buildLTSummarizerResponseTrace(
+          "extraction",
+          state.phases.extraction.responseDetails,
+          true
+        );
+      state.diffTitle =
+        "L-T extraction response";
+      setLTSequenceInspectable(
+        state.elements.apply.label,
+        true
+      );
+      state.showButton.disabled = false;
+      state.complete = true;
+    }
+  } else if (event === "merge_applied") {
+    settleLTSequenceResponse(
+      state,
+      "merge"
+    );
+    setLTSequenceStatus(
+      state.elements.merge.arrow,
+      "success"
+    );
+    setLTSequenceInspectable(
+      state.elements.merge.arrow,
+      Boolean(
+        state.phases.merge.responseDetails
+      )
+    );
+    setLTSequenceStatus(
+      state.elements.apply.label,
+      "success"
+    );
+
+    state.diffDetails =
+      String(details || "No changes");
+    state.diffTitle =
+      "L-T merge applied";
+    setLTSequenceInspectable(
+      state.elements.apply.label,
+      Boolean(state.diffDetails)
+    );
+    state.showButton.disabled = false;
+    state.complete = true;
+  } else if (isLTSequenceTerminalFailure(event)) {
+    const terminalPhase =
+      resolveLTTerminalPhase(
+        event,
+        state
+      );
+
+    if (terminalPhase) {
+      failLTSequencePhase(
+        state,
+        terminalPhase,
+        details
+      );
+    }
+  }
+
+  moveLTSequenceToLatestLog(state);
 
   return state.logDiv;
-}
-
-
-function settleLTSummarizerCardForTerminalEvent(
-  message,
-  meta,
-) {
-  const event =
-    String(meta && meta.memory_event || "").toLowerCase();
-
-  if (!event.endsWith("_skipped") && !event.endsWith("_failed")) {
-    return;
-  }
-
-  const phase =
-    event.startsWith("extract_")
-      ? "extraction"
-      : event.startsWith("merge_")
-      ? "merge"
-      : resolveLTSummarizerPhase(
-          message,
-          meta
-        );
-
-  if (!phase || !ltSummarizerCards[phase]) {
-    return;
-  }
-
-  const state =
-    [...ltSummarizerCards[phase]]
-      .reverse()
-      .find((candidate) => !candidate.responseSettled);
-
-  if (!state) {
-    return;
-  }
-
-  state.responseSettled =
-    true;
-  state.responseReady =
-    false;
-  state.responseDetails =
-    null;
-  state.responsePayload =
-    null;
-  state.responseHasChanges =
-    false;
-
-  setLTLoggerButtonVisible(
-    state.responseButton,
-    false
-  );
 }
 
 function resolveDeletedLTFact(
@@ -2619,20 +3004,15 @@ function appendLog(
       details,
     );
 
-  settleLTSummarizerCardForTerminalEvent(
-    normalized.message,
-    meta
-  );
-
-  const ltSummarizerLog =
-    handleLTSummarizerLog(
+  const ltMemorySequenceLog =
+    handleLTMemorySequenceLog(
       normalized.message,
       normalized.details,
       meta
     );
 
-  if (ltSummarizerLog) {
-    return ltSummarizerLog;
+  if (ltMemorySequenceLog) {
+    return ltMemorySequenceLog;
   }
 
   const ltDeletedFactLog =

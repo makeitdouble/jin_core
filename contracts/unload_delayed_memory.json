@@ -12,6 +12,7 @@
       "emit_followup": false,
       "follow_up_on_fail": false
     },
+    "schema": [],
     "rules": [
       "Use the 6-character id of a report in <LOADED_DELAYED_MEMORY> to remove it from current context; storage is unchanged."
     ],

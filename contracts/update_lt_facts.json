@@ -12,6 +12,7 @@
       "emit_followup": false,
       "follow_up_on_fail": false
     },
+    "schema": [],
     "rules": [
       "JIN can update, merge, or create durable Long-Term facts through this marker.",
       "Use this marker only to update or merge existing durable facts, or create a genuinely new durable fact.",

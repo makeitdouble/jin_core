@@ -12,6 +12,9 @@
       "emit_followup": false,
       "follow_up_on_fail": false
     },
+    "schema": [
+      "<ATTACH_FILE: id >"
+    ],
     "rules": [
       ""
     ],

@@ -12,6 +12,7 @@
       "emit_followup": false,
       "follow_up_on_fail": false
     },
+    "schema": [],
     "rules": [
       "Use to set JIN Live Avatar size.",
       "Schema:",

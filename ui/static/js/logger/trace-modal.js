@@ -226,7 +226,8 @@ function ensureTraceModal() {
     }
 
     traceModal.classList.remove(
-      "jin-context-trace-modal"
+      "jin-context-trace-modal",
+      "jin-lt-merge-trace-modal"
     );
   }
 
@@ -659,6 +660,433 @@ function prettifyTraceFieldName(value) {
     .replace(/\b\w/g, function (letter) {
       return letter.toUpperCase();
     });
+}
+
+function isLTMergeAppliedTraceTitle(value) {
+  return String(value || "")
+    .trim()
+    .toLowerCase() === "l-t merge applied";
+}
+
+function parseLegacyLTMergeAppliedTrace(details) {
+  const lines = String(details || "")
+    .replace(/\r\n?/g, "\n")
+    .split("\n");
+  const operations = [];
+  let current = null;
+
+  const flush = () => {
+    if (!current) {
+      return;
+    }
+    operations.push(current);
+    current = null;
+  };
+
+  lines.forEach((line) => {
+    const header = line.match(
+      /^\s*(\d+)\.\s+([A-Z]+)(?:\s+(\S+)(?:\s+->\s+(\S+))?)?\s*$/i
+    );
+
+    if (header) {
+      flush();
+      current = {
+        index: Number(header[1]) || operations.length + 1,
+        action: String(header[2] || "").toLowerCase(),
+        pending_id: String(header[3] || ""),
+        target_id: String(header[4] || ""),
+        rows: [],
+      };
+      return;
+    }
+
+    if (!current) {
+      return;
+    }
+
+    const detail = line.match(
+      /^\s+(incoming|before|after|source|created|ignored|comment):\s*(.*)$/i
+    );
+
+    if (detail) {
+      current.rows.push({
+        type: String(detail[1] || "").toLowerCase(),
+        text: String(detail[2] || "").trim(),
+      });
+      return;
+    }
+
+    const continuation = String(line || "").trim();
+    if (continuation && current.rows.length) {
+      const row = current.rows[current.rows.length - 1];
+      row.text = `${row.text} ${continuation}`.trim();
+    }
+  });
+
+  flush();
+
+  if (!operations.length) {
+    return null;
+  }
+
+  return {
+    kind: "lt_merge_applied",
+    operations,
+  };
+}
+
+function normalizeStructuredLTMergeOperation(detail, index) {
+  if (!detail || typeof detail !== "object") {
+    return null;
+  }
+
+  const rows = [];
+  const pushFact = (type, fact) => {
+    if (!fact || typeof fact !== "object") {
+      return;
+    }
+    const key = String(fact.key || "").trim();
+    const value = String(fact.value || "").trim();
+    const id = String(fact.id || "").trim();
+    const text = key && value
+      ? `${key}: ${value}${id ? ` [ id: ${id} ]` : ""}`
+      : value || key || id;
+    if (text) {
+      rows.push({ type, text });
+    }
+  };
+
+  const action = String(detail.action || "").toLowerCase();
+  const mergedFacts = Array.isArray(detail.merged_facts)
+    ? detail.merged_facts
+    : [];
+
+  mergedFacts.forEach((fact) => pushFact("source", fact));
+  pushFact("incoming", detail.pending_fact);
+  pushFact("before", detail.target_before);
+  pushFact("after", detail.target_after);
+  pushFact("created", detail.created_fact);
+
+  if (action === "ignore" && !rows.length) {
+    pushFact("ignored", detail.pending_fact);
+  }
+
+  const comment = String(detail.comment || "").trim();
+  if (comment) {
+    rows.push({ type: "comment", text: comment });
+  }
+
+  return {
+    index: index + 1,
+    action,
+    pending_id: String(detail.pending_id || ""),
+    target_id: String(detail.target_id || detail.created_id || ""),
+    rows,
+  };
+}
+
+function parseLTMergeAppliedTrace(details, title, parsed = null) {
+  if (
+      parsed
+      && typeof parsed === "object"
+      && parsed.kind === "lt_merge_applied"
+  ) {
+    const rawOperations = Array.isArray(parsed.operation_details)
+      ? parsed.operation_details
+      : Array.isArray(parsed.operations)
+        ? parsed.operations
+        : [];
+    const operations = rawOperations
+      .map(normalizeStructuredLTMergeOperation)
+      .filter(Boolean);
+    return operations.length
+      ? { kind: "lt_merge_applied", operations }
+      : null;
+  }
+
+  if (!isLTMergeAppliedTraceTitle(title)) {
+    return null;
+  }
+
+  return parseLegacyLTMergeAppliedTrace(details);
+}
+
+function splitLTMergeFactText(value) {
+  const text = String(value || "").trim();
+  const idMatch = text.match(
+    /^(.*?)(?:\s+\[\s*id:\s*([^\]]+)\s*\])\s*$/i
+  );
+  const body = idMatch
+    ? String(idMatch[1] || "").trim()
+    : text;
+  const id = idMatch
+    ? String(idMatch[2] || "").trim()
+    : "";
+
+  return { body, id };
+}
+
+function tokenizeLTMergeDiff(value) {
+  return String(value || "").match(/\s+|[^\s]+/g) || [];
+}
+
+function buildLTMergeAddedTokenDiff(beforeText, afterText) {
+  const before = tokenizeLTMergeDiff(beforeText);
+  const after = tokenizeLTMergeDiff(afterText);
+  const rows = before.length + 1;
+  const cols = after.length + 1;
+  const table = Array.from(
+    { length: rows },
+    () => new Uint16Array(cols)
+  );
+
+  for (let i = before.length - 1; i >= 0; i -= 1) {
+    for (let j = after.length - 1; j >= 0; j -= 1) {
+      table[i][j] = before[i] === after[j]
+        ? table[i + 1][j + 1] + 1
+        : Math.max(table[i + 1][j], table[i][j + 1]);
+    }
+  }
+
+  const matchedAfter = new Set();
+  const matchedBefore = new Set();
+  let i = 0;
+  let j = 0;
+
+  while (i < before.length && j < after.length) {
+    if (before[i] === after[j]) {
+      matchedBefore.add(i);
+      matchedAfter.add(j);
+      i += 1;
+      j += 1;
+      continue;
+    }
+
+    if (table[i + 1][j] >= table[i][j + 1]) {
+      i += 1;
+    } else {
+      j += 1;
+    }
+  }
+
+  const meaningfulBefore = before
+    .map((token, index) => ({ token, index }))
+    .filter(({ token }) => token.trim());
+  const meaningfulAfter = after
+    .map((token, index) => ({ token, index }))
+    .filter(({ token }) => token.trim());
+  const removedCount = meaningfulBefore
+    .filter(({ index }) => !matchedBefore.has(index))
+    .length;
+  const addedCount = meaningfulAfter
+    .filter(({ index }) => !matchedAfter.has(index))
+    .length;
+  const denominator = Math.max(
+    meaningfulBefore.length + meaningfulAfter.length,
+    1
+  );
+  const changeRatio = Math.min(
+    1,
+    ((removedCount + addedCount) * 2) / denominator
+  );
+
+  let level = 1;
+  if (changeRatio >= 0.6) level = 5;
+  else if (changeRatio >= 0.36) level = 4;
+  else if (changeRatio >= 0.2) level = 3;
+  else if (changeRatio >= 0.08) level = 2;
+
+  return {
+    tokens: after.map((token, index) => ({
+      token,
+      added: token.trim() !== "" && !matchedAfter.has(index),
+    })),
+    level,
+  };
+}
+
+function appendLTMergeDiffText(parent, beforeText, afterText) {
+  const diff = buildLTMergeAddedTokenDiff(
+    beforeText,
+    afterText
+  );
+
+  diff.tokens.forEach(({ token, added }) => {
+    if (!added) {
+      parent.appendChild(
+        document.createTextNode(token)
+      );
+      return;
+    }
+
+    const mark = document.createElement("span");
+    mark.className = `jin-lt-merge-diff-token jin-lt-diff-level-${diff.level}`;
+    mark.textContent = token;
+    parent.appendChild(mark);
+  });
+
+  return diff.level;
+}
+
+function appendLTMergeFactRow(
+  parent,
+  row,
+  compareText = "",
+) {
+  const parsed = splitLTMergeFactText(row.text);
+  const element = document.createElement("div");
+  element.className = `jin-lt-merge-row jin-lt-merge-row-${row.type}`;
+
+  const label = document.createElement("div");
+  label.className = "jin-lt-merge-row-label";
+  label.textContent = String(row.type || "").toUpperCase();
+
+  const content = document.createElement("div");
+  content.className = "jin-lt-merge-row-content";
+
+  const text = document.createElement("div");
+  text.className = "jin-lt-merge-row-text";
+
+  if (row.type === "after" && compareText) {
+    const compare = splitLTMergeFactText(compareText);
+    const level = appendLTMergeDiffText(
+      text,
+      compare.body,
+      parsed.body
+    );
+    element.classList.add(`jin-lt-diff-level-${level}`);
+  } else {
+    text.textContent = parsed.body;
+  }
+
+  content.appendChild(text);
+
+  if (parsed.id) {
+    const factId = document.createElement("span");
+    factId.className = "jin-lt-merge-fact-id";
+    factId.textContent = parsed.id;
+    content.appendChild(factId);
+  }
+
+  if (row.type === "created") {
+    element.classList.add(
+      "jin-lt-merge-created",
+      "jin-lt-diff-level-4"
+    );
+  }
+
+  element.append(label, content);
+  parent.appendChild(element);
+}
+
+function renderLTMergeAppliedTrace(trace) {
+  const operations = Array.isArray(trace.operations)
+    ? trace.operations
+    : [];
+  const counts = operations.reduce((acc, operation) => {
+    const action = String(operation.action || "unknown").toLowerCase();
+    acc[action] = (acc[action] || 0) + 1;
+    return acc;
+  }, {});
+
+  const overview = document.createElement("div");
+  overview.className = "jin-lt-merge-overview";
+
+  const title = document.createElement("div");
+  title.className = "jin-lt-merge-overview-title";
+  title.textContent = `${operations.length} ${operations.length === 1 ? "OPERATION" : "OPERATIONS"}`;
+
+  const stats = document.createElement("div");
+  stats.className = "jin-lt-merge-overview-stats";
+  ["update", "merge", "create", "ignore"].forEach((action) => {
+    if (!counts[action]) {
+      return;
+    }
+    const badge = document.createElement("span");
+    badge.className = "jin-lt-merge-stat";
+    badge.textContent = `${counts[action]} ${action}`;
+    stats.appendChild(badge);
+  });
+
+  overview.append(title, stats);
+  traceModalContent.appendChild(overview);
+
+  const stack = document.createElement("div");
+  stack.className = "jin-lt-merge-stack";
+
+  operations.forEach((operation, operationIndex) => {
+    const card = document.createElement("section");
+    card.className = `jin-lt-merge-operation jin-lt-merge-operation-${operation.action || "unknown"}`;
+
+    const header = document.createElement("div");
+    header.className = "jin-lt-merge-operation-header";
+
+    const identity = document.createElement("div");
+    identity.className = "jin-lt-merge-operation-identity";
+
+    const index = document.createElement("span");
+    index.className = "jin-lt-merge-operation-index";
+    index.textContent = String(
+      operation.index || operationIndex + 1
+    ).padStart(2, "0");
+
+    const action = document.createElement("span");
+    action.className = "jin-lt-merge-operation-action";
+    action.textContent = String(operation.action || "operation").toUpperCase();
+
+    identity.append(index, action);
+    header.appendChild(identity);
+
+    const pendingId = String(operation.pending_id || "").trim();
+    const targetId = String(operation.target_id || "").trim();
+    if (pendingId || targetId) {
+      const route = document.createElement("div");
+      route.className = "jin-lt-merge-operation-route";
+
+      if (pendingId) {
+        const pending = document.createElement("span");
+        pending.textContent = pendingId;
+        route.appendChild(pending);
+      }
+
+      if (pendingId && targetId) {
+        const arrow = document.createElement("span");
+        arrow.className = "jin-lt-merge-operation-arrow";
+        arrow.textContent = "→";
+        route.appendChild(arrow);
+      }
+
+      if (targetId) {
+        const target = document.createElement("span");
+        target.textContent = targetId;
+        route.appendChild(target);
+      }
+
+      header.appendChild(route);
+    }
+
+    const body = document.createElement("div");
+    body.className = "jin-lt-merge-operation-body";
+    const rows = Array.isArray(operation.rows)
+      ? operation.rows
+      : [];
+    const before = rows.find((row) => row.type === "before");
+
+    rows.forEach((row) => {
+      appendLTMergeFactRow(
+        body,
+        row,
+        row.type === "after" && before
+          ? before.text
+          : ""
+      );
+    });
+
+    card.append(header, body);
+    stack.appendChild(card);
+  });
+
+  traceModalContent.appendChild(stack);
 }
 
 function formatStructuredTraceValue(value) {
@@ -3217,6 +3645,9 @@ function renderTraceDetails(
   clearContextAttachedFileHoverPreview();
   traceModalContent.replaceChildren();
   traceModalContextCopyText = "";
+  traceModal.classList.remove(
+    "jin-lt-merge-trace-modal"
+  );
 
   if (traceModalCopyButton) {
     traceModalCopyButton.classList.add(
@@ -3264,6 +3695,26 @@ function renderTraceDetails(
 
   const parsed =
     parseTraceJson(details);
+
+  const ltMergeTrace =
+    parseLTMergeAppliedTrace(
+      details,
+      title,
+      parsed
+    );
+
+  traceModal.classList.toggle(
+    "jin-lt-merge-trace-modal",
+    Boolean(ltMergeTrace)
+  );
+
+  if (ltMergeTrace) {
+    renderLTMergeAppliedTrace(
+      ltMergeTrace
+    );
+
+    return;
+  }
 
   if (
       parsed

@@ -838,6 +838,7 @@
     clearDelayedMemoryAvatarHover();
     hideLongTermMemoryHoverCard();
     hideActiveMemoryHoverCard();
+    hideFrameMemoryHoverCard();
     hideDelayedMemoryHoverCard();
     hidePersistentFileHoverCard();
 
@@ -2072,7 +2073,7 @@
     return milliseconds / 1000;
   }
 
-  function getLongTermFactContextTimestamp(fact) {
+  function getLongTermFactCreatedTimestamp(fact) {
     if (
         !fact
         || typeof fact !== "object"
@@ -2081,11 +2082,8 @@
       return null;
     }
 
-    return (
-      parseLongTermFactTimestamp(fact.last_mentioned_at)
-      ||
-      parseLongTermFactTimestamp(fact.updated_at)
-      || parseLongTermFactTimestamp(fact.created_at)
+    return parseLongTermFactTimestamp(
+        fact.created_at
     );
   }
 
@@ -2502,6 +2500,10 @@
   let activeMemoryHoverCard = null;
   let activeMemoryHoverCardAnchor = null;
   let activeMemoryHoverSyncFrame = null;
+  const frameMemoryHoverRows = new WeakMap();
+  let frameMemoryHoverCard = null;
+  let frameMemoryHoverCardAnchor = null;
+  let frameMemoryHoverSyncFrame = null;
   const delayedMemoryHoverRows = new WeakMap();
   let delayedMemoryHoverCard = null;
   let delayedMemoryHoverCardAnchor = null;
@@ -2979,11 +2981,31 @@
       card.appendChild(summary);
     }
 
-    valuePresentation.tags.forEach((tag) => {
+    if (options.includeTags !== false) {
+      valuePresentation.tags.forEach((tag) => {
+        appendLongTermMemoryHoverMetadataRow(
+            metadata,
+            String(tag && tag.key || ""),
+            String(tag && tag.value || "")
+        );
+      });
+    }
+
+    (Array.isArray(options.metadataRows)
+      ? options.metadataRows
+      : []
+    ).forEach((entry) => {
+      const key = String(entry && entry[0] || "").trim();
+      const value = String(entry && entry[1] || "").trim();
+
+      if (!key || !value) {
+        return;
+      }
+
       appendLongTermMemoryHoverMetadataRow(
           metadata,
-          String(tag && tag.key || ""),
-          String(tag && tag.value || "")
+          key,
+          value
       );
     });
 
@@ -3051,6 +3073,113 @@
     activeMemoryHoverCardAnchor = anchor;
     document.body.appendChild(card);
     positionLongTermMemoryHoverCard(card, anchor);
+  }
+
+  function hideFrameMemoryHoverCard(anchor = null) {
+    if (
+        anchor
+        && frameMemoryHoverCardAnchor
+        && anchor !== frameMemoryHoverCardAnchor
+    ) {
+      return;
+    }
+
+    if (
+        frameMemoryHoverCard
+        && frameMemoryHoverCard.isConnected
+    ) {
+      frameMemoryHoverCard.remove();
+    }
+
+    frameMemoryHoverCard = null;
+    frameMemoryHoverCardAnchor = null;
+  }
+
+  function showFrameMemoryHoverCard(anchor, line) {
+    if (!anchor || !line) {
+      return;
+    }
+
+    hideFrameMemoryHoverCard();
+
+    const card = buildMemoryDetailsHoverCard(
+        line,
+        {
+          fallbackTitle: "Frame memory",
+          includeTags: false,
+          metadataRows: [
+            ["created_at", line.created_at],
+          ],
+        }
+    );
+
+    frameMemoryHoverCard = card;
+    frameMemoryHoverCardAnchor = anchor;
+    document.body.appendChild(card);
+    positionLongTermMemoryHoverCard(card, anchor);
+  }
+
+  function bindFrameMemoryHoverCard(row, line) {
+    if (!row || !line) {
+      return;
+    }
+
+    frameMemoryHoverRows.set(row, line);
+    row.removeAttribute("title");
+    row.addEventListener("mouseenter", () => {
+      showFrameMemoryHoverCard(row, line);
+    });
+    row.addEventListener("mouseleave", () => {
+      hideFrameMemoryHoverCard(row);
+    });
+    row.addEventListener("pointerdown", () => {
+      hideFrameMemoryHoverCard(row);
+    });
+  }
+
+  function syncFrameMemoryHoverCardAfterScroll() {
+    frameMemoryHoverSyncFrame = null;
+
+    if (!runtimeMemoryText || !runtimeMemoryText.isConnected) {
+      hideFrameMemoryHoverCard();
+      return;
+    }
+
+    const hoveredRow = runtimeMemoryText.querySelector(
+        ".runtime-memory-frame-row:hover"
+    );
+    const line = hoveredRow
+      ? frameMemoryHoverRows.get(hoveredRow)
+      : null;
+
+    if (!hoveredRow || !line) {
+      hideFrameMemoryHoverCard();
+      return;
+    }
+
+    if (
+        frameMemoryHoverCardAnchor === hoveredRow
+        && frameMemoryHoverCard
+        && frameMemoryHoverCard.isConnected
+    ) {
+      positionLongTermMemoryHoverCard(
+          frameMemoryHoverCard,
+          hoveredRow
+      );
+      return;
+    }
+
+    showFrameMemoryHoverCard(hoveredRow, line);
+  }
+
+  function scheduleFrameMemoryHoverCardScrollSync() {
+    if (frameMemoryHoverSyncFrame !== null) {
+      return;
+    }
+
+    frameMemoryHoverSyncFrame = window.requestAnimationFrame(
+        syncFrameMemoryHoverCardAfterScroll
+    );
   }
 
   function bindLongTermMemoryHoverCard(row, line) {
@@ -3212,6 +3341,10 @@
         normalizeDelayedMemoryFactIds(
             report && report.anchor_fact_ids
         );
+    const factIds =
+        normalizeDelayedMemoryFactIds(
+            report && report.facts_ids
+        );
     const createdAt =
         normalizeDelayedMemoryDisplayText(
             report && (
@@ -3279,6 +3412,13 @@
         "anchor_fact_ids",
         anchorFactIds.length
           ? anchorFactIds.join(", ")
+          : "[]"
+    );
+    appendLongTermMemoryHoverMetadataRow(
+        metadata,
+        "facts_ids",
+        factIds.length
+          ? factIds.join(", ")
           : "[]"
     );
 
@@ -3397,6 +3537,7 @@
   window.addEventListener("resize", () => {
     hideLongTermMemoryHoverCard();
     hideActiveMemoryHoverCard();
+    hideFrameMemoryHoverCard();
     hideDelayedMemoryHoverCard();
     hidePersistentFileHoverCard();
     syncRuntimeMemoryNavigationGeometry();
@@ -3406,6 +3547,7 @@
     memoryScroll.addEventListener("scroll", () => {
       scheduleLongTermMemoryHoverCardScrollSync();
       scheduleActiveMemoryHoverCardScrollSync();
+      scheduleFrameMemoryHoverCardScrollSync();
       scheduleDelayedMemoryHoverCardScrollSync();
       schedulePersistentFileHoverCardScrollSync();
     }, { passive: true });
@@ -3846,6 +3988,9 @@
     }
     if (displayMode !== "active") {
       hideActiveMemoryHoverCard();
+    }
+    if (displayMode !== "runtime") {
+      hideFrameMemoryHoverCard();
     }
     if (displayMode !== "delayed") {
       hideDelayedMemoryHoverCard();
@@ -4742,6 +4887,14 @@
         );
       } else if (options.interactiveActiveMemory) {
         bindActiveMemoryHoverCard(
+            row,
+            line
+        );
+      } else if (options.interactiveRuntimeMemory) {
+        row.classList.add(
+            "runtime-memory-frame-row"
+        );
+        bindFrameMemoryHoverCard(
             row,
             line
         );
@@ -9077,7 +9230,7 @@
       linked_delayed_memory_report:
         linkedDelayedMemoryReport,
       context_age_timestamp:
-        getLongTermFactContextTimestamp(fact),
+        getLongTermFactCreatedTimestamp(fact),
       status: "same",
       key_status: "same",
       value_status: "same",

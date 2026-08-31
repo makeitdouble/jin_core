@@ -1,5 +1,4 @@
 # Builds the full tool results context from search, asset, memory, and session results.
-import json
 import time
 from xml.sax.saxutils import escape
 
@@ -35,6 +34,10 @@ from .delayed_memory import (
 )
 from .formatting import (
     format_tool_result_payload,
+)
+
+from .runtime_action_result_text import (
+    format_runtime_action_result,
 )
 from .result_sections import (
     format_active_memory_result_sections,
@@ -130,6 +133,32 @@ def _build_tool_result_open_tag(
     )
 
     return f"    <TOOL_RESULT {attrs}{age_suffix}{close}"
+
+
+def _escape_runtime_action_payload(payload) -> str:
+    lines = []
+    in_schema = False
+
+    for line in str(payload or "").splitlines():
+        stripped = line.strip()
+        if stripped == "Correct action schema:":
+            in_schema = True
+
+        escaped_line = escape(line)
+        if (
+            in_schema
+            and stripped.startswith("<")
+            and stripped.endswith(">")
+        ):
+            escaped_line = (
+                escaped_line
+                .replace("&lt;", "<")
+                .replace("&gt;", ">")
+            )
+
+        lines.append(escaped_line)
+
+    return "\n".join(lines)
 
 
 def _append_tool_results(
@@ -282,7 +311,7 @@ def _append_recorded_tool_results(
                 attrs = f'name="{escape(name)}"'
                 blocks.append(
                     f"{_build_tool_result_open_tag(attrs, created_at=created_at, now=now)}\n"
-                    f"{indent_xml(escape(payload))}\n"
+                    f"{indent_xml(_escape_runtime_action_payload(payload))}\n"
                     "    </TOOL_RESULT>"
                 )
             parts.extend(
@@ -303,7 +332,7 @@ def _append_recorded_tool_results(
                 attrs = f'name="{escape(name)}"'
                 blocks.append(
                     f"{_build_tool_result_open_tag(attrs, created_at=created_at, now=now)}\n"
-                    f"{indent_xml(escape(payload))}\n"
+                    f"{indent_xml(_escape_runtime_action_payload(payload))}\n"
                     "    </TOOL_RESULT>"
                 )
             parts.extend(
@@ -318,17 +347,26 @@ def _append_recorded_tool_results(
             lines = result.get("lines", [])
             if not isinstance(lines, list):
                 lines = []
-            payload = "\n".join(
+            file_lines = "\n".join(
                 str(line or "").strip()
                 for line in lines
                 if str(line or "").strip()
             )
-            if not payload:
-                payload = "No files."
+            payload = (
+                "Status: success\n\nFiles:\n"
+                + (
+                    "\n".join(
+                        f"  {line}"
+                        for line in file_lines.splitlines()
+                    )
+                    if file_lines
+                    else "  No files."
+                )
+            )
             attrs = 'name="LIST_FILES"'
             parts.append(
                 f"{_build_tool_result_open_tag(attrs, created_at=created_at, now=now)}\n"
-                f"{indent_xml(escape(payload))}\n"
+                f"{indent_xml(_escape_runtime_action_payload(payload))}\n"
                 "    </TOOL_RESULT>"
             )
             appended = True
@@ -338,11 +376,9 @@ def _append_recorded_tool_results(
             if not isinstance(result, dict):
                 continue
 
-            payload = json.dumps(
+            payload = format_runtime_action_result(
                 result,
-                ensure_ascii=False,
-                separators=(",", ":"),
-                sort_keys=True,
+                runtime_action=RUNTIME_ACTION_UPDATE_LT_FACTS,
             )
             if not payload:
                 continue
@@ -360,7 +396,7 @@ def _append_recorded_tool_results(
 
             parts.append(
                 f"{_build_tool_result_open_tag(attrs, created_at=created_at, now=now)}\n"
-                f"{indent_xml(escape(payload))}\n"
+                f"{indent_xml(_escape_runtime_action_payload(payload))}\n"
                 "    </TOOL_RESULT>"
             )
             appended = True
@@ -378,7 +414,7 @@ def _append_recorded_tool_results(
                 attrs = f'name="{escape(name)}"'
                 blocks.append(
                     f"{_build_tool_result_open_tag(attrs, created_at=created_at, now=now)}\n"
-                    f"{indent_xml(escape(payload))}\n"
+                    f"{indent_xml(_escape_runtime_action_payload(payload))}\n"
                     "    </TOOL_RESULT>"
                 )
             parts.extend(
@@ -455,7 +491,7 @@ def _append_asset_results(
         attrs = f'name="{escape(name)}"'
         tool_result_blocks.append(
             f"{_build_tool_result_open_tag(attrs)}\n"
-            f"{indent_xml(escape(payload))}\n"
+            f"{indent_xml(_escape_runtime_action_payload(payload))}\n"
             "    </TOOL_RESULT>"
         )
 
@@ -492,7 +528,7 @@ def _load_delayed_memory_results(
         attrs = f'name="{escape(name)}"'
         tool_result_blocks.append(
             f"{_build_tool_result_open_tag(attrs)}\n"
-            f"{indent_xml(escape(payload))}\n"
+            f"{indent_xml(_escape_runtime_action_payload(payload))}\n"
             "    </TOOL_RESULT>"
         )
 

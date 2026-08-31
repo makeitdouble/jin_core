@@ -12,9 +12,9 @@
       "emit_followup": true,
       "follow_up_on_fail": false
     },
+    "schema": [],
     "rules": [
-      "PROJECT ASSETS:",
-      "Use only capabilities from skills already loaded in <LOADED_SKILLS_CONTENT>, and only when the user request requires them."
+      "Must derive concrete ASSET_ACTION schema from LOADED_SKILLS_CONTENT block."
     ],
     "close_tag": true
   }

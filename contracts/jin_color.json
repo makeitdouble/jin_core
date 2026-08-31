@@ -12,6 +12,7 @@
       "emit_followup": false,
       "follow_up_on_fail": false
     },
+    "schema": [],
     "rules": [
       "Use to set single color for the JIN Live Avatar center point color and chat interface background tint.",
       "Schema:",

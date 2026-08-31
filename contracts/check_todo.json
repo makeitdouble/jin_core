@@ -12,6 +12,7 @@
       "emit_followup": true,
       "follow_up_on_fail": false
     },
+    "schema": [],
     "rules": [
       "RUNTIME TODO LEDGER:",
       "If <CURRENT_RUNTIME_TODO_LIST> is present in the context - NEVER EMIT ANOTHER TODO_LIST MARKER.Always list and check all available files before creating them.",

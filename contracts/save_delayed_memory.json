@@ -17,6 +17,7 @@
       "emit_followup": false,
       "follow_up_on_fail": false
     },
+    "schema": [],
     "rules": [
       "Use this marker only after the user explicitly asks to create/save a delayed memory report.",
       "Emit marker using this form:",

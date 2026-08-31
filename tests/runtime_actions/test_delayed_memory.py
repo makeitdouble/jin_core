@@ -678,7 +678,11 @@ class RuntimeDelayedMemoryTests(RuntimeActionTestCase):
             tool_results,
         )
         self.assertIn(
-            f'"id": "{report_id}"',
+            f"Result id: {report_id}",
+            tool_results,
+        )
+        self.assertIn(
+            "Status: success",
             tool_results,
         )
         self.assertIn(

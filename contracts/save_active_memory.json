@@ -12,11 +12,12 @@
       "emit_followup": false,
       "follow_up_on_fail": true
     },
-    "rules": [
-      "Schema:",
+    "schema": [
       "<SAVE_ACTIVE_MEMORY>",
       "{\"conditions\":\"Descriptive conditions text\",\"custom_field\":\"Custom field value\"}",
-      "</SAVE_ACTIVE_MEMORY>",
+      "</SAVE_ACTIVE_MEMORY>"
+    ],
+    "rules": [
       "conditions - is required field. You may add up to 3 additional custom fields with custom values."
     ],
     "close_tag": true,

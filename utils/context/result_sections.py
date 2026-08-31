@@ -1,6 +1,6 @@
 # Formats non-asset recorded tool result sections such as active memory actions.
-from .formatting import (
-    format_tool_result_payload,
+from .runtime_action_result_text import (
+    format_runtime_action_result,
 )
 
 
@@ -29,8 +29,9 @@ def format_active_memory_result_sections(
             sections.append(
                 (
                     "SAVE_ACTIVE_MEMORY",
-                    format_tool_result_payload(
-                        result
+                    format_runtime_action_result(
+                        result,
+                        runtime_action="SAVE_ACTIVE_MEMORY",
                     ),
                 )
             )
@@ -40,8 +41,9 @@ def format_active_memory_result_sections(
             sections.append(
                 (
                     "UPDATE_ACTIVE_MEMORY",
-                    format_tool_result_payload(
-                        result
+                    format_runtime_action_result(
+                        result,
+                        runtime_action="UPDATE_ACTIVE_MEMORY",
                     ),
                 )
             )
@@ -51,8 +53,9 @@ def format_active_memory_result_sections(
             sections.append(
                 (
                     "DELETE_ACTIVE_MEMORY",
-                    format_tool_result_payload(
-                        result
+                    format_runtime_action_result(
+                        result,
+                        runtime_action="DELETE_ACTIVE_MEMORY",
                     ),
                 )
             )

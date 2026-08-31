@@ -322,6 +322,14 @@ def get_runtime_action_private_marker(runtime_action: str) -> str:
     return str(contract.get("private_marker", "") or "").strip()
 
 
+def get_runtime_action_schema(runtime_action: str) -> tuple[str, ...]:
+    _, contract = get_action_contract_for_runtime_action(runtime_action)
+    return tuple(
+        line
+        for line in _as_list(contract.get("schema"))
+        if isinstance(line, str) and line.strip()
+    )
+
 def get_runtime_action_rules(runtime_action: str) -> tuple[str, ...]:
     _, contract = get_action_contract_for_runtime_action(runtime_action)
     return tuple(
@@ -366,6 +374,10 @@ def build_runtime_action_contract_instructions(runtime_action: str) -> str:
         )
         if line
     ]
+    schema = get_runtime_action_schema(runtime_action)
+    if schema:
+        lines.append("Schema:")
+        lines.extend(schema)
     lines.extend(get_runtime_action_rules(runtime_action))
 
     return "\n".join(lines)

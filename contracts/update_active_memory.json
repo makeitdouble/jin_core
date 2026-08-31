@@ -12,11 +12,21 @@
       "emit_followup": false,
       "follow_up_on_fail": true
     },
-    "rules": [
-      "Schema:",
+    "schema": [
       "<UPDATE_ACTIVE_MEMORY>",
-      "{\"active_memory_id\":\"\",\"field_to_update\":\"new_value\"}",
+      "{\"active_memory_id\":\"abcdef\",\"field_name\":\"new_value\"}",
+      "</UPDATE_ACTIVE_MEMORY>",
+      "or",
+      "<UPDATE_ACTIVE_MEMORY>",
+      "{\"active_memory_id\":\"abcdef\",\"fields_to_update\":{\"field_name\":\"new_value\",\"another_field\":\"new_value\"}}",
+      "</UPDATE_ACTIVE_MEMORY>",
+      "or",
+      "<UPDATE_ACTIVE_MEMORY>",
+      "{\"active_memory_id\":\"abcdef\",\"field_to_update\":{\"field_name\":\"new_value\"}}",
       "</UPDATE_ACTIVE_MEMORY>"
+    ],
+    "rules": [
+      "Use to update active memory values."
     ],
     "close_tag": true
   }

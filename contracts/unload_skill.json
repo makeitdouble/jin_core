@@ -12,8 +12,12 @@
       "emit_followup": false,
       "follow_up_on_fail": false
     },
+    "schema": [
+      "<UNLOAD_SKILL: name of skill >",
+      "<UNLOAD_SKILLS: name1, name2, name3 >"
+    ],
     "rules": [
-      "For multiple unload use: <UNLOAD_SKILLS: name1, name2, name3 >"
+      "Use to unload from the context previously loaded skill content."
     ],
     "close_tag": false
   }

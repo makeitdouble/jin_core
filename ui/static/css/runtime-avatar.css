@@ -8,7 +8,7 @@
     min-height: var(--runtime-avatar-panel-size);
     justify-content: center;
     padding: 8px 10px;
-    overflow: hidden;
+    overflow: visible;
     background:
         radial-gradient(circle at 50% 47%, rgba(12, 91, 89, 0.16), transparent 42%),
         radial-gradient(circle at 50% 50%, rgba(0, 0, 0, 0) 46%, rgba(0, 0, 0, 0.44) 100%),
@@ -40,7 +40,17 @@
     justify-self: center;
     place-items: center;
     flex: 0 0 auto;
+    overflow: visible;
+    transform-origin: center center;
+    transition: transform 0.18s cubic-bezier(0.22, 0.61, 0.36, 1) 0.333s;
+    will-change: transform;
     user-select: none;
+}
+
+#memory-panel:has(#runtime-memory-panel:hover) .jin-runtime-avatar-shell {
+    z-index: 99;
+    transform: scale(1.03);
+    transition-delay: 0.05s;
 }
 
 .jin-runtime-avatar-shell::before {
@@ -617,12 +627,22 @@
 
 .jin-avatar-memory-dash:not(.is-memory-dot).is-memory-hover-hit path {
     stroke-opacity: 1 !important;
-    stroke-width: calc(var(--jin-avatar-memory-hover-width, 2px) + 0.45px);
+    stroke-width: calc(var(--jin-avatar-memory-hover-width, 2px) + 2px);
+}
+
+.jin-avatar-memory-dash.is-memory-dot.is-memory-hover-hit {
+    filter:
+        brightness(2.25)
+        saturate(1.90)
+        drop-shadow(0 0 5px var(--jin-avatar-memory-glow-near, rgba(210, 255, 255, 0.98)))
+        drop-shadow(0 0 14px var(--jin-avatar-memory-glow-mid, rgba(90, 235, 245, 0.68)))
+        drop-shadow(0 0 28px var(--jin-avatar-memory-glow-far, rgba(52, 211, 222, 0.30)))
+        drop-shadow(0 0 42px var(--jin-avatar-memory-glow-far, rgba(52, 211, 222, 0.24)));
 }
 
 .jin-avatar-memory-dash.is-memory-dot.is-memory-hover-hit circle {
     fill-opacity: 1 !important;
-    r: var(--jin-avatar-memory-hover-dot-radius, 2.45px);
+    r: calc(var(--jin-avatar-memory-dot-radius, 1.6px) + 0.5px) !important;
 }
 
 /*
@@ -673,6 +693,10 @@
     stroke-width: var(--jin-avatar-memory-hover-width, 2px);
 }
 
+.jin-avatar-memory-dash-delayed:not(.is-memory-dot).is-memory-hover-hit path {
+    stroke-width: calc(var(--jin-avatar-memory-hover-width, 2px) + 2px);
+}
+
 /* Direct delayed-memory -> L-T propagation is Tier 1 only. Cross-linked
    delayed reports are deliberately excluded by the JS collector, so their
    facts never inherit this relation glow. */
@@ -690,9 +714,19 @@
     stroke-width: var(--jin-avatar-memory-hover-width, 2px);
 }
 
+.jin-avatar-memory-dash-lt.is-memory-dot.is-delayed-memory-linked-hit {
+    filter:
+        brightness(2.10)
+        saturate(1.82)
+        drop-shadow(0 0 5px var(--jin-avatar-memory-glow-near, rgba(210, 255, 255, 0.92)))
+        drop-shadow(0 0 13px var(--jin-avatar-memory-glow-mid, rgba(90, 235, 245, 0.58)))
+        drop-shadow(0 0 26px var(--jin-avatar-memory-glow-far, rgba(52, 211, 222, 0.26)))
+        drop-shadow(0 0 40px var(--jin-avatar-memory-glow-far, rgba(52, 211, 222, 0.20)));
+}
+
 .jin-avatar-memory-dash-lt.is-memory-dot.is-delayed-memory-linked-hit circle {
-    fill-opacity: 0.82 !important;
-    r: var(--jin-avatar-memory-dot-radius, 1.6px);
+    fill-opacity: 1 !important;
+    r: calc(var(--jin-avatar-memory-dot-radius, 1.6px) + 0.5px) !important;
 }
 
 
@@ -855,7 +889,7 @@ body.theme-win95 #memory-drag-handle {
     min-height: var(--runtime-avatar-panel-size);
     justify-content: center;
     padding: 8px 10px;
-    overflow: hidden;
+    overflow: visible;
     background: var(--win95-title);
 }
 

@@ -129,6 +129,10 @@ class ActiveMemoryFailureFollowupTests(IsolatedAsyncioTestCase):
         tool_results_context = build_tool_results_context(context)
         self.assertIn('name="UPDATE_ACTIVE_MEMORY"', tool_results_context)
         self.assertIn("invalid_update_active_memory_payload", tool_results_context)
+        self.assertIn("Status: failed", tool_results_context)
+        self.assertIn("Provided payload:", tool_results_context)
+        self.assertIn("Correct action schema:", tool_results_context)
+        self.assertNotIn('"ok": false', tool_results_context)
         base_prompt = tool_results_context + "\n\nBASE RULES"
         prompt = BrainNode.build_followup_system_prompt(
             base_prompt,

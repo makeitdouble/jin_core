@@ -287,10 +287,10 @@ FILE_RING_LAYOUT
 
 | Ring | Radius | Stroke / dot size | Meaning |
 |---|---:|---:|---|
-| Delayed | `158` | `3.10` | Delayed memory reports |
-| L-T | `168` | `1.05` | Long-term facts |
-| Active | `178` | `1.35` | Active memory records |
-| Files | `188` | dot radius `2.7` | Persistent files |
+| Delayed | `168` | `3.10` | Delayed memory reports |
+| L-T | `178` base, `+4` per extra 100 facts | `1.05` | Long-term facts |
+| Active | dynamic midpoint between outermost L-T and Files | `2.175` | Active memory records |
+| Files | `198` | dot radius `2.7` | Persistent files |
 
 The memory-ring render order is `delayed`, then `lt`, then `active`; the file ring is inserted after those and before the center. L-T intentionally sits between delayed reports and active memory.
 
@@ -321,6 +321,8 @@ There are two base visual states:
 |---|---|---|
 | Visible / anchor fact | Fact stays directly available in long-term context | normal blue dash |
 | Archived ordinary fact | Fact is listed by a delayed report as ordinary report content | dim blue dot; dash arc fades away |
+
+L-T uses one lane per 100 facts. The first lane sits at radius `178`; every additional hundred adds a new outer lane at `+4px`. Increasing the base radius from `168` to `178` gives every lane more circumference, so dense fact dashes have more real space instead of only being visually scaled.
 
 Current opacity:
 
@@ -451,7 +453,7 @@ Delayed reports also expose `attachments_ids`. Those ids feed the persistent fil
 
 ## Active Memory Ring
 
-The active ring shows active memory records. It is the outermost **memory-dash** ring and is intentionally bright; the file-dot perimeter sits beyond it.
+The active ring shows active memory records. It is the outermost **memory-dash** ring and is intentionally bright; the file-dot perimeter sits beyond it. ACTIVE no longer owns a fixed radius. Its radius is recomputed from the current L-T lane count so it stays exactly halfway between the outermost L-T lane and the Files perimeter.
 
 Current behavior:
 
@@ -459,7 +461,10 @@ Current behavior:
 |---|---|
 | Color | `ACTIVE_MEMORY_RING_COLOR` |
 | Opacity | `0.76` |
-| Radius | `MEMORY_RING_LAYOUT.active.radius` = `178` |
+| Stroke width | `2.175` (`4.35 / 2`) |
+| Radius | `(outermost L-T radius + FILE_RING_LAYOUT.radius) / 2` |
+
+For example, with 153 L-T facts the L-T lanes are `178` and `182`, Files is `198`, so ACTIVE sits at radius `190`. When a new hundred-fact lane appears, `syncLTMemoryState()` also rebuilds ACTIVE even if Active Memory itself did not change.
 
 File:
 
@@ -468,6 +473,8 @@ File:
 Places:
 
 - `getActiveMemoryAvatarRecords()`;
+- `getOutermostLTMemoryRingRadius()`;
+- `getActiveMemoryRingLayout()`;
 - active branch inside `appendMemorySignalRing()`;
 - `MEMORY_RING_LAYOUT.active`.
 
@@ -490,7 +497,7 @@ Configuration:
 
 ```js
 FILE_RING_LAYOUT = {
-  radius: 188,
+  radius: 198,
   dotRadius: 2.7,
   baseColor: "#7ab8d8",
   glowColor: "#7ab8d8",

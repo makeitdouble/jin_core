@@ -1588,6 +1588,7 @@ async def update_active_memory_runtime_record(
         "ok": False,
         "action": "update_active_memory",
         "error": "invalid_update_active_memory_payload",
+        "payload": str(payload or "").strip(),
     }
 
     if context is None:

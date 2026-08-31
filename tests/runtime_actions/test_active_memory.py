@@ -31,6 +31,7 @@ from utils.actions import (
     get_save_active_memory_placeholder_payload,
     normalize_jin_color_payload,
     parse_delayed_memory_payload,
+    parse_update_active_memory_payload,
 )
 from utils.assets_utils import run_asset_action
 from utils.brain_client_utils import (
@@ -721,6 +722,64 @@ class RuntimeActiveMemoryTests(RuntimeActionTestCase):
                         "\"current_photo_count\":\"2\""
                         "}}"
                     ),
+                ),
+            ),
+        )
+
+
+    def test_parse_update_active_memory_accepts_fields_to_update_object(self):
+
+        self.assertEqual(
+            parse_update_active_memory_payload(
+                (
+                    '{"active_memory_id":"zgctxy",'
+                    '"fields_to_update":{'
+                    '"last_photo_id":"pm6g70",'
+                    '"current_photos":5}}'
+                )
+            ),
+            (
+                "zgctxy",
+                (
+                    ("last_photo_id", "pm6g70"),
+                    ("current_photos", "5"),
+                ),
+            ),
+        )
+
+
+    def test_parse_update_active_memory_accepts_field_to_update_object(self):
+
+        self.assertEqual(
+            parse_update_active_memory_payload(
+                (
+                    '{"active_memory_id":"zgctxy",'
+                    '"field_to_update":{'
+                    '"last_photo_id":"pm6g70"}}'
+                )
+            ),
+            (
+                "zgctxy",
+                (("last_photo_id", "pm6g70"),),
+            ),
+        )
+
+
+    def test_parse_update_active_memory_keeps_flat_json_contract(self):
+
+        self.assertEqual(
+            parse_update_active_memory_payload(
+                (
+                    '{"active_memory_id":"zgctxy",'
+                    '"last_photo_id":"pm6g70",'
+                    '"current_photos":5}'
+                )
+            ),
+            (
+                "zgctxy",
+                (
+                    ("last_photo_id", "pm6g70"),
+                    ("current_photos", "5"),
                 ),
             ),
         )
@@ -2272,15 +2331,23 @@ class RuntimeActiveMemoryTests(RuntimeActionTestCase):
             tool_results,
         )
         self.assertIn(
+            "Status: failed",
+            tool_results,
+        )
+        self.assertIn(
+            "Provided payload:",
+            tool_results,
+        )
+        self.assertIn(
+            "active_memory_10",
+            tool_results,
+        )
+        self.assertIn(
+            "Available ids:",
+            tool_results,
+        )
+        self.assertNotIn(
             '"ok": false',
-            tool_results,
-        )
-        self.assertIn(
-            '"requested": "active_memory_10"',
-            tool_results,
-        )
-        self.assertIn(
-            '"available_ids": [',
             tool_results,
         )
 

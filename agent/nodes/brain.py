@@ -37,6 +37,7 @@ from contracts.rules_assembler import (
     get_action_contract_name_for_runtime_action,
     get_runtime_action_display_name,
     get_runtime_action_private_marker,
+    get_runtime_action_schema,
     get_runtime_action_rules,
     runtime_action_emits_followup,
     runtime_action_follows_up_on_fail,
@@ -182,10 +183,22 @@ def build_failed_runtime_action_followup_context(
     display_name = get_runtime_action_display_name(
         runtime_action
     )
-    mandatory_rules = "\n".join(
+    mandatory_lines = []
+    schema = get_runtime_action_schema(
+        runtime_action
+    )
+    if schema:
+        mandatory_lines.append(
+            "Correct action schema:"
+        )
+        mandatory_lines.extend(schema)
+    mandatory_lines.extend(
         get_runtime_action_rules(
             runtime_action
         )
+    )
+    mandatory_rules = "\n".join(
+        mandatory_lines
     ).strip()
     failed_marker = _build_failed_runtime_action_marker(
         event

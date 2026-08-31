@@ -11,6 +11,8 @@
     "jin:delayed-memory-report-active";
   const MEMORY_REFERENCE_HIGHLIGHT_EVENT =
     "jin:memory-reference-highlight";
+  const MEMORY_ROW_HOVER_ZOOM_CLASS =
+    "is-memory-row-hover-zoom";
 
   const CENTER = 180;
   const INNER_RING_SCALE = 0.90;
@@ -26,7 +28,7 @@
   const LT_MEMORY_RING_RADIUS_STEP = 4;
   const MEMORY_RING_LAYOUT = Object.freeze({
     lt: Object.freeze({
-      radius: 168,
+      radius: 178,
       strokeWidth: 1.05,
       minArcDegrees: 3.2,
       maxArcDegrees: 8.8,
@@ -35,7 +37,7 @@
       startAngle: -6,
     }),
     delayed: Object.freeze({
-      radius: 158,
+      radius: 168,
       strokeWidth: 3.10,
       minArcDegrees: 3.4,
       maxArcDegrees: 9.4,
@@ -43,8 +45,7 @@
       startAngle: -3,
     }),
     active: Object.freeze({
-      radius: 178,
-      strokeWidth: 1.35,
+      strokeWidth: 2.175,
       minArcDegrees: 3.8,
       maxArcDegrees: 10.8,
       arcRatio: 0.48,
@@ -52,7 +53,7 @@
     }),
   });
   const FILE_RING_LAYOUT = Object.freeze({
-    radius: 188,
+    radius: 198,
     dotRadius: 2.7,
     baseColor: "#7ab8d8",
     glowColor: "#7ab8d8",
@@ -2533,6 +2534,35 @@
     return ringBatches;
   }
 
+  function getOutermostLTMemoryRingRadius(records) {
+    const recordCount =
+      Array.isArray(records)
+        ? records.length
+        : 0;
+    const laneCount = Math.max(
+      1,
+      Math.ceil(recordCount / LT_MEMORY_RING_MAX_FACTS)
+    );
+
+    return (
+      MEMORY_RING_LAYOUT.lt.radius
+      + LT_MEMORY_RING_RADIUS_STEP * (laneCount - 1)
+    );
+  }
+
+  function getActiveMemoryRingLayout(ltMemoryRecords) {
+    const outermostLTRadius =
+      getOutermostLTMemoryRingRadius(ltMemoryRecords);
+
+    return {
+      ...MEMORY_RING_LAYOUT.active,
+      radius: (
+        outermostLTRadius
+        + FILE_RING_LAYOUT.radius
+      ) / 2,
+    };
+  }
+
   function appendLTMemorySignalRings(svg, records, overallColor) {
     getLTMemoryRingBatches(records)
       .forEach((batch) => {
@@ -2645,10 +2675,14 @@
   function syncMemorySignalLayer(kind, options = {}) {
     const svg =
       avatarRoot.querySelector("svg");
-    const layout =
-      MEMORY_RING_LAYOUT[kind];
     const records =
       getMemorySignalRecords(kind);
+    const layout =
+      kind === "active"
+        ? getActiveMemoryRingLayout(
+          getLTMemoryAvatarRecords()
+        )
+        : MEMORY_RING_LAYOUT[kind];
 
     if (
       !svg
@@ -3074,7 +3108,23 @@
   }
 
   function syncLTMemoryState() {
-    return syncMemorySignalLayer("lt");
+    const ltSynced =
+      syncMemorySignalLayer(
+        "lt",
+        { applyGlows: false }
+      );
+    const activeSynced =
+      syncMemorySignalLayer(
+        "active",
+        { applyGlows: false }
+      );
+
+    if (!ltSynced || !activeSynced) {
+      return false;
+    }
+
+    applyAvatarReactiveGlows();
+    return true;
   }
 
   function syncFileSignalRingState(svg, records) {
@@ -3264,7 +3314,7 @@
     appendMemorySignalRing(
       svg,
       activeMemoryRecords,
-      MEMORY_RING_LAYOUT.active,
+      getActiveMemoryRingLayout(ltMemoryRecords),
       "active",
       overallColor
     );
@@ -4011,7 +4061,20 @@
     });
   }
 
+  function syncMemoryRowAvatarHoverZoom() {
+    if (!avatarShell) {
+      return;
+    }
+
+    avatarShell.classList.toggle(
+      MEMORY_ROW_HOVER_ZOOM_CLASS,
+      Boolean(memoryRowAvatarHoverState)
+    );
+  }
+
   function applyMemoryRowAvatarHoverGlow() {
+    syncMemoryRowAvatarHoverZoom();
+
     const svg = avatarRoot.querySelector("svg");
 
     if (!svg) {
