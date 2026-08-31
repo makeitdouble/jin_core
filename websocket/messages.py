@@ -28,6 +28,9 @@ from runtime.L1_memory_utils import (
     build_runtime_session_checkpoint,
     record_runtime_memory_reasoning_quotes,
 )
+from runtime.LT_memory import (
+    record_lt_reasoning_fact_mentions,
+)
 from runtime.state_sync import refresh_runtime_state
 from utils.brain_client_utils import (
     get_brain_runtime_config,
@@ -1525,6 +1528,23 @@ async def process_message(
             if not is_session_restore_resume:
                 context.current_session_assistant_message_count += 1
             context.turn_number += 1
+
+        if not is_action_guard_retry:
+            try:
+                await record_lt_reasoning_fact_mentions(
+                    context,
+                    getattr(
+                        context,
+                        "runtime_turn_reasoning_content",
+                        "",
+                    ),
+                    assistant_message,
+                )
+            except Exception as error:
+                await logger.log_system(
+                    "[MEMORY:L-T] turn mention tracking failed: "
+                    + str(error)
+                )
 
         completed_session_snapshot = (
             build_runtime_session_checkpoint(context)

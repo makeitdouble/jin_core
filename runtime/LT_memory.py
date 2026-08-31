@@ -27,6 +27,7 @@ from runtime.LT_memory_utils import (
     build_lt_jin_note_user_prompt,
     build_lt_merge_system_prompt,
     clone_lt_store,
+    collect_lt_reasoning_fact_ids,
     collect_pending_facts_memory_fields,
     collect_lt_shard_scan_referenced_facts,
     estimate_lt_merge_response_tokens,
@@ -1508,6 +1509,97 @@ async def emit_lt_memory_update(context, *, change: dict | None = None) -> None:
             "change": change or {},
         },
     )
+
+
+async def record_lt_reasoning_fact_mentions(
+    context,
+    reasoning: str,
+    message: str = "",
+    *,
+    now: str | None = None,
+) -> dict:
+    """Persist one mention per valid L-T fact cited by JIN in this turn."""
+
+    referenced_fact_ids = []
+    for text in (reasoning, message):
+        for fact_id in collect_lt_reasoning_fact_ids(text):
+            if fact_id not in referenced_fact_ids:
+                referenced_fact_ids.append(fact_id)
+    if not referenced_fact_ids:
+        return {
+            "changed": False,
+            "mentioned_fact_ids": [],
+        }
+
+    current_store = clone_lt_store(
+        ensure_runtime_lt_state(context)
+    )
+    facts_by_id = {}
+    fact_id_by_reference = {}
+    for fact in current_store.get("facts") or []:
+        if not isinstance(fact, dict):
+            continue
+
+        fact_id = str(fact.get("id") or "").strip().upper()
+        if not fact_id:
+            continue
+
+        facts_by_id[fact_id] = fact
+        for reference_id in normalize_long_term_fact_ids([
+            fact_id,
+            *(fact.get("source_fact_ids") or []),
+        ]):
+            fact_id_by_reference[reference_id] = fact_id
+
+    mentioned_fact_ids = []
+    for referenced_fact_id in referenced_fact_ids:
+        fact_id = fact_id_by_reference.get(referenced_fact_id)
+        if fact_id and fact_id not in mentioned_fact_ids:
+            mentioned_fact_ids.append(fact_id)
+    if not mentioned_fact_ids:
+        return {
+            "changed": False,
+            "mentioned_fact_ids": [],
+        }
+
+    current_time = normalize_lt_text(now) or utc_now_iso()
+    for fact_id in mentioned_fact_ids:
+        fact = facts_by_id[fact_id]
+        try:
+            mention_count = max(
+                1,
+                int(fact.get("mention_count") or 1),
+            )
+        except (TypeError, ValueError):
+            mention_count = 1
+
+        fact["mention_count"] = mention_count + 1
+        fact["last_mentioned_at"] = current_time
+
+    current_store["revision"] = max(
+        0,
+        int(current_store.get("revision") or 0),
+    ) + 1
+    current_store["updated_at"] = current_time
+    context.runtime_long_term_memory_store = normalize_lt_store(
+        current_store,
+        now=current_time,
+    )
+    persist_runtime_lt_file_store(
+        context,
+        context.runtime_long_term_memory_store,
+    )
+
+    change = {
+        "changed": True,
+        "kind": "turn_mentions",
+        "mentioned_fact_ids": mentioned_fact_ids,
+    }
+    await emit_lt_memory_update(
+        context,
+        change=change,
+    )
+    return change
 
 
 def remap_delayed_memory_lt_fact_ids(

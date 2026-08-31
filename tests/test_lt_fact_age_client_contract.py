@@ -24,6 +24,10 @@ class LTFactAgeClientContractTests(unittest.TestCase):
             source,
         )
         self.assertIn(
+            "parseLongTermFactTimestamp(fact.last_mentioned_at)",
+            source,
+        )
+        self.assertIn(
             "parseLongTermFactTimestamp(fact.updated_at)",
             source,
         )

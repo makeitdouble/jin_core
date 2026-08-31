@@ -34,6 +34,9 @@ from runtime.LT_memory import (
     unregister_lt_websocket_connection,
 )
 from runtime.fact_check import run_fact_check_once
+from runtime.LT_mention_backfill import (
+    schedule_lt_log_mention_backfill,
+)
 from runtime.anonymous_mode import (
     RESTRICTED_WRITE_REASON,
     persistent_writes_restricted,
@@ -443,6 +446,13 @@ async def websocket_endpoint(
                     change={
                         "synced": bool(applied),
                     },
+                )
+
+                # Legacy fallback only: reconstruct pre-patch L-T mention dates
+                # from the raw dialogue/reasoning archive without delaying the
+                # websocket bootstrap. New turns are tracked live elsewhere.
+                schedule_lt_log_mention_backfill(
+                    context
                 )
                 continue
 

@@ -54,6 +54,13 @@ LT_JIN_NOTE_ACTIONS = {
     "merge",
     "create",
 }
+LT_FACT_FULL_RECALL_SECONDS = 24 * 60 * 60
+LT_STALE_SENTENCE_PREVIEW_CHARS = 100
+LT_FACT_REASONING_REFERENCE_RE = re.compile(
+    r"(?<![A-Za-z0-9_])F([1-9]\d*)(?![A-Za-z0-9_])",
+    re.IGNORECASE,
+)
+LT_SENTENCE_SPLIT_RE = re.compile(r"(?<=[.!?…])\s+")
 
 
 def infer_lt_jin_note_action(
@@ -1167,14 +1174,24 @@ def normalize_lt_fact(
     except (TypeError, ValueError):
         mention_count = 1
 
+    created_at = normalize_lt_text(value.get("created_at")) or current_time
+    updated_at = normalize_lt_text(value.get("updated_at")) or current_time
+    last_mentioned_at = (
+        normalize_lt_text(value.get("last_mentioned_at"))
+        or updated_at
+        or created_at
+        or current_time
+    )
+
     return {
         "id": fact_id,
         "key": key,
         "value": fact_value,
         "category": normalize_lt_category(value.get("category")),
         "mention_count": mention_count,
-        "created_at": normalize_lt_text(value.get("created_at")) or current_time,
-        "updated_at": normalize_lt_text(value.get("updated_at")) or current_time,
+        "last_mentioned_at": last_mentioned_at,
+        "created_at": created_at,
+        "updated_at": updated_at,
         "source_fact_ids": normalize_lt_string_list(
             value.get("source_fact_ids") or value.get("source_fact_id")
         ),
@@ -1191,6 +1208,10 @@ def merge_same_lt_fact(existing: dict, incoming: dict, *, now: str) -> dict:
         existing.get("source_fact_ids"),
         incoming.get("source_fact_ids"),
     )
+    result["last_mentioned_at"] = max(
+        normalize_lt_text(existing.get("last_mentioned_at")),
+        normalize_lt_text(incoming.get("last_mentioned_at")),
+    ) or now
     result["updated_at"] = now
     return result
 
@@ -1279,6 +1300,13 @@ def merge_lt_snapshot_fact(
             max(
                 existing_updated_at,
                 incoming_updated_at,
+            )
+            or now
+        ),
+        "last_mentioned_at": (
+            max(
+                normalize_lt_text(existing_fact.get("last_mentioned_at")),
+                normalize_lt_text(incoming_fact.get("last_mentioned_at")),
             )
             or now
         ),
@@ -3079,6 +3107,7 @@ def format_lt_fact_metadata_suffixes(fact: dict) -> list[str]:
         "id",
         "category",
         "mention_count",
+        "last_mentioned_at",
         "source_fact_ids",
         "created_at",
         "updated_at",
@@ -3123,6 +3152,12 @@ def format_lt_fact_context_age_suffix(
     return (
         format_context_message_age_suffix(
             fact.get(
+                "last_mentioned_at",
+            ),
+            now=now,
+        )
+        or format_context_message_age_suffix(
+            fact.get(
                 "updated_at",
             ),
             now=now,
@@ -3133,6 +3168,105 @@ def format_lt_fact_context_age_suffix(
             ),
             now=now,
         )
+    )
+
+
+def collect_lt_reasoning_fact_ids(reasoning: str) -> list[str]:
+    """Collect exact committed F<number> references from one reasoning turn."""
+
+    result = []
+    seen = set()
+
+    for match in LT_FACT_REASONING_REFERENCE_RE.finditer(
+        str(reasoning or "")
+    ):
+        fact_id = f"F{int(match.group(1))}"
+        if fact_id in seen:
+            continue
+        seen.add(fact_id)
+        result.append(fact_id)
+
+    return result
+
+
+def get_lt_fact_last_mentioned_timestamp(fact: dict) -> float:
+    if not isinstance(fact, dict):
+        return 0.0
+
+    for key in (
+        "last_mentioned_at",
+        "updated_at",
+        "created_at",
+    ):
+        timestamp = lt_timestamp_sort_value(
+            fact.get(key)
+        )
+        if timestamp > 0:
+            return timestamp
+
+    return 0.0
+
+
+def lt_fact_needs_context_preview(
+    fact: dict,
+    *,
+    now: float | None = None,
+) -> bool:
+    timestamp = get_lt_fact_last_mentioned_timestamp(fact)
+    if timestamp <= 0:
+        return False
+
+    current_time = (
+        datetime.now(timezone.utc).timestamp()
+        if now is None
+        else float(now)
+    )
+    return (
+        max(0.0, current_time - timestamp)
+        >= LT_FACT_FULL_RECALL_SECONDS
+    )
+
+
+def truncate_lt_sentence_for_context(
+    sentence: str,
+    *,
+    max_chars: int = LT_STALE_SENTENCE_PREVIEW_CHARS,
+) -> str:
+    text = normalize_lt_text(sentence)
+    if not text or len(text) <= max_chars:
+        return text
+
+    preview = text[:max_chars].rstrip()
+    if not preview:
+        return "..."
+
+    return preview.rstrip(" .,!?:;…") + "..."
+
+
+def format_lt_fact_context_value(
+    fact: dict,
+    *,
+    now: float | None = None,
+) -> str:
+    value = normalize_lt_text(
+        fact.get("value")
+        if isinstance(fact, dict)
+        else ""
+    )
+    if not value or not lt_fact_needs_context_preview(fact, now=now):
+        return value
+
+    sentences = [
+        sentence
+        for sentence in LT_SENTENCE_SPLIT_RE.split(value)
+        if normalize_lt_text(sentence)
+    ]
+    if not sentences:
+        sentences = [value]
+
+    return " ".join(
+        truncate_lt_sentence_for_context(sentence)
+        for sentence in sentences
     )
 
 
@@ -3241,9 +3375,15 @@ def format_long_term_memory_context(
     )
 
     for fact in facts:
-        line = format_lt_fact_line(
+        key = normalize_lt_text(fact.get("key"))
+        context_value = format_lt_fact_context_value(
             fact,
-            include_metadata=False,
+            now=now,
+        )
+        line = (
+            f"{key}: {context_value}"
+            if key and context_value
+            else ""
         )
         fact_id = normalize_lt_text(
             fact.get(

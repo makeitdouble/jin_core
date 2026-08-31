@@ -16,6 +16,7 @@ from runtime.LT_memory import (
     ensure_runtime_lt_state,
     get_lt_scheduler_interval_seconds,
     maybe_update_runtime_lt_memory,
+    record_lt_reasoning_fact_mentions,
     remap_delayed_memory_lt_fact_ids,
     restore_lt_memory_fact,
     run_lt_merge_phase,
@@ -2350,6 +2351,157 @@ class LTMemoryTests(unittest.IsolatedAsyncioTestCase):
             ),
             context_block,
         )
+
+    def test_stale_lt_context_truncates_each_long_sentence_but_keeps_store_full(self):
+        now = datetime(
+            2026,
+            8,
+            31,
+            12,
+            0,
+            tzinfo=timezone.utc,
+        ).timestamp()
+        first_sentence = "A" * 130 + "."
+        second_sentence = "B" * 125 + "!"
+        full_value = f"{first_sentence} {second_sentence} Short sentence."
+        fact = {
+            "id": "F9",
+            "key": "project.long_fact",
+            "value": full_value,
+            "last_mentioned_at": "2026-08-29T12:00:00Z",
+            "created_at": "2026-08-20T12:00:00Z",
+            "updated_at": "2026-08-20T12:00:00Z",
+        }
+
+        context_block = format_long_term_memory_context(
+            [fact],
+            now=now,
+        )
+
+        self.assertIn("A" * 100 + "...", context_block)
+        self.assertIn("B" * 100 + "...", context_block)
+        self.assertIn("Short sentence.", context_block)
+        self.assertNotIn("A" * 101, context_block)
+        self.assertEqual(fact["value"], full_value)
+
+    def test_recently_mentioned_lt_context_uses_full_fact(self):
+        now = datetime(
+            2026,
+            8,
+            31,
+            12,
+            0,
+            tzinfo=timezone.utc,
+        ).timestamp()
+        full_value = "A" * 160 + "."
+
+        context_block = format_long_term_memory_context(
+            [{
+                "id": "F9",
+                "key": "project.long_fact",
+                "value": full_value,
+                "last_mentioned_at": "2026-08-31T11:55:00Z",
+                "created_at": "2026-08-20T12:00:00Z",
+                "updated_at": "2026-08-20T12:00:00Z",
+            }],
+            now=now,
+        )
+
+        self.assertIn(full_value, context_block)
+        self.assertIn("[ id: F9 ] ( 5m ago )", context_block)
+
+    async def test_reasoning_fact_id_refreshes_last_mention_for_next_turn(self):
+        context = RuntimeContext(
+            websocket=None,
+            emitter=FakeEmitter(),
+            logger=FakeLogger(),
+            clients={},
+        )
+        context.runtime_long_term_memory_store = normalize_lt_store({
+            "facts": [{
+                "id": "F9",
+                "key": "project.long_fact",
+                "value": "A" * 160 + ".",
+                "mention_count": 3,
+                "last_mentioned_at": "2026-08-20T12:00:00Z",
+                "created_at": "2026-08-20T12:00:00Z",
+                "updated_at": "2026-08-20T12:00:00Z",
+            }],
+        }, now="2026-08-20T12:00:00Z")
+
+        change = await record_lt_reasoning_fact_mentions(
+            context,
+            "F9 matters here; F9 is the same fact. PF9 is not a committed citation. F999 is unknown.",
+            now="2026-08-31T11:55:00Z",
+        )
+
+        fact = context.runtime_long_term_memory_store["facts"][0]
+        self.assertTrue(change["changed"])
+        self.assertEqual(change["mentioned_fact_ids"], ["F9"])
+        self.assertEqual(fact["mention_count"], 4)
+        self.assertEqual(fact["last_mentioned_at"], "2026-08-31T11:55:00Z")
+
+        next_turn_context = format_long_term_memory_context(
+            [fact],
+            now=datetime(
+                2026,
+                8,
+                31,
+                12,
+                0,
+                tzinfo=timezone.utc,
+            ).timestamp(),
+        )
+        self.assertIn("A" * 160 + ".", next_turn_context)
+        self.assertEqual(
+            context.emitter.events[-1]["change"]["kind"],
+            "turn_mentions",
+        )
+
+    async def test_visible_message_fact_id_counts_as_turn_mention_once(self):
+        context = RuntimeContext(
+            websocket=None,
+            emitter=FakeEmitter(),
+            logger=FakeLogger(),
+            clients={},
+        )
+        context.runtime_long_term_memory_store = normalize_lt_store({
+            "facts": [{
+                "id": "F9",
+                "key": "project.long_fact",
+                "value": "A" * 160 + ".",
+                "mention_count": 3,
+                "last_mentioned_at": "2026-08-20T12:00:00Z",
+                "created_at": "2026-08-20T12:00:00Z",
+                "updated_at": "2026-08-20T12:00:00Z",
+            }],
+        }, now="2026-08-20T12:00:00Z")
+
+        change = await record_lt_reasoning_fact_mentions(
+            context,
+            "Reasoning already cites F9.",
+            "Visible answer cites F9 twice: F9.",
+            now="2026-08-31T11:55:00Z",
+        )
+
+        fact = context.runtime_long_term_memory_store["facts"][0]
+        self.assertTrue(change["changed"])
+        self.assertEqual(change["mentioned_fact_ids"], ["F9"])
+        self.assertEqual(fact["mention_count"], 4)
+        self.assertEqual(fact["last_mentioned_at"], "2026-08-31T11:55:00Z")
+
+        context.runtime_long_term_memory_store["facts"][0]["mention_count"] = 4
+        change = await record_lt_reasoning_fact_mentions(
+            context,
+            "No fact id in reasoning.",
+            "Visible-only citation F9.",
+            now="2026-08-31T12:00:00Z",
+        )
+
+        fact = context.runtime_long_term_memory_store["facts"][0]
+        self.assertEqual(change["mentioned_fact_ids"], ["F9"])
+        self.assertEqual(fact["mention_count"], 5)
+        self.assertEqual(fact["last_mentioned_at"], "2026-08-31T12:00:00Z")
 
     def test_jin_note_prompt_surfaces_only_update_merge_create(self):
         prompt = build_lt_jin_note_system_prompt().casefold()

@@ -84,6 +84,9 @@
         1,
         Math.floor(normalizeNumber(value.mention_count, 1))
       ),
+      last_mentioned_at: normalizeText(
+        value.last_mentioned_at || value.updated_at || value.created_at
+      ),
       created_at: normalizeText(value.created_at),
       updated_at: normalizeText(value.updated_at),
       source_fact_ids: normalizeList(

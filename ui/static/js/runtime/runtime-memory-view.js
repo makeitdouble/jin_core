@@ -2082,6 +2082,8 @@
     }
 
     return (
+      parseLongTermFactTimestamp(fact.last_mentioned_at)
+      ||
       parseLongTermFactTimestamp(fact.updated_at)
       || parseLongTermFactTimestamp(fact.created_at)
     );
@@ -8976,6 +8978,7 @@
       "id",
       "category",
       "mention_count",
+      "last_mentioned_at",
       "source_fact_ids",
       "created_at",
       "updated_at",
@@ -8996,6 +8999,20 @@
           || value === null
           || String(value).trim() === ""
       ) {
+        return;
+      }
+
+      if (key === "last_mentioned_at") {
+        const timestamp =
+            parseLongTermFactTimestamp(value);
+        const ageLabel =
+            formatLongTermFactAgeLabel(timestamp);
+
+        if (ageLabel) {
+          entries.push(
+            `last_mentioned: ${ageLabel}`
+          );
+        }
         return;
       }
 
