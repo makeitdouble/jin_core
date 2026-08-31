@@ -18,6 +18,7 @@ from agent.nodes.brain import (
     format_previous_runtime_memory_tag,
     prepare_asset_results_for_turn,
 )
+from rules.runtime import ACTION_FAILURE_FOLLOWUP_MESSAGE
 from rules.brain_context_builder import (
     build_brain_context,
     build_loaded_delayed_memory_context,
@@ -207,6 +208,57 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn(
             "<TOOLS_RESULTS>\n</TOOLS_RESULTS>",
             prompt,
+        )
+
+    async def test_failed_tool_result_adds_one_top_level_failure_message(self):
+
+        context = _context()
+        context.runtime_recent_turns = []
+        context.runtime_loaded_delayed_memory = {}
+        context.runtime_session_action_history = []
+        context.runtime_action_sequence_turn_ids = []
+        context.runtime_current_turn_id = "turn_000001"
+        context.runtime_current_sequence_turn_id = "turn_000001"
+
+        record_runtime_tool_result(
+            context,
+            TOOL_RESULT_KIND_ASSET,
+            {
+                "ok": False,
+                "action": "asset_action",
+                "error": "invalid_json",
+            },
+        )
+
+        prompt = BrainNode.build_followup_system_prompt(
+            "system rules",
+            "generate an image",
+            context=context,
+            latest_action="ASSET_ACTION",
+        )
+
+        self.assertTrue(
+            prompt.startswith(
+                "<ACTION_FAILURE_FOLLOWUP>"
+            )
+        )
+        self.assertIn(
+            ACTION_FAILURE_FOLLOWUP_MESSAGE,
+            prompt,
+        )
+        self.assertFalse(
+            context.runtime_followup_action_failure_pending
+        )
+
+        next_prompt = BrainNode.build_followup_system_prompt(
+            "system rules",
+            "generate an image",
+            context=context,
+            latest_action="ASSET_ACTION",
+        )
+        self.assertNotIn(
+            "<ACTION_FAILURE_FOLLOWUP>",
+            next_prompt,
         )
 
     async def test_followup_places_generic_instruction_without_followup_header(self):

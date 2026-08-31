@@ -9,6 +9,7 @@ from utils.python_skill_asset_utils import run_context_asset_action
 from utils.runtime_todo import normalize_file_exists_for_runtime_todo
 from utils.session_actions_history import (
     build_asset_action_marker_text,
+    build_asset_action_context_detail,
     build_asset_action_history_text,
     record_session_action_history,
 )
@@ -196,11 +197,47 @@ async def emit_saved_asset_results(
         for result in saved_asset_results
     ]
 
-    for _result, text in saved_asset_result_texts:
+    for result, text in saved_asset_result_texts:
+        context_detail = build_asset_action_context_detail(
+            result
+        )
+        display_parts = (
+            [
+                {
+                    "text": "ASSET_ACTION",
+                    "detail": context_detail,
+                    "context_detail": context_detail,
+                },
+            ]
+            if context_detail
+            else None
+        )
+        history_before = len(
+            getattr(
+                context,
+                "runtime_session_action_history",
+                [],
+            )
+            or []
+        )
         record_session_action_history(
             context,
             text,
+            display_parts=display_parts,
         )
+        history = getattr(
+            context,
+            "runtime_session_action_history",
+            None,
+        )
+        if (
+            isinstance(history, list)
+            and len(history) > history_before
+            and isinstance(history[-1], dict)
+        ):
+            # Keep the existing human-readable history text for UI/backward
+            # compatibility; context rendering uses the structured parts above.
+            history[-1]["text"] = text
 
     if not saved_asset_result_texts:
         return

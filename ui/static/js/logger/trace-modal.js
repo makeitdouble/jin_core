@@ -763,9 +763,6 @@ function renderLTFactTrace(parsed) {
       "mention_count",
       "created_at",
       "updated_at",
-      "source_session_ids",
-      "source_runtime_snapshot_ids",
-      "source_keys",
       "source_fact_ids",
     ]
   );
@@ -1721,6 +1718,139 @@ function getContextDelayedMemoryReport(reportId) {
   };
 }
 
+function normalizeContextLongTermFactId(value) {
+  const match = String(value || "")
+    .trim()
+    .toUpperCase()
+    .match(/^F([1-9]\d*)$/);
+
+  return match
+    ? `F${Number(match[1])}`
+    : "";
+}
+
+function getContextLongTermFacts() {
+  const ltMemory =
+    window.JinRuntime
+    && window.JinRuntime.ltMemory;
+  const runtime =
+    window.JinRuntime
+    && window.JinRuntime.runtime;
+  let facts = [];
+
+  if (
+      ltMemory
+      && typeof ltMemory.getFacts === "function"
+  ) {
+    facts = ltMemory.getFacts();
+  } else if (
+      runtime
+      && typeof runtime.getLongTermMemoryFacts === "function"
+  ) {
+    facts = runtime.getLongTermMemoryFacts();
+  }
+
+  return Array.isArray(facts)
+    ? facts
+    : [];
+}
+
+function getContextLongTermFact(factId) {
+  const normalizedFactId =
+    normalizeContextLongTermFactId(factId);
+
+  if (!normalizedFactId) {
+    return null;
+  }
+
+  return getContextLongTermFacts().find((fact) => (
+    fact
+    && typeof fact === "object"
+    && !Array.isArray(fact)
+    && normalizeContextLongTermFactId(fact.id) === normalizedFactId
+  )) || null;
+}
+
+function getContextLongTermFactTitle(factId) {
+  const fact = getContextLongTermFact(factId);
+
+  if (!fact) {
+    return "";
+  }
+
+  const key = String(fact.key || "").trim();
+  const value = String(fact.value || fact.content || "").trim();
+
+  return [key, value]
+    .filter(Boolean)
+    .join(": ");
+}
+
+function renderContextDelayedMemoryLabel(label, line) {
+  const source = String(line || "");
+  const anchorBlock = source.match(
+    /\[\s*anchor_facts\s*:\s*([^\]]*?)\s*\]/i
+  );
+
+  if (
+      !anchorBlock
+      || typeof anchorBlock.index !== "number"
+      || !anchorBlock[1]
+  ) {
+    label.textContent = source;
+    return;
+  }
+
+  const anchorText = anchorBlock[1];
+  const anchorTextOffset = anchorBlock[0].indexOf(anchorText);
+  const anchorTextStart = anchorBlock.index + anchorTextOffset;
+  const factPattern = /F[1-9]\d*/gi;
+  let cursor = 0;
+  let factMatch = null;
+
+  label.appendChild(
+    document.createTextNode(
+      source.slice(0, anchorTextStart)
+    )
+  );
+
+  while ((factMatch = factPattern.exec(anchorText)) !== null) {
+    label.appendChild(
+      document.createTextNode(
+        anchorText.slice(cursor, factMatch.index)
+      )
+    );
+
+    const factId = normalizeContextLongTermFactId(
+      factMatch[0]
+    );
+    const factNode = contextElement(
+      "span",
+      "jin-context-lt-fact-id jin-context-delayed-anchor-fact-id",
+      factId
+    );
+    const factTitle = getContextLongTermFactTitle(factId);
+
+    if (factTitle) {
+      factNode.title = factTitle;
+      factNode.setAttribute(
+        "aria-label",
+        factTitle
+      );
+    }
+
+    label.appendChild(factNode);
+    cursor = factPattern.lastIndex;
+  }
+
+  label.appendChild(
+    document.createTextNode(
+      anchorText.slice(cursor)
+      + source.slice(anchorTextStart + anchorText.length)
+    )
+  );
+}
+
 function setContextDelayedMemoryHover(
   reportId,
   active
@@ -2196,9 +2326,13 @@ function renderContextDelayedMemoryBody(
     const label =
       contextElement(
         "span",
-        "jin-context-delayed-label",
-        line
+        "jin-context-delayed-label"
       );
+
+    renderContextDelayedMemoryLabel(
+      label,
+      line
+    );
 
     row.dataset.delayedMemoryId =
       reportId;

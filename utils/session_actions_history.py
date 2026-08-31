@@ -12,6 +12,9 @@ from utils.actions.jin_position_utils import (
 from utils.actions.jin_size_utils import (
     normalize_jin_size_payload,
 )
+from utils.actions.jin_speed_utils import (
+    normalize_jin_speed_payload,
+)
 from utils.actions.update_lt_facts_utils import (
     parse_update_lt_facts_payload,
 )
@@ -210,29 +213,6 @@ def _normalize_session_action_display_sizes(
             )
 
     return normalized_sizes
-
-
-def _format_full_session_action_jin_size(
-    size,
-) -> str:
-
-    normalized_size = normalize_jin_size_payload(
-        size
-    )
-
-    if not normalized_size:
-        return ""
-
-    if (
-        normalized_size.startswith("w:")
-        and " h:" in normalized_size
-    ):
-        return normalized_size
-
-    return (
-        f"w:{normalized_size} "
-        f"h:{normalized_size}"
-    )
 
 
 def get_current_action_sequence_turn_id(
@@ -435,6 +415,94 @@ def _normalize_action_failure_reason(
             return reason
 
     return ""
+
+
+def build_asset_action_context_detail(
+    result: dict,
+) -> str:
+
+    if not isinstance(
+        result,
+        dict,
+    ):
+        return "invalid payload"
+
+    action = str(
+        result.get(
+            "action",
+            "asset_action",
+        )
+        or "asset_action"
+    ).strip()
+    error = str(
+        result.get(
+            "error",
+            "",
+        )
+        or ""
+    ).strip()
+
+    if (
+        action.casefold() == "asset_action"
+        and error.casefold() in {
+            "invalid_json",
+            "invalid_payload",
+            "payload_must_be_object",
+        }
+    ):
+        action = "invalid payload"
+
+    details = []
+
+    path = str(
+        result.get(
+            "path",
+            "",
+        )
+        or ""
+    ).strip()
+    if path:
+        details.append(
+            path
+        )
+
+    mode = str(
+        result.get(
+            "mode",
+            "",
+        )
+        or ""
+    ).strip()
+    modes = [
+        str(item).strip()
+        for item in result.get(
+            "modes",
+            [],
+        )
+        or []
+        if str(item).strip()
+    ]
+    mode_label = mode or ", ".join(
+        modes
+    )
+    if mode_label:
+        details.append(
+            mode_label
+        )
+
+    text = action
+    if details:
+        text += " - " + ", ".join(
+            details
+        )
+
+    if result.get("ok") is False:
+        failure_reason = error or _normalize_action_failure_reason(
+            result
+        ) or "action_failed"
+        text += f" - failed: {failure_reason}"
+
+    return text
 
 
 def build_asset_action_history_text(
@@ -1925,10 +1993,7 @@ def _build_formatted_session_action_marker_parts(
             )
             part["context_detail"] = ", ".join(
                 _unique_session_action_values(
-                    _format_full_session_action_jin_size(
-                        size
-                    )
-                    for size in sizes
+                    sizes
                 )
             )
         else:
@@ -1942,6 +2007,18 @@ def _build_formatted_session_action_marker_parts(
                 if position_values:
                     part["context_detail"] = ", ".join(
                         position_values
+                    )
+
+            if action_name == "JIN_SPEED":
+                speed_values = _unique_session_action_values(
+                    normalize_jin_speed_payload(
+                        payload
+                    )
+                    for payload in payloads
+                )
+                if speed_values:
+                    part["context_detail"] = ", ".join(
+                        speed_values
                     )
 
             if (

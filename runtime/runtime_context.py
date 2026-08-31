@@ -84,6 +84,8 @@ class RuntimeContext:
 
     runtime_tool_results_generation: int = 0
 
+    runtime_followup_action_failure_pending: bool = False
+
     runtime_asset_results: list[dict] = field(
         default_factory=list
     )

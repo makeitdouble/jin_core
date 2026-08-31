@@ -164,6 +164,43 @@ class LTContextFocusContractTests(unittest.TestCase):
         self.assertIn(".jin-context-lt-fact-id", css)
         self.assertIn("button.jin-context-lt-fact-id.is-linked", css)
 
+    def test_context_delayed_anchor_fact_ids_expose_key_value_hover_text(self):
+        source = TRACE_MODAL_JS.read_text(encoding="utf-8")
+        index = (ROOT / "ui" / "templates" / "index.html").read_text(
+            encoding="utf-8"
+        )
+
+        self.assertIn(
+            "function renderContextDelayedMemoryLabel(label, line)",
+            source,
+        )
+        self.assertIn(
+            r"/\[\s*anchor_facts\s*:\s*([^\]]*?)\s*\]/i",
+            source,
+        )
+        self.assertIn(
+            '"jin-context-lt-fact-id jin-context-delayed-anchor-fact-id"',
+            source,
+        )
+        self.assertIn(
+            "const factTitle = getContextLongTermFactTitle(factId);",
+            source,
+        )
+        self.assertIn("factNode.title = factTitle;", source)
+        self.assertIn(
+            'factNode.setAttribute(\n        "aria-label",\n        factTitle',
+            source,
+        )
+        self.assertIn(
+            "renderContextDelayedMemoryLabel(\n      label,\n      line",
+            source,
+        )
+        self.assertIn(
+            'typeof ltMemory.getFacts === "function"',
+            source,
+        )
+        self.assertIn("&delayed-anchor-facts=1", index)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -838,6 +838,7 @@
     clearDelayedMemoryAvatarHover();
     hideLongTermMemoryHoverCard();
     hideActiveMemoryHoverCard();
+    hideDelayedMemoryHoverCard();
     hidePersistentFileHoverCard();
 
     if (runtimeMemoryText) {
@@ -2499,6 +2500,10 @@
   let activeMemoryHoverCard = null;
   let activeMemoryHoverCardAnchor = null;
   let activeMemoryHoverSyncFrame = null;
+  const delayedMemoryHoverRows = new WeakMap();
+  let delayedMemoryHoverCard = null;
+  let delayedMemoryHoverCardAnchor = null;
+  let delayedMemoryHoverSyncFrame = null;
   const persistentFileHoverRows = new WeakMap();
   const persistentFileHoverTextCache = new Map();
   let persistentFileHoverCard = null;
@@ -2551,16 +2556,52 @@
     const gap = 14;
     const anchorCenterY =
         anchorRect.top + (anchorRect.height / 2);
-    const left = Math.min(
-        Math.max(
-            margin,
-            panelRect.left - cardRect.width - gap
-        ),
-        Math.max(
-            margin,
-            viewportWidth - cardRect.width - margin
-        )
+    const panelCenterX =
+        panelRect.left + (panelRect.width / 2);
+    const panelIsOnLeft =
+        panelCenterX <= (viewportWidth / 2);
+    const leftCandidate =
+        panelRect.left - cardRect.width - gap;
+    const rightCandidate =
+        panelRect.right + gap;
+    const maxLeft = Math.max(
+        margin,
+        viewportWidth - cardRect.width - margin
     );
+    const leftFits =
+        leftCandidate >= margin;
+    const rightFits =
+        rightCandidate + cardRect.width
+        <= viewportWidth - margin;
+    let placement = panelIsOnLeft ? "right" : "left";
+    let left;
+
+    if (placement === "right" && rightFits) {
+      left = rightCandidate;
+    } else if (placement === "left" && leftFits) {
+      left = leftCandidate;
+    } else if (rightFits) {
+      placement = "right";
+      left = rightCandidate;
+    } else if (leftFits) {
+      placement = "left";
+      left = leftCandidate;
+    } else {
+      const preferredCandidate =
+          placement === "right"
+            ? rightCandidate
+            : leftCandidate;
+
+      left = Math.min(
+          Math.max(margin, preferredCandidate),
+          maxLeft
+      );
+      placement =
+          left + (cardRect.width / 2) < panelCenterX
+            ? "left"
+            : "right";
+    }
+
     const top = Math.min(
         Math.max(
             margin,
@@ -2578,6 +2619,7 @@
 
     card.style.left = `${Math.round(left)}px`;
     card.style.top = `${Math.round(top)}px`;
+    card.dataset.placement = placement;
     card.style.setProperty(
         "--runtime-memory-lt-hover-arrow-y",
         `${Math.round(arrowY)}px`
@@ -3129,9 +3171,231 @@
     );
   }
 
+  function truncateDelayedMemoryHoverBody(
+      value,
+      limit = 200
+  ) {
+    const text =
+        normalizeDelayedMemoryTooltipText(value);
+    const characters = Array.from(text);
+
+    if (characters.length <= limit) {
+      return text;
+    }
+
+    return `${characters.slice(0, limit).join("")}…`;
+  }
+
+  function buildDelayedMemoryHoverCard(report) {
+    const card = document.createElement("div");
+    const header = document.createElement("div");
+    const title = document.createElement("span");
+    const summary = document.createElement("div");
+    const metadata = document.createElement("div");
+    const reportId =
+        normalizeDelayedMemoryReportId(
+            report && (
+              report._storage_key
+              || report.id
+            )
+        );
+    const tags =
+        (Array.isArray(report && report.tags)
+          ? report.tags
+          : [report && report.tags])
+          .flat(Infinity)
+          .map(tag => normalizeDelayedMemoryTooltipText(tag))
+          .filter(Boolean);
+    const anchorFactIds =
+        normalizeDelayedMemoryFactIds(
+            report && report.anchor_fact_ids
+        );
+    const createdAt =
+        normalizeDelayedMemoryDisplayText(
+            report && (
+              report.created_date
+              || report.created_time
+            )
+        );
+    const bodyPreview =
+        truncateDelayedMemoryHoverBody(
+            report && report.body
+        );
+
+    card.className =
+        "runtime-memory-lt-hover-card";
+    card.setAttribute("role", "tooltip");
+    card.setAttribute(
+        "aria-label",
+        `${String(report && report.title || "Delayed memory")} preview`
+    );
+    header.className =
+        "runtime-memory-lt-hover-header";
+    title.className =
+        "runtime-memory-lt-hover-title";
+    title.textContent =
+        normalizeDelayedMemoryDisplayText(
+            report && report.title
+        ) || "Delayed memory";
+    header.appendChild(title);
+    card.appendChild(header);
+
+    summary.className =
+        "runtime-memory-lt-hover-summary";
+    summary.textContent =
+        normalizeDelayedMemoryTooltipText(
+            report && report.summary
+        );
+
+    if (summary.textContent) {
+      card.appendChild(summary);
+    }
+
+    metadata.className =
+        "runtime-memory-lt-hover-metadata";
+
+    if (createdAt) {
+      appendLongTermMemoryHoverMetadataRow(
+          metadata,
+          "created_at",
+          createdAt
+      );
+    }
+
+    appendLongTermMemoryHoverMetadataRow(
+        metadata,
+        "tags",
+        tags.length ? tags.join(", ") : "[]"
+    );
+    appendLongTermMemoryHoverMetadataRow(
+        metadata,
+        "id",
+        reportId
+    );
+    appendLongTermMemoryHoverMetadataRow(
+        metadata,
+        "anchor_fact_ids",
+        anchorFactIds.length
+          ? anchorFactIds.join(", ")
+          : "[]"
+    );
+
+    if (bodyPreview) {
+      appendLongTermMemoryHoverMetadataRow(
+          metadata,
+          "body",
+          bodyPreview
+      );
+    }
+
+    card.appendChild(metadata);
+    return card;
+  }
+
+  function hideDelayedMemoryHoverCard(anchor = null) {
+    if (
+        anchor
+        && delayedMemoryHoverCardAnchor
+        && anchor !== delayedMemoryHoverCardAnchor
+    ) {
+      return;
+    }
+
+    if (
+        delayedMemoryHoverCard
+        && delayedMemoryHoverCard.isConnected
+    ) {
+      delayedMemoryHoverCard.remove();
+    }
+
+    delayedMemoryHoverCard = null;
+    delayedMemoryHoverCardAnchor = null;
+  }
+
+  function showDelayedMemoryHoverCard(anchor, report) {
+    if (!anchor || !report) {
+      return;
+    }
+
+    hideDelayedMemoryHoverCard();
+
+    const card =
+        buildDelayedMemoryHoverCard(report);
+
+    delayedMemoryHoverCard = card;
+    delayedMemoryHoverCardAnchor = anchor;
+    document.body.appendChild(card);
+    positionLongTermMemoryHoverCard(card, anchor);
+  }
+
+  function bindDelayedMemoryHoverCard(row, report) {
+    if (!row || !report) {
+      return;
+    }
+
+    delayedMemoryHoverRows.set(row, report);
+    row.removeAttribute("title");
+    row.addEventListener("mouseenter", () => {
+      showDelayedMemoryHoverCard(row, report);
+    });
+    row.addEventListener("mouseleave", () => {
+      hideDelayedMemoryHoverCard(row);
+    });
+    row.addEventListener("pointerdown", () => {
+      hideDelayedMemoryHoverCard(row);
+    });
+  }
+
+  function syncDelayedMemoryHoverCardAfterScroll() {
+    delayedMemoryHoverSyncFrame = null;
+
+    if (!runtimeMemoryText || !runtimeMemoryText.isConnected) {
+      hideDelayedMemoryHoverCard();
+      return;
+    }
+
+    const hoveredRow = runtimeMemoryText.querySelector(
+        ".runtime-memory-delayed-row:hover"
+    );
+    const report = hoveredRow
+      ? delayedMemoryHoverRows.get(hoveredRow)
+      : null;
+
+    if (!hoveredRow || !report) {
+      hideDelayedMemoryHoverCard();
+      return;
+    }
+
+    if (
+        delayedMemoryHoverCardAnchor === hoveredRow
+        && delayedMemoryHoverCard
+        && delayedMemoryHoverCard.isConnected
+    ) {
+      positionLongTermMemoryHoverCard(
+          delayedMemoryHoverCard,
+          hoveredRow
+      );
+      return;
+    }
+
+    showDelayedMemoryHoverCard(hoveredRow, report);
+  }
+
+  function scheduleDelayedMemoryHoverCardScrollSync() {
+    if (delayedMemoryHoverSyncFrame !== null) {
+      return;
+    }
+
+    delayedMemoryHoverSyncFrame =
+        window.requestAnimationFrame(
+            syncDelayedMemoryHoverCardAfterScroll
+        );
+  }
+
   window.addEventListener("resize", () => {
     hideLongTermMemoryHoverCard();
     hideActiveMemoryHoverCard();
+    hideDelayedMemoryHoverCard();
     hidePersistentFileHoverCard();
     syncRuntimeMemoryNavigationGeometry();
   });
@@ -3140,6 +3404,7 @@
     memoryScroll.addEventListener("scroll", () => {
       scheduleLongTermMemoryHoverCardScrollSync();
       scheduleActiveMemoryHoverCardScrollSync();
+      scheduleDelayedMemoryHoverCardScrollSync();
       schedulePersistentFileHoverCardScrollSync();
     }, { passive: true });
   }
@@ -3579,6 +3844,9 @@
     }
     if (displayMode !== "active") {
       hideActiveMemoryHoverCard();
+    }
+    if (displayMode !== "delayed") {
+      hideDelayedMemoryHoverCard();
     }
     if (displayMode !== "files") {
       hidePersistentFileHoverCard();
@@ -5292,6 +5560,8 @@
   }
 
   function renderDelayedMemoryReports() {
+    hideDelayedMemoryHoverCard();
+
     const reports =
         getDelayedMemoryReportRecords();
     const secondaryLinkedReportIds =
@@ -5391,13 +5661,9 @@
         const hoverTitle =
             `${title}: ${summary}`.trim();
 
-        bindRuntimeMemoryHoverTitle(
+        bindDelayedMemoryHoverCard(
           row,
-          hoverTitle
-        );
-        bindRuntimeMemoryHoverTitle(
-          valueSpan,
-          hoverTitle
+          report
         );
         row.dataset.delayedMemoryId =
             normalizeRuntimeCitationIdentity(
@@ -8710,9 +8976,6 @@
       "id",
       "category",
       "mention_count",
-      "source_session_ids",
-      "source_runtime_snapshot_ids",
-      "source_keys",
       "source_fact_ids",
       "created_at",
       "updated_at",

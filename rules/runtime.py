@@ -1,5 +1,10 @@
 NO_ENTRIES_FOUND_MESSAGE = "No entries found. MANDATORY: DO NOT RETRY THIS ACTION AGAIN!"
 
+ACTION_FAILURE_FOLLOWUP_MESSAGE = (
+    "The last action failed. Do not treat it as completed. "
+    "Inspect the error in TOOLS_RESULTS and continue from the failed result."
+)
+
 REASONING_RECOVERY_MESSAGE = (
     "You stuck in your reasoning during previous turn. "
     "This time you must act instantly"

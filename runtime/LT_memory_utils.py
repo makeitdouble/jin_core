@@ -1175,19 +1175,6 @@ def normalize_lt_fact(
         "mention_count": mention_count,
         "created_at": normalize_lt_text(value.get("created_at")) or current_time,
         "updated_at": normalize_lt_text(value.get("updated_at")) or current_time,
-        "source_session_ids": normalize_lt_string_list(
-            value.get("source_session_ids")
-            or value.get("source_session_id")
-            or value.get("session_id")
-        ),
-        "source_runtime_snapshot_ids": normalize_lt_string_list(
-            value.get("source_runtime_snapshot_ids")
-            or value.get("source_runtime_snapshot_id")
-            or value.get("runtime_snapshot_id")
-        ),
-        "source_keys": normalize_lt_string_list(
-            value.get("source_keys") or value.get("source_key")
-        ),
         "source_fact_ids": normalize_lt_string_list(
             value.get("source_fact_ids") or value.get("source_fact_id")
         ),
@@ -1199,18 +1186,6 @@ def merge_same_lt_fact(existing: dict, incoming: dict, *, now: str) -> dict:
     result["mention_count"] = max(1, int(existing.get("mention_count") or 1)) + max(
         1,
         int(incoming.get("mention_count") or 1),
-    )
-    result["source_session_ids"] = merge_lt_string_lists(
-        existing.get("source_session_ids"),
-        incoming.get("source_session_ids"),
-    )
-    result["source_runtime_snapshot_ids"] = merge_lt_string_lists(
-        existing.get("source_runtime_snapshot_ids"),
-        incoming.get("source_runtime_snapshot_ids"),
-    )
-    result["source_keys"] = merge_lt_string_lists(
-        existing.get("source_keys"),
-        incoming.get("source_keys"),
     )
     result["source_fact_ids"] = merge_lt_string_lists(
         existing.get("source_fact_ids"),
@@ -1306,18 +1281,6 @@ def merge_lt_snapshot_fact(
                 incoming_updated_at,
             )
             or now
-        ),
-        "source_session_ids": merge_lt_string_lists(
-            existing_fact.get("source_session_ids"),
-            incoming_fact.get("source_session_ids"),
-        ),
-        "source_runtime_snapshot_ids": merge_lt_string_lists(
-            existing_fact.get("source_runtime_snapshot_ids"),
-            incoming_fact.get("source_runtime_snapshot_ids"),
-        ),
-        "source_keys": merge_lt_string_lists(
-            existing_fact.get("source_keys"),
-            incoming_fact.get("source_keys"),
         ),
         "source_fact_ids": merge_lt_string_lists(
             existing_fact.get("source_fact_ids"),
@@ -2071,21 +2034,9 @@ def normalize_lt_candidates(
         if not source_keys:
             continue
 
-        matched_fields = [
-            field
-            for source_key in source_keys
-            for field in fields_by_key[source_key]
-        ]
         candidate = normalize_lt_fact(
             {
                 **raw_candidate,
-                "source_keys": source_keys,
-                "source_session_ids": [
-                    field.get("session_id", "") for field in matched_fields
-                ],
-                "source_runtime_snapshot_ids": [
-                    field.get("runtime_snapshot_id", "") for field in matched_fields
-                ],
                 "created_at": current_time,
                 "updated_at": current_time,
             },
@@ -2332,18 +2283,6 @@ def merge_fact_sources(existing: dict, incoming: dict) -> dict:
     incoming_id = normalize_lt_text(incoming.get("id"))
 
     return {
-        "source_session_ids": merge_lt_string_lists(
-            existing.get("source_session_ids"),
-            incoming.get("source_session_ids"),
-        ),
-        "source_runtime_snapshot_ids": merge_lt_string_lists(
-            existing.get("source_runtime_snapshot_ids"),
-            incoming.get("source_runtime_snapshot_ids"),
-        ),
-        "source_keys": merge_lt_string_lists(
-            existing.get("source_keys"),
-            incoming.get("source_keys"),
-        ),
         "source_fact_ids": merge_lt_string_lists(
             existing.get("source_fact_ids"),
             incoming.get("source_fact_ids"),
@@ -2551,18 +2490,6 @@ def apply_lt_merge_operations(
                     "mention_count": sum(
                         max(1, int(fact.get("mention_count") or 1))
                         for fact in [*merged_facts, pending]
-                    ),
-                    "source_session_ids": merge_lt_string_lists(
-                        *[fact.get("source_session_ids") for fact in merged_facts],
-                        pending.get("source_session_ids"),
-                    ),
-                    "source_runtime_snapshot_ids": merge_lt_string_lists(
-                        *[fact.get("source_runtime_snapshot_ids") for fact in merged_facts],
-                        pending.get("source_runtime_snapshot_ids"),
-                    ),
-                    "source_keys": merge_lt_string_lists(
-                        *[fact.get("source_keys") for fact in merged_facts],
-                        pending.get("source_keys"),
                     ),
                     "source_fact_ids": merge_lt_string_lists(
                         *[fact.get("source_fact_ids") for fact in merged_facts],
@@ -2928,24 +2855,6 @@ def apply_lt_jin_note_result(
                 "created_at": created_at,
                 "updated_at": current_time,
                 "mention_count": mention_count,
-                "source_session_ids": merge_lt_string_lists(
-                    *[
-                        source_fact.get("source_session_ids")
-                        for source_fact in source_facts or []
-                    ],
-                ),
-                "source_runtime_snapshot_ids": merge_lt_string_lists(
-                    *[
-                        source_fact.get("source_runtime_snapshot_ids")
-                        for source_fact in source_facts or []
-                    ],
-                ),
-                "source_keys": merge_lt_string_lists(
-                    *[
-                        source_fact.get("source_keys")
-                        for source_fact in source_facts or []
-                    ],
-                ),
                 "source_fact_ids": merge_lt_string_lists(
                     *[
                         source_fact.get("source_fact_ids")
@@ -3170,9 +3079,6 @@ def format_lt_fact_metadata_suffixes(fact: dict) -> list[str]:
         "id",
         "category",
         "mention_count",
-        "source_session_ids",
-        "source_runtime_snapshot_ids",
-        "source_keys",
         "source_fact_ids",
         "created_at",
         "updated_at",

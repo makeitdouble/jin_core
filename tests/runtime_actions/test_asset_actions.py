@@ -37,7 +37,10 @@ from utils.brain_client_utils import (
     record_delayed_memory_runtime_result,
     flush_pending_active_memory_delete_failure_history,
 )
-from utils.context.context_exports import build_tool_results_context
+from utils.context.context_exports import (
+    build_session_actions_history_context,
+    build_tool_results_context,
+)
 from utils.file_manager_asset_utils import read_asset_text_preview
 from utils.runtime_todo import create_runtime_todo
 from utils.skills_asset_utils import (
@@ -1223,6 +1226,12 @@ class RuntimeAssetActionTests(RuntimeActionTestCase):
                 self.assertEqual(
                     context.emitter.events[1]["status"],
                     "failed",
+                )
+                self.assertIn(
+                    "ASSET_ACTION: invalid payload - failed: invalid_json",
+                    build_session_actions_history_context(
+                        context
+                    ),
                 )
 
 

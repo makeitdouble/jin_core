@@ -1086,6 +1086,12 @@ class BrainPromptMemoryTests(
                     "payloads": ["x:120px y:80px"],
                     "raw_payloads": ["x:120px y:80px"],
                 },
+                {
+                    "name": "JIN_SPEED",
+                    "marker_count": 1,
+                    "payloads": ["80px/s"],
+                    "raw_payloads": ["80px/s"],
+                },
             ]
 
             with patch(
@@ -1110,9 +1116,10 @@ class BrainPromptMemoryTests(
 
             self.assertIn(
                 (
-                    "1. JIN_SIZE: w:300px h:300px, "
+                    "1. JIN_SIZE: 300px, "
                     "JIN_COLOR: #ff00ff, "
-                    "JIN_POSITION: x:120px y:80px ( 1h ago )"
+                    "JIN_POSITION: x:120px y:80px, "
+                    "JIN_SPEED: 80px/s ( 1h ago )"
                 ),
                 history,
             )

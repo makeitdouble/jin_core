@@ -666,8 +666,11 @@ def build_delayed_memory_inventory_context(
                     report,
                 ),
                 relevance,
-                _append_delayed_memory_context_age(
-                    filename[:-5],
+                _append_delayed_memory_inventory_metadata(
+                    _append_delayed_memory_context_age(
+                        filename[:-5],
+                        report,
+                    ),
                     report,
                 ),
             )
@@ -775,6 +778,36 @@ def _append_delayed_memory_context_age(
     return (
         f"{text}{_format_delayed_memory_context_age_suffix(report, now=now)}"
     )
+
+
+def _append_delayed_memory_inventory_metadata(
+    text: str,
+    report: dict,
+) -> str:
+
+    if not isinstance(report, dict):
+        return text
+
+    fact_ids = report.get("facts_ids", [])
+
+    if not isinstance(fact_ids, list) or not fact_ids:
+        return text
+
+    suffixes = []
+    anchor_fact_ids = report.get("anchor_fact_ids", [])
+
+    if isinstance(anchor_fact_ids, list) and anchor_fact_ids:
+        suffixes.append(
+            "[ anchor_facts: "
+            + ", ".join(anchor_fact_ids)
+            + " ]"
+        )
+
+    suffixes.append(
+        f"[ total_facts: {len(fact_ids)} ]"
+    )
+
+    return f"{text} {' '.join(suffixes)}"
 
 
 def build_loaded_delayed_memory_context(

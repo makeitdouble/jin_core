@@ -217,6 +217,73 @@ def _failed_tool_result_dedupe_key(
     )
 
 
+def _failed_tool_result_requires_followup(
+    kind: str,
+    result,
+) -> bool:
+
+    if (
+        not isinstance(
+            result,
+            dict,
+        )
+        or result.get("ok") is not False
+    ):
+        return False
+
+    normalized_kind = str(
+        kind
+        or ""
+    ).strip().casefold()
+
+    if normalized_kind in {
+        TOOL_RESULT_KIND_SEARCH,
+        TOOL_RESULT_KIND_DEEP_SEARCH,
+        TOOL_RESULT_KIND_ASSET,
+        TOOL_RESULT_KIND_DELAYED_MEMORY,
+    }:
+        return True
+
+    if normalized_kind != TOOL_RESULT_KIND_ACTIVE_MEMORY:
+        return False
+
+    runtime_action = str(
+        result.get("runtime_action_name")
+        or result.get("action")
+        or ""
+    ).strip()
+
+    if not runtime_action:
+        return False
+
+    from contracts.rules_assembler import (
+        runtime_action_follows_up_on_fail,
+    )
+
+    return runtime_action_follows_up_on_fail(
+        runtime_action
+    )
+
+
+def _queue_failed_tool_result_followup(
+    context,
+    kind: str,
+    result,
+) -> None:
+
+    if not _failed_tool_result_requires_followup(
+        kind,
+        result,
+    ):
+        return
+
+    setattr(
+        context,
+        "runtime_followup_action_failure_pending",
+        True,
+    )
+
+
 def begin_runtime_tool_results_turn(
     context,
 ) -> None:
@@ -225,6 +292,11 @@ def begin_runtime_tool_results_turn(
         context,
         "runtime_tool_results_turn_count",
         0,
+    )
+    setattr(
+        context,
+        "runtime_followup_action_failure_pending",
+        False,
     )
 
 
@@ -292,6 +364,12 @@ def record_runtime_tool_result(
     ).strip()
     if normalized_result_id:
         entry["id"] = normalized_result_id
+
+    _queue_failed_tool_result_followup(
+        context,
+        entry["kind"],
+        result,
+    )
 
     dedupe_key = _failed_tool_result_dedupe_key(
         entry

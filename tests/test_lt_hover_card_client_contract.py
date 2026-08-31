@@ -44,12 +44,28 @@ class LTHoverCardClientContractTests(unittest.TestCase):
         self.assertIn("String(tag && tag.key || \"\")", source)
         self.assertIn("String(tag && tag.value || \"\")", source)
 
-    def test_hover_card_sits_left_of_panel_and_does_not_capture_pointer(self):
+    def test_hover_card_opens_away_from_panel_and_does_not_capture_pointer(self):
         source = MEMORY_VIEW.read_text(encoding="utf-8")
         css = MEMORY_CSS.read_text(encoding="utf-8")
 
         self.assertIn(
+            "panelCenterX <= (viewportWidth / 2)",
+            source,
+        )
+        self.assertIn(
             "panelRect.left - cardRect.width - gap",
+            source,
+        )
+        self.assertIn(
+            "panelRect.right + gap",
+            source,
+        )
+        self.assertIn(
+            'let placement = panelIsOnLeft ? "right" : "left";',
+            source,
+        )
+        self.assertIn(
+            "card.dataset.placement = placement;",
             source,
         )
         self.assertIn(
@@ -60,6 +76,14 @@ class LTHoverCardClientContractTests(unittest.TestCase):
         self.assertIn("position: fixed;", css)
         self.assertIn("pointer-events: none;", css)
         self.assertIn(".runtime-memory-lt-hover-card::before", css)
+        self.assertIn(
+            '.runtime-memory-lt-hover-card[data-placement="right"]::before',
+            css,
+        )
+        self.assertIn(
+            '.runtime-memory-lt-hover-card[data-placement="right"]::after',
+            css,
+        )
         self.assertNotIn(".runtime-memory-lt-hover-icon", css)
 
     def test_scroll_retargets_hover_card_under_stationary_pointer(self):
@@ -114,8 +138,8 @@ class LTHoverCardClientContractTests(unittest.TestCase):
     def test_hover_card_assets_are_cache_busted(self):
         source = INDEX_HTML.read_text(encoding="utf-8")
 
-        self.assertEqual(source.count("lt-hover-card=2"), 1)
         self.assertEqual(source.count("lt-hover-card=3"), 1)
+        self.assertEqual(source.count("lt-hover-card=4"), 1)
         self.assertEqual(source.count("active-hover-card=1"), 1)
 
 

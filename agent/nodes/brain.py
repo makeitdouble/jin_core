@@ -21,6 +21,7 @@ from rules.brain_context_builder import (
     build_brain_context,
 )
 from rules.runtime import (
+    ACTION_FAILURE_FOLLOWUP_MESSAGE,
     ANSWERING_RECOVERY_MESSAGE,
     CONTEXT_LIMIT_RECOVERY_MESSAGE,
     REASONING_RECOVERY_MESSAGE,
@@ -477,6 +478,28 @@ def build_reasoning_recovery_context(
         "<REASONING_RECOVERY>\n"
         f"{REASONING_RECOVERY_MESSAGE}.\n"
         "</REASONING_RECOVERY>"
+    )
+
+
+def consume_action_failure_followup_context(
+        context,
+) -> str:
+
+    if context is None or not bool(
+        getattr(
+            context,
+            "runtime_followup_action_failure_pending",
+            False,
+        )
+    ):
+        return ""
+
+    context.runtime_followup_action_failure_pending = False
+
+    return (
+        "<ACTION_FAILURE_FOLLOWUP>\n"
+        f"{ACTION_FAILURE_FOLLOWUP_MESSAGE}\n"
+        "</ACTION_FAILURE_FOLLOWUP>"
     )
 
 
@@ -1119,6 +1142,18 @@ class BrainNode(BaseNode):
                 POTENTIAL_LOOP_FOLLOWUP_MESSAGE
             )
             context.runtime_potential_loop_detected_pending = False
+
+        action_failure_followup_context = (
+            consume_action_failure_followup_context(
+                context
+            )
+            if context is not None
+            else ""
+        )
+        if action_failure_followup_context:
+            sections.append(
+                action_failure_followup_context
+            )
 
         failed_action_context = (
             build_failed_runtime_action_followup_contexts(

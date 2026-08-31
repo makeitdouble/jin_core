@@ -191,7 +191,7 @@ class LTMemoryTests(unittest.IsolatedAsyncioTestCase):
         )
         self.assertEqual(payload, {"facts": []})
 
-    def test_candidates_include_only_metadata_from_referenced_sources(self):
+    def test_candidates_use_source_keys_only_for_extraction_validation(self):
         source_fields = [
             {
                 "key": "gpu",
@@ -222,12 +222,28 @@ class LTMemoryTests(unittest.IsolatedAsyncioTestCase):
         )
 
         self.assertEqual(len(candidates), 1)
-        self.assertEqual(candidates[0]["source_session_ids"], ["session-a"])
-        self.assertEqual(
-            candidates[0]["source_runtime_snapshot_ids"],
-            ["runtime_001"],
-        )
-        self.assertEqual(candidates[0]["source_keys"], ["gpu"])
+        self.assertNotIn("source_session_ids", candidates[0])
+        self.assertNotIn("source_runtime_snapshot_ids", candidates[0])
+        self.assertNotIn("source_keys", candidates[0])
+        self.assertEqual(candidates[0]["source_fact_ids"], [])
+
+    def test_lt_fact_normalization_drops_removed_provenance_fields(self):
+        fact = normalize_lt_store({
+            "facts": [{
+                "id": "F1",
+                "key": "project.identity",
+                "value": "JIN is a local runtime.",
+                "source_session_ids": ["session-a"],
+                "source_runtime_snapshot_ids": ["runtime-1"],
+                "source_keys": ["project.identity"],
+                "source_fact_ids": ["F8", "PF2"],
+            }],
+        })["facts"][0]
+
+        self.assertNotIn("source_session_ids", fact)
+        self.assertNotIn("source_runtime_snapshot_ids", fact)
+        self.assertNotIn("source_keys", fact)
+        self.assertEqual(fact["source_fact_ids"], ["F8", "PF2"])
 
     def test_lt_fact_normalization_ignores_legacy_score_field(self):
         legacy_field = "con" + "fidence"
@@ -562,10 +578,8 @@ class LTMemoryTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(change["changed"])
         self.assertEqual(len(store["facts"]), 1)
         self.assertEqual(len(store["pending_facts"]), 1)
-        self.assertEqual(
-            store["pending_facts"][0]["source_keys"],
-            ["gpu", "hardware"],
-        )
+        self.assertNotIn("source_keys", store["pending_facts"][0])
+        self.assertEqual(store["pending_facts"][0]["mention_count"], 2)
 
     def test_merge_requires_one_valid_operation_for_every_pending_fact(self):
         store, _ = add_lt_pending_candidates(
@@ -2304,7 +2318,7 @@ class LTMemoryTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("[ id: F1 ]", context_block)
         self.assertIn("[ id: F2 ]", context_block)
         self.assertNotIn("source_session_ids", context_block)
-        self.assertIn("[source_session_ids: session-a]", ui_line)
+        self.assertNotIn("source_session_ids", ui_line)
 
     def test_context_includes_fact_age_suffix(self):
         now = datetime(

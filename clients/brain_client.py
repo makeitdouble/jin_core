@@ -1106,7 +1106,8 @@ async def ask_brain_stream(
             "runtime_session_action_history",
             None,
         )
-        saved_delayed_memory_items = []
+        preserved_semantic_items = []
+        preserved_marker_action_names = set()
         safe_start_index = 0
 
         if isinstance(history, list):
@@ -1120,24 +1121,62 @@ async def ask_brain_stream(
                     len(history),
                 ),
             )
-            saved_delayed_memory_items = [
-                dict(item)
-                for item in history[
-                    safe_start_index:
-                ]
-                if isinstance(item, dict)
-                and item.get(
-                    "runtime_session_action_marker_item"
-                ) is not True
-                and str(
-                    item.get("text", "")
-                    or ""
-                ).strip().startswith(
-                    "Delayed memory saved:"
-                )
-            ]
 
-        if saved_delayed_memory_items:
+            for item in history[
+                safe_start_index:
+            ]:
+                if (
+                    not isinstance(item, dict)
+                    or item.get(
+                        "runtime_session_action_marker_item"
+                    ) is True
+                ):
+                    continue
+
+                item_text = str(
+                    item.get(
+                        "text",
+                        "",
+                    )
+                    or ""
+                ).strip()
+                item_parts = item.get(
+                    "parts",
+                    [],
+                )
+                is_asset_result = any(
+                    str(
+                        part.get(
+                            "text",
+                            "",
+                        )
+                        or ""
+                    ).strip().upper() == RUNTIME_ACTION_ASSET_ACTION
+                    for part in item_parts
+                    if isinstance(
+                        part,
+                        dict,
+                    )
+                )
+
+                if item_text.startswith(
+                    "Delayed memory saved:"
+                ):
+                    preserved_semantic_items.append(
+                        dict(item)
+                    )
+                    preserved_marker_action_names.add(
+                        RUNTIME_ACTION_SAVE_DELAYED_MEMORY
+                    )
+                elif is_asset_result:
+                    preserved_semantic_items.append(
+                        dict(item)
+                    )
+                    preserved_marker_action_names.add(
+                        RUNTIME_ACTION_ASSET_ACTION
+                    )
+
+        if preserved_semantic_items:
             remaining_marker_actions = [
                 action
                 for action in marker_actions
@@ -1145,7 +1184,7 @@ async def ask_brain_stream(
                     action.get("name", "")
                     or ""
                 ).strip().upper()
-                != RUNTIME_ACTION_SAVE_DELAYED_MEMORY
+                not in preserved_marker_action_names
             ]
 
             if remaining_marker_actions:
@@ -1158,7 +1197,7 @@ async def ask_brain_stream(
                 del history[safe_start_index:]
 
             history.extend(
-                saved_delayed_memory_items
+                preserved_semantic_items
             )
         else:
             replace_session_action_history_since(

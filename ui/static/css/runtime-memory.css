@@ -357,6 +357,20 @@
     border-left: 8px solid rgba(17, 20, 25, 0.97);
 }
 
+.runtime-memory-lt-hover-card[data-placement="right"]::before {
+    right: auto;
+    left: -10px;
+    border-right: 10px solid rgba(148, 163, 184, 0.52);
+    border-left: 0;
+}
+
+.runtime-memory-lt-hover-card[data-placement="right"]::after {
+    right: auto;
+    left: -8px;
+    border-right: 8px solid rgba(17, 20, 25, 0.97);
+    border-left: 0;
+}
+
 .runtime-memory-lt-hover-header {
     display: flex;
     align-items: center;

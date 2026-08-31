@@ -86,13 +86,6 @@
       ),
       created_at: normalizeText(value.created_at),
       updated_at: normalizeText(value.updated_at),
-      source_session_ids: normalizeList(
-        value.source_session_ids || value.source_session_id
-      ),
-      source_runtime_snapshot_ids: normalizeList(
-        value.source_runtime_snapshot_ids || value.source_runtime_snapshot_id
-      ),
-      source_keys: normalizeList(value.source_keys),
       source_fact_ids: normalizeList(
         value.source_fact_ids || value.source_fact_id
       ),
