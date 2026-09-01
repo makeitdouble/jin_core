@@ -2542,6 +2542,89 @@
   let persistentFileHoverRequestSerial = 0;
   let persistentFileHoverSyncFrame = null;
 
+  const MEMORY_TIMESTAMP_METADATA_KEYS = new Set([
+    "created_at",
+    "updated_at",
+    "creation_time",
+    "created_time",
+    "created_date",
+    "last_loaded_date",
+  ]);
+  const MEMORY_MONTH_NAMES = [
+    "January", "February", "March", "April",
+    "May", "June", "July", "August",
+    "September", "October", "November", "December",
+  ];
+  const MEMORY_WEEKDAY_NAMES = [
+    "Sunday", "Monday", "Tuesday", "Wednesday",
+    "Thursday", "Friday", "Saturday",
+  ];
+
+  function parseMemoryTimestamp(value) {
+    if (value instanceof Date) {
+      return Number.isNaN(value.getTime())
+        ? null
+        : value;
+    }
+
+    if (typeof value === "number") {
+      if (!Number.isFinite(value) || value <= 0) {
+        return null;
+      }
+
+      const milliseconds = value < 1e12
+        ? value * 1000
+        : value;
+      const date = new Date(milliseconds);
+
+      return Number.isNaN(date.getTime())
+        ? null
+        : date;
+    }
+
+    const raw = String(value || "").trim();
+    if (!raw) {
+      return null;
+    }
+
+    if (/^\d+(?:\.\d+)?$/.test(raw)) {
+      return parseMemoryTimestamp(Number(raw));
+    }
+
+    const date = new Date(raw);
+
+    return Number.isNaN(date.getTime())
+      ? null
+      : date;
+  }
+
+  function formatMemoryTimestamp(value) {
+    const date = parseMemoryTimestamp(value);
+
+    if (!date) {
+      return String(value || "").trim();
+    }
+
+    const pad = part => String(part).padStart(2, "0");
+
+    return (
+      `${date.getDate()} ${MEMORY_MONTH_NAMES[date.getMonth()]} `
+      + `${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}, `
+      + MEMORY_WEEKDAY_NAMES[date.getDay()]
+    );
+  }
+
+  function formatMemoryMetadataValue(key, value) {
+    const normalizedKey = String(key || "")
+      .trim()
+      .replace(/:+$/, "")
+      .toLocaleLowerCase();
+
+    return MEMORY_TIMESTAMP_METADATA_KEYS.has(normalizedKey)
+      ? formatMemoryTimestamp(value)
+      : String(value || "");
+  }
+
   function appendLongTermMemoryHoverMetadataRow(
     container,
     key,
@@ -2558,7 +2641,7 @@
     keyNode.textContent = key ? `${key}:` : "";
     valueNode.className =
         "runtime-memory-lt-hover-metadata-value";
-    valueNode.textContent = String(value || "");
+    valueNode.textContent = formatMemoryMetadataValue(key, value);
 
     row.appendChild(keyNode);
     row.appendChild(valueNode);
@@ -3095,7 +3178,7 @@
     const valueNode = row?.querySelector(".runtime-memory-lt-hover-metadata-value");
 
     if (valueNode) {
-      valueNode.textContent = String(value);
+      valueNode.textContent = formatMemoryMetadataValue(normalizedKey, value);
       return;
     }
     if (!createIfMissing) return;
@@ -7174,60 +7257,10 @@
     return true;
   }
 
-  function padDelayedMemoryDatePart(value) {
-    return String(value).padStart(
-        2,
-        "0"
-    );
-  }
-
   function formatDelayedMemoryTime(value) {
-    const raw =
-        normalizeDelayedMemoryDisplayText(value);
-
-    if (!raw) {
-      return "";
-    }
-
-    const date =
-        new Date(raw);
-
-    if (Number.isNaN(date.getTime())) {
-      return raw;
-    }
-
-    const year =
-        date.getFullYear();
-
-    const month =
-        padDelayedMemoryDatePart(
-            date.getMonth() + 1
-        );
-
-    const day =
-        padDelayedMemoryDatePart(
-            date.getDate()
-        );
-
-    const hours =
-        padDelayedMemoryDatePart(
-            date.getHours()
-        );
-
-    const minutes =
-        padDelayedMemoryDatePart(
-            date.getMinutes()
-        );
-
-    const weekday =
-        new Intl.DateTimeFormat(
-            "en-US",
-            {
-              weekday: "long",
-            }
-        ).format(date);
-
-    return `${year}-${month}-${day} ${hours}:${minutes}, ${weekday}`;
+    return formatMemoryTimestamp(
+        normalizeDelayedMemoryDisplayText(value)
+    );
   }
 
   function normalizeDelayedMemoryReportId(value) {
@@ -7878,8 +7911,21 @@
         closeDelayedMemoryReportModal
     );
 
+    let delayedMemoryModalBackdropPointerDown = false;
+
+    delayedMemoryModal.addEventListener("pointerdown", (event) => {
+      delayedMemoryModalBackdropPointerDown =
+        event.target === delayedMemoryModal;
+    });
+
     delayedMemoryModal.addEventListener("click", (event) => {
-      if (event.target === delayedMemoryModal) {
+      const shouldClose =
+        event.target === delayedMemoryModal
+        && delayedMemoryModalBackdropPointerDown;
+
+      delayedMemoryModalBackdropPointerDown = false;
+
+      if (shouldClose) {
         closeDelayedMemoryReportModal();
       }
     });
@@ -7975,7 +8021,10 @@
         "delayed-memory-modal-value";
 
     text.textContent =
-        normalizedValue;
+        formatMemoryMetadataValue(
+            label,
+            normalizedValue
+        );
 
     appendDelayedMemoryModalFieldNode(
         parent,
@@ -9632,7 +9681,7 @@
 
       if (!records.length) {
         runtimeMemoryText.textContent =
-          "No long-term facts stored.";
+          "";
       } else {
         appendRuntimeMemoryLineRows(
             orderedRecords,

@@ -75,6 +75,7 @@ body.jin-scrollbar-active,
     --scene-layer-search: 2;
     --scene-layer-tint: 3;
     --scene-layer-shade: 4;
+    --scene-layer-anonymous: 5;
 
     /* Вертикальный ритм чата: добавляет немного воздуха между ходами. */
     --chat-turn-gap: 2.05rem;
@@ -172,6 +173,24 @@ main.scene-searching #scene-search-overlay {
     transition:
             background-color var(--scene-jin-tint-transition-duration) ease,
             opacity var(--scene-jin-tint-transition-duration) ease;
+}
+
+#scene-anonymous-tint {
+    z-index: var(--scene-layer-anonymous);
+    background:
+            radial-gradient(
+                    circle at 50% 42%,
+                    rgba(3, 8, 13, 0.34) 0%,
+                    rgba(1, 4, 8, 0.58) 48%,
+                    rgba(0, 0, 0, 0.76) 100%
+            ),
+            rgba(0, 0, 0, 0.34);
+    opacity: 0;
+    transition: opacity 0.45s ease;
+}
+
+html.jin-anonymous-room #scene-anonymous-tint {
+    opacity: 1;
 }
 
 #scene-shade {

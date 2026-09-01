@@ -40,58 +40,50 @@ def test_latest_completed_selector_ignores_newer_blank_boot_session(tmp_path):
     assert payload["recent_turns"][-1]["jin"] == "Тест пройден"
 
 
-def test_mode_specific_selector_uses_separate_log_roots(tmp_path):
-    normal_root = tmp_path / "logs"
-    anonymous_root = tmp_path / "logs_anon"
+def test_normal_selector_skips_anon_sessions_in_shared_log_root(tmp_path):
     normal_session = "normal-session"
-    anonymous_session = "anonymous-session"
+    anonymous_session = "anonymous-newer-anon"
 
-    _write_dialog(normal_root, normal_session, "195000", [
+    _write_dialog(tmp_path, normal_session, "195000", [
         {"ts": "2026-08-24T19:50:00+03:00", "turn": 1, "role": "user", "text": "normal user"},
         {"ts": "2026-08-24T19:50:10+03:00", "turn": 1, "role": "jin", "text": "normal jin"},
     ])
-    _write_dialog(anonymous_root, anonymous_session, "195500", [
+    _write_dialog(tmp_path, anonymous_session, "195500", [
         {"ts": "2026-08-24T19:55:00+03:00", "turn": 2, "role": "user", "text": "anonymous user"},
         {"ts": "2026-08-24T19:55:10+03:00", "turn": 2, "role": "jin", "text": "anonymous jin"},
     ])
 
-    with (
-        patch("utils.chat_log.CHAT_LOG_ROOT", normal_root),
-        patch("utils.chat_log.CHAT_LOG_ANON_ROOT", anonymous_root),
-    ):
-        normal_payload = find_latest_completed_session_restore_payload(
-            anonymous_mode=False,
-        )
-        anonymous_payload = find_latest_completed_session_restore_payload(
-            anonymous_mode=True,
-        )
+    normal_payload = find_latest_completed_session_restore_payload(
+        root=tmp_path,
+        anonymous_mode=False,
+    )
+    anonymous_payload = find_latest_completed_session_restore_payload(
+        root=tmp_path,
+        anonymous_mode=True,
+    )
 
     assert normal_payload is not None
     assert normal_payload["source_session_id"] == normal_session
     assert normal_payload["recent_turns"][-1]["user"] == "normal user"
-    assert anonymous_payload is not None
-    assert anonymous_payload["source_session_id"] == anonymous_session
-    assert anonymous_payload["recent_turns"][-1]["user"] == "anonymous user"
+    assert anonymous_payload is None
 
 
-def test_normal_bootstrap_never_reads_newer_anonymous_log_root(tmp_path):
-    normal_root = tmp_path / "logs"
-    anonymous_root = tmp_path / "logs_anon"
+def test_normal_bootstrap_never_reads_newer_anon_session_from_shared_logs(tmp_path):
     normal_session = "normal-source"
-    anonymous_session = "anonymous-newer"
+    anonymous_session = "anonymous-newer-anon"
 
-    _write_dialog(normal_root, normal_session, "195000", [
+    _write_dialog(tmp_path, normal_session, "195000", [
         {"ts": "2026-08-24T19:50:00+03:00", "turn": 1, "role": "user", "text": "normal user"},
         {"ts": "2026-08-24T19:50:10+03:00", "turn": 1, "role": "jin", "text": "normal jin"},
     ])
-    _write_dialog(anonymous_root, anonymous_session, "195500", [
+    _write_dialog(tmp_path, anonymous_session, "195500", [
         {"ts": "2026-08-24T19:55:00+03:00", "turn": 2, "role": "user", "text": "anonymous user"},
         {"ts": "2026-08-24T19:55:10+03:00", "turn": 2, "role": "jin", "text": "anonymous jin"},
     ])
 
     with (
-        patch("utils.chat_log.CHAT_LOG_ROOT", normal_root),
-        patch("utils.chat_log.CHAT_LOG_ANON_ROOT", anonymous_root),
+        patch("utils.chat_log.CHAT_LOG_ROOT", tmp_path),
+        patch("utils.session_restore.CHAT_LOG_ROOT", tmp_path),
     ):
         enriched = enrich_session_bootstrap_from_archive(
             {
@@ -105,6 +97,21 @@ def test_normal_bootstrap_never_reads_newer_anonymous_log_root(tmp_path):
     assert enriched["source_session_id"] == normal_session
     assert enriched["recent_turns"][-1]["user"] == "normal user"
     assert enriched["recent_turns"][-1]["jin"] == "normal jin"
+
+
+def test_anonymous_bootstrap_never_enriches_from_archive():
+    incoming = {
+        "type": "session_bootstrap",
+        "source_session_id": None,
+        "runtime_memory": "",
+    }
+
+    enriched = enrich_session_bootstrap_from_archive(
+        incoming,
+        anonymous_mode=True,
+    )
+
+    assert enriched is incoming
 
 
 def test_bootstrap_replaces_stale_source_with_newer_user_move():

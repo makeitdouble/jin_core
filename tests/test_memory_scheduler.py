@@ -19,13 +19,10 @@ class MemorySchedulerTests(
     unittest.IsolatedAsyncioTestCase
 ):
 
-    async def test_pending_turns_enforces_latest_turn_fields(self):
+    async def test_pending_turns_do_not_inject_latest_turn_fields(self):
 
             service_client = FakeServiceClient(
-                (
-                    'user_message: "first message"\n'
-                    "last_jin_response: Previous answer summary."
-                )
+                "active_topic: Batch update remains active."
             )
             context = SimpleNamespace(
                 clients={
@@ -36,14 +33,8 @@ class MemorySchedulerTests(
                     emit=None,
                 ),
                 logger=FakeLogger(),
-                runtime_memory=(
-                    'user_message: "first message"\n'
-                    "last_jin_response: Previous answer summary."
-                ),
-                runtime_memory_stable=(
-                    'user_message: "first message"\n'
-                    "last_jin_response: Previous answer summary."
-                ),
+                runtime_memory="active_topic: Initial topic.",
+                runtime_memory_stable="active_topic: Initial topic.",
                 runtime_memory_updates=1,
                 runtime_memory_pending_turns=[
                     {
@@ -73,11 +64,15 @@ class MemorySchedulerTests(
             )
 
             self.assertIn(
-                'user_message: "hello" [ repeated: 3 ]',
+                "active_topic: Batch update remains active.",
                 updated_memory,
             )
-            self.assertIn(
-                "last_jin_response: Latest repeated answer.",
+            self.assertNotIn(
+                "user_message:",
+                updated_memory,
+            )
+            self.assertNotIn(
+                "last_jin_response:",
                 updated_memory,
             )
 
@@ -131,12 +126,12 @@ class MemorySchedulerTests(
                 "Updated background memory.",
                 context.runtime_memory,
             )
-            self.assertIn(
-                'user_message: "First message"',
+            self.assertNotIn(
+                "user_message:",
                 context.runtime_memory,
             )
-            self.assertIn(
-                "last_jin_response: First answer",
+            self.assertNotIn(
+                "last_jin_response:",
                 context.runtime_memory,
             )
             self.assertEqual(

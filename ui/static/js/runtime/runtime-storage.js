@@ -33,14 +33,8 @@
   const activeMemoryStorageKey =
     "jin.activeMemory.v1";
 
-  const anonymousActiveMemoryStorageKey =
-    "jin.activeMemory.anonymous.v1";
-
   const delayedMemoryReportsStorageKey =
     "jin.delayedMemoryReports.v1";
-
-  const anonymousDelayedMemoryReportsStorageKey =
-    "jin.delayedMemoryReports.anonymous.v1";
 
   const factsMemoryStorageKeyPrefix =
     "jin.factsMemory";
@@ -152,6 +146,27 @@
 
 
   function createRuntimeSessionId() {
+
+    const anonymousMode =
+      window.JinRuntime
+      && window.JinRuntime.anonymousMode;
+    const anonymousSessionId =
+      anonymousMode
+      && typeof anonymousMode.getSessionId === "function"
+        ? String(anonymousMode.getSessionId() || "").trim()
+        : "";
+
+    if (anonymousSessionId) {
+      try {
+        window.sessionStorage.setItem(
+          runtimeSessionIdSessionStorageKey,
+          anonymousSessionId
+        );
+      } catch (error) {
+        // The runtime id still works even when browser storage is unavailable.
+      }
+      return anonymousSessionId;
+    }
 
     try {
       const storedSessionId =
@@ -328,18 +343,48 @@
 
   function getActiveMemoryStorageKey() {
 
-    return shouldIsolateAnonymousStorage()
-      ? anonymousActiveMemoryStorageKey
-      : activeMemoryStorageKey;
+    return activeMemoryStorageKey;
 
   }
 
 
   function getDelayedMemoryReportsStorageKey() {
 
-    return shouldIsolateAnonymousStorage()
-      ? anonymousDelayedMemoryReportsStorageKey
-      : delayedMemoryReportsStorageKey;
+    return delayedMemoryReportsStorageKey;
+
+  }
+
+
+  function readAnonymousSessionSnapshot() {
+
+    const anonymousMode =
+      window.JinRuntime
+      && window.JinRuntime.anonymousMode;
+
+    return (
+      anonymousMode
+      && typeof anonymousMode.readSnapshot === "function"
+    )
+      ? anonymousMode.readSnapshot()
+      : null;
+
+  }
+
+
+  function updateAnonymousSessionSnapshotField(
+    field,
+    value
+  ) {
+
+    const anonymousMode =
+      window.JinRuntime
+      && window.JinRuntime.anonymousMode;
+
+    return Boolean(
+      anonymousMode
+      && typeof anonymousMode.updateSnapshotField === "function"
+      && anonymousMode.updateSnapshotField(field, value)
+    );
 
   }
 
@@ -678,6 +723,13 @@
       liveRuntimeMemoryStorageKey,
       normalizedValue
     );
+
+    if (shouldIsolateAnonymousStorage()) {
+      updateAnonymousSessionSnapshotField(
+        "frame_memory",
+        normalizedValue || ""
+      );
+    }
 
   }
 
@@ -1286,6 +1338,13 @@
 
   function readActiveMemoryRecords() {
 
+    if (shouldIsolateAnonymousStorage()) {
+      const snapshot = readAnonymousSessionSnapshot();
+      return normalizeActiveMemoryRecords(
+        snapshot && snapshot.active_memory
+      );
+    }
+
     return normalizeActiveMemoryRecords(
       readBrowserMemory(
         getActiveMemoryStorageKey()
@@ -1299,15 +1358,33 @@
     records
   ) {
 
+    const normalized = normalizeActiveMemoryRecords(records);
+
+    if (shouldIsolateAnonymousStorage()) {
+      updateAnonymousSessionSnapshotField(
+        "active_memory",
+        normalized
+      );
+      return;
+    }
+
     writeBrowserMemory(
       getActiveMemoryStorageKey(),
-      normalizeActiveMemoryRecords(records)
+      normalized
     );
 
   }
 
 
   function clearActiveMemoryRecords() {
+
+    if (shouldIsolateAnonymousStorage()) {
+      updateAnonymousSessionSnapshotField(
+        "active_memory",
+        []
+      );
+      return [];
+    }
 
     removeBrowserMemory(
       getActiveMemoryStorageKey()
@@ -2324,14 +2401,25 @@
 
   function readDelayedMemoryReports() {
 
-    const rawReports =
-      readBrowserMemory(
-        getDelayedMemoryReportsStorageKey()
-      );
+    const rawReports = shouldIsolateAnonymousStorage()
+      ? (readAnonymousSessionSnapshot() || {}).delayed_memory
+      : readBrowserMemory(
+          getDelayedMemoryReportsStorageKey()
+        );
     const reports =
       normalizeDelayedMemoryReports(
         rawReports
       );
+
+    if (shouldIsolateAnonymousStorage()) {
+      if (JSON.stringify(rawReports || {}) !== JSON.stringify(reports)) {
+        updateAnonymousSessionSnapshotField(
+          "delayed_memory",
+          reports
+        );
+      }
+      return reports;
+    }
 
     if (
         rawReports
@@ -2354,11 +2442,21 @@
     reports
   ) {
 
+    const normalized = normalizeDelayedMemoryReports(
+      reports
+    );
+
+    if (shouldIsolateAnonymousStorage()) {
+      updateAnonymousSessionSnapshotField(
+        "delayed_memory",
+        normalized
+      );
+      return;
+    }
+
     writeBrowserMemory(
       getDelayedMemoryReportsStorageKey(),
-      normalizeDelayedMemoryReports(
-        reports
-      )
+      normalized
     );
 
   }
@@ -2478,9 +2576,7 @@
       sessionCheckpointStorageKey,
       runtimeSessionIdSessionStorageKey,
       activeMemoryStorageKey,
-      anonymousActiveMemoryStorageKey,
       delayedMemoryReportsStorageKey,
-      anonymousDelayedMemoryReportsStorageKey,
       factsMemoryStorageKeyPrefix,
       factsMemoryStorageKeyVersion,
     },

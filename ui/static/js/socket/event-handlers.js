@@ -42,9 +42,14 @@ function appendSessionBootstrapBoundary(
     "Friday",
     "Saturday",
   ];
+  const hours =
+    String(now.getHours()).padStart(2, "0");
+  const minutes =
+    String(now.getMinutes()).padStart(2, "0");
   const labelText =
     `${now.getDate()} `
-    + `${months[now.getMonth()]}, `
+    + `${months[now.getMonth()]} `
+    + `${hours}:${minutes}, `
     + weekdays[now.getDay()];
 
   const divider =

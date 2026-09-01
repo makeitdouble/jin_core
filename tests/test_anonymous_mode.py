@@ -13,6 +13,8 @@ from runtime.anonymous_mode import (
     asset_action_writes_persistent_data,
     build_restricted_write_event,
     configure_runtime_anonymous_mode,
+    ensure_anonymous_session_id,
+    is_anonymous_session_id,
     runtime_action_write_is_restricted,
 )
 from runtime.runtime_context import RuntimeContext
@@ -37,6 +39,24 @@ class FakeEmitter:
 
 class AnonymousModeTests(unittest.IsolatedAsyncioTestCase):
 
+    def test_anonymous_session_id_suffix_is_stable_and_bounded(self):
+        session_id = ensure_anonymous_session_id(
+            "2ef769ec-47fe-4e0c-8bea-fb3b412bae4a"
+        )
+        self.assertEqual(
+            session_id,
+            "2ef769ec-47fe-4e0c-8bea-fb3b412bae4a-anon",
+        )
+        self.assertTrue(is_anonymous_session_id(session_id))
+        self.assertEqual(ensure_anonymous_session_id(session_id), session_id)
+        self.assertLessEqual(
+            len(ensure_anonymous_session_id("x" * 200)),
+            80,
+        )
+        self.assertTrue(
+            ensure_anonymous_session_id("x" * 200).endswith("-anon")
+        )
+
     def test_configuration_restricts_only_persistent_writes(self):
         context = RuntimeContext(
             websocket=None,
@@ -45,12 +65,23 @@ class AnonymousModeTests(unittest.IsolatedAsyncioTestCase):
             clients={},
         )
         context.delayed_memory_file_store_enabled = True
+        context.runtime_lt_file_store_enabled = True
+        context.active_memory_records = ["active_memory: global"]
+        context.delayed_memory_reports = {"r1": {"summary": "global"}}
+        context.runtime_long_term_memory_store = {
+            "facts": [{"id": "F1", "key": "global", "value": "global"}],
+        }
 
         configure_runtime_anonymous_mode(context, True)
 
         self.assertTrue(context.runtime_anonymous_mode)
         self.assertTrue(context.runtime_persistent_writes_restricted)
         self.assertFalse(context.delayed_memory_file_store_enabled)
+        self.assertFalse(context.runtime_lt_file_store_enabled)
+        self.assertEqual(context.active_memory_records, [])
+        self.assertEqual(context.delayed_memory_reports, {})
+        self.assertEqual(context.runtime_long_term_memory_store, {})
+        self.assertTrue(context.session_id.endswith("-anon"))
         self.assertTrue(
             runtime_action_write_is_restricted(
                 context,
@@ -78,6 +109,7 @@ class AnonymousModeTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(context.runtime_anonymous_mode)
         self.assertFalse(context.runtime_persistent_writes_restricted)
         self.assertTrue(context.delayed_memory_file_store_enabled)
+        self.assertIsNone(context.runtime_lt_file_store_enabled)
         self.assertFalse(
             runtime_action_write_is_restricted(
                 context,

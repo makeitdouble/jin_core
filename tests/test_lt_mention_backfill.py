@@ -78,6 +78,41 @@ class LTMentionBackfillTests(unittest.TestCase):
                 "2026-08-30T09:05:00Z",
             )
 
+    def test_scanner_skips_anonymous_session_directories(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir) / "logs"
+            normal = root / "2026-08-30" / "normal-session"
+            anonymous = root / "2026-08-30" / "private-session-anon"
+            normal.mkdir(parents=True)
+            anonymous.mkdir(parents=True)
+
+            (normal / "120000.jsonl").write_text(
+                json.dumps({
+                    "ts": "2026-08-30T12:00:00+03:00",
+                    "role": "jin",
+                    "text": "Normal room mentions F2.",
+                }) + "\n",
+                encoding="utf-8",
+            )
+            (anonymous / "120100.jsonl").write_text(
+                json.dumps({
+                    "ts": "2026-08-30T12:01:00+03:00",
+                    "role": "jin",
+                    "text": "Anonymous room mentions F9.",
+                }) + "\n",
+                encoding="utf-8",
+            )
+
+            result = scan_lt_log_fact_mentions(
+                log_root=root,
+                fallback_at="2026-08-24T09:00:00Z",
+                activated_at="2026-08-31T09:00:00Z",
+            )
+
+            self.assertIn("F2", result["latest_by_fact_id"])
+            self.assertNotIn("F9", result["latest_by_fact_id"])
+            self.assertEqual(result["jsonl_files_scanned"], 1)
+
     def test_backfill_maps_retired_source_ids_and_stales_unseen_facts(self):
         store = normalize_lt_store({
             "facts": [

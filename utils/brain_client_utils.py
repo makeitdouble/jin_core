@@ -103,6 +103,9 @@ from utils.session_actions_history import (
     build_asset_action_marker_text,
     record_session_action_history,
 )
+from utils.time_utils import (
+    utc_now_iso,
+)
 from utils.tool_results import (
     TOOL_RESULT_KIND_ASSET,
     TOOL_RESULT_KIND_ACTIVE_MEMORY,
@@ -304,7 +307,7 @@ def build_delayed_memory_report(
     ).strip()
 
     if not created_time:
-        created_time = datetime.now().isoformat()
+        created_time = utc_now_iso()
 
     used_ids = {
         str(report_id or "").strip().casefold()
@@ -533,7 +536,7 @@ def refresh_delayed_memory_load_metadata(
             "",
         )
         or ""
-    ).strip() or datetime.now().isoformat()
+    ).strip() or utc_now_iso()
     session_id = str(
         getattr(
             context,
@@ -1678,7 +1681,7 @@ async def update_active_memory_runtime_record(
             "timestamp",
             "",
         )
-        or datetime.now().isoformat()
+        or utc_now_iso()
     )
     updated_record, change_results = _update_active_memory_line_fields(
         current_record,

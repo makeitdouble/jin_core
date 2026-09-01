@@ -32,11 +32,11 @@ A current implementation can still violate a product decision. Do not hide that.
 - `USE_SERVICE_AS_BRAIN` is legacy config input only. `config_loader.py` may migrate it once and then removes the attribute from normalized config; launcher detection exists only to preserve old local configs during startup. Archived `SERVICE` roles/`RUNTIME_MODE=SERVICE` and the logger's old Service-output presentation are reader compatibility, not live routing.
 - `RuntimeContext` is the in-process live state hub for a runtime session. Do not create parallel sources of truth for state it already owns.
 - L2 and L3 are **removed architectural layers**. Do not restore them from old README/tests/indexes. Any surviving L2/L3 names must be classified as compatibility, stale tests/docs, UI residue, or dead legacy before touching them.
-- Durable facts belong in L-T. Do not reintroduce a durable-L1/L2/L3 memory hierarchy.
-- Active Memory, Delayed Memory, L-T facts, persistent Files, live L1/runtime memory, and session checkpoints are different systems with different lifetimes. Do not collapse them into one generic memory store.
+- Durable facts belong in L-T. FRAME is live operational memory; do not reintroduce a durable FRAME/L2/L3 hierarchy.
+- Active Memory, Delayed Memory, L-T facts, persistent Files, live FRAME memory, and session checkpoints are different systems with different lifetimes. Do not collapse them into one generic memory store.
 - Session continuity must distinguish a real USER move, a completed turn, an interrupted USER-only turn, an action-only completion, and a blank bootstrap tab. A real USER row can become the newest conversation move without a visible JIN row; a blank tab cannot.
 - Normal browser continuity has exactly two runtime stores: ephemeral `sessionStorage` key `jin.liveRuntimeMemory.v2` for the current page's soft reconnect, and atomic `localStorage` key `jin.sessionCheckpoint.v2` for reload/new-tab bootstrap. Do not add per-session runtime records or freshness scans.
-- The common browser checkpoint names the last runtime session that actually moved. Opening a tab may hydrate inherited L1 into the ephemeral live record, but must not promote the fresh runtime ID until real user activity or a server-confirmed completed-turn commit.
+- The common browser checkpoint names the last runtime session that actually moved. Opening a tab may hydrate inherited FRAME into the ephemeral live record, but must not promote the fresh runtime ID until real user activity or a server-confirmed completed-turn commit.
 - Session CLEAR writes a `state: "cleared"` tombstone. Passive runtime, room, color, bootstrap, reconnect, and retry paths must not replace it; only a successfully emitted new USER move may authorize a later checkpoint write.
 - Preserve checkpoint lineage: `session_id`, `previous_session_id`, `booted_from_session_id`, nested runtime-snapshot origin, and `conversation_committed_at` have different meanings. Room/avatar field writes must not switch the checkpoint owner.
 - Browser checkpoint `saved_at` is a causal freshness boundary for runtime/resource archive enrichment, not a generic "last touched" timestamp. Dialogue freshness is compared tail-to-tail independently. A field-local mutation must not advance `saved_at` unless the whole checkpoint is genuinely refreshed.
@@ -50,7 +50,8 @@ A current implementation can still violate a product decision. Do not hide that.
 
 ## Runtime actions
 
-- `contracts/*.json` are the canonical model-facing contracts for concrete action schemas and action-specific rules.
+- `contracts/*.json` are the canonical model-facing contracts for concrete action schemas and action-specific rules. Every concrete contract keeps its human-readable `schema` lines before `rules`; failed action results reuse that schema instead of inventing a second error-format contract.
+- Failed runtime actions are not completion. Render their tool result as readable text (status/reason, supplied payload when relevant, and the correct action schema), then use the shared failure follow-up so Brain continues from the failure rather than assuming the mutation happened.
 - Keep `rules/runtime.py` for cross-action sequencing/loop invariants, not duplicated field-by-field action instructions.
 - Every new action needs: contract -> parser/normalization -> guard if needed -> dispatcher/handler -> emitted state/result -> tests.
 - Streaming can split markers at arbitrary chunk boundaries. Always test complete, split, repeated, incomplete, false-prefix, and flush/stop cases.
@@ -79,6 +80,13 @@ Before introducing any visual state, find and reuse the closest existing JIN UI 
 - The first bootstrap color transition is the one 2-second transition; ordinary/live color changes use the shared 333 ms avatar-and-scene transition. Do not restore an old tint queue or add a second transition writer.
 - Session-action interruption telemetry is causal UI state: validator/reasoning loops and context/output-limit recovery entries must be recorded/emitted when detected, before automatic follow-up/recovery starts.
 - L-T rows use a short default preview (currently 50 characters), but a fact that is bubbled by reference/citation/context-loaded state must show its full value rather than a truncated citation.
+- L-T facts absorbed by Delayed reports are hidden in the default active view unless context-loaded; the L-T counter toggles `show all` / `show active`. Keep normal fact sorting in both modes, and keep report-linked fact IDs opening the existing Delayed report modal.
+- Memory inspector editing is value-only: double-click opens the existing hover card as an editor; FRAME edits only the latest frame value, Active edits conditions/value while preserving metadata/custom fields, and L-T edits only the fact value. Keys/IDs are not editable. Drafts remain page-local until the checkmark succeeds; rollback restores the last acknowledged value.
+- Active and L-T explicit edits must surface the server `updated_at` immediately. Active pause/resume writes must synchronize the canonical Active store before later edits so a UI status change cannot be overwritten by stale backend state.
+- FRAME values follow the detected language of the current user message while FRAME keys remain structural English `snake_case`; do not turn localized values into localized keys.
+- Composer attachment chips are projections of already-pinned persistent files: click opens the existing preview, hold detaches from the message/context, and detach must not delete the persistent file or auto-expand Console.
+- Completed assistant output uses the explicit `Copy all` control under the avatar/message shell. Do not restore invisible bubble double-click/long-hold copy-or-retry gesture zones; answer rating remains release-gated off.
+- Live Avatar L-T facts fan out in batches of 100 over additional outer lanes. Keep Active Memory between the outermost L-T lane and the file ring, and reuse the existing memory-row hover zoom/reference highlighting rather than adding a competing ring effect.
 - Hover/detail metadata must survive non-semantic refreshes: counter-only runtime-action updates and bootstrap normalization must not silently erase tooltip/swatch data.
 - Do not add `backdrop-filter`/blur or new translucent effects casually. Existing shadow/tint depth is deliberate.
 

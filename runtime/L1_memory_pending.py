@@ -17,10 +17,17 @@ def _pending_l1_path(
         context,
 ) -> Path | None:
 
-    # Transient crash-recovery journal for an in-flight L1 request. It is
-    # intentionally independent from the normal persistent-write policy: if
-    # the backend dies, anonymous/restricted mode still needs this checkpoint
-    # to replay the interrupted summarizer request after reconnect.
+    # Anonymous rooms are browser-ephemeral. They must never create or read a
+    # crash-recovery journal under memory/runtime.
+    if bool(
+        getattr(
+            context,
+            "runtime_persistent_writes_restricted",
+            False,
+        )
+    ):
+        return None
+
     session_id = PENDING_L1_SESSION_RE.sub(
         "_",
         str(

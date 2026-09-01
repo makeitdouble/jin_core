@@ -1,8 +1,10 @@
 import json
 import re
+from uuid import uuid4
 
 
 ANONYMOUS_MODE_QUERY_PARAM = "anonymous_mode"
+ANONYMOUS_SESSION_SUFFIX = "-anon"
 ANONYMOUS_MODE_TRUE_VALUES = {
     "1",
     "true",
@@ -47,16 +49,48 @@ _ASSET_WRITE_PREFIXES = (
 )
 
 
+def is_anonymous_session_id(value) -> bool:
+    return str(value or "").strip().casefold().endswith(
+        ANONYMOUS_SESSION_SUFFIX
+    )
+
+
+def ensure_anonymous_session_id(value) -> str:
+    session_id = str(value or "").strip()
+    if not session_id:
+        return session_id
+
+    suffix_length = len(ANONYMOUS_SESSION_SUFFIX)
+    base = (
+        session_id[:-suffix_length]
+        if is_anonymous_session_id(session_id)
+        else session_id
+    )
+    base = base[: max(0, 80 - suffix_length)]
+    if not base:
+        return ""
+    return f"{base}{ANONYMOUS_SESSION_SUFFIX}"
+
+
 def websocket_requests_anonymous_mode(websocket) -> bool:
     try:
         raw_value = websocket.query_params.get(
             ANONYMOUS_MODE_QUERY_PARAM,
             "",
         )
+        client_id = websocket.query_params.get(
+            "client_id",
+            "",
+        )
     except Exception:
         raw_value = ""
+        client_id = ""
 
-    return str(raw_value or "").strip().casefold() in ANONYMOUS_MODE_TRUE_VALUES
+    return bool(
+        str(raw_value or "").strip().casefold()
+        in ANONYMOUS_MODE_TRUE_VALUES
+        or is_anonymous_session_id(client_id)
+    )
 
 
 def configure_runtime_anonymous_mode(
@@ -64,12 +98,39 @@ def configure_runtime_anonymous_mode(
     enabled: bool,
 ) -> None:
     enabled = bool(enabled)
+    was_enabled = bool(
+        getattr(
+            context,
+            "runtime_anonymous_mode",
+            False,
+        )
+    )
+
     context.runtime_anonymous_mode = enabled
     context.runtime_persistent_writes_restricted = enabled
 
-    # Delayed Memory is still hydrated/read from the global file store, but
-    # anonymous sessions must never persist load counters, pruning, or reports.
+    if enabled:
+        anonymous_session_id = ensure_anonymous_session_id(
+            getattr(context, "session_id", "")
+            or str(uuid4())
+        )
+        context.session_id = anonymous_session_id
     context.delayed_memory_file_store_enabled = not enabled
+    context.runtime_lt_file_store_enabled = (
+        False if enabled else None
+    )
+
+    if enabled and not was_enabled:
+        # An explicit anonymous room starts from an empty in-memory structure.
+        # Browser sync may populate its per-tab Active snapshot afterwards, but
+        # no global Delayed/L-T state is ever hydrated into this context.
+        context.active_memory_records = []
+        context.delayed_memory_reports = {}
+        context.runtime_loaded_delayed_memory = {}
+        context.runtime_loaded_delayed_memory_ids = []
+        context.runtime_facts_memory_records = []
+        context.runtime_long_term_memory_store = {}
+        context.runtime_lt_archived_fact_ids = set()
 
 
 def persistent_writes_restricted(context) -> bool:

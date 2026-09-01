@@ -8,11 +8,14 @@ from pathlib import Path
 from config_loader import (
     config,
 )
+from runtime.anonymous_mode import (
+    ensure_anonymous_session_id,
+)
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 CHAT_LOG_ROOT = PROJECT_ROOT / "logs"
-CHAT_LOG_ANON_ROOT = PROJECT_ROOT / "logs_anon"
+LEGACY_CHAT_LOG_ANON_ROOT = PROJECT_ROOT / "logs_anon"
 CHAT_LOG_SESSION_ID_MAX_CHARS = 80
 CHAT_LOG_SESSION_ID_RE = re.compile(
     r"[^a-zA-Z0-9_.-]"
@@ -55,28 +58,14 @@ def chat_log_root_for_context(
     if root is not None:
         return Path(root)
 
-    return (
-        CHAT_LOG_ANON_ROOT
-        if bool(
-            getattr(
-                context,
-                "runtime_anonymous_mode",
-                False,
-            )
-        )
-        else CHAT_LOG_ROOT
-    )
+    return CHAT_LOG_ROOT
 
 
 def chat_log_root_for_mode(
     anonymous_mode: bool,
 ) -> Path:
 
-    return (
-        CHAT_LOG_ANON_ROOT
-        if bool(anonymous_mode)
-        else CHAT_LOG_ROOT
-    )
+    return CHAT_LOG_ROOT
 
 
 def _clean_session_id(
@@ -109,6 +98,16 @@ def _context_session_id(
     )
 
     if session_id:
+        if bool(
+            getattr(
+                context,
+                "runtime_anonymous_mode",
+                False,
+            )
+        ):
+            return _clean_session_id(
+                ensure_anonymous_session_id(session_id)
+            )
         return session_id
 
     existing = _clean_session_id(
@@ -920,6 +919,92 @@ def _migrate_date_reasoning_directory(
     return moved
 
 
+def _migrate_legacy_anonymous_chat_logs(
+    source_root: Path,
+    target_root: Path,
+) -> list[tuple[Path, Path]]:
+
+    if not source_root.is_dir():
+        return []
+
+    # First normalize any old flat ``YYYY-MM-DD-session`` layout in-place.
+    moved = migrate_legacy_chat_logs(
+        root=source_root,
+    )
+
+    for date_directory in sorted(
+        source_root.iterdir(),
+        key=lambda item: item.name,
+    ):
+        if (
+            not date_directory.is_dir()
+            or not re.fullmatch(
+                r"\d{4}-\d{2}-\d{2}",
+                date_directory.name,
+            )
+        ):
+            continue
+
+        for source_session in sorted(
+            date_directory.iterdir(),
+            key=lambda item: item.name,
+        ):
+            if not source_session.is_dir():
+                continue
+
+            session_id = _clean_session_id(
+                ensure_anonymous_session_id(
+                    source_session.name
+                )
+            )
+            if not session_id:
+                continue
+
+            target_session = (
+                target_root
+                / date_directory.name
+                / session_id
+            )
+            target_session.parent.mkdir(
+                parents=True,
+                exist_ok=True,
+            )
+
+            if target_session.exists():
+                _merge_directory_contents(
+                    source_session,
+                    target_session,
+                )
+                try:
+                    source_session.rmdir()
+                except OSError:
+                    pass
+            else:
+                shutil.move(
+                    str(source_session),
+                    str(target_session),
+                )
+
+            _ensure_reasoning_directory(
+                target_session
+            )
+            moved.append(
+                (source_session, target_session)
+            )
+
+        try:
+            date_directory.rmdir()
+        except OSError:
+            pass
+
+    try:
+        source_root.rmdir()
+    except OSError:
+        pass
+
+    return moved
+
+
 def migrate_legacy_chat_logs(
     *,
     root: Path | str | None = None,
@@ -1012,6 +1097,14 @@ def migrate_legacy_chat_logs(
                     date_directory
                 )
             )
+
+    if root is None:
+        moved.extend(
+            _migrate_legacy_anonymous_chat_logs(
+                LEGACY_CHAT_LOG_ANON_ROOT,
+                root_path,
+            )
+        )
 
     return moved
 

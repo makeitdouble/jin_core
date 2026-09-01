@@ -1,6 +1,6 @@
 # JIN Core Engine — Durable Decisions
 
-**Decision baseline:** reconciled on 2026-08-29 against `jin_core(20260829-114751).zip` and the accumulated project context. The 2026-08-29 reconciliation intentionally skipped tests and traced production source only.
+**Decision baseline:** reconciled on 2026-09-01 against `jin_core(20260901-112006).zip` and the accumulated project context. The latest reconciliation traced production source and ran targeted tests for the newly documented memory/UI behavior.
 
 This file records product/architecture intent that should survive refactors. It is not a changelog and not a dump of historical experiments.
 
@@ -61,7 +61,7 @@ Memory/context/reasoning/actions/state must be inspectable enough that the user 
 
 L2 and L3 are no longer live architectural layers. The current conceptual set is:
 
-- live L1/runtime frame;
+- live FRAME;
 - L-T durable facts;
 - Active Memory;
 - Delayed Memory;
@@ -74,11 +74,11 @@ L2 and L3 are no longer live architectural layers. The current conceptual set is
 
 ---
 
-## D005 — Durable L1 is rejected; durable facts go to L-T
+## D005 — Durable FRAME is rejected; durable facts go to L-T
 
 **Status:** Accepted / implemented
 
-L1 is live/operational state. Durable user/project facts belong in L-T rather than a persistent L1-like layer.
+FRAME is live/operational state. Durable user/project facts belong in L-T rather than a persistent FRAME-like layer.
 
 **Why:** one durable fact owner is easier to reconcile, inspect, age, link, and clean.
 
@@ -90,7 +90,7 @@ L1 is live/operational state. Durable user/project facts belong in L-T rather th
 
 **Status:** Accepted / implemented
 
-Active Memory, Delayed Memory, L-T, live L1, Files, and checkpoints are not interchangeable layers.
+Active Memory, Delayed Memory, L-T, FRAME, Files, and checkpoints are not interchangeable layers.
 
 **Why:** they have different lifetimes, loading rules, UI semantics, and mutation paths.
 
@@ -208,15 +208,15 @@ Serialize/deserialize must preserve entity/snapshot timestamps. `now()` is only 
 
 ---
 
-## D015 — Anonymous/shadow mode can read durable context but restricts persistent writes
+## D015 — Anonymous mode is an explicit empty room, not browser-private detection
 
 **Status:** Accepted / implemented
 
-Anonymous windows keep isolated session-facing state while still being able to read global durable context where intended. Persistent L-T/Delayed/asset mutation is restricted by the backend.
+Long-pressing the avatar opens a fresh JIN room with a generated `-anon` session id. The room gets only tab-scoped FRAME/Active/L-T/Delayed browser state, does not hydrate durable L-T/Delayed memory, and cannot persist memory/asset mutations. Chat and reasoning remain auditable in ordinary `logs/` under the suffixed session id, while normal bootstrap and L-T freshness scanners ignore those logs.
 
-**Why:** private experimentation should not contaminate durable user memory, while still keeping JIN useful.
+**Why:** anonymous experimentation must not inherit or contaminate the durable memory room, and browser Incognito detection is not a reliable product primitive.
 
-**Rejected alternative:** either making anonymous mode completely blind or letting it silently mutate global stores.
+**Rejected alternative:** inferring browser private mode or maintaining a second `logs_anon` archive root.
 
 ---
 
@@ -329,13 +329,13 @@ The existing JIN skeleton already has state, named prompt sections, dynamic cont
 
 ---
 
-## D024 — `FRAME` names the live runtime-memory tab, not the runtime system
+## D024 — `FRAME` is the canonical product name for live runtime memory
 
-**Status:** Accepted / implemented
+**Status:** Accepted / implemented in product/docs; code naming cleanup is transitional
 
-The first memory-panel tab is labelled `FRAME`. It presents the live runtime-memory snapshot and retains the existing snapshot/diff paging controls.
+The first memory-panel tab is labelled `FRAME`, Brain context exposes it as `<FRAME_MEMORY_N>`, and current documentation uses FRAME for the live runtime-memory concept everywhere. It retains snapshot/diff paging and remains distinct from Active, Delayed, L-T, Files, and durable checkpoints.
 
-**Constraint:** this is a UI label with a narrow scope. Do not globally rename runtime/state concepts, identifiers, events, or storage fields to `FRAME`.
+Some source filenames, field names, tests, and compatibility readers still use the previous internal name. Those are migration/code-cleanup residue and must not be documented as a separate memory layer. Rename code only in an explicit cleanup task that traces storage/events/bootstrap compatibility end-to-end.
 
 The memory panel always exposes exactly five tabs: `FRAME`, `ACTIVE`, `DELAYED`, `L-T`, and `FILES`. The temporary unprocessed-facts view is not part of this tab bar. The shared count/paging control sits below the active tab; arrows are visible only for `FRAME`.
 
@@ -442,7 +442,7 @@ Inline/colon/space forms may still be recognized by compatibility parsing, but c
 
 **Status:** Accepted / implemented
 
-The common browser checkpoint identifies the last runtime session that actually moved. Opening a tab may clone inherited L1 but does not promote the new runtime ID. A real USER send may promote the session before a visible answer finishes; a server completed-turn commit is the fallback signal. A blank bootstrap-only tab never outranks its predecessor.
+The common browser checkpoint identifies the last runtime session that actually moved. Opening a tab may clone inherited FRAME but does not promote the new runtime ID. A real USER send may promote the session before a visible answer finishes; a server completed-turn commit is the fallback signal. A blank bootstrap-only tab never outranks its predecessor.
 
 Raw-log selection follows the same rule: the newest real USER move wins even when it is interrupted and has no JIN row. `conversation_committed_at` remains a separate completed-turn timestamp.
 
@@ -488,7 +488,7 @@ The first bootstrap color uses the one 2-second avatar-and-scene transition. Lat
 
 Normal bootstrap renders the three newest real USER moves with JIN/reasoning where present, then places the current-session date divider and starts the live viewport there. USER-only turns remain visible without an empty JIN bubble. Explicit archived restore uses its own history renderer but projects the same bounded USER-owned tail, keeps later visible JIN-only continuation rows, and must not duplicate the normal-bootstrap tail. Its reasoning bubbles contain the reasoning body, not archive-file headers.
 
-For explicit URL restore, the server archive owns dialogue, reasoning, and L1 as one causal bundle. A same-session browser checkpoint can recover presentation state (room/avatar and Session Actions), but cannot replace individual conversation fields inside that bundle. `RESTORED_SESSION_DIALOG` is the newest conversation authority during the one-shot priming turn; restored L1 is background and may be one update behind the final visible turn.
+For explicit URL restore, the server archive owns dialogue, reasoning, and FRAME as one causal bundle. A same-session browser checkpoint can recover presentation state (room/avatar and Session Actions), but cannot replace individual conversation fields inside that bundle. `RESTORED_SESSION_DIALOG` is the newest conversation authority during the one-shot priming turn; restored FRAME is background and may be one update behind the final visible turn.
 
 **Why:** the user can scroll slightly upward for immediate continuity while the current response begins from a clean, stable boundary.
 
@@ -530,7 +530,7 @@ The metabolism subsystem is removed. The retained `runtime/memory_attention.py` 
 
 Memory Attention is deterministic and stateless: it does not call SERVICE, change Brain temperature, generate hidden instructions, learn phrase associations, mutate memory while building context, persist significance, or drive avatar chemistry.
 
-**Why:** the useful behavior was retrieval/ranking. The causal homeostat duplicated model work, obscured sampling, and leaked event-wide significance through L1 into durable L-T.
+**Why:** the useful behavior was retrieval/ranking. The causal homeostat duplicated model work, obscured sampling, and leaked event-wide significance through FRAME into durable L-T.
 
 **Rejected alternatives:** keeping observer-only chemistry; keeping significance as an independent durable score; preserving the metabolic UI without the backend.
 
@@ -573,4 +573,92 @@ Archived `service` message roles, `RUNTIME_MODE=SERVICE`, and old `[SERVICE]` mo
 **Why:** the visible model path needs one canonical owner. A one-model installation should be possible without role inversion, while a second machine/model can still accelerate background memory/research work.
 
 **Rejected alternatives:** switching visible replies to Service; keeping `USE_SERVICE_AS_BRAIN` as a live runtime branch; requiring a dedicated Service endpoint; treating archived Service labels as evidence of current topology.
+
+---
+
+## D041 — Memory inspector edits values, never identity
+
+**Status:** Accepted / implemented
+
+Direct memory editing is an explicit UI/runtime write, not a model action. Double-click opens the existing details tooltip as an editor. FRAME permits edits only on the newest snapshot value; Active permits the conditions/value while preserving ID, custom fields, status and metadata; L-T permits only the canonical fact value while preserving key, ID, category, provenance and mention metadata. Keys and IDs are never editable.
+
+Drafts remain page-local until the server acknowledges the checkmark. Requests carry `expected_value` so stale concurrent edits fail rather than overwrite newer state. Rollback returns to the last acknowledged value. Active and L-T successful edits surface `updated_at`; L-T writes persist before publication and mark explicit-edit protection.
+
+**Why:** the inspector should allow surgical correction without turning editing into a second schema/action system or rewriting memory identity.
+
+**Rejected alternatives:** editable keys/IDs; editing historical FRAME snapshots; optimistic overwrite without expected-value conflict detection; routing manual edits through Brain.
+
+---
+
+## D042 — L-T recall decays by last real mention
+
+**Status:** Accepted / implemented
+
+Canonical L-T facts retain `mention_count` and `last_mentioned_at`. A valid `F<number>` reference in JIN reasoning or visible output increments a canonical fact at most once per turn and persists the new mention timestamp. Historical-log backfill may repair older mention dates but must never rewind a newer live mention.
+
+For Brain context, a fact remains fully expanded until 24 hours have elapsed since its latest mention/update/create fallback. After that boundary, each sentence is previewed at a maximum of 100 characters. A later JIN reference refreshes the mention timestamp so subsequent prompts can receive the full value again.
+
+**Why:** old facts remain available without permanently spending full-context cost, while actually reused facts regain detail automatically.
+
+**Rejected alternatives:** deleting old facts for context pressure; decaying canonical stored values; using render-time age without persisted mentions; model-generated importance scores.
+
+---
+
+## D043 — L-T active/all is a projection, not a second store
+
+**Status:** Accepted / implemented
+
+Facts absorbed by Delayed reports are hidden from the default active L-T view unless they are currently context-loaded. Anchor facts remain visible. Clicking the L-T count toggles `show all` / `show active`; the all view uses the same normal fact sorting and does not append archived rows as a separate block. Report-linked fact IDs remain clickable and open the existing Delayed report modal.
+
+**Why:** report absorption should reduce panel/context noise without making facts disappear or creating a parallel archive store.
+
+**Rejected alternatives:** physically moving absorbed facts to another store; appending hidden facts unsorted; losing report navigation when hidden facts are revealed.
+
+---
+
+## D044 — Composer attachment chips represent context attachment, not file ownership
+
+**Status:** Accepted / implemented
+
+Pinned persistent files attached to the outgoing message are projected as compact chips next to the composer. Click reuses the existing preview. Hold detaches/unpins the file from outgoing context. Detach does not delete the persistent file, and attachment changes do not open Console as a side effect.
+
+**Why:** attachment state is temporary message/runtime context; persistent file ownership is a separate system.
+
+**Rejected alternatives:** deleting the asset on detach; a second preview UI; automatic Console expansion merely because a file was attached.
+
+---
+
+## D045 — Failed runtime actions reuse the contract schema and remain incomplete
+
+**Status:** Accepted / implemented
+
+Each concrete runtime-action contract owns a separate human-readable `schema` list in addition to its rules. The same schema is used in model-facing instructions and in failed tool results. A failure is rendered as readable text with status/reason, supplied payload when relevant, and `Correct action schema:`; the shared failure follow-up explicitly tells Brain not to treat the action as completed.
+
+**Why:** recovery should teach the model from the exact contract that rejected the payload instead of exposing raw JSON or duplicating schema text in error handlers.
+
+**Rejected alternatives:** raw JSON failure blobs; independent error-only schemas; continuing the turn as though a failed state mutation succeeded.
+
+---
+
+## D046 — Response copy is an explicit control, not an invisible bubble gesture
+
+**Status:** Accepted / implemented
+
+Completed assistant output exposes `Copy all` under the avatar/message host. The previous invisible bubble utility gesture surface is removed. Answer-rating implementation may remain release-disabled in the codebase, but it does not own release interaction.
+
+**Why:** copying should be discoverable and deterministic, and should not compete with text selection, inspection, or other long-press/double-click semantics.
+
+**Rejected alternatives:** hidden double-click copy; long-hold replacement retry on the answer bubble; re-enabling rating merely to host utility gestures.
+
+---
+
+## D047 — Live Avatar L-T capacity expands by lanes without changing memory identity
+
+**Status:** Accepted / implemented
+
+L-T facts are projected to Live Avatar in lanes of at most 100 records. Additional facts create additional outer L-T rings; Active Memory is laid out beyond the outermost L-T lane and before the persistent-file ring. Memory-row hover reuses the existing avatar zoom/reference semantics.
+
+**Why:** large durable stores must remain inspectable without overloading one ring or changing the underlying fact store.
+
+**Rejected alternatives:** hiding facts solely because the first ring is full; creating a second L-T store per ring; overlapping Active/File rings; inventing a new hover highlight family for overflow lanes.
 

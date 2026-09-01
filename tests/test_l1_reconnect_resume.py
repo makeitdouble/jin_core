@@ -148,7 +148,7 @@ class L1ReconnectResumeTests(
                     )
                 )
 
-    async def test_restricted_mode_replays_pending_l1_after_backend_restart(self):
+    async def test_restricted_mode_never_persists_pending_l1_journal(self):
         with tempfile.TemporaryDirectory() as directory:
             pending_dir = Path(directory)
 
@@ -157,82 +157,39 @@ class L1ReconnectResumeTests(
                 "PENDING_L1_DIR",
                 pending_dir,
             ):
-                first_context = self.build_context(
+                context = self.build_context(
                     service_client=FakeServiceClient(
-                        "First attempt should not matter."
+                        "Anonymous in-memory runtime memory."
                     ),
                     runtime_persistent_writes_restricted=True,
                 )
 
-                first_task = l1_memory.schedule_runtime_memory_update(
-                    context=first_context,
-                    user_message="Keep this L1 turn across reconnect.",
-                    assistant_message="This request must be replayed.",
+                task = l1_memory.schedule_runtime_memory_update(
+                    context=context,
+                    user_message="Keep this only inside the anonymous room.",
+                    assistant_message="No persistent journal.",
                 )
 
-                self.assertIsNotNone(
-                    first_task
-                )
+                self.assertIsNotNone(task)
                 self.assertEqual(
-                    len(list(pending_dir.glob("*.l1_pending.json"))),
-                    1,
+                    list(pending_dir.glob("*.l1_pending.json")),
+                    [],
                 )
 
-                first_task.cancel()
-                with self.assertRaises(
-                    asyncio.CancelledError
-                ):
-                    await first_task
+                await task
 
-                restarted_service = FakeServiceClient(
-                    "Recovered restricted-mode runtime memory."
-                )
                 restarted_context = self.build_context(
-                    service_client=restarted_service,
+                    service_client=FakeServiceClient(
+                        "Nothing to replay."
+                    ),
                     runtime_persistent_writes_restricted=True,
                 )
-
-                self.assertTrue(
+                self.assertFalse(
                     l1_pending.restore_pending_l1_update(
                         restarted_context
                     )
                 )
 
-                resumed_task = l1_memory.resume_runtime_memory_pending_update(
-                    restarted_context
-                )
-
-                self.assertIsNotNone(
-                    resumed_task
-                )
-
-                await resumed_task
-
-                self.assertEqual(
-                    len(restarted_service.calls),
-                    1,
-                )
-                self.assertTrue(
-                    any(
-                        message == "[MEMORY:L1] L1 summarizer request"
-                        for message, _details
-                        in restarted_context.logger.summarizer_logs
-                    )
-                )
-                self.assertIn(
-                    "Keep this L1 turn across reconnect.",
-                    restarted_service.calls[0]["user_prompt"],
-                )
-                self.assertEqual(
-                    restarted_context.runtime_memory_updates,
-                    1,
-                )
-                self.assertTrue(
-                    any(
-                        event.get("type") == "runtime_memory_update"
-                        for event in restarted_context.emitter.events
-                    )
-                )
 
     async def test_newer_browser_snapshot_discards_stale_pending_checkpoint(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -293,7 +250,7 @@ class L1ReconnectResumeTests(
                 )
 
 
-    async def test_matching_browser_memory_discards_stale_pending_checkpoint(self):
+    async def test_missing_browser_revision_replays_from_journal_revision_floor(self):
         with tempfile.TemporaryDirectory() as directory:
             pending_dir = Path(directory)
 
@@ -320,17 +277,12 @@ class L1ReconnectResumeTests(
                     )
                 )
 
-                restarted_service = FakeServiceClient("Must not run.")
+                restarted_service = FakeServiceClient(
+                    "active_topic: Film identification resolved."
+                )
                 restarted_context = self.build_context(
                     service_client=restarted_service,
                     runtime_memory_updates=0,
-                )
-                restarted_context.runtime_memory = (
-                    'user_message: "Which film is this?"\n'
-                    "last_jin_response: One Point O."
-                )
-                restarted_context.runtime_memory_stable = (
-                    restarted_context.runtime_memory
                 )
 
                 self.assertTrue(
@@ -343,11 +295,34 @@ class L1ReconnectResumeTests(
                     restarted_context
                 )
 
-                self.assertIsNone(resumed_task)
-                self.assertEqual(restarted_service.calls, [])
+                self.assertIsNotNone(resumed_task)
                 self.assertEqual(
-                    restarted_context.runtime_memory_pending_turns,
-                    [],
+                    restarted_context.runtime_memory_updates,
+                    27,
+                )
+
+                await resumed_task
+
+                self.assertEqual(len(restarted_service.calls), 1)
+                self.assertEqual(
+                    restarted_context.runtime_memory_updates,
+                    28,
+                )
+
+                persisted_context = self.build_context(
+                    service_client=FakeServiceClient("Must not run."),
+                    runtime_memory_updates=28,
+                )
+                self.assertTrue(
+                    l1_pending.restore_pending_l1_update(
+                        persisted_context
+                    )
+                )
+
+                self.assertIsNone(
+                    l1_memory.resume_runtime_memory_pending_update(
+                        persisted_context
+                    )
                 )
                 self.assertEqual(
                     list(pending_dir.glob("*.l1_pending.json")),

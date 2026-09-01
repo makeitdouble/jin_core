@@ -53,6 +53,7 @@ RUNTIME_ACTIONS_RULES_ = (
     "RUNTIME ACTION EXECUTION RULES:\n"
     "Place runtime markers in your visible answer.\n"
     "When no actions needed or sequence is done stop instantly and notify user naturally.\n"
+    "Visual/draw request: NO image generator available in the system! Must pick the closest modality (table, ASCII, emoji, markdown, etc.).\n"
 )
 SKILL_ROUTING_RULES = ""
 SKILL_ROUTING_RULES_ = ("\n"

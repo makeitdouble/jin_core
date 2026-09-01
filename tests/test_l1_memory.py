@@ -22,11 +22,9 @@ from runtime.L1_memory_utils import (
     build_runtime_memory_context_text,
     build_runtime_memory_snapshot,
     build_runtime_memory_user_prompt,
-    enforce_runtime_turn_fields,
     get_strength_zones,
     normalize_compound_runtime_memory_lines,
     parse_runtime_memory_lines,
-    quote_runtime_user_message_value,
     record_runtime_memory_reasoning_quotes,
 )
 from runtime.L1_memory import (
@@ -325,7 +323,7 @@ class L1MemoryTests(
                 first_snapshot
             )
 
-            context.runtime_memory = "topic: second value"
+            context.runtime_memory = "topic: xylophone quantum zebra"
             context.runtime_memory_snapshot_datetime = datetime(
                 2026,
                 1,
@@ -544,6 +542,7 @@ class L1MemoryTests(
                     "runtime L1 memory summarizer",
                     "Return only the new compressed L1 memory state",
                     "Every memory line must be a complete key:value entry",
+                    "Do not create or update transcript mirror keys",
             ):
                 assert_contains_text(
                     self,
@@ -782,12 +781,12 @@ class L1MemoryTests(
                 "The user is testing live runtime memory.",
                 updated_memory,
             )
-            self.assertIn(
-                'user_message: "Do you remember this?"',
+            self.assertNotIn(
+                "user_message:",
                 context.runtime_memory,
             )
-            self.assertIn(
-                "last_jin_response: Yes, I can keep the live context updated.",
+            self.assertNotIn(
+                "last_jin_response:",
                 context.runtime_memory,
             )
             self.assertEqual(
@@ -873,31 +872,13 @@ class L1MemoryTests(
                 0,
             )
 
-            self.assertIn(
-                'user_message: "Do you remember this?"',
+            self.assertNotIn(
+                "user_message:",
                 event["snapshot"]["raw_memory"],
             )
-
-    def test_enforce_runtime_turn_fields_keeps_repetition_metadata_outside_quote(self):
-
-            memory = enforce_runtime_turn_fields(
-                "active_topic: loop check",
-                user_message='"hello" [ repeated: 3 ]',
-                assistant_message="I noticed the repeat.",
-            )
-
-            self.assertIn(
-                'user_message: "hello" [ repeated: 3 ]',
-                memory,
-            )
-
-    def test_quote_runtime_user_message_preserves_verbatim_quotes(self):
-
-            self.assertEqual(
-                quote_runtime_user_message_value(
-                    '"hello"'
-                ),
-                '"\\"hello\\""',
+            self.assertNotIn(
+                "last_jin_response:",
+                event["snapshot"]["raw_memory"],
             )
 
     def test_parse_runtime_memory_keeps_multiline_user_message_together(self):
@@ -956,36 +937,6 @@ class L1MemoryTests(
             self.assertIn(
                 "third line",
                 lines[0]["value"],
-            )
-
-    def test_enforce_runtime_turn_fields_removes_broken_user_message_note_fragments(self):
-
-            memory = enforce_runtime_turn_fields(
-                (
-                    'user_message: "old"\n'
-                    'note: "\\"fragment one\\\\n\\""\n'
-                    'note: "fragment two\\\\n\\""\n'
-                    'active_memory: "Книга" (purpose: recall test; status: pending)'
-                ),
-                user_message="fresh message",
-                assistant_message="Fresh answer.",
-            )
-
-            self.assertIn(
-                'user_message: "fresh message"',
-                memory,
-            )
-            self.assertIn(
-                "active_memory:",
-                memory,
-            )
-            self.assertNotIn(
-                "fragment one",
-                memory,
-            )
-            self.assertNotIn(
-                "fragment two",
-                memory,
             )
 
     def test_refresh_active_memory_runtime_metadata_attaches_suffixes_before_status(self):
@@ -1242,12 +1193,13 @@ class L1MemoryTests(
                 memory,
             )
 
-    async def test_summarizer_enforces_latest_user_message_when_model_is_stale(self):
+    async def test_summarizer_does_not_rewrite_legacy_transcript_fields(self):
 
             service_client = FakeServiceClient(
                 (
                     'user_message: "old message"\n'
-                    "last_jin_response: Fresh answer summary."
+                    "last_jin_response: Previous answer summary.\n"
+                    "active_topic: Current topic remains active."
                 )
             )
             context = SimpleNamespace(
@@ -1261,7 +1213,7 @@ class L1MemoryTests(
                 logger=FakeLogger(),
                 runtime_memory=(
                     'user_message: "old message"\n'
-                    "last_jin_response: Previous answer."
+                    "last_jin_response: Previous answer summary."
                 ),
                 runtime_memory_updates=1,
                 runtime_memory_snapshots=[],
@@ -1279,64 +1231,23 @@ class L1MemoryTests(
             updated_memory = await summarize_runtime_memory(
                 context=context,
                 user_message="latest message",
-                assistant_message="Fresh assistant answer.",
+                assistant_message="Latest assistant answer.",
             )
 
             self.assertIn(
+                'user_message: "old message"',
+                updated_memory,
+            )
+            self.assertIn(
+                "last_jin_response: Previous answer summary.",
+                updated_memory,
+            )
+            self.assertNotIn(
                 'user_message: "latest message"',
                 updated_memory,
             )
             self.assertNotIn(
-                'user_message: "old message"',
-                updated_memory,
-            )
-
-    async def test_summarizer_replaces_stale_last_jin_response(self):
-
-            service_client = FakeServiceClient(
-                (
-                    'user_message: "latest message"\n'
-                    "last_jin_response: Previous answer summary."
-                )
-            )
-            context = SimpleNamespace(
-                clients={
-                    "service": service_client,
-                },
-                emitter=SimpleNamespace(
-                    events=[],
-                    emit=None,
-                ),
-                logger=FakeLogger(),
-                runtime_memory=(
-                    'user_message: "old message"\n'
-                    "last_jin_response: Previous answer summary."
-                ),
-                runtime_memory_updates=1,
-                runtime_memory_snapshots=[],
-                runtime_memory_snapshot_index=0,
-                session_id="test-session",
-            )
-
-            async def emit(event):
-                context.emitter.events.append(
-                    event
-                )
-
-            context.emitter.emit = emit
-
-            updated_memory = await summarize_runtime_memory(
-                context=context,
-                user_message="latest message",
-                assistant_message="Latest assistant answer replaces the stale summary.",
-            )
-
-            self.assertIn(
-                "last_jin_response: Latest assistant answer replaces the stale summary.",
-                updated_memory,
-            )
-            self.assertNotIn(
-                "last_jin_response: Previous answer summary.",
+                "last_jin_response: Latest assistant answer.",
                 updated_memory,
             )
 
@@ -1477,6 +1388,7 @@ class L1MemoryTests(
             service_client = FakeServiceClient(
                 (
                     "user_fact: not true; user corrected this fact\n"
+                    "user_declined: no\n"
                     "session_status: Active, discussing a correction\n"
                     "last_jin_response: Acknowledged the correction."
                 )
@@ -1515,6 +1427,11 @@ class L1MemoryTests(
 
             self.assertIn(
                 "user_fact: not true; user corrected this fact",
+                updated_memory,
+            )
+
+            self.assertIn(
+                "user_declined: no",
                 updated_memory,
             )
             self.assertNotIn(

@@ -31,116 +31,11 @@ HOT_MEMORY_KEY_EXCLUDED_KEYS = [
     "user_idle",
 ]
 
-# Sets the similarity floor for matching generic memory values.
-GENERIC_MEMORY_VALUE_SIMILARITY_MIN = 0.35
-
-# Lists generic memory keys that should use value similarity matching.
-GENERIC_MEMORY_MATCH_KEYS = (
-    "topic",
-    "focus",
-    "next step",
-    "last jin response",
-
-    "user request",
-    "user intent",
-
-    "active topic",
-    "active topics",
-    "current topic",
-    "current topics",
-
-    "open reference",
-    "open references",
-    "open question",
-
-    "pending choice",
-    "pending choices",
-    "pending action",
-    "pending actions",
-
-    "offered choice",
-    "offered choices",
-    "offered option",
-    "offered options",
-    "suggested choice",
-    "suggested choices",
-    "suggested option",
-    "suggested options",
-
-    "session status",
-    "session state",
-
-    "current concern",
-    "current concerns",
-    "current task",
-    "current tasks",
-    "current context",
-    "current request",
-    "current requests",
-
-    "interaction state",
-)
-
 # Stores the runtime state key used for the last response feedback signal.
 RUNTIME_RESPONSE_FEEDBACK_KEY = "JIN_LAST_RESPONSE_USER_FEEDBACK"
 
 # Stores the runtime state key used for user idle markers.
 RUNTIME_USER_IDLE_KEY = "user_idle"
-
-# Lists memory values that should be treated as placeholders and removed.
-RUNTIME_MEMORY_PLACEHOLDER_VALUES = {
-    "",
-    "n/a",
-    "na",
-    "none",
-    "null",
-    "nil",
-    "unknown",
-    "not applicable",
-    "not_applicable",
-    "no",
-    "нет",
-    "неизвестно",
-    "не применимо",
-}
-
-# Matches the confirmation marker suffix used by confirmable memory facts.
-RUNTIME_MEMORY_CONFIRMATION_SUFFIX_PATTERN = r"\s*\(confirmed:\s*[^)]*\)\s*$"
-
-# Matches the repeated-slot marker suffix used by repeatable memory slots.
-RUNTIME_MEMORY_REPEATED_SLOT_SUFFIX_PATTERN = r"\s*\[ repeated:\s*(\d+)\s*\]\s*"
-
-# Matches a memory key with an optional trailing numeric ordinal.
-RUNTIME_MEMORY_NUMBERED_KEY_PATTERN = r"^(?P<family>.+?)(?:_(?P<index>\d+))?$"
-
-# Lists memory key families that may have numbered sibling slots.
-REPEATABLE_RUNTIME_MEMORY_KEY_FAMILIES = {
-    "offered_choices",
-    "offered choice",
-    "offered choices",
-    "offered_option",
-    "offered option",
-    "offered_options",
-    "offered options",
-    "pending_choice",
-    "pending choice",
-    "pending_choices",
-    "pending choices",
-    "open_reference",
-    "open reference",
-    "open_references",
-    "open references",
-    "user_fact",
-    "user fact",
-    "jin_fact",
-    "jin fact",
-    "decision",
-    "constraint",
-    "current_task",
-    "current task",
-    "active_memory",
-    "stored memory",
-}
 
 # Template used to pass interrupted assistant turns into L1 memory.
 INTERRUPTED_ASSISTANT_MEMORY_TEMPLATE = (
@@ -215,7 +110,6 @@ LIVE_INTERACTION_SIGNALS = (
     "- repair signal: a correction that changes the intended meaning, referent, tone, or task direction;\n"
     "- pacing: quick continuation, careful analysis, direct action, or open exploration;\n"
     "- ambiguity risk: malformed words, names, numbers, negations, or commands that could change an action;\n"
-    "- JIN state: current stance, such as calm, focused, cautious, playful, corrective, or closing; include only when it affects the response;\n"
     "- user state: tentative interaction state, such as curious, skeptical, confused, impatient, engaged, or satisfied; infer cautiously from visible signals.\n"
     "- dormant: abandoned choices, dormant topics, key points, context helpers, memorized items, conclusions.\n"
     "\n"

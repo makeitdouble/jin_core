@@ -6,6 +6,7 @@ from pathlib import Path
 from xml.sax.saxutils import escape
 
 from runtime.runtime_context import RECENT_MESSAGES_MAX_PAIRS
+from runtime.anonymous_mode import is_anonymous_session_id
 from rules.runtime import (
     SESSION_RESTORE_REASONING_CHAR_LIMIT,
     SESSION_RESTORE_REASONING_COUNT,
@@ -1259,12 +1260,13 @@ def find_latest_completed_session_restore_payload(
     JIN row or L1 update. Bootstrap-only sessions with no real USER row do not
     qualify, so merely opening/stopping a fresh tab keeps the predecessor.
     """
+    if bool(anonymous_mode):
+        return None
+
     root_path = Path(
         root
         if root is not None
-        else chat_log_root_for_mode(
-            bool(anonymous_mode)
-        )
+        else chat_log_root_for_mode(False)
     )
     if not root_path.is_dir():
         return None
@@ -1285,7 +1287,12 @@ def find_latest_completed_session_restore_payload(
         best_turn_timestamp = 0.0
 
         for session_directory in date_directory.iterdir():
-            if not session_directory.is_dir():
+            if (
+                not session_directory.is_dir()
+                or is_anonymous_session_id(
+                    session_directory.name
+                )
+            ):
                 continue
 
             dialog_paths = sorted(
@@ -1347,13 +1354,14 @@ def build_archived_session_restore_payload(
     root: Path | str | None = None,
     anonymous_mode: bool | None = None,
 ) -> dict | None:
+    if bool(anonymous_mode) or is_anonymous_session_id(session_id):
+        return None
+
     root_path = Path(
         root
         if root is not None
         else (
-            chat_log_root_for_mode(bool(anonymous_mode))
-            if anonymous_mode is not None
-            else CHAT_LOG_ROOT
+            CHAT_LOG_ROOT
         )
     )
     session_directory = _find_session_directory(session_id, root_path)

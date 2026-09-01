@@ -11,7 +11,6 @@
   }
 
   const longTermFactsStorageKey = "jin.longTermFacts.v1";
-  const anonymousLongTermFactsStorageKey = "jin.longTermFacts.anonymous.v1";
 
   function normalizeText(value) {
     return String(value || "")
@@ -267,17 +266,48 @@
   }
 
   function getLongTermFactsStorageKey() {
-    return (
-      storage.shouldIsolateAnonymousStorage
-      && storage.shouldIsolateAnonymousStorage()
+    return longTermFactsStorageKey;
+  }
+
+  function readAnonymousStore() {
+    const anonymousMode =
+      window.JinRuntime
+      && window.JinRuntime.anonymousMode;
+    const snapshot = (
+      anonymousMode
+      && typeof anonymousMode.readSnapshot === "function"
     )
-      ? anonymousLongTermFactsStorageKey
-      : longTermFactsStorageKey;
+      ? anonymousMode.readSnapshot()
+      : null;
+
+    return snapshot && snapshot.long_term_memory;
+  }
+
+  function writeAnonymousStore(store) {
+    const anonymousMode =
+      window.JinRuntime
+      && window.JinRuntime.anonymousMode;
+
+    return Boolean(
+      anonymousMode
+      && typeof anonymousMode.updateSnapshotField === "function"
+      && anonymousMode.updateSnapshotField(
+        "long_term_memory",
+        store
+      )
+    );
   }
 
   function readStore() {
+    const isolated = Boolean(
+      storage.shouldIsolateAnonymousStorage
+      && storage.shouldIsolateAnonymousStorage()
+    );
+
     return normalizeStore(
-      storage.readBrowserMemory(getLongTermFactsStorageKey())
+      isolated
+        ? readAnonymousStore()
+        : storage.readBrowserMemory(getLongTermFactsStorageKey())
     );
   }
 
@@ -294,7 +324,20 @@
 
   function writeStore(store) {
     const normalized = normalizeStore(store);
-    storage.writeBrowserMemory(getLongTermFactsStorageKey(), normalized);
+    const isolated = Boolean(
+      storage.shouldIsolateAnonymousStorage
+      && storage.shouldIsolateAnonymousStorage()
+    );
+
+    if (isolated) {
+      writeAnonymousStore(normalized);
+    } else {
+      storage.writeBrowserMemory(
+        getLongTermFactsStorageKey(),
+        normalized
+      );
+    }
+
     return normalized;
   }
 

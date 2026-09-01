@@ -879,8 +879,21 @@ function ensureRuntimeStatusModal() {
     runtimeStatusModal.appendChild(panel);
     document.body.appendChild(runtimeStatusModal);
 
+    let runtimeStatusModalBackdropPointerDown = false;
+
+    runtimeStatusModal.addEventListener("pointerdown", (event) => {
+        runtimeStatusModalBackdropPointerDown =
+            event.target === runtimeStatusModal;
+    });
+
     runtimeStatusModal.addEventListener("click", (event) => {
-        if (event.target === runtimeStatusModal) {
+        const shouldClose =
+            event.target === runtimeStatusModal
+            && runtimeStatusModalBackdropPointerDown;
+
+        runtimeStatusModalBackdropPointerDown = false;
+
+        if (shouldClose) {
             closeRuntimeStatusModal();
         }
     });

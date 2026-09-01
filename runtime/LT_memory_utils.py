@@ -12,6 +12,9 @@ from runtime.LT_memory_rules import (
     LT_MERGE_SYSTEM_PROMPT,
     LT_JIN_NOTE_SYSTEM_PROMPT,
 )
+from utils.time_utils import (
+    utc_now_iso,
+)
 from utils.tokens import (
     estimate_runtime_tokens,
     estimate_tokens,
@@ -981,15 +984,6 @@ def build_lt_double_batch_plan(
             for plan in exact_plans
         ),
     }
-
-
-def utc_now_iso() -> str:
-    return (
-        datetime.now(timezone.utc)
-        .replace(microsecond=0)
-        .isoformat()
-        .replace("+00:00", "Z")
-    )
 
 
 def lt_timestamp_sort_value(value) -> float:

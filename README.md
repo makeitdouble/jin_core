@@ -24,7 +24,7 @@ The JIN workspace combines the chat stream, draggable/collapsible runtime panels
 <td width="66%" valign="top">
 <p>Live Avatar visualizes JIN's runtime state in real time.</p>
 <p>Inner orbits react to live FRAME/runtime-memory changes, while outer signal rings track Delayed Memory, L-T facts, Active Memory, and persistent files.</p>
-<p>The avatar is interactive: reasoning references light up matching runtime signals, and hovering linked signals reveals the related memory and files.</p>
+<p>The avatar is interactive: reasoning references light up matching runtime signals, memory-row hover zooms/highlights the corresponding signal, and larger L-T stores fan out across additional outer rings.</p>
 <p>During reasoning, the avatar shifts into a dedicated motion state. Runtime actions can also change its size and tint the workspace, giving the model a small visual language beyond text.</p>
 </td>
 <td width="34%" align="center" valign="middle">
@@ -39,25 +39,25 @@ JIN no longer uses the old numbered four-layer hierarchy. The current user-facin
 
 ### FRAME / Live Runtime Memory
 
-**FRAME** is the UI name for the current live runtime-memory snapshot. Backend implementation still lives under `runtime/L1_memory*`; the rename is intentionally presentation-only. FRAME keeps the current topic, request/task state, decisions, feedback, and unresolved points needed by upcoming turns. Accepted updates are versioned as snapshots so the UI can step through diffs and inspect what changed.
+**FRAME** is the canonical product name for the current live runtime-memory snapshot. It keeps the current topic, request/task state, decisions, feedback, and unresolved points needed by upcoming turns. Accepted updates are versioned as snapshots so the UI can step through diffs and inspect what changed. The latest FRAME value can also be edited directly from its memory tooltip; historical frames remain read-only. FRAME values follow the detected language of the current user message while structural keys remain English `snake_case`.
 
 ![Runtime memory snapshot timeline](ui/static/images/runtime-highlight.png)
 
 ### Active Memory
 
-**Active Memory** keeps unfinished intentions and pending commitments separate from the general conversation state. Conditions and unresolved contracts remain active across turns until they are fulfilled, cancelled, paused, or explicitly resolved. Relevant active records are projected back into Brain context without changing their canonical storage order.
+**Active Memory** keeps unfinished intentions and pending commitments separate from the general conversation state. Conditions and unresolved contracts remain active across turns until they are fulfilled, cancelled, paused, or explicitly resolved. Relevant active records are projected back into Brain context without changing their canonical storage order. Conditions can be edited directly from the inspector while IDs, keys, custom fields, and status metadata remain structurally owned by the runtime.
 
 ### Delayed Memory
 
-**Delayed Memory** stores larger structured context that should be available without living in every prompt. Reports can link L-T facts and persistent files, can be loaded/unloaded by runtime actions, pinned from the UI, or surfaced from matching user-text tags.
+**Delayed Memory** stores larger structured context that should be available without living in every prompt. Reports can link L-T facts and persistent files, can be loaded/unloaded by runtime actions, pinned from the UI, or surfaced from matching user-text tags. Panel rows expose a compact hover preview with summary, tags, IDs, linked facts, creation time, and a bounded body preview; unpinning is also represented in the shared memory logger flow.
 
 ### L-T Long-Term Facts
 
-**L-T** is the UI view of canonical L-T durable facts: stable user/project facts, preferences, constraints, decisions, and environment details that should survive sessions. An internal Facts Memory candidate buffer feeds idle L-T extraction/merge; it is not a sixth user-facing memory tab or a revived L2/L3 layer.
+**L-T** is the UI view of canonical durable facts: stable user/project facts, preferences, constraints, decisions, and environment details that should survive sessions. An internal Facts Memory candidate buffer feeds idle extraction/merge; it is not a sixth user-facing memory tab or a revived L2/L3 layer. Facts absorbed into Delayed reports stay hidden from the default active view but can be revealed with the count toggle; report-linked fact IDs open the owning report. Explicit fact values are editable, and fact mentions refresh recall so recently used facts stay fully expanded in Brain context while older facts fall back to compact sentence previews.
 
 ### Files
 
-**FILES** exposes the persistent uploaded-file library. Stored files keep stable IDs and can be attached/detached across turns or linked from Delayed Memory.
+**FILES** exposes the persistent uploaded-file library. Stored files keep stable IDs and can be attached/detached across turns or linked from Delayed Memory. Files attached to the next message also appear as compact composer chips: click to preview, hold to detach from context without deleting the stored file.
 
 ## Core Capabilities
 
@@ -66,14 +66,15 @@ JIN no longer uses the old numbered four-layer hierarchy. The current user-facin
 * **Inspectable Memory:** Keeps FRAME/live state, long-term facts, delayed reports, active commitments, persistent files, and continuity checkpoints as separate systems.
 * **Session Continuity:** Supports soft WebSocket resume, atomic browser checkpoints for reload/new-tab continuity, and explicit archived-session restore from persisted logs.
 * **Persistent Files:** Stores uploaded text, images, PDFs, and other files under stable ids; the same stored files can be attached to or detached from context across turns.
-* **Runtime Telemetry:** Shows model status, token usage, context pressure, memory updates, action state, and runtime logs.
+* **Runtime Telemetry:** Shows model status, token usage, live context pressure, memory updates, action state, and runtime logs; the status modal can switch the configured LM Studio model for an available runtime role.
+* **Explicit Response Copy:** Completed assistant output exposes a small `Copy all` control under the avatar/message shell instead of hidden bubble gestures.
 * **Interruptible Generation:** Stops an active response while preserving the logical session and a dedicated interrupted-memory path.
 
 ![Reasoning citation highlighting](ui/static/images/think-highlight.jpg)
 
 ### Runtime Actions
 
-JIN can request an action while answering. The runtime validates and executes it, then returns any required result to the model before the workflow continues.
+JIN can request an action while answering. The runtime validates and executes it, then returns any required result to the model before the workflow continues. Concrete contracts carry their own readable schema; a failed action is returned as a human-readable tool result with the reason, supplied payload when relevant, and the correct schema, followed by an explicit continuation instruction so the Brain does not treat the failed mutation as completed.
 
 Available actions include:
 
@@ -100,8 +101,8 @@ A normal turn follows this path:
 3. The Brain streams reasoning and visible answer content through separate runtime channels.
 4. Stream validation guards repetition and malformed generation while private runtime-action markers are extracted.
 5. Runtime Actions can mutate state or return trusted results; actions that need another model step continue inside the same user sequence.
-6. After the visible turn completes, the logical Service route performs background FRAME/L1 integration; if no dedicated Service endpoint is configured, this route reuses the Brain client.
-7. A later user turn waits for any pending FRAME/L1 update, then receives current Active Memory, recent chat beside `<FRAME_MEMORY_N>`, loaded Delayed Memory, L-T facts, files/skills, action history, and trusted tool results.
+6. After the visible turn completes, the logical Service route performs background FRAME integration; if no dedicated Service endpoint is configured, this route reuses the Brain client.
+7. A later user turn waits for any pending FRAME update, then receives current Active Memory, recent chat beside `<FRAME_MEMORY_N>`, loaded Delayed Memory, L-T facts, files/skills, action history, and trusted tool results.
 
 The model path is intentionally direct:
 

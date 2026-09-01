@@ -30,6 +30,7 @@ from runtime.L1_memory_utils import (
 from runtime.telemetry import send_telemetry
 from runtime.anonymous_mode import (
     configure_runtime_anonymous_mode,
+    ensure_anonymous_session_id,
     websocket_requests_anonymous_mode,
 )
 from utils.actions import (
@@ -886,6 +887,22 @@ def hydrate_delayed_memory_reports_from_files(
     context,
 ) -> None:
 
+    if bool(
+        getattr(
+            context,
+            "runtime_anonymous_mode",
+            False,
+        )
+    ):
+        context.delayed_memory_reports = {}
+        context.runtime_loaded_delayed_memory = {}
+        context.runtime_loaded_delayed_memory_ids = []
+        from runtime.LT_memory import (
+            refresh_runtime_lt_archived_fact_ids,
+        )
+        refresh_runtime_lt_archived_fact_ids(context)
+        return
+
     file_reports, warnings = (
         load_delayed_memory_reports_from_files()
     )
@@ -1390,6 +1407,11 @@ def get_or_create_connection_context(
         websocket
     )
 
+    if anonymous_mode_enabled and client_id:
+        client_id = normalize_resume_client_id(
+            ensure_anonymous_session_id(client_id)
+        )
+
     if not client_id:
         context = RuntimeContext(
             websocket=websocket,
@@ -1399,15 +1421,15 @@ def get_or_create_connection_context(
             logger=logger,
             clients=websocket.app.state.clients,
         )
+        configure_runtime_anonymous_mode(
+            context,
+            anonymous_mode_enabled,
+        )
         hydrate_delayed_memory_reports_from_files(
             context
         )
         hydrate_attached_files_from_store(
             context
-        )
-        configure_runtime_anonymous_mode(
-            context,
-            anonymous_mode_enabled,
         )
 
         return context, False
@@ -1424,25 +1446,36 @@ def get_or_create_connection_context(
         existing_context,
         RuntimeContext,
     ):
-        attach_websocket_to_context(
-            existing_context,
-            websocket,
-            logger,
-        )
-        # A reconnect resumes the current runtime session, not the archived
-        # parent that may have bootstrapped it.
-        existing_context.session_id = client_id
-        hydrate_delayed_memory_reports_from_files(
-            existing_context
-        )
-        hydrate_attached_files_from_store(
-            existing_context
-        )
-        configure_runtime_anonymous_mode(
-            existing_context,
-            anonymous_mode_enabled,
-        )
-        return existing_context, True
+        # Anonymous rooms may reuse server RAM only for a websocket-level
+        # soft reconnect inside the same loaded page. A full page reload
+        # must start with a fresh FRAME; the tab-scoped browser stores are
+        # synced back separately after the new connection is established.
+        if (
+            anonymous_mode_enabled
+            and not is_soft_resume_request(websocket)
+        ):
+            store.pop(client_id, None)
+            existing_context = None
+        else:
+            attach_websocket_to_context(
+                existing_context,
+                websocket,
+                logger,
+            )
+            # A reconnect resumes the current runtime session, not the archived
+            # parent that may have bootstrapped it.
+            existing_context.session_id = client_id
+            configure_runtime_anonymous_mode(
+                existing_context,
+                anonymous_mode_enabled,
+            )
+            hydrate_delayed_memory_reports_from_files(
+                existing_context
+            )
+            hydrate_attached_files_from_store(
+                existing_context
+            )
+            return existing_context, True
 
     context = RuntimeContext(
         websocket=websocket,
@@ -2487,6 +2520,9 @@ def enrich_session_bootstrap_from_archive(
 
     if not isinstance(message_data, dict):
         return {}
+
+    if bool(anonymous_mode):
+        return message_data
 
     # A delayed-memory session link already carries the rich archived payload.
     # A normal browser bootstrap carries its predecessor session id, so enrich

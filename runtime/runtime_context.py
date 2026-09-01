@@ -132,6 +132,8 @@ class RuntimeContext:
 
     delayed_memory_file_store_enabled: bool = True
 
+    runtime_lt_file_store_enabled: bool | None = None
+
     runtime_anonymous_mode: bool = False
 
     runtime_persistent_writes_restricted: bool = False

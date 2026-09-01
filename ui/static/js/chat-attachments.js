@@ -469,10 +469,26 @@ function ensureJinAttachmentModal() {
     attachmentModal
   );
 
+  let attachmentModalBackdropPointerDown = false;
+
+  attachmentModal.addEventListener(
+    "pointerdown",
+    (event) => {
+      attachmentModalBackdropPointerDown =
+        event.target === attachmentModal;
+    }
+  );
+
   attachmentModal.addEventListener(
     "click",
     (event) => {
-      if (event.target === attachmentModal) {
+      const shouldClose =
+        event.target === attachmentModal
+        && attachmentModalBackdropPointerDown;
+
+      attachmentModalBackdropPointerDown = false;
+
+      if (shouldClose) {
         closeJinAttachmentModal();
       }
     }

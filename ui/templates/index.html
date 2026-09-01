@@ -103,6 +103,11 @@
          aria-hidden="true">
     </div>
 
+    <div id="scene-anonymous-tint"
+         class="absolute inset-0 pointer-events-none"
+         aria-hidden="true">
+    </div>
+
     <!-- LEFT CONSOLE -->
 
     <section id="console-panel"
@@ -491,13 +496,8 @@
 <!-- AUTO HEIGHT -->
 
 <script src="/static/js/textarea-auto-height.js"></script>
-<template id="jin-runtime-config">
-    {{ {
-    "anonymousMode": anonymous_mode_config,
-    } | tojson }}
-</template>
 <script src="/static/js/runtime/runtime-core.js"></script>
-<script src="/static/js/runtime/runtime-anonymous-mode.js"></script>
+<script src="/static/js/runtime/runtime-anonymous-mode.js?explicit-room=1"></script>
 <script src="/static/js/runtime/runtime-storage.js"></script>
 <script src="/static/js/runtime/runtime-memory-model.js"></script>
 <script src="/static/js/runtime/runtime-idle.js"></script>

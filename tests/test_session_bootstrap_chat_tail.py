@@ -199,8 +199,11 @@ class SessionBootstrapChatTailTests(unittest.TestCase):
         self.assertIn('"jin-session-restore-divider"', source)
         self.assertIn('"jin-session-restore-divider-label"', source)
         self.assertIn("window.activateLiveUserTurnViewport", source)
+        self.assertIn("String(now.getHours()).padStart(2, \"0\")", source)
+        self.assertIn("String(now.getMinutes()).padStart(2, \"0\")", source)
         self.assertIn("`${now.getDate()} `", source)
-        self.assertIn("+ `${months[now.getMonth()]}, `", source)
+        self.assertIn("+ `${months[now.getMonth()]} `", source)
+        self.assertIn("+ `${hours}:${minutes}, `", source)
         self.assertIn("+ weekdays[now.getDay()]", source)
 
         handler_start = source.index(

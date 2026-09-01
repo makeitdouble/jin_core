@@ -326,6 +326,14 @@
     will-change: auto;
 }
 
+/* Holding the avatar for an anonymous room is a preview gesture, not a
+   persisted memory-layer state. Fade the visible ring stack to zero over the
+   same 1.5 seconds that gate opening the anonymous window. */
+.jin-runtime-avatar-shell.is-anonymous-room-hold::before {
+    opacity: 0 !important;
+    transition: opacity 1.5s linear !important;
+}
+
 @keyframes jin-avatar-shell-aura-breathe {
     0%, 100% {
         opacity: var(--jin-avatar-aura-opacity-low, 0.26);
@@ -398,6 +406,20 @@
     transition:
         filter 0.28s cubic-bezier(0.22, 0.61, 0.36, 1),
         opacity 0.28s cubic-bezier(0.22, 0.61, 0.36, 1);
+}
+
+/* Anonymous-room long hold: fade only the presentation layer. This does not
+   touch is-memory-layers-hidden, so releasing early cannot persist a hide. */
+.jin-runtime-avatar.is-anonymous-room-hold .jin-avatar-scaffold,
+.jin-runtime-avatar.is-anonymous-room-hold .jin-avatar-orbit,
+.jin-runtime-avatar.is-anonymous-room-hold .jin-avatar-counter-orbit,
+.jin-runtime-avatar.is-anonymous-room-hold .jin-avatar-memory-dash,
+.jin-runtime-avatar.is-anonymous-room-hold .jin-avatar-file-ring,
+.jin-runtime-avatar.is-anonymous-room-hold .jin-avatar-file-dot,
+.jin-runtime-avatar.is-anonymous-room-hold .jin-avatar-center-ring {
+    opacity: 0 !important;
+    pointer-events: none;
+    transition: opacity 1.5s linear !important;
 }
 
 /* The hide phase keeps the layers alive just long enough for a soft fade. */

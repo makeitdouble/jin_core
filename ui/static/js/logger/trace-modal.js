@@ -332,10 +332,26 @@ function ensureTraceModal() {
     closeTraceModal
   );
 
+  let traceModalBackdropPointerDown = false;
+
+  traceModal.addEventListener(
+    "pointerdown",
+    function (event) {
+      traceModalBackdropPointerDown =
+        event.target === traceModal;
+    }
+  );
+
   traceModal.addEventListener(
     "click",
     function (event) {
-      if (event.target === traceModal) {
+      const shouldClose =
+        event.target === traceModal
+        && traceModalBackdropPointerDown;
+
+      traceModalBackdropPointerDown = false;
+
+      if (shouldClose) {
         closeTraceModal();
       }
     }

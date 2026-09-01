@@ -13,7 +13,8 @@ from runtime.LT_memory import (
     mark_runtime_lt_explicit_edit,
     persist_runtime_lt_file_store,
 )
-from runtime.LT_memory_utils import clone_lt_store, utc_now_iso
+from runtime.LT_memory_utils import clone_lt_store
+from utils.time_utils import utc_now_iso
 from runtime.anonymous_mode import persistent_writes_restricted
 from utils.actions.active_memory_utils import (
     collect_active_memory_slot_ids,

@@ -7,6 +7,7 @@ import os
 from pathlib import Path
 from tempfile import NamedTemporaryFile
 
+from runtime.anonymous_mode import is_anonymous_session_id
 from runtime.LT_memory_utils import (
     clone_lt_store,
     collect_lt_reasoning_fact_ids,
@@ -157,58 +158,70 @@ def scan_lt_log_fact_mentions(
         if not date_directory.is_dir() or date_directory.name not in allowed_dates:
             continue
 
-        for jsonl_path in sorted(date_directory.rglob("*.jsonl")):
-            result["jsonl_files_scanned"] += 1
-            try:
-                lines = jsonl_path.read_text(
-                    encoding="utf-8", errors="replace"
-                ).splitlines()
-            except OSError:
+        for session_directory in sorted(
+            date_directory.iterdir(),
+            key=lambda item: item.name,
+        ):
+            if (
+                not session_directory.is_dir()
+                or is_anonymous_session_id(session_directory.name)
+            ):
                 continue
 
-            for line in lines:
+            for jsonl_path in sorted(session_directory.glob("*.jsonl")):
+                result["jsonl_files_scanned"] += 1
                 try:
-                    entry = json.loads(line)
-                except (TypeError, json.JSONDecodeError):
+                    lines = jsonl_path.read_text(
+                        encoding="utf-8", errors="replace"
+                    ).splitlines()
+                except OSError:
                     continue
-                if not isinstance(entry, dict):
+
+                for line in lines:
+                    try:
+                        entry = json.loads(line)
+                    except (TypeError, json.JSONDecodeError):
+                        continue
+                    if not isinstance(entry, dict):
+                        continue
+                    if str(entry.get("role") or "").strip().casefold() != "jin":
+                        continue
+                    timestamp = _parse_datetime(entry.get("ts"))
+                    if timestamp is None or timestamp < start or timestamp > end:
+                        continue
+                    result["jin_entries_scanned"] += 1
+                    _record_latest_mentions(
+                        result["latest_by_fact_id"],
+                        str(entry.get("text") or ""),
+                        timestamp,
+                    )
+
+            # Reasoning has its own captured_at, so interrupted/empty visible
+            # turns are recoverable without joining files back to the dialogue.
+            for reasoning_path in sorted(
+                session_directory.glob("reasoning/*.txt")
+            ):
+                try:
+                    reasoning_text = reasoning_path.read_text(
+                        encoding="utf-8", errors="replace"
+                    )
+                except OSError:
                     continue
-                if str(entry.get("role") or "").strip().casefold() != "jin":
-                    continue
-                timestamp = _parse_datetime(entry.get("ts"))
+                captured_at = next(
+                    (
+                        line.split(":", 1)[1].strip()
+                        for line in reasoning_text.splitlines()[:8]
+                        if line.casefold().startswith("captured_at:")
+                    ),
+                    "",
+                )
+                timestamp = _parse_datetime(captured_at)
                 if timestamp is None or timestamp < start or timestamp > end:
                     continue
-                result["jin_entries_scanned"] += 1
+                result["reasoning_files_scanned"] += 1
                 _record_latest_mentions(
-                    result["latest_by_fact_id"],
-                    str(entry.get("text") or ""),
-                    timestamp,
+                    result["latest_by_fact_id"], reasoning_text, timestamp
                 )
-
-        # Reasoning has its own captured_at, so interrupted/empty visible turns
-        # are recoverable without joining files back to the dialogue JSONL.
-        for reasoning_path in sorted(date_directory.rglob("reasoning/*.txt")):
-            try:
-                reasoning_text = reasoning_path.read_text(
-                    encoding="utf-8", errors="replace"
-                )
-            except OSError:
-                continue
-            captured_at = next(
-                (
-                    line.split(":", 1)[1].strip()
-                    for line in reasoning_text.splitlines()[:8]
-                    if line.casefold().startswith("captured_at:")
-                ),
-                "",
-            )
-            timestamp = _parse_datetime(captured_at)
-            if timestamp is None or timestamp < start or timestamp > end:
-                continue
-            result["reasoning_files_scanned"] += 1
-            _record_latest_mentions(
-                result["latest_by_fact_id"], reasoning_text, timestamp
-            )
 
     return result
 

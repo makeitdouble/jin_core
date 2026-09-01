@@ -1,8 +1,8 @@
 # JIN Core Engine — Current Architecture
 
-**Verified snapshot:** `jin_core(20260829-114751).zip`<br>
-**Inspection date:** 2026-08-29<br>
-**Intent sources used for reconciliation:** current source plus the accumulated 2026-08-23--29 project decisions; tests were intentionally not executed for this documentation audit<br>
+**Verified snapshot:** `jin_core(20260901-112006).zip`<br>
+**Inspection date:** 2026-09-01<br>
+**Intent sources used for reconciliation:** current source plus the accumulated 2026-08-23--2026-09-01 project decisions; targeted memory/UI contract tests were executed for the newly documented behavior<br>
 **Purpose:** describe the architecture that is actually visible in the current source tree, while explicitly separating legacy compatibility from active design.
 
 This document is the current architectural baseline. `README.md` is kept as the shorter product-facing overview; legacy tests/comments remain lower-confidence historical evidence.
@@ -51,7 +51,7 @@ Background / secondary paths:
        -> logical SERVICE route
           -> dedicated Service client when configured
           -> otherwise the same physical client as Brain
-       -> FRAME/L1 integration + diff + Facts Memory companion state
+       -> FRAME integration + diff + Facts Memory companion state
 
    browser idle tick
        -> L-T extraction/merge pipeline through the same SERVICE route
@@ -69,7 +69,7 @@ Main ownership by package:
 | `contracts/` | canonical model-facing runtime-action contracts and action rule assembly |
 | `utils/actions/` | payload normalization, action execution, storage/state mutation |
 | `rules/brain_context_builder.py` | deterministic Brain prompt assembly from current state |
-| `runtime/L1_memory*` | FRAME/live runtime-memory integration, snapshots, diffs, interrupted-turn memory path |
+| live-memory implementation in `runtime/` | FRAME integration, snapshots, diffs, interrupted-turn memory path |
 | `runtime/LT_memory*` | Facts Memory ingestion, durable L-T extraction/merge, reconciliation, delete/restore |
 | `runtime/memory_attention.py` | prompt-only Active/Delayed/L-T relevance ranking |
 | `utils/*_store.py` | durable file/report/fact stores |
@@ -87,7 +87,7 @@ Main ownership by package:
 - clients and active streams;
 - current/previous reasoning and visible answer state;
 - runtime action history, action guard confirmations, tool results and follow-up state;
-- live L1/runtime memory and snapshots;
+- live FRAME memory and snapshots;
 - Active Memory records;
 - Delayed Memory reports and loaded IDs;
 - Facts Memory records and L-T store;
@@ -117,9 +117,9 @@ The websocket endpoint uses a normal `asyncio.Queue` to serialize queued request
 7. build `AgentState` and execute `AgentRuntime`;
 8. persist reasoning log and emit action/session telemetry;
 9. append visible JIN output to chat log/recent-turn state;
-10. schedule normal or interrupted L1 memory integration.
+10. schedule normal or interrupted FRAME memory integration.
 
-A later foreground turn can wait for a pending L1 update through `wait_for_runtime_memory_update()` so the Brain does not race stale live memory.
+A later foreground turn can wait for a pending FRAME update through `wait_for_runtime_memory_update()` so the Brain does not race stale live memory.
 
 ---
 
@@ -136,7 +136,7 @@ There is no active planner/router node in front of Brain.
 Physical model endpoints are resolved through the client/config layer. Logical roles remain:
 
 - **BRAIN** — the only foreground reasoning/visible-answer/runtime-decision route;
-- **SERVICE** — background FRAME/L1, L-T, fact-check/research, document-skill, and supporting model work.
+- **SERVICE** — background FRAME, L-T, fact-check/research, document-skill, and supporting model work.
 
 `utils/brain_client_utils.py::get_brain_runtime_config()` always returns label `brain`, and `BrainNode` resolves `context.clients["brain"]`. There is no active foreground branch to Service.
 
@@ -145,6 +145,8 @@ Physical model endpoints are resolved through the client/config layer. Logical r
 `config_loader.py::normalize_model_role_config()` accepts `USE_SERVICE_AS_BRAIN=True` only as a migration adapter for old local configs: it promotes the old Service endpoint/settings into canonical Brain settings, clears the dedicated Service URL, deletes the legacy attribute, and then normalizes Service fallbacks. The Windows launcher contains matching legacy detection only so startup can find/migrate those old configs safely. No live runtime path reads the flag.
 
 Historical archives can still contain `role=service` / `RUNTIME_MODE=SERVICE`, and the logger UI retains presentation code for old `[SERVICE]` model-output cards. Those are reader compatibility paths, not a current response mode.
+
+The runtime status modal is also the current model-switch surface. For an available role it reads the LM Studio catalog/load metadata, posts the selected model and remembered load configuration to `/api/runtime-model/switch`, then reconciles against `/api/status` before presenting the switch as settled. This changes the physical model backing a role; it does not create a new foreground routing mode.
 
 ---
 
@@ -201,7 +203,7 @@ Recovery paths also live around the stream/Brain sequence: repetition protection
 
 ### 6.2 Contract-driven action boundary
 
-Concrete action schemas live in `contracts/*.json`. `contracts/rules_assembler.py` loads them and maps runtime actions to feature flags.
+Concrete action schemas live in `contracts/*.json`. `contracts/rules_assembler.py` loads them and maps runtime actions to feature flags. Each concrete contract exposes a `schema` string array separately from its `rules`; the assembler emits `Schema:` before action rules, and `get_runtime_action_schema()` is also the canonical source used to explain invalid payloads back to the model.
 
 Current action names in the contract table:
 
@@ -255,6 +257,8 @@ Important current compatibility boundaries:
 
 Action-specific rules should stay in contracts. `rules/runtime.py` should remain limited to cross-action sequence behavior and recovery rules.
 
+Tool results are deliberately human-readable rather than raw JSON. On failure, `utils/context/runtime_action_result_text.py` renders the failed status/reason, relevant supplied payload, and `Correct action schema:` from the same contract. `rules/runtime.py::ACTION_FAILURE_FOLLOWUP_MESSAGE` then tells Brain not to treat the failed action as completed and to continue from `TOOLS_RESULTS`. The error renderer, contract schema, and follow-up instruction therefore form one recovery path rather than three independent descriptions.
+
 ### 6.5 JIN visual action state
 
 `utils/actions/jin_visual_sequence_actions.py` emits each contiguous color/size/position/speed run in original marker order with a shared sequence ID. The browser buffers the run and plays it as one ordered visual sequence instead of regrouping actions by type.
@@ -280,17 +284,11 @@ That ordering is part of observability semantics. Moving the emission back to fi
 
 The old numbered four-layer architecture is not the current implementation.
 
-### 7.1 L1 / live runtime memory
+### 7.1 FRAME / live runtime memory
 
-Active backend modules:
+FRAME is the compact live runtime state exposed in the memory panel and as `<FRAME_MEMORY_N>` in Brain context. It is integrated through the logical Service route after foreground turns, has snapshots/diffs, and has a distinct interrupted-turn update path. With no dedicated Service endpoint, that background route deliberately reuses the Brain client. The FRAME integration prompt detects the current user-message language for values while keeping structural keys as English `snake_case`; localization is a value-format rule, not a schema rename.
 
-- `runtime/L1_memory.py`
-- `runtime/L1_memory_rules.py`
-- `runtime/L1_memory_utils.py`
-
-L1 is the backend implementation of the compact live runtime state exposed as **FRAME** in the UI and as `<FRAME_MEMORY_N>` in Brain context. It is integrated through the logical Service route after foreground turns, has snapshots/diffs, and has a distinct interrupted-turn update path. With no dedicated Service endpoint, that background route deliberately reuses the Brain client.
-
-It is not a durable long-term memory tier, and `FRAME` is not a global rename of internal L1/runtime identifiers.
+FRAME is not a durable long-term tier. Some implementation filenames and identifiers still carry the pre-FRAME naming from earlier revisions; those are code-cleanup residue, not a second memory concept.
 
 ### 7.2 L2 and L3
 
@@ -322,7 +320,11 @@ L-T owns durable facts. The current L-T path includes:
 - links to Delayed Memory reports;
 - archive/anchor classification;
 - delete/restore reconciliation;
-- server/browser store synchronization.
+- server/browser store synchronization;
+- persistent mention tracking (`mention_count`, `last_mentioned_at`) and historical-log backfill;
+- recall decay: after 24 hours without a mention, Brain context uses sentence previews capped at 100 characters per sentence until JIN references the fact again.
+
+A valid `F<number>` reference in JIN reasoning or visible output counts once per turn for that canonical fact, updates `last_mentioned_at`, increments `mention_count`, persists the store, and makes the next prompt eligible for the full fact value again. Historical mention backfill may repair older dates but never rewinds a newer live mention.
 
 L-T work is scheduled from an explicit browser idle tick (`lt_memory_idle_tick`) and is guarded so it does not begin while foreground work is running or queued.
 
@@ -356,7 +358,7 @@ Important semantics:
 
 ### 7.6 Active Memory
 
-Active Memory is live unresolved structured state/commitments, stored independently from L1 text.
+Active Memory is live unresolved structured state/commitments, stored independently from FRAME text.
 
 Current model-facing boundary:
 
@@ -382,6 +384,18 @@ Persistent uploads are owned by `utils/attached_files_store.py` and `assets/file
 - UI memory/file projections;
 - Live Avatar/link highlighting.
 
+The composer projects currently pinned files as compact attachment chips. A chip opens the existing file preview on click and uses the shared hold interaction to detach/unpin it from the outgoing context. Detach does not delete the underlying persistent asset, and attachment changes do not implicitly expand Console.
+
+### 7.8 Direct memory value editing
+
+`runtime/memory_edit.py` implements explicit inspector edits without sending a model action. The browser opens the existing hover/details card as a page-local editor on double-click. Only values are editable:
+
+- **FRAME:** only the latest frame; historical snapshots are read-only, and reserved Active/user-idle rows are rejected;
+- **Active:** the record conditions/value; IDs, custom fields, pause status, creation metadata, and other suffixes are preserved;
+- **L-T:** only the canonical fact value; ID/key/category/provenance and mention metadata are preserved.
+
+The request carries the expected value, so concurrent/stale edits fail instead of overwriting a newer value. FRAME/Active edits are rejected while live memory integration is busy. L-T edits persist to disk before publication and are unavailable when persistent writes are restricted. Active and L-T acknowledgements surface `updated_at` immediately in the open editor. Draft text remains page-local until the checkmark is acknowledged; rollback restores the last acknowledged value.
+
 ---
 
 ## 8. Memory Attention
@@ -404,7 +418,7 @@ JIN deliberately splits persistence by owner/lifetime.
 | --- | --- |
 | live runtime FRAME for soft reconnect | `sessionStorage`: `jin.liveRuntimeMemory.v2` |
 | atomic browser session checkpoint | `localStorage`: `jin.sessionCheckpoint.v2` |
-| Active Memory | browser runtime storage; anonymous mode can isolate it |
+| Active Memory | normal: browser runtime storage; anonymous room: tab-scoped `jin.anonymousSession.v1` snapshot |
 | Facts Memory candidate buckets | browser storage per facts-memory session ID |
 | Delayed Memory | `memory/delayed/*.json` |
 | L-T facts | `memory/facts/long_term_facts.json` |
@@ -422,15 +436,15 @@ JIN deliberately splits persistence by owner/lifetime.
 
 Browser runtime continuity has two intentionally different lifetimes. `jin.liveRuntimeMemory.v2` exists only in the current page's `sessionStorage` and supports soft WebSocket reconnect. The module clears that key on page execution, so reload and new-tab bootstrap cannot inherit a copied live FRAME. `jin.sessionCheckpoint.v2` is the single durable, atomic `localStorage` record containing lineage, runtime memory and update count, runtime snapshot, and `session_snapshot`.
 
-The atomic checkpoint names the last runtime session that actually moved. Merely opening/reloading a tab hydrates inherited L1 into the fresh page's ephemeral live record and records its source lineage, but it does not promote the fresh runtime ID. A successfully emitted real USER message marks session activity immediately; a later server `completed_turn_commit` is the fallback commit signal. Retry, bootstrap, reconnect, and passive UI/runtime events do not mark activity. `conversation_committed_at` advances only for a completed turn, so it remains distinct from USER-only session movement. Nested runtime snapshots preserve their own origin session ID.
+The atomic checkpoint names the last runtime session that actually moved. Merely opening/reloading a tab hydrates inherited FRAME into the fresh page's ephemeral live record and records its source lineage, but it does not promote the fresh runtime ID. A successfully emitted real USER message marks session activity immediately; a later server `completed_turn_commit` is the fallback commit signal. Retry, bootstrap, reconnect, and passive UI/runtime events do not mark activity. `conversation_committed_at` advances only for a completed turn, so it remains distinct from USER-only session movement. Nested runtime snapshots preserve their own origin session ID.
 
 Session CLEAR replaces the durable record with a version-2 `state: "cleared"` tombstone and clears the current page's live FRAME plus all legacy runtime keys. Other already-open tabs cannot passively resurrect state. The first later checkpoint is allowed only after a successful new USER send; it carries the clear boundary forward so a still-older tab cannot overwrite the new owner after the tombstone has been replaced.
 
-One-time migration runs only after normal/anonymous storage isolation is known. A legacy common snapshot owns selection and may join only a matching `latestSavedRuntimeMemory` or the exact per-session runtime key. Without a common snapshot, only the self-contained `latestSavedRuntimeMemory` may migrate. Orphan per-session keys become a cleared tombstone and are never ranked by freshness. Legacy keys are removed only after the v2 write succeeds; failed writes preserve them for retry. Anonymous mode neither reads nor migrates the normal-profile checkpoint.
+One-time normal-profile checkpoint migration follows ownership rather than freshness. Anonymous rooms never read or migrate that normal-profile checkpoint; they use a fresh tab-scoped `jin.anonymousSession.v1` snapshot instead.
 
 The server sends a normalized `session_snapshot` at visible `message_end` and again at `agent_runtime_end`. The client merges the current room state into that snapshot and persists it before finishing the visible bubble. Completed state and room/avatar state therefore land as one checkpoint rather than racing through separate full writers.
 
-For a predecessor/browser checkpoint, `websocket/bootstrap.py::enrich_session_bootstrap_from_archive()` may enrich dialogue, reasoning, action history, files, counters, and selected runtime state from raw logs. Normal and anonymous modes use separate log roots.
+For a predecessor/browser checkpoint, `websocket/bootstrap.py::enrich_session_bootstrap_from_archive()` may enrich dialogue, reasoning, action history, files, counters, and selected runtime state from raw logs. Anonymous rooms never archive-bootstrap. Their chat/reasoning still goes to `logs/`, but the session directory ends in `-anon`; normal restore selectors and L-T mention backfill skip those directories.
 
 The latest raw-log selector chooses the session containing the newest real USER move. A blank bootstrap-only session with no USER row cannot win. A stopped USER-only move and a completed action-only move with an empty visible JIN row can win and remain distinguishable by whether a durable JIN row/timestamp exists. The legacy function name `find_latest_completed_session_restore_payload()` is therefore narrower than its current semantics.
 
@@ -478,7 +492,7 @@ The restore instruction is stamped at prompt-build time with the current timezon
 
 Constants in the current source limit the restore reasoning dump to two recent reasoning items with a per-item character cap. Restored visible dialogue uses the normal three-pair limit and, like ordinary recent-message context, does not impose a per-message character cap.
 
-The RESTORE endpoint owns archived dialogue, reasoning, and L1 for explicit URL checkout. A same-session browser checkpoint may contribute a newer room/avatar and Session Actions projection, but it cannot overwrite only `recent_turns`, reasoning, or runtime memory and thereby create a mixed conversation source. The restore instruction names `RESTORED_SESSION_DIALOG` as the newest conversational authority; L1 remains background state and may legitimately predate the final archived turn.
+The RESTORE endpoint owns archived dialogue, reasoning, and FRAME for explicit URL checkout. A same-session browser checkpoint may contribute a newer room/avatar and Session Actions projection, but it cannot overwrite only `recent_turns`, reasoning, or runtime memory and thereby create a mixed conversation source. The restore instruction names `RESTORED_SESSION_DIALOG` as the newest conversational authority; FRAME remains background state and may legitimately predate the final archived turn.
 
 `utils/session_restore.py` still understands historical `SAVE_SESSION` labels in archived logs. That is restore compatibility, not proof of a current `SAVE_SESSION` runtime action.
 
@@ -488,20 +502,27 @@ Modern records/snapshots should retain original creation timestamps across seria
 
 ---
 
-## 10. Anonymous / shadow mode
+## 10. Anonymous room mode
 
-`runtime/anonymous_mode.py` and browser storage logic implement anonymous/shadow behavior.
+Anonymous mode is an explicit JIN room state, not browser-private/incognito detection. A long press on the avatar opens a fresh room URL carrying `anonymous_mode=1` and a generated `<uuid>-anon` runtime/session id.
 
 Backend behavior:
 
-- runtime is marked anonymous and persistent writes restricted;
-- global Delayed Memory can still be hydrated/read;
-- Delayed file-store mutation is disabled;
+- runtime is marked anonymous and persistent writes are restricted;
+- global Delayed and L-T file stores are not hydrated into the room;
+- Delayed and L-T file-store persistence is disabled;
+- the L1 crash-recovery journal under `memory/runtime` is disabled;
 - `UPDATE_LT_FACTS` and `SAVE_DELAYED_MEMORY` are explicitly restricted;
 - persistent asset-write actions are restricted;
-- read-only/runtime-local actions remain available where safe.
+- chat and reasoning still log normally under `logs/<date>/<session>-anon/`;
+- normal restore/bootstrap and L-T log-freshness scans ignore `-anon` sessions.
 
-Browser behavior can isolate session-facing stores in private/incognito mode. Do not broaden or narrow persistence semantics by assumption; trace both JS storage selection and backend write guards.
+Browser behavior:
+
+- `sessionStorage` owns one `jin.anonymousSession.v1` snapshot for the lifetime of that tab;
+- the snapshot starts empty and contains the anonymous id plus FRAME, Active, L-T, and Delayed state;
+- normal `localStorage` Active/L-T/Delayed/checkpoint data is not read or mutated;
+- a dedicated scene tint visually marks the room.
 
 ---
 
@@ -514,7 +535,7 @@ Browser behavior can isolate session-facing stores in private/incognito mode. Do
 - aborts active runtime actions;
 - closes active model streams;
 - cancels the task;
-- can schedule the interrupted L1 update.
+- can schedule the interrupted FRAME update.
 
 `process_message()` later routes interrupted turns through `schedule_interrupted_runtime_memory_update()` instead of pretending the turn completed normally.
 
@@ -545,7 +566,13 @@ Do not collapse these into a generic highlight state.
 
 The L-T panel deliberately separates compact browsing from surfaced evidence: ordinary fact rows use a 50-character value preview, while a row bubbled by runtime reference, explicit reasoning citation, or context-loaded state renders its full value. The storage value is never truncated; this is projection-only behavior.
 
-The memory panel exposes five persistent navigation tabs: `FRAME` (live runtime-memory snapshots), `ACTIVE`, `DELAYED`, `L-T`, and `FILES`. Their shared count control is projected below the active tab; only FRAME exposes previous/next snapshot controls. The temporary unprocessed-facts projection is intentionally omitted from the tab bar.
+The memory panel exposes five persistent navigation tabs: `FRAME` (live runtime-memory snapshots), `ACTIVE`, `DELAYED`, `L-T`, and `FILES`. Their shared count control is projected below the active tab; only FRAME exposes previous/next snapshot controls. The temporary unprocessed-facts projection is intentionally omitted from the tab bar. Delayed rows use the same floating detail-card primitive for a bounded report preview (title/summary, creation time, tags, report ID, anchor/fact IDs, and up to 200 body characters). Unpinning a Delayed report emits the shared `memory_unpinned` logger event instead of becoming an invisible panel-only mutation.
+
+L-T facts are partitioned into Live Avatar lanes of at most 100 records; additional facts create additional outer L-T rings with a small radius step. The Active ring is laid out relative to the resulting outermost L-T radius so it remains between L-T and persistent files. Memory-row hover reuses the existing avatar hover-zoom/reference path rather than rebuilding ring state.
+
+Completed assistant messages expose an explicit `Copy all` control under the avatar/message host. The old invisible bubble gesture surface is removed; answer-rating code remains present but release-disabled.
+
+L-T merge telemetry keeps a structured `lt_merge_applied` trace with operation details. Console Apply/Show inspection renders update/create/merge/ignore rows and token-level diffs from the structured trace; legacy human-text parsing is fallback compatibility only.
 
 Session-action logger rows are also a projection of structured history. The compact logger keeps the most recent five items in chronological order with their original numbering and reuses the existing attached-files header/button primitive for `FULL`. JIN_COLOR parts render one swatch per applied color and expose the normalized hex on hover; bootstrap must preserve the `colors` payload for this to work after reload. Runtime-action bubble details are retained across counter-only updates so a count refresh cannot erase existing hover metadata.
 
@@ -598,7 +625,7 @@ Do not infer current architecture from compatibility/history alone:
 
 - `USE_SERVICE_AS_BRAIN`, archived `RUNTIME_MODE=SERVICE`, archived `role=service`, or old `[SERVICE]` logger-card code;
 - `SAVE_SESSION` references in tests/log parsing;
-- comments/log filters mentioning “L1/L2/L3 glow”;
+- comments/log filters mentioning the old numbered-layer glow names;
 - pre-L3-removal storage migration keys/fields;
 - stale repository indexes or historical test assumptions;
 - historical field names like `runtime_l3_session_memory`;

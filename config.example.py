@@ -4,18 +4,6 @@ FORMAT_RESPONSE = True
 DEBUG_RULE_CITATIONS = True
 LOG_CHAT = True
 
-# ---------------------------------------------------------
-# ANONYMOUS / SHADOW MODE
-# ---------------------------------------------------------
-
-# True: automatically isolate real browser private/incognito windows.
-# False: private/incognito windows behave like normal persistent windows and
-# may create/update persistent data too.
-ENABLE_DEFAULT_ANONYMOUS_MODE = True
-
-# True: force anonymous/shadow behavior even in a normal browser window.
-ENABLE_GLOBAL_ANONYMOUS_MODE = False
-
 # When True, a brain generation stopped by the model/context output limit
 # continues immediately in an internal follow-up tick instead of ending the
 # workflow and sending the interrupted turn straight to L1 memory.

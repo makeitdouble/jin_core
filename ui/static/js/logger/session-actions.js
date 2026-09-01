@@ -798,10 +798,26 @@ function ensureSessionActionsModal() {
     closeSessionActionsModal
   );
 
+  let sessionActionsModalBackdropPointerDown = false;
+
+  sessionActionsModal.addEventListener(
+    "pointerdown",
+    function (event) {
+      sessionActionsModalBackdropPointerDown =
+        event.target === sessionActionsModal;
+    }
+  );
+
   sessionActionsModal.addEventListener(
     "click",
     function (event) {
-      if (event.target === sessionActionsModal) {
+      const shouldClose =
+        event.target === sessionActionsModal
+        && sessionActionsModalBackdropPointerDown;
+
+      sessionActionsModalBackdropPointerDown = false;
+
+      if (shouldClose) {
         closeSessionActionsModal();
       }
     }

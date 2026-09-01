@@ -216,10 +216,25 @@ function allModelRuntimesOffline() {
 }
 
 if (memoryLayersToggle) {
-  function toggleRuntimeAvatarMemoryLayers() {
-    const avatar =
+  const ANONYMOUS_ROOM_LONG_PRESS_MS = 1500;
+  const ANONYMOUS_ROOM_MOVE_TOLERANCE_PX = 12;
+  const ANONYMOUS_ROOM_HOLD_CLASS = "is-anonymous-room-hold";
+
+  let anonymousRoomLongPressTimer = null;
+  let anonymousRoomPointerId = null;
+  let anonymousRoomPointerStartX = 0;
+  let anonymousRoomPointerStartY = 0;
+  let suppressNextMemoryLayersClick = false;
+
+  function runtimeAvatar() {
+    return (
       window.JinRuntime
-      && window.JinRuntime.avatar;
+      && window.JinRuntime.avatar
+    ) || null;
+  }
+
+  function toggleRuntimeAvatarMemoryLayers() {
+    const avatar = runtimeAvatar();
 
     if (
       avatar
@@ -229,11 +244,152 @@ if (memoryLayersToggle) {
     }
   }
 
+  function setAnonymousRoomHoldVisual(active) {
+    const avatarRoot = document.getElementById("jin-runtime-avatar");
+    const avatarShell = avatarRoot
+      ? avatarRoot.closest(".jin-runtime-avatar-shell")
+      : null;
+    const nextActive = Boolean(active);
+
+    if (avatarRoot) {
+      avatarRoot.classList.toggle(
+        ANONYMOUS_ROOM_HOLD_CLASS,
+        nextActive
+      );
+    }
+
+    if (avatarShell) {
+      avatarShell.classList.toggle(
+        ANONYMOUS_ROOM_HOLD_CLASS,
+        nextActive
+      );
+    }
+  }
+
+  function clearAnonymousRoomLongPressTimer() {
+    if (anonymousRoomLongPressTimer) {
+      clearTimeout(anonymousRoomLongPressTimer);
+      anonymousRoomLongPressTimer = null;
+    }
+  }
+
+  function cancelAnonymousRoomPointerHold() {
+    clearAnonymousRoomLongPressTimer();
+    anonymousRoomPointerId = null;
+    setAnonymousRoomHoldVisual(false);
+  }
+
+  function launchAnonymousRoomFromAvatar() {
+    const anonymousMode =
+      window.JinRuntime
+      && window.JinRuntime.anonymousMode;
+
+    suppressNextMemoryLayersClick = true;
+    anonymousRoomPointerId = null;
+    setAnonymousRoomHoldVisual(false);
+
+    if (
+      anonymousMode
+      && typeof anonymousMode.openAnonymousWindow === "function"
+    ) {
+      anonymousMode.openAnonymousWindow();
+    }
+
+    // A completed long press normally produces one click on pointerup. Do not
+    // let that click toggle the rings after the anonymous-room gesture.
+    setTimeout(() => {
+      suppressNextMemoryLayersClick = false;
+    }, 6000);
+  }
+
+  memoryLayersToggle.addEventListener(
+    "pointerdown",
+    (event) => {
+      if (event.button !== undefined && event.button !== 0) {
+        return;
+      }
+
+      cancelAnonymousRoomPointerHold();
+      anonymousRoomPointerId = event.pointerId;
+      anonymousRoomPointerStartX = Number(event.clientX || 0);
+      anonymousRoomPointerStartY = Number(event.clientY || 0);
+
+      if (typeof memoryLayersToggle.setPointerCapture === "function") {
+        try {
+          memoryLayersToggle.setPointerCapture(event.pointerId);
+        } catch (error) {
+          // Pointer capture is a robustness aid only; the hold still works
+          // when the browser refuses capture for this pointer type.
+        }
+      }
+
+      setAnonymousRoomHoldVisual(true);
+
+      const heldPointerId = event.pointerId;
+      anonymousRoomLongPressTimer = setTimeout(() => {
+        anonymousRoomLongPressTimer = null;
+
+        // The window is created only if the same pointer is still held after
+        // the full 1.5-second fade. pointerup/cancel/move clear this id first.
+        if (anonymousRoomPointerId !== heldPointerId) {
+          return;
+        }
+
+        launchAnonymousRoomFromAvatar();
+      }, ANONYMOUS_ROOM_LONG_PRESS_MS);
+    }
+  );
+
+  memoryLayersToggle.addEventListener(
+    "pointermove",
+    (event) => {
+      if (
+        anonymousRoomPointerId === null
+        || event.pointerId !== anonymousRoomPointerId
+      ) {
+        return;
+      }
+
+      const movedX = Number(event.clientX || 0) - anonymousRoomPointerStartX;
+      const movedY = Number(event.clientY || 0) - anonymousRoomPointerStartY;
+
+      if (
+        Math.hypot(movedX, movedY)
+        > ANONYMOUS_ROOM_MOVE_TOLERANCE_PX
+      ) {
+        cancelAnonymousRoomPointerHold();
+      }
+    }
+  );
+
+  ["pointerup", "pointercancel", "lostpointercapture"].forEach(
+    (eventName) => {
+      memoryLayersToggle.addEventListener(
+        eventName,
+        (event) => {
+          if (
+            anonymousRoomPointerId !== null
+            && event.pointerId !== anonymousRoomPointerId
+          ) {
+            return;
+          }
+
+          cancelAnonymousRoomPointerHold();
+        }
+      );
+    }
+  );
+
   memoryLayersToggle.addEventListener(
     "click",
     (event) => {
       event.preventDefault();
       event.stopPropagation();
+
+      if (suppressNextMemoryLayersClick) {
+        suppressNextMemoryLayersClick = false;
+        return;
+      }
 
       toggleRuntimeAvatarMemoryLayers();
     }

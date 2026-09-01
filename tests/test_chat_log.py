@@ -104,7 +104,7 @@ class ChatLogTests(unittest.TestCase):
             ],
         )
 
-    def test_anonymous_chat_log_uses_separate_root_without_row_flag(self):
+    def test_anonymous_chat_log_uses_normal_root_with_anon_session_suffix(self):
 
         context = SimpleNamespace(
             session_id="anon-tab",
@@ -126,15 +126,10 @@ class ChatLogTests(unittest.TestCase):
         )
 
         with tempfile.TemporaryDirectory() as temp_dir:
-            temp_root = Path(temp_dir)
-            normal_root = temp_root / "logs"
-            anonymous_root = temp_root / "logs_anon"
+            normal_root = Path(temp_dir) / "logs"
             from unittest.mock import patch
 
-            with (
-                patch("utils.chat_log.CHAT_LOG_ROOT", normal_root),
-                patch("utils.chat_log.CHAT_LOG_ANON_ROOT", anonymous_root),
-            ):
+            with patch("utils.chat_log.CHAT_LOG_ROOT", normal_root):
                 path = append_chat_log_entry(
                     context,
                     role="user",
@@ -142,11 +137,46 @@ class ChatLogTests(unittest.TestCase):
                     now=now,
                 )
 
-            self.assertTrue(path.is_relative_to(anonymous_root))
-            self.assertFalse(normal_root.exists())
+            self.assertTrue(path.is_relative_to(normal_root))
+            self.assertEqual(path.parent.name, "anon-tab-anon")
             row = json.loads(path.read_text(encoding="utf-8").strip())
             self.assertNotIn("anonymous_mode", row)
             self.assertEqual(row["text"], "anonymous hello")
+
+    def test_legacy_logs_anon_is_folded_into_shared_logs_with_suffix(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            temp_root = Path(temp_dir)
+            normal_root = temp_root / "logs"
+            legacy_root = temp_root / "logs_anon"
+            source_session = legacy_root / "2026-08-24" / "legacy-private"
+            source_session.mkdir(parents=True)
+            (source_session / "120000.jsonl").write_text(
+                json.dumps({
+                    "ts": "2026-08-24T12:00:00+00:00",
+                    "role": "user",
+                    "text": "legacy anonymous",
+                }) + "\n",
+                encoding="utf-8",
+            )
+
+            from unittest.mock import patch
+            with (
+                patch("utils.chat_log.CHAT_LOG_ROOT", normal_root),
+                patch(
+                    "utils.chat_log.LEGACY_CHAT_LOG_ANON_ROOT",
+                    legacy_root,
+                ),
+            ):
+                migrate_legacy_chat_logs()
+
+            target = (
+                normal_root
+                / "2026-08-24"
+                / "legacy-private-anon"
+                / "120000.jsonl"
+            )
+            self.assertTrue(target.is_file())
+            self.assertFalse(legacy_root.exists())
 
     def test_append_chat_log_entry_uses_date_session_directory(self):
 

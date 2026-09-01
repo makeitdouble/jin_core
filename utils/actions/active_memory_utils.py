@@ -4,6 +4,10 @@ import secrets
 import string
 from datetime import datetime
 
+from utils.time_utils import (
+    utc_now_iso,
+)
+
 
 ACTIVE_MEMORY_SLOT_ID_RE = re.compile(
     r"^[a-z0-9]{6}$",
@@ -891,7 +895,7 @@ def refresh_active_memory_runtime_metadata(
             "timestamp",
             "",
         )
-        or datetime.now().isoformat()
+        or utc_now_iso()
     )
     current_datetime = (
         _parse_runtime_datetime(
