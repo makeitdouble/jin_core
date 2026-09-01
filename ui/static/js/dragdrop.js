@@ -4,6 +4,7 @@
 const chatColumn = document.querySelector("#chat-drop-zone");
 const fileInput = document.querySelector("#file-input");
 const attachedFiles = document.querySelector("#attached-files");
+const composerAttachments = document.querySelector("#composer-attachments");
 const MAX_JIN_ATTACHMENTS = 5;
 const MEMORY_ROW_AVATAR_HOVER_EVENT = "jin:memory-row-avatar-hover";
 
@@ -75,6 +76,7 @@ function normalizeSnapshot(payload) {
 
 function dispatchStoreChanged() {
   renderAttachedFilesPlaque();
+  renderComposerAttachments();
   window.dispatchEvent(new CustomEvent("jin:files-store-changed", {
     detail: {
       files: fileStore.map((item) => ({...item})),
@@ -168,12 +170,6 @@ async function uploadFile(file) {
     normalizeSnapshot(await response.json());
     dispatchStoreChanged();
     syncAttachmentContext();
-    if (
-      window.JinPanels
-      && typeof window.JinPanels.expandConsolePanelForContextAttachment === "function"
-    ) {
-      window.JinPanels.expandConsolePanelForContextAttachment();
-    }
     return true;
   } catch (_error) {
     return false;
@@ -474,6 +470,60 @@ function renderAttachedFilesPlaque() {
   attachedFiles.appendChild(list);
 }
 
+function renderComposerAttachments() {
+  if (!composerAttachments || typeof window.bindJinAttachmentBubble !== "function") return;
+  const records = pinnedIds.map(getFileRecord).filter(Boolean);
+  const activeIds = new Set(pinnedIds);
+  const chips = new Map();
+
+  // Keep existing nodes: metadata refreshes must not replay entry animations,
+  // interrupt a hold, or lose keyboard focus.
+  Array.from(composerAttachments.children).forEach((chip) => {
+    if (!activeIds.has(chip.dataset.fileId)) {
+      chip.dispatchEvent(new Event("pointercancel"));
+      chip.dispatchEvent(new Event("mouseleave"));
+      chip.remove();
+    } else {
+      chips.set(chip.dataset.fileId, chip);
+    }
+  });
+
+  records.forEach((record, index) => {
+    const fileId = String(record.id || "").toLowerCase();
+    let chip = chips.get(fileId);
+    if (!chip) {
+      chip = document.createElement("button");
+      chip.type = "button";
+      chip.className = `${JIN_ATTACHMENT_CHIP_CLASS} jin-composer-attachment`;
+      chip.dataset.fileId = fileId;
+
+      // A completed hold must never also open the preview on pointer release,
+      // including while the unpin request is still in flight or has failed.
+      let held = false;
+      chip.addEventListener("pointerdown", () => { held = false; });
+      chip.addEventListener("click", (event) => {
+        if (!held) return;
+        event.preventDefault();
+        event.stopImmediatePropagation();
+      }, true);
+      window.bindJinAttachmentBubble(chip, attachmentViewRecord(record));
+      window.JinRuntime.memoryView.configureDeleteHold(chip, () => {
+        held = true;
+        return setPinned(fileId, false);
+      }, {keepHiddenOnComplete: true});
+      chip.addEventListener("contextmenu", (event) => event.preventDefault());
+      composerAttachments.appendChild(chip);
+    }
+
+    chip.textContent = getAttachmentChipEmoji(record);
+    chip.title = `${formatAttachmentHoverTitle(record)} · Hold to detach`;
+    chip.setAttribute("aria-label", `${formatAttachmentChipLabel(record)} · Hold to detach`);
+    // pinnedIds is newest-first; row-reverse keeps the oldest next to input.
+    chip.style.order = String(-index);
+  });
+  composerAttachments.classList.toggle("hidden", records.length === 0);
+}
+
 function hasDraggedFiles(event) {
   return Array.from(event && event.dataTransfer && event.dataTransfer.types || []).includes("Files");
 }
@@ -574,6 +624,7 @@ window.JinFiles = {
 };
 
 renderAttachedFilesPlaque();
+window.addEventListener("jin:attachment-ui-ready", renderComposerAttachments, {once: true});
 void refreshFiles();
 
 

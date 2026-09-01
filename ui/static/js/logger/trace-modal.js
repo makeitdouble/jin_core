@@ -762,14 +762,10 @@ function normalizeStructuredLTMergeOperation(detail, index) {
     : [];
 
   mergedFacts.forEach((fact) => pushFact("source", fact));
-  pushFact("incoming", detail.pending_fact);
+  pushFact(action === "ignore" ? "ignored" : "incoming", detail.pending_fact);
   pushFact("before", detail.target_before);
   pushFact("after", detail.target_after);
   pushFact("created", detail.created_fact);
-
-  if (action === "ignore" && !rows.length) {
-    pushFact("ignored", detail.pending_fact);
-  }
 
   const comment = String(detail.comment || "").trim();
   if (comment) {
@@ -2232,7 +2228,7 @@ function renderContextDelayedMemoryLabel(label, line) {
   const anchorText = anchorBlock[1];
   const anchorTextOffset = anchorBlock[0].indexOf(anchorText);
   const anchorTextStart = anchorBlock.index + anchorTextOffset;
-  const factPattern = /F[1-9]\d*/gi;
+  const factPattern = /\bF[1-9]\d*\b/gi;
   let cursor = 0;
   let factMatch = null;
 
@@ -3641,6 +3637,7 @@ function renderContextSnapshotTrace(snapshot) {
 function renderTraceDetails(
   details,
   title = "Trace",
+  structuredTrace = null,
 ) {
   clearContextAttachedFileHoverPreview();
   traceModalContent.replaceChildren();
@@ -3693,8 +3690,14 @@ function renderTraceDetails(
     return;
   }
 
+  // New L-T events carry the canonical object alongside the readable log.
+  // Keep JSON/text readers for older events and every other trace type.
   const parsed =
-    parseTraceJson(details);
+    structuredTrace
+    && structuredTrace.kind === "lt_merge_applied"
+    && Array.isArray(structuredTrace.operation_details)
+      ? structuredTrace
+      : parseTraceJson(details);
 
   const ltMergeTrace =
     parseLTMergeAppliedTrace(
@@ -3866,6 +3869,7 @@ function showTrace(
   details,
   title = "Trace",
   reason = null,
+  structuredTrace = null,
 ) {
   ensureTraceModal();
 
@@ -3911,7 +3915,8 @@ function showTrace(
 
   renderTraceDetails(
     details,
-    title
+    title,
+    structuredTrace
   );
 
   traceModal.classList.remove(

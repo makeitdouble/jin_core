@@ -9,15 +9,15 @@
     <script src="https://cdn.tailwindcss.com"></script>
 
     <!-- CSS layers: theme vars -> base -> chat -> runtime -> overrides -> theme -> avatar. -->
-    <link rel="stylesheet" href="/static/css/themes_font_size.css?v=theme-font-size-1">
-    <link rel="stylesheet" href="/static/css/base.css?v=stream-avatar-1&panel-scroll-top=5&panel-corners=1&empty-files-plaque=1&avatar-inspector-close=1&header-autohide=1&search-overlay=1&room-state=3">
-    <link rel="stylesheet" href="/static/css/chat.css?v=stream-avatar-1&session-restore-divider=1&reasoning-collapse-1&markdown-table=1&delayed-id-citations=1&reasoning-fade-anchor=1&jin-bubble-flat-1&bubble-role-tone=1">
-    <link rel="stylesheet" href="/static/css/chat-rating.css?v=rating-persist-1-rating-disable-2&avatar-copy-control=1">
-    <link rel="stylesheet" href="/static/css/chat-runtime-action.css?v=deep-search-click-stack-1">
-    <link rel="stylesheet" href="/static/css/runtime-memory.css?v=delayed-collapsible-cards-2&delayed-fact-paste=1&session-restore-fix=1&context-file-hover=1&modal-title-editor=1&runtime-memory-title=2&amp;lt-context-display=1&runtime-status-dropdown=1&amp;lt-two-line-layout=1&amp;lt-value-fill=1&report-modal-stack=1&amp;lt-hover-card=3&file-preview-card=2&memory-tabs=4&delayed-fact-dropdown-inset=1&amp;lt-merge-diff=1&amp;lt-sequence=2">
-    <link rel="stylesheet" href="/static/css/interface-overrides.css?v=css-split-1">
-    <link rel="stylesheet" href="/static/css/theme-win95.css?v=lt-fact-report-link-1&empty-files-plaque=1&delayed-id-citations=1&brain-first=1&context-numbers=1">
-    <link rel="stylesheet" href="/static/css/runtime-avatar.css?v=memory-layers-dormant-1&reasoning-whisper=3&transition-precompose=1&reasoning-handoff=1&reasoning-lighting=0&avatar-toggle-only=1&delayed-highlight-contract=2&jin-color-transition=2">
+    <link rel="stylesheet" href="/static/css/themes_font_size.css">
+    <link rel="stylesheet" href="/static/css/base.css">
+    <link rel="stylesheet" href="/static/css/chat.css">
+    <link rel="stylesheet" href="/static/css/chat-rating.css">
+    <link rel="stylesheet" href="/static/css/chat-runtime-action.css">
+    <link rel="stylesheet" href="/static/css/runtime-memory.css">
+    <link rel="stylesheet" href="/static/css/interface-overrides.css">
+    <link rel="stylesheet" href="/static/css/theme-win95.css">
+    <link rel="stylesheet" href="/static/css/runtime-avatar.css">
 </head>
 <body class="h-screen overflow-hidden flex flex-col font-mono antialiased bg-zinc-950 text-zinc-100">
 
@@ -182,6 +182,10 @@
 
         <div id="chat-input-shell" class="bg-transparent py-4 shrink-0">
 
+            <div id="chat-composer">
+                <div id="composer-attachments" class="hidden" role="group"
+                     aria-label="Attached files" aria-live="polite"></div>
+
             <form id="chat-form"
                   class="relative w-full max-w-none flex items-center bg-black/30
                                border border-zinc-800
@@ -250,6 +254,7 @@
                 </button>
 
             </form>
+            </div>
 
             <!--  <div
                   id="runtime-diff-panel"
@@ -476,55 +481,55 @@
 </main>
 
 
-<script src="/static/js/win95-theme.js?v=collapsed-height-refresh-2"></script>
-<script src="/static/js/panel-inactivity.js?v=jin-size-1"></script>
-<script src="/static/js/panel-scroll-top.js?v=6"></script>
+<script src="/static/js/win95-theme.js"></script>
+<script src="/static/js/panel-inactivity.js"></script>
+<script src="/static/js/panel-scroll-top.js"></script>
 
 
-<script src="/static/js/answer-rating.js?v=answer-rating-persist-1-rating-disable-2&avatar-copy-control=1"></script>
+<script src="/static/js/answer-rating.js"></script>
 
 <!-- AUTO HEIGHT -->
 
-<script src="/static/js/textarea-auto-height.js?v=textarea-auto-height-1"></script>
+<script src="/static/js/textarea-auto-height.js"></script>
 <template id="jin-runtime-config">
     {{ {
     "anonymousMode": anonymous_mode_config,
     } | tojson }}
 </template>
-<script src="/static/js/runtime/runtime-core.js?v=runtime-core-4"></script>
-<script src="/static/js/runtime/runtime-anonymous-mode.js?v=anonymous-mode-config-1"></script>
-<script src="/static/js/runtime/runtime-storage.js?v=runtime-storage-20-conversation-owner-1&active-memory-state=1&browser-storage-v2=1"></script>
-<script src="/static/js/runtime/runtime-memory-model.js?v=runtime-memory-model-hidden-suffix-1"></script>
-<script src="/static/js/runtime/runtime-idle.js?v=runtime-idle-1"></script>
-<script src="/static/js/runtime/runtime-lt-memory.js?v=server-lt-scheduler-1&amp;lt-chain-1&amp;lt-merge-rebase-1&anonymous-mode=1&amp;lt-recall-decay=1"></script>
-<script src="/static/js/runtime/runtime-feedback.js?v=runtime-feedback-persist-1"></script>
-<script src="/static/js/runtime/runtime-session.js?v=avatar-motion-1&delayed-load-contract-1-reconnect-persistence-1-session-lineage-3-completed-owner-1&anonymous-mode=1&room-state=8&no-close-confirm=1&browser-storage-v2=1"></script>
-<script src="/static/js/runtime/runtime-panel.js?v=context-bar-resize-1&status-bootstrap=1&brain-first=1&context-numbers=2"></script>
-<script src="/static/js/runtime/runtime-memory-view.js?v=context-card-chevronless-1&delayed-fact-paste=2&numeric-fact-order=1&amp;lt-fact-age=1&hold-delete-1&modal-title-editor=1&active-citations=4&runtime-memory-title=2&lazy-rows=6&hover-title=1&row-payload=1&amp;lt-citation-gate=1&delayed-pin-link-isolation=1&delayed-highlight-contract=1&active-memory-activity-order=1&amp;lt-two-line-layout=1&amp;lt-value-fill=1&amp;lt-priority-bubble=1&delayed-id-citations=1&amp;lt-hover-card=4&active-hover-card=1&delayed-hover-card=1&file-preview-card=2&memory-tabs=2&dom-lifecycle=1&delayed-fact-all=1&delayed-tag-comma-focus=1&amp;lt-recall-decay=1&frame-hover-card=1"></script>
-<script src="/static/js/runtime/runtime.js?v=facts-memory-server-sync-1&delayed-unpin-avatar-sync-1&delayed-fact-paste=2&active-memory-state=1&active-citations=2&live-session-checkpoint=1&unpin-logger-card=2&browser-storage-v2=1"></script>
-<script src="/static/js/runtime/runtime-avatar.js?v=memory-layers-dormant-1&reasoning-whisper=3&stable-render=2&active-citations=4&rotation-phase=2&rotation-stop=2&transition-ramp=2&rotation-cache=1&reasoning-handoff=2&avatar-toggle-only=1&amp;lt-citation-gate=1&room-state=1&delayed-pin-link-isolation=1&delayed-highlight-contract=1&jin-color-transition=3&avatar-node-state=1&avatar-radius=2"></script>
-<script src="/static/js/status.js?v=status-check-5&runtime-status-modal=3&runtime-config-edit=2&status-bootstrap=1&brain-first=1&model-switch=2&endpoint-switch=1"></script>
-<script src="/static/js/dragdrop.js?v=console-auto-expand-2&file-restore-2&empty-files-plaque=1&unpin-logger-card=1"></script>
-<script src="/static/js/runtime-action-counter.js?v=runtime-action-counter-2"></script>
-<script src="/static/js/logger/logger.js?v=delayed-context-plaque-4&header-click-collapse=1&avatar-position=1&avatar-inspector-world-state=2&room-state=7&room-restore-click=1&header-autohide=1&jin-color-transition=3&jin-size-units=1&memory-drag-spacer=1&browser-storage-v2=1"></script>
-<script src="/static/js/header-autohide.js?v=header-autohide-6"></script>
-<script src="/static/js/logger/trace-modal.js?v=context-session-actions-1&context-file-hover=1&amp;lt-context-display=1&amp;lt-budget-payload=1&dom-release=1&delayed-anchor-facts=1&amp;lt-merge-diff=1"></script>
-<script src="/static/js/logger/l1-summarizer.js?v=logger-l1-summarizer-1"></script>
-<script src="/static/js/logger/session-actions.js?v=logger-session-actions-14"></script>
-<script src="/static/js/logger/log-entries.js?v=update-lt-message-1&file-restore-card-2&deleted-image-hover=1&jin-action-order=1&amp;lt-double-batch=1&unpin-logger-card=1&jin-size-units=1&browser-storage-v2=1&amp;lt-sequence=4"></script>
-<script src="/static/js/think-citations.js?v=think-citations-8&stream-exact-citations=4&active-citations=4&amp;lt-explicit-citations=2&delayed-id-citations=1&note-key-skip=1"></script>
-<script src="/static/js/chat-response-formatter.js?v=jin-size-1&runtime-marker-xml=1&markdown-table=1&jin-size-units=1"></script>
-<script src="/static/js/chat-reference-ids.js?v=reference-ids-2"></script>
-<script src="/static/js/chat.js?v=stream-avatar-2-reference-ids-1&reasoning-click-guard=2&restore-attachment-state=1&avatar-reasoning-motion=2&avatar-output-motion=1&stream-exact-citations=1&memory-reference-turn-reset=1&runtime-marker-xml=1&reasoning-state=1&live-turn-overflow-scroll=2&reasoning-collapse-stability=1&reasoning-follow=1&avatar-copy-control=1&avatar-labels=1"></script>
-<script src="/static/js/chat-attachments.js?v=attached-files-3-attachment-modal-id-1&hold-delete-1&runtime-action-preview-2"></script>
-<script src="/static/js/chat-runtime-actions.js?v=deep-search-click-stack-1&attach-preview-1&jin-color-split-1&active-memory-state=1&search-refcount=1&active-memory-title-hover=1&jin-size-units=1"></script>
-<script src="/static/js/session-restore.js?v=avatar-motion-1&archived-session-restore-7&anonymous-mode=1&room-state=2&browser-storage-v2=1"></script>
-<script src="/static/js/socket.js?v=avatar-geometry-1&stream-avatar-1-archived-session-restore-4&anonymous-mode=1&input-focus=2&bubble-utility-retry=1&browser-storage-v2=1&brain-first=1"></script>
-<script src="/static/js/socket/memory.js?v=memory-panel-rename-1&browser-storage-v2=1"></script>
-<script src="/static/js/socket/delayed-memory.js?v=delayed-tags-normalize-1&lazy-fact-ids=1&numeric-fact-order=1"></script>
-<script src="/static/js/socket/runtime-actions.js?v=size-sequence-1&attach-preview-1&avatar-answer-boundary=1&active-memory-state=1&restricted-write=1&visual-bubbles=1&avatar-motion=1&active-memory-update-bubble=1&active-memory-full-hover=3&active-memory-update-highlight=1&deep-search-open-bubble=2&jin-color-transition=2"></script>
-<script src="/static/js/socket/event-handlers.js?v=stream-avatar-1&avatar-answer-boundary=1&bootstrap-tail-boundary=4-user-only-turn&bubble-utility-retry=1&bootstrap-color=2"></script>
-<script src="/static/js/socket/input.js?v=jin-size-1&memory-reference-turn-reset=1&avatar-toggle-only=1&input-focus=3&browser-storage-v2=1&brain-first=1"></script>
+<script src="/static/js/runtime/runtime-core.js"></script>
+<script src="/static/js/runtime/runtime-anonymous-mode.js"></script>
+<script src="/static/js/runtime/runtime-storage.js"></script>
+<script src="/static/js/runtime/runtime-memory-model.js"></script>
+<script src="/static/js/runtime/runtime-idle.js"></script>
+<script src="/static/js/runtime/runtime-lt-memory.js"></script>
+<script src="/static/js/runtime/runtime-feedback.js"></script>
+<script src="/static/js/runtime/runtime-session.js"></script>
+<script src="/static/js/runtime/runtime-panel.js"></script>
+<script src="/static/js/runtime/runtime-memory-view.js"></script>
+<script src="/static/js/runtime/runtime.js?active-memory-pause-sync=1"></script>
+<script src="/static/js/runtime/runtime-avatar.js"></script>
+<script src="/static/js/status.js"></script>
+<script src="/static/js/dragdrop.js"></script>
+<script src="/static/js/runtime-action-counter.js"></script>
+<script src="/static/js/logger/logger.js"></script>
+<script src="/static/js/header-autohide.js"></script>
+<script src="/static/js/logger/trace-modal.js"></script>
+<script src="/static/js/logger/l1-summarizer.js"></script>
+<script src="/static/js/logger/session-actions.js"></script>
+<script src="/static/js/logger/log-entries.js"></script>
+<script src="/static/js/think-citations.js"></script>
+<script src="/static/js/chat-response-formatter.js"></script>
+<script src="/static/js/chat-reference-ids.js"></script>
+<script src="/static/js/chat.js"></script>
+<script src="/static/js/chat-attachments.js"></script>
+<script src="/static/js/chat-runtime-actions.js"></script>
+<script src="/static/js/session-restore.js"></script>
+<script src="/static/js/socket.js"></script>
+<script src="/static/js/socket/memory.js"></script>
+<script src="/static/js/socket/delayed-memory.js"></script>
+<script src="/static/js/socket/runtime-actions.js"></script>
+<script src="/static/js/socket/event-handlers.js"></script>
+<script src="/static/js/socket/input.js"></script>
 </body>
 
 </html>

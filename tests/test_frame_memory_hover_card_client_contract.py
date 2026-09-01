@@ -83,7 +83,7 @@ class FrameMemoryHoverCardClientContractTests(unittest.TestCase):
             "    }",
             source,
         )
-        self.assertIn(
+        self.assertNotIn(
             'row.addEventListener("pointerdown", () => {\n'
             "      hideFrameMemoryHoverCard(row);",
             source,
@@ -92,7 +92,7 @@ class FrameMemoryHoverCardClientContractTests(unittest.TestCase):
     def test_hover_card_script_is_cache_busted(self):
         source = INDEX_HTML.read_text(encoding="utf-8")
 
-        self.assertEqual(source.count("frame-hover-card=1"), 1)
+        self.assertEqual(source.count("frame-hover-card=2"), 1)
 
 
 if __name__ == "__main__":

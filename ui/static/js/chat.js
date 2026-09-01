@@ -1496,7 +1496,7 @@ function createMessageAttachmentChips(
     chip.type =
       "button";
     chip.className =
-      "inline-flex h-8 w-8 shrink-0 items-center justify-center rounded border border-sky-400/25 bg-sky-950/35 p-0 text-[18px] leading-none text-sky-100 transition hover:border-sky-300/50 hover:bg-sky-900/45";
+      JIN_ATTACHMENT_CHIP_CLASS;
     chip.textContent =
       getAttachmentChipEmoji(
         attachment

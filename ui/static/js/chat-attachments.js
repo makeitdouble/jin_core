@@ -1,3 +1,6 @@
+// Shared by sent messages and the composer attachment strip.
+const JIN_ATTACHMENT_CHIP_CLASS =
+  "inline-flex h-8 w-8 shrink-0 items-center justify-center rounded border border-sky-400/25 bg-sky-950/35 p-0 text-[18px] leading-none text-sky-100 transition hover:border-sky-300/50 hover:bg-sky-900/45";
 const ATTACHMENT_IMAGE_PREVIEW_MAX_PX = 200;
 const ASSET_TEXT_PREVIEW_ENDPOINT = "/api/assets/text-preview";
 const ASSET_TEXT_PREVIEW_MAX_CHARS = 60000;

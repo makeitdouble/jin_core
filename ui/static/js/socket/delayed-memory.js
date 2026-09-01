@@ -116,7 +116,7 @@ function normalizeDelayedMemoryFactIds(
   source.forEach(function (item) {
     const matches =
       String(item || "")
-        .match(/F[1-9]\d*/gi) || [];
+        .match(/\bF[1-9]\d*\b/gi) || [];
 
     matches.forEach(function (match) {
       const factId =

@@ -9,6 +9,7 @@ import contextlib
 import json
 
 from .logger import WebSocketLogger
+from runtime.memory_edit import apply_memory_value_edit
 
 from runtime.L1_memory import (
     apply_runtime_response_feedback,
@@ -311,6 +312,22 @@ async def websocket_endpoint(
             # -------------------------------------------------
             # RESTORE BROWSER SESSION SNAPSHOT
             # -------------------------------------------------
+
+            if message_type == "memory_value_edit":
+                try:
+                    result = await apply_memory_value_edit(
+                        context, message_data,
+                        foreground_busy=(current_task is not None and not current_task.done()),
+                    )
+                except Exception as error:
+                    await logger.log_system(f"[MEMORY EDIT] failed: {error}")
+                    result = {
+                        "type": "memory_value_edit_result",
+                        "request_id": message_data.get("request_id"),
+                        "ok": False, "error": "save_failed",
+                    }
+                await websocket.send_json(result)
+                continue
 
             if message_type == "runtime_memory_delete_slot":
                 await apply_runtime_memory_slot_delete(

@@ -486,32 +486,34 @@
             background-color 0.25s ease;
 }
 
-.runtime-memory-navigation[data-active-mode="runtime"] #runtime-memory-position {
+.runtime-memory-navigation[data-active-mode="runtime"] #runtime-memory-position,
+.runtime-memory-navigation[data-active-mode="long_term"] #runtime-memory-position {
     cursor: pointer;
 }
 
-.runtime-memory-navigation[data-active-mode="runtime"] #runtime-memory-position:hover {
+.runtime-memory-navigation[data-active-mode="runtime"] #runtime-memory-position:hover,
+.runtime-memory-navigation[data-active-mode="long_term"] #runtime-memory-position:hover {
     color: rgba(167,243,208,0.98);
     text-shadow:
             0 0 8px rgba(16,185,129,0.35);
 }
 
-.runtime-memory-navigation:not([data-active-mode="runtime"]) #runtime-memory-position {
+.runtime-memory-navigation:not([data-active-mode="runtime"]):not([data-active-mode="long_term"]) #runtime-memory-position {
     pointer-events: none;
     color: rgba(244,244,245,0.96);
     background: transparent;
     text-shadow: none;
 }
 
-.runtime-memory-navigation[data-active-mode="runtime"] #runtime-memory-position.runtime-memory-position-pinned {
+.runtime-memory-navigation[data-active-mode="runtime"] #runtime-memory-position.runtime-memory-position-pinned,
+.runtime-memory-navigation[data-active-mode="long_term"] #runtime-memory-position.runtime-memory-position-pinned {
     color: rgba(134,239,172,0.98);
-    background-color: rgba(16,185,129,0.15);
+    background-color: rgba(16,185,129,0.12);
     text-shadow:
-            0 0 6px rgba(187,247,208,0.95),
-            0 0 14px rgba(34,197,94,0.85),
-            0 0 20px rgba(24,190,114,0.75),
-            0 0 28px rgba(16,185,129,0.55),
-            0 0 42px rgba(5,150,105,0.35);
+            0 0 4px rgba(187,247,208,0.72),
+            0 0 10px rgba(34,197,94,0.52),
+            0 0 18px rgba(24,190,114,0.34),
+            0 0 28px rgba(16,185,129,0.20);
 }
 
 #runtime-memory-text.runtime-memory-text-pinned {
@@ -2135,3 +2137,77 @@ button.jin-context-lt-fact-id.is-linked:focus-visible {
         gap: 5px;
     }
 }
+
+/* The pinned inspector reuses the existing hover card and its header. */
+.runtime-memory-lt-hover-card.memory-value-editor {
+    pointer-events: auto;
+    max-height: calc(100vh - 24px);
+}
+
+.memory-value-editor .runtime-memory-lt-hover-metadata {
+    max-height: max(60px, calc(45vh - 70px));
+    overflow-y: auto;
+}
+
+.memory-value-input {
+    display: block;
+    width: 100%;
+    box-sizing: border-box;
+    background: transparent;
+    border: 0;
+    border-bottom: 1px solid rgba(82, 82, 91, 0.52);
+    border-radius: 0;
+    font: inherit;
+    resize: none;
+    outline: none;
+    white-space: pre-wrap;
+}
+
+.memory-value-input:focus {
+    border-bottom-color: rgba(125, 211, 252, 0.46);
+}
+
+.memory-value-actions {
+    display: flex;
+    flex: 0 0 auto;
+    align-items: center;
+    gap: 7px;
+    height:0;
+}
+
+.memory-value-actions[hidden],
+.memory-value-error[hidden],
+.memory-value-dirty .runtime-memory-lt-hover-age {
+    display: none;
+}
+
+.memory-value-button {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 22px;
+    height: 22px;
+    padding: 2px;
+    border: 0;
+    background: transparent;
+    cursor: pointer;
+    border-radius: 4px;
+    transition: opacity 160ms ease;
+}
+
+.memory-value-button svg {
+    width: 18px;
+    height: 18px;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.7;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+}
+
+.memory-value-approve { color: rgba(134, 239, 172, 0.92); }
+.memory-value-rollback { color: rgba(147, 197, 253, 0.92); }
+.memory-value-button:hover { opacity: 0.8; }
+.memory-value-button:focus-visible { outline: 1px solid currentColor; }
+.memory-value-button:disabled { opacity: 0.35; cursor: default; }
+.memory-value-error { margin-top: 8px; color: rgba(248, 113, 113, 0.98); }

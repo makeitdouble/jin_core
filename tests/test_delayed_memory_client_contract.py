@@ -889,7 +889,7 @@ class DelayedMemoryClientContractTests(unittest.TestCase):
             paste_block,
         )
         self.assertIn(
-            ".match(/F[1-9]\\d*/gi) || [];",
+            ".match(/\\bF[1-9]\\d*\\b/gi) || [];",
             view_source,
         )
         self.assertIn(

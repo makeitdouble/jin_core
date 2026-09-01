@@ -399,7 +399,8 @@ body.theme-win95 #runtime-memory-next {
 
 body.theme-win95 #runtime-memory-prev:hover,
 body.theme-win95 #runtime-memory-next:hover,
-body.theme-win95 .runtime-memory-navigation[data-active-mode="runtime"] #runtime-memory-position:hover {
+body.theme-win95 .runtime-memory-navigation[data-active-mode="runtime"] #runtime-memory-position:hover,
+body.theme-win95 .runtime-memory-navigation[data-active-mode="long_term"] #runtime-memory-position:hover {
     background: var(--win95-face);
     border-top-color: var(--win95-light);
     border-left-color: var(--win95-light);

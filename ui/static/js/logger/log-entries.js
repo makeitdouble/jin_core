@@ -1390,6 +1390,7 @@ function createLTMemorySequenceCard() {
     complete: false,
     currentPhase: "",
     diffDetails: "",
+    diffTrace: null,
     diffTitle: "L-T merge applied",
     elements: {
       extraction: {
@@ -1435,7 +1436,9 @@ function createLTMemorySequenceCard() {
 
       showTrace(
         state.diffDetails,
-        state.diffTitle
+        state.diffTitle,
+        null,
+        state.diffTrace
       );
     }
   );
@@ -1538,7 +1541,9 @@ function inspectLTSequenceElement(
 
     showTrace(
       state.diffDetails,
-      state.diffTitle
+      state.diffTitle,
+      null,
+      state.diffTrace
     );
     return;
   }
@@ -1913,6 +1918,7 @@ function handleLTMemorySequenceLog(
 
     state.diffDetails =
       String(details || "No changes");
+    state.diffTrace = meta.trace || null;
     state.diffTitle =
       "L-T merge applied";
     setLTSequenceInspectable(

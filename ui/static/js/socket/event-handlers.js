@@ -615,6 +615,11 @@ registerSocketMessageHandler(
 );
 
 registerSocketMessageHandler(
+  "memory_value_edit_result",
+  data => window.JinRuntime?.memoryView?.handleMemoryValueEditResult(data)
+);
+
+registerSocketMessageHandler(
   "lt_memory_restore_result",
   handleSocketLTMemoryRestoreResult
 );

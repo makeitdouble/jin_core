@@ -4,7 +4,7 @@
   const THINK_RULE_CITATIONS_ENDPOINT =
     "/api/debug/rule-citations";
   const THINK_RULE_WORKER_URL =
-    "/static/js/think-rule-worker.js?v=rule-citations-6&active-citations=3";
+    "/static/js/think-rule-worker.js";
   const THINK_RUNTIME_CITATION_HIGHLIGHT_EVENT =
     "jin:think-runtime-citation-highlight";
   const MEMORY_REFERENCE_HIGHLIGHT_EVENT =

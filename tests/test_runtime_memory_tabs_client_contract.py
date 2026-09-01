@@ -7,6 +7,7 @@ INDEX_HTML = ROOT / "ui" / "templates" / "index.html"
 MEMORY_VIEW_JS = (
     ROOT / "ui" / "static" / "js" / "runtime" / "runtime-memory-view.js"
 )
+RUNTIME_JS = ROOT / "ui" / "static" / "js" / "runtime" / "runtime.js"
 MEMORY_CSS = ROOT / "ui" / "static" / "css" / "runtime-memory.css"
 
 
@@ -72,6 +73,35 @@ class RuntimeMemoryTabsClientContractTests(unittest.TestCase):
         )
         self.assertNotIn("grid-template-columns: repeat(5", css)
         self.assertNotIn('width: 20%;', css)
+
+    def test_lt_counter_toggles_active_and_all_report_backed_facts(self):
+        source = MEMORY_VIEW_JS.read_text(encoding="utf-8")
+        runtime_source = RUNTIME_JS.read_text(encoding="utf-8")
+        css = MEMORY_CSS.read_text(encoding="utf-8")
+
+        self.assertIn("let longTermMemoryShowsAll = false;", source)
+        self.assertIn('? "show active"\n              : "show all"', source)
+        self.assertIn(
+            'if (displayMode === "long_term") {\n'
+            "        longTermMemoryShowsAll = !longTermMemoryShowsAll;",
+            source,
+        )
+        self.assertIn("getAllLongTermMemoryFacts", source)
+        self.assertNotIn("const archivedRecords = [];", source)
+        self.assertNotIn("!activeFactIds.has(factId)", source)
+        self.assertNotIn("...archivedRecords,", source)
+        self.assertIn("...priorityRecords,\n      ...overflowRecords,", source)
+        self.assertIn(
+            "getAllLongTermMemoryFacts,\n"
+            "  deleteLongTermMemoryFact: deleteLongTermMemoryFactAndRender",
+            runtime_source,
+        )
+        self.assertIn("fact.source_fact_ids", source)
+        self.assertIn(
+            '.runtime-memory-navigation[data-active-mode="long_term"] '
+            "#runtime-memory-position.runtime-memory-position-pinned",
+            css,
+        )
 
 
 if __name__ == "__main__":

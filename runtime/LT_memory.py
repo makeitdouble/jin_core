@@ -3441,6 +3441,10 @@ async def run_lt_merge_phase(*, context, service_client) -> dict:
         details=merge_details or "No changes",
         fallback_channel="summarizer",
         event="merge_applied",
+        trace={
+            "kind": "lt_merge_applied",
+            "operation_details": merge_change.get("operation_details", []),
+        },
     )
     await emit_lt_memory_update(context, change=merge_change)
     if delayed_memory_change.get("changed"):

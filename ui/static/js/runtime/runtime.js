@@ -686,6 +686,7 @@ memoryView.init({
   getFactsMemoryFields,
   deleteFactsMemoryField: deleteFactsMemoryFieldAndRender,
   getLongTermMemoryFacts: getVisibleLongTermMemoryFacts,
+  getAllLongTermMemoryFacts,
   deleteLongTermMemoryFact: deleteLongTermMemoryFactAndRender,
   getDisplayMode: () => runtimeMemoryDisplayMode,
   setDisplayMode: (value) => {
@@ -822,6 +823,12 @@ function getVisibleLongTermMemoryFacts() {
   return ltMemory && typeof ltMemory.getFacts === "function"
     ? ltMemory.getFacts()
     : [];
+}
+
+function getAllLongTermMemoryFacts() {
+  return ltMemory && typeof ltMemory.getFacts === "function"
+    ? ltMemory.getFacts()
+    : getVisibleLongTermMemoryFacts();
 }
 
 function setDelayedMemoryPinnedOnAvatar(
@@ -1149,6 +1156,19 @@ function writeActiveMemoryRecordsAndRefresh(
   writeActiveMemoryRecords(
     records
   );
+
+  const activeMemoryRecords =
+    readActiveMemoryRecords();
+
+  // Pause/resume/delete from the memory panel is a local browser write.
+  // Keep the server copy in lockstep so a following explicit value edit
+  // cannot echo an older status (for example `paused`) back over the UI.
+  if (typeof window.sendSocketMessage === "function") {
+    window.sendSocketMessage({
+      type: "active_memory_store_sync",
+      active_memory_records: activeMemoryRecords,
+    });
+  }
 
   if (!syncActiveMemoryStateToAvatar()) {
     refreshRuntimeAvatar();

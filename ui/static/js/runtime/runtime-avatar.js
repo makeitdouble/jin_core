@@ -3990,7 +3990,7 @@
         ltFactIdSetsIntersect(
           getAvatarDashFactIdSet(
             node,
-            "delayedMemoryAnchorFactIds"
+            "delayedMemoryFactIds"
           ),
           hoveredLTFactIds
         )
