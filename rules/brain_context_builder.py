@@ -32,7 +32,6 @@ BRAIN_RUNTIME_ACTIONS = {
     "CAN_USE_ASSETS": True,
     "CAN_SAVE_DELAYED_MEMORY": True,
     "CAN_SAVE_ACTIVE_MEMORY": True,
-    "CAN_RUNTIME_TODO": False,
     "CAN_CLEAN_TOOL_RESULTS": True,
     "CAN_JIN_COLOR": True,
     "CAN_JIN_SIZE": True,
@@ -247,34 +246,6 @@ def _append_user_retry_context(
             "Do not describe the retry itself unless it is directly useful to the answer.",
             "</USER_RETRY>",
         ])
-    )
-
-
-def _append_current_runtime_todo(
-    parts: list[str],
-    context=None,
-) -> None:
-
-    from utils.runtime_todo import (
-        format_runtime_todo_xml,
-    )
-
-    if context is None:
-        return
-
-    runtime_todo_xml = format_runtime_todo_xml(
-        getattr(
-            context,
-            "runtime_todo",
-            [],
-        )
-    )
-
-    if not runtime_todo_xml:
-        return
-
-    parts.append(
-        runtime_todo_xml
     )
 
 
@@ -1425,12 +1396,6 @@ def build_brain_context(
 
     # Visible session state block: records visible turn and message counters.
     _append_visible_session_state(
-        runtime_context_parts,
-        context,
-    )
-
-    # Current runtime todo block: keeps active task checklist state in view.
-    _append_current_runtime_todo(
         runtime_context_parts,
         context,
     )

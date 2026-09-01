@@ -509,7 +509,6 @@ function extractRuntimeActionObjectTitle(value) {
     "delayed_memory_result",
     "asset_result",
     "skill_result",
-    "runtime_todo_result",
   ]) {
     const nestedTitle =
       extractRuntimeActionObjectTitle(
@@ -570,7 +569,6 @@ function buildRuntimeActionDetail(
       || data.delayed_memory_result
       || data.asset_result
       || data.skill_result
-      || data.runtime_todo_result
     );
 
   if (objectTitle) {

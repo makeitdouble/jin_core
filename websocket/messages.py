@@ -1661,9 +1661,6 @@ async def process_message(
                 assistant_message=assistant_message,
             )
 
-        # Background fact-checking is intentionally not armed here.
-        # Fact-checking runs only from the explicit UI request path.
-
     except asyncio.CancelledError:
 
         if (

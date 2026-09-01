@@ -1,4 +1,4 @@
-# Builds runtime state, feedback, todo, and activity alert context blocks.
+# Builds runtime state, feedback, and activity alert context blocks.
 from datetime import datetime
 from app_settings import (
     settings,

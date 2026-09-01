@@ -76,9 +76,6 @@ from utils.actions import (
     normalize_jin_color_payload,
     normalize_jin_size_payload,
 )
-from utils.runtime_todo import (
-    has_active_runtime_todo,
-)
 from utils.current_context_window import (
     prepare_current_context_window_prompt,
 )
@@ -247,11 +244,8 @@ def build_brain_user_prompt_content(
 
 def build_brain_context_snapshot(
     *,
-    context=None,
     system_prompt: str,
     user_prompt: str,
-    runtime_actions=None,
-    include_previous_reasoning: bool = True,
 ) -> dict:
 
     snapshot = {
@@ -259,20 +253,6 @@ def build_brain_context_snapshot(
         "system_prompt": system_prompt,
         "user_prompt": user_prompt,
     }
-
-    if not has_active_runtime_todo(
-        context
-    ):
-        return snapshot
-
-    snapshot["hide_internal_action_rules"] = True
-    snapshot["visible_system_prompt"] = build_brain_context(
-        context,
-        runtime_actions,
-        user_input=user_prompt,
-        include_runtime_action_instructions=False,
-        include_previous_reasoning=include_previous_reasoning,
-    )
 
     return snapshot
 
@@ -325,10 +305,8 @@ async def ask_brain(
     system_prompt = prepared_context_window.system_prompt
 
     action_context_snapshot = build_brain_context_snapshot(
-        context=context,
         system_prompt=system_prompt,
         user_prompt=brain_payload,
-        runtime_actions=runtime_actions,
     )
     runtime_message_id = str(
         uuid.uuid4()
@@ -581,10 +559,8 @@ async def ask_brain_stream(
     asset_action_bubble_id = ""
     asset_action_bubble_text = ""
     action_context_snapshot = build_brain_context_snapshot(
-        context=context,
         system_prompt=resolved_system_prompt,
         user_prompt=resolved_brain_payload,
-        runtime_actions=runtime_actions,
     )
     runtime_message_id = str(
         uuid.uuid4()

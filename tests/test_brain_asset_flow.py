@@ -2920,7 +2920,7 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
         action_names = [
             "load_skill",
             "list_skills",
-            "check_todo",
+            "list_files",
         ]
 
         async def fake_run_brain_stream(**kwargs):
@@ -2983,7 +2983,7 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
             calls[2]["system_prompt"],
         )
         self.assertIn(
-            'CHECK_TODO',
+            'LIST_FILES',
             calls[3]["system_prompt"],
         )
         for call in calls[1:]:

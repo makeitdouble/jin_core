@@ -30,9 +30,6 @@ def _normalize_action_name(action_name: str) -> str:
     aliases = {
         "SAVE_ACTIVE_MEMORY": "SAVE_ACTIVE_MEMORY",
         "USE_ASSETS": "ASSET_ACTION",
-        "TODO_LIST": "CREATE_TODO_LIST",
-        "INTERNAL_ACTION_TODO_LIST": "CREATE_TODO_LIST",
-        "INTERNAL_ACTION_CREATE_TODO_LIST": "CREATE_TODO_LIST",
     }
 
     return aliases.get(normalized, normalized)
@@ -617,9 +614,6 @@ RUNTIME_ACTION_ASSET_ACTION = get_runtime_action_name("asset_action")
 RUNTIME_ACTION_LIST_FILES = get_runtime_action_name("list_files")
 RUNTIME_ACTION_ATTACH_FILE = get_runtime_action_name("attach_file")
 RUNTIME_ACTION_DETACH_FILE = get_runtime_action_name("detach_file")
-RUNTIME_ACTION_CREATE_TODO_LIST = get_runtime_action_name("create_todo_list")
-RUNTIME_ACTION_RESOLVE_TODO = get_runtime_action_name("resolve_todo")
-RUNTIME_ACTION_CHECK_TODO = get_runtime_action_name("check_todo")
 RUNTIME_ACTION_JIN_COLOR = get_runtime_action_name("jin_color")
 RUNTIME_ACTION_JIN_SIZE = get_runtime_action_name("jin_size")
 RUNTIME_ACTION_JIN_POSITION = get_runtime_action_name("jin_position")

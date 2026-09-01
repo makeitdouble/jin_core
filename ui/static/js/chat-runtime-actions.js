@@ -240,21 +240,6 @@ const runtimeActionIconDefinitions = {
     tone: "asset",
     svg: '<path d="m12 3 8 4.5v9L12 21l-8-4.5v-9z"></path><path d="M4 7.5 12 12l8-4.5"></path><path d="M12 12v9"></path>',
   },
-  create_todo_list: {
-    title: "create todo list",
-    tone: "todo",
-    svg: '<path d="M8 6h11"></path><path d="M8 12h11"></path><path d="M8 18h7"></path><path d="M4 6h.01"></path><path d="M4 12h.01"></path><path d="M4 18h.01"></path><path d="M18 16v4"></path><path d="M16 18h4"></path>',
-  },
-  resolve_todo: {
-    title: "resolve todo",
-    tone: "resolve",
-    svg: '<path d="M5 5h14v14H5z"></path><path d="m8.5 12.2 2.2 2.3 4.8-5"></path>',
-  },
-  check_todo: {
-    title: "check todo",
-    tone: "todo",
-    svg: '<path d="M8 4h8l2 3v13H6V7z"></path><path d="M9 12h4"></path><path d="M9 16h6"></path><path d="m14 5 2 2"></path>',
-  },
   idle: {
     title: "idle",
     tone: "idle",

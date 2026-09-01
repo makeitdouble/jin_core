@@ -136,7 +136,7 @@ There is no active planner/router node in front of Brain.
 Physical model endpoints are resolved through the client/config layer. Logical roles remain:
 
 - **BRAIN** — the only foreground reasoning/visible-answer/runtime-decision route;
-- **SERVICE** — background FRAME, L-T, fact-check/research, document-skill, and supporting model work.
+- **SERVICE** — background FRAME, L-T, research, document-skill, and supporting model work.
 
 `utils/brain_client_utils.py::get_brain_runtime_config()` always returns label `brain`, and `BrainNode` resolves `context.clients["brain"]`. There is no active foreground branch to Service.
 
@@ -171,7 +171,6 @@ The current high-level order is:
    - ordinary turns: `<PREVIOUS_CHAT_MESSAGES>`;
    - current `<FRAME_MEMORY_N ...>` snapshot;
    - visible session counters;
-   - runtime TODO state;
    - loaded Delayed Memory bodies;
    - L-T long-term memory;
    - zero-diff stall alert;
@@ -183,7 +182,7 @@ The current high-level order is:
 
 On ordinary turns, `<PREVIOUS_CHAT_MESSAGES>` takes the newest three recent USER/JIN pairs. The bound is pair count only: selected message bodies are no longer character-cropped. CRLF/CR is normalized, physical newlines are serialized as literal `\\n`, surrounding whitespace is stripped, and XML-sensitive characters are escaped without removing the remaining text.
 
-The ordinary initial Brain prompt also includes the previous successfully completed reasoning in `<PREVIOUS_REASONING_CONTENT>`. Up to 2000 characters are kept whole; above that threshold the projection keeps the first and last 25% and replaces the middle with `CUTTED N chars`. Interrupted/recovery reasoning is tracked separately. Action and recovery follow-ups explicitly assemble their own current-turn/loop reasoning context instead of duplicating the ordinary previous-reasoning block. The visible TODO context snapshot mirrors the same ordinary-vs-follow-up choice.
+The ordinary initial Brain prompt also includes the previous successfully completed reasoning in `<PREVIOUS_REASONING_CONTENT>`. Up to 2000 characters are kept whole; above that threshold the projection keeps the first and last 25% and replaces the middle with `CUTTED N chars`. Interrupted/recovery reasoning is tracked separately. Action and recovery follow-ups explicitly assemble their own current-turn/loop reasoning context instead of duplicating the ordinary previous-reasoning block.
 
 Prompt text is a transient projection. Canonical state remains in `RuntimeContext`, browser persistence, and filesystem stores.
 
@@ -221,9 +220,6 @@ Current action names in the contract table:
 - `LIST_FILES`
 - `ATTACH_FILE`
 - `DETACH_FILE`
-- `CREATE_TODO_LIST`
-- `RESOLVE_TODO`
-- `CHECK_TODO`
 - `SAVE_DELAYED_MEMORY`
 - `LOAD_DELAYED_MEMORY`
 - `UNLOAD_DELAYED_MEMORY`
@@ -231,7 +227,7 @@ Current action names in the contract table:
 - `DELETE_ACTIVE_MEMORY`
 - `UPDATE_ACTIVE_MEMORY`
 
-The default `rules/brain_context_builder.py` feature map currently disables runtime TODO (`CAN_RUNTIME_TODO=False`) while the other listed capabilities are enabled there. Search is an additional effective-capability gate: `WEB_SEARCH` and `DEEP_WEB_SEARCH` are removed from the model-facing action set unless `app_settings.settings.CAN_SEARCH` is true. `CAN_SEARCH` currently means provider `serper` plus a non-empty, non-placeholder configured key; the runtime deliberately does not guess a provider-specific key shape and leaves credential validation to Serper. The search client enforces the same gate before making a request.
+The default `rules/brain_context_builder.py` feature map enables the listed capabilities. Search is an additional effective-capability gate: `WEB_SEARCH` and `DEEP_WEB_SEARCH` are removed from the model-facing action set unless `app_settings.settings.CAN_SEARCH` is true. `CAN_SEARCH` currently means provider `serper` plus a non-empty, non-placeholder configured key; the runtime deliberately does not guess a provider-specific key shape and leaves credential validation to Serper. The search client enforces the same gate before making a request.
 
 There is **no current `SAVE_SESSION` contract** in this snapshot.
 

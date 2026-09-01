@@ -34,7 +34,6 @@ from runtime.LT_memory import (
     schedule_lt_memory_idle_update,
     unregister_lt_websocket_connection,
 )
-from runtime.fact_check import run_fact_check_once
 from runtime.LT_mention_backfill import (
     schedule_lt_log_mention_backfill,
 )
@@ -805,47 +804,6 @@ async def websocket_endpoint(
                 )
 
                 current_task = None
-
-                continue
-
-            # -------------------------------------------------
-            # MANUAL FACT CHECK
-            # -------------------------------------------------
-
-            if message_type == "fact_check":
-
-                if (
-                    current_task is not None
-                    and not current_task.done()
-                ):
-                    await logger.log_runtime(
-                        "[FACT_CHECK] skipped: generation is running"
-                    )
-                    continue
-
-                await logger.log(
-                    "[MEMORY:FACT_CHECK]",
-                    "[FACT_CHECK] manual web check requested",
-                    channel="memory",
-                    memory_level="FACT_CHECK",
-                    memory_event="fact_check_manual",
-                )
-
-                runtime_memory_task = getattr(
-                    context,
-                    "runtime_memory_update_task",
-                    None,
-                )
-
-                if runtime_memory_task is not None:
-                    await logger.log_runtime(
-                        "[FACT_CHECK] waiting for runtime memory update"
-                    )
-                    await runtime_memory_task
-
-                await run_fact_check_once(
-                    context
-                )
 
                 continue
 

@@ -165,9 +165,6 @@ ASSET_ACTION
 LIST_FILES
 ATTACH_FILE
 DETACH_FILE
-CREATE_TODO_LIST
-RESOLVE_TODO
-CHECK_TODO
 SAVE_DELAYED_MEMORY
 LOAD_DELAYED_MEMORY
 UNLOAD_DELAYED_MEMORY
@@ -178,7 +175,7 @@ UPDATE_ACTIVE_MEMORY
 
 `utils/actions/dispatcher.py` contains execution branches for the same action family. Every concrete contract now carries a separate `schema` string array before `rules`; `contracts/rules_assembler.py::get_runtime_action_schema()` feeds both model-facing contract text and failed-action diagnostics. Failed tool results are rendered as readable text (status/reason, supplied payload when relevant, `Correct action schema:`), and `ACTION_FAILURE_FOLLOWUP_MESSAGE` explicitly tells Brain not to assume the failed action completed.
 
-Default Brain action flags currently set `CAN_RUNTIME_TODO=False`; the other mapped feature flags in `rules/brain_context_builder.py` are enabled. `WEB_SEARCH` and `DEEP_WEB_SEARCH` are then filtered again by `settings.CAN_SEARCH`, so they are not model-visible unless provider `serper` has a non-empty, non-placeholder configured key. `config.example.py` exposes the search settings with `mock-serper-api-key`; that placeholder intentionally keeps search disabled until a real local key is configured. The local availability check intentionally does not impose an invented key-length/shape regex; Serper remains the credential authority.
+The mapped Brain feature flags in `rules/brain_context_builder.py` are enabled. `WEB_SEARCH` and `DEEP_WEB_SEARCH` are then filtered again by `settings.CAN_SEARCH`, so they are not model-visible unless provider `serper` has a non-empty, non-placeholder configured key. `config.example.py` exposes the search settings with `mock-serper-api-key`; that placeholder intentionally keeps search disabled until a real local key is configured. The local availability check intentionally does not impose an invented key-length/shape regex; Serper remains the credential authority.
 
 `CLEAN_TOOL_RESULTS` is a no-payload action. The canonical bare `<CLEAN_TOOL_RESULTS>` marker and a redundant paired-looking `<CLEAN_TOOL_RESULTS>...</CLEAN_TOOL_RESULTS>` form resolve to one cleanup; the closing tag is consumed as parser noise, including when split across stream chunks.
 

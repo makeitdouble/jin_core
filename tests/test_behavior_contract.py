@@ -326,14 +326,14 @@ class BehaviorContractTests(unittest.TestCase):
     def test_close_tag_runtime_action_instructions_include_both_markers(self):
 
         instructions = build_runtime_action_contract_instructions(
-            "CREATE_TODO_LIST"
+            "JIN_COLOR"
         )
 
         self.assertTrue(
             instructions.startswith(
-                "<TODO_LIST></TODO_LIST>\n"
-                "Follow-up: true\n"
-                "RUNTIME TODO LEDGER:"
+                "<JIN_COLOR></JIN_COLOR>\n"
+                "Follow-up: false\n"
+                "Use to set single color for the JIN Live Avatar"
             )
         )
 

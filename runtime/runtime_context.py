@@ -182,10 +182,6 @@ class RuntimeContext:
         default_factory=list
     )
 
-    runtime_todo: list[dict] = field(
-        default_factory=list
-    )
-
     active_memory_records: list[str] = field(
         default_factory=list
     )
@@ -384,8 +380,6 @@ class RuntimeContext:
     )
 
     runtime_memory_update_task: object | None = None
-
-    fact_check_idle_task: object | None = None
 
     runtime_memory_snapshots: list[dict] = field(
         default_factory=list

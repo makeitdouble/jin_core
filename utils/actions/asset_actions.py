@@ -4,9 +4,7 @@ from contracts.rules_assembler import (
     runtime_action_has_close_tag,
 )
 from utils.actions import build_runtime_action_id
-from utils.actions.todo_actions import attach_todo_result
 from utils.python_skill_asset_utils import run_context_asset_action
-from utils.runtime_todo import normalize_file_exists_for_runtime_todo
 from utils.session_actions_history import (
     build_asset_action_marker_text,
     build_asset_action_context_detail,
@@ -19,7 +17,6 @@ async def apply_asset_actions(
     context,
     asset_actions,
     *,
-    runtime_todo_action_items,
     log_runtime,
     with_action_context,
 ):
@@ -144,16 +141,6 @@ async def apply_asset_actions(
             context.runtime_active_asset_action_message_id = (
                 previous_active_asset_action_message_id
             )
-        result = normalize_file_exists_for_runtime_todo(
-            result,
-            context,
-        )
-        result = attach_todo_result(
-            context,
-            runtime_todo_action_items,
-            action,
-            result,
-        )
         result["runtime_action_id"] = pending_action_id
         append_asset_runtime_result(
             context,

@@ -4,8 +4,6 @@ from contracts.rules_assembler import (
     RUNTIME_ACTION_LIST_FILES,
     RUNTIME_ACTION_LOAD_SKILL,
     RUNTIME_ACTION_ASSET_ACTION,
-    RUNTIME_ACTION_CHECK_TODO,
-    RUNTIME_ACTION_CREATE_TODO_LIST,
     RUNTIME_ACTION_SAVE_ACTIVE_MEMORY,
     RUNTIME_ACTION_JIN_COLOR,
     RUNTIME_ACTION_JIN_SIZE,
@@ -16,7 +14,6 @@ from contracts.rules_assembler import (
     RUNTIME_ACTION_UNLOAD_DELAYED_MEMORY,
     RUNTIME_ACTION_DETACH_FILE,
     RUNTIME_ACTION_UNLOAD_SKILL,
-    RUNTIME_ACTION_RESOLVE_TODO,
     RUNTIME_ACTION_SAVE_DELAYED_MEMORY,
     RUNTIME_ACTION_DELETE_ACTIVE_MEMORY,
     RUNTIME_ACTION_UPDATE_ACTIVE_MEMORY,
@@ -90,10 +87,6 @@ from utils.actions.jin_visual_sequence_actions import (
 from utils.actions.skill_actions import (
     apply_skill_actions,
     emit_skill_state_results,
-)
-from utils.actions.todo_actions import (
-    collect_runtime_todo_actions,
-    emit_runtime_todo_results,
 )
 
 from utils.brain_client_utils import (
@@ -268,11 +261,6 @@ async def apply_runtime_action_calls(
         RUNTIME_ACTION_JIN_POSITION,
         RUNTIME_ACTION_JIN_SPEED,
         RUNTIME_ACTION_UPDATE_LT_FACTS,
-    }
-    todo_action_names = {
-        RUNTIME_ACTION_CREATE_TODO_LIST,
-        RUNTIME_ACTION_RESOLVE_TODO,
-        RUNTIME_ACTION_CHECK_TODO,
     }
     loaded_skill_names = {
         normalize_skill_name(
@@ -544,7 +532,6 @@ async def apply_runtime_action_calls(
             action
             for action in actions
             if action.name in skill_workflow_action_names
-            or action.name in todo_action_names
         ]
 
     from runtime.behavior_contract import (
@@ -1049,20 +1036,6 @@ async def apply_runtime_action_calls(
             )
             continue
 
-        if action.name in todo_action_names:
-            if not accept_runtime_action_once_per_message(
-                action
-            ):
-                continue
-
-            accepted_action_names.add(
-                action_event_name
-            )
-            filtered_actions.append(
-                action
-            )
-            continue
-
         if action.name == RUNTIME_ACTION_DEEP_WEB_SEARCH:
             objective = extract_search_query(
                 action.payload
@@ -1165,15 +1138,6 @@ async def apply_runtime_action_calls(
         and not rejected_action_events
     ):
         return 0
-
-    (
-        runtime_todo_results,
-        runtime_todo_action_items,
-    ) = collect_runtime_todo_actions(
-        context,
-        filtered_actions,
-        todo_action_names,
-    )
 
     accepted_action_ids = {
         id(action)
@@ -1782,13 +1746,6 @@ async def apply_runtime_action_calls(
             f"search x{len(search_queries)}"
         )
 
-    await emit_runtime_todo_results(
-        context,
-        runtime_todo_results,
-        log_runtime=log_runtime,
-        with_action_context=with_action_context,
-    )
-
     if clean_tool_result_actions:
         if log_runtime is not None:
             await log_runtime(
@@ -1836,7 +1793,6 @@ async def apply_runtime_action_calls(
         context,
         load_skill_actions=load_skill_actions,
         unload_skill_actions=unload_skill_actions,
-        runtime_todo_action_items=runtime_todo_action_items,
         log_runtime=log_runtime,
     )
     saved_asset_results = list(
@@ -1849,7 +1805,6 @@ async def apply_runtime_action_calls(
         await apply_asset_actions(
             context,
             asset_actions,
-            runtime_todo_action_items=runtime_todo_action_items,
             log_runtime=log_runtime,
             with_action_context=with_action_context,
         )

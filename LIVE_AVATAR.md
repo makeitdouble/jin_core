@@ -731,7 +731,7 @@ The click toggles `is-memory-layers-hidden` on `#jin-runtime-avatar`. Current CS
 
 The central light remains visible. The **file ring currently also remains visible**, because `.jin-avatar-file-ring` / `.jin-avatar-file-dot` are not part of the `is-memory-layers-hidden` selector. Treat that as current behavior when changing the toggle; do not assume "memory layers" automatically includes files.
 
-The old manual fact-check WebSocket path still exists separately, but center click does not start fact-check and does not call `avatar.refresh()`.
+Center click does not call `avatar.refresh()`.
 
 ## Edit Recipes
 

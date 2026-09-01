@@ -176,10 +176,6 @@ class RuntimePanelClientContractTests(unittest.TestCase):
             css_source,
         )
         self.assertIn(
-            "@keyframes factCheckGlowPulse",
-            css_source,
-        )
-        self.assertIn(
             "#memory-panel.memory-updating.memory-pulse",
             css_source,
         )
@@ -189,10 +185,6 @@ class RuntimePanelClientContractTests(unittest.TestCase):
         )
         self.assertIn(
             "#memory-panel.memory-l3-updating.memory-l3-pulse",
-            css_source,
-        )
-        self.assertIn(
-            "#memory-panel.fact-check-running.fact-check-pulse",
             css_source,
         )
 

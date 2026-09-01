@@ -514,7 +514,7 @@ For explicit URL restore, the server archive owns dialogue, reasoning, and FRAME
 
 An ordinary user turn includes the previous successful reasoning in `<PREVIOUS_REASONING_CONTENT>`. The projection preserves the whole block through 2000 characters; for a larger block it keeps the first and last 25% and replaces only the middle with an explicit `CUTTED N chars` separator.
 
-Action/recovery follow-ups do not append this ordinary block again. They construct the relevant current-turn or loop-recovery reasoning context explicitly, and the visible TODO context snapshot follows the same distinction.
+Action/recovery follow-ups do not append this ordinary block again. They construct the relevant current-turn or loop-recovery reasoning context explicitly.
 
 **Why:** the opening and conclusion preserve the previous line of thought without spending the entire context window on its middle, while dedicated follow-up context avoids stale or duplicated reasoning.
 

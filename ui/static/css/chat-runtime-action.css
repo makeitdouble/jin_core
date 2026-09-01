@@ -61,12 +61,6 @@
     color: rgba(187, 247, 208, 0.92);
 }
 
-.jin-runtime-action-icon-resolve {
-    border-color: rgba(132, 204, 22, 0.48) !important;
-    background: rgba(54, 83, 20, 0.34) !important;
-    color: rgba(217, 249, 157, 0.92);
-}
-
 .jin-runtime-action-icon-delete {
     border-color: rgba(248, 113, 113, 0.48) !important;
     background: rgba(127, 29, 29, 0.30) !important;
@@ -74,7 +68,6 @@
 }
 
 .jin-runtime-action-icon-clean,
-.jin-runtime-action-icon-todo,
 .jin-runtime-action-icon-update {
     border-color: rgba(251, 191, 36, 0.42) !important;
     background: rgba(120, 53, 15, 0.28) !important;

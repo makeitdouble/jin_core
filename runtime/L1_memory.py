@@ -9,9 +9,6 @@ from clients.service_client import (
 from config_loader import (
     config,
 )
-from runtime.fact_check import (
-    ensure_confirmable_memory_markers,
-)
 from runtime.L1_memory_rules import (
     build_runtime_memory_system_prompt,
 )
@@ -681,14 +678,6 @@ async def summarize_runtime_memory(
         updated_memory = remove_runtime_response_feedback_text(
             updated_memory
         )
-        updated_memory = ensure_confirmable_memory_markers(
-            updated_memory,
-            user_message=user_message,
-            assistant_message=assistant_message,
-        )
-        updated_memory = remove_runtime_response_feedback_text(
-            updated_memory
-        )
         updated_memory = remove_runtime_user_idle_lines(
             updated_memory
         )
@@ -865,24 +854,6 @@ async def summarize_runtime_memory_pending_turns(
             updated_memory
         )
 
-        latest_turn = turns[-1] if turns else {}
-        latest_user_message = latest_turn.get(
-            "user_message",
-            "",
-        )
-        latest_assistant_message = latest_turn.get(
-            "assistant_message",
-            "",
-        )
-
-        updated_memory = ensure_confirmable_memory_markers(
-            updated_memory,
-            user_message=latest_user_message,
-            assistant_message=latest_assistant_message,
-        )
-        updated_memory = remove_runtime_response_feedback_text(
-            updated_memory
-        )
         updated_memory = remove_runtime_user_idle_lines(
             updated_memory
         )

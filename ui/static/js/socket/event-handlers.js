@@ -284,8 +284,6 @@ function handleSocketError(
     data.details
   );
 
-  stopFactCheckGlow();
-
 }
 
 function handleSocketChatMessage(

@@ -871,12 +871,6 @@
     }
 }
 
-#memory-panel.fact-check-running .jin-runtime-avatar-core-button {
-    box-shadow:
-        0 0 0 1px rgba(125, 211, 252, 0.32),
-        0 0 24px rgba(56, 189, 248, 0.23);
-}
-
 #memory-panel.panel-collapsed #memory-drag-handle {
     flex: 0 0 var(--runtime-avatar-panel-size);
     height: var(--runtime-avatar-panel-size);

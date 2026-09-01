@@ -387,90 +387,8 @@ let activeMemoryGlowStage = "";
 let memoryGlowPulseTimer = null;
 let memoryGlowFadeTimer = null;
 
-let factCheckGlowActive = false;
-let factCheckGlowPulseTimer = null;
-let factCheckGlowFadeTimer = null;
-
 function getMemoryPanel() {
   return document.getElementById("memory-panel");
-}
-
-function clearFactCheckGlowTimers() {
-  if (factCheckGlowPulseTimer) {
-    clearTimeout(factCheckGlowPulseTimer);
-    factCheckGlowPulseTimer = null;
-  }
-
-  if (factCheckGlowFadeTimer) {
-    clearTimeout(factCheckGlowFadeTimer);
-    factCheckGlowFadeTimer = null;
-  }
-}
-
-function startFactCheckGlow() {
-  const panel = getMemoryPanel();
-
-  if (!panel) {
-    return;
-  }
-
-  clearFactCheckGlowTimers();
-  factCheckGlowActive = true;
-
-  panel.classList.remove(
-    "fact-check-fading"
-  );
-
-  panel.classList.add(
-    "fact-check-running"
-  );
-
-  factCheckGlowPulseTimer = setTimeout(() => {
-    if (
-      !factCheckGlowActive
-      || !panel.classList.contains("fact-check-running")
-    ) {
-      return;
-    }
-
-    panel.classList.add(
-      "fact-check-pulse"
-    );
-  }, 900);
-}
-
-function stopFactCheckGlow() {
-  const panel = getMemoryPanel();
-
-  if (!panel) {
-    return;
-  }
-
-  clearFactCheckGlowTimers();
-  factCheckGlowActive = false;
-
-  panel.classList.remove(
-    "fact-check-pulse"
-  );
-
-  if (!panel.classList.contains("fact-check-running")) {
-    return;
-  }
-
-  panel.classList.add(
-    "fact-check-fading"
-  );
-
-  factCheckGlowFadeTimer = setTimeout(() => {
-    if (factCheckGlowActive) {
-      return;
-    }
-
-    panel.classList.remove(
-      "fact-check-running",
-      "fact-check-fading"
-    );
-  }, 1200);
 }
 
 function clearMemoryGlowTimers() {
@@ -491,29 +409,18 @@ function clearMemoryGlowClasses(panel) {
   );
 }
 
-function clearFactCheckGlowClasses(panel) {
-  panel.classList.remove(
-    "fact-check-running",
-    "fact-check-pulse",
-    "fact-check-fading"
-  );
-}
-
 function cancelPanelGlows() {
   const panel = getMemoryPanel();
 
   clearMemoryGlowTimers();
-  clearFactCheckGlowTimers();
 
   activeMemoryGlowStage = "";
-  factCheckGlowActive = false;
 
   if (!panel) {
     return;
   }
 
   clearMemoryGlowClasses(panel);
-  clearFactCheckGlowClasses(panel);
 }
 
 function setMemoryGlowStage(stage) {
@@ -617,8 +524,6 @@ window.stopL2MemoryGlow = stopL2MemoryGlow;
 window.startL3MemoryGlow = startL3MemoryGlow;
 window.stopL3MemoryGlow = stopL3MemoryGlow;
 window.cancelPanelGlows = cancelPanelGlows;
-window.startFactCheckGlow = startFactCheckGlow;
-window.stopFactCheckGlow = stopFactCheckGlow;
 
 function handleActiveMemoryRecordsUpdate(
   data
@@ -634,22 +539,6 @@ function handleActiveMemoryRecordsUpdate(
     );
   }
 
-}
-
-function handleFactCheckState(
-  data
-) {
-
-  if (data.active) {
-    startFactCheckGlow();
-  } else {
-    stopFactCheckGlow();
-  }
-
-}
-
-function handleFactCheckUpdate() {
-  stopFactCheckGlow();
 }
 
 function handleSocketLog(
@@ -738,16 +627,6 @@ function handleSocketLog(
 registerSocketMessageHandler(
   "active_memory_records_update",
   handleActiveMemoryRecordsUpdate
-);
-
-registerSocketMessageHandler(
-  "fact_check_state",
-  handleFactCheckState
-);
-
-registerSocketMessageHandler(
-  "fact_check_update",
-  handleFactCheckUpdate
 );
 
 registerSocketMessageHandler(

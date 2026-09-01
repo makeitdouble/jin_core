@@ -119,15 +119,6 @@ def expected_enabled_runtime_actions(runtime_actions: dict) -> tuple[str, ...]:
             )
         )
 
-    if bool(runtime_actions.get("CAN_RUNTIME_TODO", False)):
-        expected_actions.extend(
-            (
-                "CREATE_TODO_LIST",
-                "RESOLVE_TODO",
-                "CHECK_TODO",
-            )
-        )
-
     if bool(runtime_actions.get("CAN_SAVE_DELAYED_MEMORY", False)):
         expected_actions.extend(
             (

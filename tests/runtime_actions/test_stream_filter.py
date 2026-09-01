@@ -41,7 +41,6 @@ from utils.brain_client_utils import (
 )
 from utils.context.context_exports import build_tool_results_context
 from utils.file_manager_asset_utils import read_asset_text_preview
-from utils.runtime_todo import create_runtime_todo
 from utils.skills_asset_utils import (
     list_skills,
     normalize_skill_name,
@@ -612,11 +611,6 @@ class RuntimeStreamFilterTests(RuntimeActionTestCase):
                 "file_manager",
             ),
             (
-                "<RESOLVE_TODO: todo-1/>",
-                "RESOLVE_TODO",
-                "todo-1",
-            ),
-            (
                 "<LOAD_DELAYED_MEMORY: a1b2c3/>",
                 "LOAD_DELAYED_MEMORY",
                 "a1b2c3",
@@ -865,11 +859,6 @@ class RuntimeStreamFilterTests(RuntimeActionTestCase):
                 "<DELETE_ACTIVE_MEMORY: **abc123**>",
                 "DELETE_ACTIVE_MEMORY",
                 "abc123",
-            ),
-            (
-                "<RESOLVE_TODO: **todo-1**>",
-                "RESOLVE_TODO",
-                "todo-1",
             ),
             (
                 "<UNLOAD_DELAYED_MEMORY: **d4e5f6**>",

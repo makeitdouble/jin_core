@@ -3,7 +3,6 @@ from contracts.rules_assembler import (
     runtime_action_has_close_tag,
 )
 from utils.actions import build_runtime_action_id
-from utils.actions.todo_actions import attach_todo_result
 from utils.session_actions_history import record_session_action_history
 from utils.skills_asset_utils import (
     load_skill,
@@ -285,7 +284,6 @@ async def apply_skill_actions(
     *,
     load_skill_actions,
     unload_skill_actions,
-    runtime_todo_action_items,
     log_runtime,
 ):
     from utils.brain_client_utils import append_asset_runtime_result
@@ -339,12 +337,6 @@ async def apply_skill_actions(
                 )
                 context.runtime_loaded_skills = current_skills
 
-            result = attach_todo_result(
-                context,
-                runtime_todo_action_items,
-                action,
-                result,
-            )
             if (
                 result.get("ok") is False
                 and result.get("error") == "skill_not_found"

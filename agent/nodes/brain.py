@@ -1673,14 +1673,8 @@ class BrainNode(BaseNode):
         )
 
         context_snapshot = build_brain_context_snapshot(
-            context=context,
             system_prompt=system_prompt,
             user_prompt=effective_brain_payload,
-            runtime_actions=runtime_actions,
-            # Keep the visible context snapshot aligned with the ordinary
-            # model prompt. Action follow-ups intentionally build their own
-            # reasoning context and stay excluded here.
-            include_previous_reasoning=not is_followup_tick,
         )
 
         if preserve_runtime_action_markers:

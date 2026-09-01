@@ -29,7 +29,6 @@ function getInternalActionPayload(data) {
     "runtime_action_payload",
     "asset_result",
     "skill_result",
-    "runtime_todo_result",
     "delayed_memory_report",
     "details",
   ];

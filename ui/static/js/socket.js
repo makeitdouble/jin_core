@@ -249,38 +249,6 @@ window.sendRuntimeMemoryDeleteSlot = function (payload) {
   });
 };
 
-function triggerManualFactCheck() {
-
-  if (!isWebSocketOpen()) {
-    connectWebSocket();
-
-    appendLog(
-      "[SYSTEM]",
-      "WebSocket reconnecting. Fact check was not started."
-    );
-
-    return false;
-  }
-
-  appendLog(
-    "[MEMORY:FACT_CHECK]",
-    "manual fact check requested"
-  );
-
-  const sent = sendSocketMessage({
-    type: "fact_check"
-  });
-
-  if (sent) {
-    startFactCheckGlow();
-  }
-
-  return sent;
-
-}
-
-window.triggerManualFactCheck = triggerManualFactCheck;
-
 function clearWebSocketReconnectTimer() {
 
   if (!websocketReconnectTimer) {
