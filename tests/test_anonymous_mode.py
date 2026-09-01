@@ -16,7 +16,9 @@ from runtime.anonymous_mode import (
     ensure_anonymous_session_id,
     is_anonymous_session_id,
     runtime_action_write_is_restricted,
+    lt_memory_writes_restricted,
 )
+from runtime.LT_memory import apply_lt_memory_store_sync
 from runtime.runtime_context import RuntimeContext
 from tests.helpers.memory import FakeLogger
 from utils.actions import RuntimeActionCall
@@ -24,7 +26,6 @@ from utils.actions.dispatcher import apply_runtime_action_calls
 from utils.context.session_actions import build_session_actions_history_context
 from utils.session_actions_history import (
     record_session_action_history,
-    replace_session_action_history_since,
 )
 
 
@@ -82,13 +83,14 @@ class AnonymousModeTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(context.delayed_memory_reports, {})
         self.assertEqual(context.runtime_long_term_memory_store, {})
         self.assertTrue(context.session_id.endswith("-anon"))
-        self.assertTrue(
+        self.assertFalse(
             runtime_action_write_is_restricted(
                 context,
                 RUNTIME_ACTION_UPDATE_LT_FACTS,
                 "{}",
             )
         )
+        self.assertFalse(lt_memory_writes_restricted(context))
         self.assertTrue(
             runtime_action_write_is_restricted(
                 context,
@@ -117,6 +119,37 @@ class AnonymousModeTests(unittest.IsolatedAsyncioTestCase):
                 "{}",
             )
         )
+
+    def test_anonymous_lt_store_sync_stays_in_ephemeral_runtime_state(self):
+        context = RuntimeContext(
+            websocket=None,
+            emitter=FakeEmitter(),
+            logger=FakeLogger(),
+            clients={},
+        )
+        configure_runtime_anonymous_mode(context, True)
+
+        applied = apply_lt_memory_store_sync(
+            context,
+            {
+                "version": 2,
+                "revision": 1,
+                "facts": [{
+                    "id": "F1",
+                    "key": "anonymous.fact",
+                    "value": "tab scoped",
+                    "category": "other",
+                }],
+            },
+        )
+
+        self.assertTrue(applied)
+        self.assertEqual(
+            context.runtime_long_term_memory_store["facts"][0]["value"],
+            "tab scoped",
+        )
+        self.assertFalse(context.runtime_lt_file_store_enabled)
+        self.assertTrue(context.runtime_persistent_writes_restricted)
 
     def test_asset_action_classifier_blocks_mutations_but_allows_reads(self):
         for action_name in (
@@ -169,21 +202,14 @@ class AnonymousModeTests(unittest.IsolatedAsyncioTestCase):
         )
         self.assertNotIn("failure_followup_message", no_followup_event)
 
-    async def test_dispatcher_rejects_lt_write_before_execution_and_emits_failure(self):
-        emitter = FakeEmitter()
-        logger = FakeLogger()
+    async def test_dispatcher_allows_anonymous_lt_write_as_ephemeral_state(self):
         context = RuntimeContext(
             websocket=None,
-            emitter=emitter,
-            logger=logger,
+            emitter=FakeEmitter(),
+            logger=FakeLogger(),
             clients={},
         )
         configure_runtime_anonymous_mode(context, True)
-        context.runtime_long_term_memory_store = {
-            "version": 1,
-            "facts": [],
-            "next_id": 1,
-        }
 
         action = RuntimeActionCall(
             name=RUNTIME_ACTION_UPDATE_LT_FACTS,
@@ -193,54 +219,13 @@ class AnonymousModeTests(unittest.IsolatedAsyncioTestCase):
             }),
         )
 
-        applied = await apply_runtime_action_calls(
-            context,
-            (action,),
-            action_display_ids={id(action): "update_lt_facts_001"},
-        )
-
-        self.assertEqual(applied, 0)
-        self.assertFalse(getattr(context, "background_tasks", set()))
-        self.assertEqual(
-            getattr(
+        self.assertFalse(
+            runtime_action_write_is_restricted(
                 context,
-                "runtime_action_failure_followup_messages",
-                [],
-            ),
-            [],
-        )
-        self.assertTrue(
-            any(
-                "update_lt_facts failed: restricted write" in line
-                for line in logger.runtime_logs
+                action.name,
+                action.payload,
             )
         )
-        self.assertEqual(len(emitter.events), 1)
-        self.assertEqual(emitter.events[0]["status"], "failed")
-        self.assertEqual(emitter.events[0]["error"], RESTRICTED_WRITE_ERROR)
-        self.assertEqual(
-            emitter.events[0]["detail"],
-            RESTRICTED_WRITE_REASON,
-        )
-        self.assertEqual(
-            context.runtime_action_events[0]["failure_reason"],
-            RESTRICTED_WRITE_REASON,
-        )
-
-        replace_session_action_history_since(
-            context,
-            0,
-            [{
-                "name": RUNTIME_ACTION_UPDATE_LT_FACTS,
-                "payload": action.payload,
-                "payloads": [action.payload],
-                "raw_payloads": [action.payload],
-                "marker_count": 1,
-            }],
-        )
-        rendered = build_session_actions_history_context(context)
-        self.assertIn("UPDATE_LT_FACTS:failed", rendered)
-        self.assertIn("restricted write", rendered)
 
     async def test_dispatcher_rejects_mutating_asset_action_but_allows_read_classifier(self):
         context = RuntimeContext(

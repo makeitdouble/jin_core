@@ -118,8 +118,7 @@ function handleSessionBootstrapChatTail(
       turn
       && typeof turn === "object"
       && String(turn.user || "").trim()
-    ))
-    .slice(-3);
+    ));
 
   turns.forEach((turn, index) => {
     const userText =

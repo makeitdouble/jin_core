@@ -12,7 +12,7 @@ if TYPE_CHECKING:
     from websocket.logger import WebSocketLogger
 
 
-RECENT_MESSAGES_MAX_PAIRS = 3
+RECENT_MESSAGES_MAX_PAIRS = 5
 DEFAULT_JIN_COLOR = "#1f4f8f"
 DEFAULT_JIN_SIZE_TEXT = "120px"
 DEFAULT_JIN_SPEED_TEXT = "900px/s"
@@ -238,6 +238,7 @@ class RuntimeContext:
     runtime_lt_memory_update_kind: str = ""
     runtime_lt_idle_last_started_at: float = 0.0
     runtime_lt_profile_sync_at: float = 0.0
+    runtime_lt_last_user_activity_at: float = 0.0
     runtime_lt_websocket_connected: bool = False
     runtime_lt_app_state: object | None = None
     runtime_foreground_turn_running: bool = False

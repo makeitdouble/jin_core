@@ -18,10 +18,10 @@ SOCKET_HANDLERS_JS = (
 
 class SessionBootstrapChatTailTests(unittest.TestCase):
 
-    def test_archive_tail_keeps_three_newest_user_moves_with_reasoning(self):
+    def test_archive_tail_keeps_six_newest_user_moves_with_reasoning(self):
         entries = []
         reasoning = {}
-        for turn in range(1, 5):
+        for turn in range(1, 8):
             turn_id = f"turn_{turn:06d}"
             entries.append({
                 "turn": turn,
@@ -49,11 +49,21 @@ class SessionBootstrapChatTailTests(unittest.TestCase):
                 ("user 2", "jin 2"),
                 ("user 3", ""),
                 ("user 4", "jin 4"),
+                ("user 5", "jin 5"),
+                ("user 6", "jin 6"),
+                ("user 7", "jin 7"),
             ],
         )
         self.assertEqual(
             [turn.get("reasoning", "") for turn in turns],
-            ["reasoning 2", "", "reasoning 4"],
+            [
+                "reasoning 2",
+                "",
+                "reasoning 4",
+                "reasoning 5",
+                "reasoning 6",
+                "reasoning 7",
+            ],
         )
 
     def test_bootstrap_hydration_preserves_turn_reasoning_and_ui_tail(self):
@@ -168,7 +178,7 @@ class SessionBootstrapChatTailTests(unittest.TestCase):
         self.assertIn("appendStreamChunk(", source)
         self.assertIn("finishStreamMessage(", source)
         self.assertIn("window.jinArchivedSessionRestorePayload", source)
-        self.assertIn(".slice(-3)", source)
+        self.assertNotIn(".slice(-3)", source)
 
     def test_client_keeps_user_only_turn_without_blank_br_bubble(self):
         source = SOCKET_HANDLERS_JS.read_text(encoding="utf-8")

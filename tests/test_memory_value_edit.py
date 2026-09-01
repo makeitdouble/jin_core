@@ -126,6 +126,23 @@ class MemoryValueEditTests(unittest.IsolatedAsyncioTestCase):
                 if field not in {"value", "updated_at"}:
                     self.assertEqual(reloaded[field], original[field], field)
 
+    async def test_anonymous_lt_edit_updates_ephemeral_runtime_store(self):
+        self.context.runtime_long_term_memory_store = self.lt_store()
+        self.context.runtime_persistent_writes_restricted = True
+        self.context.runtime_anonymous_mode = True
+        self.context.runtime_lt_file_store_enabled = False
+
+        result = await apply_memory_value_edit(
+            self.context,
+            self.payload("lt", target="F376"),
+        )
+
+        self.assertTrue(result["ok"])
+        self.assertEqual(
+            self.context.runtime_long_term_memory_store["facts"][0]["value"],
+            "new value",
+        )
+
     async def test_lt_restricted_conflict_and_failed_write_preserve_value(self):
         self.context.runtime_long_term_memory_store = self.lt_store()
         payload = self.payload("lt", target="F376")

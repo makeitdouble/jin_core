@@ -15,7 +15,7 @@ from runtime.LT_memory import (
 )
 from runtime.LT_memory_utils import clone_lt_store
 from utils.time_utils import utc_now_iso
-from runtime.anonymous_mode import persistent_writes_restricted
+from runtime.anonymous_mode import lt_memory_writes_restricted
 from utils.actions.active_memory_utils import (
     collect_active_memory_slot_ids,
     is_active_memory_key,
@@ -81,7 +81,7 @@ async def apply_memory_value_edit(context, data, *, foreground_busy=False):
     value = value.strip().replace("\r\n", "\n").replace("\r", "\n")
     if kind != "lt":
         value = value.replace("\n", r"\n")
-    if kind == "lt" and persistent_writes_restricted(context):
+    if kind == "lt" and lt_memory_writes_restricted(context):
         return reject("restricted_write")
     pending = getattr(context, "runtime_memory_update_task", None)
     if kind in {"frame", "active"} and (

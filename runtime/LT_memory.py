@@ -60,6 +60,9 @@ from utils.long_term_facts_file_store import (
     load_long_term_facts_store,
     persist_long_term_facts_store,
 )
+from runtime.anonymous_mode import (
+    lt_memory_writes_restricted,
+)
 from runtime.memory_common import (
     build_memory_failure_details,
     build_runtime_summarizer_payload,
@@ -890,12 +893,25 @@ def unregister_lt_websocket_connection(
 
 def note_lt_user_activity(context) -> None:
     now = time.monotonic()
+    context.runtime_lt_last_user_activity_at = now
     app_state = getattr(
         context,
         "runtime_lt_app_state",
         None,
     )
-    if app_state is not None:
+    if (
+        app_state is not None
+        and not bool(
+            getattr(
+                context,
+                "runtime_anonymous_mode",
+                False,
+            )
+        )
+    ):
+        # Persistent L-T is one shared profile, so ordinary tabs intentionally
+        # share a single activity clock. Anonymous rooms are isolated per tab
+        # and must not postpone the persistent profile or each other.
         app_state.lt_last_user_activity_at = now
     wake_lt_memory_server_scheduler(context)
 
@@ -958,20 +974,28 @@ def _publish_server_facts_memory_state(context) -> None:
     )
     if app_state is None:
         return
+    if lt_memory_writes_restricted(context):
+        return
+
+    context.runtime_lt_profile_sync_at = time.monotonic()
+
     if bool(
         getattr(
             context,
-            "runtime_persistent_writes_restricted",
+            "runtime_anonymous_mode",
             False,
         )
     ):
+        # Anonymous Facts Memory belongs to this runtime context only. Do not
+        # publish it into the shared profile snapshot, but do wake the server
+        # scheduler so this tab can run its normal extraction/merge pipeline.
+        wake_lt_memory_server_scheduler(context)
         return
 
     app_state.lt_facts_memory_records = normalize_facts_memory_records(
         getattr(context, "runtime_facts_memory_records", [])
     )
     app_state.lt_runtime_context = context
-    context.runtime_lt_profile_sync_at = time.monotonic()
     wake_lt_memory_server_scheduler(context)
 
 
@@ -1400,13 +1424,7 @@ def apply_facts_memory_store_sync(context, raw_records) -> dict:
 
 
 def apply_lt_memory_store_sync(context, raw_store) -> bool:
-    if bool(
-        getattr(
-            context,
-            "runtime_persistent_writes_restricted",
-            False,
-        )
-    ):
+    if lt_memory_writes_restricted(context):
         ensure_runtime_lt_state(context)
         return False
 
@@ -1428,6 +1446,13 @@ def apply_lt_memory_store_sync(context, raw_store) -> bool:
             context,
             merged,
         )
+
+    # A browser/profile sync can introduce pending L-T work after the
+    # connection wake has already been consumed. Treat the sync as the latest
+    # profile snapshot and wake the server-side scheduler explicitly.
+    if getattr(context, "runtime_lt_app_state", None) is not None:
+        context.runtime_lt_profile_sync_at = time.monotonic()
+        wake_lt_memory_server_scheduler(context)
 
     return changed
 
@@ -1976,8 +2001,10 @@ async def ask_lt_model(
         requested_max_tokens=max_tokens,
     )
     effective_max_tokens = (
-        request_limits.get("effective_max_tokens")
-        or 1
+        _positive_int(
+            request_limits.get("effective_max_tokens")
+        )
+        or None
     )
 
     await refresh_service_runtime_usage(
@@ -3746,13 +3773,7 @@ def schedule_lt_memory_idle_update(
     user_idle_seconds: int | None = None,
     minimum_interval_seconds: float | None = None,
 ) -> asyncio.Task | None:
-    if bool(
-        getattr(
-            context,
-            "runtime_persistent_writes_restricted",
-            False,
-        )
-    ):
+    if lt_memory_writes_restricted(context):
         return None
 
     if not lt_memory_enabled():
@@ -3825,6 +3846,7 @@ def _lt_server_contexts(app_state) -> list:
 
 
 def _lt_server_context(app_state):
+    """Return the shared persistent-profile L-T context."""
     context = getattr(
         app_state,
         "lt_runtime_context",
@@ -3867,13 +3889,104 @@ def _lt_server_context(app_state):
     return context
 
 
-def _lt_server_tabs_open(app_state) -> bool:
-    connection_ids = getattr(
-        app_state,
-        "lt_open_websocket_ids",
-        None,
+def _lt_scheduler_contexts(app_state) -> list:
+    """Return independent L-T scheduler targets without mixing their stores."""
+    contexts = []
+    seen = set()
+
+    persistent_context = _lt_server_context(app_state)
+    if persistent_context is not None:
+        contexts.append(persistent_context)
+        seen.add(id(persistent_context))
+
+    for context in _lt_server_contexts(app_state):
+        if id(context) in seen:
+            continue
+        if not bool(
+            getattr(
+                context,
+                "runtime_anonymous_mode",
+                False,
+            )
+        ):
+            continue
+        if not bool(
+            getattr(
+                context,
+                "runtime_lt_websocket_connected",
+                False,
+            )
+        ):
+            # Anonymous state is tab-scoped. A disconnected room may stay in
+            # RAM briefly for soft reconnect, but it must not keep doing L-T
+            # work after the tab/connection is gone.
+            continue
+        if lt_memory_writes_restricted(context):
+            continue
+
+        contexts.append(context)
+        seen.add(id(context))
+
+    return contexts
+
+
+def _lt_context_tabs_open(app_state, context) -> bool:
+    if bool(
+        getattr(
+            context,
+            "runtime_anonymous_mode",
+            False,
+        )
+    ):
+        return bool(
+            getattr(
+                context,
+                "runtime_lt_websocket_connected",
+                False,
+            )
+        )
+
+    return any(
+        bool(
+            getattr(
+                candidate,
+                "runtime_lt_websocket_connected",
+                False,
+            )
+        )
+        and not bool(
+            getattr(
+                candidate,
+                "runtime_anonymous_mode",
+                False,
+            )
+        )
+        for candidate in _lt_server_contexts(app_state)
     )
-    return bool(connection_ids)
+
+
+def _lt_context_last_user_activity_at(app_state, context) -> float:
+    if bool(
+        getattr(
+            context,
+            "runtime_anonymous_mode",
+            False,
+        )
+    ):
+        return float(
+            getattr(
+                context,
+                "runtime_lt_last_user_activity_at",
+                0.0,
+            )
+            or 0.0
+        )
+
+    return float(
+        getattr(app_state, "lt_last_user_activity_at", 0.0)
+        or 0.0
+    )
+
 
 
 def _lt_server_foreground_busy(app_state) -> bool:
@@ -3929,8 +4042,8 @@ async def run_lt_memory_server_scheduler(app_state) -> None:
     while True:
         wake_event.clear()
 
-        context = _lt_server_context(app_state)
-        if context is None or not lt_memory_enabled():
+        contexts = _lt_scheduler_contexts(app_state)
+        if not contexts or not lt_memory_enabled():
             await _wait_for_lt_scheduler_wake(wake_event)
             continue
 
@@ -3941,43 +4054,75 @@ async def run_lt_memory_server_scheduler(app_state) -> None:
             )
             continue
 
-        if not lt_memory_has_pending_work(context):
+        pending_contexts = [
+            context
+            for context in contexts
+            if lt_memory_has_pending_work(context)
+        ]
+        if not pending_contexts:
             await _wait_for_lt_scheduler_wake(wake_event)
             continue
 
-        tabs_open = _lt_server_tabs_open(app_state)
-        interval_seconds = get_lt_scheduler_interval_seconds(
-            tabs_open=tabs_open,
-        )
         now = time.monotonic()
-        last_user_activity_at = float(
-            getattr(app_state, "lt_last_user_activity_at", 0.0)
-            or 0.0
-        )
-        last_started_at = float(
-            getattr(context, "runtime_lt_idle_last_started_at", 0.0)
-            or 0.0
-        )
-        profile_sync_at = float(
-            getattr(context, "runtime_lt_profile_sync_at", 0.0)
-            or 0.0
-        )
-        cadence_anchor = max(
-            last_user_activity_at,
-            last_started_at,
-            profile_sync_at,
-        )
-        remaining_seconds = (
-            interval_seconds
-            - max(0.0, now - cadence_anchor)
-        )
-        if remaining_seconds > 0:
+        candidates = []
+        for context in pending_contexts:
+            interval_seconds = get_lt_scheduler_interval_seconds(
+                tabs_open=_lt_context_tabs_open(
+                    app_state,
+                    context,
+                ),
+            )
+            last_user_activity_at = _lt_context_last_user_activity_at(
+                app_state,
+                context,
+            )
+            last_started_at = float(
+                getattr(context, "runtime_lt_idle_last_started_at", 0.0)
+                or 0.0
+            )
+            profile_sync_at = float(
+                getattr(context, "runtime_lt_profile_sync_at", 0.0)
+                or 0.0
+            )
+            cadence_anchor = max(
+                last_user_activity_at,
+                last_started_at,
+                profile_sync_at,
+            )
+            remaining_seconds = (
+                interval_seconds
+                - max(0.0, now - cadence_anchor)
+            )
+            candidates.append(
+                (
+                    remaining_seconds,
+                    cadence_anchor,
+                    context,
+                    interval_seconds,
+                )
+            )
+
+        ready = [
+            candidate
+            for candidate in candidates
+            if candidate[0] <= 0
+        ]
+        if not ready:
             await _wait_for_lt_scheduler_wake(
                 wake_event,
-                timeout=remaining_seconds,
+                timeout=min(
+                    candidate[0]
+                    for candidate in candidates
+                ),
             )
             continue
 
+        # Serialize L-T background model work, but pick the target that has
+        # been due longest so one busy profile cannot starve another anon tab.
+        _, _, context, interval_seconds = min(
+            ready,
+            key=lambda candidate: candidate[1],
+        )
         task = schedule_lt_memory_idle_update(
             context=context,
             minimum_interval_seconds=interval_seconds,

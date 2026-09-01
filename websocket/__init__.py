@@ -40,6 +40,7 @@ from runtime.LT_mention_backfill import (
 )
 from runtime.anonymous_mode import (
     RESTRICTED_WRITE_REASON,
+    lt_memory_writes_restricted,
     persistent_writes_restricted,
 )
 from utils.ws_errors import handle_websocket_error
@@ -515,7 +516,7 @@ async def websocket_endpoint(
                 continue
 
             if message_type == "lt_memory_delete_fact":
-                if persistent_writes_restricted(context):
+                if lt_memory_writes_restricted(context):
                     await logger.log_runtime(
                         "[RUNTIME ACTION] lt_memory_delete_fact failed: "
                         + RESTRICTED_WRITE_REASON
@@ -545,7 +546,7 @@ async def websocket_endpoint(
                     "fact",
                     {},
                 )
-                if persistent_writes_restricted(context):
+                if lt_memory_writes_restricted(context):
                     await logger.log_runtime(
                         "[RUNTIME ACTION] lt_memory_restore_fact failed: "
                         + RESTRICTED_WRITE_REASON
@@ -566,11 +567,11 @@ async def websocket_endpoint(
                     "restored": bool(restored),
                     "error": (
                         "restricted_write"
-                        if persistent_writes_restricted(context)
+                        if lt_memory_writes_restricted(context)
                         else ""
                     ),
                 })
-                if persistent_writes_restricted(context):
+                if lt_memory_writes_restricted(context):
                     await emit_lt_memory_update(
                         context,
                         change={

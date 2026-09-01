@@ -122,8 +122,8 @@ def configure_runtime_anonymous_mode(
 
     if enabled and not was_enabled:
         # An explicit anonymous room starts from an empty in-memory structure.
-        # Browser sync may populate its per-tab Active snapshot afterwards, but
-        # no global Delayed/L-T state is ever hydrated into this context.
+        # Browser sync may populate its per-tab Active/L-T snapshot afterwards,
+        # but no global Delayed/L-T state is ever hydrated into this context.
         context.active_memory_records = []
         context.delayed_memory_reports = {}
         context.runtime_loaded_delayed_memory = {}
@@ -138,6 +138,20 @@ def persistent_writes_restricted(context) -> bool:
         getattr(
             context,
             "runtime_persistent_writes_restricted",
+            False,
+        )
+    )
+
+
+def lt_memory_writes_restricted(context) -> bool:
+    """Block durable L-T writes, but allow tab-scoped anonymous L-T state."""
+    if not persistent_writes_restricted(context):
+        return False
+
+    return not bool(
+        getattr(
+            context,
+            "runtime_anonymous_mode",
             False,
         )
     )
@@ -188,6 +202,9 @@ def runtime_action_write_is_restricted(
         return False
 
     normalized_name = str(action_name or "").strip().upper()
+
+    if normalized_name == "UPDATE_LT_FACTS":
+        return lt_memory_writes_restricted(context)
 
     if normalized_name in _ALWAYS_RESTRICTED_RUNTIME_ACTIONS:
         return True

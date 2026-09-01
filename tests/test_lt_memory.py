@@ -1,6 +1,7 @@
 import asyncio
 import json
 import tempfile
+import time
 import unittest
 from datetime import datetime, timezone
 from types import SimpleNamespace
@@ -48,6 +49,7 @@ from runtime.LT_memory_utils import (
     normalize_lt_store,
     restore_lt_fact_to_store,
 )
+from runtime.anonymous_mode import configure_runtime_anonymous_mode
 from runtime.runtime_context import RuntimeContext
 from rules.brain_context_builder import build_brain_context
 from tests.helpers.memory import FakeLogger, FakeServiceClient
@@ -1930,6 +1932,169 @@ class LTMemoryTests(unittest.IsolatedAsyncioTestCase):
                 5.0,
             )
 
+    def test_anonymous_facts_sync_wakes_scheduler_without_publishing_profile_state(self):
+        persistent_context = RuntimeContext(
+            websocket=None,
+            emitter=FakeEmitter(),
+            logger=FakeLogger(),
+            clients={},
+        )
+        app_state = SimpleNamespace(
+            lt_memory_scheduler_wake_event=asyncio.Event(),
+            lt_facts_memory_records=[{"session_id": "persistent"}],
+            lt_runtime_context=persistent_context,
+        )
+        anonymous_context = RuntimeContext(
+            websocket=None,
+            emitter=FakeEmitter(),
+            logger=FakeLogger(),
+            clients={},
+        )
+        configure_runtime_anonymous_mode(
+            anonymous_context,
+            True,
+        )
+        bind_lt_runtime_app_state(
+            anonymous_context,
+            app_state,
+        )
+        app_state.lt_memory_scheduler_wake_event.clear()
+
+        stats = apply_facts_memory_store_sync(
+            anonymous_context,
+            [{
+                "session_id": anonymous_context.session_id,
+                "signals": {
+                    "project.test": {
+                        "content": "Anonymous pending fact.",
+                        "runtime_snapshot_id": "runtime-anon",
+                        "lt_status": "pending",
+                    },
+                },
+            }],
+        )
+
+        self.assertEqual(stats["pending_count"], 1)
+        self.assertTrue(app_state.lt_memory_scheduler_wake_event.is_set())
+        self.assertGreater(anonymous_context.runtime_lt_profile_sync_at, 0.0)
+        self.assertEqual(
+            app_state.lt_facts_memory_records,
+            [{"session_id": "persistent"}],
+        )
+        self.assertIs(
+            app_state.lt_runtime_context,
+            persistent_context,
+        )
+
+    def test_scheduler_targets_only_connected_anonymous_rooms(self):
+        persistent_context = RuntimeContext(
+            websocket=None,
+            emitter=FakeEmitter(),
+            logger=FakeLogger(),
+            clients={},
+        )
+        connected_anonymous = RuntimeContext(
+            websocket=None,
+            emitter=FakeEmitter(),
+            logger=FakeLogger(),
+            clients={},
+        )
+        disconnected_anonymous = RuntimeContext(
+            websocket=None,
+            emitter=FakeEmitter(),
+            logger=FakeLogger(),
+            clients={},
+        )
+        configure_runtime_anonymous_mode(connected_anonymous, True)
+        configure_runtime_anonymous_mode(disconnected_anonymous, True)
+        connected_anonymous.runtime_lt_websocket_connected = True
+        disconnected_anonymous.runtime_lt_websocket_connected = False
+        app_state = SimpleNamespace(
+            websocket_runtime_contexts={
+                "persistent": persistent_context,
+                "anon-open": connected_anonymous,
+                "anon-closed": disconnected_anonymous,
+            },
+            lt_runtime_context=persistent_context,
+        )
+
+        contexts = lt_memory_module._lt_scheduler_contexts(app_state)
+
+        self.assertEqual(
+            contexts,
+            [persistent_context, connected_anonymous],
+        )
+
+    async def test_server_scheduler_dispatches_pending_anonymous_context(self):
+        anonymous_context = RuntimeContext(
+            websocket=None,
+            emitter=FakeEmitter(),
+            logger=FakeLogger(),
+            clients={},
+        )
+        configure_runtime_anonymous_mode(
+            anonymous_context,
+            True,
+        )
+        anonymous_context.runtime_lt_websocket_connected = True
+        anonymous_context.runtime_long_term_memory_store = normalize_lt_store({
+            "pending_facts": [{
+                "id": "PF1",
+                "key": "anonymous.pending",
+                "value": "Pending anonymous fact.",
+                "category": "other",
+            }],
+        })
+        anonymous_context.runtime_lt_profile_sync_at = time.monotonic() - 5.0
+        app_state = SimpleNamespace(
+            websocket_runtime_contexts={"anon": anonymous_context},
+            lt_runtime_context=None,
+            lt_last_user_activity_at=0.0,
+            lt_memory_scheduler_wake_event=asyncio.Event(),
+        )
+        bind_lt_runtime_app_state(
+            anonymous_context,
+            app_state,
+        )
+        anonymous_context.runtime_lt_profile_sync_at = time.monotonic() - 5.0
+        dispatched = asyncio.Event()
+        dispatched_contexts = []
+
+        def fake_schedule(*, context, **_kwargs):
+            dispatched_contexts.append(context)
+            dispatched.set()
+            return asyncio.create_task(asyncio.sleep(10))
+
+        with (
+            patch.object(
+                lt_memory_module.config,
+                "LT_IDLE_SECONDS",
+                1,
+            ),
+            patch.object(
+                lt_memory_module,
+                "schedule_lt_memory_idle_update",
+                side_effect=fake_schedule,
+            ),
+        ):
+            scheduler = asyncio.create_task(
+                lt_memory_module.run_lt_memory_server_scheduler(app_state)
+            )
+            try:
+                await asyncio.wait_for(
+                    dispatched.wait(),
+                    timeout=1.0,
+                )
+            finally:
+                scheduler.cancel()
+                with self.assertRaises(asyncio.CancelledError):
+                    await scheduler
+
+        self.assertEqual(
+            dispatched_contexts,
+            [anonymous_context],
+        )
+
     def test_server_facts_memory_reconciles_analyzed_state_after_closed_tab_work(self):
         app_state = SimpleNamespace(
             lt_memory_scheduler_wake_event=asyncio.Event(),
@@ -2085,6 +2250,89 @@ class LTMemoryTests(unittest.IsolatedAsyncioTestCase):
                 store["pending_facts"][0]["id"],
             ],
         )
+
+    async def test_lt_request_without_resolved_output_budget_does_not_fall_back_to_one_token(self):
+        class UnresolvedBudgetServiceClient:
+
+            model_uid = "google/gemma-4-e4b"
+            context_window = 32768
+
+            def __init__(self):
+                self.calls = []
+
+            async def resolve_request_context_window(self):
+                return 32768
+
+            async def resolve_safe_max_tokens(
+                self,
+                *,
+                system_prompt,
+                user_prompt,
+                requested_max_tokens,
+            ):
+                return None
+
+            async def ask(
+                self,
+                *,
+                system_prompt,
+                user_prompt,
+                temperature,
+                max_tokens,
+                timeout=None,
+            ):
+                self.calls.append({
+                    "system_prompt": system_prompt,
+                    "user_prompt": user_prompt,
+                    "temperature": temperature,
+                    "max_tokens": max_tokens,
+                    "timeout": timeout,
+                })
+                return {
+                    "model": self.model_uid,
+                    "choices": [
+                        {
+                            "finish_reason": "stop",
+                            "message": {
+                                "content": '{"candidates":[]}',
+                            },
+                        },
+                    ],
+                    "usage": {
+                        "prompt_tokens": 874,
+                        "completion_tokens": 4,
+                        "total_tokens": 878,
+                    },
+                }
+
+        logger = FakeLogger()
+        service_client = UnresolvedBudgetServiceClient()
+        context = RuntimeContext(
+            websocket=None,
+            emitter=FakeEmitter(),
+            logger=logger,
+            clients={"service": service_client},
+        )
+
+        await lt_memory_module.ask_lt_model(
+            context=context,
+            service_client=service_client,
+            label="L-T extraction",
+            system_prompt="system",
+            user_prompt="user",
+            max_tokens=None,
+        )
+
+        self.assertEqual(len(service_client.calls), 1)
+        self.assertIsNone(service_client.calls[0]["max_tokens"])
+
+        request_logs = [
+            json.loads(details)
+            for message, details in logger.summarizer_logs
+            if message == "[MEMORY:L-T] L-T extraction summarizer request"
+        ]
+        self.assertEqual(len(request_logs), 1)
+        self.assertIsNone(request_logs[0]["max_tokens"])
 
     async def test_truncated_merge_logs_diagnostics_without_reasoning_response(self):
         class TruncatedReasoningServiceClient:
