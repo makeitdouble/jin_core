@@ -98,8 +98,10 @@ from utils.session_actions_history import (
 )
 from utils.tool_results import (
     TOOL_RESULT_KIND_DELAYED_MEMORY,
+    TOOL_RESULT_KIND_RUNTIME_ACTION,
     record_runtime_tool_result,
 )
+from utils.context.runtime_action_result_text import format_runtime_action_result
 from utils.runtime_action_abort import (
     mark_runtime_action_completed,
     mark_runtime_action_started,
@@ -1707,6 +1709,10 @@ class RuntimeStream:
         if counter_entries:
             await self.sync_session_action_marker_history()
 
+        await self.fail_unclosed_runtime_actions(
+            getattr(result, "failed_actions", ()),
+        )
+
         if getattr(
             result,
             "marker_repetition_exceeded",
@@ -2837,6 +2843,88 @@ class RuntimeStream:
                 payload
             )
 
+    async def fail_unclosed_runtime_actions(self, actions) -> None:
+        for action in actions:
+            action_name = action.name.lower()
+            active = next((
+                record for record in reversed(getattr(
+                    self.context, "runtime_active_action_markers", [],
+                ))
+                if record.get("action") == action_name
+            ), {})
+            action_id = str(active.get("id") or "")
+            if not action_id:
+                action_id = self.get_runtime_action_display_id(action)
+
+            reason = "no close tag provided in output"
+            display_name = get_runtime_action_display_name(action.name)
+            text = f"{display_name}: failed: {reason}"
+            failure = {
+                "ok": False,
+                "name": action_name,
+                "action": action_name,
+                "id": action_id,
+                "status": "failed",
+                "error": "no_close_tag_provided_in_output",
+                "detail": reason,
+                "payload": action.payload,
+                "runtime_turn_id": str(getattr(
+                    self.context, "runtime_current_turn_id", "",
+                ) or ""),
+            }
+            mark_runtime_action_completed(
+                self.context, action=action_name, action_id=action_id,
+            )
+            # These are the existing opening-marker ID queues, not actions
+            # waiting for execution. Remove the failed opening from them.
+            for owner, attributes in (
+                (self.context, (
+                    "runtime_pending_asset_action_ids",
+                    "runtime_pending_delayed_memory_action_ids",
+                )),
+                (self, (
+                    "started_active_memory_action_ids",
+                    "started_delayed_memory_action_ids",
+                    "started_update_lt_facts_action_ids",
+                    "started_deep_web_search_action_ids",
+                )),
+            ):
+                for attribute in attributes:
+                    pending_ids = getattr(owner, attribute, None)
+                    if isinstance(pending_ids, list) and action_id in pending_ids:
+                        pending_ids.remove(action_id)
+
+            self.context.runtime_action_events.append(failure)
+            record_runtime_tool_result(
+                self.context, TOOL_RESULT_KIND_RUNTIME_ACTION, failure,
+                result_id=action_id,
+            )
+            detail = format_runtime_action_result(failure)
+            record_session_action_history(
+                self.context, text,
+                display_parts=[{"text": text, "detail": detail}],
+            )
+            await self.logger.log_runtime(f"[RUNTIME ACTION] {text}")
+            emit = getattr(getattr(self.context, "emitter", None), "emit", None)
+            if emit is not None:
+                await emit({
+                    "type": "runtime_action",
+                    "runtime_message_id": self.stream.message_id,
+                    "runtime_turn_id": failure["runtime_turn_id"],
+                    "action": action_name,
+                    "id": action_id,
+                    "status": "failed",
+                    "error": failure["error"],
+                    "display_name": display_name,
+                    "close_tag": True,
+                    "text": text,
+                    "detail": detail,
+                    "context": self.context_snapshot,
+                    "deep_search_parent": action.name == RUNTIME_ACTION_DEEP_WEB_SEARCH,
+                    "scene_effect": "search" if action.name == RUNTIME_ACTION_DEEP_WEB_SEARCH else "",
+                })
+            await emit_session_actions_update(self.context, current_sequence=True)
+
     async def fail_unfinished_delayed_memory_actions(
         self,
     ) -> None:
@@ -3073,6 +3161,10 @@ class RuntimeStream:
             lines.append(
                 f"action: {action_label}"
             )
+
+            if event.get("status") == "failed":
+                reason = event.get("detail") or event.get("error") or "action failed"
+                lines.append(f"failed: {reason}")
 
             action_id = event.get(
                 "id",

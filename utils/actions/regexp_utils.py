@@ -6,6 +6,18 @@ from functools import lru_cache
 from typing import Iterable, Pattern
 
 
+# A marker immediately after an opening quote/bracket is a literal example.
+# Keep the same character set in the browser's marker renderers.
+RUNTIME_ACTION_QUOTE_OPENERS = "\"'`«‹“‘„‚([{"
+RUNTIME_ACTION_EXECUTABLE_PREFIX = (
+    "(?<![" + re.escape(RUNTIME_ACTION_QUOTE_OPENERS) + "])"
+)
+
+
+def is_quoted_runtime_marker(text: str, start: int) -> bool:
+    return start > 0 and text[start - 1] in RUNTIME_ACTION_QUOTE_OPENERS
+
+
 # These templates describe the broad marker envelopes supported by the runtime.
 # Contracts only provide the canonical private marker and whether it is a block.
 REGEXP_TEMPLATES: tuple[str, ...] = (
@@ -141,15 +153,10 @@ def compile_runtime_action_regexp(
             r"\s*>"
             r"[^\S\r\n]*(?:\r?\n)?"
             r"(?P<payload>.*?)"
-            r"(?:"
-            r"<\s*/\s*(?:"
+            + RUNTIME_ACTION_EXECUTABLE_PREFIX
+            + r"<\s*/\s*(?:"
             + name
             + r")\s*>+"
-            r"|"
-            r"<\s*(?:"
-            + name
-            + r")\s*>"
-            r")"
         )
         flags = re.IGNORECASE | re.DOTALL
     else:
@@ -162,7 +169,7 @@ def compile_runtime_action_regexp(
         )
         flags = re.IGNORECASE
 
-    return re.compile(expression, flags)
+    return re.compile(RUNTIME_ACTION_EXECUTABLE_PREFIX + expression, flags)
 
 
 @lru_cache(maxsize=None)
@@ -177,15 +184,12 @@ def compile_runtime_action_body_regexp(
         return re.compile(r"(?!x)x")
 
     return re.compile(
-        (
+        RUNTIME_ACTION_EXECUTABLE_PREFIX + (
             r"<\s*(?P<name>" + name + r")\s*>"
             r"[^\S\r\n]*(?:\r?\n)?"
             r"(?P<payload>.*?)"
-            r"(?:"
-            r"<\s*/\s*(?:" + name + r")\s*>+"
-            r"|"
-            r"<\s*(?:" + name + r")\s*>"
-            r")"
+            + RUNTIME_ACTION_EXECUTABLE_PREFIX
+            + r"<\s*/\s*(?:" + name + r")\s*>+"
         ),
         re.IGNORECASE | re.DOTALL,
     )
@@ -203,7 +207,7 @@ def compile_runtime_action_inline_payload_regexp(
         return re.compile(r"(?!x)x")
 
     return re.compile(
-        (
+        RUNTIME_ACTION_EXECUTABLE_PREFIX + (
             r"<\s*(?P<name>" + name + r")"
             r"(?:\s*:\s*|\s+)"
             r"(?P<payload>[^>\r\n]+?)"
@@ -225,7 +229,10 @@ def compile_runtime_action_template_regexps(
         return ()
 
     return tuple(
-        re.compile(template.format(name=name), re.IGNORECASE)
+        re.compile(
+            RUNTIME_ACTION_EXECUTABLE_PREFIX + template.format(name=name),
+            re.IGNORECASE,
+        )
         for template in regexp_templates
     )
 
@@ -241,7 +248,7 @@ def compile_runtime_action_start_regexp(
         return re.compile(r"(?!x)x")
 
     return re.compile(
-        (
+        RUNTIME_ACTION_EXECUTABLE_PREFIX + (
             r"<\s*(?P<name>" + name + r")"
             r"(?:\s*:\s*(?P<attribute_payload>[^>]*?))?"
             r"\s*>"
@@ -261,7 +268,8 @@ def compile_runtime_action_end_regexp(
         return re.compile(r"(?!x)x")
 
     return re.compile(
-        r"<\s*/\s*(?:" + name + r")\s*>+",
+        RUNTIME_ACTION_EXECUTABLE_PREFIX
+        + r"<\s*/\s*(?:" + name + r")\s*>+",
         re.IGNORECASE,
     )
 
@@ -277,7 +285,7 @@ def compile_runtime_action_tag_regexp(
         return re.compile(r"(?!x)x")
 
     return re.compile(
-        (
+        RUNTIME_ACTION_EXECUTABLE_PREFIX + (
             r"<\s*(?P<slash>/)?\s*"
             r"(?P<name>" + name + r")"
             r"(?:\s*:\s*(?P<attribute_payload>[^>]*?))?"
@@ -488,7 +496,6 @@ def find_unclosed_runtime_action_start(
 
     if close_tag:
         opening_match: re.Match[str] | None = None
-        opening_end = 0
 
         for tag_match in compile_runtime_action_tag_regexp(
             private_marker,
@@ -496,26 +503,15 @@ def find_unclosed_runtime_action_start(
         ).finditer(value):
             if tag_match.group("slash"):
                 opening_match = None
-                opening_end = 0
                 continue
 
             if (tag_match.start(), tag_match.end()) in inline_ranges:
                 continue
 
+            # Only an actual closing tag ends a block. Repeated opening
+            # markers remain part of the unfinished private payload.
             if opening_match is None:
                 opening_match = tag_match
-                opening_end = tag_match.end()
-                continue
-
-            # A repeated opening tag is accepted as the closing delimiter by
-            # the generic block regexp. With no payload between the tags, keep
-            # the latest one as a possible fresh opening marker.
-            if value[opening_end:tag_match.start()].strip():
-                opening_match = None
-                opening_end = 0
-            else:
-                opening_match = tag_match
-                opening_end = tag_match.end()
 
         if opening_match is not None:
             return opening_match.start()
@@ -524,7 +520,7 @@ def find_unclosed_runtime_action_start(
         name = _name_pattern(private_marker, runtime_action)
         if name:
             incomplete_inline = re.search(
-                (
+                RUNTIME_ACTION_EXECUTABLE_PREFIX + (
                     r"<\s*(?:" + name + r")"
                     r"(?:\s*:\s*|\s+)"
                     r"[^>\r\n]*$"
@@ -546,7 +542,7 @@ def find_unclosed_runtime_action_start(
         marker_upper = marker.upper()
         start = upper_value.rfind(marker_upper)
 
-        if start < 0:
+        if start < 0 or is_quoted_runtime_marker(value, start):
             continue
 
         if not marker.startswith("<"):

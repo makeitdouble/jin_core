@@ -55,7 +55,7 @@ A current implementation can still violate a product decision. Do not hide that.
 - Keep `rules/runtime.py` for cross-action sequencing/loop invariants, not duplicated field-by-field action instructions.
 - Every new action needs: contract -> parser/normalization -> guard if needed -> dispatcher/handler -> emitted state/result -> tests.
 - Streaming can split markers at arbitrary chunk boundaries. Always test complete, split, repeated, incomplete, false-prefix, and flush/stop cases.
-- Do not let private action markers leak into visible answer text.
+- Do not let executable private action markers leak into visible answer text. A marker immediately preceded by an opening quote/backtick/bracket is a literal example: keep it visible and do not execute it, including across stream chunk boundaries.
 - Canonical `JIN_COLOR` and `JIN_SIZE` syntax is paired XML with the payload in the body: `<JIN_COLOR> #00f2ff </JIN_COLOR>` and `<JIN_SIZE> w:120 h:120 </JIN_SIZE>`. Inline/colon forms are localized legacy compatibility only. Marker removal must preserve ordinary visible text on both sides of the marker.
 - `JIN_SIZE` accepts positive decimal `px`, `vw`, `vh`, and `%` values; unitless values mean `px`. Preserve relative units through parsing/events and resolve them against the live browser viewport only when applying the action. `%` is axis-relative (width -> viewport width, height -> viewport height); `vw` and `vh` always use their named viewport axis. Persist the resulting rendered room geometry in pixels.
 - Consecutive JIN visual markers are ordered state events. Drop only a true adjacent/no-op repetition in the same runtime-message scope; preserve alternation such as red -> blue -> red and allow the same color again in a later message.

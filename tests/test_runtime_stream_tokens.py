@@ -1739,7 +1739,7 @@ class RuntimeStreamTokenTests(unittest.IsolatedAsyncioTestCase):
 
         runtime_id = settings.SERVICE_MODEL_UID
 
-        async def delayed_memory_generator_without_closing_tag():
+        async def delayed_memory_generator():
 
             yield {
                 "type": "content",
@@ -1752,6 +1752,7 @@ class RuntimeStreamTokenTests(unittest.IsolatedAsyncioTestCase):
                     "summary: Current runtime state and available skills.\n"
                     "tags: runtime, skills, session_summary\n"
                     "body: Full current-state report.\n"
+                    "</SAVE_DELAYED_MEMORY>"
                 ),
             }
 
@@ -1786,7 +1787,7 @@ class RuntimeStreamTokenTests(unittest.IsolatedAsyncioTestCase):
         )
 
         await stream.run(
-            delayed_memory_generator_without_closing_tag()
+            delayed_memory_generator()
         )
 
         runtime_events = [
@@ -2991,19 +2992,13 @@ class RuntimeStreamTokenTests(unittest.IsolatedAsyncioTestCase):
             runtime_events[0]["id"],
             runtime_events[1]["id"],
         )
-        self.assertEqual(
-            context.runtime_delayed_memory_results,
-            [
-                {
-                    "ok": False,
-                    "action": "save_delayed_memory",
-                    "id": runtime_events[0]["id"],
-                    "error": "Delayed memory report was not saved",
-                    "payload": failed_payload,
-                    "runtime_turn_id": "turn_delayed_failure",
-                },
-            ],
-        )
+        self.assertEqual(context.runtime_delayed_memory_results, [])
+        failure = context.runtime_tool_results[-1]["result"]
+        self.assertEqual(failure["id"], runtime_events[0]["id"])
+        self.assertEqual(failure["error"], "no_close_tag_provided_in_output")
+        self.assertEqual(failure["status"], "failed")
+        self.assertIn("CONDITIONS: Simulation step 2/5", failure["payload"])
+        self.assertEqual(failure["runtime_turn_id"], "turn_delayed_failure")
 
 
 if __name__ == "__main__":

@@ -116,34 +116,15 @@ class RuntimeAssetActionTests(RuntimeActionTestCase):
         )
 
 
-    def test_extracts_asset_action_block_closed_by_repeated_open_tag(self):
-
-        result = extract_runtime_actions(
-            (
-                "<ASSET_ACTION>\n"
-                '{"action":"append_asset_file","path":"assets/outputs/posing_woman_prompts.txt","content":"\\nBatch 1 complete."}\n'
-                "<ASSET_ACTION>\n"
-                "Done."
-            ),
-            enabled_actions=[
-                "CAN_USE_ASSETS",
-            ],
-        )
-
-        self.assertEqual(
-            result.text,
-            "Done.",
-        )
-        self.assertEqual(
-            result.actions,
-            (
-                RuntimeActionCall(
-                    name="ASSET_ACTION",
-                    payload='{"action":"append_asset_file","path":"assets/outputs/posing_woman_prompts.txt","content":"\\nBatch 1 complete."}',
-                ),
-            ),
-        )
-
+    def test_repeated_open_tag_does_not_execute_asset_action(self):
+        text = '<ASSET_ACTION>{"action":"list_files"}<ASSET_ACTION>Done.'
+        result = extract_runtime_actions(text, enabled_actions=["CAN_USE_ASSETS"])
+        self.assertEqual(result.actions, ())
+        stream_filter = RuntimeActionStreamFilter(enabled_actions=["CAN_USE_ASSETS"])
+        self.assertEqual(stream_filter.filter(text).text, "")
+        tail = stream_filter.flush_result()
+        self.assertEqual(tail.text, "")
+        self.assertEqual([action.name for action in tail.failed_actions], ["ASSET_ACTION"])
 
     def test_extracts_asset_action_block_with_spaced_closing_tag(self):
 
@@ -210,7 +191,6 @@ class RuntimeAssetActionTests(RuntimeActionTestCase):
     def test_stream_filter_keeps_empty_asset_action_markers_as_text(self):
 
         variants = (
-            ("<ASSET_ACTION>",),
             ("<ASSET_ACTION/>",),
             ("<ASSET_ACTION></ASSET_ACTION>",),
             ("</ASSET_ACTION>",),
@@ -284,14 +264,9 @@ class RuntimeAssetActionTests(RuntimeActionTestCase):
             tail.actions,
             (),
         )
-        self.assertIn(
-            "<ASSET_ACTION>",
-            tail.text,
-        )
-        self.assertIn(
-            "Продолжаем тест.",
-            tail.text,
-        )
+        self.assertEqual(tail.text, "")
+        self.assertEqual([action.name for action in tail.failed_actions], ["ASSET_ACTION"])
+        self.assertIn("Продолжаем тест.", tail.failed_actions[0].payload)
 
 
     def test_stream_filter_strips_asset_action_block(self):
@@ -367,7 +342,7 @@ class RuntimeAssetActionTests(RuntimeActionTestCase):
             [
                 "<ASSET_ACTION>\n",
                 '{"action":"create_wildcard_file","args":{"path":"clothing/shoes","content":"sneakers\\nboots"}}\n',
-                "<ASSET_ACTION>\n",
+                "</ASSET_ACTION>\n",
             ],
             [
                 "< ASSET_ACTION >\n",

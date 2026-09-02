@@ -411,6 +411,73 @@ class RuntimeClientTests(
             8192,
         )
 
+    async def test_ignores_theoretical_max_when_no_live_context_is_reported(self):
+
+        context_window = RuntimeClient.extract_context_window_from_model({
+            "id": "test-model",
+            "max_context_length": 131072,
+            "max_context_window": 131072,
+            "max_position_embeddings": 131072,
+        })
+
+        self.assertIsNone(
+            context_window,
+        )
+
+    async def test_detection_skips_theoretical_max_and_keeps_probing_for_live_context(self):
+
+        http_client = FakeHttpClient(
+            models_payloads_by_url={
+                "http://runtime.test/api/v1/models": {
+                    "models": [
+                        {
+                            "key": "test-model",
+                            "max_context_length": 131072,
+                        }
+                    ]
+                },
+                "http://runtime.test/api/v0/models": {
+                    "models": [
+                        {
+                            "id": "test-model",
+                            "max_context_length": 131072,
+                        }
+                    ]
+                },
+                "http://runtime.test/v1/models": {
+                    "data": [
+                        {
+                            "id": "test-model",
+                            "context_length": 32768,
+                        }
+                    ]
+                },
+            }
+        )
+        client = RuntimeClient(
+            api_base="http://runtime.test",
+            model_uid="test-model",
+            timeout=30.0,
+            client=http_client,
+        )
+
+        context_window = await client.resolve_request_context_window(
+            force_refresh=True,
+        )
+
+        self.assertEqual(
+            context_window,
+            32768,
+        )
+        self.assertEqual(
+            [call["url"] for call in http_client.get_calls],
+            [
+                "http://runtime.test/api/v1/models",
+                "http://runtime.test/api/v0/models",
+                "http://runtime.test/v1/models",
+            ],
+        )
+
     async def test_each_model_request_refreshes_live_context_metadata(self):
 
         http_client = FakeHttpClient(

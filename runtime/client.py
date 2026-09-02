@@ -372,9 +372,11 @@ class RuntimeClient:
         ):
             return None
 
-        # Prefer the loaded/runtime context window over the model's theoretical
-        # maximum. LM Studio native metadata can expose both values; using the
-        # theoretical maximum would overestimate the real request budget.
+        # This extractor is intentionally LIVE-only. Provider metadata may
+        # expose the model's theoretical capability (for example
+        # max_context_length=131072) next to the context actually loaded for
+        # the current instance (for example context_length=32768). The
+        # theoretical value must never become the request/UI context budget.
         context_key_priority = {
             "loaded_context_length": 0,
             "loaded_context_window": 0,
@@ -385,9 +387,6 @@ class RuntimeClient:
             "num_ctx": 1,
             "ctx_size": 1,
             "context_size": 1,
-            "max_context_length": 2,
-            "max_context_window": 2,
-            "max_position_embeddings": 2,
         }
         candidates: list[tuple[int, int]] = []
 

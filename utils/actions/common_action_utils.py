@@ -52,6 +52,9 @@ from .update_active_memory_utils import build_update_active_memory_payload
 from .resolve_action_utils import build_resolve_action_payload
 from .regexp_utils import (
     RuntimeActionRegexpMatch,
+    RUNTIME_ACTION_EXECUTABLE_PREFIX,
+    RUNTIME_ACTION_QUOTE_OPENERS,
+    is_quoted_runtime_marker,
     compile_runtime_action_end_regexp,
     compile_runtime_action_start_regexp,
     compile_runtime_action_tag_regexp,
@@ -63,7 +66,6 @@ from .regexp_utils import (
 )
 from .save_delayed_memory_utils import (
     build_save_delayed_memory_payload,
-    parse_delayed_memory_payload,
 )
 from .web_search_utils import (
     build_web_search_payload,
@@ -116,12 +118,13 @@ JIN_INLINE_PAYLOAD_ACTIONS = frozenset({
 })
 
 UPDATE_ACTIVE_MEMORY_START_RE = re.compile(
-    r"<\s*UPDATE_ACTIVE_MEMORY(?=\s|>)",
+    RUNTIME_ACTION_EXECUTABLE_PREFIX
+    + r"<\s*UPDATE_ACTIVE_MEMORY(?=\s|>)",
     re.IGNORECASE,
 )
 
 UPDATE_ACTIVE_MEMORY_SELF_CLOSING_ATTRIBUTE_RE = re.compile(
-    (
+    RUNTIME_ACTION_EXECUTABLE_PREFIX + (
         r"<\s*(?P<name>UPDATE_ACTIVE_MEMORY)"
         r"\s+"
         r"(?P<payload>(?:[^<>\"']+|\"[^\"]*\"|'[^']*')*?)"
@@ -323,14 +326,15 @@ def _find_deep_web_search_block_matches(
         "`'\"<>"
     ).strip()
     regexp = re.compile(
-        (
+        RUNTIME_ACTION_EXECUTABLE_PREFIX + (
             r"<\s*(?P<name>"
             + name_pattern
             + r")"
             r"(?:\s*:\s*(?P<attribute_payload>[^>\r\n]*?))?"
             r"\s*>"
             r"(?P<body>.*?)"
-            r"<\s*/\s*(?:"
+            + RUNTIME_ACTION_EXECUTABLE_PREFIX
+            + r"<\s*/\s*(?:"
             + name_pattern
             + r")\s*>+"
         ),
@@ -411,6 +415,7 @@ class RuntimeActionResult:
     started_actions: tuple[RuntimeActionCall, ...] = ()
     observed_actions: tuple[RuntimeActionCall, ...] = ()
     actions: tuple[RuntimeActionCall, ...] = ()
+    failed_actions: tuple[RuntimeActionCall, ...] = ()
     removed_markers: tuple[str, ...] = ()
     marker_repetition_exceeded: bool = False
     marker_repetition_reason: str = ""
@@ -1387,7 +1392,7 @@ def _trailing_inline_jin_marker_length(
         return 0
 
     marker_start = text.rfind("<")
-    if marker_start < 0:
+    if marker_start < 0 or is_quoted_runtime_marker(text, marker_start):
         return 0
 
     candidate = text[marker_start:]
@@ -1446,6 +1451,10 @@ def _trailing_marker_prefix_length(
     if not text or not max_marker_length:
         return 0
 
+    # Retain a possible literal opener even when '<' arrives in the next chunk.
+    if text[-1] in RUNTIME_ACTION_QUOTE_OPENERS:
+        return 1
+
     upper_text = text.upper()
     max_length = min(
         len(text),
@@ -1470,7 +1479,8 @@ def _trailing_marker_prefix_length(
             continue
 
         if marker_flags & _MARKER_PREFIX_ANGLE:
-            return length
+            if not is_quoted_runtime_marker(text, len(text) - length):
+                return length
 
     return _trailing_inline_jin_marker_length(
         text,
@@ -1615,7 +1625,7 @@ def _unclosed_internal_action_request_start(
     if not marker_starts:
         return None
 
-    return max(
+    return min(
         marker_starts
     )
 
@@ -1636,7 +1646,7 @@ def _unclosed_update_active_memory_attribute_start(
         "<"
     )
 
-    if marker_start < 0:
+    if marker_start < 0 or is_quoted_runtime_marker(text, marker_start):
         return None
 
     candidate = value[
@@ -1705,27 +1715,6 @@ def _asset_action_block_has_payload(
     # Ordinary prose after a stray opening tag must not be mistaken for payload.
     return _asset_action_stream_payload_has_action(
         candidate
-    )
-
-
-def _unclosed_asset_action_start(
-    text: str,
-) -> int | None:
-
-    value = str(text or "")
-
-    if not value:
-        return None
-
-    private_marker, close_tag = _runtime_action_marker_config(
-        RUNTIME_ACTION_ASSET_ACTION
-    )
-
-    return find_unclosed_runtime_action_start(
-        value,
-        private_marker,
-        RUNTIME_ACTION_ASSET_ACTION,
-        close_tag,
     )
 
 
@@ -1886,6 +1875,7 @@ class RuntimeActionStreamFilter:
             ),
             observed_actions=result.observed_actions,
             actions=result.actions,
+            failed_actions=result.failed_actions,
             removed_markers=result.removed_markers,
             marker_repetition_exceeded=(
                 result.marker_repetition_exceeded
@@ -1934,8 +1924,9 @@ class RuntimeActionStreamFilter:
                     pending_start:
                 ]
                 self.pending_is_action = True
-                started_actions = self._find_started_actions(
-                    combined
+                started_actions = (
+                    self._find_started_actions(ready_text)
+                    + self._build_started_actions(combined, unclosed_start)
                 )
                 result = _extract_runtime_actions_if_needed(
                     ready_text,
@@ -2046,11 +2037,13 @@ class RuntimeActionStreamFilter:
 
             if not action_may_be_complete:
                 self.pending += chunk
-                started_actions = self._find_started_actions(
-                    self.pending,
-                    action_names=(
-                        RUNTIME_ACTION_ASSET_ACTION,
-                    ),
+                # The pending buffer begins at the outer opening marker
+                # (possibly after whitespace). Don't rescan its private body
+                # for nested actions on every content chunk.
+                started_actions = (
+                    () if self.pending_started_actions else self._build_started_actions(
+                        self.pending, len(self.pending) - len(self.pending.lstrip()),
+                    )
                 )
 
                 return RuntimeActionResult(
@@ -2060,10 +2053,6 @@ class RuntimeActionStreamFilter:
 
         self.pending = ""
         self.pending_is_action = False
-        started_actions = self._find_started_actions(
-            combined
-        )
-
         unclosed_start = _unclosed_internal_action_request_start(
             combined,
             enabled_actions=self.enabled_actions,
@@ -2080,6 +2069,10 @@ class RuntimeActionStreamFilter:
                 pending_start:
             ]
             self.pending_is_action = True
+            started_actions = (
+                self._find_started_actions(ready_text)
+                + self._build_started_actions(combined, unclosed_start)
+            )
 
             result = _extract_runtime_actions_if_needed(
                 ready_text,
@@ -2095,6 +2088,7 @@ class RuntimeActionStreamFilter:
                 started_actions,
             )
 
+        started_actions = self._find_started_actions(combined)
         hold_length = _trailing_marker_prefix_length(
             combined,
             enabled_actions=self.enabled_actions,
@@ -2169,75 +2163,41 @@ class RuntimeActionStreamFilter:
                 text=pending,
             )
 
-        if _unclosed_asset_action_start(
-            pending
-        ) is not None:
-            # ASSET_ACTION is a strict block action. Without a closing tag it
-            # stays ordinary text, even when another valid marker appeared
-            # earlier in the same model response. Parse any complete markers
-            # around it, but never turn the unfinished block into an action.
-            return extract_runtime_actions(
-                pending,
-                enabled_actions=self.enabled_actions,
-                preserve_action_text=False,
-                preserve_action_marker=self.preserve_action_marker,
-                repetition_guard=self.repetition_guard,
-            )
-
-        delayed_memory_marker, _ = _runtime_action_marker_config(
-            RUNTIME_ACTION_SAVE_DELAYED_MEMORY
-        )
-        delayed_memory_start_re = compile_runtime_action_start_regexp(
-            delayed_memory_marker,
-            RUNTIME_ACTION_SAVE_DELAYED_MEMORY,
-        )
-        delayed_memory_end_re = compile_runtime_action_end_regexp(
-            delayed_memory_marker,
-            RUNTIME_ACTION_SAVE_DELAYED_MEMORY,
-        )
-        delayed_memory_start = delayed_memory_start_re.match(
-            pending
-        )
-
-        if (
-            delayed_memory_start is not None
-            and not delayed_memory_end_re.search(
-                pending,
-                delayed_memory_start.end(),
-            )
-        ):
-            payload = pending[
-                delayed_memory_start.end():
-            ].strip()
-
-            if parse_delayed_memory_payload(
-                payload
-            ):
-                pending = (
-                    pending.rstrip()
-                    + "\n</SAVE_DELAYED_MEMORY>"
-                )
-
-        if _unclosed_internal_action_request_start(
+        marker_start = _unclosed_internal_action_request_start(
             pending,
             enabled_actions=self.enabled_actions,
-        ) == 0:
-            result = extract_runtime_actions(
-                pending,
-                enabled_actions=self.enabled_actions,
-                preserve_action_text=False,
-                preserve_action_marker=self.preserve_action_marker,
-                repetition_guard=self.repetition_guard,
-            )
+        )
+        if marker_start is not None:
+            failed_actions = []
+            for action_name in self.enabled_actions:
+                if action_name not in CLOSE_TAG_RUNTIME_ACTIONS:
+                    continue
+                private_marker, close_tag = _runtime_action_marker_config(action_name)
+                action_start = find_unclosed_runtime_action_start(
+                    pending, private_marker, action_name, close_tag,
+                    allow_inline_payload=_runtime_action_allows_inline_payload(action_name),
+                )
+                if action_name == RUNTIME_ACTION_UPDATE_ACTIVE_MEMORY:
+                    attribute_start = _unclosed_update_active_memory_attribute_start(pending)
+                    if attribute_start is not None:
+                        action_start = attribute_start
+                if action_start != marker_start:
+                    continue
+                opening = compile_runtime_action_start_regexp(
+                    private_marker, action_name,
+                ).match(pending, marker_start)
+                failed_actions.append(RuntimeActionCall(
+                    name=action_name,
+                    payload=pending[opening.end():] if opening else pending[marker_start:],
+                ))
+                break
 
-            if result.actions:
-                return result
-
+            # Never reconstruct a missing close tag or parse actions inside
+            # the unfinished private body. It stays hidden and unexecuted.
             return RuntimeActionResult(
-                text="",
-                removed_markers=(
-                    pending,
-                ) if pending else (),
+                text=pending[:marker_start] if pending[:marker_start].strip() else "",
+                failed_actions=tuple(failed_actions),
+                removed_markers=(pending[marker_start:],),
             )
 
         return extract_runtime_actions(

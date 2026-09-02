@@ -375,7 +375,7 @@ class RuntimeDelayedMemoryTests(RuntimeActionTestCase):
         )
 
 
-    def test_stream_filter_recovers_complete_delayed_memory_without_closing_tag(self):
+    def test_stream_filter_fails_complete_delayed_memory_without_closing_tag(self):
 
         stream_filter = RuntimeActionStreamFilter(
             enabled_actions=[
@@ -398,17 +398,10 @@ class RuntimeDelayedMemoryTests(RuntimeActionTestCase):
             first.started_actions[0].name,
             "SAVE_DELAYED_MEMORY",
         )
-        self.assertEqual(
-            tail.count("SAVE_DELAYED_MEMORY"),
-            1,
-        )
-        report = json.loads(
-            tail.actions[0].payload
-        )
-        self.assertEqual(
-            next(iter(report.values()))["title"],
-            "Radius of Influence Specs",
-        )
+        self.assertEqual(tail.actions, ())
+        self.assertEqual(tail.text, "")
+        self.assertEqual([action.name for action in tail.failed_actions], ["SAVE_DELAYED_MEMORY"])
+        self.assertIn("title: Radius of Influence Specs", tail.failed_actions[0].payload)
 
 
     def test_extracts_delayed_memory_action_markers(self):

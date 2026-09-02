@@ -78,6 +78,7 @@ BOOTSTRAP_TOOL_RESULT_KINDS = {
     "delayed_memory",
     "files",
     "lt",
+    "runtime_action",
     "search",
 }
 

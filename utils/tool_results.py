@@ -10,6 +10,7 @@ TOOL_RESULT_KIND_ACTIVE_MEMORY = "active_memory"
 TOOL_RESULT_KIND_DELAYED_MEMORY = "delayed_memory"
 TOOL_RESULT_KIND_FILES = "files"
 TOOL_RESULT_KIND_LT = "lt"
+TOOL_RESULT_KIND_RUNTIME_ACTION = "runtime_action"
 
 RUNTIME_TOOL_RESULT_LIST_ATTRIBUTES = (
     "runtime_asset_results",
@@ -237,6 +238,7 @@ def _failed_tool_result_requires_followup(
     ).strip().casefold()
 
     if normalized_kind in {
+        TOOL_RESULT_KIND_RUNTIME_ACTION,
         TOOL_RESULT_KIND_SEARCH,
         TOOL_RESULT_KIND_DEEP_SEARCH,
         TOOL_RESULT_KIND_ASSET,

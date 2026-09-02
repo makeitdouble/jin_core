@@ -235,6 +235,8 @@ There is **no current `SAVE_SESSION` contract** in this snapshot.
 
 `utils/actions/regexp_utils.py` accepts more than the advertised canonical syntax so old/provider-specific marker forms can still be recognized. This compatibility is parser-level and must not be confused with the preferred model contract.
 
+A tag immediately preceded by an opening quote, backtick, or bracket is a literal marker reference. It must remain visible without starting/executing an action. The stream filter retains a trailing opener across chunk boundaries; both browser visual-marker renderers respect the same prefix rule. Whitespace between the opener and tag does not qualify.
+
 For close-tag actions, the canonical form remains a paired block. For short actions, legacy inline/colon forms may be recognized when the parser explicitly supports them.
 
 Important current compatibility boundaries:

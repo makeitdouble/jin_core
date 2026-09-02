@@ -168,7 +168,7 @@ function renderChatTextHtml(text) {
       text || ""
     );
   const markerPattern =
-    /<(JIN_COLOR|JIN_SIZE)\s*>([\s\S]*?)<\/\1\s*>/gi;
+    /(?<!["'`«‹“‘„‚(\[{])<(JIN_COLOR|JIN_SIZE)\s*>([\s\S]*?)<\/\1\s*>/gi;
   let rendered = "";
   let lastIndex = 0;
   let match = null;

@@ -19,6 +19,7 @@ from utils.tool_results import (
     TOOL_RESULT_KIND_SEARCH,
     TOOL_RESULT_KIND_FILES,
     TOOL_RESULT_KIND_LT,
+    TOOL_RESULT_KIND_RUNTIME_ACTION,
     get_runtime_tool_result_created_at,
     get_runtime_tool_results,
 )
@@ -372,18 +373,23 @@ def _append_recorded_tool_results(
             appended = True
             continue
 
-        if kind == TOOL_RESULT_KIND_LT:
+        if kind in {TOOL_RESULT_KIND_LT, TOOL_RESULT_KIND_RUNTIME_ACTION}:
             if not isinstance(result, dict):
                 continue
 
+            runtime_action = (
+                RUNTIME_ACTION_UPDATE_LT_FACTS
+                if kind == TOOL_RESULT_KIND_LT
+                else str(result.get("action") or "").upper()
+            )
             payload = format_runtime_action_result(
                 result,
-                runtime_action=RUNTIME_ACTION_UPDATE_LT_FACTS,
+                runtime_action=runtime_action,
             )
             if not payload:
                 continue
 
-            attrs = f'name="{escape(RUNTIME_ACTION_UPDATE_LT_FACTS)}"'
+            attrs = f'name="{escape(runtime_action)}"'
             result_id = str(
                 entry.get(
                     "id",

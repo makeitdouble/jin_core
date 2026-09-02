@@ -183,5 +183,49 @@ class RuntimeStatusConfigTests(unittest.IsolatedAsyncioTestCase):
             ],
         )
 
+    async def test_fetch_runtime_model_status_does_not_use_theoretical_max_as_panel_context(self):
+        client = FakeStatusSequenceClient([
+            {
+                "models": [
+                    {
+                        "key": "model-b",
+                        "max_context_length": 131072,
+                    },
+                ],
+            },
+            {
+                "models": [
+                    {
+                        "key": "model-b",
+                        "max_context_length": 131072,
+                    },
+                ],
+            },
+            {
+                "data": [
+                    {
+                        "id": "model-b",
+                        "context_length": 32768,
+                    },
+                ],
+            },
+        ])
+
+        result = await app_module.fetch_runtime_model_status(
+            client,
+            base_url="http://runtime.test",
+            model_uid="model-b",
+        )
+
+        self.assertEqual(result["context_window"], 32768)
+        self.assertEqual(
+            client.urls,
+            [
+                "http://runtime.test/api/v1/models",
+                "http://runtime.test/api/v0/models",
+                "http://runtime.test/v1/models",
+            ],
+        )
+
 if __name__ == "__main__":
     unittest.main()

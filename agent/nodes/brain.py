@@ -104,6 +104,8 @@ def action_event_requires_follow_up(event) -> bool:
     name = str(event.get("name", "") or "").strip().casefold()
 
     if status == "failed":
+        if event.get("error") == "no_close_tag_provided_in_output":
+            return True
         return runtime_action_follows_up_on_fail(
             name
         )
@@ -130,6 +132,9 @@ def _build_failed_runtime_action_marker(event: dict) -> str:
 
     if not marker:
         return payload
+
+    if event.get("error") == "no_close_tag_provided_in_output":
+        return "\n".join(part for part in (marker, payload) if part)
 
     if not runtime_action_has_close_tag(
         runtime_action

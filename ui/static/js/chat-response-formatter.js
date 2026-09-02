@@ -6,7 +6,7 @@
     || {};
 
   const markerPattern =
-    /<(JIN_COLOR|JIN_SIZE)\s*>([\s\S]*?)<\/\1\s*>/gi;
+    /(?<!["'`«‹“‘„‚(\[{])<(JIN_COLOR|JIN_SIZE)\s*>([\s\S]*?)<\/\1\s*>/gi;
 
   function escapeHtml(text) {
 

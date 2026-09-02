@@ -2433,7 +2433,7 @@ function renderRuntimeActionLabel(
     );
   }
 
-  if (action === "jin_color") {
+  if (action === "jin_color" && options.status !== "failed") {
     const textColor =
       extractRuntimeActionColorFromText(
         text
@@ -2506,7 +2506,7 @@ function renderRuntimeActionLabel(
     return;
   }
 
-  if (action === "jin_size") {
+  if (action === "jin_size" && options.status !== "failed") {
     const explicitSizes = Array.isArray(
       options.sizes
     )

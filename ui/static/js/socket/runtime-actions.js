@@ -1428,8 +1428,12 @@ function handleRuntimeAction(
       === "restricted_write"
       || /restricted\s+write/i.test(text)
     );
+  const missingCloseTagFailure =
+    status === "failed"
+    && data.error === "no_close_tag_provided_in_output";
   const strikeThroughFailure =
-    cancelledByUser
+    missingCloseTagFailure
+    || cancelledByUser
     || abortedByUser
     || restrictedWriteFailure;
   if (
@@ -1517,7 +1521,9 @@ function handleRuntimeAction(
     || data.deepSearchPayloadReady === true;
 
   const displayText =
-    shouldUseDeepSearchStartedDisplayNameOnly(
+    missingCloseTagFailure
+      ? text
+      : shouldUseDeepSearchStartedDisplayNameOnly(
       action,
       status,
       deepSearchParent,
@@ -1565,7 +1571,8 @@ function handleRuntimeAction(
     );
 
   const runtimeDetail =
-    (
+    (missingCloseTagFailure ? data.detail : "")
+    || (
       [
         "save_active_memory",
         "update_active_memory",
@@ -1711,7 +1718,7 @@ function handleRuntimeAction(
     return;
   }
 
-  if (action === "jin_color") {
+  if (action === "jin_color" && !missingCloseTagFailure) {
     const color =
       String(
         data.color
@@ -1849,7 +1856,7 @@ function handleRuntimeAction(
     return;
   }
 
-  if (action === "jin_size") {
+  if (action === "jin_size" && !missingCloseTagFailure) {
     const size =
       String(
         data.size
@@ -1996,7 +2003,7 @@ function handleRuntimeAction(
     return;
   }
 
-  if (action === "jin_speed") {
+  if (action === "jin_speed" && !missingCloseTagFailure) {
     const speed = Number.parseInt(
       data.speed || data.payload || 0,
       10
@@ -2042,7 +2049,7 @@ function handleRuntimeAction(
     return;
   }
 
-  if (action === "jin_position") {
+  if (action === "jin_position" && !missingCloseTagFailure) {
     const x = Number.parseInt(
       data.x,
       10
