@@ -91,7 +91,7 @@ class AnonymousModeTests(unittest.IsolatedAsyncioTestCase):
             )
         )
         self.assertFalse(lt_memory_writes_restricted(context))
-        self.assertTrue(
+        self.assertFalse(
             runtime_action_write_is_restricted(
                 context,
                 RUNTIME_ACTION_SAVE_DELAYED_MEMORY,

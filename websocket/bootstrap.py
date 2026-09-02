@@ -895,13 +895,8 @@ def hydrate_delayed_memory_reports_from_files(
             False,
         )
     ):
-        context.delayed_memory_reports = {}
-        context.runtime_loaded_delayed_memory = {}
-        context.runtime_loaded_delayed_memory_ids = []
-        from runtime.LT_memory import (
-            refresh_runtime_lt_archived_fact_ids,
-        )
-        refresh_runtime_lt_archived_fact_ids(context)
+        # configure_runtime_anonymous_mode initializes a new room once.
+        # A soft reconnect must keep its reports and loaded bodies intact.
         return
 
     file_reports, warnings = (

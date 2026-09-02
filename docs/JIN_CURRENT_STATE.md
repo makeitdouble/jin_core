@@ -406,7 +406,9 @@ Backend `runtime/anonymous_mode.py` currently:
 
 - marks runtime persistent writes restricted;
 - disables both Delayed and L-T file-store hydration/persistence;
-- blocks `UPDATE_LT_FACTS` and `SAVE_DELAYED_MEMORY`;
+- allows `UPDATE_LT_FACTS` and `SAVE_DELAYED_MEMORY` in the isolated session snapshot;
+- accepts Delayed browser sync without file writes/deletes, including after reload;
+- preserves Delayed reports and loaded bodies on a soft WebSocket reconnect;
 - blocks persistent asset-write actions;
 - prevents anonymous L1 pending journals under `memory/runtime`;
 - keeps chat/reasoning logging under ordinary `logs/` with the `-anon` session suffix.

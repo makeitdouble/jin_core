@@ -20,7 +20,7 @@ RESTRICTED_WRITE_FOLLOWUP_MESSAGE = (
     "otherwise changing persistent data."
 )
 
-_ALWAYS_RESTRICTED_RUNTIME_ACTIONS = {
+_SESSION_MEMORY_WRITE_ACTIONS = {
     "UPDATE_LT_FACTS",
     "SAVE_DELAYED_MEMORY",
 }
@@ -122,7 +122,7 @@ def configure_runtime_anonymous_mode(
 
     if enabled and not was_enabled:
         # An explicit anonymous room starts from an empty in-memory structure.
-        # Browser sync may populate its per-tab Active/L-T snapshot afterwards,
+        # Browser sync may populate its per-tab Active/L-T/Delayed snapshot afterwards,
         # but no global Delayed/L-T state is ever hydrated into this context.
         context.active_memory_records = []
         context.delayed_memory_reports = {}
@@ -143,8 +143,8 @@ def persistent_writes_restricted(context) -> bool:
     )
 
 
-def lt_memory_writes_restricted(context) -> bool:
-    """Block durable L-T writes, but allow tab-scoped anonymous L-T state."""
+def session_memory_writes_restricted(context) -> bool:
+    """Allow anonymous memory mutations inside the isolated session snapshot."""
     if not persistent_writes_restricted(context):
         return False
 
@@ -155,6 +155,10 @@ def lt_memory_writes_restricted(context) -> bool:
             False,
         )
     )
+
+
+def lt_memory_writes_restricted(context) -> bool:
+    return session_memory_writes_restricted(context)
 
 
 def _parse_asset_action_name(payload) -> str:
@@ -203,11 +207,8 @@ def runtime_action_write_is_restricted(
 
     normalized_name = str(action_name or "").strip().upper()
 
-    if normalized_name == "UPDATE_LT_FACTS":
-        return lt_memory_writes_restricted(context)
-
-    if normalized_name in _ALWAYS_RESTRICTED_RUNTIME_ACTIONS:
-        return True
+    if normalized_name in _SESSION_MEMORY_WRITE_ACTIONS:
+        return session_memory_writes_restricted(context)
 
     if normalized_name == "ASSET_ACTION":
         return asset_action_writes_persistent_data(payload)

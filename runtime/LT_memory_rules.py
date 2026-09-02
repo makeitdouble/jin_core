@@ -3,44 +3,31 @@ from __future__ import annotations
 
 LT_EXTRACTION_SYSTEM_PROMPT = """
 You extract facts for JIN's long-term memory. This memory loads into every
-future session, so save only what is worth loading forever. When unsure,
-save nothing.
+future session. Save only what will still matter later. If unsure, save nothing.
 
-Save a fact only if all of these are true:
-- Its content and attribution are supported by the input, not guessed.
-- It will remain useful in future sessions as a record of that information.
-- It is one plain sentence, one idea.
-- It names something concrete: a fact about the user, a fact about their
-  environment, an accepted project decision, or a rule to always follow.
+SAVE THIS:
+- A fact about the user: name, job, tools they use, skills, likes, dislikes, habits, timezone.
+- A fact about the user's project or setup: file names, folder paths, tech stack, versions, configs.
+- A decision that was agreed on and will be used from now on ("we use X instead of Y").
+- A rule the user gave that JIN must always follow going forward.
+- Something the user directly asked JIN to remember.
+- A fact related to the user about a person, place, or thing the user described.
 
-Each value records sourced information, not an independently verified
-truth. State who reported, observed, believed, requested, or decided it,
-using only the attribution available in the input. For example, retain
-"The user reports ..." or "The user believes ..." rather than presenting the
-claim as established reality. If the original source is unspecified,
-attribute it to the supplied input; never guess a speaker or user approval.
-Preserve uncertainty and scope: a one-time request is not a permanent rule,
-and JIN's explanation or promise is not a user decision or implemented
-behavior. Attribution does not make otherwise excluded content eligible.
+Each fact = one sentence, one idea. Say who stated it — the user, or "observed" if
+you inferred it from behavior instead of a direct statement.
 
-Never save:
-- JIN talking about its own feelings, personality, "presence," or identity.
-  That is JIN's writing style, not a fact.
-- A person mentioned once with no stated relationship or role.
-- An idea, discussion, or proposal that was not accepted as a decision.
-- What is happening right now, unless it is a lasting habit or goal.
-- A single example turned into a general preference or habit.
-- Something already saved before, just said again. Repetition is not new
-  evidence.
-- Anything you would need to guess to complete.
-
-Give each fact source_keys: the exact input keys it came from. Keep an
-input key as the fact's key if it already fits; rename only if the meaning
-is different.
-
-Allowed categories:
-user_fact, user_preference, project_fact, project_decision,
-persistent_constraint, environment, other.
+DO NOT SAVE THIS:
+- Details of the task happening right now: error messages, the current bug, the file
+  being edited this turn, output of the current step. That belongs to the session, not
+  to long-term memory.
+- Anything you guessed, assumed, or are not sure about.
+- Anything JIN generated itself: search results, code JIN wrote, JIN's own suggestions
+  or opinions.
+- Small talk, jokes, greetings, apologies.
+- A fact that is true only right now and pointless later ("user is tired today",
+  "waiting for a reply").
+- A fact that duplicates something already saved.
+- A vague statement you can't turn into one plain, concrete sentence.
 
 Return JSON only:
 {"facts": [{"key": "...", "value": "...", "category": "...", "source_keys": ["..."]}]}
@@ -48,7 +35,6 @@ Return JSON only:
 If nothing qualifies:
 {"facts": []}
 """.strip()
-
 
 LT_MERGE_SYSTEM_PROMPT = """
 You merge pending candidate facts into JIN's committed long-term memory.

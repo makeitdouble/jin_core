@@ -418,8 +418,8 @@ JIN deliberately splits persistence by owner/lifetime.
 | atomic browser session checkpoint | `localStorage`: `jin.sessionCheckpoint.v2` |
 | Active Memory | normal: browser runtime storage; anonymous room: tab-scoped `jin.anonymousSession.v1` snapshot |
 | Facts Memory candidate buckets | browser storage per facts-memory session ID |
-| Delayed Memory | `memory/delayed/*.json` |
-| L-T facts | `memory/facts/long_term_facts.json` |
+| Delayed Memory | normal: `memory/delayed/*.json`; anonymous: tab-scoped snapshot |
+| L-T facts | normal: `memory/facts/long_term_facts.json`; anonymous: tab-scoped snapshot |
 | persistent files | `assets/files/` + file index |
 | visible chat / reasoning logs | `logs/` |
 | live in-process orchestration | `RuntimeContext` |
@@ -510,7 +510,9 @@ Backend behavior:
 - global Delayed and L-T file stores are not hydrated into the room;
 - Delayed and L-T file-store persistence is disabled;
 - the L1 crash-recovery journal under `memory/runtime` is disabled;
-- `UPDATE_LT_FACTS` and `SAVE_DELAYED_MEMORY` are explicitly restricted;
+- `UPDATE_LT_FACTS` and `SAVE_DELAYED_MEMORY` mutate only the anonymous session snapshot;
+- Delayed browser sync supports restore, pin/unpin, and delete without accessing global files;
+- a soft WebSocket reconnect preserves the room's reports and loaded bodies;
 - persistent asset-write actions are restricted;
 - chat and reasoning still log normally under `logs/<date>/<session>-anon/`;
 - normal restore/bootstrap and L-T log-freshness scans ignore `-anon` sessions.

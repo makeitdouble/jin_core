@@ -41,6 +41,7 @@ from runtime.anonymous_mode import (
     RESTRICTED_WRITE_REASON,
     lt_memory_writes_restricted,
     persistent_writes_restricted,
+    session_memory_writes_restricted,
 )
 from utils.ws_errors import handle_websocket_error
 from .attachments import (
@@ -383,7 +384,7 @@ async def websocket_endpoint(
                 continue
 
             if message_type == "delayed_memory_store_sync":
-                if persistent_writes_restricted(context):
+                if session_memory_writes_restricted(context):
                     deleted_report_ids = []
                 else:
                     deleted_report_ids = apply_delayed_memory_reports(

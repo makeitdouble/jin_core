@@ -212,7 +212,7 @@ Serialize/deserialize must preserve entity/snapshot timestamps. `now()` is only 
 
 **Status:** Accepted / implemented
 
-Long-pressing the avatar opens a fresh JIN room with a generated `-anon` session id. The room gets only tab-scoped FRAME/Active/L-T/Delayed browser state, does not hydrate durable L-T/Delayed memory, and cannot persist memory/asset mutations. Chat and reasoning remain auditable in ordinary `logs/` under the suffixed session id, while normal bootstrap and L-T freshness scanners ignore those logs.
+Long-pressing the avatar opens a fresh JIN room with a generated `-anon` session id. The room gets only tab-scoped FRAME/Active/L-T/Delayed browser state, does not hydrate durable L-T/Delayed memory, and saves memory mutations only in its own tab-scoped snapshot. Global memory/asset writes remain restricted. Chat and reasoning remain auditable in ordinary `logs/` under the suffixed session id, while normal bootstrap and L-T freshness scanners ignore those logs.
 
 **Why:** anonymous experimentation must not inherit or contaminate the durable memory room, and browser Incognito detection is not a reliable product primitive.
 
