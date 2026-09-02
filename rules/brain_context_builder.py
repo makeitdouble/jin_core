@@ -6,6 +6,10 @@
 from __future__ import annotations
 
 from datetime import datetime
+from utils.project_context import (
+    build_project_review_context, pinned_project_reports, project_fact_ids,
+    project_review_active,
+)
 from xml.sax.saxutils import escape
 
 from .identity import IDENTITY
@@ -34,6 +38,7 @@ BRAIN_RUNTIME_ACTIONS = {
     "CAN_SAVE_ACTIVE_MEMORY": True,
     "CAN_CLEAN_TOOL_RESULTS": True,
     "CAN_JIN_COLOR": True,
+    "CAN_JIN_REACTION": True,
     "CAN_JIN_SIZE": True,
     "CAN_JIN_POSITION": True,
     "CAN_JIN_SPEED": True,
@@ -597,6 +602,10 @@ def build_delayed_memory_inventory_context(
     if not reports:
         return ""
 
+    if project_review_active(context):
+        allowed_ids = pinned_project_reports(context)
+        reports = {key: report for key, report in reports.items() if key.casefold() in allowed_ids}
+
     report_names = []
 
     for report_id, report in reports.items():
@@ -808,6 +817,9 @@ def build_loaded_delayed_memory_context(
         context
     )
 
+    if project_review_active(context):
+        allowed_ids = pinned_project_reports(context)
+        loaded_reports = {key: report for key, report in loaded_reports.items() if key.casefold() in allowed_ids}
     if not loaded_reports:
         return ""
 
@@ -943,6 +955,9 @@ def build_long_term_memory_context(
             )
             or []
         )
+
+    if project_review_active(context):
+        restore_fact_ids = project_fact_ids(context)
 
     return build_runtime_lt_memory_context(
         context=context,
@@ -1187,6 +1202,11 @@ def build_brain_context(
         build_attached_files_inventory_context,
     )
 
+    project_review = project_review_active(context)
+    if project_review:
+        # Follow-ups keep the same dialogue and exact accumulated thought.
+        include_previous_chat_messages = True
+
     prompt_parts = []
     runtime_context_parts = []
     restore_priming = bool(
@@ -1281,6 +1301,10 @@ def build_brain_context(
         prompt_parts.append(
             context_usage_context
         )
+
+    project_review_context = build_project_review_context(context)
+    if project_review_context:
+        prompt_parts.append(project_review_context)
 
     # Tool results block: places recent tool/action outputs near the top.
     tool_results_context = build_tool_results_context(
@@ -1497,7 +1521,11 @@ def build_brain_context(
             )
         )
 
-        if previous_reasoning_loop_context:
+        if project_review:
+            prompt_parts.append(build_previous_reasoning_context(
+                context, include_turn_reasoning=True, crop=False,
+            ))
+        elif previous_reasoning_loop_context:
             prompt_parts.append(
                 previous_reasoning_loop_context
             )

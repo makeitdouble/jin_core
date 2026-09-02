@@ -1,0 +1,21 @@
+{
+  "jin_reaction": {
+    "version": 1,
+    "description": "Allows JIN to react to the current user message with a single emoji while answering.",
+    "runtime_action": "JIN_REACTION",
+    "enable_flag": "CAN_JIN_REACTION",
+    "runtime_order": 45,
+    "private_marker": "<JIN_REACTION: 😂 >",
+    "triggers": [],
+    "blockers": [],
+    "effects": {
+      "emit_followup": false,
+      "follow_up_on_fail": false
+    },
+    "schema": [],
+    "rules": [
+      "Use JIN_REACTION to send user an emoji reaction! Place single marker an any place of visible response."
+    ],
+    "close_tag": false
+  }
+}

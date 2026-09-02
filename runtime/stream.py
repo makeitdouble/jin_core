@@ -50,6 +50,8 @@ from utils.actions import (
     is_delayed_memory_report_id,
     RuntimeActionCounter,
     normalize_jin_color_payload,
+    normalize_jin_reaction_payload,
+    strip_jin_reaction_markers,
     normalize_jin_size_dict,
     normalize_jin_size_payload,
     format_jin_size_payload,
@@ -67,6 +69,7 @@ from contracts.rules_assembler import (
     RUNTIME_ACTION_LOAD_SKILL,
     RUNTIME_ACTION_ASSET_ACTION,
     RUNTIME_ACTION_JIN_COLOR,
+    RUNTIME_ACTION_JIN_REACTION,
     RUNTIME_ACTION_JIN_SIZE,
     RUNTIME_ACTION_SAVE_ACTIVE_MEMORY,
     RUNTIME_ACTION_UPDATE_LT_FACTS,
@@ -424,6 +427,13 @@ class RuntimeStream:
         action,
     ) -> bool:
 
+        if action.name == RUNTIME_ACTION_JIN_REACTION:
+            return bool(
+                normalize_jin_reaction_payload(
+                    action.payload
+                )
+            )
+
         if action.name != RUNTIME_ACTION_LOAD_SKILL:
             return False
 
@@ -706,7 +716,9 @@ class RuntimeStream:
             return
 
         self.context.runtime_turn_assistant_response = (
-            self.stream.response
+            strip_jin_reaction_markers(
+                self.stream.response
+            )
         )
 
     def build_message_end_checkpoint_payload(self) -> dict:
@@ -2102,6 +2114,7 @@ class RuntimeStream:
             if not should_pause_action_guard_for_confirmation(
                 guard_name,
                 user_message,
+                context=self.context,
             ):
                 continue
 
@@ -2180,6 +2193,7 @@ class RuntimeStream:
             if not should_pause_action_guard_for_confirmation(
                 guard_name,
                 user_message,
+                context=self.context,
             ):
                 continue
 
@@ -3505,7 +3519,9 @@ class RuntimeStream:
                     raw_model_output
                 )
 
-            log_response = self.stream.response
+            log_response = strip_jin_reaction_markers(
+                self.stream.response
+            )
 
             if not log_response.strip():
                 log_response = self.build_action_log(
@@ -3516,7 +3532,9 @@ class RuntimeStream:
                 log_response
             )
 
-            return self.stream.response
+            return strip_jin_reaction_markers(
+                self.stream.response
+            )
 
         # ---------------------------------------------------------
         # TASK CANCELLED

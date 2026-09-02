@@ -12,6 +12,7 @@ from contracts.rules_assembler import (
     RUNTIME_ACTION_LOAD_SKILL,
     RUNTIME_ACTION_ASSET_ACTION,
     RUNTIME_ACTION_JIN_COLOR,
+    RUNTIME_ACTION_JIN_REACTION,
     RUNTIME_ACTION_JIN_SIZE,
     RUNTIME_ACTION_UPDATE_LT_FACTS,
     RUNTIME_ACTION_UNLOAD_DELAYED_MEMORY,
@@ -91,6 +92,8 @@ def get_brain_runtime_id() -> str:
 def get_response_enabled_runtime_actions(
     runtime_actions=None,
     user_message: str = "",
+    *,
+    context=None,
 ) -> tuple[str, ...]:
 
     enabled_actions = list(
@@ -103,7 +106,8 @@ def get_response_enabled_runtime_actions(
         RUNTIME_ACTION_SAVE_DELAYED_MEMORY
         in enabled_actions
         and not should_execute_save_delayed_memory(
-            user_message
+            user_message,
+            context=context,
         )
     ):
         enabled_actions.remove(
@@ -362,6 +366,7 @@ async def ask_brain(
         enabled_actions = get_response_enabled_runtime_actions(
             runtime_actions,
             text,
+            context=context,
         )
 
         content_actions = extract_runtime_actions(
@@ -478,6 +483,7 @@ async def ask_brain_stream(
     enabled_actions = get_response_enabled_runtime_actions(
         runtime_actions,
         text,
+        context=context,
     )
 
     model_user_prompt = build_brain_user_prompt_content(
@@ -520,10 +526,16 @@ async def ask_brain_stream(
         ""
     )
 
-    def preserve_duplicate_load_skill_marker(
+    def preserve_client_stream_action_marker(
         _raw_marker,
         action,
     ) -> bool:
+
+        # JIN_REACTION belongs to the visible outer RuntimeStream.
+        # Keep its marker so that layer owns the real chat message id
+        # and the exact DOM launch anchor.
+        if action.name == RUNTIME_ACTION_JIN_REACTION:
+            return True
 
         if action.name != RUNTIME_ACTION_LOAD_SKILL:
             return False
@@ -544,9 +556,45 @@ async def ask_brain_stream(
 
         return False
 
+    def defer_outer_stream_actions(
+        result: RuntimeActionResult,
+    ) -> RuntimeActionResult:
+
+        # The client filter runs before the visible RuntimeStream.
+        # Reactions survive here but are executed/counted only there.
+        def without_reactions(actions):
+            return tuple(
+                action
+                for action in actions or ()
+                if action.name != RUNTIME_ACTION_JIN_REACTION
+            )
+
+        return RuntimeActionResult(
+            text=result.text,
+            started_actions=without_reactions(
+                result.started_actions
+            ),
+            observed_actions=without_reactions(
+                result.observed_actions
+            ),
+            actions=without_reactions(
+                result.actions
+            ),
+            failed_actions=without_reactions(
+                result.failed_actions
+            ),
+            removed_markers=result.removed_markers,
+            marker_repetition_exceeded=(
+                result.marker_repetition_exceeded
+            ),
+            marker_repetition_reason=(
+                result.marker_repetition_reason
+            ),
+        )
+
     content_filter = RuntimeActionStreamFilter(
         enabled_actions=enabled_actions,
-        preserve_action_marker=preserve_duplicate_load_skill_marker,
+        preserve_action_marker=preserve_client_stream_action_marker,
         repetition_guard=RuntimeActionRepetitionGuard(),
         #preserve_action_text=True
     )
@@ -1889,10 +1937,12 @@ async def ask_brain_stream(
         if not filter_runtime_actions:
             return action_chunk
 
-        result = content_filter.filter(
-            action_chunk.get(
-                "content",
-                "",
+        result = defer_outer_stream_actions(
+            content_filter.filter(
+                action_chunk.get(
+                    "content",
+                    "",
+                )
             )
         )
         counter_entries = (
@@ -2129,7 +2179,9 @@ async def ask_brain_stream(
                 break
 
         tail_result = (
-            content_filter.flush_result()
+            defer_outer_stream_actions(
+                content_filter.flush_result()
+            )
             if filter_runtime_actions
             else RuntimeActionResult(text="")
         )

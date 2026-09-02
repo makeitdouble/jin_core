@@ -22,7 +22,7 @@ STORED_NAME_RE = re.compile(r"^([a-z0-9]{6})_(.+)$", re.IGNORECASE)
 TEXT_EXTENSIONS = {
     ".txt", ".md", ".markdown", ".py", ".js", ".jsx", ".ts", ".tsx",
     ".json", ".csv", ".css", ".html", ".htm", ".xml", ".yaml", ".yml",
-    ".toml", ".log", ".ini", ".cfg", ".conf", ".sql", ".sh", ".ps1",
+    ".toml", ".log", ".ini", ".cfg", ".conf", ".sql", ".sh", ".ps1", ".jin-folder",
 }
 
 

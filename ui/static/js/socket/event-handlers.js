@@ -294,15 +294,23 @@ function handleSocketChatMessage(
     resolveMessageRole(data);
 
   let filteredText =
-    filterDelayedMemoryContentFromChunk(
-      data.message_id || "message",
-      data.text
-    );
+    String(data.text || "");
 
-  if (window.stripInternalActionMarkers) {
-    filteredText = window.stripInternalActionMarkers(
-      filteredText
-    );
+  // Runtime-action markers are output syntax. A USER message is data for the
+  // model, never executable/renderable runtime output, so keep it byte-for-byte
+  // visible instead of running it through assistant-side marker cleanup.
+  if (role !== "user") {
+    filteredText =
+      filterDelayedMemoryContentFromChunk(
+        data.message_id || "message",
+        filteredText
+      );
+
+    if (window.stripInternalActionMarkers) {
+      filteredText = window.stripInternalActionMarkers(
+        filteredText
+      );
+    }
   }
 
   clearDelayedMemoryContentFilter(

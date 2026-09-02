@@ -1350,3 +1350,23 @@ main.panel-startup-collapse-active #memory-panel {
 #console-title{
     margin-top: -2px;
 }
+
+.jin-project-folder-form {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-top: 8px;
+}
+.jin-project-folder-form.hidden { display: none; }
+.jin-project-folder-input {
+    flex: 1 1 140px;
+    min-width: 0;
+    font-weight: normal;
+    letter-spacing: normal;
+    cursor: text;
+}
+.jin-project-folder-status {
+    width: 100%;
+    font-size: 10px;
+    overflow-wrap: anywhere;
+}

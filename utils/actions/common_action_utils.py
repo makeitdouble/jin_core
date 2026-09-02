@@ -14,6 +14,7 @@ from contracts.rules_assembler import (
     RUNTIME_ACTION_SAVE_ACTIVE_MEMORY,
     RUNTIME_ACTION_ASSET_ACTION,
     RUNTIME_ACTION_JIN_COLOR,
+    RUNTIME_ACTION_JIN_REACTION,
     RUNTIME_ACTION_JIN_SIZE,
     RUNTIME_ACTION_JIN_POSITION,
     RUNTIME_ACTION_JIN_SPEED,
@@ -44,6 +45,7 @@ from .skill_load_utils import (
 from .asset_action_utils import build_asset_action_payload
 from .save_active_memory_utils import build_save_active_memory_payload
 from .jin_color_utils import build_jin_color_payload
+from .jin_reaction_utils import build_jin_reaction_payload
 from .jin_size_utils import build_jin_size_payload
 from .jin_position_utils import build_jin_position_payload
 from .jin_speed_utils import build_jin_speed_payload
@@ -112,6 +114,7 @@ REPEATABLE_RUNTIME_ACTIONS = frozenset({
 
 JIN_INLINE_PAYLOAD_ACTIONS = frozenset({
     RUNTIME_ACTION_JIN_COLOR,
+    RUNTIME_ACTION_JIN_REACTION,
     RUNTIME_ACTION_JIN_SIZE,
     RUNTIME_ACTION_JIN_POSITION,
     RUNTIME_ACTION_JIN_SPEED,
@@ -662,6 +665,7 @@ def build_deep_web_search_payload(
 
 _ACTION_PAYLOAD_BUILDERS = {
     RUNTIME_ACTION_JIN_COLOR: build_jin_color_payload,
+    RUNTIME_ACTION_JIN_REACTION: build_jin_reaction_payload,
     RUNTIME_ACTION_JIN_SIZE: build_jin_size_payload,
     RUNTIME_ACTION_JIN_POSITION: build_jin_position_payload,
     RUNTIME_ACTION_JIN_SPEED: build_jin_speed_payload,
@@ -1073,16 +1077,24 @@ def extract_runtime_actions(
             marker_repetition_reason = repetition_guard.reason
             return ""
 
-        if (
+        preserve_marker = (
             preserve_action_marker is not None
             and preserve_action_marker(
                 raw_marker,
                 action,
             )
+        )
+
+        if (
+            preserve_marker
+            and action.name != RUNTIME_ACTION_JIN_REACTION
         ):
             return raw_marker
 
-        if not preserve_action_text:
+        if (
+            not preserve_action_text
+            and not preserve_marker
+        ):
             removed_markers.append(
                 raw_marker
             )
@@ -1107,7 +1119,7 @@ def extract_runtime_actions(
 
         return (
             raw_marker
-            if preserve_action_text
+            if preserve_action_text or preserve_marker
             else ""
         )
 

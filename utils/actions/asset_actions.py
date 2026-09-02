@@ -286,6 +286,8 @@ async def emit_saved_asset_results(
                 + result_index,
             )
         )
+        from utils.project_reader import PROJECT_ACTIONS, format_project_result
+        project_detail = format_project_result(result) if result_action in PROJECT_ACTIONS else ""
         await emit(with_action_context({
             "type": "runtime_action",
             "action": action_name,
@@ -302,7 +304,7 @@ async def emit_saved_asset_results(
                 action_name
             ),
             "text": text,
-            "detail": str(
+            "detail": project_detail or str(
                 result.get(
                     "detail",
                     "",

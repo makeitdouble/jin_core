@@ -189,6 +189,26 @@ async def api_list_files():
     return public_file_snapshot()
 
 
+@app.post("/api/files/link-folder")
+async def api_link_folder(request: Request):
+    from urllib.parse import urlsplit
+    from utils.project_reader import link_project_folder
+
+    origin = request.headers.get("origin")
+    if origin and urlsplit(origin).netloc != request.headers.get("host"):
+        raise HTTPException(status_code=403, detail="Origin not allowed")
+    if request.headers.get("content-type", "").split(";", 1)[0] != "application/json":
+        raise HTTPException(status_code=415, detail="Expected JSON")
+    try:
+        payload = await request.json()
+        if not isinstance(payload, dict) or not isinstance(payload.get("path"), str):
+            raise ValueError("Provide a folder path")
+        record, created, pin_error = link_project_folder(payload["path"])
+    except (OSError, ValueError, RuntimeError) as error:
+        raise HTTPException(status_code=400, detail=str(error)) from error
+    return {"file": record, "created": created, "pin_error": pin_error, **public_file_snapshot()}
+
+
 @app.post("/api/files/upload")
 async def api_upload_file(
     file: UploadFile = File(...),

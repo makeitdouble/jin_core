@@ -693,6 +693,8 @@ def build_current_runtime_context(
 
 def strip_actions_history_context(
     system_prompt: str,
+    *,
+    keep_previous_chat_messages: bool = False,
 ) -> str:
 
     prompt = str(
@@ -711,6 +713,8 @@ def strip_actions_history_context(
         "SEQUENCE_ORIGIN_REQUEST",
         "PREVIOUS_CHAT_MESSAGES",
     ):
+        if keep_previous_chat_messages and tag_name == "PREVIOUS_CHAT_MESSAGES":
+            continue
         prompt = re.sub(
             rf"(?:^|\n)<{tag_name}>.*?</{tag_name}>\n*",
             "\n",

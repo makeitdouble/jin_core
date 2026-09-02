@@ -6,6 +6,7 @@ from contracts.rules_assembler import (
     RUNTIME_ACTION_ASSET_ACTION,
     RUNTIME_ACTION_SAVE_ACTIVE_MEMORY,
     RUNTIME_ACTION_JIN_COLOR,
+    RUNTIME_ACTION_JIN_REACTION,
     RUNTIME_ACTION_JIN_SIZE,
     RUNTIME_ACTION_JIN_POSITION,
     RUNTIME_ACTION_JIN_SPEED,
@@ -41,6 +42,7 @@ from utils.actions import (
     extract_search_query,
     generate_active_memory_slot_key,
     normalize_jin_color_payload,
+    normalize_jin_reaction_payload,
     normalize_jin_position_dict,
     normalize_jin_position_payload,
     normalize_jin_speed_payload,
@@ -83,6 +85,9 @@ from utils.actions.attachment_actions import (
 from utils.actions.update_lt_facts_actions import schedule_update_lt_facts_actions
 from utils.actions.jin_visual_sequence_actions import (
     emit_jin_visual_sequences,
+)
+from utils.actions.jin_reaction_actions import (
+    emit_jin_reactions,
 )
 from utils.actions.skill_actions import (
     apply_skill_actions,
@@ -257,6 +262,7 @@ async def apply_runtime_action_calls(
         RUNTIME_ACTION_DEEP_WEB_SEARCH,
         RUNTIME_ACTION_WEB_SEARCH,
         RUNTIME_ACTION_JIN_COLOR,
+        RUNTIME_ACTION_JIN_REACTION,
         RUNTIME_ACTION_JIN_SIZE,
         RUNTIME_ACTION_JIN_POSITION,
         RUNTIME_ACTION_JIN_SPEED,
@@ -574,12 +580,21 @@ async def apply_runtime_action_calls(
             continue
 
         jin_color = ""
+        jin_reaction = ""
         jin_size = ""
         jin_size_dict = None
         jin_position = ""
         jin_position_dict = None
         jin_speed = ""
         jin_speed_value = None
+
+        if action.name == RUNTIME_ACTION_JIN_REACTION:
+            jin_reaction = normalize_jin_reaction_payload(
+                action.payload
+            )
+
+            if not jin_reaction:
+                continue
 
         if action.name == RUNTIME_ACTION_JIN_COLOR:
             jin_color = normalize_jin_color_payload(
@@ -684,6 +699,7 @@ async def apply_runtime_action_calls(
             and should_pause_action_guard_for_confirmation(
                 guard_name,
                 resolved_user_message,
+                context=context,
             )
         ):
             rejection_event = {
@@ -745,6 +761,21 @@ async def apply_runtime_action_calls(
                 )
 
             rejected_action_events[id(action)] = rejection_event
+            continue
+
+        if action.name == RUNTIME_ACTION_JIN_REACTION:
+            if not accept_runtime_action_once_per_message(
+                action,
+                "__single_reaction__",
+            ):
+                continue
+
+            accepted_action_names.add(
+                action_event_name
+            )
+            filtered_actions.append(
+                action
+            )
             continue
 
         if action.name == RUNTIME_ACTION_JIN_COLOR:
@@ -1257,6 +1288,14 @@ async def apply_runtime_action_calls(
                 "context": action_context_snapshot,
             })
 
+        elif action.name == RUNTIME_ACTION_JIN_REACTION:
+            emoji = normalize_jin_reaction_payload(
+                action.payload
+            )
+            if emoji:
+                action_event["emoji"] = emoji
+                action_event["payload"] = emoji
+
         elif action.name == RUNTIME_ACTION_JIN_COLOR:
             color = normalize_jin_color_payload(
                 action.payload
@@ -1637,6 +1676,12 @@ async def apply_runtime_action_calls(
         if action.name == RUNTIME_ACTION_CLEAN_TOOL_RESULTS
     ]
 
+    jin_reaction_actions = [
+        action
+        for action in filtered_actions
+        if action.name == RUNTIME_ACTION_JIN_REACTION
+    ]
+
     jin_color_actions = [
         action
         for action in filtered_actions
@@ -1732,6 +1777,14 @@ async def apply_runtime_action_calls(
     await emit_jin_visual_sequences(
         context,
         filtered_actions,
+        action_display_ids=action_display_ids,
+        log_runtime=log_runtime,
+        with_action_context=with_action_context,
+    )
+
+    await emit_jin_reactions(
+        context,
+        jin_reaction_actions,
         action_display_ids=action_display_ids,
         log_runtime=log_runtime,
         with_action_context=with_action_context,
@@ -1893,6 +1946,9 @@ async def apply_runtime_action_calls(
         )
         + len(
             clean_tool_result_actions
+        )
+        + len(
+            jin_reaction_actions
         )
         + len(
             jin_color_actions

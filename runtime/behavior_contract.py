@@ -228,10 +228,20 @@ def action_guard_has_exact_trigger_match(
     )
 
 
+def project_review_allows_report(name: str, context=None) -> bool:
+    from utils.project_reader import project_review_active
+
+    return name == "save_delayed_memory" and project_review_active(context)
+
+
 def should_pause_action_guard_for_confirmation(
     name: str,
     user_text: str,
+    *,
+    context=None,
 ) -> bool:
+    if project_review_allows_report(name, context):
+        return False
     return (
         bool(get_action_guard_triggers(name))
         and not action_guard_has_blocker_match(
@@ -248,18 +258,23 @@ def should_pause_action_guard_for_confirmation(
 def should_execute_action_guard(
     name: str,
     user_text: str,
+    *,
+    context=None,
 ) -> bool:
     normalized_text = _normalize_guard_text(
         user_text
     )
 
-    if not normalized_text:
-        return False
-
     if action_guard_has_blocker_match(
         name,
         user_text,
     ):
+        return False
+
+    if project_review_allows_report(name, context):
+        return True
+
+    if not normalized_text:
         return False
 
     if not get_action_guard_triggers(

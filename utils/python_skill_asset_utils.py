@@ -2800,6 +2800,11 @@ async def run_context_asset_action(
     ).strip()
 
     try:
+        from utils.project_reader import PROJECT_ACTIONS, run_project_action
+
+        if action in PROJECT_ACTIONS:
+            return await asyncio.to_thread(run_project_action, context, payload)
+
         if action == "run_document_reader":
             return await run_document_reader_action(
                 context,

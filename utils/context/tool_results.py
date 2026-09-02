@@ -213,6 +213,8 @@ def _append_recorded_tool_results(
     if context is None:
         return False
 
+    from utils.project_context import project_tool_result_visible
+
     appended = False
     now = time.time()
 
@@ -237,6 +239,11 @@ def _append_recorded_tool_results(
         result = entry.get(
             "result"
         )
+        current_turn = index >= len(get_runtime_tool_results(context)) - int(getattr(context, "runtime_tool_results_turn_count", 0) or 0)
+        if not project_tool_result_visible(context, kind, result, current_turn=current_turn):
+            # An intentionally filtered recorded result must not fall back to legacy slots.
+            appended = True
+            continue
         created_at = get_runtime_tool_result_created_at(
             context,
             index,
@@ -523,6 +530,11 @@ def _load_delayed_memory_results(
         or []
     )
 
+    from utils.project_context import project_tool_result_visible
+    delayed_memory_results = [
+        result for result in delayed_memory_results
+        if project_tool_result_visible(context, TOOL_RESULT_KIND_DELAYED_MEMORY, result)
+    ]
     if not delayed_memory_results:
         return
 

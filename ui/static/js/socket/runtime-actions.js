@@ -1025,7 +1025,7 @@ function normalizeAssetActionRuntimePath(
     return "";
   }
 
-  if (assetAction === "run_document_reader") {
+  if (["run_document_reader", "project_tree", "project_search", "project_read"].includes(assetAction)) {
     return normalizedPath;
   }
 
@@ -1377,6 +1377,25 @@ function handleRuntimeAction(
     window.markStreamAnswerPhase(
       runtimeMessageId
     );
+  }
+
+  if (
+    action === "jin_reaction"
+    && window.JinChatReactions
+    && typeof window.JinChatReactions.handleRuntimeAction === "function"
+    && window.JinChatReactions.handleRuntimeAction(data)
+  ) {
+    if (
+      ["completed", "complete", "done"].includes(status)
+      && window.log_internal_action
+    ) {
+      window.log_internal_action(
+        action,
+        data
+      );
+    }
+
+    return;
   }
 
   const delayedMemoryPreview =

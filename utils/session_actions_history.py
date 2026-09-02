@@ -6,6 +6,7 @@ from utils.actions.action_counter_utils import (
     format_runtime_action_count,
 )
 from utils.actions.jin_color_utils import normalize_jin_color_payload
+from utils.actions.jin_reaction_utils import normalize_jin_reaction_payload
 from utils.actions.jin_position_utils import (
     normalize_jin_position_payload,
 )
@@ -434,6 +435,12 @@ def build_asset_action_context_detail(
         )
         or "asset_action"
     ).strip()
+    if action in {"project_tree", "project_search", "project_read"}:
+        parts = [action, str(result.get("attachment") or ""), str(result.get("path") or ".")]
+        parts.extend(f"{key}: {result[key]}" for key in ("query", "range", "page") if result.get(key))
+        parts.append("failed: " + str(result.get("detail") or result.get("error")) if result.get("ok") is False else "success")
+        return " | ".join(parts)
+
     error = str(
         result.get(
             "error",
@@ -1357,6 +1364,11 @@ def _build_session_action_marker_detail(
             or ""
         ).strip()
 
+    if normalized_name == "JIN_REACTION":
+        return normalize_jin_reaction_payload(
+            normalized_payload
+        )
+
     if normalized_name in {
         "SAVE_ACTIVE_MEMORY",
         "DELETE_ACTIVE_MEMORY",
@@ -2037,7 +2049,10 @@ def _build_formatted_session_action_marker_parts(
                         f"{', '.join(asset_action_names)}"
                     )
             elif (
-                action_name == "UPDATE_LT_FACTS"
+                action_name in {
+                    "UPDATE_LT_FACTS",
+                    "JIN_REACTION",
+                }
                 and details
             ):
                 part["message"] = ", ".join(

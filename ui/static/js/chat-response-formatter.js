@@ -6,7 +6,7 @@
     || {};
 
   const markerPattern =
-    /(?<!["'`«‹“‘„‚(\[{])<(JIN_COLOR|JIN_SIZE)\s*>([\s\S]*?)<\/\1\s*>/gi;
+    /(?<!["'`«‹“‘„‚(\[{])(?:<(JIN_COLOR|JIN_SIZE)\s*>([\s\S]*?)<\/\1\s*>|<JIN_REACTION\s*:\s*([^>\r\n]+?)\s*>)/gi;
 
   function escapeHtml(text) {
 
@@ -70,6 +70,21 @@
       + `<span class="jin-chat-jin-color-swatch" style="--jin-chat-marker-color: ${normalizedColor}"></span>`
       + "<span>JIN_COLOR</span>"
       + "</span>"
+    );
+
+  }
+
+  function buildChatJinReactionMarkerHtml(emoji) {
+
+    const value =
+      String(emoji || "").trim();
+
+    if (!value) {
+      return "";
+    }
+
+    return (
+      `<span class="jin-chat-jin-reaction-anchor" data-jin-reaction-emoji="${escapeAttribute(value)}" aria-hidden="true"></span>`
     );
 
   }
@@ -355,13 +370,19 @@
           )
         )
       );
-      rendered += String(match[1] || "").toUpperCase() === "JIN_COLOR"
-        ? buildChatJinColorMarkerHtml(
-          match[2]
-        )
-        : buildChatJinSizeMarkerHtml(
+      if (match[3] !== undefined) {
+        rendered += buildChatJinReactionMarkerHtml(
+          match[3]
+        );
+      } else if (String(match[1] || "").toUpperCase() === "JIN_COLOR") {
+        rendered += buildChatJinColorMarkerHtml(
           match[2]
         );
+      } else {
+        rendered += buildChatJinSizeMarkerHtml(
+          match[2]
+        );
+      }
       lastIndex =
         markerPattern.lastIndex;
     }
@@ -950,6 +971,8 @@
     normalizeChatJinColorMarker;
   root.buildJinColorMarkerHtml =
     buildChatJinColorMarkerHtml;
+  root.buildJinReactionMarkerHtml =
+    buildChatJinReactionMarkerHtml;
   root.normalizeJinSizeMarker =
     normalizeChatJinSizeMarker;
   root.buildJinSizeMarkerHtml =

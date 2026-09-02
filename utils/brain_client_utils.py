@@ -119,6 +119,8 @@ from utils.runtime_action_abort import (
 
 def should_execute_save_delayed_memory(
     user_message: str,
+    *,
+    context=None,
 ) -> bool:
     from runtime.behavior_contract import (
         should_execute_action_guard,
@@ -126,7 +128,8 @@ def should_execute_save_delayed_memory(
 
     return should_execute_action_guard(
         "save_delayed_memory",
-        user_message
+        user_message,
+        context=context,
     )
 
 
@@ -2532,6 +2535,16 @@ def load_delayed_memory_report(
     report = reports.get(
         report_id,
     )
+
+    from utils.project_context import pinned_project_reports, project_review_active
+    if project_review_active(context) and report_id not in pinned_project_reports(context):
+        return {
+            **build_delayed_memory_failure_result(
+                action="load_delayed_memory", requested=report_id or payload,
+                error="project_memory_not_pinned",
+            ),
+            "detail": "Project review uses only reports explicitly pinned by the user.",
+        }
 
     if not report_id or not isinstance(
         report,

@@ -388,6 +388,7 @@ async def confirm_runtime_action_guards(
         if not should_pause_action_guard_for_confirmation(
             guard_name,
             user_message,
+            context=context,
         ):
             continue
 

@@ -168,7 +168,7 @@ function renderChatTextHtml(text) {
       text || ""
     );
   const markerPattern =
-    /(?<!["'`«‹“‘„‚(\[{])<(JIN_COLOR|JIN_SIZE)\s*>([\s\S]*?)<\/\1\s*>/gi;
+    /(?<!["'`«‹“‘„‚(\[{])(?:<(JIN_COLOR|JIN_SIZE)\s*>([\s\S]*?)<\/\1\s*>|<JIN_REACTION\s*:\s*([^>\r\n]+?)\s*>)/gi;
   let rendered = "";
   let lastIndex = 0;
   let match = null;
@@ -181,6 +181,14 @@ function renderChatTextHtml(text) {
       )
     );
     if (
+      match[3] !== undefined
+      && window.JinResponseFormatter
+      && typeof window.JinResponseFormatter.buildJinReactionMarkerHtml === "function"
+    ) {
+      rendered += window.JinResponseFormatter.buildJinReactionMarkerHtml(
+        match[3]
+      );
+    } else if (
       String(match[1] || "").toUpperCase() === "JIN_COLOR"
       && window.JinResponseFormatter
       && typeof window.JinResponseFormatter.buildJinColorMarkerHtml === "function"
@@ -282,6 +290,12 @@ function shouldFormatChatRole(role) {
 
 }
 
+function shouldInterpretChatRuntimeMarkers(role) {
+
+  return role !== "user";
+
+}
+
 function renderChatTextElement(
   element,
   text,
@@ -296,6 +310,8 @@ function renderChatTextElement(
     Boolean(
       options.format
     );
+  const interpretRuntimeMarkers =
+    options.interpretRuntimeMarkers !== false;
 
   element.classList.toggle(
     "jin-chat-markdown",
@@ -313,8 +329,14 @@ function renderChatTextElement(
       ? window.JinResponseFormatter.render(
         text
       )
-      : renderChatTextHtml(
-        text
+      : (
+        interpretRuntimeMarkers
+          ? renderChatTextHtml(
+            text
+          )
+          : escapeHtml(
+            text
+          )
       );
 
   if (
@@ -322,6 +344,17 @@ function renderChatTextElement(
     && typeof window.JinChatReferenceIds.decorate === "function"
   ) {
     window.JinChatReferenceIds.decorate(
+      element
+    );
+  }
+
+  if (
+    options.runtimeMessageId
+    && window.JinChatReactions
+    && typeof window.JinChatReactions.syncMessage === "function"
+  ) {
+    window.JinChatReactions.syncMessage(
+      options.runtimeMessageId,
       element
     );
   }
@@ -1145,6 +1178,10 @@ function flushStreamFrame() {
           format: shouldFormatChatRole(
             stream.role
           ),
+          interpretRuntimeMarkers: shouldInterpretChatRuntimeMarkers(
+            stream.role
+          ),
+          runtimeMessageId: stream.messageId,
         }
       );
 
@@ -1599,6 +1636,9 @@ function appendChatMessage(
     text,
     {
       format: shouldFormatChatRole(
+        role
+      ),
+      interpretRuntimeMarkers: shouldInterpretChatRuntimeMarkers(
         role
       ),
     }

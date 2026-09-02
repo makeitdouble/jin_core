@@ -1303,11 +1303,14 @@ class BrainNode(BaseNode):
                     loaded_delayed_memory_context
                 )
 
+        from utils.project_reader import project_review_active
+
         sections.append(
             rename_runtime_memory_for_followup(
                 strip_loaded_delayed_memory_context(
                     strip_actions_history_context(
-                        system_prompt
+                        system_prompt,
+                        keep_previous_chat_messages=project_review_active(context),
                     )
                 ),
                 sequence_started_at=sequence_started_at,

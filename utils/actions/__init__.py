@@ -50,6 +50,10 @@ from .jin_color_utils import (
     is_noop_jin_color_action,
     normalize_jin_color_payload,
 )
+from .jin_reaction_utils import (
+    normalize_jin_reaction_payload,
+    strip_jin_reaction_markers,
+)
 from .jin_position_utils import (
     format_jin_position_payload,
     get_applied_jin_position,
@@ -138,6 +142,7 @@ __all__ = [
     "normalize_active_memory_custom_field_name",
     "normalize_active_memory_custom_field_value",
     "normalize_jin_color_payload",
+    "normalize_jin_reaction_payload",
     "normalize_jin_position_dict",
     "normalize_jin_position_payload",
     "normalize_jin_speed_payload",
@@ -161,6 +166,7 @@ __all__ = [
     "remove_active_memory_entries",
     "slugify_delayed_memory_title",
     "strip_active_memory_managed_suffixes",
+    "strip_jin_reaction_markers",
     "strip_active_memory_runtime_metadata",
     "set_active_memory_suffix_value",
     "format_jin_position_payload",

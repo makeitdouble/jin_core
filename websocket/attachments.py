@@ -176,6 +176,10 @@ def format_attachment_context(
             f"- {context_path}: {', '.join(detail_parts)}{id_suffix}"
         )
 
+        if name.lower().endswith(".jin-folder"):
+            lines.append("Linked project (read only); use project_tree/search/read with this file id.")
+            continue
+
         if kind.strip().lower() != "text":
             continue
 

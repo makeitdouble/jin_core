@@ -124,6 +124,12 @@ def format_asset_result_sections(
             )
             continue
 
+        from utils.project_reader import PROJECT_ACTIONS, format_project_result
+        if isinstance(result, dict) and result.get("action") in PROJECT_ACTIONS:
+            flush_pending_results()
+            sections.append(("ASSET_ACTION", format_project_result(result)))
+            continue
+
         pending_results.append(
             result
         )

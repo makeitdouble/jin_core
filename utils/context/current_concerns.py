@@ -111,6 +111,11 @@ def _count_loaded_delayed_memory(
     ):
         return 0
 
+    from utils.project_context import pinned_project_reports, project_review_active
+    if project_review_active(context):
+        allowed_ids = pinned_project_reports(context)
+        loaded_reports = {key: report for key, report in loaded_reports.items() if key.casefold() in allowed_ids}
+
     return sum(
         1
         for report in loaded_reports.values()

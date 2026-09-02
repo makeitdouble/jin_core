@@ -19,7 +19,7 @@
     },
     "schema": [],
     "rules": [
-      "Use this marker only after the user explicitly asks to create/save a delayed memory report.",
+      "Use this marker after the user explicitly asks to create/save a delayed memory report, or when PROJECT_REVIEW is active and saving findings would help continue the project review.",
       "Emit marker using this form:",
       "<SAVE_DELAYED_MEMORY>",
       "{",

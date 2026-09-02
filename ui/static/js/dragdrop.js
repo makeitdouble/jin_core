@@ -415,7 +415,9 @@ function renderAttachedFilesPlaque() {
 
   const title = document.createElement("div");
   title.className = "jin-attached-files-title";
-  title.textContent = "[ ATTACHED_FILES ]";
+  title.textContent = records.some((record) => String(record.name || "").toLowerCase().endsWith(".jin-folder"))
+    ? "[ PROJECT REVIEW ]" : "[ ATTACHED_FILES ]";
+  title.title = "Project review: only pinned DELAYED reports and their L-T facts are included";
 
   header.appendChild(title);
 
@@ -431,7 +433,69 @@ function renderAttachedFilesPlaque() {
   });
   header.appendChild(attachButton);
 
+  const linkButton = document.createElement("button");
+  linkButton.type = "button";
+  linkButton.className = "jin-attached-files-attach-button";
+  linkButton.textContent = "LINK FOLDER";
+  linkButton.setAttribute("aria-label", "Link local project folder");
+  header.appendChild(linkButton);
   attachedFiles.appendChild(header);
+
+  const form = document.createElement("form");
+  form.className = "jin-project-folder-form hidden";
+  const pathInput = document.createElement("input");
+  pathInput.type = "text";
+  pathInput.className = "jin-attached-files-attach-button jin-project-folder-input";
+  pathInput.placeholder = "C:\\project or file:///C:/project";
+  pathInput.setAttribute("aria-label", "Local folder path");
+  pathInput.autocomplete = "off";
+  const submit = document.createElement("button");
+  submit.type = "submit";
+  submit.className = "jin-attached-files-attach-button";
+  submit.textContent = "LINK";
+  const status = document.createElement("div");
+  status.className = "jin-project-folder-status";
+  status.setAttribute("role", "status");
+  status.textContent = "Read only · pinned DELAYED + linked facts";
+  form.append(pathInput, submit, status);
+  attachedFiles.appendChild(form);
+  linkButton.addEventListener("click", () => {
+    form.classList.toggle("hidden");
+    linkButton.setAttribute("aria-expanded", String(!form.classList.contains("hidden")));
+    if (!form.classList.contains("hidden")) pathInput.focus();
+  });
+  form.addEventListener("keydown", (event) => {
+    if (event.key === "Escape") {
+      form.classList.add("hidden");
+      linkButton.setAttribute("aria-expanded", "false");
+      linkButton.focus();
+    }
+  });
+  form.addEventListener("submit", (event) => {
+    event.preventDefault();
+    const path = pathInput.value.trim();
+    if (!path || submit.disabled) return;
+    submit.disabled = true;
+    status.textContent = "Linking folder…";
+    uploadQueue = uploadQueue.then(async () => {
+      try {
+        const response = await fetch("/api/files/link-folder", {
+          method: "POST",
+          headers: {"Content-Type": "application/json"},
+          body: JSON.stringify({path}),
+        });
+        const payload = await response.json();
+        if (!response.ok) throw new Error(payload.detail || "Could not link folder");
+        normalizeSnapshot(payload);
+        dispatchStoreChanged();
+        syncAttachmentContext();
+      } catch (error) {
+        status.textContent = String(error.message || "Could not link folder");
+      } finally {
+        submit.disabled = false;
+      }
+    });
+  });
 
   if (!records.length) return;
 

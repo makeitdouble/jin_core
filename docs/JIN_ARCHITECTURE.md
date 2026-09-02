@@ -384,6 +384,33 @@ Persistent uploads are owned by `utils/attached_files_store.py` and `assets/file
 
 The composer projects currently pinned files as compact attachment chips. A chip opens the existing file preview on click and uses the shared hold interaction to detach/unpin it from the outgoing context. Detach does not delete the underlying persistent asset, and attachment changes do not implicitly expand Console.
 
+### Project review through linked files
+
+`LINK FOLDER` beside `ATTACH FILE` accepts a local path (including a folder
+copied into `assets/`) or a `file:///` URL. The user-facing endpoint validates
+the directory and stores an ordinary `.jin-folder` descriptor in Files. Its
+existing id, pin/unpin, preview, delete/restore, and session attachment paths
+remain authoritative. Deleting the descriptor never deletes the project.
+Remote repository URLs, project writes, execution, indexing, and ingestion
+are outside this increment.
+
+An attached folder activates the prompt-only `PROJECT_REVIEW` projection.
+Brain retains recent conversation, FRAME, ACTIVE, and exact accumulated
+reasoning across follow-ups. DELAYED inventory/bodies are restricted to
+user-pinned reports; L-T is restricted to their linked facts. Historical
+memory tool results cannot reintroduce excluded bodies. Canonical memory is
+not cleared. Detaching the folder returns to ordinary context assembly.
+
+`ASSET_ACTION` has three native read-only operations: `project_tree`,
+`project_search`, and `project_read`, documented in its existing contract.
+They resolve a currently attached folder id, constrain paths to its root,
+and return bounded, numbered source text with explicit coverage/limit notices.
+The ordinary dispatcher, bubbles, session actions, failure results, and
+Brain follow-up loop remain in use; no supporting model summarizes the source.
+Brain may save a DELAYED report during review without a separate save request;
+this is a scoped exception to the ordinary report trigger. ACTIVE and L-T
+updates retain their existing handlers and persistence policies.
+
 ### 7.8 Direct memory value editing
 
 `runtime/memory_edit.py` implements explicit inspector edits without sending a model action. The browser opens the existing hover/details card as a page-local editor on double-click. Only values are editable:

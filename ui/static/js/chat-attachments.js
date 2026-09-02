@@ -158,6 +158,7 @@ function formatAttachmentChipLabel(attachment) {
 }
 
 function getAttachmentChipEmoji(attachment) {
+  if (getAttachmentName(attachment).toLowerCase().endsWith(".jin-folder")) return "📁";
   const kind =
     getAttachmentKind(
       attachment
@@ -1088,6 +1089,21 @@ async function fetchAssetTextPreview(path) {
 }
 
 function createAssetTextAttachment(assetResult) {
+  if (assetResult && assetResult.ok === true
+      && ["project_tree", "project_search", "project_read"].includes(assetResult.action)) {
+    return {
+      name: `${assetResult.action} · ${assetResult.attachment || ""} · ${assetResult.path || "."}`,
+      type: "text/plain",
+      kind: "text",
+      text_content: [
+        assetResult.query ? `Query: ${assetResult.query}` : "",
+        assetResult.range || assetResult.page || "",
+        assetResult.notice || "",
+        "",
+        assetResult.content || "",
+      ].join("\n"),
+    };
+  }
   if (!isPreviewableTextAssetResult(assetResult)) {
     return null;
   }
