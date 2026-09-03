@@ -42,7 +42,7 @@ function getAttachmentName(attachment) {
         || attachment.filename
       )
       : "attachment"
-  );
+  ).replace(/\.jin-folder$/i, "");
 }
 
 function getAttachmentSizeLabel(attachment) {
@@ -158,7 +158,7 @@ function formatAttachmentChipLabel(attachment) {
 }
 
 function getAttachmentChipEmoji(attachment) {
-  if (getAttachmentName(attachment).toLowerCase().endsWith(".jin-folder")) return "📁";
+  if (/\.jin-folder$/i.test(String(attachment && (attachment.name || attachment.filename) || ""))) return "📁";
   const kind =
     getAttachmentKind(
       attachment
@@ -785,6 +785,12 @@ function normalizeRuntimeActionAttachmentForModal(
     && !Array.isArray(attachmentResult)
       ? attachmentResult
       : {};
+  if (result.source === "project" && result.ok === true && typeof result.content === "string") {
+    return {
+      ...createAssetTextAttachment(result),
+      id: result.file_ref || result.id,
+    };
+  }
   const id =
     normalizeAttachmentValue(
       result.id || attachmentId
@@ -1090,7 +1096,7 @@ async function fetchAssetTextPreview(path) {
 
 function createAssetTextAttachment(assetResult) {
   if (assetResult && assetResult.ok === true
-      && ["project_tree", "project_search", "project_read"].includes(assetResult.action)) {
+      && (assetResult.source === "project" || ["project_tree", "project_search", "project_read"].includes(assetResult.action))) {
     return {
       name: `${assetResult.action} · ${assetResult.attachment || ""} · ${assetResult.path || "."}`,
       type: "text/plain",

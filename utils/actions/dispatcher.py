@@ -1868,6 +1868,9 @@ async def apply_runtime_action_calls(
         list_actions=list_file_actions,
         attach_actions=attach_file_actions,
         detach_actions=detach_file_actions,
+        ordered_actions=[action for action in filtered_actions if action.name in {
+            RUNTIME_ACTION_ATTACH_FILE, RUNTIME_ACTION_DETACH_FILE,
+        }],
         log_runtime=log_runtime,
         with_action_context=with_action_context,
     )

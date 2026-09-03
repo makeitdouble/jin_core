@@ -1,4 +1,17 @@
+import re
+
+from utils.attached_files_store import file_display_name
+
 TEXT_ATTACHMENT_CONTEXT_MAX_CHARS = 32000
+
+
+def strip_attachment_source_text(value):
+    text = str(value or "")
+    # Local reader compatibility for old turns that embedded source in USER text.
+    return re.sub(
+        r"--- BEGIN ATTACHMENT TEXT: [^\r\n]+ ---[\s\S]*?--- END ATTACHMENT TEXT: [^\r\n]+ ---",
+        "[file content managed by ATTACH_FILE/DETACH_FILE]", text,
+    )
 
 
 def has_message_attachments(
@@ -59,6 +72,7 @@ def format_attachment_context(
     message_data: dict,
     *,
     max_text_chars: int = TEXT_ATTACHMENT_CONTEXT_MAX_CHARS,
+    include_text: bool = True,
 ) -> str:
 
     attachments = message_data.get(
@@ -70,21 +84,6 @@ def format_attachment_context(
         list,
     ):
         return ""
-
-    try:
-        remaining_text_chars = max(
-            0,
-            int(
-                max_text_chars
-            ),
-        )
-    except (
-        TypeError,
-        ValueError,
-    ):
-        remaining_text_chars = (
-            TEXT_ATTACHMENT_CONTEXT_MAX_CHARS
-        )
 
     lines = [
         "Attached context:",
@@ -172,59 +171,28 @@ def format_attachment_context(
             else ""
         )
 
+        if name.lower().endswith(".jin-folder"):
+            context_path = file_display_name(name)
+            detail_parts = ["folder"]
+
         lines.append(
             f"- {context_path}: {', '.join(detail_parts)}{id_suffix}"
         )
 
         if name.lower().endswith(".jin-folder"):
-            lines.append("Linked project (read only); use project_tree/search/read with this file id.")
+            lines.append("Linked project (read only); list/search with ASSET_ACTION, load files with ATTACH_FILE.")
             continue
-
-        if kind.strip().lower() != "text":
-            continue
-
-        text_content = _get_attachment_text_content(
-            attachment
-        )
-
-        if not text_content.strip():
-            continue
-
-        if remaining_text_chars <= 0:
-            lines.append(
-                "[attachment text omitted: text context budget exhausted]"
-            )
-            continue
-
-        visible_text = text_content[
-            :remaining_text_chars
-        ]
-        omitted_chars = (
-            len(text_content)
-            - len(visible_text)
-        )
-        remaining_text_chars -= len(
-            visible_text
-        )
-
-        lines.append(
-            f"--- BEGIN ATTACHMENT TEXT: {name} ---"
-        )
-        lines.append(
-            visible_text
-        )
-
-        if omitted_chars > 0:
-            lines.append(
-                f"[attachment text truncated: {omitted_chars} chars omitted]"
-            )
-
-        lines.append(
-            f"--- END ATTACHMENT TEXT: {name} ---"
-        )
 
     if not included:
         return ""
+
+    if include_text:
+        from types import SimpleNamespace
+        from utils.context.files import build_file_contents_context
+        lines.append(build_file_contents_context(SimpleNamespace(
+            runtime_turn_attachments=attachments,
+            runtime_attached_file_ids=[item.get("id") for item in attachments if isinstance(item, dict)],
+        ), max_text_chars=max_text_chars))
 
     return "\n".join(
         lines,
@@ -315,6 +283,7 @@ def build_user_text_with_attachments(
 
     attachment_context = format_attachment_context(
         message_data,
+        include_text=False,
     )
 
     if not attachment_context:
@@ -372,7 +341,10 @@ def build_attached_files_inventory_context(context=None) -> str:
         record = get_file_record(file_id)
         if not record:
             continue
-        lines.append(f"    {record['name']} [ id: {record['id']} ]")
+        lines.append(f"    {file_display_name(record['name'])} [ id: {record['id']} ]")
+    from utils.context.files import loaded_project_files, project_file_ref
+    for result in loaded_project_files(context):
+        lines.append(f"    {result['path']} [ id: {project_file_ref(result)} ]; read: {result.get('range', '')}")
     if not lines:
         return ""
     return "<ATTACHED_FILES>\n" + "\n".join(lines) + "\n</ATTACHED_FILES>"

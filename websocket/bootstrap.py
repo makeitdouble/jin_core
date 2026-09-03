@@ -1139,6 +1139,11 @@ def clean_bootstrap_tool_result_value(value):
                 ensure_ascii=False,
                 default=str,
             )
+            from utils.context.files import project_file_ref
+            if (isinstance(value, dict) and project_file_ref(value)
+                    and isinstance(value.get("content"), str)
+                    and len(value["content"]) <= 24000 and len(encoded) <= 160000):
+                return json.loads(encoded)
             if len(encoded) > MAX_BOOTSTRAP_TOOL_RESULT_CHARS:
                 encoded = encoded[
                     -MAX_BOOTSTRAP_TOOL_RESULT_CHARS:
@@ -1176,7 +1181,8 @@ def clean_bootstrap_tool_results(value) -> tuple[list[dict], list]:
     results = []
     created_ats = []
 
-    for raw_item in value[-50:]:
+    from utils.context.files import select_file_tool_results
+    for raw_item in select_file_tool_results(value, 50):
         if not isinstance(
             raw_item,
             dict,
@@ -2861,7 +2867,8 @@ def enrich_session_bootstrap_from_archive(
                             keyed_indexes[key] = len(merged_tool_results)
                         merged_tool_results.append(item)
 
-                enriched["tool_results"] = merged_tool_results[-50:]
+                from utils.context.files import select_file_tool_results
+                enriched["tool_results"] = select_file_tool_results(merged_tool_results, 50)
 
     enriched["source_session_id"] = source_session_id
     if archived.get("source_session_date"):

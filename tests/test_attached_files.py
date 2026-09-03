@@ -146,7 +146,7 @@ def test_text_hydration_and_attachment_context_path(monkeypatch, tmp_path):
     context = format_attachment_context({"attachments": [attachment]})
     assert f"/assets/files/{record['id']}_Новый текстовый документ.txt" in context
     assert f"[ id: {record['id']} ]" in context
-    assert "BEGIN ATTACHMENT TEXT" in context
+    assert "<FILE_CONTENT: Новый текстовый документ.txt >" in context
     assert "hello utf8" in context
 
 

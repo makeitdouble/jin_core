@@ -1,7 +1,7 @@
 {
   "attach_file": {
     "version": 1,
-    "description": "Attaches one persistent file to the JIN context.",
+    "description": "Loads one file into context by persistent ID or a path relative to an attached folder.",
     "runtime_action": "ATTACH_FILE",
     "enable_flag": "CAN_USE_ASSETS",
     "runtime_order": 130,
@@ -9,14 +9,19 @@
     "triggers": [],
     "blockers": [],
     "effects": {
-      "emit_followup": false,
-      "follow_up_on_fail": false
+      "emit_followup": true,
+      "follow_up_on_fail": true
     },
     "schema": [
-      "<ATTACH_FILE: id >"
+      "<ATTACH_FILE: file_id >",
+      "<ATTACH_FILE: relative/path >",
+      "<ATTACH_FILE: relative/path#L1-L200 >",
+      "<ATTACH_FILE: folder_id/relative/path >",
+      "<ATTACH_FILE: folder_id/relative/path#L1-L200 >"
     ],
     "rules": [
-      ""
+      "With one attached folder, use a relative path (filename.txt or src/main.py). With multiple folders, prefix folder_id/. Persistent file IDs still work. Optional #Lstart-Lend selects inclusive lines (default 200, max 400; 24000 characters; UTF-8 up to 1 MiB).",
+      "Loaded content appears once in FILE_CONTENT. An already-loaded file fails; DETACH_FILE first to reread or change its range. Batch independent markers in one message."
     ],
     "close_tag": false
   }

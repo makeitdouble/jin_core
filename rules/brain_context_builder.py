@@ -1316,6 +1316,11 @@ def build_brain_context(
             tool_results_context
         )
 
+    from utils.context.files import build_file_contents_context
+    file_contents = build_file_contents_context(context)
+    if file_contents:
+        prompt_parts.append(file_contents)
+
     # Session actions history sits directly under tool results on ordinary
     # turns. Follow-up sequence prompts add CURRENT_REQUEST_FLOW beside it, so
     # the context window always exposes the relevant action trail in one

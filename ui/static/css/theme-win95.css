@@ -732,6 +732,39 @@ body.theme-win95 .jin-chat-avatar.cursor-help:focus-visible {
     outline: 0;
 }
 
+/* Keep the per-message copy control in the same visual language as the
+   light-theme chat avatar instead of leaking the dark cyan default style. */
+body.theme-win95 .jin-message-copy-control {
+    background: var(--win95-face);
+    border-top: 2px solid var(--win95-light);
+    border-left: 2px solid var(--win95-light);
+    border-right: 2px solid var(--win95-shadow);
+    border-bottom: 2px solid var(--win95-shadow);
+    border-radius: 2px;
+    color: var(--win95-text);
+    box-shadow: none;
+}
+
+body.theme-win95 .jin-message-copy-control:hover {
+    background: #c7c6c7;
+}
+
+/* Win95 press feedback comes from the inverted bevel, not the dark-theme
+   elastic size change. Keep the button footprint aligned under the avatar. */
+body.theme-win95 .jin-message-copy-control.is-pressed,
+body.theme-win95 .jin-message-copy-control.is-rebound {
+    width: 20px;
+    height: 20px;
+}
+
+body.theme-win95 .jin-message-copy-control.is-pressed {
+    background: var(--win95-face-dark);
+    border-top-color: var(--win95-shadow);
+    border-left-color: var(--win95-shadow);
+    border-right-color: var(--win95-light);
+    border-bottom-color: var(--win95-light);
+}
+
 body.theme-win95 .jin-chat-avatar-service {
     background:
             linear-gradient(180deg, rgba(46, 139, 118, 0.050), rgba(46, 139, 118, 0.050)),

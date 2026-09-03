@@ -2890,7 +2890,7 @@
     card.setAttribute("role", "tooltip");
     card.setAttribute(
         "aria-label",
-        `${String(record.name || "attachment")} preview`
+        `${String(record.display_name || record.name || "attachment")} preview`
     );
 
     if (kind === "image") {
@@ -5987,7 +5987,7 @@
       row.setAttribute("tabindex", "0");
       row.setAttribute(
         "aria-label",
-        String(record.name || "attachment")
+        String(record.display_name || record.name || "attachment")
       );
       row.dataset.fileId = fileId;
       if (avatarMemoryHoverId) {
@@ -6062,7 +6062,7 @@
 
       const keySpan = document.createElement("span");
       keySpan.className = "runtime-memory-key";
-      keySpan.textContent = String(record.name || "attachment");
+      keySpan.textContent = String(record.display_name || record.name || "attachment");
       bindPersistentFileAvatarHoverTarget(keySpan, row);
 
       row.append(pinButton, separator, keySpan);
@@ -8823,7 +8823,7 @@
           "delayed-memory-modal-fact-option delayed-memory-modal-attachment-option";
         bindRuntimeMemoryHoverTitle(
           optionButton,
-          `${option.record.name || "attachment"} · ${option.fileId}`
+          `${option.record.display_name || option.record.name || "attachment"} · ${option.fileId}`
         );
 
         id.className =
@@ -8835,7 +8835,7 @@
         text.className =
           "delayed-memory-modal-fact-option-text";
         text.textContent = String(
-          option.record.name || option.record.stored_name || "attachment"
+          option.record.display_name || option.record.name || option.record.stored_name || "attachment"
         );
 
         optionButton.append(id, separator, text);
@@ -9010,14 +9010,14 @@
       const item = document.createElement("span");
       item.className = "delayed-memory-modal-attachment";
       if (record) {
-        item.textContent = String(record.name || "attachment");
+        item.textContent = String(record.display_name || record.name || "attachment");
       } else {
         item.textContent = fileId;
       }
       bindRuntimeMemoryHoverTitle(
         item,
         record
-          ? `${record.name || "attachment"} · ${fileId}`
+          ? `${record.display_name || record.name || "attachment"} · ${fileId}`
           : `${fileId} · missing file`
       );
       item.dataset.delayedMemoryAttachmentId = fileId;

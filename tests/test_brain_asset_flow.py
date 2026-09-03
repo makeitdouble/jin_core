@@ -1223,14 +1223,8 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
                 followup_tick=True,
             )
 
-        self.assertIn(
-            "Attached context:",
-            observed["brain_payload"],
-        )
-        self.assertIn(
-            "- screen.png: image, image/png",
-            observed["brain_payload"],
-        )
+        self.assertIn("Continue the current request", observed["brain_payload"])
+        self.assertNotIn("Attached context:", observed["brain_payload"])
         self.assertNotIn(
             "runtime_attachment",
             observed["brain_payload"],

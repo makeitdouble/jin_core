@@ -1,3 +1,6 @@
+import asyncio
+import re
+
 from contracts.rules_assembler import (
     RUNTIME_ACTION_LIST_FILES,
     RUNTIME_ACTION_ATTACH_FILE,
@@ -39,7 +42,7 @@ def _active_ids(context) -> list[str]:
     return ids
 
 
-def _apply_context_ids(context, ids: list[str]) -> None:
+def apply_attachment_context_ids(context, ids: list[str], *, attachments=None) -> None:
     normalized = []
     for value in ids:
         file_id = _clean_id(value)
@@ -47,7 +50,11 @@ def _apply_context_ids(context, ids: list[str]) -> None:
             normalized.append(file_id)
         if len(normalized) >= MAX_ATTACHED_FILES:
             break
-    attachments = hydrate_attachment_ids(normalized)
+    from utils.context.files import unload_project_files
+    for removed in set(getattr(context, "runtime_attached_file_ids", []) or []) - set(normalized):
+        unload_project_files(context, removed)
+    if attachments is None:
+        attachments = hydrate_attachment_ids(normalized)
     context.runtime_attached_file_ids = normalized
     context.runtime_turn_attachments = attachments
     context.runtime_current_sequence_attachments = list(attachments)
@@ -73,119 +80,123 @@ async def _emit_snapshot(context) -> None:
         })
 
 
+def parse_project_file_target(payload, context):
+    from utils.project_reader import FOLDER_SUFFIX, linked_projects
+
+    text = str(payload or "").strip().replace("\\", "/")
+    match = re.fullmatch(r"(.+?)(?:#L([0-9]+)(?:-L?([0-9]+))?)?", text)
+    if not match:
+        return None
+    path, start, end = match.groups()
+    projects = linked_projects(context)
+    prefix, separator, relative = path.partition("/")
+    record = get_file_record(_clean_id(prefix)) if separator else None
+    # Only a known folder ID is a prefix; six-character directory names are paths.
+    if record and record["name"].lower().endswith(FOLDER_SUFFIX):
+        folder, path = record["id"], relative
+    elif len(projects) == 1:
+        folder = projects[0]["id"]
+    elif projects:
+        raise ValueError("Multiple folders attached; use folder_id/relative/path")
+    else:
+        raise ValueError("No folder attached; attach a folder link or use a persistent file ID")
+    target = {"action": "project_read", "attachment": folder, "path": path}
+    if start is not None:
+        target["start"] = int(start)
+    if end is not None:
+        target["end"] = int(end)
+    return target
+
+
+async def attach_project_file(context, payload):
+    """Shared loader for ATTACH_FILE and the old ASSET_ACTION project_read alias."""
+    from utils.project_reader import run_project_action
+    return await asyncio.to_thread(run_project_action, context, payload)
+
+
 async def apply_attachment_actions(
-    context,
-    *,
-    list_actions,
-    attach_actions,
-    detach_actions,
-    log_runtime=None,
-    with_action_context=lambda payload: payload,
+    context, *, list_actions, attach_actions, detach_actions,
+    ordered_actions=None, log_runtime=None, with_action_context=lambda payload: payload,
 ) -> list[dict]:
+    from utils.context.files import loaded_file_ref, unload_project_files
     results = []
     active_ids = _active_ids(context)
     restricted_writes = persistent_writes_restricted(context)
 
     if list_actions:
         records = list_file_records()
-        lines = format_list_files_lines(records)
-        result = {
-            "action": "list_files",
-            "ok": True,
-            "files": records,
-            "lines": lines,
-        }
-        # one LIST_FILES result is enough even if the marker was repeated.
+        result = {"action": "list_files", "ok": True, "files": records,
+                  "lines": format_list_files_lines(records)}
         record_runtime_tool_result(context, TOOL_RESULT_KIND_FILES, result)
         results.append(result)
-        if log_runtime is not None:
-            await log_runtime(f"[RUNTIME ACTION] list_files ({len(records)} files)")
 
-    for action in detach_actions:
+    # Preserve marker order, including detach -> attach of another range.
+    actions = ordered_actions if ordered_actions is not None else [*detach_actions, *attach_actions]
+    for action in actions:
+        detaching = action.name == RUNTIME_ACTION_DETACH_FILE
+        name = "detach_file" if detaching else "attach_file"
         file_id = _clean_id(action.payload)
         record = get_file_record(file_id)
-        if not file_id or record is None:
-            results.append({
-                "action": "detach_file",
-                "ok": False,
-                "id": file_id or str(action.payload or "").strip(),
-                "error": "file_not_found",
-            })
-            continue
-        was_loaded = file_id in active_ids
-        active_ids = [value for value in active_ids if value != file_id]
-        if not restricted_writes:
-            set_file_pinned(file_id, False)
-        results.append({
-            "action": "detach_file",
-            "ok": True,
-            "id": file_id,
-            "name": record["name"],
-            "unloaded": was_loaded,
-        })
-
-    for action in attach_actions:
-        file_id = _clean_id(action.payload)
-        record = get_file_record(file_id)
-        if not file_id or record is None:
-            results.append({
-                "action": "attach_file",
-                "ok": False,
-                "id": file_id or str(action.payload or "").strip(),
-                "error": "file_not_found",
-            })
-            continue
-        if file_id in active_ids:
-            results.append({
-                "action": "attach_file",
-                "ok": True,
-                "id": file_id,
-                "name": record["name"],
-                "loaded": False,
-                "already_loaded": True,
-            })
-            continue
-        previous_active_ids = list(active_ids)
-        if restricted_writes:
-            updated = record
-            error = None
-            active_ids.append(file_id)
-            if len(active_ids) > MAX_ATTACHED_FILES:
-                active_ids = active_ids[-MAX_ATTACHED_FILES:]
+        result = {"action": name, "ok": False, "id": str(action.payload or "").strip()}
+        target, target_error = None, ""
+        try:
+            # Persistent IDs retain priority; everything else is a project path.
+            if record is None:
+                target = parse_project_file_target(action.payload, context)
+        except ValueError as error:
+            target_error = str(error)
+        if target_error:
+            result.update(error="invalid_file_reference", detail=target_error)
+        elif target:
+            if detaching:
+                from pathlib import PurePosixPath
+                path = str(PurePosixPath(target["path"].replace("\\", "/")))
+                ref = f"{target['attachment']}/{path}"
+                unloaded = unload_project_files(context, ref)
+                result.update(id=ref, name=path, ok=unloaded, unloaded=unloaded)
+                if not unloaded:
+                    result.update(error="file_not_loaded", detail="File is not loaded; nothing to unload")
+            else:
+                result = await attach_project_file(context, target)
+                result.update(action=name, id=result.get("file_ref") or str(action.payload),
+                              name=result.get("path") or target["path"], source="project")
+        elif not file_id or record is None:
+            result["error"] = "file_not_found"
+        elif detaching:
+            was_loaded = file_id in active_ids
+            active_ids = [value for value in active_ids if value != file_id]
+            unload_project_files(context, file_id)
+            if not restricted_writes:
+                set_file_pinned(file_id, False)
+            apply_attachment_context_ids(context, active_ids)
+            result.update(ok=True, id=file_id, name=record["name"], unloaded=was_loaded)
         else:
-            updated, error = set_file_pinned(file_id, True)
-            if error:
-                results.append({
-                    "action": "attach_file",
-                    "ok": False,
-                    "id": file_id,
-                    "name": record["name"],
-                    "error": error,
-                })
-                continue
-            active_ids = get_pinned_file_ids()
-        replaced_ids = [
-            value
-            for value in previous_active_ids
-            if value not in active_ids
-        ]
-        result = {
-            "action": "attach_file",
-            "ok": True,
-            "id": file_id,
-            "name": updated["name"],
-            "loaded": True,
-        }
-        if replaced_ids:
-            result["replaced_id"] = replaced_ids[0]
+            existing = loaded_file_ref(context, reference=file_id, sha256=record.get("sha256", ""))
+            if existing:
+                result.update(id=file_id, name=record["name"], error="file_already_loaded",
+                              detail=f"File already loaded: {existing}. Use DETACH_FILE before loading it again.")
+            else:
+                previous_ids = list(active_ids)
+                if restricted_writes:
+                    error = None
+                    active_ids = [*active_ids, file_id][-MAX_ATTACHED_FILES:]
+                else:
+                    _, error = set_file_pinned(file_id, True)
+                    active_ids = get_pinned_file_ids()
+                if error:
+                    result["error"] = error
+                else:
+                    apply_attachment_context_ids(context, active_ids)
+                    result.update(ok=True, id=file_id, name=record["name"], loaded=True)
+                    replaced = [value for value in previous_ids if value not in active_ids]
+                    if replaced:
+                        result["replaced_id"] = replaced[0]
+        record_runtime_tool_result(context, TOOL_RESULT_KIND_FILES, result)
         results.append(result)
 
-    if attach_actions or detach_actions:
-        _apply_context_ids(context, active_ids)
+    if actions:
         if log_runtime is not None:
-            await log_runtime(
-                f"[RUNTIME ACTION] attachments active: {len(active_ids)}/{MAX_ATTACHED_FILES}"
-            )
+            await log_runtime(f"[RUNTIME ACTION] attachments active: {len(active_ids)}/{MAX_ATTACHED_FILES}")
         await _emit_snapshot(context)
 
     emitter = getattr(context, "emitter", None)
@@ -222,6 +233,8 @@ async def apply_attachment_actions(
                     )
                 )
             )
+            from utils.context.files import format_file_result
+            detail = format_file_result(result) if result.get("action") != "list_files" else "\n".join(result.get("lines", []))
             await emit(with_action_context({
                 "type": "runtime_action",
                 "action": result.get("action"),
@@ -230,6 +243,7 @@ async def apply_attachment_actions(
                 "display_name": display_name,
                 "close_tag": runtime_action_has_close_tag(action_name),
                 "text": str(text),
+                "detail": detail,
                 "attachment_result": result,
             }))
 

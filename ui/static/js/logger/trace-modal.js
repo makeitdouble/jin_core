@@ -1975,10 +1975,10 @@ function parseContextBlocks(text) {
       continue;
     }
 
-    const open =
-      lines[i].match(
-        /^\s*<([A-Za-z][\w.-]*)(\s+[^>]*)?>\s*$/
-      );
+    const fileOpen = lines[i].match(/^\s*<FILE_CONTENT:\s*(.*?)\s*>\s*$/);
+    const open = fileOpen
+      ? [fileOpen[0], "FILE_CONTENT", ""]
+      : lines[i].match(/^\s*<([A-Za-z][\w.-]*)(\s+[^>]*)?>\s*$/);
 
     if (!open) {
       plain.push(lines[i]);
@@ -2003,13 +2003,12 @@ function parseContextBlocks(text) {
 
     flushPlain();
     blocks.push({
-      title: open[1],
+      title: fileOpen ? `FILE_CONTENT: ${fileOpen[1]}` : open[1],
       attributes:
         parseContextAttributes(open[2]),
       content:
-        lines.slice(i + 1, close)
-          .join("\n")
-          .trim(),
+        fileOpen ? lines.slice(i + 1, close).join("\n")
+          : lines.slice(i + 1, close).join("\n").trim(),
       xml: true,
     });
     i = close;
@@ -2937,6 +2936,11 @@ function syncContextAttachedFileRows() {
 }
 
 function renderContextAttachedFilesBody(parent, content) {
+  const projectLines = String(content || "").split("\n")
+    .filter((line) => /\[\s*id\s*:\s*[a-z0-9]{6}\//i.test(line));
+  if (projectLines.length) {
+    parent.appendChild(contextElement("pre", "jin-context-raw", projectLines.join("\n")));
+  }
   const records = String(content || "")
     .split("\n")
     .map(parseContextAttachedFileLine)
@@ -3393,6 +3397,12 @@ function appendContextCard(
 
   if (typeof block.renderBody === "function") {
     block.renderBody(body);
+  } else if (normalizedBlockTitle === "TOOLS_RESULTS" || normalizedBlockTitle.startsWith("FILE_CONTENT:")) {
+    const text = normalizedBlockTitle === "TOOLS_RESULTS"
+      ? parseContextBlocks(block.content).map((result) => result.content).join("\n\n")
+      : block.content;
+    const sourceText = String(text || "").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&amp;/g, "&");
+    body.appendChild(contextElement("pre", "jin-context-raw", sourceText));
   } else if (normalizedBlockTitle === "LONG_TERM_MEMORY") {
     renderContextLongTermMemoryBody(
       body,

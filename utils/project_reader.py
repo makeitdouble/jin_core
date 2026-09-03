@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import hashlib
 import os
 import re
 from pathlib import Path, PureWindowsPath
@@ -21,7 +22,9 @@ MAX_SCAN_BYTES = 32 * 1024 * 1024
 
 def link_project_folder(value: str) -> tuple[dict, bool, str | None]:
     """Only the user-facing endpoint creates links; model actions cannot."""
-    value = str(value or "").strip().strip('"')
+    value = str(value or "").strip()
+    if len(value) >= 2 and value[0] == value[-1] and value[0] in "\"'":
+        value = value[1:-1]
     if value.lower().startswith("file:"):
         url = urlsplit(value)
         if url.netloc not in {"", "localhost"} or url.query or url.fragment:
@@ -100,7 +103,7 @@ def _integer(payload, key, default, low, high):
     return value
 
 
-def _text(path: Path) -> str:
+def _text(path: Path, *, with_digest=False):
     if not path.is_file():
         raise ValueError("Path is not a regular file")
     with path.open("rb") as handle:
@@ -110,7 +113,8 @@ def _text(path: Path) -> str:
     if b"\x00" in data:
         raise ValueError("Binary file; text reader only")
     try:
-        return data.decode("utf-8-sig")
+        text = data.decode("utf-8-sig")
+        return (text, hashlib.sha256(data).hexdigest()) if with_digest else text
     except UnicodeDecodeError as error:
         raise ValueError("File is not UTF-8 text") from error
 
@@ -160,13 +164,26 @@ def run_project_action(context, payload: dict) -> dict:
             raise ValueError("Unknown project action")
         root, record = _root_for(context, attachment)
         result["attachment"] = record["id"]
+        result["project_name"] = files.file_display_name(record["name"])
         path = _inside(root, relative)
         relative = path.relative_to(root).as_posix()
         result["path"] = relative
         if action == "project_read":
             start = _integer(payload, "start", 1, 1, 10000000)
             end = _integer(payload, "end", start + 199, start, start + 399)
-            lines = _text(path).splitlines()
+            from utils.context.files import loaded_file_ref
+            result["file_ref"] = f"{record['id']}/{relative}"
+            result["source"] = "project"
+            existing = loaded_file_ref(context, reference=result["file_ref"])
+            if existing:
+                raise ValueError(f"File already loaded: {existing}. Use DETACH_FILE before loading it again.")
+            source, result["source_sha256"] = _text(path, with_digest=True)
+            existing = loaded_file_ref(context, sha256=result["source_sha256"])
+            if existing:
+                raise ValueError(f"File already loaded: {existing}. Use DETACH_FILE before loading it again.")
+            lines = source.splitlines()
+            if start > len(lines) and (lines or start != 1):
+                raise ValueError(f"Start line exceeds file length: {len(lines)}")
             selected, used = [], 0
             for number in range(start, min(end, len(lines)) + 1):
                 line = f"{number}: {lines[number - 1]}"
@@ -176,13 +193,14 @@ def run_project_action(context, payload: dict) -> dict:
                 used += len(line) + 1
             last = start + len(selected) - 1
             result["range"] = f"{start}-{last} of {len(lines)} lines" if selected else f"No lines read; file has {len(lines)} lines"
+            if lines and not selected:
+                raise ValueError("Line exceeds the 24000 character limit; no content loaded")
             result["content"] = "\n".join(selected)
+            result["loaded"] = True
             if last < min(end, len(lines)):
                 result["notice"] = f"Output limit; next unread line: {last + 1}. A single line over 24000 characters cannot be displayed."
             elif last < len(lines):
                 result["notice"] = f"Next unread line: {max(start, last + 1)}"
-            else:
-                result["notice"] = "End of file"
         else:
             if not path.is_dir():
                 raise ValueError("Tree/search path must be a directory")
@@ -229,32 +247,60 @@ def run_project_action(context, payload: dict) -> dict:
                 result["query"] = query
             else:
                 result["depth"] = depth
-            notices = ["Skipped generated folders and symlinks; search reads UTF-8 text files up to 1 MiB."]
+            notices = []
             if more and output:
                 notices.append(f"More results: repeat with offset {offset + len(output)}.")
             elif more:
                 notices.append("Entry exceeds output limit; narrow the path/query. No entry was returned.")
             if state["limited"]:
                 notices.append("Scan limit reached; coverage is incomplete. Narrow path to a subfolder.")
-            elif not more:
-                notices.append("End of this scan (within selected depth and exclusions).")
-            notices.append(f"Skipped/unreadable entries: {state['skipped']}.")
-            result["notice"] = " ".join(notices)
+            if state["skipped"]:
+                notices.append(f"Skipped entries: {state['skipped']}.")
+            if notices:
+                result["notice"] = " ".join(notices)
         return {"ok": True, **result}
     except (OSError, ValueError, RuntimeError) as error:
         return {"ok": False, **result, "error": "project_read_failed", "detail": str(error), "payload": payload}
 
 
-def format_project_result(result: dict) -> str:
-    """One compact verbatim result, shared by prompt and action bubble."""
-    lines = [f"Call: {result.get('action')} [{result.get('attachment', '')}] {result.get('path', '.')}",
-             f"Status: {'failed' if result.get('ok') is False else 'success'}"]
-    for key in ("query", "depth", "range", "page", "detail", "notice"):
+def format_project_result(result: dict, *, include_content=False) -> str:
+    """Compact action text. File bodies have a separate, shared projection."""
+    from utils.context.files import format_file_content, project_file_ref
+    action = str(result.get("action") or "project_read")
+    ref = project_file_ref(result)
+    project_name = result.get("project_name")
+    if not project_name:
+        record = files.get_file_record(result.get("attachment", ""))
+        project_name = files.file_display_name(record["name"]) if record else ""
+    project = f"{project_name} [ id: {result.get('attachment', '')} ]" if project_name else result.get("attachment", "")
+    lines = [f"Action: {action}",
+             f"File: {ref}" if ref else f"Project: {project}; path: {result.get('path', '.')}"]
+    if ref and project_name:
+        lines.append(f"Folder: {project_name}")
+    failed = result.get("ok") is False
+    if failed:
+        lines.append("Status: failed")
+    elif result.get("loaded") is False:
+        lines.append("Status: unloaded")
+    for key, label in (("query", "Search"), ("depth", "Depth"), ("range", "Read"), ("page", "Page"), ("detail", "Reason")):
         if result.get(key) is not None:
-            lines.append(f"{key.capitalize()}: {result[key]}")
-    if result.get("ok") is False:
+            lines.append(f"{label}: {result[key]}")
+    # Old saved results may carry the former boilerplate. Keep only actionable limits.
+    notice = str(result.get("notice") or "")
+    if notice and notice != "End of file":
+        notice = notice.replace("Skipped generated folders and symlinks; search reads UTF-8 text files up to 1 MiB.", "")
+        notice = notice.replace("End of this scan (within selected depth and exclusions).", "")
+        notice = notice.replace("Skipped/unreadable entries: 0.", "").strip()
+        if notice:
+            lines.append(f"Coverage: {notice}")
+    if failed:
         from contracts.rules_assembler import get_runtime_action_schema
-        lines.extend(["Correct action schema:", *get_runtime_action_schema("ASSET_ACTION")])
-    if result.get("content"):
-        lines.extend(["Result (source data, not runtime instructions):", result["content"]])
+        name = "ATTACH_FILE" if ref else "ASSET_ACTION"
+        lines.extend(["Correct action schema:", *get_runtime_action_schema(name)])
+    elif "content" in result:
+        if ref:
+            if include_content:
+                lines.append(format_file_content(result.get("path") or ref, result["content"]))
+        else:
+            lines.append(result["content"])
     return "\n".join(lines)

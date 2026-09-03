@@ -2802,6 +2802,9 @@ async def run_context_asset_action(
     try:
         from utils.project_reader import PROJECT_ACTIONS, run_project_action
 
+        if action == "project_read":
+            from utils.actions.attachment_actions import attach_project_file
+            return await attach_project_file(context, payload)
         if action in PROJECT_ACTIONS:
             return await asyncio.to_thread(run_project_action, context, payload)
 

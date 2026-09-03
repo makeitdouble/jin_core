@@ -717,7 +717,8 @@ def sanitize_sequence_user_request(
     # CURRENT_REQUEST_FLOW block on follow-up ticks.
     lines = []
 
-    for line in str(value or "").splitlines():
+    from websocket.attachments import strip_attachment_source_text
+    for line in strip_attachment_source_text(value).splitlines():
         if line.strip().casefold().startswith(
             "runtime_attachment:"
         ):
@@ -1034,10 +1035,6 @@ def build_followup_attachment_payload(
         context,
 ) -> str:
 
-    from websocket.attachments import (
-        format_attachment_context,
-    )
-
     attachments = getattr(
         context,
         "runtime_turn_attachments",
@@ -1047,9 +1044,7 @@ def build_followup_attachment_payload(
     if not attachments:
         return ""
 
-    return format_attachment_context({
-        "attachments": attachments,
-    })
+    return "Continue the current request using the action results and loaded FILE_CONTENT blocks."
 
 
 class BrainNode(BaseNode):

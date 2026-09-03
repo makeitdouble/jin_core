@@ -103,7 +103,7 @@ def test_delayed_memory_modal_links_existing_files_by_original_name():
     assert "attachments_ids" in storage
     assert "appendDelayedMemoryAttachmentIdsField" in runtime_view
     assert "getDelayedMemoryAttachmentRecords" in runtime_view
-    assert 'item.textContent = String(record.name || "attachment")' in runtime_view
+    assert 'item.textContent = String(record.display_name || record.name || "attachment")' in runtime_view
     assert "window.bindJinAttachmentBubble(" in runtime_view
     assert "hoverPreviewMaxPx: 100" in runtime_view
     assert ".delayed-memory-modal-attachment" in memory_css

@@ -401,12 +401,31 @@ user-pinned reports; L-T is restricted to their linked facts. Historical
 memory tool results cannot reintroduce excluded bodies. Canonical memory is
 not cleared. Detaching the folder returns to ordinary context assembly.
 
-`ASSET_ACTION` has three native read-only operations: `project_tree`,
-`project_search`, and `project_read`, documented in its existing contract.
-They resolve a currently attached folder id, constrain paths to its root,
-and return bounded, numbered source text with explicit coverage/limit notices.
-The ordinary dispatcher, bubbles, session actions, failure results, and
-Brain follow-up loop remain in use; no supporting model summarizes the source.
+`ASSET_ACTION` exposes `project_tree` and `project_search`. File loading uses
+`ATTACH_FILE: file_id` or `ATTACH_FILE: relative/path#L1-L200`;
+`DETACH_FILE` accepts the same ID/reference (range optional). Relative paths
+resolve against the single attached folder; multiple folders require
+`folder_id/relative/path`. Known persistent IDs retain priority, and only a
+known folder ID is treated as a prefix, not any six-character directory name.
+The old
+`project_read` subaction is only a compatibility adapter to the shared loader.
+Paths remain confined to a user-attached folder. Reads are bounded exact
+UTF-8 source ranges; actionable limits are reported without boilerplate.
+
+`runtime_tool_results` owns project read snapshots, using its existing
+persistence/bootstrap path; no separate loaded-file registry is added.
+`FILE_CONTENT` projects each loaded body once, below compact TOOL_RESULTS.
+Persistent attachments use the same projection, not USER/flow text. Repeated
+loads fail through the normal failure follow-up. Detach removes the body
+from the canonical tool record and legacy mirror but keeps metadata/history;
+detaching a folder also unloads its source bodies. CLEAN_TOOL_RESULTS clears
+project snapshots along with tool results. The normal persistent file store
+and source project remain unchanged. Browser reload restores exact loaded
+ranges through the existing checkpoint; unpin/detach does not resurrect them.
+
+The ordinary dispatcher, bubbles, session actions and Brain follow-up loop
+remain in use. Independent file markers can share one response; Brain is
+briefly instructed to save useful findings, unload, and continue reading.
 Brain may save a DELAYED report during review without a separate save request;
 this is a scoped exception to the ordinary report trigger. ACTIVE and L-T
 updates retain their existing handlers and persistence policies.

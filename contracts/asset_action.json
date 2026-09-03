@@ -17,13 +17,12 @@
       "{\"action\":\"project_tree\",\"attachment\":\"attached .jin-folder file id\",\"path\":\".\",\"depth\":3,\"offset\":0,\"limit\":100}",
       "</ASSET_ACTION>",
       "Or: {\"action\":\"project_search\",\"attachment\":\"file id\",\"path\":\".\",\"query\":\"literal text\",\"offset\":0,\"limit\":100}",
-      "Or: {\"action\":\"project_read\",\"attachment\":\"file id\",\"path\":\"src/main.py\",\"start\":1,\"end\":200}",
       "Other asset action schemas come from LOADED_SKILLS_CONTENT."
     ],
     "rules": [
       "Project actions read only a user-attached .jin-folder. attachment is its file id (omit only if exactly one is attached). Never pass an absolute path as action.path.",
       "project_tree lists relative paths to depth 1..20; tree/search accept offset >= 0 and limit 1..200. Search is case-insensitive literal text, not regex. Narrow path to a subfolder when a scan limit is reached.",
-      "project_read returns exact numbered UTF-8 lines, inclusive start/end, at most 400 lines and 24000 characters. Files are limited to 1 MiB. Limits and skipped entries are reported, never silently summarized.",
+      "Load file content with ATTACH_FILE; unload it with DETACH_FILE. Tree/search skip generated folders and symlinks; text search supports UTF-8 files up to 1 MiB.",
       "During project review only user-pinned DELAYED reports and their facts are context. Ordinary memory save/update actions remain available. Keep folder links attached unless the user asks to detach.",
       "For other ASSET_ACTION operations, derive concrete schema from LOADED_SKILLS_CONTENT."
     ],

@@ -438,7 +438,8 @@ def build_asset_action_context_detail(
     if action in {"project_tree", "project_search", "project_read"}:
         parts = [action, str(result.get("attachment") or ""), str(result.get("path") or ".")]
         parts.extend(f"{key}: {result[key]}" for key in ("query", "range", "page") if result.get(key))
-        parts.append("failed: " + str(result.get("detail") or result.get("error")) if result.get("ok") is False else "success")
+        if result.get("ok") is False:
+            parts.append("failed: " + str(result.get("detail") or result.get("error")))
         return " | ".join(parts)
 
     error = str(

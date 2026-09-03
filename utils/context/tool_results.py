@@ -352,6 +352,17 @@ def _append_recorded_tool_results(
         if kind == TOOL_RESULT_KIND_FILES:
             if not isinstance(result, dict):
                 continue
+            if result.get("action") != "list_files":
+                from .files import format_file_result
+                attrs = f'name="{escape(str(result.get("action", "file")).upper())}"'
+                payload = format_file_result(result)
+                parts.append(
+                    f"{_build_tool_result_open_tag(attrs, created_at=created_at, now=now)}\n"
+                    f"{indent_xml(_escape_runtime_action_payload(payload))}\n"
+                    "    </TOOL_RESULT>"
+                )
+                appended = True
+                continue
             lines = result.get("lines", [])
             if not isinstance(lines, list):
                 lines = []
@@ -361,7 +372,7 @@ def _append_recorded_tool_results(
                 if str(line or "").strip()
             )
             payload = (
-                "Status: success\n\nFiles:\n"
+                "Files:\n"
                 + (
                     "\n".join(
                         f"  {line}"

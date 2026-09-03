@@ -243,6 +243,7 @@ def _failed_tool_result_requires_followup(
         TOOL_RESULT_KIND_DEEP_SEARCH,
         TOOL_RESULT_KIND_ASSET,
         TOOL_RESULT_KIND_DELAYED_MEMORY,
+        TOOL_RESULT_KIND_FILES,
     }:
         return True
 

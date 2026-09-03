@@ -144,11 +144,9 @@ def build_previous_chat_messages_context_text(
         ):
             continue
 
+        from websocket.attachments import strip_attachment_source_text
         user_text = normalize_recent_message_text(
-            turn.get(
-                "user",
-                "",
-            )
+            strip_attachment_source_text(turn.get("user", ""))
         )
         jin_text = normalize_recent_message_text(
             turn.get(
@@ -188,8 +186,9 @@ def build_previous_chat_messages_context_text(
                 f"<JIN>{escape(jin_text)}"
             )
 
+    from websocket.attachments import strip_attachment_source_text
     extra_user_text = normalize_recent_message_text(
-        extra_user_message
+        strip_attachment_source_text(extra_user_message)
     )
 
     if (

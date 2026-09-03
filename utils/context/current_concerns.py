@@ -91,7 +91,8 @@ def _count_loaded_files(
         )
         loaded_count += 1
 
-    return loaded_count
+    from utils.context.files import loaded_project_files
+    return loaded_count + sum(1 for _ in loaded_project_files(context))
 
 
 def _count_loaded_delayed_memory(

@@ -156,11 +156,28 @@ async function readImageDimensions(file) {
   });
 }
 
-async function uploadFile(file) {
+function formatClipboardImageTimestamp(date) {
+  const value = date instanceof Date ? date : new Date();
+  const pad2 = (part) => String(part).padStart(2, "0");
+  return (
+    `${value.getFullYear()}${pad2(value.getMonth() + 1)}${pad2(value.getDate())}`
+    + `_${pad2(value.getHours())}${pad2(value.getMinutes())}${pad2(value.getSeconds())}`
+  );
+}
+
+function clipboardImageUploadName(file, pastedAt) {
+  if (!file) return "";
+  const name = String(file.name || "").trim().toLowerCase();
+  const mimeType = String(file.type || "").trim().toLowerCase();
+  if (name !== "image.png" || !mimeType.startsWith("image/")) return "";
+  return `image_${formatClipboardImageTimestamp(pastedAt)}.png`;
+}
+
+async function uploadFile(file, uploadName = "") {
   if (!file) return false;
   const dimensions = await readImageDimensions(file);
   const body = new FormData();
-  body.append("file", file, file.name || "attachment");
+  body.append("file", file, uploadName || file.name || "attachment");
   if (dimensions.width) body.append("width", String(dimensions.width));
   if (dimensions.height) body.append("height", String(dimensions.height));
 
@@ -176,15 +193,65 @@ async function uploadFile(file) {
   }
 }
 
-function addFiles(fileList) {
+function addFiles(fileList, options = {}) {
   const files = Array.from(fileList || []);
   if (!files.length) return;
+  const pastedAt = options.pastedAt instanceof Date ? options.pastedAt : null;
+  const uploads = files.map((file) => ({
+    file,
+    uploadName: pastedAt ? clipboardImageUploadName(file, pastedAt) : "",
+  }));
   // Serialize uploads so identical drops cannot race the SHA-256 dedupe.
-  uploadQueue = files.reduce(
-    (chain, file) => chain.then(() => uploadFile(file)),
+  uploadQueue = uploads.reduce(
+    (chain, item) => chain.then(() => uploadFile(item.file, item.uploadName)),
     uploadQueue
   );
   if (fileInput) fileInput.value = "";
+}
+
+async function linkProjectFolder(path) {
+  const response = await fetch("/api/files/link-folder", {
+    method: "POST",
+    headers: {"Content-Type": "application/json"},
+    body: JSON.stringify({path}),
+  });
+  const payload = await response.json();
+  if (!response.ok) throw new Error(payload.detail || "Could not link folder");
+  normalizeSnapshot(payload);
+  dispatchStoreChanged();
+  syncAttachmentContext();
+}
+
+function pastedFolderPath(text) {
+  let path = String(text || "").trim();
+  if (path.length >= 2 && path[0] === path.at(-1) && /["']/.test(path[0])) {
+    path = path.slice(1, -1);
+  }
+  if (/[\r\n]/.test(path)) return "";
+  return /^(?:[a-z]:[\\/]|\\\\|\/(?!\/)|~\/|file:\/\/)/i.test(path) ? path : "";
+}
+
+function pasteFolderLink(event) {
+  const input = event.target;
+  if (!input || input.id !== "user-input" || event.defaultPrevented) return;
+  const clipboard = event.clipboardData;
+  const text = clipboard && (clipboard.getData("text/plain") || clipboard.getData("text/uri-list"));
+  const path = pastedFolderPath(text);
+  if (!path) return;
+  event.preventDefault();
+  const previous = input.value;
+  const start = input.selectionStart;
+  const end = input.selectionEnd;
+  // Share the upload queue: a send waits for the link and sees its pinned ID.
+  uploadQueue = uploadQueue.then(() => linkProjectFolder(path)).catch(() => {
+    // A regular file path or failed link remains usable as ordinary input.
+    // If the user has edited meanwhile, insert without replacing their draft.
+    const unchanged = input.value === previous;
+    const from = unchanged ? start : input.selectionStart;
+    const to = unchanged ? end : from;
+    input.setRangeText(text, from, to, "end");
+    input.dispatchEvent(new Event("input", {bubbles: true}));
+  });
 }
 
 async function setPinned(id, pinned, options = {}) {
@@ -211,7 +278,7 @@ async function setPinned(id, pinned, options = {}) {
       const unpinnedMemory = {
         kind: "file",
         id: String(record.id || id || "").trim().toLowerCase(),
-        label: String(record.name || record.id || "file"),
+        label: String(record.display_name || record.name || record.id || "file"),
       };
 
       window.appendLog(
@@ -416,8 +483,8 @@ function renderAttachedFilesPlaque() {
   const title = document.createElement("div");
   title.className = "jin-attached-files-title";
   title.textContent = records.some((record) => String(record.name || "").toLowerCase().endsWith(".jin-folder"))
-    ? "[ PROJECT REVIEW ]" : "[ ATTACHED_FILES ]";
-  title.title = "Project review: only pinned DELAYED reports and their L-T facts are included";
+    ? "[ PROJECT MODE ]" : "[ FILES ]";
+  title.title = "Project mode: only pinned DELAYED reports and their L-T facts are included";
 
   header.appendChild(title);
 
@@ -479,16 +546,7 @@ function renderAttachedFilesPlaque() {
     status.textContent = "Linking folder…";
     uploadQueue = uploadQueue.then(async () => {
       try {
-        const response = await fetch("/api/files/link-folder", {
-          method: "POST",
-          headers: {"Content-Type": "application/json"},
-          body: JSON.stringify({path}),
-        });
-        const payload = await response.json();
-        if (!response.ok) throw new Error(payload.detail || "Could not link folder");
-        normalizeSnapshot(payload);
-        dispatchStoreChanged();
-        syncAttachmentContext();
+        await linkProjectFolder(path);
       } catch (error) {
         status.textContent = String(error.message || "Could not link folder");
       } finally {
@@ -524,8 +582,8 @@ function renderAttachedFilesPlaque() {
     });
     const name = document.createElement("span");
     name.className = "jin-attached-files-name";
-    name.textContent = record.name || "attachment";
-    name.title = `${record.name || "attachment"} · ${formatBytes(record.size_bytes)}`;
+    name.textContent = record.display_name || record.name || "attachment";
+    name.title = `${record.display_name || record.name || "attachment"} · ${formatBytes(record.size_bytes)}`;
     bindAttachedFilesPlaqueName(name, record);
     bindAttachedFilesPlaqueAvatarHover(name, fileId);
     row.append(pin, name);
@@ -657,7 +715,8 @@ if (chatColumn && fileInput) {
   });
   document.addEventListener("paste", (event) => {
     const files = Array.from(event.clipboardData && event.clipboardData.files || []);
-    if (files.length) addFiles(files);
+    if (files.length) addFiles(files, {pastedAt: new Date()});
+    else pasteFolderLink(event);
   });
   fileInput.addEventListener("change", (event) => addFiles(event.target.files));
 }

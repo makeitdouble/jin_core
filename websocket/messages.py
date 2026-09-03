@@ -1236,9 +1236,10 @@ async def process_message(
             active_attachment_ids = attachment_ids_from_message_data(
                 message_data
             )
-            context.runtime_attached_file_ids = list(
-                active_attachment_ids
-            )
+            from utils.context.files import unload_project_files
+            for removed in set(context.runtime_attached_file_ids or []) - set(active_attachment_ids):
+                unload_project_files(context, removed)
+            context.runtime_attached_file_ids = list(active_attachment_ids)
 
         hydrated_active_attachments = hydrate_message_attachments(
             message_data,

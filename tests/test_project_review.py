@@ -80,6 +80,63 @@ class ProjectReviewTests(unittest.TestCase):
         self.assertIn("Linked project", attachment_context)
         self.assertNotIn(str(self.project), attachment_context)
 
+    def test_folder_names_survive_legacy_index_reload_without_descriptor_suffix(self):
+        record = files.get_file_record(self.record["id"])
+        self.assertEqual(record["display_name"], self.project.name)
+        self.assertTrue(record["stored_name"].endswith(".jin-folder"))
+        # Old indexes did not carry display_name; derive it from the stored name.
+        index = json.loads(files.INDEX_FILE.read_text(encoding="utf-8"))
+        for item in index:
+            item.pop("display_name", None)
+        files.INDEX_FILE.write_text(json.dumps(index), encoding="utf-8")
+        restored = files.public_file_snapshot()["files"][0]
+        self.assertEqual(restored["display_name"], self.project.name)
+        for quote in ('"', "'"):
+            same, created, _ = link_project_folder(quote + str(self.project) + quote)
+            self.assertFalse(created)
+            self.assertEqual(same["id"], record["id"])
+        from utils.project_context import build_project_review_context
+        from websocket.attachments import build_attached_files_inventory_context
+        outputs = [build_project_review_context(self.context),
+                   build_attached_files_inventory_context(self.context),
+                   format_attachment_context({"attachments": files.hydrate_attachment_ids([record["id"]])}),
+                   "\n".join(files.format_list_files_lines())]
+        for output in outputs:
+            self.assertIn(self.project.name, output)
+            self.assertNotIn(".jin-folder", output)
+
+    def test_success_results_are_compact_but_failure_and_unload_remain_explicit(self):
+        from utils.context.files import format_file_result
+        from utils.project_reader import format_project_result
+        for action, kwargs in [("project_tree", {}), ("project_search", {"query": "needle"}),
+                               ("project_read", {"path": "src/main.py"})]:
+            result = self.action(action, **kwargs)
+            self.assertTrue(result["ok"])
+            self.assertEqual(result["project_name"], self.project.name)
+            for legacy in (False, True):
+                if legacy:
+                    result.pop("project_name", None)
+                output = format_project_result(result)
+                self.assertNotIn("Status:", output)
+                self.assertIn(self.project.name, output)
+                self.assertNotIn(".jin-folder", output)
+            self.assertNotIn("success", build_asset_action_context_detail(result))
+        result = self.action("project_read", path="missing.txt")
+        self.assertIn("Status: failed", format_project_result(result))
+        self.assertIn("Correct action schema:", format_project_result(result))
+        result = self.action("project_read", path="src/main.py")
+        result["loaded"] = False
+        self.assertIn("Status: unloaded", format_project_result(result))
+        normal = {"action": "attach_file", "ok": True, "id": "abc123", "name": "notes.txt"}
+        self.assertNotIn("Status:", format_file_result(normal))
+        normal["action"] = "detach_file"
+        self.assertIn("Status: unloaded", format_file_result(normal))
+        record_runtime_tool_result(self.context, "files", {"ok": True, "action": "list_files",
+                                                          "lines": files.format_list_files_lines()})
+        output = build_tool_results_context(self.context)
+        self.assertIn("Files:", output)
+        self.assertNotIn("Status: success", output)
+
     def test_bad_links_and_unattached_targets_are_rejected(self):
         for target in ("", "https://example.com/repo", str(self.project / "README.md"), str(self.root / "missing")):
             with self.subTest(target=target), self.assertRaises((OSError, ValueError)):
@@ -128,8 +185,9 @@ class ProjectReviewTests(unittest.TestCase):
             self.assertIn("coverage is incomplete", self.action("project_tree")["notice"])
         (self.project / "long.txt").write_text("x" * 24001)
         result = self.action("project_read", path="long.txt")
-        self.assertEqual(result["content"], "")
-        self.assertIn("next unread line: 1", result["notice"])
+        self.assertFalse(result["ok"])
+        self.assertNotIn("content", result)
+        self.assertIn("no content loaded", result["detail"])
 
     def test_clean_review_keeps_dialogue_frame_thought_and_no_memory(self):
         self.memories()
@@ -214,7 +272,8 @@ class ProjectReviewTests(unittest.TestCase):
         self.assertEqual(len(self.context.runtime_tool_results), 4)
         prompt = build_tool_results_context(self.context)
         self.assertIn("README.md", prompt)
-        self.assertIn("2: needle = 42", prompt)
+        self.assertNotIn("<FILE_CONTENT:", prompt)
+        self.assertIn("2: needle = 42", self.prompt())
         self.assertNotIn('"content":', prompt)
         self.assertTrue(self.context.runtime_session_action_history)
 

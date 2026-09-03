@@ -60,7 +60,7 @@ class AttachmentLogRedactionTests(unittest.TestCase):
             context,
         )
         self.assertIn(
-            "--- BEGIN ATTACHMENT TEXT: README.md ---",
+            "<FILE_CONTENT: README.md >",
             context,
         )
         self.assertIn(

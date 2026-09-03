@@ -39,6 +39,11 @@ def _safe_name(name: str) -> str:
     return value or "attachment"
 
 
+def file_display_name(name: str) -> str:
+    value = str(name or "attachment")
+    return value[:-len(".jin-folder")] if value.lower().endswith(".jin-folder") else value
+
+
 def _kind_for(name: str, mime_type: str) -> str:
     mime = str(mime_type or "").lower()
     suffix = Path(name).suffix.lower()
@@ -147,6 +152,7 @@ def _normalize_record(record: dict) -> dict | None:
     normalized = {
         "id": file_id,
         "name": name,
+        "display_name": file_display_name(name),
         "stored_name": stored_name,
         "context_path": f"/assets/files/{stored_name}",
         "url": f"/assets/files/{stored_name}",
@@ -517,6 +523,6 @@ def format_list_files_lines(records: list[dict] | None = None) -> list[str]:
             dims = f" {record['width']}x{record['height']}"
         age = format_age(record.get("created_at") or time.time())
         lines.append(
-            f"{index}. {record['name']} {size}{dims} [ id: {record['id']} ] ( {age} ago )"
+            f"{index}. {file_display_name(record['name'])} {size}{dims} [ id: {record['id']} ] ( {age} ago )"
         )
     return lines

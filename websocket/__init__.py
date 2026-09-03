@@ -365,15 +365,8 @@ async def websocket_endpoint(
                     attachments = hydrate_attachment_ids(
                         file_ids
                     )
-                context.runtime_attached_file_ids = list(
-                    file_ids
-                )
-                context.runtime_turn_attachments = list(
-                    attachments
-                )
-                context.runtime_current_sequence_attachments = list(
-                    attachments
-                )
+                from utils.actions.attachment_actions import apply_attachment_context_ids
+                apply_attachment_context_ids(context, file_ids, attachments=attachments)
                 file_snapshot = public_file_snapshot()
                 if persistent_writes_restricted(context):
                     file_snapshot["pinned_ids"] = list(file_ids)

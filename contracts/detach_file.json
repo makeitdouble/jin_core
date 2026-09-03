@@ -1,7 +1,7 @@
 {
   "detach_file": {
     "version": 1,
-    "description": "Removes one persistent file from the JIN context without deleting it.",
+    "description": "Unloads a file body from context without deleting its source.",
     "runtime_action": "DETACH_FILE",
     "enable_flag": "CAN_USE_ASSETS",
     "runtime_order": 140,
@@ -9,12 +9,16 @@
     "triggers": [],
     "blockers": [],
     "effects": {
-      "emit_followup": false,
-      "follow_up_on_fail": false
+      "emit_followup": true,
+      "follow_up_on_fail": true
     },
-    "schema": [],
+    "schema": [
+      "<DETACH_FILE: file_id >",
+      "<DETACH_FILE: relative/path >",
+      "<DETACH_FILE: folder_id/relative/path >"
+    ],
     "rules": [
-      ""
+      "Use the same ID/path as ATTACH_FILE: relative to the single attached folder, or folder_id/path with multiple folders. Unloads content while preserving the action trail and source file; detaching a folder also unloads its files."
     ],
     "close_tag": false
   }

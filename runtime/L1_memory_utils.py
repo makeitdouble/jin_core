@@ -2738,7 +2738,8 @@ def build_runtime_session_checkpoint(
             restored_item
         )
 
-    runtime_tool_results = runtime_tool_results[-20:]
+    from utils.context.files import select_file_tool_results
+    runtime_tool_results = select_file_tool_results(runtime_tool_results, 20)
 
     return {
         "session_id": str(
@@ -2770,10 +2771,7 @@ def build_runtime_session_checkpoint(
             session_action_history,
             limit=200,
         ),
-        "tool_results": _dict_list(
-            runtime_tool_results,
-            limit=20,
-        ),
+        "tool_results": runtime_tool_results,
         "runtime_turn_counter": int(
             getattr(
                 context,
