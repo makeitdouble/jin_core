@@ -4,11 +4,6 @@ let traceModalReason;
 let traceModalTitle;
 let traceModalCopyButton;
 let traceModalContextCopyText = "";
-let traceModalL1StreamId = null;
-let traceModalL1StreamStatus = null;
-let traceModalL1StreamReasoning = null;
-let traceModalL1StreamAnswer = null;
-let traceModalL1StreamFrame = null;
 
 const CONTEXT_DELAYED_MEMORY_STORE_CHANGED_EVENT =
   "jin:delayed-memory-store-changed";
@@ -180,27 +175,6 @@ function ensureTraceModal() {
     traceModal.classList.remove(
       "flex"
     );
-
-    traceModalL1StreamId =
-      null;
-
-    traceModalL1StreamStatus =
-      null;
-
-    traceModalL1StreamReasoning =
-      null;
-
-    traceModalL1StreamAnswer =
-      null;
-
-    if (traceModalL1StreamFrame !== null) {
-      cancelAnimationFrame(
-        traceModalL1StreamFrame
-      );
-
-      traceModalL1StreamFrame =
-        null;
-    }
 
     // Keep only the tiny reusable modal shell. Context snapshots can be
     // thousands of DOM nodes; once hidden they must not stay in live DOM.
@@ -2028,7 +2002,7 @@ function contextBadge(text, attribute = false) {
   );
 }
 
-function parseContextRows(content) {
+function parseContextRows(content, minimumFields = 2) {
   const lines =
     String(content || "")
       .split("\n")
@@ -2090,7 +2064,7 @@ function parseContextRows(content) {
     .filter(Boolean);
 
   if (
-      fields.length >= 2
+      fields.length >= minimumFields
       && fields.length / Math.max(lines.length, 1) >= 0.7
   ) {
     return fields;
@@ -3136,7 +3110,7 @@ function renderContextUserPromptBody(parent, content) {
   );
 }
 
-function renderContextBody(parent, content) {
+function renderContextBody(parent, content, minimumFields = 2) {
   const text =
     String(content || "").trim();
 
@@ -3152,7 +3126,7 @@ function renderContextBody(parent, content) {
   }
 
   const rows =
-    parseContextRows(text);
+    parseContextRows(text, minimumFields);
 
   if (rows.length) {
     const list =
@@ -3802,51 +3776,13 @@ function renderTraceDetails(
       parsed
       && parsed.kind === "summarizer_response"
   ) {
-    const meta = {
-      model: parsed.model || "",
-      finish_reason: parsed.finish_reason || "",
-      allow_reasoning_fallback: Boolean(parsed.allow_reasoning_fallback),
-      used_reasoning_fallback: Boolean(parsed.used_reasoning_fallback),
-      usage: parsed.usage || {},
-    };
-
-    appendTraceSection(
-      traceModalContent,
-      "Meta",
-      JSON.stringify(
-        meta,
-        null,
-        2
-      )
-    );
-
-    appendTraceSection(
-      traceModalContent,
-      "Assistant content",
-      parsed.content || ""
-    );
-
-    appendTraceSection(
-      traceModalContent,
-      "Reasoning content",
-      parsed.reasoning_content || ""
-    );
-
-    appendTraceSection(
-      traceModalContent,
-      "Extracted L1 memory text",
-      parsed.extracted_memory || ""
-    );
-
-    appendTraceSection(
-      traceModalContent,
-      "Raw message",
-      JSON.stringify(
-        parsed.message || {},
-        null,
-        2
-      )
-    );
+    appendContextCard(traceModalContent, {
+      title: "EXTRACTED FRAME",
+      xml: true,
+      attributes: [],
+      content: parsed.extracted_memory || "",
+      renderBody: body => renderContextBody(body, parsed.extracted_memory || "", 1),
+    });
 
     return;
   }
@@ -3881,7 +3817,7 @@ function getTraceTitle(
       parsed
       && parsed.kind === "summarizer_response"
   ) {
-    return "Summarizer response";
+    return "FRAME SUMMARIZER RESPONSE";
   }
 
   if (isSummarizerRequestPayload(parsed)) {
@@ -3898,27 +3834,6 @@ function showTrace(
   structuredTrace = null,
 ) {
   ensureTraceModal();
-
-  traceModalL1StreamId =
-    null;
-
-  traceModalL1StreamStatus =
-    null;
-
-  traceModalL1StreamReasoning =
-    null;
-
-  traceModalL1StreamAnswer =
-    null;
-
-  if (traceModalL1StreamFrame !== null) {
-    cancelAnimationFrame(
-      traceModalL1StreamFrame
-    );
-
-    traceModalL1StreamFrame =
-      null;
-  }
 
   traceModalTitle.textContent =
     title;

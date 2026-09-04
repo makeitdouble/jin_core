@@ -29,7 +29,6 @@ from utils.stream_handler import (
     StreamHandler,
 )
 from utils.stream_validator import (
-    INCORRECT_LT_FACT_IDS_HALLUCINATION_REASON,
     SAME_ANSWER_OUTPUT_REASON,
 )
 
@@ -239,47 +238,7 @@ class RuntimeStream:
                 if self.is_brain_context()
                 else ""
             ),
-            thinking_valid_lt_fact_ids=(
-                self.get_reasoning_lt_fact_ids()
-                if self.is_brain_context()
-                else None
-            ),
         )
-
-    def get_reasoning_lt_fact_ids(self) -> set[str] | None:
-
-        store = getattr(
-            self.context,
-            "runtime_long_term_memory_store",
-            None,
-        )
-
-        if (
-            not isinstance(store, dict)
-            or not isinstance(store.get("facts"), list)
-        ):
-            return None
-
-        fact_ids = set()
-
-        for fact in store.get("facts", []) or []:
-            if not isinstance(fact, dict):
-                continue
-
-            fact_id = str(
-                fact.get(
-                    "id",
-                    "",
-                )
-                or ""
-            ).strip().upper()
-
-            if fact_id:
-                fact_ids.add(
-                    fact_id
-                )
-
-        return fact_ids
 
     def build_loaded_skill_name_set(self) -> set[str]:
 
@@ -1058,11 +1017,6 @@ class RuntimeStream:
         if reason == SAME_ANSWER_OUTPUT_REASON:
             history_text = (
                 'stuck in answering loop reason '
-                f'"{reason}"'
-            )
-        elif reason == INCORRECT_LT_FACT_IDS_HALLUCINATION_REASON:
-            history_text = (
-                'stuck in a reasoning loop reason '
                 f'"{reason}"'
             )
         else:

@@ -11,7 +11,6 @@ from runtime.stream import RuntimeStream
 from runtime.client import LMStudioAPIError
 from runtime.registry import runtime_state
 from utils.stream_validator import (
-    INCORRECT_LT_FACT_IDS_HALLUCINATION_REASON,
     MAX_REPEAT_SENTENCES,
     SAME_ANSWER_OUTPUT_REASON,
 )
@@ -1119,7 +1118,7 @@ class RuntimeStreamTokenTests(unittest.IsolatedAsyncioTestCase):
         )
 
 
-    async def test_thinking_invalid_lt_fact_id_streak_interrupts_and_arms_followup(self):
+    async def test_thinking_unknown_lt_fact_ids_do_not_interrupt_or_arm_followup(self):
 
         runtime_id = settings.SERVICE_MODEL_UID
         active_stream = FakeActiveStream()
@@ -1176,50 +1175,14 @@ class RuntimeStreamTokenTests(unittest.IsolatedAsyncioTestCase):
             fake_invalid_lt_fact_ids_thinking_generator()
         )
 
-        self.assertIsNone(
-            result
-        )
-        self.assertTrue(
-            context.runtime_turn_interrupted
-        )
-        self.assertTrue(
-            context.runtime_reasoning_recovery_pending
-        )
-        self.assertEqual(
-            context.runtime_turn_interruption_reason,
-            INCORRECT_LT_FACT_IDS_HALLUCINATION_REASON,
-        )
-        self.assertEqual(
-            context.runtime_turn_interruption_quote,
-            "F257, F258, F259, F260, F261",
-        )
-        self.assertTrue(
-            active_stream.closed
-        )
-        self.assertEqual(
-            context.runtime_session_action_history[-1]["text"],
-            (
-                'stuck in a reasoning loop reason '
-                '"incorrect L-T facts ids hallucination"'
-            ),
-        )
-
-        followup_prompt = BrainNode.build_followup_system_prompt(
-            "system prompt",
-            "continue immediately",
-            context=context,
-        )
-        self.assertIn(
-            (
-                "<REASONING_RECOVERY_REASON>\n"
-                "incorrect L-T facts ids hallucination\n"
-                "</REASONING_RECOVERY_REASON>"
-            ),
-            followup_prompt,
-        )
-        self.assertFalse(
-            context.runtime_reasoning_recovery_pending
-        )
+        self.assertEqual(result, "")
+        self.assertFalse(context.runtime_turn_interrupted)
+        self.assertFalse(context.runtime_reasoning_recovery_pending)
+        self.assertEqual(context.runtime_turn_interruption_reason, "")
+        self.assertEqual(context.runtime_turn_interruption_quote, "")
+        self.assertEqual(context.runtime_session_action_history, [])
+        self.assertIsNone(stream.stream.thinking_validator.last_failure_reason)
+        self.assertIn("F261", stream.stream.reasoning)
 
 
     async def test_thinking_sentence_loop_interrupts_and_arms_recovery(self):

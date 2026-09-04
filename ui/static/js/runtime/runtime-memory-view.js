@@ -2654,9 +2654,12 @@
     }
 
     const anchorRect = anchor.getBoundingClientRect();
-    const panelRect = memoryPanel
-      ? memoryPanel.getBoundingClientRect()
-      : anchorRect;
+    const dropdown = anchor.closest(".delayed-memory-modal-fact-dropdown");
+    const panelRect = dropdown
+      ? dropdown.getBoundingClientRect()
+      : memoryPanel
+        ? memoryPanel.getBoundingClientRect()
+        : anchorRect;
     const cardRect = card.getBoundingClientRect();
     const viewportWidth = Math.max(
         document.documentElement.clientWidth || 0,
@@ -2688,6 +2691,7 @@
         rightCandidate + cardRect.width
         <= viewportWidth - margin;
     let placement = panelIsOnLeft ? "right" : "left";
+    if (dropdown) placement = "right";
     let left;
 
     if (placement === "right" && rightFits) {
@@ -6875,6 +6879,116 @@
     activeDelayedMemoryFactPicker.close(options);
   }
 
+  function createDelayedMemoryPickerOverlay(input, dropdown) {
+    let opened = false;
+    let pointer = null;
+    let previewSyncFrame = null;
+    const measure = document.createElement("span");
+    measure.style.position = "fixed";
+    measure.style.visibility = "hidden";
+    measure.style.whiteSpace = "pre";
+    measure.style.pointerEvents = "none";
+
+    function hidePreview() {
+      if (dropdown.contains(persistentFileHoverCardAnchor)) {
+        hidePersistentFileHoverCard(persistentFileHoverCardAnchor);
+      }
+    }
+
+    function position() {
+      if (!opened) return;
+      const rect = input.getBoundingClientRect();
+      const style = window.getComputedStyle(input);
+      measure.style.font = style.font;
+      measure.style.letterSpacing = style.letterSpacing;
+      measure.textContent = String(input.value || "").slice(0, input.selectionStart ?? input.value.length);
+      const caretOffset = (parseFloat(style.paddingLeft) || 0)
+        + measure.getBoundingClientRect().width - input.scrollLeft;
+      const caretX = rect.left + Math.max(0, Math.min(rect.width, caretOffset));
+      const bounds = dropdown.getBoundingClientRect();
+      const margin = 8;
+      const left = Math.max(margin, Math.min(caretX + 8, window.innerWidth - bounds.width - margin));
+      const top = Math.max(margin, Math.min(rect.bottom + 7, window.innerHeight - bounds.height - margin));
+      dropdown.style.left = `${left}px`;
+      dropdown.style.top = `${top}px`;
+      if (persistentFileHoverCard && dropdown.contains(persistentFileHoverCardAnchor)) {
+        positionLongTermMemoryHoverCard(persistentFileHoverCard, persistentFileHoverCardAnchor);
+      }
+    }
+
+    function trackPointer(event) {
+      pointer = { x: event.clientX, y: event.clientY };
+    }
+
+    function clearPointer() {
+      pointer = null;
+    }
+
+    function syncPreview() {
+      previewSyncFrame = null;
+      if (!opened) return;
+      const option = pointer
+        ? document.elementFromPoint(pointer.x, pointer.y)?.closest(".delayed-memory-modal-attachment-option")
+        : null;
+      const record = option && dropdown.contains(option)
+        ? persistentFileHoverRows.get(option)
+        : null;
+      if (!record) {
+        hidePreview();
+      } else if (persistentFileHoverCardAnchor === option && persistentFileHoverCard?.isConnected) {
+        positionLongTermMemoryHoverCard(persistentFileHoverCard, option);
+      } else {
+        showPersistentFileHoverCard(option, record);
+      }
+    }
+
+    function onScroll(event) {
+      // Recheck the file under a stationary pointer after the list moves.
+      if (dropdown.contains(event.target)) {
+        if (previewSyncFrame === null) {
+          previewSyncFrame = window.requestAnimationFrame(syncPreview);
+        }
+        return;
+      }
+      position();
+    }
+
+    return {
+      position,
+      open() {
+        if (!opened) {
+          opened = true;
+          dropdown.style.fontFamily = window.getComputedStyle(input).fontFamily;
+          document.body.append(measure, dropdown);
+          document.addEventListener("scroll", onScroll, true);
+          dropdown.addEventListener("pointermove", trackPointer);
+          dropdown.addEventListener("pointerleave", clearPointer);
+          window.addEventListener("resize", position);
+          input.addEventListener("select", position);
+          input.addEventListener("keyup", position);
+          input.addEventListener("click", position);
+        }
+        position();
+      },
+      close() {
+        hidePreview();
+        opened = false;
+        if (previewSyncFrame !== null) window.cancelAnimationFrame(previewSyncFrame);
+        previewSyncFrame = null;
+        pointer = null;
+        document.removeEventListener("scroll", onScroll, true);
+        dropdown.removeEventListener("pointermove", trackPointer);
+        dropdown.removeEventListener("pointerleave", clearPointer);
+        window.removeEventListener("resize", position);
+        input.removeEventListener("select", position);
+        input.removeEventListener("keyup", position);
+        input.removeEventListener("click", position);
+        dropdown.remove();
+        measure.remove();
+      },
+    };
+  }
+
   function appendDelayedMemoryFactPicker(
     container,
     factLookup,
@@ -6912,6 +7026,7 @@
 
     dropdown.className =
         "delayed-memory-modal-fact-dropdown";
+    const overlay = createDelayedMemoryPickerOverlay(input, dropdown);
 
     function updatePickerInputWidth() {
       const queryLength =
@@ -6924,6 +7039,7 @@
     }
 
     function closePicker(options = {}) {
+      overlay.close();
       picker.classList.add(
           "hidden"
       );
@@ -7048,6 +7164,7 @@
       activeDelayedMemoryFactPicker = {
         close: closePicker,
         container,
+        dropdown,
       };
       picker.classList.remove(
           "hidden"
@@ -7057,6 +7174,7 @@
       );
       updatePickerInputWidth();
       renderOptions();
+      overlay.open();
       input.focus({
         preventScroll: true,
       });
@@ -7083,6 +7201,7 @@
     input.addEventListener("input", () => {
       updatePickerInputWidth();
       renderOptions();
+      overlay.position();
     });
 
     input.addEventListener("paste", (event) => {
@@ -7151,9 +7270,6 @@
 
     picker.appendChild(
         input
-    );
-    picker.appendChild(
-        dropdown
     );
 
     container.appendChild(
@@ -7937,13 +8053,15 @@
         && activeDelayedMemoryFactPicker.container
         && target
         && typeof activeDelayedMemoryFactPicker.container.contains === "function"
-        && activeDelayedMemoryFactPicker.container.contains(target);
+        && (activeDelayedMemoryFactPicker.container.contains(target)
+          || activeDelayedMemoryFactPicker.dropdown?.contains(target));
       const insideAttachmentPicker =
         activeDelayedMemoryAttachmentPicker
         && activeDelayedMemoryAttachmentPicker.container
         && target
         && typeof activeDelayedMemoryAttachmentPicker.container.contains === "function"
-        && activeDelayedMemoryAttachmentPicker.container.contains(target);
+        && (activeDelayedMemoryAttachmentPicker.container.contains(target)
+          || activeDelayedMemoryAttachmentPicker.dropdown?.contains(target));
 
       if (insideFactPicker || insideAttachmentPicker) {
         return;
@@ -8759,6 +8877,7 @@
     const dropdown = document.createElement("div");
     dropdown.className =
       "delayed-memory-modal-fact-dropdown";
+    const overlay = createDelayedMemoryPickerOverlay(input, dropdown);
 
     function updatePickerInputWidth() {
       const queryLength = String(input.value || "").length;
@@ -8769,6 +8888,7 @@
     }
 
     function closePicker(options = {}) {
+      overlay.close();
       // Hovered attachment options may disappear without mouseleave when
       // the dropdown closes. Detach the shared preview before hiding it.
       if (typeof window.hideJinAttachmentHoverPreview === "function") {
@@ -8796,6 +8916,9 @@
     }
 
     function renderOptions() {
+      if (dropdown.contains(persistentFileHoverCardAnchor)) {
+        hidePersistentFileHoverCard(persistentFileHoverCardAnchor);
+      }
       dropdown.innerHTML = "";
       const options =
         getDelayedMemoryAttachmentOptions(
@@ -8878,6 +9001,7 @@
       activeDelayedMemoryAttachmentPicker = {
         close: closePicker,
         container,
+        dropdown,
       };
       picker.classList.remove("hidden");
       container.classList.add(
@@ -8885,6 +9009,7 @@
       );
       updatePickerInputWidth();
       renderOptions();
+      overlay.open();
       input.focus({ preventScroll: true });
     }
 
@@ -8908,6 +9033,7 @@
     input.addEventListener("input", () => {
       updatePickerInputWidth();
       renderOptions();
+      overlay.position();
     });
 
     input.addEventListener("keydown", (event) => {
@@ -8948,7 +9074,7 @@
       }
     });
 
-    picker.append(input, dropdown);
+    picker.append(input);
     container.appendChild(picker);
   }
 
@@ -9289,6 +9415,9 @@
     if (!resolvedReport) {
       return;
     }
+
+    closeActiveDelayedMemoryFactPicker();
+    closeActiveDelayedMemoryAttachmentPicker();
 
     delayedMemoryModalReport = {
       ...resolvedReport,

@@ -782,21 +782,17 @@
 }
 
 .delayed-memory-modal-fact-dropdown {
-    position: absolute;
-    top: calc(100% + 7px);
-    left: calc(100% + 8px);
-    z-index: 3;
+    position: fixed;
+    z-index: 70;
+    box-sizing: border-box;
+    max-width: calc(100vw - 16px);
+    font-size: 12px;
     width: clamp(260px, 32vw, 360px);
-    max-height: 132px;
+    max-height: min(132px, calc(100vh - 16px));
     overflow-y: auto;
     border: 1px solid rgba(63, 63, 70, 0.74);
     background: rgba(9, 9, 11, 0.96);
     box-shadow: 0 12px 28px rgba(0, 0, 0, 0.34);
-}
-
-.delayed-memory-modal-fact-ids .delayed-memory-modal-fact-dropdown {
-    left: auto;
-    right: 0;
 }
 
 .delayed-memory-modal-fact-option {
@@ -1202,6 +1198,10 @@
     padding-inline: 12px;
     width: 100%;
     white-space: nowrap;
+}
+
+.jin-frame-sequence-track {
+    grid-template-columns: max-content minmax(30px, 1fr) max-content;
 }
 
 .jin-lt-sequence-step,

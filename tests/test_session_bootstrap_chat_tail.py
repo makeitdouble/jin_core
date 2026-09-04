@@ -202,19 +202,19 @@ class SessionBootstrapChatTailTests(unittest.TestCase):
         self.assertIn("if (!jinText)", handler_source)
         self.assertIn("appendSessionBootstrapBoundary", handler_source)
 
-    def test_client_places_current_session_boundary_above_new_response(self):
+    def test_client_places_historical_session_boundary_above_new_response(self):
         source = SOCKET_HANDLERS_JS.read_text(encoding="utf-8")
 
         self.assertIn("appendSessionBootstrapBoundary", source)
         self.assertIn('"jin-session-restore-divider"', source)
         self.assertIn('"jin-session-restore-divider-label"', source)
         self.assertIn("window.activateLiveUserTurnViewport", source)
-        self.assertIn("String(now.getHours()).padStart(2, \"0\")", source)
-        self.assertIn("String(now.getMinutes()).padStart(2, \"0\")", source)
-        self.assertIn("`${now.getDate()} `", source)
-        self.assertIn("+ `${months[now.getMonth()]} `", source)
+        self.assertIn("String(lastMessageDate.getHours()).padStart(2, \"0\")", source)
+        self.assertIn("String(lastMessageDate.getMinutes()).padStart(2, \"0\")", source)
+        self.assertIn("`${lastMessageDate.getDate()} `", source)
+        self.assertIn("+ `${months[lastMessageDate.getMonth()]} `", source)
         self.assertIn("+ `${hours}:${minutes}, `", source)
-        self.assertIn("+ weekdays[now.getDay()]", source)
+        self.assertIn("+ weekdays[lastMessageDate.getDay()]", source)
 
         handler_start = source.index(
             "function handleSessionBootstrapChatTail"

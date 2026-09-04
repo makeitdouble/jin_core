@@ -91,7 +91,7 @@ const root = path.join(process.argv[2], "ui/static/js");
 const logger = fs.readFileSync(path.join(root, "logger/logger.js"), "utf8");
 // Load the real parsing helpers without unrelated draggable-panel startup.
 vm.runInContext(logger.slice(0, logger.indexOf("function parseValidatorLogPayload(")), context);
-for (const file of ["logger/trace-modal.js", "logger/log-entries.js", "logger/l1-summarizer.js", "socket/memory.js"]) {
+for (const file of ["logger/trace-modal.js", "logger/log-entries.js", "logger/frame-summarizer.js", "socket/memory.js"]) {
   vm.runInContext(fs.readFileSync(path.join(root, file), "utf8"), context, {filename: file});
 }
 vm.runInContext(`
@@ -185,7 +185,12 @@ assert.equal(traceModal.classList.contains("jin-lt-merge-trace-modal"), false);
 openBoth(emit("merge_applied", "No changes"));
 assert.equal(traceModalContent.textContent, "No changes");
 
-emit("summarizer_request", "extraction request", {}, "L-T extraction summarizer request");
+const pendingExtract = emit("summarizer_request", "extraction request", {}, "L-T extraction summarizer request");
+assert.equal(pendingExtract.elements.extraction.label.dataset.status, "pending");
+assert.equal(pendingExtract.elements.extraction.label.disabled, false);
+pendingExtract.elements.extraction.label.click();
+assert.equal(traceModalTitle.textContent, "L-T extraction request");
+assert.equal(traceModalContent.textContent, "extraction request");
 emit("summarizer_result", '{"facts": []}', {}, "L-T extraction summarizer result");
 const noExtraction = emit("extract_applied", "No changes", {continues_to_merge: false});
 openBoth(noExtraction);
@@ -194,7 +199,12 @@ assert.equal(noExtraction.elements.apply.label.dataset.status, "success");
 assert.equal(noExtraction.elements.merge.label.dataset.status, "idle");
 assert.equal(noExtraction.diffTrace, null);
 
-emit("summarizer_request", "merge request", {}, "L-T merge summarizer request");
+const pendingMerge = emit("summarizer_request", "merge request", {}, "L-T merge summarizer request");
+assert.equal(pendingMerge.elements.merge.label.dataset.status, "pending");
+assert.equal(pendingMerge.elements.merge.label.disabled, false);
+pendingMerge.elements.merge.label.click();
+assert.equal(traceModalTitle.textContent, "L-T merge request");
+assert.equal(traceModalContent.textContent, "merge request");
 const failed = emit("merge_failed", "Original failure details");
 assert.equal(failed.showButton.disabled, true);
 failed.elements.merge.label.click();
@@ -206,6 +216,76 @@ assert.equal(traceModalContent.textContent, "plain details");
 assert.equal(traceModalReason.textContent, "Reason: reason");
 assert.equal(traceModal.classList.contains("jin-lt-merge-trace-modal"), false);
 assert.deepEqual(openBoth(modern), modernDOM);
+
+const frameEmit = (event, details, level = "FRAME") => {
+  handleSocketLog({tag: "[MEMORY:" + level + "]", memory_level: level,
+    memory_event: event, message: "FRAME summarizer", details});
+  return activeFrameMemorySequence;
+};
+const frameRequest = JSON.stringify({model: "test-model", temperature: 0.1, stream: false,
+  messages: [{role: "system", content: "Summarize frame"}, {role: "user", content: "User turn"}]});
+const frame = frameEmit("summarizer_request", frameRequest);
+assert.equal(frame.logDiv.children[0].textContent, "[MEMORY:FRAME]");
+assert.equal(frame.extract.dataset.status, "pending");
+assert.equal(frame.extract.disabled, false);
+assert.equal(frame.showButton.disabled, true);
+assert.equal(frame.apply.disabled, true);
+frame.extract.click();
+assert.equal(traceModalTitle.textContent, "FRAME SUMMARIZER REQUEST");
+assert.ok(traceModalContent.textContent.includes("test-model"));
+assert.ok(traceModalContent.textContent.includes("Summarize frame"));
+const count = consoleStream.children.length;
+frameEmit("summarizer_stream_chunk", "ignored old stream", "L1");
+assert.equal(consoleStream.children.length, count);
+const frameResponse = JSON.stringify({kind: "summarizer_response", model: "test-model",
+  content: "raw model answer", reasoning_content: "private dump",
+  extracted_memory: "discussion_focus: context: runtime\\nuser_state: <script>alert(1)</script>"});
+assert.equal(frameEmit("summarizer_response", frameResponse), frame);
+assert.equal(consoleStream.children.length, count);
+assert.equal(frame.extract.dataset.status, "success");
+assert.equal(frame.apply.dataset.status, "success");
+assert.equal(frame.showButton.disabled, false);
+frame.showButton.click();
+assert.equal(traceModalTitle.textContent, "FRAME SUMMARIZER RESPONSE");
+assert.equal(traceModalContent.children.length, 1);
+assert.equal(traceModalContent.querySelectorAll(".jin-context-card").length, 1);
+assert.equal(traceModalContent.querySelectorAll(".jin-context-card-title")[0].textContent, "EXTRACTED FRAME");
+assert.equal(traceModalContent.querySelectorAll(".jin-context-kv-key").map(n => n.textContent).join("|"),
+  "discussion_focus|user_state");
+assert.equal(traceModalContent.querySelectorAll(".jin-context-kv-value").map(n => n.textContent).join("|"),
+  "context: runtime|<script>alert(1)</script>");
+assert.equal(traceModalContent.textContent.includes("raw model answer"), false);
+assert.equal(traceModalContent.textContent.includes("private dump"), false);
+const frameDOM = snapshot(traceModalContent);
+frame.apply.click();
+assert.deepEqual(snapshot(traceModalContent), frameDOM);
+frame.extract.click();
+assert.equal(traceModalTitle.textContent, "FRAME SUMMARIZER REQUEST");
+for (const event of ["summarizer_failed", "summarizer_skipped", "summarizer_cancelled"]) {
+  const pending = frameEmit("summarizer_request", frameRequest, "L1");
+  assert.notEqual(pending, frame);
+  assert.equal(frameEmit(event, "Failure detail", "L1"), pending);
+  assert.equal(pending.complete, true);
+  assert.equal(pending.extract.dataset.status, "failed");
+  assert.equal(pending.showButton.disabled, true);
+  pending.extract.click();
+  assert.equal(traceModalTitle.textContent, "FRAME SUMMARIZER REQUEST");
+  pending.apply.click();
+  assert.equal(traceModalContent.textContent, "Failure detail");
+}
+const single = frameEmit("summarizer_request", frameRequest);
+frameEmit("summarizer_response", JSON.stringify({kind: "summarizer_response", extracted_memory: "focus: one field"}));
+single.showButton.click();
+assert.equal(traceModalContent.querySelectorAll(".jin-context-kv-row").length, 1);
+assert.equal(traceModalContent.querySelectorAll(".jin-context-kv-value")[0].textContent, "one field");
+const emptyFrame = frameEmit("summarizer_request", frameRequest);
+frameEmit("summarizer_response", JSON.stringify({kind: "summarizer_response", extracted_memory: ""}));
+emptyFrame.showButton.click();
+assert.equal(traceModalContent.children.length, 1);
+assert.equal(traceModalContent.querySelectorAll(".jin-context-empty")[0].textContent, "EMPTY");
+// Existing cards keep their own immutable request/response after later cycles.
+frame.showButton.click();
+assert.deepEqual(snapshot(traceModalContent), frameDOM);
 `, context);
 '''
         result = subprocess.run(

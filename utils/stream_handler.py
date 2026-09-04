@@ -15,7 +15,6 @@ class StreamHandler:
         role: str,
         enable_validator: bool = False,
         context_snapshot: dict | None = None,
-        thinking_valid_lt_fact_ids=None,
         previous_output: str = "",
     ):
 
@@ -44,9 +43,7 @@ class StreamHandler:
             else None
         )
         self.thinking_validator = (
-            StreamValidator(
-                valid_lt_fact_ids=thinking_valid_lt_fact_ids,
-            )
+            StreamValidator()
             if enable_validator
             else None
         )

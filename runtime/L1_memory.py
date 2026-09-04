@@ -1,10 +1,8 @@
 import asyncio
 import contextlib
 import traceback
-from uuid import uuid4
 from clients.service_client import (
     ask_service_model,
-    ask_service_model_stream,
 )
 from config_loader import (
     config,
@@ -29,7 +27,6 @@ from runtime.memory_common import (
     latest_turn_context_is_overloaded,
     log_memory_event,
     log_runtime_summarizer_payload,
-    log_runtime_summarizer_stream_event,
     looks_like_incomplete_runtime_memory,
     refresh_service_runtime_usage,
     runtime_prompt_is_context_overloaded,
@@ -95,16 +92,32 @@ def normalize_runtime_response_feedback(feedback) -> dict | None:
     return normalized
 
 
+def resolve_frame_language_user_message(context, user_message: str) -> str:
+    if str(user_message or "").strip():
+        return user_message
+
+    # Hidden bootstrap has no USER text. Use the newest real USER move from
+    # the hydrated session, skipping JIN-only continuation rows.
+    for turn in reversed(getattr(context, "runtime_recent_turns", []) or []):
+        if not isinstance(turn, dict):
+            continue
+        previous_user_message = str(turn.get("user", "") or "").strip()
+        if previous_user_message:
+            return previous_user_message
+    return ""
+
+
 def build_runtime_memory_system_prompt_for_turn(
         *,
         current_memory: str,
         user_message: str,
         last_turn_context_overloaded: bool = False,
+        context=None,
 ) -> str:
 
     return build_runtime_memory_system_prompt(
         current_memory=current_memory,
-        user_message=user_message,
+        user_message=resolve_frame_language_user_message(context, user_message),
         last_turn_context_overloaded=last_turn_context_overloaded,
     )
 
@@ -114,6 +127,7 @@ def build_runtime_memory_system_prompt_for_turns(
         current_memory: str,
         turns: list[dict],
         last_turn_context_overloaded: bool = False,
+        context=None,
 ) -> str:
 
     user_messages = [
@@ -132,6 +146,7 @@ def build_runtime_memory_system_prompt_for_turns(
 
     return build_runtime_memory_system_prompt_for_turn(
         current_memory=current_memory,
+        context=context,
         user_message="\n".join(
             message
             for message in user_messages
@@ -200,7 +215,7 @@ async def apply_runtime_response_feedback(
         "runtime_memory": cleaned_memory,
     }
 
-async def ask_l1_summarizer(
+async def ask_frame_summarizer(
         *,
         context,
         service_client,
@@ -211,19 +226,6 @@ async def ask_l1_summarizer(
         max_tokens: int | None,
 ) -> dict:
 
-    stream_enabled = callable(
-        getattr(
-            service_client,
-            "stream",
-            None,
-        )
-    )
-    stream_id = (
-        f"l1-{uuid4().hex}"
-        if stream_enabled
-        else None
-    )
-
     await log_runtime_summarizer_payload(
         context,
         label=label,
@@ -233,12 +235,11 @@ async def ask_l1_summarizer(
             user_prompt=user_prompt,
             temperature=temperature,
             max_tokens=max_tokens,
-            stream=stream_enabled,
+            stream=False,
         ),
-        stream_id=stream_id,
     )
 
-    if not stream_enabled:
+    try:
         return await ask_service_model(
             client=service_client,
             context=context,
@@ -249,143 +250,15 @@ async def ask_l1_summarizer(
             timeout=config.SERVICE_REQUEST_TIMEOUT,
             track_usage=False,
         )
-
-    reasoning_parts = []
-    content_parts = []
-    usage = {}
-    finish_reason = "stop"
-    stream_started = False
-
-    try:
-        async for model_chunk in ask_service_model_stream(
-                context=context,
-                client=service_client,
-                system_prompt=system_prompt,
-                user_prompt=user_prompt,
-                temperature=temperature,
-                max_tokens=max_tokens,
-        ):
-            chunk_type = str(
-                model_chunk.get(
-                    "type",
-                    "",
-                )
-                or ""
-            )
-
-            if not stream_started:
-                stream_started = True
-                await log_runtime_summarizer_stream_event(
-                    context,
-                    label=label,
-                    stream_id=stream_id,
-                    event="start",
-                )
-
-            if chunk_type == "usage":
-                usage = {
-                    key: value
-                    for key, value in model_chunk.items()
-                    if key != "type"
-                }
-                continue
-
-            if chunk_type == "finish":
-                finish_reason = str(
-                    model_chunk.get(
-                        "finish_reason",
-                        "",
-                    )
-                    or "stop"
-                )
-                continue
-
-            if chunk_type not in {
-                "thinking",
-                "content",
-            }:
-                continue
-
-            chunk = str(
-                model_chunk.get(
-                    "content",
-                    "",
-                )
-                or ""
-            )
-
-            if not chunk:
-                continue
-
-            if chunk_type == "thinking":
-                reasoning_parts.append(
-                    chunk
-                )
-            else:
-                content_parts.append(
-                    chunk
-                )
-
-            await log_runtime_summarizer_stream_event(
-                context,
-                label=label,
-                stream_id=stream_id,
-                event="chunk",
-                chunk_kind=chunk_type,
-                chunk=chunk,
-            )
-
     except asyncio.CancelledError:
+        await log_memory_event(
+            context,
+            level="FRAME",
+            message="FRAME summarizer cancelled",
+            details="The FRAME request was cancelled before completion.",
+            event="summarizer_cancelled",
+        )
         raise
-
-    except Exception:
-        if stream_started:
-            await log_runtime_summarizer_stream_event(
-                context,
-                label=label,
-                stream_id=stream_id,
-                event="error",
-            )
-        raise
-
-    await log_runtime_summarizer_stream_event(
-        context,
-        label=label,
-        stream_id=stream_id,
-        event="end",
-    )
-
-    message = {
-        "content": "".join(
-            content_parts
-        ),
-    }
-    reasoning = "".join(
-        reasoning_parts
-    )
-
-    if reasoning:
-        message["reasoning_content"] = reasoning
-
-    response = {
-        "model": getattr(
-            service_client,
-            "model_uid",
-            "",
-        ),
-        "choices": [
-            {
-                "index": 0,
-                "finish_reason": finish_reason,
-                "message": message,
-            },
-        ],
-    }
-
-    if usage:
-        response["usage"] = usage
-
-    return response
 
 
 async def ask_runtime_memory_model(
@@ -410,6 +283,7 @@ async def ask_runtime_memory_model(
         )
 
     system_prompt = build_runtime_memory_system_prompt_for_turn(
+        context=context,
         current_memory=current_memory,
         user_message=user_message,
     )
@@ -448,6 +322,7 @@ async def ask_runtime_memory_model(
 
     if last_turn_context_overloaded:
         system_prompt = build_runtime_memory_system_prompt_for_turn(
+            context=context,
             current_memory=current_memory,
             user_message=user_message,
             last_turn_context_overloaded=True,
@@ -465,10 +340,10 @@ async def ask_runtime_memory_model(
     )
     max_tokens = None
 
-    response = await ask_l1_summarizer(
+    response = await ask_frame_summarizer(
         context=context,
         service_client=service_client,
-        label="L1",
+        label="FRAME",
         system_prompt=system_prompt,
         user_prompt=user_prompt,
         temperature=temperature,
@@ -495,6 +370,7 @@ async def ask_runtime_memory_batch_model(
 ) -> dict:
 
     system_prompt = build_runtime_memory_system_prompt_for_turns(
+        context=context,
         current_memory=current_memory,
         turns=turns,
     )
@@ -530,12 +406,12 @@ async def ask_runtime_memory_batch_model(
     )
     max_tokens = None
     log_label = (
-        "L1 batch"
+        "FRAME batch"
         if len(turns) > 1
-        else "L1"
+        else "FRAME"
     )
 
-    response = await ask_l1_summarizer(
+    response = await ask_frame_summarizer(
         context=context,
         service_client=service_client,
         label=log_label,
@@ -660,8 +536,9 @@ async def summarize_runtime_memory(
         ):
             await log_memory_event(
                 context,
-                level="L1",
-                message="L1 runtime memory update skipped",
+                level="FRAME",
+                message="FRAME runtime memory update skipped",
+                event="summarizer_skipped",
                 details=build_memory_update_skip_details(
                     reason="Summarizer returned an incomplete memory update.",
                     previous_memory=current_memory,
@@ -711,6 +588,15 @@ async def summarize_runtime_memory(
                 ],
             )
 
+        else:
+            await log_memory_event(
+                context,
+                level="FRAME",
+                message="FRAME empty extraction skipped",
+                details="The summarizer returned no FRAME fields; existing memory was retained.",
+                event="summarizer_skipped",
+            )
+
         return getattr(
             context,
             "runtime_memory",
@@ -727,10 +613,11 @@ async def summarize_runtime_memory(
 
         await log_memory_event(
             context,
-            level="L1",
-            message="L1 runtime memory update failed",
+            level="FRAME",
+            message="FRAME runtime memory update failed",
+            event="summarizer_failed",
             details=build_memory_failure_details(
-                stage="L1 runtime memory summarizer",
+                stage="FRAME runtime memory summarizer",
                 error=error,
                 traceback_text=formatted_traceback,
             ),
@@ -835,8 +722,9 @@ async def summarize_runtime_memory_pending_turns(
         if skip_reason:
             await log_memory_event(
                 context,
-                level="L1",
-                message="L1 runtime memory update skipped",
+                level="FRAME",
+                message="FRAME runtime memory update skipped",
+                event="summarizer_skipped",
                 details=build_memory_update_skip_details(
                     reason="Summarizer returned an incomplete memory update.",
                     previous_memory=initial_memory,
@@ -896,6 +784,15 @@ async def summarize_runtime_memory_pending_turns(
                 turns=turns,
             )
 
+        else:
+            await log_memory_event(
+                context,
+                level="FRAME",
+                message="FRAME empty extraction skipped",
+                details="The summarizer returned no FRAME fields; existing memory was retained.",
+                event="summarizer_skipped",
+            )
+
         return getattr(
             context,
             "runtime_memory",
@@ -912,10 +809,11 @@ async def summarize_runtime_memory_pending_turns(
 
         await log_memory_event(
             context,
-            level="L1",
-            message="L1 runtime memory update failed",
+            level="FRAME",
+            message="FRAME runtime memory update failed",
+            event="summarizer_failed",
             details=build_memory_failure_details(
-                stage="L1 pending runtime memory summarizer",
+                stage="FRAME pending runtime memory summarizer",
                 error=error,
                 traceback_text=formatted_traceback,
             ),

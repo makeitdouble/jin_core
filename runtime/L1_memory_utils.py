@@ -3009,14 +3009,14 @@ async def record_runtime_l1_diff(
             "turn_number": user_turn_count,
             "user_message": latest_turn.get("user_message", ""),
             "assistant_message": latest_turn.get("assistant_message", ""),
-            "reason": "Previous L1 memory update produced total_diff 0.",
+            "reason": "Previous FRAME memory update produced total_diff 0.",
         }
 
     await log_memory_event(
         context,
-        level="L1",
+        level="FRAME",
         message=(
-            "L1 diff "
+            "FRAME diff "
             f"+{_format_diff_value(total_diff)}"
         ),
         details=getattr(
@@ -3029,6 +3029,21 @@ async def record_runtime_l1_diff(
     )
 
     await emit_runtime_l1_diff_update(context)
+
+
+async def log_runtime_frame_snapshot(context, snapshot: dict) -> None:
+    from utils.chat_log import save_frame_snapshot
+
+    try:
+        save_frame_snapshot(context, snapshot)
+    except Exception as error:
+        await log_memory_event(
+            context,
+            level="L1",
+            message="FRAME log save failed",
+            details=str(error),
+            fallback_channel="error",
+        )
 
 
 async def emit_runtime_memory_update(
@@ -3057,6 +3072,7 @@ async def emit_runtime_memory_update(
 
     context.runtime_memory_snapshots.append(snapshot)
     context.runtime_memory_snapshot_index = snapshot["index"]
+    await log_runtime_frame_snapshot(context, snapshot)
     context.runtime_memory_pending_quote_identities = set()
 
     emit = getattr(
@@ -3198,6 +3214,7 @@ async def emit_runtime_memory_snapshot_refresh(
     if snapshot is None:
         return
 
+    await log_runtime_frame_snapshot(context, snapshot)
     emitter = getattr(
         context,
         "emitter",

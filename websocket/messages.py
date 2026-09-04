@@ -1151,6 +1151,7 @@ async def process_message(
     user_retry_replaced_turn = {}
     retry_source_candidate = {}
     retry_terminal_emitted = False
+    reasoning_save_pending = False
 
     try:
 
@@ -1309,6 +1310,7 @@ async def process_message(
             )
         context.runtime_turn_assistant_response = ""
         context.runtime_turn_reasoning_log_path = ""
+        context.runtime_turn_reasoning_content = ""
         context.runtime_active_action_markers = []
         context.runtime_turn_aborted_actions = []
         context.runtime_turn_abort_requested = False
@@ -1424,6 +1426,7 @@ async def process_message(
             ),
         })
 
+        reasoning_save_pending = True
         await runtime.run(
             state,
             context,
@@ -1441,6 +1444,7 @@ async def process_message(
                     "",
                 ),
             )
+            reasoning_save_pending = False
         except Exception as error:
             await logger.log_system(
                 "[CHAT_LOG] reasoning save failed: "
@@ -1715,6 +1719,17 @@ async def process_message(
         )
 
     finally:
+
+        if reasoning_save_pending:
+            try:
+                save_turn_reasoning(
+                    context,
+                    getattr(context, "runtime_turn_reasoning_content", ""),
+                )
+            except Exception as error:
+                await logger.log_system(
+                    "[CHAT_LOG] interrupted reasoning save failed: " + str(error)
+                )
 
         # Normal turns finish immediately after AgentRuntime returns. This is
         # only the fallback for cancellation/error paths that leave a visible

@@ -11,14 +11,30 @@ function resolveMessageRole(
 }
 
 function appendSessionBootstrapBoundary(
-  chatHistory
+  chatHistory,
+  lastTurn
 ) {
 
   if (!chatHistory) {
     return null;
   }
 
-  const now = new Date();
+  // Recent-turn timestamps are Unix seconds from the saved session.
+  // An action-only JIN completion has a timestamp even without visible text.
+  const timestamp = [
+    lastTurn && lastTurn.jin_created_at,
+    lastTurn && lastTurn.user_created_at,
+  ].map(Number).find(value => (
+    Number.isFinite(value)
+    && value > 0
+    && Number.isFinite(new Date(value * 1000).getTime())
+  ));
+
+  if (!timestamp) {
+    return null;
+  }
+
+  const lastMessageDate = new Date(timestamp * 1000);
   const months = [
     "january",
     "february",
@@ -43,14 +59,14 @@ function appendSessionBootstrapBoundary(
     "Saturday",
   ];
   const hours =
-    String(now.getHours()).padStart(2, "0");
+    String(lastMessageDate.getHours()).padStart(2, "0");
   const minutes =
-    String(now.getMinutes()).padStart(2, "0");
+    String(lastMessageDate.getMinutes()).padStart(2, "0");
   const labelText =
-    `${now.getDate()} `
-    + `${months[now.getMonth()]} `
+    `${lastMessageDate.getDate()} `
+    + `${months[lastMessageDate.getMonth()]} `
     + `${hours}:${minutes}, `
-    + weekdays[now.getDay()];
+    + weekdays[lastMessageDate.getDay()];
 
   const divider =
     document.createElement("div");
@@ -62,7 +78,7 @@ function appendSessionBootstrapBoundary(
   );
   divider.setAttribute(
     "aria-label",
-    `Current session: ${labelText}`
+    `Previous session last message: ${labelText}`
   );
 
   const label =
@@ -171,7 +187,8 @@ function handleSessionBootstrapChatTail(
 
   const divider =
     appendSessionBootstrapBoundary(
-      chatHistory
+      chatHistory,
+      turns[turns.length - 1]
     );
 
   if (

@@ -1769,19 +1769,19 @@ class BrainNode(BaseNode):
                     previous_followup_tick
                 )
 
-        if runtime.stream.reasoning:
-            context.runtime_turn_reasoning_content = "\n".join(
-                part
-                for part in (
-                    getattr(
-                        context,
-                        "runtime_turn_reasoning_content",
-                        "",
-                    ),
-                    runtime.stream.reasoning,
+            if runtime.stream.reasoning:
+                context.runtime_turn_reasoning_content = "\n".join(
+                    part
+                    for part in (
+                        getattr(
+                            context,
+                            "runtime_turn_reasoning_content",
+                            "",
+                        ),
+                        runtime.stream.reasoning,
+                    )
+                    if str(part or "").strip()
                 )
-                if str(part or "").strip()
-            )
 
         return (
             text or "",

@@ -1793,6 +1793,9 @@ async def emit_current_runtime_memory(
             context.runtime_memory,
         )
 
+    from runtime.L1_memory_utils import log_runtime_frame_snapshot
+
+    await log_runtime_frame_snapshot(context, snapshot)
     await context.emitter.emit({
         "type": "runtime_memory_update",
         "memory": snapshot.get(

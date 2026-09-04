@@ -470,6 +470,10 @@ JIN deliberately splits persistence by owner/lifetime.
 | visible chat / reasoning logs | `logs/` |
 | live in-process orchestration | `RuntimeContext` |
 
+Chat-log paths are reserved without creating directories. Prepared context and inherited FRAME snapshots wait in the live context until a dialogue row, runtime action, or non-empty reasoning is actually written; a stopped blank bootstrap leaves no session directory. Interrupted reasoning is retained without manufacturing a completed JIN row. JSONL rows omit the redundant `dialog_path`; reasoning files retain their useful backlink.
+
+FRAME audit files live beside `reasoning/` in `frames/<HHMMSS>_frame_<N>.txt`, sharing the session log prefix and visible FRAME number (including the reconnect offset). Creation, bootstrap projection, and in-place refresh use the same writer; a refresh replaces its own frame file, including an emptied frame, while older frames remain intact. These files are inspectable logs, not a new memory/restore owner.
+
 ### 9.1 Soft runtime resume
 
 `runtime_resume` reconnects browser runtime state to a live/new backend context without being an archived-session checkout.
@@ -517,7 +521,7 @@ Old L3-era fields can still appear in tests/compatibility paths, but there is no
 
 After backend hydration, normal bootstrap emits at most the three newest `runtime_recent_turns` to the browser. Each item may carry USER text, JIN text, saved reasoning, and original timestamps. Attachment-context boilerplate is removed from the visible USER bubble.
 
-The client rebuilds the tail through the existing chat primitives. It keeps a real USER-only interrupted/action-only turn but does not manufacture an empty BR bubble. It then appends a date-labelled current-session divider and activates the live-turn viewport at that boundary, leaving the inherited three-turn history immediately above the initial screen. Explicit archived restore owns its own rendering path and suppresses this normal-bootstrap tail.
+The client rebuilds the tail through the existing chat primitives. It keeps a real USER-only interrupted/action-only turn but does not manufacture an empty BR bubble. It then appends a divider labelled with the source session's last message time (`jin_created_at`, otherwise `user_created_at`, in the browser's local timezone; no dated divider if neither timestamp is available) and activates the live-turn viewport at that boundary, leaving the inherited three-turn history immediately above the initial screen. Explicit archived restore owns its own rendering path and suppresses this normal-bootstrap tail.
 
 ### 9.4 Archived session restore
 
@@ -619,6 +623,8 @@ L-T facts are partitioned into Live Avatar lanes of at most 100 records; additio
 Completed assistant messages expose an explicit `Copy all` control under the avatar/message host. The old invisible bubble gesture surface is removed; answer-rating code remains present but release-disabled.
 
 L-T merge telemetry keeps a structured `lt_merge_applied` trace with operation details. Console Apply/Show inspection renders update/create/merge/ignore rows and token-level diffs from the structured trace; legacy human-text parsing is fallback compatibility only.
+
+FRAME summarizer logging uses one `[MEMORY:FRAME]` card (`extract -> apply`, plus `show`) per request. The request uses the non-streaming Service API; clicking the pending extract label opens the request immediately. After application, `show` and `apply` open `FRAME SUMMARIZER RESPONSE` with one `EXTRACTED FRAME` context-style key/value card. Failed, skipped, and cancelled requests terminate the pending state without presenting a successful apply. L-T extraction and merge request labels are likewise inspectable while pending.
 
 Session-action logger rows are also a projection of structured history. The compact logger keeps the most recent five items in chronological order with their original numbering and reuses the existing attached-files header/button primitive for `FULL`. JIN_COLOR parts render one swatch per applied color and expose the normalized hex on hover; bootstrap must preserve the `colors` payload for this to work after reload. Runtime-action bubble details are retained across counter-only updates so a count refresh cannot erase existing hover metadata.
 

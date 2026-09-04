@@ -372,10 +372,7 @@ def get_chat_log_path(
         path
     )
 
-    _ensure_reasoning_directory(
-        directory
-    )
-
+    # Reserving a filename must not materialize an untouched bootstrap tab.
     return path
 
 
@@ -490,6 +487,71 @@ def _write_context_snapshot(
     return path
 
 
+def _chat_log_has_content(path: Path) -> bool:
+    if path.is_file() and path.stat().st_size:
+        return True
+    return any(
+        item.is_file() and item.stat().st_size
+        for item in (path.parent / "reasoning").glob(f"{path.stem}_*.txt")
+    )
+
+
+def _save_or_defer_chat_snapshot(context, path: Path, text: str) -> Path | None:
+    # Prompt preparation and inherited FRAME are not conversation activity.
+    # Keep just the latest text per destination until a real log write succeeds.
+    pending = getattr(context, "runtime_chat_pending_snapshots", None)
+    if pending is None:
+        pending = context.runtime_chat_pending_snapshots = {}
+    pending[str(path)] = text
+    log_path = Path(context.runtime_chat_log_path)
+    if not _chat_log_has_content(log_path):
+        return None
+    _flush_chat_snapshots(context, log_path)
+    return path
+
+
+def _flush_chat_snapshots(context, log_path: Path) -> None:
+    _ensure_reasoning_directory(log_path.parent)
+    (log_path.parent / "frames").mkdir(parents=True, exist_ok=True)
+    pending = getattr(context, "runtime_chat_pending_snapshots", {})
+    for filename, text in list(pending.items()):
+        path = _write_context_snapshot(Path(filename), text)
+        if path.name.endswith(".bootstrap.txt"):
+            context.runtime_chat_bootstrap_context_path = str(path)
+        elif path.parent == log_path.parent:
+            context.runtime_chat_context_path = str(path)
+        del pending[filename]
+
+
+def save_frame_snapshot(
+    context,
+    snapshot: dict,
+    *,
+    now: datetime | None = None,
+    root: Path | str | None = None,
+) -> Path | None:
+    if not chat_logging_enabled() or not isinstance(snapshot, dict) or not snapshot:
+        return None
+    memory = str(snapshot.get("raw_memory") or "").strip()
+    log_path = get_chat_log_path(context, now=now, root=root)
+    frame_number = max(0, int(snapshot.get("index") or 0) + int(
+        getattr(context, "runtime_memory_display_index_offset", 0) or 0
+    ))
+    path = log_path.parent / "frames" / f"{log_path.stem}_frame_{frame_number}.txt"
+    text = "\n".join([
+        f"captured_at: {(now or _now()).isoformat(timespec='seconds')}",
+        f"session_id: {_context_session_id(context)}",
+        f"frame: {frame_number}",
+        f"runtime_memory_id: {snapshot.get('runtime_memory_id', '')}",
+        f"created_at: {snapshot.get('created_at', '')}",
+        f"turn: {snapshot.get('runtime_turn_counter', 0)}",
+        "",
+        "--- FRAME ---",
+        memory,
+    ])
+    return _save_or_defer_chat_snapshot(context, path, text)
+
+
 def save_chat_context_snapshot(
     context,
     *,
@@ -512,7 +574,8 @@ def save_chat_context_snapshot(
     if not text:
         return None
 
-    path = _write_context_snapshot(
+    path = _save_or_defer_chat_snapshot(
+        context,
         get_chat_context_path(
             context,
             now=now,
@@ -520,10 +583,6 @@ def save_chat_context_snapshot(
         ),
         text,
     )
-    context.runtime_chat_context_path = str(
-        path
-    )
-
     return path
 
 
@@ -549,7 +608,8 @@ def save_chat_bootstrap_context_snapshot(
     if not text:
         return None
 
-    path = _write_context_snapshot(
+    path = _save_or_defer_chat_snapshot(
+        context,
         get_chat_bootstrap_context_path(
             context,
             now=now,
@@ -557,10 +617,6 @@ def save_chat_bootstrap_context_snapshot(
         ),
         text,
     )
-    context.runtime_chat_bootstrap_context_path = str(
-        path
-    )
-
     return path
 
 
@@ -709,6 +765,7 @@ def save_turn_reasoning(
         reasoning_path
     )
 
+    _flush_chat_snapshots(context, chat_log_path)
     return reasoning_path
 
 
@@ -1425,13 +1482,13 @@ def append_chat_runtime_event(
         "text": "",
         "event": normalized_event,
         "payload": dict(payload or {}),
-        "dialog_path": _public_project_path(path),
     }
 
     _append_chat_log_json_entry(
         path,
         entry,
     )
+    _flush_chat_snapshots(context, path)
     return path
 
 
@@ -1516,7 +1573,6 @@ def replace_latest_chat_log_entry(
         text=text,
         now=timestamp,
     )
-    entry["dialog_path"] = _public_project_path(path)
 
     # Preserve the visible turn identity. The retry is an internal generation,
     # not an extra dialogue turn.
@@ -1557,6 +1613,7 @@ def replace_latest_chat_log_entry(
         encoding="utf-8",
         newline="\n",
     )
+    _flush_chat_snapshots(context, path)
     return path
 
 
@@ -1584,16 +1641,15 @@ def append_chat_log_entry(
         text=text,
         now=timestamp,
     )
-    entry["dialog_path"] = _public_project_path(
-        path
-    )
     context_path = get_chat_context_path(
         context,
         now=timestamp,
         root=root,
     )
 
-    if context_path.exists():
+    if context_path.exists() or str(context_path) in getattr(
+        context, "runtime_chat_pending_snapshots", {}
+    ):
         entry["context_path"] = _public_project_path(
             context_path
         )
@@ -1620,4 +1676,5 @@ def append_chat_log_entry(
         path,
         entry,
     )
+    _flush_chat_snapshots(context, path)
     return path

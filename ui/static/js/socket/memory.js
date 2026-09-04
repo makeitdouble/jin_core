@@ -14,7 +14,7 @@ const MEMORY_GLOW_CLASSES = [
 ];
 
 const MEMORY_GLOW_STAGES = {
-  l1: {
+  frame: {
     active: "memory-updating",
     pulse: "memory-pulse",
     fading: "memory-fading",
@@ -354,12 +354,13 @@ function memoryLogIncludes(data, text) {
 }
 
 function memoryLogLevelIs(data, level) {
-  const normalizedLevel = String(level || "").toUpperCase();
+  const normalizeLevel = value => String(value || "").toUpperCase().replace(/^L1$/, "FRAME");
+  const normalizedLevel = normalizeLevel(level);
 
   return Boolean(
     data
     && (
-      String(data.memory_level || "").toUpperCase() === normalizedLevel
+      normalizeLevel(data.memory_level) === normalizedLevel
       || String(data.tag || "").includes(`[MEMORY:${normalizedLevel}]`)
       || String(data.message || "").includes(`[MEMORY:${normalizedLevel}]`)
     )
@@ -494,11 +495,11 @@ function stopMemoryGlowStage(stage) {
 }
 
 function startMemoryGlow() {
-  setMemoryGlowStage("l1");
+  setMemoryGlowStage("frame");
 }
 
 function stopMemoryGlow() {
-  stopMemoryGlowStage("l1");
+  stopMemoryGlowStage("frame");
 }
 
 function startL2MemoryGlow() {
@@ -580,10 +581,10 @@ function handleSocketLog(
 
   if (
       isMemoryLog(data)
-      && memoryLogLevelIs(data, "L1")
+      && memoryLogLevelIs(data, "FRAME")
       && (
           memoryLogEventIs(data, "summarizer_request")
-          || memoryLogIncludes(data, "L1 summarizer request")
+          || memoryLogIncludes(data, "FRAME summarizer request")
       )
   ) {
     startMemoryGlow();
@@ -602,9 +603,11 @@ function handleSocketLog(
 
   if (
       isMemoryLog(data)
-      && memoryLogLevelIs(data, "L1")
+      && memoryLogLevelIs(data, "FRAME")
       && (
-          memoryLogEventIs(data, "summarizer_result")
+          memoryLogEventIs(data, "summarizer_response")
+          || memoryLogEventIs(data, "summarizer_cancelled")
+          || memoryLogEventIs(data, "summarizer_result")
           || memoryLogMessageHasOutcome(data)
       )
   ) {

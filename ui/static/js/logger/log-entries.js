@@ -1659,7 +1659,7 @@ function beginLTSequenceRequest(
   );
   setLTSequenceInspectable(
     elements.label,
-    false
+    Boolean(phaseState.requestDetails)
   );
   setLTSequenceInspectable(
     elements.arrow,
@@ -2999,15 +2999,18 @@ function appendLog(
   details = null,
   meta = {},
 ) {
-  if (handleL1SummarizerStreamEvent(meta)) {
-    return null;
-  }
-
   const normalized =
     splitInlineTrace(
       message,
       details,
     );
+
+  const frameLog = handleFrameMemorySequenceLog(
+    tag, normalized.message, normalized.details, meta
+  );
+  if (frameLog !== undefined) {
+    return frameLog;
+  }
 
   const ltMemorySequenceLog =
     handleLTMemorySequenceLog(
@@ -3811,12 +3814,6 @@ function appendLog(
   if (normalizedTag.includes("FACTS_MEMORY")) {
     refreshFactsMemoryAppendButtons();
   }
-
-  registerL1SummarizerRequest(
-    logDiv,
-    normalized.message,
-    meta
-  );
 
   consoleStream.scrollTop =
     consoleStream.scrollHeight;

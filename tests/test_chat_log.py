@@ -556,6 +556,7 @@ class ChatLogTests(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
+            append_chat_log_entry(context, role="user", text="hello", now=now, root=root)
             first = save_chat_context_snapshot(
                 context,
                 context_snapshot={
@@ -610,6 +611,7 @@ class ChatLogTests(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
+            append_chat_log_entry(context, role="user", text="hello", now=now, root=root)
             primary_path = save_chat_context_snapshot(
                 context,
                 system_prompt="CLEAN PRIMARY CONTEXT WITH FACTS",
@@ -717,7 +719,7 @@ class ChatLogTests(unittest.TestCase):
         self.assertIn("Ugh, I keep miscounting", reasoning_text)
         self.assertIn("reasoning_path", entry)
         self.assertIn("context_path", entry)
-        self.assertIn("dialog_path", entry)
+        self.assertNotIn("dialog_path", entry)
 
     def test_legacy_log_directories_are_collapsed_under_date(self):
 
