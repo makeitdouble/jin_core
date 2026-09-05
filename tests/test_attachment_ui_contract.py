@@ -101,6 +101,39 @@ class AttachmentUiContractTests(unittest.TestCase):
             socket_source,
         )
 
+    def test_message_attachment_hover_preview_is_anchored_left_of_chip(self):
+        attachment_source = (
+            ROOT
+            / "ui"
+            / "static"
+            / "js"
+            / "chat-attachments.js"
+        ).read_text(encoding="utf-8")
+        chat_source = (
+            ROOT
+            / "ui"
+            / "static"
+            / "js"
+            / "chat.js"
+        ).read_text(encoding="utf-8")
+
+        self.assertIn(
+            'options && options.hoverPreviewPlacement === "left"',
+            attachment_source,
+        )
+        self.assertIn(
+            "left = ownerRect.left - width - offset;",
+            attachment_source,
+        )
+        self.assertIn(
+            "top = ownerRect.top;",
+            attachment_source,
+        )
+        self.assertGreaterEqual(
+            chat_source.count('{ hoverPreviewPlacement: "left" }'),
+            2,
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

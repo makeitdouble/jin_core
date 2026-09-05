@@ -2,14 +2,42 @@ import json
 import tempfile
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 
+from utils.context.context_exports import build_runtime_xml
 from utils.session_restore import build_archived_session_restore_payload
+from websocket.bootstrap import apply_archived_session_continuation_state
 
 
 ROOT = Path(__file__).resolve().parents[1]
 
 
 class BootstrapColorActionRegressionTests(unittest.TestCase):
+
+    def test_bootstrap_color_reaches_current_runtime_context(self):
+        context = SimpleNamespace(
+            session_id="current-session",
+            runtime_action_events=[],
+        )
+
+        apply_archived_session_continuation_state(
+            context,
+            {
+                "source_session_id": "previous-session",
+                "archived_session_restore": False,
+                "current_jin_color": "#ff3366",
+                "session_actions": [],
+                "recent_turns": [],
+            },
+        )
+
+        runtime_xml = build_runtime_xml(context=context)
+
+        self.assertEqual(context.jin_color, "#ff3366")
+        self.assertIn(
+            "<CURRENT_JIN_COLOR>#ff3366</CURRENT_JIN_COLOR>",
+            runtime_xml,
+        )
 
     def test_raw_color_tail_does_not_delete_context_lt_action(self):
         root = Path(tempfile.mkdtemp())

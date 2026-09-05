@@ -15,6 +15,7 @@ let fileStore = [];
 let pinnedIds = [];
 let fileStoreLoaded = false;
 let uploadQueue = Promise.resolve();
+let projectFolderOutsidePointerCleanup = null;
 const deletedFileRestoreCache = new Map();
 
 function escapeHtml(text) {
@@ -469,10 +470,17 @@ function clearAttachedFilesPlaqueHoverPreview() {
     });
 }
 
+function clearProjectFolderOutsidePointerHandler() {
+  if (!projectFolderOutsidePointerCleanup) return;
+  projectFolderOutsidePointerCleanup();
+  projectFolderOutsidePointerCleanup = null;
+}
+
 function renderAttachedFilesPlaque() {
   if (!attachedFiles) return;
   const records = pinnedIds.map(getFileRecord).filter(Boolean);
   clearAttachedFilesPlaqueHoverPreview();
+  clearProjectFolderOutsidePointerHandler();
   attachedFiles.replaceChildren();
   attachedFiles.classList.remove("hidden");
 
@@ -523,26 +531,47 @@ function renderAttachedFilesPlaque() {
   const status = document.createElement("div");
   status.className = "jin-project-folder-status";
   status.setAttribute("role", "status");
-  status.textContent = "Read only · pinned DELAYED + linked facts";
+  status.hidden = true;
   form.append(pathInput, submit, status);
   attachedFiles.appendChild(form);
+
+  const closeProjectFolderForm = ({restoreFocus = false} = {}) => {
+    form.classList.add("hidden");
+    linkButton.setAttribute("aria-expanded", "false");
+    clearProjectFolderOutsidePointerHandler();
+    if (restoreFocus) linkButton.focus();
+  };
+
+  const bindProjectFolderOutsidePointerHandler = () => {
+    clearProjectFolderOutsidePointerHandler();
+    const onPointerDown = (event) => {
+      if (!attachedFiles.contains(event.target)) closeProjectFolderForm();
+    };
+    document.addEventListener("pointerdown", onPointerDown, true);
+    projectFolderOutsidePointerCleanup = () => {
+      document.removeEventListener("pointerdown", onPointerDown, true);
+    };
+  };
+
   linkButton.addEventListener("click", () => {
-    form.classList.toggle("hidden");
-    linkButton.setAttribute("aria-expanded", String(!form.classList.contains("hidden")));
-    if (!form.classList.contains("hidden")) pathInput.focus();
+    if (form.classList.contains("hidden")) {
+      form.classList.remove("hidden");
+      linkButton.setAttribute("aria-expanded", "true");
+      bindProjectFolderOutsidePointerHandler();
+      pathInput.focus();
+      return;
+    }
+    closeProjectFolderForm();
   });
   form.addEventListener("keydown", (event) => {
-    if (event.key === "Escape") {
-      form.classList.add("hidden");
-      linkButton.setAttribute("aria-expanded", "false");
-      linkButton.focus();
-    }
+    if (event.key === "Escape") closeProjectFolderForm({restoreFocus: true});
   });
   form.addEventListener("submit", (event) => {
     event.preventDefault();
     const path = pathInput.value.trim();
     if (!path || submit.disabled) return;
     submit.disabled = true;
+    status.hidden = false;
     status.textContent = "Linking folder…";
     uploadQueue = uploadQueue.then(async () => {
       try {

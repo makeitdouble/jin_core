@@ -1002,7 +1002,7 @@ html.jin-anonymous-room #scene-anonymous-tint {
 .jin-attached-files-header {
     display: flex;
     align-items: center;
-    justify-content: space-between;
+    justify-content: flex-start;
     gap: 8px;
 }
 
@@ -1020,6 +1020,10 @@ html.jin-anonymous-room #scene-anonymous-tint {
     font-size: 10px;
     font-weight: 700;
     letter-spacing: 0.14em;
+}
+
+.jin-attached-files-header .jin-attached-files-attach-button:first-of-type {
+    margin-left: auto;
 }
 
 .jin-attached-files-attach-button {
@@ -1178,6 +1182,66 @@ html.jin-anonymous-room #scene-anonymous-tint {
     }
 }
 
+@keyframes memoryLTNeutralFade {
+    from {
+        border-color: rgba(255, 255, 255, 0.50);
+        box-shadow:
+                0 0 0 1px rgba(255, 255, 255, 0.22),
+                0 0 18px rgba(255, 255, 255, 0.18),
+                0 0 48px rgba(255, 255, 255, 0.10),
+                inset 0 0 16px rgba(255, 255, 255, 0.04);
+    }
+
+    to {
+        border-color: rgba(255, 255, 255, 0.08);
+        box-shadow:
+                0 0 0 1px rgba(255, 255, 255, 0.02),
+                0 0 8px rgba(255, 255, 255, 0.025),
+                0 0 18px rgba(255, 255, 255, 0.015),
+                inset 0 0 8px rgba(255, 255, 255, 0.01);
+    }
+}
+
+@keyframes memoryLTSuccessFade {
+    from {
+        border-color: rgba(74, 222, 128, 0.62);
+        box-shadow:
+                0 0 0 1px rgba(74, 222, 128, 0.30),
+                0 0 22px rgba(74, 222, 128, 0.24),
+                0 0 58px rgba(34, 197, 94, 0.14),
+                inset 0 0 18px rgba(74, 222, 128, 0.055);
+    }
+
+    to {
+        border-color: rgba(74, 222, 128, 0.08);
+        box-shadow:
+                0 0 0 1px rgba(74, 222, 128, 0.02),
+                0 0 8px rgba(74, 222, 128, 0.025),
+                0 0 18px rgba(34, 197, 94, 0.015),
+                inset 0 0 8px rgba(74, 222, 128, 0.01);
+    }
+}
+
+@keyframes memoryLTFailureFade {
+    from {
+        border-color: rgba(248, 113, 113, 0.62);
+        box-shadow:
+                0 0 0 1px rgba(248, 113, 113, 0.30),
+                0 0 22px rgba(248, 113, 113, 0.24),
+                0 0 58px rgba(239, 68, 68, 0.14),
+                inset 0 0 18px rgba(248, 113, 113, 0.055);
+    }
+
+    to {
+        border-color: rgba(248, 113, 113, 0.08);
+        box-shadow:
+                0 0 0 1px rgba(248, 113, 113, 0.02),
+                0 0 8px rgba(248, 113, 113, 0.025),
+                0 0 18px rgba(239, 68, 68, 0.015),
+                inset 0 0 8px rgba(248, 113, 113, 0.01);
+    }
+}
+
 #memory-panel {
     transition:
             border-color 1.8s ease,
@@ -1278,6 +1342,16 @@ main.panel-startup-collapse-active #memory-panel {
             inset 0 0 16px rgba(168, 85, 247, 0.05);
 }
 
+#memory-panel.memory-lt-updating {
+    border-color: rgba(255, 255, 255, 0.50);
+
+    box-shadow:
+            0 0 0 1px rgba(255, 255, 255, 0.22),
+            0 0 18px rgba(255, 255, 255, 0.18),
+            0 0 48px rgba(255, 255, 255, 0.10),
+            inset 0 0 16px rgba(255, 255, 255, 0.04);
+}
+
 #memory-panel.memory-updating.memory-pulse {
     animation: memoryGlowPulse 5s ease-in-out infinite;
 }
@@ -1288,6 +1362,10 @@ main.panel-startup-collapse-active #memory-panel {
 
 #memory-panel.memory-l3-updating.memory-l3-pulse {
     animation: memoryL3GlowPulse 5s ease-in-out infinite;
+}
+
+#memory-panel.memory-lt-updating.memory-lt-pulse {
+    animation: memoryL2GlowPulse 5s ease-in-out infinite;
 }
 
 #memory-panel.memory-fading {
@@ -1318,6 +1396,18 @@ main.panel-startup-collapse-active #memory-panel {
             0 0 12px rgba(168, 85, 247, 0.10),
             0 0 32px rgba(126, 34, 206, 0.06),
             inset 0 0 10px rgba(168, 85, 247, 0.03);
+}
+
+#memory-panel.memory-lt-fading {
+    animation: memoryLTNeutralFade 1.4s ease-out forwards;
+}
+
+#memory-panel.memory-lt-success {
+    animation: memoryLTSuccessFade 1.8s ease-out forwards;
+}
+
+#memory-panel.memory-lt-failed {
+    animation: memoryLTFailureFade 1.8s ease-out forwards;
 }
 #user-input::placeholder {
     color: rgba(255,255,255,0.35);

@@ -265,6 +265,11 @@ def apply_archived_session_continuation_state(
                 "jin": jin_text,
             }
 
+            from utils.actions.jin_reaction_utils import normalize_jin_reaction_payload
+            reaction = normalize_jin_reaction_payload(turn.get("jin_reaction", ""))
+            if reaction:
+                normalized_turn["jin_reaction"] = reaction
+
             reasoning = clean_bootstrap_memory(
                 turn.get("reasoning", ""),
                 limit=32000,
@@ -2925,6 +2930,10 @@ def build_session_bootstrap_chat_tail(
             "user": user_text,
             "jin": jin_text,
         }
+        from utils.actions.jin_reaction_utils import normalize_jin_reaction_payload
+        reaction = normalize_jin_reaction_payload(turn.get("jin_reaction", ""))
+        if reaction:
+            item["jin_reaction"] = reaction
         reasoning = clean_bootstrap_memory(
             turn.get("reasoning", ""),
             limit=32000,

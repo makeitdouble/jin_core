@@ -59,6 +59,51 @@ if (actual.includes("JIN_REACTION")) {
 
     @unittest.skipUnless(
         shutil.which("node"),
+        "node is required for the browser-side response formatter test",
+    )
+    def test_leading_reaction_markers_do_not_add_blank_answer_lines(self):
+        script = r'''
+const fs = require("fs");
+global.window = {};
+eval(fs.readFileSync(process.argv[1], "utf8"));
+
+const leading = window.JinResponseFormatter.render(
+  "\n<JIN_REACTION: 🤨 >\n<JIN_REACTION: 👋 >\nОтвет начинается сразу."
+);
+const middle = window.JinResponseFormatter.render(
+  "До\n<JIN_REACTION: 🤨 >\nПосле"
+);
+
+if ((leading.match(/<br>/g) || []).length !== 0) {
+  throw new Error(`leading reaction markers added blank lines: ${JSON.stringify(leading)}`);
+}
+if ((middle.match(/<br>/g) || []).length !== 2) {
+  throw new Error(`non-leading reaction spacing changed: ${JSON.stringify(middle)}`);
+}
+if ((leading.match(/jin-chat-jin-reaction-anchor/g) || []).length !== 2) {
+  throw new Error(`leading reaction anchors missing: ${JSON.stringify(leading)}`);
+}
+'''
+        completed = subprocess.run(
+            [
+                shutil.which("node"),
+                "-e",
+                script,
+                str(FORMATTER_JS),
+            ],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+
+        self.assertEqual(
+            completed.returncode,
+            0,
+            completed.stderr or completed.stdout,
+        )
+
+    @unittest.skipUnless(
+        shutil.which("node"),
         "node is required for the browser-side chat renderer test",
     )
     def test_user_message_keeps_runtime_markers_literal(self):

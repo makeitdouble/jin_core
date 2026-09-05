@@ -807,6 +807,23 @@
 
   }
 
+  function isReactionOnlyLine(line) {
+
+    const source =
+      String(line || "");
+    const reactionPattern =
+      /(?<!["'`«‹“‘„‚(\[{])<JIN_REACTION\s*:\s*([^>\r\n]+?)\s*>/gi;
+
+    return Boolean(
+      source.trim()
+      && source.replace(
+        reactionPattern,
+        ""
+      ).trim() === ""
+    );
+
+  }
+
   function renderParagraph(lines, startIndex) {
 
     const parts = [];
@@ -834,10 +851,41 @@
       index += 1;
     }
 
+    let leadingReactionHtml = "";
+
+    while (
+      parts.length
+      && isReactionOnlyLine(
+        parts[0]
+      )
+    ) {
+      leadingReactionHtml +=
+        renderInlineMarkdown(
+          parts.shift()
+        );
+    }
+
+    const renderedParts =
+      parts.map(
+        renderInlineMarkdown
+      );
+
+    if (leadingReactionHtml) {
+      if (renderedParts.length) {
+        renderedParts[0] =
+          leadingReactionHtml
+          + renderedParts[0];
+      } else {
+        renderedParts.push(
+          leadingReactionHtml
+        );
+      }
+    }
+
     return {
       html: (
         "<p>"
-        + parts.map(renderInlineMarkdown).join("<br>")
+        + renderedParts.join("<br>")
         + "</p>"
       ),
       nextIndex: index,

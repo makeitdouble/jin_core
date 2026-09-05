@@ -372,6 +372,14 @@ def _build_recent_turns(
         text = str(entry.get("text", "") or "").strip()
         timestamp = _entry_timestamp(entry)
 
+        if role == "runtime" and entry.get("event") == "jin_reaction":
+            from utils.actions.jin_reaction_utils import normalize_jin_reaction_payload
+            payload = entry.get("payload")
+            reaction = normalize_jin_reaction_payload(
+                payload.get("emoji", "") if isinstance(payload, dict) else ""
+            )
+            if reaction:
+                turn["jin_reaction"] = reaction
         if role == "user":
             turn["user"] = text
             if timestamp:
@@ -380,6 +388,13 @@ def _build_recent_turns(
             # A JIN row is appended only after runtime.run returns. Even when
             # marker stripping leaves no visible answer text, that empty row
             # is the durable commit marker for a real USER-only turn.
+            if "jin_reaction" in entry:
+                from utils.actions.jin_reaction_utils import normalize_jin_reaction_payload
+                reaction = normalize_jin_reaction_payload(entry["jin_reaction"])
+                if reaction:
+                    turn["jin_reaction"] = reaction
+                else:
+                    turn.pop("jin_reaction", None)
             turn["_jin_row_seen"] = True
             turn["jin"] = text
             reasoning = _extract_reasoning_body(
@@ -1541,6 +1556,15 @@ def build_archived_session_restore_payload(
             archive_tail_timestamp = entry_timestamp
             archive_tail_at = str(entry.get("ts", "") or "").strip()
 
+    reactions_by_turn = {}
+    for entry in entries:
+        number = entry.get("turn", 0)
+        if entry.get("role") == "runtime" and entry.get("event") == "jin_reaction":
+            payload = entry.get("payload")
+            if isinstance(payload, dict):
+                reactions_by_turn[number] = payload.get("emoji", "")
+        elif entry.get("role") in {"jin", "assistant", "brain", "service"} and "jin_reaction" in entry:
+            reactions_by_turn[number] = entry["jin_reaction"]
     ui_messages = []
     for entry in _recent_visible_dialog_entries(visible_entries):
         role = str(entry.get("role", "")).strip().lower()
@@ -1553,6 +1577,8 @@ def build_archived_session_restore_payload(
             "turn_id": turn_id,
             "ts": entry.get("ts", ""),
             "text": str(entry.get("text", "") or ""),
+            **({"jin_reaction": reactions_by_turn.get(entry.get("turn", 0), "")}
+               if role == "user" else {}),
             "attachments": entry.get("attachments", []) or [],
             "delayed_memory_ids": entry.get("delayed_memory_ids", []) or [],
             "active_memory_ids": entry.get("active_memory_ids", []) or [],

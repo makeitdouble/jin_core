@@ -739,6 +739,9 @@ class RuntimeStream:
             ),
             "jin_created_at": now,
         }
+        reaction = str(getattr(self.context, "runtime_turn_jin_reaction", "") or "")
+        if reaction:
+            current_turn["jin_reaction"] = reaction
         if reasoning:
             current_turn["reasoning"] = reasoning
 

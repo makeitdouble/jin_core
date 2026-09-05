@@ -71,6 +71,7 @@ from .messages import (
     build_runtime_action_guard_retry_request,
     build_user_retry_request,
     emit_runtime_action_guard_confirmation_failure,
+    merge_pending_user_message_batch,
     process_message,
     receive_message,
     refresh_pending_brain_usage,
@@ -138,15 +139,29 @@ async def websocket_endpoint(
     current_task = None
     pending_requests = asyncio.Queue()
     context.runtime_pending_requests_queue = pending_requests
+    pending_user_batch_state = None
+    pending_user_batch_counter = 0
 
     async def process_pending_requests():
         nonlocal current_task
+        nonlocal pending_user_batch_state
+        nonlocal pending_user_batch_counter
 
         while True:
 
             message_data = await pending_requests.get()
+            batch_state = None
 
             try:
+
+                # A dequeued request is already foreground work even when it
+                # still has to wait for the previous FRAME integration. Keep
+                # L-T idle maintenance blocked across that whole boundary so
+                # the ordering is always Brain -> FRAME -> optional L-T.
+                note_lt_foreground_state(
+                    context,
+                    running=True,
+                )
 
                 user_text = (
                     str(
@@ -156,6 +171,39 @@ async def websocket_endpoint(
                         )
                     ).strip()
                 )
+
+                runtime_memory_task = getattr(
+                    context,
+                    "runtime_memory_update_task",
+                    None,
+                )
+                waiting_for_frame = bool(
+                    message_data.get(
+                        "type",
+                        "message",
+                    ) == "message"
+                    and runtime_memory_task is not None
+                    and not runtime_memory_task.done()
+                )
+
+                if waiting_for_frame:
+                    pending_user_batch_counter += 1
+                    batch_id = (
+                        f"pending_user_batch_{pending_user_batch_counter}"
+                    )
+                    batch_state = {
+                        "id": batch_id,
+                        "messages": [],
+                        "ack_event": asyncio.Event(),
+                        "committing": False,
+                        "aborted": False,
+                    }
+                    pending_user_batch_state = batch_state
+
+                    await websocket.send_json({
+                        "type": "pending_user_batch_open",
+                        "batch_id": batch_id,
+                    })
 
                 if message_data.get("type") == "retry_last_response":
                     await discard_latest_runtime_memory_pending_turn(
@@ -171,6 +219,58 @@ async def websocket_endpoint(
                         context
                     )
 
+                if batch_state is not None:
+                    batch_state["committing"] = True
+
+                    await websocket.send_json({
+                        "type": "pending_user_batch_commit",
+                        "batch_id": batch_state["id"],
+                    })
+
+                    try:
+                        await asyncio.wait_for(
+                            batch_state["ack_event"].wait(),
+                            timeout=2.0,
+                        )
+                    except asyncio.TimeoutError:
+                        # Close the batch before continuing so a very late
+                        # append cannot be silently accepted after the
+                        # snapshot below. It will fall back to the normal
+                        # queue as a separate turn instead.
+                        batch_state["ack_event"].set()
+                        await logger.log_runtime(
+                            "[WS] pending user batch commit acknowledgement timed out"
+                        )
+
+                    appended_messages = list(
+                        batch_state.get(
+                            "messages",
+                            [],
+                        )
+                    )
+
+                    if batch_state.get("aborted"):
+                        await logger.log_runtime(
+                            "[WS] pending user batch aborted before Brain start"
+                        )
+                        continue
+
+                    if appended_messages:
+                        message_data = merge_pending_user_message_batch(
+                            message_data,
+                            appended_messages,
+                        )
+                        user_text = str(
+                            message_data.get(
+                                "text",
+                                "",
+                            )
+                            or ""
+                        ).strip()
+                        await logger.log_runtime(
+                            "[WS] pending user batch committed "
+                            f"({1 + len(appended_messages)} messages)"
+                        )
                 await apply_runtime_response_feedback(
                     context,
                     (
@@ -195,10 +295,6 @@ async def websocket_endpoint(
                     )
                 )
                 current_task = active_task
-                note_lt_foreground_state(
-                    context,
-                    running=True,
-                )
 
                 try:
                     await active_task
@@ -214,12 +310,21 @@ async def websocket_endpoint(
                 finally:
                     if current_task is active_task:
                         current_task = None
-                    note_lt_foreground_state(
-                        context,
-                        running=False,
-                    )
 
             finally:
+                # Release the foreground gate only after any FRAME wait and
+                # the Brain turn are both finished/aborted. A FRAME task that
+                # was scheduled by process_message() remains a separate L-T
+                # priority barrier until it completes.
+                note_lt_foreground_state(
+                    context,
+                    running=False,
+                )
+                if (
+                    batch_state is not None
+                    and pending_user_batch_state is batch_state
+                ):
+                    pending_user_batch_state = None
                 pending_requests.task_done()
 
     pending_processor = asyncio.create_task(
@@ -259,6 +364,22 @@ async def websocket_endpoint(
                     "message",
                 )
             )
+
+            if message_type == "pending_user_batch_commit_ack":
+                batch_id = str(
+                    message_data.get(
+                        "batch_id",
+                        "",
+                    )
+                    or ""
+                ).strip()
+                batch_state = pending_user_batch_state
+                if (
+                    batch_state is not None
+                    and batch_id == batch_state.get("id")
+                ):
+                    batch_state["ack_event"].set()
+                continue
 
             # -------------------------------------------------
             # SOFT RECONNECT RUNTIME RESUME
@@ -769,6 +890,34 @@ async def websocket_endpoint(
                 )
                 continue
 
+            if message_data.get("append_to_pending_batch"):
+                appended_user_text = str(
+                    message_data.get(
+                        "text",
+                        "",
+                    )
+                    or ""
+                ).strip()
+                if (
+                    appended_user_text
+                    or has_message_attachments(
+                        message_data
+                    )
+                ):
+                    batch_state = pending_user_batch_state
+                    if (
+                        batch_state is not None
+                        and not batch_state.get("ack_event").is_set()
+                    ):
+                        batch_state["messages"].append(
+                            message_data
+                        )
+                        await logger.log_runtime(
+                            "[WS] pending user batch messages: "
+                            f"{1 + len(batch_state['messages'])}"
+                        )
+                        continue
+
             await logger.log_user(
                 str(
                     message_data.get(
@@ -790,6 +939,19 @@ async def websocket_endpoint(
             # -------------------------------------------------
 
             if message_type == "abort":
+
+                batch_state = pending_user_batch_state
+                if (
+                    current_task is None
+                    and batch_state is not None
+                    and batch_state.get("committing")
+                ):
+                    batch_state["aborted"] = True
+                    batch_state["ack_event"].set()
+                    await logger.log_runtime(
+                        "[WS] pending user batch abort requested"
+                    )
+                    continue
 
                 await cancel_current_task(
                     current_task,

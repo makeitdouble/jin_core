@@ -3468,6 +3468,12 @@ async def run_lt_merge_phase(*, context, service_client) -> dict:
         details=merge_details or "No changes",
         fallback_channel="summarizer",
         event="merge_applied",
+        facts_changed=bool(
+            merge_change.get("added_ids")
+            or merge_change.get("updated_ids")
+            or merge_change.get("merged_ids")
+            or merge_change.get("removed_fact_ids")
+        ),
         trace={
             "kind": "lt_merge_applied",
             "operation_details": merge_change.get("operation_details", []),
@@ -3731,6 +3737,26 @@ async def maybe_update_runtime_lt_memory(
                 context=context,
                 service_client=service_client,
             )
+            if (
+                extraction_result is not None
+                and merge_result.get("status") == "skipped"
+                and merge_result.get("reason") in {
+                    "retry_backoff",
+                    "pending_batch_deferred",
+                }
+            ):
+                await log_memory_event(
+                    context,
+                    level=LT_LOG_LEVEL,
+                    message="L-T merge deferred",
+                    details=json.dumps(
+                        merge_result,
+                        ensure_ascii=False,
+                        indent=2,
+                    ),
+                    fallback_channel="summarizer",
+                    event="merge_deferred",
+                )
             if extraction_result is not None:
                 return {
                     **merge_result,
@@ -3777,6 +3803,13 @@ def schedule_lt_memory_idle_update(
         return None
 
     if not lt_memory_enabled():
+        return None
+
+    # L-T is strictly idle/background work. It must never race a live Brain
+    # turn, a queued foreground request, or the FRAME integration belonging to
+    # the previous answer. In particular, browser idle ticks can arrive in the
+    # tiny window after agent_runtime_end but before process_message() returns.
+    if _lt_context_priority_work_busy(context):
         return None
 
     if user_idle_seconds is not None:
@@ -3989,30 +4022,46 @@ def _lt_context_last_user_activity_at(app_state, context) -> float:
 
 
 
-def _lt_server_foreground_busy(app_state) -> bool:
-    for context in _lt_server_contexts(app_state):
-        if bool(
-            getattr(
-                context,
-                "runtime_foreground_turn_running",
-                False,
-            )
-        ):
-            return True
+def _lt_context_priority_work_busy(context) -> bool:
+    """Return True while Brain/FRAME work has priority over idle L-T."""
 
-        queue = getattr(
+    if bool(
+        getattr(
             context,
-            "runtime_pending_requests_queue",
-            None,
+            "runtime_foreground_turn_running",
+            False,
         )
-        if queue is not None:
-            try:
-                if not queue.empty():
-                    return True
-            except Exception:
-                pass
+    ):
+        return True
+
+    frame_task = getattr(
+        context,
+        "runtime_memory_update_task",
+        None,
+    )
+    if frame_task is not None and not frame_task.done():
+        return True
+
+    queue = getattr(
+        context,
+        "runtime_pending_requests_queue",
+        None,
+    )
+    if queue is not None:
+        try:
+            if not queue.empty():
+                return True
+        except Exception:
+            pass
 
     return False
+
+
+def _lt_server_foreground_busy(app_state) -> bool:
+    return any(
+        _lt_context_priority_work_busy(context)
+        for context in _lt_server_contexts(app_state)
+    )
 
 
 async def _wait_for_lt_scheduler_wake(

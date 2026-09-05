@@ -1374,6 +1374,9 @@ def build_chat_log_entry(
             text
             or ""
         ),
+        **({"jin_reaction": str(
+            getattr(context, "runtime_turn_jin_reaction", "") or ""
+        )} if str(role or "").lower() == "jin" else {}),
         "attachments": summarize_attachments(
             getattr(
                 context,

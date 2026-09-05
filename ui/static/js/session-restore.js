@@ -268,12 +268,13 @@
             typeof window.appendChatMessage
             === "function"
           ) {
-            window.appendChatMessage(
+            const userShell = window.appendChatMessage(
               role,
               text,
               null,
               attachments
             );
+            window.JinChatReactions?.restoreUserReaction(userShell, message.jin_reaction);
           }
           return;
         }

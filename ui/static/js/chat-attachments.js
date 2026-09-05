@@ -210,7 +210,8 @@ function normalizeAttachmentPreviewMaxPx(value) {
 
 function positionAttachmentHoverPreview(
   event,
-  maxPx = ATTACHMENT_IMAGE_PREVIEW_MAX_PX
+  maxPx = ATTACHMENT_IMAGE_PREVIEW_MAX_PX,
+  placement = "pointer"
 ) {
   const preview =
     ensureAttachmentHoverPreview();
@@ -238,15 +239,44 @@ function positionAttachmentHoverPreview(
   const viewportHeight =
     window.innerHeight || document.documentElement.clientHeight || height;
 
-  let left = event.clientX + offset;
-  let top = event.clientY + offset;
+  const owner =
+    event.currentTarget
+    || attachmentHoverPreviewOwner;
+  const ownerRect =
+    placement === "left"
+    && owner
+    && typeof owner.getBoundingClientRect === "function"
+      ? owner.getBoundingClientRect()
+      : null;
 
-  if (left + width + offset > viewportWidth) {
-    left = event.clientX - width - offset;
-  }
+  let left;
+  let top;
 
-  if (top + height + offset > viewportHeight) {
-    top = event.clientY - height - offset;
+  if (ownerRect) {
+    left = ownerRect.left - width - offset;
+    top = ownerRect.top;
+
+    if (left < offset) {
+      const right = ownerRect.right + offset;
+      left = right + width + offset <= viewportWidth
+        ? right
+        : offset;
+    }
+
+    if (top + height + offset > viewportHeight) {
+      top = viewportHeight - height - offset;
+    }
+  } else {
+    left = event.clientX + offset;
+    top = event.clientY + offset;
+
+    if (left + width + offset > viewportWidth) {
+      left = event.clientX - width - offset;
+    }
+
+    if (top + height + offset > viewportHeight) {
+      top = event.clientY - height - offset;
+    }
   }
 
   preview.style.left =
@@ -258,7 +288,8 @@ function positionAttachmentHoverPreview(
 function showAttachmentHoverPreview(
   attachment,
   event,
-  maxPx = ATTACHMENT_IMAGE_PREVIEW_MAX_PX
+  maxPx = ATTACHMENT_IMAGE_PREVIEW_MAX_PX,
+  placement = "pointer"
 ) {
   if (
       getAttachmentKind(attachment) !== "image"
@@ -284,14 +315,36 @@ function showAttachmentHoverPreview(
   attachmentHoverPreviewImage.src =
     source;
 
-  positionAttachmentHoverPreview(
-    event,
-    maxPx
-  );
-
   preview.classList.remove(
     "hidden"
   );
+
+  positionAttachmentHoverPreview(
+    event,
+    maxPx,
+    placement
+  );
+
+  if (!attachmentHoverPreviewImage.complete) {
+    const previewOwner = attachmentHoverPreviewOwner;
+    attachmentHoverPreviewImage.addEventListener(
+      "load",
+      () => {
+        if (attachmentHoverPreviewOwner === previewOwner) {
+          positionAttachmentHoverPreview(
+            {
+              currentTarget: previewOwner,
+              clientX: event ? event.clientX : 0,
+              clientY: event ? event.clientY : 0,
+            },
+            maxPx,
+            placement
+          );
+        }
+      },
+      { once: true }
+    );
+  }
 }
 
 function hideAttachmentHoverPreview() {
@@ -716,6 +769,10 @@ function bindJinAttachmentHoverPreview(
     normalizeAttachmentPreviewMaxPx(
       options && options.hoverPreviewMaxPx
     );
+  const hoverPreviewPlacement =
+    options && options.hoverPreviewPlacement === "left"
+      ? "left"
+      : "pointer";
 
   element.addEventListener(
     "mouseenter",
@@ -723,7 +780,8 @@ function bindJinAttachmentHoverPreview(
       showAttachmentHoverPreview(
         attachment,
         event,
-        hoverPreviewMaxPx
+        hoverPreviewMaxPx,
+        hoverPreviewPlacement
       );
     }
   );
@@ -737,7 +795,8 @@ function bindJinAttachmentHoverPreview(
       ) {
         positionAttachmentHoverPreview(
           event,
-          hoverPreviewMaxPx
+          hoverPreviewMaxPx,
+          hoverPreviewPlacement
         );
       }
     }

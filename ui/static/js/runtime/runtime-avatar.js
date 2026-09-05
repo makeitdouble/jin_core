@@ -128,6 +128,10 @@
     typeof memoryReferenceHelpers.collectMetadataAliases === "function"
       ? memoryReferenceHelpers.collectMetadataAliases
       : () => [];
+  const isPlainSingleWordMemoryKey =
+    typeof memoryReferenceHelpers.isPlainSingleWordKey === "function"
+      ? memoryReferenceHelpers.isPlainSingleWordKey
+      : () => false;
   if (!avatarRoot) {
     return;
   }
@@ -4405,6 +4409,41 @@
     return usage;
   }
 
+  function shouldRequireStructuredAvatarMemoryKeyReference(
+    node,
+    alias
+  ) {
+    if (!node) {
+      return false;
+    }
+
+    const keyNode = Boolean(
+      (
+        node.classList.contains("jin-avatar-orbit")
+        && node.dataset.runtimeLineIndex !== undefined
+      )
+      || node.classList.contains("jin-avatar-memory-dash-active")
+    );
+
+    if (!keyNode) {
+      return false;
+    }
+
+    const state = getAvatarNodeState(node);
+    const lineKey =
+      normalizeRuntimeCitationIdentity(
+        state && state.runtimeLineKey
+      );
+    const aliasIdentity =
+      normalizeRuntimeCitationIdentity(alias);
+
+    return Boolean(
+      lineKey
+      && aliasIdentity === lineKey
+      && isPlainSingleWordMemoryKey(lineKey)
+    );
+  }
+
   function applyMemoryReferenceGlow() {
     const svg = avatarRoot.querySelector("svg");
 
@@ -4455,7 +4494,17 @@
                   normalizeRuntimeCitationIdentity(alias)
                 ) || 0
               ) === 1
-              && containsMemoryReference(sourceText, alias)
+              && containsMemoryReference(
+                sourceText,
+                alias,
+                {
+                  requireKeyValue:
+                    shouldRequireStructuredAvatarMemoryKeyReference(
+                      recordNode,
+                      alias
+                    ),
+                }
+              )
             ))
         );
 

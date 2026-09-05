@@ -236,6 +236,26 @@
     }
   }
 
+  function isPlainSingleWordMemoryKey(value) {
+    const key = String(value || "").trim();
+
+    if (!key || /\s/.test(key)) {
+      return false;
+    }
+
+    try {
+      return /^\p{L}[\p{L}\p{M}]*$/u.test(key);
+    } catch (error) {
+      return /^[a-z]+$/i.test(key);
+    }
+  }
+
+  function hasMemoryReferenceKeyValueSuffix(source, afterIndex) {
+    return /^:\s*\S/.test(
+      String(source || "").slice(afterIndex)
+    );
+  }
+
   function isMemoryReferenceCoreTokenCharacter(character) {
     const value = String(character || "");
 
@@ -278,11 +298,17 @@
     );
   }
 
-  function containsMemoryReference(text, reference) {
+  function containsMemoryReference(
+    text,
+    reference,
+    options = {}
+  ) {
     const haystack =
         normalizeMemoryReferenceSearchText(text);
     const needle =
         normalizeMemoryReferenceSearchText(reference).trim();
+    const requireKeyValue =
+        Boolean(options && options.requireKeyValue);
 
     if (!haystack || !needle) {
       return false;
@@ -306,8 +332,18 @@
             afterIndex,
             "after"
           );
+      const keyValueShapeMatches =
+          !requireKeyValue
+          || hasMemoryReferenceKeyValueSuffix(
+            haystack,
+            afterIndex
+          );
 
-      if (!beforeBlocked && !afterBlocked) {
+      if (
+        !beforeBlocked
+        && !afterBlocked
+        && keyValueShapeMatches
+      ) {
         return true;
       }
 
@@ -426,6 +462,7 @@
     contains: containsMemoryReference,
     normalizeAliases: normalizeMemoryReferenceAliases,
     collectMetadataAliases: collectMemoryMetadataReferenceAliases,
+    isPlainSingleWordKey: isPlainSingleWordMemoryKey,
   });
 
   function getRuntimeMemoryRowState(row, create = false) {
@@ -489,6 +526,34 @@
       lineText:
         String(state && state.runtimeMemoryLineText || ""),
     };
+  }
+
+  function shouldRequireStructuredMemoryKeyReference(
+    row,
+    alias
+  ) {
+    if (
+      !row
+      || (
+        !row.classList.contains("runtime-memory-frame-row")
+        && !row.classList.contains("runtime-memory-active-row")
+      )
+    ) {
+      return false;
+    }
+
+    const { lineKey } =
+        getRuntimeMemoryRowCitationState(row);
+    const normalizedKey =
+        normalizeMemoryReferenceSearchText(lineKey).trim();
+    const normalizedAlias =
+        normalizeMemoryReferenceSearchText(alias).trim();
+
+    return Boolean(
+      normalizedKey
+      && normalizedAlias === normalizedKey
+      && isPlainSingleWordMemoryKey(normalizedKey)
+    );
   }
 
   function getActiveMemoryReferenceText() {
@@ -1035,7 +1100,14 @@
             ) === 1
             && containsMemoryReference(
               sourceText,
-              alias
+              alias,
+              {
+                requireKeyValue:
+                  shouldRequireStructuredMemoryKeyReference(
+                    row,
+                    alias
+                  ),
+              }
             )
           ))
       );

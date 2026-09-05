@@ -26,6 +26,20 @@ async def emit_jin_reactions(
         if not emoji:
             continue
 
+        # Persist the executed reaction with its owning turn, including stops
+        # before a visible JIN row is committed.
+        context.runtime_turn_jin_reaction = emoji
+        from utils.chat_log import append_chat_runtime_event
+        try:
+            append_chat_runtime_event(
+                context,
+                event="jin_reaction",
+                payload={"emoji": emoji},
+            )
+        except Exception as error:
+            if log_runtime is not None:
+                await log_runtime(f"[CHAT_LOG] reaction save failed: {error}")
+
         if log_runtime is not None:
             await log_runtime(
                 "[RUNTIME ACTION] "

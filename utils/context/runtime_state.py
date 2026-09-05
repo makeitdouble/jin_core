@@ -53,7 +53,13 @@ def get_current_jin_color(
     context=None,
 ) -> str:
 
-    current_color = DEFAULT_JIN_COLOR
+    current_color = normalize_jin_color_payload(
+        getattr(
+            context,
+            "jin_color",
+            "",
+        )
+    ) or DEFAULT_JIN_COLOR
 
     for event in getattr(
         context,

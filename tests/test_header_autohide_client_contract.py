@@ -121,6 +121,7 @@ class HeaderAutoHideClientContractTests(unittest.TestCase):
         for selector in (
             ".jin-chat-avatar",
             ".jin-chat-bubble",
+            ".jin-message-copy-control",
             ".jin-think-content",
             ".jin-runtime-action-row > *",
             ".jin-session-restore-divider",

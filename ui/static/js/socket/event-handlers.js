@@ -142,10 +142,11 @@ function handleSessionBootstrapChatTail(
     const jinText =
       String(turn.jin || "").trim();
 
-    appendChatMessage(
+    const userShell = appendChatMessage(
       "user",
       userText
     );
+    window.JinChatReactions?.restoreUserReaction(userShell, turn.jin_reaction);
 
     // Marker/action-only turns have no visible JIN answer. Keep the USER
     // bubble above the divider, but never manufacture an empty BR bubble.
@@ -277,6 +278,10 @@ function handleSocketError(
   data
 ) {
 
+  if (window.clearPendingUserBatch) {
+    window.clearPendingUserBatch();
+  }
+
   if (window.clearInterruptedRuntimeGlow) {
     window.clearInterruptedRuntimeGlow();
   }
@@ -358,6 +363,10 @@ function handleThinkingChunk(
 }
 
 function handleAgentRuntimeStart(data) {
+  if (window.clearPendingUserBatch) {
+    window.clearPendingUserBatch();
+  }
+
   window.jinCurrentResponseRetryable = Boolean(
     data && data.retryable_response
   );
@@ -421,6 +430,10 @@ function withCurrentRoomState(sessionSnapshot) {
 
 function handleAgentRuntimeEnd(data) {
 
+  if (window.clearPendingUserBatch) {
+    window.clearPendingUserBatch();
+  }
+
   const runtimeSession =
     window.JinRuntime
     && window.JinRuntime.session;
@@ -470,6 +483,48 @@ function handleAgentRuntimeEnd(data) {
     window.jinResetUserIdleTimer();
   }
 
+}
+
+function handlePendingUserBatchOpen(
+  data
+) {
+  if (
+    !window.openPendingUserBatch
+    || !window.openPendingUserBatch(
+      data && data.batch_id
+    )
+  ) {
+    return;
+  }
+
+  setGenerationState(
+    false
+  );
+}
+
+function handlePendingUserBatchCommit(
+  data
+) {
+  const batchId =
+    String(
+      data && data.batch_id
+      || ""
+    ).trim();
+
+  if (window.closePendingUserBatch) {
+    window.closePendingUserBatch(
+      batchId
+    );
+  }
+
+  setGenerationState(
+    true
+  );
+
+  sendSocketMessage({
+    type: "pending_user_batch_commit_ack",
+    batch_id: batchId,
+  });
 }
 
 function handleMessageStart(
@@ -564,6 +619,10 @@ function handleMessageError(
   data
 ) {
 
+  if (window.clearPendingUserBatch) {
+    window.clearPendingUserBatch();
+  }
+
   clearDelayedMemoryContentFilter(
     data.message_id
   );
@@ -619,6 +678,16 @@ function handleRetryLastResponseRejected(
 registerSocketMessageHandler(
   "retry_last_response_rejected",
   handleRetryLastResponseRejected
+);
+
+registerSocketMessageHandler(
+  "pending_user_batch_open",
+  handlePendingUserBatchOpen
+);
+
+registerSocketMessageHandler(
+  "pending_user_batch_commit",
+  handlePendingUserBatchCommit
 );
 
 registerSocketMessageHandler(

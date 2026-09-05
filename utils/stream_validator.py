@@ -116,6 +116,11 @@ SYMBOLIC_MOTIF_HISTORY_LINES = configured_int(
 INLINE_SYMBOLIC_LOOP_MIN_CHARS = 96
 INLINE_SYMBOLIC_LOOP_MAX_MOTIF_SIZE = 16
 INLINE_SYMBOLIC_LOOP_MIN_REPETITIONS = 8
+# Same short mixed-symbol ASCII row repeated for many physical lines is also
+# a runaway shape. Keep the threshold high so ordinary finite ASCII art is not
+# treated as a loop. Single-symbol rows (bars, box sides, etc.) are exempt.
+ASCII_REPEAT_LOOP_MIN_LINES = 24
+ASCII_REPEAT_LOOP_MIN_VISIBLE_CHARS = 3
 # Same symbol-only ASCII row drifting one column per newline is a distinct
 # runaway shape. Keep this deliberately high so finite diagonals stay valid.
 ASCII_DRIFT_LOOP_MIN_LINES = 24
@@ -253,6 +258,7 @@ class StreamValidator:
         self.symbolic_line_fragment = ""
         self.symbolic_line_index = 0
         self.symbolic_motif_history = []
+        self.ascii_repeat_history = []
         self.ascii_drift_history = []
         self.validation_marker_buffer = ""
         self.validation_excluded_block_name = ""
@@ -839,6 +845,92 @@ class StreamValidator:
         )
 
     @staticmethod
+    def get_ascii_repeat_candidate(
+        line: str,
+    ) -> str:
+        line = str(line or "").rstrip("\r")
+        stripped = line.strip()
+
+        if (
+            not stripped
+            or "\t" in line
+            or not line.isascii()
+            or any(char.isalnum() for char in stripped)
+        ):
+            return ""
+
+        visible = [
+            char
+            for char in stripped
+            if not char.isspace()
+        ]
+
+        if (
+            len(visible) < ASCII_REPEAT_LOOP_MIN_VISIBLE_CHARS
+            or len(set(visible)) < 2
+            or any(
+                not (
+                    unicodedata.category(char).startswith("P")
+                    or unicodedata.category(char).startswith("S")
+                )
+                for char in visible
+            )
+        ):
+            return ""
+
+        # Spacing jitter is common in a degenerating ASCII stream. Normalize
+        # it so ``( ) )`` and ``(  )  )`` remain the same visual row.
+        return " ".join(
+            stripped.split()
+        )
+
+    def validate_ascii_repeat_line(
+        self,
+        line: str,
+    ) -> bool:
+        body = self.get_ascii_repeat_candidate(
+            line
+        )
+
+        if not body:
+            self.ascii_repeat_history = []
+            return True
+
+        if (
+            self.ascii_repeat_history
+            and self.ascii_repeat_history[-1][0] != body
+        ):
+            self.ascii_repeat_history = []
+
+        self.ascii_repeat_history.append((
+            body,
+            line.rstrip("\r"),
+        ))
+        self.ascii_repeat_history = self.ascii_repeat_history[
+            -ASCII_REPEAT_LOOP_MIN_LINES:
+        ]
+
+        if len(self.ascii_repeat_history) < ASCII_REPEAT_LOOP_MIN_LINES:
+            return True
+
+        preview = "\n".join(
+            item[1]
+            for item in self.ascii_repeat_history
+        )
+
+        self.last_failure_reason = (
+            "Repeated symbolic motif loop detected."
+        )
+        self.last_failure_preview = build_preview(
+            preview
+        )
+        self.last_failure_loop_preview = build_loop_preview(
+            body
+        )
+
+        return False
+
+    @staticmethod
     def get_ascii_drift_candidate(
         line: str,
     ) -> tuple[int, str] | None:
@@ -988,6 +1080,11 @@ class StreamValidator:
             return False
 
         for raw_line in complete_lines:
+            if not self.validate_ascii_repeat_line(
+                raw_line
+            ):
+                return False
+
             if not self.validate_ascii_drift_line(
                 raw_line
             ):

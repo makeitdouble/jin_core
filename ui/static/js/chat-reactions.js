@@ -350,7 +350,18 @@
     return true;
   }
 
+  function restoreUserReaction(userShell, emoji) {
+    const value = normalizeEmoji(emoji);
+    const bubble = userShell && userShell.querySelector(".jin-chat-bubble-user");
+    if (!bubble || !value) {
+      return;
+    }
+    // History projection: reuse the badge without replaying the flight/action.
+    showReactionBadge(ensureReactionBadge(bubble, value));
+  }
+
   window.JinChatReactions = {
+    restoreUserReaction,
     handleRuntimeAction,
     syncMessage,
   };

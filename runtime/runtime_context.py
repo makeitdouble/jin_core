@@ -419,6 +419,8 @@ class RuntimeContext:
 
     runtime_turn_assistant_response: str = ""
 
+    runtime_turn_jin_reaction: str = ""
+
     runtime_turn_reasoning_content: str = ""
 
     runtime_previous_reasoning_content: str = ""

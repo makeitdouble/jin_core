@@ -32,6 +32,7 @@ let ws = null;
 let websocketReconnectTimer = null;
 let websocketReconnectAttempts = 0;
 let websocketReconnectAwaitingFocus = false;
+let websocketPageWasFrozen = false;
 let websocketDisconnectedLogged = false;
 let persistedSessionBootstrapSent = false;
 let archivedSessionResumeSent = false;
@@ -249,6 +250,22 @@ window.sendRuntimeMemoryDeleteSlot = function (payload) {
   });
 };
 
+document.addEventListener(
+  "freeze",
+  function () {
+    websocketPageWasFrozen = true;
+  }
+);
+
+function shouldPauseWebSocketReconnectAfterFreeze() {
+
+  return Boolean(
+    websocketPageWasFrozen
+    && document.hidden
+  );
+
+}
+
 function clearWebSocketReconnectTimer() {
 
   if (!websocketReconnectTimer) {
@@ -273,6 +290,12 @@ function scheduleWebSocketReconnect() {
           && ws.readyState === WebSocket.CONNECTING
       )
   ) {
+    return;
+  }
+
+  if (shouldPauseWebSocketReconnectAfterFreeze()) {
+    clearWebSocketReconnectTimer();
+    websocketReconnectAwaitingFocus = true;
     return;
   }
 
@@ -828,6 +851,10 @@ function handleSocketClose() {
 
   window.jinWebSocketConnected = false;
 
+  if (window.clearPendingUserBatch) {
+    window.clearPendingUserBatch();
+  }
+
   clearInterruptedRuntimeGlow();
 
   if (window.releaseActiveStreamAvatar) {
@@ -843,7 +870,9 @@ function handleSocketClose() {
 
     appendLog(
       "[SYSTEM]",
-      "WebSocket disconnected. Reconnecting..."
+      shouldPauseWebSocketReconnectAfterFreeze()
+        ? "WebSocket disconnected. Waiting for tab to become visible..."
+        : "WebSocket disconnected. Reconnecting..."
     );
   }
 
@@ -904,7 +933,14 @@ function connectWebSocket() {
 
 window.connectWebSocket = connectWebSocket;
 
-function retryWebSocketOnFocus() {
+function retryWebSocketOnFocus(event) {
+
+  if (
+      (event && event.type === "focus")
+      || !document.hidden
+  ) {
+    websocketPageWasFrozen = false;
+  }
 
   if (
       isWebSocketOpen()

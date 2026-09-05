@@ -450,6 +450,29 @@ def test_stream_validator_allows_repeated_ascii_art_rows():
     assert validator.last_failure_loop_preview == ""
 
 
+def test_stream_validator_stops_runaway_short_repeated_ascii_art_rows():
+    validator = StreamValidator()
+    row = "    ( ) )\n"
+
+    for line_index in range(
+        stream_validator_module.ASCII_REPEAT_LOOP_MIN_LINES
+    ):
+        clean, is_valid = validator.filter_chunk(row)
+
+        if line_index < stream_validator_module.ASCII_REPEAT_LOOP_MIN_LINES - 1:
+            assert clean == row
+            assert is_valid
+            continue
+
+        assert clean == ""
+        assert not is_valid
+
+    assert validator.last_failure_reason == (
+        "Repeated symbolic motif loop detected."
+    )
+    assert validator.last_failure_loop_preview == "( ) )"
+
+
 def test_stream_validator_stops_runaway_ascii_diagonal_drift():
     validator = StreamValidator()
     row = "\\                          \\"

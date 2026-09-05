@@ -75,6 +75,114 @@ RUNTIME_STATUS_CHECK_TIMEOUT = getattr(
 )
 
 
+def merge_pending_user_message_batch(
+    root_message: dict,
+    appended_messages: list[dict],
+) -> dict:
+    """Collapse composer appends into one real USER turn.
+
+    While a foreground request is waiting for the previous FRAME integration,
+    the browser may send more text into the same visible user bubble.  Those
+    packets are transport fragments of one turn, not additional turns.
+    """
+
+    merged = deepcopy(
+        root_message
+        if isinstance(root_message, dict)
+        else {}
+    )
+
+    fragments = [
+        merged,
+        *[
+            message
+            for message in appended_messages
+            if isinstance(message, dict)
+        ],
+    ]
+
+    text_parts = []
+    merged_attachments = []
+    seen_attachment_keys = set()
+
+    for fragment in fragments:
+        text = str(
+            fragment.get(
+                "text",
+                "",
+            )
+            or ""
+        ).strip()
+        if text:
+            text_parts.append(text)
+
+        for attachment in fragment.get("attachments") or []:
+            if not isinstance(attachment, dict):
+                continue
+
+            attachment_id = str(
+                attachment.get("id", "")
+                or ""
+            ).strip().lower()
+            if attachment_id:
+                attachment_key = ("id", attachment_id)
+            else:
+                attachment_key = (
+                    "payload",
+                    json.dumps(
+                        attachment,
+                        ensure_ascii=False,
+                        sort_keys=True,
+                        default=str,
+                    ),
+                )
+
+            if attachment_key in seen_attachment_keys:
+                continue
+
+            seen_attachment_keys.add(
+                attachment_key
+            )
+            merged_attachments.append(
+                deepcopy(attachment)
+            )
+
+    merged["text"] = "\n".join(
+        text_parts
+    )
+
+    if merged_attachments:
+        merged["attachments"] = (
+            merged_attachments
+        )
+    else:
+        merged.pop(
+            "attachments",
+            None,
+        )
+
+    # Runtime/avatar and Active state are snapshots.  If the user moved JIN or
+    # changed Active Memory while the FRAME request was finishing, use the
+    # newest snapshot for the one Brain turn.  Turn-start semantics such as
+    # idle time, response rating, and repeat counters intentionally stay owned
+    # by the root packet.
+    for fragment in fragments[1:]:
+        for key in (
+            "runtime_avatar",
+            "active_memory_records",
+        ):
+            if key in fragment:
+                merged[key] = deepcopy(
+                    fragment[key]
+                )
+
+    merged.pop(
+        "append_to_pending_batch",
+        None,
+    )
+    return merged
+
+
 def get_status_http_client(
     context,
 ):
@@ -1065,6 +1173,9 @@ def append_runtime_recent_turn(
         "jin": assistant_message,
     }
 
+    reaction = str(getattr(context, "runtime_turn_jin_reaction", "") or "")
+    if reaction:
+        turn["jin_reaction"] = reaction
     if reasoning:
         turn["reasoning"] = reasoning
 
@@ -1255,6 +1366,7 @@ async def process_message(
             )
         )
 
+        context.runtime_turn_jin_reaction = ""
         context.runtime_turn_user_message = user_text
         context.runtime_turn_started_at = time.time()
         begin_user_waiting_for_jin_answer_turn(

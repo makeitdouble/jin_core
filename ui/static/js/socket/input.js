@@ -200,6 +200,73 @@ if (sendButton) {
 // SEND MESSAGE
 // --------------------------------------------------
 
+let pendingUserBatchCandidateRow = null;
+let pendingUserBatchRow = null;
+let pendingUserBatchId = "";
+
+function rememberPendingUserBatchCandidate(
+  messageRow
+) {
+  pendingUserBatchCandidateRow =
+    messageRow || null;
+}
+
+function openPendingUserBatch(
+  batchId
+) {
+  const normalizedBatchId =
+    String(batchId || "").trim();
+
+  if (
+    !normalizedBatchId
+    || !pendingUserBatchCandidateRow
+  ) {
+    return false;
+  }
+
+  pendingUserBatchId =
+    normalizedBatchId;
+  pendingUserBatchRow =
+    pendingUserBatchCandidateRow;
+
+  return true;
+}
+
+function isPendingUserBatchOpen() {
+  return Boolean(
+    pendingUserBatchId
+    && pendingUserBatchRow
+  );
+}
+
+function closePendingUserBatch(
+  batchId = ""
+) {
+  const normalizedBatchId =
+    String(batchId || "").trim();
+
+  if (
+    normalizedBatchId
+    && pendingUserBatchId
+    && normalizedBatchId !== pendingUserBatchId
+  ) {
+    return false;
+  }
+
+  pendingUserBatchCandidateRow = null;
+  pendingUserBatchRow = null;
+  pendingUserBatchId = "";
+
+  return true;
+}
+
+window.openPendingUserBatch =
+  openPendingUserBatch;
+window.closePendingUserBatch =
+  closePendingUserBatch;
+window.clearPendingUserBatch =
+  closePendingUserBatch;
+
 function allModelRuntimesOffline() {
 
   const status =
@@ -217,6 +284,7 @@ function allModelRuntimesOffline() {
 
 if (memoryLayersToggle) {
   const ANONYMOUS_ROOM_LONG_PRESS_MS = 1500;
+  const ANONYMOUS_ROOM_TAP_MAX_MS = 300;
   const ANONYMOUS_ROOM_MOVE_TOLERANCE_PX = 12;
   const ANONYMOUS_ROOM_HOLD_CLASS = "is-anonymous-room-hold";
 
@@ -224,7 +292,9 @@ if (memoryLayersToggle) {
   let anonymousRoomPointerId = null;
   let anonymousRoomPointerStartX = 0;
   let anonymousRoomPointerStartY = 0;
+  let anonymousRoomPointerStartedAt = 0;
   let suppressNextMemoryLayersClick = false;
+  let suppressNextMemoryLayersClickTimer = null;
 
   function runtimeAvatar() {
     return (
@@ -273,9 +343,37 @@ if (memoryLayersToggle) {
     }
   }
 
-  function cancelAnonymousRoomPointerHold() {
+  function clearSuppressNextMemoryLayersClick() {
+    suppressNextMemoryLayersClick = false;
+
+    if (suppressNextMemoryLayersClickTimer) {
+      clearTimeout(suppressNextMemoryLayersClickTimer);
+      suppressNextMemoryLayersClickTimer = null;
+    }
+  }
+
+  function armSuppressNextMemoryLayersClick(timeoutMs = 1200) {
+    suppressNextMemoryLayersClick = true;
+
+    if (suppressNextMemoryLayersClickTimer) {
+      clearTimeout(suppressNextMemoryLayersClickTimer);
+    }
+
+    suppressNextMemoryLayersClickTimer = setTimeout(() => {
+      suppressNextMemoryLayersClick = false;
+      suppressNextMemoryLayersClickTimer = null;
+    }, timeoutMs);
+  }
+
+  function cancelAnonymousRoomPointerHold({ suppressClick = false } = {}) {
     clearAnonymousRoomLongPressTimer();
+
+    if (suppressClick) {
+      armSuppressNextMemoryLayersClick();
+    }
+
     anonymousRoomPointerId = null;
+    anonymousRoomPointerStartedAt = 0;
     setAnonymousRoomHoldVisual(false);
   }
 
@@ -284,8 +382,9 @@ if (memoryLayersToggle) {
       window.JinRuntime
       && window.JinRuntime.anonymousMode;
 
-    suppressNextMemoryLayersClick = true;
+    armSuppressNextMemoryLayersClick(6000);
     anonymousRoomPointerId = null;
+    anonymousRoomPointerStartedAt = 0;
     setAnonymousRoomHoldVisual(false);
 
     if (
@@ -295,11 +394,8 @@ if (memoryLayersToggle) {
       anonymousMode.openAnonymousWindow();
     }
 
-    // A completed long press normally produces one click on pointerup. Do not
-    // let that click toggle the rings after the anonymous-room gesture.
-    setTimeout(() => {
-      suppressNextMemoryLayersClick = false;
-    }, 6000);
+    // A completed long press normally produces one click on pointerup. The
+    // suppression above keeps that synthetic click from toggling the rings.
   }
 
   memoryLayersToggle.addEventListener(
@@ -309,10 +405,20 @@ if (memoryLayersToggle) {
         return;
       }
 
+      // A fresh pointerdown is a new gesture. If the anonymous tab stole
+      // focus before the original long-press click was delivered, do not
+      // let that stale one-shot suppression eat this new click.
+      clearSuppressNextMemoryLayersClick();
       cancelAnonymousRoomPointerHold();
       anonymousRoomPointerId = event.pointerId;
       anonymousRoomPointerStartX = Number(event.clientX || 0);
       anonymousRoomPointerStartY = Number(event.clientY || 0);
+      anonymousRoomPointerStartedAt = (
+        typeof performance !== "undefined"
+        && typeof performance.now === "function"
+      )
+        ? performance.now()
+        : Date.now();
 
       if (typeof memoryLayersToggle.setPointerCapture === "function") {
         try {
@@ -357,7 +463,7 @@ if (memoryLayersToggle) {
         Math.hypot(movedX, movedY)
         > ANONYMOUS_ROOM_MOVE_TOLERANCE_PX
       ) {
-        cancelAnonymousRoomPointerHold();
+        cancelAnonymousRoomPointerHold({ suppressClick: true });
       }
     }
   );
@@ -374,7 +480,32 @@ if (memoryLayersToggle) {
             return;
           }
 
-          cancelAnonymousRoomPointerHold();
+          let suppressClick = false;
+
+          if (
+            eventName === "pointerup"
+            && anonymousRoomPointerId !== null
+            && anonymousRoomPointerStartedAt > 0
+          ) {
+            const now = (
+              typeof performance !== "undefined"
+              && typeof performance.now === "function"
+            )
+              ? performance.now()
+              : Date.now();
+            const heldMs = Math.max(
+              0,
+              now - anonymousRoomPointerStartedAt
+            );
+
+            // A quick press is still the normal avatar click. Once the user
+            // has actually held it, releasing before 1.5 s cancels the
+            // anonymous gesture instead of falling through into the click
+            // handler and hiding the memory layers.
+            suppressClick = heldMs > ANONYMOUS_ROOM_TAP_MAX_MS;
+          }
+
+          cancelAnonymousRoomPointerHold({ suppressClick });
         }
       );
     }
@@ -387,7 +518,7 @@ if (memoryLayersToggle) {
       event.stopPropagation();
 
       if (suppressNextMemoryLayersClick) {
-        suppressNextMemoryLayersClick = false;
+        clearSuppressNextMemoryLayersClick();
         return;
       }
 
@@ -465,6 +596,60 @@ chatForm.addEventListener(
         ? await window.prepareJinAttachments()
         : [];
 
+    if (isPendingUserBatchOpen()) {
+      const appendPayload = {
+        text: text,
+        append_to_pending_batch: true,
+      };
+
+      if (
+        window.JinPanels
+        && typeof window.JinPanels.getRuntimeAvatarSnapshot === "function"
+      ) {
+        appendPayload.runtime_avatar =
+          window.JinPanels.getRuntimeAvatarSnapshot();
+      }
+
+      if (attachments.length) {
+        appendPayload.attachments =
+          attachments;
+      }
+
+      if (
+          window.JinRuntime
+          && window.JinRuntime.runtime
+          && window.JinRuntime.runtime.getActiveMemoryRecords
+      ) {
+        appendPayload.active_memory_records =
+          window.JinRuntime.runtime.getActiveMemoryRecords();
+      }
+
+      const sent =
+        sendSocketMessage(appendPayload);
+
+      if (!sent) {
+        return;
+      }
+
+      if (window.appendToUserChatMessage) {
+        window.appendToUserChatMessage(
+          pendingUserBatchRow,
+          text,
+          attachments
+        );
+      }
+
+      if (window.markSessionActivityDirty) {
+        window.markSessionActivityDirty();
+      }
+
+      userInput.value = "";
+      userInput.style.height =
+        "auto";
+
+      return;
+    }
+
     if (window.startJinAnswerRatingL1GateForTurn) {
       window.startJinAnswerRatingL1GateForTurn();
     }
@@ -487,10 +672,11 @@ chatForm.addEventListener(
       );
     }
 
-    setGenerationState(
-      true
-    );
-
+    // The server owns the transition into a real Brain turn. While a FRAME
+    // update is still running this first message becomes an open pending batch,
+    // so showing STOP here causes a brief false flash before that routing
+    // decision arrives. pending_user_batch_commit / agent_runtime_start will
+    // switch the input into STOP state at the actual Brain boundary.
     const pendingLastResponseRating =
       window.consumePendingLastResponseRating
         ? window.consumePendingLastResponseRating()
@@ -567,6 +753,12 @@ chatForm.addEventListener(
 
     const sent =
       sendSocketMessage(payload);
+
+    if (sent) {
+      rememberPendingUserBatchCandidate(
+        userMessageRow
+      );
+    }
 
     if (
         sent

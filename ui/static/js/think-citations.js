@@ -1054,6 +1054,20 @@
     return 0;
   }
 
+  function isPlainSingleWordCitationKey(value) {
+    const key = String(value || "").trim();
+
+    if (!key || /\s/.test(key)) {
+      return false;
+    }
+
+    try {
+      return /^\p{L}[\p{L}\p{M}]*$/u.test(key);
+    } catch (error) {
+      return /^[a-z]+$/i.test(key);
+    }
+  }
+
   function buildFastExactCitationCandidates(snapshotIndex) {
     const candidates = [];
 
@@ -1113,11 +1127,18 @@
       };
 
       add(options.id, base, true);
-      if (
-        options.includeKeyAlias !== false
-        && key.toLocaleLowerCase() !== "note"
-      ) {
-        add(key, base, true);
+      if (options.includeKeyAlias !== false) {
+        add(
+          key,
+          base,
+          true,
+          {
+            matchKind:
+              isPlainSingleWordCitationKey(key)
+                ? "key-value"
+                : "token",
+          }
+        );
       }
       if (activeMemoryId) {
         add(activeMemoryId, base, true);
@@ -1330,6 +1351,40 @@
     );
   }
 
+  function hasFastCitationKeyValueSuffix(source, end) {
+    return /^:\s*\S/.test(
+      String(source || "").slice(end)
+    );
+  }
+
+  function isFastCitationCandidateMatchValid(
+    source,
+    candidate,
+    start,
+    end,
+    allowTerminalBoundary = false
+  ) {
+    if (
+      !isFastCitationObservedWholeToken(
+        source,
+        start,
+        end,
+        allowTerminalBoundary
+      )
+    ) {
+      return false;
+    }
+
+    return (
+      !candidate
+      || candidate.matchKind !== "key-value"
+      || hasFastCitationKeyValueSuffix(
+        source,
+        end
+      )
+    );
+  }
+
   function findFastExactCitationMatches(
     text,
     candidates,
@@ -1376,8 +1431,9 @@
 
         if (
           reachesNewText
-          && isFastCitationObservedWholeToken(
+          && isFastCitationCandidateMatchValid(
             source,
+            candidate,
             index,
             end,
             allowTerminalBoundary
@@ -1443,8 +1499,9 @@
       : [];
     const stableMatches = currentMatches.filter(match => (
       match
-      && isFastCitationObservedWholeToken(
+      && isFastCitationCandidateMatchValid(
         text,
+        match,
         Number(match.start || 0),
         Number(match.end || 0),
         allowTerminalBoundary

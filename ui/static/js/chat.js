@@ -1534,6 +1534,10 @@ function createMessageAttachmentChips(
       "button";
     chip.className =
       JIN_ATTACHMENT_CHIP_CLASS;
+    if (attachmentId) {
+      chip.dataset.attachmentId =
+        attachmentId;
+    }
     chip.textContent =
       getAttachmentChipEmoji(
         attachment
@@ -1553,7 +1557,8 @@ function createMessageAttachmentChips(
         if (!attachmentBound) {
           bindJinAttachmentBubble(
             chip,
-            attachment
+            attachment,
+            { hoverPreviewPlacement: "left" }
           );
           attachmentBound = true;
         }
@@ -1582,7 +1587,8 @@ function createMessageAttachmentChips(
           {
             ...attachment,
             ...record,
-          }
+          },
+          { hoverPreviewPlacement: "left" }
         );
         attachmentBound = true;
       }
@@ -1644,6 +1650,11 @@ function appendChatMessage(
     }
   );
 
+  if (role === "user") {
+    pre.dataset.userMessageText =
+      String(text || "");
+  }
+
   const completedBubble = pre.closest(
     ".jin-chat-bubble"
   );
@@ -1696,6 +1707,120 @@ function appendChatMessage(
   );
 
 }
+
+function appendToUserChatMessage(
+  messageShell,
+  text,
+  attachments = []
+) {
+
+  if (
+    !messageShell
+    || messageShell.dataset.role !== "user"
+  ) {
+    return false;
+  }
+
+  const pre =
+    messageShell.querySelector(
+      ".jin-chat-pre"
+    );
+  const bubble =
+    pre
+      ? pre.closest(".jin-chat-bubble")
+      : null;
+
+  if (!pre || !bubble) {
+    return false;
+  }
+
+  const previousText =
+    String(
+      pre.dataset.userMessageText
+      || pre.textContent
+      || ""
+    );
+  const nextText =
+    String(text || "");
+  const combinedText =
+    previousText && nextText
+      ? `${previousText}\n${nextText}`
+      : previousText || nextText;
+
+  pre.dataset.userMessageText =
+    combinedText;
+
+  renderChatTextElement(
+    pre,
+    combinedText,
+    {
+      format: false,
+      interpretRuntimeMarkers: false,
+    }
+  );
+
+  const existingAttachmentIds =
+    new Set(
+      Array.from(
+        bubble.querySelectorAll(
+          "[data-attachment-id]"
+        )
+      ).map(
+        (element) => String(
+          element.dataset.attachmentId || ""
+        ).trim().toLowerCase()
+      ).filter(Boolean)
+    );
+  const newAttachments =
+    Array.isArray(attachments)
+      ? attachments.filter((attachment) => {
+          const attachmentId =
+            String(
+              attachment && attachment.id
+                ? attachment.id
+                : ""
+            ).trim().toLowerCase();
+
+          if (
+            attachmentId
+            && existingAttachmentIds.has(
+              attachmentId
+            )
+          ) {
+            return false;
+          }
+
+          if (attachmentId) {
+            existingAttachmentIds.add(
+              attachmentId
+            );
+          }
+
+          return true;
+        })
+      : [];
+
+  if (newAttachments.length) {
+    const chips =
+      createMessageAttachmentChips(
+        newAttachments
+      );
+
+    if (chips) {
+      bubble.appendChild(
+        chips
+      );
+    }
+  }
+
+  scrollChatHistoryAfterAppend();
+
+  return true;
+
+}
+
+window.appendToUserChatMessage =
+  appendToUserChatMessage;
 // CREATE STREAM GROUP
 
 function setStreamAvatarProcessing(
