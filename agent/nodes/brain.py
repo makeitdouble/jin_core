@@ -1044,7 +1044,7 @@ def build_followup_attachment_payload(
     if not attachments:
         return ""
 
-    return "Continue the current request using the action results and loaded FILE_CONTENT blocks."
+    return "Continue the current request using the action results; loaded FILE_CONTENT is nested inside TOOLS_RESULTS."
 
 
 class BrainNode(BaseNode):

@@ -1,33 +1,79 @@
 from __future__ import annotations
 
 
+# Shared examples for semantic L-T keys. These are intentionally a vocabulary
+# hint, not a closed ontology: extract/merge models should reuse familiar
+# segments when they fit and invent a more accurate key when they do not.
+LT_SEMANTIC_KEY_SCOPE_EXAMPLES = (
+    "user",
+    "project",
+    "model",
+    "interaction",
+    "memory",
+    "environment",
+    "jin",
+)
+
+LT_SEMANTIC_KEY_TOPIC_EXAMPLES = (
+    "preference",
+    "style",
+    "context",
+    "constraint",
+    "protocol",
+    "interaction",
+    "model",
+    "mechanism",
+    "memory",
+    "focus",
+    "structure",
+    "architecture",
+    "state",
+    "behavior",
+    "pattern",
+    "identity",
+    "relationship",
+    "goal",
+    "decision",
+    "strategy",
+    "performance",
+    "setup",
+    "flow",
+    "output",
+)
+
+LT_SEMANTIC_GUIDANCE_EXAMPLE_COUNT = 10
+LT_SEMANTIC_CATEGORY_EXAMPLE_COUNT = 5
+
+
 LT_EXTRACTION_SYSTEM_PROMPT = """
-You extract facts for JIN's long-term memory. This memory loads into every
-future session. Save only what will still matter later. If unsure, save nothing.
+You extract facts for JIN's cross-session long-term memory. Save only what
+will still matter later. If unsure, save nothing.
+
+The user payload contains `pending_memory_fields`. These are NEW source fields
+awaiting extraction, not existing committed L-T facts. Read their `content` and
+extract qualifying durable facts from it. Do not treat a field as already saved or
+as a duplicate merely because it appears in `pending_memory_fields`; duplicate and
+conflict checking against committed L-T memory happens later in the merge phase.
 
 SAVE THIS:
-- A fact about the user: name, job, tools they use, skills, likes, dislikes, habits, timezone.
-- A fact about the user's project or setup: file names, folder paths, tech stack, versions, configs.
-- A decision that was agreed on and will be used from now on ("we use X instead of Y").
-- A rule the user gave that JIN must always follow going forward.
+- A fact about the user: name, job, tools, skills, likes, dislikes, habits, timezone.
+- A fact about the user's project or setup: paths, tech stack, versions, configs.
+- A durable decision agreed for future use.
+- A standing rule the user gave JIN.
 - Something the user directly asked JIN to remember.
-- A fact related to the user about a person, place, or thing the user described.
+- A durable user-related fact about a person, place, or thing.
 
-Each fact = one sentence, one idea. Say who stated it — the user, or "observed" if
-you inferred it from behavior instead of a direct statement.
+Each fact = one sentence, one idea. Say who stated it — the user, or "observed"
+if inferred from behavior rather than directly stated.
+Within one response, if candidates overlap, emit only the strongest canonical fact.
 
 DO NOT SAVE THIS:
-- Details of the task happening right now: error messages, the current bug, the file
-  being edited this turn, output of the current step. That belongs to the session, not
-  to long-term memory.
-- Anything you guessed, assumed, or are not sure about.
-- Anything JIN generated itself: search results, code JIN wrote, JIN's own suggestions
-  or opinions.
-- Small talk, jokes, greetings, apologies.
-- A fact that is true only right now and pointless later ("user is tired today",
-  "waiting for a reply").
-- A fact that duplicates something already saved.
-- A vague statement you can't turn into one plain, concrete sentence.
+- Details of the task happening right now: current bugs, errors, edits, or step output.
+- Guesses, assumptions, or uncertain claims.
+- Anything JIN generated itself: search results, code, suggestions, or opinions.
+- Small talk, jokes, greetings, apologies, or short-lived state.
+- A duplicate of something already saved.
+- A vague statement that cannot become one concrete sentence.
 
 Return JSON only:
 {"facts": [{"key": "...", "value": "...", "category": "...", "source_keys": ["..."]}]}
@@ -37,65 +83,58 @@ If nothing qualifies:
 """.strip()
 
 LT_MERGE_SYSTEM_PROMPT = """
-You merge pending candidate facts into JIN's committed long-term memory.
-Only work with the pending_id values in this request. Return exactly one
-operation for each of them, and no more.
+You consolidate pending candidates into JIN's committed long-term memory.
+Return exactly one operation for every pending_id in this request.
 
-IDs:
-- F<number> = existing committed fact.
-- PF<number> = pending candidate.
-Copy IDs exactly as given. Never invent, guess, or change one.
+IDs: F<number> is an existing committed fact; PF<number> is a pending candidate.
+Use only IDs supplied here. Copy them exactly; never invent or alter IDs.
 
-protected_fact_ids are locked: never update them, merge them, or reuse
-their key. If a candidate overlaps a protected fact, ignore that
-candidate.
+protected_fact_ids are read-only: never update or merge them, and never use their
+exact key for create. If a candidate overlaps a protected fact, ignore it.
 
-Check overlap with existing facts first. Direct user corrections override
-incompatible existing facts. Pick exactly one action per pending_id:
-- create: a genuinely new fact, not already covered.
-- update: corrects or extends exactly one existing fact. Keep that fact's
-  ID.
-- merge: two or more existing facts should become one fact. List all
-  their IDs in fact_ids. Runtime assigns the replacement a new ID; do not
-  output IDs for the replacement.
-- ignore: the candidate is weak, unclear, temporary, already covered, or
-  not worth keeping.
+existing_facts is a key-retrieved slice of active L-T memory. Archived facts hidden
+inside delayed reports are intentionally outside this pass. Compare only against
+F<number> IDs present in existing_facts.
 
-Ignore a candidate (do not create, update, or merge with it) if it:
-- describes JIN's own feelings, personality, "presence," or identity;
-- turns a bare mention into a relationship or role;
-- turns a discussion or proposal into a decision;
-- turns one example into a general habit;
-- just restates something already saved, in different words.
+Check overlap first. Direct user corrections override incompatible existing facts.
+Choose one action per pending_id:
+- create: genuinely new durable information not already covered.
+- update: corrects or materially extends exactly one existing fact; keep its ID.
+- merge: 2+ existing facts should become one canonical fact; list all selected IDs
+  in fact_ids. Runtime assigns the replacement ID.
+- ignore: weak, unclear, temporary, redundant, already covered, or not worth keeping.
 
-Preserve the source, uncertainty, and scope stated in candidates and
-existing facts when rewriting them. A recorded claim is not independent
-confirmation of its content. Do not turn JIN's words into user approval,
-a hypothesis into established behavior, or a local request into a permanent
-rule. If the original source is unspecified, attribute the information to
-the supplied candidate or memory record, not a guessed speaker. Attribution
-is part of the meaning to preserve.
+Ignore candidates that invent a relationship/role, turn discussion into a decision,
+generalize one example into a habit, merely paraphrase saved information, or describe
+JIN's own feelings/personality/"presence"/identity.
 
-Never weaken an existing fact by replacing it with a vaguer version. Keep
-separate ideas as separate facts; do not fold an unrelated detail into a
-broader fact. For merge, preserve all compatible durable meaning from every
-selected fact; do not merge if one canonical fact would lose meaning.
+Preserve source, uncertainty, scope, and attribution. A recorded claim is not
+independent confirmation. Do not turn JIN's words into user approval, a hypothesis
+into established behavior, or a local request into a permanent rule. Never replace
+an existing fact with a vaguer one or fold unrelated ideas together.
 
-exact_key_conflicts tells you which keys are already taken: a create must
-use a free key; an update may keep its target's key but not collide with
-another fact; a merge may reuse a key only if every fact owning that key
-is included in fact_ids.
+Treat the batch as one atomic plan. A committed F<number> may be used by only one
+non-ignore operation. If pending candidates overlap each other, let the strongest
+operation carry the shared durable meaning and ignore redundant candidates instead
+of creating parallel duplicates.
+
+Candidate key/category values are hints, not immutable. For create/update/merge choose
+the best current semantic key and category; keep a target key when it already fits.
+exact_key_conflicts lists exact keys already owned in this retrieval slice. create
+needs a free key; update may keep only its target's key; merge may reuse a key only
+when every supplied owner is included in fact_ids.
+
+If previous_shard_scan and previous_shard_facts are present, combine that earlier
+shard result with existing_facts before deciding.
 
 Required fields:
-- create: pending_id, key, value, category.
-- update: pending_id, target_id, key, value, category.
-- merge: pending_id, fact_ids (2+), key, value, category. comment is
-  optional.
-- ignore: pending_id. comment is optional.
+- create: pending_id, key, value, category
+- update: pending_id, target_id, key, value, category
+- merge: pending_id, fact_ids (2+), key, value, category; comment optional
+- ignore: pending_id; comment optional
 
 Return JSON only:
 {"operations": [{"action": "...", "pending_id": "...", "...": "..."}]}
-One operation per pending_id. Do not skip any.
 """.strip()
 
 

@@ -1,5 +1,6 @@
 import asyncio
 import json
+import random
 import tempfile
 import time
 import unittest
@@ -25,15 +26,24 @@ from runtime.LT_memory import (
     schedule_lt_memory_idle_update,
 )
 import runtime.LT_memory as lt_memory_module
+from runtime.LT_memory_rules import (
+    LT_SEMANTIC_KEY_SCOPE_EXAMPLES,
+    LT_SEMANTIC_KEY_TOPIC_EXAMPLES,
+)
 from runtime.LT_memory_utils import (
     add_lt_pending_candidates,
     apply_lt_jin_note_result,
     apply_lt_merge_operations,
     build_lt_fact_id,
     build_lt_double_batch_plan,
+    build_lt_extraction_system_prompt,
+    build_lt_extraction_user_prompt,
     build_lt_jin_note_system_prompt,
     build_lt_merge_batch_plan,
     build_lt_merge_system_prompt,
+    build_lt_semantic_category_examples,
+    build_lt_semantic_key_guidance,
+    build_lt_semantic_key_shape_examples,
     build_lt_merge_user_prompt,
     collect_pending_facts_memory_fields,
     extract_lt_json_payload,
@@ -48,6 +58,7 @@ from runtime.LT_memory_utils import (
     normalize_lt_merge_operations,
     normalize_lt_store,
     restore_lt_fact_to_store,
+    select_lt_merge_existing_facts,
 )
 from runtime.anonymous_mode import configure_runtime_anonymous_mode
 from runtime.runtime_context import RuntimeContext
@@ -659,15 +670,354 @@ class LTMemoryTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(change["reason"], "update_key_matches_other_fact")
         self.assertEqual([fact["id"] for fact in after["facts"]], ["F100", "F167"])
 
+    def test_merge_key_retrieval_finds_model_and_interaction_clusters_without_values(self):
+        existing_facts = normalize_lt_store({
+            "facts": [
+                {
+                    "id": "F1",
+                    "key": "project_fact.model_performance_observation",
+                    "value": "VALUE MUST NOT DRIVE RETRIEVAL",
+                    "category": "project_fact",
+                },
+                {
+                    "id": "F2",
+                    "key": "comparison_models",
+                    "value": "Qwen 3.6 and Gemma comparison.",
+                    "category": "project_fact",
+                },
+                {
+                    "id": "F3",
+                    "key": "model.performance_tradeoff",
+                    "value": "Model tradeoff.",
+                    "category": "project_fact",
+                },
+                {
+                    "id": "F4",
+                    "key": "user.preference.interaction_style",
+                    "value": "Interaction style.",
+                    "category": "user_preference",
+                },
+                {
+                    "id": "F5",
+                    "key": "data_visual_context",
+                    "value": "preferred model Qwen 3.6",
+                    "category": "other",
+                },
+            ],
+        })["facts"]
+        pending_facts = normalize_lt_store({
+            "pending_facts": [
+                {
+                    "id": "PF1",
+                    "key": "model_version",
+                    "value": "Changed base model to Qwen 3.6.",
+                    "category": "other",
+                },
+                {
+                    "id": "PF2",
+                    "key": "interaction_style_preference",
+                    "value": "Prefers dynamic interaction.",
+                    "category": "user_preference",
+                },
+                {
+                    "id": "PF3",
+                    "key": "preferred_model",
+                    "value": "Qwen 3.6 performs better.",
+                    "category": "other",
+                },
+            ],
+        })["pending_facts"]
+
+        selected = select_lt_merge_existing_facts(
+            existing_facts,
+            pending_facts,
+        )
+        selected_ids = {fact["id"] for fact in selected}
+
+        self.assertTrue({"F1", "F2", "F3", "F4"}.issubset(selected_ids))
+        self.assertNotIn("F5", selected_ids)
+
+    def test_merge_key_retrieval_respects_per_pending_top_k_and_global_cap(self):
+        existing_facts = normalize_lt_store({
+            "facts": [
+                {
+                    "id": f"F{index + 1}",
+                    "key": f"model.cluster_{index}",
+                    "value": f"Fact {index}",
+                    "category": "project_fact",
+                }
+                for index in range(100)
+            ],
+        })["facts"]
+        pending_facts = normalize_lt_store({
+            "pending_facts": [
+                {
+                    "id": f"PF{index + 1}",
+                    "key": f"model.pending_{index}",
+                    "value": f"Pending {index}",
+                    "category": "project_fact",
+                }
+                for index in range(10)
+            ],
+        })["pending_facts"]
+
+        selected = select_lt_merge_existing_facts(
+            existing_facts,
+            pending_facts,
+            top_k_per_pending=10,
+            hard_cap=50,
+        )
+
+        self.assertLessEqual(len(selected), 50)
+
+    async def test_runtime_merge_retrieval_excludes_archived_facts_but_keeps_anchor(self):
+        store, _ = add_lt_pending_candidates(
+            normalize_lt_store({
+                "facts": [
+                    {
+                        "id": "F1",
+                        "key": "model.performance_tradeoff",
+                        "value": "Active model fact.",
+                        "category": "project_fact",
+                    },
+                    {
+                        "id": "F2",
+                        "key": "model.preference",
+                        "value": "Archived model fact.",
+                        "category": "user_preference",
+                    },
+                    {
+                        "id": "F3",
+                        "key": "model.anchor",
+                        "value": "Anchored model fact.",
+                        "category": "project_fact",
+                    },
+                    {
+                        "id": "F4",
+                        "key": "music.favorite",
+                        "value": "Unrelated active fact.",
+                        "category": "user_preference",
+                    },
+                ],
+            }),
+            [{
+                "key": "preferred_model",
+                "value": "Qwen 3.6 is preferred.",
+                "category": "user_preference",
+            }],
+            now="2026-09-06T12:00:00Z",
+        )
+        service_client = FakeServiceClient(
+            json.dumps({
+                "operations": [
+                    {"action": "ignore", "pending_id": "PF1"},
+                ],
+            }),
+            context_window=8192,
+        )
+        context = RuntimeContext(
+            websocket=None,
+            emitter=FakeEmitter(),
+            logger=FakeLogger(),
+            clients={"service": service_client},
+        )
+        context.runtime_long_term_memory_store = store
+        context.delayed_memory_reports = {
+            "abc123": {
+                "title": "Archived model context",
+                "anchor_fact_ids": ["F3"],
+                "facts_ids": ["F2", "F3"],
+            },
+        }
+
+        result = await run_lt_merge_phase(
+            context=context,
+            service_client=service_client,
+        )
+
+        self.assertEqual(result["status"], "completed")
+        payload = json.loads(
+            service_client.calls[0]["user_prompt"]
+        )
+        existing_ids = {fact["id"] for fact in payload["existing_facts"]}
+        self.assertIn("F1", existing_ids)
+        self.assertIn("F3", existing_ids)
+        self.assertNotIn("F2", existing_ids)
+        self.assertNotIn("F4", existing_ids)
+        retrieval = result["merge_change"]["batching"]["retrieval"]
+        self.assertEqual(retrieval["total_committed_count"], 4)
+        self.assertEqual(retrieval["archived_excluded_count"], 1)
+
+    async def test_archived_exact_key_does_not_block_active_merge_create(self):
+        store, _ = add_lt_pending_candidates(
+            normalize_lt_store({
+                "facts": [
+                    {
+                        "id": "F1",
+                        "key": "preferred_model",
+                        "value": "Archived old preference.",
+                        "category": "user_preference",
+                    },
+                ],
+            }),
+            [{
+                "key": "preferred_model",
+                "value": "Current active preference.",
+                "category": "user_preference",
+            }],
+            now="2026-09-06T12:00:00Z",
+        )
+        service_client = FakeServiceClient(
+            json.dumps({
+                "operations": [{
+                    "action": "create",
+                    "pending_id": "PF1",
+                    "key": "preferred_model",
+                    "value": "Current active preference.",
+                    "category": "user_preference",
+                }],
+            }),
+            context_window=8192,
+        )
+        context = RuntimeContext(
+            websocket=None,
+            emitter=FakeEmitter(),
+            logger=FakeLogger(),
+            clients={"service": service_client},
+        )
+        context.runtime_long_term_memory_store = store
+        context.delayed_memory_reports = {
+            "abc123": {
+                "title": "Old model history",
+                "facts_ids": ["F1"],
+            },
+        }
+
+        result = await run_lt_merge_phase(
+            context=context,
+            service_client=service_client,
+        )
+
+        self.assertEqual(result["status"], "completed")
+        payload = json.loads(
+            service_client.calls[0]["user_prompt"]
+        )
+        self.assertEqual(payload["existing_facts"], [])
+        same_key_facts = [
+            fact
+            for fact in context.runtime_long_term_memory_store["facts"]
+            if fact["key"] == "preferred_model"
+        ]
+        self.assertEqual(len(same_key_facts), 2)
+
     def test_merge_protocol_exposes_only_create_update_ignore_merge_actions(self):
         prompt = build_lt_merge_system_prompt()
 
         for action in ("create", "update", "ignore", "merge"):
             self.assertIn(action, prompt)
         self.assertNotIn("reinforce", prompt.casefold())
-        self.assertIn("NEW committed ID", prompt)
-        self.assertIn("source_fact_ids", prompt)
-        self.assertIn("Optional comment", prompt)
+        self.assertIn("atomic plan", prompt)
+        self.assertIn("non-ignore operation", prompt)
+        self.assertIn("examples, not a closed schema", prompt)
+        self.assertIn("invent the most accurate current key", prompt)
+
+    def test_extract_and_merge_share_dynamic_semantic_key_guidance(self):
+        extraction_prompt = build_lt_extraction_system_prompt()
+        merge_prompt = build_lt_merge_system_prompt()
+
+        for prompt in (extraction_prompt, merge_prompt):
+            self.assertIn("generated shapes", prompt)
+            self.assertIn("Generated category examples", prompt)
+            self.assertIn("not a closed schema", prompt)
+            self.assertIn("not classification rules", prompt)
+            self.assertIn("not a closed list", prompt)
+
+    def test_semantic_guidance_builds_dynamic_examples_from_shared_vocabulary(self):
+        rng = random.Random(17)
+        shapes = build_lt_semantic_key_shape_examples(rng=rng)
+        category_examples = build_lt_semantic_category_examples(rng=rng)
+
+        self.assertEqual(len(shapes), 10)
+        self.assertEqual(len(set(shapes)), 10)
+        for shape in shapes:
+            parts = shape.split(".")
+            self.assertIn(parts[0], LT_SEMANTIC_KEY_SCOPE_EXAMPLES)
+            self.assertTrue(2 <= len(parts) <= 4)
+            for topic in parts[1:]:
+                self.assertIn(topic, LT_SEMANTIC_KEY_TOPIC_EXAMPLES)
+
+        self.assertEqual(len(category_examples), 5)
+        self.assertEqual(len(set(category_examples)), 5)
+        semantic_vocabulary = {
+            *LT_SEMANTIC_KEY_SCOPE_EXAMPLES,
+            *LT_SEMANTIC_KEY_TOPIC_EXAMPLES,
+        }
+        for category in category_examples:
+            parts = category.split("_")
+            self.assertEqual(len(parts), 2)
+            self.assertTrue(set(parts) <= semantic_vocabulary)
+
+        expected_rng = random.Random(17)
+        expected_shapes = build_lt_semantic_key_shape_examples(rng=expected_rng)
+        expected_categories = build_lt_semantic_category_examples(rng=expected_rng)
+        guidance = build_lt_semantic_key_guidance(rng=random.Random(17))
+        for shape in expected_shapes:
+            self.assertIn(shape, guidance)
+        for category in expected_categories:
+            self.assertIn(category, guidance)
+
+    def test_open_semantic_categories_are_preserved_in_store(self):
+        store = normalize_lt_store({
+            "facts": [{
+                "id": "F1",
+                "key": "model.performance",
+                "value": "Qwen performs well.",
+                "category": "model_performance",
+            }],
+        })
+
+        self.assertEqual(store["facts"][0]["category"], "model_performance")
+
+    def test_semantic_shape_rotation_eventually_uses_full_shared_vocabulary(self):
+        rng = random.Random(7)
+        seen_segments = set()
+        for _ in range(20):
+            for shape in build_lt_semantic_key_shape_examples(rng=rng):
+                seen_segments.update(shape.split("."))
+
+        self.assertTrue(set(LT_SEMANTIC_KEY_SCOPE_EXAMPLES) <= seen_segments)
+        self.assertTrue(set(LT_SEMANTIC_KEY_TOPIC_EXAMPLES) <= seen_segments)
+
+    def test_lt_service_user_prompts_are_payload_only_json(self):
+        extraction_prompt = build_lt_extraction_user_prompt(
+            pending_fields=[{"key": "model", "content": "Qwen 3.6"}],
+        )
+        merge_prompt = build_lt_merge_user_prompt(
+            existing_facts=[],
+            pending_facts=[{
+                "id": "PF1",
+                "key": "model.preference",
+                "value": "Qwen 3.6 is preferred.",
+                "category": "user_preference",
+            }],
+        )
+
+        self.assertEqual(
+            json.loads(extraction_prompt)["pending_memory_fields"][0]["key"],
+            "model",
+        )
+        self.assertEqual(json.loads(merge_prompt)["pending_facts"][0]["id"], "PF1")
+        self.assertTrue(extraction_prompt.startswith("{"))
+        self.assertTrue(merge_prompt.startswith("{"))
+        self.assertNotIn("facts_memory_fields", json.loads(extraction_prompt))
+
+    def test_extraction_prompt_defines_pending_fields_as_new_source_material(self):
+        prompt = build_lt_extraction_system_prompt()
+
+        self.assertIn("`pending_memory_fields`", prompt)
+        self.assertIn("NEW source fields", prompt)
+        self.assertIn("not existing committed L-T facts", prompt)
+        self.assertIn("merge phase", prompt)
 
     def test_merge_prompt_uses_slim_model_view_without_provenance_metadata(self):
         prompt = build_lt_merge_user_prompt(
@@ -879,8 +1229,8 @@ class LTMemoryTests(unittest.IsolatedAsyncioTestCase):
             "facts": [
                 {
                     "id": f"F{index + 1}",
-                    "key": f"project.fact_{index}",
-                    "value": "Durable project fact " + ("detail " * 20),
+                    "key": f"topic{index // 10}.item_{index}",
+                    "value": "Durable project fact " + ("detail " * 120),
                     "category": "project_fact",
                 }
                 for index in range(50)
@@ -890,7 +1240,7 @@ class LTMemoryTests(unittest.IsolatedAsyncioTestCase):
             normalize_lt_store({"facts": existing_facts}),
             [
                 {
-                    "key": f"project.pending_{index}",
+                    "key": f"topic{index}.pending",
                     "value": "Pending durable fact " + ("detail " * 10),
                     "category": "project_fact",
                 }
@@ -898,7 +1248,7 @@ class LTMemoryTests(unittest.IsolatedAsyncioTestCase):
             ],
             now="2026-08-21T12:00:00Z",
         )
-        selected = store["pending_facts"][:3]
+        selected = store["pending_facts"][:2]
         scan_response = json.dumps({
             "scan": [
                 {
@@ -939,21 +1289,21 @@ class LTMemoryTests(unittest.IsolatedAsyncioTestCase):
         )
 
         self.assertEqual(result["status"], "completed")
-        self.assertEqual(result["batch_count"], 3)
-        self.assertEqual(result["remaining_pending_count"], 2)
+        self.assertEqual(result["batch_count"], 2)
+        self.assertEqual(result["remaining_pending_count"], 3)
         self.assertEqual(len(service_client.calls), 2)
         self.assertEqual(context.runtime_lt_merge_existing_batch_mode, "halves")
-        self.assertEqual(context.runtime_lt_merge_batch_limit, 6)
+        self.assertEqual(context.runtime_lt_merge_batch_limit, 4)
 
         first_payload = json.loads(
-            service_client.calls[0]["user_prompt"].split("\n\n", 1)[1]
+            service_client.calls[0]["user_prompt"]
         )
         second_payload = json.loads(
-            service_client.calls[1]["user_prompt"].split("\n\n", 1)[1]
+            service_client.calls[1]["user_prompt"]
         )
-        self.assertEqual(len(first_payload["existing_facts"]), 25)
-        self.assertEqual(len(second_payload["existing_facts"]), 25)
-        self.assertEqual(len(second_payload["previous_shard_scan"]), 3)
+        self.assertEqual(len(first_payload["existing_facts"]), 6)
+        self.assertEqual(len(second_payload["existing_facts"]), 6)
+        self.assertEqual(len(second_payload["previous_shard_scan"]), 2)
 
     def test_shard_scan_inspection_keeps_valid_rows_when_one_row_is_bad(self):
         inspection = inspect_lt_merge_shard_scan(
@@ -987,23 +1337,23 @@ class LTMemoryTests(unittest.IsolatedAsyncioTestCase):
             "facts": [
                 {
                     "id": f"F{index + 1}",
-                    "key": f"project.fact_{index}",
-                    "value": "Durable project fact " + ("detail " * 20),
+                    "key": f"topic{index // 10}.item_{index}",
+                    "value": "Durable project fact " + ("detail " * 120),
                     "category": "project_fact",
                 }
-                for index in range(50)
+                for index in range(20)
             ],
         })["facts"]
         store, _ = add_lt_pending_candidates(
             normalize_lt_store({"facts": existing_facts}),
             [
                 {
-                    "key": "project.pending_1",
+                    "key": "topic0.pending",
                     "value": "First pending durable fact.",
                     "category": "project_fact",
                 },
                 {
-                    "key": "project.pending_2",
+                    "key": "topic1.pending",
                     "value": "Second pending durable fact.",
                     "category": "project_fact",
                 },
@@ -1064,7 +1414,7 @@ class LTMemoryTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(recovery["repaired_pending_ids"], ["PF1"])
         self.assertNotIn("PF1", context.runtime_lt_merge_deferred_pending_until)
         repair_payload = json.loads(
-            service_client.calls[1]["user_prompt"].split("\n\n", 1)[1]
+            service_client.calls[1]["user_prompt"]
         )
         self.assertEqual(
             [fact["id"] for fact in repair_payload["pending_facts"]],
@@ -1077,23 +1427,23 @@ class LTMemoryTests(unittest.IsolatedAsyncioTestCase):
             "facts": [
                 {
                     "id": f"F{index + 1}",
-                    "key": f"project.fact_{index}",
-                    "value": "Durable project fact " + ("detail " * 20),
+                    "key": f"topic{index // 10}.item_{index}",
+                    "value": "Durable project fact " + ("detail " * 120),
                     "category": "project_fact",
                 }
-                for index in range(50)
+                for index in range(20)
             ],
         })["facts"]
         store, _ = add_lt_pending_candidates(
             normalize_lt_store({"facts": existing_facts}),
             [
                 {
-                    "key": "project.poison",
+                    "key": "topic0.poison",
                     "value": "Difficult pending durable fact.",
                     "category": "project_fact",
                 },
                 {
-                    "key": "project.good",
+                    "key": "topic1.good",
                     "value": "Independent pending durable fact.",
                     "category": "project_fact",
                 },
@@ -1168,7 +1518,7 @@ class LTMemoryTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("PF1", context.runtime_lt_merge_single_retry_pending_ids)
         self.assertEqual(context.runtime_lt_merge_retry_not_before, 0.0)
         final_payload = json.loads(
-            service_client.calls[2]["user_prompt"].split("\n\n", 1)[1]
+            service_client.calls[2]["user_prompt"]
         )
         self.assertEqual(
             [fact["id"] for fact in final_payload["pending_facts"]],
@@ -1197,7 +1547,7 @@ class LTMemoryTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(second["status"], "completed")
         self.assertEqual(len(service_client.calls), 5)
         retry_payload = json.loads(
-            service_client.calls[3]["user_prompt"].split("\n\n", 1)[1]
+            service_client.calls[3]["user_prompt"]
         )
         self.assertEqual(
             [fact["id"] for fact in retry_payload["pending_facts"]],
@@ -1214,8 +1564,8 @@ class LTMemoryTests(unittest.IsolatedAsyncioTestCase):
             "facts": [
                 {
                     "id": f"F{index + 1}",
-                    "key": f"project.fact_{index}",
-                    "value": "Durable project fact " + ("detail " * 20),
+                    "key": f"memory_topic.item_{index}",
+                    "value": "Durable project fact " + ("detail " * 600),
                     "category": "project_fact",
                 }
                 for index in range(100)
@@ -1224,7 +1574,7 @@ class LTMemoryTests(unittest.IsolatedAsyncioTestCase):
         store, _ = add_lt_pending_candidates(
             normalize_lt_store({"facts": existing_facts}),
             [{
-                "key": "project.pending",
+                "key": "memory_topic.pending",
                 "value": "Pending durable fact " + ("detail " * 10),
                 "category": "project_fact",
             }],

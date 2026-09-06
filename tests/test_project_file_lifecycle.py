@@ -59,8 +59,15 @@ class ProjectFileLifecycleTests(unittest.TestCase):
         self.assertIn('<FILE_CONTENT: src/main.py >', prompt)
         self.assertIn('Loaded: 3 files', prompt)
         tools = build_tool_results_context(self.context)
-        for value in ('1: first', '"content":', 'Notice:', 'Result (source data'):
+        for value in ('"content":', 'Notice:', 'Result (source data'):
             self.assertNotIn(value, tools)
+        self.assertIn('1: first', tools)
+        self.assertIn('1: Project overview', tools)
+        first_tool = tools.index('<TOOL_RESULT name="ATTACH_FILE"')
+        first_source = tools.index('<FILE_CONTENT: src/main.py >')
+        first_close = tools.index('</TOOL_RESULT>', first_tool)
+        self.assertLess(first_tool, first_source)
+        self.assertLess(first_source, first_close)
         self.assertIn('Read: 1-4 of 4 lines', tools)
         events = [e for e in self.context.emitter.events if e.get('attachment_result')]
         self.assertEqual(len(events), 2)
@@ -168,6 +175,55 @@ class ProjectFileLifecycleTests(unittest.TestCase):
         self.assertNotIn('Project overview', build_file_contents_context(self.context))
         self.assertIn('3: third', build_file_contents_context(self.context))
         self.assertTrue((self.project / 'README.md').is_file())
+
+    def test_detach_replaces_only_matching_source_block_with_timestamp(self):
+        timestamp = '2026-09-06T19:11:12Z'
+        self.call(f'<ATTACH_FILE: {self.ref()}#L2-L3 >')
+        before = build_tool_results_context(self.context)
+        self.assertIn('<FILE_CONTENT: src/main.py >', before)
+        self.assertIn('2: needle = 42', before)
+
+        with patch('utils.actions.attachment_actions.utc_now_iso', return_value=timestamp):
+            result = self.call(f'<DETACH_FILE: {self.ref()}#L2-L3 >')
+
+        self.assertTrue(result['ok'])
+        after = build_tool_results_context(self.context)
+        self.assertNotIn('<FILE_CONTENT: src/main.py >', after)
+        self.assertNotIn('2: needle = 42', after)
+        self.assertIn('<TOOL_RESULT name="ATTACH_FILE"', after)
+        self.assertIn('<TOOL_RESULT name="DETACH_FILE"', after)
+        self.assertIn(f'Status: detached at {timestamp}', after)
+        self.assertIn('Lines: L2-L3', after)
+
+    def test_detach_range_targets_one_block_and_bare_file_targets_all_blocks(self):
+        base = {
+            'action': 'attach_file',
+            'attachment': self.record['id'],
+            'path': 'src/main.py',
+            'file_ref': self.ref(),
+            'source': 'project',
+            'project_name': self.project.name,
+            'ok': True,
+            'loaded': True,
+        }
+        first = {**base, 'requested_start': 1, 'requested_end': 2,
+                 'range': '1-2 of 4 lines', 'content': '1: first\n2: needle = 42'}
+        second = {**base, 'requested_start': 3, 'requested_end': 4,
+                  'range': '3-4 of 4 lines', 'content': '3: third\n4: fourth'}
+        record_runtime_tool_result(self.context, 'files', first)
+        record_runtime_tool_result(self.context, 'files', second)
+
+        with patch('utils.actions.attachment_actions.utc_now_iso', return_value='2026-09-06T19:12:00Z'):
+            self.call(f'<DETACH_FILE: {self.ref()}#L1-L2 >')
+        tools = build_tool_results_context(self.context)
+        self.assertNotIn('1: first', tools)
+        self.assertIn('3: third', tools)
+
+        with patch('utils.actions.attachment_actions.utc_now_iso', return_value='2026-09-06T19:13:00Z'):
+            self.call(f'<DETACH_FILE: {self.ref()} >')
+        tools = build_tool_results_context(self.context)
+        self.assertNotIn('3: third', tools)
+        self.assertGreaterEqual(tools.count('Status: detached at '), 2)
 
     def test_legacy_read_uses_same_unload_and_dedupe_path(self):
         marker = '<ASSET_ACTION>' + json.dumps({'action':'project_read', 'attachment':self.record['id'], 'path':'src/main.py'}) + '</ASSET_ACTION>'

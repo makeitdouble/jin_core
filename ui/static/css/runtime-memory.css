@@ -1855,6 +1855,72 @@ button.jin-context-lt-fact-id.is-linked:focus-visible {
     }
 }
 
+/* L-T model requests: same collapsible card language as the context viewer,
+   with request payloads split into readable records instead of raw JSON. */
+.jin-lt-request-trace-modal .delayed-memory-modal-panel {
+    width: min(1260px, calc(100vw - 40px));
+    max-width: 1260px;
+}
+
+.jin-lt-request-trace-modal .delayed-memory-modal-content {
+    padding: 14px;
+    background:
+            radial-gradient(circle at 18% 0%, rgba(56, 189, 248, 0.028), transparent 32%),
+            linear-gradient(180deg, rgba(24, 24, 27, 0.22), rgba(9, 9, 11, 0.02));
+}
+
+.jin-lt-request-overview {
+    margin-bottom: 8px;
+}
+
+.jin-lt-request-stack {
+    gap: 10px;
+}
+
+.jin-lt-request-record-stack {
+    gap: 7px;
+}
+
+.jin-lt-request-group-card > .jin-context-card-body {
+    padding: 8px;
+}
+
+.jin-lt-request-record-card .jin-context-card-header {
+    min-height: 35px;
+    padding-top: 6px;
+    padding-bottom: 6px;
+}
+
+.jin-lt-request-record-card .jin-context-card-body {
+    padding-top: 7px;
+    padding-bottom: 7px;
+}
+
+.jin-lt-request-record-card .delayed-memory-modal-field {
+    grid-template-columns: minmax(118px, 0.18fr) minmax(0, 1fr);
+    gap: 12px;
+    padding-top: 7px;
+    padding-bottom: 7px;
+}
+
+.jin-lt-request-record-card .delayed-memory-modal-value {
+    line-height: 1.55;
+}
+
+.jin-lt-request-empty {
+    border: 1px dashed rgba(63, 63, 70, 0.56);
+    border-radius: 6px;
+    background: rgba(9, 9, 11, 0.28);
+    padding: 14px 10px;
+}
+
+@media (max-width: 760px) {
+    .jin-lt-request-record-card .delayed-memory-modal-field {
+        grid-template-columns: 1fr;
+        gap: 4px;
+    }
+}
+
 /* L-T merge result: compact operation cards with intensity-scaled green diffs. */
 .jin-lt-merge-trace-modal .delayed-memory-modal-panel {
     width: min(1260px, calc(100vw - 40px));

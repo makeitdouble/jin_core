@@ -22,6 +22,7 @@ from utils.tool_results import (
     TOOL_RESULT_KIND_FILES,
     record_runtime_tool_result,
 )
+from utils.time_utils import utc_now_iso
 from runtime.anonymous_mode import persistent_writes_restricted
 
 
@@ -50,9 +51,13 @@ def apply_attachment_context_ids(context, ids: list[str], *, attachments=None) -
             normalized.append(file_id)
         if len(normalized) >= MAX_ATTACHED_FILES:
             break
-    from utils.context.files import unload_project_files
+    from utils.context.files import (
+        unload_persistent_file_results,
+        unload_project_files,
+    )
     for removed in set(getattr(context, "runtime_attached_file_ids", []) or []) - set(normalized):
         unload_project_files(context, removed)
+        unload_persistent_file_results(context, removed)
     if attachments is None:
         attachments = hydrate_attachment_ids(normalized)
     context.runtime_attached_file_ids = normalized
@@ -118,7 +123,11 @@ async def apply_attachment_actions(
     context, *, list_actions, attach_actions, detach_actions,
     ordered_actions=None, log_runtime=None, with_action_context=lambda payload: payload,
 ) -> list[dict]:
-    from utils.context.files import loaded_file_ref, unload_project_files
+    from utils.context.files import (
+        loaded_file_ref,
+        unload_persistent_file_results,
+        unload_project_files,
+    )
     results = []
     active_ids = _active_ids(context)
     restricted_writes = persistent_writes_restricted(context)
@@ -152,8 +161,53 @@ async def apply_attachment_actions(
                 from pathlib import PurePosixPath
                 path = str(PurePosixPath(target["path"].replace("\\", "/")))
                 ref = f"{target['attachment']}/{path}"
-                unloaded = unload_project_files(context, ref)
-                result.update(id=ref, name=path, ok=unloaded, unloaded=unloaded)
+                requested_start = target.get("start")
+                requested_end = target.get("end")
+                if requested_start is not None:
+                    try:
+                        requested_start = int(requested_start)
+                        requested_end = int(
+                            requested_end
+                            if requested_end is not None
+                            else requested_start + 199
+                        )
+                    except (TypeError, ValueError):
+                        requested_start = requested_end = None
+                    if (
+                        requested_start is None
+                        or requested_start < 1
+                        or requested_end < requested_start
+                        or requested_end > requested_start + 399
+                    ):
+                        result.update(
+                            error="invalid_file_reference",
+                            detail="Line range must be positive and contain at most 400 lines",
+                        )
+                        record_runtime_tool_result(context, TOOL_RESULT_KIND_FILES, result)
+                        results.append(result)
+                        continue
+
+                detached_at = utc_now_iso()
+                unloaded = unload_project_files(
+                    context,
+                    ref,
+                    start=requested_start,
+                    end=requested_end,
+                    detached_at=detached_at,
+                )
+                result.update(
+                    id=ref,
+                    name=path,
+                    ok=unloaded,
+                    unloaded=unloaded,
+                )
+                if requested_start is not None:
+                    result.update(
+                        requested_start=requested_start,
+                        requested_end=requested_end,
+                    )
+                if unloaded:
+                    result["detached_at"] = detached_at
                 if not unloaded:
                     result.update(error="file_not_loaded", detail="File is not loaded; nothing to unload")
             else:
@@ -164,12 +218,29 @@ async def apply_attachment_actions(
             result["error"] = "file_not_found"
         elif detaching:
             was_loaded = file_id in active_ids
+            detached_at = utc_now_iso()
             active_ids = [value for value in active_ids if value != file_id]
-            unload_project_files(context, file_id)
+            unloaded_project_body = unload_project_files(
+                context,
+                file_id,
+                detached_at=detached_at,
+            )
+            unloaded_file_body = unload_persistent_file_results(
+                context,
+                file_id,
+                detached_at=detached_at,
+            )
             if not restricted_writes:
                 set_file_pinned(file_id, False)
             apply_attachment_context_ids(context, active_ids)
-            result.update(ok=True, id=file_id, name=record["name"], unloaded=was_loaded)
+            unloaded = bool(
+                was_loaded
+                or unloaded_project_body
+                or unloaded_file_body
+            )
+            result.update(ok=True, id=file_id, name=record["name"], unloaded=unloaded)
+            if unloaded:
+                result["detached_at"] = detached_at
         else:
             existing = loaded_file_ref(context, reference=file_id, sha256=record.get("sha256", ""))
             if existing:

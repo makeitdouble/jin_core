@@ -5,6 +5,8 @@ from runtime.fact_sources import normalize_sources, merge_sources
 from datetime import datetime, timezone
 import hashlib
 import json
+import math
+import random
 import re
 from xml.sax.saxutils import escape
 
@@ -12,6 +14,10 @@ from runtime.LT_memory_rules import (
     LT_EXTRACTION_SYSTEM_PROMPT,
     LT_MERGE_SYSTEM_PROMPT,
     LT_JIN_NOTE_SYSTEM_PROMPT,
+    LT_SEMANTIC_CATEGORY_EXAMPLE_COUNT,
+    LT_SEMANTIC_GUIDANCE_EXAMPLE_COUNT,
+    LT_SEMANTIC_KEY_SCOPE_EXAMPLES,
+    LT_SEMANTIC_KEY_TOPIC_EXAMPLES,
 )
 from utils.time_utils import (
     utc_now_iso,
@@ -38,15 +44,6 @@ LT_LEGACY_FACT_ID_RE = re.compile(r"^lt_[a-z0-9_-]+$", re.IGNORECASE)
 LT_LEGACY_PENDING_FACT_ID_RE = re.compile(r"^ltp_[a-z0-9_-]+$", re.IGNORECASE)
 LT_FIELD_STATUS_PENDING = "pending"
 LT_FIELD_STATUS_ANALYZED = "analyzed"
-LT_ALLOWED_CATEGORIES = {
-    "user_fact",
-    "user_preference",
-    "project_fact",
-    "project_decision",
-    "persistent_constraint",
-    "environment",
-    "other",
-}
 LT_ALLOWED_MERGE_ACTIONS = {
     "create",
     "update",
@@ -65,6 +62,117 @@ LT_FACT_REASONING_REFERENCE_RE = re.compile(
     re.IGNORECASE,
 )
 LT_SENTENCE_SPLIT_RE = re.compile(r"(?<=[.!?…])\s+")
+
+# L-T merge retrieval is intentionally key-only. These are structural
+# namespace tokens, not topic words; letting them dominate similarity would
+# make unrelated ``user.*`` / ``project.*`` facts look relevant.
+LT_MERGE_KEY_STRUCTURAL_TOKENS = {
+    "context",
+    "fact",
+    "jin",
+    "other",
+    "project",
+    "state",
+    "user",
+}
+LT_MERGE_RETRIEVAL_TOP_K_PER_PENDING = 6
+LT_MERGE_RETRIEVAL_HARD_CAP = 24
+LT_MERGE_RETRIEVAL_CATEGORY_BONUS = 0.04
+
+
+def build_lt_semantic_key_shape_examples(
+    *,
+    count: int = LT_SEMANTIC_GUIDANCE_EXAMPLE_COUNT,
+    rng=None,
+) -> tuple[str, ...]:
+    """Build varied key-shape examples from the shared semantic vocabulary."""
+    if count <= 0:
+        return ()
+
+    picker = rng or random
+    scopes = list(LT_SEMANTIC_KEY_SCOPE_EXAMPLES)
+    topics = list(LT_SEMANTIC_KEY_TOPIC_EXAMPLES)
+    picker.shuffle(scopes)
+
+    examples: list[str] = []
+    seen: set[str] = set()
+    attempts = 0
+    max_attempts = max(40, count * 20)
+
+    # Cycle shuffled scopes so a small sample does not keep biasing toward the
+    # same namespace; topic segments are redrawn on every prompt build.
+    while len(examples) < count and attempts < max_attempts:
+        scope = scopes[len(examples) % len(scopes)]
+        topic_count = picker.choice((1, 2, 2, 3))
+        available_topics = [topic for topic in topics if topic != scope]
+        parts = [scope, *picker.sample(available_topics, k=topic_count)]
+        shape = ".".join(parts)
+        attempts += 1
+        if shape in seen:
+            continue
+        seen.add(shape)
+        examples.append(shape)
+
+    return tuple(examples)
+
+
+def build_lt_semantic_category_examples(
+    *,
+    count: int = LT_SEMANTIC_CATEGORY_EXAMPLE_COUNT,
+    rng=None,
+) -> tuple[str, ...]:
+    """Build varied category examples from the same shared key vocabulary."""
+    if count <= 0:
+        return ()
+
+    picker = rng or random
+    vocabulary = list(dict.fromkeys((
+        *LT_SEMANTIC_KEY_SCOPE_EXAMPLES,
+        *LT_SEMANTIC_KEY_TOPIC_EXAMPLES,
+    )))
+    if not vocabulary:
+        return ()
+
+    examples: list[str] = []
+    seen: set[str] = set()
+    attempts = 0
+    max_attempts = max(40, count * 20)
+
+    while len(examples) < count and attempts < max_attempts:
+        attempts += 1
+        part_count = 2 if len(vocabulary) > 1 else 1
+        parts = picker.sample(vocabulary, k=part_count)
+        category = "_".join(parts)
+        if category in seen:
+            continue
+        seen.add(category)
+        examples.append(category)
+
+    return tuple(examples)
+
+
+def build_lt_semantic_key_guidance(*, rng=None) -> str:
+    scopes = ", ".join(LT_SEMANTIC_KEY_SCOPE_EXAMPLES)
+    topics = ", ".join(LT_SEMANTIC_KEY_TOPIC_EXAMPLES)
+    shapes = ", ".join(
+        build_lt_semantic_key_shape_examples(rng=rng)
+    )
+    category_examples = ", ".join(
+        build_lt_semantic_category_examples(rng=rng)
+    )
+    return (
+        "Semantic keys: prefer concise lowercase dot-separated keys, usually "
+        "2-4 segments. The vocabulary provides generated examples, not a closed "
+        "schema: "
+        f"scopes [{scopes}]; topics [{topics}]; generated shapes [{shapes}]. "
+        "Reuse familiar segments when they fit; otherwise invent the most accurate "
+        "current key. Never force a fact into an example. "
+        "Categories are also open semantic labels: prefer concise lowercase "
+        "snake_case names. Generated category examples: "
+        f"[{category_examples}]. These are examples, not classification rules and "
+        "not a closed list; invent a more accurate category when the situation "
+        "calls for it."
+    )
 
 
 def infer_lt_jin_note_action(
@@ -118,24 +226,20 @@ def lt_jin_note_requests_new_fact(message: str) -> bool:
 
 
 def build_lt_extraction_system_prompt() -> str:
-    return LT_EXTRACTION_SYSTEM_PROMPT
+    return f"{LT_EXTRACTION_SYSTEM_PROMPT}\n\n{build_lt_semantic_key_guidance()}"
 
 
 def build_lt_extraction_user_prompt(*, pending_fields: list[dict]) -> str:
-    return (
-        "Extract permanent-memory candidates from all pending Facts Memory "
-        "fields below.\n\n"
-        + json.dumps(
-            {"facts_memory_fields": pending_fields},
-            ensure_ascii=False,
-            indent=2,
-            sort_keys=True,
-        )
+    return json.dumps(
+        {"pending_memory_fields": pending_fields},
+        ensure_ascii=False,
+        separators=(",", ":"),
+        sort_keys=True,
     )
 
 
 def build_lt_merge_system_prompt() -> str:
-    return LT_MERGE_SYSTEM_PROMPT
+    return f"{LT_MERGE_SYSTEM_PROMPT}\n\n{build_lt_semantic_key_guidance()}"
 
 
 def build_lt_jin_note_system_prompt() -> str:
@@ -224,32 +328,28 @@ def build_lt_merge_user_prompt(
         if isinstance(fact, dict)
     ]
 
-    return (
-        "Consolidate this pending batch into the current long-term memory. "
-        "Return exactly one operation for every pending_id in this request.\n\n"
-        + json.dumps(
-            {
-                "existing_facts": model_existing_facts,
-                "pending_facts": model_pending_facts,
-                "exact_key_conflicts": collect_lt_exact_key_conflicts(
-                    existing_facts=existing_facts,
-                    pending_facts=pending_facts,
-                ),
-                "protected_fact_ids": [
-                    fact_id
-                    for fact_id in normalize_lt_string_list(protected_fact_ids)
-                    if normalize_lt_id(fact_id, pending=False)
-                ],
-                **(
-                    {"repair": repair_context}
-                    if isinstance(repair_context, dict) and repair_context
-                    else {}
-                ),
-            },
-            ensure_ascii=False,
-            separators=(",", ":"),
-            sort_keys=True,
-        )
+    return json.dumps(
+        {
+            "existing_facts": model_existing_facts,
+            "pending_facts": model_pending_facts,
+            "exact_key_conflicts": collect_lt_exact_key_conflicts(
+                existing_facts=existing_facts,
+                pending_facts=pending_facts,
+            ),
+            "protected_fact_ids": [
+                fact_id
+                for fact_id in normalize_lt_string_list(protected_fact_ids)
+                if normalize_lt_id(fact_id, pending=False)
+            ],
+            **(
+                {"repair": repair_context}
+                if isinstance(repair_context, dict) and repair_context
+                else {}
+            ),
+        },
+        ensure_ascii=False,
+        separators=(",", ":"),
+        sort_keys=True,
     )
 
 
@@ -304,35 +404,32 @@ def build_lt_merge_shard_scan_user_prompt(
     protected_fact_ids=(),
     repair_context: dict | None = None,
 ) -> str:
-    return (
-        "Scan this committed-memory shard against every pending candidate.\n\n"
-        + json.dumps(
-            {
-                "existing_facts": [
-                    build_lt_merge_model_fact(fact)
-                    for fact in existing_facts
-                    if isinstance(fact, dict)
-                ],
-                "pending_facts": [
-                    build_lt_merge_model_fact(fact)
-                    for fact in pending_facts
-                    if isinstance(fact, dict)
-                ],
-                "protected_fact_ids": [
-                    fact_id
-                    for fact_id in normalize_lt_string_list(protected_fact_ids)
-                    if normalize_lt_id(fact_id, pending=False)
-                ],
-                **(
-                    {"repair": repair_context}
-                    if isinstance(repair_context, dict) and repair_context
-                    else {}
-                ),
-            },
-            ensure_ascii=False,
-            separators=(",", ":"),
-            sort_keys=True,
-        )
+    return json.dumps(
+        {
+            "existing_facts": [
+                build_lt_merge_model_fact(fact)
+                for fact in existing_facts
+                if isinstance(fact, dict)
+            ],
+            "pending_facts": [
+                build_lt_merge_model_fact(fact)
+                for fact in pending_facts
+                if isinstance(fact, dict)
+            ],
+            "protected_fact_ids": [
+                fact_id
+                for fact_id in normalize_lt_string_list(protected_fact_ids)
+                if normalize_lt_id(fact_id, pending=False)
+            ],
+            **(
+                {"repair": repair_context}
+                if isinstance(repair_context, dict) and repair_context
+                else {}
+            ),
+        },
+        ensure_ascii=False,
+        separators=(",", ":"),
+        sort_keys=True,
     )
 
 
@@ -513,50 +610,42 @@ def build_lt_merge_shard_finalize_user_prompt(
     protected_fact_ids=(),
     repair_context: dict | None = None,
 ) -> str:
-    return (
-        "Finalize this pending batch after an earlier L-T shard scan. "
-        "existing_facts is the remaining committed-memory shard. "
-        "previous_shard_scan summarizes the first shard, and "
-        "previous_shard_facts contains every committed fact explicitly "
-        "referenced by that scan. Consider both shards together and return "
-        "exactly one normal L-T merge operation for every pending_id.\n\n"
-        + json.dumps(
-            {
-                "existing_facts": [
-                    build_lt_merge_model_fact(fact)
-                    for fact in existing_facts
-                    if isinstance(fact, dict)
-                ],
-                "pending_facts": [
-                    build_lt_merge_model_fact(fact)
-                    for fact in pending_facts
-                    if isinstance(fact, dict)
-                ],
-                "previous_shard_scan": previous_shard_scan,
-                "previous_shard_facts": [
-                    build_lt_merge_model_fact(fact)
-                    for fact in previous_shard_facts
-                    if isinstance(fact, dict)
-                ],
-                "exact_key_conflicts": collect_lt_exact_key_conflicts(
-                    existing_facts=all_existing_facts,
-                    pending_facts=pending_facts,
-                ),
-                "protected_fact_ids": [
-                    fact_id
-                    for fact_id in normalize_lt_string_list(protected_fact_ids)
-                    if normalize_lt_id(fact_id, pending=False)
-                ],
-                **(
-                    {"repair": repair_context}
-                    if isinstance(repair_context, dict) and repair_context
-                    else {}
-                ),
-            },
-            ensure_ascii=False,
-            separators=(",", ":"),
-            sort_keys=True,
-        )
+    return json.dumps(
+        {
+            "existing_facts": [
+                build_lt_merge_model_fact(fact)
+                for fact in existing_facts
+                if isinstance(fact, dict)
+            ],
+            "pending_facts": [
+                build_lt_merge_model_fact(fact)
+                for fact in pending_facts
+                if isinstance(fact, dict)
+            ],
+            "previous_shard_scan": previous_shard_scan,
+            "previous_shard_facts": [
+                build_lt_merge_model_fact(fact)
+                for fact in previous_shard_facts
+                if isinstance(fact, dict)
+            ],
+            "exact_key_conflicts": collect_lt_exact_key_conflicts(
+                existing_facts=all_existing_facts,
+                pending_facts=pending_facts,
+            ),
+            "protected_fact_ids": [
+                fact_id
+                for fact_id in normalize_lt_string_list(protected_fact_ids)
+                if normalize_lt_id(fact_id, pending=False)
+            ],
+            **(
+                {"repair": repair_context}
+                if isinstance(repair_context, dict) and repair_context
+                else {}
+            ),
+        },
+        ensure_ascii=False,
+        separators=(",", ":"),
+        sort_keys=True,
     )
 
 
@@ -577,6 +666,314 @@ def collect_lt_shard_scan_referenced_facts(
         if isinstance(fact, dict)
         and normalize_lt_id(fact.get("id"), pending=False) in referenced_ids
     ]
+
+
+def tokenize_lt_merge_key(value) -> tuple[str, ...]:
+    """Return stable semantic-ish tokens for cheap L-T key retrieval.
+
+    Values are deliberately never inspected here. The matcher works only on
+    canonical fact keys and uses the active L-T key distribution to decide how
+    informative each token is.
+    """
+
+    key = normalize_lt_key(value)
+    if not key:
+        return ()
+
+    tokens = []
+    seen = set()
+    for raw_token in re.split(r"[._-]+", key):
+        token = normalize_lt_text(raw_token).casefold()
+        if not token or token in LT_MERGE_KEY_STRUCTURAL_TOKENS:
+            continue
+
+        # A tiny morphology normalization is enough for the key vocabulary we
+        # generate (model/models, interaction/interactions, etc.) without
+        # turning this into another fuzzy-string matcher.
+        if len(token) > 4 and token.endswith("ies"):
+            token = token[:-3] + "y"
+        elif len(token) > 4 and token.endswith("s") and not token.endswith("ss"):
+            token = token[:-1]
+
+        if token and token not in seen:
+            seen.add(token)
+            tokens.append(token)
+
+    return tuple(tokens)
+
+
+def select_lt_merge_existing_facts(
+    existing_facts: list[dict],
+    pending_facts: list[dict],
+    *,
+    top_k_per_pending: int = LT_MERGE_RETRIEVAL_TOP_K_PER_PENDING,
+    hard_cap: int = LT_MERGE_RETRIEVAL_HARD_CAP,
+) -> list[dict]:
+    """Retrieve a bounded committed-fact shortlist from keys only.
+
+    Ranking is binary TF-IDF cosine similarity over normalized key tokens,
+    with a small same-category bonus when the pending category is specific.
+    Exact normalized-key matches are mandatory. Zero-overlap facts are never
+    padded into the result, and conservative default caps keep generic key
+    segments from flooding the merge prompt.
+    """
+
+    facts = [fact for fact in existing_facts if isinstance(fact, dict)]
+    pending = [fact for fact in pending_facts if isinstance(fact, dict)]
+    if not facts or not pending:
+        return []
+
+    try:
+        per_pending_limit = max(1, int(top_k_per_pending))
+    except (TypeError, ValueError):
+        per_pending_limit = LT_MERGE_RETRIEVAL_TOP_K_PER_PENDING
+    try:
+        global_limit = max(1, int(hard_cap))
+    except (TypeError, ValueError):
+        global_limit = LT_MERGE_RETRIEVAL_HARD_CAP
+
+    fact_rows = []
+    document_frequency: dict[str, int] = {}
+    for index, fact in enumerate(facts):
+        key = normalize_lt_key(fact.get("key"))
+        tokens = set(tokenize_lt_merge_key(key))
+        fact_rows.append((index, fact, key, tokens))
+        for token in tokens:
+            document_frequency[token] = document_frequency.get(token, 0) + 1
+
+    total_documents = max(1, len(fact_rows))
+
+    def token_weight(token: str) -> float:
+        # Smoothed IDF: common words remain usable but rare words carry much
+        # more discriminative weight. The active pool itself defines "common".
+        return math.log(
+            (total_documents + 1) / (document_frequency.get(token, 0) + 1)
+        ) + 1.0
+
+    selected_stats: dict[str, dict] = {}
+    exact_ids = set()
+
+    for pending_index, pending_fact in enumerate(pending):
+        pending_key = normalize_lt_key(pending_fact.get("key"))
+        pending_category = normalize_lt_category(pending_fact.get("category"))
+        pending_tokens = set(tokenize_lt_merge_key(pending_key))
+        pending_weight_sq = sum(
+            token_weight(token) ** 2
+            for token in pending_tokens
+        )
+        ranked = []
+
+        for fact_index, fact, fact_key, fact_tokens in fact_rows:
+            fact_id = normalize_lt_id(fact.get("id"), pending=False)
+            if not fact_id:
+                continue
+
+            exact = bool(pending_key and fact_key == pending_key)
+            overlap = pending_tokens.intersection(fact_tokens)
+            if not exact and not overlap:
+                continue
+
+            if exact:
+                score = float("inf")
+                exact_ids.add(fact_id)
+            else:
+                overlap_dot = sum(
+                    token_weight(token) ** 2
+                    for token in overlap
+                )
+                fact_weight_sq = sum(
+                    token_weight(token) ** 2
+                    for token in fact_tokens
+                )
+                denominator = math.sqrt(
+                    max(pending_weight_sq, 0.0) * max(fact_weight_sq, 0.0)
+                )
+                score = overlap_dot / denominator if denominator else 0.0
+                fact_category = normalize_lt_category(fact.get("category"))
+                if (
+                    pending_category != "other"
+                    and fact_category == pending_category
+                ):
+                    score += LT_MERGE_RETRIEVAL_CATEGORY_BONUS
+
+            ranked.append((exact, score, fact_index, fact_id, fact))
+
+        ranked.sort(
+            key=lambda row: (
+                not row[0],
+                -row[1],
+                row[2],
+            )
+        )
+        for rank, (exact, score, fact_index, fact_id, fact) in enumerate(
+            ranked[:per_pending_limit],
+            start=1,
+        ):
+            stats = selected_stats.setdefault(
+                fact_id,
+                {
+                    "fact": fact,
+                    "fact_index": fact_index,
+                    "exact": False,
+                    "best_score": 0.0,
+                    "best_rank": rank,
+                    "pending_hits": 0,
+                    "first_pending_index": pending_index,
+                },
+            )
+            stats["exact"] = bool(stats["exact"] or exact)
+            stats["best_score"] = max(stats["best_score"], score)
+            stats["best_rank"] = min(stats["best_rank"], rank)
+            stats["pending_hits"] += 1
+            stats["first_pending_index"] = min(
+                stats["first_pending_index"],
+                pending_index,
+            )
+
+    # Exact key owners are mandatory even when one key has more owners than
+    # top-K. This preserves key-collision visibility inside the active scope.
+    for fact_index, fact, fact_key, _fact_tokens in fact_rows:
+        fact_id = normalize_lt_id(fact.get("id"), pending=False)
+        if not fact_id or not any(
+            fact_key == normalize_lt_key(item.get("key"))
+            for item in pending
+        ):
+            continue
+        exact_ids.add(fact_id)
+        stats = selected_stats.setdefault(
+            fact_id,
+            {
+                "fact": fact,
+                "fact_index": fact_index,
+                "exact": True,
+                "best_score": float("inf"),
+                "best_rank": 0,
+                "pending_hits": 1,
+                "first_pending_index": 0,
+            },
+        )
+        stats["exact"] = True
+        stats["best_score"] = float("inf")
+        stats["best_rank"] = 0
+
+    mandatory = [
+        stats
+        for fact_id, stats in selected_stats.items()
+        if fact_id in exact_ids
+    ]
+    optional = [
+        stats
+        for fact_id, stats in selected_stats.items()
+        if fact_id not in exact_ids
+    ]
+    mandatory.sort(key=lambda item: item["fact_index"])
+    optional.sort(
+        key=lambda item: (
+            -item["best_score"],
+            -item["pending_hits"],
+            item["best_rank"],
+            item["first_pending_index"],
+            item["fact_index"],
+        )
+    )
+
+    result_stats = list(mandatory)
+    effective_limit = max(global_limit, len(result_stats))
+    for stats in optional:
+        if len(result_stats) >= effective_limit:
+            break
+        result_stats.append(stats)
+
+    return [stats["fact"] for stats in result_stats]
+
+
+def build_lt_retrieved_double_batch_plan(
+    *,
+    existing_facts: list[dict],
+    pending_facts: list[dict],
+    system_prompt: str,
+    runtime_context_window: int,
+    requested_max_tokens: int | None,
+    runtime_output_reserve: int = 256,
+    protected_fact_ids=(),
+    max_batch_count: int | None = None,
+    top_k_per_pending: int = LT_MERGE_RETRIEVAL_TOP_K_PER_PENDING,
+    hard_cap: int = LT_MERGE_RETRIEVAL_HARD_CAP,
+) -> dict:
+    """Find the largest FIFO pending prefix that fits with its own shortlist."""
+
+    facts = [fact for fact in existing_facts if isinstance(fact, dict)]
+    queue = [fact for fact in pending_facts if isinstance(fact, dict)]
+    try:
+        configured_limit = max(0, int(max_batch_count or 0))
+    except (TypeError, ValueError):
+        configured_limit = 0
+    if configured_limit:
+        queue = queue[:configured_limit]
+
+    if not queue:
+        return build_lt_double_batch_plan(
+            existing_facts=[],
+            pending_facts=[],
+            system_prompt=system_prompt,
+            runtime_context_window=runtime_context_window,
+            requested_max_tokens=requested_max_tokens,
+            runtime_output_reserve=runtime_output_reserve,
+            protected_fact_ids=protected_fact_ids,
+            max_batch_count=max_batch_count,
+        )
+
+    best_plan = None
+    first_failed_plan = None
+    for batch_count in range(1, len(queue) + 1):
+        candidate_pending = queue[:batch_count]
+        retrieved_facts = select_lt_merge_existing_facts(
+            facts,
+            candidate_pending,
+            top_k_per_pending=top_k_per_pending,
+            hard_cap=hard_cap,
+        )
+        retrieved_ids = {
+            normalize_lt_id(fact.get("id"), pending=False)
+            for fact in retrieved_facts
+            if normalize_lt_id(fact.get("id"), pending=False)
+        }
+        relevant_protected_ids = [
+            fact_id
+            for fact_id in normalize_lt_string_list(protected_fact_ids)
+            if normalize_lt_id(fact_id, pending=False) in retrieved_ids
+        ]
+        plan = build_lt_double_batch_plan(
+            existing_facts=retrieved_facts,
+            pending_facts=candidate_pending,
+            system_prompt=system_prompt,
+            runtime_context_window=runtime_context_window,
+            requested_max_tokens=requested_max_tokens,
+            runtime_output_reserve=runtime_output_reserve,
+            protected_fact_ids=relevant_protected_ids,
+            max_batch_count=batch_count,
+        )
+        plan["retrieved_existing_facts"] = retrieved_facts
+        plan["retrieved_existing_fact_ids"] = [
+            normalize_lt_id(fact.get("id"), pending=False)
+            for fact in retrieved_facts
+            if normalize_lt_id(fact.get("id"), pending=False)
+        ]
+        plan["retrieval"] = {
+            "active_pool_count": len(facts),
+            "selected_existing_count": len(retrieved_facts),
+            "top_k_per_pending": max(1, int(top_k_per_pending)),
+            "hard_cap": max(1, int(hard_cap)),
+        }
+
+        if plan.get("fits") and int(plan.get("batch_count") or 0) == batch_count:
+            best_plan = plan
+            continue
+
+        first_failed_plan = plan
+        break
+
+    return best_plan or first_failed_plan or {}
 
 
 def build_lt_merge_model_fact(fact: dict) -> dict:
@@ -1023,8 +1420,7 @@ def is_lt_fact_reference_memory_key(value) -> bool:
 
 
 def normalize_lt_category(value) -> str:
-    category = normalize_lt_key(value)
-    return category if category in LT_ALLOWED_CATEGORIES else "other"
+    return normalize_lt_key(value) or "other"
 
 
 def normalize_lt_string_list(value) -> list[str]:
@@ -2187,12 +2583,37 @@ def validate_lt_merge_operations(
     operations: list[dict],
     *,
     pending_ids: list[str] | None = None,
+    allowed_fact_ids=None,
+    collision_fact_ids=None,
 ) -> tuple[bool, str]:
     normalized_store = normalize_lt_store(store)
     pending = normalized_store["pending_facts"]
     all_pending_ids = {fact["id"] for fact in pending}
     facts = normalized_store["facts"]
     fact_ids = {fact["id"] for fact in facts}
+    allowed_ids = (
+        {
+            normalize_lt_id(fact_id, pending=False)
+            for fact_id in normalize_lt_string_list(allowed_fact_ids)
+            if normalize_lt_id(fact_id, pending=False)
+        }
+        if allowed_fact_ids is not None
+        else set(fact_ids)
+    )
+    collision_ids = (
+        {
+            normalize_lt_id(fact_id, pending=False)
+            for fact_id in normalize_lt_string_list(collision_fact_ids)
+            if normalize_lt_id(fact_id, pending=False)
+        }
+        if collision_fact_ids is not None
+        else set(fact_ids)
+    )
+    collision_facts = [
+        fact
+        for fact in facts
+        if fact.get("id") in collision_ids
+    ]
 
     if pending_ids is None:
         expected_pending_ids = all_pending_ids
@@ -2217,8 +2638,6 @@ def validate_lt_merge_operations(
         final_category = normalize_lt_key(operation.get("category"))
         if not final_key or not final_value or not final_category:
             return False, f"{prefix}_requires_canonical_fact", ""
-        if final_category not in LT_ALLOWED_CATEGORIES:
-            return False, f"{prefix}_invalid_category", ""
         return True, "", final_key
 
     for operation in operations:
@@ -2241,7 +2660,7 @@ def validate_lt_merge_operations(
             )
             if not valid:
                 return False, reason
-            if any(fact.get("key") == final_key for fact in facts):
+            if any(fact.get("key") == final_key for fact in collision_facts):
                 return False, "create_key_already_exists"
             continue
 
@@ -2249,6 +2668,8 @@ def validate_lt_merge_operations(
             target_id = operation.get("target_id")
             if target_id not in fact_ids:
                 return False, "unknown_target_id"
+            if target_id not in allowed_ids:
+                return False, "target_not_in_merge_scope"
             if target_id in reserved_committed_ids:
                 return False, "committed_fact_used_by_multiple_operations"
 
@@ -2261,7 +2682,7 @@ def validate_lt_merge_operations(
             if any(
                 fact.get("id") != target_id
                 and fact.get("key") == final_key
-                for fact in facts
+                for fact in collision_facts
             ):
                 return False, "update_key_matches_other_fact"
 
@@ -2280,6 +2701,8 @@ def validate_lt_merge_operations(
                 return False, "duplicate_merge_fact_id"
             if any(fact_id not in fact_ids for fact_id in merge_fact_ids):
                 return False, "unknown_merge_fact_id"
+            if any(fact_id not in allowed_ids for fact_id in merge_fact_ids):
+                return False, "merge_fact_not_in_merge_scope"
             if any(fact_id in reserved_committed_ids for fact_id in merge_fact_ids):
                 return False, "committed_fact_used_by_multiple_operations"
 
@@ -2294,7 +2717,7 @@ def validate_lt_merge_operations(
             if any(
                 fact.get("id") not in merge_id_set
                 and fact.get("key") == final_key
-                for fact in facts
+                for fact in collision_facts
             ):
                 return False, "merge_key_matches_unselected_fact"
 
@@ -2385,6 +2808,8 @@ def apply_lt_merge_operations(
     operations: list[dict],
     *,
     pending_ids: list[str] | None = None,
+    allowed_fact_ids=None,
+    collision_fact_ids=None,
     now: str | None = None,
 ) -> tuple[dict, dict]:
     current_time = now or utc_now_iso()
@@ -2393,6 +2818,8 @@ def apply_lt_merge_operations(
         base_store,
         operations,
         pending_ids=pending_ids,
+        allowed_fact_ids=allowed_fact_ids,
+        collision_fact_ids=collision_fact_ids,
     )
     if not valid:
         return base_store, {
@@ -2402,6 +2829,29 @@ def apply_lt_merge_operations(
         }
 
     facts = [dict(fact) for fact in base_store["facts"]]
+    allowed_ids = (
+        {
+            normalize_lt_id(fact_id, pending=False)
+            for fact_id in normalize_lt_string_list(allowed_fact_ids)
+            if normalize_lt_id(fact_id, pending=False)
+        }
+        if allowed_fact_ids is not None
+        else {fact["id"] for fact in facts}
+    )
+
+    collision_ids = (
+        {
+            normalize_lt_id(fact_id, pending=False)
+            for fact_id in normalize_lt_string_list(collision_fact_ids)
+            if normalize_lt_id(fact_id, pending=False)
+        }
+        if collision_fact_ids is not None
+        else {fact["id"] for fact in facts}
+    )
+
+    def fact_is_in_collision_scope(fact: dict) -> bool:
+        return fact.get("id") in collision_ids
+
     all_pending_by_id = {
         fact["id"]: fact
         for fact in base_store["pending_facts"]
@@ -2479,7 +2929,9 @@ def apply_lt_merge_operations(
                     "changed": False,
                 }
             if any(
-                fact["id"] != target["id"] and fact["key"] == candidate["key"]
+                fact_is_in_collision_scope(fact)
+                and fact["id"] != target["id"]
+                and fact["key"] == candidate["key"]
                 for fact in facts
             ):
                 return base_store, {
@@ -2542,7 +2994,9 @@ def apply_lt_merge_operations(
 
             merge_id_set = set(merge_fact_ids)
             if any(
-                fact["id"] not in merge_id_set and fact["key"] == candidate["key"]
+                fact_is_in_collision_scope(fact)
+                and fact["id"] not in merge_id_set
+                and fact["key"] == candidate["key"]
                 for fact in facts
             ):
                 return base_store, {
@@ -2600,7 +3054,10 @@ def apply_lt_merge_operations(
                 "reason": "invalid_create_payload",
                 "changed": False,
             }
-        if any(fact["key"] == candidate["key"] for fact in facts):
+        if any(
+            fact_is_in_collision_scope(fact) and fact["key"] == candidate["key"]
+            for fact in facts
+        ):
             return base_store, {
                 "valid": False,
                 "reason": "create_key_already_exists",

@@ -49,17 +49,91 @@ def loaded_file_ref(context, *, reference="", sha256=""):
     return ""
 
 
-def unload_project_files(context, reference):
-    """Drop only source bodies; keep the read trail and its original timestamps."""
+def _requested_line_range(result):
+    if not isinstance(result, dict):
+        return None
+    try:
+        start = int(result.get("requested_start"))
+        end = int(result.get("requested_end"))
+    except (TypeError, ValueError):
+        return None
+    if start <= 0 or end < start:
+        return None
+    return start, end
+
+
+def _matches_requested_line_range(result, start=None, end=None):
+    if start is None:
+        return True
+    try:
+        requested = int(start), int(end)
+    except (TypeError, ValueError):
+        return False
+    return _requested_line_range(result) == requested
+
+
+def unload_project_files(
+    context,
+    reference,
+    *,
+    start=None,
+    end=None,
+    detached_at="",
+):
+    """Drop matching source bodies while preserving their action/result trail."""
     unloaded = False
     for result in _project_results(context, mirrors=True):
         ref = project_file_ref(result)
         if ref != reference and ref.split("/", 1)[0] != reference:
             continue
+        if not _matches_requested_line_range(result, start, end):
+            continue
+        was_loaded = (
+            "content" in result
+            or result.get("loaded") is True
+        )
+        if not was_loaded:
+            continue
         if "content" in result:
             unloaded = True
         result.pop("content", None)
         result["loaded"] = False
+        if detached_at:
+            result["detached_at"] = str(detached_at)
+        unloaded = True
+    return unloaded
+
+
+def unload_persistent_file_results(
+    context,
+    file_id,
+    *,
+    detached_at="",
+):
+    """Mark recorded ATTACH_FILE snapshots unloaded without deleting the action."""
+    normalized_id = str(file_id or "").strip().lower()
+    if not normalized_id:
+        return False
+
+    unloaded = False
+    for entry in getattr(context, "runtime_tool_results", []) or []:
+        if not isinstance(entry, dict) or entry.get("kind") != "files":
+            continue
+        result = entry.get("result")
+        if not isinstance(result, dict):
+            continue
+        if (
+            result.get("action") != "attach_file"
+            or result.get("source") == "project"
+            or result.get("ok") is False
+            or str(result.get("id") or "").strip().lower() != normalized_id
+            or result.get("loaded") is False
+        ):
+            continue
+        result["loaded"] = False
+        if detached_at:
+            result["detached_at"] = str(detached_at)
+        unloaded = True
     return unloaded
 
 
@@ -124,20 +198,49 @@ def format_file_result(result):
         lines.extend(["Status: failed", f"Reason: {result.get('detail') or result.get('error')}",
                       "Correct action schema:", *get_runtime_action_schema(action.upper())])
     else:
+        detached_at = str(result.get("detached_at") or "").strip()
         if action == "detach_file":
-            lines.append("Status: unloaded")
+            lines.append(
+                f"Status: detached at {detached_at}"
+                if detached_at
+                else "Status: unloaded"
+            )
+        elif result.get("loaded") is False:
+            lines.append(
+                f"Status: detached at {detached_at}"
+                if detached_at
+                else "Status: unloaded"
+            )
+        requested_range = _requested_line_range(result)
+        if requested_range and action == "detach_file":
+            lines.append(
+                f"Lines: L{requested_range[0]}-L{requested_range[1]}"
+            )
         if result.get("replaced_id"):
             lines.append(f"Unloaded: {result['replaced_id']}")
     return "\n".join(lines)
 
 
 def select_file_tool_results(entries, limit):
-    """Keep the normal history tail plus still-loaded file snapshots in that same store."""
+    """Keep the normal history tail plus any still-loaded file-owning result."""
     entries = list(entries or [])
     boundary = max(0, len(entries) - limit)
-    return [entry for index, entry in enumerate(entries)
-            if index >= boundary or (isinstance(entry, dict)
-                and project_file_ref(entry.get("result"))
-                and entry["result"].get("ok") is not False
-                and entry["result"].get("loaded") is not False
-                and "content" in entry["result"])]
+
+    def owns_loaded_file(entry):
+        if not isinstance(entry, dict):
+            return False
+        result = entry.get("result")
+        if not isinstance(result, dict) or result.get("ok") is False or result.get("loaded") is False:
+            return False
+        if project_file_ref(result):
+            return "content" in result
+        return (
+            entry.get("kind") == "files"
+            and result.get("action") == "attach_file"
+        )
+
+    return [
+        entry
+        for index, entry in enumerate(entries)
+        if index >= boundary or owns_loaded_file(entry)
+    ]

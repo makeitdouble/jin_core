@@ -239,6 +239,8 @@ A tag immediately preceded by an opening quote, backtick, or bracket is a litera
 
 For close-tag actions, the canonical form remains a paired block. For short actions, legacy inline/colon forms may be recognized when the parser explicitly supports them.
 
+There is one deliberately narrow response-prefix fallback for provider/model formatting slips: before any visible non-whitespace answer text has been emitted, a standalone line may omit angle brackets and use exact `ACTION_NAME: payload` syntax. The action name must be an enabled canonical runtime action, the action must be a payload-bearing short action (or one of the JIN one-line compatibility actions), and its normal payload builder plus fallback-specific ID checks must accept the payload. The first ordinary or malformed nonblank line disables this fallback for the rest of the answer; normal `<...>` action parsing continues everywhere as usual. Unterminated candidate lines are held until newline/flush so trailing prose cannot be swallowed, and removing an accepted line consumes its empty line as well.
+
 Important current compatibility boundaries:
 
 - `CLEAN_TOOL_RESULTS` is intentionally a no-payload bare marker. A redundant `</CLEAN_TOOL_RESULTS>` is consumed as parser-only noise, including when it arrives in a later stream chunk; the paired-looking form still means one action.

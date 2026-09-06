@@ -37,6 +37,8 @@ from .action_payload_utils import (
     _clean_internal_action_query,
     _get_internal_action_placeholder_payloads,
 )
+from .active_memory_utils import ACTIVE_MEMORY_SLOT_ID_RE
+from .delayed_memory_utils import is_delayed_memory_report_id
 from .load_delayed_memory_utils import build_load_delayed_memory_payload
 from .skill_load_utils import (
     build_load_skill_payload,
@@ -51,7 +53,10 @@ from .jin_size_utils import build_jin_size_payload
 from .jin_position_utils import build_jin_position_payload
 from .jin_speed_utils import build_jin_speed_payload
 from .update_lt_facts_utils import build_update_lt_facts_payload
-from .recall_fact_context_utils import build_recall_fact_context_payload
+from .recall_fact_context_utils import (
+    build_recall_fact_context_payload,
+    normalize_recall_fact_context_id,
+)
 from .update_active_memory_utils import build_update_active_memory_payload
 from .resolve_action_utils import build_resolve_action_payload
 from .regexp_utils import (
@@ -160,16 +165,53 @@ def _runtime_action_marker_config(
     )
 
 
+def _runtime_action_allows_bare_prefix_fallback(
+    action_name: str,
+) -> bool:
+    """Return whether ``ACTION: payload`` may be accepted at response start.
+
+    This is deliberately narrower than the normal compatibility parser.  It
+    covers the JIN one-line payload actions plus current short actions whose
+    contract marker itself carries a colon payload.  Block/no-payload actions
+    are never guessed from bare text.
+    """
+
+    normalized_name = normalize_runtime_action_name(
+        action_name
+    )
+
+    if normalized_name in JIN_INLINE_PAYLOAD_ACTIONS:
+        return True
+
+    private_marker, close_tag = _runtime_action_marker_config(
+        normalized_name
+    )
+
+    if close_tag:
+        return False
+
+    _, placeholder_payload = extract_private_marker_parts(
+        private_marker
+    )
+
+    return bool(
+        placeholder_payload
+    )
+
+
 def _find_all_runtime_action_matches(
     text: str,
     action_names=None,
+    *,
+    allow_bare_prefix_fallback: bool = False,
 ) -> tuple[RuntimeActionRegexpMatch, ...]:
 
     matches = []
-
-    for action_name in normalize_runtime_action_names(
+    enabled_action_names = normalize_runtime_action_names(
         action_names
-    ):
+    )
+
+    for action_name in enabled_action_names:
         private_marker, close_tag = _runtime_action_marker_config(
             action_name
         )
@@ -228,6 +270,14 @@ def _find_all_runtime_action_matches(
 
         matches.extend(
             action_matches
+        )
+
+    if allow_bare_prefix_fallback:
+        matches.extend(
+            _find_leading_bare_runtime_action_matches(
+                text,
+                enabled_action_names,
+            )
         )
 
     return select_non_overlapping_regexp_matches(
@@ -725,6 +775,295 @@ def _build_internal_action_call(
     )
 
 
+_BARE_PREFIX_ACTION_LINE_RE = re.compile(
+    r"^[\t ]*(?P<name>[A-Z][A-Z0-9_]*)[\t ]*:[\t ]*"
+    r"(?P<payload>[^\r\n]*?)[\t ]*$",
+    re.IGNORECASE,
+)
+
+
+def _bare_prefix_payload_is_strictly_valid(
+    action_name: str,
+    raw_payload: str,
+    action: RuntimeActionCall,
+) -> bool:
+    """Apply the extra safety checks required by the bare-line fallback."""
+
+    payload = str(
+        raw_payload
+        or ""
+    ).strip()
+
+    if not payload or not str(action.payload or "").strip():
+        return False
+
+    if action_name == RUNTIME_ACTION_RECALL_FACT_CONTEXT:
+        return bool(
+            normalize_recall_fact_context_id(
+                payload
+            )
+        )
+
+    if action_name == RUNTIME_ACTION_DELETE_ACTIVE_MEMORY:
+        return bool(
+            ACTIVE_MEMORY_SLOT_ID_RE.fullmatch(
+                payload.casefold()
+            )
+        )
+
+    if action_name in {
+        RUNTIME_ACTION_LOAD_DELAYED_MEMORY,
+        RUNTIME_ACTION_UNLOAD_DELAYED_MEMORY,
+    }:
+        return is_delayed_memory_report_id(
+            payload
+        )
+
+    return True
+
+
+def _parse_bare_prefix_action_line(
+    line: str,
+    enabled_action_names: tuple[str, ...],
+) -> RuntimeActionCall | None:
+    """Parse one exact standalone ``ACTION: payload`` compatibility line."""
+
+    match = _BARE_PREFIX_ACTION_LINE_RE.fullmatch(
+        str(
+            line
+            or ""
+        )
+    )
+
+    if match is None:
+        return None
+
+    action_name = str(
+        match.group("name")
+        or ""
+    ).strip().upper()
+
+    # The fallback never aliases or guesses an action name.  It must be the
+    # exact canonical action enabled for this response.
+    if (
+        action_name not in enabled_action_names
+        or not _runtime_action_allows_bare_prefix_fallback(
+            action_name
+        )
+    ):
+        return None
+
+    raw_payload = str(
+        match.group("payload")
+        or ""
+    ).strip()
+    action = _build_internal_action_call(
+        action_name,
+        raw_payload,
+    )
+
+    if action is None:
+        return None
+
+    if not _bare_prefix_payload_is_strictly_valid(
+        action_name,
+        raw_payload,
+        action,
+    ):
+        return None
+
+    return action
+
+
+def _find_leading_bare_runtime_action_matches(
+    text: str,
+    enabled_action_names: tuple[str, ...],
+) -> tuple[RuntimeActionRegexpMatch, ...]:
+    """Find a leading run of standalone bare payload actions.
+
+    Blank lines are ignored before/between actions.  The first ordinary or
+    malformed nonblank line permanently ends this fallback scan; later bare
+    lines are therefore ordinary response text.
+    """
+
+    value = str(
+        text
+        or ""
+    )
+
+    if not value:
+        return ()
+
+    matches = []
+    cursor = 0
+
+    while cursor < len(value):
+        line_end = value.find(
+            "\n",
+            cursor,
+        )
+        has_newline = line_end >= 0
+
+        if not has_newline:
+            line_end = len(value)
+
+        line = value[
+            cursor:line_end
+        ]
+
+        if line.endswith("\r"):
+            content_end = line_end - 1
+            line_for_parse = line[:-1]
+        else:
+            content_end = line_end
+            line_for_parse = line
+
+        if not line_for_parse.strip():
+            if not has_newline:
+                break
+            cursor = line_end + 1
+            continue
+
+        action = _parse_bare_prefix_action_line(
+            line_for_parse,
+            enabled_action_names,
+        )
+
+        if action is None:
+            break
+
+        line_match = _BARE_PREFIX_ACTION_LINE_RE.fullmatch(
+            line_for_parse
+        )
+        raw_payload = str(
+            line_match.group("payload")
+            if line_match is not None
+            else ""
+        ).strip()
+
+        matches.append(
+            RuntimeActionRegexpMatch(
+                start=cursor,
+                end=content_end,
+                raw=value[cursor:content_end],
+                name=action.name,
+                payload=raw_payload,
+                source="bare_prefix_fallback",
+            )
+        )
+
+        if not has_newline:
+            break
+
+        cursor = line_end + 1
+
+    return tuple(
+        matches
+    )
+
+
+def _leading_bare_runtime_action_needs_more(
+    text: str,
+    enabled_action_names: tuple[str, ...],
+) -> bool:
+    """Hold an unterminated leading bare-action candidate until line end."""
+
+    value = str(
+        text
+        or ""
+    )
+
+    if not value:
+        return False
+
+    cursor = 0
+
+    while True:
+        line_end = value.find(
+            "\n",
+            cursor,
+        )
+
+        if line_end < 0:
+            tail = value[
+                cursor:
+            ]
+
+            if not tail.strip():
+                return True
+
+            candidate = tail.lstrip(
+                " \t"
+            )
+
+            if not candidate:
+                return True
+
+            if candidate.startswith("<"):
+                return False
+
+            eligible_names = tuple(
+                action_name
+                for action_name in enabled_action_names
+                if _runtime_action_allows_bare_prefix_fallback(
+                    action_name
+                )
+            )
+
+            stripped_candidate = candidate.upper().strip()
+
+            for action_name in eligible_names:
+                if (
+                    stripped_candidate
+                    and action_name.startswith(
+                        stripped_candidate
+                    )
+                ):
+                    return True
+
+                if re.match(
+                    r"^"
+                    + re.escape(action_name)
+                    + r"[ \t]*:",
+                    candidate,
+                    re.IGNORECASE,
+                ):
+                    # Payload validity can only be finalized at newline/flush;
+                    # otherwise trailing prose on the same line could be eaten.
+                    return True
+
+                if re.fullmatch(
+                    re.escape(action_name) + r"[ \t]*:?",
+                    candidate,
+                    re.IGNORECASE,
+                ):
+                    return True
+
+            return False
+
+        line = value[
+            cursor:line_end
+        ]
+
+        if line.endswith("\r"):
+            line = line[:-1]
+
+        if not line.strip():
+            cursor = line_end + 1
+            continue
+
+        if _parse_bare_prefix_action_line(
+            line,
+            enabled_action_names,
+        ) is None:
+            return False
+
+        cursor = line_end + 1
+
+        if cursor >= len(value):
+            return False
+
+
 def _action_match_removal_span(
     text: str,
     start: int,
@@ -985,6 +1324,7 @@ def extract_runtime_actions(
     seen_action_keys=None,
     preserve_action_marker=None,
     repetition_guard: RuntimeActionRepetitionGuard | None = None,
+    allow_bare_prefix_fallback: bool = False,
 ) -> RuntimeActionResult:
 
     if not text:
@@ -1009,6 +1349,8 @@ def extract_runtime_actions(
         raw_marker: str,
         action_name: str,
         query: str = "",
+        *,
+        allow_preserve_marker: bool = True,
     ) -> str:
         nonlocal marker_repetition_exceeded
         nonlocal marker_repetition_reason
@@ -1084,7 +1426,8 @@ def extract_runtime_actions(
             return ""
 
         preserve_marker = (
-            preserve_action_marker is not None
+            allow_preserve_marker
+            and preserve_action_marker is not None
             and preserve_action_marker(
                 raw_marker,
                 action,
@@ -1284,6 +1627,9 @@ def extract_runtime_actions(
             match.raw,
             match.name,
             match.payload,
+            allow_preserve_marker=(
+                match.source != "bare_prefix_fallback"
+            ),
         )
 
     clean_text = _replace_runtime_action_matches(
@@ -1291,6 +1637,9 @@ def extract_runtime_actions(
         _find_all_runtime_action_matches(
             text,
             enabled_action_names,
+            allow_bare_prefix_fallback=(
+                allow_bare_prefix_fallback
+            ),
         ),
         replace_runtime_action_marker,
     )
@@ -1540,6 +1889,8 @@ def _enabled_action_stream_candidates(
 def _action_text_may_contain_marker(
     text: str,
     enabled_actions=None,
+    *,
+    allow_bare_prefix_fallback: bool = False,
 ) -> bool:
 
     if not text:
@@ -1553,9 +1904,19 @@ def _action_text_may_contain_marker(
         enabled_action_names
     )
 
+    if (
+        allow_bare_prefix_fallback
+        and _find_leading_bare_runtime_action_matches(
+            text,
+            enabled_action_names,
+        )
+    ):
+        return True
+
     # No opening angle bracket means no runtime action. Names such as
     # Runtime action names in prose, Markdown/code spans, or
-    # standalone lines must pass through unchanged.
+    # standalone lines must pass through unchanged unless the explicit
+    # response-prefix fallback above accepted a complete valid action line.
     if "<" not in upper_text:
         return False
 
@@ -1573,6 +1934,7 @@ def _extract_runtime_actions_if_needed(
     seen_action_keys=None,
     preserve_action_marker=None,
     repetition_guard: RuntimeActionRepetitionGuard | None = None,
+    allow_bare_prefix_fallback: bool = False,
 ) -> RuntimeActionResult:
 
     if not text:
@@ -1583,6 +1945,9 @@ def _extract_runtime_actions_if_needed(
     if not _action_text_may_contain_marker(
         text,
         enabled_actions=enabled_actions,
+        allow_bare_prefix_fallback=(
+            allow_bare_prefix_fallback
+        ),
     ):
         return RuntimeActionResult(
             text=text,
@@ -1595,6 +1960,9 @@ def _extract_runtime_actions_if_needed(
         seen_action_keys=seen_action_keys,
         preserve_action_marker=preserve_action_marker,
         repetition_guard=repetition_guard,
+        allow_bare_prefix_fallback=(
+            allow_bare_prefix_fallback
+        ),
     )
 
 
@@ -1747,6 +2115,8 @@ class RuntimeActionStreamFilter:
     ):
         self.pending = ""
         self.pending_is_action = False
+        self.bare_prefix_pending = ""
+        self.bare_prefix_fallback_active = True
         self.preserve_action_text = preserve_action_text
         self.preserve_action_marker = preserve_action_marker
         self.repetition_guard = repetition_guard
@@ -1913,6 +2283,50 @@ class RuntimeActionStreamFilter:
                 text="",
             )
 
+        if (
+            self.bare_prefix_fallback_active
+            and not self.pending_is_action
+        ):
+            candidate = (
+                self.bare_prefix_pending
+                + self.pending
+                + chunk
+            )
+            self.bare_prefix_pending = ""
+            self.pending = ""
+
+            if _leading_bare_runtime_action_needs_more(
+                candidate,
+                self.enabled_actions,
+            ):
+                self.bare_prefix_pending = candidate
+
+                return RuntimeActionResult(
+                    text="",
+                )
+
+            chunk = candidate
+
+        result = self._filter_core(
+            chunk
+        )
+
+        if result.text.strip():
+            self.bare_prefix_fallback_active = False
+            self.bare_prefix_pending = ""
+
+        return result
+
+    def _filter_core(
+        self,
+        chunk: str,
+    ) -> RuntimeActionResult:
+
+        if not chunk:
+            return RuntimeActionResult(
+                text="",
+            )
+
         combined = (
             self.pending
             + chunk
@@ -1953,6 +2367,9 @@ class RuntimeActionStreamFilter:
                     seen_action_keys=self.seen_action_keys,
                     preserve_action_marker=self.preserve_action_marker,
                     repetition_guard=self.repetition_guard,
+                    allow_bare_prefix_fallback=(
+                        self.bare_prefix_fallback_active
+                    ),
                 )
 
                 return self._attach_started_actions(
@@ -1988,6 +2405,9 @@ class RuntimeActionStreamFilter:
                     seen_action_keys=self.seen_action_keys,
                     preserve_action_marker=self.preserve_action_marker,
                     repetition_guard=self.repetition_guard,
+                    allow_bare_prefix_fallback=(
+                        self.bare_prefix_fallback_active
+                    ),
                 )
 
                 self.pending_started_actions.clear()
@@ -2006,6 +2426,9 @@ class RuntimeActionStreamFilter:
                 and not _action_text_may_contain_marker(
                     combined,
                     enabled_actions=self.enabled_actions,
+                    allow_bare_prefix_fallback=(
+                        self.bare_prefix_fallback_active
+                    ),
                 )
             ):
                 self.pending = combined[
@@ -2026,6 +2449,9 @@ class RuntimeActionStreamFilter:
             and not _action_text_may_contain_marker(
                 chunk,
                 enabled_actions=self.enabled_actions,
+                allow_bare_prefix_fallback=(
+                    self.bare_prefix_fallback_active
+                ),
             )
         ):
             return RuntimeActionResult(
@@ -2099,6 +2525,9 @@ class RuntimeActionStreamFilter:
                 seen_action_keys=self.seen_action_keys,
                 preserve_action_marker=self.preserve_action_marker,
                 repetition_guard=self.repetition_guard,
+                allow_bare_prefix_fallback=(
+                    self.bare_prefix_fallback_active
+                ),
             )
 
             return self._attach_started_actions(
@@ -2144,6 +2573,9 @@ class RuntimeActionStreamFilter:
                 seen_action_keys=self.seen_action_keys,
                 preserve_action_marker=self.preserve_action_marker,
                 repetition_guard=self.repetition_guard,
+                allow_bare_prefix_fallback=(
+                    self.bare_prefix_fallback_active
+                ),
             )
 
             self.pending_started_actions.clear()
@@ -2160,6 +2592,9 @@ class RuntimeActionStreamFilter:
             seen_action_keys=self.seen_action_keys,
             preserve_action_marker=self.preserve_action_marker,
             repetition_guard=self.repetition_guard,
+            allow_bare_prefix_fallback=(
+                self.bare_prefix_fallback_active
+            ),
         )
 
         self.pending_started_actions.clear()
@@ -2171,7 +2606,11 @@ class RuntimeActionStreamFilter:
 
     def flush_result(self) -> RuntimeActionResult:
 
-        pending = self.pending
+        pending = (
+            self.bare_prefix_pending
+            + self.pending
+        )
+        self.bare_prefix_pending = ""
         self.pending = ""
         self.pending_is_action = False
         self.pending_started_actions.clear()
@@ -2239,6 +2678,9 @@ class RuntimeActionStreamFilter:
             preserve_action_text=False,
             preserve_action_marker=self.preserve_action_marker,
             repetition_guard=self.repetition_guard,
+            allow_bare_prefix_fallback=(
+                self.bare_prefix_fallback_active
+            ),
         )
 
     def flush(self) -> str:

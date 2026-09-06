@@ -171,6 +171,12 @@ def run_project_action(context, payload: dict) -> dict:
         if action == "project_read":
             start = _integer(payload, "start", 1, 1, 10000000)
             end = _integer(payload, "end", start + 199, start, start + 399)
+            # Keep the requested window as stable identity metadata.  The
+            # actual range below may be shorter at EOF, but DETACH_FILE must
+            # still be able to target the exact ATTACH_FILE window that was
+            # requested (for example #L1-L100 on a 47-line file).
+            result["requested_start"] = start
+            result["requested_end"] = end
             from utils.context.files import loaded_file_ref
             result["file_ref"] = f"{record['id']}/{relative}"
             result["source"] = "project"
@@ -264,7 +270,7 @@ def run_project_action(context, payload: dict) -> dict:
 
 
 def format_project_result(result: dict, *, include_content=False) -> str:
-    """Compact action text. File bodies have a separate, shared projection."""
+    """Compact action text; callers may nest the source body beside it."""
     from utils.context.files import format_file_content, project_file_ref
     action = str(result.get("action") or "project_read")
     ref = project_file_ref(result)
@@ -281,7 +287,12 @@ def format_project_result(result: dict, *, include_content=False) -> str:
     if failed:
         lines.append("Status: failed")
     elif result.get("loaded") is False:
-        lines.append("Status: unloaded")
+        detached_at = str(result.get("detached_at") or "").strip()
+        lines.append(
+            f"Status: detached at {detached_at}"
+            if detached_at
+            else "Status: unloaded"
+        )
     for key, label in (("query", "Search"), ("depth", "Depth"), ("range", "Read"), ("page", "Page"), ("detail", "Reason")):
         if result.get(key) is not None:
             lines.append(f"{label}: {result[key]}")

@@ -15,7 +15,7 @@ from runtime.LT_memory_utils import (
     add_lt_pending_candidates,
     apply_lt_jin_note_result,
     apply_lt_merge_operations,
-    build_lt_double_batch_plan,
+    build_lt_retrieved_double_batch_plan,
     build_lt_merge_batch_plan,
     build_lt_merge_shard_finalize_user_prompt,
     build_lt_merge_shard_scan_system_prompt,
@@ -490,9 +490,26 @@ def build_lt_merge_validation_feedback(
     store: dict,
     operations: list[dict],
     reason: str,
+    *,
+    collision_fact_ids=None,
 ) -> str:
     normalized_store = normalize_lt_store(store)
     facts = normalized_store.get("facts") or []
+    allowed_ids = (
+        {
+            str(fact_id or "").strip().upper()
+            for fact_id in (collision_fact_ids or [])
+            if str(fact_id or "").strip()
+        }
+        if collision_fact_ids is not None
+        else None
+    )
+    scoped_facts = [
+        fact
+        for fact in facts
+        if allowed_ids is None
+        or str(fact.get("id") or "").strip().upper() in allowed_ids
+    ]
 
     if reason == "create_key_already_exists":
         collisions = []
@@ -502,7 +519,7 @@ def build_lt_merge_validation_feedback(
             key = normalize_lt_key(operation.get("key"))
             owners = [
                 fact.get("id")
-                for fact in facts
+                for fact in scoped_facts
                 if fact.get("key") == key
             ]
             if key and owners:
@@ -528,9 +545,6 @@ def build_lt_merge_validation_feedback(
             "Every update must include target_id plus the complete final key, "
             "value, and category."
         ),
-        "update_invalid_category": (
-            "Use one of the allowed L-T categories for every update."
-        ),
         "update_key_matches_other_fact": (
             "An update cannot re-key its target onto a key owned by another "
             "committed fact. Merge the overlapping old facts instead if they "
@@ -538,9 +552,6 @@ def build_lt_merge_validation_feedback(
         ),
         "create_requires_canonical_fact": (
             "Every create must include the complete final key, value, and category."
-        ),
-        "create_invalid_category": (
-            "Use one of the allowed L-T categories for every create."
         ),
         "merge_requires_fact_ids": (
             "Every merge must list at least two existing committed F<number> IDs "
@@ -556,9 +567,6 @@ def build_lt_merge_validation_feedback(
             "Every merge must include fact_ids plus the complete final key, value, "
             "and category for the new canonical replacement."
         ),
-        "merge_invalid_category": (
-            "Use one of the allowed L-T categories for every merge."
-        ),
         "merge_key_matches_unselected_fact": (
             "The merge replacement key is owned by a committed fact not listed in "
             "fact_ids. Include that overlapping fact in the merge only if it truly "
@@ -571,6 +579,14 @@ def build_lt_merge_validation_feedback(
         ),
         "unknown_target_id": (
             "An update target_id must be an existing committed F<number> ID."
+        ),
+        "target_not_in_merge_scope": (
+            "An update target_id must be one of the F<number> IDs present in "
+            "existing_facts for this retrieved merge request."
+        ),
+        "merge_fact_not_in_merge_scope": (
+            "A merge may use only the F<number> IDs present in existing_facts "
+            "for this retrieved merge request."
         ),
         "invalid_json": (
             "Return one valid JSON object only, with an operations array matching the "
@@ -2448,6 +2464,8 @@ def rebase_lt_merge_operations(
     current_store,
     operations: list[dict],
     pending_ids: list[str],
+    allowed_fact_ids=None,
+    collision_fact_ids=None,
 ) -> tuple[dict, dict]:
     """Apply an already-generated merge result to the newest L-T snapshot.
 
@@ -2602,6 +2620,8 @@ def rebase_lt_merge_operations(
         current,
         rebased_operations,
         pending_ids=active_pending_ids,
+        allowed_fact_ids=allowed_fact_ids,
+        collision_fact_ids=collision_fact_ids,
     )
     if not rebased_change.get("valid"):
         return current, {
@@ -2635,9 +2655,11 @@ async def log_lt_context_paused(
 ) -> dict:
     minimum_required = max(1, int(minimum_required or 1))
     maximum_available = max(1, int(maximum_available or 1))
+    # Dedupe by the stable paused state, not the exact token estimate. Prompt
+    # guidance can vary slightly between planning attempts while the queue and
+    # available context are unchanged.
     signature = (
-        f"{minimum_required}:{maximum_available}:"
-        f"{pending_count}:{existing_fact_count}"
+        f"{maximum_available}:{pending_count}:{existing_fact_count}"
     )
     already_logged = (
         str(
@@ -2799,6 +2821,19 @@ async def run_lt_merge_phase(*, context, service_client) -> dict:
         getattr(config, "RUNTIME_OUTPUT_TOKEN_RESERVE", 256)
     )
     protected_fact_ids = get_runtime_lt_explicit_edit_fact_ids(context)
+    active_existing_facts = get_runtime_lt_active_facts(
+        context,
+        store=base_store,
+    )
+    active_existing_fact_ids = [
+        str(fact.get("id") or "").strip().upper()
+        for fact in active_existing_facts
+        if str(fact.get("id") or "").strip()
+    ]
+    archived_existing_fact_count = max(
+        0,
+        len(base_store.get("facts") or []) - len(active_existing_facts),
+    )
     force_single_batch = bool(
         single_retry_pending_id
         or getattr(
@@ -2816,6 +2851,18 @@ async def run_lt_merge_phase(*, context, service_client) -> dict:
         existing_batches = list(
             double_plan.get("existing_fact_batches") or []
         )
+        retrieved_existing_facts = list(
+            double_plan.get("retrieved_existing_facts") or []
+        )
+        retrieved_existing_fact_ids = list(
+            double_plan.get("retrieved_existing_fact_ids") or []
+        )
+        retrieved_existing_fact_id_set = set(retrieved_existing_fact_ids)
+        retrieved_protected_fact_ids = [
+            fact_id
+            for fact_id in protected_fact_ids
+            if fact_id in retrieved_existing_fact_id_set
+        ]
 
         if merge_mode == "full":
             request_plan = plans[0]
@@ -2845,6 +2892,9 @@ async def run_lt_merge_phase(*, context, service_client) -> dict:
                 "shard_second_half": [],
                 "shard_scan_recovery": {},
                 "finalize_budget_trimmed": False,
+                "retrieved_existing_facts": retrieved_existing_facts,
+                "retrieved_existing_fact_ids": retrieved_existing_fact_ids,
+                "retrieval": double_plan.get("retrieval") or {},
             }
 
         first_half, second_half = existing_batches
@@ -2853,7 +2903,7 @@ async def run_lt_merge_phase(*, context, service_client) -> dict:
         scan_user_prompt = build_lt_merge_shard_scan_user_prompt(
             existing_facts=first_half,
             pending_facts=selected_pending,
-            protected_fact_ids=protected_fact_ids,
+            protected_fact_ids=retrieved_protected_fact_ids,
         )
         scan_response = await ask_lt_model(
             context=context,
@@ -2931,7 +2981,7 @@ async def run_lt_merge_phase(*, context, service_client) -> dict:
             repair_prompt = build_lt_merge_shard_scan_user_prompt(
                 existing_facts=first_half,
                 pending_facts=repair_pending,
-                protected_fact_ids=protected_fact_ids,
+                protected_fact_ids=retrieved_protected_fact_ids,
                 repair_context=repair_context,
             )
             repair_response = await ask_lt_model(
@@ -3055,8 +3105,8 @@ async def run_lt_merge_phase(*, context, service_client) -> dict:
                 pending_facts=final_pending,
                 previous_shard_scan=final_scan,
                 previous_shard_facts=final_previous_facts,
-                all_existing_facts=base_store.get("facts") or [],
-                protected_fact_ids=protected_fact_ids,
+                all_existing_facts=retrieved_existing_facts,
+                protected_fact_ids=retrieved_protected_fact_ids,
             )
             minimum_finalize_required = (
                 estimate_runtime_tokens(
@@ -3077,7 +3127,7 @@ async def run_lt_merge_phase(*, context, service_client) -> dict:
                 minimum_required=minimum_finalize_required,
                 maximum_available=runtime_context_window,
                 pending_count=len(pending_queue),
-                existing_fact_count=len(base_store.get("facts") or []),
+                existing_fact_count=len(retrieved_existing_facts),
             )
             return {"terminal": terminal}
 
@@ -3117,6 +3167,9 @@ async def run_lt_merge_phase(*, context, service_client) -> dict:
             "finalize_budget_trimmed": (
                 len(final_pending) < scan_eligible_pending_count
             ),
+            "retrieved_existing_facts": retrieved_existing_facts,
+            "retrieved_existing_fact_ids": retrieved_existing_fact_ids,
+            "retrieval": double_plan.get("retrieval") or {},
         }
 
     execution = None
@@ -3128,8 +3181,8 @@ async def run_lt_merge_phase(*, context, service_client) -> dict:
                 0,
             )
         )
-        double_plan = build_lt_double_batch_plan(
-            existing_facts=base_store.get("facts") or [],
+        double_plan = build_lt_retrieved_double_batch_plan(
+            existing_facts=active_existing_facts,
             pending_facts=pending_queue,
             system_prompt=system_prompt,
             runtime_context_window=runtime_context_window,
@@ -3148,7 +3201,12 @@ async def run_lt_merge_phase(*, context, service_client) -> dict:
                 minimum_required=double_plan.get("minimum_required_tokens") or 1,
                 maximum_available=runtime_context_window,
                 pending_count=len(pending_queue),
-                existing_fact_count=len(base_store.get("facts") or []),
+                existing_fact_count=int(
+                    (double_plan.get("retrieval") or {}).get(
+                        "selected_existing_count",
+                        len(active_existing_facts),
+                    )
+                ),
             )
 
         context.runtime_lt_merge_paused_signature = ""
@@ -3211,6 +3269,23 @@ async def run_lt_merge_phase(*, context, service_client) -> dict:
     shard_second_half = execution["shard_second_half"]
     shard_scan_recovery = execution.get("shard_scan_recovery") or {}
     finalize_budget_trimmed = bool(execution.get("finalize_budget_trimmed"))
+    retrieved_existing_facts = list(
+        execution.get("retrieved_existing_facts") or []
+    )
+    retrieved_existing_fact_ids = list(
+        execution.get("retrieved_existing_fact_ids") or []
+    )
+    retrieved_existing_fact_id_set = set(retrieved_existing_fact_ids)
+    retrieved_protected_fact_ids = [
+        fact_id
+        for fact_id in protected_fact_ids
+        if fact_id in retrieved_existing_fact_id_set
+    ]
+    retrieval_details = {
+        **(execution.get("retrieval") or {}),
+        "total_committed_count": len(base_store.get("facts") or []),
+        "archived_excluded_count": archived_existing_fact_count,
+    }
     user_prompt = batch_plan["user_prompt"]
     if (
         finalize_budget_trimmed
@@ -3270,6 +3345,8 @@ async def run_lt_merge_phase(*, context, service_client) -> dict:
             base_store,
             operations,
             pending_ids=pending_ids,
+            allowed_fact_ids=retrieved_existing_fact_ids,
+            collision_fact_ids=active_existing_fact_ids,
         )
 
     initial_validation_reason = (
@@ -3282,6 +3359,7 @@ async def run_lt_merge_phase(*, context, service_client) -> dict:
             base_store,
             operations,
             initial_validation_reason,
+            collision_fact_ids=active_existing_fact_ids,
         )
         repair_context = {
             "validation_error": initial_validation_reason,
@@ -3303,15 +3381,15 @@ async def run_lt_merge_phase(*, context, service_client) -> dict:
                 pending_facts=pending_facts,
                 previous_shard_scan=shard_scan,
                 previous_shard_facts=shard_previous_facts,
-                all_existing_facts=base_store.get("facts") or [],
-                protected_fact_ids=protected_fact_ids,
+                all_existing_facts=retrieved_existing_facts,
+                protected_fact_ids=retrieved_protected_fact_ids,
                 repair_context=repair_context,
             )
         else:
             repair_prompt = build_lt_merge_user_prompt(
-                existing_facts=base_store.get("facts") or [],
+                existing_facts=retrieved_existing_facts,
                 pending_facts=pending_facts,
-                protected_fact_ids=protected_fact_ids,
+                protected_fact_ids=retrieved_protected_fact_ids,
                 repair_context=repair_context,
             )
         repair_response = await ask_lt_model(
@@ -3374,6 +3452,8 @@ async def run_lt_merge_phase(*, context, service_client) -> dict:
                 base_store,
                 repair_operations,
                 pending_ids=pending_ids,
+                allowed_fact_ids=retrieved_existing_fact_ids,
+                collision_fact_ids=active_existing_fact_ids,
             )
 
         if not repair_change.get("valid"):
@@ -3423,6 +3503,8 @@ async def run_lt_merge_phase(*, context, service_client) -> dict:
             current_store=current_store,
             operations=operations,
             pending_ids=pending_ids,
+            allowed_fact_ids=retrieved_existing_fact_ids,
+            collision_fact_ids=active_existing_fact_ids,
         )
         if not rebased_change.get("valid"):
             return await log_lt_skip_event(
@@ -3463,6 +3545,7 @@ async def run_lt_merge_phase(*, context, service_client) -> dict:
     )
     merge_change["batching"] = {
         "existing_batch_mode": merge_mode,
+        "retrieval": retrieval_details,
         **batching_recovery,
     }
     persist_runtime_lt_file_store(
@@ -4337,14 +4420,46 @@ def _get_lt_fact_anchor_report_ids(
     return report_ids
 
 
+def get_runtime_lt_active_facts(
+    context,
+    *,
+    store: dict | None = None,
+    fact_ids=None,
+) -> list[dict]:
+    """Return exactly the committed facts currently visible in L-T context.
+
+    Facts absorbed into delayed memory stay out of the active pool. Anchors,
+    explicitly loaded reports, and pinned reports remain visible because
+    ``refresh_runtime_lt_archived_fact_ids`` already applies those rules.
+    """
+
+    current_store = store if isinstance(store, dict) else ensure_runtime_lt_state(context)
+    archived_fact_ids = refresh_runtime_lt_archived_fact_ids(context)
+    requested_fact_ids = None
+    if fact_ids is not None:
+        requested_fact_ids = {
+            str(fact_id or "").strip().upper()
+            for fact_id in fact_ids
+            if str(fact_id or "").strip()
+        }
+
+    return [
+        fact
+        for fact in current_store.get("facts") or []
+        if not lt_fact_matches_archived_ids(fact, archived_fact_ids)
+        and (
+            requested_fact_ids is None
+            or str(fact.get("id", "") or "").strip().upper()
+            in requested_fact_ids
+        )
+    ]
+
+
 def build_runtime_lt_memory_context(*, context, fact_ids=None, user_input: str = "") -> str:
     if not lt_memory_enabled():
         return ""
 
     store = ensure_runtime_lt_state(context)
-    archived_fact_ids = refresh_runtime_lt_archived_fact_ids(
-        context
-    )
     reports = getattr(context, "delayed_memory_reports", {})
     anchor_report_ids_by_fact_id = collect_anchor_fact_report_ids(
         reports
@@ -4358,27 +4473,11 @@ def build_runtime_lt_memory_context(*, context, fact_ids=None, user_input: str =
         anchor_report_ids_by_fact_id,
         loaded_report_ids_by_fact_id,
     )
-    requested_fact_ids = None
-    if fact_ids is not None:
-        requested_fact_ids = {
-            str(fact_id or "").strip().upper()
-            for fact_id in fact_ids
-            if str(fact_id or "").strip()
-        }
-
-    active_facts = [
-        fact
-        for fact in store.get("facts") or []
-        if not lt_fact_matches_archived_ids(
-            fact,
-            archived_fact_ids,
-        )
-        and (
-            requested_fact_ids is None
-            or str(fact.get("id", "") or "").strip().upper()
-            in requested_fact_ids
-        )
-    ]
+    active_facts = get_runtime_lt_active_facts(
+        context,
+        store=store,
+        fact_ids=fact_ids,
+    )
 
     # L-T prompt order stays independent from panel/avatar order. Fresh facts
     # are nearest to the model by default; memory attention may bubble a

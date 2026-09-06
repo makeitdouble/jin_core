@@ -372,6 +372,7 @@ async def ask_brain(
         content_actions = extract_runtime_actions(
             content,
             enabled_actions=enabled_actions,
+            allow_bare_prefix_fallback=True,
         )
 
         await log_runtime_action_marker_removals(
@@ -411,6 +412,7 @@ async def ask_brain(
         reasoning_actions = extract_runtime_actions(
             reasoning,
             enabled_actions=enabled_actions,
+            allow_bare_prefix_fallback=True,
         )
 
         await log_runtime_action_marker_removals(

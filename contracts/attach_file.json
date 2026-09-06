@@ -21,7 +21,7 @@
     ],
     "rules": [
       "With one attached folder, use a relative path (filename.txt or src/main.py). With multiple folders, prefix folder_id/. Persistent file IDs still work. Optional #Lstart-Lend selects inclusive lines (default 200, max 400; 24000 characters; UTF-8 up to 1 MiB).",
-      "Loaded content appears once in FILE_CONTENT. An already-loaded file fails; DETACH_FILE first to reread or change its range. Batch independent markers in one message."
+      "Loaded source is nested inside that ATTACH_FILE result as FILE_CONTENT. An already-loaded file fails; DETACH_FILE first to reread or change its range. Batch independent markers in one message."
     ],
     "close_tag": false
   }

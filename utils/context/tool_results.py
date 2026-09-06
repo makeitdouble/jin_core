@@ -164,6 +164,166 @@ def _escape_runtime_action_payload(payload) -> str:
     return "\n".join(lines)
 
 
+def _build_recorded_tool_result_block(
+    attrs: str,
+    payload: str,
+    *,
+    raw_blocks=None,
+    created_at=None,
+    now: float | None = None,
+) -> str:
+    """Build one TOOL_RESULT while allowing trusted nested source blocks."""
+    body = []
+    escaped_payload = _escape_runtime_action_payload(payload)
+    if escaped_payload.strip():
+        body.append(indent_xml(escaped_payload))
+    for block in raw_blocks or ():
+        if str(block or "").strip():
+            body.append(indent_xml(str(block)))
+
+    return (
+        f"{_build_tool_result_open_tag(attrs, created_at=created_at, now=now)}\n"
+        + "\n".join(body)
+        + "\n    </TOOL_RESULT>"
+    )
+
+
+def _persistent_file_result_id(context, result) -> str:
+    if not isinstance(result, dict):
+        return ""
+    if (
+        result.get("action") != "attach_file"
+        or result.get("source") == "project"
+        or result.get("ok") is False
+        or result.get("loaded") is False
+    ):
+        return ""
+    file_id = str(result.get("id") or "").strip().lower()
+    active = {
+        str(value or "").strip().lower()
+        for value in getattr(context, "runtime_attached_file_ids", []) or []
+    }
+    return file_id if file_id and file_id in active else ""
+
+
+def _consume_persistent_text_budget(content: str, budget: dict | None) -> str:
+    if budget is None:
+        return str(content or "")
+    try:
+        remaining = max(0, int(budget.get("remaining", 0)))
+    except (TypeError, ValueError):
+        remaining = 0
+    source = str(content or "")
+    visible = source[:remaining]
+    budget["remaining"] = max(0, remaining - len(visible))
+    if len(visible) < len(source):
+        visible += (
+            f"\n[attachment text truncated: {len(source) - len(visible)} chars omitted]"
+        )
+    return visible
+
+
+def _file_result_content_block(
+    context,
+    result,
+    *,
+    persistent_text_budget: dict | None = None,
+) -> str:
+    if not isinstance(result, dict) or result.get("ok") is False or result.get("loaded") is False:
+        return ""
+
+    from .files import format_file_content, project_file_ref
+
+    ref = project_file_ref(result)
+    if ref:
+        active = {
+            str(value or "").strip().lower()
+            for value in getattr(context, "runtime_attached_file_ids", []) or []
+        }
+        root_id = ref.split("/", 1)[0].strip().lower()
+        if root_id not in active or "content" not in result:
+            return ""
+        return format_file_content(
+            result.get("path") or ref,
+            result.get("content", ""),
+        )
+
+    file_id = _persistent_file_result_id(context, result)
+    if not file_id:
+        return ""
+
+    from utils import attached_files_store as files
+
+    record = files.get_file_record(file_id)
+    if (
+        not record
+        or record.get("kind") != "text"
+        or str(record.get("name") or "").lower().endswith(".jin-folder")
+    ):
+        return ""
+    try:
+        content = (files.FILES_DIR / record["stored_name"]).read_text(
+            encoding="utf-8",
+            errors="replace",
+        )
+    except OSError:
+        content = ""
+    return format_file_content(
+        files.file_display_name(record.get("name") or file_id),
+        _consume_persistent_text_budget(content, persistent_text_budget),
+    )
+
+
+def _append_unowned_attached_file_results(
+    parts: list[str],
+    context,
+    *,
+    represented_ids: set[str],
+    persistent_text_budget: dict | None = None,
+) -> None:
+    """Keep user-attached text inside TOOLS_RESULTS even without a model action."""
+    if context is None:
+        return
+
+    from utils import attached_files_store as files
+    from .files import format_file_content
+
+    for raw_id in getattr(context, "runtime_attached_file_ids", []) or []:
+        file_id = str(raw_id or "").strip().lower()
+        if not file_id or file_id in represented_ids:
+            continue
+        record = files.get_file_record(file_id)
+        if (
+            not record
+            or record.get("kind") != "text"
+            or str(record.get("name") or "").lower().endswith(".jin-folder")
+        ):
+            continue
+        try:
+            content = (files.FILES_DIR / record["stored_name"]).read_text(
+                encoding="utf-8",
+                errors="replace",
+            )
+        except OSError:
+            content = ""
+        content_block = format_file_content(
+            files.file_display_name(record.get("name") or file_id),
+            _consume_persistent_text_budget(content, persistent_text_budget),
+        )
+        attrs = f'name="ATTACHED_FILE" id="{escape(file_id)}"'
+        payload = (
+            f"File: {files.file_display_name(record.get('name') or file_id)}\n"
+            f"ID: {file_id}"
+        )
+        parts.append(
+            _build_recorded_tool_result_block(
+                attrs,
+                payload,
+                raw_blocks=[content_block],
+            )
+        )
+
+
 def _append_tool_results(
     parts: list[str],
     context=None,
@@ -210,6 +370,10 @@ def _append_tool_results(
 def _append_recorded_tool_results(
     parts: list[str],
     context=None,
+    *,
+    represented_attachment_ids: set[str] | None = None,
+    embedded_project_refs: set[str] | None = None,
+    persistent_text_budget: dict | None = None,
 ) -> bool:
 
     if context is None:
@@ -219,6 +383,10 @@ def _append_recorded_tool_results(
 
     appended = False
     now = time.time()
+    if represented_attachment_ids is None:
+        represented_attachment_ids = set()
+    if embedded_project_refs is None:
+        embedded_project_refs = set()
 
     for index, entry in enumerate(
         get_runtime_tool_results(
@@ -316,13 +484,28 @@ def _append_recorded_tool_results(
             if not sections:
                 continue
 
+            from .files import project_file_ref
+            project_ref = project_file_ref(result)
+            content_block = ""
+            if project_ref and project_ref not in embedded_project_refs:
+                content_block = _file_result_content_block(
+                    context,
+                    result,
+                    persistent_text_budget=persistent_text_budget,
+                )
+                if content_block:
+                    embedded_project_refs.add(project_ref)
             blocks = []
             for name, payload in sections:
                 attrs = f'name="{escape(name)}"'
                 blocks.append(
-                    f"{_build_tool_result_open_tag(attrs, created_at=created_at, now=now)}\n"
-                    f"{indent_xml(_escape_runtime_action_payload(payload))}\n"
-                    "    </TOOL_RESULT>"
+                    _build_recorded_tool_result_block(
+                        attrs,
+                        payload,
+                        raw_blocks=[content_block] if content_block else None,
+                        created_at=created_at,
+                        now=now,
+                    )
                 )
             parts.extend(
                 blocks
@@ -358,10 +541,31 @@ def _append_recorded_tool_results(
                 from .files import format_file_result
                 attrs = f'name="{escape(str(result.get("action", "file")).upper())}"'
                 payload = format_file_result(result)
+                persistent_id = _persistent_file_result_id(
+                    context,
+                    result,
+                )
+                if persistent_id:
+                    represented_attachment_ids.add(persistent_id)
+                from .files import project_file_ref
+                project_ref = project_file_ref(result)
+                content_block = ""
+                if not project_ref or project_ref not in embedded_project_refs:
+                    content_block = _file_result_content_block(
+                        context,
+                        result,
+                        persistent_text_budget=persistent_text_budget,
+                    )
+                    if content_block and project_ref:
+                        embedded_project_refs.add(project_ref)
                 parts.append(
-                    f"{_build_tool_result_open_tag(attrs, created_at=created_at, now=now)}\n"
-                    f"{indent_xml(_escape_runtime_action_payload(payload))}\n"
-                    "    </TOOL_RESULT>"
+                    _build_recorded_tool_result_block(
+                        attrs,
+                        payload,
+                        raw_blocks=[content_block] if content_block else None,
+                        created_at=created_at,
+                        now=now,
+                    )
                 )
                 appended = True
                 continue
@@ -530,16 +734,55 @@ def _append_asset_results(
         return
 
     tool_result_blocks = []
-    for name, payload in format_asset_result_sections(
-        asset_results[-5:],
-        context,
-    ):
-        attrs = f'name="{escape(name)}"'
-        tool_result_blocks.append(
-            f"{_build_tool_result_open_tag(attrs)}\n"
-            f"{indent_xml(_escape_runtime_action_payload(payload))}\n"
-            "    </TOOL_RESULT>"
-        )
+    pending_results = []
+
+    def flush_pending() -> None:
+        if not pending_results:
+            return
+        for name, payload in format_asset_result_sections(
+            list(pending_results),
+            context,
+        ):
+            attrs = f'name="{escape(name)}"'
+            tool_result_blocks.append(
+                _build_recorded_tool_result_block(
+                    attrs,
+                    payload,
+                )
+            )
+        pending_results.clear()
+
+    from .files import project_file_ref
+    embedded_project_refs = set()
+
+    for result in asset_results[-5:]:
+        project_ref = project_file_ref(result)
+        if project_ref:
+            flush_pending()
+            for name, payload in format_asset_result_sections(
+                [result],
+                context,
+            ):
+                attrs = f'name="{escape(name)}"'
+                content_block = ""
+                if project_ref not in embedded_project_refs:
+                    content_block = _file_result_content_block(
+                        context,
+                        result,
+                    )
+                    if content_block:
+                        embedded_project_refs.add(project_ref)
+                tool_result_blocks.append(
+                    _build_recorded_tool_result_block(
+                        attrs,
+                        payload,
+                        raw_blocks=[content_block] if content_block else None,
+                    )
+                )
+            continue
+        pending_results.append(result)
+
+    flush_pending()
 
     parts.extend(
         tool_result_blocks
@@ -596,10 +839,22 @@ def build_tool_results_context(
 ) -> str:
 
     tool_result_blocks = []
+    represented_attachment_ids = set()
+    embedded_project_refs = set()
+    try:
+        from websocket.attachments import TEXT_ATTACHMENT_CONTEXT_MAX_CHARS
+        persistent_text_budget = {
+            "remaining": int(TEXT_ATTACHMENT_CONTEXT_MAX_CHARS)
+        }
+    except (ImportError, TypeError, ValueError):
+        persistent_text_budget = {"remaining": 32000}
 
     if not _append_recorded_tool_results(
         tool_result_blocks,
         context,
+        represented_attachment_ids=represented_attachment_ids,
+        embedded_project_refs=embedded_project_refs,
+        persistent_text_budget=persistent_text_budget,
     ):
         _append_tool_results(
             tool_result_blocks,
@@ -613,6 +868,13 @@ def build_tool_results_context(
             tool_result_blocks,
             context,
         )
+
+    _append_unowned_attached_file_results(
+        tool_result_blocks,
+        context,
+        represented_ids=represented_attachment_ids,
+        persistent_text_budget=persistent_text_budget,
+    )
 
     return build_tools_results_context(
         tool_result_blocks

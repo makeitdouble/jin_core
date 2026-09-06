@@ -1218,6 +1218,24 @@ def append_runtime_recent_turn(
     ]
 
 
+def append_interrupted_runtime_recent_turn(
+    context,
+    *,
+    user_message: str,
+    reasoning: str = "",
+    user_created_at: float | None = None,
+) -> None:
+    """Keep a stopped real USER move in rolling chat history as USER-only."""
+
+    append_runtime_recent_turn(
+        context,
+        user_message=user_message,
+        assistant_message="",
+        reasoning=reasoning,
+        user_created_at=user_created_at,
+    )
+
+
 def format_runtime_memory_user_message(
     context,
     user_text: str,
@@ -1266,6 +1284,7 @@ async def process_message(
     retry_source_candidate = {}
     retry_terminal_emitted = False
     reasoning_save_pending = False
+    recent_turn_committed = False
 
     try:
 
@@ -1351,9 +1370,13 @@ async def process_message(
             active_attachment_ids = attachment_ids_from_message_data(
                 message_data
             )
-            from utils.context.files import unload_project_files
+            from utils.context.files import (
+                unload_persistent_file_results,
+                unload_project_files,
+            )
             for removed in set(context.runtime_attached_file_ids or []) - set(active_attachment_ids):
                 unload_project_files(context, removed)
+                unload_persistent_file_results(context, removed)
             context.runtime_attached_file_ids = list(active_attachment_ids)
 
         hydrated_active_attachments = hydrate_message_attachments(
@@ -1643,6 +1666,7 @@ async def process_message(
                 ),
                 assistant_created_at=assistant_created_at,
             )
+            recent_turn_committed = True
         if not is_action_guard_retry and not is_user_retry:
             context.assistant_message_count += 1
             if not is_session_restore_resume:
@@ -1814,6 +1838,39 @@ async def process_message(
                 },
                 error="runtime_action_confirmation_retry_cancelled",
             )
+
+        # A real USER move must survive an explicit stop even when the Brain
+        # never reached a completed JIN row. Without this commit the next turn
+        # rebuilds PREVIOUS_CHAT_MESSAGES from a history that silently skipped
+        # the interrupted project/action turn. Keep it USER-only: cancellation
+        # is not a completed exchange and must not manufacture a JIN message.
+        if (
+            not recent_turn_committed
+            and not is_action_guard_retry
+            and not is_session_restore_resume
+            and not is_user_retry
+            and not getattr(
+                context,
+                "runtime_turn_discard_requested",
+                False,
+            )
+            and str(user_text or "").strip()
+        ):
+            append_interrupted_runtime_recent_turn(
+                context,
+                user_message=user_text,
+                reasoning=getattr(
+                    context,
+                    "runtime_turn_reasoning_content",
+                    "",
+                ),
+                user_created_at=getattr(
+                    context,
+                    "runtime_turn_started_at",
+                    None,
+                ),
+            )
+            recent_turn_committed = True
 
         await logger.log_runtime(
             "Agent runtime task cancelled."

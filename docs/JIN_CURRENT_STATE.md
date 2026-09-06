@@ -183,6 +183,8 @@ The mapped Brain feature flags in `rules/brain_context_builder.py` are enabled. 
 
 `JIN_COLOR` contract version 2 likewise advertises `<JIN_COLOR> #00f2ff </JIN_COLOR>`. Both actions put payload in a paired tag body. Localized parsing still accepts old colon/space inline variants, but those are not model-facing syntax. Current parser/formatter tests require ordinary `before`/`after` answer text to survive marker removal and cover split-chunk completion.
 
+The runtime now also has a strict response-prefix fallback for missing angle brackets. Before visible answer text starts, an exact standalone `ACTION_NAME: payload` line may execute only for enabled payload-bearing short actions and the JIN one-line compatibility actions, and only when the existing payload validator accepts it (with stricter ID-shape checks for recall/active/delayed-memory IDs). Invalid or prose-like payloads stay visible and immediately end the bare fallback; later bare lines stay text, while ordinary `<...>` markers continue to work. Streaming holds an unterminated candidate until newline or final flush, and accepted standalone action lines are removed without leaving a blank line.
+
 The JIN visual sequence path preserves the model's marker order across color/size/speed/position. Color and size filtering removes only a no-op against the last applied value in the same runtime-message scope; an alternating sequence is not a repetition failure, and the same color can be requested in another message.
 
 ---

@@ -4,6 +4,7 @@ from types import SimpleNamespace
 import utils.attached_files_store as store
 from rules.brain_context_builder import build_brain_context
 from utils.context.tool_results import build_tool_results_context
+from utils.context.files import select_file_tool_results, unload_persistent_file_results
 from utils.tool_results import TOOL_RESULT_KIND_FILES, record_runtime_tool_result
 from websocket.attachments import format_attachment_context
 
@@ -175,8 +176,78 @@ def test_attached_files_context_sits_between_tools_and_delayed(monkeypatch, tmp_
     )
     assert "<ATTACHED_FILES>" in prompt
     assert f"note.txt [ id: {record['id']} ]" in prompt
+    assert "<FILE_CONTENT: note.txt >" in prompt
+    assert prompt.index("<TOOLS_RESULTS") < prompt.index("<FILE_CONTENT: note.txt >")
+    assert prompt.index("<FILE_CONTENT: note.txt >") < prompt.index("</TOOLS_RESULTS>")
     assert prompt.index("<TOOLS_RESULTS") < prompt.index("<ATTACHED_FILES>")
     assert prompt.index("<ATTACHED_FILES>") < prompt.index("<DELAYED_MEMORY>")
+
+
+def test_persistent_attach_result_owns_source_and_detach_keeps_result(monkeypatch, tmp_path):
+    _redirect_store(monkeypatch, tmp_path)
+    record, _created, _error = store.store_uploaded_file(
+        name="note.txt",
+        content=b"persistent source body",
+        mime_type="text/plain",
+        pin=False,
+    )
+    context = SimpleNamespace(
+        runtime_attached_file_ids=[record["id"]],
+        runtime_tool_results=[],
+        runtime_tool_result_created_ats=[],
+    )
+    record_runtime_tool_result(
+        context,
+        TOOL_RESULT_KIND_FILES,
+        {
+            "action": "attach_file",
+            "ok": True,
+            "id": record["id"],
+            "name": record["name"],
+            "loaded": True,
+        },
+    )
+    rendered = build_tool_results_context(context)
+    open_index = rendered.index('<TOOL_RESULT name="ATTACH_FILE"')
+    source_index = rendered.index('<FILE_CONTENT: note.txt >')
+    close_index = rendered.index('</TOOL_RESULT>', open_index)
+    assert open_index < source_index < close_index
+    assert "persistent source body" in rendered
+
+    timestamp = "2026-09-06T19:14:00Z"
+    assert unload_persistent_file_results(
+        context,
+        record["id"],
+        detached_at=timestamp,
+    ) is True
+    context.runtime_attached_file_ids = []
+    rendered = build_tool_results_context(context)
+    assert "persistent source body" not in rendered
+    assert '<TOOL_RESULT name="ATTACH_FILE"' in rendered
+    assert f"Status: detached at {timestamp}" in rendered
+
+
+def test_loaded_persistent_attach_result_survives_history_tail():
+    loaded = {
+        "kind": "files",
+        "result": {
+            "action": "attach_file",
+            "ok": True,
+            "id": "abc123",
+            "name": "note.txt",
+            "loaded": True,
+        },
+    }
+    history = [loaded] + [
+        {"kind": "runtime_action", "result": {"action": "noop", "ok": True, "value": index}}
+        for index in range(60)
+    ]
+    selected = select_file_tool_results(history, 20)
+    assert loaded in selected
+
+    loaded["result"]["loaded"] = False
+    selected = select_file_tool_results(history, 20)
+    assert loaded not in selected
 
 
 def test_list_files_tool_result_format(monkeypatch, tmp_path):
