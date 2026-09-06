@@ -2356,13 +2356,13 @@ function handleRuntimeAction(
         strikeThroughFailure
           ? true
           : undefined,
+      // Counter-only events are telemetry. They may arrive after a richer
+      // terminal event (for example RECALL_FACT_CONTEXT failure), so they
+      // may update the count but must never replace the semantic label.
       preserveLabel:
         cancelledByUser
         || restrictedWriteFailure
-        || (
-          displayCounterOnly
-          && closeTag
-        ),
+        || displayCounterOnly,
       fallbackToLatestActive:
         abortedByUser
         || status === "failed"

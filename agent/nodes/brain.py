@@ -1752,7 +1752,11 @@ class BrainNode(BaseNode):
         try:
             generator = ask_brain_stream(
                 client=brain_client,
-                text=state.user_input,
+                # A follow-up is a continuation of the same model turn, not a
+                # second USER move. Never forward the original request through
+                # the generic ``text`` fallback on these ticks.
+                text=("" if is_followup_tick else state.user_input),
+                action_user_message=state.user_input,
                 context=context,
                 system_prompt=system_prompt,
                 brain_payload=effective_brain_payload,

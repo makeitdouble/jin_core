@@ -11,6 +11,7 @@ from contracts.rules_assembler import (
     RUNTIME_ACTION_JIN_POSITION,
     RUNTIME_ACTION_JIN_SPEED,
     RUNTIME_ACTION_UPDATE_LT_FACTS,
+    RUNTIME_ACTION_RECALL_FACT_CONTEXT,
     RUNTIME_ACTION_CLEAN_TOOL_RESULTS,
     RUNTIME_ACTION_UNLOAD_DELAYED_MEMORY,
     RUNTIME_ACTION_DETACH_FILE,
@@ -83,6 +84,7 @@ from utils.actions.attachment_actions import (
     apply_attachment_actions,
 )
 from utils.actions.update_lt_facts_actions import schedule_update_lt_facts_actions
+from utils.actions.recall_fact_context_actions import apply_recall_fact_context_actions
 from utils.actions.jin_visual_sequence_actions import (
     emit_jin_visual_sequences,
 )
@@ -267,6 +269,7 @@ async def apply_runtime_action_calls(
         RUNTIME_ACTION_JIN_POSITION,
         RUNTIME_ACTION_JIN_SPEED,
         RUNTIME_ACTION_UPDATE_LT_FACTS,
+        RUNTIME_ACTION_RECALL_FACT_CONTEXT,
     }
     loaded_skill_names = {
         normalize_skill_name(
@@ -1670,6 +1673,12 @@ async def apply_runtime_action_calls(
         if action.name == RUNTIME_ACTION_UPDATE_LT_FACTS
     ]
 
+    recall_fact_context_actions = [
+        action
+        for action in filtered_actions
+        if action.name == RUNTIME_ACTION_RECALL_FACT_CONTEXT
+    ]
+
     clean_tool_result_actions = [
         action
         for action in filtered_actions
@@ -1764,9 +1773,10 @@ async def apply_runtime_action_calls(
         None,
     )
 
-    # Explicit L-T edits start immediately on their own background lane.
-    # Do not make them wait behind unrelated runtime action handlers.
-    schedule_update_lt_facts_actions(
+    # Accept explicit L-T edits immediately so their chat marker can retire,
+    # but queue the actual service-model work. In the websocket turn flow the
+    # queue is kicked only after the FRAME request card has been emitted.
+    await schedule_update_lt_facts_actions(
         context,
         update_lt_facts_actions,
         action_display_ids=action_display_ids,
@@ -1875,6 +1885,13 @@ async def apply_runtime_action_calls(
         with_action_context=with_action_context,
     )
 
+    recalled_fact_context_results = await apply_recall_fact_context_actions(
+        context,
+        recall_fact_context_actions,
+        log_runtime=log_runtime,
+        with_action_context=with_action_context,
+    )
+
     delayed_memory_results = await apply_delayed_memory_actions(
         context,
         load_delayed_memory_actions=load_delayed_memory_actions,
@@ -1964,6 +1981,9 @@ async def apply_runtime_action_calls(
         )
         + len(
             update_lt_facts_actions
+        )
+        + len(
+            recalled_fact_context_results
         )
         + len(
             saved_active_memory_texts

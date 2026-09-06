@@ -1242,6 +1242,15 @@ function resolveLTSummarizerPhase(
 
   const normalized =
     String(message || "").toLowerCase();
+
+  // UPDATE_LT_FACTS uses one focused service-model pass rather than the
+  // ordinary extract -> merge pair. Present that pass inside the existing
+  // L-T sequence card as a focused merge step instead of creating a second
+  // standalone [MEMORY:L-T] logger card.
+  if (/^l-?t\s+jin\s+note\s+summarizer\s+/.test(normalized)) {
+    return "merge";
+  }
+
   const match =
     normalized.match(
       /^l-?t\s+(extraction|merge)\s+summarizer\s+/
@@ -1770,11 +1779,19 @@ function resolveLTTerminalPhase(
     return "merge";
   }
 
+  if (event.startsWith("jin_note_")) {
+    return "merge";
+  }
+
   return state.currentPhase;
 }
 
 function isLTSequenceTerminalFailure(event) {
-  if (event === "update_failed") {
+  if (
+    event === "update_failed"
+    || event === "jin_note_failed"
+    || event === "jin_note_skipped"
+  ) {
     return true;
   }
 
@@ -1812,6 +1829,9 @@ function handleLTMemorySequenceLog(
     phase && summarizerEvent
     || event === "extract_applied"
     || event === "merge_applied"
+    || event === "jin_note_applied"
+    || event === "jin_note_no_change"
+    || event === "jin_note_preempted"
     || isLTSequenceTerminalFailure(event)
   );
 
@@ -1925,6 +1945,79 @@ function handleLTMemorySequenceLog(
       Boolean(state.diffDetails)
     );
     state.showButton.disabled = false;
+    state.complete = true;
+  } else if (
+    event === "jin_note_applied"
+    || event === "jin_note_no_change"
+  ) {
+    settleLTSequenceResponse(
+      state,
+      "merge"
+    );
+    setLTSequenceStatus(
+      state.elements.merge.arrow,
+      event === "jin_note_applied"
+        ? "success"
+        : "idle"
+    );
+    setLTSequenceInspectable(
+      state.elements.merge.arrow,
+      Boolean(
+        state.phases.merge.responseDetails
+      )
+    );
+    setLTSequenceStatus(
+      state.elements.apply.label,
+      "success"
+    );
+
+    state.diffDetails =
+      String(
+        details
+        || (
+          event === "jin_note_no_change"
+            ? "No changes"
+            : ""
+        )
+      );
+    state.diffTrace = meta.trace || null;
+    state.diffTitle =
+      event === "jin_note_applied"
+        ? "L-T JIN note applied"
+        : "L-T JIN note response";
+    setLTSequenceInspectable(
+      state.elements.apply.label,
+      Boolean(state.diffDetails)
+    );
+    state.showButton.disabled = !state.diffDetails;
+    state.complete = true;
+  } else if (event === "jin_note_preempted") {
+    state.phases.merge.requestPending = false;
+    setLTSequenceStatus(
+      state.elements.merge.label,
+      "idle"
+    );
+    setLTSequenceStatus(
+      state.elements.merge.arrow,
+      "idle"
+    );
+    setLTSequenceStatus(
+      state.elements.apply.label,
+      "idle"
+    );
+    setLTSequenceInspectable(
+      state.elements.merge.label,
+      Boolean(state.phases.merge.requestDetails)
+    );
+    setLTSequenceInspectable(
+      state.elements.merge.arrow,
+      false
+    );
+    setLTSequenceInspectable(
+      state.elements.apply.label,
+      false
+    );
+    state.showButton.disabled = true;
     state.complete = true;
   } else if (isLTSequenceTerminalFailure(event)) {
     const terminalPhase =

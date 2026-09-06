@@ -1124,35 +1124,29 @@ class RuntimeClient:
             user_prompt,
     ):
 
-        if (
-            isinstance(
-                user_prompt,
-                str,
-            )
-            and user_prompt == ""
-            and (
-                bool(
-                    getattr(
-                        context,
-                        "runtime_followup_tick_active",
-                        False,
-                    )
-                )
-                or bool(
-                    getattr(
-                        context,
-                        "runtime_session_restore_priming",
-                        False,
-                    )
+        if isinstance(user_prompt, str):
+            followup_tick = bool(
+                getattr(
+                    context,
+                    "runtime_followup_tick_active",
+                    False,
                 )
             )
-        ):
-            # Do not replace this with "" or "(empty)": LM Studio prompt
-            # templates reject a truly empty user message ("No user query
-            # found"). Follow-up and session-restore ticks are intentionally
-            # system/context-only, so give the provider a single whitespace
-            # character without exposing a fake user request to the model.
-            return " "
+            restore_tick = bool(
+                getattr(
+                    context,
+                    "runtime_session_restore_priming",
+                    False,
+                )
+            )
+
+            if followup_tick or (restore_tick and user_prompt == ""):
+                # Do not replace this with "" or "(empty)": LM Studio prompt
+                # templates reject a truly empty user message ("No user query
+                # found"). Text-only follow-ups are system/context continuations,
+                # so discard any stale caller payload and give the provider one
+                # whitespace character instead of replaying a USER message.
+                return " "
 
         return user_prompt
 

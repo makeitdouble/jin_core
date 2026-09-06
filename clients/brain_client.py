@@ -454,7 +454,18 @@ async def ask_brain_stream(
     brain_payload: str | None = None,
     runtime_actions=None,
     filter_runtime_actions: bool = True,
+    action_user_message: str | None = None,
 ):
+
+    # ``text`` is the model-turn fallback payload. Internal follow-up ticks
+    # intentionally pass it as empty so the original user request cannot leak
+    # back into the provider user role. Runtime action guards still need the
+    # original request scope, so carry that separately.
+    resolved_action_user_message = (
+        text
+        if action_user_message is None
+        else str(action_user_message or "")
+    )
 
     resolved_brain_payload: str = (
         brain_payload
@@ -482,7 +493,7 @@ async def ask_brain_stream(
 
     enabled_actions = get_response_enabled_runtime_actions(
         runtime_actions,
-        text,
+        resolved_action_user_message,
         context=context,
     )
 
@@ -2114,7 +2125,7 @@ async def ask_brain_stream(
             ) = await confirm_runtime_action_guards(
                 context,
                 immediate_action_calls,
-                user_message=text,
+                user_message=resolved_action_user_message,
                 context_snapshot=action_context_snapshot,
                 confirmed_guard_names=confirmed_action_guard_names,
                 rejected_guard_names=rejected_action_guard_names,
@@ -2137,7 +2148,7 @@ async def ask_brain_stream(
             await apply_runtime_action_calls(
                 context,
                 immediate_action_calls,
-                user_message=text,
+                user_message=resolved_action_user_message,
                 context_snapshot=action_context_snapshot,
                 confirmed_action_ids=confirmed_action_ids,
                 rejected_action_ids=rejected_action_ids,

@@ -2,6 +2,10 @@ from contracts.rules_assembler import (
     get_stream_validator_excluded_markers,
 )
 from config_loader import config
+from utils.actions.regexp_utils import (
+    RUNTIME_ACTION_QUOTE_OPENERS,
+    is_quoted_runtime_marker,
+)
 
 import re
 import unicodedata
@@ -205,6 +209,21 @@ EXCLUDED_MARKER_STARTS = tuple(
     )
 )
 
+LITERAL_MARKER_CLOSERS = {
+    '"': '"',
+    "'": "'",
+    '`': '`',
+    '«': '»',
+    '‹': '›',
+    '“': '”',
+    '‘': '’',
+    '„': '“',
+    '‚': '‘',
+    '(': ')',
+    '[': ']',
+    '{': '}',
+}
+
 def build_preview(
         text: str,
 ) -> str:
@@ -262,6 +281,7 @@ class StreamValidator:
         self.ascii_drift_history = []
         self.validation_marker_buffer = ""
         self.validation_excluded_block_name = ""
+        self.validation_previous_chunk_last_char = ""
 
         previous_output = str(previous_output or "")
         same_output_compare_length = min(
@@ -1322,11 +1342,34 @@ class StreamValidator:
         chunk: str,
     ) -> str:
 
+        had_marker_buffer = bool(
+            self.validation_marker_buffer
+        )
         text = self.validation_marker_buffer + chunk
         self.validation_marker_buffer = ""
 
         output = []
         offset = 0
+
+        def literal_marker_opener(
+            marker_start: int,
+        ) -> str:
+
+            if is_quoted_runtime_marker(
+                text,
+                marker_start,
+            ):
+                return text[marker_start - 1]
+
+            if (
+                marker_start == 0
+                and not had_marker_buffer
+                and self.validation_previous_chunk_last_char
+                in RUNTIME_ACTION_QUOTE_OPENERS
+            ):
+                return self.validation_previous_chunk_last_char
+
+            return ""
 
         while offset < len(text):
 
@@ -1350,7 +1393,15 @@ class StreamValidator:
             if marker_end < 0:
                 candidate = text[marker_start:]
 
-                if self.can_be_excluded_marker_prefix(
+                if (
+                    not self.validation_excluded_block_name
+                    and literal_marker_opener(marker_start)
+                ):
+                    # Literal marker references must never start a persistent
+                    # excluded block. If the tag itself is chunk-split, keep
+                    # treating the partial text as ordinary validation input.
+                    output.append(candidate)
+                elif self.can_be_excluded_marker_prefix(
                     candidate
                 ):
                     self.validation_marker_buffer = candidate
@@ -1364,6 +1415,60 @@ class StreamValidator:
             ]
             marker_name = extract_marker_name(marker)
             is_closing = str(marker).lstrip().startswith("</")
+            literal_opener = (
+                literal_marker_opener(marker_start)
+                if not self.validation_excluded_block_name
+                else ""
+            )
+
+            if literal_opener:
+                # RuntimeActionStreamFilter already treats an immediately
+                # quoted/backticked/bracketed marker as literal model text.
+                # Mirror that rule here, but continue excluding the marker
+                # syntax itself from repetition analysis. Most importantly, a
+                # literal opening block marker must not leave validation stuck
+                # inside an excluded block waiting for a closing tag that is
+                # only being discussed, not emitted as an action.
+                if (
+                    marker_name in EXCLUDED_BLOCK_MARKER_NAMES
+                    and not is_closing
+                ):
+                    closing_match = re.search(
+                        rf"</{re.escape(marker_name)}\s*>",
+                        text[marker_end + 1:],
+                        re.IGNORECASE,
+                    )
+
+                    quote_closer = LITERAL_MARKER_CLOSERS.get(
+                        literal_opener,
+                        literal_opener,
+                    )
+                    quote_end = text.find(
+                        quote_closer,
+                        marker_end + 1,
+                    )
+
+                    if closing_match is not None:
+                        closing_start = (
+                            marker_end
+                            + 1
+                            + closing_match.start()
+                        )
+                        if (
+                            quote_end < 0
+                            or closing_start < quote_end
+                        ):
+                            output.append(" ")
+                            offset = (
+                                marker_end
+                                + 1
+                                + closing_match.end()
+                            )
+                            continue
+
+                output.append(" ")
+                offset = marker_end + 1
+                continue
 
             if self.validation_excluded_block_name:
                 if (
@@ -1388,6 +1493,9 @@ class StreamValidator:
                 output.append(marker)
 
             offset = marker_end + 1
+
+        if chunk:
+            self.validation_previous_chunk_last_char = chunk[-1]
 
         return "".join(output)
 

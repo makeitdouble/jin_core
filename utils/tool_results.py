@@ -10,6 +10,7 @@ TOOL_RESULT_KIND_ACTIVE_MEMORY = "active_memory"
 TOOL_RESULT_KIND_DELAYED_MEMORY = "delayed_memory"
 TOOL_RESULT_KIND_FILES = "files"
 TOOL_RESULT_KIND_LT = "lt"
+TOOL_RESULT_KIND_FACT_CONTEXT = "fact_context"
 TOOL_RESULT_KIND_RUNTIME_ACTION = "runtime_action"
 
 RUNTIME_TOOL_RESULT_LIST_ATTRIBUTES = (
@@ -244,6 +245,7 @@ def _failed_tool_result_requires_followup(
         TOOL_RESULT_KIND_ASSET,
         TOOL_RESULT_KIND_DELAYED_MEMORY,
         TOOL_RESULT_KIND_FILES,
+        TOOL_RESULT_KIND_FACT_CONTEXT,
     }:
         return True
 

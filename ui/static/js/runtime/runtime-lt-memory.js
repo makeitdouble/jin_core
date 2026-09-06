@@ -88,6 +88,10 @@
       ),
       created_at: normalizeText(value.created_at),
       updated_at: normalizeText(value.updated_at),
+      sources: Array.isArray(value.sources)
+        ? value.sources.filter((source) => source && typeof source === "object")
+            .map((source) => ({ ...source }))
+        : [],
       source_fact_ids: normalizeList(
         value.source_fact_ids || value.source_fact_id
       ),

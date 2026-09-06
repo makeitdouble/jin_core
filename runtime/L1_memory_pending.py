@@ -54,6 +54,7 @@ def _pending_turns(
 
     return [
         {
+            "turn_id": str(turn.get("turn_id") or ""),
             "user_message": str(
                 turn.get("user_message", "")
                 or ""
@@ -174,6 +175,7 @@ def restore_pending_l1_update(
 
     context.runtime_memory_pending_turns = [
         {
+            "turn_id": str(turn.get("turn_id") or ""),
             "user_message": str(
                 turn.get("user_message", "")
                 or ""

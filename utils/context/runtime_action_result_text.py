@@ -1,4 +1,5 @@
 # Renders runtime action results as readable text for <TOOL_RESULT> blocks.
+import re
 
 
 def _humanize_key(value: str) -> str:
@@ -16,13 +17,60 @@ def _format_scalar(value) -> str:
     return str(value)
 
 
+def _compact_turn_id(value) -> str:
+    text = str(value or "").strip()
+    match = re.fullmatch(r"turn_0*(\d+)", text)
+    if match:
+        return f"turn_{int(match.group(1))}"
+    return text or "turn_unknown"
+
+
+def _append_compact_messages(
+    lines: list[str],
+    value,
+    *,
+    indent: str,
+) -> None:
+    lines.append(f"{indent}Messages:")
+    if not value:
+        lines.append(f"{indent}  none")
+        return
+
+    for index, item in enumerate(value):
+        if index:
+            lines.append("")
+
+        if not isinstance(item, dict):
+            lines.append(f"{indent}  {_format_scalar(item)}")
+            continue
+
+        turn_id = _compact_turn_id(item.get("turn_id"))
+        timestamp = str(item.get("timestamp") or "").strip()
+        header = turn_id if not timestamp else f"{turn_id} | {timestamp}"
+        lines.append(f"{indent}  {header}")
+
+        role = str(item.get("role") or "message").strip() or "message"
+        text = str(item.get("text") or "").strip()
+        text_lines = text.splitlines() if text else []
+        if not text_lines:
+            lines.append(f"{indent}  {role}:")
+            continue
+
+        lines.append(f"{indent}  {role}: {text_lines[0]}")
+        lines.extend(f"{indent}  {line}" for line in text_lines[1:])
+
+
 def _append_value(
     lines: list[str],
     label: str,
     value,
     *,
     indent: str = "",
+    compact_messages: bool = False,
 ) -> None:
+    if compact_messages and label == "Messages" and isinstance(value, (list, tuple)):
+        _append_compact_messages(lines, value, indent=indent)
+        return
     if isinstance(value, dict):
         lines.append(f"{indent}{label}:")
         if not value:
@@ -35,6 +83,7 @@ def _append_value(
                 _humanize_key(key),
                 nested_value,
                 indent=indent + "  ",
+                compact_messages=compact_messages,
             )
         return
 
@@ -52,6 +101,7 @@ def _append_value(
                         item_lines,
                         _humanize_key(key),
                         nested_value,
+                        compact_messages=compact_messages,
                     )
                 if item_lines:
                     lines.append(f"{indent}  - {item_lines[0]}")
@@ -305,6 +355,7 @@ def format_runtime_action_result(
             lines,
             _humanize_key(key),
             value,
+            compact_messages=(action_name == "RECALL_FACT_CONTEXT"),
         )
 
     return "\n".join(lines).strip()

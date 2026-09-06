@@ -198,6 +198,18 @@ class RuntimeClientTests(
     unittest.IsolatedAsyncioTestCase
 ):
 
+    async def test_followup_provider_discards_stale_text_user_prompt(self):
+        context = FakeStreamContextObject()
+        context.runtime_followup_tick_active = True
+
+        self.assertEqual(
+            RuntimeClient.provider_user_prompt(
+                context,
+                "original user request",
+            ),
+            " ",
+        )
+
     async def test_fresh_larger_loaded_context_releases_old_provider_ceiling(self):
         http_client = FakeHttpClient(
             models_payload={

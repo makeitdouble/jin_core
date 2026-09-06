@@ -1756,7 +1756,10 @@ def _build_formatted_session_action_marker_parts(
             continue
 
         preserve_failure_state = (
-            normalized_name == "UPDATE_ACTIVE_MEMORY"
+            normalized_name in {
+                "UPDATE_ACTIVE_MEMORY",
+                "RECALL_FACT_CONTEXT",
+            }
             or (
                 marker_status == "failed"
                 and marker_failure_reason.casefold()
@@ -1931,6 +1934,36 @@ def _build_formatted_session_action_marker_parts(
         part = {
             "text": action_name,
         }
+
+        if action_name == "RECALL_FACT_CONTEXT":
+            fact_ids = _unique_session_action_values(
+                payloads
+            )
+            if fact_ids:
+                part["text"] = (
+                    f"{action_name}: "
+                    + ", ".join(fact_ids)
+                )
+            if group.get("status") == "failed":
+                part["text"] += ": failed"
+                failure_reason = str(
+                    group.get(
+                        "failure_reason",
+                        "",
+                    )
+                    or ""
+                ).strip()
+                if failure_reason:
+                    part["text"] += (
+                        f" - {failure_reason}"
+                    )
+            formatted_parts.append(
+                _with_session_action_marker_count(
+                    part,
+                    count,
+                )
+            )
+            continue
 
         if (
             group.get(
@@ -2405,7 +2438,10 @@ def _apply_session_action_runtime_outcomes(
             )
         )
         if (
-            event_name != "update_active_memory"
+            event_name not in {
+                "update_active_memory",
+                "recall_fact_context",
+            }
             and not restricted_write_failure
         ):
             continue
@@ -2544,7 +2580,11 @@ def _apply_session_action_runtime_outcomes(
                     "error",
                     "",
                 )
-                or "update failed"
+                or (
+                    "recall failed"
+                    if marker_name == "RECALL_FACT_CONTEXT"
+                    else "update failed"
+                )
             ).strip()
 
     return normalized_actions

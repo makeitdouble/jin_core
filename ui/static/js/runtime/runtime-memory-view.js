@@ -9683,7 +9683,7 @@
     fact
   ) {
 
-    const entries = [];
+    const entries = [`sources: ${Array.isArray(fact.sources) ? fact.sources.length : 0}`];
 
     [
       "id",

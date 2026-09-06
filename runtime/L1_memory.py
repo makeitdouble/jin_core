@@ -239,6 +239,18 @@ async def ask_frame_summarizer(
         ),
     )
 
+    frame_request_event = getattr(
+        context,
+        "runtime_frame_summarizer_request_event",
+        None,
+    )
+    if (
+        frame_request_event is not None
+        and getattr(context, "runtime_memory_update_task", None)
+        is asyncio.current_task()
+    ):
+        frame_request_event.set()
+
     try:
         return await ask_service_model(
             client=service_client,
@@ -438,6 +450,8 @@ async def summarize_runtime_memory(
         assistant_message: str,
 ) -> str:
 
+    source_turn_id = str(getattr(context, "runtime_current_turn_id", "") or "")
+
     if not assistant_message.strip():
         stored_memory = remove_runtime_response_feedback_text(
             getattr(
@@ -574,7 +588,7 @@ async def summarize_runtime_memory(
             context.runtime_memory_updates = updates_counter + 1
 
             snapshot = await emit_runtime_memory_update(
-                context
+                context, source_turns=[{"turn_id": source_turn_id}],
             )
 
             await record_runtime_l1_diff(
@@ -775,7 +789,7 @@ async def summarize_runtime_memory_pending_turns(
                 )
 
             snapshot = await emit_runtime_memory_update(
-                context
+                context, source_turns=turns,
             )
 
             await record_runtime_l1_diff(
@@ -853,6 +867,8 @@ def _start_runtime_memory_update_task(
             and not previous_task.done()
     ):
         previous_task.cancel()
+
+    context.runtime_frame_summarizer_request_event = asyncio.Event()
 
     task = asyncio.create_task(
         summarize_runtime_memory_pending_turns(
@@ -983,6 +999,7 @@ def schedule_runtime_memory_update(
         )
 
     context.runtime_memory_pending_turns.append({
+        "turn_id": str(getattr(context, "runtime_current_turn_id", "") or ""),
         "user_message": user_message,
         "assistant_message": assistant_message,
     })

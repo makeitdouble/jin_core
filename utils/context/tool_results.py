@@ -5,6 +5,7 @@ from xml.sax.saxutils import escape
 from contracts.rules_assembler import (
     RUNTIME_ACTION_DEEP_WEB_SEARCH,
     RUNTIME_ACTION_UPDATE_LT_FACTS,
+    RUNTIME_ACTION_RECALL_FACT_CONTEXT,
     RUNTIME_ACTION_WEB_SEARCH,
 )
 from utils.brain_client_utils import (
@@ -19,6 +20,7 @@ from utils.tool_results import (
     TOOL_RESULT_KIND_SEARCH,
     TOOL_RESULT_KIND_FILES,
     TOOL_RESULT_KIND_LT,
+    TOOL_RESULT_KIND_FACT_CONTEXT,
     TOOL_RESULT_KIND_RUNTIME_ACTION,
     get_runtime_tool_result_created_at,
     get_runtime_tool_results,
@@ -421,6 +423,26 @@ def _append_recorded_tool_results(
             parts.append(
                 f"{_build_tool_result_open_tag(attrs, created_at=created_at, now=now)}\n"
                 f"{indent_xml(_escape_runtime_action_payload(payload))}\n"
+                "    </TOOL_RESULT>"
+            )
+            appended = True
+            continue
+
+        if kind == TOOL_RESULT_KIND_FACT_CONTEXT:
+            if not isinstance(result, dict):
+                continue
+
+            payload = format_runtime_action_result(
+                result, runtime_action=RUNTIME_ACTION_RECALL_FACT_CONTEXT,
+            )
+            attrs = f'name="{escape(RUNTIME_ACTION_RECALL_FACT_CONTEXT)}"'
+            result_id = str(entry.get("id", "") or "").strip()
+            if result_id:
+                attrs += f' id="{escape(result_id)}"'
+
+            parts.append(
+                f"{_build_tool_result_open_tag(attrs, created_at=created_at, now=now)}\n"
+                f"{indent_xml(escape(payload))}\n"
                 "    </TOOL_RESULT>"
             )
             appended = True

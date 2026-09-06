@@ -1244,6 +1244,67 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
             False,
         )
 
+    async def test_followup_tick_does_not_forward_original_user_message_as_text(self):
+
+        observed = {}
+
+        async def fake_ask_brain_stream(**kwargs):
+            observed.update(kwargs)
+            if False:
+                yield {}
+
+        class FakeRuntimeStream:
+
+            def __init__(self, **_kwargs):
+                self.stream = SimpleNamespace(
+                    reasoning="",
+                )
+
+            async def run(self, generator):
+                async for _event in generator:
+                    pass
+                return ""
+
+        context = _context()
+        context.runtime_turn_attachments = []
+        context.logger = SimpleNamespace(
+            log_brain=lambda _message: _async_noop(),
+        )
+        state = AgentState(
+            user_input="создай новый lt факт",
+        )
+
+        with patch(
+            "agent.nodes.brain.ask_brain_stream",
+            new=fake_ask_brain_stream,
+        ), patch(
+            "agent.nodes.brain.RuntimeStream",
+            new=FakeRuntimeStream,
+        ):
+            await BrainNode.run_brain_stream(
+                state=state,
+                context=context,
+                brain_runtime=_brain_runtime(),
+                brain_client=object(),
+                system_prompt="follow-up system",
+                brain_payload="",
+                runtime_actions={},
+                followup_tick=True,
+            )
+
+        self.assertEqual(
+            observed["text"],
+            "",
+        )
+        self.assertEqual(
+            observed["brain_payload"],
+            "",
+        )
+        self.assertEqual(
+            observed["action_user_message"],
+            "создай новый lt факт",
+        )
+
     async def test_failed_delayed_memory_save_triggers_followup_with_payload(self):
 
         calls = []

@@ -1994,6 +1994,12 @@ async def ask_lt_model(
     user_prompt: str,
     max_tokens: int | None,
 ) -> dict:
+    jin_note_generation = (
+        int(getattr(context, "runtime_lt_jin_note_generation", 0) or 0)
+        if str(label or "").strip().casefold() == "l-t jin note"
+        else None
+    )
+
     request_limits = await resolve_lt_request_limits(
         service_client=service_client,
         system_prompt=system_prompt,
@@ -2025,6 +2031,11 @@ async def ask_lt_model(
         ),
     )
 
+    if jin_note_generation is not None:
+        context.runtime_lt_jin_note_request_visible_generation = (
+            jin_note_generation
+        )
+
     response = await ask_service_model(
         client=service_client,
         context=context,
@@ -2035,6 +2046,16 @@ async def ask_lt_model(
         timeout=getattr(config, "SERVICE_REQUEST_TIMEOUT", 1000.0),
         track_usage=False,
     )
+    if (
+        jin_note_generation is not None
+        and int(getattr(context, "runtime_lt_jin_note_generation", 0) or 0)
+        != jin_note_generation
+    ):
+        # User activity preempted this explicit note while the provider was
+        # unwinding. Suppress its late result so it cannot mutate memory or
+        # attach itself to the next L-T progress card.
+        return {"_jin_lt_preempted": True}
+
     if isinstance(response, dict):
         response["_jin_lt_request_meta"] = {
             **request_limits,
@@ -3499,6 +3520,10 @@ async def run_lt_jin_note(
     note: dict,
 ) -> dict:
     ensure_runtime_lt_state(context)
+    attempt_generation = int(
+        getattr(context, "runtime_lt_jin_note_generation", 0)
+        or 0
+    )
 
     if not lt_memory_enabled():
         return {
@@ -3565,6 +3590,17 @@ async def run_lt_jin_note(
         max_tokens=None,
     )
 
+    if (
+        bool(response.get("_jin_lt_preempted"))
+        or int(getattr(context, "runtime_lt_jin_note_generation", 0) or 0)
+        != attempt_generation
+    ):
+        return {
+            "phase": "jin_note",
+            "status": "cancelled",
+            "reason": "preempted",
+        }
+
     if is_runtime_memory_response_truncated(response):
         return await log_lt_skip_event(
             context,
@@ -3614,6 +3650,7 @@ async def run_lt_jin_note(
         result=payload,
         expected_action=requested_action,
         allow_new_facts=lt_jin_note_requests_new_fact(message),
+        sources=note.get("sources", []),
     )
     if not change.get("valid"):
         return await log_lt_skip_event(
@@ -3682,6 +3719,7 @@ async def run_lt_jin_note(
         ),
         fallback_channel="summarizer",
         event="jin_note_applied",
+        facts_changed=True,
     )
     await emit_lt_memory_update(context, change=change)
     if delayed_memory_change.get("changed"):

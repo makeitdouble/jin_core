@@ -416,8 +416,10 @@ function persistRuntimeFactsMemory(
       fields[key] = {
         ...existing,
         content,
-        runtime_snapshot_id: runtimeSnapshotId,
-        session_id: sessionId,
+        runtime_snapshot_id: contentChanged
+          ? runtimeSnapshotId
+          : String(existing.runtime_snapshot_id || ""),
+        session_id: contentChanged ? sessionId : existing.session_id,
         lt_status: contentChanged
           ? "pending"
           : (

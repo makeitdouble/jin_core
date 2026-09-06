@@ -737,3 +737,62 @@ def test_stream_validator_allows_single_changing_quoted_template_list():
         )
 
     assert validator.last_failure_reason is None
+
+
+def test_validation_exclusions_do_not_open_block_for_literal_marker_reference():
+    validator = StreamValidator()
+
+    filtered = validator.filter_validation_exclusions(
+        "I will also check `<JIN_COLOR>`. Then continue."
+    )
+
+    assert "Then continue." in filtered
+    assert validator.validation_excluded_block_name == ""
+
+
+def test_validation_exclusions_handle_backtick_marker_across_chunk_boundary():
+    validator = StreamValidator()
+
+    first = validator.filter_validation_exclusions(
+        "I will also check `"
+    )
+    second = validator.filter_validation_exclusions(
+        "<JIN_COLOR>"
+    )
+    third = validator.filter_validation_exclusions(
+        "`. Then continue."
+    )
+
+    assert "Then continue." in (first + second + third)
+    assert validator.validation_excluded_block_name == ""
+
+
+def test_literal_runtime_marker_does_not_hide_repeated_sentence_loop():
+    validator = StreamValidator()
+    repeated = "I will output the tool call.\n"
+
+    assert validator.validate_repetitions(repeated)
+    assert validator.validate_repetitions(
+        "I will also check `"
+    )
+    assert validator.validate_repetitions(
+        "<JIN_COLOR>"
+    )
+    assert validator.validate_repetitions(
+        "`. Then I will answer.\n"
+    )
+
+    detected = False
+    for _ in range(MAX_REPEAT_SENTENCES):
+        if not validator.validate_repetitions(repeated):
+            detected = True
+            break
+
+    assert detected
+    assert validator.last_failure_reason == (
+        "Repeated sentence loop detected."
+    )
+    assert validator.last_failure_loop_preview == (
+        "I will output the tool call."
+    )
+    assert validator.validation_excluded_block_name == ""

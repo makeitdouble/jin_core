@@ -211,6 +211,9 @@ class RuntimeContext:
     )
 
     runtime_lt_memory_update_task: object | None = None
+    runtime_lt_explicit_note_queue: list[dict] = field(default_factory=list)
+    runtime_lt_jin_note_generation: int = 0
+    runtime_lt_jin_note_request_visible_generation: int = -1
 
     # Transient merge recovery state. A reasoning-heavy service model can
     # consume the shared generation budget before emitting final L-T JSON; the
@@ -252,6 +255,8 @@ class RuntimeContext:
     )
 
     runtime_current_context_window_text: str = ""
+
+    runtime_recall_fact_context_progress: dict = field(default_factory=dict)
 
     runtime_previous_answer_context_window: dict = field(
         default_factory=dict
@@ -380,6 +385,7 @@ class RuntimeContext:
     )
 
     runtime_memory_update_task: object | None = None
+    runtime_frame_summarizer_request_event: object | None = None
 
     runtime_memory_snapshots: list[dict] = field(
         default_factory=list

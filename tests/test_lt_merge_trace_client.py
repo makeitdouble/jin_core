@@ -210,6 +210,46 @@ assert.equal(failed.showButton.disabled, true);
 failed.elements.merge.label.click();
 assert.equal(traceModalTitle.textContent, "L-T merge failed");
 assert.equal(traceModalContent.textContent, "Original failure details");
+
+// Explicit UPDATE_LT_FACTS must reuse the same L-T sequence card. Its single
+// focused model pass is represented by the merge step, then apply.
+const jinNote = emit(
+  "summarizer_request",
+  "jin note request",
+  {},
+  "L-T JIN note summarizer request"
+);
+assert.equal(jinNote.elements.merge.label.dataset.status, "pending");
+assert.equal(jinNote.elements.merge.label.disabled, false);
+emit(
+  "summarizer_result",
+  '{"action":"update","replacement_facts":[]}',
+  {},
+  "L-T JIN note summarizer result"
+);
+const jinApplied = emit(
+  "jin_note_applied",
+  '{"message":"focused edit","change":{"changed":true}}'
+);
+assert.equal(jinApplied, jinNote);
+assert.equal(jinApplied.elements.merge.label.dataset.status, "success");
+assert.equal(jinApplied.elements.merge.arrow.dataset.status, "success");
+assert.equal(jinApplied.elements.apply.label.dataset.status, "success");
+assert.equal(jinApplied.complete, true);
+assert.equal(jinApplied.showButton.disabled, false);
+
+const jinPreempted = emit(
+  "summarizer_request",
+  "retry me",
+  {},
+  "L-T JIN note summarizer request"
+);
+assert.notEqual(jinPreempted, jinApplied);
+assert.equal(emit("jin_note_preempted", "queued for ASAP retry"), jinPreempted);
+assert.equal(jinPreempted.complete, true);
+assert.equal(jinPreempted.elements.merge.label.dataset.status, "idle");
+assert.equal(jinPreempted.elements.apply.label.dataset.status, "idle");
+
 // The third showTrace argument must retain its existing reason semantics.
 showTrace("plain details", "Other trace", "reason");
 assert.equal(traceModalContent.textContent, "plain details");

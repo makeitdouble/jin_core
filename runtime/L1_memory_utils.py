@@ -3048,6 +3048,7 @@ async def log_runtime_frame_snapshot(context, snapshot: dict) -> None:
 
 async def emit_runtime_memory_update(
         context,
+        *, source_turns: list[dict] | None = None,
 ) -> dict:
 
     emitter = getattr(
@@ -3069,6 +3070,13 @@ async def emit_runtime_memory_update(
         context.runtime_memory_snapshots = []
 
     snapshot = build_runtime_memory_snapshot(context, memory)
+    snapshot["source_turn_ids"] = list(dict.fromkeys(
+        str(turn.get("turn_id") or "").strip()
+        for turn in source_turns or [] if str(turn.get("turn_id") or "").strip()
+    ))
+    snapshot["source_turns_complete"] = bool(source_turns) and all(
+        str(turn.get("turn_id") or "").strip() for turn in source_turns
+    )
 
     context.runtime_memory_snapshots.append(snapshot)
     context.runtime_memory_snapshot_index = snapshot["index"]

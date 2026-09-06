@@ -59,6 +59,48 @@ class RuntimeToolResultTextTests(TestCase):
         self.assertIn('"field_to_update"', rendered)
         self.assertNotIn('"ok": false', rendered)
 
+
+    def test_recall_fact_context_messages_use_compact_transcript_format(self):
+        rendered = format_runtime_action_result(
+            {
+                "ok": True,
+                "fact_id": "F382",
+                "sources": [
+                    {
+                        "source_id": "session/frame",
+                        "messages": [
+                            {
+                                "message_id": "session/2",
+                                "turn_id": "turn_000005",
+                                "role": "jin",
+                                "timestamp": "2026-09-04T16:33:34+03:00",
+                                "text": "\n\nПонял. Лишний шум убран.",
+                                "anchor": False,
+                            },
+                            {
+                                "message_id": "session/3",
+                                "turn_id": "turn_000006",
+                                "role": "user",
+                                "timestamp": "2026-09-04T16:34:50+03:00",
+                                "text": "отлично, нарисуй чёнить чиловое",
+                                "anchor": True,
+                            },
+                        ],
+                    },
+                ],
+            },
+            runtime_action="RECALL_FACT_CONTEXT",
+        )
+
+        self.assertIn("Messages:", rendered)
+        self.assertIn("turn_5 | 2026-09-04T16:33:34+03:00", rendered)
+        self.assertIn("jin: Понял. Лишний шум убран.", rendered)
+        self.assertIn("turn_6 | 2026-09-04T16:34:50+03:00", rendered)
+        self.assertIn("user: отлично, нарисуй чёнить чиловое", rendered)
+        self.assertNotIn("Message id:", rendered)
+        self.assertNotIn("Anchor:", rendered)
+        self.assertNotIn("Turn id:", rendered)
+
     def test_success_update_is_readable_without_result_json(self):
         rendered = format_runtime_action_result(
             {

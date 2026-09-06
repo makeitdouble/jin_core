@@ -43,6 +43,7 @@ BRAIN_RUNTIME_ACTIONS = {
     "CAN_JIN_POSITION": True,
     "CAN_JIN_SPEED": True,
     "CAN_UPDATE_LT_FACTS": True,
+    "CAN_RECALL_FACT_CONTEXT": True,
 }
 
 

@@ -748,12 +748,24 @@ function handleSocketLog(
           ? "success"
           : "none"
       );
+    } else if (event === "jin_note_applied") {
+      finishLTMemoryGlow(
+        data.facts_changed === true
+          ? "success"
+          : "none"
+      );
     } else if (
-      event === "merge_paused"
+      event === "jin_note_no_change"
+      || event === "jin_note_preempted"
+      || event === "merge_paused"
       || event === "merge_deferred"
     ) {
       finishLTMemoryGlow("none");
-    } else if (isLTMemoryTerminalFailure(data)) {
+    } else if (
+      event === "jin_note_failed"
+      || event === "jin_note_skipped"
+      || isLTMemoryTerminalFailure(data)
+    ) {
       finishLTMemoryGlow("failed");
     } else if (
       String(data.message || "")

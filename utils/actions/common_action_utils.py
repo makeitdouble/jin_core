@@ -19,6 +19,7 @@ from contracts.rules_assembler import (
     RUNTIME_ACTION_JIN_POSITION,
     RUNTIME_ACTION_JIN_SPEED,
     RUNTIME_ACTION_UPDATE_LT_FACTS,
+    RUNTIME_ACTION_RECALL_FACT_CONTEXT,
     RUNTIME_ACTION_CLEAN_TOOL_RESULTS,
     RUNTIME_ACTION_UNLOAD_SKILL,
     RUNTIME_ACTION_UNLOAD_DELAYED_MEMORY,
@@ -50,6 +51,7 @@ from .jin_size_utils import build_jin_size_payload
 from .jin_position_utils import build_jin_position_payload
 from .jin_speed_utils import build_jin_speed_payload
 from .update_lt_facts_utils import build_update_lt_facts_payload
+from .recall_fact_context_utils import build_recall_fact_context_payload
 from .update_active_memory_utils import build_update_active_memory_payload
 from .resolve_action_utils import build_resolve_action_payload
 from .regexp_utils import (
@@ -109,6 +111,7 @@ REPEATABLE_RUNTIME_ACTIONS = frozenset({
     RUNTIME_ACTION_JIN_POSITION,
     RUNTIME_ACTION_JIN_SPEED,
     RUNTIME_ACTION_UPDATE_LT_FACTS,
+    RUNTIME_ACTION_RECALL_FACT_CONTEXT,
     RUNTIME_ACTION_CLEAN_TOOL_RESULTS,
 })
 
@@ -140,7 +143,8 @@ UPDATE_ACTIVE_MEMORY_SELF_CLOSING_ATTRIBUTE_RE = re.compile(
 def _runtime_action_allows_inline_payload(
     action_name: str,
 ) -> bool:
-    return action_name in JIN_INLINE_PAYLOAD_ACTIONS
+    return (action_name in JIN_INLINE_PAYLOAD_ACTIONS
+            or action_name == RUNTIME_ACTION_RECALL_FACT_CONTEXT)
 
 
 @lru_cache(maxsize=None)
@@ -566,6 +570,7 @@ def normalize_runtime_action_name(
         "JIN_POSITION": RUNTIME_ACTION_JIN_POSITION,
         "JIN_SPEED": RUNTIME_ACTION_JIN_SPEED,
         "UPDATE_LT_FACTS": RUNTIME_ACTION_UPDATE_LT_FACTS,
+        "RECALL_FACT_CONTEXT": RUNTIME_ACTION_RECALL_FACT_CONTEXT,
     }
 
     return aliases.get(
@@ -670,6 +675,7 @@ _ACTION_PAYLOAD_BUILDERS = {
     RUNTIME_ACTION_JIN_POSITION: build_jin_position_payload,
     RUNTIME_ACTION_JIN_SPEED: build_jin_speed_payload,
     RUNTIME_ACTION_UPDATE_LT_FACTS: build_update_lt_facts_payload,
+    RUNTIME_ACTION_RECALL_FACT_CONTEXT: build_recall_fact_context_payload,
     RUNTIME_ACTION_DEEP_WEB_SEARCH: build_deep_web_search_payload,
     RUNTIME_ACTION_WEB_SEARCH: build_web_search_payload,
     RUNTIME_ACTION_SAVE_ACTIVE_MEMORY: build_save_active_memory_payload,
@@ -2174,6 +2180,21 @@ class RuntimeActionStreamFilter:
             return RuntimeActionResult(
                 text=pending,
             )
+
+        if RUNTIME_ACTION_RECALL_FACT_CONTEXT in self.enabled_actions:
+            unfinished_recall = re.search(
+                RUNTIME_ACTION_EXECUTABLE_PREFIX + r"<\s*RECALL_FACT_CONTEXT\s*:\s*([^<>]*)\Z",
+                pending, re.IGNORECASE,
+            )
+            if unfinished_recall:
+                return RuntimeActionResult(
+                    text=pending[:unfinished_recall.start()],
+                    failed_actions=(RuntimeActionCall(
+                        name=RUNTIME_ACTION_RECALL_FACT_CONTEXT,
+                        payload=unfinished_recall.group(1),
+                    ),),
+                    removed_markers=(unfinished_recall.group(0),),
+                )
 
         marker_start = _unclosed_internal_action_request_start(
             pending,

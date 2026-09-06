@@ -12,6 +12,11 @@ from runtime.runtime_context import RuntimeContext
 from tests.helpers.memory import FakeLogger, FakeServiceClient
 from utils.actions import RuntimeActionCall, extract_runtime_actions
 from utils.actions.dispatcher import apply_runtime_action_calls
+from utils.actions.update_lt_facts_actions import (
+    _resolve_update_lt_fact_sources,
+    preempt_update_lt_facts_actions,
+    schedule_pending_update_lt_facts_actions,
+)
 
 
 class FakeEmitter:
@@ -85,6 +90,45 @@ class RuntimeUpdateLTFactsTests(unittest.IsolatedAsyncioTestCase):
                 ),
             },
         )
+
+    def test_restore_priming_sources_explicit_lt_note_from_archived_user_turn(self):
+        context = RuntimeContext(
+            websocket=None,
+            emitter=None,
+            logger=None,
+            clients={},
+        )
+        context.session_id = "new-session"
+        context.runtime_current_turn_id = "turn_000028"
+        context.runtime_session_restore_priming = True
+        context.runtime_archived_session_id = "source-session"
+
+        from unittest.mock import patch
+
+        archived = {
+            "messages": [
+                {
+                    "role": "user",
+                    "turn_id": "turn_000027",
+                    "text": "create a test fact",
+                },
+                {
+                    "role": "jin",
+                    "turn_id": "turn_000027",
+                    "text": "",
+                },
+            ],
+        }
+        with patch(
+            "utils.session_restore.build_archived_session_restore_payload",
+            return_value=archived,
+        ):
+            sources = _resolve_update_lt_fact_sources(context)
+
+        self.assertEqual(sources, [{
+            "session_id": "source-session",
+            "turn_id": "turn_000027",
+        }])
 
     def test_marker_rejects_destructive_plain_text_note(self):
         result = extract_runtime_actions(
@@ -240,13 +284,115 @@ class RuntimeUpdateLTFactsTests(unittest.IsolatedAsyncioTestCase):
             if event.get("status") == "completed"
         )
         self.assertEqual(completed_event.get("text"), "UPDATE_LT_FACTS")
-        self.assertTrue(any(
-            event.get("lt_result", {}).get("change", {}).get("action") == "merge"
-            for event in lifecycle
-        ))
+        self.assertTrue(completed_event.get("lt_queued"))
+        self.assertEqual(
+            completed_event.get("detail"),
+            "Queued for L-T update.",
+        )
+        self.assertFalse(any("lt_result" in event for event in lifecycle))
         self.assertFalse(
             any(event.get("status") == "failed" for event in lifecycle)
         )
+
+    async def test_foreground_action_retires_marker_then_runs_after_frame_request(self):
+        emitter = FakeEmitter()
+        logger = FakeLogger()
+        context = RuntimeContext(
+            websocket=None,
+            emitter=emitter,
+            logger=logger,
+            clients={},
+        )
+        context.runtime_foreground_turn_running = True
+        note_started = asyncio.Event()
+        release_note = asyncio.Event()
+
+        async def fake_run_lt_jin_note(*, context, note):
+            del context, note
+            note_started.set()
+            await release_note.wait()
+            return {
+                "phase": "jin_note",
+                "status": "completed",
+                "changed": False,
+                "change": {},
+            }
+
+        action = RuntimeActionCall(
+            name=RUNTIME_ACTION_UPDATE_LT_FACTS,
+            payload=json.dumps({
+                "fact_ids": ["F1"],
+                "message": "Update F1 with the clarified wording.",
+            }),
+        )
+
+        from unittest.mock import patch
+
+        with patch(
+            "utils.actions.update_lt_facts_actions.run_lt_jin_note",
+            new=fake_run_lt_jin_note,
+        ):
+            applied = await apply_runtime_action_calls(
+                context,
+                (action,),
+                action_display_ids={id(action): "update_lt_facts_001"},
+            )
+
+            self.assertEqual(applied, 1)
+            self.assertEqual(len(context.runtime_lt_explicit_note_queue), 1)
+            self.assertIsNone(context.runtime_lt_memory_update_task)
+            completed = [
+                event
+                for event in emitter.events
+                if event.get("type") == "runtime_action"
+                and event.get("action") == "update_lt_facts"
+                and event.get("status") == "completed"
+            ]
+            self.assertEqual(len(completed), 1)
+            self.assertTrue(completed[0].get("lt_queued"))
+
+            frame_request_started = asyncio.Event()
+            frame_release = asyncio.Event()
+
+            async def fake_frame_task():
+                await frame_release.wait()
+
+            frame_task = asyncio.create_task(fake_frame_task())
+            lt_task = schedule_pending_update_lt_facts_actions(
+                context,
+                frame_task=frame_task,
+                frame_request_event=frame_request_started,
+            )
+            await asyncio.sleep(0)
+            self.assertFalse(note_started.is_set())
+
+            frame_request_started.set()
+            await asyncio.wait_for(note_started.wait(), timeout=0.2)
+
+            # A real next USER message preempts only the attempt, not the
+            # queued instruction. It is retried after the next FRAME request.
+            self.assertTrue(await preempt_update_lt_facts_actions(
+                context,
+                reason="user_message",
+            ))
+            self.assertEqual(len(context.runtime_lt_explicit_note_queue), 1)
+            await asyncio.gather(lt_task, return_exceptions=True)
+
+            note_started.clear()
+            release_note.set()
+            next_frame_request_started = asyncio.Event()
+            next_frame_request_started.set()
+            retry_task = schedule_pending_update_lt_facts_actions(
+                context,
+                frame_task=frame_task,
+                frame_request_event=next_frame_request_started,
+            )
+            await asyncio.wait_for(note_started.wait(), timeout=0.2)
+            await retry_task
+            self.assertEqual(context.runtime_lt_explicit_note_queue, [])
+
+            frame_release.set()
+            await frame_task
 
     async def test_runtime_action_does_not_wait_for_cancelled_idle_lt_task(self):
         emitter = FakeEmitter()
@@ -365,7 +511,8 @@ class RuntimeUpdateLTFactsTests(unittest.IsolatedAsyncioTestCase):
         ]
         self.assertTrue(any(
             event.get("status") == "completed"
-            and "1 new fact" in event.get("detail", "")
+            and event.get("lt_queued") is True
+            and event.get("detail") == "Queued for L-T update."
             for event in lifecycle
         ))
 

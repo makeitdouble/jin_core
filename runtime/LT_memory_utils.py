@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from copy import deepcopy
+from runtime.fact_sources import normalize_sources, merge_sources
 from datetime import datetime, timezone
 import hashlib
 import json
@@ -1186,6 +1187,7 @@ def normalize_lt_fact(
         "last_mentioned_at": last_mentioned_at,
         "created_at": created_at,
         "updated_at": updated_at,
+        "sources": normalize_sources(value.get("sources")),
         "source_fact_ids": normalize_lt_string_list(
             value.get("source_fact_ids") or value.get("source_fact_id")
         ),
@@ -1194,6 +1196,7 @@ def normalize_lt_fact(
 
 def merge_same_lt_fact(existing: dict, incoming: dict, *, now: str) -> dict:
     result = dict(existing)
+    result["sources"] = merge_sources(existing.get("sources"), incoming.get("sources"))
     result["mention_count"] = max(1, int(existing.get("mention_count") or 1)) + max(
         1,
         int(incoming.get("mention_count") or 1),
@@ -1304,6 +1307,7 @@ def merge_lt_snapshot_fact(
             )
             or now
         ),
+        "sources": merge_sources(existing_fact.get("sources"), incoming_fact.get("sources")),
         "source_fact_ids": merge_lt_string_lists(
             existing_fact.get("source_fact_ids"),
             incoming_fact.get("source_fact_ids"),
@@ -2059,6 +2063,11 @@ def normalize_lt_candidates(
         candidate = normalize_lt_fact(
             {
                 **raw_candidate,
+                "sources": normalize_sources([
+                    {"session_id": field.get("session_id"),
+                     "runtime_snapshot_id": field.get("runtime_snapshot_id")}
+                    for key in source_keys for field in fields_by_key[key]
+                ]),
                 "created_at": current_time,
                 "updated_at": current_time,
             },
@@ -2305,6 +2314,7 @@ def merge_fact_sources(existing: dict, incoming: dict) -> dict:
     incoming_id = normalize_lt_text(incoming.get("id"))
 
     return {
+        "sources": merge_sources(existing.get("sources"), incoming.get("sources")),
         "source_fact_ids": merge_lt_string_lists(
             existing.get("source_fact_ids"),
             incoming.get("source_fact_ids"),
@@ -2513,6 +2523,7 @@ def apply_lt_merge_operations(
                         max(1, int(fact.get("mention_count") or 1))
                         for fact in [*merged_facts, pending]
                     ),
+                    "sources": merge_sources(*[fact.get("sources") for fact in [*merged_facts, pending]]),
                     "source_fact_ids": merge_lt_string_lists(
                         *[fact.get("source_fact_ids") for fact in merged_facts],
                         merge_fact_ids,
@@ -2730,6 +2741,7 @@ def apply_lt_jin_note_result(
     result: dict,
     expected_action: str = "",
     allow_new_facts: bool = False,
+    sources: list[dict] | None = None,
     now: str | None = None,
 ) -> tuple[dict, dict]:
     current_time = now or utc_now_iso()
@@ -2877,6 +2889,7 @@ def apply_lt_jin_note_result(
                 "created_at": created_at,
                 "updated_at": current_time,
                 "mention_count": mention_count,
+                "sources": merge_sources(sources, *[fact.get("sources") for fact in source_facts or []]),
                 "source_fact_ids": merge_lt_string_lists(
                     *[
                         source_fact.get("source_fact_ids")
@@ -3143,14 +3156,11 @@ def format_lt_fact_context_age_suffix(
     ):
         return ""
 
+    # The age shown to JIN describes the fact lifecycle, not recall activity.
+    # last_mentioned_at is intentionally reserved for recall decay/preview
+    # freshness and must not make an old fact look newly updated.
     return (
         format_context_message_age_suffix(
-            fact.get(
-                "last_mentioned_at",
-            ),
-            now=now,
-        )
-        or format_context_message_age_suffix(
             fact.get(
                 "updated_at",
             ),

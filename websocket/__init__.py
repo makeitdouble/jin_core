@@ -95,6 +95,9 @@ from utils.attached_files_store import (
 from utils.chat_log import (
     save_current_runtime_bootstrap_context_snapshot,
 )
+from utils.actions.update_lt_facts_actions import (
+    preempt_update_lt_facts_actions,
+)
 from utils.session_actions_history import (
     emit_session_actions_update,
 )
@@ -872,6 +875,10 @@ async def websocket_endpoint(
                     context,
                     reason="user_retry",
                 )
+                await preempt_update_lt_facts_actions(
+                    context,
+                    reason="user_retry",
+                )
 
                 if await reject_when_all_models_offline(
                     context
@@ -995,6 +1002,10 @@ async def websocket_endpoint(
             # facts remain in their stores for the next true idle window.
             note_lt_user_activity(context)
             await cancel_lt_memory_idle_update(
+                context,
+                reason="user_message",
+            )
+            await preempt_update_lt_facts_actions(
                 context,
                 reason="user_message",
             )

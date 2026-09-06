@@ -2632,7 +2632,7 @@ class LTMemoryTests(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn("A" * 101, context_block)
         self.assertEqual(fact["value"], full_value)
 
-    def test_recently_mentioned_lt_context_uses_full_fact(self):
+    def test_recently_mentioned_lt_context_uses_full_fact_but_lifecycle_age(self):
         now = datetime(
             2026,
             8,
@@ -2656,7 +2656,33 @@ class LTMemoryTests(unittest.IsolatedAsyncioTestCase):
         )
 
         self.assertIn(full_value, context_block)
-        self.assertIn("[ id: F9 ] ( 5m ago )", context_block)
+        self.assertIn("[ id: F9 ] ( 11d ago )", context_block)
+        self.assertNotIn("( 5m ago )", context_block)
+
+    def test_lt_context_age_falls_back_to_created_at_without_updated_at(self):
+        now = datetime(
+            2026,
+            8,
+            31,
+            12,
+            0,
+            tzinfo=timezone.utc,
+        ).timestamp()
+
+        context_block = format_long_term_memory_context(
+            [{
+                "id": "F10",
+                "key": "project.created_only",
+                "value": "Created timestamp should own the visible age.",
+                "last_mentioned_at": "2026-08-31T11:59:00Z",
+                "created_at": "2026-08-30T12:00:00Z",
+                "updated_at": "",
+            }],
+            now=now,
+        )
+
+        self.assertIn("[ id: F10 ] ( 1d ago )", context_block)
+        self.assertNotIn("( 1m ago )", context_block)
 
     async def test_reasoning_fact_id_refreshes_last_mention_for_next_turn(self):
         context = RuntimeContext(
