@@ -2966,7 +2966,7 @@ async def run_lt_merge_phase(*, context, service_client) -> dict:
                 "required_pending_ids": initial_invalid_ids,
                 "pending_errors": scan_inspection["pending_errors"],
                 "global_errors": scan_inspection["global_errors"],
-                "previous_scan": (
+                "reference_previous_scan": (
                     scan_payload.get("scan", [])
                     if isinstance(scan_payload, dict)
                     else []
@@ -3365,7 +3365,7 @@ async def run_lt_merge_phase(*, context, service_client) -> dict:
             "validation_error": initial_validation_reason,
             "feedback": feedback,
             "required_pending_ids": pending_ids,
-            "previous_operations": (
+            "reference_previous_operations": (
                 payload.get("operations", [])
                 if isinstance(payload, dict)
                 else []

@@ -49,11 +49,10 @@ LT_EXTRACTION_SYSTEM_PROMPT = """
 You extract facts for JIN's cross-session long-term memory. Save only what
 will still matter later. If unsure, save nothing.
 
-The user payload contains `pending_memory_fields`. These are NEW source fields
-awaiting extraction, not existing committed L-T facts. Read their `content` and
-extract qualifying durable facts from it. Do not treat a field as already saved or
-as a duplicate merely because it appears in `pending_memory_fields`; duplicate and
-conflict checking against committed L-T memory happens later in the merge phase.
+The user payload contains `current_interaction_fields`. Each item is current
+interaction material eligible for extraction and has a `field_key` plus `content`.
+Committed L-T memory is not included in this extraction payload; duplicate and
+conflict checking happens later in the merge phase.
 
 SAVE THIS:
 - A fact about the user: name, job, tools, skills, likes, dislikes, habits, timezone.
@@ -72,29 +71,30 @@ DO NOT SAVE THIS:
 - Guesses, assumptions, or uncertain claims.
 - Anything JIN generated itself: search results, code, suggestions, or opinions.
 - Small talk, jokes, greetings, apologies, or short-lived state.
-- A duplicate of something already saved.
 - A vague statement that cannot become one concrete sentence.
 
-Return JSON only:
-{"facts": [{"key": "...", "value": "...", "category": "...", "source_keys": ["..."]}]}
+Return JSON only. `evidence_field_keys` contains the `field_key` values from
+`current_interaction_fields` that support that fact:
+{"facts": [{"key": "...", "value": "...", "category": "...", "evidence_field_keys": ["..."]}]}
 
 If nothing qualifies:
 {"facts": []}
 """.strip()
 
 LT_MERGE_SYSTEM_PROMPT = """
-You consolidate pending candidates into JIN's committed long-term memory.
+You consolidate `pending_candidates` into JIN's committed long-term memory.
+All top-level fields prefixed with `reference_` are comparison/reference material.
 Return exactly one operation for every pending_id in this request.
 
 IDs: F<number> is an existing committed fact; PF<number> is a pending candidate.
 Use only IDs supplied here. Copy them exactly; never invent or alter IDs.
 
-protected_fact_ids are read-only: never update or merge them, and never use their
-exact key for create. If a candidate overlaps a protected fact, ignore it.
+reference_protected_fact_ids are read-only: never update or merge them, and never
+use their exact key for create. If a candidate overlaps a protected fact, ignore it.
 
-existing_facts is a key-retrieved slice of active L-T memory. Archived facts hidden
-inside delayed reports are intentionally outside this pass. Compare only against
-F<number> IDs present in existing_facts.
+reference_existing_facts is a key-retrieved slice of active L-T memory supplied only
+as comparison reference. Archived facts hidden inside delayed reports are intentionally
+outside this pass. Compare only against F<number> IDs present there.
 
 Check overlap first. Direct user corrections override incompatible existing facts.
 Choose one action per pending_id:
@@ -120,12 +120,12 @@ of creating parallel duplicates.
 
 Candidate key/category values are hints, not immutable. For create/update/merge choose
 the best current semantic key and category; keep a target key when it already fits.
-exact_key_conflicts lists exact keys already owned in this retrieval slice. create
+reference_exact_key_conflicts lists exact keys already owned in this retrieval slice. create
 needs a free key; update may keep only its target's key; merge may reuse a key only
 when every supplied owner is included in fact_ids.
 
-If previous_shard_scan and previous_shard_facts are present, combine that earlier
-shard result with existing_facts before deciding.
+If reference_previous_shard_scan and reference_previous_shard_facts are present,
+combine that earlier reference with reference_existing_facts before deciding.
 
 Required fields:
 - create: pending_id, key, value, category
@@ -145,9 +145,9 @@ what to store; your task is to faithfully carry out the requested edit,
 not independently judge whether the information deserves storage.
 
 Input:
-- existing_facts: the selected current F<number> facts;
+- reference_selected_facts: the selected current F<number> facts supplied as reference;
 - selected_fact_ids: facts the note targets (can be empty for create);
-- message: JIN's plain-text instruction.
+- edit_instruction: JIN's plain-text instruction.
 
 Treat the note as the edit instruction. In the resulting values, preserve
 the origin, uncertainty, and scope of information stated in the note or
@@ -168,7 +168,7 @@ switch it or return keep:
   Preserve all compatible durable meaning from every selected fact.
   Runtime assigns the new committed ID; do not output IDs.
 - create: add a genuinely new durable fact. Only when selected_fact_ids
-  is empty, or the message clearly and separately asks for an extra fact.
+  is empty, or the edit_instruction clearly and separately asks for an extra fact.
 
 Do not invent details the note does not state. Keep independent ideas
 separate; do not broaden a fact just to make a merge fit.

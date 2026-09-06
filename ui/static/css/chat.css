@@ -551,6 +551,12 @@
     border-top: 1px solid rgba(148, 163, 184, 0.20);
 }
 
+.jin-chat-markdown .katex-display {
+    max-width: 100%;
+    overflow-x: auto;
+    overflow-y: hidden;
+}
+
 .jin-chat-markdown .jin-chat-link {
     color: rgba(125, 211, 252, 0.95);
     text-decoration: underline;
@@ -661,7 +667,11 @@ body:not(.theme-win95) .jin-think-wrapper:has(> .jin-think-content.is-collapsed)
 }
 
 .think-rule-hit {
-    color: inherit;
+    /* Idle citations keep the existing subtle emphasis, but also carry a
+       quiet source hue. No glow in the idle state: the color itself is the
+       persistent signal; active/hover highlighting below owns the glow. */
+    --jin-think-citation-idle-color: var(--jin-chat-muted);
+    color: var(--jin-think-citation-idle-color);
     font-weight: inherit;
     -webkit-text-stroke: 0.18px currentColor;
     paint-order: stroke fill;
@@ -671,96 +681,155 @@ body:not(.theme-win95) .jin-think-wrapper:has(> .jin-think-content.is-collapsed)
             text-shadow 1s ease;
 }
 
+.think-citation-rule {
+    --jin-think-citation-idle-color: rgba(218, 204, 178, 0.72);
+}
+
+.think-citation-runtime {
+    --jin-think-citation-idle-color: rgba(178, 210, 190, 0.72);
+}
+
+.think-citation-active {
+    --jin-think-citation-idle-color: rgba(215, 191, 166, 0.72);
+}
+
+.think-citation-delayed {
+    --jin-think-citation-idle-color: rgba(178, 207, 212, 0.73);
+}
+
+.think-citation-lt {
+    --jin-think-citation-idle-color: rgba(179, 209, 203, 0.73);
+}
+
+.think-citation-session {
+    --jin-think-citation-idle-color: rgba(199, 185, 216, 0.72);
+}
+
 .jin-think-content.has-rule-highlights .think-citation-rule.exact {
     color: #fff7df;
     text-shadow:
             0 0 8px rgba(255, 245, 220, 0.55),
-            0 0 18px rgba(255, 200, 130, 0.28);
+            0 0 18px rgba(255, 200, 130, 0.28),
+            0 0 28px rgba(255, 200, 130, 0.14);
 }
 
 .jin-think-content.has-rule-highlights .think-citation-rule.near {
     color: #efe2c8;
-    text-shadow: 0 0 8px rgba(255, 235, 200, 0.28);
+    text-shadow:
+            0 0 8px rgba(255, 235, 200, 0.28),
+            0 0 18px rgba(255, 200, 130, 0.12);
 }
 
 .jin-think-content.has-rule-highlights .think-citation-rule.compressed {
     color: #d8cdb9;
-    text-shadow: 0 0 6px rgba(255, 235, 200, 0.16);
+    text-shadow:
+            0 0 6px rgba(255, 235, 200, 0.16),
+            0 0 16px rgba(255, 200, 130, 0.07);
 }
 
 .jin-think-content.has-rule-highlights .think-citation-runtime.exact {
     color: rgba(134,239,172,0.96);
-    text-shadow: 0 0 10px rgba(34,197,94,0.35);
+    text-shadow:
+            0 0 10px rgba(34,197,94,0.35),
+            0 0 20px rgba(34,197,94,0.17);
 }
 
 .jin-think-content.has-rule-highlights .think-citation-runtime.near {
     color: rgba(134,239,172,0.86);
-    text-shadow: 0 0 8px rgba(34,197,94,0.26);
+    text-shadow:
+            0 0 8px rgba(34,197,94,0.26),
+            0 0 18px rgba(34,197,94,0.12);
 }
 
 .jin-think-content.has-rule-highlights .think-citation-runtime.compressed {
     color: rgba(134,239,172,0.76);
-    text-shadow: 0 0 6px rgba(34,197,94,0.18);
+    text-shadow:
+            0 0 6px rgba(34,197,94,0.18),
+            0 0 16px rgba(34,197,94,0.08);
 }
 
 .jin-think-content.has-rule-highlights .think-citation-active.exact {
     color: rgba(251, 191, 106, 0.96);
-    text-shadow: 0 0 10px rgba(249, 115, 22, 0.34);
+    text-shadow:
+            0 0 10px rgba(249, 115, 22, 0.34),
+            0 0 20px rgba(249, 115, 22, 0.16);
 }
 
 .jin-think-content.has-rule-highlights .think-citation-active.near {
     color: rgba(251, 191, 106, 0.86);
-    text-shadow: 0 0 8px rgba(249, 115, 22, 0.25);
+    text-shadow:
+            0 0 8px rgba(249, 115, 22, 0.25),
+            0 0 18px rgba(249, 115, 22, 0.12);
 }
 
 .jin-think-content.has-rule-highlights .think-citation-active.compressed {
     color: rgba(251, 191, 106, 0.76);
-    text-shadow: 0 0 6px rgba(249, 115, 22, 0.17);
+    text-shadow:
+            0 0 6px rgba(249, 115, 22, 0.17),
+            0 0 16px rgba(249, 115, 22, 0.08);
 }
 
 .jin-think-content.has-rule-highlights .think-citation-delayed.exact {
     color: rgba(103, 232, 249, 0.98);
-    text-shadow: 0 0 10px rgba(34, 211, 238, 0.38);
+    text-shadow:
+            0 0 10px rgba(34, 211, 238, 0.38),
+            0 0 20px rgba(34, 211, 238, 0.19);
 }
 
 .jin-think-content.has-rule-highlights .think-citation-delayed.near {
     color: rgba(103, 232, 249, 0.88);
-    text-shadow: 0 0 8px rgba(34, 211, 238, 0.28);
+    text-shadow:
+            0 0 8px rgba(34, 211, 238, 0.28),
+            0 0 18px rgba(34, 211, 238, 0.13);
 }
 
 .jin-think-content.has-rule-highlights .think-citation-delayed.compressed {
     color: rgba(103, 232, 249, 0.78);
-    text-shadow: 0 0 6px rgba(34, 211, 238, 0.19);
+    text-shadow:
+            0 0 6px rgba(34, 211, 238, 0.19),
+            0 0 16px rgba(34, 211, 238, 0.09);
 }
 
 .jin-think-content.has-rule-highlights .think-citation-lt.exact {
     color: rgba(129, 230, 217, 0.98);
-    text-shadow: 0 0 10px rgba(45, 212, 191, 0.38);
+    text-shadow:
+            0 0 10px rgba(45, 212, 191, 0.38),
+            0 0 20px rgba(45, 212, 191, 0.19);
 }
 
 .jin-think-content.has-rule-highlights .think-citation-lt.near {
     color: rgba(129, 230, 217, 0.88);
-    text-shadow: 0 0 8px rgba(45, 212, 191, 0.28);
+    text-shadow:
+            0 0 8px rgba(45, 212, 191, 0.28),
+            0 0 18px rgba(45, 212, 191, 0.13);
 }
 
 .jin-think-content.has-rule-highlights .think-citation-lt.compressed {
     color: rgba(129, 230, 217, 0.78);
-    text-shadow: 0 0 6px rgba(45, 212, 191, 0.19);
+    text-shadow:
+            0 0 6px rgba(45, 212, 191, 0.19),
+            0 0 16px rgba(45, 212, 191, 0.09);
 }
 
 .jin-think-content.has-rule-highlights .think-citation-session.exact {
     color: rgba(216,180,254,0.94);
-    text-shadow: 0 0 10px rgba(168,85,247,0.32);
+    text-shadow:
+            0 0 10px rgba(168,85,247,0.32),
+            0 0 20px rgba(168,85,247,0.15);
 }
 
 .jin-think-content.has-rule-highlights .think-citation-session.near {
     color: rgba(216,180,254,0.84);
-    text-shadow: 0 0 8px rgba(168,85,247,0.24);
+    text-shadow:
+            0 0 8px rgba(168,85,247,0.24),
+            0 0 18px rgba(168,85,247,0.11);
 }
 
 .jin-think-content.has-rule-highlights .think-citation-session.compressed {
     color: rgba(216,180,254,0.74);
-    text-shadow: 0 0 6px rgba(168,85,247,0.16);
+    text-shadow:
+            0 0 6px rgba(168,85,247,0.16),
+            0 0 16px rgba(168,85,247,0.07);
 }
 
 #chat-history .border-l.border-slate-500.pl-4.text-xs.text-zinc-300.italic.leading-relaxed.whitespace-pre-wrap {
@@ -922,4 +991,157 @@ body.theme-win95 .jin-chat-reference-id {
 body.theme-win95 .jin-chat-reference-id:hover {
     color: #000;
     text-shadow: 0 0 1px rgba(0, 0, 0, 0.28);
+}
+/* Structured reasoning ----------------------------------------------------
+   Local models already emit a small Markdown-like grammar in reasoning.
+   Render that grammar quietly instead of exposing *, ** and indentation.
+   The raw reasoning string is kept separately for citations/logging. */
+.jin-think-content.is-structured {
+    white-space: normal;
+}
+
+.jin-think-content.is-structured .jin-think-line {
+    min-width: 0;
+    overflow-wrap: anywhere;
+}
+
+.jin-think-content.is-structured .jin-think-line + .jin-think-line {
+    margin-top: 0.18em;
+}
+
+.jin-think-content.is-structured .jin-think-live-tail {
+    white-space: pre-wrap;
+}
+
+.jin-think-content.is-structured .jin-think-live-tail:empty {
+    display: none;
+}
+
+.jin-think-content.is-structured .jin-think-gap {
+    height: 0.58em;
+}
+
+.jin-think-content.is-structured .jin-think-list-item {
+    display: grid;
+    grid-template-columns: 1.16em minmax(0, 1fr);
+    column-gap: 0.34em;
+    align-items: baseline;
+    margin: 0.16em 0;
+}
+
+.jin-think-content.is-structured .jin-think-list-item.is-nested {
+    margin-left: 0.62rem;
+}
+
+.jin-think-content.is-structured .jin-think-list-marker {
+    color: rgba(148, 163, 184, 0.58);
+    font-size: 0.84em;
+    font-variant-numeric: tabular-nums;
+    text-align: right;
+    user-select: none;
+}
+
+.jin-think-content.is-structured .jin-think-list-item.is-ordered .jin-think-list-marker::after {
+    content: ".";
+}
+
+.jin-think-content.is-structured .jin-think-list-item.is-section-label {
+    margin-top: 0.38em;
+    margin-bottom: 0.08em;
+}
+
+.jin-think-content.is-structured .jin-think-list-item.is-section-label .jin-think-list-marker {
+    opacity: 0.58;
+}
+
+.jin-think-content.is-structured .jin-think-label,
+.jin-think-content.is-structured .jin-think-label-line {
+    /* Structural labels use weight only; bright color is reserved for real citations. */
+    color: inherit;
+    font-weight: 650;
+}
+
+.jin-think-content.is-structured .jin-think-strong {
+    /* Markdown emphasis must not visually compete with citation/runtime highlights. */
+    color: inherit;
+    font-weight: 680;
+}
+
+.jin-think-content.is-structured .jin-think-emphasis {
+    color: inherit;
+    font-style: normal;
+    font-weight: 600;
+}
+
+.jin-think-content.is-structured .jin-think-inline-code {
+    border: 0;
+    background: rgba(148, 163, 184, 0.055);
+    border-radius: 3px;
+    padding: 0.05em 0.24em;
+    color: rgba(218, 226, 236, 0.92);
+    font: inherit;
+    font-size: 0.96em;
+}
+
+.jin-think-content.is-structured .jin-think-math,
+.jin-think-content.is-structured .jin-think-math-block {
+    color: rgba(220, 228, 238, 0.94);
+    font-family: "Cambria Math", "STIX Two Math", "Times New Roman", serif;
+    letter-spacing: 0;
+}
+
+.jin-think-content.is-structured .jin-think-math {
+    padding: 0 0.08em;
+    white-space: nowrap;
+}
+
+.jin-think-content.is-structured .jin-think-math-block {
+    margin: 0.48em 0 0.58em;
+    border-left: 1px solid rgba(148, 163, 184, 0.20);
+    padding: 0.22em 0 0.22em 0.78em;
+    overflow-x: auto;
+    white-space: pre;
+}
+
+.jin-think-content.is-structured .jin-think-heading {
+    margin-top: 0.52em;
+    /* Heading hierarchy stays typographic; citation colors remain exclusive. */
+    color: inherit;
+    font-weight: 680;
+}
+
+.jin-think-content.is-structured .jin-think-quote,
+.jin-think-content.is-structured .jin-think-line.is-section-child {
+    margin-left: 0.58rem;
+    border-left: 1px solid rgba(148, 163, 184, 0.15);
+    padding-left: 0.68rem;
+}
+
+.jin-think-content.is-structured .jin-think-quote {
+    color: rgba(190, 201, 214, 0.88);
+}
+
+.jin-think-content.is-structured .jin-think-rule {
+    height: 1px;
+    margin: 0.64em 0;
+    background: rgba(148, 163, 184, 0.15);
+}
+
+.jin-think-content.is-structured .jin-think-code-block {
+    margin: 0.5em 0 0.62em;
+    max-width: 100%;
+    overflow-x: auto;
+    border: 1px solid rgba(148, 163, 184, 0.12);
+    border-radius: 4px;
+    background: rgba(2, 6, 23, 0.22);
+    padding: 0.58em 0.72em;
+    color: rgba(203, 213, 225, 0.90);
+    font: inherit;
+    line-height: 1.42;
+    white-space: pre;
+}
+
+.jin-think-content.is-structured .jin-think-code-block code {
+    font: inherit;
+    white-space: pre;
 }

@@ -7,17 +7,18 @@
     <title>JIN Core Engine</title>
 
     <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css">
 
     <!-- CSS layers: theme vars -> base -> chat -> runtime -> overrides -> theme -> avatar. -->
     <link rel="stylesheet" href="/static/css/themes_font_size.css">
     <link rel="stylesheet" href="/static/css/base.css">
-    <link rel="stylesheet" href="/static/css/chat.css">
+    <link rel="stylesheet" href="/static/css/chat.css?v=think-format-1&math=1&citation-color=1">
     <link rel="stylesheet" href="/static/css/chat-reactions.css?v=jin-reaction-2">
     <link rel="stylesheet" href="/static/css/chat-rating.css">
     <link rel="stylesheet" href="/static/css/chat-runtime-action.css">
     <link rel="stylesheet" href="/static/css/runtime-memory.css?v=lt-request-cards-1">
     <link rel="stylesheet" href="/static/css/interface-overrides.css">
-    <link rel="stylesheet" href="/static/css/theme-win95.css">
+    <link rel="stylesheet" href="/static/css/theme-win95.css?v=think-format-1&citation-color=1">
     <link rel="stylesheet" href="/static/css/runtime-avatar.css">
 </head>
 <body class="h-screen overflow-hidden flex flex-col font-mono antialiased bg-zinc-950 text-zinc-100">
@@ -518,11 +519,13 @@
 <script src="/static/js/logger/frame-summarizer.js"></script>
 <script src="/static/js/logger/session-actions.js"></script>
 <script src="/static/js/logger/log-entries.js"></script>
-<script src="/static/js/think-citations.js"></script>
-<script src="/static/js/chat-response-formatter.js?v=jin-size-1&jin-reaction=1&marker-spacing=1"></script>
+<script src="/static/js/think-formatter.js?v=think-format-1"></script>
+<script src="/static/js/think-citations.js?v=think-format-1"></script>
+<script src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"></script>
+<script src="/static/js/chat-response-formatter.js?v=jin-size-1&jin-reaction=1&marker-spacing=1&math=1"></script>
 <script src="/static/js/chat-reactions.js?v=jin-reaction-2"></script>
 <script src="/static/js/chat-reference-ids.js"></script>
-<script src="/static/js/chat.js"></script>
+<script src="/static/js/chat.js?v=think-format-1"></script>
 <script src="/static/js/chat-attachments.js"></script>
 <script src="/static/js/chat-runtime-actions.js"></script>
 <script src="/static/js/session-restore.js"></script>

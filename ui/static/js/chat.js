@@ -1121,24 +1121,38 @@ function flushStreamFrame() {
 
       }
 
-      appendTextNodeData(
-        stream.group.thinkContent,
-        "__jinThinkTextNode",
-        stream.pendingThinking
-      );
-
-      updateThinkExpandedHeight(
-        stream.group.thinkContent
-      );
-
-      if (
-        window.JinThinkCitations
+      const canRenderStructuredThinking = Boolean(
+        window.JinThinkFormatter
+        && typeof window.JinThinkFormatter.renderStreaming === "function"
+        && window.JinThinkCitations
         && typeof window.JinThinkCitations.updateStreamingRuntimeCitationHighlights === "function"
-      ) {
+      );
+
+      if (canRenderStructuredThinking) {
         window.JinThinkCitations.updateStreamingRuntimeCitationHighlights(
           stream.messageId,
           stream
         );
+      } else {
+        appendTextNodeData(
+          stream.group.thinkContent,
+          "__jinThinkTextNode",
+          stream.pendingThinking
+        );
+
+        updateThinkExpandedHeight(
+          stream.group.thinkContent
+        );
+
+        if (
+          window.JinThinkCitations
+          && typeof window.JinThinkCitations.updateStreamingRuntimeCitationHighlights === "function"
+        ) {
+          window.JinThinkCitations.updateStreamingRuntimeCitationHighlights(
+            stream.messageId,
+            stream
+          );
+        }
       }
 
       stream.pendingThinking =

@@ -1088,6 +1088,32 @@ body.theme-win95 .jin-think-content .think-rule-hit {
     text-shadow: none;
 }
 
+/* Light/Win95 needs darker idle tints so the same persistent source color
+   remains delicate but readable on the pale reasoning panel. */
+body.theme-win95 .jin-think-content .think-citation-rule {
+    --jin-think-citation-idle-color: #75684f;
+}
+
+body.theme-win95 .jin-think-content .think-citation-runtime {
+    --jin-think-citation-idle-color: #4f745c;
+}
+
+body.theme-win95 .jin-think-content .think-citation-active {
+    --jin-think-citation-idle-color: #80644c;
+}
+
+body.theme-win95 .jin-think-content .think-citation-delayed {
+    --jin-think-citation-idle-color: #4f7378;
+}
+
+body.theme-win95 .jin-think-content .think-citation-lt {
+    --jin-think-citation-idle-color: #4f746e;
+}
+
+body.theme-win95 .jin-think-content .think-citation-session {
+    --jin-think-citation-idle-color: #6d5b7d;
+}
+
 body.theme-win95 .jin-think-content.has-rule-highlights .think-citation-runtime.exact {
     color: #006f2f;
 }
@@ -1142,4 +1168,34 @@ body.theme-win95 .panel-scroll-top-button:hover,
 body.theme-win95 .panel-scroll-top-button:focus-visible {
     color: rgba(88, 88, 88, 0.98);
     filter: drop-shadow(0 1px 3px rgba(0, 0, 0, 0.20));
+}
+body.theme-win95 .jin-think-content.is-structured .jin-think-list-marker {
+    color: rgba(16, 16, 16, 0.58);
+}
+
+body.theme-win95 .jin-think-content.is-structured .jin-think-label,
+body.theme-win95 .jin-think-content.is-structured .jin-think-label-line,
+body.theme-win95 .jin-think-content.is-structured .jin-think-strong,
+body.theme-win95 .jin-think-content.is-structured .jin-think-emphasis,
+body.theme-win95 .jin-think-content.is-structured .jin-think-math,
+body.theme-win95 .jin-think-content.is-structured .jin-think-math-block {
+    color: var(--win95-text);
+}
+
+body.theme-win95 .jin-think-content.is-structured .jin-think-inline-code {
+    background: rgba(255, 255, 255, 0.24);
+    color: var(--win95-text);
+}
+
+body.theme-win95 .jin-think-content.is-structured .jin-think-quote,
+body.theme-win95 .jin-think-content.is-structured .jin-think-line.is-section-child,
+body.theme-win95 .jin-think-content.is-structured .jin-think-math-block {
+    border-left-color: rgba(16, 16, 16, 0.28);
+}
+
+body.theme-win95 .jin-think-content.is-structured .jin-think-code-block {
+    border-color: var(--win95-shadow);
+    border-radius: 0;
+    background: rgba(255, 255, 255, 0.18);
+    color: var(--win95-text);
 }

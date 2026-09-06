@@ -231,7 +231,18 @@ def build_lt_extraction_system_prompt() -> str:
 
 def build_lt_extraction_user_prompt(*, pending_fields: list[dict]) -> str:
     return json.dumps(
-        {"pending_memory_fields": pending_fields},
+        {
+            "current_interaction_fields": [
+                {
+                    "field_key": normalize_lt_key(field.get("key")),
+                    "content": normalize_lt_text(field.get("content")),
+                }
+                for field in pending_fields
+                if isinstance(field, dict)
+                and normalize_lt_key(field.get("key"))
+                and normalize_lt_text(field.get("content"))
+            ]
+        },
         ensure_ascii=False,
         separators=(",", ":"),
         sort_keys=True,
@@ -258,7 +269,7 @@ def build_lt_jin_note_user_prompt(
         "L-T memory.\n\n"
         + json.dumps(
             {
-                "existing_facts": [
+                "reference_selected_facts": [
                     {
                         "id": normalize_lt_text(fact.get("id")),
                         "key": normalize_lt_text(fact.get("key")),
@@ -270,7 +281,7 @@ def build_lt_jin_note_user_prompt(
                 ],
                 "selected_fact_ids": selected_fact_ids,
                 "requested_action": normalize_lt_key(requested_action),
-                "message": normalize_lt_text(message),
+                "edit_instruction": normalize_lt_text(message),
             },
             ensure_ascii=False,
             indent=2,
@@ -305,7 +316,7 @@ def collect_lt_exact_key_conflicts(
             conflicts.append({
                 "pending_id": pending_id,
                 "key": key,
-                "existing_fact_ids": owner_ids,
+                "reference_fact_ids": owner_ids,
             })
     return conflicts
 
@@ -330,13 +341,13 @@ def build_lt_merge_user_prompt(
 
     return json.dumps(
         {
-            "existing_facts": model_existing_facts,
-            "pending_facts": model_pending_facts,
-            "exact_key_conflicts": collect_lt_exact_key_conflicts(
+            "reference_existing_facts": model_existing_facts,
+            "pending_candidates": model_pending_facts,
+            "reference_exact_key_conflicts": collect_lt_exact_key_conflicts(
                 existing_facts=existing_facts,
                 pending_facts=pending_facts,
             ),
-            "protected_fact_ids": [
+            "reference_protected_fact_ids": [
                 fact_id
                 for fact_id in normalize_lt_string_list(protected_fact_ids)
                 if normalize_lt_id(fact_id, pending=False)
@@ -406,17 +417,17 @@ def build_lt_merge_shard_scan_user_prompt(
 ) -> str:
     return json.dumps(
         {
-            "existing_facts": [
+            "reference_existing_facts": [
                 build_lt_merge_model_fact(fact)
                 for fact in existing_facts
                 if isinstance(fact, dict)
             ],
-            "pending_facts": [
+            "pending_candidates": [
                 build_lt_merge_model_fact(fact)
                 for fact in pending_facts
                 if isinstance(fact, dict)
             ],
-            "protected_fact_ids": [
+            "reference_protected_fact_ids": [
                 fact_id
                 for fact_id in normalize_lt_string_list(protected_fact_ids)
                 if normalize_lt_id(fact_id, pending=False)
@@ -612,27 +623,27 @@ def build_lt_merge_shard_finalize_user_prompt(
 ) -> str:
     return json.dumps(
         {
-            "existing_facts": [
+            "reference_existing_facts": [
                 build_lt_merge_model_fact(fact)
                 for fact in existing_facts
                 if isinstance(fact, dict)
             ],
-            "pending_facts": [
+            "pending_candidates": [
                 build_lt_merge_model_fact(fact)
                 for fact in pending_facts
                 if isinstance(fact, dict)
             ],
-            "previous_shard_scan": previous_shard_scan,
-            "previous_shard_facts": [
+            "reference_previous_shard_scan": previous_shard_scan,
+            "reference_previous_shard_facts": [
                 build_lt_merge_model_fact(fact)
                 for fact in previous_shard_facts
                 if isinstance(fact, dict)
             ],
-            "exact_key_conflicts": collect_lt_exact_key_conflicts(
+            "reference_exact_key_conflicts": collect_lt_exact_key_conflicts(
                 existing_facts=all_existing_facts,
                 pending_facts=pending_facts,
             ),
-            "protected_fact_ids": [
+            "reference_protected_fact_ids": [
                 fact_id
                 for fact_id in normalize_lt_string_list(protected_fact_ids)
                 if normalize_lt_id(fact_id, pending=False)
@@ -2449,11 +2460,15 @@ def normalize_lt_candidates(
         if not isinstance(raw_candidate, dict):
             continue
 
-        source_keys = normalize_lt_string_list(raw_candidate.get("source_keys"))
-        source_keys = [key for key in map(normalize_lt_key, source_keys) if key in fields_by_key]
-        if not source_keys and len(fields_by_key) == 1:
-            source_keys = list(fields_by_key)
-        if not source_keys:
+        evidence_field_keys = normalize_lt_string_list(
+            raw_candidate.get("evidence_field_keys")
+        )
+        evidence_field_keys = [
+            key
+            for key in map(normalize_lt_key, evidence_field_keys)
+            if key in fields_by_key
+        ]
+        if not evidence_field_keys:
             continue
 
         candidate = normalize_lt_fact(
@@ -2462,7 +2477,7 @@ def normalize_lt_candidates(
                 "sources": normalize_sources([
                     {"session_id": field.get("session_id"),
                      "runtime_snapshot_id": field.get("runtime_snapshot_id")}
-                    for key in source_keys for field in fields_by_key[key]
+                    for key in evidence_field_keys for field in fields_by_key[key]
                 ]),
                 "created_at": current_time,
                 "updated_at": current_time,

@@ -205,7 +205,7 @@ class LTMemoryTests(unittest.IsolatedAsyncioTestCase):
         )
         self.assertEqual(payload, {"facts": []})
 
-    def test_candidates_use_source_keys_only_for_extraction_validation(self):
+    def test_candidates_use_evidence_field_keys_only_for_extraction_validation(self):
         source_fields = [
             {
                 "key": "gpu",
@@ -227,7 +227,7 @@ class LTMemoryTests(unittest.IsolatedAsyncioTestCase):
                         "key": "user.hardware.main_gpu",
                         "value": "User's main GPU is RTX 3080 Ti.",
                         "category": "environment",
-                        "source_keys": ["gpu"],
+                        "evidence_field_keys": ["gpu"],
                     },
                 ],
             },
@@ -839,7 +839,7 @@ class LTMemoryTests(unittest.IsolatedAsyncioTestCase):
         payload = json.loads(
             service_client.calls[0]["user_prompt"]
         )
-        existing_ids = {fact["id"] for fact in payload["existing_facts"]}
+        existing_ids = {fact["id"] for fact in payload["reference_existing_facts"]}
         self.assertIn("F1", existing_ids)
         self.assertIn("F3", existing_ids)
         self.assertNotIn("F2", existing_ids)
@@ -902,7 +902,7 @@ class LTMemoryTests(unittest.IsolatedAsyncioTestCase):
         payload = json.loads(
             service_client.calls[0]["user_prompt"]
         )
-        self.assertEqual(payload["existing_facts"], [])
+        self.assertEqual(payload["reference_existing_facts"], [])
         same_key_facts = [
             fact
             for fact in context.runtime_long_term_memory_store["facts"]
@@ -1003,20 +1003,20 @@ class LTMemoryTests(unittest.IsolatedAsyncioTestCase):
         )
 
         self.assertEqual(
-            json.loads(extraction_prompt)["pending_memory_fields"][0]["key"],
+            json.loads(extraction_prompt)["current_interaction_fields"][0]["field_key"],
             "model",
         )
-        self.assertEqual(json.loads(merge_prompt)["pending_facts"][0]["id"], "PF1")
+        self.assertEqual(json.loads(merge_prompt)["pending_candidates"][0]["id"], "PF1")
         self.assertTrue(extraction_prompt.startswith("{"))
         self.assertTrue(merge_prompt.startswith("{"))
-        self.assertNotIn("facts_memory_fields", json.loads(extraction_prompt))
+        self.assertNotIn("pending_memory_fields", json.loads(extraction_prompt))
 
-    def test_extraction_prompt_defines_pending_fields_as_new_source_material(self):
+    def test_extraction_prompt_defines_current_interaction_fields(self):
         prompt = build_lt_extraction_system_prompt()
 
-        self.assertIn("`pending_memory_fields`", prompt)
-        self.assertIn("NEW source fields", prompt)
-        self.assertIn("not existing committed L-T facts", prompt)
+        self.assertIn("`current_interaction_fields`", prompt)
+        self.assertIn("interaction material eligible", prompt)
+        self.assertIn("Committed L-T memory is not included", prompt)
         self.assertIn("merge phase", prompt)
 
     def test_merge_prompt_uses_slim_model_view_without_provenance_metadata(self):
@@ -1049,8 +1049,8 @@ class LTMemoryTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertIn('"id":"F2"', prompt)
         self.assertIn('"id":"PF1"', prompt)
-        self.assertIn('"exact_key_conflicts"', prompt)
-        self.assertIn('"existing_fact_ids":["F2"]', prompt)
+        self.assertIn('"reference_exact_key_conflicts"', prompt)
+        self.assertIn('"reference_fact_ids":["F2"]', prompt)
         self.assertNotIn("source_session_ids", prompt)
         self.assertNotIn("source_runtime_snapshot_ids", prompt)
         self.assertNotIn("source_fact_ids", prompt)
@@ -1301,9 +1301,9 @@ class LTMemoryTests(unittest.IsolatedAsyncioTestCase):
         second_payload = json.loads(
             service_client.calls[1]["user_prompt"]
         )
-        self.assertEqual(len(first_payload["existing_facts"]), 6)
-        self.assertEqual(len(second_payload["existing_facts"]), 6)
-        self.assertEqual(len(second_payload["previous_shard_scan"]), 2)
+        self.assertEqual(len(first_payload["reference_existing_facts"]), 6)
+        self.assertEqual(len(second_payload["reference_existing_facts"]), 6)
+        self.assertEqual(len(second_payload["reference_previous_shard_scan"]), 2)
 
     def test_shard_scan_inspection_keeps_valid_rows_when_one_row_is_bad(self):
         inspection = inspect_lt_merge_shard_scan(
@@ -1417,7 +1417,7 @@ class LTMemoryTests(unittest.IsolatedAsyncioTestCase):
             service_client.calls[1]["user_prompt"]
         )
         self.assertEqual(
-            [fact["id"] for fact in repair_payload["pending_facts"]],
+            [fact["id"] for fact in repair_payload["pending_candidates"]],
             ["PF1"],
         )
         self.assertIn("repair", repair_payload)
@@ -1521,7 +1521,7 @@ class LTMemoryTests(unittest.IsolatedAsyncioTestCase):
             service_client.calls[2]["user_prompt"]
         )
         self.assertEqual(
-            [fact["id"] for fact in final_payload["pending_facts"]],
+            [fact["id"] for fact in final_payload["pending_candidates"]],
             ["PF2"],
         )
 
@@ -1550,7 +1550,7 @@ class LTMemoryTests(unittest.IsolatedAsyncioTestCase):
             service_client.calls[3]["user_prompt"]
         )
         self.assertEqual(
-            [fact["id"] for fact in retry_payload["pending_facts"]],
+            [fact["id"] for fact in retry_payload["pending_candidates"]],
             ["PF1"],
         )
         self.assertEqual(
@@ -3946,7 +3946,7 @@ class LTMemoryTests(unittest.IsolatedAsyncioTestCase):
                 "key": "user.hardware.main_gpu",
                 "value": "{gpu_value}",
                 "category": "environment",
-                "source_keys": ["gpu"]
+                "evidence_field_keys": ["gpu"]
               }}]
             }}''',
             f'''{{
@@ -3965,7 +3965,7 @@ class LTMemoryTests(unittest.IsolatedAsyncioTestCase):
                 "key": "user.preference.response_language",
                 "value": "{language_value}",
                 "category": "user_preference",
-                "source_keys": ["language"]
+                "evidence_field_keys": ["language"]
               }}]
             }}''',
             f'''{{
@@ -4041,7 +4041,7 @@ class LTMemoryTests(unittest.IsolatedAsyncioTestCase):
             service_client.calls[0]["system_prompt"],
         )
         self.assertIn(
-            "consolidate pending candidates",
+            "consolidate `pending_candidates`",
             service_client.calls[1]["system_prompt"].lower(),
         )
 

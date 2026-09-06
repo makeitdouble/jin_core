@@ -1623,7 +1623,17 @@
         stream.__jinFastCitationMatches
       ) !== previousMatchSignature;
 
-    if (!matchesChanged && !removedUnstableMatch && !activeRevisionChanged) return;
+    const structuredStreamingAvailable = Boolean(
+      window.JinThinkFormatter
+      && typeof window.JinThinkFormatter.renderStreaming === "function"
+    );
+
+    if (
+      !matchesChanged
+      && !removedUnstableMatch
+      && !activeRevisionChanged
+      && !structuredStreamingAvailable
+    ) return;
 
     thinkContent.dataset.thinkId = thinkId;
     thinkContent.dataset.runtimeCitationIndex = String(runtimeCitationIndex);
@@ -1637,6 +1647,7 @@
       runtimeCitationIndex,
       matches: [...stream.__jinFastCitationMatches],
       done: false,
+      streaming: structuredStreamingAvailable,
     });
     syncAllThinkCitationHighlights();
   }
@@ -2038,6 +2049,91 @@
 
   }
 
+  function buildThinkFormatterDecorations(
+    text,
+    matches
+  ) {
+
+    const source =
+      String(text || "");
+
+    return (Array.isArray(matches) ? matches : [])
+      .map((match) => {
+        const start = Math.max(
+          0,
+          Math.min(
+            source.length,
+            Number(match.start || 0)
+          )
+        );
+        const end = Math.max(
+          start,
+          Math.min(
+            source.length,
+            Number(match.end || 0)
+          )
+        );
+        const matchedText =
+          source.slice(start, end);
+        const title =
+          buildThinkRuleTitle(
+            match,
+            matchedText
+          );
+
+        return {
+          start,
+          end,
+          className:
+            getThinkCitationClassName(
+              match
+            ),
+          title,
+          ariaLabel: title,
+          score: Number(match.score || 0),
+        };
+      });
+
+  }
+
+  function renderStructuredThinkContent(
+    element,
+    text,
+    matches,
+    streaming = false
+  ) {
+
+    const formatter =
+      window.JinThinkFormatter;
+    const renderMethod =
+      streaming
+        ? formatter && formatter.renderStreaming
+        : formatter && formatter.render;
+
+    if (typeof renderMethod !== "function") {
+      return false;
+    }
+
+    try {
+      renderMethod.call(
+        formatter,
+        element,
+        text,
+        {
+          decorations:
+            buildThinkFormatterDecorations(
+              text,
+              matches
+            ),
+        }
+      );
+      return true;
+    } catch (_) {
+      return false;
+    }
+
+  }
+
   function renderThinkRuleHighlights(job) {
 
     const element =
@@ -2052,6 +2148,8 @@
 
     const text =
       job.text;
+    const useStructuredFormatting =
+      Boolean(job.done || job.streaming);
     const matches =
       resolveThinkRuleOverlaps(
         filterLiveActiveMemoryMatches(
@@ -2063,9 +2161,24 @@
     element.__jinThinkMatches = [...matches];
 
     if (!matches.length) {
-      element.replaceChildren(
-        document.createTextNode(text)
-      );
+      if (
+        !useStructuredFormatting
+        || !renderStructuredThinkContent(
+          element,
+          text,
+          matches,
+          Boolean(job.streaming)
+        )
+      ) {
+        element.replaceChildren(
+          document.createTextNode(text)
+        );
+        element.classList.remove(
+          "is-structured"
+        );
+        element.__jinThinkStreamingFormatState =
+          null;
+      }
       element.__jinHasRuleHighlights = false;
       element.__jinThinkTextNode = null;
       element.__jinRuntimeCitationHighlightState = null;
@@ -2079,6 +2192,40 @@
 
       return false;
     }
+
+    if (
+      useStructuredFormatting
+      && renderStructuredThinkContent(
+        element,
+        text,
+        matches,
+        Boolean(job.streaming)
+      )
+    ) {
+      element.__jinHasRuleHighlights = true;
+      element.__jinThinkTextNode = null;
+
+      updateThinkContentExpandedHeight(
+        element
+      );
+
+      element.__jinRuntimeCitationHighlightState =
+        buildThinkRuntimeCitationHighlightState(
+          matches
+        );
+
+      syncThinkRuntimeCitationHighlight(
+        element
+      );
+
+      return true;
+    }
+
+    element.classList.remove(
+      "is-structured"
+    );
+    element.__jinThinkStreamingFormatState =
+      null;
 
     const fragment =
       document.createDocumentFragment();
@@ -2360,6 +2507,18 @@
     if (thinkContent.__jinRuntimeCitationHighlightState) {
       thinkContent.__jinRuntimeCitationHighlightActive = false;
     }
+
+    renderThinkRuleHighlights({
+      thinkId,
+      element: thinkContent,
+      text,
+      runtimeCitationIndex,
+      matches:
+        Array.isArray(stream.__jinFastCitationMatches)
+          ? [...stream.__jinFastCitationMatches]
+          : [],
+      done: true,
+    });
 
     syncAllThinkCitationHighlights();
 

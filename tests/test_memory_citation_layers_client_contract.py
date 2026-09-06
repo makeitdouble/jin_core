@@ -53,6 +53,49 @@ class MemoryCitationLayersClientContractTests(unittest.TestCase):
         self.assertIn(".think-citation-lt.exact", css)
         self.assertIn("rgba(129, 230, 217, 0.98)", css)
 
+    def test_inactive_reasoning_citations_use_source_color_without_glow(self):
+        css = CHAT_CSS.read_text(encoding="utf-8")
+
+        self.assertIn("--jin-think-citation-idle-color", css)
+        self.assertIn("color: var(--jin-think-citation-idle-color);", css)
+        self.assertIn("text-shadow: none;", css)
+        self.assertNotIn("--jin-think-citation-idle-glow", css)
+        for citation_class in (
+            "rule",
+            "runtime",
+            "active",
+            "delayed",
+            "lt",
+            "session",
+        ):
+            self.assertIn(f".think-citation-{citation_class} {{", css)
+
+    def test_light_theme_has_its_own_idle_citation_colors(self):
+        css = WIN95_CSS.read_text(encoding="utf-8")
+
+        for citation_class in (
+            "rule",
+            "runtime",
+            "active",
+            "delayed",
+            "lt",
+            "session",
+        ):
+            self.assertIn(
+                f"body.theme-win95 .jin-think-content .think-citation-{citation_class} {{",
+                css,
+            )
+
+    def test_active_reasoning_citation_glow_extends_ten_pixels_farther(self):
+        css = CHAT_CSS.read_text(encoding="utf-8")
+
+        self.assertIn("0 0 28px rgba(255, 200, 130, 0.14)", css)
+        self.assertIn("0 0 20px rgba(34,197,94,0.17)", css)
+        self.assertIn("0 0 20px rgba(249, 115, 22, 0.16)", css)
+        self.assertIn("0 0 20px rgba(34, 211, 238, 0.19)", css)
+        self.assertIn("0 0 20px rgba(45, 212, 191, 0.19)", css)
+        self.assertIn("0 0 20px rgba(168,85,247,0.15)", css)
+
     def test_reasoning_citation_reveal_is_not_hover_gated(self):
         source = THINK_CITATIONS_JS.read_text(encoding="utf-8")
         chat_source = CHAT_JS.read_text(encoding="utf-8")

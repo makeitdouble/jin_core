@@ -347,6 +347,231 @@
 
   }
 
+  function isEscapedCharacter(text, index) {
+
+    let backslashCount = 0;
+
+    for (
+      let cursor = index - 1;
+      cursor >= 0 && text[cursor] === "\\";
+      cursor -= 1
+    ) {
+      backslashCount += 1;
+    }
+
+    return backslashCount % 2 === 1;
+
+  }
+
+  function renderPlainMarkdownText(text) {
+
+    return renderEmphasis(
+      renderLinks(
+        escapeHtml(
+          text
+        )
+      )
+    );
+
+  }
+
+  function renderMathFormula(source, displayMode) {
+
+    const latex =
+      String(source || "");
+    const delimiter =
+      displayMode
+        ? "$$"
+        : "$";
+    const fallback =
+      escapeHtml(
+        `${delimiter}${latex}${delimiter}`
+      );
+    const katex =
+      window.katex;
+
+    if (
+      !katex
+      || typeof katex.renderToString !== "function"
+    ) {
+      return fallback;
+    }
+
+    try {
+      return katex.renderToString(
+        latex,
+        {
+          displayMode: Boolean(displayMode),
+          throwOnError: false,
+          strict: "ignore",
+          trust: false,
+        }
+      );
+    } catch (_error) {
+      return fallback;
+    }
+
+  }
+
+  function findMathClosingDelimiter(
+    source,
+    startIndex,
+    delimiter
+  ) {
+
+    const isDisplay =
+      delimiter === "$$";
+
+    for (
+      let index = startIndex;
+      index <= source.length - delimiter.length;
+      index += 1
+    ) {
+      if (
+        !source.startsWith(
+          delimiter,
+          index
+        )
+        || isEscapedCharacter(
+          source,
+          index
+        )
+      ) {
+        continue;
+      }
+
+      if (!isDisplay) {
+        if (
+          source[index + 1] === "$"
+          || /\s/.test(
+            source[index - 1] || ""
+          )
+        ) {
+          continue;
+        }
+      }
+
+      return index;
+    }
+
+    return -1;
+
+  }
+
+  function renderMathAwarePlainText(text) {
+
+    const source =
+      String(text || "");
+    const mathHtml = [];
+    const protectedParts = [];
+    let plainStart = 0;
+    let index = 0;
+
+    while (index < source.length) {
+      if (
+        source[index] !== "$"
+        || isEscapedCharacter(
+          source,
+          index
+        )
+      ) {
+        index += 1;
+        continue;
+      }
+
+      const displayMode =
+        source[index + 1] === "$";
+      const delimiter =
+        displayMode
+          ? "$$"
+          : "$";
+      const contentStart =
+        index + delimiter.length;
+
+      if (
+        contentStart >= source.length
+        || (
+          !displayMode
+          && /\s/.test(
+            source[contentStart]
+          )
+        )
+      ) {
+        index += delimiter.length;
+        continue;
+      }
+
+      const closeIndex =
+        findMathClosingDelimiter(
+          source,
+          contentStart,
+          delimiter
+        );
+
+      if (closeIndex < 0) {
+        index += delimiter.length;
+        continue;
+      }
+
+      const latex =
+        source.slice(
+          contentStart,
+          closeIndex
+        );
+
+      if (!latex.trim()) {
+        index =
+          closeIndex + delimiter.length;
+        continue;
+      }
+
+      const token =
+        `\uE000JINMATH${mathHtml.length}\uE001`;
+
+      protectedParts.push(
+        source.slice(
+          plainStart,
+          index
+        ),
+        token
+      );
+      mathHtml.push(
+        renderMathFormula(
+          latex,
+          displayMode
+        )
+      );
+
+      index =
+        closeIndex + delimiter.length;
+      plainStart = index;
+    }
+
+    protectedParts.push(
+      source.slice(
+        plainStart
+      )
+    );
+
+    let rendered =
+      renderPlainMarkdownText(
+        protectedParts.join("")
+      );
+
+    mathHtml.forEach(
+      (html, mathIndex) => {
+        rendered = rendered.split(
+          `\uE000JINMATH${mathIndex}\uE001`
+        ).join(
+          html
+        );
+      }
+    );
+
+    return rendered;
+
+  }
+
   function renderInlinePlain(text) {
 
     const source =
@@ -360,14 +585,10 @@
     markerPattern.lastIndex = 0;
 
     while ((match = markerPattern.exec(source)) !== null) {
-      rendered += renderEmphasis(
-        renderLinks(
-          escapeHtml(
-            source.slice(
-              lastIndex,
-              match.index
-            )
-          )
+      rendered += renderMathAwarePlainText(
+        source.slice(
+          lastIndex,
+          match.index
         )
       );
       if (match[3] !== undefined) {
@@ -387,13 +608,9 @@
         markerPattern.lastIndex;
     }
 
-    rendered += renderEmphasis(
-      renderLinks(
-        escapeHtml(
-          source.slice(
-            lastIndex
-          )
-        )
+    rendered += renderMathAwarePlainText(
+      source.slice(
+        lastIndex
       )
     );
 
@@ -430,6 +647,88 @@
 
       })
       .join("");
+
+  }
+
+  function isDisplayMathStart(line) {
+
+    return /^[ \t]*\$\$/.test(
+      String(line || "")
+    );
+
+  }
+
+  function renderDisplayMath(lines, startIndex) {
+
+    const firstLine =
+      String(lines[startIndex] || "");
+    const openingMatch =
+      firstLine.match(
+        /^[ \t]*\$\$(.*)$/
+      );
+
+    if (!openingMatch) {
+      return null;
+    }
+
+    const parts = [];
+    let current =
+      openingMatch[1];
+    let index =
+      startIndex;
+
+    while (true) {
+      const closeIndex =
+        findMathClosingDelimiter(
+          current,
+          0,
+          "$$"
+        );
+
+      if (closeIndex >= 0) {
+        if (
+          current.slice(
+            closeIndex + 2
+          ).trim()
+        ) {
+          return null;
+        }
+
+        parts.push(
+          current.slice(
+            0,
+            closeIndex
+          )
+        );
+
+        const latex =
+          parts.join("\n").trim();
+
+        if (!latex.trim()) {
+          return null;
+        }
+
+        return {
+          html: renderMathFormula(
+            latex,
+            true
+          ),
+          nextIndex: index + 1,
+        };
+      }
+
+      parts.push(
+        current
+      );
+      index += 1;
+
+      if (index >= lines.length) {
+        return null;
+      }
+
+      current =
+        String(lines[index] || "");
+    }
 
   }
 
@@ -659,6 +958,7 @@
     return (
       isBlank(line)
       || isFenceStart(line)
+      || isDisplayMathStart(line)
       || isHeading(line)
       || isHorizontalRule(line)
       || Boolean(getUnorderedListMatch(line))
@@ -920,6 +1220,23 @@
         index =
           result.nextIndex;
         continue;
+      }
+
+      if (isDisplayMathStart(lines[index])) {
+        const result =
+          renderDisplayMath(
+            lines,
+            index
+          );
+
+        if (result) {
+          blocks.push(
+            result.html
+          );
+          index =
+            result.nextIndex;
+          continue;
+        }
       }
 
       const tableResult =

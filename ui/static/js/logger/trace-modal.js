@@ -1973,17 +1973,13 @@ function renderLTExtractionRequestPayload(
 ) {
   appendLTRequestRecordCards(
     parent,
-    "FACTS MEMORY FIELDS",
-    payload.facts_memory_fields,
+    "CURRENT INTERACTION FIELDS",
+    payload.current_interaction_fields,
     {
       fallbackTitle: "FIELD",
       orderedKeys: [
+        "field_key",
         "content",
-        "key",
-        "source_keys",
-        "session_id",
-        "runtime_snapshot_id",
-        "lt_content_hash",
       ],
       groupCollapsed: false,
       recordCollapsed: false,
@@ -1993,7 +1989,7 @@ function renderLTExtractionRequestPayload(
 
   const extra = {};
   Object.entries(payload).forEach(([key, value]) => {
-    if (key !== "facts_memory_fields") {
+    if (key !== "current_interaction_fields") {
       extra[key] = value;
     }
   });
@@ -2014,8 +2010,8 @@ function renderLTMergeRequestPayload(
 ) {
   appendLTRequestRecordCards(
     parent,
-    "PENDING FACTS",
-    payload.pending_facts,
+    "PENDING CANDIDATES",
+    payload.pending_candidates,
     {
       fallbackTitle: "PENDING",
       orderedKeys: [
@@ -2023,8 +2019,6 @@ function renderLTMergeRequestPayload(
         "key",
         "value",
         "category",
-        "source_keys",
-        "source_fact_ids",
       ],
       groupCollapsed: false,
       recordCollapsed: false,
@@ -2034,8 +2028,8 @@ function renderLTMergeRequestPayload(
 
   appendLTRequestRecordCards(
     parent,
-    "EXISTING FACTS",
-    payload.existing_facts,
+    "REFERENCE EXISTING FACTS",
+    payload.reference_existing_facts,
     {
       fallbackTitle: "FACT",
       orderedKeys: [
@@ -2043,7 +2037,6 @@ function renderLTMergeRequestPayload(
         "key",
         "value",
         "category",
-        "source_fact_ids",
       ],
       groupCollapsed: true,
       recordCollapsed: false,
@@ -2053,14 +2046,14 @@ function renderLTMergeRequestPayload(
 
   appendLTRequestRecordCards(
     parent,
-    "EXACT KEY CONFLICTS",
-    payload.exact_key_conflicts,
+    "REFERENCE EXACT KEY CONFLICTS",
+    payload.reference_exact_key_conflicts,
     {
       fallbackTitle: "CONFLICT",
       orderedKeys: [
         "pending_id",
         "key",
-        "existing_fact_ids",
+        "reference_fact_ids",
       ],
       groupCollapsed: false,
       recordCollapsed: false,
@@ -2069,9 +2062,43 @@ function renderLTMergeRequestPayload(
 
   appendLTRequestScalarListCard(
     parent,
-    "PROTECTED FACT IDS",
-    payload.protected_fact_ids,
+    "REFERENCE PROTECTED FACT IDS",
+    payload.reference_protected_fact_ids,
     { collapsed: true }
+  );
+
+  appendLTRequestRecordCards(
+    parent,
+    "REFERENCE PREVIOUS SHARD FACTS",
+    payload.reference_previous_shard_facts,
+    {
+      fallbackTitle: "FACT",
+      orderedKeys: [
+        "id",
+        "key",
+        "value",
+        "category",
+      ],
+      groupCollapsed: true,
+      recordCollapsed: false,
+    }
+  );
+
+  appendLTRequestRecordCards(
+    parent,
+    "REFERENCE PREVIOUS SHARD SCAN",
+    payload.reference_previous_shard_scan,
+    {
+      fallbackTitle: "SCAN",
+      orderedKeys: [
+        "pending_id",
+        "decision",
+        "fact_ids",
+        "comment",
+      ],
+      groupCollapsed: true,
+      recordCollapsed: false,
+    }
   );
 
   if (
@@ -2091,10 +2118,12 @@ function renderLTMergeRequestPayload(
   Object.entries(payload).forEach(([key, value]) => {
     if (
       ![
-        "pending_facts",
-        "existing_facts",
-        "exact_key_conflicts",
-        "protected_fact_ids",
+        "pending_candidates",
+        "reference_existing_facts",
+        "reference_exact_key_conflicts",
+        "reference_protected_fact_ids",
+        "reference_previous_shard_scan",
+        "reference_previous_shard_facts",
         "repair",
       ].includes(key)
     ) {
