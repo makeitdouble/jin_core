@@ -76,6 +76,35 @@ class MemoryValueEditTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(self.context.runtime_memory_snapshots, before)
         self.assertEqual(self.context.emitter.events, [])
 
+    async def test_active_edit_is_independent_of_foreground_and_frame_busy_state(self):
+        record = "active_memory_1: old value [ active_memory_id: abc123 ] [ conditions: old value ] [ status: pending ]"
+        self.context.active_memory_records = [record]
+        self.context.runtime_memory += "\n" + record
+        self.context.runtime_memory_stable = self.context.runtime_memory
+
+        pending_frame = asyncio.get_running_loop().create_future()
+        self.context.runtime_memory_update_task = pending_frame
+        try:
+            result = await apply_memory_value_edit(
+                self.context,
+                self.payload(
+                    "active",
+                    target="abc123",
+                    value="updated while frame runs",
+                ),
+                foreground_busy=True,
+            )
+        finally:
+            pending_frame.cancel()
+            self.context.runtime_memory_update_task = None
+
+        self.assertTrue(result["ok"])
+        self.assertIn("updated while frame runs", self.context.active_memory_records[0])
+        self.assertTrue(any(
+            event["type"] == "active_memory_records_update"
+            for event in self.context.emitter.events
+        ))
+
     async def test_active_conditions_preserve_custom_fields_status_and_long_text(self):
         record = "active_memory_1: old value [ active_memory_id: abc123 ] [ conditions: old value ] [ photos: 5 ] [ creation_time: 2026-08-01 ] [ status: paused ]"
         self.context.active_memory_records = [record, "active_memory_2: untouched [ active_memory_id: def456 ]"]
@@ -86,7 +115,7 @@ class MemoryValueEditTests(unittest.IsolatedAsyncioTestCase):
         updated = self.context.active_memory_records[0]
         body, tags = split_editable_memory_value(updated.split(":", 1)[1])
         self.assertEqual(body, value.strip())
-        self.assertIn(f"[ conditions: {value.strip()} ]", updated)
+        self.assertNotIn("[ conditions:", updated)
         for suffix in ["[ photos: 5 ]", "[ creation_time: 2026-08-01 ]", "[ status: paused ]"]:
             self.assertIn(suffix, updated)
         self.assertEqual(self.context.active_memory_records[1], "active_memory_2: untouched [ active_memory_id: def456 ]")

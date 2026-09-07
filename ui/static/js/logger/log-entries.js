@@ -1085,7 +1085,8 @@ function refreshFactsMemoryAppendButtons() {
   );
 }
 
-let activeLTMemorySequence = null;
+const ltMemorySequences = new Map();
+let legacyActiveLTMemorySequence = null;
 
 const ltDeletedFactCards =
   new Map();
@@ -1232,6 +1233,26 @@ function setLTLoggerButtonTone(
       : "inline-flex items-center rounded border border-blue-500/20 px-2 py-1 text-[10px] uppercase tracking-wider text-blue-300 hover:bg-blue-500/10 transition";
 }
 
+function resolveLTMetaPhase(meta) {
+  const phase =
+    String(meta && meta.lt_phase || "")
+      .trim()
+      .toLowerCase()
+      .replace(/-/g, "_");
+
+  if (phase === "jin_note") {
+    return "merge";
+  }
+
+  if (phase === "extract" || phase === "extraction") {
+    return "extraction";
+  }
+
+  return phase === "merge"
+    ? "merge"
+    : "";
+}
+
 function resolveLTSummarizerPhase(
   message,
   meta,
@@ -1240,13 +1261,17 @@ function resolveLTSummarizerPhase(
     return "";
   }
 
+  const structuredPhase =
+    resolveLTMetaPhase(meta);
+
+  if (structuredPhase) {
+    return structuredPhase;
+  }
+
+  // Compatibility for archived/legacy log records that predate lt_phase.
   const normalized =
     String(message || "").toLowerCase();
 
-  // UPDATE_LT_FACTS uses one focused service-model pass rather than the
-  // ordinary extract -> merge pair. Present that pass inside the existing
-  // L-T sequence card as a focused merge step instead of creating a second
-  // standalone [MEMORY:L-T] logger card.
   if (/^l-?t\s+jin\s+note\s+summarizer\s+/.test(normalized)) {
     return "merge";
   }
@@ -1260,6 +1285,7 @@ function resolveLTSummarizerPhase(
     ? match[1]
     : "";
 }
+
 
 function resolveLTSummarizerEvent(
   message,
@@ -1286,7 +1312,7 @@ function resolveLTSummarizerEvent(
   return "";
 }
 
-function createLTMemorySequenceCard() {
+function createLTMemorySequenceCard(flowId = "", flowKind = "") {
   const logDiv =
     createLTLoggerCard(
       "[MEMORY:L-T]"
@@ -1395,6 +1421,8 @@ function createLTMemorySequenceCard() {
 
   const state = {
     logDiv,
+    flowId: String(flowId || ""),
+    flowKind: String(flowKind || ""),
     complete: false,
     currentPhase: "",
     diffDetails: "",
@@ -1452,20 +1480,45 @@ function createLTMemorySequenceCard() {
   );
 
   logDiv.append(track, showButton);
-  activeLTMemorySequence = state;
+
+  if (state.flowId) {
+    logDiv.dataset.ltFlowId = state.flowId;
+    if (state.flowKind) {
+      logDiv.dataset.ltFlowKind = state.flowKind;
+    }
+    ltMemorySequences.set(state.flowId, state);
+  } else {
+    legacyActiveLTMemorySequence = state;
+  }
 
   return state;
 }
 
-function getActiveLTMemorySequence() {
+function getLTMemorySequence(flowId, flowKind = "") {
+  const normalizedFlowId =
+    String(flowId || "").trim();
+
+  if (normalizedFlowId) {
+    const existing =
+      ltMemorySequences.get(normalizedFlowId);
+    if (existing) {
+      return existing;
+    }
+    return createLTMemorySequenceCard(
+      normalizedFlowId,
+      flowKind
+    );
+  }
+
+  // Compatibility only: old log records had no correlation id.
   if (
-    !activeLTMemorySequence
-    || activeLTMemorySequence.complete
+    !legacyActiveLTMemorySequence
+    || legacyActiveLTMemorySequence.complete
   ) {
     return createLTMemorySequenceCard();
   }
 
-  return activeLTMemorySequence;
+  return legacyActiveLTMemorySequence;
 }
 
 function setLTSequenceStatus(
@@ -1490,6 +1543,39 @@ function setLTSequenceInspectable(
     inspectable
       ? "true"
       : "false";
+}
+
+function clearLTSequencePendingStatuses(state) {
+  if (!state) {
+    return;
+  }
+
+  for (const phase of ["extraction", "merge"]) {
+    const phaseState = state.phases[phase];
+    const elements = state.elements[phase];
+    phaseState.requestPending = false;
+
+    for (const element of [elements.label, elements.arrow]) {
+      if (element && element.dataset.status === "pending") {
+        setLTSequenceStatus(element, "idle");
+      }
+    }
+  }
+
+  if (
+    state.elements.apply.label
+    && state.elements.apply.label.dataset.status === "pending"
+  ) {
+    setLTSequenceStatus(
+      state.elements.apply.label,
+      "idle"
+    );
+  }
+}
+
+function finishLTSequence(state) {
+  clearLTSequencePendingStatuses(state);
+  state.complete = true;
 }
 
 function ltSequenceResponseHasChanges(
@@ -1757,13 +1843,21 @@ function failLTSequencePhase(
   }
 
   phaseState.requestPending = false;
-  state.complete = true;
+  finishLTSequence(state);
 }
 
 function resolveLTTerminalPhase(
   event,
   state,
+  meta,
 ) {
+  const structuredPhase =
+    resolveLTMetaPhase(meta);
+
+  if (structuredPhase) {
+    return structuredPhase;
+  }
+
   if (event.startsWith("extract_")) {
     return "extraction";
   }
@@ -1831,6 +1925,7 @@ function handleLTMemorySequenceLog(
     || event === "merge_applied"
     || event === "jin_note_applied"
     || event === "jin_note_no_change"
+    || event === "lt_preempted"
     || event === "jin_note_preempted"
     || isLTSequenceTerminalFailure(event)
   );
@@ -1840,7 +1935,10 @@ function handleLTMemorySequenceLog(
   }
 
   const state =
-    getActiveLTMemorySequence();
+    getLTMemorySequence(
+      meta && meta.lt_flow_id,
+      meta && meta.lt_flow_kind
+    );
 
   if (summarizerEvent === "summarizer_request") {
     beginLTSequenceRequest(
@@ -1913,7 +2011,7 @@ function handleLTMemorySequenceLog(
         true
       );
       state.showButton.disabled = false;
-      state.complete = true;
+      finishLTSequence(state);
     }
   } else if (event === "merge_applied") {
     settleLTSequenceResponse(
@@ -1945,7 +2043,7 @@ function handleLTMemorySequenceLog(
       Boolean(state.diffDetails)
     );
     state.showButton.disabled = false;
-    state.complete = true;
+    finishLTSequence(state);
   } else if (
     event === "jin_note_applied"
     || event === "jin_note_no_change"
@@ -1990,40 +2088,38 @@ function handleLTMemorySequenceLog(
       Boolean(state.diffDetails)
     );
     state.showButton.disabled = !state.diffDetails;
-    state.complete = true;
-  } else if (event === "jin_note_preempted") {
-    state.phases.merge.requestPending = false;
-    setLTSequenceStatus(
-      state.elements.merge.label,
-      "idle"
-    );
-    setLTSequenceStatus(
-      state.elements.merge.arrow,
-      "idle"
-    );
-    setLTSequenceStatus(
-      state.elements.apply.label,
-      "idle"
-    );
-    setLTSequenceInspectable(
-      state.elements.merge.label,
-      Boolean(state.phases.merge.requestDetails)
-    );
-    setLTSequenceInspectable(
-      state.elements.merge.arrow,
-      false
-    );
+    finishLTSequence(state);
+  } else if (
+    event === "lt_preempted"
+    || event === "jin_note_preempted"
+  ) {
+    const preemptPhase =
+      resolveLTMetaPhase(meta)
+      || (event === "jin_note_preempted" ? "merge" : state.currentPhase);
+
+    if (preemptPhase && state.phases[preemptPhase]) {
+      state.phases[preemptPhase].requestPending = false;
+      setLTSequenceInspectable(
+        state.elements[preemptPhase].label,
+        Boolean(state.phases[preemptPhase].requestDetails)
+      );
+      setLTSequenceInspectable(
+        state.elements[preemptPhase].arrow,
+        false
+      );
+    }
     setLTSequenceInspectable(
       state.elements.apply.label,
       false
     );
     state.showButton.disabled = true;
-    state.complete = true;
+    finishLTSequence(state);
   } else if (isLTSequenceTerminalFailure(event)) {
     const terminalPhase =
       resolveLTTerminalPhase(
         event,
-        state
+        state,
+        meta
       );
 
     if (terminalPhase) {
@@ -2033,6 +2129,10 @@ function handleLTMemorySequenceLog(
         details
       );
     }
+  }
+
+  if (state.complete) {
+    clearLTSequencePendingStatuses(state);
   }
 
   moveLTSequenceToLatestLog(state);

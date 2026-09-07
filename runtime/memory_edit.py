@@ -44,12 +44,22 @@ def split_editable_memory_value(value):
     return text.strip(), tags
 
 
+def frame_memory_write_busy(context, *, foreground_busy=False):
+    pending = getattr(context, "runtime_memory_update_task", None)
+    return bool(
+        foreground_busy
+        or (pending is not None and not pending.done())
+    )
+
+
 def replace_memory_value(raw_value, value, *, active=False):
     _, tags = split_editable_memory_value(raw_value)
     suffixes = []
     for key, raw in tags:
+        # Active `conditions` is the primary description, not metadata. Drop
+        # the legacy duplicated suffix instead of rewriting it.
         if active and key.casefold() == "conditions":
-            raw = f"[ {key}: {value} ]"
+            continue
         if active and key.casefold() == "updated_at":
             continue
         suffixes.append(raw)
@@ -83,9 +93,14 @@ async def apply_memory_value_edit(context, data, *, foreground_busy=False):
         value = value.replace("\n", r"\n")
     if kind == "lt" and lt_memory_writes_restricted(context):
         return reject("restricted_write")
-    pending = getattr(context, "runtime_memory_update_task", None)
-    if kind in {"frame", "active"} and (
-        foreground_busy or (pending is not None and not pending.done())
+    # FRAME is the state being replaced by live FRAME integration, so a manual
+    # FRAME edit must still wait for that writer. Active Memory has its own
+    # canonical store (active_memory_records) and is projected back into the
+    # latest snapshot from that store, so serializing Active edits behind
+    # Brain/FRAME work is unnecessary and makes the independent memory layer
+    # feel spuriously locked.
+    if kind == "frame" and frame_memory_write_busy(
+        context, foreground_busy=foreground_busy,
     ):
         return reject("memory_busy")
 

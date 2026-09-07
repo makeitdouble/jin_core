@@ -440,7 +440,7 @@ updates retain their existing handlers and persistence policies.
 - **Active:** the record conditions/value; IDs, custom fields, pause status, creation metadata, and other suffixes are preserved;
 - **L-T:** only the canonical fact value; ID/key/category/provenance and mention metadata are preserved.
 
-The request carries the expected value, so concurrent/stale edits fail instead of overwriting a newer value. FRAME/Active edits are rejected while live memory integration is busy. L-T edits persist to disk before publication and are unavailable when persistent writes are restricted. Active and L-T acknowledgements surface `updated_at` immediately in the open editor. Draft text remains page-local until the checkmark is acknowledged; rollback restores the last acknowledged value.
+The request carries the expected value, so concurrent/stale edits fail instead of overwriting a newer value. Manual FRAME edits and row deletions are rejected while live FRAME/foreground integration is busy because that same state is being replaced. Active edits remain available during Brain/FRAME work: Active owns `active_memory_records`, and FRAME snapshots project the current Active store rather than owning it. L-T edits persist to disk before publication and are unavailable when persistent writes are restricted. Active and L-T acknowledgements surface `updated_at` immediately in the open editor. Draft text remains page-local until the checkmark is acknowledged; rollback restores the last acknowledged value.
 
 ---
 

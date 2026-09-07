@@ -28,12 +28,14 @@ from runtime.L1_memory_utils import (
     strip_runtime_memory_line_metadata,
 )
 from runtime.telemetry import send_telemetry
+from runtime.memory_edit import frame_memory_write_busy
 from runtime.anonymous_mode import (
     configure_runtime_anonymous_mode,
     ensure_anonymous_session_id,
     websocket_requests_anonymous_mode,
 )
 from utils.actions import (
+    canonicalize_active_memory_record,
     is_active_memory_key,
     is_delayed_memory_report_id,
     normalize_jin_color_payload,
@@ -42,6 +44,7 @@ from utils.actions import (
 )
 from utils.chat_log import (
     resume_chat_log_session,
+    summarize_attachments,
 )
 from utils.session_actions_history import (
     get_session_action_session_id,
@@ -107,6 +110,10 @@ def clean_active_memory_records(value) -> list[str]:
         )
 
         if not ACTIVE_MEMORY_LINE_RE.match(line):
+            continue
+
+        line = canonicalize_active_memory_record(line)
+        if not line:
             continue
 
         if line in seen:
@@ -265,6 +272,12 @@ def apply_archived_session_continuation_state(
                 "jin": jin_text,
             }
 
+            attachments = summarize_attachments(
+                turn.get("attachments", [])
+            )
+            if attachments:
+                normalized_turn["attachments"] = attachments
+
             from utils.actions.jin_reaction_utils import normalize_jin_reaction_payload
             reaction = normalize_jin_reaction_payload(turn.get("jin_reaction", ""))
             if reaction:
@@ -297,6 +310,19 @@ def apply_archived_session_continuation_state(
         context.runtime_recent_turns = normalized_turns[
             -RECENT_MESSAGES_MAX_PAIRS:
         ]
+
+    bootstrap_chat_tail_turns = message_data.get(
+        "bootstrap_chat_tail_turns",
+        [],
+    )
+    if isinstance(bootstrap_chat_tail_turns, list):
+        context.runtime_bootstrap_chat_tail_turns = [
+            dict(turn)
+            for turn in bootstrap_chat_tail_turns[-(RECENT_MESSAGES_MAX_PAIRS * 2):]
+            if isinstance(turn, dict)
+        ]
+    else:
+        context.runtime_bootstrap_chat_tail_turns = []
 
     restored_dialog = clean_bootstrap_memory(
         message_data.get(
@@ -997,6 +1023,8 @@ def remove_runtime_memory_slot_by_key(
 async def apply_runtime_memory_slot_delete(
         context,
         message_data: dict,
+        *,
+        foreground_busy: bool = False,
 ) -> bool:
 
     key = str(
@@ -1012,6 +1040,34 @@ async def apply_runtime_memory_slot_delete(
             or normalized_key == "user_idle"
             or is_active_memory_key(normalized_key)
     ):
+        return False
+
+    # FRAME delete mutates the same canonical state as the FRAME summarizer.
+    # The browser applies long-hold deletion optimistically, so when the writer
+    # is busy we must also push the authoritative latest snapshot back to the
+    # client instead of merely dropping the request and leaving local state
+    # diverged until the next FRAME update.
+    if frame_memory_write_busy(
+            context,
+            foreground_busy=foreground_busy,
+    ):
+        snapshot = rebuild_latest_runtime_memory_snapshot(
+            context
+        )
+
+        if snapshot is None:
+            snapshot = build_runtime_memory_snapshot(
+                context,
+                getattr(context, "runtime_memory", ""),
+            )
+
+        await emit_runtime_memory_snapshot_refresh(
+            context,
+            snapshot,
+        )
+        await context.logger.log_system(
+            f"[RUNTIME MEMORY] slot delete blocked: memory busy: {normalized_key}"
+        )
         return False
 
     current_memory = str(
@@ -2619,6 +2675,29 @@ def enrich_session_bootstrap_from_archive(
     if not isinstance(archived, dict):
         return message_data
 
+    # Normal bootstrap owns a lineage-aware dialogue projection. The newest
+    # raw-log session still owns continuation/runtime state, but a short child
+    # session (especially a stopped USER-only move) backfills its immediate
+    # chat context from the exact direct-predecessor chain instead of erasing
+    # the previous visible conversation. Explicit archived restore returned
+    # above and therefore keeps its single-session semantics.
+    bootstrap_lineage_turns = archived.get(
+        "bootstrap_lineage_turns",
+        [],
+    )
+    bootstrap_lineage_dialog_context = clean_bootstrap_memory(
+        archived.get(
+            "bootstrap_lineage_dialog_context",
+            "",
+        ),
+        limit=48000,
+    )
+    if isinstance(bootstrap_lineage_turns, list) and bootstrap_lineage_turns:
+        archived = dict(archived)
+        archived["recent_turns"] = bootstrap_lineage_turns
+        if bootstrap_lineage_dialog_context:
+            archived["dialog_context"] = bootstrap_lineage_dialog_context
+
     enriched = dict(message_data)
 
     archive_reaches_saved_checkpoint = True
@@ -2701,6 +2780,11 @@ def enrich_session_bootstrap_from_archive(
         )
 
     if archive_reaches_dialog_checkpoint:
+        if isinstance(bootstrap_lineage_turns, list) and bootstrap_lineage_turns:
+            enriched["bootstrap_chat_tail_turns"] = (
+                bootstrap_lineage_turns
+            )
+
         for field in (
             "dialog_context",
             "recent_turns",
@@ -2892,10 +2976,23 @@ def build_session_bootstrap_chat_tail(
     context,
 ) -> list[dict]:
 
-    turns = getattr(
+    lineage_turns = getattr(
         context,
-        "runtime_recent_turns",
+        "runtime_bootstrap_chat_tail_turns",
         [],
+    )
+    uses_lineage_tail = bool(
+        isinstance(lineage_turns, list)
+        and lineage_turns
+    )
+    turns = (
+        lineage_turns
+        if uses_lineage_tail
+        else getattr(
+            context,
+            "runtime_recent_turns",
+            [],
+        )
     )
     if not isinstance(turns, list):
         return []
@@ -2915,21 +3012,30 @@ def build_session_bootstrap_chat_tail(
                 attachment_context_marker,
                 1,
             )[0].rstrip()
+        elif user_text.startswith("Attached context:\n"):
+            user_text = ""
 
         jin_text = clean_bootstrap_memory(
             turn.get("jin", ""),
             limit=12000,
         )
+        attachments = summarize_attachments(
+            turn.get("attachments", [])
+        )
         # runtime_recent_turns contains the latest real USER moves. A stopped
         # turn or action-only completion can legitimately have no visible JIN
         # text; its USER bubble still belongs to the predecessor chat tail.
-        if not user_text:
+        # Attachment-only USER moves likewise stay visible after the logged
+        # Attached context suffix is stripped from their chat text.
+        if not user_text and not attachments:
             continue
 
         item = {
             "user": user_text,
             "jin": jin_text,
         }
+        if attachments:
+            item["attachments"] = attachments
         from utils.actions.jin_reaction_utils import normalize_jin_reaction_payload
         reaction = normalize_jin_reaction_payload(turn.get("jin_reaction", ""))
         if reaction:
@@ -2958,9 +3064,25 @@ def build_session_bootstrap_chat_tail(
             if created_at > 0:
                 item[key] = created_at
 
+        for key, limit in (
+            ("source_session_id", 80),
+            ("source_session_date", 20),
+        ):
+            source_value = clean_bootstrap_memory(
+                turn.get(key, ""),
+                limit=limit,
+            )
+            if source_value:
+                item[key] = source_value
+
         committed_turns.append(item)
 
-    return committed_turns[-RECENT_MESSAGES_MAX_PAIRS:]
+    tail_limit = (
+        RECENT_MESSAGES_MAX_PAIRS * 2
+        if uses_lineage_tail
+        else RECENT_MESSAGES_MAX_PAIRS
+    )
+    return committed_turns[-tail_limit:]
 
 
 def apply_session_bootstrap(

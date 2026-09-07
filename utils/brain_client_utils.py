@@ -66,9 +66,11 @@ from utils.skills_asset_utils import (
 )
 from utils.actions import (
     build_runtime_action_id,
+    canonicalize_active_memory_conditions_value,
     collect_active_memory_slot_ids,
     collect_active_memory_custom_fields,
     extract_active_memory_creation_custom_fields,
+    get_active_memory_conditions_value,
     get_active_memory_record_title,
     extract_active_memory_delete_slot_id,
     extract_search_query,
@@ -89,6 +91,7 @@ from utils.actions import (
     refresh_active_memory_runtime_metadata,
     strip_active_memory_runtime_metadata,
     strip_active_memory_managed_suffixes,
+    set_active_memory_conditions_value,
     set_active_memory_suffix_value,
 )
 from utils.actions.update_active_memory_utils import (
@@ -800,11 +803,9 @@ def build_active_memory_runtime_line(
     if not visible_value:
         return ""
 
+    # `conditions` is the primary Active-memory description itself. Keep
+    # only custom state fields as suffix metadata so the text is not duplicated.
     suffix_items = [
-        (
-            suffix_values[0][0],
-            visible_value,
-        ),
         *custom_fields,
     ]
     suffix_text = " ".join(
@@ -814,10 +815,16 @@ def build_active_memory_runtime_line(
     active_memory_id = generate_active_memory_slot_id(
         existing_ids
     )
-    value = (
-        f"{visible_value} [ active_memory_id: {active_memory_id} ] "
-        f"{suffix_text} [ status: pending ]"
-    ).strip()
+    value = " ".join(
+        part
+        for part in (
+            visible_value,
+            f"[ active_memory_id: {active_memory_id} ]",
+            suffix_text,
+            "[ status: pending ]",
+        )
+        if part
+    )
 
     slot_key = str(
         slot_key
@@ -978,7 +985,6 @@ UPDATE_ACTIVE_MEMORY_CLOSE_TAG_RE = re.compile(
     r"^\s*</\s*UPDATE_ACTIVE_MEMORY\s*>\s*$",
     re.IGNORECASE,
 )
-
 
 def _collect_context_active_memory_sources(
     context,
@@ -1490,12 +1496,17 @@ def _update_active_memory_line_fields(
         return text, ()
 
     key, value = text.split(":", 1)
-    value = value.strip()
-    allowed_fields = dict(
-        collect_active_memory_custom_fields(
-            value
-        )
+    value = canonicalize_active_memory_conditions_value(
+        value.strip()
     )
+    allowed_fields = {
+        "conditions": get_active_memory_conditions_value(value),
+        **dict(
+            collect_active_memory_custom_fields(
+                value
+            )
+        ),
+    }
 
     if not changes or any(
         field_name not in allowed_fields
@@ -1506,12 +1517,22 @@ def _update_active_memory_line_fields(
     change_results = []
 
     for field_name, field_value in changes:
-        value, did_update, previous_value = set_active_memory_suffix_value(
-            value,
-            field_name,
-            field_value,
-            require_existing=True,
-        )
+        if field_name == "conditions":
+            (
+                value,
+                did_update,
+                previous_value,
+            ) = set_active_memory_conditions_value(
+                value,
+                field_value,
+            )
+        else:
+            value, did_update, previous_value = set_active_memory_suffix_value(
+                value,
+                field_name,
+                field_value,
+                require_existing=True,
+            )
         if not did_update:
             return text, ()
 
@@ -1633,11 +1654,18 @@ async def update_active_memory_runtime_record(
         current_record
     )
 
-    current_fields = dict(
-        collect_active_memory_custom_fields(
-            current_record
-        )
-    )
+    current_fields = {
+        "conditions": get_active_memory_conditions_value(
+            current_record.split(":", 1)[1]
+            if ":" in current_record
+            else ""
+        ),
+        **dict(
+            collect_active_memory_custom_fields(
+                current_record
+            )
+        ),
+    }
     result["available_fields"] = list(current_fields)
 
     requested_fields = [
@@ -1736,7 +1764,9 @@ async def update_active_memory_runtime_record(
         "ok": True,
         "error": "",
         "id": active_memory_id,
-        "title": result["previous_title"],
+        "title": get_active_memory_record_title(
+            updated_record
+        ),
         "record": updated_record,
         "changes": list(change_results),
         "updated_at": updated_at,

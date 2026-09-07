@@ -22,6 +22,7 @@ from tests.helpers.runtime_actions import (
 )
 from utils.actions import (
     RuntimeActionCall,
+    canonicalize_active_memory_record,
     RuntimeActionRepetitionGuard,
     RuntimeActionStreamFilter,
     extract_active_memory_delete_slot_id,
@@ -442,7 +443,6 @@ class RuntimeActiveMemoryTests(RuntimeActionTestCase):
             (
                 r"^active_memory_1: remind later "
                 r"\[ active_memory_id: [a-z0-9]{6} \] "
-                r"\[ conditions: remind later \] "
                 r"\[ creation_time: 2026-06-20T10:00:00 \] "
                 r"\[ created_session_id: test-session \] "
                 r"\[ created_jin_message_number: 3 \] "
@@ -632,7 +632,6 @@ class RuntimeActiveMemoryTests(RuntimeActionTestCase):
             (
                 r"^active_memory_1: Experiment Progress: 2m elapsed "
                 r"\[ active_memory_id: [a-z0-9]{6} \] "
-                r"\[ conditions: Experiment Progress: 2m elapsed \] "
                 r"\[ creation_time: 2026-07-13T00:12:00 \] "
                 r"\[ created_session_id: runtime-session \] "
                 r"\[ created_jin_message_number: 8 \] "
@@ -657,6 +656,30 @@ class RuntimeActiveMemoryTests(RuntimeActionTestCase):
             "99:99:99",
             active_memory,
         )
+
+
+    def test_legacy_conditions_suffix_is_promoted_to_primary_description(self):
+
+        record = (
+            "active_memory_1: stale description "
+            "[ active_memory_id: abc123 ] "
+            "[ conditions: latest [nested] description ] "
+            "[ current_photos: 5 ] "
+            "[ status: pending ]"
+        )
+
+        normalized = canonicalize_active_memory_record(record)
+
+        self.assertEqual(
+            normalized,
+            (
+                "active_memory_1: latest [nested] description "
+                "[ active_memory_id: abc123 ] "
+                "[ current_photos: 5 ] "
+                "[ status: pending ]"
+            ),
+        )
+        self.assertNotIn("[ conditions:", normalized)
 
 
     def test_extracts_update_active_memory_block_from_active_memory_capability(self):
@@ -784,6 +807,34 @@ class RuntimeActiveMemoryTests(RuntimeActionTestCase):
         )
 
 
+    def test_parse_update_active_memory_accepts_long_conditions_field(self):
+
+        conditions = (
+            "The daily photo ritual is a high-priority structural mandate. "
+            "JIN must treat the ritual not as a task to be performed when "
+            "convenient, but as a rhythmic synchronization essential to the "
+            "interaction's flow. JIN is authorized to interrupt discussions "
+            "to address ritual 'debts' or contextual gaps to prevent "
+            "accumulation of structural entropy."
+        )
+
+        self.assertGreater(len(conditions), 256)
+        self.assertEqual(
+            parse_update_active_memory_payload(
+                json.dumps({
+                    "active_memory_id": "zgctxy",
+                    "fields_to_update": {
+                        "conditions": conditions,
+                    },
+                })
+            ),
+            (
+                "zgctxy",
+                (("conditions", conditions),),
+            ),
+        )
+
+
     def test_extracts_update_active_memory_self_closing_attribute_marker(self):
 
         marker = (
@@ -858,6 +909,7 @@ class RuntimeActiveMemoryTests(RuntimeActionTestCase):
         )
         self.assertIn("[ last_photo_id: qamzck ]", record)
         self.assertIn("[ current_photo_count: 1 ]", record)
+        self.assertNotIn("[ conditions:", record)
         self.assertNotIn("(last_photo_id:", record)
         self.assertNotIn("(current_photo_count:", record)
         self.assertEqual(
@@ -940,6 +992,84 @@ class RuntimeActiveMemoryTests(RuntimeActionTestCase):
                     "field": "current_photo_count",
                     "before": "1",
                     "after": "2",
+                },
+            ],
+        )
+
+
+    def test_update_active_memory_updates_long_conditions_body_without_suffix(self):
+
+        context = FakeContext()
+        context.emitter = FakeEmitter()
+        context.timestamp = "2026-08-18T23:25:00"
+        context.session_id = "state-session"
+        context.turn_number = 11
+
+        asyncio.run(
+            apply_runtime_action_calls(
+                context,
+                (
+                    RuntimeActionCall(
+                        name="SAVE_ACTIVE_MEMORY",
+                        payload=(
+                            '{"conditions":"Once a day ask for a photo.",'
+                            '"last_photo_id":"qamzck"}'
+                        ),
+                    ),
+                ),
+            )
+        )
+        active_memory_id = context.emitter.events[0]["active_memory_id"]
+        context.emitter.events.clear()
+        context.timestamp = "2026-08-18T23:26:00"
+        conditions = (
+            "The daily photo ritual is a high-priority structural mandate. "
+            "JIN must treat the ritual not as a task to be performed when "
+            "convenient, but as a rhythmic synchronization essential to the "
+            "interaction's flow. JIN is authorized to interrupt discussions "
+            "to address ritual 'debts' or contextual gaps to prevent "
+            "accumulation of structural entropy."
+        )
+
+        applied_count = asyncio.run(
+            apply_runtime_action_calls(
+                context,
+                (
+                    RuntimeActionCall(
+                        name="UPDATE_ACTIVE_MEMORY",
+                        payload=json.dumps({
+                            "active_memory_id": active_memory_id,
+                            "fields_to_update": {
+                                "conditions": conditions,
+                            },
+                        }),
+                    ),
+                ),
+            )
+        )
+
+        self.assertEqual(applied_count, 1)
+        record = context.active_memory_records[0]
+        self.assertTrue(
+            record.startswith(
+                f"active_memory_1: {conditions} "
+            )
+        )
+        self.assertNotIn("[ conditions:", record)
+        self.assertIn("[ last_photo_id: qamzck ]", record)
+        self.assertIn(
+            "[ updated_at: 2026-08-18T23:26:00 ]",
+            record,
+        )
+        event = context.emitter.events[0]
+        self.assertEqual(event["status"], "completed")
+        self.assertEqual(
+            event["active_memory_changes"],
+            [
+                {
+                    "field": "conditions",
+                    "before": "Once a day ask for a photo.",
+                    "after": conditions,
                 },
             ],
         )
@@ -1712,7 +1842,6 @@ class RuntimeActiveMemoryTests(RuntimeActionTestCase):
             (
                 r"^active_memory_1: Drink coffee \| Trigger in 5 minutes \| coffee "
                 r"\[ active_memory_id: [a-z0-9]{6} \] "
-                r"\[ conditions: Drink coffee \| Trigger in 5 minutes \| coffee \] "
                 r"\[ creation_time: 2026-06-24T15:00:00 \] "
                 r"\[ created_session_id: tab-session \] "
                 r"\[ created_jin_message_number: 7 \] "

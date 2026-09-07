@@ -1562,6 +1562,36 @@ function createMessageAttachmentChips(
     );
 
     let attachmentBound = false;
+    let attachmentAvailable = !attachmentId;
+
+    if (attachmentId) {
+      chip.addEventListener(
+        "click",
+        (event) => {
+          if (attachmentAvailable) {
+            return;
+          }
+          event.preventDefault();
+          event.stopImmediatePropagation();
+        },
+        true
+      );
+      chip.addEventListener(
+        "keydown",
+        (event) => {
+          if (
+            attachmentAvailable
+            || (event.key !== "Enter" && event.key !== " ")
+          ) {
+            return;
+          }
+          event.preventDefault();
+          event.stopImmediatePropagation();
+        },
+        true
+      );
+    }
+
     const syncAttachmentAvailability = () => {
       // Plain/transient attachment objects keep the old behavior. A logged
       // persistent id, however, is authoritative: if that id no longer exists
@@ -1594,6 +1624,7 @@ function createMessageAttachmentChips(
           ? filesApi.getFile(attachmentId)
           : null;
       const available = Boolean(record);
+      attachmentAvailable = available;
 
       if (available && !attachmentBound) {
         bindJinAttachmentBubble(
@@ -1610,16 +1641,32 @@ function createMessageAttachmentChips(
       // While the initial file snapshot is still in flight, keep the chip
       // conservatively disabled; jin:files-store-changed immediately resolves
       // it to available/missing once the authoritative store arrives.
-      chip.disabled = !available;
+      chip.disabled = false;
+      chip.tabIndex = available ? 0 : -1;
       chip.style.opacity = available ? "" : (storeReady ? "0.35" : "0.5");
       chip.style.cursor = available ? "" : "default";
+      chip.style.filter = (storeReady && !available)
+        ? "grayscale(1)"
+        : "";
       chip.setAttribute(
         "aria-disabled",
         available ? "false" : "true"
       );
-      chip.title = available
+
+      const unavailableLabel = attachmentId
+        ? `File ID: ${attachmentId}`
+        : label;
+      const accessibilityLabel = available
         ? label
-        : (storeReady ? `${label} · file not found` : `${label} · loading file`);
+        : (storeReady
+          ? unavailableLabel
+          : `${label} · loading file`);
+
+      chip.setAttribute(
+        "aria-label",
+        accessibilityLabel
+      );
+      chip.title = accessibilityLabel;
     };
 
     syncAttachmentAvailability();

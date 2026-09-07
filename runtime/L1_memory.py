@@ -31,6 +31,7 @@ from runtime.memory_common import (
     refresh_service_runtime_usage,
     runtime_prompt_is_context_overloaded,
 )
+from runtime.LT_lane import track_lt_frame_task
 from runtime.L1_memory_utils import (
     emit_runtime_memory_update,
     record_runtime_l1_diff,
@@ -877,6 +878,7 @@ def _start_runtime_memory_update_task(
     )
 
     context.runtime_memory_update_task = task
+    track_lt_frame_task(context, task)
 
     background_tasks = getattr(
         context,

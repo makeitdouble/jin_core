@@ -8,6 +8,14 @@ from contracts.rules_assembler import (
     runtime_action_emits_followup,
 )
 from runtime.LT_memory_utils import normalize_lt_store
+from runtime.LT_lane import (
+    begin_lt_attempt,
+    bind_lt_attempt_task,
+    get_current_lt_attempt,
+    lt_attempt_can_commit,
+    release_lt_attempt,
+    seal_lt_attempt,
+)
 from runtime.runtime_context import RuntimeContext
 from tests.helpers.memory import FakeLogger, FakeServiceClient
 from utils.actions import RuntimeActionCall, extract_runtime_actions
@@ -340,7 +348,7 @@ class RuntimeUpdateLTFactsTests(unittest.IsolatedAsyncioTestCase):
 
             self.assertEqual(applied, 1)
             self.assertEqual(len(context.runtime_lt_explicit_note_queue), 1)
-            self.assertIsNone(context.runtime_lt_memory_update_task)
+            self.assertIsNone(context.runtime_lt_active_attempt)
             completed = [
                 event
                 for event in emitter.events
@@ -394,6 +402,204 @@ class RuntimeUpdateLTFactsTests(unittest.IsolatedAsyncioTestCase):
             frame_release.set()
             await frame_task
 
+    async def test_sealed_explicit_tail_cannot_start_next_note_under_new_foreground_turn(self):
+        context = RuntimeContext(
+            websocket=None,
+            emitter=FakeEmitter(),
+            logger=FakeLogger(),
+            clients={},
+        )
+        context.runtime_foreground_turn_running = True
+        first_committed = asyncio.Event()
+        release_first_tail = asyncio.Event()
+        second_started = asyncio.Event()
+        seen = []
+
+        async def fake_run_lt_jin_note(*, context, note):
+            message = note["message"]
+            seen.append(message)
+            if message == "first":
+                seal_lt_attempt(get_current_lt_attempt(context))
+                first_committed.set()
+                await release_first_tail.wait()
+            else:
+                second_started.set()
+            return {
+                "phase": "jin_note",
+                "status": "completed",
+                "changed": False,
+                "change": {},
+            }
+
+        actions = (
+            RuntimeActionCall(
+                name=RUNTIME_ACTION_UPDATE_LT_FACTS,
+                payload=json.dumps({"fact_ids": ["F1"], "message": "first"}),
+            ),
+            RuntimeActionCall(
+                name=RUNTIME_ACTION_UPDATE_LT_FACTS,
+                payload=json.dumps({"fact_ids": ["F2"], "message": "second"}),
+            ),
+        )
+
+        from unittest.mock import patch
+
+        with patch(
+            "utils.actions.update_lt_facts_actions.run_lt_jin_note",
+            new=fake_run_lt_jin_note,
+        ):
+            applied = await apply_runtime_action_calls(
+                context,
+                actions,
+                action_display_ids={
+                    id(actions[0]): "update_lt_facts_001",
+                    id(actions[1]): "update_lt_facts_002",
+                },
+            )
+            self.assertEqual(applied, 2)
+
+            first_frame = asyncio.Event()
+            first_frame.set()
+            task = schedule_pending_update_lt_facts_actions(
+                context,
+                frame_request_event=first_frame,
+            )
+            await asyncio.wait_for(first_committed.wait(), timeout=0.2)
+
+            # The current note has already crossed its commit boundary, so it
+            # is not cancelled. Pending notes are nevertheless detached from
+            # the old FRAME gate and must not begin under the new Brain turn.
+            self.assertFalse(await preempt_update_lt_facts_actions(
+                context,
+                reason="user_message",
+            ))
+            release_first_tail.set()
+            await asyncio.wait_for(task, timeout=0.2)
+            self.assertFalse(second_started.is_set())
+            self.assertEqual(len(context.runtime_lt_explicit_note_queue), 1)
+            self.assertEqual(seen, ["first"])
+
+            next_frame = asyncio.Event()
+            retry_task = schedule_pending_update_lt_facts_actions(
+                context,
+                frame_request_event=next_frame,
+            )
+            await asyncio.sleep(0)
+            self.assertFalse(second_started.is_set())
+            next_frame.set()
+            await asyncio.wait_for(second_started.wait(), timeout=0.2)
+            await retry_task
+
+        self.assertEqual(seen, ["first", "second"])
+        self.assertEqual(context.runtime_lt_explicit_note_queue, [])
+
+    async def test_sealed_auto_tail_does_not_resume_explicit_note_after_new_turn_clears_frame_gate(self):
+        context = RuntimeContext(
+            websocket=None,
+            emitter=FakeEmitter(),
+            logger=FakeLogger(),
+            clients={},
+        )
+        context.runtime_foreground_turn_running = True
+        release_auto_tail = asyncio.Event()
+        note_started = asyncio.Event()
+
+        async def sealed_auto_tail():
+            try:
+                await release_auto_tail.wait()
+            finally:
+                release_lt_attempt(context, get_current_lt_attempt(context))
+
+        async def fake_run_lt_jin_note(*, context, note):
+            del context, note
+            note_started.set()
+            return {
+                "phase": "jin_note",
+                "status": "completed",
+                "changed": False,
+                "change": {},
+            }
+
+        action = RuntimeActionCall(
+            name=RUNTIME_ACTION_UPDATE_LT_FACTS,
+            payload=json.dumps({
+                "fact_ids": ["F1"],
+                "message": "Update F1 with the clarified wording.",
+            }),
+        )
+
+        from unittest.mock import patch
+
+        with patch(
+            "utils.actions.update_lt_facts_actions.run_lt_jin_note",
+            new=fake_run_lt_jin_note,
+        ):
+            applied = await apply_runtime_action_calls(
+                context,
+                (action,),
+                action_display_ids={id(action): "update_lt_facts_001"},
+            )
+            self.assertEqual(applied, 1)
+
+            auto_task = asyncio.create_task(sealed_auto_tail())
+            auto_attempt = begin_lt_attempt(
+                context,
+                kind="auto",
+                phase="merge",
+            )
+            bind_lt_attempt_task(auto_attempt, auto_task)
+            seal_lt_attempt(auto_attempt)
+
+            old_frame = asyncio.Event()
+            old_frame.set()
+            self.assertIs(
+                schedule_pending_update_lt_facts_actions(
+                    context,
+                    frame_request_event=old_frame,
+                ),
+                auto_task,
+            )
+            self.assertTrue(
+                context.runtime_lt_explicit_note_queue[0][
+                    "_lt_frame_gate_bound"
+                ]
+            )
+
+            # A new USER turn clears the old FRAME ownership. The sealed auto
+            # tail is allowed to finish, but its done-callback must not rebind
+            # the queued explicit note as an immediate/no-FRAME request.
+            self.assertFalse(await preempt_update_lt_facts_actions(
+                context,
+                reason="user_message",
+            ))
+            self.assertFalse(
+                context.runtime_lt_explicit_note_queue[0][
+                    "_lt_frame_gate_bound"
+                ]
+            )
+
+            release_auto_tail.set()
+            await asyncio.wait_for(auto_task, timeout=0.2)
+            await asyncio.sleep(0)
+            await asyncio.sleep(0)
+
+            self.assertFalse(note_started.is_set())
+            self.assertIsNone(context.runtime_lt_active_attempt)
+            self.assertEqual(len(context.runtime_lt_explicit_note_queue), 1)
+
+            next_frame = asyncio.Event()
+            retry_task = schedule_pending_update_lt_facts_actions(
+                context,
+                frame_request_event=next_frame,
+            )
+            await asyncio.sleep(0)
+            self.assertFalse(note_started.is_set())
+            next_frame.set()
+            await asyncio.wait_for(note_started.wait(), timeout=0.2)
+            await retry_task
+
+        self.assertEqual(context.runtime_lt_explicit_note_queue, [])
+
     async def test_runtime_action_does_not_wait_for_cancelled_idle_lt_task(self):
         emitter = FakeEmitter()
         logger = FakeLogger()
@@ -415,7 +621,9 @@ class RuntimeUpdateLTFactsTests(unittest.IsolatedAsyncioTestCase):
                 await release_idle.wait()
 
         async def fake_run_lt_jin_note(*, context, note):
-            del context, note
+            del note
+            attempt = get_current_lt_attempt(context)
+            explicit_attempt_ids.append(attempt.id)
             note_started.set()
             return {
                 "phase": "jin_note",
@@ -425,8 +633,13 @@ class RuntimeUpdateLTFactsTests(unittest.IsolatedAsyncioTestCase):
             }
 
         idle_task = asyncio.create_task(stubborn_idle_task())
-        context.runtime_lt_memory_update_task = idle_task
-        context.runtime_lt_memory_update_kind = "idle"
+        idle_attempt = begin_lt_attempt(
+            context,
+            kind="auto",
+            phase="extraction",
+        )
+        bind_lt_attempt_task(idle_attempt, idle_task)
+        explicit_attempt_ids = []
         action = RuntimeActionCall(
             name=RUNTIME_ACTION_UPDATE_LT_FACTS,
             payload=json.dumps({
@@ -450,11 +663,63 @@ class RuntimeUpdateLTFactsTests(unittest.IsolatedAsyncioTestCase):
 
                 self.assertEqual(applied, 1)
                 await asyncio.wait_for(note_started.wait(), timeout=0.2)
+                self.assertTrue(idle_attempt.cancelled)
+                self.assertFalse(lt_attempt_can_commit(context, idle_attempt))
+                self.assertEqual(len(explicit_attempt_ids), 1)
+                self.assertNotEqual(explicit_attempt_ids[0], idle_attempt.id)
                 tasks = list(getattr(context, "background_tasks", set()))
                 await asyncio.wait_for(asyncio.gather(*tasks), timeout=0.2)
         finally:
             release_idle.set()
             await asyncio.gather(idle_task, return_exceptions=True)
+
+    async def test_transient_store_conflict_preserves_explicit_note_for_retry(self):
+        context = RuntimeContext(
+            websocket=None,
+            emitter=FakeEmitter(),
+            logger=FakeLogger(),
+            clients={},
+        )
+        attempts = 0
+
+        async def fake_run_lt_jin_note(*, context, note):
+            nonlocal attempts
+            del context, note
+            attempts += 1
+            return {
+                "phase": "jin_note",
+                "status": "skipped",
+                "reason": "store_changed_during_jin_note",
+            }
+
+        action = RuntimeActionCall(
+            name=RUNTIME_ACTION_UPDATE_LT_FACTS,
+            payload=json.dumps({
+                "fact_ids": ["F1"],
+                "message": "Update F1 with the clarified wording.",
+            }),
+        )
+
+        from unittest.mock import patch
+
+        with patch(
+            "utils.actions.update_lt_facts_actions.run_lt_jin_note",
+            new=fake_run_lt_jin_note,
+        ):
+            applied = await apply_runtime_action_calls(
+                context,
+                (action,),
+                action_display_ids={id(action): "update_lt_facts_001"},
+            )
+            self.assertEqual(applied, 1)
+            tasks = list(getattr(context, "background_tasks", set()))
+            await asyncio.gather(*tasks, return_exceptions=True)
+
+        self.assertEqual(attempts, 1)
+        self.assertEqual(len(context.runtime_lt_explicit_note_queue), 1)
+        entry = context.runtime_lt_explicit_note_queue[0]
+        self.assertFalse(entry.get("_lt_frame_gate_bound"))
+        self.assertIsNone(context.runtime_lt_active_attempt)
 
     async def test_runtime_action_can_create_lt_without_selected_facts(self):
         emitter = FakeEmitter()

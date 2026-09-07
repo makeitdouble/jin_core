@@ -88,6 +88,11 @@ ACTIVE_MEMORY_CUSTOM_FIELD_SUFFIX_RE = re.compile(
 ACTIVE_MEMORY_CUSTOM_FIELD_LIMIT = 3
 ACTIVE_MEMORY_CUSTOM_FIELD_VALUE_MAX_LENGTH = 256
 
+ACTIVE_MEMORY_CONDITIONS_SUFFIX_OPEN_RE = re.compile(
+    r"\[\s*conditions\s*:\s*",
+    re.IGNORECASE,
+)
+
 ACTIVE_MEMORY_RESERVED_CUSTOM_FIELD_NAMES = frozenset({
     *ACTIVE_MEMORY_RUNTIME_MANAGED_SUFFIX_NAMES,
     "conditions",
@@ -137,6 +142,200 @@ def normalize_active_memory_custom_field_value(
     return normalized
 
 
+def normalize_active_memory_conditions_value(
+    value: str,
+) -> str:
+
+    return re.sub(
+        r"\s+",
+        " ",
+        str(value or "").strip(),
+    ).strip()
+
+
+def _find_balanced_active_memory_suffix_end(
+    text: str,
+    start: int,
+) -> int:
+
+    depth = 0
+
+    for index in range(start, len(text)):
+        char = text[index]
+
+        if char == "[":
+            depth += 1
+        elif char == "]":
+            depth -= 1
+
+            if depth == 0:
+                return index + 1
+
+    return -1
+
+
+def _collect_active_memory_conditions_suffixes(
+    value: str,
+) -> tuple[tuple[int, int, str], ...]:
+
+    text = str(value or "")
+    suffixes = []
+    position = 0
+
+    while position < len(text):
+        match = ACTIVE_MEMORY_CONDITIONS_SUFFIX_OPEN_RE.search(
+            text,
+            position,
+        )
+        if match is None:
+            break
+
+        suffix_end = _find_balanced_active_memory_suffix_end(
+            text,
+            match.start(),
+        )
+        if suffix_end < 0:
+            break
+
+        suffixes.append((
+            match.start(),
+            suffix_end,
+            text[match.end():suffix_end - 1],
+        ))
+        position = suffix_end
+
+    return tuple(suffixes)
+
+
+def _active_memory_description_metadata_start(
+    value: str,
+) -> int:
+
+    text = str(value or "")
+    id_match = ACTIVE_MEMORY_SLOT_ID_SUFFIX_RE.search(text)
+
+    if id_match is not None:
+        return id_match.start()
+
+    metadata_match = ACTIVE_MEMORY_CUSTOM_FIELD_SUFFIX_RE.search(text)
+
+    if metadata_match is not None:
+        return metadata_match.start()
+
+    return len(text)
+
+
+def get_active_memory_conditions_value(
+    value: str,
+) -> str:
+
+    text = str(value or "").strip()
+    metadata_start = _active_memory_description_metadata_start(text)
+    description = normalize_active_memory_conditions_value(
+        text[:metadata_start]
+    )
+    metadata = text[metadata_start:]
+    legacy_suffixes = _collect_active_memory_conditions_suffixes(
+        metadata
+    )
+
+    if legacy_suffixes:
+        legacy_value = normalize_active_memory_conditions_value(
+            legacy_suffixes[-1][2]
+        )
+        if legacy_value:
+            return legacy_value
+
+    return description
+
+
+def canonicalize_active_memory_conditions_value(
+    value: str,
+) -> str:
+
+    text = str(value or "").strip()
+    metadata_start = _active_memory_description_metadata_start(text)
+    description = normalize_active_memory_conditions_value(
+        text[:metadata_start]
+    )
+    metadata = text[metadata_start:]
+    legacy_suffixes = _collect_active_memory_conditions_suffixes(
+        metadata
+    )
+
+    if not legacy_suffixes:
+        return text
+
+    legacy_value = normalize_active_memory_conditions_value(
+        legacy_suffixes[-1][2]
+    )
+    pieces = []
+    cursor = 0
+
+    for start, end, _ in legacy_suffixes:
+        pieces.append(metadata[cursor:start])
+        cursor = end
+
+    pieces.append(metadata[cursor:])
+    cleaned_metadata = re.sub(
+        r"\s+",
+        " ",
+        " ".join(pieces),
+    ).strip()
+    next_description = legacy_value or description
+
+    return " ".join(
+        part
+        for part in (next_description, cleaned_metadata)
+        if part
+    ).strip()
+
+
+def set_active_memory_conditions_value(
+    value: str,
+    conditions: str,
+) -> tuple[str, bool, str]:
+
+    normalized_conditions = normalize_active_memory_conditions_value(
+        conditions
+    )
+    if not normalized_conditions:
+        return str(value or ""), False, ""
+
+    previous_value = get_active_memory_conditions_value(value)
+    canonical = canonicalize_active_memory_conditions_value(value)
+    metadata_start = _active_memory_description_metadata_start(
+        canonical
+    )
+    metadata = canonical[metadata_start:].strip()
+    updated = " ".join(
+        part
+        for part in (normalized_conditions, metadata)
+        if part
+    ).strip()
+
+    return updated, True, previous_value
+
+
+def canonicalize_active_memory_record(
+    record: str,
+) -> str:
+
+    text = str(record or "").strip()
+    if ":" not in text:
+        return text
+
+    key, value = text.split(":", 1)
+    if not is_active_memory_key(key):
+        return text
+
+    canonical_value = canonicalize_active_memory_conditions_value(
+        value
+    )
+
+    return f"{key.strip()}: {canonical_value}".strip()
+
+
 def extract_active_memory_creation_custom_fields(
     value: str,
 ) -> tuple[str, tuple[tuple[str, str], ...]]:
@@ -162,7 +361,7 @@ def extract_active_memory_creation_custom_fields(
             field_name = str(raw_name or "").strip().casefold()
 
             if field_name == "conditions":
-                conditions = normalize_active_memory_custom_field_value(
+                conditions = normalize_active_memory_conditions_value(
                     raw_value
                 )
                 continue
@@ -529,6 +728,9 @@ def strip_active_memory_runtime_metadata(
         if is_active_memory_key(
             key
         ):
+            value = canonicalize_active_memory_conditions_value(
+                value
+            )
             value = ACTIVE_MEMORY_LIFECYCLE_SUFFIX_RE.sub(
                 " ",
                 value,
@@ -970,6 +1172,10 @@ def refresh_active_memory_runtime_metadata(
                 )
             )
             continue
+
+        value = canonicalize_active_memory_conditions_value(
+            value
+        )
 
         previous_value = previous_active_values.get(
             normalize_memory_key(

@@ -43,6 +43,35 @@ UPDATE_ACTIVE_MEMORY_FAILURE_REASONS = {
     "active_memory_update_failed": "update failed",
 }
 
+UPDATE_ACTIVE_MEMORY_CONDITIONS_FIELD = "conditions"
+
+
+def _normalize_update_active_memory_field_value(
+    field_name: str,
+    value,
+) -> str:
+    """Normalize UPDATE_ACTIVE_MEMORY values without treating conditions
+    like a bounded custom metadata field.
+
+    `conditions` is the active-memory record's primary text field. It may be
+    substantially longer than the 256-character limit used for custom suffix
+    fields, so applying the custom-field normalizer here incorrectly rejects a
+    valid conditions update.
+    """
+
+    if str(field_name or "").strip().casefold() == (
+        UPDATE_ACTIVE_MEMORY_CONDITIONS_FIELD
+    ):
+        return re.sub(
+            r"\s+",
+            " ",
+            str(value or "").strip(),
+        )
+
+    return normalize_active_memory_custom_field_value(
+        value
+    )
+
 
 def build_update_active_memory_payload(
     query: str,
@@ -190,15 +219,23 @@ def _parse_update_active_memory_attribute_payload(
             ):
                 return "", ()
         else:
-            if raw_field_name in ACTIVE_MEMORY_RESERVED_CUSTOM_FIELD_NAMES:
+            if (
+                raw_field_name in ACTIVE_MEMORY_RESERVED_CUSTOM_FIELD_NAMES
+                and raw_field_name != UPDATE_ACTIVE_MEMORY_CONDITIONS_FIELD
+            ):
                 continue
 
-            field_name = normalize_active_memory_custom_field_name(
-                raw_name
+            field_name = (
+                UPDATE_ACTIVE_MEMORY_CONDITIONS_FIELD
+                if raw_field_name == UPDATE_ACTIVE_MEMORY_CONDITIONS_FIELD
+                else normalize_active_memory_custom_field_name(
+                    raw_name
+                )
             )
 
-        field_value = normalize_active_memory_custom_field_value(
-            raw_value
+        field_value = _normalize_update_active_memory_field_value(
+            field_name,
+            raw_value,
         )
 
         if (
@@ -322,7 +359,10 @@ def _parse_update_active_memory_json_payload(
             raw_name or ""
         ).strip().casefold()
 
-        if raw_field_name in ACTIVE_MEMORY_RESERVED_CUSTOM_FIELD_NAMES:
+        if (
+            raw_field_name in ACTIVE_MEMORY_RESERVED_CUSTOM_FIELD_NAMES
+            and raw_field_name != UPDATE_ACTIVE_MEMORY_CONDITIONS_FIELD
+        ):
             continue
 
         if isinstance(
@@ -331,11 +371,16 @@ def _parse_update_active_memory_json_payload(
         ):
             return "", ()
 
-        field_name = normalize_active_memory_custom_field_name(
-            raw_name
+        field_name = (
+            UPDATE_ACTIVE_MEMORY_CONDITIONS_FIELD
+            if raw_field_name == UPDATE_ACTIVE_MEMORY_CONDITIONS_FIELD
+            else normalize_active_memory_custom_field_name(
+                raw_name
+            )
         )
-        field_value = normalize_active_memory_custom_field_value(
-            raw_value
+        field_value = _normalize_update_active_memory_field_value(
+            field_name,
+            raw_value,
         )
 
         if (
@@ -403,8 +448,9 @@ def parse_update_active_memory_payload_fields(
             return "", ()
 
         field_name = str(raw_name or "").strip().casefold()
-        field_value = normalize_active_memory_custom_field_value(
-            raw_value
+        field_value = _normalize_update_active_memory_field_value(
+            field_name,
+            raw_value,
         )
         if (
             not re.fullmatch(r"[a-z][a-z0-9_]{0,31}", field_name)
@@ -463,11 +509,26 @@ def parse_update_active_memory_payload(
             return "", ()
 
         raw_name, raw_value = line.split(":", 1)
-        field_name = normalize_active_memory_custom_field_name(
-            raw_name
+        raw_field_name = str(
+            raw_name or ""
+        ).strip().casefold()
+
+        if (
+            raw_field_name in ACTIVE_MEMORY_RESERVED_CUSTOM_FIELD_NAMES
+            and raw_field_name != UPDATE_ACTIVE_MEMORY_CONDITIONS_FIELD
+        ):
+            return "", ()
+
+        field_name = (
+            UPDATE_ACTIVE_MEMORY_CONDITIONS_FIELD
+            if raw_field_name == UPDATE_ACTIVE_MEMORY_CONDITIONS_FIELD
+            else normalize_active_memory_custom_field_name(
+                raw_name
+            )
         )
-        field_value = normalize_active_memory_custom_field_value(
-            raw_value
+        field_value = _normalize_update_active_memory_field_value(
+            field_name,
+            raw_value,
         )
 
         if (

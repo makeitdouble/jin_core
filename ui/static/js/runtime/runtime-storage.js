@@ -1306,6 +1306,79 @@
   }
 
 
+  function findBalancedActiveMemorySuffixEnd(text, start) {
+
+    let depth = 0;
+
+    for (let index = start; index < text.length; index += 1) {
+      if (text[index] === "[") {
+        depth += 1;
+      } else if (text[index] === "]") {
+        depth -= 1;
+        if (depth === 0) return index + 1;
+      }
+    }
+
+    return -1;
+
+  }
+
+
+  function canonicalizeActiveMemoryConditionsRecord(record) {
+
+    const text = String(record || "").trim();
+    const separatorIndex = text.indexOf(":");
+
+    if (separatorIndex <= 0) return text;
+
+    const key = text.slice(0, separatorIndex).trim();
+    if (!/^active_memory(?:_\d+)?$/i.test(key)) return text;
+
+    const value = text.slice(separatorIndex + 1).trim();
+    const idMatch = /\[\s*active_memory_id\s*:/i.exec(value);
+    const firstMetadataMatch = /\[\s*[a-z][a-z0-9_]{0,31}\s*:/i.exec(value);
+    const metadataStart = idMatch
+      ? idMatch.index
+      : firstMetadataMatch
+        ? firstMetadataMatch.index
+        : value.length;
+    const description = value.slice(0, metadataStart).replace(/\s+/g, " ").trim();
+    const metadata = value.slice(metadataStart);
+    const openPattern = /\[\s*conditions\s*:\s*/ig;
+    const spans = [];
+    let match;
+
+    while ((match = openPattern.exec(metadata)) !== null) {
+      const end = findBalancedActiveMemorySuffixEnd(metadata, match.index);
+      if (end < 0) break;
+      spans.push({ start: match.index, end, value: metadata.slice(openPattern.lastIndex, end - 1) });
+      openPattern.lastIndex = end;
+    }
+
+    if (!spans.length) return text;
+
+    const legacyConditions = String(spans.at(-1)?.value || "")
+      .replace(/\s+/g, " ")
+      .trim();
+    const pieces = [];
+    let cursor = 0;
+
+    spans.forEach((span) => {
+      pieces.push(metadata.slice(cursor, span.start));
+      cursor = span.end;
+    });
+    pieces.push(metadata.slice(cursor));
+
+    const cleanedMetadata = pieces.join(" ").replace(/\s+/g, " ").trim();
+    const nextValue = [legacyConditions || description, cleanedMetadata]
+      .filter(Boolean)
+      .join(" ");
+
+    return `${key}: ${nextValue}`.trim();
+
+  }
+
+
   function normalizeActiveMemoryRecords(value) {
 
     const source =
@@ -1317,11 +1390,14 @@
     const seen = new Set();
 
     source.forEach(function (record) {
-      const text = String(record || "").trim();
+      const rawText = String(record || "").trim();
 
-      if (!/^active_memory(?:_\d+)?\s*:/i.test(text)) {
+      if (!/^active_memory(?:_\d+)?\s*:/i.test(rawText)) {
         return;
       }
+
+      const text = canonicalizeActiveMemoryConditionsRecord(rawText);
+      if (!text) return;
 
       if (seen.has(text)) {
         return;

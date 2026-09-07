@@ -1144,8 +1144,7 @@ class L1MemoryTests(
 
             self.assertIn(
                 (
-                    "active_memory: Secret recall request "
-                    "[ conditions: Ask when user returns ] "
+                    "active_memory: Ask when user returns "
                     "[ value: Sun ] "
                     "[ status: pending ]"
                 ),

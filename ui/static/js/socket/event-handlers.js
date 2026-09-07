@@ -133,7 +133,13 @@ function handleSessionBootstrapChatTail(
     .filter(turn => (
       turn
       && typeof turn === "object"
-      && String(turn.user || "").trim()
+      && (
+        String(turn.user || "").trim()
+        || (
+          Array.isArray(turn.attachments)
+          && turn.attachments.length
+        )
+      )
     ));
 
   turns.forEach((turn, index) => {
@@ -141,49 +147,79 @@ function handleSessionBootstrapChatTail(
       String(turn.user || "").trim();
     const jinText =
       String(turn.jin || "").trim();
+    const attachments =
+      Array.isArray(turn.attachments)
+        ? turn.attachments
+        : [];
 
     const userShell = appendChatMessage(
       "user",
-      userText
+      userText,
+      null,
+      attachments
     );
     window.JinChatReactions?.restoreUserReaction(userShell, turn.jin_reaction);
 
     // Marker/action-only turns have no visible JIN answer. Keep the USER
-    // bubble above the divider, but never manufacture an empty BR bubble.
-    if (!jinText) {
-      return;
-    }
+    // bubble, but never manufacture an empty BR bubble.
+    if (jinText) {
+      const turnSourceSessionId =
+        String(
+          turn.source_session_id
+          || data.source_session_id
+          || "session"
+        ).trim();
+      const messageId =
+        `bootstrap-tail-${turnSourceSessionId
+          .replace(/[^a-zA-Z0-9_.:-]/g, "_")}-${index}`;
 
-    const messageId =
-      `bootstrap-tail-${String(
-        data.source_session_id
-        || "session"
-      ).replace(/[^a-zA-Z0-9_.:-]/g, "_")}-${index}`;
-
-    startStreamMessage(
-      messageId,
-      "brain",
-      null
-    );
-
-    const reasoning =
-      String(turn.reasoning || "").trim();
-
-    if (reasoning) {
-      appendThinkingChunk(
+      startStreamMessage(
         messageId,
-        reasoning
+        "brain",
+        null
+      );
+
+      const reasoning =
+        String(turn.reasoning || "").trim();
+
+      if (reasoning) {
+        appendThinkingChunk(
+          messageId,
+          reasoning
+        );
+      }
+
+      appendStreamChunk(
+        messageId,
+        jinText
+      );
+      finishStreamMessage(
+        messageId,
+        { retryable: false }
       );
     }
 
-    appendStreamChunk(
-      messageId,
-      jinText
-    );
-    finishStreamMessage(
-      messageId,
-      { retryable: false }
-    );
+    const nextTurn = turns[index + 1];
+    const currentSourceSessionId =
+      String(turn.source_session_id || "").trim();
+    const nextSourceSessionId =
+      String(
+        nextTurn
+        && nextTurn.source_session_id
+        || ""
+      ).trim();
+
+    if (
+        nextTurn
+        && currentSourceSessionId
+        && nextSourceSessionId
+        && currentSourceSessionId !== nextSourceSessionId
+    ) {
+      appendSessionBootstrapBoundary(
+        chatHistory,
+        turn
+      );
+    }
   });
 
   const divider =

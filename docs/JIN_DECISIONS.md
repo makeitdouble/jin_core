@@ -582,7 +582,7 @@ Archived `service` message roles, `RUNTIME_MODE=SERVICE`, and old `[SERVICE]` mo
 
 Direct memory editing is an explicit UI/runtime write, not a model action. Double-click opens the existing details tooltip as an editor. FRAME permits edits only on the newest snapshot value; Active permits the conditions/value while preserving ID, custom fields, status and metadata; L-T permits only the canonical fact value while preserving key, ID, category, provenance and mention metadata. Keys and IDs are never editable.
 
-Drafts remain page-local until the server acknowledges the checkmark. Requests carry `expected_value` so stale concurrent edits fail rather than overwrite newer state. Rollback returns to the last acknowledged value. Active and L-T successful edits surface `updated_at`; L-T writes persist before publication and mark explicit-edit protection.
+Drafts remain page-local until the server acknowledges the checkmark. Requests carry `expected_value` so stale concurrent edits fail rather than overwrite newer state. Manual FRAME writes (value edits and row deletions) wait while the live FRAME writer is busy; Active edits do not inherit that lock because Active Memory is an independent canonical store and remains directly editable during Brain/FRAME work. Rollback returns to the last acknowledged value. Active and L-T successful edits surface `updated_at`; L-T writes persist before publication and mark explicit-edit protection.
 
 **Why:** the inspector should allow surgical correction without turning editing into a second schema/action system or rewriting memory identity.
 

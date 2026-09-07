@@ -25,6 +25,10 @@ from runtime.client import (
 )
 
 
+from utils.chat_log import (
+    summarize_attachments,
+)
+
 from utils.stream_handler import (
     StreamHandler,
 )
@@ -739,6 +743,16 @@ class RuntimeStream:
             ),
             "jin_created_at": now,
         }
+        attachments = summarize_attachments(
+            getattr(
+                self.context,
+                "runtime_turn_attachments",
+                [],
+            )
+        )
+        if attachments:
+            current_turn["attachments"] = attachments
+
         reaction = str(getattr(self.context, "runtime_turn_jin_reaction", "") or "")
         if reaction:
             current_turn["jin_reaction"] = reaction

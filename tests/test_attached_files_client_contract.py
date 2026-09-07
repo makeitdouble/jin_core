@@ -6,6 +6,7 @@ DRAGDROP = ROOT / "ui/static/js/dragdrop.js"
 MEMORY_VIEW = ROOT / "ui/static/js/runtime/runtime-memory-view.js"
 TRACE_MODAL = ROOT / "ui/static/js/logger/trace-modal.js"
 CHAT_ATTACHMENTS = ROOT / "ui/static/js/chat-attachments.js"
+CHAT = ROOT / "ui/static/js/chat.js"
 
 
 def test_attached_files_plaque_is_a_fixed_console_footer():
@@ -107,3 +108,15 @@ def test_delayed_memory_modal_links_existing_files_by_original_name():
     assert "window.bindJinAttachmentBubble(" in runtime_view
     assert "hoverPreviewMaxPx: 100" in runtime_view
     assert ".delayed-memory-modal-attachment" in memory_css
+
+def test_historical_attachment_chip_disables_missing_file_and_exposes_id():
+    source = CHAT.read_text(encoding="utf-8")
+
+    assert "attachmentAvailable = available;" in source
+    assert "event.stopImmediatePropagation();" in source
+    assert "chip.tabIndex = available ? 0 : -1;" in source
+    assert '"grayscale(1)"' in source
+    assert "`File ID: ${attachmentId}`" in source
+    assert 'chip.setAttribute(\n        "aria-label",\n        accessibilityLabel' in source
+    assert "jin:files-store-changed" in source
+

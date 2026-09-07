@@ -44,6 +44,13 @@ class LTLoggerCardsClientContractTests(unittest.TestCase):
         self.assertIn('"[MEMORY:L-T]"', source)
         self.assertIn('"summarizer_request"', source)
         self.assertIn('"summarizer_result"', source)
+        self.assertIn('const ltMemorySequences = new Map()', source)
+        self.assertIn('getLTMemorySequence(', source)
+        self.assertIn('meta && meta.lt_flow_id', source)
+        self.assertIn('meta && meta.lt_flow_kind', source)
+        self.assertIn('meta && meta.lt_phase', source)
+        self.assertIn('finishLTSequence(state)', source)
+        self.assertNotIn('let activeLTMemorySequence = null', source)
         self.assertIn(
             r'/^l-?t\s+(extraction|merge)\s+summarizer\s+/',
             source,
@@ -99,10 +106,11 @@ class LTLoggerCardsClientContractTests(unittest.TestCase):
         source = LT_MEMORY_PY.read_text(encoding="utf-8")
 
         self.assertIn('event="extract_applied"', source)
-        self.assertIn('continues_to_merge=bool(', source)
+        self.assertIn('continues_to_merge=continues_to_merge', source)
         self.assertIn('event="merge_applied"', source)
         self.assertIn('details=merge_details or "No changes"', source)
         self.assertIn('event="update_failed"', source)
+        self.assertIn('event="lt_preempted"', (ROOT / "runtime" / "LT_lane.py").read_text(encoding="utf-8"))
 
     def test_lt_merge_applied_modal_renders_intensity_scaled_green_diffs(self):
         source = TRACE_MODAL_JS.read_text(encoding="utf-8")
@@ -155,7 +163,7 @@ class LTLoggerCardsClientContractTests(unittest.TestCase):
         self.assertIn('/static/js/runtime/runtime-lt-memory.js?v=server-lt-scheduler-1', source)
         self.assertIn('/static/js/logger/logger.js?v=delayed-context-plaque-4', source)
         self.assertIn('/static/js/logger/trace-modal.js?v=context-session-actions-1', source)
-        self.assertIn('/static/js/logger/log-entries.js?v=update-lt-message-1', source)
+        self.assertIn('/static/js/logger/log-entries.js?v=lt-flow-lane-1', source)
         self.assertIn('/static/js/socket/event-handlers.js?v=stream-avatar-1', source)
 
 

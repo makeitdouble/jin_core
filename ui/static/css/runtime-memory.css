@@ -403,6 +403,7 @@
     padding: 0 0 10px;
     border-bottom: 1px solid rgba(82, 82, 91, 0.52);
     color: rgba(212, 212, 216, 0.78);
+    white-space: pre-wrap;
     overflow-wrap: anywhere;
 }
 
@@ -428,6 +429,7 @@
     min-width: 0;
     color: rgba(226, 232, 240, 0.90);
     font-variant-numeric: tabular-nums;
+    white-space: pre-wrap;
     overflow-wrap: anywhere;
 }
 

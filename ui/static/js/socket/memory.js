@@ -757,6 +757,7 @@ function handleSocketLog(
     } else if (
       event === "jin_note_no_change"
       || event === "jin_note_preempted"
+      || event === "lt_preempted"
       || event === "merge_paused"
       || event === "merge_deferred"
     ) {

@@ -1,7 +1,7 @@
 {
   "update_active_memory": {
     "version": 2,
-    "description": "Allows JIN to update state fields already fixed on an active memory record.",
+    "description": "Allows JIN to update the active memory description (`conditions`) or state fields already fixed on an active memory record.",
     "runtime_action": "UPDATE_ACTIVE_MEMORY",
     "enable_flag": "CAN_SAVE_ACTIVE_MEMORY",
     "runtime_order": 230,
@@ -26,7 +26,9 @@
       "</UPDATE_ACTIVE_MEMORY>"
     ],
     "rules": [
-      "Use to update active memory values."
+      "Use to update active memory values.",
+      "`conditions` is the primary active-memory description before metadata; it can always be updated and is never stored as a separate suffix.",
+      "Other fields may only update custom state fields already declared on the active memory record."
     ],
     "close_tag": true
   }

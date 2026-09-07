@@ -18,6 +18,7 @@ MAX_FILE_BYTES = 1024 * 1024
 MAX_OUTPUT_CHARS = 24000
 MAX_SCAN_ENTRIES = 10000
 MAX_SCAN_BYTES = 32 * 1024 * 1024
+MAX_SCAN_SECONDS = 3
 
 
 def link_project_folder(value: str) -> tuple[dict, bool, str | None]:
@@ -128,11 +129,15 @@ def _walk(root, start, depth, state):
                 state["visited"] += 1
                 if state["visited"] > MAX_SCAN_ENTRIES or monotonic() > state["deadline"]:
                     state["limited"] = True
+                    state["stop_reason"] = (f"entry limit ({MAX_SCAN_ENTRIES})"
+                                            if state["visited"] > MAX_SCAN_ENTRIES
+                                            else f"time limit ({MAX_SCAN_SECONDS} seconds)")
                     break
                 children.append(Path(entry.path))
         for path in sorted(children, key=lambda item: (item.name.casefold(), item.name)):
             if monotonic() > state["deadline"]:
                 state["limited"] = True
+                state["stop_reason"] = f"time limit ({MAX_SCAN_SECONDS} seconds)"
                 return
             if path.is_symlink():
                 state["skipped"] += 1
@@ -216,7 +221,7 @@ def run_project_action(context, payload: dict) -> dict:
             query = payload.get("query", "")
             if action == "project_search" and (not isinstance(query, str) or not query or len(query) > 500):
                 raise ValueError("query must be nonempty literal text, up to 500 characters")
-            state = {"visited": 0, "skipped": 0, "limited": False, "deadline": monotonic() + 3}
+            state = {"visited": 0, "skipped": 0, "limited": False, "deadline": monotonic() + MAX_SCAN_SECONDS}
             found, output, used, scanned_bytes, more = 0, [], 0, 0, False
             for item, is_dir in _walk(root, path, depth, state):
                 name = item.relative_to(root).as_posix()
@@ -230,6 +235,7 @@ def run_project_action(context, payload: dict) -> dict:
                         scanned_bytes += min(item.stat().st_size, MAX_FILE_BYTES + 1)
                         if scanned_bytes > MAX_SCAN_BYTES:
                             state["limited"] = True
+                            state["stop_reason"] = f"file byte budget ({MAX_SCAN_BYTES} bytes)"
                             break
                         text = _text(_inside(root, name))
                     except (OSError, ValueError):
@@ -248,20 +254,28 @@ def run_project_action(context, payload: dict) -> dict:
                 if more:
                     break
             result["content"] = "\n".join(output) or "No entries in this page."
-            result["page"] = f"offset {offset}; returned {len(output)}"
+            unit = "matching lines" if action == "project_search" else "file/folder paths"
+            result["page"] = f"offset {offset}; returned {len(output)} {unit} (limit {limit})"
             if action == "project_search":
                 result["query"] = query
             else:
                 result["depth"] = depth
             notices = []
             if more and output:
-                notices.append(f"More results: repeat with offset {offset + len(output)}.")
+                notices.append(f"More results: repeat the same action with offset {offset + len(output)}; keep attachment, path, query/depth unchanged.")
             elif more:
                 notices.append("Entry exceeds output limit; narrow the path/query. No entry was returned.")
             if state["limited"]:
-                notices.append("Scan limit reached; coverage is incomplete. Narrow path to a subfolder.")
+                notices.append(f"Scan stopped: {state['stop_reason']}; coverage is incomplete. Search/list smaller subfolders with offset 0; increasing offset does not resume the scan.")
             if state["skipped"]:
-                notices.append(f"Skipped entries: {state['skipped']}.")
+                notices.append(f"Skipped files/folders: {state['skipped']} (excluded folders, links, unsupported files or read errors; not a count of matches).")
+            if not more and not state["limited"]:
+                notices.insert(0, "No more results within this path, depth and file filters.")
+            if not output:
+                result["content"] = ("No results returned on this page; this does not prove the project has no matches."
+                                     if more or state["limited"] or offset else
+                                     "No matching lines in the searched files." if action == "project_search" else
+                                     "No file/folder paths within the requested depth.")
             if notices:
                 result["notice"] = " ".join(notices)
         return {"ok": True, **result}
@@ -293,7 +307,7 @@ def format_project_result(result: dict, *, include_content=False) -> str:
             if detached_at
             else "Status: unloaded"
         )
-    for key, label in (("query", "Search"), ("depth", "Depth"), ("range", "Read"), ("page", "Page"), ("detail", "Reason")):
+    for key, label in (("query", "Query (literal text, case-insensitive)"), ("depth", "Directory depth"), ("range", "File lines"), ("page", "Page"), ("detail", "Reason")):
         if result.get(key) is not None:
             lines.append(f"{label}: {result[key]}")
     # Old saved results may carry the former boilerplate. Keep only actionable limits.
@@ -303,7 +317,7 @@ def format_project_result(result: dict, *, include_content=False) -> str:
         notice = notice.replace("End of this scan (within selected depth and exclusions).", "")
         notice = notice.replace("Skipped/unreadable entries: 0.", "").strip()
         if notice:
-            lines.append(f"Coverage: {notice}")
+            lines.append(f"Notes: {notice}")
     if failed:
         from contracts.rules_assembler import get_runtime_action_schema
         name = "ATTACH_FILE" if ref else "ASSET_ACTION"
@@ -313,5 +327,9 @@ def format_project_result(result: dict, *, include_content=False) -> str:
             if include_content:
                 lines.append(format_file_content(result.get("path") or ref, result["content"]))
         else:
+            if action == "project_search":
+                lines.append("Matching lines (project-relative path:line number: source text):")
+            elif action == "project_tree":
+                lines.append("Paths relative to project root (trailing / means folder):")
             lines.append(result["content"])
     return "\n".join(lines)

@@ -96,7 +96,7 @@ class UpdateLTFactsMessageDisplayContractTests(unittest.TestCase):
         source = INDEX_HTML.read_text(encoding="utf-8")
 
         self.assertIn('/static/js/logger/session-actions.js?v=logger-session-actions-14', source)
-        self.assertIn('/static/js/logger/log-entries.js?v=update-lt-message-1', source)
+        self.assertIn('/static/js/logger/log-entries.js?v=lt-flow-lane-1', source)
         self.assertIn('/static/js/socket/runtime-actions.js?v=size-sequence-1', source)
 
 

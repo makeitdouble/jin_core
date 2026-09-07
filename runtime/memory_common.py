@@ -776,9 +776,10 @@ async def log_runtime_summarizer_payload(
         label: str,
         payload: dict,
         stream_id: str | None = None,
+        **event_meta,
 ) -> None:
 
-    extra = {}
+    extra = dict(event_meta)
 
     if stream_id:
         extra["summarizer_stream_id"] = stream_id

@@ -138,7 +138,10 @@ function emit(event, details, extra = {}, message = "L-T merge applied") {
     type: "log", tag: "[MEMORY:L-T]", memory_level: "L-T",
     memory_event: event, message, details, ...extra,
   })));
-  return activeLTMemorySequence;
+  const flowId = String(extra.lt_flow_id || "");
+  return flowId
+    ? ltMemorySequences.get(flowId)
+    : legacyActiveLTMemorySequence;
 }
 function snapshot(node) {
   return {tag: node.tagName, classes: node.className, text: node.textContent, children: node.children.map(snapshot)};
@@ -153,7 +156,7 @@ function openBoth(state) {
   return rendered;
 }
 
-const modern = emit("merge_applied", "Readable text can change freely →", {trace});
+const modern = emit("merge_applied", "Readable text can change freely →", {trace, lt_flow_id: "auto-modern", lt_flow_kind: "auto", lt_phase: "merge"});
 assert.equal(modern.diffDetails, "Readable text can change freely →");
 assert.deepEqual(modern.diffTrace, trace);
 const savedLegacyParser = parseLegacyLTMergeAppliedTrace;
@@ -185,38 +188,56 @@ assert.equal(traceModal.classList.contains("jin-lt-merge-trace-modal"), false);
 openBoth(emit("merge_applied", "No changes"));
 assert.equal(traceModalContent.textContent, "No changes");
 
-const pendingExtract = emit("summarizer_request", "extraction request", {}, "L-T extraction summarizer request");
+const pendingExtract = emit("summarizer_request", "extraction request", {lt_flow_id: "auto-extract", lt_flow_kind: "auto", lt_phase: "extraction"}, "L-T extraction summarizer request");
 assert.equal(pendingExtract.elements.extraction.label.dataset.status, "pending");
 assert.equal(pendingExtract.elements.extraction.label.disabled, false);
 pendingExtract.elements.extraction.label.click();
 assert.equal(traceModalTitle.textContent, "L-T extraction request");
 assert.equal(traceModalContent.textContent, "extraction request");
-emit("summarizer_result", '{"facts": []}', {}, "L-T extraction summarizer result");
-const noExtraction = emit("extract_applied", "No changes", {continues_to_merge: false});
+emit("summarizer_result", '{"facts": []}', {lt_flow_id: "auto-extract", lt_flow_kind: "auto", lt_phase: "extraction"}, "L-T extraction summarizer result");
+const noExtraction = emit("extract_applied", "No changes", {continues_to_merge: false, lt_flow_id: "auto-extract", lt_flow_kind: "auto", lt_phase: "extraction"});
 openBoth(noExtraction);
 assert.ok(traceModalContent.textContent.includes("No changes"));
 assert.equal(noExtraction.elements.apply.label.dataset.status, "success");
 assert.equal(noExtraction.elements.merge.label.dataset.status, "idle");
 assert.equal(noExtraction.diffTrace, null);
 
-const pendingMerge = emit("summarizer_request", "merge request", {}, "L-T merge summarizer request");
+const pendingMerge = emit("summarizer_request", "merge request", {lt_flow_id: "auto-failed", lt_flow_kind: "auto", lt_phase: "merge"}, "L-T merge summarizer request");
 assert.equal(pendingMerge.elements.merge.label.dataset.status, "pending");
 assert.equal(pendingMerge.elements.merge.label.disabled, false);
 pendingMerge.elements.merge.label.click();
 assert.equal(traceModalTitle.textContent, "L-T merge request");
 assert.equal(traceModalContent.textContent, "merge request");
-const failed = emit("merge_failed", "Original failure details");
+const failed = emit("merge_failed", "Original failure details", {lt_flow_id: "auto-failed", lt_flow_kind: "auto", lt_phase: "merge"});
 assert.equal(failed.showButton.disabled, true);
 failed.elements.merge.label.click();
 assert.equal(traceModalTitle.textContent, "L-T merge failed");
 assert.equal(traceModalContent.textContent, "Original failure details");
 
-// Explicit UPDATE_LT_FACTS must reuse the same L-T sequence card. Its single
+// Regression: a preempted auto extraction and a later explicit note are
+// different flows. Explicit apply must never leave the old extract blinking.
+const autoA = emit(
+  "summarizer_request",
+  "old extraction request",
+  {lt_flow_id: "auto-A", lt_flow_kind: "auto", lt_phase: "extraction"},
+  "L-T extraction summarizer request"
+);
+assert.equal(autoA.elements.extraction.label.dataset.status, "pending");
+emit(
+  "lt_preempted",
+  "pending preserved",
+  {lt_flow_id: "auto-A", lt_flow_kind: "auto", lt_phase: "extraction"}
+);
+assert.equal(autoA.complete, true);
+assert.notEqual(autoA.elements.extraction.label.dataset.status, "pending");
+assert.notEqual(autoA.elements.extraction.arrow.dataset.status, "pending");
+
+// Explicit UPDATE_LT_FACTS reuses only its own flow card. Its single
 // focused model pass is represented by the merge step, then apply.
 const jinNote = emit(
   "summarizer_request",
   "jin note request",
-  {},
+  {lt_flow_id: "explicit-1", lt_flow_kind: "explicit", lt_phase: "jin_note"},
   "L-T JIN note summarizer request"
 );
 assert.equal(jinNote.elements.merge.label.dataset.status, "pending");
@@ -224,12 +245,13 @@ assert.equal(jinNote.elements.merge.label.disabled, false);
 emit(
   "summarizer_result",
   '{"action":"update","replacement_facts":[]}',
-  {},
+  {lt_flow_id: "explicit-1", lt_flow_kind: "explicit", lt_phase: "jin_note"},
   "L-T JIN note summarizer result"
 );
 const jinApplied = emit(
   "jin_note_applied",
-  '{"message":"focused edit","change":{"changed":true}}'
+  '{"message":"focused edit","change":{"changed":true}}',
+  {lt_flow_id: "explicit-1", lt_flow_kind: "explicit", lt_phase: "jin_note"}
 );
 assert.equal(jinApplied, jinNote);
 assert.equal(jinApplied.elements.merge.label.dataset.status, "success");
@@ -237,15 +259,24 @@ assert.equal(jinApplied.elements.merge.arrow.dataset.status, "success");
 assert.equal(jinApplied.elements.apply.label.dataset.status, "success");
 assert.equal(jinApplied.complete, true);
 assert.equal(jinApplied.showButton.disabled, false);
+assert.notEqual(jinApplied, autoA);
+for (const element of [
+  autoA.elements.extraction.label, autoA.elements.extraction.arrow,
+  autoA.elements.merge.label, autoA.elements.merge.arrow, autoA.elements.apply.label,
+  jinApplied.elements.extraction.label, jinApplied.elements.extraction.arrow,
+  jinApplied.elements.merge.label, jinApplied.elements.merge.arrow, jinApplied.elements.apply.label,
+]) {
+  assert.notEqual(element.dataset.status, "pending");
+}
 
 const jinPreempted = emit(
   "summarizer_request",
   "retry me",
-  {},
+  {lt_flow_id: "explicit-2", lt_flow_kind: "explicit", lt_phase: "jin_note"},
   "L-T JIN note summarizer request"
 );
 assert.notEqual(jinPreempted, jinApplied);
-assert.equal(emit("jin_note_preempted", "queued for ASAP retry"), jinPreempted);
+assert.equal(emit("lt_preempted", "queued for ASAP retry", {lt_flow_id: "explicit-2", lt_flow_kind: "explicit", lt_phase: "jin_note"}), jinPreempted);
 assert.equal(jinPreempted.complete, true);
 assert.equal(jinPreempted.elements.merge.label.dataset.status, "idle");
 assert.equal(jinPreempted.elements.apply.label.dataset.status, "idle");

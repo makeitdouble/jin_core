@@ -11,6 +11,19 @@ from contracts.rules_assembler import (
     runtime_action_has_close_tag,
 )
 from runtime.LT_memory import run_lt_jin_note
+from runtime.LT_lane import (
+    begin_lt_attempt,
+    bind_lt_attempt_task,
+    get_active_lt_attempt,
+    get_current_lt_attempt,
+    lt_attempt_log_metadata,
+    mark_lt_priority_work_started,
+    maybe_mark_lt_priority_finished,
+    preempt_lt_attempt,
+    preempt_lt_attempt_nowait,
+    release_lt_attempt,
+    set_lt_attempt_phase,
+)
 from runtime.memory_common import log_memory_event
 from utils.actions.update_lt_facts_utils import parse_update_lt_facts_payload
 from utils.chat_log import append_chat_runtime_event
@@ -19,6 +32,55 @@ from utils.tool_results import (
     record_runtime_tool_result,
 )
 from utils.runtime_action_abort import mark_runtime_action_completed
+
+
+def _bind_update_lt_frame_gate(
+    context,
+    *,
+    frame_task=None,
+    frame_request_event=None,
+) -> None:
+    """Bind the current turn's FRAME boundary to still-unclaimed LT notes."""
+    for entry in _ensure_update_lt_facts_queue(context):
+        if entry.get("_lt_frame_gate_bound"):
+            continue
+        entry["_lt_frame_gate_bound"] = True
+        entry["_lt_frame_task"] = frame_task
+        entry["_lt_frame_request_event"] = frame_request_event
+
+
+def _clear_update_lt_frame_gates(context) -> None:
+    """Force every pending explicit note to wait for the next FRAME boundary."""
+    for entry in _ensure_update_lt_facts_queue(context):
+        entry["_lt_frame_gate_bound"] = False
+        entry["_lt_frame_task"] = None
+        entry["_lt_frame_request_event"] = None
+
+
+def _resume_explicit_lt_after_task(context, task: asyncio.Task) -> None:
+    """Resume a queued explicit note after a sealed auto commit finishes."""
+    marker = "_jin_lt_explicit_resume_registered"
+    if getattr(task, marker, False):
+        return
+    setattr(task, marker, True)
+
+    def _resume(_task):
+        queue = _ensure_update_lt_facts_queue(context)
+        if not queue:
+            maybe_mark_lt_priority_finished(context)
+            return
+
+        # schedule_pending_update_lt_facts_actions() originally bound this
+        # queue item to a concrete FRAME gate before the sealed auto tail was
+        # allowed to finish. A newer USER turn clears that binding. Do not
+        # accidentally turn the callback into an immediate/no-FRAME launch;
+        # the new turn will bind the item again at its own FRAME boundary.
+        if not queue[0].get("_lt_frame_gate_bound"):
+            return
+
+        schedule_pending_update_lt_facts_actions(context)
+
+    task.add_done_callback(_resume)
 
 
 def _build_update_lt_tool_result(
@@ -232,11 +294,8 @@ async def _wait_for_frame_request_boundary(
     frame_request_event,
 ) -> None:
     """Start explicit L-T only after FRAME has emitted its request card."""
-    if frame_task is None:
-        return
-
     done = getattr(frame_task, "done", None)
-    if callable(done) and done():
+    if frame_task is not None and callable(done) and done():
         return
 
     is_set = getattr(frame_request_event, "is_set", None)
@@ -251,10 +310,13 @@ async def _wait_for_frame_request_boundary(
 
     waiter = asyncio.create_task(frame_request_event.wait())
     try:
-        await asyncio.wait(
-            {waiter, frame_task},
-            return_when=asyncio.FIRST_COMPLETED,
-        )
+        if frame_task is None:
+            await waiter
+        else:
+            await asyncio.wait(
+                {waiter, frame_task},
+                return_when=asyncio.FIRST_COMPLETED,
+            )
     finally:
         if not waiter.done():
             waiter.cancel()
@@ -267,14 +329,10 @@ async def _run_update_lt_facts_entry(
     *,
     entry: dict,
 ) -> bool:
-    """Run one queued note. Return False only when user preemption preserves it."""
+    """Run one queued note; False preserves the exact queue item for retry."""
     note = entry["note"]
     action_id = str(entry.get("action_id", "") or "")
     log_runtime = entry.get("log_runtime")
-    attempt_generation = int(
-        getattr(context, "runtime_lt_jin_note_generation", 0)
-        or 0
-    )
 
     try:
         result = await run_lt_jin_note(
@@ -282,10 +340,15 @@ async def _run_update_lt_facts_entry(
             note=note,
         )
 
-        if (
-            str(result.get("status", "") or "") == "cancelled"
-            and str(result.get("reason", "") or "") == "preempted"
-        ):
+        status = str(result.get("status", "") or "")
+        reason = str(result.get("reason", "") or "")
+        if status == "cancelled" and reason == "preempted":
+            return False
+
+        # A concurrent direct L-T edit is a transient conflict, not successful
+        # consumption of Brain's queued instruction. Preserve it for the next
+        # ordered explicit attempt instead of silently dropping the command.
+        if status == "skipped" and reason == "store_changed_during_jin_note":
             return False
 
         if log_runtime is not None:
@@ -320,6 +383,7 @@ async def _run_update_lt_facts_entry(
                 "[RUNTIME ACTION] update_lt_facts failed: "
                 f"{type(error).__name__}"
             )
+        attempt = get_current_lt_attempt(context)
         await log_memory_event(
             context,
             level="L-T",
@@ -330,6 +394,7 @@ async def _run_update_lt_facts_entry(
             details=str(error),
             fallback_channel="error",
             event="jin_note_failed",
+            **lt_attempt_log_metadata(attempt, phase="jin_note"),
         )
         _record_update_lt_tool_result(
             context,
@@ -338,19 +403,6 @@ async def _run_update_lt_facts_entry(
             result=result,
         )
         return True
-
-    finally:
-        if (
-            int(
-                getattr(
-                    context,
-                    "runtime_lt_jin_note_request_visible_generation",
-                    -1,
-                )
-            )
-            == attempt_generation
-        ):
-            context.runtime_lt_jin_note_request_visible_generation = -1
 
 
 async def _drain_update_lt_facts_queue(
@@ -362,26 +414,43 @@ async def _drain_update_lt_facts_queue(
     current_task = asyncio.current_task()
 
     try:
-        await _wait_for_frame_request_boundary(
-            frame_task,
-            frame_request_event,
-        )
-
         while True:
             queue = _ensure_update_lt_facts_queue(context)
             if not queue:
                 return
 
             entry = queue[0]
+            if not entry.get("_lt_frame_gate_bound"):
+                return
+
+            await _wait_for_frame_request_boundary(
+                entry.get("_lt_frame_task", frame_task),
+                entry.get("_lt_frame_request_event", frame_request_event),
+            )
+
+            attempt = get_current_lt_attempt(context)
+            if attempt is None:
+                attempt = begin_lt_attempt(
+                    context,
+                    kind="explicit",
+                    phase="jin_note",
+                )
+                bind_lt_attempt_task(attempt, current_task)
+            else:
+                set_lt_attempt_phase(attempt, "jin_note")
+
             consumed = await _run_update_lt_facts_entry(
                 context,
                 entry=entry,
             )
 
             if not consumed:
-                # User activity cancelled this attempt. Keep the exact queue
-                # item at the head; the next completed Brain turn will kick it
-                # again immediately after that turn's FRAME request starts.
+                # Preemption or a transient store conflict keeps this logical
+                # command at the head. Rebind it to the next foreground FRAME
+                # boundary before retrying with a fresh flow id.
+                entry["_lt_frame_gate_bound"] = False
+                entry["_lt_frame_task"] = None
+                entry["_lt_frame_request_event"] = None
                 return
 
             if queue and queue[0] is entry:
@@ -390,11 +459,23 @@ async def _drain_update_lt_facts_queue(
                 with contextlib.suppress(ValueError):
                     queue.remove(entry)
 
+            release_lt_attempt(context, attempt)
+            if queue and queue[0].get("_lt_frame_gate_bound"):
+                next_attempt = begin_lt_attempt(
+                    context,
+                    kind="explicit",
+                    phase="waiting_frame",
+                )
+                bind_lt_attempt_task(next_attempt, current_task)
+            elif queue:
+                return
+
     finally:
-        if getattr(context, "runtime_lt_memory_update_task", None) is current_task:
-            context.runtime_lt_memory_update_task = None
-            if str(getattr(context, "runtime_lt_memory_update_kind", "") or "") == "jin_note":
-                context.runtime_lt_memory_update_kind = ""
+        release_lt_attempt(
+            context,
+            get_current_lt_attempt(context),
+        )
+        maybe_mark_lt_priority_finished(context)
 
 
 def schedule_pending_update_lt_facts_actions(
@@ -403,44 +484,61 @@ def schedule_pending_update_lt_facts_actions(
     frame_task=None,
     frame_request_event=None,
 ) -> asyncio.Task | None:
-    """Kick queued explicit notes without waiting for the browser idle timer."""
+    """Kick queued explicit notes on the single ordered L-T lane."""
     if not _ensure_update_lt_facts_queue(context):
+        maybe_mark_lt_priority_finished(context)
         return None
 
-    running_task = getattr(
+    _bind_update_lt_frame_gate(
         context,
-        "runtime_lt_memory_update_task",
-        None,
-    )
-    running_kind = str(
-        getattr(context, "runtime_lt_memory_update_kind", "")
-        or ""
+        frame_task=frame_task,
+        frame_request_event=frame_request_event,
     )
 
-    if (
-        running_task is not None
-        and not running_task.done()
-    ):
-        if running_kind == "jin_note":
-            return running_task
-
-        if running_kind == "idle":
-            # Explicit JIN-directed work outranks idle consolidation. Do not
-            # await provider cleanup here; foreground memory work should start
-            # as soon as its FRAME ordering boundary is satisfied.
-            running_task.cancel()
+    active = get_active_lt_attempt(context)
+    if active is not None:
+        task = active.task
+        if task is not None and task.done():
+            release_lt_attempt(context, active)
+            active = None
+        elif active.kind == "explicit":
+            return task
+        elif active.kind == "auto":
+            # Explicit Brain-directed work outranks consolidation. If the auto
+            # attempt has not committed yet, invalidate it immediately. A sealed
+            # attempt has already crossed its atomic commit boundary, so let its
+            # short post-commit tail finish and resume this queue afterwards.
+            preempted = preempt_lt_attempt_nowait(
+                context,
+                kind="auto",
+                reason="explicit_update",
+            )
+            if not preempted:
+                if task is not None and not task.done():
+                    _resume_explicit_lt_after_task(context, task)
+                    return task
+                release_lt_attempt(context, active)
         else:
-            return running_task
+            return task
 
-    task = asyncio.create_task(
-        _drain_update_lt_facts_queue(
-            context,
-            frame_task=frame_task,
-            frame_request_event=frame_request_event,
-        )
+    mark_lt_priority_work_started(context)
+    attempt = begin_lt_attempt(
+        context,
+        kind="explicit",
+        phase="waiting_frame",
     )
-    context.runtime_lt_memory_update_task = task
-    context.runtime_lt_memory_update_kind = "jin_note"
+    try:
+        task = asyncio.create_task(
+            _drain_update_lt_facts_queue(
+                context,
+                frame_task=frame_task,
+                frame_request_event=frame_request_event,
+            )
+        )
+    except Exception:
+        release_lt_attempt(context, attempt)
+        raise
+    bind_lt_attempt_task(attempt, task)
 
     background_tasks = getattr(context, "background_tasks", None)
     if background_tasks is None:
@@ -456,64 +554,19 @@ async def preempt_update_lt_facts_actions(
     *,
     reason: str = "user_activity",
 ) -> bool:
-    """Cancel the active explicit L-T attempt while preserving its queue item."""
-    task = getattr(
+    """Cancel the active explicit attempt while preserving its queue item."""
+    # A new foreground turn rebinds every still-pending explicit command to
+    # that turn's FRAME boundary. Do this even when the active attempt is
+    # already sealed: its committed tail may finish, but it must not start the
+    # next queued command underneath the new Brain turn.
+    if _ensure_update_lt_facts_queue(context):
+        _clear_update_lt_frame_gates(context)
+
+    return await preempt_lt_attempt(
         context,
-        "runtime_lt_memory_update_task",
-        None,
+        kind="explicit",
+        reason=reason,
     )
-    kind = str(
-        getattr(context, "runtime_lt_memory_update_kind", "")
-        or ""
-    )
-
-    if task is None or task.done() or kind != "jin_note":
-        return False
-
-    generation = int(
-        getattr(context, "runtime_lt_jin_note_generation", 0)
-        or 0
-    )
-    request_visible = (
-        int(
-            getattr(
-                context,
-                "runtime_lt_jin_note_request_visible_generation",
-                -1,
-            )
-        )
-        == generation
-    )
-
-    # Invalidate this attempt before cancelling it. If a provider is slow to
-    # unwind and still returns a response, run_lt_jin_note() will discard that
-    # stale result instead of committing it beside the retried request.
-    context.runtime_lt_jin_note_generation = generation + 1
-    task.cancel()
-    await asyncio.sleep(0)
-
-    if task.done():
-        with contextlib.suppress(asyncio.CancelledError, Exception):
-            await task
-
-    if getattr(context, "runtime_lt_memory_update_task", None) is task:
-        context.runtime_lt_memory_update_task = None
-    if str(getattr(context, "runtime_lt_memory_update_kind", "") or "") == "jin_note":
-        context.runtime_lt_memory_update_kind = ""
-
-    if request_visible:
-        await log_memory_event(
-            context,
-            level="L-T",
-            message=(
-                "L-T JIN note preempted by "
-                f"{str(reason or 'user_activity').strip() or 'user_activity'}; "
-                "queued for ASAP retry"
-            ),
-            event="jin_note_preempted",
-        )
-
-    return True
 
 
 async def schedule_update_lt_facts_actions(
@@ -572,7 +625,11 @@ async def schedule_update_lt_facts_actions(
             "action_id": action_id,
             "note": note,
             "log_runtime": log_runtime,
+            "_lt_frame_gate_bound": False,
+            "_lt_frame_task": None,
+            "_lt_frame_request_event": None,
         })
+        mark_lt_priority_work_started(context)
         queued_any = True
 
         await _emit_update_lt_facts_queued(

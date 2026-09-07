@@ -229,7 +229,35 @@ def build_lt_extraction_system_prompt() -> str:
     return f"{LT_EXTRACTION_SYSTEM_PROMPT}\n\n{build_lt_semantic_key_guidance()}"
 
 
+def deduplicate_lt_extraction_fields(fields: list[dict]) -> list[dict]:
+    deduplicated = []
+    seen = set()
+
+    for field in fields:
+        if not isinstance(field, dict):
+            continue
+
+        key = normalize_lt_key(field.get("key"))
+        content = normalize_lt_text(field.get("content"))
+        if not key or not content:
+            continue
+
+        # Facts Memory is session-scoped for bookkeeping, but extraction sees
+        # only field_key + content. The same logical field can therefore exist
+        # in several session buckets without needing to be sent to the model
+        # more than once. Keep the original source fields outside this view so
+        # every matching session instance can still be marked analyzed later.
+        identity = (key, content)
+        if identity in seen:
+            continue
+        seen.add(identity)
+        deduplicated.append(field)
+
+    return deduplicated
+
+
 def build_lt_extraction_user_prompt(*, pending_fields: list[dict]) -> str:
+    request_fields = deduplicate_lt_extraction_fields(pending_fields)
     return json.dumps(
         {
             "current_interaction_fields": [
@@ -237,10 +265,7 @@ def build_lt_extraction_user_prompt(*, pending_fields: list[dict]) -> str:
                     "field_key": normalize_lt_key(field.get("key")),
                     "content": normalize_lt_text(field.get("content")),
                 }
-                for field in pending_fields
-                if isinstance(field, dict)
-                and normalize_lt_key(field.get("key"))
-                and normalize_lt_text(field.get("content"))
+                for field in request_fields
             ]
         },
         ensure_ascii=False,

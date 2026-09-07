@@ -2686,6 +2686,12 @@
     );
   }
 
+  function normalizeMemoryHoverText(value) {
+    return String(value || "")
+      .replace(/\r\n?/g, "\n")
+      .replace(/\\r\\n|\\n|\\r/g, "\n");
+  }
+
   function formatMemoryMetadataValue(key, value) {
     const normalizedKey = String(key || "")
       .trim()
@@ -2694,7 +2700,7 @@
 
     return MEMORY_TIMESTAMP_METADATA_KEYS.has(normalizedKey)
       ? formatMemoryTimestamp(value)
-      : String(value || "");
+      : normalizeMemoryHoverText(value);
   }
 
   function appendLongTermMemoryHoverMetadataRow(
@@ -3162,17 +3168,29 @@
 
       summary.className =
           "runtime-memory-lt-hover-summary";
-      summary.textContent = String(
+      summary.textContent = normalizeMemoryHoverText(
           valuePresentation.text || ""
-      ).replace(/\\n/g, " ↵ ");
+      );
       card.appendChild(summary);
     }
 
     if (options.includeTags !== false) {
+      const excludedTagKeys = new Set(
+        (Array.isArray(options.excludeTagKeys)
+          ? options.excludeTagKeys
+          : []
+        ).map(key => String(key || "").trim().toLowerCase())
+      );
+
       valuePresentation.tags.forEach((tag) => {
+        const tagKey = String(tag && tag.key || "");
+        if (excludedTagKeys.has(tagKey.trim().toLowerCase())) {
+          return;
+        }
+
         appendLongTermMemoryHoverMetadataRow(
             metadata,
-            String(tag && tag.key || ""),
+            tagKey,
             String(tag && tag.value || "")
         );
       });
@@ -3353,7 +3371,10 @@
     draft.currentValue = original;
     const card = buildMemoryDetailsHoverCard(line, kind === "frame" ? {
       includeTags: false, metadataRows: [["created_at", line.created_at]],
-    } : { ageTimestamp: line.context_age_timestamp });
+    } : {
+      ageTimestamp: line.context_age_timestamp,
+      excludeTagKeys: kind === "active" ? ["conditions"] : [],
+    });
     card.classList.add("memory-value-editor");
     card.setAttribute("role", "dialog");
     card.setAttribute("aria-label", `Edit ${kind === "active" ? "conditions" : "value"}`);
@@ -3512,7 +3533,10 @@
 
     const card = buildMemoryDetailsHoverCard(
         line,
-        { fallbackTitle: "Active memory" }
+        {
+          fallbackTitle: "Active memory",
+          excludeTagKeys: ["conditions"],
+        }
     );
 
     activeMemoryHoverCard = card;

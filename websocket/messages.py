@@ -39,6 +39,7 @@ from utils.chat_log import (
     append_chat_log_entry,
     replace_latest_chat_log_entry,
     save_turn_reasoning,
+    summarize_attachments,
 )
 from utils.delayed_memory_triggers import (
     load_delayed_memory_by_tags,
@@ -1142,6 +1143,7 @@ def append_runtime_recent_turn(
     user_message: str,
     assistant_message: str,
     reasoning: str = "",
+    attachments: list[dict] | None = None,
     user_created_at: float | None = None,
     assistant_created_at: float | None = None,
 ) -> None:
@@ -1175,6 +1177,12 @@ def append_runtime_recent_turn(
         "user": user_message,
         "jin": assistant_message,
     }
+
+    attachment_summaries = summarize_attachments(
+        attachments
+    )
+    if attachment_summaries:
+        turn["attachments"] = attachment_summaries
 
     reaction = str(getattr(context, "runtime_turn_jin_reaction", "") or "")
     if reaction:
@@ -1223,6 +1231,7 @@ def append_interrupted_runtime_recent_turn(
     *,
     user_message: str,
     reasoning: str = "",
+    attachments: list[dict] | None = None,
     user_created_at: float | None = None,
 ) -> None:
     """Keep a stopped real USER move in rolling chat history as USER-only."""
@@ -1232,6 +1241,7 @@ def append_interrupted_runtime_recent_turn(
         user_message=user_message,
         assistant_message="",
         reasoning=reasoning,
+        attachments=attachments,
         user_created_at=user_created_at,
     )
 
@@ -1654,6 +1664,11 @@ async def process_message(
                     "runtime_turn_reasoning_content",
                     "",
                 ),
+                attachments=getattr(
+                    context,
+                    "runtime_turn_attachments",
+                    [],
+                ),
                 user_created_at=(
                     user_retry_replaced_turn.get("user_created_at")
                     if is_user_retry
@@ -1863,6 +1878,11 @@ async def process_message(
                     context,
                     "runtime_turn_reasoning_content",
                     "",
+                ),
+                attachments=getattr(
+                    context,
+                    "runtime_turn_attachments",
+                    [],
                 ),
                 user_created_at=getattr(
                     context,

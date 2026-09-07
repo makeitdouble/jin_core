@@ -187,6 +187,7 @@ class LTPanelGlowContractTests(unittest.TestCase):
         self.assertIn('finishLTMemoryGlow("failed")', memory_source)
         self.assertIn('event === "merge_paused"', memory_source)
         self.assertIn('event === "merge_deferred"', memory_source)
+        self.assertIn('event === "lt_preempted"', memory_source)
 
         self.assertIn("#memory-panel.memory-lt-updating", css_source)
         self.assertIn("@keyframes memoryLTSuccessFade", css_source)

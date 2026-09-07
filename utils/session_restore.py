@@ -15,6 +15,7 @@ from utils.chat_log import (
     CHAT_LOG_ROOT,
     _clean_session_id,
     chat_log_root_for_mode,
+    summarize_attachments,
 )
 from utils.actions import (
     normalize_jin_color_payload,
@@ -341,7 +342,7 @@ def _extract_reasoning_body(text: str) -> str:
     return source.split(marker, 1)[1].strip()
 
 
-def _build_recent_turns(
+def _build_recent_turn_candidates(
     entries: list[dict],
     reasoning_by_turn_id: dict[str, str] | None = None,
 ) -> list[dict]:
@@ -382,6 +383,13 @@ def _build_recent_turns(
                 turn["jin_reaction"] = reaction
         if role == "user":
             turn["user"] = text
+            attachments = summarize_attachments(
+                entry.get("attachments", [])
+            )
+            if attachments:
+                turn["attachments"] = attachments
+            else:
+                turn.pop("attachments", None)
             if timestamp:
                 turn["user_created_at"] = timestamp
         elif role in {"jin", "assistant", "brain", "service"}:
@@ -409,22 +417,247 @@ def _build_recent_turns(
                 turn["jin_created_at"] = timestamp
 
     ordered_turns.sort(key=lambda item: item[0])
-    visible_turns = []
-    for _, item in ordered_turns:
-        # A real USER row is the session move. Keep it immediately even when
-        # generation was stopped before JIN produced a row. The missing JIN
-        # side stays empty, so interrupted and action-only turns remain
-        # distinguishable by their durable timestamps/rows rather than being
-        # rewritten as a completed exchange.
-        if not item.get("user"):
-            continue
-        visible_turns.append({
-            key: value
-            for key, value in item.items()
-            if not key.startswith("_")
-        })
+    return [
+        item
+        for _, item in ordered_turns
+        if item.get("user")
+    ]
 
-    return visible_turns[-RECENT_MESSAGES_MAX_PAIRS:]
+
+def _select_recent_turn_candidates(
+    candidates: list[dict],
+    *,
+    completed_turn_limit: int = RECENT_MESSAGES_MAX_PAIRS,
+) -> list[dict]:
+    """Keep N completed turns without charging interrupted USER-only moves.
+
+    An interrupted USER row is a real conversation move, but it is not one of
+    the completed USER/JIN pairs that define the rolling-history budget. Keep
+    such rows in chronological position while walking backwards until the
+    completed-turn budget is satisfied. A small hard cap prevents a pathological
+    run of interrupted rows from making bootstrap history unbounded.
+    """
+    try:
+        completed_turn_limit = max(int(completed_turn_limit), 1)
+    except (TypeError, ValueError):
+        completed_turn_limit = RECENT_MESSAGES_MAX_PAIRS
+
+    selected_newest_first = []
+    completed_turns = 0
+    max_items = completed_turn_limit * 2
+
+    for item in reversed(candidates or []):
+        if completed_turns >= completed_turn_limit:
+            break
+        if len(selected_newest_first) >= max_items:
+            break
+
+        selected_newest_first.append(item)
+        if bool(item.get("_jin_row_seen")):
+            completed_turns += 1
+
+    selected_newest_first.reverse()
+    return selected_newest_first
+
+
+def _public_recent_turn(item: dict) -> dict:
+    return {
+        key: value
+        for key, value in item.items()
+        if not key.startswith("_")
+    }
+
+
+def _build_recent_turns(
+    entries: list[dict],
+    reasoning_by_turn_id: dict[str, str] | None = None,
+) -> list[dict]:
+    candidates = _build_recent_turn_candidates(
+        entries,
+        reasoning_by_turn_id,
+    )
+    return [
+        _public_recent_turn(item)
+        for item in _select_recent_turn_candidates(candidates)
+    ]
+
+
+def _load_session_lineage_source(
+    session_id: str,
+    root: Path,
+) -> tuple[list[dict], str, str] | None:
+    session_directory = _find_session_directory(session_id, root)
+    if session_directory is None:
+        return None
+
+    dialog_paths = sorted(
+        (path for path in session_directory.glob("*.jsonl") if path.is_file()),
+        key=lambda path: path.name,
+    )
+    if not dialog_paths:
+        return None
+
+    dialog_path = dialog_paths[-1]
+    entries = _load_dialog(dialog_path)
+    if not entries:
+        return None
+
+    reasoning_by_turn_id = _read_reasoning(session_directory, entries)
+    candidates = _build_recent_turn_candidates(
+        entries,
+        reasoning_by_turn_id,
+    )
+
+    context_path = dialog_path.with_suffix(".txt")
+    bootstrap_context_path = dialog_path.with_name(
+        dialog_path.stem + ".bootstrap.txt"
+    )
+    try:
+        if context_path.is_file():
+            context_text = context_path.read_text(
+                encoding="utf-8",
+                errors="replace",
+            )
+        elif bootstrap_context_path.is_file():
+            # A very early stop can leave only the prepared bootstrap prompt.
+            # It still carries the exact direct-predecessor RESTORED dialog and
+            # is therefore a safe lineage fallback.
+            context_text = bootstrap_context_path.read_text(
+                encoding="utf-8",
+                errors="replace",
+            )
+        else:
+            context_text = ""
+    except OSError:
+        context_text = ""
+
+    return candidates, context_text, session_directory.parent.name
+
+
+def _direct_predecessor_session_id(context_text: str) -> str:
+    match = RESTORED_DIALOG_SOURCE_RE.search(str(context_text or ""))
+    if match is None:
+        return ""
+    return _clean_session_id(match.group("session_id"))
+
+
+def build_session_bootstrap_lineage_recent_turns(
+    session_id: str,
+    *,
+    root: Path | str | None = None,
+) -> list[dict]:
+    """Build the normal-bootstrap tail across direct predecessor sessions.
+
+    The newest session still owns continuation. This helper only backfills its
+    visible/history tail from the exact RESTORED_SESSION_DIALOG predecessor
+    chain when the newest session itself does not contain five completed turns.
+    """
+    source_session_id = _clean_session_id(session_id)
+    if not source_session_id or is_anonymous_session_id(source_session_id):
+        return []
+
+    root_path = Path(root if root is not None else CHAT_LOG_ROOT)
+    selected_newest_first = []
+    completed_turns = 0
+    max_items = RECENT_MESSAGES_MAX_PAIRS * 2
+    seen_session_ids = set()
+    current_session_id = source_session_id
+
+    while (
+        current_session_id
+        and current_session_id not in seen_session_ids
+        and len(seen_session_ids) < 8
+        and completed_turns < RECENT_MESSAGES_MAX_PAIRS
+        and len(selected_newest_first) < max_items
+    ):
+        seen_session_ids.add(current_session_id)
+        loaded = _load_session_lineage_source(
+            current_session_id,
+            root_path,
+        )
+        if loaded is None:
+            break
+
+        candidates, context_text, session_date = loaded
+        for item in reversed(candidates):
+            if completed_turns >= RECENT_MESSAGES_MAX_PAIRS:
+                break
+            if len(selected_newest_first) >= max_items:
+                break
+
+            annotated = dict(item)
+            annotated["source_session_id"] = current_session_id
+            if session_date:
+                annotated["source_session_date"] = session_date
+            selected_newest_first.append(annotated)
+
+            if bool(item.get("_jin_row_seen")):
+                completed_turns += 1
+
+        if (
+            completed_turns >= RECENT_MESSAGES_MAX_PAIRS
+            or len(selected_newest_first) >= max_items
+        ):
+            break
+
+        current_session_id = _direct_predecessor_session_id(
+            context_text
+        )
+
+    selected_newest_first.reverse()
+    return [
+        _public_recent_turn(item)
+        for item in selected_newest_first
+    ]
+
+
+def build_session_bootstrap_lineage_dialog_context(
+    turns: list[dict],
+    source_session_id: str,
+) -> str:
+    if not isinstance(turns, list) or not turns:
+        return ""
+
+    lines = [
+        f'<RESTORED_SESSION_DIALOG session_id="{escape(_clean_session_id(source_session_id))}">',
+        (
+            "This is the immediate visible dialogue inherited across the direct "
+            "session-predecessor chain. Preserve its chronological continuity; "
+            "a USER entry without a JIN entry is an interrupted real user move, "
+            "not a completed exchange."
+        ),
+    ]
+
+    for turn in turns:
+        if not isinstance(turn, dict):
+            continue
+        user_text = str(turn.get("user", "") or "").strip()
+        jin_text = str(turn.get("jin", "") or "").strip()
+        reasoning = str(turn.get("reasoning", "") or "").strip()
+        source_id = _clean_session_id(turn.get("source_session_id", ""))
+        source_attr = (
+            f' source_session_id="{escape(source_id)}"'
+            if source_id
+            else ""
+        )
+
+        if user_text:
+            lines.append(
+                f"<USER{source_attr}>{escape(user_text)}</USER>"
+            )
+        if reasoning:
+            lines.append(
+                f"<JIN_REASONING{source_attr}>\n"
+                f"{reasoning}\n"
+                "</JIN_REASONING>"
+            )
+        if jin_text:
+            lines.append(
+                f"<JIN{source_attr}>{escape(jin_text)}</JIN>"
+            )
+
+    lines.append("</RESTORED_SESSION_DIALOG>")
+    return "\n".join(lines)
 
 
 def _read_reasoning(session_directory: Path, entries: list[dict]) -> dict[str, str]:
@@ -1595,6 +1828,21 @@ def build_archived_session_restore_payload(
     if runtime_mode not in {"BRAIN", "SERVICE"}:
         runtime_mode = "BRAIN"
 
+    bootstrap_lineage_turns = (
+        build_session_bootstrap_lineage_recent_turns(
+            session_id,
+            root=root_path,
+        )
+    )
+    bootstrap_lineage_dialog_context = (
+        build_session_bootstrap_lineage_dialog_context(
+            bootstrap_lineage_turns,
+            _clean_session_id(session_id),
+        )
+        if bootstrap_lineage_turns
+        else ""
+    )
+
     return {
         "ok": True,
         "source_session_id": _clean_session_id(session_id),
@@ -1611,6 +1859,10 @@ def build_archived_session_restore_payload(
         "recent_turns": _build_recent_turns(
             entries,
             reasoning_by_turn_id,
+        ),
+        "bootstrap_lineage_turns": bootstrap_lineage_turns,
+        "bootstrap_lineage_dialog_context": (
+            bootstrap_lineage_dialog_context
         ),
         "previous_reasoning": latest_reasoning,
         "restore_reasoning_dump": restore_reasoning_dump,

@@ -210,10 +210,8 @@ class RuntimeContext:
         default_factory=set
     )
 
-    runtime_lt_memory_update_task: object | None = None
+    runtime_lt_active_attempt: object | None = None
     runtime_lt_explicit_note_queue: list[dict] = field(default_factory=list)
-    runtime_lt_jin_note_generation: int = 0
-    runtime_lt_jin_note_request_visible_generation: int = -1
 
     # Transient merge recovery state. A reasoning-heavy service model can
     # consume the shared generation budget before emitting final L-T JSON; the
@@ -234,8 +232,9 @@ class RuntimeContext:
         default_factory=set
     )
     runtime_lt_merge_force_single_batch_once: bool = False
-    runtime_lt_memory_update_kind: str = ""
     runtime_lt_idle_last_started_at: float = 0.0
+    runtime_lt_priority_finished_at: float = 0.0
+    runtime_lt_priority_cycle_active: bool = False
     runtime_lt_profile_sync_at: float = 0.0
     runtime_lt_last_user_activity_at: float = 0.0
     runtime_lt_websocket_connected: bool = False
@@ -333,6 +332,13 @@ class RuntimeContext:
     runtime_memory_pending_base_updates: int = 0
 
     runtime_recent_turns: list[dict] = field(
+        default_factory=list
+    )
+
+    # One-shot UI projection for normal bootstrap. It may span the direct
+    # predecessor chain so a short/stopped child session does not erase the
+    # visible chat tail. It is not a second rolling dialogue owner.
+    runtime_bootstrap_chat_tail_turns: list[dict] = field(
         default_factory=list
     )
 

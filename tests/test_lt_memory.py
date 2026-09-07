@@ -18,14 +18,20 @@ from runtime.LT_memory import (
     ensure_runtime_lt_state,
     get_lt_scheduler_interval_seconds,
     maybe_update_runtime_lt_memory,
+    note_lt_user_activity,
     record_lt_reasoning_fact_mentions,
     remap_delayed_memory_lt_fact_ids,
     restore_lt_memory_fact,
+    run_lt_extraction_phase,
     run_lt_merge_phase,
     runtime_lt_memory_update_running,
     schedule_lt_memory_idle_update,
 )
 import runtime.LT_memory as lt_memory_module
+from runtime.LT_lane import (
+    begin_lt_attempt,
+    bind_lt_attempt_task,
+)
 from runtime.LT_memory_rules import (
     LT_SEMANTIC_KEY_SCOPE_EXAMPLES,
     LT_SEMANTIC_KEY_TOPIC_EXAMPLES,
@@ -46,6 +52,7 @@ from runtime.LT_memory_utils import (
     build_lt_semantic_key_shape_examples,
     build_lt_merge_user_prompt,
     collect_pending_facts_memory_fields,
+    deduplicate_lt_extraction_fields,
     extract_lt_json_payload,
     format_lt_fact_line,
     format_lt_merge_operation_details,
@@ -987,6 +994,128 @@ class LTMemoryTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertTrue(set(LT_SEMANTIC_KEY_SCOPE_EXAMPLES) <= seen_segments)
         self.assertTrue(set(LT_SEMANTIC_KEY_TOPIC_EXAMPLES) <= seen_segments)
+
+    def test_extraction_fields_deduplicate_across_session_buckets(self):
+        fields = [
+            {
+                "key": "user_state",
+                "content": "High analytical engagement.",
+                "session_id": "session-a",
+                "runtime_snapshot_id": "runtime-1",
+            },
+            {
+                "key": "user_state",
+                "content": "High analytical engagement.",
+                "session_id": "session-b",
+                "runtime_snapshot_id": "runtime-2",
+            },
+            {
+                "key": "user_state",
+                "content": "Calm and focused.",
+                "session_id": "session-b",
+                "runtime_snapshot_id": "runtime-3",
+            },
+        ]
+
+        deduplicated = deduplicate_lt_extraction_fields(fields)
+
+        self.assertEqual(len(deduplicated), 2)
+        self.assertIs(deduplicated[0], fields[0])
+        self.assertIs(deduplicated[1], fields[2])
+
+    def test_extraction_prompt_deduplicates_same_visible_field_across_sessions(self):
+        extraction_prompt = build_lt_extraction_user_prompt(
+            pending_fields=[
+                {
+                    "key": "user_state",
+                    "content": "High analytical engagement.",
+                    "session_id": "session-a",
+                },
+                {
+                    "key": "user_state",
+                    "content": "High analytical engagement.",
+                    "session_id": "session-b",
+                },
+            ],
+        )
+
+        self.assertEqual(
+            json.loads(extraction_prompt)["current_interaction_fields"],
+            [{
+                "field_key": "user_state",
+                "content": "High analytical engagement.",
+            }],
+        )
+
+    async def test_extraction_phase_deduplicates_request_and_preserves_all_sources(self):
+        records = normalize_facts_memory_records([
+            {
+                "session_id": "session-a",
+                "signals": {
+                    "user_state": {
+                        "content": "High analytical engagement.",
+                        "runtime_snapshot_id": "runtime-1",
+                    },
+                },
+            },
+            {
+                "session_id": "session-b",
+                "signals": {
+                    "user_state": {
+                        "content": "High analytical engagement.",
+                        "runtime_snapshot_id": "runtime-2",
+                    },
+                },
+            },
+        ])
+        pending = collect_pending_facts_memory_fields(records)
+        service_client = FakeServiceClient(json.dumps({
+            "facts": [{
+                "key": "user.state.analytical_engagement",
+                "value": "The user is highly analytically engaged.",
+                "category": "user_state",
+                "evidence_field_keys": ["user_state"],
+            }],
+        }))
+        context = RuntimeContext(
+            websocket=None,
+            emitter=FakeEmitter(),
+            logger=FakeLogger(),
+            clients={"service": service_client},
+        )
+        context.runtime_facts_memory_records = records
+        context.runtime_long_term_memory_store = normalize_lt_store({})
+
+        result = await run_lt_extraction_phase(
+            context=context,
+            service_client=service_client,
+            pending_fields=pending,
+        )
+
+        request_payload = json.loads(service_client.calls[0]["user_prompt"])
+        self.assertEqual(
+            request_payload["current_interaction_fields"],
+            [{
+                "field_key": "user_state",
+                "content": "High analytical engagement.",
+            }],
+        )
+        self.assertEqual(result["selected_fields_count"], 1)
+        self.assertEqual(result["source_fields_count"], 2)
+        self.assertEqual(
+            [
+                record["signals"]["user_state"]["lt_status"]
+                for record in context.runtime_facts_memory_records
+            ],
+            ["analyzed", "analyzed"],
+        )
+        self.assertEqual(
+            context.runtime_long_term_memory_store["pending_facts"][0]["sources"],
+            [
+                {"session_id": "session-a", "runtime_snapshot_id": "runtime-1"},
+                {"session_id": "session-b", "runtime_snapshot_id": "runtime-2"},
+            ],
+        )
 
     def test_lt_service_user_prompts_are_payload_only_json(self):
         extraction_prompt = build_lt_extraction_user_prompt(
@@ -2254,14 +2383,47 @@ class LTMemoryTests(unittest.IsolatedAsyncioTestCase):
         )
         self.assertIsNone(second)
 
-        # A foreground turn resets the server cadence too, even when no idle
-        # task is currently in flight.
-        await cancel_lt_memory_idle_update(context, reason="user_message")
+        # A foreground turn resets cadence through real user activity, not by
+        # pretending a cancelled idle task started at that moment.
+        note_lt_user_activity(context)
         third = schedule_lt_memory_idle_update(
             context=context,
-            user_idle_seconds=1,
+            user_idle_seconds=61,
         )
         self.assertIsNone(third)
+
+    async def test_auto_lt_waits_full_idle_window_after_priority_work_finishes(self):
+        context = RuntimeContext(
+            websocket=None,
+            emitter=FakeEmitter(),
+            logger=FakeLogger(),
+            clients={},
+        )
+        context.runtime_long_term_memory_store = normalize_lt_store({
+            "pending_facts": [{
+                "id": "PF1",
+                "key": "project.pending",
+                "value": "Still pending.",
+                "category": "project_fact",
+            }],
+        })
+        context.runtime_lt_priority_finished_at = time.monotonic()
+
+        task = schedule_lt_memory_idle_update(
+            context=context,
+            user_idle_seconds=61,
+            minimum_interval_seconds=15,
+        )
+        self.assertIsNone(task)
+
+        context.runtime_lt_priority_finished_at -= 16
+        task = schedule_lt_memory_idle_update(
+            context=context,
+            user_idle_seconds=61,
+            minimum_interval_seconds=15,
+        )
+        self.assertIsNotNone(task)
+        await task
 
     def test_server_scheduler_uses_exact_closed_tab_third_cadence(self):
         with patch.object(
@@ -2531,8 +2693,12 @@ class LTMemoryTests(unittest.IsolatedAsyncioTestCase):
             await asyncio.sleep(10)
 
         task = asyncio.create_task(idle_work())
-        context.runtime_lt_memory_update_task = task
-        context.runtime_lt_memory_update_kind = "idle"
+        attempt = begin_lt_attempt(
+            context,
+            kind="auto",
+            phase="merge",
+        )
+        bind_lt_attempt_task(attempt, task)
 
         cancelled = await cancel_lt_memory_idle_update(
             context,
@@ -2541,12 +2707,99 @@ class LTMemoryTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertTrue(cancelled)
         self.assertTrue(task.cancelled())
-        self.assertIsNone(context.runtime_lt_memory_update_task)
-        self.assertEqual(context.runtime_lt_memory_update_kind, "")
+        self.assertTrue(attempt.cancelled)
+        self.assertIsNone(context.runtime_lt_active_attempt)
         self.assertEqual(
             [fact["id"] for fact in context.runtime_long_term_memory_store["pending_facts"]],
             ["PF1"],
         )
+
+    async def test_cancelled_auto_attempt_cannot_commit_late_provider_response(self):
+        request_started = asyncio.Event()
+        release_provider = asyncio.Event()
+
+        class StubbornServiceClient(FakeServiceClient):
+            async def ask(self, **kwargs):
+                self.calls.append(kwargs)
+                request_started.set()
+                try:
+                    await release_provider.wait()
+                except asyncio.CancelledError:
+                    # Deliberately swallow cancellation like a slow provider
+                    # transport. The stale attempt must still fail the commit
+                    # guard after the response eventually arrives.
+                    await release_provider.wait()
+                return {
+                    "choices": [{
+                        "message": {
+                            "content": json.dumps({
+                                "facts": [{
+                                    "key": "user.hardware.main_gpu",
+                                    "value": "User's main GPU is RTX 4090.",
+                                    "category": "environment",
+                                    "evidence_field_keys": ["gpu"],
+                                }],
+                            }),
+                        },
+                    }],
+                }
+
+        service_client = StubbornServiceClient("")
+        logger = CaptureMemoryLogger()
+        context = RuntimeContext(
+            websocket=None,
+            emitter=FakeEmitter(),
+            logger=logger,
+            clients={"service": service_client},
+        )
+        context.runtime_lt_file_store_enabled = False
+        context.runtime_facts_memory_records = normalize_facts_memory_records([{
+            "session_id": "session-a",
+            "signals": {
+                "gpu": {
+                    "content": "RTX 4090",
+                    "runtime_snapshot_id": "runtime-a",
+                },
+            },
+        }])
+
+        task = schedule_lt_memory_idle_update(
+            context=context,
+            user_idle_seconds=61,
+            minimum_interval_seconds=0,
+        )
+        self.assertIsNotNone(task)
+        await asyncio.wait_for(request_started.wait(), timeout=0.2)
+        attempt = context.runtime_lt_active_attempt
+        self.assertIsNotNone(attempt)
+
+        self.assertTrue(await cancel_lt_memory_idle_update(
+            context,
+            reason="user_message",
+        ))
+        self.assertTrue(attempt.cancelled)
+        release_provider.set()
+        result = await asyncio.wait_for(task, timeout=0.2)
+
+        self.assertEqual(result, {"status": "cancelled", "reason": "preempted"})
+        self.assertEqual(
+            context.runtime_facts_memory_records[0]["signals"]["gpu"]["lt_status"],
+            "pending",
+        )
+        self.assertEqual(
+            context.runtime_long_term_memory_store.get("pending_facts", []),
+            [],
+        )
+        events = [item.get("event") for item in logger.logs]
+        self.assertIn("summarizer_request", events)
+        self.assertIn("lt_preempted", events)
+        self.assertNotIn("summarizer_result", events)
+        flow_ids = {
+            item.get("lt_flow_id")
+            for item in logger.logs
+            if item.get("lt_flow_id")
+        }
+        self.assertEqual(flow_ids, {attempt.id})
 
     async def test_merge_phase_logs_skip_reason(self):
         store, _ = add_lt_pending_candidates(
@@ -2864,7 +3117,12 @@ class LTMemoryTests(unittest.IsolatedAsyncioTestCase):
         task = asyncio.create_task(
             asyncio.sleep(0)
         )
-        context.runtime_lt_memory_update_task = task
+        attempt = begin_lt_attempt(
+            context,
+            kind="auto",
+            phase="extraction",
+        )
+        bind_lt_attempt_task(attempt, task)
 
         self.assertTrue(
             runtime_lt_memory_update_running(context)

@@ -11,6 +11,24 @@ from clients.response_extractor import ResponseExtractor
 from clients.service_client import ask_service_model
 from config_loader import config
 from runtime.client import LMStudioAPIError
+from runtime.LT_lane import (
+    LTAttemptPreempted,
+    assert_lt_attempt_can_commit,
+    begin_lt_attempt,
+    bind_lt_attempt_task,
+    get_active_lt_attempt,
+    get_current_lt_attempt,
+    lt_attempt_log_metadata,
+    lt_priority_work_busy,
+    mark_lt_priority_work_started,
+    maybe_mark_lt_priority_finished,
+    preempt_lt_attempt,
+    release_lt_attempt,
+    runtime_lt_attempt_running,
+    seal_lt_attempt,
+    set_lt_attempt_phase,
+    mark_lt_attempt_request_visible,
+)
 from runtime.LT_memory_utils import (
     add_lt_pending_candidates,
     apply_lt_jin_note_result,
@@ -30,6 +48,7 @@ from runtime.LT_memory_utils import (
     collect_lt_reasoning_fact_ids,
     collect_pending_facts_memory_fields,
     collect_lt_shard_scan_referenced_facts,
+    deduplicate_lt_extraction_fields,
     estimate_lt_merge_response_tokens,
     delete_lt_fact_from_store,
     extract_lt_json_payload,
@@ -938,6 +957,10 @@ def note_lt_foreground_state(
     running: bool,
 ) -> None:
     context.runtime_foreground_turn_running = bool(running)
+    if running:
+        mark_lt_priority_work_started(context)
+    else:
+        maybe_mark_lt_priority_finished(context)
     wake_lt_memory_server_scheduler(context)
 
 
@@ -1474,8 +1497,7 @@ def apply_lt_memory_store_sync(context, raw_store) -> bool:
 
 
 def runtime_lt_memory_update_running(context) -> bool:
-    task = getattr(context, "runtime_lt_memory_update_task", None)
-    return task is not None and not task.done()
+    return runtime_lt_attempt_running(context)
 
 
 async def cancel_lt_memory_idle_update(
@@ -1483,48 +1505,12 @@ async def cancel_lt_memory_idle_update(
     *,
     reason: str = "user_activity",
 ) -> bool:
-    """Preempt only background-idle L-T work so foreground chat wins.
-
-    Pending fields/facts live in the runtime stores and are not consumed until a
-    consolidation result is committed, so cancelling an in-flight model request
-    leaves them available for the next genuine idle window.
-    """
-    # Every real user turn starts a new configured background-idle cycle even
-    # when no L-T task happens to be running at this exact moment.
-    context.runtime_lt_idle_last_started_at = time.monotonic()
-
-    task = getattr(context, "runtime_lt_memory_update_task", None)
-    kind = str(getattr(context, "runtime_lt_memory_update_kind", "") or "")
-
-    if task is None or task.done() or kind != "idle":
-        return False
-
-    task.cancel()
-    try:
-        await task
-    except asyncio.CancelledError:
-        pass
-    except Exception:
-        # Cancellation is best-effort; foreground work must not be blocked by
-        # cleanup from a background maintenance request.
-        pass
-
-    if getattr(context, "runtime_lt_memory_update_task", None) is task:
-        context.runtime_lt_memory_update_task = None
-    if str(getattr(context, "runtime_lt_memory_update_kind", "") or "") == "idle":
-        context.runtime_lt_memory_update_kind = ""
-
-    # Merge recovery/quarantine state is intentionally preserved. Cancellation
-    # changes only scheduling; it must not resurrect a known poison PF or forget
-    # an adaptive batch limit.
-
-    log_runtime = getattr(getattr(context, "logger", None), "log_runtime", None)
-    await safe_call(
-        log_runtime,
-        "[MEMORY:L-T] idle work preempted by "
-        f"{normalize_lt_text(reason) or 'user_activity'}; pending preserved",
+    """Preempt the active background L-T attempt without consuming pending work."""
+    return await preempt_lt_attempt(
+        context,
+        kind="auto",
+        reason=reason,
     )
-    return True
 
 
 async def emit_facts_memory_store_update(context) -> None:
@@ -2010,11 +1996,19 @@ async def ask_lt_model(
     user_prompt: str,
     max_tokens: int | None,
 ) -> dict:
-    jin_note_generation = (
-        int(getattr(context, "runtime_lt_jin_note_generation", 0) or 0)
-        if str(label or "").strip().casefold() == "l-t jin note"
-        else None
-    )
+    attempt = get_current_lt_attempt(context)
+    normalized_label = str(label or "").strip().casefold()
+    if "jin note" in normalized_label:
+        phase = "jin_note"
+    elif "extraction" in normalized_label:
+        phase = "extraction"
+    elif "merge" in normalized_label:
+        phase = "merge"
+    else:
+        phase = ""
+
+    if attempt is not None and phase:
+        set_lt_attempt_phase(attempt, phase)
 
     request_limits = await resolve_lt_request_limits(
         service_client=service_client,
@@ -2035,6 +2029,8 @@ async def ask_lt_model(
         user_prompt=user_prompt,
         context_window=request_limits.get("context_window_tokens") or None,
     )
+    if attempt is not None:
+        mark_lt_attempt_request_visible(attempt)
     await log_runtime_summarizer_payload(
         context,
         label=label,
@@ -2045,12 +2041,8 @@ async def ask_lt_model(
             temperature=getattr(config, "SERVICE_TEMPERATURE", 0.1),
             max_tokens=effective_max_tokens,
         ),
+        **lt_attempt_log_metadata(attempt, phase=phase),
     )
-
-    if jin_note_generation is not None:
-        context.runtime_lt_jin_note_request_visible_generation = (
-            jin_note_generation
-        )
 
     response = await ask_service_model(
         client=service_client,
@@ -2062,15 +2054,10 @@ async def ask_lt_model(
         timeout=getattr(config, "SERVICE_REQUEST_TIMEOUT", 1000.0),
         track_usage=False,
     )
-    if (
-        jin_note_generation is not None
-        and int(getattr(context, "runtime_lt_jin_note_generation", 0) or 0)
-        != jin_note_generation
-    ):
-        # User activity preempted this explicit note while the provider was
-        # unwinding. Suppress its late result so it cannot mutate memory or
-        # attach itself to the next L-T progress card.
-        return {"_jin_lt_preempted": True}
+
+    # A cancelled provider request is allowed to unwind late, but it no longer
+    # owns the L-T lane and therefore cannot publish a result or mutate state.
+    assert_lt_attempt_can_commit(context, attempt)
 
     if isinstance(response, dict):
         response["_jin_lt_request_meta"] = {
@@ -2091,6 +2078,7 @@ async def ask_lt_model(
             context,
             label=label,
             result=response_text,
+            **lt_attempt_log_metadata(attempt, phase=phase),
         )
     await refresh_service_runtime_usage(
         context,
@@ -2125,6 +2113,7 @@ async def log_lt_skip_event(
         else reason
     )
 
+    attempt = get_current_lt_attempt(context)
     await log_memory_event(
         context,
         level=LT_LOG_LEVEL,
@@ -2137,6 +2126,7 @@ async def log_lt_skip_event(
         fallback_channel="summarizer",
         event=f"{phase}_skipped",
         trace_reason=result.get("summary"),
+        **lt_attempt_log_metadata(attempt, phase=phase),
     )
 
     return result
@@ -2236,8 +2226,9 @@ async def run_lt_extraction_phase(
     service_client,
     pending_fields: list[dict],
 ) -> dict:
+    request_fields = deduplicate_lt_extraction_fields(pending_fields)
     system_prompt = build_lt_extraction_system_prompt()
-    user_prompt = build_lt_extraction_user_prompt(pending_fields=pending_fields)
+    user_prompt = build_lt_extraction_user_prompt(pending_fields=request_fields)
     response = await ask_lt_model(
         context=context,
         service_client=service_client,
@@ -2256,7 +2247,7 @@ async def run_lt_extraction_phase(
             details=build_lt_truncation_details(
                 response,
                 phase="extract",
-                selected_fields_count=len(pending_fields),
+                selected_fields_count=len(request_fields),
             ),
         )
 
@@ -2272,7 +2263,7 @@ async def run_lt_extraction_phase(
             message_phase="extraction",
             reason="invalid_json",
             details={
-                "selected_fields_count": len(pending_fields),
+                "selected_fields_count": len(request_fields),
             },
         )
 
@@ -2284,7 +2275,7 @@ async def run_lt_extraction_phase(
             message_phase="extraction",
             reason="invalid_facts_payload",
             details={
-                "selected_fields_count": len(pending_fields),
+                "selected_fields_count": len(request_fields),
             },
         )
 
@@ -2299,11 +2290,14 @@ async def run_lt_extraction_phase(
             message_phase="extraction",
             reason="invalid_candidates",
             details={
-                "selected_fields_count": len(pending_fields),
+                "selected_fields_count": len(request_fields),
                 "raw_candidates_count": len(raw_candidates),
                 "valid_candidates_count": len(candidates),
             },
         )
+    attempt = get_current_lt_attempt(context)
+    assert_lt_attempt_can_commit(context, attempt)
+
     store, pending_change = add_lt_pending_candidates(
         ensure_runtime_lt_state(context),
         candidates,
@@ -2321,6 +2315,12 @@ async def run_lt_extraction_phase(
     context.runtime_facts_memory_records = records
     _publish_server_facts_memory_state(context)
 
+    continues_to_merge = bool(
+        ensure_runtime_lt_state(context).get("pending_facts")
+    )
+    if not continues_to_merge:
+        seal_lt_attempt(attempt)
+
     if records_changed:
         await emit_facts_memory_store_update(context)
     if pending_change.get("changed"):
@@ -2332,15 +2332,15 @@ async def run_lt_extraction_phase(
         message="L-T extraction applied",
         fallback_channel="summarizer",
         event="extract_applied",
-        continues_to_merge=bool(
-            ensure_runtime_lt_state(context).get("pending_facts")
-        ),
+        continues_to_merge=continues_to_merge,
+        **lt_attempt_log_metadata(attempt, phase="extraction"),
     )
 
     return {
         "phase": "extract",
         "status": "completed",
-        "selected_fields_count": len(pending_fields),
+        "selected_fields_count": len(request_fields),
+        "source_fields_count": len(pending_fields),
         "candidates_count": len(candidates),
         "pending_change": pending_change,
     }
@@ -2706,6 +2706,10 @@ async def log_lt_context_paused(
         fallback_channel="summarizer",
         event="merge_paused",
         tag_suffix="PAUSED",
+        **lt_attempt_log_metadata(
+            get_current_lt_attempt(context),
+            phase="merge",
+        ),
     )
     return result
 
@@ -3533,6 +3537,9 @@ async def run_lt_merge_phase(*, context, service_client) -> dict:
     if shard_scan_recovery:
         merge_change["shard_scan_recovery"] = shard_scan_recovery
 
+    attempt = get_current_lt_attempt(context)
+    assert_lt_attempt_can_commit(context, attempt)
+
     context.runtime_long_term_memory_store = next_store
     clear_lt_merge_pending_recovery(
         context,
@@ -3562,6 +3569,7 @@ async def run_lt_merge_phase(*, context, service_client) -> dict:
     if delayed_memory_change.get("changed"):
         merge_change["delayed_memory_change"] = delayed_memory_change
 
+    seal_lt_attempt(attempt)
     merge_details = format_lt_merge_operation_details(
         merge_change,
     )
@@ -3582,6 +3590,7 @@ async def run_lt_merge_phase(*, context, service_client) -> dict:
             "kind": "lt_merge_applied",
             "operation_details": merge_change.get("operation_details", []),
         },
+        **lt_attempt_log_metadata(attempt, phase="merge"),
     )
     await emit_lt_memory_update(context, change=merge_change)
     if delayed_memory_change.get("changed"):
@@ -3603,10 +3612,7 @@ async def run_lt_jin_note(
     note: dict,
 ) -> dict:
     ensure_runtime_lt_state(context)
-    attempt_generation = int(
-        getattr(context, "runtime_lt_jin_note_generation", 0)
-        or 0
-    )
+    attempt = get_current_lt_attempt(context)
 
     if not lt_memory_enabled():
         return {
@@ -3664,20 +3670,16 @@ async def run_lt_jin_note(
         message=message,
         requested_action=requested_action,
     )
-    response = await ask_lt_model(
-        context=context,
-        service_client=service_client,
-        label="L-T JIN note",
-        system_prompt=system_prompt,
-        user_prompt=user_prompt,
-        max_tokens=None,
-    )
-
-    if (
-        bool(response.get("_jin_lt_preempted"))
-        or int(getattr(context, "runtime_lt_jin_note_generation", 0) or 0)
-        != attempt_generation
-    ):
+    try:
+        response = await ask_lt_model(
+            context=context,
+            service_client=service_client,
+            label="L-T JIN note",
+            system_prompt=system_prompt,
+            user_prompt=user_prompt,
+            max_tokens=None,
+        )
+    except LTAttemptPreempted:
         return {
             "phase": "jin_note",
             "status": "cancelled",
@@ -3715,6 +3717,7 @@ async def run_lt_jin_note(
             },
         )
 
+    assert_lt_attempt_can_commit(context, attempt)
     current_store = clone_lt_store(ensure_runtime_lt_state(context))
     if current_store != base_store:
         return await log_lt_skip_event(
@@ -3756,6 +3759,7 @@ async def run_lt_jin_note(
     )
 
     if not change.get("changed"):
+        seal_lt_attempt(attempt)
         await log_memory_event(
             context,
             level=LT_LOG_LEVEL,
@@ -3770,6 +3774,7 @@ async def run_lt_jin_note(
             ),
             fallback_channel="summarizer",
             event="jin_note_no_change",
+            **lt_attempt_log_metadata(attempt, phase="jin_note"),
         )
         return {
             "phase": "jin_note",
@@ -3778,6 +3783,7 @@ async def run_lt_jin_note(
             "change": change,
         }
 
+    assert_lt_attempt_can_commit(context, attempt)
     context.runtime_long_term_memory_store = next_store
     persist_runtime_lt_file_store(context, next_store)
     delayed_memory_change = remap_delayed_memory_lt_fact_ids(
@@ -3786,6 +3792,7 @@ async def run_lt_jin_note(
         replacement_fact_ids=change.get("replacement_fact_ids", []),
         replacement_fact_id_map=change.get("replacement_fact_id_map", {}),
     )
+    seal_lt_attempt(attempt)
 
     await log_memory_event(
         context,
@@ -3803,6 +3810,7 @@ async def run_lt_jin_note(
         fallback_channel="summarizer",
         event="jin_note_applied",
         facts_changed=True,
+        **lt_attempt_log_metadata(attempt, phase="jin_note"),
     )
     await emit_lt_memory_update(context, change=change)
     if delayed_memory_change.get("changed"):
@@ -3822,6 +3830,7 @@ async def maybe_update_runtime_lt_memory(
     context,
     user_idle_seconds: int | None = None,
 ) -> dict:
+    attempt = get_current_lt_attempt(context)
     try:
         ensure_runtime_lt_state(context)
 
@@ -3877,6 +3886,7 @@ async def maybe_update_runtime_lt_memory(
                     ),
                     fallback_channel="summarizer",
                     event="merge_deferred",
+                    **lt_attempt_log_metadata(attempt, phase="merge"),
                 )
             if extraction_result is not None:
                 return {
@@ -3891,6 +3901,8 @@ async def maybe_update_runtime_lt_memory(
         reset_lt_merge_recovery_state(context)
         return {"status": "skipped", "reason": "nothing_pending"}
 
+    except LTAttemptPreempted:
+        return {"status": "cancelled", "reason": "preempted"}
     except asyncio.CancelledError:
         raise
     except Exception as error:
@@ -3905,13 +3917,11 @@ async def maybe_update_runtime_lt_memory(
             ),
             fallback_channel="error",
             event="update_failed",
+            **lt_attempt_log_metadata(attempt, phase=getattr(attempt, "phase", "")),
         )
         return {"status": "failed", "reason": type(error).__name__}
     finally:
-        if getattr(context, "runtime_lt_memory_update_task", None) is asyncio.current_task():
-            context.runtime_lt_memory_update_task = None
-            if str(getattr(context, "runtime_lt_memory_update_kind", "") or "") == "idle":
-                context.runtime_lt_memory_update_kind = ""
+        release_lt_attempt(context, attempt)
 
 
 def schedule_lt_memory_idle_update(
@@ -3926,10 +3936,9 @@ def schedule_lt_memory_idle_update(
     if not lt_memory_enabled():
         return None
 
-    # L-T is strictly idle/background work. It must never race a live Brain
-    # turn, a queued foreground request, or the FRAME integration belonging to
-    # the previous answer. In particular, browser idle ticks can arrive in the
-    # tiny window after agent_runtime_end but before process_message() returns.
+    # Background consolidation is the lowest-priority L-T producer. A live
+    # Brain/FRAME cycle or even a queued explicit UPDATE_LT_FACTS instruction
+    # keeps this lane closed until that priority work is genuinely finished.
     if _lt_context_priority_work_busy(context):
         return None
 
@@ -3942,7 +3951,8 @@ def schedule_lt_memory_idle_update(
             return None
 
     if runtime_lt_memory_update_running(context):
-        return getattr(context, "runtime_lt_memory_update_task", None)
+        attempt = get_active_lt_attempt(context)
+        return attempt.task if attempt is not None else None
 
     if not lt_memory_has_pending_work(context):
         # An empty browser tick is only a poll. It must not consume the
@@ -3951,29 +3961,37 @@ def schedule_lt_memory_idle_update(
         return None
 
     now = time.monotonic()
-    last_started_at = float(
-        getattr(context, "runtime_lt_idle_last_started_at", 0.0) or 0.0
-    )
     interval_seconds = (
         float(minimum_interval_seconds)
         if minimum_interval_seconds is not None
         else float(get_lt_idle_seconds())
     )
-    if (
-        last_started_at > 0
-        and now - last_started_at < interval_seconds
-    ):
+    cadence_anchor = max(
+        float(getattr(context, "runtime_lt_idle_last_started_at", 0.0) or 0.0),
+        float(getattr(context, "runtime_lt_priority_finished_at", 0.0) or 0.0),
+        float(getattr(context, "runtime_lt_profile_sync_at", 0.0) or 0.0),
+        float(getattr(context, "runtime_lt_last_user_activity_at", 0.0) or 0.0),
+    )
+    if cadence_anchor > 0 and now - cadence_anchor < interval_seconds:
         return None
 
     context.runtime_lt_idle_last_started_at = now
-    task = asyncio.create_task(
-        maybe_update_runtime_lt_memory(
-            context=context,
-            user_idle_seconds=user_idle_seconds,
-        )
+    attempt = begin_lt_attempt(
+        context,
+        kind="auto",
+        phase="extraction",
     )
-    context.runtime_lt_memory_update_task = task
-    context.runtime_lt_memory_update_kind = "idle"
+    try:
+        task = asyncio.create_task(
+            maybe_update_runtime_lt_memory(
+                context=context,
+                user_idle_seconds=user_idle_seconds,
+            )
+        )
+    except Exception:
+        release_lt_attempt(context, attempt)
+        raise
+    bind_lt_attempt_task(attempt, task)
 
     background_tasks = getattr(context, "background_tasks", None)
     if background_tasks is None:
@@ -4144,43 +4162,22 @@ def _lt_context_last_user_activity_at(app_state, context) -> float:
 
 
 def _lt_context_priority_work_busy(context) -> bool:
-    """Return True while Brain/FRAME work has priority over idle L-T."""
-
-    if bool(
-        getattr(
-            context,
-            "runtime_foreground_turn_running",
-            False,
-        )
-    ):
-        return True
-
-    frame_task = getattr(
+    """Return True while this context has priority work ahead of auto L-T."""
+    return lt_priority_work_busy(
         context,
-        "runtime_memory_update_task",
-        None,
+        include_explicit_queue=True,
     )
-    if frame_task is not None and not frame_task.done():
-        return True
-
-    queue = getattr(
-        context,
-        "runtime_pending_requests_queue",
-        None,
-    )
-    if queue is not None:
-        try:
-            if not queue.empty():
-                return True
-        except Exception:
-            pass
-
-    return False
 
 
 def _lt_server_foreground_busy(app_state) -> bool:
+    # A queued explicit note blocks auto L-T only in its own context. Actual
+    # foreground/FRAME/running-explicit work still blocks the shared service
+    # lane globally, as before.
     return any(
-        _lt_context_priority_work_busy(context)
+        lt_priority_work_busy(
+            context,
+            include_explicit_queue=False,
+        )
         for context in _lt_server_contexts(app_state)
     )
 
@@ -4228,6 +4225,7 @@ async def run_lt_memory_server_scheduler(app_state) -> None:
             context
             for context in contexts
             if lt_memory_has_pending_work(context)
+            and not _lt_context_priority_work_busy(context)
         ]
         if not pending_contexts:
             await _wait_for_lt_scheduler_wake(wake_event)
@@ -4254,10 +4252,15 @@ async def run_lt_memory_server_scheduler(app_state) -> None:
                 getattr(context, "runtime_lt_profile_sync_at", 0.0)
                 or 0.0
             )
+            priority_finished_at = float(
+                getattr(context, "runtime_lt_priority_finished_at", 0.0)
+                or 0.0
+            )
             cadence_anchor = max(
                 last_user_activity_at,
                 last_started_at,
                 profile_sync_at,
+                priority_finished_at,
             )
             remaining_seconds = (
                 interval_seconds

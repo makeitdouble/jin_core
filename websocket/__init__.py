@@ -458,6 +458,10 @@ async def websocket_endpoint(
                 await apply_runtime_memory_slot_delete(
                     context,
                     message_data,
+                    foreground_busy=(
+                        current_task is not None
+                        and not current_task.done()
+                    ),
                 )
                 continue
 
