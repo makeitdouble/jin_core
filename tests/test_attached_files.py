@@ -208,7 +208,7 @@ def test_persistent_attach_result_owns_source_and_detach_keeps_result(monkeypatc
         },
     )
     rendered = build_tool_results_context(context)
-    open_index = rendered.index('<TOOL_RESULT name="ATTACH_FILE"')
+    open_index = rendered.index('<TOOL_RESULT tool_id="T1" name="ATTACH_FILE"')
     source_index = rendered.index('<FILE_CONTENT: note.txt >')
     close_index = rendered.index('</TOOL_RESULT>', open_index)
     assert open_index < source_index < close_index
@@ -223,7 +223,7 @@ def test_persistent_attach_result_owns_source_and_detach_keeps_result(monkeypatc
     context.runtime_attached_file_ids = []
     rendered = build_tool_results_context(context)
     assert "persistent source body" not in rendered
-    assert '<TOOL_RESULT name="ATTACH_FILE"' in rendered
+    assert '<TOOL_RESULT tool_id="T1" name="ATTACH_FILE"' in rendered
     assert f"Status: detached at {timestamp}" in rendered
 
 

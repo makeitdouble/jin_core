@@ -26,7 +26,7 @@ from utils.actions import (
 
 BLOCK_RE_TEMPLATE = r"<{name}(?:\s+[^>]*)?>\s*(?P<body>[\s\S]*?)\s*</{name}>"
 TOOL_RESULT_RE = re.compile(
-    r'<TOOL_RESULT\s+name="(?P<name>[^"]+)"(?P<attrs>[^>]*)>\s*(?P<body>[\s\S]*?)\s*</TOOL_RESULT>',
+    r'<TOOL_RESULT\s+(?P<before_attrs>[^>]*?)\bname="(?P<name>[^"]+)"(?P<attrs>[^>]*)>\s*(?P<body>[\s\S]*?)\s*</TOOL_RESULT>',
     re.IGNORECASE,
 )
 TRUSTED_VALUE_RE = re.compile(
@@ -1019,7 +1019,10 @@ def _parse_restore_tool_results(
             "result": result,
             "created_at": fallback_created_at + offset,
         }
-        attrs = str(match.group("attrs") or "")
+        attrs = str(match.group("before_attrs") or "") + str(match.group("attrs") or "")
+        tool_id_match = re.search(r'\btool_id="(T[1-9][0-9]*)"', attrs)
+        if tool_id_match:
+            item["tool_id"] = tool_id_match[1]
         id_match = re.search(
             r'\bid="(?P<id>[^"]+)"',
             attrs,
@@ -1297,6 +1300,9 @@ def _build_runtime_event_tool_results(entries: list[dict]) -> list[dict]:
             "result": result,
             "created_at": _runtime_event_created_at(entry, payload),
         }
+        tool_id = str(payload.get("tool_id", ""))
+        if re.fullmatch(r"T[1-9][0-9]*", tool_id):
+            item["tool_id"] = tool_id
         result_id = str(payload.get("id", "") or "").strip()
         if result_id:
             item["id"] = result_id

@@ -104,6 +104,9 @@ class ProjectReviewTests(unittest.TestCase):
         for output in outputs:
             self.assertIn(self.project.name, output)
             self.assertNotIn(".jin-folder", output)
+        self.assertNotIn(f"id: {record['id']}", outputs[0])
+        self.assertIn(f"root: {self.project.name}/", outputs[0])
+        self.assertIn(f"File-path root is {self.project.name}/", outputs[2])
 
     def test_success_results_are_compact_but_failure_and_unload_remain_explicit(self):
         from utils.context.files import format_file_result
@@ -146,14 +149,22 @@ class ProjectReviewTests(unittest.TestCase):
 
     def test_tree_search_and_exact_line_ranges(self):
         tree = self.action("project_tree", limit=1)
-        self.assertEqual(tree["content"], "README.md")
+        self.assertEqual(tree["content"], f"{self.project.name}/README.md")
         self.assertIn("offset 1", tree["notice"])
         second = self.action("project_tree", offset=1, limit=2)
-        self.assertEqual(second["content"], "src/\nsrc/main.py")
+        self.assertEqual(second["content"], f"{self.project.name}/src/\n{self.project.name}/src/main.py")
         search = self.action("project_search", query="NEEDLE")
-        self.assertEqual(search["content"], "src/main.py:2: needle = 42")
+        self.assertEqual(search["content"], f"{self.project.name}/src/main.py:2: needle = 42")
         read = self.action("project_read", path="src\\main.py", start=2, end=3)
         self.assertEqual(read["content"], "2: needle = 42\n3: third")
+        rooted_tree = run_project_action(self.context, {
+            "action": "project_tree",
+            "attachment": self.project.name,
+            "path": f"{self.project.name}/src",
+            "depth": 1,
+        })
+        self.assertTrue(rooted_tree["ok"])
+        self.assertEqual(rooted_tree["content"], f"{self.project.name}/src/main.py")
         self.assertEqual(read["range"], "2-3 of 4 lines")
         self.assertIn("Next unread line: 4", read["notice"])
         self.assertIn("2-3 of 4 lines", build_asset_action_context_detail(read))
@@ -198,6 +209,48 @@ class ProjectReviewTests(unittest.TestCase):
             self.assertIn(value, prompt)
         self.assertIn("SAVE_DELAYED_MEMORY", prompt)
         self.assertIn("UPDATE_LT_FACTS", prompt)
+
+    def test_project_followup_projects_current_user_into_previous_chat(self):
+        current_user = "now inspect an interesting file"
+
+        base = build_brain_context(
+            self.context,
+            runtime_actions=BRAIN_RUNTIME_ACTIONS,
+            user_input=current_user,
+            include_previous_chat_messages=False,
+            include_previous_reasoning=False,
+            include_turn_reasoning=True,
+        )
+        prompt = BrainNode.build_followup_system_prompt(
+            base,
+            current_user,
+            context=self.context,
+            latest_action="ASSET_ACTION: project_tree",
+        )
+
+        self.assertIn("<CURRENT_REQUEST_FLOW>", prompt)
+        self.assertIn(current_user, prompt)
+        previous_start = prompt.index("<PREVIOUS_CHAT_MESSAGES>")
+        previous_end = prompt.index("</PREVIOUS_CHAT_MESSAGES>", previous_start)
+        previous_chat = prompt[previous_start:previous_end]
+        self.assertIn("<USER>our prior question", previous_chat)
+        self.assertIn("<JIN>our prior answer", previous_chat)
+        self.assertIn(f"<USER>{current_user}", previous_chat)
+        self.assertEqual(previous_chat.count(current_user), 1)
+
+    def test_initial_project_prompt_does_not_duplicate_current_user_in_previous_chat(self):
+        current_user = "now inspect an interesting file"
+
+        prompt = build_brain_context(
+            self.context,
+            runtime_actions=BRAIN_RUNTIME_ACTIONS,
+            user_input=current_user,
+        )
+
+        previous_start = prompt.index("<PREVIOUS_CHAT_MESSAGES>")
+        previous_end = prompt.index("</PREVIOUS_CHAT_MESSAGES>", previous_start)
+        previous_chat = prompt[previous_start:previous_end]
+        self.assertNotIn(current_user, previous_chat)
 
     def test_pinned_report_and_only_its_facts_on_every_followup(self):
         self.memories(pinned=True)
@@ -272,9 +325,9 @@ class ProjectReviewTests(unittest.TestCase):
         self.assertEqual(len(self.context.runtime_tool_results), 4)
         prompt = build_tool_results_context(self.context)
         self.assertIn("README.md", prompt)
-        self.assertIn("<FILE_CONTENT: src/main.py >", prompt)
-        read_result = prompt.index('Action: project_read')
-        source_block = prompt.index('<FILE_CONTENT: src/main.py >')
+        self.assertIn('<FILE_CONTENT: main.py#2-3 >', prompt)
+        read_result = prompt.index(f'File: {self.project.name}/src/main.py#2-3')
+        source_block = prompt.index('<FILE_CONTENT: main.py#2-3 >')
         read_close = prompt.index('</TOOL_RESULT>', read_result)
         self.assertLess(read_result, source_block)
         self.assertLess(source_block, read_close)

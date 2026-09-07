@@ -909,6 +909,9 @@ def _normalize_session_action_display_parts(
             "text": part_text,
         }
 
+        if isinstance(part, dict) and part.get("tool_ids"):
+            normalized_part["tool_ids"] = list(part["tool_ids"])
+
         if detail:
             normalized_part["detail"] = detail
 
@@ -1050,6 +1053,9 @@ def _format_session_action_display_part(
         pass
     elif detail:
         text = f"{text} - {detail}"
+
+    if normalized_part.get("tool_ids"):
+        text += " [ tool_id: " + ", ".join(normalized_part["tool_ids"]) + " ]"
 
     return format_runtime_action_count(
         text,
@@ -1759,6 +1765,7 @@ def _build_formatted_session_action_marker_parts(
             normalized_name in {
                 "UPDATE_ACTIVE_MEMORY",
                 "RECALL_FACT_CONTEXT",
+                "CLEAN_TOOL_RESULTS",
             }
             or (
                 marker_status == "failed"
@@ -1970,7 +1977,7 @@ def _build_formatted_session_action_marker_parts(
                 "status"
             ) == "failed"
             and (
-                action_name == "UPDATE_ACTIVE_MEMORY"
+                action_name in {"UPDATE_ACTIVE_MEMORY", "CLEAN_TOOL_RESULTS"}
                 or str(
                     group.get(
                         "failure_reason",
@@ -2441,6 +2448,7 @@ def _apply_session_action_runtime_outcomes(
             event_name not in {
                 "update_active_memory",
                 "recall_fact_context",
+                "clean_tool_results",
             }
             and not restricted_write_failure
         ):
@@ -2549,6 +2557,8 @@ def _apply_session_action_runtime_outcomes(
                 )
                 or ""
             ).strip()
+            if marker_name == "CLEAN_TOOL_RESULTS" and event_payload not in (marker_payloads or {""}):
+                continue
             if (
                 marker_payloads
                 and event_payload
@@ -2610,6 +2620,7 @@ def replace_session_action_history_since(
             marker_actions
         )
     )
+    _add_tool_ids_to_history_parts(context, marker_actions, formatted_marker_parts)
     formatted_marker_names = ", ".join(
         formatted_part
         for formatted_part in (
@@ -2695,6 +2706,7 @@ def upsert_session_action_marker_history_since(
             marker_actions
         )
     )
+    _add_tool_ids_to_history_parts(context, marker_actions, formatted_marker_parts)
     formatted_marker_names = ", ".join(
         formatted_part
         for formatted_part in (
@@ -3246,3 +3258,74 @@ def mark_current_action_sequence(
         )
 
     return runtime_turn_id
+
+
+def _add_tool_ids_to_history_parts(context, marker_actions, parts):
+    """Project result IDs from the exact action occurrences represented here."""
+    turn_id = get_current_action_sequence_turn_id(context)
+    events = [
+        (index, event)
+        for index, event in enumerate(
+            getattr(context, "runtime_action_events", []) or []
+        )
+        if event.get("tool_id")
+        and (not turn_id or event.get("runtime_turn_id") == turn_id)
+    ]
+    allowed = {}
+    for marker in marker_actions or []:
+        if not isinstance(marker, dict):
+            continue
+        name = str(marker.get("name", "")).upper()
+        payloads = marker.get("raw_payloads", marker.get("payloads", [])) or []
+        if isinstance(payloads, str):
+            payloads = [payloads]
+        allowed.setdefault(name, set()).update(str(p).strip() for p in payloads)
+        if marker.get("payload"):
+            allowed[name].add(str(marker["payload"]).strip())
+
+    # Follow-ups can execute the same marker repeatedly under one runtime turn.
+    # Consume only the newest matching occurrences needed by these fresh parts;
+    # otherwise old IDs leak forward and every new row grows T9,T10,T11,... .
+    consumed_event_indexes = set()
+    for part in reversed(parts):
+        name = part["text"].split(":", 1)[0].upper()
+        candidates = [
+            (index, event)
+            for index, event in events
+            if index not in consumed_event_indexes
+            and str(event.get("name", "")).upper() == name
+            and (
+                not allowed.get(name)
+                or str(event.get("payload", "")).strip() in allowed[name]
+            )
+        ]
+        if name == "CLEAN_TOOL_RESULTS":
+            failed = part["text"].lower().endswith(":failed")
+            candidates = [
+                (index, event)
+                for index, event in candidates
+                if (event.get("status") == "failed") == failed
+            ]
+        if name in {"ATTACH_FILE", "DETACH_FILE", "LOAD_SKILL", "UNLOAD_SKILL"}:
+            identities = {
+                str(part.get("id") or "").strip(),
+                str(part.get("detail") or "").strip(),
+                str(part["text"].partition(": ")[2] or "").strip(),
+            }
+            identities.discard("")
+            if identities:
+                candidates = [
+                    (index, event)
+                    for index, event in candidates
+                    if str(event.get("payload", "")).strip() in identities
+                ]
+
+        try:
+            occurrence_count = max(1, int(part.get("count", 1) or 1))
+        except (TypeError, ValueError):
+            occurrence_count = 1
+
+        selected = candidates[-occurrence_count:]
+        if selected:
+            part["tool_ids"] = [event["tool_id"] for _index, event in selected]
+            consumed_event_indexes.update(index for index, _event in selected)

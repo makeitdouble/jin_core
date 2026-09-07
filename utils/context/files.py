@@ -1,4 +1,5 @@
 """One file-content projection; existing tool records own project read snapshots."""
+import re
 from xml.sax.saxutils import escape
 
 from utils import attached_files_store as files
@@ -10,6 +11,31 @@ def project_file_ref(result):
     if result.get("action") != "project_read" and result.get("source") != "project":
         return ""
     return str(result.get("file_ref") or f"{result.get('attachment', '')}/{result.get('path', '')}")
+
+
+def project_file_load_key(result):
+    """Identity of one loaded project source block, including its requested window."""
+    ref = project_file_ref(result)
+    if not ref:
+        return None
+    return ref, _requested_line_range(result)
+
+
+def project_file_display_ref(result):
+    """Visible folder-rooted path for prompt/UI text; internal file_ref stays id-based."""
+    if not isinstance(result, dict):
+        return ""
+    value = str(result.get("display_ref") or "").strip()
+    if value:
+        return value
+    relative = str(result.get("path") or "").strip().replace("\\", "/").lstrip("/")
+    project_name = str(result.get("project_name") or "").strip().rstrip("/")
+    if not project_name:
+        record = files.get_file_record(result.get("attachment", ""))
+        project_name = files.file_display_name(record["name"]) if record else ""
+    if project_name:
+        return f"{project_name}/{relative}" if relative and relative != "." else project_name
+    return relative or project_file_ref(result)
 
 
 def _project_results(context, *, mirrors=False):
@@ -30,21 +56,54 @@ def loaded_project_files(context):
     seen = set()
     for result in _project_results(context):
         ref = project_file_ref(result)
+        load_key = project_file_load_key(result)
         if (result.get("ok") is False or result.get("loaded") is False
-                or "content" not in result or ref.split("/", 1)[0] not in active or ref in seen):
+                or "content" not in result or ref.split("/", 1)[0] not in active
+                or load_key in seen):
             continue
-        seen.add(ref)
+        seen.add(load_key)
         yield result
 
 
-def loaded_file_ref(context, *, reference="", sha256=""):
+def loaded_file_ref(
+    context,
+    *,
+    reference="",
+    sha256="",
+    requested_start=None,
+    requested_end=None,
+    exclude_reference="",
+):
+    requested_range = None
+    if requested_start is not None:
+        try:
+            requested_range = int(requested_start), int(requested_end)
+        except (TypeError, ValueError):
+            requested_range = None
     for file_id in getattr(context, "runtime_attached_file_ids", []) or []:
         record = files.get_file_record(file_id)
-        if record and (reference == file_id or (sha256 and record.get("sha256") == sha256)):
+        if record and (
+            reference == file_id
+            or (
+                sha256
+                and file_id != exclude_reference
+                and record.get("sha256") == sha256
+            )
+        ):
             return file_id
     for result in loaded_project_files(context):
         ref = project_file_ref(result)
-        if reference == ref or (sha256 and result.get("source_sha256") == sha256):
+        if reference == ref:
+            # A project file may own several simultaneously loaded source
+            # windows. Only the exact requested window is a duplicate.
+            if requested_range is None or _requested_line_range(result) == requested_range:
+                return ref
+            continue
+        if (
+            sha256
+            and ref != exclude_reference
+            and result.get("source_sha256") == sha256
+        ):
             return ref
     return ""
 
@@ -60,6 +119,77 @@ def _requested_line_range(result):
     if start <= 0 or end < start:
         return None
     return start, end
+
+
+def _loaded_line_range(result):
+    """Actual source lines owned by one loaded project result."""
+    if not isinstance(result, dict):
+        return None
+    try:
+        start = int(result.get("loaded_start"))
+        end = int(result.get("loaded_end"))
+    except (TypeError, ValueError):
+        start = end = 0
+    if start > 0 and end >= start:
+        return start, end
+
+    # Backward compatibility for already-persisted project reads created
+    # before loaded_start/loaded_end existed. ``range`` records the actual
+    # emitted window and is safer than requested_end when the 24K output
+    # budget stopped a read before the requested line boundary.
+    match = re.fullmatch(
+        r"\s*(\d+)-(\d+)\s+of\s+\d+\s+lines\s*",
+        str(result.get("range") or ""),
+    )
+    if match:
+        start, end = int(match.group(1)), int(match.group(2))
+        if start > 0 and end >= start:
+            return start, end
+
+    return _requested_line_range(result)
+
+
+def project_file_content_label(result) -> str:
+    """Compact FILE_CONTENT label: basename plus the actual loaded line window."""
+    display_ref = project_file_display_ref(result) or project_file_ref(result)
+    normalized = str(display_ref or "").strip().replace("\\", "/").rstrip("/")
+    basename = normalized.rsplit("/", 1)[-1] if normalized else "file"
+    loaded_range = _loaded_line_range(result)
+    if loaded_range is None:
+        return basename
+    return f"{basename}#{loaded_range[0]}-{loaded_range[1]}"
+
+
+def project_file_action_label(result) -> str:
+    """Full folder-rooted path plus the actual loaded line window."""
+    display_ref = project_file_display_ref(result) or project_file_ref(result)
+    normalized = str(display_ref or "").strip().replace("\\", "/")
+    loaded_range = _loaded_line_range(result)
+    if loaded_range is None:
+        return normalized
+    return f"{normalized}#{loaded_range[0]}-{loaded_range[1]}"
+
+
+def next_project_file_unread_start(context, reference) -> int:
+    """Return the first unread line in the contiguous prefix of one file."""
+    normalized_ref = str(reference or "").strip()
+    next_line = 1
+    ranges = []
+    for result in loaded_project_files(context):
+        if project_file_ref(result) != normalized_ref:
+            continue
+        loaded_range = _loaded_line_range(result)
+        if loaded_range is not None:
+            ranges.append(loaded_range)
+
+    for start, end in sorted(ranges):
+        if end < next_line:
+            continue
+        if start > next_line:
+            break
+        next_line = end + 1
+
+    return next_line
 
 
 def _matches_requested_line_range(result, start=None, end=None):
@@ -175,13 +305,15 @@ def build_file_contents_context(context, *, max_text_chars=None):
         blocks.append(format_file_content(name, visible))
     for result in loaded_project_files(context):
         ref = project_file_ref(result)
+        load_key = project_file_load_key(result)
         digest = result.get("source_sha256")
-        if ref in seen or (digest and digest in hashes):
+        # Different requested windows of the same project file are different
+        # source blocks. Keep hash de-dupe only against persistent attachments;
+        # project/project duplicates are handled by load_key instead.
+        if load_key in seen or (digest and digest in hashes):
             continue
-        seen.add(ref)
-        if digest:
-            hashes.add(digest)
-        blocks.append(format_file_content(result.get("path") or ref, result["content"]))
+        seen.add(load_key)
+        blocks.append(format_file_content(project_file_content_label(result), result["content"]))
     return "\n\n".join(blocks)
 
 

@@ -14,17 +14,17 @@
     },
     "schema": [
       "<ASSET_ACTION>",
-      "{\"action\":\"project_tree\",\"attachment\":\"attached .jin-folder file id\",\"path\":\".\",\"depth\":3,\"offset\":0,\"limit\":100}",
+      "{\"action\":\"project_tree\",\"attachment\":\"attached folder name or selector id\",\"path\":\".\",\"depth\":3,\"offset\":0,\"limit\":100}",
       "</ASSET_ACTION>",
-      "Or: {\"action\":\"project_search\",\"attachment\":\"attached .jin-folder file id\",\"path\":\".\",\"query\":\"literal text\",\"offset\":0,\"limit\":100}",
+      "Or: {\"action\":\"project_search\",\"attachment\":\"attached folder name or selector id\",\"path\":\".\",\"query\":\"literal text\",\"offset\":0,\"limit\":100}",
       "Other asset action schemas come from LOADED_SKILLS_CONTENT."
     ],
     "rules": [
-      "Project actions read a local folder linked by the user. attachment is the .jin-folder file ID shown in PROJECT_REVIEW (not a source file ID or folder name); omit it only when exactly one folder is attached. path is a directory relative to that project root: \".\" means the root, \"src\" means its src subfolder. Never use an absolute path.",
-      "project_tree lists file/folder paths, not file contents. depth 1 lists direct children; depth 1..20 is allowed (default 3). Returned paths are always relative to the project root, even when path selects a subfolder.",
-      "project_search searches file contents, not filenames. query is literal text, case-insensitive, not regex. Each result is path:line_number:source_text; line numbers start at 1. Multiple matching lines in one file count as multiple results.",
+      "Project actions read a local folder linked by the user. attachment selects the project and may be the visible folder name shown in PROJECT_REVIEW or its ASSET_ACTION selector id; omit it when exactly one folder is attached. attachment is metadata, never a file-path root. path may be relative to the selected folder (\".\", \"src\") or use the visible folder root (\"jin_core/src\"); never use an absolute filesystem path.",
+      "project_tree lists file/folder paths, not file contents. depth 1 lists direct children; depth 1..20 is allowed (default 3). Returned paths are always rooted at the visible attached-folder name, e.g. jin_core/docs/ and jin_core/docs/file.md.",
+      "project_search searches file contents, not filenames. query is literal text, case-insensitive, not regex. Each result is folder-rooted-path:line_number:source_text; line numbers start at 1. Multiple matching lines in one file count as multiple results.",
       "offset is the number of results to skip (default 0), not a line number or scan position. limit is the maximum number of returned paths or matching lines (default 100, allowed 1..200). For a next page, use the returned offset and keep the other inputs unchanged. A scan stop means unsearched files may remain: use smaller subfolders with offset 0. A larger limit or offset does not extend the scan.",
-      "Tree/search do not load source files. To inspect a match, use ATTACH_FILE with folder_id/relative/path#Lstart-Lend, choosing lines around the match. Use DETACH_FILE to unload it. Search reads UTF-8 text files up to 1 MiB; tree/search skip generated/dependency folders and symlinks. Skipped files/folders are not skipped matches.",
+      "Tree/search do not load source files. To inspect a match, copy the returned folder-rooted path into ATTACH_FILE, optionally with #Lstart-Lend. Use the same path with DETACH_FILE. Search reads UTF-8 text files up to 1 MiB; tree/search skip generated/dependency folders and symlinks. Skipped files/folders are not skipped matches.",
       "During project review only user-pinned DELAYED reports and their facts are context. Ordinary memory save/update actions remain available. Keep folder links attached unless the user asks to detach.",
       "For other ASSET_ACTION operations, derive concrete schema from LOADED_SKILLS_CONTENT."
     ],

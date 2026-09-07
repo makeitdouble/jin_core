@@ -490,6 +490,12 @@ function getInternalActionLogKey(
     "UNLOAD_SKILLS",
     "LOAD_DELAYED_MEMORY",
     "UNLOAD_DELAYED_MEMORY",
+    // Attachment actions are payload-distinct too. In particular, the hidden
+    // session-restore replay may emit an ATTACH_FILE after a real model
+    // ATTACH_FILE in the same turn; sharing one logger key made the restore
+    // entry overwrite the real success/failure log.
+    "ATTACH_FILE",
+    "DETACH_FILE",
   ].includes(normalizedActionName);
   const instanceKey = keepActionInstanceSeparate
     ? String(
@@ -695,6 +701,15 @@ function log_internal_action(
     return;
   }
 
+  // Restore replay reconstructs browser/session state through the real action
+  // dispatcher, but it is not a model-emitted action. Keep it out of the
+  // green ACTION log so it cannot masquerade as, or overwrite, the actual
+  // action that triggered this turn. Runtime/session restore logs still show
+  // the reconstruction itself.
+  if (data.restore_replay === true) {
+    return;
+  }
+
   const title =
     `[ ACTION : ${prettifyInternalActionName(actionName)} ]`;
   const updateLTMessage =
@@ -709,11 +724,35 @@ function log_internal_action(
         data
       )
       : "";
-  const text =
+  const baseText =
     updateLTMessage
     || String(
       data.text || data.query || ""
     ).trim();
+  const status =
+    String(data.status || "").toLowerCase();
+  const attachmentFailureDetail =
+    status === "failed"
+    && [
+      "ATTACH_FILE",
+      "DETACH_FILE",
+    ].includes(actionName)
+      ? String(
+        (
+          data.attachment_result
+          && data.attachment_result.detail
+        )
+        || data.error
+        || ""
+      ).trim()
+      : "";
+  const text =
+    attachmentFailureDetail
+      ? (
+        `${baseText || actionName}\n`
+        + `FAILED: ${attachmentFailureDetail}`
+      )
+      : baseText;
   const payload =
     getInternalActionPayload(
       data
@@ -732,14 +771,14 @@ function log_internal_action(
     "LOAD_SKILLS",
   ].includes(actionName);
   const cancelledByUser =
-    String(data.status || "").toLowerCase() === "failed"
+    status === "failed"
     && Boolean(
       data.confirmation_id
       || data.guard_confirmation_id
     )
     && /\bcancelled\s*$/i.test(text);
   const abortedByUser =
-    String(data.status || "").toLowerCase() === "aborted";
+    status === "aborted";
   const actionLogKey =
     getInternalActionLogKey(
       actionName,

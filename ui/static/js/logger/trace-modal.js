@@ -2532,6 +2532,25 @@ function parseContextAttributes(raw) {
   return attributes;
 }
 
+function getContextAttributeValue(attributes, name) {
+  const prefix = `${String(name || "").trim()}=`;
+  const attribute = (Array.isArray(attributes) ? attributes : [])
+    .find((value) => String(value || "").startsWith(prefix));
+
+  return attribute
+    ? String(attribute).slice(prefix.length)
+    : "";
+}
+
+function parseContextToolResultAge(raw) {
+  const match = String(raw || "")
+    .match(/\(\s*([^()]*(?:ago))\s*\)\s*$/i);
+
+  return match
+    ? String(match[1] || "").trim()
+    : "";
+}
+
 function parseContextRuntimeActionMarkerTitle(
   line,
   nextLine,
@@ -2698,14 +2717,20 @@ function parseContextBlocks(text) {
     }
 
     flushPlain();
+    const attributes =
+      parseContextAttributes(open[2]);
+    const toolResultAge =
+      String(open[1] || "").toUpperCase() === "TOOL_RESULT"
+        ? parseContextToolResultAge(open[2])
+        : "";
     blocks.push({
       title: fileOpen ? `FILE_CONTENT: ${fileOpen[1]}` : open[1],
-      attributes:
-        parseContextAttributes(open[2]),
+      attributes,
       content:
         fileOpen ? lines.slice(i + 1, close).join("\n")
           : lines.slice(i + 1, close).join("\n").trim(),
       xml: true,
+      metaLabel: toolResultAge,
     });
     i = close;
   }
@@ -3416,6 +3441,223 @@ function syncContextDelayedMemoryRows(reportId = "") {
   });
 }
 
+function parseContextLoadedDelayedMemory(content) {
+  const text = decodeContextEntities(content).trim();
+
+  if (!text) {
+    return null;
+  }
+
+  try {
+    const parsed = JSON.parse(text);
+
+    return (
+      parsed
+      && typeof parsed === "object"
+      && !Array.isArray(parsed)
+    )
+      ? parsed
+      : null;
+  } catch (_) {
+    return null;
+  }
+}
+
+function renderContextLoadedDelayedMemoryBody(
+  parent,
+  content
+) {
+  const report =
+    parseContextLoadedDelayedMemory(content);
+
+  if (!report) {
+    parent.appendChild(
+      contextElement(
+        "pre",
+        "jin-context-raw",
+        decodeContextEntities(content)
+      )
+    );
+    return;
+  }
+
+  const layout =
+    contextElement(
+      "div",
+      "jin-context-loaded-memory"
+    );
+
+  const appendRow = (
+    key,
+    value,
+    valueClass = ""
+  ) => {
+    const text = String(value ?? "").trim();
+
+    if (!text) {
+      return;
+    }
+
+    const row =
+      contextElement(
+        "div",
+        "jin-context-loaded-memory-row"
+      );
+    const valueNode =
+      contextElement(
+        "div",
+        `jin-context-loaded-memory-value ${valueClass}`.trim(),
+        text
+      );
+
+    row.appendChild(
+      contextElement(
+        "div",
+        "jin-context-loaded-memory-key",
+        key
+      )
+    );
+    row.appendChild(valueNode);
+    layout.appendChild(row);
+  };
+
+  const titleRow =
+    contextElement(
+      "div",
+      "jin-context-loaded-memory-row jin-context-loaded-memory-title-row"
+    );
+  const titleValue =
+    contextElement(
+      "div",
+      "jin-context-loaded-memory-value jin-context-loaded-memory-title"
+    );
+  const titleText =
+    String(report.title || "").trim();
+  const reportId =
+    String(report.id || "").trim();
+
+  titleRow.appendChild(
+    contextElement(
+      "div",
+      "jin-context-loaded-memory-key",
+      "title"
+    )
+  );
+
+  if (titleText) {
+    titleValue.appendChild(
+      document.createTextNode(titleText)
+    );
+  } else {
+    titleValue.appendChild(
+      contextElement(
+        "span",
+        "jin-context-loaded-memory-empty-value",
+        "<empty>"
+      )
+    );
+  }
+
+  if (reportId) {
+    titleValue.appendChild(
+      contextElement(
+        "span",
+        "jin-context-loaded-memory-id",
+        `id ${reportId}`
+      )
+    );
+  }
+
+  titleRow.appendChild(titleValue);
+  layout.appendChild(titleRow);
+
+  appendRow(
+    "summary",
+    report.summary
+  );
+
+  const tags = Array.isArray(report.tags)
+    ? report.tags
+        .map(tag => String(tag ?? "").trim())
+        .filter(Boolean)
+    : [];
+
+  if (tags.length) {
+    const row =
+      contextElement(
+        "div",
+        "jin-context-loaded-memory-row"
+      );
+    const tagList =
+      contextElement(
+        "div",
+        "jin-context-loaded-memory-tags"
+      );
+
+    row.appendChild(
+      contextElement(
+        "div",
+        "jin-context-loaded-memory-key",
+        "tags"
+      )
+    );
+    tags.forEach((tag) => {
+      tagList.appendChild(
+        contextElement(
+          "span",
+          "jin-context-loaded-memory-tag",
+          tag
+        )
+      );
+    });
+    row.appendChild(tagList);
+    layout.appendChild(row);
+  }
+
+  const attachmentIds = Array.isArray(report.attachments_ids)
+    ? report.attachments_ids
+        .map(id => String(id ?? "").trim())
+        .filter(Boolean)
+    : [];
+
+  if (attachmentIds.length) {
+    appendRow(
+      "attachments",
+      attachmentIds.join(", "),
+      "jin-context-loaded-memory-attachments"
+    );
+  }
+
+  const bodyText =
+    String(report.body ?? "").trim();
+
+  if (bodyText) {
+    const bodySection =
+      contextElement(
+        "div",
+        "jin-context-loaded-memory-body"
+      );
+
+    bodySection.appendChild(
+      contextElement(
+        "div",
+        "jin-context-loaded-memory-body-label",
+        "body"
+      )
+    );
+    bodySection.appendChild(
+      contextElement(
+        "div",
+        "jin-context-loaded-memory-body-text",
+        bodyText
+      )
+    );
+    layout.appendChild(bodySection);
+  }
+
+  parent.appendChild(layout);
+}
+
 function renderContextDelayedMemoryBody(
   parent,
   content
@@ -3933,6 +4175,125 @@ function renderContextBody(parent, content, minimumFields = 2) {
   );
 }
 
+function decodeContextEntities(value) {
+  return String(value || "")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&amp;/g, "&");
+}
+
+function renderContextToolResultBody(parent, content) {
+  const blocks = parseContextBlocks(content);
+  const hasNestedXml = blocks.some((block) => Boolean(block.xml));
+
+  if (!hasNestedXml) {
+    parent.appendChild(
+      contextElement(
+        "pre",
+        "jin-context-raw",
+        decodeContextEntities(content)
+      )
+    );
+    return;
+  }
+
+  const stack = contextElement(
+    "div",
+    "jin-context-stack jin-context-tool-result-content-stack"
+  );
+
+  blocks.forEach((block) => {
+    if (block.xml) {
+      appendContextCard(stack, block);
+      return;
+    }
+
+    const text = decodeContextEntities(block.content).trim();
+    if (!text) return;
+
+    stack.appendChild(
+      contextElement(
+        "pre",
+        "jin-context-raw",
+        text
+      )
+    );
+  });
+
+  parent.appendChild(stack);
+}
+
+function contextToolResultFileTitleSuffix(content, toolName) {
+  if (String(toolName || "").trim().toUpperCase() !== "ATTACH_FILE") {
+    return "";
+  }
+
+  const decoded = decodeContextEntities(content);
+  const fileMatch = decoded.match(/^\s*File:\s*(.+?)\s*$/m);
+  if (!fileMatch) return "";
+
+  const filePath = String(fileMatch[1] || "").trim();
+  if (/#\d+-\d+$/.test(filePath)) return filePath;
+
+  const rangeMatch = decoded.match(/^\s*File lines:\s*(\d+)-(\d+)\s+of\b.*$/m);
+  if (!rangeMatch) return filePath;
+
+  return `${filePath}#${rangeMatch[1]}-${rangeMatch[2]}`;
+}
+
+
+function renderContextToolResultsBody(parent, content) {
+  const resultBlocks = parseContextBlocks(content)
+    .filter((block) => String(block.title || "").trim().toUpperCase() === "TOOL_RESULT");
+
+  if (!resultBlocks.length) {
+    parent.appendChild(
+      contextElement(
+        "pre",
+        "jin-context-raw",
+        decodeContextEntities(content)
+      )
+    );
+    return;
+  }
+
+  const stack = contextElement(
+    "div",
+    "jin-context-stack jin-context-tool-results-stack"
+  );
+
+  resultBlocks.forEach((block) => {
+    const toolId = getContextAttributeValue(block.attributes, "tool_id");
+    const toolName = getContextAttributeValue(block.attributes, "name");
+    const attributes = block.attributes.filter((attribute) => (
+      !String(attribute || "").startsWith("tool_id=")
+      && !String(attribute || "").startsWith("name=")
+    ));
+    const fileSuffix = contextToolResultFileTitleSuffix(
+      block.content,
+      toolName
+    );
+    const displayToolName = fileSuffix
+      ? `${toolName || "TOOL_RESULT"}: ${fileSuffix}`
+      : (toolName || "TOOL_RESULT");
+    const title = [toolId, displayToolName]
+      .filter(Boolean)
+      .join(" · ");
+
+    appendContextCard(
+      stack,
+      {
+        ...block,
+        title,
+        attributes,
+        renderBody: (body) => renderContextToolResultBody(body, block.content),
+      }
+    );
+  });
+
+  parent.appendChild(stack);
+}
+
 function setContextCardCollapsed(
   card,
   collapsed,
@@ -4093,12 +4454,19 @@ function appendContextCard(
 
   if (typeof block.renderBody === "function") {
     block.renderBody(body);
-  } else if (normalizedBlockTitle === "TOOLS_RESULTS" || normalizedBlockTitle.startsWith("FILE_CONTENT:")) {
-    const text = normalizedBlockTitle === "TOOLS_RESULTS"
-      ? parseContextBlocks(block.content).map((result) => result.content).join("\n\n")
-      : block.content;
-    const sourceText = String(text || "").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&amp;/g, "&");
-    body.appendChild(contextElement("pre", "jin-context-raw", sourceText));
+  } else if (normalizedBlockTitle === "TOOLS_RESULTS") {
+    renderContextToolResultsBody(
+      body,
+      block.content
+    );
+  } else if (normalizedBlockTitle.startsWith("FILE_CONTENT:")) {
+    body.appendChild(
+      contextElement(
+        "pre",
+        "jin-context-raw",
+        decodeContextEntities(block.content)
+      )
+    );
   } else if (normalizedBlockTitle === "LONG_TERM_MEMORY") {
     renderContextLongTermMemoryBody(
       body,
@@ -4106,6 +4474,11 @@ function appendContextCard(
     );
   } else if (normalizedBlockTitle === "DELAYED_MEMORY") {
     renderContextDelayedMemoryBody(
+      body,
+      block.content
+    );
+  } else if (normalizedBlockTitle === "LOADED_DELAYED_MEMORY") {
+    renderContextLoadedDelayedMemoryBody(
       body,
       block.content
     );

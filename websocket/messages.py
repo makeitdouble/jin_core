@@ -69,6 +69,7 @@ from .attachments import (
 from .bootstrap import (
     apply_active_memory_records,
     attach_user_idle_to_initial_runtime_snapshot,
+    discard_session_restore_continuation_state,
 )
 
 
@@ -1132,6 +1133,7 @@ def discard_latest_visible_turn_for_user_retry(
     # The previous reasoning belongs to the discarded answer and must not be
     # re-injected beside the explicit retry marker.
     context.runtime_previous_reasoning_content = ""
+    context.runtime_previous_reasoning_from_session_restore = False
     context.runtime_previous_reasoning_loop_contents = []
 
     return previous_turn
@@ -1306,6 +1308,30 @@ async def process_message(
                 False,
             )
         )
+
+        # A real USER turn supersedes an unfinished hidden restore tick. This
+        # is the race-safe fallback for Stop -> immediate new task.
+        if (
+            message_data.get("type", "message") == "message"
+            and not is_session_restore_resume
+        ):
+            unfinished_restore = bool(
+                getattr(
+                    context,
+                    "runtime_session_restore_priming",
+                    False,
+                )
+                or getattr(
+                    context,
+                    "runtime_restored_session_dialog",
+                    "",
+                )
+            )
+            discard_session_restore_continuation_state(
+                context,
+                drop_previous_actions=unfinished_restore,
+            )
+
         is_user_retry = bool(
             message_data.get("type") == "retry_last_response"
         )

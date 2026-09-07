@@ -371,7 +371,7 @@ Current code uses 333 ms reveal and 1000 ms hide. This mismatch is documented, n
 
 **Status:** Accepted / implemented
 
-Successful cleanup persists `session_snapshot.tool_results = []` in the existing browser checkpoint. That explicit empty value is authoritative during predecessor bootstrap and must not be repopulated from older archived tool results.
+Full cleanup persists `session_snapshot.tool_results = []` in the existing browser checkpoint. Targeted `<CLEAN_TOOL_RESULTS: T1 >` persists the remaining results instead. New results have increasing temporary `tool_id` values, also retained in action history; the counter survives cleanup/bootstrap. Legacy results remain ID-less and require full cleanup. An invalid target fails visibly without clearing any existing result. That explicit empty value is authoritative during predecessor bootstrap and must not be repopulated from older archived tool results.
 
 The cleanup must preserve the checkpoint's `saved_at`, lineage, and unrelated fields. `saved_at` is the freshness boundary used to decide whether archived dialogue/reasoning/session-actions/files are safe to mix into browser state; touching it for one cleared field can suppress the rest of bootstrap.
 

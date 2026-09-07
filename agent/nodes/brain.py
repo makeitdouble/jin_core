@@ -401,16 +401,29 @@ async def replay_session_restore_resource_actions(
     if not actions:
         return 0
 
-    return await apply_runtime_action_calls(
-        context,
-        actions,
-        context_snapshot=(
-            context_snapshot
-            if isinstance(context_snapshot, dict)
-            else None
-        ),
-        assistant_message=assistant_message,
+    previous_restore_replay = bool(
+        getattr(
+            context,
+            "runtime_session_restore_replay_in_progress",
+            False,
+        )
     )
+    context.runtime_session_restore_replay_in_progress = True
+    try:
+        return await apply_runtime_action_calls(
+            context,
+            actions,
+            context_snapshot=(
+                context_snapshot
+                if isinstance(context_snapshot, dict)
+                else None
+            ),
+            assistant_message=assistant_message,
+        )
+    finally:
+        context.runtime_session_restore_replay_in_progress = (
+            previous_restore_replay
+        )
 
 
 def action_batch_requires_follow_up(
@@ -659,6 +672,8 @@ def remember_recovery_reasoning_for_followup(
 def remember_successful_previous_reasoning(
         context,
         reasoning,
+        *,
+        from_session_restore: bool = False,
 ) -> None:
 
     if context is None:
@@ -687,6 +702,9 @@ def remember_successful_previous_reasoning(
         _normalize_previous_reasoning_content(
             reasoning
         )
+    )
+    context.runtime_previous_reasoning_from_session_restore = bool(
+        from_session_restore
     )
     context.runtime_previous_reasoning_loop_contents = []
 
@@ -1988,13 +2006,28 @@ class BrainNode(BaseNode):
             state.brain_response = text or ""
             return
 
-        restore_replay_asset_result_offset = 0
-        restore_replay_delayed_memory_result_offset = 0
+        restore_replay_action_event_ids = set()
+        restore_replay_tool_result_ids = set()
+        restore_replay_asset_result_ids = set()
+        restore_replay_delayed_memory_result_ids = set()
 
         if state.metadata.get(
             "session_restore_resume",
             False,
         ):
+            action_events_before_replay = len(
+                getattr(context, "runtime_action_events", []) or []
+            )
+            tool_results_before_replay = len(
+                getattr(context, "runtime_tool_results", []) or []
+            )
+            asset_results_before_replay = len(
+                getattr(context, "runtime_asset_results", []) or []
+            )
+            delayed_results_before_replay = len(
+                getattr(context, "runtime_delayed_memory_results", []) or []
+            )
+
             replayed_restore_actions = await replay_session_restore_resource_actions(
                 context,
                 assistant_message=text or "",
@@ -2006,49 +2039,39 @@ class BrainNode(BaseNode):
             )
 
             if replayed_restore_actions:
-                # ATTACH_FILE / LOAD_DELAYED_MEMORY replay after the very first
-                # restored JIN message is state reconstruction, not a new model
-                # decision. Run the real action dispatcher (bubbles,
-                # tool results, pinning, etc.) but consume its action/results as
-                # already handled so the follow-up scheduler cannot fire even
-                # when the normal runtime contract says emit_followup=true.
-                # The next user/model turn takes fresh offsets and goes back to
-                # ordinary contract-driven behavior automatically.
-                runtime_action_event_offset = len(
-                    getattr(
-                        context,
-                        "runtime_action_events",
-                        [],
-                    )
-                    or []
-                )
-                runtime_tool_result_followup_offset = len(
-                    getattr(
-                        context,
-                        "runtime_tool_results",
-                        [],
-                    )
-                    or []
-                )
-                restore_replay_asset_result_offset = len(
-                    getattr(
-                        context,
-                        "runtime_asset_results",
-                        [],
-                    )
-                    or []
-                )
-                restore_replay_delayed_memory_result_offset = len(
-                    getattr(
-                        context,
-                        "runtime_delayed_memory_results",
-                        [],
-                    )
-                    or []
-                )
+                # Restore replay is state reconstruction, not a model decision.
+                # Exclude only records produced by the synthetic replay from
+                # follow-up scheduling. Do not advance the global offsets here:
+                # the initial restored answer may itself have emitted a real
+                # ATTACH_FILE/ASSET_ACTION and that result still needs its normal
+                # contract-driven follow-up.
+                restore_replay_action_event_ids = {
+                    id(item)
+                    for item in (
+                        getattr(context, "runtime_action_events", []) or []
+                    )[action_events_before_replay:]
+                }
+                restore_replay_tool_result_ids = {
+                    id(item)
+                    for item in (
+                        getattr(context, "runtime_tool_results", []) or []
+                    )[tool_results_before_replay:]
+                }
+                restore_replay_asset_result_ids = {
+                    id(item)
+                    for item in (
+                        getattr(context, "runtime_asset_results", []) or []
+                    )[asset_results_before_replay:]
+                }
+                restore_replay_delayed_memory_result_ids = {
+                    id(item)
+                    for item in (
+                        getattr(context, "runtime_delayed_memory_results", []) or []
+                    )[delayed_results_before_replay:]
+                }
 
-        asset_result_offset = restore_replay_asset_result_offset
-        delayed_memory_result_offset = restore_replay_delayed_memory_result_offset
+        asset_result_offset = 0
+        delayed_memory_result_offset = 0
         followup_count = 0
         max_followups = max(
             1,
@@ -2128,6 +2151,8 @@ class BrainNode(BaseNode):
             for entry in tool_results[
                 runtime_tool_result_followup_offset:
             ]:
+                if id(entry) in restore_replay_tool_result_ids:
+                    continue
                 if (
                     not isinstance(entry, dict)
                     or entry.get("kind") != TOOL_RESULT_KIND_ASSET
@@ -2177,8 +2202,9 @@ class BrainNode(BaseNode):
                 for event in runtime_action_events[
                     action_event_followup_offset:
                 ]
-                if belongs_to_current_turn(
-                    event
+                if (
+                    id(event) not in restore_replay_action_event_ids
+                    and belongs_to_current_turn(event)
                 )
             ]
 
@@ -2215,8 +2241,9 @@ class BrainNode(BaseNode):
                     "runtime_asset_results",
                     [],
                 )
-                if belongs_to_current_turn(
-                    result
+                if (
+                    id(result) not in restore_replay_asset_result_ids
+                    and belongs_to_current_turn(result)
                 )
             ]
             asset_result_offset = len(
@@ -2230,8 +2257,9 @@ class BrainNode(BaseNode):
                     "runtime_delayed_memory_results",
                     [],
                 )
-                if belongs_to_current_turn(
-                    result
+                if (
+                    id(result) not in restore_replay_delayed_memory_result_ids
+                    and belongs_to_current_turn(result)
                 )
             ]
             delayed_memory_result_offset = len(
@@ -2647,8 +2675,9 @@ class BrainNode(BaseNode):
             current_delayed_memory_results = [
                 result
                 for result in delayed_memory_results
-                if belongs_to_current_turn(
-                    result
+                if (
+                    id(result) not in restore_replay_delayed_memory_result_ids
+                    and belongs_to_current_turn(result)
                 )
             ]
 
@@ -2718,8 +2747,9 @@ class BrainNode(BaseNode):
             current_asset_results = [
                 result
                 for result in asset_results
-                if belongs_to_current_turn(
-                    result
+                if (
+                    id(result) not in restore_replay_asset_result_ids
+                    and belongs_to_current_turn(result)
                 )
             ]
 
@@ -2956,6 +2986,12 @@ class BrainNode(BaseNode):
             remember_successful_previous_reasoning(
                 context,
                 reasoning,
+                from_session_restore=bool(
+                    state.metadata.get(
+                        "session_restore_resume",
+                        False,
+                    )
+                ),
             )
 
 

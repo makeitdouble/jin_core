@@ -2710,6 +2710,8 @@ def build_runtime_session_checkpoint(
         ).strip()
         if result_id:
             restored_item["id"] = result_id
+        if item.get("tool_id"):
+            restored_item["tool_id"] = item["tool_id"]
 
         created_at = item.get(
             "created_at",
@@ -2772,6 +2774,7 @@ def build_runtime_session_checkpoint(
             limit=200,
         ),
         "tool_results": runtime_tool_results,
+        "tool_result_sequence": int(getattr(context, "runtime_tool_result_sequence", 0) or 0),
         "runtime_turn_counter": int(
             getattr(
                 context,

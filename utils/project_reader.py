@@ -48,9 +48,37 @@ def link_project_folder(value: str) -> tuple[dict, bool, str | None]:
     )
 
 
-def linked_projects(context) -> list[dict]:
+def linked_projects(context, *, include_pending_restore: bool = False) -> list[dict]:
     records = []
-    for file_id in getattr(context, "runtime_attached_file_ids", []) or []:
+    file_ids = list(getattr(context, "runtime_attached_file_ids", []) or [])
+
+    # During the hidden archived-session restore tick the prompt intentionally
+    # receives only resource metadata and the live attachment list is empty
+    # until synthetic ATTACH_FILE replay runs after the first answer. Runtime
+    # actions emitted by that first answer still need to resolve paths against
+    # the staged project root, otherwise ATTACH_FILE/ASSET_ACTION can fail with
+    # a false "No folder attached" even though the restored user turn visibly
+    # carries the folder. Keep this opt-in so prompt/project-review builders do
+    # not treat staged resources as already live.
+    if (
+        include_pending_restore
+        and getattr(context, "runtime_session_restore_priming", False)
+    ):
+        file_ids.extend(
+            getattr(
+                context,
+                "runtime_session_restore_pending_attached_file_ids",
+                [],
+            )
+            or []
+        )
+
+    seen = set()
+    for file_id in file_ids:
+        file_id = str(file_id or "").strip().casefold()
+        if not file_id or file_id in seen:
+            continue
+        seen.add(file_id)
         record = files.get_file_record(file_id)
         if record and record["name"].lower().endswith(FOLDER_SUFFIX):
             records.append(record)
@@ -62,12 +90,19 @@ def project_review_active(context) -> bool:
 
 
 def _root_for(context, attachment: str) -> tuple[Path, dict]:
-    projects = linked_projects(context)
-    matches = [record for record in projects if attachment in {record["id"], record["name"]}]
+    projects = linked_projects(context, include_pending_restore=True)
+    matches = [
+        record for record in projects
+        if attachment in {
+            record["id"],
+            record["name"],
+            files.file_display_name(record["name"]),
+        }
+    ]
     if not attachment and len(projects) == 1:
         matches = projects
     if len(matches) != 1:
-        raise ValueError("Select an attached .jin-folder by its exact file id")
+        raise ValueError("Select an attached project by its folder name or ASSET_ACTION attachment id")
     record = matches[0]
     descriptor = files.FILES_DIR / record["stored_name"]
     if descriptor.stat().st_size > 8192:
@@ -84,11 +119,86 @@ def _root_for(context, attachment: str) -> tuple[Path, dict]:
     return root, record
 
 
+def project_display_path(project_name: str, relative: str = ".", *, is_dir: bool = False) -> str:
+    """Model-facing project path rooted at the visible attached-folder name."""
+    root = str(project_name or "project").strip().rstrip("/") or "project"
+    value = str(relative or ".").strip().replace("\\", "/")
+    value = value.strip("/")
+    if value in {"", "."}:
+        rendered = root
+    else:
+        rendered = f"{root}/{value}"
+    return rendered + "/" if is_dir and not rendered.endswith("/") else rendered
+
+
+def _strip_project_display_root(relative: str, project_name: str, *root_aliases: str) -> str:
+    """Accept folder-rooted paths and legacy plain relative paths as the same target."""
+    value = str(relative or ".").strip().replace("\\", "/")
+    # ``./jin_core/src`` is still a relative project path. Strip only explicit
+    # current-directory prefixes; absolute/drive paths remain untouched and are
+    # rejected by _inside below.
+    while value.startswith("./"):
+        value = value[2:]
+
+    roots = []
+    for candidate in (project_name, *root_aliases):
+        root = str(candidate or "").strip().strip("/")
+        if root and root not in roots:
+            roots.append(root)
+
+    for root in roots:
+        if value.rstrip("/") == root:
+            return "."
+        prefix = root + "/"
+        if value.startswith(prefix):
+            return value[len(prefix):] or "."
+    return value or "."
+
+
+def _same_name_project_paths(root: Path, relative: str, *, limit: int = 3) -> list[str]:
+    """Return bounded same-basename hints for a missing project path."""
+    requested_name = Path(str(relative or "").replace("\\", "/")).name.casefold()
+    if not requested_name:
+        return []
+
+    state = {
+        "visited": 0,
+        "skipped": 0,
+        "limited": False,
+        "deadline": monotonic() + min(MAX_SCAN_SECONDS, 0.2),
+        "stop_reason": "",
+    }
+    matches = []
+    for path, is_dir in _walk(root, root, 20, state):
+        if is_dir or path.name.casefold() != requested_name:
+            continue
+        matches.append(path.relative_to(root).as_posix())
+        if len(matches) >= limit:
+            break
+    return matches
+
+
 def _inside(root: Path, relative: str) -> Path:
     relative = str(relative or ".").replace("\\", "/")
     if Path(relative).is_absolute() or PureWindowsPath(relative).drive or ".." in Path(relative).parts:
         raise ValueError("Use a relative path inside the linked folder")
-    path = (root / relative).resolve(strict=True)
+    try:
+        path = (root / relative).resolve(strict=True)
+    except (FileNotFoundError, NotADirectoryError):
+        # Keep host absolute paths out of model-facing errors. A missing file
+        # should not look like an "absolute path" schema failure. If the model
+        # guessed a stale directory but the basename exists elsewhere, include
+        # a bounded exact-name hint so the follow-up can recover without any
+        # unsafe fuzzy auto-attach.
+        hints = _same_name_project_paths(root, relative)
+        hint_text = (
+            f" Same-name file found at: {', '.join(hints)}"
+            if hints
+            else ""
+        )
+        raise ValueError(
+            f"Path not found inside linked folder: {relative}.{hint_text}"
+        ) from None
     if not path.is_relative_to(root):
         raise ValueError("Path leaves the linked folder")
     return path
@@ -170,12 +280,35 @@ def run_project_action(context, payload: dict) -> dict:
         root, record = _root_for(context, attachment)
         result["attachment"] = record["id"]
         result["project_name"] = files.file_display_name(record["name"])
+        relative = _strip_project_display_root(
+            relative,
+            result["project_name"],
+            root.name,
+        )
         path = _inside(root, relative)
         relative = path.relative_to(root).as_posix()
         result["path"] = relative
         if action == "project_read":
-            start = _integer(payload, "start", 1, 1, 10000000)
-            end = _integer(payload, "end", start + 199, start, start + 399)
+            result["file_ref"] = f"{record['id']}/{relative}"
+            result["display_ref"] = project_display_path(result["project_name"], relative)
+            result["source"] = "project"
+
+            implicit_next_window = bool(
+                payload.get("_next_unread_window")
+                and "start" not in payload
+                and "end" not in payload
+            )
+            if implicit_next_window:
+                from utils.context.files import next_project_file_unread_start
+                start = next_project_file_unread_start(
+                    context,
+                    result["file_ref"],
+                )
+                end = start + 199
+            else:
+                start = _integer(payload, "start", 1, 1, 10000000)
+                end = _integer(payload, "end", start + 199, start, start + 399)
+
             # Keep the requested window as stable identity metadata.  The
             # actual range below may be shorter at EOF, but DETACH_FILE must
             # still be able to target the exact ATTACH_FILE window that was
@@ -183,13 +316,23 @@ def run_project_action(context, payload: dict) -> dict:
             result["requested_start"] = start
             result["requested_end"] = end
             from utils.context.files import loaded_file_ref
-            result["file_ref"] = f"{record['id']}/{relative}"
-            result["source"] = "project"
-            existing = loaded_file_ref(context, reference=result["file_ref"])
+            existing = loaded_file_ref(
+                context,
+                reference=result["file_ref"],
+                requested_start=start,
+                requested_end=end,
+            )
             if existing:
-                raise ValueError(f"File already loaded: {existing}. Use DETACH_FILE before loading it again.")
+                raise ValueError(
+                    f"File range already loaded: {existing}#L{start}-L{end}. "
+                    "Use DETACH_FILE before loading the same range again."
+                )
             source, result["source_sha256"] = _text(path, with_digest=True)
-            existing = loaded_file_ref(context, sha256=result["source_sha256"])
+            existing = loaded_file_ref(
+                context,
+                sha256=result["source_sha256"],
+                exclude_reference=result["file_ref"],
+            )
             if existing:
                 raise ValueError(f"File already loaded: {existing}. Use DETACH_FILE before loading it again.")
             lines = source.splitlines()
@@ -204,6 +347,9 @@ def run_project_action(context, payload: dict) -> dict:
                 used += len(line) + 1
             last = start + len(selected) - 1
             result["range"] = f"{start}-{last} of {len(lines)} lines" if selected else f"No lines read; file has {len(lines)} lines"
+            if selected:
+                result["loaded_start"] = start
+                result["loaded_end"] = last
             if lines and not selected:
                 raise ValueError("Line exceeds the 24000 character limit; no content loaded")
             result["content"] = "\n".join(selected)
@@ -225,8 +371,9 @@ def run_project_action(context, payload: dict) -> dict:
             found, output, used, scanned_bytes, more = 0, [], 0, 0, False
             for item, is_dir in _walk(root, path, depth, state):
                 name = item.relative_to(root).as_posix()
+                display_name = project_display_path(result["project_name"], name, is_dir=is_dir)
                 if action == "project_tree":
-                    matches = [name + ("/" if is_dir else "")]
+                    matches = [display_name]
                 elif is_dir:
                     continue
                 else:
@@ -241,7 +388,8 @@ def run_project_action(context, payload: dict) -> dict:
                     except (OSError, ValueError):
                         state["skipped"] += 1
                         continue
-                    matches = (f"{name}:{number}: {line}" for number, line in enumerate(text.splitlines(), 1) if query.casefold() in line.casefold())
+                    display_name = project_display_path(result["project_name"], name)
+                    matches = (f"{display_name}:{number}: {line}" for number, line in enumerate(text.splitlines(), 1) if query.casefold() in line.casefold())
                 for line in matches:
                     found += 1
                     if found <= offset:
@@ -285,18 +433,31 @@ def run_project_action(context, payload: dict) -> dict:
 
 def format_project_result(result: dict, *, include_content=False) -> str:
     """Compact action text; callers may nest the source body beside it."""
-    from utils.context.files import format_file_content, project_file_ref
+    from utils.context.files import (
+        format_file_content,
+        project_file_action_label,
+        project_file_content_label,
+        project_file_ref,
+    )
     action = str(result.get("action") or "project_read")
     ref = project_file_ref(result)
     project_name = result.get("project_name")
     if not project_name:
         record = files.get_file_record(result.get("attachment", ""))
         project_name = files.file_display_name(record["name"]) if record else ""
-    project = f"{project_name} [ id: {result.get('attachment', '')} ]" if project_name else result.get("attachment", "")
-    lines = [f"Action: {action}",
-             f"File: {ref}" if ref else f"Project: {project}; path: {result.get('path', '.')}"]
-    if ref and project_name:
-        lines.append(f"Folder: {project_name}")
+    display_ref = str(result.get("display_ref") or (project_display_path(project_name, result.get("path", ".")) if project_name else ref))
+    lines = [f"Action: {action}"]
+    if ref:
+        lines.append(f"File: {project_file_action_label(result) or display_ref}")
+        if project_name:
+            lines.append(f"Folder root: {project_name}/")
+    else:
+        if project_name:
+            lines.append(f"Project root: {project_name}/")
+            lines.append(f"ASSET_ACTION attachment: {project_name} (project selector; file paths still start with {project_name}/)")
+            lines.append(f"Path: {project_display_path(project_name, result.get('path', '.'), is_dir=True)}")
+        else:
+            lines.append(f"Project: {result.get('attachment', '')}; path: {result.get('path', '.')}")
     failed = result.get("ok") is False
     if failed:
         lines.append("Status: failed")
@@ -325,11 +486,11 @@ def format_project_result(result: dict, *, include_content=False) -> str:
     elif "content" in result:
         if ref:
             if include_content:
-                lines.append(format_file_content(result.get("path") or ref, result["content"]))
+                lines.append(format_file_content(project_file_content_label(result), result["content"]))
         else:
             if action == "project_search":
-                lines.append("Matching lines (project-relative path:line number: source text):")
+                lines.append("Matching lines (folder-rooted path:line number: source text):")
             elif action == "project_tree":
-                lines.append("Paths relative to project root (trailing / means folder):")
+                lines.append("Paths rooted at the attached folder name (trailing / means folder):")
             lines.append(result["content"])
     return "\n".join(lines)

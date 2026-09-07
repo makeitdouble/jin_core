@@ -333,7 +333,8 @@ def match_regexp(
                 end=match.end(),
                 raw=match.group(0),
                 name=name,
-                payload=_payload_from_match(match),
+                payload=(":" if name == "CLEAN_TOOL_RESULTS" and ":" in match.group(0)
+                         and not _payload_from_match(match) else _payload_from_match(match)),
                 source="regexp",
             )
         )
@@ -421,7 +422,12 @@ def find_runtime_action_matches(
         *match_regexp(text, concrete_regexp),
     ]
 
-    if allow_inline_payload:
+    if allow_inline_payload and runtime_action == "CLEAN_TOOL_RESULTS":
+        matches.extend(match_regexp(text, re.compile(
+            RUNTIME_ACTION_EXECUTABLE_PREFIX + r"<(?P<name>CLEAN_TOOL_RESULTS)\s*:\s*(?P<payload>[^<>]*?)>",
+            re.IGNORECASE,
+        )))
+    elif allow_inline_payload:
         inline_matches = match_regexp(
             text,
             compile_runtime_action_inline_payload_regexp(

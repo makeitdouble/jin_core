@@ -20,6 +20,7 @@ from utils.session_restore import build_archived_session_restore_payload
 from websocket.bootstrap import (
     apply_archived_session_continuation_state,
     apply_session_bootstrap,
+    discard_session_restore_continuation_state,
     enrich_session_bootstrap_from_archive,
 )
 
@@ -55,6 +56,116 @@ class ArchivedSessionRestoreTests(unittest.TestCase):
                 context,
                 "runtime_chat_log_bootstrap_reference_path",
             )
+        )
+
+    def test_stop_discards_restore_prompt_payload_but_keeps_recent_chat(self):
+        context = RuntimeContext(
+            websocket=None,
+            emitter=None,
+            logger=None,
+            clients={},
+            session_id="fresh-session",
+        )
+        context.runtime_recent_turns = [{
+            "user": "older real user",
+            "jin": "older real answer",
+        }]
+
+        apply_archived_session_continuation_state(
+            context,
+            {
+                "source_session_id": "archived-session",
+                "archived_session_restore": True,
+                "dialog_context": (
+                    "<RESTORED_SESSION_DIALOG>old clean-results dialog"
+                    "</RESTORED_SESSION_DIALOG>"
+                ),
+                "previous_reasoning": "old CLEAN_TOOL_RESULTS reasoning",
+                "restore_reasoning_dump": "old reasoning dump",
+                "recent_turns": [{
+                    "user": "older real user",
+                    "jin": "older real answer",
+                }],
+            },
+        )
+
+        self.assertTrue(context.runtime_session_restore_priming)
+        self.assertTrue(
+            context.runtime_previous_reasoning_from_session_restore
+        )
+
+        context.runtime_session_action_history = [
+            {
+                "text": "CLEAN_TOOL_RESULTS",
+                "runtime_session_action_previous_bootstrap": True,
+            },
+            {
+                "text": "current-session-action",
+            },
+        ]
+
+        discarded = discard_session_restore_continuation_state(
+            context,
+            drop_previous_actions=True,
+        )
+
+        self.assertTrue(discarded)
+        self.assertFalse(context.runtime_session_restore_priming)
+        self.assertEqual(context.runtime_restored_session_dialog, "")
+        self.assertEqual(context.runtime_previous_reasoning_content, "")
+        self.assertFalse(
+            context.runtime_previous_reasoning_from_session_restore
+        )
+        self.assertEqual(
+            [
+                item.get("text")
+                for item in context.runtime_session_action_history
+            ],
+            ["current-session-action"],
+        )
+        self.assertEqual(
+            context.runtime_recent_turns[0]["user"],
+            "older real user",
+        )
+        self.assertEqual(
+            context.runtime_recent_turns[0]["jin"],
+            "older real answer",
+        )
+
+        prompt = build_brain_context(
+            context=context,
+            runtime_actions={"CAN_WEB_SEARCH": False},
+            user_input="brand new task",
+            include_runtime_action_instructions=False,
+        )
+        self.assertNotIn("RESTORED_SESSION_DIALOG", prompt)
+        self.assertNotIn("old CLEAN_TOOL_RESULTS reasoning", prompt)
+        self.assertNotIn("<PREVIOUS_REASONING_CONTENT>", prompt)
+        self.assertIn("older real user", prompt)
+
+    def test_explicit_empty_restore_reasoning_clears_stale_import(self):
+        context = RuntimeContext(
+            websocket=None,
+            emitter=None,
+            logger=None,
+            clients={},
+        )
+        context.runtime_previous_reasoning_content = "stale imported reasoning"
+        context.runtime_previous_reasoning_from_session_restore = True
+        context.runtime_restored_session_dialog = "stale restored dialog"
+
+        apply_archived_session_continuation_state(
+            context,
+            {
+                "dialog_context": "",
+                "previous_reasoning": "",
+            },
+        )
+
+        self.assertEqual(context.runtime_restored_session_dialog, "")
+        self.assertEqual(context.runtime_previous_reasoning_content, "")
+        self.assertFalse(
+            context.runtime_previous_reasoning_from_session_restore
         )
 
     def test_archived_bootstrap_preserves_saved_runtime_lifecycle_timestamps(self):
@@ -819,6 +930,48 @@ open_question: continue
         self.assertIn("Enderman", enriched["restore_reasoning_dump"])
         self.assertTrue(enriched["archived_session_restore"])
 
+    def test_newer_archive_explicit_empty_previous_reasoning_wins(self):
+        archived = {
+            "source_session_id": "archive-session",
+            "archive_tail_at": "2026-08-23T10:30:00+03:00",
+            "recent_turns": [{
+                "user": "new user move",
+                "jin": "",
+                "user_created_at": 20.0,
+            }],
+            "previous_reasoning": "",
+            "restore_reasoning_dump": "",
+            "restore_lt_fact_ids": [],
+        }
+
+        with (
+            patch(
+                "utils.session_restore.build_archived_session_restore_payload",
+                return_value=archived,
+            ),
+            patch(
+                "utils.session_restore.find_latest_completed_session_restore_payload",
+                return_value=None,
+            ),
+        ):
+            enriched = enrich_session_bootstrap_from_archive({
+                "type": "session_bootstrap",
+                "source_session_id": "archive-session",
+                "saved_at": "2026-08-23T10:29:00+03:00",
+                "recent_turns": [{
+                    "user": "older user move",
+                    "jin": "older answer",
+                    "user_created_at": 10.0,
+                }],
+                "previous_reasoning": "stale browser reasoning",
+                "restore_reasoning_dump": "stale browser dump",
+                "restore_lt_fact_ids": ["F9"],
+            })
+
+        self.assertEqual(enriched["previous_reasoning"], "")
+        self.assertEqual(enriched["restore_reasoning_dump"], "")
+        self.assertEqual(enriched["restore_lt_fact_ids"], [])
+
     def test_browser_checkpoint_explicit_empty_tool_results_stays_empty(self):
         archived = {
             "source_session_id": "archive-session",
@@ -1045,6 +1198,13 @@ open_question: continue
             captured["context"] = _context
             captured["actions"] = list(actions)
             captured["kwargs"] = kwargs
+            captured["restore_replay_in_progress"] = bool(
+                getattr(
+                    _context,
+                    "runtime_session_restore_replay_in_progress",
+                    False,
+                )
+            )
             return len(actions)
 
         with patch(
@@ -1081,6 +1241,14 @@ open_question: continue
         self.assertEqual(
             captured["kwargs"]["context_snapshot"],
             {"prompt": "restore"},
+        )
+        self.assertTrue(captured["restore_replay_in_progress"])
+        self.assertFalse(
+            getattr(
+                context,
+                "runtime_session_restore_replay_in_progress",
+                False,
+            )
         )
         self.assertFalse(context.runtime_session_restore_priming)
         self.assertEqual(

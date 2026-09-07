@@ -60,6 +60,7 @@ from .bootstrap import (
     apply_runtime_resume,
     apply_session_bootstrap,
     build_session_bootstrap_chat_tail,
+    discard_session_restore_continuation_state,
     emit_current_runtime_memory,
     emit_delayed_memory_store_snapshot,
     ensure_initial_runtime_snapshot,
@@ -156,6 +157,21 @@ async def websocket_endpoint(
             batch_state = None
 
             try:
+
+                # Stop can cancel restore while its hidden resume packet is
+                # still queued. Validate again at dequeue time.
+                if (
+                    message_data.get("type") == "archived_session_resume"
+                    and not getattr(
+                        context,
+                        "runtime_session_restore_priming",
+                        False,
+                    )
+                ):
+                    await logger.log_system(
+                        "[SESSION RESTORE] dropped cancelled queued resume tick"
+                    )
+                    continue
 
                 # A dequeued request is already foreground work even when it
                 # still has to wait for the previous FRAME integration. Keep
@@ -969,6 +985,17 @@ async def websocket_endpoint(
                     logger,
                     context,
                 )
+
+                # Stop explicitly abandons the one-shot archived continuation.
+                # Keep rolling visible history, but drop predecessor-only
+                # restore dialog/reasoning before the next real USER turn.
+                if discard_session_restore_continuation_state(
+                    context,
+                    drop_previous_actions=True,
+                ):
+                    await logger.log_runtime(
+                        "[SESSION RESTORE] continuation state discarded by Stop"
+                    )
 
                 current_task = None
 

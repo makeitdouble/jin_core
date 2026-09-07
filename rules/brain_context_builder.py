@@ -1102,6 +1102,9 @@ def build_previous_reasoning_context(
             reasoning_part
         )
 
+    if not reasoning_parts:
+        return ""
+
     return _format_previous_reasoning_context(
         tag_name="PREVIOUS_REASONING_CONTENT",
         reasoning="\n\n".join(
@@ -1204,8 +1207,15 @@ def build_brain_context(
     )
 
     project_review = project_review_active(context)
+    include_current_user_in_previous_chat = bool(
+        project_review
+        and not include_previous_chat_messages
+    )
     if project_review:
         # Follow-ups keep the same dialogue and exact accumulated thought.
+        # Their Brain payload is empty, so also project the live sequence USER
+        # message into PREVIOUS_CHAT_MESSAGES below. The initial user tick still
+        # uses the normal payload and must not duplicate that message here.
         include_previous_chat_messages = True
 
     prompt_parts = []
@@ -1400,7 +1410,12 @@ def build_brain_context(
 
     previous_chat_messages_context = (
         build_previous_chat_messages_context(
-            context
+            context,
+            extra_user_message=(
+                user_input
+                if include_current_user_in_previous_chat
+                else ""
+            ),
         )
         if (
             include_previous_chat_messages
@@ -1522,11 +1537,7 @@ def build_brain_context(
             )
         )
 
-        if project_review:
-            prompt_parts.append(build_previous_reasoning_context(
-                context, include_turn_reasoning=True, crop=False,
-            ))
-        elif previous_reasoning_loop_context:
+        if previous_reasoning_loop_context:
             prompt_parts.append(
                 previous_reasoning_loop_context
             )

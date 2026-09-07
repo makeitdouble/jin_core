@@ -14,13 +14,13 @@
     },
     "schema": [
       "<DETACH_FILE: file_id >",
+      "<DETACH_FILE: folder_name/relative/path >",
+      "<DETACH_FILE: folder_name/relative/path#L1-L200 >",
       "<DETACH_FILE: relative/path >",
-      "<DETACH_FILE: relative/path#L1-L200 >",
-      "<DETACH_FILE: folder_id/relative/path >",
-      "<DETACH_FILE: folder_id/relative/path#L1-L200 >"
+      "<DETACH_FILE: relative/path#L1-L200 >"
     ],
     "rules": [
-      "Use the same ID/path as ATTACH_FILE: relative to the single attached folder, or folder_id/path with multiple folders. Without #Lstart-Lend, every loaded FILE_CONTENT block for that file is detached; with a line range, only the block loaded for that exact requested range is detached.",
+      "Use the same folder-rooted path as ATTACH_FILE (for example jin_core/src/main.py). The attached folder ID is not a path prefix. With one attached folder, legacy plain relative and ID-prefixed paths remain accepted. Without #Lstart-Lend, every loaded FILE_CONTENT block for that file is detached; with a line range, only the block loaded for that exact requested range is detached.",
       "Detaching removes only the FILE_CONTENT body. The original tool/action result remains and shows Status: detached at <timestamp>; the source file is not deleted. Detaching a folder unloads its loaded files."
     ],
     "close_tag": false

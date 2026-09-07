@@ -80,6 +80,7 @@ class RuntimeContext:
         default_factory=list
     )
 
+    runtime_tool_result_sequence: int = 0
     runtime_tool_results_turn_count: int = 0
 
     runtime_tool_results_generation: int = 0
@@ -361,6 +362,11 @@ class RuntimeContext:
 
     runtime_session_restore_priming: bool = False
 
+    # True only while staged restore resources are reconstructed through the
+    # normal action dispatcher. UI action logs use this to distinguish
+    # synthetic restore replay from model-emitted actions.
+    runtime_session_restore_replay_in_progress: bool = False
+
     runtime_session_restore_reasoning_dump: str = ""
 
     runtime_session_restore_lt_fact_ids: list[str] = field(
@@ -436,6 +442,10 @@ class RuntimeContext:
     runtime_turn_reasoning_content: str = ""
 
     runtime_previous_reasoning_content: str = ""
+
+    # True only while runtime_previous_reasoning_content was imported from an
+    # archived-session bootstrap. A live reasoning replaces it and clears the flag.
+    runtime_previous_reasoning_from_session_restore: bool = False
 
     runtime_previous_reasoning_loop_contents: list[str] = field(
         default_factory=list

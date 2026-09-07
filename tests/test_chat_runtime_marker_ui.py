@@ -417,6 +417,33 @@ if (stateChanges.length !== 2 || stateChanges[1][1] !== false) {
             chat_runtime_source,
         )
 
+    def test_clean_tool_results_markers_render_as_individual_bubbles(self):
+        socket_runtime_source = SOCKET_RUNTIME_ACTIONS_JS.read_text(
+            encoding="utf-8"
+        )
+
+        start = socket_runtime_source.index(
+            "const renderEachMarkerSeparately ="
+        )
+        end = socket_runtime_source.index(
+            "const completeImmediately =",
+            start,
+        )
+        block = socket_runtime_source[start:end]
+
+        self.assertIn(
+            'action === "clean_tool_results"',
+            block,
+        )
+        self.assertIn(
+            "renderEachMarkerSeparately\n    && counterOnly",
+            block,
+        )
+        self.assertIn(
+            "const aggregateMarkers =\n    !renderEachMarkerSeparately",
+            block,
+        )
+
     def test_runtime_action_icons_cover_core_actions(self):
         chat_runtime_source = CHAT_RUNTIME_ACTIONS_JS.read_text(
             encoding="utf-8"

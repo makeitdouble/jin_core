@@ -56,19 +56,20 @@ class ProjectFileLifecycleTests(unittest.TestCase):
         prompt = self.prompt()
         self.assertEqual(prompt.count('1: first'), 1)
         self.assertEqual(prompt.count('1: Project overview'), 1)
-        self.assertIn('<FILE_CONTENT: src/main.py >', prompt)
+        self.assertIn('<FILE_CONTENT: main.py#1-4 >', prompt)
         self.assertIn('Loaded: 3 files', prompt)
         tools = build_tool_results_context(self.context)
         for value in ('"content":', 'Notice:', 'Result (source data'):
             self.assertNotIn(value, tools)
         self.assertIn('1: first', tools)
         self.assertIn('1: Project overview', tools)
-        first_tool = tools.index('<TOOL_RESULT name="ATTACH_FILE"')
-        first_source = tools.index('<FILE_CONTENT: src/main.py >')
-        first_close = tools.index('</TOOL_RESULT>', first_tool)
-        self.assertLess(first_tool, first_source)
-        self.assertLess(first_source, first_close)
-        self.assertIn('Read: 1-4 of 4 lines', tools)
+        main_tool = tools.index(f'File: {self.project.name}/src/main.py#1-4')
+        main_source = tools.index('<FILE_CONTENT: main.py#1-4 >')
+        main_close = tools.index('</TOOL_RESULT>', main_tool)
+        self.assertLess(main_tool, main_source)
+        self.assertLess(main_source, main_close)
+        self.assertLess(tools.index('tool_id="T2"'), tools.index('tool_id="T1"'))
+        self.assertIn('File lines: 1-4 of 4 lines', tools)
         events = [e for e in self.context.emitter.events if e.get('attachment_result')]
         self.assertEqual(len(events), 2)
         self.assertTrue(all(e['status'] == 'completed' for e in events))
@@ -80,13 +81,17 @@ class ProjectFileLifecycleTests(unittest.TestCase):
         result = self.call('<ATTACH_FILE: src/main.py >')
         self.assertTrue(result['ok'])
         self.assertEqual(result['file_ref'], self.ref())
-        for path in ('./src/main.py', self.ref(), r'src\main.py#L2-L3'):
-            result = self.call(f'<ATTACH_FILE: {path} >')
+        for path in ('./src/main.py', f'{self.project.name}/src/main.py', self.ref()):
+            result = self.call(f'<ATTACH_FILE: {path}#L1-L200 >')
             self.assertFalse(result['ok'])
             self.assertIn('already loaded', result['detail'])
             self.assertTrue(self.context.runtime_followup_action_failure_pending)
             self.assertEqual(self.prompt().count('1: first'), 1)
-        self.call('<DETACH_FILE: ./src/main.py >', '<ATTACH_FILE: src/main.py#L2-L3 >')
+        ranged = self.call(r'<ATTACH_FILE: src\main.py#L2-L3 >')
+        self.assertTrue(ranged['ok'])
+        self.assertEqual((ranged['requested_start'], ranged['requested_end']), (2, 3))
+        self.assertEqual(len(list(loaded_project_files(self.context))), 2)
+        self.call('<DETACH_FILE: ./src/main.py >', f'<ATTACH_FILE: {self.project.name}/src/main.py#L2-L3 >')
         self.assertNotIn('1: first', build_file_contents_context(self.context))
         self.assertEqual(self.prompt().count('2: needle = 42'), 1)
         self.assertTrue(self.call(f'<DETACH_FILE: {self.ref()} >')['ok'])
@@ -120,6 +125,9 @@ class ProjectFileLifecycleTests(unittest.TestCase):
             self.assertIn('Multiple folders', result['detail'])
             self.assertTrue(self.context.runtime_followup_action_failure_pending)
         self.assertIn('Project overview', build_file_contents_context(self.context))
+        self.assertTrue(self.call(f'<ATTACH_FILE: {other.name}/README.md >')['ok'])
+        self.assertTrue(self.call(f'<DETACH_FILE: {other.name}/README.md >')['ok'])
+        # Old id-prefixed paths remain valid for compatibility.
         self.assertTrue(self.call(f'<ATTACH_FILE: {record["id"]}/README.md >')['ok'])
         self.assertTrue(self.call(f'<DETACH_FILE: {record["id"]}/README.md >')['ok'])
         apply_attachment_context_ids(self.context, [record['id']])
@@ -128,6 +136,42 @@ class ProjectFileLifecycleTests(unittest.TestCase):
         self.assertIn('second project', build_file_contents_context(self.context))
         # An explicit detached folder must not fall back to the remaining root.
         self.assertFalse(self.call(f'<ATTACH_FILE: {self.ref("README.md")} >')['ok'])
+
+    def test_restore_priming_staged_folder_resolves_actions_without_becoming_live_prompt_context(self):
+        # Archived restore deliberately stages attachment IDs while keeping the
+        # live list empty until synthetic replay. Actions emitted by that first
+        # restored answer must still be able to address the staged project.
+        apply_attachment_context_ids(self.context, [])
+        self.context.runtime_session_restore_priming = True
+        self.context.runtime_session_restore_pending_attached_file_ids = [
+            self.record["id"]
+        ]
+
+        self.assertFalse(fixture.project_review_active(self.context))
+        tree = fixture.run_project_action(
+            self.context,
+            {
+                "action": "project_tree",
+                "attachment": self.record["id"],
+                "path": ".",
+            },
+        )
+        self.assertTrue(tree["ok"])
+
+        rooted = self.call(
+            f'<ATTACH_FILE: {self.project.name}/src/main.py >'
+        )
+        self.assertTrue(rooted["ok"])
+        self.assertTrue(
+            self.call(
+                f'<DETACH_FILE: {self.project.name}/src/main.py >'
+            )["ok"]
+        )
+
+        relative = self.call('<ATTACH_FILE: src/main.py >')
+        self.assertTrue(relative["ok"])
+        self.assertEqual(relative["file_ref"], self.ref())
+        self.assertEqual(self.context.runtime_attached_file_ids, [])
 
     def test_relative_paths_need_attached_root_and_stay_inside_it(self):
         for path in ('../outside.txt', '/etc/passwd', r'C:\outside.txt', 'missing.txt'):
@@ -154,16 +198,65 @@ class ProjectFileLifecycleTests(unittest.TestCase):
         self.assertNotIn('persistent body', build_file_contents_context(self.context))
         self.assertIn('project file body', build_file_contents_context(self.context))
 
-    def test_duplicate_canonical_and_legacy_reads_fail_without_injecting_body(self):
-        self.call(f'<ATTACH_FILE: {self.ref()} >')
-        for marker in (f'<ATTACH_FILE: {self.ref()}#L2-L3 >',
-                       '<ASSET_ACTION>' + json.dumps({'action':'project_read', 'attachment':self.record['id'], 'path':'src/./main.py'}) + '</ASSET_ACTION>'):
+    def test_same_project_file_allows_distinct_ranges_but_rejects_exact_duplicate(self):
+        first = self.call(f'<ATTACH_FILE: {self.ref()} >')
+        self.assertTrue(first['ok'])
+        self.assertEqual((first['requested_start'], first['requested_end']), (1, 200))
+
+        second = self.call(f'<ATTACH_FILE: {self.ref()}#L2-L3 >')
+        self.assertTrue(second['ok'])
+        self.assertEqual((second['requested_start'], second['requested_end']), (2, 3))
+        self.assertEqual(len(list(loaded_project_files(self.context))), 2)
+        self.assertIn('<FILE_CONTENT: main.py#1-4 >', self.prompt())
+        self.assertIn('<FILE_CONTENT: main.py#2-3 >', self.prompt())
+        tool_results = build_tool_results_context(self.context)
+        self.assertIn('<FILE_CONTENT: main.py#1-4 >', tool_results)
+        self.assertIn('<FILE_CONTENT: main.py#2-3 >', tool_results)
+
+        for marker in (
+            f'<ATTACH_FILE: {self.ref()}#L1-L200 >',
+            f'<ATTACH_FILE: {self.ref()}#L2-L3 >',
+            '<ASSET_ACTION>' + json.dumps({
+                'action':'project_read',
+                'attachment':self.record['id'],
+                'path':'src/./main.py',
+            }) + '</ASSET_ACTION>',
+        ):
             result = self.call(marker)
             self.assertFalse(result['ok'])
             self.assertIn('already loaded', result['detail'])
             self.assertNotIn('content', result)
             self.assertTrue(self.context.runtime_followup_action_failure_pending)
-            self.assertEqual(self.prompt().count('1: first'), 1)
+
+    def test_sequential_project_windows_remain_loaded_as_separate_blocks(self):
+        long_file = self.project / 'src' / 'long.py'
+        long_file.write_text('\n'.join(f'line {number}' for number in range(1, 701)))
+
+        results = [
+            self.call(f'<ATTACH_FILE: {self.ref("src/long.py")} >')
+            for _ in range(4)
+        ]
+
+        self.assertTrue(all(result['ok'] for result in results))
+        self.assertEqual(
+            [(result['requested_start'], result['requested_end']) for result in results],
+            [(1, 200), (201, 400), (401, 600), (601, 800)],
+        )
+        self.assertEqual(results[-1]['loaded_end'], 700)
+        prompt = self.prompt()
+        for number in (1, 200, 201, 400, 401, 600, 601, 700):
+            self.assertIn(f'{number}: line {number}', prompt)
+        for label in ('long.py#1-200', 'long.py#201-400', 'long.py#401-600', 'long.py#601-700'):
+            self.assertIn(f'<FILE_CONTENT: {label} >', prompt)
+
+        exhausted = self.call(f'<ATTACH_FILE: {self.ref("src/long.py")} >')
+        self.assertFalse(exhausted['ok'])
+        self.assertEqual(exhausted['requested_start'], 701)
+        self.assertIn('Start line exceeds file length: 700', exhausted['detail'])
+
+        duplicate = self.call(f'<ATTACH_FILE: {self.ref("src/long.py")}#L201-L400 >')
+        self.assertFalse(duplicate['ok'])
+        self.assertIn('range already loaded', duplicate['detail'])
 
     def test_detach_then_attach_range_in_same_message_and_attach_then_detach(self):
         self.call(f'<ATTACH_FILE: {self.ref()} >')
@@ -180,7 +273,7 @@ class ProjectFileLifecycleTests(unittest.TestCase):
         timestamp = '2026-09-06T19:11:12Z'
         self.call(f'<ATTACH_FILE: {self.ref()}#L2-L3 >')
         before = build_tool_results_context(self.context)
-        self.assertIn('<FILE_CONTENT: src/main.py >', before)
+        self.assertIn('<FILE_CONTENT: main.py#2-3 >', before)
         self.assertIn('2: needle = 42', before)
 
         with patch('utils.actions.attachment_actions.utc_now_iso', return_value=timestamp):
@@ -188,12 +281,12 @@ class ProjectFileLifecycleTests(unittest.TestCase):
 
         self.assertTrue(result['ok'])
         after = build_tool_results_context(self.context)
-        self.assertNotIn('<FILE_CONTENT: src/main.py >', after)
+        self.assertNotIn('<FILE_CONTENT: main.py#2-3 >', after)
         self.assertNotIn('2: needle = 42', after)
-        self.assertIn('<TOOL_RESULT name="ATTACH_FILE"', after)
-        self.assertIn('<TOOL_RESULT name="DETACH_FILE"', after)
+        self.assertIn('name="ATTACH_FILE"', after)
+        self.assertIn('name="DETACH_FILE"', after)
         self.assertIn(f'Status: detached at {timestamp}', after)
-        self.assertIn('Lines: L2-L3', after)
+        self.assertIn('File lines: 2-3 of 4 lines', after)
 
     def test_detach_range_targets_one_block_and_bare_file_targets_all_blocks(self):
         base = {
@@ -276,7 +369,7 @@ class ProjectFileLifecycleTests(unittest.TestCase):
             self.assertFalse(self.call(f'<ATTACH_FILE: {self.ref(path)} >')['ok'])
         self.assertFalse(self.call(f'<DETACH_FILE: {self.ref("missing.txt")} >')['ok'])
         self.assertNotIn('project_read', '\n'.join(get_runtime_action_schema('ASSET_ACTION')))
-        self.assertIn('<DETACH_FILE: folder_id/relative/path >', get_runtime_action_schema('DETACH_FILE'))
+        self.assertIn('<DETACH_FILE: folder_name/relative/path >', get_runtime_action_schema('DETACH_FILE'))
 
     def test_snapshot_round_trip_keeps_live_body_beyond_history_tail_and_unload(self):
         # Escaped JSON is >32K although the exact read itself is <=24K.
@@ -351,7 +444,7 @@ class ProjectFileLifecycleTests(unittest.TestCase):
                 self.assertIn('CURRENT_REQUEST_FLOW',prompt)
             if index==1:
                 self.assertEqual(prompt.count('1: first'),1)
-                markers=[f'<ATTACH_FILE: {self.ref()} >']
+                markers=[f'<ATTACH_FILE: {self.ref()}#L1-L200 >']
             elif index==2:
                 self.assertIn('already loaded',prompt)
                 self.assertEqual(prompt.count('1: first'),1)
@@ -373,3 +466,20 @@ class ProjectFileLifecycleTests(unittest.TestCase):
             asyncio.run(BrainNode().run(state,self.context))
         self.assertEqual(len(calls),4)
         self.assertEqual(state.brain_response,'Done.')
+
+
+def test_missing_project_file_reports_same_name_hint(tmp_path):
+    from utils.project_reader import _inside
+
+    (tmp_path / "agent" / "nodes").mkdir(parents=True)
+    (tmp_path / "agent" / "nodes" / "brain.py").write_text("pass\n", encoding="utf-8")
+
+    try:
+        _inside(tmp_path, "agent/brain.py")
+    except ValueError as error:
+        message = str(error)
+    else:
+        raise AssertionError("missing path unexpectedly resolved")
+
+    assert "Path not found inside linked folder: agent/brain.py" in message
+    assert "Same-name file found at: agent/nodes/brain.py" in message

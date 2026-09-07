@@ -262,7 +262,7 @@ def _format_session_action_context_parts(
             and part_detail
         ):
             context_parts.append(
-                f"{part_text}:{part_detail}"
+                f"{part_text}:{part_detail}" + (" [ tool_id: " + ", ".join(part["tool_ids"]) + " ]" if part.get("tool_ids") else "")
             )
             continue
 
@@ -311,6 +311,9 @@ def _format_session_action_context_parts(
         memory_part = _format_memory_action_context_part(
             part
         )
+
+        if memory_part and part.get("tool_ids"):
+            memory_part += " [ tool_id: " + ", ".join(part["tool_ids"]) + " ]"
 
         if memory_part:
             context_parts.append(

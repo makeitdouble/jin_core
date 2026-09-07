@@ -73,12 +73,21 @@ const leading = window.JinResponseFormatter.render(
 const middle = window.JinResponseFormatter.render(
   "До\n<JIN_REACTION: 🤨 >\nПосле"
 );
+const leadingWithBlankLine = window.JinResponseFormatter.render(
+  "<JIN_REACTION: 🤨 >\n\nОтвет после пустой строки."
+);
 
 if ((leading.match(/<br>/g) || []).length !== 0) {
   throw new Error(`leading reaction markers added blank lines: ${JSON.stringify(leading)}`);
 }
 if ((middle.match(/<br>/g) || []).length !== 2) {
   throw new Error(`non-leading reaction spacing changed: ${JSON.stringify(middle)}`);
+}
+if (!leadingWithBlankLine.startsWith("<p><span")) {
+  throw new Error(`leading reaction anchor was not merged into the following paragraph: ${JSON.stringify(leadingWithBlankLine)}`);
+}
+if ((leadingWithBlankLine.match(/<p>/g) || []).length !== 1) {
+  throw new Error(`blank line after leading reaction created an empty paragraph: ${JSON.stringify(leadingWithBlankLine)}`);
 }
 if ((leading.match(/jin-chat-jin-reaction-anchor/g) || []).length !== 2) {
   throw new Error(`leading reaction anchors missing: ${JSON.stringify(leading)}`);

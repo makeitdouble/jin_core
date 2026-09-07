@@ -2279,3 +2279,107 @@ button.jin-context-lt-fact-id.is-linked:focus-visible {
 .memory-value-button:focus-visible { outline: 1px solid currentColor; }
 .memory-value-button:disabled { opacity: 0.35; cursor: default; }
 .memory-value-error { margin-top: 8px; color: rgba(248, 113, 113, 0.98); }
+
+/* Loaded delayed-memory payloads in the context trace: keep the JSON structure,
+   but present it as one compact record instead of a raw object dump. */
+.jin-context-loaded-memory {
+    display: grid;
+    gap: 0;
+}
+
+.jin-context-loaded-memory-row {
+    display: grid;
+    grid-template-columns: 88px minmax(0, 1fr);
+    gap: 10px;
+    align-items: start;
+    padding: 5px 2px;
+    border-bottom: 1px solid rgba(39, 39, 42, 0.62);
+}
+
+.jin-context-loaded-memory-key,
+.jin-context-loaded-memory-body-label {
+    color: rgba(125, 211, 252, 0.66);
+    font-size: 9px;
+    line-height: 1.6;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+}
+
+.jin-context-loaded-memory-value {
+    min-width: 0;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    color: rgba(228, 228, 231, 0.84);
+    font-size: 11px;
+    line-height: 1.55;
+}
+
+.jin-context-loaded-memory-title {
+    display: flex;
+    min-width: 0;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 7px;
+    color: rgba(244, 244, 245, 0.92);
+    font-weight: 600;
+}
+
+.jin-context-loaded-memory-id,
+.jin-context-loaded-memory-tag {
+    display: inline-flex;
+    align-items: center;
+    border: 1px solid rgba(63, 63, 70, 0.76);
+    border-radius: 999px;
+    background: rgba(24, 24, 27, 0.54);
+    padding: 1px 6px;
+    color: rgba(161, 161, 170, 0.78);
+    font-size: 9px;
+    font-weight: 500;
+    line-height: 1.45;
+    white-space: nowrap;
+}
+
+.jin-context-loaded-memory-id {
+    border-color: rgba(56, 189, 248, 0.18);
+    background: rgba(8, 47, 73, 0.14);
+    color: rgba(186, 230, 253, 0.66);
+}
+
+.jin-context-loaded-memory-tags {
+    display: flex;
+    min-width: 0;
+    flex-wrap: wrap;
+    gap: 4px;
+}
+
+.jin-context-loaded-memory-body {
+    display: grid;
+    grid-template-columns: 88px minmax(0, 1fr);
+    gap: 10px;
+    margin-top: 2px;
+    padding: 7px 2px 2px;
+}
+
+.jin-context-loaded-memory-body-text {
+    min-width: 0;
+    border-left: 2px solid rgba(82, 82, 91, 0.64);
+    padding: 1px 0 1px 9px;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    color: rgba(228, 228, 231, 0.88);
+    font-size: 11px;
+    line-height: 1.56;
+}
+
+.jin-context-loaded-memory-empty-value {
+    color: rgba(113, 113, 122, 0.72);
+    font-weight: 400;
+}
+
+@media (max-width: 760px) {
+    .jin-context-loaded-memory-row,
+    .jin-context-loaded-memory-body {
+        grid-template-columns: 1fr;
+        gap: 3px;
+    }
+}

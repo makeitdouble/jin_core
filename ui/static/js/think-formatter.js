@@ -6,7 +6,66 @@
     || {};
 
   const INLINE_TOKEN_PATTERN =
-    /(`[^`\n]*`|\$[^$\n]+\$|\\\([^\n]*?\\\)|\\\[[^\n]*?\\\]|\*\*[^*\n]+\*\*|__[^_\n]+__|\*[^*\n]+\*|(?<![\p{L}\p{N}_])_[^_\n]+_(?![\p{L}\p{N}_]))/gu;
+    /(`[^`\n]*`|\$\$[^$\n]+\$\$|\$[^$\n]+\$|\\\([^\n]*?\\\)|\\\[[^\n]*?\\\]|\*\*[^*\n]+\*\*|__[^_\n]+__|\*[^*\n]+\*|(?<![\p{L}\p{N}_])_[^_\n]+_(?![\p{L}\p{N}_]))/gu;
+
+  const MATRIX_START_PATTERN =
+    /^[ \t]*(?:(?:[A-Za-z](?:_\{?[A-Za-z0-9]+\}?)?)\s*=\s*)?\\begin\{(matrix|pmatrix|bmatrix|Bmatrix|vmatrix|Vmatrix|smallmatrix)\}[ \t]*$/;
+
+  function appendMathContent(
+    element,
+    latex,
+    displayMode,
+    absoluteStart,
+    decorations
+  ) {
+
+    const source =
+      String(latex || "");
+    const start =
+      Number(absoluteStart || 0);
+    const end =
+      start + source.length;
+    const hasDecoration =
+      (Array.isArray(decorations) ? decorations : [])
+        .some((decoration) => (
+          Number(decoration.end) > start
+          && Number(decoration.start) < end
+        ));
+    const katex =
+      window.katex;
+
+    if (
+      !hasDecoration
+      && katex
+      && typeof katex.renderToString === "function"
+    ) {
+      try {
+        element.innerHTML = katex.renderToString(
+          source,
+          {
+            displayMode: Boolean(displayMode),
+            throwOnError: false,
+            strict: "ignore",
+            trust: false,
+          }
+        );
+        element.classList.add(
+          "is-katex"
+        );
+        return;
+      } catch (_error) {
+        // Keep the readable raw formula below if KaTeX rejects it.
+      }
+    }
+
+    appendDecoratedText(
+      element,
+      source,
+      start,
+      decorations
+    );
+
+  }
 
   function getIndentWidth(value) {
 
@@ -272,15 +331,20 @@
         token.startsWith("$")
         && token.endsWith("$")
       ) {
+        const delimiterLength =
+          token.startsWith("$$")
+            ? 2
+            : 1;
+
         element =
           document.createElement("span");
         element.className =
           "jin-think-math";
-        inner = token.slice(1, -1).trim();
+        inner = token.slice(delimiterLength, -delimiterLength).trim();
         const firstNonSpace =
-          token.slice(1, -1).search(/\S/);
+          token.slice(delimiterLength, -delimiterLength).search(/\S/);
         innerOffset =
-          1 + Math.max(0, firstNonSpace);
+          delimiterLength + Math.max(0, firstNonSpace);
       } else if (
         (
           token.startsWith("\\(")
@@ -329,12 +393,25 @@
         innerOffset = 1;
       }
 
-      appendDecoratedText(
-        element,
-        inner,
-        absoluteStart + tokenStart + innerOffset,
-        decorations
-      );
+      if (element.className === "jin-think-math") {
+        appendMathContent(
+          element,
+          inner,
+          (
+            token.startsWith("$$")
+            || token.startsWith("\\[")
+          ),
+          absoluteStart + tokenStart + innerOffset,
+          decorations
+        );
+      } else {
+        appendDecoratedText(
+          element,
+          inner,
+          absoluteStart + tokenStart + innerOffset,
+          decorations
+        );
+      }
       parent.appendChild(element);
 
       cursor =
@@ -558,15 +635,94 @@
           + String(lines[startIndex + 1] || "").search(/\S|$/)
         : starts[startIndex];
 
-    appendDecoratedText(
+    appendMathContent(
       math,
       mathText,
+      true,
       mathStart,
       decorations
     );
     fragment.appendChild(math);
 
     return index + 1;
+
+  }
+
+  function renderMatrixMath(
+    fragment,
+    lines,
+    starts,
+    startIndex,
+    decorations
+  ) {
+
+    const firstLine =
+      String(lines[startIndex] || "");
+    const match =
+      firstLine.match(
+        MATRIX_START_PATTERN
+      );
+
+    if (!match) {
+      return null;
+    }
+
+    const closing =
+      `\\end{${match[1]}}`;
+    const firstNonSpace =
+      firstLine.search(/\S|$/);
+    const mathLines = [
+      firstLine.slice(firstNonSpace),
+    ];
+    let index =
+      startIndex + 1;
+
+    while (
+      index < lines.length
+      && String(lines[index] || "").trim() !== closing
+    ) {
+      mathLines.push(
+        String(lines[index] || "")
+      );
+      index += 1;
+    }
+
+    if (index >= lines.length) {
+      return null;
+    }
+
+    mathLines.push(
+      String(lines[index] || "").trim()
+    );
+
+    const math =
+      createLineElement([
+        "jin-think-math-block",
+        "jin-think-matrix-block",
+      ]);
+
+    appendMathContent(
+      math,
+      mathLines.join("\n"),
+      true,
+      starts[startIndex] + firstNonSpace,
+      decorations
+    );
+    fragment.appendChild(math);
+
+    let nextIndex =
+      index + 1;
+
+    if (
+      nextIndex < lines.length
+      && ["$$", "\\]"].includes(
+        String(lines[nextIndex] || "").trim()
+      )
+    ) {
+      nextIndex += 1;
+    }
+
+    return nextIndex;
 
   }
 
@@ -655,6 +811,22 @@
 
       if (displayMathNext !== null) {
         index = displayMathNext;
+        previousWasGap = false;
+        sectionIndent = null;
+        continue;
+      }
+
+      const matrixMathNext =
+        renderMatrixMath(
+          fragment,
+          lines,
+          starts,
+          index,
+          decorations
+        );
+
+      if (matrixMathNext !== null) {
+        index = matrixMathNext;
         previousWasGap = false;
         sectionIndent = null;
         continue;

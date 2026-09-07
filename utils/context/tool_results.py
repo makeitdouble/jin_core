@@ -232,7 +232,11 @@ def _file_result_content_block(
     if not isinstance(result, dict) or result.get("ok") is False or result.get("loaded") is False:
         return ""
 
-    from .files import format_file_content, project_file_ref
+    from .files import (
+        format_file_content,
+        project_file_content_label,
+        project_file_ref,
+    )
 
     ref = project_file_ref(result)
     if ref:
@@ -244,7 +248,7 @@ def _file_result_content_block(
         if root_id not in active or "content" not in result:
             return ""
         return format_file_content(
-            result.get("path") or ref,
+            project_file_content_label(result),
             result.get("content", ""),
         )
 
@@ -388,11 +392,15 @@ def _append_recorded_tool_results(
     if embedded_project_refs is None:
         embedded_project_refs = set()
 
-    for index, entry in enumerate(
-        get_runtime_tool_results(
-        context
-        )
-    ):
+    recorded_results = get_runtime_tool_results(context)
+    turn_count = int(
+        getattr(context, "runtime_tool_results_turn_count", 0) or 0
+    )
+    current_turn_start = len(recorded_results) - turn_count
+
+    # Render newest first without mutating append order used by ids/restore.
+    for index in range(len(recorded_results) - 1, -1, -1):
+        entry = recorded_results[index]
         if not isinstance(
             entry,
             dict,
@@ -409,7 +417,7 @@ def _append_recorded_tool_results(
         result = entry.get(
             "result"
         )
-        current_turn = index >= len(get_runtime_tool_results(context)) - int(getattr(context, "runtime_tool_results_turn_count", 0) or 0)
+        current_turn = index >= current_turn_start
         if not project_tool_result_visible(context, kind, result, current_turn=current_turn):
             # An intentionally filtered recorded result must not fall back to legacy slots.
             appended = True
@@ -419,6 +427,8 @@ def _append_recorded_tool_results(
             index,
             entry,
         )
+
+        tool_id_attr = f'tool_id="{escape(entry["tool_id"])}" ' if entry.get("tool_id") else ""
 
         if kind == TOOL_RESULT_KIND_SEARCH:
             search_result = strip_empty_results_xml(
@@ -430,7 +440,7 @@ def _append_recorded_tool_results(
             if not search_result:
                 continue
 
-            attrs = f'name="{escape(RUNTIME_ACTION_WEB_SEARCH)}"'
+            attrs = tool_id_attr + f'name="{escape(RUNTIME_ACTION_WEB_SEARCH)}"'
             result_id = str(
                 entry.get(
                     "id",
@@ -457,7 +467,7 @@ def _append_recorded_tool_results(
             if not deep_result:
                 continue
 
-            attrs = f'name="{escape(RUNTIME_ACTION_DEEP_WEB_SEARCH)}"'
+            attrs = tool_id_attr + f'name="{escape(RUNTIME_ACTION_DEEP_WEB_SEARCH)}"'
             result_id = str(
                 entry.get(
                     "id",
@@ -497,7 +507,7 @@ def _append_recorded_tool_results(
                     embedded_project_refs.add(project_ref)
             blocks = []
             for name, payload in sections:
-                attrs = f'name="{escape(name)}"'
+                attrs = tool_id_attr + f'name="{escape(name)}"'
                 blocks.append(
                     _build_recorded_tool_result_block(
                         attrs,
@@ -522,7 +532,7 @@ def _append_recorded_tool_results(
 
             blocks = []
             for name, payload in sections:
-                attrs = f'name="{escape(name)}"'
+                attrs = tool_id_attr + f'name="{escape(name)}"'
                 blocks.append(
                     f"{_build_tool_result_open_tag(attrs, created_at=created_at, now=now)}\n"
                     f"{indent_xml(_escape_runtime_action_payload(payload))}\n"
@@ -539,7 +549,7 @@ def _append_recorded_tool_results(
                 continue
             if result.get("action") != "list_files":
                 from .files import format_file_result
-                attrs = f'name="{escape(str(result.get("action", "file")).upper())}"'
+                attrs = tool_id_attr + f'name="{escape(str(result.get("action", "file")).upper())}"'
                 payload = format_file_result(result)
                 persistent_id = _persistent_file_result_id(
                     context,
@@ -547,17 +557,18 @@ def _append_recorded_tool_results(
                 )
                 if persistent_id:
                     represented_attachment_ids.add(persistent_id)
-                from .files import project_file_ref
+                from .files import project_file_load_key, project_file_ref
                 project_ref = project_file_ref(result)
+                project_load_key = project_file_load_key(result)
                 content_block = ""
-                if not project_ref or project_ref not in embedded_project_refs:
+                if not project_ref or project_load_key not in embedded_project_refs:
                     content_block = _file_result_content_block(
                         context,
                         result,
                         persistent_text_budget=persistent_text_budget,
                     )
-                    if content_block and project_ref:
-                        embedded_project_refs.add(project_ref)
+                    if content_block and project_load_key is not None:
+                        embedded_project_refs.add(project_load_key)
                 parts.append(
                     _build_recorded_tool_result_block(
                         attrs,
@@ -588,7 +599,7 @@ def _append_recorded_tool_results(
                     else "  No files."
                 )
             )
-            attrs = 'name="LIST_FILES"'
+            attrs = tool_id_attr + 'name="LIST_FILES"'
             parts.append(
                 f"{_build_tool_result_open_tag(attrs, created_at=created_at, now=now)}\n"
                 f"{indent_xml(_escape_runtime_action_payload(payload))}\n"
@@ -613,7 +624,7 @@ def _append_recorded_tool_results(
             if not payload:
                 continue
 
-            attrs = f'name="{escape(runtime_action)}"'
+            attrs = tool_id_attr + f'name="{escape(runtime_action)}"'
             result_id = str(
                 entry.get(
                     "id",
@@ -639,7 +650,7 @@ def _append_recorded_tool_results(
             payload = format_runtime_action_result(
                 result, runtime_action=RUNTIME_ACTION_RECALL_FACT_CONTEXT,
             )
-            attrs = f'name="{escape(RUNTIME_ACTION_RECALL_FACT_CONTEXT)}"'
+            attrs = tool_id_attr + f'name="{escape(RUNTIME_ACTION_RECALL_FACT_CONTEXT)}"'
             result_id = str(entry.get("id", "") or "").strip()
             if result_id:
                 attrs += f' id="{escape(result_id)}"'
@@ -661,7 +672,7 @@ def _append_recorded_tool_results(
 
             blocks = []
             for name, payload in sections:
-                attrs = f'name="{escape(name)}"'
+                attrs = tool_id_attr + f'name="{escape(name)}"'
                 blocks.append(
                     f"{_build_tool_result_open_tag(attrs, created_at=created_at, now=now)}\n"
                     f"{indent_xml(_escape_runtime_action_payload(payload))}\n"
@@ -755,7 +766,7 @@ def _append_asset_results(
     from .files import project_file_ref
     embedded_project_refs = set()
 
-    for result in asset_results[-5:]:
+    for result in reversed(asset_results[-5:]):
         project_ref = project_file_ref(result)
         if project_ref:
             flush_pending()
@@ -817,7 +828,7 @@ def _load_delayed_memory_results(
     tool_result_blocks = []
 
     for name, payload in format_delayed_memory_result_sections(
-        delayed_memory_results[-5:],
+        list(reversed(delayed_memory_results[-5:])),
     ):
         attrs = f'name="{escape(name)}"'
         tool_result_blocks.append(

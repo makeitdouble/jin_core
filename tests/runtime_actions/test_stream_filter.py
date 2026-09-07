@@ -1999,12 +1999,12 @@ class RuntimeStreamFilterTests(RuntimeActionTestCase):
             tool_results,
         )
         self.assertLess(
-            tool_results.index("old result"),
+            tool_results.index("No entries found."),
             tool_results.index("file_manager"),
         )
         self.assertLess(
             tool_results.index("file_manager"),
-            tool_results.index("No entries found."),
+            tool_results.index("old result"),
         )
         self.assertEqual(
             len(context.runtime_tool_results),
@@ -2048,16 +2048,16 @@ class RuntimeStreamFilterTests(RuntimeActionTestCase):
             )
 
         self.assertIn(
-            '<TOOL_RESULT name="SAVE_DELAYED_MEMORY" ( 5m 2s ago ) >',
+            '<TOOL_RESULT tool_id="T1" name="SAVE_DELAYED_MEMORY" ( 5m 2s ago ) >',
             tool_results,
         )
         self.assertIn(
-            '<TOOL_RESULT name="WEB_SEARCH" ( 1s ago ) >',
+            '<TOOL_RESULT tool_id="T2" name="WEB_SEARCH" ( 1s ago ) >',
             tool_results,
         )
 
 
-    def test_failed_tool_results_dedupe_ignores_volatile_result_id(self):
+    def test_failed_tool_results_keep_each_action_occurrence_despite_same_error(self):
 
         Context = FakeContext
 
@@ -2104,27 +2104,25 @@ class RuntimeStreamFilterTests(RuntimeActionTestCase):
 
         self.assertEqual(
             len(context.runtime_tool_results),
-            1,
+            2,
         )
         self.assertEqual(
             len(context.runtime_delayed_memory_results),
-            1,
+            2,
         )
         self.assertEqual(
             context.runtime_tool_results_turn_count,
-            1,
+            2,
         )
         self.assertEqual(
-            tool_results.count(
-                '<TOOL_RESULT name="SAVE_DELAYED_MEMORY"'
-            ),
-            1,
+            [entry.get("tool_id") for entry in context.runtime_tool_results],
+            ["T1", "T2"],
         )
         self.assertEqual(
             tool_results.count(
                 "user_did_not_explicitly_request_report_save"
             ),
-            1,
+            2,
         )
 
 

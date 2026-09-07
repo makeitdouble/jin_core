@@ -710,6 +710,7 @@
         Array.isArray(payload.session_actions)
           ? payload.session_actions
           : [],
+      tool_result_sequence: Number(payload.tool_result_sequence) || 0,
       tool_results:
         Array.isArray(payload.tool_results)
           ? payload.tool_results

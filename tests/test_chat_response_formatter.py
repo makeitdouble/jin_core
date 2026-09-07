@@ -252,7 +252,7 @@ global.window = {
 eval(fs.readFileSync(process.argv[1], "utf8"));
 
 const html = window.JinResponseFormatter.render(
-  "**Energy: $E=mc^2$**, fraction: $\\frac{a_b}{c^2}$."
+  "**Energy: $E=mc^2$**, fraction: $\\frac{a_b}{c^2}$, backslash: \\(x_1+y_2\\)."
 );
 
 if (!html.includes('<strong>Energy: <span class="mock-katex">E=mc^2</span></strong>')) {
@@ -263,7 +263,11 @@ if (!html.includes('<span class="mock-katex">\\frac{a_b}{c^2}</span>')) {
   throw new Error(`LaTeX source was changed by markdown parsing: ${html}`);
 }
 
-if (calls.length !== 2 || calls.some(([, options]) => options.displayMode !== false)) {
+if (!html.includes('<span class="mock-katex">x_1+y_2</span>')) {
+  throw new Error(`\\(...\\) equation was not rendered: ${html}`);
+}
+
+if (calls.length !== 3 || calls.some(([, options]) => options.displayMode !== false)) {
   throw new Error(`unexpected inline KaTeX calls: ${JSON.stringify(calls)}`);
 }
 '''
@@ -313,6 +317,12 @@ const input = [
   "```txt",
   "$also_raw$",
   "```",
+  "",
+  "A = \\begin{bmatrix}",
+  "1 & 0 \\\\",
+  "0 & 1",
+  "\\end{bmatrix}",
+  "$$",
 ].join("\n");
 const html = window.JinResponseFormatter.render(input);
 
@@ -328,7 +338,19 @@ if (!html.includes('data-display="true">\\frac{x_1}{y^2}</span>')) {
   throw new Error(`display equation was not rendered: ${html}`);
 }
 
-if (calls.length !== 1 || calls[0][1] !== true) {
+if (!html.includes('class="jin-chat-matrix-block"')) {
+  throw new Error(`bare matrix block was not rendered: ${html}`);
+}
+
+if (!html.includes('A = \\begin{bmatrix}')) {
+  throw new Error(`matrix assignment was not preserved: ${html}`);
+}
+
+if (html.includes("<p>$$</p>")) {
+  throw new Error(`orphan matrix delimiter leaked into output: ${html}`);
+}
+
+if (calls.length !== 2 || calls.some(([, display]) => display !== true)) {
   throw new Error(`unexpected display KaTeX calls: ${JSON.stringify(calls)}`);
 }
 '''
@@ -393,7 +415,7 @@ if (html !== "<p>formula $a_b^2$ and price $5 and $10</p>") {
         )
         formatter_script = (
             '/static/js/chat-response-formatter.js?v=jin-size-1&jin-reaction=1'
-            '&marker-spacing=1&math=1'
+            '&marker-spacing=2&math=2'
         )
 
         self.assertIn(

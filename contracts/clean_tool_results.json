@@ -1,6 +1,6 @@
 {
   "clean_tool_results": {
-    "version": 1,
+    "version": 2,
     "description": "Allows the model to clean redundant tool results.",
     "runtime_action": "CLEAN_TOOL_RESULTS",
     "enable_flag": "CAN_CLEAN_TOOL_RESULTS",
@@ -10,11 +10,15 @@
     "blockers": [],
     "effects": {
       "emit_followup": false,
-      "follow_up_on_fail": false
+      "follow_up_on_fail": true
     },
-    "schema": [],
+    "schema": [
+      "<CLEAN_TOOL_RESULTS>",
+      "<CLEAN_TOOL_RESULTS: T1 >"
+    ],
     "rules": [
-      "Emit at any moment in you answer to clean redundant tool results and only if they are present in the context inside <TOOLS_RESULTS> block."
+      "Use <CLEAN_TOOL_RESULTS> to delete ALL tool results!",
+      "Use <CLEAN_TOOL_RESULTS: T1 > to remove ONLY one existing TOOL_RESULT whose tool_id is exactly T1; every other result stays. Supply one exact T<number> ID from the current TOOLS_RESULTS block."
     ],
     "close_tag": false
   }

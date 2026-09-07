@@ -90,6 +90,14 @@ def format_attachment_context(
     ]
 
     included = 0
+    folder_name_counts = {}
+    for item in attachments:
+        if not isinstance(item, dict):
+            continue
+        item_name = str(item.get("name") or "")
+        if item_name.lower().endswith(".jin-folder"):
+            display = file_display_name(item_name)
+            folder_name_counts[display] = folder_name_counts.get(display, 0) + 1
 
     for index, attachment in enumerate(
         attachments,
@@ -175,13 +183,23 @@ def format_attachment_context(
             context_path = file_display_name(name)
             detail_parts = ["folder"]
 
+        if name.lower().endswith(".jin-folder"):
+            duplicate_suffix = (
+                f" [ duplicate-name ASSET_ACTION id: {file_id} ]"
+                if file_id and folder_name_counts.get(context_path, 0) > 1
+                else ""
+            )
+            lines.append(f"- {context_path}/: folder{duplicate_suffix}")
+            lines.append(
+                f"Linked project (read only). File-path root is {context_path}/. "
+                f"Use {context_path} as the ASSET_ACTION attachment (or omit it when this is the only folder). "
+                "List/search with ASSET_ACTION; load files by copying folder-rooted paths into ATTACH_FILE."
+            )
+            continue
+
         lines.append(
             f"- {context_path}: {', '.join(detail_parts)}{id_suffix}"
         )
-
-        if name.lower().endswith(".jin-folder"):
-            lines.append("Linked project (read only); list/search with ASSET_ACTION, load files with ATTACH_FILE.")
-            continue
 
     if not included:
         return ""
@@ -336,15 +354,29 @@ def build_attached_files_inventory_context(context=None) -> str:
     file_ids = getattr(context, "runtime_attached_file_ids", [])
     if not isinstance(file_ids, list) or not file_ids:
         return ""
+    records = [get_file_record(file_id) for file_id in file_ids]
+    records = [record for record in records if record]
+    folder_names = [
+        file_display_name(record["name"])
+        for record in records
+        if str(record.get("name") or "").lower().endswith(".jin-folder")
+    ]
+    folder_name_counts = {name: folder_names.count(name) for name in set(folder_names)}
     lines = []
-    for file_id in file_ids:
-        record = get_file_record(file_id)
-        if not record:
-            continue
-        lines.append(f"    {file_display_name(record['name'])} [ id: {record['id']} ]")
-    from utils.context.files import loaded_project_files, project_file_ref
+    for record in records:
+        display_name = file_display_name(record["name"])
+        if str(record.get("name") or "").lower().endswith(".jin-folder"):
+            suffix = (
+                f" [ duplicate-name ASSET_ACTION id: {record['id']} ]"
+                if folder_name_counts.get(display_name, 0) > 1
+                else ""
+            )
+            lines.append(f"    {display_name}/{suffix}")
+        else:
+            lines.append(f"    {display_name} [ id: {record['id']} ]")
+    from utils.context.files import loaded_project_files, project_file_display_ref
     for result in loaded_project_files(context):
-        lines.append(f"    {result['path']} [ id: {project_file_ref(result)} ]; read: {result.get('range', '')}")
+        lines.append(f"    {project_file_display_ref(result)}; read: {result.get('range', '')}")
     if not lines:
         return ""
     return "<ATTACHED_FILES>\n" + "\n".join(lines) + "\n</ATTACHED_FILES>"

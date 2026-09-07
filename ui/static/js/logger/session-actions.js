@@ -263,6 +263,7 @@ function normalizeSessionActionParts(
             detail,
             message,
             contextDetail,
+            toolIds: Array.isArray(part.tool_ids) ? part.tool_ids.filter(id => /^T[1-9][0-9]*$/.test(id)) : [],
             id,
             colors,
             count,
@@ -604,6 +605,13 @@ function buildSessionActionRow(
       action.appendChild(
         attachmentId
       );
+    }
+
+    if (part.toolIds && part.toolIds.length) {
+      const toolIds = document.createElement("span");
+      toolIds.textContent = ` [ tool_id: ${part.toolIds.join(", ")} ]`;
+      toolIds.className = "opacity-70";
+      action.appendChild(toolIds);
     }
 
     const isUpdateLTFactsAction =
@@ -1183,6 +1191,7 @@ function markSessionActionCancelled(
         detail: part.detail,
         message: part.message,
         context_detail: part.contextDetail,
+        tool_ids: part.toolIds,
         id: part.id,
         colors: part.colors,
         count: part.count,

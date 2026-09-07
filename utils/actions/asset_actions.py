@@ -185,6 +185,8 @@ async def emit_saved_asset_results(
     ]
 
     for result, text in saved_asset_result_texts:
+        tool_ids = [entry["tool_id"] for entry in getattr(context, "runtime_tool_results", [])
+                    if entry.get("tool_id") and entry.get("result") == result]
         context_detail = build_asset_action_context_detail(
             result
         )
@@ -192,6 +194,7 @@ async def emit_saved_asset_results(
             [
                 {
                     "text": "ASSET_ACTION",
+                    "tool_ids": tool_ids[-1:],
                     "detail": context_detail,
                     "context_detail": context_detail,
                 },
@@ -224,7 +227,7 @@ async def emit_saved_asset_results(
         ):
             # Keep the existing human-readable history text for UI/backward
             # compatibility; context rendering uses the structured parts above.
-            history[-1]["text"] = text
+            history[-1]["text"] = text + (" [ tool_id: " + tool_ids[-1] + " ]" if tool_ids else "")
 
     if not saved_asset_result_texts:
         return

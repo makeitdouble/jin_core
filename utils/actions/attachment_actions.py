@@ -1,6 +1,7 @@
 import asyncio
 import re
 
+from utils import attached_files_store as files
 from contracts.rules_assembler import (
     RUNTIME_ACTION_LIST_FILES,
     RUNTIME_ACTION_ATTACH_FILE,
@@ -93,16 +94,29 @@ def parse_project_file_target(payload, context):
     if not match:
         return None
     path, start, end = match.groups()
-    projects = linked_projects(context)
+    # Normalize only explicit current-directory prefixes. ``../`` remains
+    # untouched and is rejected later by the project path guard.
+    while path.startswith("./"):
+        path = path[2:]
+    projects = linked_projects(context, include_pending_restore=True)
     prefix, separator, relative = path.partition("/")
     record = get_file_record(_clean_id(prefix)) if separator else None
-    # Only a known folder ID is a prefix; six-character directory names are paths.
+    # Canonical model-facing prefix is the visible folder name. Folder IDs are
+    # still accepted for old sessions/outputs, but are not advertised as roots.
+    named = [
+        project for project in projects
+        if separator and prefix == files.file_display_name(project["name"])
+    ]
     if record and record["name"].lower().endswith(FOLDER_SUFFIX):
         folder, path = record["id"], relative
+    elif len(named) == 1:
+        folder, path = named[0]["id"], relative
+    elif len(named) > 1:
+        raise ValueError("Folder name is ambiguous; use the ASSET_ACTION attachment id for this exceptional case")
     elif len(projects) == 1:
         folder = projects[0]["id"]
     elif projects:
-        raise ValueError("Multiple folders attached; use folder_id/relative/path")
+        raise ValueError("Multiple folders attached; prefix the path with the visible folder name, e.g. project_name/relative/path")
     else:
         raise ValueError("No folder attached; attach a folder link or use a persistent file ID")
     target = {"action": "project_read", "attachment": folder, "path": path}
@@ -113,10 +127,26 @@ def parse_project_file_target(payload, context):
     return target
 
 
-async def attach_project_file(context, payload):
+async def attach_project_file(context, payload, *, next_unread_window=False):
     """Shared loader for ATTACH_FILE and the old ASSET_ACTION project_read alias."""
     from utils.project_reader import run_project_action
-    return await asyncio.to_thread(run_project_action, context, payload)
+
+    project_payload = dict(payload or {})
+    if (
+        next_unread_window
+        and "start" not in project_payload
+        and "end" not in project_payload
+    ):
+        # Internal-only behavior for bare ATTACH_FILE. Explicit #L... reads
+        # retain exact range identity, while legacy ASSET_ACTION project_read
+        # keeps its old default-to-L1 behavior.
+        project_payload["_next_unread_window"] = True
+
+    return await asyncio.to_thread(
+        run_project_action,
+        context,
+        project_payload,
+    )
 
 
 async def apply_attachment_actions(
@@ -195,9 +225,18 @@ async def apply_attachment_actions(
                     end=requested_end,
                     detached_at=detached_at,
                 )
+                project_record = get_file_record(target["attachment"])
+                project_name = files.file_display_name(project_record["name"]) if project_record else ""
+                display_name = f"{project_name}/{path}" if project_name else path
                 result.update(
                     id=ref,
-                    name=path,
+                    file_ref=ref,
+                    attachment=target["attachment"],
+                    path=path,
+                    name=display_name,
+                    project_name=project_name,
+                    display_ref=display_name,
+                    source="project",
                     ok=unloaded,
                     unloaded=unloaded,
                 )
@@ -211,9 +250,20 @@ async def apply_attachment_actions(
                 if not unloaded:
                     result.update(error="file_not_loaded", detail="File is not loaded; nothing to unload")
             else:
-                result = await attach_project_file(context, target)
-                result.update(action=name, id=result.get("file_ref") or str(action.payload),
-                              name=result.get("path") or target["path"], source="project")
+                result = await attach_project_file(
+                    context,
+                    target,
+                    next_unread_window=(
+                        "start" not in target
+                        and "end" not in target
+                    ),
+                )
+                result.update(
+                    action=name,
+                    id=result.get("file_ref") or str(action.payload),
+                    name=result.get("display_ref") or result.get("path") or target["path"],
+                    source="project",
+                )
         elif not file_id or record is None:
             result["error"] = "file_not_found"
         elif detaching:

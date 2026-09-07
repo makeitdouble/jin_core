@@ -45,7 +45,10 @@ from .skill_load_utils import (
     plural_skill_marker_action_name as _plural_skill_marker_action_name,
     split_internal_skill_marker_list as _split_internal_skill_marker_list,
 )
-from .asset_action_utils import build_asset_action_payload
+from .asset_action_utils import (
+    build_asset_action_payload,
+    build_compact_project_asset_action_payload,
+)
 from .save_active_memory_utils import build_save_active_memory_payload
 from .jin_color_utils import build_jin_color_payload
 from .jin_reaction_utils import build_jin_reaction_payload
@@ -149,7 +152,7 @@ def _runtime_action_allows_inline_payload(
     action_name: str,
 ) -> bool:
     return (action_name in JIN_INLINE_PAYLOAD_ACTIONS
-            or action_name == RUNTIME_ACTION_RECALL_FACT_CONTEXT)
+            or action_name in {RUNTIME_ACTION_RECALL_FACT_CONTEXT, RUNTIME_ACTION_CLEAN_TOOL_RESULTS})
 
 
 @lru_cache(maxsize=None)
@@ -245,10 +248,15 @@ def _find_all_runtime_action_matches(
             )
 
         if action_name == RUNTIME_ACTION_ASSET_ACTION:
-            action_matches = tuple(
-                match
-                for match in action_matches
-                if match.payload.strip()
+            action_matches = (
+                *_find_compact_project_asset_action_matches(
+                    text
+                ),
+                *(
+                    match
+                    for match in action_matches
+                    if match.payload.strip()
+                ),
             )
 
         if action_name == RUNTIME_ACTION_UPDATE_ACTIVE_MEMORY:
@@ -283,6 +291,92 @@ def _find_all_runtime_action_matches(
     return select_non_overlapping_regexp_matches(
         matches
     )
+
+
+def _find_compact_project_asset_action_matches(
+    text: str,
+) -> tuple[RuntimeActionRegexpMatch, ...]:
+    """Parse the narrow ``<ASSET_ACTION: project_* | ...>`` compatibility form.
+
+    Keep this deliberately separate from the generic inline-payload parser so
+    arbitrary ASSET_ACTION operations do not silently acquire a second syntax.
+    """
+
+    private_marker, _ = _runtime_action_marker_config(
+        RUNTIME_ACTION_ASSET_ACTION
+    )
+    regexp = compile_runtime_action_tag_regexp(
+        private_marker,
+        RUNTIME_ACTION_ASSET_ACTION,
+    )
+    matches = []
+
+    for match in regexp.finditer(str(text or "")):
+        if match.group("slash"):
+            continue
+
+        raw_payload = str(
+            match.group("attribute_payload")
+            or ""
+        ).strip()
+        compact_payload = build_compact_project_asset_action_payload(
+            raw_payload
+        )
+
+        if compact_payload is None:
+            continue
+
+        matches.append(
+            RuntimeActionRegexpMatch(
+                start=match.start(),
+                end=match.end(),
+                raw=match.group(0),
+                name=RUNTIME_ACTION_ASSET_ACTION,
+                payload=compact_payload,
+                source="asset_action_compact",
+            )
+        )
+
+    return tuple(matches)
+
+
+def _unclosed_compact_asset_action_start(
+    text: str,
+) -> int | None:
+    """Return the start of an unfinished ``<ASSET_ACTION: ...`` line."""
+
+    match = re.search(
+        RUNTIME_ACTION_EXECUTABLE_PREFIX + (
+            r"<\s*ASSET_ACTION\s*:\s*[^>\r\n]*\Z"
+        ),
+        str(text or ""),
+        re.IGNORECASE,
+    )
+    return match.start() if match is not None else None
+
+
+def _mask_compact_project_asset_action_markers(
+    text: str,
+) -> str:
+    """Hide complete compact project markers from block-unclosed detection."""
+
+    matches = _find_compact_project_asset_action_matches(
+        text
+    )
+
+    if not matches:
+        return text
+
+    parts = []
+    cursor = 0
+
+    for match in matches:
+        parts.append(text[cursor:match.start])
+        parts.append(" " * (match.end - match.start))
+        cursor = match.end
+
+    parts.append(text[cursor:])
+    return "".join(parts)
 
 
 def _find_clean_tool_results_closing_matches(
@@ -719,6 +813,7 @@ def build_deep_web_search_payload(
 
 
 _ACTION_PAYLOAD_BUILDERS = {
+    RUNTIME_ACTION_CLEAN_TOOL_RESULTS: lambda payload, _: str(payload or "").strip(),
     RUNTIME_ACTION_JIN_COLOR: build_jin_color_payload,
     RUNTIME_ACTION_JIN_REACTION: build_jin_reaction_payload,
     RUNTIME_ACTION_JIN_SIZE: build_jin_size_payload,
@@ -930,6 +1025,25 @@ def _find_leading_bare_runtime_action_matches(
         )
 
         if action is None:
+            # Executed angle markers at the response prefix are not visible
+            # prose and therefore must not disable the strict bare-action
+            # fallback for the next line. This matters when the provider sends
+            # a compact ASSET_ACTION and a following ATTACH_FILE in one chunk.
+            prefix_markers = _find_all_runtime_action_matches(
+                line_for_parse,
+                enabled_action_names,
+                allow_bare_prefix_fallback=False,
+            )
+            fully_consumed_marker = (
+                len(prefix_markers) == 1
+                and not line_for_parse[:prefix_markers[0].start].strip()
+                and not line_for_parse[prefix_markers[0].end:].strip()
+            )
+
+            if fully_consumed_marker and has_newline:
+                cursor = line_end + 1
+                continue
+
             break
 
         line_match = _BARE_PREFIX_ACTION_LINE_RE.fullmatch(
@@ -1686,6 +1800,7 @@ def _enabled_action_start_markers(
             marker_name, _ = extract_private_marker_parts(
                 private_marker
             )
+            markers.append(f"<{marker_name}:")
             closing_marker = f"</{marker_name}>"
 
             if closing_marker not in markers:
@@ -1988,11 +2103,25 @@ def _unclosed_internal_action_request_start(
                     marker_start
                 )
 
+        if action_name == RUNTIME_ACTION_ASSET_ACTION:
+            compact_marker_start = _unclosed_compact_asset_action_start(
+                text
+            )
+            if compact_marker_start is not None:
+                marker_starts.append(
+                    compact_marker_start
+                )
+
         private_marker, close_tag = _runtime_action_marker_config(
             action_name
         )
+        marker_text = (
+            _mask_compact_project_asset_action_markers(text)
+            if action_name == RUNTIME_ACTION_ASSET_ACTION
+            else text
+        )
         marker_start = find_unclosed_runtime_action_start(
-            text,
+            marker_text,
             private_marker,
             action_name,
             close_tag,

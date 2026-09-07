@@ -1,4 +1,4 @@
-import json
+import re
 import time
 from copy import deepcopy
 
@@ -181,44 +181,6 @@ def _trim_runtime_tool_result_created_ats_prefix(
     ]
 
 
-def _failed_tool_result_dedupe_key(
-    entry: dict,
-) -> tuple | None:
-
-    result = entry.get(
-        "result"
-    )
-    if not isinstance(
-        result,
-        dict,
-    ):
-        return None
-
-    if result.get(
-        "ok"
-    ) is not False:
-        return None
-
-    stable_result = {
-        key: value
-        for key, value in result.items()
-        if key != "id"
-    }
-
-    return (
-        entry.get(
-            "kind",
-            "",
-        ),
-        json.dumps(
-            stable_result,
-            ensure_ascii=False,
-            sort_keys=True,
-            default=str,
-        ),
-    )
-
-
 def _failed_tool_result_requires_followup(
     kind: str,
     result,
@@ -376,25 +338,6 @@ def record_runtime_tool_result(
         result,
     )
 
-    dedupe_key = _failed_tool_result_dedupe_key(
-        entry
-    )
-    if dedupe_key is not None:
-        for existing_entry in tool_results:
-            if not isinstance(
-                existing_entry,
-                dict,
-            ):
-                continue
-
-            if (
-                _failed_tool_result_dedupe_key(
-                    existing_entry
-                )
-                == dedupe_key
-            ):
-                return False
-
     recorded_at = (
         _parse_tool_result_timestamp(
             created_at
@@ -403,6 +346,8 @@ def record_runtime_tool_result(
         else None
     )
 
+    entry["tool_id"] = allocate_runtime_tool_id(context)
+    bind_tool_result_to_action(context, entry)
     tool_results.append(
         entry
     )
@@ -762,3 +707,68 @@ def clear_runtime_tool_results(
                 attribute_name,
                 [],
             )
+
+
+def allocate_runtime_tool_id(context) -> str:
+    """Never assign IDs to legacy entries or reuse a removed ID."""
+    high_water = int(getattr(context, "runtime_tool_result_sequence", 0) or 0)
+    for entry in get_runtime_tool_results(context):
+        match = re.fullmatch(r"T([1-9][0-9]*)", str(entry.get("tool_id", "")))
+        if match:
+            high_water = max(high_water, int(match[1]))
+    context.runtime_tool_result_sequence = high_water + 1
+    return f"T{high_water + 1}"
+
+
+def bind_tool_result_to_action(context, entry) -> None:
+    result = entry.get("result")
+    kind = entry.get("kind")
+    name = str(result.get("runtime_action_name") or result.get("action") or "").lower() if isinstance(result, dict) else ""
+    if kind == TOOL_RESULT_KIND_ASSET and name not in {"load_skill", "unload_skill", "list_skills"}:
+        name = "asset_action"
+    name = {TOOL_RESULT_KIND_SEARCH: "web_search", TOOL_RESULT_KIND_DEEP_SEARCH: "deep_web_search",
+            TOOL_RESULT_KIND_LT: "update_lt_facts", TOOL_RESULT_KIND_FACT_CONTEXT: "recall_fact_context"}.get(kind, name)
+    events = getattr(context, "runtime_action_events", []) or []
+    turn_id = str(getattr(context, "runtime_current_turn_id", "") or "")
+    result_id = entry.get("id")
+    exact = [event for event in events if result_id and event.get("id") == result_id]
+    if exact:
+        events = exact
+        turn_id = str(exact[0].get("runtime_turn_id", "") or "")
+    for event in events:
+        if name == "clean_tool_results" and event.get("payload", "") != result.get("payload", ""):
+            continue
+        if (event.get("name") == name and not event.get("tool_id")
+                and (not turn_id or event.get("runtime_turn_id", "") == turn_id)):
+            event["tool_id"] = entry["tool_id"]
+            entry["action_payload"] = event.get("payload", "")
+            entry["runtime_turn_id"] = turn_id
+            break
+
+
+def clean_runtime_tool_result(context, tool_id: str) -> bool:
+    """Remove exactly one modern result; legacy entries never match."""
+    if not re.fullmatch(r"T[1-9][0-9]*", tool_id):
+        return False
+    entries = get_runtime_tool_results(context)
+    target = next((entry for entry in entries if entry.get("tool_id") == tool_id), None)
+    if target is None:
+        return False
+    # Legacy mirrors must not resurrect the removed result when the list empties.
+    kind, result = target.get("kind"), target.get("result")
+    for attr in RUNTIME_TOOL_RESULT_LIST_ATTRIBUTES:
+        values = getattr(context, attr, None)
+        if isinstance(values, list):
+            values[:] = [value for value in values if value != result]
+    for result_kind, prefix in ((TOOL_RESULT_KIND_SEARCH, "runtime_search"),
+                                (TOOL_RESULT_KIND_DEEP_SEARCH, "runtime_deep_search")):
+        if kind == result_kind and getattr(context, prefix + "_result", None) == result:
+            setattr(context, prefix + "_result", "")
+            setattr(context, prefix + "_result_id", "")
+    current_start = len(entries) - int(getattr(context, "runtime_tool_results_turn_count", 0) or 0)
+    was_current = entries.index(target) >= current_start
+    remove_runtime_tool_results(context, lambda entry: entry is target)
+    context.runtime_tool_results_generation = int(getattr(context, "runtime_tool_results_generation", 0) or 0) + 1
+    if was_current:
+        context.runtime_tool_results_turn_count = max(0, int(getattr(context, "runtime_tool_results_turn_count", 0) or 0) - 1)
+    return True

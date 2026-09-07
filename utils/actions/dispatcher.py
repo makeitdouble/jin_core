@@ -57,6 +57,8 @@ from utils.skills_asset_utils import (
 )
 from utils.tool_results import (
     TOOL_RESULT_KIND_ACTIVE_MEMORY,
+    TOOL_RESULT_KIND_RUNTIME_ACTION,
+    clean_runtime_tool_result,
     clear_runtime_tool_results_before_state,
     record_runtime_tool_result,
     snapshot_runtime_tool_results_state,
@@ -220,6 +222,13 @@ async def apply_runtime_action_calls(
             enriched_payload["context"] = (
                 action_context_snapshot
             )
+
+        if getattr(
+            context,
+            "runtime_session_restore_replay_in_progress",
+            False,
+        ):
+            enriched_payload["restore_replay"] = True
 
         return enriched_payload
 
@@ -1192,6 +1201,7 @@ async def apply_runtime_action_calls(
 
         action_event = {
             "name": action.name.lower(),
+            "payload": str(action.payload or "").strip(),
         }
         action_display_id = str(
             action_display_ids.get(
@@ -1810,41 +1820,56 @@ async def apply_runtime_action_calls(
         )
 
     if clean_tool_result_actions:
-        if log_runtime is not None:
-            await log_runtime(
-                "[RUNTIME ACTION] clean_tool_results requested"
-            )
-
-        clear_runtime_tool_results_before_state(
-            context,
-            tool_results_clean_state,
-        )
-
-        emitter = getattr(
-            context,
-            "emitter",
-            None,
-        )
-        emit = getattr(
-            emitter,
-            "emit",
-            None,
-        )
-
-        if emit is not None:
-            for _action in clean_tool_result_actions:
-                await emit(with_action_context({
-                    "type": "runtime_action",
-                    "action": "clean_tool_results",
-                    "status": "completed",
-                    "display_name": get_runtime_action_display_name(
-                        RUNTIME_ACTION_CLEAN_TOOL_RESULTS
-                    ),
-                    "close_tag": runtime_action_has_close_tag(
-                        RUNTIME_ACTION_CLEAN_TOOL_RESULTS
-                    ),
-                    "text": "Tool results cleared",
-                }))
+        from runtime.L1_memory_utils import build_runtime_session_checkpoint
+        from utils.context.runtime_action_result_text import format_runtime_action_result
+        from utils.chat_log import append_chat_runtime_event
+        emit = getattr(getattr(context, "emitter", None), "emit", None)
+        # Preserve the existing full-clean boundary: results produced by this
+        # dispatch survive. Use identity, not shifting list offsets, after a
+        # targeted cleanup in the same batch.
+        original_entries = list(getattr(context, "runtime_tool_results", []))[:tool_results_clean_state["tool_result_count"]]
+        full_cleaned = False
+        for clean_action in clean_tool_result_actions:
+            target_id = str(clean_action.payload or "").strip()
+            if target_id:
+                ok = clean_runtime_tool_result(context, target_id)
+            else:
+                if not full_cleaned:
+                    survivors = sum(any(entry is original for original in original_entries)
+                                    for entry in getattr(context, "runtime_tool_results", []))
+                    clean_state = dict(tool_results_clean_state, tool_result_count=survivors)
+                    clear_runtime_tool_results_before_state(context, clean_state)
+                    full_cleaned = True
+                ok = True
+            reason = "" if ok else f"Unknown or invalid tool_id: {target_id}"
+            event = next((event for event in context.runtime_action_events
+                          if event.get("name") == "clean_tool_results"
+                          and event.get("payload", "") == target_id
+                          and event.get("status") not in {"completed", "failed"}), None)
+            if event is not None:
+                event.update(status="completed" if ok else "failed", failure_reason=reason)
+            failure = {"action": "clean_tool_results", "ok": False,
+                       "error": "invalid_tool_id", "detail": reason, "payload": target_id}
+            if not ok:
+                record_runtime_tool_result(context, TOOL_RESULT_KIND_RUNTIME_ACTION, failure)
+            payload = with_action_context({
+                "type": "runtime_action", "action": "clean_tool_results",
+                "id": action_display_ids.get(id(clean_action), ""),
+                "status": "completed" if ok else "failed",
+                "display_name": get_runtime_action_display_name(RUNTIME_ACTION_CLEAN_TOOL_RESULTS),
+                "close_tag": False,
+                "text": (f"Tool result {target_id} cleared" if target_id else "All tool results cleared") if ok else reason,
+                "detail": "" if ok else format_runtime_action_result(failure),
+                "failure_reason": reason,
+                "payload": target_id,
+            })
+            if ok:
+                checkpoint = build_runtime_session_checkpoint(context)
+                payload["tool_results"] = checkpoint["tool_results"]
+                payload["tool_result_sequence"] = checkpoint["tool_result_sequence"]
+            if emit is not None:
+                await emit(payload)
+            append_chat_runtime_event(context, event="runtime_action", payload=payload)
 
     await emit_rejected_active_memory_results(
         context,

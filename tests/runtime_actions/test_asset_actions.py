@@ -88,6 +88,126 @@ class RuntimeAssetActionTests(RuntimeActionTestCase):
         )
 
 
+    def test_extracts_compact_project_search_asset_action(self):
+
+        result = extract_runtime_actions(
+            (
+                "<ASSET_ACTION: project_search | . | "
+                "query: build_context_limit_recovery_context >"
+            ),
+            enabled_actions=[
+                "CAN_USE_ASSETS",
+            ],
+        )
+
+        self.assertEqual(result.text, "")
+        self.assertEqual(len(result.actions), 1)
+        self.assertEqual(result.actions[0].name, "ASSET_ACTION")
+        self.assertEqual(
+            json.loads(result.actions[0].payload),
+            {
+                "action": "project_search",
+                "path": ".",
+                "query": "build_context_limit_recovery_context",
+            },
+        )
+
+
+    def test_extracts_compact_project_tree_asset_action_with_numeric_fields(self):
+
+        result = extract_runtime_actions(
+            (
+                "<ASSET_ACTION: project_tree | jin_core/agent | "
+                "depth: 4 | offset: 100 | limit: 50 >"
+            ),
+            enabled_actions=[
+                "CAN_USE_ASSETS",
+            ],
+        )
+
+        self.assertEqual(result.text, "")
+        self.assertEqual(
+            json.loads(result.actions[0].payload),
+            {
+                "action": "project_tree",
+                "path": "jin_core/agent",
+                "depth": 4,
+                "offset": 100,
+                "limit": 50,
+            },
+        )
+
+
+    def test_compact_project_asset_action_streams_across_chunks(self):
+
+        stream_filter = RuntimeActionStreamFilter(
+            enabled_actions=[
+                "ASSET_ACTION",
+            ]
+        )
+
+        first = stream_filter.filter(
+            "<ASSET_ACTION: project_search | . | query: build_context_"
+        )
+        second = stream_filter.filter(
+            "limit_recovery_context >"
+        )
+        tail = stream_filter.flush_result()
+
+        self.assertEqual(first.text, "")
+        self.assertEqual(first.actions, ())
+        self.assertEqual(second.text, "")
+        self.assertEqual(len(second.actions), 1)
+        self.assertEqual(
+            json.loads(second.actions[0].payload),
+            {
+                "action": "project_search",
+                "path": ".",
+                "query": "build_context_limit_recovery_context",
+            },
+        )
+        self.assertEqual(tail.failed_actions, ())
+
+
+    def test_compact_project_action_does_not_block_following_bare_attach(self):
+
+        result = extract_runtime_actions(
+            (
+                "<ASSET_ACTION: project_search | . | query: needle >\n"
+                "ATTACH_FILE: jin_core/agent/nodes/brain.py\n"
+            ),
+            enabled_actions=[
+                "ASSET_ACTION",
+                "ATTACH_FILE",
+            ],
+            allow_bare_prefix_fallback=True,
+        )
+
+        self.assertEqual(result.text, "")
+        self.assertEqual(
+            [action.name for action in result.actions],
+            ["ASSET_ACTION", "ATTACH_FILE"],
+        )
+        self.assertEqual(
+            result.actions[1].payload,
+            "jin_core/agent/nodes/brain.py",
+        )
+
+
+    def test_compact_asset_action_does_not_enable_other_asset_operations(self):
+
+        marker = "<ASSET_ACTION: create_asset_file | output.txt >"
+        result = extract_runtime_actions(
+            marker,
+            enabled_actions=[
+                "CAN_USE_ASSETS",
+            ],
+        )
+
+        self.assertEqual(result.actions, ())
+        self.assertEqual(result.text, marker)
+
+
     def test_extracts_asset_action_block_with_args_payload(self):
 
         result = extract_runtime_actions(

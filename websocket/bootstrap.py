@@ -153,6 +153,134 @@ def active_memory_records_text(context) -> str:
     )
 
 
+def discard_session_restore_continuation_state(
+    context,
+    *,
+    drop_previous_actions: bool = False,
+) -> bool:
+    """Discard one-shot archived continuation state after an explicit Stop.
+
+    Rolling visible chat and restored resource selection are intentionally
+    preserved. The next real USER turn should see normal recent chat, not
+    predecessor-only restore dialogue/reasoning prepared for the hidden tick.
+    """
+
+    if context is None:
+        return False
+
+    imported_reasoning = bool(
+        getattr(
+            context,
+            "runtime_previous_reasoning_from_session_restore",
+            False,
+        )
+    )
+    pending_memory_ids = list(
+        getattr(
+            context,
+            "runtime_session_restore_pending_loaded_memory_ids",
+            [],
+        )
+        or []
+    )
+    pending_file_ids = list(
+        getattr(
+            context,
+            "runtime_session_restore_pending_attached_file_ids",
+            [],
+        )
+        or []
+    )
+    had_restore_state = bool(
+        getattr(context, "runtime_session_restore_priming", False)
+        or getattr(context, "runtime_restored_session_dialog", "")
+        or getattr(context, "runtime_session_restore_reasoning_dump", "")
+        or imported_reasoning
+        or pending_memory_ids
+        or pending_file_ids
+    )
+
+    if not had_restore_state:
+        return False
+
+    context.runtime_session_restore_priming = False
+    context.runtime_session_restore_reasoning_dump = ""
+    context.runtime_session_restore_lt_fact_ids = []
+    context.runtime_session_restore_delayed_memory_metadata = []
+    context.runtime_session_restore_attached_file_metadata = []
+    context.runtime_session_restore_pending_loaded_memory_ids = []
+    context.runtime_session_restore_pending_attached_file_ids = []
+    context.runtime_restored_session_dialog = ""
+    context.runtime_restored_session_source_id = ""
+
+    if imported_reasoning:
+        context.runtime_previous_reasoning_content = ""
+        context.runtime_previous_reasoning_loop_contents = []
+
+    context.runtime_previous_reasoning_from_session_restore = False
+
+    if drop_previous_actions:
+        session_actions = getattr(
+            context,
+            "runtime_session_action_history",
+            [],
+        )
+        if isinstance(session_actions, list):
+            context.runtime_session_action_history = [
+                item
+                for item in session_actions
+                if not (
+                    isinstance(item, dict)
+                    and item.get(
+                        "runtime_session_action_previous_bootstrap",
+                        False,
+                    )
+                )
+            ]
+
+    # Stop cancels only the hidden continuation prompt, not the user's restored
+    # pin/load selection. Promote staged resources directly to live state so
+    # the immediate new task does not lose its project/files/reports.
+    if pending_file_ids:
+        live_file_ids = [
+            str(file_id or "").strip().casefold()
+            for file_id in (
+                getattr(context, "runtime_attached_file_ids", [])
+                or []
+            )
+            if str(file_id or "").strip()
+        ]
+        restored_file_ids = [
+            str(item.get("id", "") or "").strip()
+            for item in hydrate_attachment_ids(pending_file_ids)
+            if isinstance(item, dict)
+            and str(item.get("id", "") or "").strip()
+        ]
+        context.runtime_attached_file_ids = list(dict.fromkeys(
+            [*live_file_ids, *restored_file_ids]
+        ))
+
+    if pending_memory_ids:
+        live_memory_ids = list(
+            getattr(
+                context,
+                "runtime_loaded_delayed_memory_ids",
+                [],
+            )
+            or []
+        )
+        apply_loaded_delayed_memory_ids(
+            context,
+            {
+                "loaded_memory_ids": list(dict.fromkeys(
+                    [*live_memory_ids, *pending_memory_ids]
+                )),
+            },
+        )
+
+    return True
+
+
 def apply_archived_session_continuation_state(
     context,
     message_data: dict,
@@ -332,14 +460,21 @@ def apply_archived_session_continuation_state(
         limit=48000,
     )
 
-    if restored_dialog:
+    # Presence is authoritative, including an explicit empty value. Without
+    # this an older restored dialogue can survive a newer checkpoint that
+    # deliberately has no restore dialogue.
+    if "dialog_context" in message_data:
         context.runtime_restored_session_dialog = restored_dialog
-        context.runtime_restored_session_source_id = clean_bootstrap_memory(
-            message_data.get(
-                "source_session_id",
-                "",
-            ),
-            limit=80,
+        context.runtime_restored_session_source_id = (
+            clean_bootstrap_memory(
+                message_data.get(
+                    "source_session_id",
+                    "",
+                ),
+                limit=80,
+            )
+            if restored_dialog
+            else ""
         )
 
     previous_reasoning = clean_bootstrap_memory(
@@ -350,11 +485,13 @@ def apply_archived_session_continuation_state(
         limit=48000,
     )
 
-    if previous_reasoning:
-        context.runtime_previous_reasoning_content = (
+    # An explicit empty checkpoint also clears older imported reasoning.
+    if "previous_reasoning" in message_data:
+        context.runtime_previous_reasoning_content = previous_reasoning
+        context.runtime_previous_reasoning_loop_contents = []
+        context.runtime_previous_reasoning_from_session_restore = bool(
             previous_reasoning
         )
-        context.runtime_previous_reasoning_loop_contents = []
 
         recent_turns = getattr(
             context,
@@ -362,7 +499,8 @@ def apply_archived_session_continuation_state(
             [],
         )
         if (
-            isinstance(recent_turns, list)
+            previous_reasoning
+            and isinstance(recent_turns, list)
             and recent_turns
             and isinstance(recent_turns[-1], dict)
             and not str(recent_turns[-1].get("reasoning", "") or "").strip()
@@ -507,6 +645,8 @@ def apply_archived_session_continuation_state(
                         if colors:
                             normalized_part["colors"] = colors
 
+                    if isinstance(part.get("tool_ids"), list):
+                        normalized_part["tool_ids"] = [value for value in part["tool_ids"] if isinstance(value, str) and re.fullmatch(r"T[1-9][0-9]*", value)]
                     normalized_parts.append(normalized_part)
 
                 if normalized_parts:
@@ -1274,6 +1414,9 @@ def clean_bootstrap_tool_results(value) -> tuple[list[dict], list]:
         )
         if item_id:
             item["id"] = item_id
+        tool_id = str(raw_item.get("tool_id", ""))
+        if re.fullmatch(r"T[1-9][0-9]*", tool_id):
+            item["tool_id"] = tool_id
 
         created_at = 0.0
         for key in (
@@ -1327,6 +1470,14 @@ def apply_bootstrap_tool_results(
     )
 
     context.runtime_tool_results = results
+    try:
+        restored_sequence = max(0, int(message_data.get("tool_result_sequence", 0) or 0))
+    except (TypeError, ValueError):
+        restored_sequence = 0
+    context.runtime_tool_result_sequence = max(
+        int(getattr(context, "runtime_tool_result_sequence", 0) or 0), restored_sequence,
+        max((int(item["tool_id"][1:]) for item in results if item.get("tool_id")), default=0),
+    )
     context.runtime_tool_result_created_ats = created_ats
     context.runtime_tool_results_turn_count = 0
     context.runtime_tool_results_generation = (
@@ -2785,12 +2936,20 @@ def enrich_session_bootstrap_from_archive(
                 bootstrap_lineage_turns
             )
 
+        # Continuation-only fields are authoritative even when explicitly
+        # empty. A newer archive saying "no previous reasoning" must not
+        # inherit stale browser reasoning from an older checkpoint.
         for field in (
             "dialog_context",
-            "recent_turns",
             "previous_reasoning",
             "restore_reasoning_dump",
             "restore_lt_fact_ids",
+        ):
+            if field in archived:
+                enriched[field] = archived.get(field)
+
+        for field in (
+            "recent_turns",
             "runtime_turn_counter",
             "turn_number",
             "user_message_count",

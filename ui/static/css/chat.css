@@ -557,6 +557,12 @@
     overflow-y: hidden;
 }
 
+.jin-chat-markdown .jin-chat-matrix-block {
+    max-width: 100%;
+    overflow-x: auto;
+    overflow-y: hidden;
+}
+
 .jin-chat-markdown .jin-chat-link {
     color: rgba(125, 211, 252, 0.95);
     text-decoration: underline;
@@ -1101,6 +1107,19 @@ body.theme-win95 .jin-chat-reference-id:hover {
     padding: 0.22em 0 0.22em 0.78em;
     overflow-x: auto;
     white-space: pre;
+}
+
+.jin-think-content.is-structured .jin-think-math-block.is-katex {
+    border-left: 0;
+    padding-left: 0;
+    white-space: normal;
+}
+
+.jin-think-content.is-structured .jin-think-math-block.is-katex .katex-display {
+    max-width: 100%;
+    margin: 0.15em 0 0.28em;
+    overflow-x: auto;
+    overflow-y: hidden;
 }
 
 .jin-think-content.is-structured .jin-think-heading {

@@ -1640,6 +1640,21 @@ function handleRuntimeAction(
     data.counter_only === true
     && !suppressMarkerCount;
 
+  // CLEAN_TOOL_RESULTS is payload-sensitive: every marker mutates a specific
+  // tool-result block (or clears all of them), so collapsing its telemetry
+  // into one aggregate row makes later completions overwrite each other.
+  // Hide the counter-only placeholder and render each semantic result event
+  // as its own terminal bubble instead.
+  const renderEachMarkerSeparately =
+    action === "clean_tool_results";
+
+  if (
+    renderEachMarkerSeparately
+    && counterOnly
+  ) {
+    return;
+  }
+
   const counterFinal =
     data.counter_final === true
     || status === "counter_final";
@@ -1657,7 +1672,8 @@ function handleRuntimeAction(
     );
 
   const aggregateMarkers =
-    !reportScopedDelayedAction
+    !renderEachMarkerSeparately
+    && !reportScopedDelayedAction
     && !splitPayloadDistinctMarkers
     && (
       data.aggregate_markers === true
@@ -2243,7 +2259,7 @@ function handleRuntimeAction(
       && typeof window.JinRuntime.session.clearPersistedToolResultsCheckpoint
         === "function"
     ) {
-      window.JinRuntime.session.clearPersistedToolResultsCheckpoint();
+      window.JinRuntime.session.clearPersistedToolResultsCheckpoint(data.tool_results, data.tool_result_sequence);
     }
 
     if (displayText.trim()) {

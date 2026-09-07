@@ -8,6 +8,9 @@
   const markerPattern =
     /(?<!["'`«‹“‘„‚(\[{])(?:<(JIN_COLOR|JIN_SIZE)\s*>([\s\S]*?)<\/\1\s*>|<JIN_REACTION\s*:\s*([^>\r\n]+?)\s*>)/gi;
 
+  const MATRIX_START_PATTERN =
+    /^[ \t]*(?:(?:[A-Za-z](?:_\{?[A-Za-z0-9]+\}?)?)\s*=\s*)?\\begin\{(matrix|pmatrix|bmatrix|Bmatrix|vmatrix|Vmatrix|smallmatrix)\}[ \t]*$/;
+
   function escapeHtml(text) {
 
     return String(text || "")
@@ -375,7 +378,11 @@
 
   }
 
-  function renderMathFormula(source, displayMode) {
+  function renderMathFormula(
+    source,
+    displayMode,
+    fallbackText = null
+  ) {
 
     const latex =
       String(source || "");
@@ -385,7 +392,9 @@
         : "$";
     const fallback =
       escapeHtml(
-        `${delimiter}${latex}${delimiter}`
+        fallbackText === null
+          ? `${delimiter}${latex}${delimiter}`
+          : String(fallbackText)
       );
     const katex =
       window.katex;
@@ -419,8 +428,8 @@
     delimiter
   ) {
 
-    const isDisplay =
-      delimiter === "$$";
+    const isInlineDollar =
+      delimiter === "$";
 
     for (
       let index = startIndex;
@@ -440,7 +449,7 @@
         continue;
       }
 
-      if (!isDisplay) {
+      if (isInlineDollar) {
         if (
           source[index + 1] === "$"
           || /\s/.test(
@@ -460,9 +469,37 @@
 
   function renderMathAwarePlainText(text) {
 
-    const source =
-      String(text || "");
     const mathHtml = [];
+    const source =
+      String(text || "").replace(
+        /\\\(([^\n]*?)\\\)|\\\[([^\n]*?)\\\]/g,
+        (whole, inlineLatex, displayLatex) => {
+          const displayMode =
+            displayLatex !== undefined;
+          const latex =
+            String(
+              displayMode
+                ? displayLatex
+                : inlineLatex
+            );
+
+          if (!latex.trim()) {
+            return whole;
+          }
+
+          const token =
+            `\uE000JINMATH${mathHtml.length}\uE001`;
+
+          mathHtml.push(
+            renderMathFormula(
+              latex,
+              displayMode,
+              whole
+            )
+          );
+          return token;
+        }
+      );
     const protectedParts = [];
     let plainStart = 0;
     let index = 0;
@@ -652,7 +689,7 @@
 
   function isDisplayMathStart(line) {
 
-    return /^[ \t]*\$\$/.test(
+    return /^[ \t]*(?:\$\$|\\\[)/.test(
       String(line || "")
     );
 
@@ -662,14 +699,26 @@
 
     const firstLine =
       String(lines[startIndex] || "");
-    const openingMatch =
+    const dollarMatch =
       firstLine.match(
         /^[ \t]*\$\$(.*)$/
       );
+    const bracketMatch =
+      firstLine.match(
+        /^[ \t]*\\\[(.*)$/
+      );
+    const openingMatch =
+      dollarMatch
+      || bracketMatch;
 
     if (!openingMatch) {
       return null;
     }
+
+    const closing =
+      dollarMatch
+        ? "$$"
+        : "\\]";
 
     const parts = [];
     let current =
@@ -682,13 +731,13 @@
         findMathClosingDelimiter(
           current,
           0,
-          "$$"
+          closing
         );
 
       if (closeIndex >= 0) {
         if (
           current.slice(
-            closeIndex + 2
+            closeIndex + closing.length
           ).trim()
         ) {
           return null;
@@ -711,7 +760,10 @@
         return {
           html: renderMathFormula(
             latex,
-            true
+            true,
+            dollarMatch
+              ? `$$${latex}$$`
+              : `\\[${latex}\\]`
           ),
           nextIndex: index + 1,
         };
@@ -729,6 +781,84 @@
       current =
         String(lines[index] || "");
     }
+
+  }
+
+  function isMatrixMathStart(line) {
+
+    return MATRIX_START_PATTERN.test(
+      String(line || "")
+    );
+
+  }
+
+  function renderMatrixMath(lines, startIndex) {
+
+    const firstLine =
+      String(lines[startIndex] || "");
+    const match =
+      firstLine.match(
+        MATRIX_START_PATTERN
+      );
+
+    if (!match) {
+      return null;
+    }
+
+    const closing =
+      `\\end{${match[1]}}`;
+    const firstNonSpace =
+      firstLine.search(/\S|$/);
+    const mathLines = [
+      firstLine.slice(firstNonSpace),
+    ];
+    let index =
+      startIndex + 1;
+
+    while (
+      index < lines.length
+      && String(lines[index] || "").trim() !== closing
+    ) {
+      mathLines.push(
+        String(lines[index] || "")
+      );
+      index += 1;
+    }
+
+    if (index >= lines.length) {
+      return null;
+    }
+
+    mathLines.push(
+      String(lines[index] || "").trim()
+    );
+
+    const latex =
+      mathLines.join("\n");
+    let nextIndex =
+      index + 1;
+
+    if (
+      nextIndex < lines.length
+      && ["$$", "\\]"].includes(
+        String(lines[nextIndex] || "").trim()
+      )
+    ) {
+      nextIndex += 1;
+    }
+
+    return {
+      html: (
+        '<div class="jin-chat-matrix-block">'
+        + renderMathFormula(
+          latex,
+          true,
+          latex
+        )
+        + "</div>"
+      ),
+      nextIndex,
+    };
 
   }
 
@@ -959,6 +1089,7 @@
       isBlank(line)
       || isFenceStart(line)
       || isDisplayMathStart(line)
+      || isMatrixMathStart(line)
       || isHeading(line)
       || isHorizontalRule(line)
       || Boolean(getUnorderedListMatch(line))
@@ -1133,6 +1264,7 @@
     while (index < lines.length) {
       if (
         index !== startIndex
+        && !isBlank(lines[index])
         && (
           isBlockStart(lines[index])
           || getTableStart(lines, index)
@@ -1142,6 +1274,32 @@
       }
 
       if (isBlank(lines[index])) {
+        const hasOnlyLeadingReactions =
+          parts.length > 0
+          && parts.every(
+            isReactionOnlyLine
+          );
+
+        if (hasOnlyLeadingReactions) {
+          let nextIndex = index;
+
+          while (
+            nextIndex < lines.length
+            && isBlank(lines[nextIndex])
+          ) {
+            nextIndex += 1;
+          }
+
+          if (
+            nextIndex < lines.length
+            && !isBlockStart(lines[nextIndex])
+            && !getTableStart(lines, nextIndex)
+          ) {
+            index = nextIndex;
+            continue;
+          }
+        }
+
         break;
       }
 
@@ -1225,6 +1383,23 @@
       if (isDisplayMathStart(lines[index])) {
         const result =
           renderDisplayMath(
+            lines,
+            index
+          );
+
+        if (result) {
+          blocks.push(
+            result.html
+          );
+          index =
+            result.nextIndex;
+          continue;
+        }
+      }
+
+      if (isMatrixMathStart(lines[index])) {
+        const result =
+          renderMatrixMath(
             lines,
             index
           );

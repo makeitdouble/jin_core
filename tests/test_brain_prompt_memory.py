@@ -498,7 +498,7 @@ class BrainPromptMemoryTests(
                 prompt.index("I identify myself as JIN"),
             )
 
-    def test_previous_reasoning_block_is_inserted_even_when_empty(self):
+    def test_previous_reasoning_block_is_omitted_when_empty(self):
 
             context = SimpleNamespace(
                 runtime_memory="",
@@ -517,17 +517,9 @@ class BrainPromptMemoryTests(
                 include_runtime_action_instructions=False,
             )
 
-            self.assertIn(
-                (
-                    "<PREVIOUS_REASONING_CONTENT>\n"
-                    "\n"
-                    "</PREVIOUS_REASONING_CONTENT>"
-                ),
+            self.assertNotIn(
+                "<PREVIOUS_REASONING_CONTENT>",
                 prompt,
-            )
-            self.assertLess(
-                prompt.index("<PREVIOUS_REASONING_CONTENT>"),
-                prompt.index("I identify myself as JIN"),
             )
 
     def test_previous_reasoning_crop_keeps_short_text_whole_and_percent_edges(self):

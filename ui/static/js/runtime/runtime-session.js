@@ -149,9 +149,12 @@
               ),
         previous_reasoning:
           String(
-            source.previous_reasoning
-            || (data && data.previous_reasoning)
-            || ""
+            Object.prototype.hasOwnProperty.call(
+              source,
+              "previous_reasoning"
+            )
+              ? (source.previous_reasoning ?? "")
+              : ((data && data.previous_reasoning) ?? "")
           ),
         session_actions:
           Array.isArray(source.session_actions)
@@ -162,6 +165,7 @@
                   ? data.session_actions
                   : []
               ),
+        tool_result_sequence: Number(source.tool_result_sequence ?? (data && data.tool_result_sequence)) || 0,
         tool_results:
           Array.isArray(source.tool_results)
             ? source.tool_results
@@ -513,7 +517,7 @@
       return Boolean(checkpointWritten);
     }
 
-    function clearPersistedToolResultsCheckpoint() {
+    function clearPersistedToolResultsCheckpoint(toolResults = [], toolResultSequence = 0) {
       if (
           (typeof shouldIsolateAnonymousStorage === "function"
             && shouldIsolateAnonymousStorage())
@@ -551,7 +555,8 @@
         ...previousCheckpoint,
         session_snapshot: {
           ...previousSessionSnapshot,
-          tool_results: [],
+          tool_results: Array.isArray(toolResults) ? toolResults : [],
+          tool_result_sequence: Math.max(Number(previousSessionSnapshot.tool_result_sequence) || 0, Number(toolResultSequence) || 0),
           tool_results_cleared_at: new Date().toISOString(),
         },
       });

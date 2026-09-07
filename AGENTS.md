@@ -63,7 +63,7 @@ A current implementation can still violate a product decision. Do not hide that.
 - Current Delayed save contract is `<SAVE_DELAYED_MEMORY>` with a JSON body. The old `<SAVE_DELAYED_MEMORY_CONTENT>` key/value format is legacy only.
 - Current Active create/update model boundary is flat JSON. `SAVE_ACTIVE_MEMORY` custom fields must come from explicit structured JSON; plain prose such as a trailing `(field: value)` is still prose/conditions, not schema. Legacy nested update payloads and self-closing UPDATE attributes may be accepted locally for compatibility; do not advertise them as preferred syntax.
 - Search actions are effective only when the configured provider is actually available (`settings.CAN_SEARCH`). Feature flags alone must not expose `WEB_SEARCH`/`DEEP_WEB_SEARCH`; do not invent client-side API-key shape regexes when the provider has no stable key-shape contract.
-- `CLEAN_TOOL_RESULTS` is a no-payload marker. Bare `<CLEAN_TOOL_RESULTS>` and the redundant paired form must execute once; any closing tag is parser noise and must be consumed even across stream chunks.
+- `CLEAN_TOOL_RESULTS` clears all results without a payload; `<CLEAN_TOOL_RESULTS: T1 >` removes one modern result. Unknown/malformed IDs fail without clearing anything. Legacy ID-less results require full cleanup. Redundant closing tags remain parser noise, including across stream chunks.
 - `SAVE_SESSION` is not a current runtime-action contract in this snapshot. Treat old references as legacy/session-restore compatibility until proven otherwise.
 
 ## UI / visual language

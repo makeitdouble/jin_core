@@ -917,6 +917,118 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn("<PREVIOUS_CHAT_MESSAGES>", prompt)
 
 
+    async def test_restore_replay_does_not_consume_model_action_followup(self):
+
+        calls = []
+
+        async def fake_run_brain_stream(**kwargs):
+            calls.append(kwargs)
+            context = kwargs["context"]
+
+            if len(calls) == 1:
+                context.runtime_action_events.append({
+                    "name": "attach_file",
+                    "payload": "project/src/main.py",
+                    "runtime_turn_id": "turn_000001",
+                })
+                return "", ""
+
+            self.assertTrue(kwargs.get("followup_tick"))
+            return "Follow-up continued after restored action.", ""
+
+        async def fake_restore_replay(context, **_kwargs):
+            context.runtime_action_events.append({
+                "name": "attach_file",
+                "payload": "folder001",
+                "runtime_turn_id": "turn_000001",
+            })
+            context.runtime_session_restore_priming = False
+            return 1
+
+        context = _context()
+        context.runtime_current_turn_id = "turn_000001"
+        context.runtime_turn_user_message = "inspect restored project"
+        context.runtime_session_restore_priming = True
+        state = AgentState(user_input="")
+        state.metadata["session_restore_resume"] = True
+
+        with patch(
+            "agent.nodes.brain.get_brain_runtime_config",
+            return_value=_brain_runtime(),
+        ), patch(
+            "agent.nodes.brain.build_brain_context",
+            return_value="system prompt",
+        ), patch(
+            "agent.nodes.brain.build_brain_payload",
+            return_value="brain payload",
+        ), patch(
+            "agent.nodes.brain.emit_active_memory_records_update_if_dirty",
+            new=lambda _context: _async_noop(),
+        ), patch(
+            "agent.nodes.brain.replay_session_restore_resource_actions",
+            new=fake_restore_replay,
+        ), patch.object(
+            BrainNode,
+            "run_brain_stream",
+            staticmethod(fake_run_brain_stream),
+        ):
+            await BrainNode().run(state, context)
+
+        self.assertEqual(len(calls), 2)
+        self.assertEqual(
+            state.brain_response,
+            "Follow-up continued after restored action.",
+        )
+
+    async def test_restore_replay_alone_still_does_not_trigger_followup(self):
+
+        calls = []
+
+        async def fake_run_brain_stream(**kwargs):
+            calls.append(kwargs)
+            return "Restored.", ""
+
+        async def fake_restore_replay(context, **_kwargs):
+            context.runtime_action_events.append({
+                "name": "attach_file",
+                "payload": "folder001",
+                "runtime_turn_id": "turn_000001",
+            })
+            context.runtime_session_restore_priming = False
+            return 1
+
+        context = _context()
+        context.runtime_current_turn_id = "turn_000001"
+        context.runtime_turn_user_message = "resume"
+        context.runtime_session_restore_priming = True
+        state = AgentState(user_input="")
+        state.metadata["session_restore_resume"] = True
+
+        with patch(
+            "agent.nodes.brain.get_brain_runtime_config",
+            return_value=_brain_runtime(),
+        ), patch(
+            "agent.nodes.brain.build_brain_context",
+            return_value="system prompt",
+        ), patch(
+            "agent.nodes.brain.build_brain_payload",
+            return_value="brain payload",
+        ), patch(
+            "agent.nodes.brain.emit_active_memory_records_update_if_dirty",
+            new=lambda _context: _async_noop(),
+        ), patch(
+            "agent.nodes.brain.replay_session_restore_resource_actions",
+            new=fake_restore_replay,
+        ), patch.object(
+            BrainNode,
+            "run_brain_stream",
+            staticmethod(fake_run_brain_stream),
+        ):
+            await BrainNode().run(state, context)
+
+        self.assertEqual(len(calls), 1)
+        self.assertEqual(state.brain_response, "Restored.")
+
     async def test_list_skills_followup_text_is_emitted_when_no_asset_action_follows(self):
 
         calls = []

@@ -169,12 +169,28 @@ def _record_update_lt_tool_result(
         created_at=created_at,
     )
 
+    tool_id = next((entry.get("tool_id", "") for entry in reversed(getattr(context, "runtime_tool_results", [])) if entry.get("id") == action_id), "")
+    if tool_id:
+        from utils.session_actions_history import format_session_action_display_parts
+        message = str(note.get("message", "") or "").strip()
+        for item in reversed(getattr(context, "runtime_session_action_history", []) or []):
+            matching_parts = [part for part in item.get("parts", [])
+                              if part.get("text") == "UPDATE_LT_FACTS"
+                              and (part.get("id") == action_id or
+                                   (message and part.get("message") == message and not part.get("tool_ids")))]
+            if matching_parts:
+                for part in matching_parts:
+                    part["tool_ids"] = [tool_id]
+                item["text"] = format_session_action_display_parts(item["parts"])
+                break
+
     with contextlib.suppress(Exception):
         append_chat_runtime_event(
             context,
             event="runtime_tool_result",
             payload={
                 "kind": TOOL_RESULT_KIND_LT,
+                "tool_id": tool_id,
                 "id": action_id,
                 "result": summary,
                 "created_at": created_at,
@@ -367,6 +383,8 @@ async def _run_update_lt_facts_entry(
             note=note,
             result=result,
         )
+        from utils.session_actions_history import emit_session_actions_update
+        await emit_session_actions_update(context, current_sequence=False)
         return True
 
     except asyncio.CancelledError:
@@ -402,6 +420,8 @@ async def _run_update_lt_facts_entry(
             note=note,
             result=result,
         )
+        from utils.session_actions_history import emit_session_actions_update
+        await emit_session_actions_update(context, current_sequence=False)
         return True
 
 
