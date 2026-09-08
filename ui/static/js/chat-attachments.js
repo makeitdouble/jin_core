@@ -1204,6 +1204,32 @@ async function fetchAssetTextPreview(path) {
 function createAssetTextAttachment(assetResult) {
   if (assetResult && assetResult.ok === true
       && (assetResult.source === "project" || ["project_tree", "project_search", "project_read"].includes(assetResult.action))) {
+    if (assetResult.action === "project_search") {
+      const rawContent = String(assetResult.content || "");
+      const legacyEmpty = rawContent === ""
+        || rawContent === "No matching lines in the searched files."
+        || rawContent.startsWith("No results returned on this page;");
+      const count = assetResult.returned !== undefined
+        ? Number(assetResult.returned || 0)
+        : (legacyEmpty ? 0 : rawContent.split("\n").filter(Boolean).length);
+      const lines = [
+        `Search: ${assetResult.query || ""}`,
+        `Result: ${count === 0 ? "no matches" : `${count} match${count === 1 ? "" : "es"}`}`,
+      ];
+      if (count > 0 && assetResult.content) {
+        lines.push("", assetResult.content);
+      }
+      if (assetResult.has_more && assetResult.next_offset !== undefined) {
+        lines.push("", `More: offset ${assetResult.next_offset}`);
+      }
+      return {
+        name: `project_search · ${assetResult.query || "search"}`,
+        type: "text/plain",
+        kind: "text",
+        text_content: lines.join("\n"),
+      };
+    }
+
     return {
       name: `${assetResult.action} · ${assetResult.attachment || ""} · ${assetResult.path || "."}`,
       type: "text/plain",

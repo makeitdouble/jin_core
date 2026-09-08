@@ -1282,14 +1282,16 @@ def _build_runtime_event_tool_results(entries: list[dict]) -> list[dict]:
         if not isinstance(payload, dict):
             continue
         kind = str(payload.get("kind", "") or "").strip().casefold()
-        if kind != "lt":
-            continue
         result = payload.get("result")
         if not isinstance(result, dict):
             continue
+        if kind != "lt" and not (
+            kind == "runtime_action" and result.get("action") == "CHAT_LOG_SEARCH"
+        ):
+            continue
 
         item = {
-            "kind": "lt",
+            "kind": kind,
             "result": result,
             "created_at": _runtime_event_created_at(entry, payload),
         }

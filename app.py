@@ -140,6 +140,8 @@ async def lifespan(application: FastAPI):
     await stop_lt_memory_server_scheduler(
         application.state
     )
+    from websocket.transport import stop_runtime_transports
+    await stop_runtime_transports(application.state)
     await application.state.http_client.aclose()
 
 
@@ -1169,4 +1171,16 @@ if __name__ == "__main__":
             )
             or 64 * 1024 * 1024
         ),
+        # JIN serves the browser only on localhost. Uvicorn's default
+        # WebSocket heartbeat (20s ping + 20s timeout) is actively harmful
+        # here: Chrome can freeze a background tab, suspending the renderer
+        # long enough for the server to declare a perfectly healthy local
+        # socket dead. The browser then sees an abnormal 1006 close and the
+        # runtime is forced through soft reconnect in the middle of work.
+        #
+        # Real local failures are still detected by TCP, and the client already
+        # owns reconnect/recovery. Do not let a protocol heartbeat turn normal
+        # tab suspension into a transport failure.
+        ws_ping_interval=None,
+        ws_ping_timeout=None,
     )

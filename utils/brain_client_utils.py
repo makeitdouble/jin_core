@@ -2095,6 +2095,12 @@ def build_pending_asset_action_preview(
                 path = f"assets/{path}"
             result["path"] = path
 
+    if action == "project_search":
+        result["path"] = str(payload.get("path", ".") or ".").strip().replace("\\", "/") or "."
+        query = str(payload.get("query", "") or "").strip()
+        if query:
+            result["query"] = query
+
     if action == "run_document_reader":
         attachment = str(
             payload.get(

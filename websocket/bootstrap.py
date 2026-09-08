@@ -1391,6 +1391,14 @@ def clean_bootstrap_tool_result_value(value):
                 ensure_ascii=False,
                 default=str,
             )
+            # Chat search is bounded by turn count and preserves full messages.
+            # Slicing its JSON makes it a string and silently drops it from the
+            # next prompt. Keep this structured result intact across reconnect.
+            if (isinstance(value, dict) and value.get("action") == "CHAT_LOG_SEARCH"
+                    and isinstance(value.get("results"), list)):
+                from utils.chat_log_search import CHAT_LOG_SEARCH_MAX_LIMIT
+                if len(value["results"]) <= CHAT_LOG_SEARCH_MAX_LIMIT:
+                    return json.loads(encoded)
             from utils.context.files import project_file_ref
             if (isinstance(value, dict) and project_file_ref(value)
                     and isinstance(value.get("content"), str)

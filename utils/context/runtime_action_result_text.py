@@ -245,6 +245,9 @@ def format_runtime_action_result(
         runtime_action,
     )
     ok = result.get("ok") is not False
+    if ok and action_name == "CHAT_LOG_SEARCH":
+        from utils.chat_log_search import format_chat_log_search
+        return format_chat_log_search(result)
     lines: list[str] = []
 
     result_id = str(

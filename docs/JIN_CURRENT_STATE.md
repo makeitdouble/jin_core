@@ -14,6 +14,8 @@ The production runtime is on the post-L2/L3, Brain-first architecture and the ro
 
 Current high-signal state:
 
+- 2026-09-08 background-tab fix: the physical WebSocket no longer owns/cancels the runtime queue. `RuntimeContext.runtime_transport` retains accepted work and unacknowledged output in process RAM; a resumed page attaches to that live task and does not re-upload stale memory stores. Client retries continue with capped delay while hidden and after more than three failures. This requires reloading the client after restarting the backend; it does not preserve tasks across a backend restart or reconstruct a discarded page's full DOM. Undelivered output occupies RAM until acknowledged or the process ends.
+
 - foreground user turns always execute through `AgentRuntime -> BrainNode -> context.clients["brain"]`; no production branch can switch visible responses to Service;
 - Service is background-only. With `SERVICE_API_BASE` empty, `clients["service"]` intentionally aliases the Brain client; configuring a dedicated Service endpoint changes only background execution;
 - `USE_SERVICE_AS_BRAIN` survives only as a localized old-config migration input in `config_loader.py` plus launcher detection. Normalization promotes old Service settings to Brain, clears the dedicated Service URL, then deletes the legacy flag;
@@ -147,6 +149,25 @@ Treat `SAVE_SESSION` as historical/restore compatibility in this snapshot. Do no
 ---
 
 ## 5. Current action contract set
+
+`CHAT_LOG_SEARCH` now adds local literal chat-history search with OR queries,
+source/date/time filters, attachment metadata and anchored reasoning excerpts.
+It uses the existing action/result/error/bubble pipeline and does not require
+web-search credentials. Raw archive restore accepts this structured runtime
+result and its T ID; checkpoint hydration preserves full matched messages
+without slicing the result JSON at 32K. Details: [CHAT_LOG_SEARCH.md](CHAT_LOG_SEARCH.md).
+
+Search verification (2026-09-08): 20 focused search, unclosed-action and readable
+tool-result tests pass; the headless Edge socket-to-DOM test and existing tool-ID
+history/checkpoint JS test pass. Extending the run with archived restore and
+bootstrap-tail tests yields 54/58 passing. The four archived-restore failures
+also reproduce with the original changed reader functions and original action
+flags: old `runtimeMemory.saved_at` client expectation, one-shot restore prompt,
+three-pair restore-dialog bound, and bounded URL-restore UI tail. The latter two
+expose pre-existing implementation/documented-intent disagreement (full archive
+versus bounded tail), outside chat-search scope. Older cleanup tests still name
+removed function/log strings; the pytest-based tool-ID module cannot run in the
+system Python environment without pytest. This is not a full-suite green claim.
 
 The contract assembler currently maps these actions:
 

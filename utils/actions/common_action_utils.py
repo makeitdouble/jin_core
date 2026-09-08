@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from functools import lru_cache
 
 from contracts.rules_assembler import (
+    RUNTIME_ACTION_CHAT_LOG_SEARCH,
     RUNTIME_ACTION_DEEP_WEB_SEARCH,
     RUNTIME_ACTION_LOAD_SKILL,
     RUNTIME_ACTION_LOAD_DELAYED_MEMORY,
@@ -113,6 +114,7 @@ CLOSE_TAG_RUNTIME_ACTIONS = frozenset(
 )
 
 REPEATABLE_RUNTIME_ACTIONS = frozenset({
+    RUNTIME_ACTION_CHAT_LOG_SEARCH,
     RUNTIME_ACTION_JIN_COLOR,
     RUNTIME_ACTION_JIN_SIZE,
     RUNTIME_ACTION_JIN_POSITION,
@@ -812,6 +814,7 @@ def build_deep_web_search_payload(
 
 
 _ACTION_PAYLOAD_BUILDERS = {
+    RUNTIME_ACTION_CHAT_LOG_SEARCH: lambda payload, _: str(payload or "").strip(),
     RUNTIME_ACTION_CLEAN_TOOL_RESULTS: lambda payload, _: str(payload or "").strip(),
     RUNTIME_ACTION_JIN_COLOR: build_jin_color_payload,
     RUNTIME_ACTION_JIN_REACTION: build_jin_reaction_payload,

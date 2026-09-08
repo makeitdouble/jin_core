@@ -428,6 +428,10 @@ def run_project_action(context, payload: dict) -> dict:
             result["page"] = f"offset {offset}; returned {len(output)} {unit} (limit {limit})"
             if action == "project_search":
                 result["query"] = query
+                result["returned"] = len(output)
+                result["has_more"] = bool(more)
+                if more:
+                    result["next_offset"] = offset + len(output)
             else:
                 result["depth"] = depth
             notices = []
@@ -468,6 +472,40 @@ def format_project_result(result: dict, *, include_content=False) -> str:
         record = files.get_file_record(result.get("attachment", ""))
         project_name = files.file_display_name(record["name"]) if record else ""
     display_ref = str(result.get("display_ref") or (project_display_path(project_name, result.get("path", ".")) if project_name else ref))
+
+    if action == "project_search":
+        lines = ["Action: project_search"]
+        if project_name:
+            lines.append(f"Project: {project_name}/")
+        query = str(result.get("query") or "").strip()
+        if query:
+            lines.append(f"Search: {query}")
+        search_path = project_display_path(project_name, result.get("path", "."), is_dir=True) if project_name else str(result.get("path", ".") or ".")
+        if project_name and search_path != f"{project_name}/":
+            lines.append(f"Path: {search_path}")
+        if result.get("ok") is False:
+            lines.append("Status: failed")
+            lines.append(f"Reason: {result.get('detail') or result.get('error') or 'action failed'}")
+            return "\n".join(lines)
+
+        count = result.get("returned")
+        content = str(result.get("content") or "")
+        if count is None:
+            old_empty = {
+                "",
+                "No matches.",
+                "No matching lines in the searched files.",
+                "No results returned on this page; this does not prove the project has no matches.",
+            }
+            count = 0 if content in old_empty else len(content.splitlines())
+        count = int(count or 0)
+        lines.append(f"Result: {'no matches' if count == 0 else str(count) + ' match' + ('' if count == 1 else 'es')}")
+        if count > 0:
+            lines.append(content)
+        if result.get("has_more") and result.get("next_offset") is not None:
+            lines.append(f"More: offset {result['next_offset']}")
+        return "\n".join(lines)
+
     lines = [f"Action: {action}"]
     if ref:
         lines.append(f"File: {project_file_action_label(result) or display_ref}")

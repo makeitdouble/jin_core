@@ -1,4 +1,5 @@
 from contracts.rules_assembler import (
+    RUNTIME_ACTION_CHAT_LOG_SEARCH,
     RUNTIME_ACTION_LOAD_DELAYED_MEMORY,
     RUNTIME_ACTION_ATTACH_FILE_CONTENT,
     RUNTIME_ACTION_LIST_FILES,
@@ -66,6 +67,7 @@ from utils.runtime_action_abort import (
     mark_runtime_action_started,
     mark_runtime_actions_completed,
 )
+from utils.chat_log_search import extract_chat_log_search_query
 from utils.actions.active_memory_actions import (
     apply_save_active_memory_actions,
     apply_delete_active_memory_actions,
@@ -86,6 +88,7 @@ from utils.actions.attachment_actions import (
 )
 from utils.actions.update_lt_facts_actions import schedule_update_lt_facts_actions
 from utils.actions.recall_fact_context_actions import apply_recall_fact_context_actions
+from utils.actions.chat_log_search_actions import apply_chat_log_search_actions
 from utils.actions.jin_visual_sequence_actions import (
     emit_jin_visual_sequences,
 )
@@ -267,6 +270,7 @@ async def apply_runtime_action_calls(
         RUNTIME_ACTION_UNLOAD_SKILL,
     }
     skill_workflow_action_names = {
+        RUNTIME_ACTION_CHAT_LOG_SEARCH,
         *skill_state_action_names,
         RUNTIME_ACTION_CLEAN_TOOL_RESULTS,
         RUNTIME_ACTION_DEEP_WEB_SEARCH,
@@ -1157,6 +1161,7 @@ async def apply_runtime_action_calls(
             )
 
         if action.name not in {
+            RUNTIME_ACTION_CHAT_LOG_SEARCH,
             RUNTIME_ACTION_DEEP_WEB_SEARCH,
             RUNTIME_ACTION_WEB_SEARCH,
             RUNTIME_ACTION_LOAD_SKILL,
@@ -1229,6 +1234,27 @@ async def apply_runtime_action_calls(
             )
             action_display_ids[id(action)] = action_display_id
 
+        if (
+            not action_display_id
+            and action.name == RUNTIME_ACTION_CHAT_LOG_SEARCH
+        ):
+            chat_log_search_action_sequence = int(
+                getattr(
+                    context,
+                    "runtime_chat_log_search_action_sequence",
+                    0,
+                )
+                or 0
+            ) + 1
+            context.runtime_chat_log_search_action_sequence = (
+                chat_log_search_action_sequence
+            )
+            action_display_id = build_runtime_action_id(
+                RUNTIME_ACTION_CHAT_LOG_SEARCH,
+                chat_log_search_action_sequence,
+            )
+            action_display_ids[id(action)] = action_display_id
+
         if action_display_id:
             action_event["id"] = action_display_id
         runtime_turn_id = str(
@@ -1243,7 +1269,15 @@ async def apply_runtime_action_calls(
             action_event["runtime_turn_id"] = runtime_turn_id
 
         query = ""
+        chat_log_search_query = ""
         deep_search_objective = ""
+
+        if action.name == RUNTIME_ACTION_CHAT_LOG_SEARCH:
+            chat_log_search_query = extract_chat_log_search_query(
+                action.payload
+            )
+            if chat_log_search_query:
+                action_event["query"] = chat_log_search_query
 
         if action.name == RUNTIME_ACTION_DEEP_WEB_SEARCH:
             deep_search_objective = extract_search_query(
@@ -1426,6 +1460,11 @@ async def apply_runtime_action_calls(
                 runtime_action_display_text = (
                     f"{runtime_action_display_name}: "
                     f"{deep_search_objective}"
+                )
+            elif chat_log_search_query:
+                runtime_action_display_text = (
+                    f"{runtime_action_display_name}: "
+                    f"{chat_log_search_query}"
                 )
 
             mark_runtime_action_started(
@@ -1905,6 +1944,14 @@ async def apply_runtime_action_calls(
         with_action_context=with_action_context,
     )
 
+    chat_log_search_results = await apply_chat_log_search_actions(
+        context,
+        [action for action in filtered_actions if action.name == RUNTIME_ACTION_CHAT_LOG_SEARCH],
+        log_runtime=log_runtime,
+        with_action_context=with_action_context,
+        action_display_ids=action_display_ids,
+    )
+
     delayed_memory_results = await apply_delayed_memory_actions(
         context,
         load_delayed_memory_actions=load_delayed_memory_actions,
@@ -1965,7 +2012,8 @@ async def apply_runtime_action_calls(
     )
 
     applied_count = (
-        len(
+        len(chat_log_search_results)
+        + len(
             search_queries
         )
         + len(

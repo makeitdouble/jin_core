@@ -9,6 +9,7 @@ import contextlib
 import json
 
 from .logger import WebSocketLogger
+from .transport import RuntimeTransport
 from runtime.memory_edit import apply_memory_value_edit
 
 from runtime.L1_memory import (
@@ -67,6 +68,11 @@ from .bootstrap import (
     get_or_create_connection_context,
     initialize_connection,
     is_soft_resume_request,
+    get_resume_context_store,
+    normalize_resume_client_id,
+    attach_websocket_to_context,
+    ensure_anonymous_session_id,
+    websocket_requests_anonymous_mode,
 )
 from .messages import (
     build_runtime_action_guard_retry_request,
@@ -166,18 +172,92 @@ async def restore_reconnect_pending_requests(
 async def websocket_endpoint(
     websocket: WebSocket,
 ):
-
-    logger = WebSocketLogger(
-        websocket
+    client_id = normalize_resume_client_id(websocket.query_params.get("client_id", ""))
+    if websocket_requests_anonymous_mode(websocket) and client_id:
+        client_id = normalize_resume_client_id(ensure_anonymous_session_id(client_id))
+    context = get_resume_context_store(websocket).get(client_id) if client_id else None
+    transport = getattr(context, "runtime_transport", None)
+    live_resume = bool(
+        is_soft_resume_request(websocket)
+        and transport is not None
+        and transport.task is not None
+        and not transport.task.done()
     )
+    await websocket.accept()
+    if not live_resume:
+        if transport is not None and transport.task is not None and not transport.task.done():
+            transport.task.cancel()
+            with contextlib.suppress(asyncio.CancelledError, Exception):
+                await transport.task
+        transport = RuntimeTransport(websocket)
+        logger = WebSocketLogger(transport)
+        context, resumed_context = get_or_create_connection_context(transport, logger)
+        context.runtime_transport = transport
+        attach_websocket_to_context(context, transport, logger)
+        transport.task = asyncio.create_task(
+            run_runtime_session(transport, context, resumed_context)
+        )
+
+    # A replacement connection has one receiver/sender; the runtime and FIFO
+    # worker remain the same tasks, including an open pending USER batch.
+    previous = transport.socket
+    transport.socket = websocket
+    transport.changed.set()
+    if previous is not None and previous is not websocket:
+        with contextlib.suppress(Exception):
+            await previous.close(code=1000)
+    register_lt_websocket_connection(context, app_state=websocket.app.state, websocket=websocket)
+    sender = None
+    receiver = None
+    try:
+        await websocket.send_json({
+            "type": "runtime_transport_ready", "live_resume": live_resume,
+            "epoch": transport.epoch,
+        })
+        sender = asyncio.create_task(transport.deliver(websocket))
+        while transport.socket is websocket:
+            receiver = asyncio.create_task(websocket.receive_text())
+            done, _ = await asyncio.wait(
+                (receiver, sender, transport.task), return_when=asyncio.FIRST_COMPLETED,
+            )
+            if sender in done or transport.task in done:
+                with contextlib.suppress(Exception):
+                    await websocket.close(code=1011)
+                break
+            raw = receiver.result()
+            if transport.socket is not websocket:
+                break
+            try:
+                payload = json.loads(raw)
+            except (ValueError, TypeError):
+                payload = None
+            if isinstance(payload, dict) and payload.get("type") == "runtime_event_ack":
+                transport.acknowledge(payload.get("sequence"))
+            else:
+                await transport.incoming.put(raw)
+    except (WebSocketDisconnect, OSError):
+        pass
+    finally:
+        if receiver is not None:
+            receiver.cancel()
+            with contextlib.suppress(asyncio.CancelledError, Exception):
+                await receiver
+        if sender is not None:
+            sender.cancel()
+            with contextlib.suppress(asyncio.CancelledError, Exception):
+                await sender
+        if transport.socket is websocket:
+            transport.socket = None
+            context.runtime_lt_websocket_connected = False
+        unregister_lt_websocket_connection(context, app_state=websocket.app.state, websocket=websocket)
+
+
+async def run_runtime_session(websocket, context, resumed_context):
+
+    logger = context.logger
 
     soft_resume = is_soft_resume_request(
         websocket
-    )
-
-    context, resumed_context = get_or_create_connection_context(
-        websocket,
-        logger,
     )
 
     # A client can request a soft reconnect while the backend process has
@@ -371,7 +451,7 @@ async def websocket_endpoint(
                 current_task = active_task
 
                 try:
-                    await active_task
+                    await asyncio.shield(active_task)
 
                 except asyncio.CancelledError:
                     if active_task.cancelled():
@@ -379,6 +459,9 @@ async def websocket_endpoint(
                             "[WS] queued request interrupted"
                         )
                     else:
+                        active_task.cancel()
+                        with contextlib.suppress(asyncio.CancelledError, Exception):
+                            await active_task
                         raise
 
                 finally:
@@ -418,12 +501,6 @@ async def websocket_endpoint(
 
     pending_processor = asyncio.create_task(
         process_pending_requests()
-    )
-
-    register_lt_websocket_connection(
-        context,
-        app_state=websocket.app.state,
-        websocket=websocket,
     )
 
     try:
@@ -1208,12 +1285,6 @@ async def websocket_endpoint(
         )
 
     finally:
-        unregister_lt_websocket_connection(
-            context,
-            app_state=websocket.app.state,
-            websocket=websocket,
-        )
-
         if getattr(
             context,
             "runtime_pending_requests_queue",

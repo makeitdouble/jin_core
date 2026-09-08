@@ -1,0 +1,23 @@
+{
+  "chat_log_search": {
+    "version": 1,
+    "description": "Read-only literal search and attachment filtering of saved chat messages and anchored reasoning excerpts.",
+    "runtime_action": "CHAT_LOG_SEARCH",
+    "enable_flag": "CAN_CHAT_LOG_SEARCH",
+    "runtime_order": 86,
+    "private_marker": "<CHAT_LOG_SEARCH>",
+    "triggers": [],
+    "blockers": [],
+    "effects": {"emit_followup": true, "follow_up_on_fail": true},
+    "close_tag": true,
+    "schema": [
+      "<CHAT_LOG_SEARCH>{\"query\":\"пицца\",\"source\":[\"user\"],\"start_date\":\"2026-09-01\",\"end_date\":\"2026-09-08\",\"start_time\":null,\"end_time\":null,\"max_limit\":10}</CHAT_LOG_SEARCH>",
+      "<CHAT_LOG_SEARCH>{\"has_attachments\":true,\"start_date\":\"2026-09-01\",\"end_date\":\"2026-09-01\"}</CHAT_LOG_SEARCH>"
+    ],
+    "rules": [
+      "Use CHAT_LOG_SEARCH to search messages or attachments using date range!",
+      "query is optional, omit query to search filter-only. has_attachments=true filters for messages that contain one or more attached files.",
+      "source=user searches only USER text. source=['user','jin'] includes JIN text and reasoning for text searches."
+    ]
+  }
+}

@@ -104,6 +104,8 @@ Do not create a parallel state container for a concept already owned here unless
 
 The websocket endpoint uses a normal `asyncio.Queue` to serialize queued requests in FIFO order. Foreground work still has explicit guards around background L-T processing.
 
+The queue worker now belongs to the live `RuntimeContext` session through `runtime_transport`, rather than to a physical WebSocket. `websocket/transport.py` buffers serialized output until browser acknowledgement; reconnect attaches a new sender/receiver and replays unacknowledged events in order. Brain, FRAME waits, and pending USER batches keep running while the page is frozen/disconnected. A live transport reconnect does not apply a stale browser runtime/store snapshot. Process restart still uses the existing browser bootstrap fallback. This delivery buffer is in-process transport state, not a new browser checkpoint or durable memory system.
+
 ### 3.3 Foreground turn
 
 `websocket/messages.py::process_message()` currently performs the foreground lifecycle:
@@ -208,6 +210,7 @@ Current action names in the contract table:
 
 - `DEEP_WEB_SEARCH`
 - `WEB_SEARCH`
+- `CHAT_LOG_SEARCH` — literal local archive search; see [CHAT_LOG_SEARCH.md](CHAT_LOG_SEARCH.md).
 - `CLEAN_TOOL_RESULTS`
 - `JIN_COLOR`
 - `JIN_SIZE`

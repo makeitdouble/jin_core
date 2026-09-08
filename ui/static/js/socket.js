@@ -25,14 +25,14 @@ const websocketClientId =
 
 const websocketReconnectBaseDelay = 700;
 const websocketReconnectMaxDelay = 5000;
-const websocketReconnectMaxAttempts = 3;
 
 let websocketHasOpened = false;
 let ws = null;
 let websocketReconnectTimer = null;
 let websocketReconnectAttempts = 0;
 let websocketReconnectAwaitingFocus = false;
-let websocketPageWasFrozen = false;
+let websocketTransportEpoch = "";
+let websocketLastEventId = 0;
 let websocketDisconnectedLogged = false;
 let persistedSessionBootstrapSent = false;
 let archivedSessionResumeSent = false;
@@ -250,22 +250,6 @@ window.sendRuntimeMemoryDeleteSlot = function (payload) {
   });
 };
 
-document.addEventListener(
-  "freeze",
-  function () {
-    websocketPageWasFrozen = true;
-  }
-);
-
-function shouldPauseWebSocketReconnectAfterFreeze() {
-
-  return Boolean(
-    websocketPageWasFrozen
-    && document.hidden
-  );
-
-}
-
 function clearWebSocketReconnectTimer() {
 
   if (!websocketReconnectTimer) {
@@ -293,20 +277,7 @@ function scheduleWebSocketReconnect() {
     return;
   }
 
-  if (shouldPauseWebSocketReconnectAfterFreeze()) {
-    clearWebSocketReconnectTimer();
-    websocketReconnectAwaitingFocus = true;
-    return;
-  }
-
-  if (
-      websocketReconnectAttempts
-      >= websocketReconnectMaxAttempts
-  ) {
-    websocketReconnectAwaitingFocus = true;
-    return;
-  }
-
+  websocketReconnectAwaitingFocus = true;
   websocketReconnectAttempts += 1;
 
   const delay =
@@ -621,6 +592,21 @@ function handleSocketMessage(event) {
     return;
   }
 
+  if (data.type === "runtime_transport_ready") {
+    if (websocketTransportEpoch !== data.epoch) {
+      websocketTransportEpoch = data.epoch;
+      websocketLastEventId = 0;
+    }
+    void handleSocketOpen(data.live_resume === true);
+    return;
+  }
+
+  const eventId = Number(data._jin_event_id || 0);
+  if (eventId && eventId <= websocketLastEventId) {
+    sendSocketMessage({type: "runtime_event_ack", sequence: websocketLastEventId});
+    return;
+  }
+
   if (window.handleTelemetryMessage) {
     window.handleTelemetryMessage(
       data
@@ -644,9 +630,14 @@ function handleSocketMessage(event) {
     );
   }
 
+  if (eventId) {
+    websocketLastEventId = eventId;
+    sendSocketMessage({type: "runtime_event_ack", sequence: eventId});
+  }
+
 }
 
-async function handleSocketOpen() {
+async function handleSocketOpen(liveResume = false) {
 
   window.jinWebSocketConnected = true;
 
@@ -665,6 +656,19 @@ async function handleSocketOpen() {
     "[SYSTEM]",
     "WebSocket connected."
   );
+
+  // The server kept the same runtime, queue and output stream. Replaying a
+  // stale browser snapshot here would overwrite work completed while hidden.
+  if (liveResume) {
+    return;
+  }
+
+  if (isSoftReconnect) {
+    if (window.clearPendingUserBatch) window.clearPendingUserBatch();
+    clearInterruptedRuntimeGlow();
+    if (window.releaseActiveStreamAvatar) window.releaseActiveStreamAvatar();
+    setGenerationState(false);
+  }
 
   if (window.JinFiles && typeof window.JinFiles.syncContext === "function") {
     window.JinFiles.syncContext();
@@ -851,20 +855,6 @@ function handleSocketClose(event = null) {
 
   window.jinWebSocketConnected = false;
 
-  if (window.clearPendingUserBatch) {
-    window.clearPendingUserBatch();
-  }
-
-  clearInterruptedRuntimeGlow();
-
-  if (window.releaseActiveStreamAvatar) {
-    window.releaseActiveStreamAvatar();
-  }
-
-  setGenerationState(
-    false
-  );
-
   if (!websocketDisconnectedLogged) {
     websocketDisconnectedLogged = true;
 
@@ -880,11 +870,7 @@ function handleSocketClose(event = null) {
 
     appendLog(
       "[SYSTEM]",
-      (
-        shouldPauseWebSocketReconnectAfterFreeze()
-          ? "WebSocket disconnected. Waiting for tab to become visible..."
-          : "WebSocket disconnected. Reconnecting..."
-      ) + closeMeta
+      "WebSocket disconnected. Reconnecting..." + closeMeta
     );
   }
 
@@ -911,15 +897,18 @@ function connectWebSocket() {
 
   ws = socket;
 
-  socket.onmessage =
-    handleSocketMessage;
+  socket.onmessage = function (event) {
+    if (ws === socket) {
+      handleSocketMessage(event);
+    }
+  };
 
   socket.onopen = function () {
     if (ws !== socket) {
       return;
     }
 
-    void handleSocketOpen();
+    // Bootstrap begins on runtime_transport_ready, before replayed events.
   };
 
   socket.onclose = function (event) {
@@ -932,8 +921,6 @@ function connectWebSocket() {
   };
 
   socket.onerror = function () {
-    clearInterruptedRuntimeGlow();
-
     if (ws === socket) {
       socket.close();
     }
@@ -946,13 +933,6 @@ function connectWebSocket() {
 window.connectWebSocket = connectWebSocket;
 
 function retryWebSocketOnFocus(event) {
-
-  if (
-      (event && event.type === "focus")
-      || !document.hidden
-  ) {
-    websocketPageWasFrozen = false;
-  }
 
   if (
       isWebSocketOpen()
@@ -979,6 +959,9 @@ window.addEventListener(
   "focus",
   retryWebSocketOnFocus
 );
+
+document.addEventListener("resume", retryWebSocketOnFocus);
+window.addEventListener("online", retryWebSocketOnFocus);
 
 document.addEventListener(
   "visibilitychange",

@@ -22,6 +22,7 @@ from utils.actions.update_lt_facts_utils import (
 from utils.actions.update_active_memory_utils import (
     parse_update_active_memory_payload_fields,
 )
+from utils.chat_log_search import extract_chat_log_search_query
 
 
 MAX_SESSION_ACTION_HISTORY_ITEMS = 200
@@ -282,6 +283,7 @@ ACTION_DISPLAY_ALIASES = {
     "load_skill": "Loaded skill",
     "append_wildcard_file": "Appended wildcard file",
     "asset_action": "Asset action",
+    "project_search": "Searched project",
     "check_duplicates": "Checked duplicates",
     "save_active_memory": "Saved active memory",
     "create_asset_file": "Created asset file",
@@ -436,8 +438,17 @@ def build_asset_action_context_detail(
         or "asset_action"
     ).strip()
     if action in {"project_tree", "project_search", "project_read"}:
-        parts = [action, str(result.get("attachment") or ""), str(result.get("path") or ".")]
-        parts.extend(f"{key}: {result[key]}" for key in ("query", "range", "page") if result.get(key))
+        if action == "project_search":
+            parts = [action]
+            query = str(result.get("query") or "").strip()
+            if query:
+                parts.append(f"search: {query}")
+            path = str(result.get("path") or ".").strip()
+            if path not in {"", "."}:
+                parts.append(f"path: {path}")
+        else:
+            parts = [action, str(result.get("attachment") or ""), str(result.get("path") or ".")]
+            parts.extend(f"{key}: {result[key]}" for key in ("range", "page") if result.get(key))
         if result.get("ok") is False:
             parts.append("failed: " + str(result.get("detail") or result.get("error")))
         return " | ".join(parts)
@@ -591,7 +602,16 @@ def build_asset_action_history_text(
         if mode_label:
             text = f"{text} - {mode_label}"
 
-    if path:
+    query = str(
+        result.get(
+            "query",
+            "",
+        )
+        or ""
+    ).strip()
+    if action.casefold() == "project_search" and query:
+        text = f"{text}: {query}"
+    elif path:
         text = f"{text} - {path}"
 
     if result.get("ok") is False:
@@ -770,6 +790,10 @@ def build_asset_action_marker_text(
 
     suffixes = []
 
+    query = str(result.get("query") or "").strip()
+    if action.casefold() == "project_search" and query:
+        suffixes.append(query)
+
     path = str(
         result.get(
             "path",
@@ -777,7 +801,7 @@ def build_asset_action_marker_text(
         )
         or ""
     ).strip()
-    if path:
+    if path and not (action.casefold() == "project_search" and path == "."):
         suffixes.append(
             path
         )
@@ -1358,6 +1382,11 @@ def _build_session_action_marker_detail(
             normalized_payload
         )
 
+    if normalized_name == "CHAT_LOG_SEARCH":
+        return extract_chat_log_search_query(
+            normalized_payload
+        )
+
     if normalized_name == "UPDATE_LT_FACTS":
         parsed_payload = parse_update_lt_facts_payload(
             normalized_payload
@@ -1406,6 +1435,7 @@ def _build_session_action_marker_detail(
 
 
 PAYLOAD_DISTINCT_SESSION_ACTIONS = {
+    "CHAT_LOG_SEARCH",
     "SAVE_ACTIVE_MEMORY",
     "DELETE_ACTIVE_MEMORY",
     "SAVE_DELAYED_MEMORY",
@@ -1492,9 +1522,19 @@ def _build_payload_distinct_session_action_parts(
                 "count": 0,
                 "details": [],
                 "fallback": normalized_payload,
+                "result_counts": [],
             },
         )
         payload_group["count"] += 1
+
+        result_count = payload_entry.get(
+            "result_count",
+            None,
+        )
+        if isinstance(result_count, int) and result_count >= 0:
+            payload_group["result_counts"].append(
+                result_count
+            )
 
         detail = _build_session_action_marker_detail(
             action_name,
@@ -1515,11 +1555,15 @@ def _build_payload_distinct_session_action_parts(
     attachment_marker_action = action_name in {
         "ATTACH_FILE_CONTENT",
     }
+    chat_log_search_action = (
+        action_name == "CHAT_LOG_SEARCH"
+    )
 
     if (
         len(payload_groups) <= 1
         and not skill_marker_action
         and not attachment_marker_action
+        and not chat_log_search_action
     ):
         return []
 
@@ -1537,7 +1581,36 @@ def _build_payload_distinct_session_action_parts(
             "text": action_name,
         }
 
-        if skill_marker_action:
+        if chat_log_search_action:
+            query = (
+                details[-1]
+                if details
+                else extract_chat_log_search_query(
+                    display_payload
+                )
+            )
+            result_counts = payload_group.get(
+                "result_counts",
+                [],
+            )
+            if query:
+                part["text"] = f"{action_name}: {query}"
+            if group.get("status") == "failed":
+                part["text"] += " : failed"
+                failure_reason = str(
+                    group.get(
+                        "failure_reason",
+                        "",
+                    )
+                    or ""
+                ).strip()
+                if failure_reason:
+                    part["text"] += f" - {failure_reason}"
+            elif result_counts:
+                part["text"] += (
+                    f" : {result_counts[-1]} results"
+                )
+        elif skill_marker_action:
             part["text"] = (
                 f"{action_name}: {display_payload}"
             )
@@ -1596,6 +1669,7 @@ def _build_formatted_session_action_marker_parts(
         marker_sizes = []
         marker_status = ""
         marker_failure_reason = ""
+        marker_result_count = None
 
         if isinstance(
             marker_action,
@@ -1650,6 +1724,12 @@ def _build_formatted_session_action_marker_parts(
                 )
                 or ""
             ).strip()
+            raw_result_count = marker_action.get(
+                "result_count",
+                None,
+            )
+            if isinstance(raw_result_count, int) and raw_result_count >= 0:
+                marker_result_count = raw_result_count
 
             if isinstance(
                 raw_payloads,
@@ -1809,6 +1889,7 @@ def _build_formatted_session_action_marker_parts(
             {
                 "key": marker_identity_payloads[index],
                 "display": payload,
+                "result_count": marker_result_count,
             }
             for index, payload in enumerate(
                 marker_payloads
@@ -2443,6 +2524,7 @@ def _apply_session_action_runtime_outcomes(
         )
         if (
             event_name not in {
+                "chat_log_search",
                 "update_active_memory",
                 "recall_fact_context",
                 "clean_tool_results",
@@ -2576,6 +2658,14 @@ def _apply_session_action_runtime_outcomes(
             or ""
         ).strip().casefold()
         marker_action["status"] = status
+
+        if marker_name == "CHAT_LOG_SEARCH":
+            result_count = matching_event.get(
+                "result_count",
+                None,
+            )
+            if isinstance(result_count, int) and result_count >= 0:
+                marker_action["result_count"] = result_count
 
         if status == "failed":
             marker_action["failure_reason"] = str(

@@ -180,6 +180,11 @@ const RUNTIME_ACTION_GUARD_MIN_ICON_GAP = 8;
 const RUNTIME_ACTION_ICON_SVG_NS =
   "http://www.w3.org/2000/svg";
 const runtimeActionIconDefinitions = {
+  chat_log_search: {
+    title: "chat log search",
+    tone: "search",
+    svg: '<circle cx="10.5" cy="10.5" r="5.25"></circle><path d="m15 15 4 4"></path>',
+  },
   web_search: {
     title: "web search",
     tone: "search",

@@ -20,14 +20,12 @@
       "Other asset action schemas come from LOADED_SKILLS_CONTENT."
     ],
     "rules": [
-      "Project actions read the active local source root. If the user linked a folder in the UI, attachment selects that project and may be its visible folder name from PROJECT_REVIEW or its ASSET_ACTION selector id; omit it when exactly one folder is attached. If no project folder is linked, JIN's own source directory is available as an implicit read-only root (normally jin_core/): omit attachment or use \"jin_core\". This implicit root does not activate Project Mode. attachment is metadata, never a file-path root. path may be relative to the selected root (\".\", \"src\") or use the visible root (\"jin_core/src\"); never use an absolute filesystem path.",
+      "Project actions read the active local source root.",
       "As soon as the user links any project folder in the UI, the implicit JIN source root is disabled and normal linked-project / PROJECT_REVIEW behavior applies unchanged.",
-      "project_tree lists file/folder paths, not file contents. The default depth is 1, so a root overview shows only direct children. Start project review with path \".\" and the default depth; use depth 2..20 only for deliberate drill-down, preferably on a specific subfolder. Returned paths are always rooted at the visible attached-folder name, e.g. jin_core/docs/ and jin_core/docs/file.md.",
-      "project_search searches file contents, not filenames. query is literal text, case-insensitive, not regex. Each result is folder-rooted-path:line_number:source_text; line numbers start at 1. Multiple matching lines in one file count as multiple results.",
-      "offset is the number of results to skip (default 0), not a line number or scan position. limit is the maximum number of returned paths or matching lines (default 100, allowed 1..200). For a next page, use the returned offset and keep the other inputs unchanged. A scan stop means unsearched files may remain: use smaller subfolders with offset 0. A larger limit or offset does not extend the scan.",
-      "Tree/search do not load source files. To inspect a match, copy the returned folder-rooted path into ATTACH_FILE_CONTENT, optionally with #Lstart-Lend. Search reads UTF-8 text files up to 1 MiB; tree/search skip generated/dependency folders and symlinks. Skipped files/folders are not skipped matches.",
-      "During project review only user-pinned DELAYED reports and their facts are context. Ordinary memory save/update actions remain available. Keep folder links attached unless the user asks to detach.",
-      "For other ASSET_ACTION operations, derive concrete schema from LOADED_SKILLS_CONTENT."
+      "project_tree lists file/folder paths. Start project review with path \".\" and the default depth; use depth 2..20 only for deliberate drill-down, preferably on a specific subfolder. Returned paths are always rooted at the visible attached-folder name, e.g. jin_core/docs/ and jin_core/docs/file.md.",
+      "project_search searches file contents, not filenames. query is literal text, case-insensitive.",
+      "offset is the number of results to skip (default 0). limit is the maximum number of returned paths or matching lines (default 100, allowed 1..200). For a next page, use the returned offset and keep the other inputs unchanged. A larger limit or offset does not extend the scan.",
+      "To inspect a file copy the returned folder-rooted path into ATTACH_FILE_CONTENT, optionally with #Lstart-Lend."
     ],
     "close_tag": true
   }

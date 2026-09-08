@@ -7,6 +7,7 @@ from utils.actions import RuntimeActionStreamFilter
 
 
 PAYLOADS = {
+    'CHAT_LOG_SEARCH': '{"query":"pizza"}',
     'ASSET_ACTION': '{"action":"list_files"}',
     'DEEP_WEB_SEARCH': 'research this topic',
     'JIN_COLOR': '#112233',

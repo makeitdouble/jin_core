@@ -851,6 +851,16 @@ function buildRuntimeActionDisplayText(
     ).trim();
 
   if (
+    normalizedAction === "asset_action"
+    && getAssetActionRuntimeField(data, "action") === "project_search"
+  ) {
+    const searchText = buildAssetActionRuntimeDisplayText(data, action);
+    if (searchText) {
+      return searchText;
+    }
+  }
+
+  if (
       explicitText
       && !(
         normalizedAction === "asset_action"
@@ -1075,6 +1085,11 @@ function buildAssetActionRuntimeDisplayText(
     return "";
   }
 
+  if (assetAction === "project_search") {
+    const query = getAssetActionRuntimeField(data, "query");
+    return query ? `Searched project: ${query}` : "Searched project";
+  }
+
   const path =
     normalizeAssetActionRuntimePath(
       getAssetActionRuntimeField(
@@ -1128,6 +1143,7 @@ function isGenericAssetActionDisplayText(
 }
 
 const PAYLOAD_DISTINCT_RUNTIME_ACTIONS = new Set([
+  "chat_log_search",
   "save_active_memory",
   "update_active_memory",
   "delete_active_memory",
@@ -1590,6 +1606,8 @@ function handleRuntimeAction(
     );
 
   const runtimeDetail =
+    (action === "chat_log_search" ? data.detail : "")
+    ||
     (missingCloseTagFailure ? data.detail : "")
     || (
       [

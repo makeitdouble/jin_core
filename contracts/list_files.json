@@ -14,7 +14,8 @@
     },
     "schema": [],
     "rules": [
-      ""
+      "Use LIST_FILES to get all files user shared with JIN.",
+      "Files DO NOT CONTAIN ANY METADATA;mMust use CHAT_LOG_SEARCH for explicit context."
     ],
     "close_tag": false
   }

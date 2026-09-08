@@ -662,3 +662,30 @@ L-T facts are projected to Live Avatar in lanes of at most 100 records. Addition
 
 **Rejected alternatives:** hiding facts solely because the first ring is full; creating a second L-T store per ring; overlapping Active/File rings; inventing a new hover highlight family for overflow lanes.
 
+---
+
+## D048 — Chat recall starts with literal archive search
+
+**Status:** Accepted / implemented
+
+`CHAT_LOG_SEARCH` searches saved USER/JIN messages with literal case-insensitive
+substrings, OR queries, inclusive date/daily-time bounds and newest-first results.
+The default limit is 10 turns, hard maximum 50. Including JIN permits bounded
+reasoning excerpts only alongside a matching USER in that same turn; USER-only
+search excludes reasoning. Matched messages retain their attachment metadata.
+The full request and historical identities accompany results. Contract, errors,
+follow-up, bubbles and persistence reuse the existing runtime-action path.
+
+**Rejected alternatives:** embedding/index infrastructure for this first version;
+reasoning-only evidence without a matching USER; restoring historical resources
+as a side effect of search. See [CHAT_LOG_SEARCH.md](CHAT_LOG_SEARCH.md).
+
+## Background-tab continuity — 2026-09-08
+
+An accidental socket disconnect is not a user Stop. Accepted foreground work,
+FRAME integration and queued USER batches continue in the same server runtime.
+Physical connections only deliver input/output. Unacknowledged output is replayed
+on soft reconnect with page-local event deduplication; live server state wins
+over the stale page snapshot. Browser freeze/discard cannot be prevented by a
+server timeout setting. Process termination remains outside in-memory recovery.
+
