@@ -130,9 +130,9 @@ class ProjectReviewTests(unittest.TestCase):
         result = self.action("project_read", path="src/main.py")
         result["loaded"] = False
         self.assertIn("Status: unloaded", format_project_result(result))
-        normal = {"action": "attach_file", "ok": True, "id": "abc123", "name": "notes.txt"}
+        normal = {"action": "attach_file_content", "ok": True, "id": "abc123", "name": "notes.txt"}
         self.assertNotIn("Status:", format_file_result(normal))
-        normal["action"] = "detach_file"
+        normal["loaded"] = False
         self.assertIn("Status: unloaded", format_file_result(normal))
         record_runtime_tool_result(self.context, "files", {"ok": True, "action": "list_files",
                                                           "lines": files.format_list_files_lines()})
@@ -150,9 +150,12 @@ class ProjectReviewTests(unittest.TestCase):
     def test_tree_search_and_exact_line_ranges(self):
         tree = self.action("project_tree", limit=1)
         self.assertEqual(tree["content"], f"{self.project.name}/README.md")
+        self.assertEqual(tree["depth"], 1)
         self.assertIn("offset 1", tree["notice"])
         second = self.action("project_tree", offset=1, limit=2)
-        self.assertEqual(second["content"], f"{self.project.name}/src/\n{self.project.name}/src/main.py")
+        self.assertEqual(second["content"], f"{self.project.name}/src/")
+        deep = self.action("project_tree", depth=2, offset=1, limit=2)
+        self.assertEqual(deep["content"], f"{self.project.name}/src/\n{self.project.name}/src/main.py")
         search = self.action("project_search", query="NEEDLE")
         self.assertEqual(search["content"], f"{self.project.name}/src/main.py:2: needle = 42")
         read = self.action("project_read", path="src\\main.py", start=2, end=3)

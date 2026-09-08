@@ -359,3 +359,31 @@ def format_runtime_action_result(
         )
 
     return "\n".join(lines).strip()
+
+
+def format_action_failure_summary(entry: dict) -> str:
+    """Readable failure payload, without duplicating the action schema."""
+    result = entry.get("result")
+    if not isinstance(result, dict) or result.get("ok") is not False:
+        return ""
+    if entry.get("kind") == "files":
+        from .files import format_file_result, file_result_summary
+        body = format_file_result(result).split("Correct action schema:", 1)[0].rstrip()
+        return file_result_summary(result) + "\n" + body
+    lines = []
+    for key, value in result.items():
+        if key in {"schema", "action_schema"}:
+            continue
+        label = "Status" if key == "ok" else _humanize_key(key)
+        if key == "ok":
+            value = "failed"
+        if key == "payload" and isinstance(value, str):
+            import json
+            try:
+                value = json.loads(value)
+            except (ValueError, TypeError):
+                pass
+        _append_value(lines, label, value)
+    if entry.get("action_payload") and "payload" not in result:
+        _append_value(lines, "Provided payload", entry["action_payload"])
+    return "\n".join(lines)

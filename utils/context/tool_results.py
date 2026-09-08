@@ -192,7 +192,7 @@ def _persistent_file_result_id(context, result) -> str:
     if not isinstance(result, dict):
         return ""
     if (
-        result.get("action") != "attach_file"
+        result.get("action") != "attach_file_content"
         or result.get("source") == "project"
         or result.get("ok") is False
         or result.get("loaded") is False
@@ -240,12 +240,8 @@ def _file_result_content_block(
 
     ref = project_file_ref(result)
     if ref:
-        active = {
-            str(value or "").strip().lower()
-            for value in getattr(context, "runtime_attached_file_ids", []) or []
-        }
-        root_id = ref.split("/", 1)[0].strip().lower()
-        if root_id not in active or "content" not in result:
+        from .files import project_file_result_active
+        if not project_file_result_active(context, result) or "content" not in result:
             return ""
         return format_file_content(
             project_file_content_label(result),
@@ -494,17 +490,18 @@ def _append_recorded_tool_results(
             if not sections:
                 continue
 
-            from .files import project_file_ref
+            from .files import project_file_load_key, project_file_ref
             project_ref = project_file_ref(result)
+            project_load_key = project_file_load_key(result)
             content_block = ""
-            if project_ref and project_ref not in embedded_project_refs:
+            if project_ref and project_load_key not in embedded_project_refs:
                 content_block = _file_result_content_block(
                     context,
                     result,
                     persistent_text_budget=persistent_text_budget,
                 )
-                if content_block:
-                    embedded_project_refs.add(project_ref)
+                if content_block and project_load_key is not None:
+                    embedded_project_refs.add(project_load_key)
             blocks = []
             for name, payload in sections:
                 attrs = tool_id_attr + f'name="{escape(name)}"'
@@ -555,13 +552,20 @@ def _append_recorded_tool_results(
                     context,
                     result,
                 )
+                persistent_already_represented = bool(
+                    persistent_id
+                    and persistent_id in represented_attachment_ids
+                )
                 if persistent_id:
                     represented_attachment_ids.add(persistent_id)
                 from .files import project_file_load_key, project_file_ref
                 project_ref = project_file_ref(result)
                 project_load_key = project_file_load_key(result)
                 content_block = ""
-                if not project_ref or project_load_key not in embedded_project_refs:
+                if (
+                    not persistent_already_represented
+                    and (not project_ref or project_load_key not in embedded_project_refs)
+                ):
                     content_block = _file_result_content_block(
                         context,
                         result,

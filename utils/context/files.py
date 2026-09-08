@@ -13,6 +13,27 @@ def project_file_ref(result):
     return str(result.get("file_ref") or f"{result.get('attachment', '')}/{result.get('path', '')}")
 
 
+def project_file_result_active(context, result) -> bool:
+    """Whether a project read still belongs to the currently selected source root."""
+    if not isinstance(result, dict):
+        return False
+    if result.get("implicit_project"):
+        # The built-in JIN root exists only while no real project folder is
+        # linked. Linking a folder switches cleanly to normal Project Mode and
+        # hides source blocks loaded from the implicit root.
+        from utils.project_reader import linked_projects
+        return not linked_projects(context, include_pending_restore=True)
+
+    ref = project_file_ref(result)
+    if not ref:
+        return False
+    active = {
+        str(value or "").strip().casefold()
+        for value in getattr(context, "runtime_attached_file_ids", []) or []
+    }
+    return ref.split("/", 1)[0].strip().casefold() in active
+
+
 def project_file_load_key(result):
     """Identity of one loaded project source block, including its requested window."""
     ref = project_file_ref(result)
@@ -52,60 +73,16 @@ def _project_results(context, *, mirrors=False):
 
 
 def loaded_project_files(context):
-    active = set(getattr(context, "runtime_attached_file_ids", []) or [])
     seen = set()
-    for result in _project_results(context):
+    for result in reversed(list(_project_results(context))):
         ref = project_file_ref(result)
         load_key = project_file_load_key(result)
         if (result.get("ok") is False or result.get("loaded") is False
-                or "content" not in result or ref.split("/", 1)[0] not in active
+                or "content" not in result or not project_file_result_active(context, result)
                 or load_key in seen):
             continue
         seen.add(load_key)
         yield result
-
-
-def loaded_file_ref(
-    context,
-    *,
-    reference="",
-    sha256="",
-    requested_start=None,
-    requested_end=None,
-    exclude_reference="",
-):
-    requested_range = None
-    if requested_start is not None:
-        try:
-            requested_range = int(requested_start), int(requested_end)
-        except (TypeError, ValueError):
-            requested_range = None
-    for file_id in getattr(context, "runtime_attached_file_ids", []) or []:
-        record = files.get_file_record(file_id)
-        if record and (
-            reference == file_id
-            or (
-                sha256
-                and file_id != exclude_reference
-                and record.get("sha256") == sha256
-            )
-        ):
-            return file_id
-    for result in loaded_project_files(context):
-        ref = project_file_ref(result)
-        if reference == ref:
-            # A project file may own several simultaneously loaded source
-            # windows. Only the exact requested window is a duplicate.
-            if requested_range is None or _requested_line_range(result) == requested_range:
-                return ref
-            continue
-        if (
-            sha256
-            and ref != exclude_reference
-            and result.get("source_sha256") == sha256
-        ):
-            return ref
-    return ""
 
 
 def _requested_line_range(result):
@@ -208,7 +185,6 @@ def unload_project_files(
     *,
     start=None,
     end=None,
-    detached_at="",
 ):
     """Drop matching source bodies while preserving their action/result trail."""
     unloaded = False
@@ -228,8 +204,6 @@ def unload_project_files(
             unloaded = True
         result.pop("content", None)
         result["loaded"] = False
-        if detached_at:
-            result["detached_at"] = str(detached_at)
         unloaded = True
     return unloaded
 
@@ -237,10 +211,8 @@ def unload_project_files(
 def unload_persistent_file_results(
     context,
     file_id,
-    *,
-    detached_at="",
 ):
-    """Mark recorded ATTACH_FILE snapshots unloaded without deleting the action."""
+    """Mark recorded ATTACH_FILE_CONTENT snapshots unloaded without deleting the action."""
     normalized_id = str(file_id or "").strip().lower()
     if not normalized_id:
         return False
@@ -253,7 +225,7 @@ def unload_persistent_file_results(
         if not isinstance(result, dict):
             continue
         if (
-            result.get("action") != "attach_file"
+            result.get("action") != "attach_file_content"
             or result.get("source") == "project"
             or result.get("ok") is False
             or str(result.get("id") or "").strip().lower() != normalized_id
@@ -261,8 +233,6 @@ def unload_persistent_file_results(
         ):
             continue
         result["loaded"] = False
-        if detached_at:
-            result["detached_at"] = str(detached_at)
         unloaded = True
     return unloaded
 
@@ -317,6 +287,18 @@ def build_file_contents_context(context, *, max_text_chars=None):
     return "\n\n".join(blocks)
 
 
+def file_result_summary(result):
+    """One attachment outcome label for bubbles, history and context."""
+    action = str(result.get("action") or "file").upper()
+    reference = (project_file_action_label(result) if project_file_ref(result)
+                 else files.file_display_name(result.get("name") or result.get("id") or ""))
+    text = f"{action}: {reference}" if reference else action
+    if result.get("ok") is False:
+        reason = str(result.get("detail") or result.get("error") or "action failed").strip()
+        text += f" - failed: {reason}"
+    return text
+
+
 def format_file_result(result):
     from utils.project_reader import format_project_result
     if project_file_ref(result):
@@ -330,24 +312,8 @@ def format_file_result(result):
         lines.extend(["Status: failed", f"Reason: {result.get('detail') or result.get('error')}",
                       "Correct action schema:", *get_runtime_action_schema(action.upper())])
     else:
-        detached_at = str(result.get("detached_at") or "").strip()
-        if action == "detach_file":
-            lines.append(
-                f"Status: detached at {detached_at}"
-                if detached_at
-                else "Status: unloaded"
-            )
-        elif result.get("loaded") is False:
-            lines.append(
-                f"Status: detached at {detached_at}"
-                if detached_at
-                else "Status: unloaded"
-            )
-        requested_range = _requested_line_range(result)
-        if requested_range and action == "detach_file":
-            lines.append(
-                f"Lines: L{requested_range[0]}-L{requested_range[1]}"
-            )
+        if result.get("loaded") is False:
+            lines.append("Status: unloaded")
         if result.get("replaced_id"):
             lines.append(f"Unloaded: {result['replaced_id']}")
     return "\n".join(lines)
@@ -368,7 +334,7 @@ def select_file_tool_results(entries, limit):
             return "content" in result
         return (
             entry.get("kind") == "files"
-            and result.get("action") == "attach_file"
+            and result.get("action") == "attach_file_content"
         )
 
     return [

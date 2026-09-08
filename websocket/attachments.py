@@ -10,7 +10,7 @@ def strip_attachment_source_text(value):
     # Local reader compatibility for old turns that embedded source in USER text.
     return re.sub(
         r"--- BEGIN ATTACHMENT TEXT: [^\r\n]+ ---[\s\S]*?--- END ATTACHMENT TEXT: [^\r\n]+ ---",
-        "[file content managed by ATTACH_FILE/DETACH_FILE]", text,
+        "[file content managed by ATTACH_FILE_CONTENT]", text,
     )
 
 
@@ -193,7 +193,7 @@ def format_attachment_context(
             lines.append(
                 f"Linked project (read only). File-path root is {context_path}/. "
                 f"Use {context_path} as the ASSET_ACTION attachment (or omit it when this is the only folder). "
-                "List/search with ASSET_ACTION; load files by copying folder-rooted paths into ATTACH_FILE."
+                "List/search with ASSET_ACTION; load files by copying folder-rooted paths into ATTACH_FILE_CONTENT."
             )
             continue
 

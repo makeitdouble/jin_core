@@ -1747,7 +1747,7 @@ function handleRuntimeAction(
     counterOnly
     && (
       reportScopedDelayedAction
-      || action === "attach_file"
+      || action === "attach_file_content"
     )
   ) {
     return;

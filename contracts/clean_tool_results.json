@@ -17,8 +17,7 @@
       "<CLEAN_TOOL_RESULTS: T1 >"
     ],
     "rules": [
-      "Use <CLEAN_TOOL_RESULTS> to delete ALL tool results!",
-      "Use <CLEAN_TOOL_RESULTS: T1 > to remove ONLY one existing TOOL_RESULT whose tool_id is exactly T1; every other result stays. Supply one exact T<number> ID from the current TOOLS_RESULTS block."
+      "Use <CLEAN_TOOL_RESULTS> to delete ALL tool results and clean all block OR use <CLEAN_TOOL_RESULTS: T1 > to remove ONLY one existing TOOL_RESULT whose tool_id is exactly T1; every other result stays. Supply one exact T<number> ID from the current TOOLS_RESULTS block."
     ],
     "close_tag": false
   }

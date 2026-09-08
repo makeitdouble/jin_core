@@ -183,7 +183,7 @@ def test_attached_files_context_sits_between_tools_and_delayed(monkeypatch, tmp_
     assert prompt.index("<ATTACHED_FILES>") < prompt.index("<DELAYED_MEMORY>")
 
 
-def test_persistent_attach_result_owns_source_and_detach_keeps_result(monkeypatch, tmp_path):
+def test_persistent_attach_result_owns_source_and_unload_keeps_result(monkeypatch, tmp_path):
     _redirect_store(monkeypatch, tmp_path)
     record, _created, _error = store.store_uploaded_file(
         name="note.txt",
@@ -200,7 +200,7 @@ def test_persistent_attach_result_owns_source_and_detach_keeps_result(monkeypatc
         context,
         TOOL_RESULT_KIND_FILES,
         {
-            "action": "attach_file",
+            "action": "attach_file_content",
             "ok": True,
             "id": record["id"],
             "name": record["name"],
@@ -208,30 +208,28 @@ def test_persistent_attach_result_owns_source_and_detach_keeps_result(monkeypatc
         },
     )
     rendered = build_tool_results_context(context)
-    open_index = rendered.index('<TOOL_RESULT tool_id="T1" name="ATTACH_FILE"')
+    open_index = rendered.index('<TOOL_RESULT tool_id="T1" name="ATTACH_FILE_CONTENT"')
     source_index = rendered.index('<FILE_CONTENT: note.txt >')
     close_index = rendered.index('</TOOL_RESULT>', open_index)
     assert open_index < source_index < close_index
     assert "persistent source body" in rendered
 
-    timestamp = "2026-09-06T19:14:00Z"
     assert unload_persistent_file_results(
         context,
         record["id"],
-        detached_at=timestamp,
     ) is True
     context.runtime_attached_file_ids = []
     rendered = build_tool_results_context(context)
     assert "persistent source body" not in rendered
-    assert '<TOOL_RESULT tool_id="T1" name="ATTACH_FILE"' in rendered
-    assert f"Status: detached at {timestamp}" in rendered
+    assert '<TOOL_RESULT tool_id="T1" name="ATTACH_FILE_CONTENT"' in rendered
+    assert "Status: unloaded" in rendered
 
 
 def test_loaded_persistent_attach_result_survives_history_tail():
     loaded = {
         "kind": "files",
         "result": {
-            "action": "attach_file",
+            "action": "attach_file_content",
             "ok": True,
             "id": "abc123",
             "name": "note.txt",

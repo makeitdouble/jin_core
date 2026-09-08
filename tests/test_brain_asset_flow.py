@@ -13,8 +13,6 @@ from agent.nodes.brain import (
     action_event_requires_follow_up,
     build_context_limit_recovery_context,
     build_reasoning_recovery_context,
-    format_followup_action_from_event,
-    format_followup_actions_from_events,
     format_previous_runtime_memory_tag,
     prepare_asset_results_for_turn,
 )
@@ -626,39 +624,6 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
             context.runtime_turn_interrupted
         )
 
-    async def test_followup_event_formatter_keeps_only_action_name(self):
-
-        self.assertEqual(
-            format_followup_action_from_event({
-                "name": "save_session",
-                "payload": "session payload",
-                "id": "save-123",
-                "query": "ignored query",
-            }),
-            "SAVE_SESSION",
-        )
-
-    async def test_followup_event_formatter_groups_duplicate_action_names(self):
-
-        self.assertEqual(
-            format_followup_actions_from_events([
-                {
-                    "name": "delete_active_memory",
-                    "id": "active_memory_1",
-                },
-                {
-                    "name": "delete_active_memory",
-                    "id": "active_memory_2",
-                },
-                {
-                    "name": "save_session",
-                    "id": "save-123",
-                    "payload": "ignored",
-                },
-            ]),
-            "DELETE_ACTIVE_MEMORY (count: 2), SAVE_SESSION",
-        )
-
     async def test_previous_runtime_memory_tag_tracks_elapsed_sequence_time(self):
 
         self.assertEqual(
@@ -927,7 +892,7 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
 
             if len(calls) == 1:
                 context.runtime_action_events.append({
-                    "name": "attach_file",
+                    "name": "attach_file_content",
                     "payload": "project/src/main.py",
                     "runtime_turn_id": "turn_000001",
                 })
@@ -938,7 +903,7 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
 
         async def fake_restore_replay(context, **_kwargs):
             context.runtime_action_events.append({
-                "name": "attach_file",
+                "name": "attach_file_content",
                 "payload": "folder001",
                 "runtime_turn_id": "turn_000001",
             })
@@ -990,7 +955,7 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
 
         async def fake_restore_replay(context, **_kwargs):
             context.runtime_action_events.append({
-                "name": "attach_file",
+                "name": "attach_file_content",
                 "payload": "folder001",
                 "runtime_turn_id": "turn_000001",
             })

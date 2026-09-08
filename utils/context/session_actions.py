@@ -1,4 +1,4 @@
-# Builds session action history and current sequence context blocks.
+# Builds the shared session action history context block.
 import re
 import time
 from xml.sax.saxutils import escape
@@ -176,8 +176,7 @@ def _format_memory_action_context_part(
     ).strip()
 
     if normalized_action in {
-        "ATTACH_FILE",
-        "DETACH_FILE",
+        "ATTACH_FILE_CONTENT",
     }:
         if detail and part_id:
             return (
@@ -383,6 +382,7 @@ def build_session_actions_history_context(
     context=None,
     *,
     current_sequence: bool = False,
+    current_request: str = "",
     sequence_user_message: str = "",
     sequence_user_created_at=None,
     latest_action: str = "",
@@ -423,13 +423,22 @@ def build_session_actions_history_context(
             )
         ]
 
-    if current_sequence and context is not None:
-        current_turn_id = get_current_action_sequence_turn_id(
+    current_turn_id = (
+        get_current_action_sequence_turn_id(
             context
         )
-        turn_started_at = get_current_action_sequence_started_at(
+        if context is not None
+        else ""
+    )
+    turn_started_at = (
+        get_current_action_sequence_started_at(
             context
         )
+        if context is not None
+        else None
+    )
+
+    if current_sequence:
         history_items = [
             item
             for item in history_items
@@ -440,18 +449,9 @@ def build_session_actions_history_context(
             )
         ]
 
-    sequence_user_text = str(
-        sequence_user_message
-        or ""
-    ).strip()
-
-    if (
-        not history_items
-        and not (
-            current_sequence
-            and sequence_user_text
-        )
-    ):
+    # The request already lives in the conversation. These blocks contain only
+    # actions and the JIN text that accompanied them, never another USER quote.
+    if not history_items:
         return ""
 
     now = time.time()
@@ -478,48 +478,41 @@ def build_session_actions_history_context(
     open_sequence_turn_id = ""
     previous_actions_section_open = False
     current_actions_section_open = False
+    last_jin_message_signature = None
 
     for item in history_items:
         runtime_turn_id = item[
             "runtime_turn_id"
         ]
 
-        if not current_sequence:
-            if item.get("previous_bootstrap"):
-                if not previous_actions_section_open:
-                    lines.append(
-                        "----- Previous actions -----"
-                    )
-                    previous_actions_section_open = True
-            elif (
-                previous_actions_section_open
-                and not current_actions_section_open
-            ):
+        if not current_sequence and item.get("previous_bootstrap"):
+            if not previous_actions_section_open:
                 lines.append(
-                    "----- Current session actions -----"
+                    "----- Previous actions -----"
                 )
-                current_actions_section_open = True
-
-        item_is_sequence = (
+                previous_actions_section_open = True
+        elif (
             not current_sequence
-            and runtime_turn_id in sequence_turn_ids
-        )
-
-        if item_is_sequence:
-            if open_sequence_turn_id != runtime_turn_id:
-                if open_sequence_turn_id:
-                    lines.append(
-                        "--- Sequence ended ---"
-                    )
-                lines.append(
-                    "--- Sequence started ---"
-                )
-                open_sequence_turn_id = runtime_turn_id
-        elif open_sequence_turn_id:
+            and
+            previous_actions_section_open
+            and not current_actions_section_open
+        ):
             lines.append(
-                "--- Sequence ended ---"
+                "----- Current session actions -----"
             )
-            open_sequence_turn_id = ""
+            current_actions_section_open = True
+
+        item_is_sequence = runtime_turn_id in sequence_turn_ids
+        if not current_sequence:
+            if open_sequence_turn_id and (
+                not item_is_sequence or open_sequence_turn_id != runtime_turn_id
+            ):
+                lines.append("--- end of sequence ---")
+                open_sequence_turn_id = ""
+                last_jin_message_signature = None
+            if item_is_sequence and not open_sequence_turn_id:
+                lines.append("--- start of sequence ---")
+                open_sequence_turn_id = runtime_turn_id
 
         text = _format_context_action_text(
             _format_session_action_context_parts(
@@ -543,41 +536,41 @@ def build_session_actions_history_context(
             text = f"{text}{age_suffix}"
 
         action_index += 1
-        if current_sequence:
-            if item.get("plain_sequence"):
-                lines.append(
-                    f"{action_index}. {text}"
-                )
-                continue
 
+        if (current_sequence or item_is_sequence) and not item.get("plain_sequence"):
             jin_message_content = _format_jin_message_content(
                 item.get(
                     "jin_message_content",
                     "",
                 )
             )
-            if jin_message_content:
+            jin_message_signature = (
+                jin_message_content,
+                created_at,
+            )
+            if (
+                jin_message_content
+                and jin_message_signature != last_jin_message_signature
+            ):
                 lines.append(
-                    (
-                        f"assistant_output_{action_index}: "
-                        f"{jin_message_content}{age_suffix}"
-                    )
+                    f"JIN: {jin_message_content}{age_suffix}"
                 )
-            lines.append(
-                f"action_{action_index}: {text}"
-            )
-        else:
-            lines.append(
-                f"{action_index}. {text}"
-            )
+                last_jin_message_signature = jin_message_signature
+
+        lines.append(f"{action_index}. {text}")
 
     if open_sequence_turn_id:
         lines.append(
-            "--- Sequence ended ---"
+            "--- end of sequence ---"
         )
 
+    # Keep these two projections distinct: a marker-triggered follow-up sees
+    # ONLY its sequence, numbered from 1. After the final marker-free answer,
+    # ordinary prompts use the full session with global numbering and paired
+    # sequence delimiters. Removing this switch makes old actions look like
+    # steps of the current task. Both views use the same canonical history.
     tag_name = (
-        "CURRENT_REQUEST_FLOW"
+        "CURRENT_REQUEST_ACTIONS_HISTORY"
         if current_sequence
         else "SESSION_ACTIONS_HISTORY"
     )
@@ -591,68 +584,6 @@ def build_session_actions_history_context(
         escaped_lines,
         spaces=4,
     )
-
-    if current_sequence:
-        request_age = ""
-        if isinstance(
-            sequence_user_created_at,
-            (int, float),
-        ) and sequence_user_created_at > 0:
-            request_age = format_session_action_age(
-                now - float(sequence_user_created_at)
-            )
-
-        request_age_attr = (
-            f' age="{escape(request_age)} ago"'
-            if request_age
-            else ""
-        )
-        latest_action_text = str(
-            latest_action
-            or ""
-        ).strip()
-        state = (
-            "EVALUATE_AFTER_ACTION"
-            if history_items or latest_action_text
-            else "REQUEST_STARTED"
-        )
-        formatted_request = indent_xml(
-            escape(sequence_user_text or "<missing>"),
-            spaces=8,
-        )
-        formatted_executed_actions = indent_xml(
-            escaped_lines,
-            spaces=8,
-        )
-        executed_actions = (
-            f"\n{formatted_executed_actions}\n"
-            if formatted_executed_actions
-            else "\n        &lt;none&gt;\n"
-        )
-        latest_action_block = (
-            "\n    <LAST_EXECUTED_ACTION>"
-            f"{escape(latest_action_text)}"
-            "</LAST_EXECUTED_ACTION>"
-            if latest_action_text
-            else ""
-        )
-
-        return (
-            f"<{tag_name}>\n"
-            f"    <STATE>{state}</STATE>\n"
-            f"    <ORIGINAL_USER_REQUEST{request_age_attr}>\n"
-            f"{formatted_request}\n"
-            f"    </ORIGINAL_USER_REQUEST>"
-            f"{latest_action_block}\n"
-            "    <ACTION_RESULTS_SOURCE>TOOLS_RESULTS</ACTION_RESULTS_SOURCE>\n"
-            f"    <EXECUTED_ACTIONS>{executed_actions}"
-            f"    </EXECUTED_ACTIONS>\n"
-            "    <NEXT_DECISION>\n"
-            "        <IF_REQUEST_SATISFIED>RESPOND_TO_USER_AND_STOP</IF_REQUEST_SATISFIED>\n"
-            "        <IF_REQUEST_NOT_SATISFIED>EXECUTE_ONLY_MISSING_ACTIONS</IF_REQUEST_NOT_SATISFIED>\n"
-            "    </NEXT_DECISION>\n"
-            f"</{tag_name}>"
-        )
 
     return (
         f"<{tag_name}>\n"
@@ -707,10 +638,11 @@ def strip_actions_history_context(
 
     for tag_name in (
         "SESSION_ACTIONS_HISTORY",
+        "CURRENT_REQUEST_ACTIONS_HISTORY",
         "CURRENT_CONCERNS",
         "CURREN_USER_INPUT",
         "CURRENT_RUNTIME",
-        "CURRENT_REQUEST_FLOW",
+        "CURRENT_REQUEST_FLOW",  # Strip obsolete blocks from saved prompts.
         "CURRENT_SEQUENCE",
         "CURRENT_ACTIONS_HISTORY",
         "SEQUENCE_ORIGIN_REQUEST",

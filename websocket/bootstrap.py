@@ -583,6 +583,29 @@ def apply_archived_session_continuation_state(
             if created_at > 0:
                 normalized_item["created_at"] = created_at
 
+            jin_message_content = clean_bootstrap_memory(
+                item.get(
+                    "jin_message_content",
+                    "",
+                ),
+                limit=4000,
+            )
+            if jin_message_content:
+                normalized_item["jin_message_content"] = (
+                    jin_message_content
+                )
+
+            # These booleans are semantic history metadata, not UI fluff.
+            # Dropping them during bootstrap changes marker grouping and
+            # sequence rendering after opening a fresh tab.
+            for metadata_field in (
+                "runtime_session_action_marker_item",
+                "runtime_session_action_preserve_separate",
+                "runtime_session_action_plain_sequence",
+            ):
+                if item.get(metadata_field) is True:
+                    normalized_item[metadata_field] = True
+
             parts = item.get("parts", [])
             if isinstance(parts, list):
                 normalized_parts = []
@@ -665,6 +688,34 @@ def apply_archived_session_continuation_state(
                     item["session_id"] = current_session_id
 
         context.runtime_session_action_history = normalized_actions
+
+        restored_sequence_turn_ids = []
+        raw_sequence_turn_ids = message_data.get(
+            "runtime_action_sequence_turn_ids",
+            [],
+        )
+        if isinstance(raw_sequence_turn_ids, list):
+            available_turn_ids = {
+                str(item.get("runtime_turn_id", "") or "").strip()
+                for item in normalized_actions
+                if isinstance(item, dict)
+                and str(item.get("runtime_turn_id", "") or "").strip()
+            }
+            for raw_turn_id in raw_sequence_turn_ids[-200:]:
+                turn_id = clean_bootstrap_memory(
+                    raw_turn_id,
+                    limit=120,
+                )
+                if (
+                    turn_id
+                    and turn_id in available_turn_ids
+                    and turn_id not in restored_sequence_turn_ids
+                ):
+                    restored_sequence_turn_ids.append(turn_id)
+
+        context.runtime_action_sequence_turn_ids = (
+            restored_sequence_turn_ids
+        )
 
     restored_jin_color = normalize_jin_color_payload(
         message_data.get("current_jin_color", "")
@@ -867,7 +918,7 @@ def stage_session_restore_attached_file_ids(
     # The hidden restore turn receives only RESTORED_SESSION_RESOURCES
     # metadata. Do not keep a browser/file-store sync active in the runtime
     # context, otherwise the restore answer can accidentally inherit the
-    # archived file payload before the synthetic ATTACH_FILE replay below.
+    # archived file payload before the synthetic ATTACH_FILE_CONTENT replay below.
     context.runtime_attached_file_ids = []
     context.runtime_turn_attachments = []
     context.runtime_current_sequence_attachments = []
@@ -2950,6 +3001,7 @@ def enrich_session_bootstrap_from_archive(
 
         for field in (
             "recent_turns",
+            "runtime_action_sequence_turn_ids",
             "runtime_turn_counter",
             "turn_number",
             "user_message_count",

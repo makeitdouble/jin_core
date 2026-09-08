@@ -4224,7 +4224,7 @@ function renderContextToolResultBody(parent, content) {
 }
 
 function contextToolResultFileTitleSuffix(content, toolName) {
-  if (String(toolName || "").trim().toUpperCase() !== "ATTACH_FILE") {
+  if (String(toolName || "").trim().toUpperCase() !== "ATTACH_FILE_CONTENT") {
     return "";
   }
 
@@ -4233,6 +4233,9 @@ function contextToolResultFileTitleSuffix(content, toolName) {
   if (!fileMatch) return "";
 
   const filePath = String(fileMatch[1] || "").trim();
+  const failed = /^\s*Status:\s*failed\s*$/m.test(decoded);
+  const reason = decoded.match(/^\s*Reason:\s*(.+?)\s*$/m);
+  if (failed) return `${filePath} - failed: ${reason ? reason[1] : "action failed"}`;
   if (/#\d+-\d+$/.test(filePath)) return filePath;
 
   const rangeMatch = decoded.match(/^\s*File lines:\s*(\d+)-(\d+)\s+of\b.*$/m);

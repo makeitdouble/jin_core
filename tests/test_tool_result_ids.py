@@ -71,9 +71,9 @@ def test_invalid_clear_fails_everywhere(target):
 def test_attach_history_id_and_restore():
     ctx = RuntimeContext(websocket=None, emitter=None, logger=None, clients={})
     ctx.runtime_current_turn_id = 'turn_1'
-    ctx.runtime_action_events = [{'name': 'attach_file', 'payload': 'agent/nodes/base.py', 'runtime_turn_id': 'turn_1'}]
-    record_runtime_tool_result(ctx, 'files', {'action': 'attach_file', 'ok': True, 'id': 'agent/nodes/base.py'})
-    upsert_session_action_marker_history_since(ctx, 0, [{'name': 'ATTACH_FILE', 'payload': 'agent/nodes/base.py'}])
+    ctx.runtime_action_events = [{'name': 'attach_file_content', 'payload': 'agent/nodes/base.py', 'runtime_turn_id': 'turn_1'}]
+    record_runtime_tool_result(ctx, 'files', {'action': 'attach_file_content', 'ok': True, 'id': 'agent/nodes/base.py'})
+    upsert_session_action_marker_history_since(ctx, 0, [{'name': 'ATTACH_FILE_CONTENT', 'payload': 'agent/nodes/base.py'}])
     assert '[ tool_id: T1 ]' in ctx.runtime_session_action_history[-1]['text']
     snapshot = build_runtime_session_checkpoint(ctx)
     entries, _ = clean_bootstrap_tool_results(snapshot['tool_results'])
@@ -145,7 +145,7 @@ def test_duplicate_failed_actions_get_fresh_tool_ids_every_time():
     ctx = RuntimeContext(websocket=None, emitter=None, logger=None, clients={})
     ctx.runtime_current_turn_id = 'turn_1'
     failure = {
-        'action': 'attach_file',
+        'action': 'attach_file_content',
         'ok': False,
         'id': 'plnsaf/agent/nodes/brain.py',
         'error': 'project_read_failed',
@@ -154,7 +154,7 @@ def test_duplicate_failed_actions_get_fresh_tool_ids_every_time():
 
     for _ in range(3):
         ctx.runtime_action_events.append({
-            'name': 'attach_file',
+            'name': 'attach_file_content',
             'payload': 'jin_core/agent/nodes/brain.py#L1-L200',
             'runtime_turn_id': 'turn_1',
         })
@@ -170,14 +170,14 @@ def test_repeated_same_payload_history_uses_latest_action_occurrence_id_only():
     ctx.runtime_current_turn_id = 'turn_1'
     payload = 'jin_core/agent/nodes/brain.py'
     ctx.runtime_action_events = [
-        {'name': 'attach_file', 'payload': payload, 'runtime_turn_id': 'turn_1', 'tool_id': tool_id}
+        {'name': 'attach_file_content', 'payload': payload, 'runtime_turn_id': 'turn_1', 'tool_id': tool_id}
         for tool_id in ('T9', 'T10', 'T11')
     ]
 
     upsert_session_action_marker_history_since(
         ctx,
         0,
-        [{'name': 'ATTACH_FILE', 'payload': payload}],
+        [{'name': 'ATTACH_FILE_CONTENT', 'payload': payload}],
     )
 
     assert ctx.runtime_session_action_history[-1]['parts'][0]['tool_ids'] == ['T11']

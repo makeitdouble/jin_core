@@ -26,7 +26,7 @@ def build_compact_project_asset_action_payload(
     Accepted examples::
 
         project_search | . | query: build_context
-        project_tree | jin_core/agent | depth: 3 | offset: 0 | limit: 100
+        project_tree | . | depth: 1 | offset: 0 | limit: 100
 
     This intentionally does *not* become a generic ASSET_ACTION mini-language.
     Only the read-only project_tree/project_search actions and their existing

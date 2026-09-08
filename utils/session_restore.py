@@ -61,8 +61,7 @@ ACTION_LABELS = {
     "SAVE_ACTIVE_MEMORY": "Saved active memory",
     "DELETE_ACTIVE_MEMORY": "Deleted active memory",
     "UPDATE_LT_FACTS": "Updated L-T facts",
-    "ATTACH_FILE": "Attached file",
-    "DETACH_FILE": "Detached file",
+    "ATTACH_FILE_CONTENT": "Attached file content",
     "JIN_COLOR": "JIN color",
     "JIN_SIZE": "JIN size",
 }
@@ -494,42 +493,36 @@ def _load_session_lineage_source(
         (path for path in session_directory.glob("*.jsonl") if path.is_file()),
         key=lambda path: path.name,
     )
-    if not dialog_paths:
-        return None
-
-    dialog_path = dialog_paths[-1]
-    entries = _load_dialog(dialog_path)
-    if not entries:
-        return None
-
-    reasoning_by_turn_id = _read_reasoning(session_directory, entries)
+    # A blank historical tab may have only a bootstrap prompt. It contributes
+    # no messages, but can still link to the preceding day's real session.
+    dialog_path = dialog_paths[-1] if dialog_paths else None
+    entries = _load_dialog(dialog_path) if dialog_path else []
     candidates = _build_recent_turn_candidates(
         entries,
-        reasoning_by_turn_id,
+        _read_reasoning(session_directory, entries),
     )
 
-    context_path = dialog_path.with_suffix(".txt")
-    bootstrap_context_path = dialog_path.with_name(
-        dialog_path.stem + ".bootstrap.txt"
-    )
-    try:
-        if context_path.is_file():
-            context_text = context_path.read_text(
-                encoding="utf-8",
-                errors="replace",
-            )
-        elif bootstrap_context_path.is_file():
-            # A very early stop can leave only the prepared bootstrap prompt.
-            # It still carries the exact direct-predecessor RESTORED dialog and
-            # is therefore a safe lineage fallback.
-            context_text = bootstrap_context_path.read_text(
-                encoding="utf-8",
-                errors="replace",
-            )
-        else:
-            context_text = ""
-    except OSError:
-        context_text = ""
+    if dialog_path is not None:
+        context_paths = [
+            dialog_path.with_name(dialog_path.stem + ".bootstrap.txt"),
+            dialog_path.with_suffix(".txt"),
+        ]
+    else:
+        context_paths = sorted(
+            session_directory.glob("*.bootstrap.txt"), reverse=True,
+        )
+
+    context_text = ""
+    for context_path in context_paths:
+        try:
+            text = context_path.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            continue
+        # The immutable bootstrap prompt owns the direct predecessor. Later
+        # primary contexts can drop RESTORED_SESSION_DIALOG after continuation.
+        if _direct_predecessor_session_id(text):
+            context_text = text
+            break
 
     return candidates, context_text, session_directory.parent.name
 
@@ -566,7 +559,7 @@ def build_session_bootstrap_lineage_recent_turns(
     while (
         current_session_id
         and current_session_id not in seen_session_ids
-        and len(seen_session_ids) < 8
+        and not is_anonymous_session_id(current_session_id)
         and completed_turns < RECENT_MESSAGES_MAX_PAIRS
         and len(selected_newest_first) < max_items
     ):
@@ -953,7 +946,7 @@ def _tool_result_kind(name: str) -> str:
         return "delayed_memory"
     if action_name in {
         "LIST_FILES",
-        "ATTACH_FILE",
+        "ATTACH_FILE_CONTENT",
     }:
         return "files"
     if action_name == "UPDATE_LT_FACTS":

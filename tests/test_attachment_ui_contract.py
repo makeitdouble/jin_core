@@ -48,7 +48,7 @@ class AttachmentUiContractTests(unittest.TestCase):
         self.assertIn("attachment && attachment.id", source)
         self.assertIn("detailParts[0] = systemId;", source)
 
-    def test_attach_file_runtime_action_opens_existing_attachment_modal(self):
+    def test_attach_file_content_runtime_action_opens_existing_attachment_modal(self):
         attachment_source = (
             ROOT
             / "ui"
@@ -89,7 +89,7 @@ class AttachmentUiContractTests(unittest.TestCase):
             attachment_source,
         )
         self.assertIn(
-            'action === "attach_file"',
+            'action === "attach_file_content"',
             runtime_action_source,
         )
         self.assertIn(

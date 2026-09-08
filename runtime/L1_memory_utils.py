@@ -2773,6 +2773,18 @@ def build_runtime_session_checkpoint(
             session_action_history,
             limit=200,
         ),
+        # Sequence membership is separate from the action rows themselves.
+        # Persist it with the common checkpoint so a fresh tab can render the
+        # same start/end sequence boundaries instead of flattening the actions.
+        "runtime_action_sequence_turn_ids": [
+            str(turn_id or "").strip()
+            for turn_id in getattr(
+                context,
+                "runtime_action_sequence_turn_ids",
+                [],
+            ) or []
+            if str(turn_id or "").strip()
+        ][-200:],
         "tool_results": runtime_tool_results,
         "tool_result_sequence": int(getattr(context, "runtime_tool_result_sequence", 0) or 0),
         "runtime_turn_counter": int(

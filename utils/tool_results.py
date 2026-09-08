@@ -255,6 +255,8 @@ def begin_runtime_tool_results_turn(
     context,
 ) -> None:
 
+    context.runtime_failure_followup_tool_ids = []
+    context.runtime_failure_followup_entries = []
     setattr(
         context,
         "runtime_tool_results_turn_count",
@@ -332,12 +334,6 @@ def record_runtime_tool_result(
     if normalized_result_id:
         entry["id"] = normalized_result_id
 
-    _queue_failed_tool_result_followup(
-        context,
-        entry["kind"],
-        result,
-    )
-
     recorded_at = (
         _parse_tool_result_timestamp(
             created_at
@@ -351,6 +347,23 @@ def record_runtime_tool_result(
     tool_results.append(
         entry
     )
+    _queue_failed_tool_result_followup(context, entry["kind"], result)
+    if _failed_tool_result_requires_followup(entry["kind"], result):
+        pending = list(getattr(context, "runtime_failure_followup_tool_ids", []) or [])
+        pending.append(entry["tool_id"])
+        context.runtime_failure_followup_tool_ids = pending
+        pending_entries = list(
+            getattr(
+                context,
+                "runtime_failure_followup_entries",
+                [],
+            )
+            or []
+        )
+        pending_entries.append(
+            deepcopy(entry)
+        )
+        context.runtime_failure_followup_entries = pending_entries
     created_ats.append(
         (
             time.time()
@@ -743,6 +756,9 @@ def bind_tool_result_to_action(context, entry) -> None:
             event["tool_id"] = entry["tool_id"]
             entry["action_payload"] = event.get("payload", "")
             entry["runtime_turn_id"] = turn_id
+            if kind == TOOL_RESULT_KIND_FILES and result.get("ok") is False:
+                event["status"] = "failed"
+                event["failure_reason"] = str(result.get("detail") or result.get("error") or "action failed")
             break
 
 

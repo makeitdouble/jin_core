@@ -3237,7 +3237,7 @@ function updateRuntimeActionRow(
   }
 
   if (
-      action === "attach_file"
+      action === "attach_file_content"
       && typeof window.bindRuntimeActionAttachmentPreview === "function"
   ) {
     window.bindRuntimeActionAttachmentPreview(
@@ -3836,7 +3836,7 @@ function appendRuntimeAction(
   }
 
   if (
-      action === "attach_file"
+      action === "attach_file_content"
       && typeof window.bindRuntimeActionAttachmentPreview === "function"
   ) {
     window.bindRuntimeActionAttachmentPreview(

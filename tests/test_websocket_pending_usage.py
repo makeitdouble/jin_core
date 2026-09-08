@@ -21,6 +21,8 @@ from websocket import (
     emit_runtime_action_guard_confirmation_failure,
     reject_when_all_models_offline,
     refresh_pending_brain_usage,
+    preserve_reconnect_pending_request,
+    restore_reconnect_pending_requests,
     wait_for_runtime_memory_update,
 )
 from utils.runtime_action_abort import (
@@ -992,6 +994,79 @@ class WebSocketPendingUsageTests(unittest.IsolatedAsyncioTestCase):
                 last_error=original_state["last_error"],
                 status=original_state["status"],
             )
+
+    async def test_cancelled_frame_waiter_keeps_running_task_attached(self):
+
+        release = asyncio.Event()
+
+        async def update_memory():
+            await release.wait()
+
+        context = SimpleNamespace(
+            logger=FakeLogger(),
+            runtime_memory_update_task=None,
+        )
+        task = asyncio.create_task(
+            update_memory()
+        )
+        context.runtime_memory_update_task = task
+
+        waiter = asyncio.create_task(
+            wait_for_runtime_memory_update(context)
+        )
+        await asyncio.sleep(0)
+
+        waiter.cancel()
+        with self.assertRaises(asyncio.CancelledError):
+            await waiter
+
+        self.assertIs(
+            context.runtime_memory_update_task,
+            task,
+        )
+        self.assertFalse(task.done())
+
+        release.set()
+        await task
+
+    async def test_reconnect_pending_user_request_round_trips(self):
+
+        context = SimpleNamespace(
+            runtime_reconnect_pending_requests=[],
+        )
+        pending_requests = asyncio.Queue()
+        logger = FakeLogger()
+        message = {
+            "type": "message",
+            "text": "continue after FRAME",
+        }
+
+        self.assertTrue(
+            preserve_reconnect_pending_request(
+                context,
+                message,
+            )
+        )
+
+        restored = await restore_reconnect_pending_requests(
+            context,
+            pending_requests,
+            logger,
+        )
+
+        self.assertEqual(restored, 1)
+        self.assertEqual(
+            await pending_requests.get(),
+            message,
+        )
+        self.assertEqual(
+            context.runtime_reconnect_pending_requests,
+            [],
+        )
+        self.assertEqual(
+            logger.runtime_logs,
+            ["[WS] restored pending requests after reconnect: 1"],
+        )
 
     async def test_wait_for_runtime_memory_update_blocks_until_done(self):
 

@@ -514,8 +514,7 @@ def build_allowed_markers(
 
         if action_name in {
             "LIST_FILES",
-            "ATTACH_FILE",
-            "DETACH_FILE",
+            "ATTACH_FILE_CONTENT",
         } and not _context_has_files(context):
             continue
 
@@ -568,8 +567,7 @@ def build_runtime_action_instructions(
 
         if normalized_name in {
             "LIST_FILES",
-            "ATTACH_FILE",
-            "DETACH_FILE",
+            "ATTACH_FILE_CONTENT",
         } and not _context_has_files(context):
             continue
 
@@ -612,8 +610,7 @@ RUNTIME_ACTION_LOAD_SKILL = get_runtime_action_name("load_skill")
 RUNTIME_ACTION_UNLOAD_SKILL = get_runtime_action_name("unload_skill")
 RUNTIME_ACTION_ASSET_ACTION = get_runtime_action_name("asset_action")
 RUNTIME_ACTION_LIST_FILES = get_runtime_action_name("list_files")
-RUNTIME_ACTION_ATTACH_FILE = get_runtime_action_name("attach_file")
-RUNTIME_ACTION_DETACH_FILE = get_runtime_action_name("detach_file")
+RUNTIME_ACTION_ATTACH_FILE_CONTENT = get_runtime_action_name("attach_file_content")
 RUNTIME_ACTION_JIN_COLOR = get_runtime_action_name("jin_color")
 RUNTIME_ACTION_JIN_REACTION = get_runtime_action_name("jin_reaction")
 RUNTIME_ACTION_JIN_SIZE = get_runtime_action_name("jin_size")

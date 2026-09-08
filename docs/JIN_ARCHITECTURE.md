@@ -218,8 +218,7 @@ Current action names in the contract table:
 - `UNLOAD_SKILL`
 - `ASSET_ACTION`
 - `LIST_FILES`
-- `ATTACH_FILE`
-- `DETACH_FILE`
+- `ATTACH_FILE_CONTENT`
 - `SAVE_DELAYED_MEMORY`
 - `LOAD_DELAYED_MEMORY`
 - `UNLOAD_DELAYED_MEMORY`
@@ -404,8 +403,8 @@ memory tool results cannot reintroduce excluded bodies. Canonical memory is
 not cleared. Detaching the folder returns to ordinary context assembly.
 
 `ASSET_ACTION` exposes `project_tree` and `project_search`. File loading uses
-`ATTACH_FILE: file_id` or `ATTACH_FILE: relative/path#L1-L200`;
-`DETACH_FILE` accepts the same ID/reference (range optional). Relative paths
+`ATTACH_FILE_CONTENT: file_id` or `ATTACH_FILE_CONTENT: relative/path#L1-L200`;
+Relative paths
 resolve against the single attached folder; multiple folders require
 `folder_id/relative/path`. Known persistent IDs retain priority, and only a
 known folder ID is treated as a prefix, not any six-character directory name.
@@ -417,17 +416,18 @@ UTF-8 source ranges; actionable limits are reported without boilerplate.
 `runtime_tool_results` owns project read snapshots, using its existing
 persistence/bootstrap path; no separate loaded-file registry is added.
 `FILE_CONTENT` projects each loaded body once, below compact TOOL_RESULTS.
-Persistent attachments use the same projection, not USER/flow text. Repeated
-loads fail through the normal failure follow-up. Detach removes the body
-from the canonical tool record and legacy mirror but keeps metadata/history;
-detaching a folder also unloads its source bodies. CLEAN_TOOL_RESULTS clears
-project snapshots along with tool results. The normal persistent file store
-and source project remain unchanged. Browser reload restores exact loaded
-ranges through the existing checkpoint; unpin/detach does not resurrect them.
+Persistent attachments use the same projection, not USER/flow text. Explicit
+ranges may be read again; the newest result owns the visible FILE_CONTENT for
+that range, while a bare project path advances to the next unread window.
+CLEAN_TOOL_RESULTS clears project snapshots along with tool results. Removing
+a folder from the user attachment set unloads its source bodies. The normal
+persistent file store and source project remain unchanged. Browser reload
+restores exact loaded ranges through the existing checkpoint; unpinning a
+folder does not resurrect old source bodies.
 
 The ordinary dispatcher, bubbles, session actions and Brain follow-up loop
 remain in use. Independent file markers can share one response; Brain is
-briefly instructed to save useful findings, unload, and continue reading.
+briefly instructed to save useful findings, clean stale tool results, and continue reading.
 Brain may save a DELAYED report during review without a separate save request;
 this is a scoped exception to the ordinary report trigger. ACTIVE and L-T
 updates retain their existing handlers and persistence policies.

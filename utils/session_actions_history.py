@@ -1381,8 +1381,7 @@ def _build_session_action_marker_detail(
         "DELETE_ACTIVE_MEMORY",
         "LOAD_DELAYED_MEMORY",
         "UNLOAD_DELAYED_MEMORY",
-        "ATTACH_FILE",
-        "DETACH_FILE",
+        "ATTACH_FILE_CONTENT",
     }:
         return normalized_payload
 
@@ -1514,8 +1513,7 @@ def _build_payload_distinct_session_action_parts(
     }
 
     attachment_marker_action = action_name in {
-        "ATTACH_FILE",
-        "DETACH_FILE",
+        "ATTACH_FILE_CONTENT",
     }
 
     if (
@@ -1561,9 +1559,8 @@ def _build_payload_distinct_session_action_parts(
             action_name in {
                 "LOAD_DELAYED_MEMORY",
                 "UNLOAD_DELAYED_MEMORY",
-                "ATTACH_FILE",
-                "DETACH_FILE",
-            }
+                "ATTACH_FILE_CONTENT",
+                    }
             and payload_key
             and payload_key != part.get(
                 "detail",
@@ -3306,7 +3303,7 @@ def _add_tool_ids_to_history_parts(context, marker_actions, parts):
                 for index, event in candidates
                 if (event.get("status") == "failed") == failed
             ]
-        if name in {"ATTACH_FILE", "DETACH_FILE", "LOAD_SKILL", "UNLOAD_SKILL"}:
+        if name in {"ATTACH_FILE_CONTENT", "LOAD_SKILL", "UNLOAD_SKILL"}:
             identities = {
                 str(part.get("id") or "").strip(),
                 str(part.get("detail") or "").strip(),
@@ -3329,3 +3326,12 @@ def _add_tool_ids_to_history_parts(context, marker_actions, parts):
         if selected:
             part["tool_ids"] = [event["tool_id"] for _index, event in selected]
             consumed_event_indexes.update(index for index, _event in selected)
+            if name in {"ATTACH_FILE_CONTENT"}:
+                from utils.context.files import file_result_summary
+                result = next((entry.get("result") for entry in
+                               getattr(context, "runtime_tool_results", []) or []
+                               if entry.get("tool_id") == selected[-1][1]["tool_id"]), None)
+                if isinstance(result, dict) and result.get("ok") is False:
+                    part["text"] = file_result_summary(result)
+                    part.pop("detail", None)
+                    part.pop("message", None)

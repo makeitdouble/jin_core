@@ -1,0 +1,27 @@
+{
+  "attach_file_content": {
+    "version": 1,
+    "description": "Loads file source content into context by persistent ID or a folder-rooted project path.",
+    "runtime_action": "ATTACH_FILE_CONTENT",
+    "enable_flag": "CAN_USE_ASSETS",
+    "runtime_order": 130,
+    "private_marker": "<ATTACH_FILE_CONTENT: id >",
+    "triggers": [],
+    "blockers": [],
+    "effects": {
+      "emit_followup": true,
+      "follow_up_on_fail": true
+    },
+    "schema": [
+      "<ATTACH_FILE_CONTENT: file_id >",
+      "<ATTACH_FILE_CONTENT: folder_name/relative/path >",
+      "<ATTACH_FILE_CONTENT: folder_name/relative/path#L1-L200 >",
+      "<ATTACH_FILE_CONTENT: relative/path >",
+      "<ATTACH_FILE_CONTENT: relative/path#L1-L200 >"
+    ],
+    "rules": [
+      "Use ATTACH_FILE_CONTENT to load source into FILE_CONTENT. After emitting the marker, wait for the follow-up tick before reasoning about the file contents. A bare project path continues from the next unread window; an explicit #Lstart-Lend range may be read again. When no project folder is linked in the UI, relative paths and jin_core/relative/path resolve against JIN's own read-only source directory without activating Project Mode. If a folder is linked, normal linked-project resolution takes precedence."
+    ],
+    "close_tag": false
+  }
+}

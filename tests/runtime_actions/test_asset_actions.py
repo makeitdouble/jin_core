@@ -174,11 +174,11 @@ class RuntimeAssetActionTests(RuntimeActionTestCase):
         result = extract_runtime_actions(
             (
                 "<ASSET_ACTION: project_search | . | query: needle >\n"
-                "ATTACH_FILE: jin_core/agent/nodes/brain.py\n"
+                "ATTACH_FILE_CONTENT: jin_core/agent/nodes/brain.py\n"
             ),
             enabled_actions=[
                 "ASSET_ACTION",
-                "ATTACH_FILE",
+                "ATTACH_FILE_CONTENT",
             ],
             allow_bare_prefix_fallback=True,
         )
@@ -186,7 +186,7 @@ class RuntimeAssetActionTests(RuntimeActionTestCase):
         self.assertEqual(result.text, "")
         self.assertEqual(
             [action.name for action in result.actions],
-            ["ASSET_ACTION", "ATTACH_FILE"],
+            ["ASSET_ACTION", "ATTACH_FILE_CONTENT"],
         )
         self.assertEqual(
             result.actions[1].payload,

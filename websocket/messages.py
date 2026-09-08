@@ -704,8 +704,15 @@ async def wait_for_runtime_memory_update(
             )
 
         finally:
+            # The waiter can be cancelled when its WebSocket disconnects while
+            # the FRAME task is protected by asyncio.shield(). In that case the
+            # FRAME task is still alive and must remain discoverable through the
+            # RuntimeContext so a soft reconnect reuses it instead of starting a
+            # duplicate summarizer request. Only clear a task that is actually
+            # terminal.
             if (
-                getattr(
+                task.done()
+                and getattr(
                     context,
                     "runtime_memory_update_task",
                     None,

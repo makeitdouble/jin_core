@@ -107,6 +107,59 @@ from utils.session_actions_history import (
 websocket_router = APIRouter()
 
 
+def preserve_reconnect_pending_request(
+    context,
+    message_data: dict,
+) -> bool:
+    """Keep an accepted USER request across a soft WebSocket reconnect."""
+
+    if not isinstance(message_data, dict):
+        return False
+
+    if message_data.get("type", "message") != "message":
+        return False
+
+    preserved = getattr(
+        context,
+        "runtime_reconnect_pending_requests",
+        None,
+    )
+    if not isinstance(preserved, list):
+        preserved = []
+        context.runtime_reconnect_pending_requests = preserved
+
+    preserved.append(dict(message_data))
+    return True
+
+
+async def restore_reconnect_pending_requests(
+    context,
+    pending_requests: asyncio.Queue,
+    logger: WebSocketLogger,
+) -> int:
+    preserved = list(
+        getattr(
+            context,
+            "runtime_reconnect_pending_requests",
+            [],
+        )
+        or []
+    )
+
+    if not preserved:
+        return 0
+
+    context.runtime_reconnect_pending_requests = []
+
+    for message_data in preserved:
+        await pending_requests.put(message_data)
+
+    await logger.log_runtime(
+        f"[WS] restored pending requests after reconnect: {len(preserved)}"
+    )
+    return len(preserved)
+
+
 @websocket_router.websocket(
     "/ws/chat"
 )
@@ -155,6 +208,7 @@ async def websocket_endpoint(
 
             message_data = await pending_requests.get()
             batch_state = None
+            brain_started = False
 
             try:
 
@@ -313,6 +367,7 @@ async def websocket_endpoint(
                         message_data,
                     )
                 )
+                brain_started = True
                 current_task = active_task
 
                 try:
@@ -329,6 +384,21 @@ async def websocket_endpoint(
                 finally:
                     if current_task is active_task:
                         current_task = None
+
+            except asyncio.CancelledError:
+                # A disconnect cancels this connection-owned queue worker. If
+                # the request was already accepted but had not reached Brain
+                # yet (most commonly because it was waiting for FRAME), keep it
+                # on the RuntimeContext for the replacement socket.
+                if (
+                    not brain_started
+                    and not (batch_state and batch_state.get("aborted"))
+                ):
+                    preserve_reconnect_pending_request(
+                        context,
+                        message_data,
+                    )
+                raise
 
             finally:
                 # Release the foreground gate only after any FRAME wait and
@@ -411,6 +481,16 @@ async def websocket_endpoint(
                     message_data,
                 )
 
+                running_memory_task = getattr(
+                    context,
+                    "runtime_memory_update_task",
+                    None,
+                )
+                running_memory_task_alive = bool(
+                    running_memory_task is not None
+                    and not running_memory_task.done()
+                )
+
                 resumed_memory_task = (
                     resume_runtime_memory_pending_update(
                         context
@@ -419,7 +499,12 @@ async def websocket_endpoint(
 
                 if resumed_memory_task is not None:
                     await logger.log_runtime(
-                        "[MEMORY:L1] pending update resumed after reconnect"
+                        "[MEMORY:FRAME] pending update still running after reconnect"
+                        if (
+                            running_memory_task_alive
+                            and resumed_memory_task is running_memory_task
+                        )
+                        else "[MEMORY:FRAME] pending update restarted after reconnect"
                     )
 
                 if restored:
@@ -447,6 +532,12 @@ async def websocket_endpoint(
                         await emit_runtime_l1_diff_update(
                             context
                         )
+
+                await restore_reconnect_pending_requests(
+                    context,
+                    pending_requests,
+                    logger,
+                )
 
                 continue
 
@@ -1140,9 +1231,14 @@ async def websocket_endpoint(
 
         while True:
             try:
-                pending_requests.get_nowait()
+                pending_message = pending_requests.get_nowait()
             except asyncio.QueueEmpty:
                 break
+
+            preserve_reconnect_pending_request(
+                context,
+                pending_message,
+            )
             pending_requests.task_done()
 
 

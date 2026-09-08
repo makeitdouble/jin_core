@@ -255,8 +255,7 @@ def resolve_runtime_action_counter_display_payloads(
     )
 
     if entry.name not in {
-        "ATTACH_FILE",
-        "DETACH_FILE",
+        "ATTACH_FILE_CONTENT",
     }:
         return normalized_payloads
 

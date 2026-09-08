@@ -7,7 +7,7 @@ from contracts.rules_assembler import (
     RUNTIME_ACTION_DEEP_WEB_SEARCH,
     RUNTIME_ACTION_LOAD_SKILL,
     RUNTIME_ACTION_LOAD_DELAYED_MEMORY,
-    RUNTIME_ACTION_ATTACH_FILE,
+    RUNTIME_ACTION_ATTACH_FILE_CONTENT,
     RUNTIME_ACTION_LIST_FILES,
     RUNTIME_ACTION_DELETE_ACTIVE_MEMORY,
     RUNTIME_ACTION_UPDATE_ACTIVE_MEMORY,
@@ -23,7 +23,6 @@ from contracts.rules_assembler import (
     RUNTIME_ACTION_CLEAN_TOOL_RESULTS,
     RUNTIME_ACTION_UNLOAD_SKILL,
     RUNTIME_ACTION_UNLOAD_DELAYED_MEMORY,
-    RUNTIME_ACTION_DETACH_FILE,
     RUNTIME_ACTION_SAVE_DELAYED_MEMORY,
     RUNTIME_ACTION_WEB_SEARCH,
 )
@@ -829,8 +828,7 @@ _ACTION_PAYLOAD_BUILDERS = {
     RUNTIME_ACTION_SAVE_DELAYED_MEMORY: build_save_delayed_memory_payload,
     RUNTIME_ACTION_LOAD_DELAYED_MEMORY: build_load_delayed_memory_payload,
     RUNTIME_ACTION_UNLOAD_DELAYED_MEMORY: build_resolve_action_payload,
-    RUNTIME_ACTION_ATTACH_FILE: build_resolve_action_payload,
-    RUNTIME_ACTION_DETACH_FILE: build_resolve_action_payload,
+    RUNTIME_ACTION_ATTACH_FILE_CONTENT: build_resolve_action_payload,
     RUNTIME_ACTION_LOAD_SKILL: build_load_skill_payload,
     RUNTIME_ACTION_UNLOAD_SKILL: build_resolve_action_payload,
     RUNTIME_ACTION_ASSET_ACTION: build_asset_action_payload,
@@ -1028,7 +1026,7 @@ def _find_leading_bare_runtime_action_matches(
             # Executed angle markers at the response prefix are not visible
             # prose and therefore must not disable the strict bare-action
             # fallback for the next line. This matters when the provider sends
-            # a compact ASSET_ACTION and a following ATTACH_FILE in one chunk.
+            # a compact ASSET_ACTION and a following ATTACH_FILE_CONTENT in one chunk.
             prefix_markers = _find_all_runtime_action_matches(
                 line_for_parse,
                 enabled_action_names,

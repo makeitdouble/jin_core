@@ -11,8 +11,7 @@ def test_attachment_action_logger_keeps_instances_and_hides_restore_replay():
         / "log-entries.js"
     ).read_text(encoding="utf-8")
 
-    assert '"ATTACH_FILE",' in source
-    assert '"DETACH_FILE",' in source
+    assert '"ATTACH_FILE_CONTENT",' in source
     assert "if (data.restore_replay === true)" in source
     assert "attachmentFailureDetail" in source
     assert "FAILED: ${attachmentFailureDetail}" in source

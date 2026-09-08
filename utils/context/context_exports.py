@@ -18,7 +18,6 @@ from .skills import (
     format_missing_skill_result,
 )
 from .session_actions import (
-    _is_current_sequence_action,
     _normalize_session_action_history_item,
     build_current_runtime_context,
     build_session_actions_history_context,

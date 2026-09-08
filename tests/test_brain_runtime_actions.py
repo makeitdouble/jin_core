@@ -119,8 +119,7 @@ def expected_enabled_runtime_actions(runtime_actions: dict) -> tuple[str, ...]:
                 "UNLOAD_SKILL",
                 "ASSET_ACTION",
                 "LIST_FILES",
-                "ATTACH_FILE",
-                "DETACH_FILE",
+                "ATTACH_FILE_CONTENT",
             )
         )
 

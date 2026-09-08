@@ -1061,6 +1061,7 @@ def _format_previous_reasoning_context(
 def build_previous_reasoning_context(
     context=None,
     *,
+    include_previous_reasoning: bool = True,
     include_turn_reasoning: bool = False,
     crop: bool = True,
 ) -> str:
@@ -1072,6 +1073,11 @@ def build_previous_reasoning_context(
         "runtime_previous_reasoning_content",
         "runtime_turn_reasoning_content",
     ):
+        if (
+            attr_name == "runtime_previous_reasoning_content"
+            and not include_previous_reasoning
+        ):
+            continue
         if (
             attr_name == "runtime_turn_reasoning_content"
             and not include_turn_reasoning
@@ -1328,9 +1334,7 @@ def build_brain_context(
         )
 
     # Session actions history sits directly under tool results on ordinary
-    # turns. Follow-up sequence prompts add CURRENT_REQUEST_FLOW beside it, so
-    # the context window always exposes the relevant action trail in one
-    # predictable place.
+    # turns and is rebuilt for follow-ups from the same action history.
     session_actions_history_context = (
         build_session_actions_history_context(
             context
@@ -1541,21 +1545,38 @@ def build_brain_context(
             prompt_parts.append(
                 previous_reasoning_loop_context
             )
-        elif (
-            include_previous_reasoning
-            and not getattr(
-                context,
-                "runtime_followup_tick_active",
-                False,
-            )
-        ):
-            prompt_parts.append(
-                build_previous_reasoning_context(
+        else:
+            # Previous-turn reasoning stays suppressed on follow-up ticks, but
+            # the accumulated reasoning from THIS action sequence is an
+            # independent input. Follow-up callers deliberately request only
+            # runtime_turn_reasoning_content so JIN keeps its current plan
+            # without resurrecting reasoning from the previous user turn.
+            include_previous_reasoning_content = bool(
+                include_previous_reasoning
+                and not getattr(
                     context,
-                    include_turn_reasoning=include_turn_reasoning,
-                    crop=crop_previous_reasoning,
+                    "runtime_followup_tick_active",
+                    False,
                 )
             )
+            if (
+                include_previous_reasoning_content
+                or include_turn_reasoning
+            ):
+                previous_reasoning_context = (
+                    build_previous_reasoning_context(
+                        context,
+                        include_previous_reasoning=(
+                            include_previous_reasoning_content
+                        ),
+                        include_turn_reasoning=include_turn_reasoning,
+                        crop=crop_previous_reasoning,
+                    )
+                )
+                if previous_reasoning_context:
+                    prompt_parts.append(
+                        previous_reasoning_context
+                    )
 
     # Keep the normal runtime action contract on the hidden restore turn too.
     # Session restore changes which historical/resource payloads are exposed,

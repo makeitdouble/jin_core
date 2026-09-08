@@ -564,6 +564,44 @@ function ensureJinAttachmentModal() {
   return attachmentModal;
 }
 
+function formatAttachmentCreatedAt(attachment) {
+  const rawValue = attachment && attachment.created_at;
+  if (rawValue === null || rawValue === undefined || rawValue === "") {
+    return "";
+  }
+
+  let milliseconds = null;
+
+  if (typeof rawValue === "number" || /^\d+(?:\.\d+)?$/.test(String(rawValue).trim())) {
+    const numeric = Number(rawValue);
+    if (Number.isFinite(numeric) && numeric > 0) {
+      milliseconds = numeric > 100000000000
+        ? numeric
+        : numeric * 1000;
+    }
+  } else {
+    const parsed = Date.parse(String(rawValue));
+    if (Number.isFinite(parsed) && parsed > 0) {
+      milliseconds = parsed;
+    }
+  }
+
+  if (!milliseconds) {
+    return "";
+  }
+
+  const date = new Date(milliseconds);
+  if (!Number.isFinite(date.getTime())) {
+    return "";
+  }
+
+  const pad2 = (value) => String(value).padStart(2, "0");
+  return (
+    `${date.getFullYear()}-${pad2(date.getMonth() + 1)}-${pad2(date.getDate())}`
+    + ` ${pad2(date.getHours())}:${pad2(date.getMinutes())}:${pad2(date.getSeconds())}`
+  );
+}
+
 function createAttachmentInfoElement(attachment) {
   const info =
     document.createElement("div");
@@ -584,6 +622,16 @@ function createAttachmentInfoElement(attachment) {
     detailParts[0] = systemId;
   } else if (systemId) {
     detailParts.push(systemId);
+  }
+
+  const kind = getAttachmentKind(attachment);
+  const createdAt =
+    kind === "text" || kind === "image"
+      ? formatAttachmentCreatedAt(attachment)
+      : "";
+
+  if (createdAt) {
+    detailParts.push(`created ${createdAt}`);
   }
 
   info.textContent =

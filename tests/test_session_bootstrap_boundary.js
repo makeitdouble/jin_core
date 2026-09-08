@@ -79,3 +79,16 @@ check([], undefined, []);
 assert.equal(render([user], true).history.children.length, 0,
   'explicit archived restore owns its rendering');
 console.log('PASS: historical dates, interrupted/action-only turns, local midnight, legacy dates, reconnect, archived restore');
+
+// Cross-day history must keep each source session visually separate.
+const grouped = render([
+  {...user, source_session_id: 'yesterday', jin: 'old reply', jin_created_at: jinAt},
+  {...user, source_session_id: 'today', jin: 'new reply',
+    jin_created_at: Date.parse('2026-09-03T12:43:00+03:00') / 1000},
+]);
+assert.deepEqual(grouped.history.children.map(n => n.role || n.children[0].textContent), [
+  'user', 'brain', '2 september 23:29, Wednesday',
+  'user', 'brain', '3 september 12:43, Thursday',
+]);
+assert.equal(grouped.window.boundary, grouped.history.children.at(-1));
+console.log('PASS: dated session boundary between cross-day message groups');

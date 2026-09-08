@@ -20,6 +20,27 @@ MAX_SCAN_ENTRIES = 10000
 MAX_SCAN_BYTES = 32 * 1024 * 1024
 MAX_SCAN_SECONDS = 3
 
+# Read-only source root available even when the user has not linked a project.
+# This is deliberately NOT an attached-files record: only a real UI folder link
+# activates PROJECT_REVIEW / Project Mode.
+DEFAULT_PROJECT_ROOT = Path(__file__).resolve().parents[1]
+DEFAULT_PROJECT_SELECTOR = "jin_core"
+
+
+def default_project_name(root: Path | None = None) -> str:
+    root = root or DEFAULT_PROJECT_ROOT
+    return str(root.name or "jin_core")
+
+
+def _default_project_record(root: Path) -> dict:
+    name = default_project_name(root)
+    return {
+        "id": DEFAULT_PROJECT_SELECTOR,
+        "name": name + FOLDER_SUFFIX,
+        "display_name": name,
+        "implicit_project": True,
+    }
+
 
 def link_project_folder(value: str) -> tuple[dict, bool, str | None]:
     """Only the user-facing endpoint creates links; model actions cannot."""
@@ -54,9 +75,9 @@ def linked_projects(context, *, include_pending_restore: bool = False) -> list[d
 
     # During the hidden archived-session restore tick the prompt intentionally
     # receives only resource metadata and the live attachment list is empty
-    # until synthetic ATTACH_FILE replay runs after the first answer. Runtime
+    # until synthetic ATTACH_FILE_CONTENT replay runs after the first answer. Runtime
     # actions emitted by that first answer still need to resolve paths against
-    # the staged project root, otherwise ATTACH_FILE/ASSET_ACTION can fail with
+    # the staged project root, otherwise ATTACH_FILE_CONTENT/ASSET_ACTION can fail with
     # a false "No folder attached" even though the restored user turn visibly
     # carries the folder. Keep this opt-in so prompt/project-review builders do
     # not treat staged resources as already live.
@@ -91,6 +112,25 @@ def project_review_active(context) -> bool:
 
 def _root_for(context, attachment: str) -> tuple[Path, dict]:
     projects = linked_projects(context, include_pending_restore=True)
+
+    # No linked folder: expose JIN's own source tree as an implicit read-only
+    # project. This must stay separate from linked_projects(), otherwise merely
+    # using a file action would silently activate Project Mode and its prompt/UI
+    # behavior. As soon as the user links a real folder, this fallback disappears
+    # and the existing linked-project selection rules take over unchanged.
+    if not projects:
+        root = DEFAULT_PROJECT_ROOT.resolve(strict=True)
+        if not root.is_dir():
+            raise ValueError("Default JIN source folder is unavailable")
+        name = default_project_name(root)
+        selector = str(attachment or "").strip()
+        allowed = {"", DEFAULT_PROJECT_SELECTOR.casefold(), name.casefold(), "jin_core"}
+        if selector.casefold() not in allowed:
+            raise ValueError(
+                f"No project folder is attached; omit attachment or use {name} for JIN's default source root"
+            )
+        return root, _default_project_record(root)
+
     matches = [
         record for record in projects
         if attachment in {
@@ -280,6 +320,8 @@ def run_project_action(context, payload: dict) -> dict:
         root, record = _root_for(context, attachment)
         result["attachment"] = record["id"]
         result["project_name"] = files.file_display_name(record["name"])
+        if record.get("implicit_project"):
+            result["implicit_project"] = True
         relative = _strip_project_display_root(
             relative,
             result["project_name"],
@@ -309,32 +351,12 @@ def run_project_action(context, payload: dict) -> dict:
                 start = _integer(payload, "start", 1, 1, 10000000)
                 end = _integer(payload, "end", start + 199, start, start + 399)
 
-            # Keep the requested window as stable identity metadata.  The
-            # actual range below may be shorter at EOF, but DETACH_FILE must
-            # still be able to target the exact ATTACH_FILE window that was
-            # requested (for example #L1-L100 on a 47-line file).
+            # Keep the requested window as stable identity metadata. Explicit
+            # ranges may be read again; the newest result owns the visible
+            # FILE_CONTENT block for that window.
             result["requested_start"] = start
             result["requested_end"] = end
-            from utils.context.files import loaded_file_ref
-            existing = loaded_file_ref(
-                context,
-                reference=result["file_ref"],
-                requested_start=start,
-                requested_end=end,
-            )
-            if existing:
-                raise ValueError(
-                    f"File range already loaded: {existing}#L{start}-L{end}. "
-                    "Use DETACH_FILE before loading the same range again."
-                )
             source, result["source_sha256"] = _text(path, with_digest=True)
-            existing = loaded_file_ref(
-                context,
-                sha256=result["source_sha256"],
-                exclude_reference=result["file_ref"],
-            )
-            if existing:
-                raise ValueError(f"File already loaded: {existing}. Use DETACH_FILE before loading it again.")
             lines = source.splitlines()
             if start > len(lines) and (lines or start != 1):
                 raise ValueError(f"Start line exceeds file length: {len(lines)}")
@@ -363,7 +385,7 @@ def run_project_action(context, payload: dict) -> dict:
                 raise ValueError("Tree/search path must be a directory")
             offset = _integer(payload, "offset", 0, 0, 1000000)
             limit = _integer(payload, "limit", 100, 1, 200)
-            depth = _integer(payload, "depth", 3, 1, 20) if action == "project_tree" else 100
+            depth = _integer(payload, "depth", 1, 1, 20) if action == "project_tree" else 100
             query = payload.get("query", "")
             if action == "project_search" and (not isinstance(query, str) or not query or len(query) > 500):
                 raise ValueError("query must be nonempty literal text, up to 500 characters")
@@ -462,12 +484,7 @@ def format_project_result(result: dict, *, include_content=False) -> str:
     if failed:
         lines.append("Status: failed")
     elif result.get("loaded") is False:
-        detached_at = str(result.get("detached_at") or "").strip()
-        lines.append(
-            f"Status: detached at {detached_at}"
-            if detached_at
-            else "Status: unloaded"
-        )
+        lines.append("Status: unloaded")
     for key, label in (("query", "Query (literal text, case-insensitive)"), ("depth", "Directory depth"), ("range", "File lines"), ("page", "Page"), ("detail", "Reason")):
         if result.get(key) is not None:
             lines.append(f"{label}: {result[key]}")
@@ -481,7 +498,7 @@ def format_project_result(result: dict, *, include_content=False) -> str:
             lines.append(f"Notes: {notice}")
     if failed:
         from contracts.rules_assembler import get_runtime_action_schema
-        name = "ATTACH_FILE" if ref else "ASSET_ACTION"
+        name = "ATTACH_FILE_CONTENT" if ref else "ASSET_ACTION"
         lines.extend(["Correct action schema:", *get_runtime_action_schema(name)])
     elif "content" in result:
         if ref:

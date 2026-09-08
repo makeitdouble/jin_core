@@ -826,19 +826,6 @@ class RuntimeDelayedMemoryTests(RuntimeActionTestCase):
                 "save_delayed_memory",
             ],
         )
-        from agent.nodes.brain import (
-            format_followup_actions_from_events,
-        )
-
-        self.assertEqual(
-            format_followup_actions_from_events(
-                context.runtime_action_events
-            ),
-            (
-                "SAVE_ACTIVE_MEMORY, "
-                "SAVE_DELAYED_MEMORY"
-            ),
-        )
         self.assertFalse(
             hasattr(
                 context,

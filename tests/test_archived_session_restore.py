@@ -1224,7 +1224,7 @@ open_question: continue
             [action.name for action in captured["actions"]],
             [
                 "LOAD_DELAYED_MEMORY",
-                "ATTACH_FILE",
+                "ATTACH_FILE_CONTENT",
             ],
         )
         self.assertEqual(

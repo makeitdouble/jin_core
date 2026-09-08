@@ -847,7 +847,7 @@ async function handleSocketOpen() {
 
 }
 
-function handleSocketClose() {
+function handleSocketClose(event = null) {
 
   window.jinWebSocketConnected = false;
 
@@ -868,11 +868,23 @@ function handleSocketClose() {
   if (!websocketDisconnectedLogged) {
     websocketDisconnectedLogged = true;
 
+    const closeCode = Number(
+      event && event.code || 0
+    );
+    const closeReason = String(
+      event && event.reason || ""
+    ).trim();
+    const closeMeta = closeCode
+      ? ` [code=${closeCode}, clean=${Boolean(event && event.wasClean)}${closeReason ? `, reason=${closeReason}` : ""}]`
+      : "";
+
     appendLog(
       "[SYSTEM]",
-      shouldPauseWebSocketReconnectAfterFreeze()
-        ? "WebSocket disconnected. Waiting for tab to become visible..."
-        : "WebSocket disconnected. Reconnecting..."
+      (
+        shouldPauseWebSocketReconnectAfterFreeze()
+          ? "WebSocket disconnected. Waiting for tab to become visible..."
+          : "WebSocket disconnected. Reconnecting..."
+      ) + closeMeta
     );
   }
 
@@ -910,13 +922,13 @@ function connectWebSocket() {
     void handleSocketOpen();
   };
 
-  socket.onclose = function () {
+  socket.onclose = function (event) {
     if (ws !== socket) {
       return;
     }
 
     ws = null;
-    handleSocketClose();
+    handleSocketClose(event);
   };
 
   socket.onerror = function () {

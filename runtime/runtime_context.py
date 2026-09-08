@@ -86,6 +86,8 @@ class RuntimeContext:
     runtime_tool_results_generation: int = 0
 
     runtime_followup_action_failure_pending: bool = False
+    runtime_failure_followup_tool_ids: list[str] = field(default_factory=list)
+    runtime_failure_followup_entries: list[dict] = field(default_factory=list)
 
     runtime_asset_results: list[dict] = field(
         default_factory=list
@@ -174,6 +176,13 @@ class RuntimeContext:
     runtime_suppress_chat_content: bool = False
 
     runtime_pending_requests_queue: object | None = None
+
+    # USER requests that were already accepted but had not reached Brain when
+    # the owning WebSocket disappeared. They are replayed into the replacement
+    # connection after the soft-resume handshake instead of being silently lost.
+    runtime_reconnect_pending_requests: list[dict] = field(
+        default_factory=list
+    )
 
     runtime_session_action_history: list[dict] = field(
         default_factory=list
@@ -390,7 +399,7 @@ class RuntimeContext:
 
     # Persistent files from an archived session follow the same one-shot
     # restore contract as delayed memory: metadata is visible to the hidden
-    # restore turn, while the real ATTACH_FILE actions are replayed only after
+    # restore turn, while the real ATTACH_FILE_CONTENT actions are replayed only after
     # JIN has completed that first response.
     runtime_session_restore_pending_attached_file_ids: list[str] = field(
         default_factory=list

@@ -491,11 +491,10 @@ function getInternalActionLogKey(
     "LOAD_DELAYED_MEMORY",
     "UNLOAD_DELAYED_MEMORY",
     // Attachment actions are payload-distinct too. In particular, the hidden
-    // session-restore replay may emit an ATTACH_FILE after a real model
-    // ATTACH_FILE in the same turn; sharing one logger key made the restore
+    // session-restore replay may emit an ATTACH_FILE_CONTENT after a real model
+    // ATTACH_FILE_CONTENT in the same turn; sharing one logger key made the restore
     // entry overwrite the real success/failure log.
-    "ATTACH_FILE",
-    "DETACH_FILE",
+    "ATTACH_FILE_CONTENT",
   ].includes(normalizedActionName);
   const instanceKey = keepActionInstanceSeparate
     ? String(
@@ -734,9 +733,8 @@ function log_internal_action(
   const attachmentFailureDetail =
     status === "failed"
     && [
-      "ATTACH_FILE",
-      "DETACH_FILE",
-    ].includes(actionName)
+      "ATTACH_FILE_CONTENT",
+      ].includes(actionName)
       ? String(
         (
           data.attachment_result

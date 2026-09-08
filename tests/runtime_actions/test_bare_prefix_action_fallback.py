@@ -89,20 +89,17 @@ class BarePrefixActionFallbackTests(unittest.TestCase):
                 self.assertEqual(result.actions[0].name, action_name)
                 self.assertEqual(result.actions[0].payload, expected_payload)
 
-    def test_short_colon_actions_like_attach_and_detach_are_supported(self):
+    def test_short_colon_attach_file_content_is_supported(self):
         result = extract_runtime_actions(
-            "ATTACH_FILE: src/main.py\nDETACH_FILE: README.md\nhello",
-            enabled_actions=("ATTACH_FILE", "DETACH_FILE"),
+            "ATTACH_FILE_CONTENT: src/main.py\nhello",
+            enabled_actions=("ATTACH_FILE_CONTENT",),
             allow_bare_prefix_fallback=True,
         )
 
         self.assertEqual(result.text, "hello")
         self.assertEqual(
             result.actions,
-            (
-                RuntimeActionCall(name="ATTACH_FILE", payload="src/main.py"),
-                RuntimeActionCall(name="DETACH_FILE", payload="README.md"),
-            ),
+            (RuntimeActionCall(name="ATTACH_FILE_CONTENT", payload="src/main.py"),),
         )
 
     def test_other_payload_short_actions_use_same_exact_line_fallback(self):

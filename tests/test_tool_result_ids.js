@@ -9,10 +9,10 @@ class Element {
 }
 const context = vm.createContext({window: {}, document: {createElement: () => new Element(), createTextNode: text => ({textContent: text})}, Date});
 vm.runInContext(read('ui/static/js/logger/session-actions.js'), context);
-context.item = {parts: [{text: 'ATTACH_FILE', detail: 'agent/nodes/base.py', tool_ids: ['T1']}], createdAt: Date.now()/1000 - 1};
+context.item = {parts: [{text: 'ATTACH_FILE_CONTENT', detail: 'agent/nodes/base.py', tool_ids: ['T1']}], createdAt: Date.now()/1000 - 1};
 const row = vm.runInContext('buildSessionActionRow(item, 5)', context);
 function text(node) { return node.textContent + (node.children || []).map(text).join(''); }
-assert.match(text(row), /^6\. ATTACH_FILE: agent\/nodes\/base\.py \[ tool_id: T1 \] \(1s ago\)$/);
+assert.match(text(row), /^6\. ATTACH_FILE_CONTENT: agent\/nodes\/base\.py \[ tool_id: T1 \] \(1s ago\)$/);
 let checkpoint = {saved_at: 'old', session_id: 'session', session_snapshot: {tool_results: [{tool_id: 'T1'}, {tool_id: 'T2'}], recent_turns: ['keep'], tool_result_sequence: 2}};
 vm.runInContext(read('ui/static/js/runtime/runtime-session.js'), context);
 context.window.JinRuntime.session.init({memoryModel: {}, storage: {readSessionCheckpoint: () => checkpoint, writeSessionCheckpoint: value => {checkpoint = value;}}});

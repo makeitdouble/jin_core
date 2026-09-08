@@ -12,13 +12,13 @@ REASONING_RECOVERY_MESSAGE = (
 
 ANSWERING_RECOVERY_MESSAGE = (
     "Your previous answer started repeating the already visible answer. "
-    "Do not restart or repeat it. Continue from CURRENT_REQUEST_FLOW and only "
+    "Do not restart or repeat it. Continue from the conversation and CURRENT_REQUEST_ACTIONS_HISTORY and only "
     "produce the remaining answer or action."
 )
 
 CONTEXT_LIMIT_RECOVERY_MESSAGE = (
     "The previous generation reached the {limit_label} during {stage}.\n"
-    "Continue the current task from CURRENT_REQUEST_FLOW without restarting it.\n"
+    "Continue the current task from the conversation, CURRENT_REQUEST_ACTIONS_HISTORY and TOOLS_RESULTS without restarting it.\n"
     "You MUST be MUCH shorter and act FASTER.\n"
 )
 
@@ -66,12 +66,6 @@ SKILL_ROUTING_RULES_ = ("\n"
     "5. Use UNLOAD_SKILL when a loaded skill is no longer needed in the current runtime context.\n"
     "\n"
     "Do not derive skill capabilities from a skill name or filename; load the skill first and use its loaded content.\n"
-    "\n"
-    "CURRENT REQUEST FLOW:\n"
-    "Use CURRENT_REQUEST_FLOW only during follow-up ticks.\n"
-    "Follow its NEXT_DECISION branch exactly: satisfied means respond and stop; not satisfied means execute only missing actions.\n"
-    "Never repeat an action already listed in EXECUTED_ACTIONS unless a tool result explicitly requires a retry.\n"
-    "\n"
     "\n"
     "If <TOOLS_RESULTS> block is not empty — clean redundant tool results obviously not needed for continuing conversation.\n"
 )

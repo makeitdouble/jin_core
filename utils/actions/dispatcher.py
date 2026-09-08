@@ -1,6 +1,6 @@
 from contracts.rules_assembler import (
     RUNTIME_ACTION_LOAD_DELAYED_MEMORY,
-    RUNTIME_ACTION_ATTACH_FILE,
+    RUNTIME_ACTION_ATTACH_FILE_CONTENT,
     RUNTIME_ACTION_LIST_FILES,
     RUNTIME_ACTION_LOAD_SKILL,
     RUNTIME_ACTION_ASSET_ACTION,
@@ -14,7 +14,6 @@ from contracts.rules_assembler import (
     RUNTIME_ACTION_RECALL_FACT_CONTEXT,
     RUNTIME_ACTION_CLEAN_TOOL_RESULTS,
     RUNTIME_ACTION_UNLOAD_DELAYED_MEMORY,
-    RUNTIME_ACTION_DETACH_FILE,
     RUNTIME_ACTION_UNLOAD_SKILL,
     RUNTIME_ACTION_SAVE_DELAYED_MEMORY,
     RUNTIME_ACTION_DELETE_ACTIVE_MEMORY,
@@ -891,8 +890,7 @@ async def apply_runtime_action_calls(
 
         if action.name in {
             RUNTIME_ACTION_LIST_FILES,
-            RUNTIME_ACTION_ATTACH_FILE,
-            RUNTIME_ACTION_DETACH_FILE,
+            RUNTIME_ACTION_ATTACH_FILE_CONTENT,
         }:
             if not accept_runtime_action_once_per_message(action):
                 continue
@@ -1666,17 +1664,11 @@ async def apply_runtime_action_calls(
         for action in filtered_actions
         if action.name == RUNTIME_ACTION_LIST_FILES
     ]
-    attach_file_actions = [
+    attach_file_content_actions = [
         action
         for action in filtered_actions
-        if action.name == RUNTIME_ACTION_ATTACH_FILE
+        if action.name == RUNTIME_ACTION_ATTACH_FILE_CONTENT
     ]
-    detach_file_actions = [
-        action
-        for action in filtered_actions
-        if action.name == RUNTIME_ACTION_DETACH_FILE
-    ]
-
     update_lt_facts_actions = [
         action
         for action in filtered_actions
@@ -1901,11 +1893,7 @@ async def apply_runtime_action_calls(
     attachment_results = await apply_attachment_actions(
         context,
         list_actions=list_file_actions,
-        attach_actions=attach_file_actions,
-        detach_actions=detach_file_actions,
-        ordered_actions=[action for action in filtered_actions if action.name in {
-            RUNTIME_ACTION_ATTACH_FILE, RUNTIME_ACTION_DETACH_FILE,
-        }],
+        attach_actions=attach_file_content_actions,
         log_runtime=log_runtime,
         with_action_context=with_action_context,
     )

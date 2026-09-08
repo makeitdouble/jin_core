@@ -27,7 +27,7 @@ from rules.runtime import (
     REASONING_RECOVERY_MESSAGE,
 )
 from contracts.rules_assembler import (
-    RUNTIME_ACTION_ATTACH_FILE,
+    RUNTIME_ACTION_ATTACH_FILE_CONTENT,
     RUNTIME_ACTION_DEEP_WEB_SEARCH,
     RUNTIME_ACTION_LOAD_DELAYED_MEMORY,
     RUNTIME_ACTION_WEB_SEARCH,
@@ -306,6 +306,10 @@ def build_failed_runtime_action_followup_contexts(
         latest_events.values(),
         key=lambda item: item[0],
     ):
+        # Tool-backed failures already appear in ACTION_FAILURE_FOLLOWUP;
+        # their complete schema remains in TOOLS_RESULTS.
+        if event.get("tool_id"):
+            continue
         failure_context = (
             build_failed_runtime_action_followup_context(
                 event
@@ -391,7 +395,7 @@ async def replay_session_restore_resource_actions(
         ]
         + [
             RuntimeActionCall(
-                name=RUNTIME_ACTION_ATTACH_FILE,
+                name=RUNTIME_ACTION_ATTACH_FILE_CONTENT,
                 payload=file_id,
             )
             for file_id in file_ids
@@ -527,10 +531,38 @@ def consume_action_failure_followup_context(
 
     context.runtime_followup_action_failure_pending = False
 
+    from utils.context.runtime_action_result_text import format_action_failure_summary
+    from xml.sax.saxutils import escape
+    pending_ids = set(getattr(context, "runtime_failure_followup_tool_ids", []) or [])
+    context.runtime_failure_followup_tool_ids = []
+    entries = list(
+        getattr(
+            context,
+            "runtime_failure_followup_entries",
+            [],
+        )
+        or []
+    )
+    context.runtime_failure_followup_entries = []
+    if not entries:
+        entries = [
+            entry
+            for entry in getattr(
+                context,
+                "runtime_tool_results",
+                [],
+            )
+            or []
+            if entry.get("tool_id") in pending_ids
+        ]
+    summaries = [format_action_failure_summary(entry) for entry in entries
+                 if not pending_ids or entry.get("tool_id") in pending_ids]
+    details = "\n\n".join(summary for summary in summaries if summary)
     return (
         "<ACTION_FAILURE_FOLLOWUP>\n"
         f"{ACTION_FAILURE_FOLLOWUP_MESSAGE}\n"
-        "</ACTION_FAILURE_FOLLOWUP>"
+        + ("\n" + escape(details) + "\n" if details else "")
+        + "</ACTION_FAILURE_FOLLOWUP>"
     )
 
 
@@ -732,7 +764,7 @@ def sanitize_sequence_user_request(
 
     # Attachment payload transport hints are useful to the runtime, but they
     # are not part of the user's request and must not leak into the visible
-    # CURRENT_REQUEST_FLOW block on follow-up ticks.
+    # session action history on follow-up ticks.
     lines = []
 
     from websocket.attachments import strip_attachment_source_text
@@ -747,115 +779,10 @@ def sanitize_sequence_user_request(
     return "\n".join(lines).strip()
 
 
-def format_followup_action_from_event(
-        event: dict,
-) -> str:
-
-    if not isinstance(
-        event,
-        dict,
-    ):
-        return ""
-
-    runtime_action = str(
-        event.get(
-            "name",
-            "",
-        )
-        or ""
-    ).strip()
-    normalized_runtime_action = runtime_action.upper()
-    contract_name = get_action_contract_name_for_runtime_action(
-        runtime_action
-    ) or get_action_contract_name_for_runtime_action(
-        normalized_runtime_action
-    )
-    display_name = get_runtime_action_display_name(
-        contract_name
-        or normalized_runtime_action
-        or runtime_action
-    )
-    action_name = _compact_followup_value(
-        normalized_runtime_action
-        or contract_name
-        or display_name
-        or runtime_action
-    )
-
-    if action_name.upper() == "ASSET_ACTION":
-        from utils.session_actions_history import (
-            extract_asset_action_marker_name,
-        )
-
-        asset_action_name = extract_asset_action_marker_name(
-            event.get("payload")
-            or event.get("asset_result")
-            or event.get("detail")
-            or ""
-        )
-
-        if asset_action_name:
-            return f"{action_name}: {asset_action_name}"
-
-    return action_name
 
 
-def format_followup_action_from_asset_result(
-        result: dict,
-) -> str:
-
-    if not isinstance(
-        result,
-        dict,
-    ):
-        return ""
-
-    action = _compact_followup_value(
-        result.get(
-            "action",
-            "",
-        )
-    )
-    if not action:
-        return ""
-
-    return action
 
 
-def format_followup_actions_from_events(
-        events,
-) -> str:
-
-    action_counts = {}
-
-    for event in events or []:
-        action_name = format_followup_action_from_event(
-            event
-        )
-        if not action_name:
-            continue
-
-        action_counts[action_name] = (
-            action_counts.get(
-                action_name,
-                0,
-            )
-            + 1
-        )
-
-    formatted_actions = []
-
-    for action_name, count in action_counts.items():
-        formatted_actions.append(
-            format_runtime_action_count(
-                action_name,
-                count,
-            )
-        )
-
-    return ", ".join(
-        formatted_actions
-    )
 
 
 def format_previous_runtime_memory_tag(
@@ -1134,7 +1061,6 @@ class BrainNode(BaseNode):
         )
 
         session_actions_history_context = ""
-        current_request_flow_context = ""
 
         if context is not None:
             mark_current_action_sequence(
@@ -1144,19 +1070,9 @@ class BrainNode(BaseNode):
         session_actions_history_context = (
             build_session_actions_history_context(
                 context,
-                current_sequence=False,
-            )
-        )
-        current_request_flow_context = (
-            build_session_actions_history_context(
-                context,
                 current_sequence=True,
-                sequence_user_message=initial_user_request,
-                sequence_user_created_at=sequence_started_at,
-                latest_action=latest_action,
             )
         )
-
         potential_loop_detected = bool(
             context is not None
             and getattr(
@@ -1268,11 +1184,6 @@ class BrainNode(BaseNode):
         if session_actions_history_context:
             sections.append(
                 session_actions_history_context
-            )
-
-        if current_request_flow_context:
-            sections.append(
-                current_request_flow_context
             )
 
         # Rebuild this live block on every internal follow-up instead of
@@ -2043,7 +1954,7 @@ class BrainNode(BaseNode):
                 # Exclude only records produced by the synthetic replay from
                 # follow-up scheduling. Do not advance the global offsets here:
                 # the initial restored answer may itself have emitted a real
-                # ATTACH_FILE/ASSET_ACTION and that result still needs its normal
+                # ATTACH_FILE_CONTENT/ASSET_ACTION and that result still needs its normal
                 # contract-driven follow-up.
                 restore_replay_action_event_ids = {
                     id(item)
@@ -2315,15 +2226,6 @@ class BrainNode(BaseNode):
                 followup_runtime_actions = {
                     **runtime_actions,
                 }
-                latest_followup_action = (
-                    format_followup_actions_from_events(
-                        followup_action_events
-                    )
-                    or build_context_limit_history_text(
-                        limit_stage,
-                        limit_kind,
-                    )
-                )
 
                 followup_system_prompt = (
                     self.build_followup_system_prompt(
@@ -2337,7 +2239,6 @@ class BrainNode(BaseNode):
                         ),
                         sequence_user_request,
                         context=context,
-                        latest_action=latest_followup_action,
                     )
                 )
 
@@ -2429,15 +2330,6 @@ class BrainNode(BaseNode):
                 followup_runtime_actions = {
                     **runtime_actions,
                 }
-                latest_followup_action = (
-                    format_followup_actions_from_events(
-                        followup_action_events
-                    )
-                    or format_followup_action_from_event({
-                        "name": RUNTIME_ACTION_DEEP_WEB_SEARCH.lower(),
-                        "id": tool_call_id,
-                    })
-                )
 
                 followup_system_prompt = self.build_followup_system_prompt(
                     build_brain_context(
@@ -2452,7 +2344,6 @@ class BrainNode(BaseNode):
                     ),
                     sequence_user_request,
                     context=context,
-                    latest_action=latest_followup_action,
                 )
 
                 await emit_active_memory_records_update_if_dirty(context)
@@ -2552,16 +2443,6 @@ class BrainNode(BaseNode):
                     **runtime_actions,
                 }
 
-                latest_followup_action = (
-                    format_followup_actions_from_events(
-                        followup_action_events
-                    )
-                    or format_followup_action_from_event({
-                        "name": RUNTIME_ACTION_WEB_SEARCH.lower(),
-                        "query": query,
-                        "id": tool_call_id,
-                    })
-                )
 
                 followup_system_prompt = (
                     self.build_followup_system_prompt(
@@ -2577,7 +2458,6 @@ class BrainNode(BaseNode):
                         ),
                         sequence_user_request,
                         context=context,
-                        latest_action=latest_followup_action,
                     )
                 )
 
@@ -2623,11 +2503,6 @@ class BrainNode(BaseNode):
                     **runtime_actions,
                 }
 
-                latest_followup_action = (
-                    format_followup_actions_from_events(
-                        followup_action_events
-                    )
-                )
 
                 followup_system_prompt = (
                     self.build_followup_system_prompt(
@@ -2643,7 +2518,6 @@ class BrainNode(BaseNode):
                         ),
                         sequence_user_request,
                         context=context,
-                        latest_action=latest_followup_action,
                     )
                 )
 
@@ -2692,14 +2566,6 @@ class BrainNode(BaseNode):
                     **runtime_actions,
                 }
 
-                latest_followup_action = (
-                    format_followup_actions_from_events(
-                        followup_action_events
-                    )
-                    or format_followup_action_from_asset_result(
-                        current_delayed_memory_results[-1]
-                    )
-                )
 
                 followup_system_prompt = (
                     self.build_followup_system_prompt(
@@ -2715,7 +2581,6 @@ class BrainNode(BaseNode):
                         ),
                         sequence_user_request,
                         context=context,
-                        latest_action=latest_followup_action,
                     )
                 )
 
@@ -2784,16 +2649,6 @@ class BrainNode(BaseNode):
                     **runtime_actions,
                 }
 
-                latest_followup_action = (
-                    format_followup_actions_from_events(
-                        followup_action_events
-                    )
-                    or format_followup_action_from_asset_result(
-                        pending_asset_tool_results[-1]
-                        if pending_asset_tool_results
-                        else {}
-                    )
-                )
 
                 followup_system_prompt = (
                     self.build_followup_system_prompt(
@@ -2809,7 +2664,6 @@ class BrainNode(BaseNode):
                         ),
                         sequence_user_request,
                         context=context,
-                        latest_action=latest_followup_action,
                     )
                 )
 
@@ -2840,14 +2694,6 @@ class BrainNode(BaseNode):
                 **runtime_actions,
             }
 
-            latest_followup_action = (
-                format_followup_actions_from_events(
-                    followup_action_events
-                )
-                or format_followup_action_from_asset_result(
-                    current_asset_results[-1]
-                )
-            )
 
             followup_system_prompt = (
                 self.build_followup_system_prompt(
@@ -2863,7 +2709,6 @@ class BrainNode(BaseNode):
                     ),
                     sequence_user_request,
                     context=context,
-                    latest_action=latest_followup_action,
                 )
             )
 
@@ -2959,7 +2804,6 @@ class BrainNode(BaseNode):
                     sequence_user_request,
                     context=context,
                     instruction=followup_limit_instruction,
-                    latest_action="followup_limit_reached",
                 )
             )
 
