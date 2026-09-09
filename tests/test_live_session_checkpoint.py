@@ -174,7 +174,7 @@ class LiveSessionCheckpointTests(unittest.TestCase):
     def test_real_user_activity_can_advance_checkpoint_before_completed_answer(self):
         source = RUNTIME_SESSION_JS.read_text(encoding="utf-8")
         start = source.index("function persistLiveSessionCheckpoint(data)")
-        end = source.index("function clearPersistedToolResultsCheckpoint()", start)
+        end = source.index("function clearPersistedToolResultsCheckpoint(", start)
         block = source[start:end]
 
         self.assertIn("const sessionMoved = Boolean(", block)
@@ -232,7 +232,7 @@ class LiveSessionCheckpointTests(unittest.TestCase):
         block = source[start:end]
 
         self.assertIn("storage.readSessionCheckpoint()", block)
-        self.assertIn("checkpointSessionId !== restoreSessionId", block)
+        self.assertIn("=== restoreSourceSessionId", block)
         self.assertNotIn("const candidates = [];", block)
         self.assertIn('"session_actions",', block)
         self.assertIn('"room_state",', block)

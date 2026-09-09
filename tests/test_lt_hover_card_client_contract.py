@@ -131,16 +131,10 @@ class LTHoverCardClientContractTests(unittest.TestCase):
             source,
         )
         self.assertIn(
-            '{ fallbackTitle: "Active memory" }',
+            'fallbackTitle: "Active memory"',
             source,
         )
 
-    def test_hover_card_assets_are_cache_busted(self):
-        source = INDEX_HTML.read_text(encoding="utf-8")
-
-        self.assertEqual(source.count("lt-hover-card=3"), 1)
-        self.assertEqual(source.count("lt-hover-card=4"), 1)
-        self.assertEqual(source.count("active-hover-card=1"), 1)
 
 
 if __name__ == "__main__":

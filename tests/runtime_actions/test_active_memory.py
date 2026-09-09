@@ -378,6 +378,7 @@ class RuntimeActiveMemoryTests(RuntimeActionTestCase):
                     "id": "save_active_memory_001",
                     "name": "save_active_memory",
                     "payload": "remind later",
+                    "tool_id": "T1",
                 }
             ],
         )
@@ -483,7 +484,7 @@ class RuntimeActiveMemoryTests(RuntimeActionTestCase):
             context
         )
         self.assertIn(
-            '<TOOL_RESULT name="SAVE_ACTIVE_MEMORY"',
+            '<TOOL_RESULT tool_id="T1" name="SAVE_ACTIVE_MEMORY"',
             tool_results,
         )
         self.assertIn(
@@ -2088,6 +2089,7 @@ class RuntimeActiveMemoryTests(RuntimeActionTestCase):
             context.runtime_tool_results,
             [
                 {
+                    "tool_id": "T1", "action_payload": "active_memory_id: 5fdg4g", "runtime_turn_id": "",
                     "kind": TOOL_RESULT_KIND_ACTIVE_MEMORY,
                     "result": {
                         "ok": True,
@@ -2111,7 +2113,7 @@ class RuntimeActiveMemoryTests(RuntimeActionTestCase):
             context
         )
         self.assertIn(
-            '<TOOL_RESULT name="DELETE_ACTIVE_MEMORY"',
+            '<TOOL_RESULT tool_id="T1" name="DELETE_ACTIVE_MEMORY"',
             tool_results,
         )
         self.assertIn(
@@ -2422,6 +2424,7 @@ class RuntimeActiveMemoryTests(RuntimeActionTestCase):
             context.runtime_tool_results,
             [
                 {
+                    "tool_id": "T1", "action_payload": "active_memory_10", "runtime_turn_id": "",
                     "kind": TOOL_RESULT_KIND_ACTIVE_MEMORY,
                     "result": {
                         "ok": False,
@@ -2455,7 +2458,7 @@ class RuntimeActiveMemoryTests(RuntimeActionTestCase):
             context
         )
         self.assertIn(
-            '<TOOL_RESULT name="DELETE_ACTIVE_MEMORY"',
+            '<TOOL_RESULT tool_id="T1" name="DELETE_ACTIVE_MEMORY"',
             tool_results,
         )
         self.assertIn(

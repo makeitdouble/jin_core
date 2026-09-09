@@ -27,8 +27,8 @@ class JinMotionClientContractTests(unittest.TestCase):
 
     def test_position_and_speed_apply_without_chat_bubbles(self):
         source = RUNTIME_ACTIONS_JS.read_text(encoding="utf-8")
-        speed_index = source.index('if (action === "jin_speed")')
-        position_index = source.index('if (action === "jin_position")')
+        speed_index = source.index('if (action === "jin_speed" && !missingCloseTagFailure)')
+        position_index = source.index('if (action === "jin_position" && !missingCloseTagFailure)')
         generic_save_index = source.index('action === "save_active_memory"', position_index)
         self.assertLess(speed_index, generic_save_index)
         self.assertLess(position_index, generic_save_index)

@@ -15,7 +15,7 @@ class PanelScrollTopClientContractTests(unittest.TestCase):
         js_source = SCROLL_TOP_JS.read_text(encoding="utf-8")
 
         self.assertIn(
-            'panel-scroll-top.js?v=6',
+            'panel-scroll-top.js',
             index_source,
         )
         self.assertIn(

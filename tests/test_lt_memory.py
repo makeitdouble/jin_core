@@ -1244,7 +1244,7 @@ class LTMemoryTests(unittest.IsolatedAsyncioTestCase):
                     "value": "Durable project fact " + ("detail " * 20),
                     "category": "project_fact",
                 }
-                for index in range(200)
+                for index in range(202)
             ],
         })["facts"]
         store, _ = add_lt_pending_candidates(
@@ -3716,13 +3716,12 @@ class LTMemoryTests(unittest.IsolatedAsyncioTestCase):
         )
 
         self.assertIn(
-            "user.name: Sergey [ id: F1 ] [ significance: 0.000 ] "
-            "[ delayed_memory_id: abc123 ]",
+            "user.name: Sergey [ id: F1 ] [ delayed_memory_id: abc123 ]",
             context_block,
         )
         self.assertIn(
             "social.friend: Taras is a personal friend. [ id: F2 ] "
-            "[ significance: 0.000 ] [ delayed_memory_id: abc123 ]",
+            "[ delayed_memory_id: abc123 ]",
             context_block,
         )
         self.assertEqual(

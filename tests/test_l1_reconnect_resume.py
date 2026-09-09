@@ -113,7 +113,7 @@ class L1ReconnectResumeTests(
                     restarted_context.runtime_memory_pending_turns,
                     [
                         {
-                            "user_message": "Remember the interrupted turn.",
+                            "turn_id": "", "user_message": "Remember the interrupted turn.",
                             "assistant_message": "I will keep it in L1.",
                         },
                     ],

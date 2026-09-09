@@ -188,18 +188,6 @@ class MemoryCitationLayersClientContractTests(unittest.TestCase):
         self.assertIn("color: #0000ee !important;", css)
         self.assertIn("font-weight: 700 !important;", css)
 
-    def test_cache_versions_are_bumped_for_citation_sync_assets(self):
-        source = INDEX_HTML.read_text(encoding="utf-8")
-
-        self.assertIn("/static/css/runtime-memory.css?v=", source)
-        self.assertIn("/static/css/theme-win95.css?v=", source)
-        self.assertIn("/static/js/runtime/runtime-memory-view.js?v=context-card-chevronless-1", source)
-        self.assertIn("lazy-rows=6", source)
-        self.assertIn("lt-priority-bubble=1", source)
-        self.assertIn("/static/js/runtime/runtime-avatar.js?v=", source)
-        self.assertIn("/static/js/think-citations.js?v=think-citations-8", source)
-        self.assertIn("note-key-skip=1", source)
-        self.assertIn("/static/js/chat.js?v=stream-avatar-2-reference-ids-1", source)
 
 
 if __name__ == "__main__":

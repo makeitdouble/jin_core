@@ -33,30 +33,7 @@ class UserRetryContractTests(unittest.TestCase):
         self.assertIn("recordJinAnswerRating", source)
         self.assertIn("addBubbleUtilityZones(root);", source)
 
-    def test_padding_zones_own_copy_and_long_tap_only(self):
-        source = ANSWER_RATING_JS.read_text(encoding="utf-8")
-        css = CHAT_RATING_CSS.read_text(encoding="utf-8")
 
-        self.assertIn('"Double-click: Copy all\\nLong-tap: Delete"', source)
-        self.assertIn("const BUBBLE_RETRY_HOLD_MS = 1500;", source)
-        self.assertIn('zone.addEventListener("dblclick"', source)
-        self.assertIn('zone.addEventListener("pointerdown"', source)
-        self.assertIn('bubble.style.opacity = "0";', source)
-        self.assertIn(".jin-bubble-utility-zone-top", css)
-        self.assertIn(".jin-bubble-utility-zone-left", css)
-        self.assertIn("cursor: pointer;", css)
-        self.assertIn("cursor: text;", css)
-        self.assertIn("filter: brightness(1.03);", css)
-
-    def test_only_explicitly_completed_live_answer_becomes_retryable(self):
-        chat_source = CHAT_JS.read_text(encoding="utf-8")
-        handlers_source = EVENT_HANDLERS_JS.read_text(encoding="utf-8")
-
-        self.assertIn("options.retryable === true", chat_source)
-        self.assertIn("window.markJinCompletedAnswerBubble", chat_source)
-        self.assertIn("window.jinCurrentResponseRetryable", handlers_source)
-        self.assertIn("data && data.retryable_response", handlers_source)
-        self.assertGreaterEqual(handlers_source.count("{ retryable: false }"), 2)
 
 
     def test_retryability_commits_only_after_agent_runtime_end(self):

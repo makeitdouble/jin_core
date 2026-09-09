@@ -34,12 +34,6 @@ class DelayedMemoryCitationClientContractTests(unittest.TestCase):
         self.assertIn(".think-citation-delayed.exact", css)
         self.assertIn("rgba(103, 232, 249, 0.98)", css)
 
-    def test_citation_assets_are_cache_bumped(self):
-        source = INDEX.read_text(encoding="utf-8")
-
-        self.assertIn("runtime-memory-view.js?v=", source)
-        self.assertIn("think-citations.js?v=", source)
-        self.assertGreaterEqual(source.count("delayed-id-citations=1"), 4)
 
 
 if __name__ == "__main__":

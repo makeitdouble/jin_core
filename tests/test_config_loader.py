@@ -50,18 +50,10 @@ class ConfigLoaderTests(unittest.TestCase):
 
         self.assertEqual(
             config.STREAM_VALIDATOR_MAX_REPEAT_SENTENCES,
-            5,
+            7,
         )
 
-        self.assertIs(
-            config.ENABLE_DEFAULT_ANONYMOUS_MODE,
-            True,
-        )
 
-        self.assertIs(
-            config.ENABLE_GLOBAL_ANONYMOUS_MODE,
-            False,
-        )
 
     def test_env_overrides_fallback_config_values(self):
 
@@ -71,7 +63,7 @@ class ConfigLoaderTests(unittest.TestCase):
             "os.environ",
             {
                 "BRAIN_MODEL_UID": "env-brain",
-                "USE_SERVICE_AS_BRAIN": "true",
+                "BRAIN_IMAGE_INPUT_ENABLED": "true",
                 "SEARCH_TIMEOUT": "3.5",
             },
             clear=True,
@@ -91,7 +83,7 @@ class ConfigLoaderTests(unittest.TestCase):
         )
 
         self.assertIs(
-            config.USE_SERVICE_AS_BRAIN,
+            config.BRAIN_IMAGE_INPUT_ENABLED,
             True,
         )
 
@@ -108,6 +100,7 @@ class ConfigLoaderTests(unittest.TestCase):
             "os.environ",
             {
                 "JIN_SERVICE_MODEL_UID": "prefixed-service",
+                "SERVICE_API_BASE": "http://service.invalid/v1",
             },
             clear=True,
         ):
@@ -134,6 +127,7 @@ class ConfigLoaderTests(unittest.TestCase):
             {
                 "SERVICE_MODEL_UID": "plain-service",
                 "JIN_SERVICE_MODEL_UID": "prefixed-service",
+                "SERVICE_API_BASE": "http://service.invalid/v1",
             },
             clear=True,
         ):
@@ -158,7 +152,7 @@ class ConfigLoaderTests(unittest.TestCase):
         with patch.dict(
             "os.environ",
             {
-                "USE_SERVICE_AS_BRAIN": "maybe",
+                "BRAIN_IMAGE_INPUT_ENABLED": "maybe",
             },
             clear=True,
         ):

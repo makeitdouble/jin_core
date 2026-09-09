@@ -16,27 +16,15 @@ INDEX_HTML = ROOT / "ui" / "templates" / "index.html"
 
 class LTFactAgeClientContractTests(unittest.TestCase):
 
-    def test_lt_rows_show_live_context_age_in_header(self):
+    def test_lt_rows_show_creation_age_in_header(self):
         source = MEMORY_VIEW.read_text(encoding="utf-8")
 
         self.assertIn(
-            "function getLongTermFactContextTimestamp(fact)",
+            "function getLongTermFactCreatedTimestamp(fact)",
             source,
         )
         self.assertIn(
-            "parseLongTermFactTimestamp(fact.last_mentioned_at)",
-            source,
-        )
-        self.assertIn(
-            "parseLongTermFactTimestamp(fact.updated_at)",
-            source,
-        )
-        self.assertIn(
-            "parseLongTermFactTimestamp(fact.created_at)",
-            source,
-        )
-        self.assertIn(
-            "context_age_timestamp:\n        getLongTermFactContextTimestamp(fact)",
+            "context_age_timestamp:\n        getLongTermFactCreatedTimestamp(fact)",
             source,
         )
         self.assertIn(
@@ -107,16 +95,6 @@ class LTFactAgeClientContractTests(unittest.TestCase):
         )
         self.assertIn("display: block;", css)
 
-    def test_runtime_memory_view_cache_version_is_bumped(self):
-        source = INDEX_HTML.read_text(encoding="utf-8")
-
-        self.assertIn(
-            "/static/js/runtime/runtime-memory-view.js?"
-            "v=context-card-chevronless-1&delayed-fact-paste=2&numeric-fact-order=1"
-            "&amp;lt-fact-age=1",
-            source,
-        )
-        self.assertIn("&amp;lt-two-line-layout=1", source)
 
 
 if __name__ == "__main__":

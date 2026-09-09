@@ -53,14 +53,9 @@ async def collect_color_stream(user_text, decision="continue"):
 
 
 def run_color_stream(user_text, decision="continue"):
-    previous = config.USE_SERVICE_AS_BRAIN
-    config.USE_SERVICE_AS_BRAIN = False
-    try:
-        return asyncio.run(
-            collect_color_stream(user_text, decision)
-        )
-    finally:
-        config.USE_SERVICE_AS_BRAIN = previous
+    return asyncio.run(
+        collect_color_stream(user_text, decision)
+    )
 
 
 def test_brain_stream_jin_color_executes_without_confirmation():

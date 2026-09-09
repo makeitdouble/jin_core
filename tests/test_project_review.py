@@ -208,8 +208,9 @@ class ProjectReviewTests(unittest.TestCase):
         prompt = self.prompt()
         for value in ("SELECTED_REPORT_BODY", "UNRELATED_REPORT_BODY", "UNRELATED_REPORT_TITLE", "SELECTED_FACT_VALUE", "UNRELATED_FACT_VALUE", "ORDINARY_FACT_VALUE"):
             self.assertNotIn(value, prompt)
-        for value in ("our prior question", "our prior answer", "task: inspect source", "previous thought", "first inspection thought"):
+        for value in ("our prior question", "our prior answer", "task: inspect source", "previous thought"):
             self.assertIn(value, prompt)
+        self.assertNotIn("first inspection thought", prompt)
         self.assertIn("SAVE_DELAYED_MEMORY", prompt)
         self.assertIn("UPDATE_LT_FACTS", prompt)
 
@@ -231,7 +232,7 @@ class ProjectReviewTests(unittest.TestCase):
             latest_action="ASSET_ACTION: project_tree",
         )
 
-        self.assertIn("<CURRENT_REQUEST_FLOW>", prompt)
+        self.assertNotIn("<CURRENT_REQUEST_FLOW>", prompt)
         self.assertIn(current_user, prompt)
         previous_start = prompt.index("<PREVIOUS_CHAT_MESSAGES>")
         previous_end = prompt.index("</PREVIOUS_CHAT_MESSAGES>", previous_start)
@@ -268,7 +269,7 @@ class ProjectReviewTests(unittest.TestCase):
             self.assertNotIn("ORDINARY_FACT_VALUE", prompt)
             self.assertIn("our prior question", prompt)
             self.assertIn("first inspection thought", prompt)
-            self.assertNotIn("CUTTED", prompt)
+            self.assertIn("CUTTED", prompt)
             self.assertEqual(prompt.count("SELECTED_REPORT_BODY"), 1)
         self.assertTrue(self.context.delayed_memory_reports["abc123"]["pinned"])
         self.assertEqual(len(self.context.runtime_long_term_memory_store["facts"]), 3)
@@ -382,7 +383,8 @@ class ProjectReviewTests(unittest.TestCase):
             self.assertIn("our prior question", prompt)
             if index:
                 self.assertIn("thought-step-0", prompt)
-                self.assertIn("CURRENT_REQUEST_FLOW", prompt)
+                self.assertIn("CURRENT_REQUEST_ACTIONS_HISTORY", prompt)
+                self.assertNotIn("CURRENT_REQUEST_FLOW", prompt)
             if index == 3:
                 self.assertIn("thought-step-2", prompt)
                 self.assertIn("2: needle = 42", prompt)

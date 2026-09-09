@@ -46,9 +46,6 @@ class MemoryValueEditClientContractTests(unittest.TestCase):
 
         self.assertNotIn("createIfMissing", conditions_source)
 
-    def test_runtime_memory_view_cache_buster_is_updated(self):
-        source = INDEX_HTML.read_text(encoding="utf-8")
-        self.assertEqual(source.count("memory-value-edit=2"), 1)
 
 
 if __name__ == "__main__":

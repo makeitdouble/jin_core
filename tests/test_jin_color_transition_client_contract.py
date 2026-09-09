@@ -141,15 +141,6 @@ class JinColorTransitionClientContractTests(unittest.TestCase):
         self.assertNotIn("resolveBootstrapJinColor", session_source)
         self.assertNotIn("applyBootstrapSceneTintShift(", apply_block)
 
-    def test_changed_assets_have_matching_cache_bumps(self):
-        index_source = INDEX_HTML.read_text(encoding="utf-8")
-
-        self.assertEqual(index_source.count("jin-color-transition=3"), 2)
-        self.assertIn("runtime-session.js?v=", index_source)
-        self.assertIn("&room-state=8&", index_source)
-        self.assertIn("logger.js?v=", index_source)
-        self.assertIn("&room-state=7&", index_source)
-        self.assertIn("&bootstrap-color=2", index_source)
 
 
 if __name__ == "__main__":

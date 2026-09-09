@@ -452,7 +452,7 @@ class BrainPromptMemoryTests(
             )
             self.assertLess(
                 prompt.index("<SESSION_ACTIONS_HISTORY>"),
-                prompt.index("I identify myself as JIN"),
+                prompt.index("I identify as JIN"),
             )
 
     def test_previous_reasoning_is_inserted_after_session_actions_history(self):
@@ -495,7 +495,7 @@ class BrainPromptMemoryTests(
             )
             self.assertLess(
                 prompt.index("</PREVIOUS_REASONING_CONTENT>"),
-                prompt.index("I identify myself as JIN"),
+                prompt.index("I identify as JIN"),
             )
 
     def test_previous_reasoning_block_is_omitted_when_empty(self):
@@ -738,7 +738,7 @@ class BrainPromptMemoryTests(
             )
             self.assertLess(
                 prompt.rindex("</PREVIOUS_REASONING_LOOP_CONTENT>"),
-                prompt.index("I identify myself as JIN"),
+                prompt.index("I identify as JIN"),
             )
 
     def test_current_action_age_starts_at_one_second(self):
@@ -768,7 +768,7 @@ class BrainPromptMemoryTests(
                 )
 
             self.assertIn(
-                "action_1: ASSET_ACTION ( 1s ago )",
+                "1. ASSET_ACTION ( 1s ago )",
                 history,
             )
             self.assertNotIn(
@@ -842,18 +842,18 @@ class BrainPromptMemoryTests(
                 history,
             )
             self.assertIn(
-                "action_1: LIST_SKILLS ( 5s ago )",
+                "1. LIST_SKILLS ( 5s ago )",
                 history,
             )
             self.assertIn(
                 (
-                    "action_2: LOAD_SKILL: file_manager (count: 3), "
+                    "2. LOAD_SKILL: file_manager (count: 3), "
                     "CLEAN_TOOL_RESULTS ( 2s ago )"
                 ),
                 history,
             )
             self.assertIn(
-                "action_3: CLEAN_TOOL_RESULTS ( 1s ago )",
+                "3. CLEAN_TOOL_RESULTS ( 1s ago )",
                 history,
             )
 
@@ -905,14 +905,14 @@ class BrainPromptMemoryTests(
 
             self.assertIn(
                 (
-                    "assistant_output_1: "
+                    "JIN: "
                     f"{jin_content} ( 1s ago )"
                 ),
                 current_sequence,
             )
             self.assertIn(
                 (
-                    "action_1: WEB_SEARCH: "
+                    "1. WEB_SEARCH: "
                     "Ouroboros AI project framework competitor LLM agents "
                     "( 1s ago )"
                 ),
@@ -929,8 +929,11 @@ class BrainPromptMemoryTests(
                 "assistant_output_1",
                 session_history,
             )
-            self.assertNotIn(
-                jin_content,
+            self.assertIn(
+                (
+                    "JIN: "
+                    f"{jin_content} ( 1s ago )"
+                ),
                 session_history,
             )
 
@@ -976,15 +979,15 @@ class BrainPromptMemoryTests(
                 )
 
             self.assertIn(
-                "<CURRENT_REQUEST_FLOW>",
+                "<CURRENT_REQUEST_ACTIONS_HISTORY>",
                 history,
             )
             self.assertIn(
-                "action_1: LIST_SKILLS ( 55s ago )",
+                "1. LIST_SKILLS ( 55s ago )",
                 history,
             )
             self.assertIn(
-                "action_2: LOAD_SKILL ( 2s ago )",
+                "2. LOAD_SKILL ( 2s ago )",
                 history,
             )
             self.assertNotIn(
@@ -1040,7 +1043,7 @@ class BrainPromptMemoryTests(
 
             self.assertIn(
                 (
-                    "action_1: DELETE_ACTIVE_MEMORY: "
+                    "1. DELETE_ACTIVE_MEMORY: "
                     "id: enrrqo; content: word: кукушка, "
                     "DELETE_ACTIVE_MEMORY: id: yfpywn; "
                     "content: word: кулёк ( 2s ago )"
@@ -1154,10 +1157,10 @@ class BrainPromptMemoryTests(
                 (
                     "<SESSION_ACTIONS_HISTORY>\n"
                     "    1. SAVE_ACTIVE_MEMORY ( 3m ago )\n"
-                    "    --- Sequence started ---\n"
+                    "    --- start of sequence ---\n"
                     "    2. LIST_SKILLS ( 55s ago )\n"
                     "    3. LOAD_SKILL ( 2s ago )\n"
-                    "    --- Sequence ended ---\n"
+                    "    --- end of sequence ---\n"
                     "</SESSION_ACTIONS_HISTORY>"
                 ),
             )

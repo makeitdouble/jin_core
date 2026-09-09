@@ -682,7 +682,9 @@ def test_stream_validator_stops_reasoning_loop_with_changing_quoted_checks():
         "I must skip redundant drafts and trial loops.",
         "I prefer to keep my presence unobtrusive.",
         "I respect the consistency and reliability of my context.",
-    ]
+        "I should keep the final response concise and grounded.",
+        "I must not restart the same final-check routine again.",
+    ][:MAX_REPEAT_SENTENCES]
 
     for repeat_index, prompt_check in enumerate(
         prompt_checks
@@ -706,7 +708,7 @@ def test_stream_validator_stops_reasoning_loop_with_changing_quoted_checks():
             if not is_valid:
                 break
 
-        if repeat_index < len(prompt_checks) - 1:
+        if repeat_index < MAX_REPEAT_SENTENCES - 1:
             assert is_valid
             continue
 
@@ -716,8 +718,8 @@ def test_stream_validator_stops_reasoning_loop_with_changing_quoted_checks():
         "Repeated sentence loop detected."
     )
     assert validator.last_failure_preview == (
-        '*Final check of the prompt: "I respect the consistency '
-        'and reliability of my context.\\n*The response is good.'
+        f'*Final check of the prompt: "{prompt_checks[-1]}\\n'
+        '*The response is good.'
     )
 
 

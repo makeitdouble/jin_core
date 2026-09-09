@@ -136,7 +136,7 @@ class MemorySchedulerTests(
             )
             self.assertEqual(
                 context.logger.summarizer_logs[0][0],
-                "[MEMORY:L1] L1 summarizer request",
+                "[MEMORY:FRAME] FRAME summarizer request",
             )
             self.assertEqual(
                 service_client.calls[0]["timeout"],
@@ -182,7 +182,7 @@ class MemorySchedulerTests(
 
             self.assertEqual(
                 logger.summarizer_logs[0][0],
-                "[MEMORY:L1] L1 batch summarizer request",
+                "[MEMORY:FRAME] FRAME batch summarizer request",
             )
             self.assertEqual(
                 service_client.calls[0]["timeout"],

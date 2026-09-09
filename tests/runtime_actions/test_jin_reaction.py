@@ -35,11 +35,11 @@ class RuntimeJinReactionActionTests(unittest.TestCase):
             RUNTIME_ACTION_JIN_REACTION
         )
         self.assertIn(
-            "using one emoji of its choice",
+            "send user an emoji reaction",
             instructions,
         )
         self.assertIn(
-            "at most one reaction per answer",
+            "Place single marker",
             instructions,
         )
 

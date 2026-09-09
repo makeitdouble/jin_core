@@ -126,7 +126,11 @@ class RemovedRuntimeLayerAsyncTests(unittest.IsolatedAsyncioTestCase):
                 self.assertEqual(result, memory)
                 self.assertEqual(context.runtime_memory_stable, memory)
                 self.assertEqual(context.runtime_memory_updates, 1)
-                emit.assert_awaited_once_with(context)
+                emit.assert_awaited_once()
+                self.assertIs(emit.await_args.args[0], context)
+                self.assertEqual(emit.await_args.kwargs["source_turns"],
+                                 [{"user_message": "это факт", "assistant_message": "OK"}]
+                                 if batch else [{"turn_id": ""}])
 
     async def test_existing_file_error_is_preserved_even_with_obsolete_task_state(self):
         with tempfile.TemporaryDirectory() as directory, contextlib.ExitStack() as stack:

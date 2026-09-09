@@ -295,20 +295,6 @@ class RuntimeAvatarReasoningMotionClientContractTests(unittest.TestCase):
         )
         self.assertIn("reasoningLayerSettleActive = true;", source)
 
-    def test_reasoning_motion_assets_are_cache_busted(self):
-        source = INDEX_HTML.read_text(encoding="utf-8")
-
-        self.assertIn("runtime-avatar.css?v=memory-layers-dormant-1&reasoning-whisper=3", source)
-        self.assertIn("runtime-avatar.js?v=memory-layers-dormant-1&reasoning-whisper=3&stable-render=2", source)
-        self.assertIn("avatar-reasoning-motion=2", source)
-        self.assertIn("avatar-answer-boundary=1", source)
-        self.assertIn("rotation-phase=2", source)
-        self.assertIn("rotation-stop=2", source)
-        self.assertIn("transition-precompose=1", source)
-        self.assertIn("transition-ramp=2", source)
-        self.assertIn("rotation-cache=1", source)
-        self.assertIn("rotation-cache=1&reasoning-handoff=2", source)
-        self.assertNotIn("rotation-floor=1", source)
 
 
 if __name__ == "__main__":

@@ -226,10 +226,10 @@ if (streamingRoot.textContent.includes("*Structure:*")) {
         self.assertIn(".jin-think-content.is-structured", css)
         self.assertIn("katex.renderToString", FORMATTER_JS.read_text(encoding="utf-8"))
         self.assertIn("MATRIX_START_PATTERN", FORMATTER_JS.read_text(encoding="utf-8"))
-        self.assertIn("/static/js/think-formatter.js?v=think-format-2", index)
+        self.assertIn("/static/js/think-formatter.js", index)
         self.assertLess(
-            index.index("/static/js/think-formatter.js?v=think-format-2"),
-            index.index("/static/js/think-citations.js?v=think-format-1"),
+            index.index("/static/js/think-formatter.js"),
+            index.index("/static/js/think-citations.js"),
         )
 
 

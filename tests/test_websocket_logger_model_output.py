@@ -91,21 +91,16 @@ class WebSocketLoggerModelOutputTests(unittest.IsolatedAsyncioTestCase):
         class Context:
             pass
 
-        original_use_service_as_brain = config.USE_SERVICE_AS_BRAIN
-        config.USE_SERVICE_AS_BRAIN = False
 
-        try:
-            chunks = [
-                chunk
-                async for chunk in ask_brain_stream(
-                    client=FakeBrainClient(),
-                    text="test",
-                    context=Context(),
-                    runtime_actions={},
-                )
-            ]
-        finally:
-            config.USE_SERVICE_AS_BRAIN = original_use_service_as_brain
+        chunks = [
+            chunk
+            async for chunk in ask_brain_stream(
+                client=FakeBrainClient(),
+                text="test",
+                context=Context(),
+                runtime_actions={},
+            )
+        ]
 
         raw_output = [
             chunk
@@ -127,17 +122,6 @@ class WebSocketLoggerModelOutputTests(unittest.IsolatedAsyncioTestCase):
             raw_output[0]["content"],
         )
 
-    async def test_service_as_brain_uses_service_tag_without_enabling_service_logs(self):
-        websocket = FakeWebSocket()
-        logger = WebSocketLogger(websocket)
-
-        await logger.log_service_as_brain_output("service answer")
-        await logger.log_service("ordinary service worker output")
-
-        self.assertEqual(len(websocket.events), 1)
-        self.assertEqual(websocket.events[0]["tag"], "[SERVICE]")
-        self.assertEqual(websocket.events[0]["message"], "service answer")
-        self.assertNotIn("details", websocket.events[0])
 
     def test_logger_ui_has_model_output_cards_and_payload_button(self):
         source = (

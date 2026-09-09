@@ -16,8 +16,7 @@ from utils.tool_results import (
 )
 from agent.nodes.brain import BrainNode, consume_action_failure_followup_context
 
-PATH = 'jin_core/agent/nodes/brain.py'
-LABEL = f'ATTACH_FILE_CONTENT: {PATH} - failed: no project folder attached by user'
+PATH = '../outside.py'
 
 
 def test_attachment_failure_bubble_history_context_and_followup():
@@ -30,19 +29,21 @@ def test_attachment_failure_bubble_history_context_and_followup():
     with patch('utils.actions.dispatcher.ensure_assets_tree'), patch('utils.chat_log.append_chat_runtime_event'), patch('utils.project_reader.linked_projects', return_value=[]):
         asyncio.run(apply_runtime_action_calls(ctx, (RuntimeActionCall(name='ATTACH_FILE_CONTENT', payload=PATH),)))
     terminal = [e for e in events if e.get('action') == 'attach_file_content' and e.get('status') == 'failed'][-1]
-    assert terminal['text'] == LABEL
+    label = terminal['text']
+    assert label.startswith('ATTACH_FILE_CONTENT: ')
+    assert '../outside.py - failed: Use a relative path inside the linked folder' in label
     assert ctx.runtime_action_events[-1]['status'] == 'failed'
     upsert_session_action_marker_history_since(ctx, 0, [{'name': 'ATTACH_FILE_CONTENT', 'payload': PATH}])
-    assert LABEL in ctx.runtime_session_action_history[-1]['text']
-    assert LABEL in build_session_actions_history_context(ctx)
+    assert label in ctx.runtime_session_action_history[-1]['text']
+    assert label in build_session_actions_history_context(ctx)
     # Serialized history must keep the same visible result after reload.
     restored = SimpleNamespace(session_id=ctx.session_id, runtime_session_action_history=json.loads(json.dumps(ctx.runtime_session_action_history)))
-    assert LABEL in build_session_actions_history_context(restored)
+    assert label in build_session_actions_history_context(restored)
     tools = build_tool_results_context(ctx)
     prompt = BrainNode.build_followup_system_prompt(tools, 'read file', context=ctx)
     upper = prompt.split('<ACTION_FAILURE_FOLLOWUP>', 1)[1].split('</ACTION_FAILURE_FOLLOWUP>', 1)[0]
-    assert LABEL in upper
-    assert f'File: {PATH}' in upper
+    assert label in upper
+    assert 'File: ' in upper and '../outside.py' in upper
     assert 'Status: failed' in upper
     assert 'Correct action schema:' not in upper
     assert 'Correct action schema:' in prompt.split('<TOOLS_RESULTS>', 1)[1]

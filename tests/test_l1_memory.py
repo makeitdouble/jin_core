@@ -12,7 +12,7 @@ from runtime.L1_memory_rules import (
     build_runtime_memory_system_prompt,
 )
 from runtime.state import (
-    RUNTIME_MEMORY_SUMMARIZER_RUNTIME_ID,
+    SERVICE_RUNTIME_ID,
 )
 from runtime.runtime_context import (
     RuntimeContext,
@@ -539,10 +539,10 @@ class L1MemoryTests(
             # Keep this test focused on L1 prompt contracts, not exact wording.
             # Rules text is intentionally editable and should not break tests on every polish.
             for required_text in (
-                    "runtime L1 memory summarizer",
-                    "Return only the new compressed L1 memory state",
+                    "runtime frame memory summarizer",
+                    "Return the complete resulting compressed FRAME memory state as plain text",
                     "Every memory line must be a complete key:value entry",
-                    "Do not create or update transcript mirror keys",
+                    "Write what helps the next answers continue correctly, not a transcript",
             ):
                 assert_contains_text(
                     self,
@@ -810,7 +810,7 @@ class L1MemoryTests(
             )
             self.assertEqual(
                 logger.summarizer_logs[0][0],
-                "[MEMORY:L1] L1 summarizer request",
+                "[MEMORY:FRAME] FRAME summarizer request",
             )
             self.assertIn(
                 '"messages"',
@@ -833,7 +833,7 @@ class L1MemoryTests(
             )
             self.assertGreater(
                 telemetry_event["runtime"][
-                    RUNTIME_MEMORY_SUMMARIZER_RUNTIME_ID
+                    SERVICE_RUNTIME_ID
                 ]["used_tokens"],
                 0,
             )
@@ -1490,25 +1490,25 @@ class L1MemoryTests(
             )
             self.assertEqual(
                 telemetry_events[-1]["runtime"][
-                    RUNTIME_MEMORY_SUMMARIZER_RUNTIME_ID
+                    SERVICE_RUNTIME_ID
                 ]["used_tokens"],
                 123,
             )
             self.assertEqual(
                 telemetry_events[-1]["runtime"][
-                    RUNTIME_MEMORY_SUMMARIZER_RUNTIME_ID
+                    SERVICE_RUNTIME_ID
                 ]["context_tokens"],
                 90,
             )
             self.assertEqual(
                 telemetry_events[-1]["runtime"][
-                    RUNTIME_MEMORY_SUMMARIZER_RUNTIME_ID
+                    SERVICE_RUNTIME_ID
                 ]["total_tokens"],
                 123,
             )
             self.assertEqual(
                 telemetry_events[-1]["runtime"][
-                    RUNTIME_MEMORY_SUMMARIZER_RUNTIME_ID
+                    SERVICE_RUNTIME_ID
                 ]["max_tokens"],
                 8192,
             )
@@ -1641,7 +1641,7 @@ class L1MemoryTests(
 
             self.assertEqual(
                 message,
-                "[MEMORY:L1] L1 runtime memory update failed",
+                "[MEMORY:FRAME] FRAME runtime memory update failed",
             )
             self.assertIn(
                 "Traceback (most recent call last):",

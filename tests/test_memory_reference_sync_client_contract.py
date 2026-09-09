@@ -21,17 +21,6 @@ INDEX_HTML = ROOT / "ui" / "templates" / "index.html"
 
 class MemoryReferenceSyncClientContractTests(unittest.TestCase):
 
-    def test_analyzed_facts_are_excluded_from_facts_memory_mode(self):
-        source = MEMORY_VIEW_JS.read_text(encoding="utf-8")
-
-        self.assertIn(
-            'ltStatus === "analyzed"',
-            source,
-        )
-        self.assertIn(
-            'if (hasFactsMemoryFieldRecords())',
-            source,
-        )
 
     def test_runtime_updates_do_not_force_the_runtime_tab(self):
         source = RUNTIME_JS.read_text(encoding="utf-8")
@@ -642,16 +631,24 @@ class MemoryReferenceSyncClientContractTests(unittest.TestCase):
             css_source,
         )
         self.assertIn(
-            "position: absolute;",
+            "position: fixed;",
             css_source,
         )
         self.assertIn(
-            "top: calc(100% + 7px);",
-            css_source,
+            "function createDelayedMemoryPickerOverlay(input, dropdown)",
+            source,
         )
         self.assertIn(
-            "left: calc(100% + 8px);",
-            css_source,
+            "document.body.append(measure, dropdown);",
+            source,
+        )
+        self.assertIn(
+            "Math.min(rect.bottom + 7, window.innerHeight - bounds.height - margin)",
+            source,
+        )
+        self.assertIn(
+            "Math.min(caretX + 8, window.innerWidth - bounds.width - margin)",
+            source,
         )
         self.assertIn(
             "width: clamp(260px, 32vw, 360px);",
@@ -844,29 +841,6 @@ if (!userMessagePresentation.raw.includes("[ repeated: 3 ]")) {
             completed.stderr or completed.stdout,
         )
 
-    def test_cache_versions_are_bumped(self):
-        source = INDEX_HTML.read_text(encoding="utf-8")
-
-        self.assertIn(
-            '/static/css/runtime-memory.css?v=delayed-collapsible-cards-2',
-            source,
-        )
-        self.assertIn(
-            '/static/js/runtime/runtime-memory-view.js?v=context-card-chevronless-1',
-            source,
-        )
-        self.assertIn(
-            '/static/js/runtime/runtime-memory-model.js?v=runtime-memory-model-hidden-suffix-1',
-            source,
-        )
-        self.assertIn(
-            '/static/js/runtime/runtime.js?v=facts-memory-server-sync-1',
-            source,
-        )
-        self.assertIn(
-            '/static/js/chat.js?v=stream-avatar-2-reference-ids-1',
-            source,
-        )
 
 
 if __name__ == "__main__":

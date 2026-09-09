@@ -43,7 +43,7 @@ class RuntimeMemoryHoverTitleClientContractTests(unittest.TestCase):
     def test_runtime_memory_view_does_not_prepopulate_native_titles(self):
         source = MEMORY_VIEW_JS.read_text(encoding="utf-8")
 
-        self.assertNotIn(".title =", source)
+        self.assertNotIn("row.title =", source)
         self.assertEqual(
             source.count('setAttribute("title", title)'),
             1,
@@ -65,10 +65,6 @@ class RuntimeMemoryHoverTitleClientContractTests(unittest.TestCase):
             source,
         )
 
-    def test_memory_view_cache_key_is_bumped_for_hover_titles(self):
-        source = INDEX_HTML.read_text(encoding="utf-8")
-
-        self.assertIn("hover-title=1", source)
 
 
 if __name__ == "__main__":

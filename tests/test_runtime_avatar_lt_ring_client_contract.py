@@ -455,22 +455,6 @@ class RuntimeAvatarLTRingClientContractTests(unittest.TestCase):
             css_source,
         )
 
-    def test_avatar_cache_versions_are_bumped(self):
-        source = INDEX_HTML.read_text(encoding="utf-8")
-
-        self.assertIn(
-            "/static/css/runtime-avatar.css?v=memory-layers-dormant-1&reasoning-whisper=3",
-            source,
-        )
-        self.assertIn(
-            "/static/js/runtime/runtime-avatar.js?v=memory-layers-dormant-1&reasoning-whisper=3&stable-render=2",
-            source,
-        )
-        self.assertIn("avatar-radius=2", source)
-        self.assertIn(
-            "/static/js/socket/input.js?v=jin-size-1",
-            source,
-        )
 
 
 if __name__ == "__main__":

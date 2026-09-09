@@ -19,7 +19,7 @@ S2 = {"session_id": "session-two", "runtime_snapshot_id": "L1_two"}
 class RecallFactContextTests(unittest.TestCase):
     def test_sources_backend_owned_merge_reload(self):
         candidates = normalize_lt_candidates({"facts": [{
-            "key": "city", "value": "Kyiv", "source_keys": ["city"],
+            "key": "city", "value": "Kyiv", "evidence_field_keys": ["city"],
             "sources": [S2],
         }]}, source_fields=[{"key": "city", "content": "Kyiv", **S1}])
         self.assertEqual(candidates[0]["sources"], [S1])
@@ -276,7 +276,7 @@ class RecallPipelineTests(unittest.IsolatedAsyncioTestCase):
         )
         self.assertEqual(
             action_items[-1]['parts'],
-            [{'text':'RECALL_FACT_CONTEXT: F2: failed - source not found'}],
+            [{'text':'RECALL_FACT_CONTEXT: F2: failed - source not found', 'tool_ids': ['T2']}],
         )
         self.assertIn(
             'RECALL_FACT_CONTEXT: F2: failed - source not found',
@@ -338,7 +338,7 @@ class RecallPipelineTests(unittest.IsolatedAsyncioTestCase):
             root=Path(tmp)
             RecallFactContextTests().archive(root)
             RecallFactContextTests().archive(root,S2)
-            pending=normalize_lt_candidates({'facts':[{'key':'city','value':'Kyiv','source_keys':['city']}]},
+            pending=normalize_lt_candidates({'facts':[{'key':'city','value':'Kyiv','evidence_field_keys':['city']}]},
                 source_fields=[{'key':'city',**S1}])[0]
             store=normalize_lt_store({'pending_facts':[{**pending,'id':'PF1'}]})
             operations=normalize_lt_merge_operations({'operations':[{'action':'create','pending_id':'PF1','key':'city','value':'Kyiv','category':'user_fact'}]})

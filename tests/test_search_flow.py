@@ -31,7 +31,7 @@ from websocket.logger import (
 from rules.brain_context_builder import (
     build_brain_context,
     get_enabled_runtime_actions,
-    SERVICE_AS_BRAIN_RUNTIME_ACTIONS,
+    BRAIN_RUNTIME_ACTIONS,
 )
 from app_settings import (
     is_valid_serper_api_key,
@@ -349,25 +349,25 @@ class SearchFlowTests(
 
     def setUp(self):
         self._original_service_web_search = (
-            SERVICE_AS_BRAIN_RUNTIME_ACTIONS.get(
+            BRAIN_RUNTIME_ACTIONS.get(
                 "CAN_WEB_SEARCH",
                 False,
             )
         )
         self._original_service_deep_web_search = (
-            SERVICE_AS_BRAIN_RUNTIME_ACTIONS.get(
+            BRAIN_RUNTIME_ACTIONS.get(
                 "CAN_DEEP_WEB_SEARCH",
                 False,
             )
         )
-        SERVICE_AS_BRAIN_RUNTIME_ACTIONS["CAN_WEB_SEARCH"] = True
-        SERVICE_AS_BRAIN_RUNTIME_ACTIONS["CAN_DEEP_WEB_SEARCH"] = True
+        BRAIN_RUNTIME_ACTIONS["CAN_WEB_SEARCH"] = True
+        BRAIN_RUNTIME_ACTIONS["CAN_DEEP_WEB_SEARCH"] = True
 
     def tearDown(self):
-        SERVICE_AS_BRAIN_RUNTIME_ACTIONS["CAN_WEB_SEARCH"] = (
+        BRAIN_RUNTIME_ACTIONS["CAN_WEB_SEARCH"] = (
             self._original_service_web_search
         )
-        SERVICE_AS_BRAIN_RUNTIME_ACTIONS["CAN_DEEP_WEB_SEARCH"] = (
+        BRAIN_RUNTIME_ACTIONS["CAN_DEEP_WEB_SEARCH"] = (
             self._original_service_deep_web_search
         )
 
@@ -425,11 +425,11 @@ class SearchFlowTests(
             )
 
         self.assertIn(
-            "Use WEB_SEARCH",
+            "<WEB_SEARCH: plain text query >",
             prompt,
         )
         self.assertIn(
-            "Use DEEP_WEB_SEARCH",
+            "Use only when user explicitly asks for deep searching.",
             prompt,
         )
 
@@ -456,7 +456,7 @@ class SearchFlowTests(
             )
 
         self.assertNotIn(
-            "Use WEB_SEARCH",
+            "<WEB_SEARCH: plain text query >",
             prompt,
         )
         self.assertNotIn(
@@ -752,16 +752,16 @@ class SearchFlowTests(
             "query='tesla car price'",
             logger_text,
         )
-        self.assertIn(
+        self.assertNotIn(
             "<CURRENT_REQUEST_FLOW>",
             brain_client.prompts[1]["system_prompt"],
         )
-        self.assertIn(
-            f"<ORIGINAL_USER_REQUEST>\n        {state.user_input}",
+        self.assertNotIn(
+            "<ORIGINAL_USER_REQUEST>",
             brain_client.prompts[1]["system_prompt"],
         )
-        self.assertIn(
-            "<LAST_EXECUTED_ACTION>WEB_SEARCH</LAST_EXECUTED_ACTION>",
+        self.assertNotIn(
+            "<LAST_EXECUTED_ACTION>",
             brain_client.prompts[1]["system_prompt"],
         )
         self.assertNotIn(
@@ -777,7 +777,7 @@ class SearchFlowTests(
             brain_client.prompts[1]["user_prompt"],
         )
         self.assertIn(
-            '<TOOL_RESULT name="WEB_SEARCH" id="web_search_001"',
+            '<TOOL_RESULT tool_id="T1" name="WEB_SEARCH" id="web_search_001"',
             brain_client.prompts[1]["system_prompt"],
         )
         self.assertIn(
@@ -1134,11 +1134,15 @@ class SearchFlowTests(
         )
         followup_prompt = brain_client.prompts[1]["system_prompt"]
         self.assertIn(
-            "DEEP_WEB_SEARCH:",
+            'name="DEEP_WEB_SEARCH"',
             followup_prompt,
         )
         self.assertIn(
-            "WEB_SEARCH:",
+            "Objective: Research blue tomato varieties.",
+            followup_prompt,
+        )
+        self.assertIn(
+            "<WEB_SEARCH: plain text query >",
             followup_prompt,
         )
         self.assertNotIn(

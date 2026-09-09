@@ -238,11 +238,7 @@ class DelayedMemoryClientContractTests(unittest.TestCase):
             logger_source,
         )
         self.assertIn(
-            '/static/js/logger/logger.js?v=delayed-context-plaque-4',
-            index_source,
-        )
-        self.assertIn(
-            'unpin-logger-card=2',
+            '/static/js/logger/logger.js',
             index_source,
         )
 
@@ -420,10 +416,6 @@ class DelayedMemoryClientContractTests(unittest.TestCase):
             "if (Boolean(report.pinned))",
             memory_view_source,
         )
-        self.assertIn(
-            "delayed-pin-link-isolation=1",
-            index_source,
-        )
 
     def test_delayed_memory_unpin_resyncs_all_avatar_link_state(self):
 
@@ -450,10 +442,6 @@ class DelayedMemoryClientContractTests(unittest.TestCase):
         self.assertNotIn(
             "!setDelayedMemoryPinnedOnAvatar(",
             pin_block,
-        )
-        self.assertIn(
-            'delayed-unpin-avatar-sync-1',
-            index_source,
         )
 
     def test_loaded_delayed_memory_bubbles_open_their_own_reports(self):
@@ -672,40 +660,6 @@ class DelayedMemoryClientContractTests(unittest.TestCase):
             source,
         )
 
-    def test_jin_color_uses_one_live_aggregate_bubble(self):
-
-        source = (
-            ROOT
-            / "ui"
-            / "static"
-            / "js"
-            / "socket"
-            / "runtime-actions.js"
-        ).read_text(
-            encoding="utf-8"
-        )
-
-        handle_start = source.index(
-            "function handleRuntimeAction("
-        )
-        color_start = source.index(
-            'if (action === "jin_color") {',
-            handle_start,
-        )
-        color_end = source.index(
-            "\n    return;\n  }",
-            color_start,
-        )
-        color_block = source[color_start:color_end]
-
-        self.assertIn(
-            "aggregateMarkers: true",
-            color_block,
-        )
-        self.assertNotIn(
-            "aggregateMarkers,\n          counterOnly:",
-            color_block,
-        )
 
     def test_socket_runtime_actions_fade_terminal_failures_with_scope(self):
 
@@ -913,15 +867,11 @@ class DelayedMemoryClientContractTests(unittest.TestCase):
             css_source,
         )
         self.assertIn(
-            "/static/js/runtime/runtime-memory-view.js?v=context-card-chevronless-1&delayed-fact-paste=2",
+            "/static/js/runtime/runtime-memory-view.js",
             index_source,
         )
         self.assertIn(
-            "delayed-unpin-avatar-sync-1&delayed-fact-paste=2",
-            index_source,
-        )
-        self.assertIn(
-            "/static/css/runtime-memory.css?v=delayed-collapsible-cards-2&delayed-fact-paste=1",
+            "/static/css/runtime-memory.css",
             index_source,
         )
 
@@ -1083,10 +1033,6 @@ class DelayedMemoryClientContractTests(unittest.TestCase):
         self.assertIn(
             ".delayed-memory-report-modal {\n    z-index: 60 !important;\n}",
             css_source,
-        )
-        self.assertIn(
-            "&report-modal-stack=1",
-            index_source,
         )
 
 

@@ -26,7 +26,7 @@ class BrowserRuntimeStorageV2Tests(unittest.TestCase):
             "function persistLiveSessionCheckpoint(data)"
         )
         persist_end = runtime_session.index(
-            "function clearPersistedToolResultsCheckpoint()",
+            "function clearPersistedToolResultsCheckpoint(",
             persist_start,
         )
         persist = runtime_session[persist_start:persist_end]
@@ -38,7 +38,7 @@ class BrowserRuntimeStorageV2Tests(unittest.TestCase):
         sent_at = socket_input.index("const sent =")
         mark_at = socket_input.index("window.markSessionActivityDirty();", sent_at)
         self.assertLess(sent_at, mark_at)
-        self.assertIn("if (\n        sent", socket_input[sent_at:mark_at])
+        self.assertIn("if (!sent) {", socket_input[sent_at:mark_at])
         self.assertNotIn(
             "markSessionActivityDirty",
             SOCKET_JS.read_text(encoding="utf-8"),

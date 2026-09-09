@@ -52,7 +52,7 @@ class AnonymousDelayedMemoryTests(unittest.IsolatedAsyncioTestCase):
             patch.object(ws_runtime, "delete_delayed_memory_report_files", return_value=[]) as delete,
         ):
             receive.side_effect = [message, WebSocketDisconnect()]
-            await ws_runtime.websocket_endpoint(socket)
+            await ws_runtime.run_runtime_session(socket, context, False)
             errors.assert_not_awaited()
             self.assertEqual(receive.await_count, 2)
         return save, delete

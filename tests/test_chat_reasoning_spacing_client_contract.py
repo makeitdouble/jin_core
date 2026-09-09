@@ -119,17 +119,6 @@ class ChatReasoningSpacingClientContractTests(unittest.TestCase):
         self.assertIn("height: 12px;", css)
         self.assertIn("rgba(12, 12, 14, 0.22)", css)
 
-    def test_cache_versions_are_bumped_for_reasoning_spacing_assets(self):
-        source = INDEX_HTML.read_text(encoding="utf-8")
-
-        self.assertIn("/static/css/base.css?v=stream-avatar-1", source)
-        self.assertIn("/static/css/chat.css?v=stream-avatar-1", source)
-        self.assertIn("reasoning-fade-anchor=1", source)
-        self.assertIn("/static/js/chat.js?v=stream-avatar-2", source)
-        self.assertIn(
-            "/static/js/panel-inactivity.js?v=jin-size-1",
-            source,
-        )
 
 
 if __name__ == "__main__":

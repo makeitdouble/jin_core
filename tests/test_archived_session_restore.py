@@ -1311,7 +1311,7 @@ open_question: continue
             )
 
         self.assertTrue(
-            prompt.startswith("<CONVERSATION_CONTINUE_RULES>\n")
+            prompt.startswith("<RESTORED_SESSION_INSTRUCTIONS>\n")
         )
         self.assertIn(
             "\nCurrent session was bootstrapped in a browser tab!\n",
@@ -1554,7 +1554,7 @@ class ArchivedSessionRestoreClientContractTests(unittest.TestCase):
             "created_at:\n              isArchivedRestore ? restoredAt : line.created_at",
             runtime_session,
         )
-        self.assertIn("runtimeMemory.saved_at", runtime_session)
+        self.assertIn("saved_at:\n            String(bootstrap.saved_at || \"\").trim(),", runtime_session)
         self.assertIn('type: "archived_session_resume"', socket_script)
         self.assertIn("logArchivedRestoreFallbackSession", socket_script)
         self.assertIn("jinArchivedSessionRestoreFailure", socket_script)

@@ -423,11 +423,11 @@ class RuntimeStreamTokenTests(unittest.IsolatedAsyncioTestCase):
     async def test_lm_studio_provider_error_logs_payload_and_marks_turn_interrupted(self):
 
         context = self.build_limit_context()
-        runtime_id = settings.SERVICE_MODEL_UID
+        runtime_id = "brain"
         stream = RuntimeStream(
             context=context,
             runtime_id=runtime_id,
-            role="service",
+            role="brain",
             context_window=8192,
             log_method=context.logger.log_service,
             context_snapshot={
@@ -482,11 +482,11 @@ class RuntimeStreamTokenTests(unittest.IsolatedAsyncioTestCase):
     async def test_reasoning_limit_arms_immediate_followup(self):
 
         context = self.build_limit_context()
-        runtime_id = settings.SERVICE_MODEL_UID
+        runtime_id = "brain"
         stream = RuntimeStream(
             context=context,
             runtime_id=runtime_id,
-            role="service",
+            role="brain",
             context_window=8192,
             log_method=context.logger.log_service,
             context_snapshot={
@@ -529,11 +529,11 @@ class RuntimeStreamTokenTests(unittest.IsolatedAsyncioTestCase):
     async def test_answer_limit_records_answer_stage(self):
 
         context = self.build_limit_context()
-        runtime_id = settings.SERVICE_MODEL_UID
+        runtime_id = "brain"
         stream = RuntimeStream(
             context=context,
             runtime_id=runtime_id,
-            role="service",
+            role="brain",
             context_window=8192,
             log_method=context.logger.log_service,
             context_snapshot={
@@ -572,11 +572,11 @@ class RuntimeStreamTokenTests(unittest.IsolatedAsyncioTestCase):
     async def test_explicit_context_limit_keeps_context_label(self):
 
         context = self.build_limit_context()
-        runtime_id = settings.SERVICE_MODEL_UID
+        runtime_id = "brain"
         stream = RuntimeStream(
             context=context,
             runtime_id=runtime_id,
-            role="service",
+            role="brain",
             context_window=8192,
             log_method=context.logger.log_service,
             context_snapshot={
@@ -606,11 +606,11 @@ class RuntimeStreamTokenTests(unittest.IsolatedAsyncioTestCase):
     async def test_limit_followup_flag_can_disable_recovery(self):
 
         context = self.build_limit_context()
-        runtime_id = settings.SERVICE_MODEL_UID
+        runtime_id = "brain"
         stream = RuntimeStream(
             context=context,
             runtime_id=runtime_id,
-            role="service",
+            role="brain",
             context_window=8192,
             log_method=context.logger.log_service,
             context_snapshot={
@@ -639,7 +639,7 @@ class RuntimeStreamTokenTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_runtime_context_counter_grows_during_stream(self):
 
-        runtime_id = settings.SERVICE_MODEL_UID
+        runtime_id = "brain"
         original_state = runtime_state.get_runtime_state(
             runtime_id
         )
@@ -654,7 +654,7 @@ class RuntimeStreamTokenTests(unittest.IsolatedAsyncioTestCase):
         stream = RuntimeStream(
             context=context,
             runtime_id=runtime_id,
-            role="service",
+            role="brain",
             context_window=(
                 8192
             ),
@@ -728,7 +728,7 @@ class RuntimeStreamTokenTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_service_context_counter_grows_during_stream(self):
 
-        runtime_id = settings.SERVICE_MODEL_UID
+        runtime_id = "service"
         original_state = runtime_state.get_runtime_state(
             runtime_id
         )
@@ -815,7 +815,7 @@ class RuntimeStreamTokenTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_runtime_counter_keeps_estimated_total_when_provider_usage_has_no_total(self):
 
-        runtime_id = settings.SERVICE_MODEL_UID
+        runtime_id = "brain"
         original_state = runtime_state.get_runtime_state(
             runtime_id
         )
@@ -830,7 +830,7 @@ class RuntimeStreamTokenTests(unittest.IsolatedAsyncioTestCase):
         stream = RuntimeStream(
             context=context,
             runtime_id=runtime_id,
-            role="service",
+            role="brain",
             context_window=(
                 8192
             ),
@@ -875,7 +875,7 @@ class RuntimeStreamTokenTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_cancelled_brain_stream_captures_partial_response(self):
 
-        runtime_id = settings.SERVICE_MODEL_UID
+        runtime_id = "brain"
         context = SimpleNamespace(
             websocket=FakeWebSocket(),
             logger=FakeLogger(),
@@ -889,7 +889,7 @@ class RuntimeStreamTokenTests(unittest.IsolatedAsyncioTestCase):
         stream = RuntimeStream(
             context=context,
             runtime_id=runtime_id,
-            role="service",
+            role="brain",
             context_window=(
                 8192
             ),
@@ -920,7 +920,7 @@ class RuntimeStreamTokenTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_sentence_loop_content_interrupts_and_arms_recovery(self):
 
-        runtime_id = settings.SERVICE_MODEL_UID
+        runtime_id = "brain"
         active_stream = FakeActiveStream()
         context = SimpleNamespace(
             websocket=FakeWebSocket(),
@@ -951,7 +951,7 @@ class RuntimeStreamTokenTests(unittest.IsolatedAsyncioTestCase):
         stream = RuntimeStream(
             context=context,
             runtime_id=runtime_id,
-            role="service",
+            role="brain",
             context_window=(
                 8192
             ),
@@ -1002,31 +1002,31 @@ class RuntimeStreamTokenTests(unittest.IsolatedAsyncioTestCase):
         )
 
         self.assertIn(
-            "action_1: WEB_SEARCH (",
+            "1. WEB_SEARCH (",
             sequence_context,
         )
         self.assertIn(
             (
-                "action_2: stuck in a reasoning loop with "
+                "2. stuck in a reasoning loop with "
                 '"* Wait, I\'ll use the search marker."'
             ),
             sequence_context,
         )
         self.assertIn(
-            "action_3: WEB_SEARCH (",
+            "3. WEB_SEARCH (",
             sequence_context,
         )
         self.assertLess(
-            sequence_context.index("action_1: WEB_SEARCH ("),
+            sequence_context.index("1. WEB_SEARCH ("),
             sequence_context.index(
-                "action_2: stuck in a reasoning loop"
+                "2. stuck in a reasoning loop"
             ),
         )
         self.assertLess(
             sequence_context.index(
-                "action_2: stuck in a reasoning loop"
+                "2. stuck in a reasoning loop"
             ),
-            sequence_context.index("action_3: WEB_SEARCH ("),
+            sequence_context.index("3. WEB_SEARCH ("),
         )
 
         errors = [
@@ -1066,8 +1066,8 @@ class RuntimeStreamTokenTests(unittest.IsolatedAsyncioTestCase):
         )
         stream = RuntimeStream(
             context=context,
-            runtime_id=settings.SERVICE_MODEL_UID,
-            role="service",
+            runtime_id="brain",
+            role="brain",
             context_window=8192,
             log_method=context.logger.log_service,
             context_snapshot={
@@ -1120,7 +1120,7 @@ class RuntimeStreamTokenTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_thinking_unknown_lt_fact_ids_do_not_interrupt_or_arm_followup(self):
 
-        runtime_id = settings.SERVICE_MODEL_UID
+        runtime_id = "brain"
         active_stream = FakeActiveStream()
         context = SimpleNamespace(
             websocket=FakeWebSocket(),
@@ -1157,7 +1157,7 @@ class RuntimeStreamTokenTests(unittest.IsolatedAsyncioTestCase):
         stream = RuntimeStream(
             context=context,
             runtime_id=runtime_id,
-            role="service",
+            role="brain",
             context_window=(
                 8192
             ),
@@ -1187,7 +1187,7 @@ class RuntimeStreamTokenTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_thinking_sentence_loop_interrupts_and_arms_recovery(self):
 
-        runtime_id = settings.SERVICE_MODEL_UID
+        runtime_id = "brain"
         active_stream = FakeActiveStream()
         context = SimpleNamespace(
             websocket=FakeWebSocket(),
@@ -1208,7 +1208,7 @@ class RuntimeStreamTokenTests(unittest.IsolatedAsyncioTestCase):
         stream = RuntimeStream(
             context=context,
             runtime_id=runtime_id,
-            role="service",
+            role="brain",
             context_window=(
                 8192
             ),
@@ -1271,7 +1271,7 @@ class RuntimeStreamTokenTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_non_brain_stream_updates_context_counter(self):
 
-        runtime_id = settings.SERVICE_MODEL_UID
+        runtime_id = "service"
         original_state = runtime_state.get_runtime_state(
             runtime_id
         )
@@ -1361,7 +1361,7 @@ class RuntimeStreamTokenTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_runtime_stream_filters_raw_asset_action_before_emit(self):
 
-        runtime_id = settings.SERVICE_MODEL_UID
+        runtime_id = "brain"
 
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
@@ -1382,7 +1382,7 @@ class RuntimeStreamTokenTests(unittest.IsolatedAsyncioTestCase):
                 stream = RuntimeStream(
                     context=context,
                     runtime_id=runtime_id,
-                    role="service",
+                    role="brain",
                     context_window=(
                         8192
                     ),
@@ -1433,7 +1433,7 @@ class RuntimeStreamTokenTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_asset_action_started_emits_when_opening_tag_is_stripped(self):
 
-        runtime_id = settings.SERVICE_MODEL_UID
+        runtime_id = "brain"
 
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
@@ -1499,7 +1499,7 @@ class RuntimeStreamTokenTests(unittest.IsolatedAsyncioTestCase):
                 stream = RuntimeStream(
                     context=context,
                     runtime_id=runtime_id,
-                    role="service",
+                    role="brain",
                     context_window=(
                         8192
                     ),
@@ -1576,7 +1576,7 @@ class RuntimeStreamTokenTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_failed_asset_action_replaces_marker_session_update(self):
 
-        runtime_id = settings.SERVICE_MODEL_UID
+        runtime_id = "brain"
 
         class Response:
             status_code = 400
@@ -1658,7 +1658,7 @@ class RuntimeStreamTokenTests(unittest.IsolatedAsyncioTestCase):
         stream = RuntimeStream(
             context=context,
             runtime_id=runtime_id,
-            role="service",
+            role="brain",
             context_window=(
                 8192
             ),
@@ -1700,7 +1700,7 @@ class RuntimeStreamTokenTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_delayed_memory_started_and_completed_events_share_id(self):
 
-        runtime_id = settings.SERVICE_MODEL_UID
+        runtime_id = "brain"
 
         async def delayed_memory_generator():
 
@@ -1737,7 +1737,7 @@ class RuntimeStreamTokenTests(unittest.IsolatedAsyncioTestCase):
         stream = RuntimeStream(
             context=context,
             runtime_id=runtime_id,
-            role="service",
+            role="brain",
             context_window=(
                 8192
             ),
@@ -1859,8 +1859,8 @@ class RuntimeStreamTokenTests(unittest.IsolatedAsyncioTestCase):
 
         stream = RuntimeStream(
             context=context,
-            runtime_id=settings.SERVICE_MODEL_UID,
-            role="service",
+            runtime_id="brain",
+            role="brain",
             context_window=8192,
             log_method=context.logger.log_service,
             runtime_actions={
@@ -1927,7 +1927,7 @@ class RuntimeStreamTokenTests(unittest.IsolatedAsyncioTestCase):
             followup_prompt,
         )
         self.assertIn(
-            "action_1: SAVE_DELAYED_MEMORY: failed: Unrequested report",
+            "1. SAVE_DELAYED_MEMORY: failed: Unrequested report",
             followup_prompt,
         )
         self.assertFalse(
@@ -2012,8 +2012,8 @@ class RuntimeStreamTokenTests(unittest.IsolatedAsyncioTestCase):
 
         stream = RuntimeStream(
             context=context,
-            runtime_id=settings.SERVICE_MODEL_UID,
-            role="service",
+            runtime_id="brain",
+            role="brain",
             context_window=8192,
             log_method=context.logger.log_service,
             runtime_actions={
@@ -2106,8 +2106,8 @@ class RuntimeStreamTokenTests(unittest.IsolatedAsyncioTestCase):
 
         stream = RuntimeStream(
             context=context,
-            runtime_id=settings.SERVICE_MODEL_UID,
-            role="service",
+            runtime_id="brain",
+            role="brain",
             context_window=8192,
             log_method=context.logger.log_service,
             runtime_actions={
@@ -2196,8 +2196,8 @@ class RuntimeStreamTokenTests(unittest.IsolatedAsyncioTestCase):
 
         stream = RuntimeStream(
             context=context,
-            runtime_id=settings.SERVICE_MODEL_UID,
-            role="service",
+            runtime_id="brain",
+            role="brain",
             context_window=8192,
             log_method=context.logger.log_service,
             runtime_actions={
@@ -2284,8 +2284,8 @@ class RuntimeStreamTokenTests(unittest.IsolatedAsyncioTestCase):
 
         stream = RuntimeStream(
             context=context,
-            runtime_id=settings.SERVICE_MODEL_UID,
-            role="service",
+            runtime_id="brain",
+            role="brain",
             context_window=8192,
             log_method=context.logger.log_service,
             runtime_actions={
@@ -2366,8 +2366,8 @@ class RuntimeStreamTokenTests(unittest.IsolatedAsyncioTestCase):
 
         stream = RuntimeStream(
             context=context,
-            runtime_id=settings.SERVICE_MODEL_UID,
-            role="service",
+            runtime_id="brain",
+            role="brain",
             context_window=8192,
             log_method=context.logger.log_service,
             runtime_actions={
@@ -2440,8 +2440,8 @@ class RuntimeStreamTokenTests(unittest.IsolatedAsyncioTestCase):
 
         stream = RuntimeStream(
             context=context,
-            runtime_id=settings.SERVICE_MODEL_UID,
-            role="service",
+            runtime_id="brain",
+            role="brain",
             context_window=8192,
             log_method=context.logger.log_service,
             runtime_actions={
@@ -2546,8 +2546,8 @@ class RuntimeStreamTokenTests(unittest.IsolatedAsyncioTestCase):
 
         stream = RuntimeStream(
             context=context,
-            runtime_id=settings.SERVICE_MODEL_UID,
-            role="service",
+            runtime_id="brain",
+            role="brain",
             context_window=8192,
             log_method=context.logger.log_service,
             runtime_actions={
@@ -2674,8 +2674,8 @@ class RuntimeStreamTokenTests(unittest.IsolatedAsyncioTestCase):
 
         stream = RuntimeStream(
             context=context,
-            runtime_id=settings.SERVICE_MODEL_UID,
-            role="service",
+            runtime_id="brain",
+            role="brain",
             context_window=8192,
             log_method=context.logger.log_service,
             runtime_actions={
@@ -2805,8 +2805,8 @@ class RuntimeStreamTokenTests(unittest.IsolatedAsyncioTestCase):
 
         stream = RuntimeStream(
             context=context,
-            runtime_id=settings.SERVICE_MODEL_UID,
-            role="service",
+            runtime_id="brain",
+            role="brain",
             context_window=8192,
             log_method=context.logger.log_service,
             runtime_actions={
@@ -2843,7 +2843,7 @@ class RuntimeStreamTokenTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertIn(
             (
-                "action_1: SAVE_ACTIVE_MEMORY: "
+                "1. SAVE_ACTIVE_MEMORY: "
                 "current session context and task status, "
                 "SAVE_DELAYED_MEMORY: failed: Unrequested report"
             ),
@@ -2918,8 +2918,8 @@ class RuntimeStreamTokenTests(unittest.IsolatedAsyncioTestCase):
 
         stream = RuntimeStream(
             context=context,
-            runtime_id=settings.SERVICE_MODEL_UID,
-            role="service",
+            runtime_id="brain",
+            role="brain",
             context_window=(
                 8192
             ),

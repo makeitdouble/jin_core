@@ -36,17 +36,6 @@ class RuntimeMemoryTitleClientContractTests(unittest.TestCase):
             source,
         )
 
-    def test_runtime_memory_assets_bump_cache_versions(self):
-        source = INDEX_HTML.read_text(encoding="utf-8")
-
-        self.assertGreaterEqual(
-            source.count("runtime-memory-title=2"),
-            2,
-        )
-        self.assertNotIn(
-            "runtime-memory-ts=1",
-            source,
-        )
 
 
 if __name__ == "__main__":

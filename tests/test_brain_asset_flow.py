@@ -42,14 +42,13 @@ from tests.helpers.runtime_actions import (
 
 def _brain_runtime():
     return {
-        "runtime_id": "brain-model",
+        "runtime_id": "brain",
         "label": "brain",
         "context_window": 8192,
         "log_method": "log_brain",
         "runtime_actions": {
             "CAN_WEB_SEARCH": True,
             "CAN_USE_ASSETS": True,
-            "CAN_SAVE_SESSION": True,
             "CAN_SAVE_DELAYED_MEMORY": True,
             "CAN_SAVE_ACTIVE_MEMORY": True,
         },
@@ -81,13 +80,9 @@ def _assert_latest_request_payload(
     test_case.assertEqual(payload, "")
     test_case.assertTrue(call_kwargs.get("followup_tick"), call_kwargs)
     test_case.assertNotIn("<FOLLOWUP_TICK>", system_prompt)
-    test_case.assertIn("<CURRENT_REQUEST_FLOW>", system_prompt)
-    test_case.assertIn("<ORIGINAL_USER_REQUEST", system_prompt)
-    test_case.assertIn(escape(user_input), system_prompt)
-    test_case.assertLess(
-        system_prompt.index("</CURRENT_REQUEST_FLOW>"),
-        system_prompt.index("<TOOLS_RESULTS>"),
-    )
+    test_case.assertNotIn("<CURRENT_REQUEST_FLOW>", system_prompt)
+    test_case.assertNotIn("<ORIGINAL_USER_REQUEST", system_prompt)
+    test_case.assertIn("<TOOLS_RESULTS>", system_prompt)
     if latest_action_fragment:
         test_case.assertIn(latest_action_fragment, system_prompt)
     test_case.assertNotIn("<SEQUENCE_ORIGIN_REQUEST>", system_prompt)
@@ -303,16 +298,9 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
                 confirm_start = prompt.index("<CONFIRM_RESULT>")
                 confirm_end = prompt.index("</CONFIRM_RESULT>")
                 tools_end = prompt.index("</TOOLS_RESULTS>")
-                request_flow_end = prompt.index("</CURRENT_REQUEST_FLOW>")
-
-                self.assertLess(request_flow_end, tools_start)
                 self.assertLess(tools_start, confirm_start)
                 self.assertLess(confirm_start, confirm_end)
                 self.assertLess(confirm_end, tools_end)
-                self.assertIn(
-                    "<LAST_EXECUTED_ACTION>save_delayed_memory</LAST_EXECUTED_ACTION>",
-                    prompt,
-                )
                 self.assertIn(message, prompt)
 
 
@@ -343,12 +331,12 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
                 context=context,
             )
 
-        self.assertIn("<CURRENT_REQUEST_FLOW>", prompt)
-        self.assertIn('<ORIGINAL_USER_REQUEST age="10s ago">', prompt)
-        self.assertIn("keep &lt;this&gt; in delayed memory", prompt)
-        self.assertIn("action_1: LIST_SKILLS ( 5s ago )", prompt)
+        self.assertIn("<CURRENT_REQUEST_ACTIONS_HISTORY>", prompt)
+        self.assertNotIn("ORIGINAL_USER_REQUEST", prompt)
+        self.assertNotIn("keep &lt;this&gt; in delayed memory", prompt)
+        self.assertIn("1. LIST_SKILLS ( 5s ago )", prompt)
         self.assertLess(
-            prompt.index("</CURRENT_REQUEST_FLOW>"),
+            prompt.index("</CURRENT_REQUEST_ACTIONS_HISTORY>"),
             prompt.index("<TOOLS_RESULTS>"),
         )
         self.assertNotIn("SEQUENCE_ORIGIN_REQUEST", prompt)
@@ -378,10 +366,7 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
             "<FOLLOWUP_TICK>",
             prompt,
         )
-        self.assertLess(
-            prompt.index("</CURRENT_REQUEST_FLOW>"),
-            prompt.index("<TOOLS_RESULTS>"),
-        )
+        self.assertNotIn("<CURRENT_REQUEST_ACTIONS_HISTORY>", prompt)
         self.assertEqual(
             prompt.count(
                 "<TOOLS_RESULTS>"
@@ -484,7 +469,7 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
         )
         self.assertLess(
             prompt.index("</PREVIOUS_REASONING_CONTENT>"),
-            prompt.index("I identify myself as JIN"),
+            prompt.index("I identify as JIN"),
         )
 
     async def test_reasoning_loop_followup_keeps_loop_reasoning_rules_separate(self):
@@ -726,12 +711,9 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
             "<FOLLOWUP_TICK>",
             prompt,
         )
-        self.assertLess(
-            prompt.index("</CURRENT_REQUEST_FLOW>"),
-            prompt.index("<TOOLS_RESULTS>"),
-        )
-        self.assertIn("<ORIGINAL_USER_REQUEST", prompt)
-        self.assertIn("append the delayed memory", prompt)
+        self.assertNotIn("<CURRENT_REQUEST_ACTIONS_HISTORY>", prompt)
+        self.assertNotIn("<ORIGINAL_USER_REQUEST", prompt)
+        self.assertNotIn("append the delayed memory", prompt)
         self.assertIn(
             loaded_delayed_memory,
             prompt,
@@ -741,12 +723,8 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
             prompt,
         )
         self.assertLess(
-            prompt.index(
-                "<CURRENT_REQUEST_FLOW>"
-            ),
-            prompt.index(
-                loaded_delayed_memory
-            ),
+            prompt.index(loaded_delayed_memory),
+            prompt.index("system prompt"),
         )
 
     async def test_followup_deduplicates_loaded_delayed_memory_from_base_prompt(self):
@@ -871,12 +849,12 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
             )
 
         self.assertIn("turn_000002", context.runtime_action_sequence_turn_ids)
-        self.assertIn("<CURRENT_REQUEST_FLOW>", prompt)
-        self.assertIn("first list skills, then append one", prompt)
-        self.assertIn("action_1: LIST_SKILLS ( 55s ago )", prompt)
-        self.assertIn("action_2: LOAD_SKILL ( 2s ago )", prompt)
+        self.assertIn("<CURRENT_REQUEST_ACTIONS_HISTORY>", prompt)
+        self.assertNotIn("first list skills, then append one", prompt)
+        self.assertIn("1. LIST_SKILLS ( 55s ago )", prompt)
+        self.assertIn("2. LOAD_SKILL ( 2s ago )", prompt)
         self.assertLess(
-            prompt.index("</CURRENT_REQUEST_FLOW>"),
+            prompt.index("</CURRENT_REQUEST_ACTIONS_HISTORY>"),
             prompt.index("<TOOLS_RESULTS>"),
         )
         self.assertNotIn("<PREVIOUS_CHAT_MESSAGES>", prompt)
@@ -922,7 +900,7 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
             return_value=_brain_runtime(),
         ), patch(
             "agent.nodes.brain.build_brain_context",
-            return_value="system prompt",
+            side_effect=build_brain_context,
         ), patch(
             "agent.nodes.brain.build_brain_payload",
             return_value="brain payload",
@@ -974,7 +952,7 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
             return_value=_brain_runtime(),
         ), patch(
             "agent.nodes.brain.build_brain_context",
-            return_value="system prompt",
+            side_effect=build_brain_context,
         ), patch(
             "agent.nodes.brain.build_brain_payload",
             return_value="brain payload",
@@ -1053,7 +1031,7 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
             return_value=brain_runtime,
         ), patch(
             "agent.nodes.brain.build_brain_context",
-            return_value="system prompt",
+            side_effect=build_brain_context,
         ), patch(
             "agent.nodes.brain.build_brain_payload",
             return_value="brain payload",
@@ -1117,7 +1095,11 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
                 "",
             )
             self.assertIn(
-                "list_skills",
+                'name="ASSETS"',
+                kwargs["system_prompt"],
+            )
+            self.assertIn(
+                "chunk_reader",
                 kwargs["system_prompt"],
             )
             return "Follow-up continued.", ""
@@ -1133,7 +1115,7 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
             return_value=_brain_runtime(),
         ), patch(
             "agent.nodes.brain.build_brain_context",
-            return_value="system prompt",
+            side_effect=build_brain_context,
         ), patch(
             "agent.nodes.brain.build_brain_payload",
             return_value="brain payload",
@@ -1177,13 +1159,9 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
                 kwargs["brain_payload"],
                 "",
             )
-            self.assertIn("<ORIGINAL_USER_REQUEST", kwargs["system_prompt"])
-            self.assertIn("что на скриншоте?", kwargs["system_prompt"])
-            self.assertIn("Attached context:", kwargs["system_prompt"])
-            self.assertIn(
-                "- screen.png: image, image/png, 462.8 KB",
-                kwargs["system_prompt"],
-            )
+            self.assertNotIn("<ORIGINAL_USER_REQUEST", kwargs["system_prompt"])
+            self.assertNotIn("что на скриншоте?", kwargs["system_prompt"])
+            self.assertNotIn("Attached context:", kwargs["system_prompt"])
             self.assertNotIn(
                 "runtime_attachment",
                 kwargs["system_prompt"],
@@ -1208,7 +1186,7 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
             return_value=_brain_runtime(),
         ), patch(
             "agent.nodes.brain.build_brain_context",
-            return_value="system prompt",
+            side_effect=build_brain_context,
         ), patch(
             "agent.nodes.brain.build_brain_payload",
             return_value="brain payload",
@@ -1412,7 +1390,7 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
                     self,
                     kwargs,
                     state.user_input,
-                    "save_delayed_memory",
+                    "CONDITIONS: Simulation step 2/5",
                 )
                 self.assertIn(
                     "Delayed memory report was not saved",
@@ -1528,7 +1506,7 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
             return_value=brain_runtime,
         ), patch(
             "agent.nodes.brain.build_brain_context",
-            return_value="system prompt",
+            side_effect=build_brain_context,
         ), patch(
             "agent.nodes.brain.emit_active_memory_records_update_if_dirty",
             new=lambda _context: _async_noop(),
@@ -1614,7 +1592,7 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
             return_value=brain_runtime,
         ), patch(
             "agent.nodes.brain.build_brain_context",
-            return_value="system prompt",
+            side_effect=build_brain_context,
         ), patch(
             "agent.nodes.brain.emit_active_memory_records_update_if_dirty",
             new=lambda _context: _async_noop(),
@@ -1699,7 +1677,7 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
             return_value=brain_runtime,
         ), patch(
             "agent.nodes.brain.build_brain_context",
-            return_value="system prompt",
+            side_effect=build_brain_context,
         ), patch(
             "agent.nodes.brain.emit_active_memory_records_update_if_dirty",
             new=lambda _context: _async_noop(),
@@ -1778,7 +1756,7 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
             return_value=brain_runtime,
         ), patch(
             "agent.nodes.brain.build_brain_context",
-            return_value="system prompt",
+            side_effect=build_brain_context,
         ), patch(
             "agent.nodes.brain.emit_active_memory_records_update_if_dirty",
             new=lambda _context: _async_noop(),
@@ -1877,7 +1855,7 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
             return_value=_brain_runtime(),
         ), patch(
             "agent.nodes.brain.build_brain_context",
-            return_value="system prompt",
+            side_effect=build_brain_context,
         ), patch(
             "agent.nodes.brain.build_brain_payload",
             return_value="brain payload",
@@ -2098,9 +2076,6 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
                     kwargs["runtime_actions"].get("CAN_SAVE_DELAYED_MEMORY"),
                 )
                 self.assertTrue(
-                    kwargs["runtime_actions"].get("CAN_SAVE_SESSION"),
-                )
-                self.assertTrue(
                     kwargs["runtime_actions"].get("CAN_USE_ASSETS"),
                 )
                 self.assertTrue(
@@ -2129,7 +2104,7 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
                     self,
                     kwargs,
                     state.user_input,
-                    "create_wildcard_file",
+                    "assets/wildcards/clothing/test_bottoms.txt",
                 )
                 self.assertNotIn(
                     "assets/wildcards/clothing/test_bottoms.txt",
@@ -2157,7 +2132,7 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
             return_value=brain_runtime,
         ), patch(
             "agent.nodes.brain.build_brain_context",
-            return_value="system prompt",
+            side_effect=build_brain_context,
         ), patch(
             "agent.nodes.brain.build_brain_payload",
             return_value="brain payload",
@@ -2252,7 +2227,7 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
             return_value=brain_runtime,
         ), patch(
             "agent.nodes.brain.build_brain_context",
-            return_value="system prompt",
+            side_effect=build_brain_context,
         ), patch(
             "agent.nodes.brain.build_brain_payload",
             return_value="brain payload",
@@ -2327,7 +2302,7 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
             return_value=brain_runtime,
         ), patch(
             "agent.nodes.brain.build_brain_context",
-            return_value="system prompt",
+            side_effect=build_brain_context,
         ), patch(
             "agent.nodes.brain.build_brain_payload",
             return_value="brain payload",
@@ -2477,7 +2452,7 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
                     return_value=_brain_runtime(),
                 ), patch(
                     "agent.nodes.brain.build_brain_context",
-                    return_value="system prompt",
+                    side_effect=build_brain_context,
                 ), patch(
                     "agent.nodes.brain.build_brain_payload",
                     return_value="brain payload",
@@ -2626,7 +2601,7 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
                     self,
                     kwargs,
                     state.user_input,
-                    "create_wildcard_file",
+                    "assets/wildcards/clothing/shoes.txt",
                 )
                 self.assertNotIn(
                     "assets/wildcards/clothing/shoes.txt",
@@ -2654,7 +2629,7 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
                     self,
                     kwargs,
                     state.user_input,
-                    "generate_prompt_batch",
+                    "assets/prompts/test_prompts.txt",
                 )
                 self.assertNotIn(
                     "assets/prompts/test_prompts.txt",
@@ -2685,7 +2660,7 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
             return_value=brain_runtime,
         ), patch(
             "agent.nodes.brain.build_brain_context",
-            return_value="system prompt",
+            side_effect=build_brain_context,
         ), patch(
             "agent.nodes.brain.build_brain_payload",
             return_value="brain payload",
@@ -2787,7 +2762,7 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
                     self,
                     kwargs,
                     state.user_input,
-                    "generate_prompt_batch",
+                    "assets/prompts/test_prompts.txt",
                 )
                 self.assertNotIn(
                     "assets/prompts/test_prompts.txt",
@@ -2818,7 +2793,7 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
             return_value=brain_runtime,
         ), patch(
             "agent.nodes.brain.build_brain_context",
-            return_value="system prompt",
+            side_effect=build_brain_context,
         ), patch(
             "agent.nodes.brain.build_brain_payload",
             return_value="brain payload",
@@ -2881,7 +2856,7 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
             return_value=_brain_runtime(),
         ), patch(
             "agent.nodes.brain.build_brain_context",
-            return_value="system prompt",
+            side_effect=build_brain_context,
         ), patch(
             "agent.nodes.brain.build_brain_payload",
             return_value="brain payload",
@@ -2928,7 +2903,7 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
             return_value=_brain_runtime(),
         ), patch(
             "agent.nodes.brain.build_brain_context",
-            return_value="system prompt",
+            side_effect=build_brain_context,
         ), patch(
             "agent.nodes.brain.build_brain_payload",
             return_value="brain payload",
@@ -3019,7 +2994,7 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
             return_value=_brain_runtime(),
         ), patch(
             "agent.nodes.brain.build_brain_context",
-            return_value="system prompt",
+            side_effect=build_brain_context,
         ), patch(
             "agent.nodes.brain.build_brain_payload",
             return_value="brain payload",
@@ -3085,7 +3060,7 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
             return_value=brain_runtime,
         ), patch(
             "agent.nodes.brain.build_brain_context",
-            return_value="system prompt",
+            side_effect=build_brain_context,
         ), patch(
             "agent.nodes.brain.build_brain_payload",
             return_value="brain payload",
@@ -3105,18 +3080,6 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(
             len(calls),
             4,
-        )
-        self.assertIn(
-            'LOAD_SKILL',
-            calls[1]["system_prompt"],
-        )
-        self.assertIn(
-            'LIST_SKILLS',
-            calls[2]["system_prompt"],
-        )
-        self.assertIn(
-            'LIST_FILES',
-            calls[3]["system_prompt"],
         )
         for call in calls[1:]:
             self.assertEqual(
@@ -3154,14 +3117,6 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
                 ])
                 return "", ""
 
-            self.assertIn(
-                'LOAD_SKILL',
-                kwargs["system_prompt"],
-            )
-            self.assertIn(
-                'DELETE_ACTIVE_MEMORY',
-                kwargs["system_prompt"],
-            )
             self.assertNotIn(
                 'payload=',
                 kwargs["system_prompt"],
@@ -3191,7 +3146,7 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
             return_value=brain_runtime,
         ), patch(
             "agent.nodes.brain.build_brain_context",
-            return_value="system prompt",
+            side_effect=build_brain_context,
         ), patch(
             "agent.nodes.brain.build_brain_payload",
             return_value="brain payload",
@@ -3252,7 +3207,7 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
             return_value=_brain_runtime(),
         ), patch(
             "agent.nodes.brain.build_brain_context",
-            return_value="system prompt",
+            side_effect=build_brain_context,
         ), patch(
             "agent.nodes.brain.build_brain_payload",
             return_value="brain payload",
@@ -3328,7 +3283,7 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
             return_value=_brain_runtime(),
         ), patch(
             "agent.nodes.brain.build_brain_context",
-            return_value="system prompt",
+            side_effect=build_brain_context,
         ), patch(
             "agent.nodes.brain.build_brain_payload",
             return_value="brain payload",
@@ -3412,17 +3367,13 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
                 "<FOLLOWUP_LIMIT_REACHED>",
                 kwargs["system_prompt"],
             )
-            self.assertLess(
-                kwargs["system_prompt"].index(
-                    "<FOLLOWUP_LIMIT_REACHED>"
-                ),
-                kwargs["system_prompt"].index(
-                    "<CURRENT_REQUEST_FLOW>"
-                ),
+            self.assertNotIn(
+                "<CURRENT_REQUEST_FLOW>",
+                kwargs["system_prompt"],
             )
             self.assertLess(
                 kwargs["system_prompt"].index(
-                    "<CURRENT_REQUEST_FLOW>"
+                    "<FOLLOWUP_LIMIT_REACHED>"
                 ),
                 kwargs["system_prompt"].index(
                     "<TOOLS_RESULTS>"
@@ -3445,7 +3396,7 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
             return_value=brain_runtime,
         ), patch(
             "agent.nodes.brain.build_brain_context",
-            return_value="system prompt",
+            side_effect=build_brain_context,
         ), patch(
             "agent.nodes.brain.build_brain_payload",
             return_value="brain payload",

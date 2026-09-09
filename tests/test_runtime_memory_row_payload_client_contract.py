@@ -100,10 +100,6 @@ class RuntimeMemoryRowPayloadClientContractTests(unittest.TestCase):
             source,
         )
 
-    def test_memory_view_cache_key_is_bumped_for_row_payload_cleanup(self):
-        source = INDEX_HTML.read_text(encoding="utf-8")
-
-        self.assertIn("row-payload=1", source)
 
 
 if __name__ == "__main__":

@@ -44,14 +44,6 @@ class DelayedMemoryPinnedGlowClientContractTests(unittest.TestCase):
         self.assertIn('"delayed-memory-modal-icon-button delayed-memory-modal-close"', session_source)
         self.assertIn('"delayed-memory-modal-icon-button delayed-memory-modal-close shrink-0"', attachments_source)
 
-    def test_cache_versions_are_bumped(self):
-        source = INDEX_HTML.read_text(encoding="utf-8")
-
-        self.assertIn("/static/css/runtime-memory.css?v=delayed-collapsible-cards-2", source)
-        self.assertIn("/static/js/runtime/runtime.js?v=facts-memory-server-sync-1", source)
-        self.assertIn("/static/js/chat-attachments.js?v=attached-files-3-attachment-modal-id-1", source)
-        self.assertIn("/static/js/logger/trace-modal.js?v=context-session-actions-1", source)
-        self.assertIn("/static/js/logger/session-actions.js?v=logger-session-actions-13", source)
 
 
 if __name__ == "__main__":

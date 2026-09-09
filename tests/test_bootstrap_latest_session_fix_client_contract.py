@@ -32,7 +32,7 @@ class BootstrapLatestSessionFixClientContractTests(unittest.TestCase):
         source = RUNTIME_SESSION_JS.read_text(encoding="utf-8")
         persist_start = source.index("function persistLiveSessionCheckpoint(data)")
         persist_end = source.index(
-            "function clearPersistedToolResultsCheckpoint()",
+            "function clearPersistedToolResultsCheckpoint(",
             persist_start,
         )
         persist = source[persist_start:persist_end]

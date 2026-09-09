@@ -251,15 +251,15 @@ if (!brainElement.innerHTML.includes("jin-chat-jin-reaction-anchor")) {
         source = INDEX_HTML.read_text(encoding="utf-8")
 
         self.assertIn(
-            '/static/css/chat-reactions.css?v=jin-reaction-2',
+            '/static/css/chat-reactions.css',
             source,
         )
         self.assertIn(
-            '/static/js/chat-reactions.js?v=jin-reaction-2',
+            '/static/js/chat-reactions.js',
             source,
         )
         self.assertIn(
-            '/static/js/chat-response-formatter.js?v=jin-size-1&jin-reaction=1',
+            '/static/js/chat-response-formatter.js',
             source,
         )
 

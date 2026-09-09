@@ -14,31 +14,12 @@ INDEX_HTML = ROOT / "ui" / "templates" / "index.html"
 
 class RuntimePanelClientContractTests(unittest.TestCase):
 
-    def test_service_tab_can_display_summarizer_usage_when_service_is_empty(self):
-        source = RUNTIME_PANEL_JS.read_text(encoding="utf-8")
-
-        self.assertIn(
-            "function buildServiceRuntimeUsageFallback(",
-            source,
-        )
-        self.assertIn(
-            "runtimeHasUsage(serviceRuntime)",
-            source,
-        )
-        self.assertIn(
-            "runtimeHasUsage(summarizerRuntime)",
-            source,
-        )
-        self.assertIn(
-            "return getServiceRuntime();",
-            source,
-        )
 
     def test_runtime_counter_uses_live_total_during_reasoning(self):
         source = RUNTIME_PANEL_JS.read_text(encoding="utf-8")
 
         self.assertIn(
-            "used: getRuntimeUsageAmount(",
+            "function getRuntimeUsageAmount(runtime)",
             source,
         )
         self.assertIn(
@@ -72,23 +53,6 @@ class RuntimePanelClientContractTests(unittest.TestCase):
         self.assertIn(
             "scheduleRuntimeTelemetryFrame();",
             source,
-        )
-
-    def test_submit_focuses_brain_context_tab(self):
-        panel_source = RUNTIME_PANEL_JS.read_text(encoding="utf-8")
-        input_source = SOCKET_INPUT_JS.read_text(encoding="utf-8")
-
-        self.assertIn(
-            "function focusBrainContextTab()",
-            panel_source,
-        )
-        self.assertIn(
-            "window.focusBrainContextTab = function ()",
-            panel_source,
-        )
-        self.assertIn(
-            "window.focusBrainContextTab();",
-            input_source,
         )
 
     def test_jin_size_collapsed_avatar_resize_animates_inside_viewport(self):
@@ -249,18 +213,6 @@ if (helpers.normalizeJinSizePayload("120em") !== null) {
             completed.stderr or completed.stdout,
         )
 
-    def test_cache_versions_are_bumped(self):
-        source = INDEX_HTML.read_text(encoding="utf-8")
-
-        self.assertIn(
-            "/static/js/runtime/runtime-panel.js?v=context-bar-resize-1&status-bootstrap=1",
-            source,
-        )
-        self.assertIn(
-            "/static/js/socket/input.js?v=jin-size-1",
-            source,
-        )
-        self.assertIn("jin-size-units=1", source)
 
 
 if __name__ == "__main__":

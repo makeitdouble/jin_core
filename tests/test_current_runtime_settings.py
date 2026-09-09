@@ -84,7 +84,7 @@ class CurrentRuntimeSettingsTests(unittest.TestCase):
         self.assertTrue(
             prompt.startswith(
                 settings_prefix
-                + "<CONVERSATION_CONTINUE_RULES>\n"
+                + "<RESTORED_SESSION_INSTRUCTIONS>\n"
             )
         )
         restore_lines = prompt[len(settings_prefix):].splitlines()[:3]
@@ -119,7 +119,7 @@ class CurrentRuntimeSettingsTests(unittest.TestCase):
         prefix_lines = prompt.splitlines()[:3]
         self.assertEqual(
             prefix_lines[0],
-            "<CONVERSATION_CONTINUE_RULES>",
+            "<RESTORED_SESSION_INSTRUCTIONS>",
         )
         self.assertEqual(
             prefix_lines[2],

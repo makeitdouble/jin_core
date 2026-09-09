@@ -57,8 +57,8 @@ class ChatReferenceIdsClientContractTests(unittest.TestCase):
 
     def test_reference_parser_is_loaded_before_chat_renderer(self):
         source = INDEX_HTML.read_text(encoding="utf-8")
-        reference_script = '/static/js/chat-reference-ids.js?v=reference-ids-2'
-        chat_script = '/static/js/chat.js?v='
+        reference_script = '/static/js/chat-reference-ids.js'
+        chat_script = '/static/js/chat.js'
 
         self.assertIn(reference_script, source)
         self.assertLess(source.index(reference_script), source.index(chat_script))

@@ -98,32 +98,6 @@ for (const [input, expected] of cases) {
             completed.stderr or completed.stdout,
         )
 
-    def test_chat_script_cache_version_is_bumped(self):
-        source = INDEX_HTML.read_text(encoding="utf-8")
-
-        self.assertIn(
-            '/static/js/chat.js?v=',
-            source,
-        )
-
-        for script_path in (
-            '/static/js/runtime/runtime-storage.js?',
-            '/static/js/runtime/runtime.js?',
-            '/static/js/chat-runtime-actions.js?',
-            '/static/js/socket/runtime-actions.js?',
-        ):
-            matching_line = next(
-                (
-                    line
-                    for line in source.splitlines()
-                    if script_path in line
-                ),
-                "",
-            )
-            self.assertIn(
-                'active-memory-state=1',
-                matching_line,
-            )
 
 
     def test_deep_search_stack_opens_by_first_child_click_and_closes_outside(self):

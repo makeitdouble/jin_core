@@ -627,7 +627,7 @@ class RuntimeAssetActionTests(RuntimeActionTestCase):
                 )
                 self.assertEqual(
                     context.runtime_session_action_history[0]["text"],
-                    "Created wildcard file - assets/wildcards/clothing/test_tops.txt",
+                    "Created wildcard file - assets/wildcards/clothing/test_tops.txt [ tool_id: T1 ]",
                 )
                 self.assertIsInstance(
                     context.runtime_session_action_history[0]["created_at"],

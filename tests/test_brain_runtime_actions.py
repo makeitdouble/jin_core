@@ -29,7 +29,6 @@ from app_settings import (
 )
 from rules.brain_context_builder import (
     BRAIN_RUNTIME_ACTIONS,
-    SERVICE_AS_BRAIN_RUNTIME_ACTIONS,
 )
 from rules import runtime as runtime_rules
 from contracts.rules_assembler import (
@@ -111,6 +110,11 @@ def expected_enabled_runtime_actions(runtime_actions: dict) -> tuple[str, ...]:
         expected_actions.append(
             "UPDATE_LT_FACTS"
         )
+
+    for flag, action in (("CAN_RECALL_FACT_CONTEXT", "RECALL_FACT_CONTEXT"),
+                         ("CAN_CHAT_LOG_SEARCH", "CHAT_LOG_SEARCH")):
+        if runtime_actions.get(flag, False):
+            expected_actions.append(action)
 
     if bool(runtime_actions.get("CAN_USE_ASSETS", False)):
         expected_actions.extend(
@@ -208,19 +212,14 @@ class BrainRuntimeActionTests(unittest.TestCase):
             emitter=emitter,
         )
         applied = []
-        original_use_service_as_brain = config.USE_SERVICE_AS_BRAIN
-        config.USE_SERVICE_AS_BRAIN = False
 
-        try:
-            with patch(
-                "clients.brain_client.apply_runtime_action_calls",
-                new=fake_apply_runtime_action_calls,
-            ):
-                chunks = asyncio.run(
-                    collect(context)
-                )
-        finally:
-            config.USE_SERVICE_AS_BRAIN = original_use_service_as_brain
+        with patch(
+            "clients.brain_client.apply_runtime_action_calls",
+            new=fake_apply_runtime_action_calls,
+        ):
+            chunks = asyncio.run(
+                collect(context)
+            )
 
         started = [
             event
@@ -316,19 +315,14 @@ class BrainRuntimeActionTests(unittest.TestCase):
             emitter=emitter,
         )
         applied = []
-        original_use_service_as_brain = config.USE_SERVICE_AS_BRAIN
-        config.USE_SERVICE_AS_BRAIN = False
 
-        try:
-            with patch(
-                "clients.brain_client.apply_runtime_action_calls",
-                new=fake_apply_runtime_action_calls,
-            ):
-                chunks = asyncio.run(
-                    collect(context)
-                )
-        finally:
-            config.USE_SERVICE_AS_BRAIN = original_use_service_as_brain
+        with patch(
+            "clients.brain_client.apply_runtime_action_calls",
+            new=fake_apply_runtime_action_calls,
+        ):
+            chunks = asyncio.run(
+                collect(context)
+            )
 
         lifecycle = [
             event
@@ -411,17 +405,12 @@ class BrainRuntimeActionTests(unittest.TestCase):
         emitter = FakeEmitter()
         context = SimpleNamespace(emitter=emitter)
         applied = []
-        original_use_service_as_brain = config.USE_SERVICE_AS_BRAIN
-        config.USE_SERVICE_AS_BRAIN = False
 
-        try:
-            with patch(
-                "clients.brain_client.apply_runtime_action_calls",
-                new=fake_apply_runtime_action_calls,
-            ):
-                asyncio.run(collect(context))
-        finally:
-            config.USE_SERVICE_AS_BRAIN = original_use_service_as_brain
+        with patch(
+            "clients.brain_client.apply_runtime_action_calls",
+            new=fake_apply_runtime_action_calls,
+        ):
+            asyncio.run(collect(context))
 
         lifecycle = [
             event
@@ -450,22 +439,20 @@ class BrainRuntimeActionTests(unittest.TestCase):
             ],
         )
 
-        original_use_service_as_brain = config.USE_SERVICE_AS_BRAIN
         original_service_image_input = getattr(
             config,
-            "SERVICE_IMAGE_INPUT_ENABLED",
+            "BRAIN_IMAGE_INPUT_ENABLED",
             None,
         )
 
         try:
-            config.USE_SERVICE_AS_BRAIN = True
             if hasattr(
                 config,
-                "SERVICE_IMAGE_INPUT_ENABLED",
+                "BRAIN_IMAGE_INPUT_ENABLED",
             ):
                 delattr(
                     config,
-                    "SERVICE_IMAGE_INPUT_ENABLED",
+                    "BRAIN_IMAGE_INPUT_ENABLED",
                 )
 
             prompt = build_brain_user_prompt_content(
@@ -473,9 +460,8 @@ class BrainRuntimeActionTests(unittest.TestCase):
                 context=context,
             )
         finally:
-            config.USE_SERVICE_AS_BRAIN = original_use_service_as_brain
             if original_service_image_input is not None:
-                config.SERVICE_IMAGE_INPUT_ENABLED = original_service_image_input
+                config.BRAIN_IMAGE_INPUT_ENABLED = original_service_image_input
 
         self.assertEqual(
             prompt,
@@ -494,30 +480,27 @@ class BrainRuntimeActionTests(unittest.TestCase):
             ],
         )
 
-        original_use_service_as_brain = config.USE_SERVICE_AS_BRAIN
         original_service_image_input = getattr(
             config,
-            "SERVICE_IMAGE_INPUT_ENABLED",
+            "BRAIN_IMAGE_INPUT_ENABLED",
             None,
         )
 
         try:
-            config.USE_SERVICE_AS_BRAIN = True
-            config.SERVICE_IMAGE_INPUT_ENABLED = True
+            config.BRAIN_IMAGE_INPUT_ENABLED = True
 
             prompt = build_brain_user_prompt_content(
                 "look",
                 context=context,
             )
         finally:
-            config.USE_SERVICE_AS_BRAIN = original_use_service_as_brain
             if original_service_image_input is None:
                 delattr(
                     config,
-                    "SERVICE_IMAGE_INPUT_ENABLED",
+                    "BRAIN_IMAGE_INPUT_ENABLED",
                 )
             else:
-                config.SERVICE_IMAGE_INPUT_ENABLED = original_service_image_input
+                config.BRAIN_IMAGE_INPUT_ENABLED = original_service_image_input
 
         self.assertEqual(
             prompt,
@@ -547,30 +530,27 @@ class BrainRuntimeActionTests(unittest.TestCase):
             ],
         )
 
-        original_use_service_as_brain = config.USE_SERVICE_AS_BRAIN
         original_service_image_input = getattr(
             config,
-            "SERVICE_IMAGE_INPUT_ENABLED",
+            "BRAIN_IMAGE_INPUT_ENABLED",
             None,
         )
 
         try:
-            config.USE_SERVICE_AS_BRAIN = True
-            config.SERVICE_IMAGE_INPUT_ENABLED = True
+            config.BRAIN_IMAGE_INPUT_ENABLED = True
 
             prompt = build_brain_user_prompt_content(
                 "",
                 context=context,
             )
         finally:
-            config.USE_SERVICE_AS_BRAIN = original_use_service_as_brain
             if original_service_image_input is None:
                 delattr(
                     config,
-                    "SERVICE_IMAGE_INPUT_ENABLED",
+                    "BRAIN_IMAGE_INPUT_ENABLED",
                 )
             else:
-                config.SERVICE_IMAGE_INPUT_ENABLED = original_service_image_input
+                config.BRAIN_IMAGE_INPUT_ENABLED = original_service_image_input
 
         self.assertEqual(
             prompt,
@@ -647,22 +627,17 @@ class BrainRuntimeActionTests(unittest.TestCase):
             pass
 
         context = Context()
-        original_use_service_as_brain = config.USE_SERVICE_AS_BRAIN
-        config.USE_SERVICE_AS_BRAIN = False
 
-        try:
-            answer = asyncio.run(
-                ask_brain(
-                    client=FakeBrainClient(),
-                    text="how does delayed memory marker look?",
-                    context=context,
-                    runtime_actions={
-                        "CAN_SAVE_DELAYED_MEMORY": True,
-                    },
-                )
+        answer = asyncio.run(
+            ask_brain(
+                client=FakeBrainClient(),
+                text="how does delayed memory marker look?",
+                context=context,
+                runtime_actions={
+                    "CAN_SAVE_DELAYED_MEMORY": True,
+                },
             )
-        finally:
-            config.USE_SERVICE_AS_BRAIN = original_use_service_as_brain
+        )
 
         self.assertEqual(
             answer,
@@ -705,18 +680,13 @@ class BrainRuntimeActionTests(unittest.TestCase):
 
         client = FakeBrainClient()
         context = Context()
-        original_use_service_as_brain = config.USE_SERVICE_AS_BRAIN
-        config.USE_SERVICE_AS_BRAIN = False
 
-        try:
-            chunks = asyncio.run(
-                collect(
-                    client,
-                    context,
-                )
+        chunks = asyncio.run(
+            collect(
+                client,
+                context,
             )
-        finally:
-            config.USE_SERVICE_AS_BRAIN = original_use_service_as_brain
+        )
 
         self.assertEqual(
             client.user_prompt,
@@ -780,18 +750,13 @@ class BrainRuntimeActionTests(unittest.TestCase):
             runtime_current_turn_id="turn-color-legacy-stream",
             logger=None,
         )
-        original_use_service_as_brain = config.USE_SERVICE_AS_BRAIN
-        config.USE_SERVICE_AS_BRAIN = False
 
-        try:
-            asyncio.run(
-                collect(context)
-            )
-            asyncio.run(
-                collect(context)
-            )
-        finally:
-            config.USE_SERVICE_AS_BRAIN = original_use_service_as_brain
+        asyncio.run(
+            collect(context)
+        )
+        asyncio.run(
+            collect(context)
+        )
 
         color_events = [
             event
@@ -856,15 +821,10 @@ class BrainRuntimeActionTests(unittest.TestCase):
             ]
 
         context = Context()
-        original_use_service_as_brain = config.USE_SERVICE_AS_BRAIN
-        config.USE_SERVICE_AS_BRAIN = False
 
-        try:
-            chunks = asyncio.run(
-                collect(context)
-            )
-        finally:
-            config.USE_SERVICE_AS_BRAIN = original_use_service_as_brain
+        chunks = asyncio.run(
+            collect(context)
+        )
 
         self.assertEqual(
             [
@@ -911,7 +871,7 @@ class BrainRuntimeActionTests(unittest.TestCase):
             [
                 (
                     "WEB_SEARCH - Latest astronomical news 2026, "
-                    "SAVE_ACTIVE_MEMORY - astronomical news tracker"
+                    "SAVE_ACTIVE_MEMORY - astronomical news tracker [ tool_id: T1 ]"
                 ),
             ],
         )
@@ -928,6 +888,7 @@ class BrainRuntimeActionTests(unittest.TestCase):
                     },
                     {
                         "text": "SAVE_ACTIVE_MEMORY",
+                        "tool_ids": ["T1"],
                         "detail": "astronomical news tracker",
                     },
                 ],
@@ -977,15 +938,10 @@ class BrainRuntimeActionTests(unittest.TestCase):
 
         context = Context()
         client = FakeBrainClient()
-        original_use_service_as_brain = config.USE_SERVICE_AS_BRAIN
-        config.USE_SERVICE_AS_BRAIN = False
 
-        try:
-            chunks = asyncio.run(
-                collect(client, context)
-            )
-        finally:
-            config.USE_SERVICE_AS_BRAIN = original_use_service_as_brain
+        chunks = asyncio.run(
+            collect(client, context)
+        )
 
         visible_text = "".join(
             chunk.get("content", "")
@@ -1172,13 +1128,8 @@ class BrainRuntimeActionTests(unittest.TestCase):
             ]
 
         context = Context()
-        original_use_service_as_brain = config.USE_SERVICE_AS_BRAIN
-        config.USE_SERVICE_AS_BRAIN = False
 
-        try:
-            asyncio.run(collect(context))
-        finally:
-            config.USE_SERVICE_AS_BRAIN = original_use_service_as_brain
+        asyncio.run(collect(context))
 
         self.assertEqual(
             [item["text"] for item in context.runtime_session_action_history],
@@ -1228,25 +1179,24 @@ class BrainRuntimeActionTests(unittest.TestCase):
             return chunks
 
         context = Context()
-        original_use_service_as_brain = config.USE_SERVICE_AS_BRAIN
-        config.USE_SERVICE_AS_BRAIN = False
 
-        try:
-            asyncio.run(
-                collect(
-                    context
-                )
+        asyncio.run(
+            collect(
+                context
             )
-        finally:
-            config.USE_SERVICE_AS_BRAIN = original_use_service_as_brain
+        )
 
         self.assertEqual(
-            context.runtime_action_events,
-            [
-                {
-                    "name": "clean_tool_results",
-                },
-            ],
+            len(context.runtime_action_events),
+            1,
+        )
+        self.assertEqual(
+            context.runtime_action_events[0]["name"],
+            "clean_tool_results",
+        )
+        self.assertEqual(
+            context.runtime_action_events[0].get("status"),
+            "completed",
         )
         self.assertEqual(
             [
@@ -1673,7 +1623,7 @@ class BrainRuntimeActionTests(unittest.TestCase):
         )
         self.assertIn(
             (
-                "action_1: "
+                "1. "
                 f"{expected_text.replace(' - ', ': ', 1)}"
             ),
             build_session_actions_history_context(
@@ -1764,17 +1714,12 @@ class BrainRuntimeActionTests(unittest.TestCase):
         context = Context()
         context.runtime_current_turn_id = "turn-1"
         context.emitter = TrackingEmitter()
-        original_use_service_as_brain = config.USE_SERVICE_AS_BRAIN
-        config.USE_SERVICE_AS_BRAIN = False
 
-        try:
-            chunks = asyncio.run(
-                collect(
-                    context
-                )
+        chunks = asyncio.run(
+            collect(
+                context
             )
-        finally:
-            config.USE_SERVICE_AS_BRAIN = original_use_service_as_brain
+        )
 
         visible_text = "".join(
             chunk.get(
@@ -1796,6 +1741,7 @@ class BrainRuntimeActionTests(unittest.TestCase):
                     "name": "load_skill",
                     "runtime_turn_id": "turn-1",
                     "payload": "name of skill",
+                    "tool_id": "T1",
                 },
             ],
         )
@@ -1883,17 +1829,12 @@ class BrainRuntimeActionTests(unittest.TestCase):
         context.emitter = TrackingEmitter()
         context.runtime_current_turn_id = "turn-red-four"
         context.runtime_turn_started_at = 0
-        original_use_service_as_brain = config.USE_SERVICE_AS_BRAIN
-        config.USE_SERVICE_AS_BRAIN = False
 
-        try:
-            chunks = asyncio.run(
-                collect(
-                    context
-                )
+        chunks = asyncio.run(
+            collect(
+                context
             )
-        finally:
-            config.USE_SERVICE_AS_BRAIN = original_use_service_as_brain
+        )
 
         counted_events = [
             event
@@ -2009,17 +1950,12 @@ class BrainRuntimeActionTests(unittest.TestCase):
         context.emitter = TrackingEmitter()
         context.runtime_current_turn_id = "turn-red-five"
         context.runtime_turn_started_at = 0
-        original_use_service_as_brain = config.USE_SERVICE_AS_BRAIN
-        config.USE_SERVICE_AS_BRAIN = False
 
-        try:
-            asyncio.run(
-                collect(
-                    context
-                )
+        asyncio.run(
+            collect(
+                context
             )
-        finally:
-            config.USE_SERVICE_AS_BRAIN = original_use_service_as_brain
+        )
 
         interruption_events = [
             event
@@ -2107,17 +2043,12 @@ class BrainRuntimeActionTests(unittest.TestCase):
         context.active_memory_records = [
             context.runtime_memory,
         ]
-        original_use_service_as_brain = config.USE_SERVICE_AS_BRAIN
-        config.USE_SERVICE_AS_BRAIN = False
 
-        try:
-            chunks = asyncio.run(
-                collect(
-                    context
-                )
+        chunks = asyncio.run(
+            collect(
+                context
             )
-        finally:
-            config.USE_SERVICE_AS_BRAIN = original_use_service_as_brain
+        )
 
         self.assertEqual(
             chunks,
@@ -2144,6 +2075,7 @@ class BrainRuntimeActionTests(unittest.TestCase):
                     "name": "delete_active_memory",
                     "id": "5fdg4g",
                     "payload": "active_memory_id: 5fdg4g",
+                    "tool_id": "T1",
                 },
             ],
         )
@@ -2186,17 +2118,12 @@ class BrainRuntimeActionTests(unittest.TestCase):
             return chunks
 
         context = Context()
-        original_use_service_as_brain = config.USE_SERVICE_AS_BRAIN
-        config.USE_SERVICE_AS_BRAIN = False
 
-        try:
-            chunks = asyncio.run(
-                collect(
-                    context
-                )
+        chunks = asyncio.run(
+            collect(
+                context
             )
-        finally:
-            config.USE_SERVICE_AS_BRAIN = original_use_service_as_brain
+        )
 
         self.assertFalse(
             hasattr(
@@ -2218,179 +2145,8 @@ class BrainRuntimeActionTests(unittest.TestCase):
             chunks,
         )
 
-    def test_empty_asset_action_markers_stay_visible_without_runtime_bubble(self):
-
-        class FakeBrainClient:
-
-            def __init__(self, content):
-                self.content = content
-
-            async def stream(self, **_kwargs):
-                yield {
-                    "type": "content",
-                    "content": self.content,
-                }
-
-        class TrackingEmitter:
-
-            def __init__(self):
-                self.events = []
-
-            async def emit(self, event):
-                self.events.append(event)
-
-        class Context:
-            pass
-
-        async def collect(marker, context):
-            chunks = []
-
-            async for chunk in ask_brain_stream(
-                client=FakeBrainClient(marker),
-                text="test empty asset marker",
-                context=context,
-                system_prompt="system prompt",
-                brain_payload="brain payload",
-                runtime_actions={
-                    "CAN_USE_ASSETS": True,
-                },
-            ):
-                chunks.append(chunk)
-
-            return chunks
-
-        variants = (
-            "<ASSET_ACTION>",
-            "<ASSET_ACTION/>",
-            "<ASSET_ACTION></ASSET_ACTION>",
-            "</ASSET_ACTION>",
-        )
-        original_use_service_as_brain = config.USE_SERVICE_AS_BRAIN
-        config.USE_SERVICE_AS_BRAIN = False
-
-        try:
-            for marker in variants:
-                with self.subTest(marker=marker):
-                    context = Context()
-                    context.emitter = TrackingEmitter()
-                    chunks = asyncio.run(
-                        collect(marker, context)
-                    )
-                    visible_text = "".join(
-                        chunk.get("content", "")
-                        for chunk in chunks
-                        if chunk.get("type") == "content"
-                    )
-                    runtime_events = [
-                        event
-                        for event in context.emitter.events
-                        if event.get("type") == "runtime_action"
-                    ]
-
-                    self.assertEqual(
-                        visible_text,
-                        marker,
-                    )
-                    self.assertEqual(
-                        runtime_events,
-                        [],
-                    )
-        finally:
-            config.USE_SERVICE_AS_BRAIN = original_use_service_as_brain
 
 
-    def test_unclosed_asset_action_after_other_marker_stays_text_without_bubble(self):
-
-        class FakeBrainClient:
-
-            async def stream(self, **_kwargs):
-                yield {
-                    "type": "content",
-                    "content": "<CLEAN_TOOL_RESULTS>\n",
-                }
-                yield {
-                    "type": "content",
-                    "content": "<ASSET_ACTION>\n",
-                }
-                yield {
-                    "type": "content",
-                    "content": (
-                        "Продолжаем тест. Следующий маркер – "
-                        "ASSET_ACTION."
-                    ),
-                }
-
-        class TrackingEmitter:
-
-            def __init__(self):
-                self.events = []
-
-            async def emit(self, event):
-                self.events.append(event)
-
-        class Context:
-            pass
-
-        async def collect(context):
-            return [
-                chunk
-                async for chunk in ask_brain_stream(
-                    client=FakeBrainClient(),
-                    text="test marker sequence",
-                    context=context,
-                    system_prompt="system prompt",
-                    brain_payload="brain payload",
-                    runtime_actions={
-                        "CAN_CLEAN_TOOL_RESULTS": True,
-                        "CAN_USE_ASSETS": True,
-                    },
-                )
-            ]
-
-        context = Context()
-        context.emitter = TrackingEmitter()
-        original_use_service_as_brain = config.USE_SERVICE_AS_BRAIN
-        config.USE_SERVICE_AS_BRAIN = False
-
-        try:
-            chunks = asyncio.run(
-                collect(context)
-            )
-        finally:
-            config.USE_SERVICE_AS_BRAIN = original_use_service_as_brain
-
-        visible_text = "".join(
-            chunk.get("content", "")
-            for chunk in chunks
-            if chunk.get("type") == "content"
-        )
-        asset_events = [
-            event
-            for event in context.emitter.events
-            if event.get("action") == "asset_action"
-        ]
-
-        self.assertEqual(
-            asset_events,
-            [],
-        )
-        self.assertIn(
-            "<ASSET_ACTION>",
-            visible_text,
-        )
-        self.assertIn(
-            "Продолжаем тест.",
-            visible_text,
-        )
-        self.assertEqual(
-            [
-                event.get("name")
-                for event in context.runtime_action_events
-            ],
-            [
-                "clean_tool_results",
-            ],
-        )
 
 
     def test_non_followup_delayed_memory_action_keeps_visible_text(self):
@@ -2463,15 +2219,10 @@ class BrainRuntimeActionTests(unittest.TestCase):
         context.runtime_tool_results_turn_count = 1
         context.runtime_tool_results_generation = 0
 
-        original_use_service_as_brain = config.USE_SERVICE_AS_BRAIN
-        config.USE_SERVICE_AS_BRAIN = False
 
-        try:
-            chunks = asyncio.run(
-                collect(context)
-            )
-        finally:
-            config.USE_SERVICE_AS_BRAIN = original_use_service_as_brain
+        chunks = asyncio.run(
+            collect(context)
+        )
 
         visible_text = "".join(
             chunk.get("content", "")
@@ -2537,60 +2288,55 @@ class BrainRuntimeActionTests(unittest.TestCase):
 
             return chunks
 
-        original_use_service_as_brain = config.USE_SERVICE_AS_BRAIN
-        config.USE_SERVICE_AS_BRAIN = False
 
-        try:
-            with tempfile.TemporaryDirectory() as temp_dir:
-                root = Path(temp_dir)
-                with contextlib.ExitStack() as stack:
-                    for patcher in patch_asset_roots(root):
-                        stack.enter_context(patcher)
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            with contextlib.ExitStack() as stack:
+                for patcher in patch_asset_roots(root):
+                    stack.enter_context(patcher)
 
-                    context = Context()
+                context = Context()
 
-                    chunks = asyncio.run(
-                        collect(
-                            context
-                        )
+                chunks = asyncio.run(
+                    collect(
+                        context
                     )
+                )
 
-                    visible_text = "".join(
-                        chunk.get(
-                            "content",
-                            "",
-                        )
-                        for chunk in chunks
-                        if chunk.get("type") == "content"
+                visible_text = "".join(
+                    chunk.get(
+                        "content",
+                        "",
                     )
+                    for chunk in chunks
+                    if chunk.get("type") == "content"
+                )
 
-                    self.assertEqual(
-                        visible_text,
-                        "This should remain visible.",
-                    )
-                    self.assertNotIn(
-                        "ASSET_ACTION",
-                        visible_text,
-                    )
-                    self.assertEqual(
-                        context.runtime_action_events[0]["name"],
-                        "asset_action",
-                    )
-                    self.assertEqual(
-                        context.runtime_asset_results[0]["action"],
-                        "create_wildcard_file",
-                    )
-                    self.assertTrue(
-                        (
-                            root
-                            / "assets"
-                            / "wildcards"
-                            / "clothing"
-                            / "shoes.txt"
-                        ).exists()
-                    )
-        finally:
-            config.USE_SERVICE_AS_BRAIN = original_use_service_as_brain
+                self.assertEqual(
+                    visible_text,
+                    "This should remain visible.",
+                )
+                self.assertNotIn(
+                    "ASSET_ACTION",
+                    visible_text,
+                )
+                self.assertEqual(
+                    context.runtime_action_events[0]["name"],
+                    "asset_action",
+                )
+                self.assertEqual(
+                    context.runtime_asset_results[0]["action"],
+                    "create_wildcard_file",
+                )
+                self.assertTrue(
+                    (
+                        root
+                        / "assets"
+                        / "wildcards"
+                        / "clothing"
+                        / "shoes.txt"
+                    ).exists()
+                )
 
     def test_split_stream_asset_action_starts_chat_bubble_on_opening_tag(self):
 
@@ -2640,117 +2386,112 @@ class BrainRuntimeActionTests(unittest.TestCase):
 
             return chunks
 
-        original_use_service_as_brain = config.USE_SERVICE_AS_BRAIN
-        config.USE_SERVICE_AS_BRAIN = False
 
-        try:
-            with tempfile.TemporaryDirectory() as temp_dir:
-                root = Path(temp_dir)
-                output_path = (
-                    root
-                    / "assets"
-                    / "outputs"
-                    / "rain_simulator.py"
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            output_path = (
+                root
+                / "assets"
+                / "outputs"
+                / "rain_simulator.py"
+            )
+
+            class TrackingEmitter:
+                def __init__(self):
+                    self.events = []
+
+                async def emit(self, event):
+                    self.events.append({
+                        **event,
+                        "file_exists_at_emit": output_path.exists(),
+                    })
+
+            with contextlib.ExitStack() as stack:
+                for patcher in patch_asset_roots(root):
+                    stack.enter_context(patcher)
+
+                context = Context()
+                context.emitter = TrackingEmitter()
+
+                chunks = asyncio.run(
+                    collect(
+                        context
+                    )
                 )
 
-                class TrackingEmitter:
-                    def __init__(self):
-                        self.events = []
-
-                    async def emit(self, event):
-                        self.events.append({
-                            **event,
-                            "file_exists_at_emit": output_path.exists(),
-                        })
-
-                with contextlib.ExitStack() as stack:
-                    for patcher in patch_asset_roots(root):
-                        stack.enter_context(patcher)
-
-                    context = Context()
-                    context.emitter = TrackingEmitter()
-
-                    chunks = asyncio.run(
-                        collect(
-                            context
-                        )
+                visible_text = "".join(
+                    chunk.get(
+                        "content",
+                        "",
                     )
+                    for chunk in chunks
+                    if chunk.get("type") == "content"
+                )
+                runtime_events = [
+                    event
+                    for event in context.emitter.events
+                    if event.get("type") == "runtime_action"
+                ]
 
-                    visible_text = "".join(
-                        chunk.get(
-                            "content",
-                            "",
-                        )
-                        for chunk in chunks
-                        if chunk.get("type") == "content"
-                    )
-                    runtime_events = [
-                        event
-                        for event in context.emitter.events
-                        if event.get("type") == "runtime_action"
-                    ]
-
-                    self.assertEqual(
-                        visible_text,
-                        "This should remain visible.",
-                    )
-                    self.assertEqual(
-                        [
-                            event.get("status")
-                            for event in runtime_events
-                        ],
-                        [
-                            "started",
-                            "counted",
-                            "started",
-                            "completed",
-                            "counter_final",
-                        ],
-                    )
-                    lifecycle_events = [
-                        event
+                self.assertEqual(
+                    visible_text,
+                    "This should remain visible.",
+                )
+                self.assertEqual(
+                    [
+                        event.get("status")
                         for event in runtime_events
-                        if not event.get("counter_only")
-                    ]
-                    self.assertEqual(
-                        len({
-                            event.get("id")
-                            for event in lifecycle_events
-                        }),
-                        1,
-                    )
-                    self.assertEqual(
-                        runtime_events[0]["text"],
-                        "ASSET_ACTION",
-                    )
-                    self.assertTrue(
-                        runtime_events[0]["close_tag"],
-                    )
-                    self.assertFalse(
-                        runtime_events[0]["file_exists_at_emit"],
-                    )
-                    self.assertEqual(
-                        lifecycle_events[1]["text"],
-                        (
-                            "ASSET_ACTION: create_asset_file - "
-                            "assets/outputs/rain_simulator.py"
-                        ),
-                    )
-                    self.assertEqual(
-                        lifecycle_events[2]["text"],
-                        "Created asset file - assets/outputs/rain_simulator.py",
-                    )
-                    self.assertFalse(
-                        lifecycle_events[1]["file_exists_at_emit"],
-                    )
-                    self.assertTrue(
-                        lifecycle_events[2]["file_exists_at_emit"],
-                    )
-                    self.assertTrue(
-                        output_path.exists(),
-                    )
-        finally:
-            config.USE_SERVICE_AS_BRAIN = original_use_service_as_brain
+                    ],
+                    [
+                        "started",
+                        "counted",
+                        "started",
+                        "completed",
+                        "counter_final",
+                    ],
+                )
+                lifecycle_events = [
+                    event
+                    for event in runtime_events
+                    if not event.get("counter_only")
+                ]
+                self.assertEqual(
+                    len({
+                        event.get("id")
+                        for event in lifecycle_events
+                    }),
+                    1,
+                )
+                self.assertEqual(
+                    runtime_events[0]["text"],
+                    "ASSET_ACTION",
+                )
+                self.assertTrue(
+                    runtime_events[0]["close_tag"],
+                )
+                self.assertFalse(
+                    runtime_events[0]["file_exists_at_emit"],
+                )
+                self.assertEqual(
+                    lifecycle_events[1]["text"],
+                    (
+                        "ASSET_ACTION: create_asset_file - "
+                        "assets/outputs/rain_simulator.py"
+                    ),
+                )
+                self.assertEqual(
+                    lifecycle_events[2]["text"],
+                    "Created asset file - assets/outputs/rain_simulator.py",
+                )
+                self.assertFalse(
+                    lifecycle_events[1]["file_exists_at_emit"],
+                )
+                self.assertTrue(
+                    lifecycle_events[2]["file_exists_at_emit"],
+                )
+                self.assertTrue(
+                    output_path.exists(),
+                )
 
     def test_split_stream_delayed_memory_reuses_started_bubble_id_on_completion(self):
 
@@ -2804,15 +2545,10 @@ class BrainRuntimeActionTests(unittest.TestCase):
         context.session_id = "session-1"
         context.timestamp = "2026-07-10T14:00:00"
 
-        original_use_service_as_brain = config.USE_SERVICE_AS_BRAIN
-        config.USE_SERVICE_AS_BRAIN = False
 
-        try:
-            chunks = asyncio.run(
-                collect(context)
-            )
-        finally:
-            config.USE_SERVICE_AS_BRAIN = original_use_service_as_brain
+        chunks = asyncio.run(
+            collect(context)
+        )
 
         runtime_events = [
             event
@@ -2882,10 +2618,10 @@ class BrainRuntimeActionTests(unittest.TestCase):
 
         self.assertEqual(
             get_enabled_runtime_actions(
-                SERVICE_AS_BRAIN_RUNTIME_ACTIONS
+                BRAIN_RUNTIME_ACTIONS
             ),
             expected_enabled_runtime_actions(
-                SERVICE_AS_BRAIN_RUNTIME_ACTIONS
+                BRAIN_RUNTIME_ACTIONS
             ),
         )
 
@@ -2937,7 +2673,7 @@ class BrainRuntimeActionTests(unittest.TestCase):
             get_runtime_action_private_marker("SAVE_SESSION"),
             get_runtime_action_private_marker("SAVE_DELAYED_MEMORY"),
             get_runtime_action_private_marker("SAVE_ACTIVE_MEMORY"),
-            "Use WEB_SEARCH when freshness",
+            "Use this marker for web searching",
         ):
             assert_contains_text(
                 self,
@@ -3059,7 +2795,7 @@ class BrainRuntimeActionTests(unittest.TestCase):
         assert_contains_text(
             self,
             prompt,
-            "LOAD / UNLOAD SKILLS:",
+            "<LOAD_SKILL",
         )
         assert_contains_text(
             self,
@@ -3218,7 +2954,7 @@ class BrainRuntimeActionTests(unittest.TestCase):
                 "<LOADED_DELAYED_MEMORY>"
             ),
             prompt.index(
-                "I identify myself as JIN"
+                "I identify as JIN"
             ),
         )
 
@@ -3479,7 +3215,7 @@ class BrainRuntimeActionTests(unittest.TestCase):
         )
 
         self.assertIn(
-            '<TOOL_RESULT name="SKILL_ERROR"',
+            '<TOOL_RESULT name="LOAD_SKILL"',
             prompt,
         )
         self.assertIn(
@@ -3490,8 +3226,8 @@ class BrainRuntimeActionTests(unittest.TestCase):
             '"action": "load_skill"',
             prompt,
         )
-        self.assertNotIn(
-            "skill_not_found",
+        self.assertIn(
+            "Error code: skill_not_found",
             prompt,
         )
 
@@ -3525,7 +3261,7 @@ class BrainRuntimeActionTests(unittest.TestCase):
         assert_contains_text(
             self,
             prompt,
-            '{"conditions":"","custom_field_name":""}',
+            '{"conditions":"Descriptive conditions text","custom_field":"Custom field value"}',
         )
         assert_contains_text(
             self,
@@ -3752,7 +3488,7 @@ class BrainRuntimeActionTests(unittest.TestCase):
         assert_contains_text(
             self,
             prompt,
-            '{"conditions":"","custom_field_name":""}',
+            '{"conditions":"Descriptive conditions text","custom_field":"Custom field value"}',
         )
         assert_not_contains_text(
             self,
@@ -3770,14 +3506,12 @@ class BrainRuntimeActionTests(unittest.TestCase):
 
         self.assertNotIn("CAN_WEB_SEARCH", prompt)
         assert_contains_text(self, prompt, "<WEB_SEARCH: plain text query >")
-        assert_contains_text(self, prompt, "Use WEB_SEARCH when freshness")
+        assert_contains_text(self, prompt, "Use this marker for web searching")
         self.assertNotIn("<![CDATA[", prompt)
         self.assertNotIn("&lt;RUNTIME_ACTION:WEB_SEARCH&gt;", prompt)
         self.assertIn("<CURRENT_USER_DATETIME>", prompt)
         current_model_uid = (
-            config.SERVICE_MODEL_UID
-            if config.USE_SERVICE_AS_BRAIN
-            else config.BRAIN_MODEL_UID
+            config.BRAIN_MODEL_UID
         )
         self.assertIn(
             f"<CURRENT_MODEL_UID>{current_model_uid}</CURRENT_MODEL_UID>",
@@ -3823,15 +3557,7 @@ class BrainRuntimeActionTests(unittest.TestCase):
             }
         )
 
-        self.assertIn(
-            "preserve the exact subject",
-            prompt,
-        )
 
-        self.assertIn(
-            "Do not present guessed results as facts",
-            prompt,
-        )
 
         self.assertIn(
             "plain text",

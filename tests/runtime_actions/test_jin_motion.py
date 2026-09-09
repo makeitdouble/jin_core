@@ -22,7 +22,7 @@ class RuntimeJinMotionActionTests(RuntimeActionTestCase):
 
     def test_jin_position_marker_normalizes_coordinates(self):
         cases = (
-            ("<JIN_POSITION> 120px 80px </JIN_POSITION>", "x:120px y:80px"),
+            ("<JIN_POSITION> x:120px y:80px </JIN_POSITION>", "x:120px y:80px"),
             ("<JIN_POSITION> 120 80 </JIN_POSITION>", "x:120px y:80px"),
             ("<JIN_POSITION> x:120px y:80px </JIN_POSITION>", "x:120px y:80px"),
             ("<JIN_POSITION> -20 0 </JIN_POSITION>", "x:-20px y:0px"),
@@ -157,7 +157,7 @@ class RuntimeJinMotionActionTests(RuntimeActionTestCase):
             context,
         )
         self.assertIn("<JIN_SPEED> 600px/s </JIN_SPEED>", instructions)
-        self.assertIn("<JIN_POSITION> 120px 80px </JIN_POSITION>", instructions)
+        self.assertIn("<JIN_POSITION> x:120px y:80px </JIN_POSITION>", instructions)
 
         context.runtime_avatar_panel_collapsed = False
         instructions = build_runtime_action_instructions(

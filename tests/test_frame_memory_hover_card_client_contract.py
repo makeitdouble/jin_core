@@ -89,10 +89,6 @@ class FrameMemoryHoverCardClientContractTests(unittest.TestCase):
             source,
         )
 
-    def test_hover_card_script_is_cache_busted(self):
-        source = INDEX_HTML.read_text(encoding="utf-8")
-
-        self.assertEqual(source.count("frame-hover-card=2"), 1)
 
 
 if __name__ == "__main__":

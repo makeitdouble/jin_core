@@ -199,7 +199,6 @@ class LTContextFocusContractTests(unittest.TestCase):
             'typeof ltMemory.getFacts === "function"',
             source,
         )
-        self.assertIn("&delayed-anchor-facts=1", index)
 
 
 if __name__ == "__main__":

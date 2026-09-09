@@ -15,7 +15,7 @@ def test_attached_files_plaque_is_a_fixed_console_footer():
     attached_files = source.index('id="attached-files"')
     console_end = source.index("</section>", console_stream)
     assert console_stream < attached_files < console_end
-    assert "/static/js/dragdrop.js?v=console-auto-expand-2&file-restore-2&empty-files-plaque=1&unpin-logger-card=1" in source
+    assert "/static/js/dragdrop.js" in source
 
 
 def test_dragdrop_uses_persistent_api_and_max_five_context_files():
@@ -30,8 +30,10 @@ def test_dragdrop_uses_persistent_api_and_max_five_context_files():
 
 def test_files_memory_panel_reuses_delayed_memory_visual_language():
     source = MEMORY_VIEW.read_text(encoding="utf-8")
-    assert 'modes.push(\n          "files"' in source
-    assert '"[ files ]"' in source
+    index = (ROOT / "ui" / "templates" / "index.html").read_text(encoding="utf-8")
+    assert 'return RUNTIME_MEMORY_DISPLAY_MODES.slice();' in source
+    assert 'data-runtime-memory-mode="files"' in index
+    assert '>FILES</button>' in index
     assert "runtime-memory-delayed-row-pinned" in source
     assert "delayed-memory-modal-icon-button delayed-memory-modal-pin runtime-memory-delayed-pin" in source
     assert "window.openJinAttachmentModal(record)" in source
@@ -93,7 +95,6 @@ def test_files_panel_shows_square_left_panel_image_and_text_hover_cards():
     assert ".runtime-memory-file-hover-text {" in memory_css
     assert "overflow: hidden;" in memory_css
     assert "white-space: pre-wrap;" in memory_css
-    assert "file-preview-card=1" in index
 
 
 def test_delayed_memory_modal_links_existing_files_by_original_name():

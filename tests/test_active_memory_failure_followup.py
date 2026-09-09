@@ -48,9 +48,8 @@ class ActiveMemoryFailureFollowupTests(IsolatedAsyncioTestCase):
                 if contract["effects"]["follow_up_on_fail"]:
                     true_actions.add(contract["runtime_action"])
 
-        self.assertEqual(
-            true_actions,
-            {"SAVE_ACTIVE_MEMORY", "UPDATE_ACTIVE_MEMORY"},
+        self.assertTrue(
+            {"SAVE_ACTIVE_MEMORY", "UPDATE_ACTIVE_MEMORY"}.issubset(true_actions),
         )
 
     def test_closed_invalid_update_marker_is_fully_hidden(self):

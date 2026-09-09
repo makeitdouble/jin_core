@@ -57,7 +57,7 @@ class RuntimeMemoryLTRenderPerfClientContractTests(unittest.TestCase):
             self.source,
         )
         self.assertIn(
-            "delayedReportByFactId.get(normalizedFactId)",
+            "delayedReportByFactId.get(factId)",
             self.source,
         )
 
@@ -79,20 +79,19 @@ class RuntimeMemoryLTRenderPerfClientContractTests(unittest.TestCase):
         self.assertIn("bindRuntimeMemoryHoverTitle(", metrics)
         self.assertNotIn("Array.from(metricText)", self.source)
 
-    def test_mode_availability_uses_cheap_presence_checks(self):
+    def test_all_modes_remain_available_without_scanning_records(self):
         block = function_block(
             self.source,
             "function getAvailableRuntimeMemoryDisplayModes()",
             "function ensureRuntimeMemoryDisplayModeAvailable(",
         )
 
-        self.assertIn("hasLongTermMemoryFactRecords()", block)
+        self.assertIn("return RUNTIME_MEMORY_DISPLAY_MODES.slice();", block)
         self.assertNotIn("getLongTermMemoryFactRecords().length", block)
         self.assertIn(
             "Array.isArray(options.availableModes)",
             self.source,
         )
-        self.assertIn("availableModes: modes,", self.source)
 
     def test_highlight_pipeline_reuses_one_rendered_row_collection(self):
         reference_block = function_block(

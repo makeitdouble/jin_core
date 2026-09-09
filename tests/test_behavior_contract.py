@@ -305,7 +305,7 @@ class BehaviorContractTests(unittest.TestCase):
             instructions,
         )
         self.assertIn(
-            '{"conditions":"","custom_field_name":""}',
+            '{"conditions":"Descriptive conditions text","custom_field":"Custom field value"}',
             instructions,
         )
 
@@ -319,7 +319,7 @@ class BehaviorContractTests(unittest.TestCase):
             instructions.startswith(
                 "<CLEAN_TOOL_RESULTS>\n"
                 "Follow-up: false\n"
-                "Emit at any moment in you answer"
+                "Schema:"
             )
         )
 
@@ -344,15 +344,12 @@ class BehaviorContractTests(unittest.TestCase):
             "JIN_COLOR",
         ))
 
-        self.assertIn(
-            (
-                "Emit at any moment in you answer to clean redundant "
-                "tool results and only if they are present in the context "
-                "inside <TOOLS_RESULTS> block.\n\n"
-                "<JIN_COLOR>"
-            ),
+        self.assertEqual(
             instructions,
+            "\n\n".join(build_runtime_action_contract_instructions(action)
+                         for action in ("CLEAN_TOOL_RESULTS", "JIN_COLOR")),
         )
+
 
     def test_configured_triggers_require_confirmation_and_allow_matching_text(self):
 

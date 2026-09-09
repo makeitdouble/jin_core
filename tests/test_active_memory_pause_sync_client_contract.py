@@ -24,13 +24,6 @@ class ActiveMemoryPauseSyncClientContractTests(unittest.TestCase):
             block.index("dispatchActiveMemoryRecordsChanged("),
         )
 
-    def test_runtime_script_cache_key_is_bumped_for_pause_sync(self):
-        source = INDEX_HTML.read_text(encoding="utf-8")
-        runtime_line = next(
-            line for line in source.splitlines()
-            if '/static/js/runtime/runtime.js?' in line
-        )
-        self.assertIn("active-memory-pause-sync=1", runtime_line)
 
 
 if __name__ == "__main__":

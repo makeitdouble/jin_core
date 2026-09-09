@@ -92,12 +92,6 @@ class UpdateLTFactsMessageDisplayContractTests(unittest.TestCase):
         self.assertIn('function getInternalActionUpdateLTMessage(data)', logger_source)
         self.assertIn('logDiv.title =\n      updateLTMessage || jinSizeHover;', logger_source)
 
-    def test_cache_versions_are_bumped(self):
-        source = INDEX_HTML.read_text(encoding="utf-8")
-
-        self.assertIn('/static/js/logger/session-actions.js?v=logger-session-actions-14', source)
-        self.assertIn('/static/js/logger/log-entries.js?v=lt-flow-lane-1', source)
-        self.assertIn('/static/js/socket/runtime-actions.js?v=size-sequence-1', source)
 
 
 if __name__ == "__main__":

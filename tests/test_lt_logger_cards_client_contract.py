@@ -125,7 +125,6 @@ class LTLoggerCardsClientContractTests(unittest.TestCase):
         self.assertIn("jin-lt-merge-row-after.jin-lt-diff-level-1", css)
         self.assertIn("jin-lt-merge-row-after.jin-lt-diff-level-5", css)
         self.assertIn("jin-lt-merge-diff-token.jin-lt-diff-level-5", css)
-        self.assertIn("lt-merge-diff=1", index_source)
 
     def test_lt_paused_card_is_rendered_as_a_red_memory_card(self):
         source = LOG_ENTRIES_JS.read_text(encoding="utf-8")
@@ -135,7 +134,6 @@ class LTLoggerCardsClientContractTests(unittest.TestCase):
         self.assertIn('bg-red-500/5', source)
         self.assertIn('border-red-500/15', source)
         self.assertIn('text-red-300 font-bold', source)
-        self.assertIn('lt-double-batch=1', index_source)
 
     def test_restore_message_round_trip_is_registered(self):
         runtime_source = RUNTIME_LT_JS.read_text(encoding="utf-8")
@@ -156,15 +154,6 @@ class LTLoggerCardsClientContractTests(unittest.TestCase):
         self.assertIn("deleteFactLocally(id)", runtime_source)
         self.assertIn("syncLongTermMemoryToRuntime();", runtime_source)
 
-    def test_cache_versions_are_bumped(self):
-        source = INDEX_HTML.read_text(encoding="utf-8")
-
-        self.assertIn('/static/css/runtime-memory.css?v=delayed-collapsible-cards-2', source)
-        self.assertIn('/static/js/runtime/runtime-lt-memory.js?v=server-lt-scheduler-1', source)
-        self.assertIn('/static/js/logger/logger.js?v=delayed-context-plaque-4', source)
-        self.assertIn('/static/js/logger/trace-modal.js?v=context-session-actions-1', source)
-        self.assertIn('/static/js/logger/log-entries.js?v=lt-flow-lane-1', source)
-        self.assertIn('/static/js/socket/event-handlers.js?v=stream-avatar-1', source)
 
 
 if __name__ == "__main__":

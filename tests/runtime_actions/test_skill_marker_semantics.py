@@ -285,11 +285,11 @@ class SkillMarkerSemanticsTests(RuntimeActionTestCase):
         self.assertIn("suppressMarkerCount", runtime_source)
         self.assertRegex(
             index_source,
-            r'/static/js/logger/log-entries\.js\?v=[^"\s]+',
+            r'/static/js/logger/log-entries\.js(?:\?[^"\s]*)?',
         )
         self.assertRegex(
             index_source,
-            r'/static/js/socket/runtime-actions\.js\?v=[^"\s]+',
+            r'/static/js/socket/runtime-actions\.js(?:\?[^"\s]*)?',
         )
 
 

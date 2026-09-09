@@ -429,13 +429,6 @@ if (html !== "<p>formula $a_b^2$ and price $5 and $10</p>") {
             source.index(formatter_script),
         )
 
-    def test_formatter_script_cache_version_is_bumped(self):
-        source = INDEX_HTML.read_text(encoding="utf-8")
-
-        self.assertIn(
-            '/static/js/chat-response-formatter.js?v=jin-size-1',
-            source,
-        )
 
 
 if __name__ == "__main__":

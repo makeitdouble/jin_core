@@ -63,13 +63,6 @@ class DeepSearchSessionActionHoverTests(unittest.IsolatedAsyncioTestCase):
             source,
         )
 
-    def test_session_actions_cache_version_is_bumped(self):
-        source = INDEX_HTML.read_text(encoding="utf-8")
-
-        self.assertIn(
-            '/static/js/logger/session-actions.js?v=logger-session-actions-13',
-            source,
-        )
 
 
 if __name__ == "__main__":

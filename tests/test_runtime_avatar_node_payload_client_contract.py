@@ -69,10 +69,6 @@ class RuntimeAvatarNodePayloadClientContractTests(unittest.TestCase):
             source,
         )
 
-    def test_avatar_cache_key_is_bumped_for_node_state_cleanup(self):
-        source = INDEX_HTML.read_text(encoding="utf-8")
-
-        self.assertIn("avatar-node-state=1", source)
 
 
 if __name__ == "__main__":

@@ -69,17 +69,6 @@ class UiFixBundleContractTests(unittest.TestCase):
         self.assertIn('bubble.removeAttribute("title");', click_alt_block)
         self.assertNotIn('bubble.setAttribute("title", label);', click_alt_block)
 
-    def test_cache_busters_cover_updated_ui_files(self):
-        source = INDEX_HTML.read_text(encoding="utf-8")
-
-        self.assertIn("&hover-labels=2", source)
-        self.assertIn(
-            "&reasoning-state=1&live-turn-overflow-scroll=2",
-            source,
-        )
-        self.assertIn("&reasoning-collapse-stability=1", source)
-        self.assertIn("&input-focus=2", source)
-        self.assertIn("&input-focus=3", source)
 
 
 if __name__ == "__main__":

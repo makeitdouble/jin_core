@@ -25,10 +25,6 @@ class LTRecallDecayClientContractTests(unittest.TestCase):
         self.assertIn('"mention_count",\n      "last_mentioned_at",', source)
         self.assertIn('`last_mentioned: ${ageLabel}`', source)
 
-    def test_recall_decay_assets_are_cache_bumped(self):
-        source = INDEX_HTML.read_text(encoding="utf-8")
-
-        self.assertGreaterEqual(source.count("lt-recall-decay=1"), 2)
 
 
 if __name__ == "__main__":

@@ -60,12 +60,13 @@ class DelayedMemoryHoverCardClientContractTests(unittest.TestCase):
             '"tags"',
             '"id"',
             '"anchor_fact_ids"',
+            '"facts_ids"',
             '"body"',
         ):
             self.assertIn(field, build_source)
 
         for excluded_field in (
-            "facts_ids",
+
             "attachments_ids",
             "created_session_id",
             "loaded_times",
@@ -103,10 +104,6 @@ class DelayedMemoryHoverCardClientContractTests(unittest.TestCase):
             source,
         )
 
-    def test_hover_card_script_is_cache_busted(self):
-        source = INDEX_HTML.read_text(encoding="utf-8")
-
-        self.assertEqual(source.count("delayed-hover-card=1"), 1)
 
 
 if __name__ == "__main__":

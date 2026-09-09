@@ -48,10 +48,6 @@ class UpdateActiveMemoryHighlightClientContractTests(unittest.TestCase):
         self.assertIn("activeThinkMemoryCitationSources.clear();", memory_view)
         self.assertIn("activeThinkRuntimeCitationSources.clear();", avatar)
 
-    def test_runtime_action_cache_key_includes_update_highlight_revision(self):
-        source = INDEX.read_text(encoding="utf-8")
-
-        self.assertIn("active-memory-update-highlight=1", source)
 
 
 if __name__ == "__main__":

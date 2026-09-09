@@ -360,7 +360,7 @@ assert.deepEqual(snapshot(traceModalContent), frameDOM);
 `, context);
 '''
         result = subprocess.run(
-            ["node", "-", str(ROOT)], input=script, text=True,
+            ["node", "-", str(ROOT)], input=script, text=True, encoding="utf-8",
             capture_output=True, timeout=30,
         )
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)

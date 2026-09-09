@@ -91,16 +91,6 @@ class ReconnectPersistenceClientContractTests(unittest.TestCase):
             session_source,
         )
 
-    def test_runtime_session_cache_version_is_bumped(self):
-
-        source = INDEX_HTML.read_text(
-            encoding="utf-8"
-        )
-
-        self.assertIn(
-            "runtime-session.js?v=avatar-motion-1&delayed-load-contract-1-reconnect-persistence-1",
-            source,
-        )
 
 
 if __name__ == "__main__":
