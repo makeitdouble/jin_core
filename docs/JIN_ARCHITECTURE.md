@@ -506,7 +506,7 @@ One-time normal-profile checkpoint migration follows ownership rather than fresh
 
 The server sends a normalized `session_snapshot` at visible `message_end` and again at `agent_runtime_end`. The client merges the current room state into that snapshot and persists it before finishing the visible bubble. Completed state and room/avatar state therefore land as one checkpoint rather than racing through separate full writers.
 
-For a predecessor/browser checkpoint, `websocket/bootstrap.py::enrich_session_bootstrap_from_archive()` may enrich dialogue, reasoning, action history, files, counters, and selected runtime state from raw logs. Anonymous rooms never archive-bootstrap. Their chat/reasoning still goes to `logs/`, but the session directory ends in `-anon`; normal restore selectors and L-T mention backfill skip those directories.
+For a predecessor/browser checkpoint, `websocket/bootstrap.py::enrich_session_bootstrap_from_archive()` may enrich dialogue, reasoning, action history, files, counters, and selected runtime state from raw logs. Anonymous rooms never archive-bootstrap. Their chat/reasoning still goes to `logs/`, but the session directory ends in `_anon`; normal restore selectors and L-T mention backfill skip those directories.
 
 The latest raw-log selector chooses the session containing the newest real USER move. A blank bootstrap-only session with no USER row cannot win. A stopped USER-only move and a completed action-only move with an empty visible JIN row can win and remain distinguishable by whether a durable JIN row/timestamp exists. The legacy function name `find_latest_completed_session_restore_payload()` is therefore narrower than its current semantics.
 
@@ -566,7 +566,7 @@ Modern records/snapshots should retain original creation timestamps across seria
 
 ## 10. Anonymous room mode
 
-Anonymous mode is an explicit JIN room state, not browser-private/incognito detection. A long press on the avatar opens a fresh room URL carrying `anonymous_mode=1` and a generated `<uuid>-anon` runtime/session id.
+Anonymous mode is an explicit JIN room state, not browser-private/incognito detection. A long press on the avatar opens a fresh room URL carrying `anonymous_mode=1` and a generated `<uuid>_anon` runtime/session id.
 
 Backend behavior:
 
@@ -578,8 +578,8 @@ Backend behavior:
 - Delayed browser sync supports restore, pin/unpin, and delete without accessing global files;
 - a soft WebSocket reconnect preserves the room's reports and loaded bodies;
 - persistent asset-write actions are restricted;
-- chat and reasoning still log normally under `logs/<date>/<session>-anon/`;
-- normal restore/bootstrap and L-T log-freshness scans ignore `-anon` sessions.
+- chat and reasoning still log normally under `logs/<date>/<session>_anon/`;
+- normal restore/bootstrap and L-T log-freshness scans ignore `_anon` sessions.
 
 Browser behavior:
 

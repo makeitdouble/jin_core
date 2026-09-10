@@ -46,16 +46,27 @@ class AnonymousModeTests(unittest.IsolatedAsyncioTestCase):
         )
         self.assertEqual(
             session_id,
-            "2ef769ec-47fe-4e0c-8bea-fb3b412bae4a-anon",
+            "2ef769ec-47fe-4e0c-8bea-fb3b412bae4a_anon",
         )
         self.assertTrue(is_anonymous_session_id(session_id))
         self.assertEqual(ensure_anonymous_session_id(session_id), session_id)
+        self.assertEqual(
+            ensure_anonymous_session_id(
+                "2ef769ec-47fe-4e0c-8bea-fb3b412bae4a-anon"
+            ),
+            session_id,
+        )
+        self.assertTrue(
+            is_anonymous_session_id(
+                "2ef769ec-47fe-4e0c-8bea-fb3b412bae4a-anon"
+            )
+        )
         self.assertLessEqual(
             len(ensure_anonymous_session_id("x" * 200)),
             80,
         )
         self.assertTrue(
-            ensure_anonymous_session_id("x" * 200).endswith("-anon")
+            ensure_anonymous_session_id("x" * 200).endswith("_anon")
         )
 
     def test_configuration_restricts_only_persistent_writes(self):
@@ -82,7 +93,7 @@ class AnonymousModeTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(context.active_memory_records, [])
         self.assertEqual(context.delayed_memory_reports, {})
         self.assertEqual(context.runtime_long_term_memory_store, {})
-        self.assertTrue(context.session_id.endswith("-anon"))
+        self.assertTrue(context.session_id.endswith("_anon"))
         self.assertFalse(
             runtime_action_write_is_restricted(
                 context,

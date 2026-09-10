@@ -137,8 +137,6 @@
     width: 100%;
     height: 100%;
     overflow: visible;
-    transform: scale(0.90);
-    transform-origin: center;
 }
 
 .jin-runtime-avatar-core-button {
@@ -798,6 +796,7 @@
 .jin-avatar-file-dot:not(.is-memory-pinned):not(.is-context-loaded).is-memory-hover-hit .jin-avatar-file-dot-core,
 .jin-avatar-file-dot:not(.is-memory-pinned):not(.is-context-loaded).is-delayed-memory-context-linked .jin-avatar-file-dot-core {
     fill-opacity: 0.78 !important;
+    r: 2.7px;
 }
 
 /* Runtime/reference hits are a separate stronger signal; keep their existing
@@ -815,12 +814,13 @@
 .jin-avatar-file-dot:not(.is-memory-pinned):not(.is-context-loaded).is-memory-reference-hit .jin-avatar-file-dot-core,
 .jin-avatar-file-dot:not(.is-memory-pinned):not(.is-context-loaded).is-delayed-memory-linked-hit .jin-avatar-file-dot-core {
     fill-opacity: 1 !important;
-    r: 3.45px;
+    r: 2.7px;
 }
 
 .jin-avatar-file-dot.is-memory-pinned .jin-avatar-file-dot-core,
 .jin-avatar-file-dot.is-context-loaded .jin-avatar-file-dot-core {
     fill-opacity: 1 !important;
+    r: 3.45px;
 }
 
 .jin-avatar-center-glow-fill,

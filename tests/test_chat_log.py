@@ -138,45 +138,10 @@ class ChatLogTests(unittest.TestCase):
                 )
 
             self.assertTrue(path.is_relative_to(normal_root))
-            self.assertEqual(path.parent.name, "anon-tab-anon")
+            self.assertEqual(path.parent.name, "anon-tab_anon")
             row = json.loads(path.read_text(encoding="utf-8").strip())
             self.assertNotIn("anonymous_mode", row)
             self.assertEqual(row["text"], "anonymous hello")
-
-    def test_legacy_logs_anon_is_folded_into_shared_logs_with_suffix(self):
-        with tempfile.TemporaryDirectory() as temp_dir:
-            temp_root = Path(temp_dir)
-            normal_root = temp_root / "logs"
-            legacy_root = temp_root / "logs_anon"
-            source_session = legacy_root / "2026-08-24" / "legacy-private"
-            source_session.mkdir(parents=True)
-            (source_session / "120000.jsonl").write_text(
-                json.dumps({
-                    "ts": "2026-08-24T12:00:00+00:00",
-                    "role": "user",
-                    "text": "legacy anonymous",
-                }) + "\n",
-                encoding="utf-8",
-            )
-
-            from unittest.mock import patch
-            with (
-                patch("utils.chat_log.CHAT_LOG_ROOT", normal_root),
-                patch(
-                    "utils.chat_log.LEGACY_CHAT_LOG_ANON_ROOT",
-                    legacy_root,
-                ),
-            ):
-                migrate_legacy_chat_logs()
-
-            target = (
-                normal_root
-                / "2026-08-24"
-                / "legacy-private-anon"
-                / "120000.jsonl"
-            )
-            self.assertTrue(target.is_file())
-            self.assertFalse(legacy_root.exists())
 
     def test_append_chat_log_entry_uses_date_session_directory(self):
 
@@ -592,7 +557,7 @@ class ChatLogTests(unittest.TestCase):
         self.assertNotIn("PRIVATE RULES 2", saved)
         self.assertNotIn("first user payload", saved)
 
-    def test_bootstrap_context_snapshot_is_separate_and_never_overwrites_primary(self):
+    def test_bootstrap_context_snapshot_is_immutable_and_never_overwrites_primary(self):
 
         context = SimpleNamespace(
             session_id="session-bootstrap",
@@ -647,7 +612,7 @@ class ChatLogTests(unittest.TestCase):
             )
             self.assertEqual(
                 bootstrap_path.read_text(encoding="utf-8").strip(),
-                "SESSION RESTORE BOOTSTRAP TWO",
+                "SESSION RESTORE BOOTSTRAP ONE",
             )
             self.assertEqual(
                 context.runtime_chat_context_path,
@@ -657,6 +622,68 @@ class ChatLogTests(unittest.TestCase):
                 context.runtime_chat_bootstrap_context_path,
                 str(bootstrap_path),
             )
+
+    def test_deferred_bootstrap_snapshot_keeps_first_lineage_context(self):
+
+        context = SimpleNamespace(
+            session_id="session-bootstrap-deferred",
+            runtime_turn_counter=7,
+            runtime_current_turn_id="restore_000007",
+        )
+        now = datetime(
+            2026,
+            8,
+            17,
+            16,
+            57,
+            0,
+            tzinfo=timezone.utc,
+        )
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            first = save_chat_bootstrap_context_snapshot(
+                context,
+                system_prompt=(
+                    '<RESTORED_SESSION_DIALOG session_id="previous-session">'
+                    "original lineage"
+                    "</RESTORED_SESSION_DIALOG>"
+                ),
+                now=now,
+                root=root,
+            )
+            second = save_chat_bootstrap_context_snapshot(
+                context,
+                system_prompt="later follow-up without lineage metadata",
+                now=now,
+                root=root,
+            )
+
+            self.assertIsNone(first)
+            self.assertIsNone(second)
+
+            append_chat_log_entry(
+                context,
+                role="user",
+                text="hello",
+                now=now,
+                root=root,
+            )
+            bootstrap_path = get_chat_bootstrap_context_path(
+                context,
+                now=now,
+                root=root,
+            )
+            saved = bootstrap_path.read_text(encoding="utf-8")
+
+        self.assertIn(
+            '<RESTORED_SESSION_DIALOG session_id="previous-session">',
+            saved,
+        )
+        self.assertNotIn(
+            "later follow-up without lineage metadata",
+            saved,
+        )
 
     def test_reasoning_trace_links_back_to_dialog_and_jin_log_entry(self):
 

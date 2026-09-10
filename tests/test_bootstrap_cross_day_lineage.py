@@ -58,6 +58,18 @@ class CrossDayLineageTests(unittest.TestCase):
         self.session('new', '2026-09-08', 1, 'old', primary=True)
         self.assertEqual(len(self.tail('new')), 5)
 
+    def test_missing_lineage_metadata_falls_back_to_previous_real_session(self):
+        self.session('old', '2026-09-07', 5)
+        self.session('new', '2026-09-08', 1)
+
+        turns = self.tail('new')
+
+        self.assertEqual(len(turns), 5)
+        self.assertEqual(
+            [turn['source_session_id'] for turn in turns],
+            ['old'] * 4 + ['new'],
+        )
+
     def test_cycle_and_missing_predecessor_stop_without_duplicates(self):
         self.session('a', '2026-09-07', 1, 'b')
         self.session('b', '2026-09-08', 1, 'a')

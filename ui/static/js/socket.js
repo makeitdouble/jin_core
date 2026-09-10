@@ -19,9 +19,13 @@ const memoryLayersToggle =
 
 const websocketClientId =
   window.jinRuntimeSessionId
-  || ((window.crypto && window.crypto.randomUUID)
-    ? window.crypto.randomUUID()
-    : `${Date.now()}-${Math.random().toString(16).slice(2)}`);
+  || (
+    window.JinRuntime
+    && window.JinRuntime.storage
+    && typeof window.JinRuntime.storage.generateRuntimeSessionId === "function"
+      ? window.JinRuntime.storage.generateRuntimeSessionId()
+      : ""
+  );
 
 const websocketReconnectBaseDelay = 700;
 const websocketReconnectMaxDelay = 5000;

@@ -1981,9 +1981,12 @@ def _build_formatted_session_action_marker_parts(
                 "created_ats": [],
                 "status": marker_status,
                 "failure_reason": marker_failure_reason,
+                "result_count": None,
             },
         )
         group["count"] += marker_count
+        if isinstance(marker_result_count, int) and marker_result_count >= 0:
+            group["result_count"] = marker_result_count
         group["created_ats"].extend(
             marker_created_ats
         )
@@ -2152,6 +2155,18 @@ def _build_formatted_session_action_marker_parts(
             part["_created_at"] = min(
                 group_created_ats
             )
+
+        if action_name == "LIST_FILES":
+            result_count = group.get("result_count")
+            if isinstance(result_count, int) and result_count >= 0:
+                part["text"] = f"{action_name}: {result_count} files"
+            formatted_parts.append(
+                _with_session_action_marker_count(
+                    part,
+                    count,
+                )
+            )
+            continue
 
         if action_name == "RECALL_FACT_CONTEXT":
             fact_ids = _unique_session_action_values(
@@ -2713,6 +2728,7 @@ def _apply_session_action_runtime_outcomes(
         if (
             event_name not in {
                 "chat_log_search",
+                "list_files",
                 "update_active_memory",
                 "recall_fact_context",
                 "clean_tool_results",
@@ -2847,7 +2863,7 @@ def _apply_session_action_runtime_outcomes(
         ).strip().casefold()
         marker_action["status"] = status
 
-        if marker_name == "CHAT_LOG_SEARCH":
+        if marker_name in {"CHAT_LOG_SEARCH", "LIST_FILES"}:
             result_count = matching_event.get(
                 "result_count",
                 None,

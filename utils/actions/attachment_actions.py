@@ -170,6 +170,28 @@ async def apply_attachment_actions(
         records = list_file_records()
         result = {"action": "list_files", "ok": True, "files": records,
                   "lines": format_list_files_lines(records)}
+        file_count = len(records)
+        result["result_count"] = file_count
+
+        # LIST_FILES has no marker payload, so persist its actual outcome on the
+        # runtime event. Session/current-request history uses this to show the
+        # same compact result that the bubble and logger receive.
+        runtime_events = getattr(context, "runtime_action_events", None)
+        if isinstance(runtime_events, list):
+            for event in reversed(runtime_events):
+                if (
+                    isinstance(event, dict)
+                    and str(event.get("name") or "").strip().lower() == "list_files"
+                    and str(event.get("status") or "").strip().lower()
+                    not in {"completed", "failed"}
+                ):
+                    event.update(
+                        status="completed",
+                        result_count=file_count,
+                        text=f"{RUNTIME_ACTION_LIST_FILES}: {file_count} files",
+                    )
+                    break
+
         record_runtime_tool_result(context, TOOL_RESULT_KIND_FILES, result)
         results.append(result)
 
@@ -251,7 +273,7 @@ async def apply_attachment_actions(
             text = (
                 file_result_summary(result)
                 if result.get("action") != "list_files"
-                else f"{len(result.get('files', []))} files"
+                else f"{display_name}: {len(result.get('files', []))} files"
             )
             detail = (
                 format_file_result(result)

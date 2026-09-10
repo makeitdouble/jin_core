@@ -544,6 +544,115 @@ def _direct_predecessor_session_id(context_text: str) -> str:
     return _clean_session_id(match.group("session_id"))
 
 
+def _lineage_session_start_timestamp(candidates: list[dict]) -> float:
+    timestamps = []
+
+    for item in candidates or []:
+        for key in ("user_created_at", "jin_created_at"):
+            try:
+                timestamp = float(item.get(key, 0) or 0)
+            except (TypeError, ValueError):
+                timestamp = 0.0
+            if timestamp > 0:
+                timestamps.append(timestamp)
+
+    return min(timestamps) if timestamps else 0.0
+
+
+def _lineage_session_tail_timestamp(candidates: list[dict]) -> float:
+    timestamps = []
+
+    for item in candidates or []:
+        for key in ("jin_created_at", "user_created_at"):
+            try:
+                timestamp = float(item.get(key, 0) or 0)
+            except (TypeError, ValueError):
+                timestamp = 0.0
+            if timestamp > 0:
+                timestamps.append(timestamp)
+
+    return max(timestamps) if timestamps else 0.0
+
+
+def _find_previous_real_user_session_id(
+    current_session_id: str,
+    root: Path,
+    *,
+    before_timestamp: float,
+    excluded_session_ids: set[str] | None = None,
+) -> str:
+    """Find the immediately preceding real USER session by raw timestamps.
+
+    This is a repair fallback for histories whose immutable bootstrap context
+    was overwritten by older builds and therefore lost RESTORED_SESSION_DIALOG.
+    An explicit predecessor marker always wins; this scan is used only when
+    that metadata is completely absent.
+    """
+    if before_timestamp <= 0 or not root.is_dir():
+        return ""
+
+    current_session_id = _clean_session_id(current_session_id)
+    excluded = {
+        _clean_session_id(value)
+        for value in (excluded_session_ids or set())
+        if _clean_session_id(value)
+    }
+    excluded.add(current_session_id)
+
+    best_session_id = ""
+    best_tail_timestamp = 0.0
+
+    for date_directory in root.iterdir():
+        if (
+            not date_directory.is_dir()
+            or not re.fullmatch(r"\d{4}-\d{2}-\d{2}", date_directory.name)
+        ):
+            continue
+
+        for session_directory in date_directory.iterdir():
+            if not session_directory.is_dir():
+                continue
+
+            candidate_session_id = _clean_session_id(
+                session_directory.name
+            )
+            if (
+                not candidate_session_id
+                or candidate_session_id in excluded
+                or is_anonymous_session_id(candidate_session_id)
+            ):
+                continue
+
+            dialog_paths = sorted(
+                (
+                    path
+                    for path in session_directory.glob("*.jsonl")
+                    if path.is_file()
+                ),
+                key=lambda path: path.name,
+            )
+            if not dialog_paths:
+                continue
+
+            entries = _load_dialog(dialog_paths[-1])
+            candidates = _build_recent_turn_candidates(entries)
+            if not candidates:
+                continue
+
+            tail_timestamp = _lineage_session_tail_timestamp(candidates)
+            if (
+                tail_timestamp <= 0
+                or tail_timestamp >= before_timestamp
+                or tail_timestamp <= best_tail_timestamp
+            ):
+                continue
+
+            best_tail_timestamp = tail_timestamp
+            best_session_id = candidate_session_id
+
+    return best_session_id
+
+
 def build_session_bootstrap_lineage_recent_turns(
     session_id: str,
     *,
@@ -603,8 +712,23 @@ def build_session_bootstrap_lineage_recent_turns(
         ):
             break
 
-        current_session_id = _direct_predecessor_session_id(
+        direct_predecessor_session_id = _direct_predecessor_session_id(
             context_text
+        )
+        if direct_predecessor_session_id:
+            current_session_id = direct_predecessor_session_id
+            continue
+
+        # Older builds rewrote ``*.bootstrap.txt`` on follow-up requests. Once
+        # RESTORED_SESSION_DIALOG disappeared, bootstrap could see only the
+        # newest local turn and stopped. Recover only when predecessor metadata
+        # is absent; an explicit (even missing/deleted) predecessor remains
+        # authoritative and is never guessed around.
+        current_session_id = _find_previous_real_user_session_id(
+            current_session_id,
+            root_path,
+            before_timestamp=_lineage_session_start_timestamp(candidates),
+            excluded_session_ids=seen_session_ids,
         )
 
     selected_newest_first.reverse()

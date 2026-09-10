@@ -15,76 +15,64 @@ INDEX_HTML = ROOT / "ui" / "templates" / "index.html"
 
 class RuntimeAvatarLTRingClientContractTests(unittest.TestCase):
 
-    def test_memory_rings_expand_by_ten_pixels_and_active_is_dynamic_midpoint(self):
+    def test_avatar_layout_uses_common_outer_radius_and_dynamic_inner_budget(self):
         source = AVATAR_JS.read_text(encoding="utf-8")
 
-        radii = {}
-        for kind in ("lt", "delayed"):
-            match = re.search(
-                rf"{kind}: Object\.freeze\(\{{\s*radius: (\d+),",
+        self.assertIn("const AVATAR_OUTER_RADIUS = 172;", source)
+        self.assertIn("const FILE_RING_OUTER_RADIUS = AVATAR_OUTER_RADIUS;", source)
+        self.assertIn("const ACTIVE_MEMORY_RING_RADIUS = 160;", source)
+        self.assertIn("const LT_MEMORY_RING_OUTER_RADIUS = 150;", source)
+        self.assertIn("const LT_TO_DELAYED_RING_GAP = 10;", source)
+        self.assertIn("const DELAYED_TO_RUNTIME_RING_GAP = 10;", source)
+        self.assertIn("radius: FILE_RING_OUTER_RADIUS,", source)
+        self.assertIn("function getAvatarLayout(ltMemoryRecords)", source)
+        self.assertIn("runtimeMaxRadius", source)
+        self.assertIn("scaffoldRadii", source)
+        self.assertIn("haloRadius", source)
+        self.assertIn("function getDelayedMemoryRingLayout(ltMemoryRecords)", source)
+        self.assertIn("function getRuntimeRingRadiusBounds(ltMemoryRecords)", source)
+
+        for kind in ("lt", "delayed", "active"):
+            block = re.search(
+                rf"{kind}: Object\.freeze\(\{{(?P<body>.*?)\n    \}}",
                 source,
+                re.S,
             )
-            self.assertIsNotNone(match, kind)
-            radii[kind] = int(match.group(1))
+            self.assertIsNotNone(block, kind)
+            self.assertNotIn("radius:", block.group("body"))
 
-        file_match = re.search(
-            r"FILE_RING_LAYOUT = Object\.freeze\(\{\s*radius: (\d+),",
-            source,
-        )
-        self.assertIsNotNone(file_match)
-        file_radius = int(file_match.group(1))
-
-        active_block = re.search(
-            r"active: Object\.freeze\(\{(?P<body>.*?)\n    \}\),",
-            source,
-            re.S,
-        )
-        self.assertIsNotNone(active_block)
-
-        self.assertEqual(radii["delayed"], 168)
-        self.assertEqual(radii["lt"], 178)
-        self.assertEqual(file_radius, 198)
-        self.assertEqual(radii["lt"] - radii["delayed"], 10)
-        self.assertEqual(file_radius - 188, 10)
-        self.assertNotIn("radius:", active_block.group("body"))
-        self.assertIn("strokeWidth: 2.175", active_block.group("body"))
-        self.assertIn("function getOutermostLTMemoryRingRadius(records)", source)
-        self.assertIn("function getActiveMemoryRingLayout(ltMemoryRecords)", source)
-        self.assertIn("outermostLTRadius", source)
-        self.assertIn("+ FILE_RING_LAYOUT.radius", source)
-        self.assertIn(") / 2,", source)
-
-        # With 153 facts there are two L-T lanes: 178 / 182.
-        # ACTIVE therefore sits exactly at (182 + 198) / 2 = 190.
-        outermost_lt_radius = radii["lt"] + 4
-        self.assertEqual(outermost_lt_radius, 182)
-        self.assertEqual((outermost_lt_radius + file_radius) / 2, 190)
+        self.assertIn("return Math.min(baseLaneCount, maxLaneCount);", source)
+        self.assertIn("runtimeMaxRadius / STATIC_SCAFFOLD_BASE_MAX_RADIUS", source)
 
     def test_lt_ring_spills_into_new_outer_lanes_every_hundred_facts(self):
         source = AVATAR_JS.read_text(encoding="utf-8")
 
         self.assertIn("const LT_MEMORY_RING_MAX_FACTS = 100;", source)
         self.assertIn("const LT_MEMORY_RING_RADIUS_STEP = 4;", source)
-        self.assertIn("function getLTMemoryRingBatches(records)", source)
+        self.assertIn("function getLTMemoryLaneCount(records)", source)
+        self.assertIn("function getLTMemoryRingBatches(records, avatarLayout = getAvatarLayout(records))", source)
         self.assertIn("rotationKeySuffix: `:${laneIndex}`", source)
         self.assertIn("records.slice(", source)
         self.assertIn("startIndex + LT_MEMORY_RING_MAX_FACTS", source)
-        self.assertIn("+ LT_MEMORY_RING_RADIUS_STEP * laneIndex", source)
+        self.assertIn("- LT_MEMORY_RING_RADIUS_STEP * laneIndex", source)
+        self.assertIn("Math.ceil(recordCount / LT_MEMORY_RING_MAX_FACTS)", source)
         self.assertIn("appendLTMemorySignalRings(", source)
         self.assertIn("captureMemoryRingPhases(svg, kind)", source)
         self.assertIn("restoreMemoryRingPhases(", source)
         self.assertIn("previousRotationPhases", source)
         self.assertIn("nodeState.avatarMemoryRadius = Number(layout.radius);", source)
 
-    def test_lt_sync_repositions_active_ring_when_lane_count_changes(self):
+    def test_lt_sync_repositions_delayed_and_active_rings_when_lane_count_changes(self):
         source = AVATAR_JS.read_text(encoding="utf-8")
         start = source.index("function syncLTMemoryState()")
         end = source.index("function syncFileSignalRingState", start)
         body = source[start:end]
 
+        delayed_index = body.index('"delayed",')
         lt_index = body.index('"lt",')
         active_index = body.index('"active",')
 
+        self.assertLess(delayed_index, lt_index)
         self.assertLess(lt_index, active_index)
         self.assertIn("{ applyGlows: false }", body)
         self.assertIn("applyAvatarReactiveGlows();", body)
@@ -164,6 +152,9 @@ class RuntimeAvatarLTRingClientContractTests(unittest.TestCase):
     def test_runtime_orbit_radii_follow_snapshot_line_order(self):
         source = AVATAR_JS.read_text(encoding="utf-8")
 
+        self.assertIn("function computeRingRecords(lines, snapshotSeed, changeMarkers = new Map(), radiusBounds = {})", source)
+        self.assertIn("const minRadius = Number.isFinite(Number(radiusBounds.minRadius))", source)
+        self.assertIn("const maxRadius = Number.isFinite(Number(radiusBounds.maxRadius))", source)
         self.assertIn("const sourceOrderRatio =", source)
         self.assertIn(": 1 - index / (lines.length - 1);", source)
         self.assertIn(
@@ -171,10 +162,25 @@ class RuntimeAvatarLTRingClientContractTests(unittest.TestCase):
             source,
         )
         self.assertIn("const maximumRadius = previous.radius -", source)
+        self.assertIn("maxDecorationRadius: maxRadius,", source)
         self.assertNotIn(
             "records.sort((first, second) => first.radius - second.radius);",
             source,
         )
+
+    def test_avatar_svg_uses_full_square_without_scale_shrink(self):
+        css_source = AVATAR_CSS.read_text(encoding="utf-8")
+
+        block = re.search(
+            r"\.jin-runtime-avatar svg \{(?P<body>.*?)\n\}",
+            css_source,
+            re.S,
+        )
+        self.assertIsNotNone(block)
+        self.assertIn("width: 100%;", block.group("body"))
+        self.assertIn("height: 100%;", block.group("body"))
+        self.assertNotIn("transform: scale(0.90);", block.group("body"))
+        self.assertNotIn("transform-origin: center;", block.group("body"))
 
     def test_runtime_orbit_highlight_uses_current_ring_color_glow(self):
         source = AVATAR_JS.read_text(encoding="utf-8")

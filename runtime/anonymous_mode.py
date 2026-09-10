@@ -4,7 +4,11 @@ from uuid import uuid4
 
 
 ANONYMOUS_MODE_QUERY_PARAM = "anonymous_mode"
-ANONYMOUS_SESSION_SUFFIX = "-anon"
+ANONYMOUS_SESSION_SUFFIX = "_anon"
+ANONYMOUS_SESSION_SUFFIXES = (
+    ANONYMOUS_SESSION_SUFFIX,
+    "-anon",
+)
 ANONYMOUS_MODE_TRUE_VALUES = {
     "1",
     "true",
@@ -50,8 +54,10 @@ _ASSET_WRITE_PREFIXES = (
 
 
 def is_anonymous_session_id(value) -> bool:
-    return str(value or "").strip().casefold().endswith(
-        ANONYMOUS_SESSION_SUFFIX
+    normalized = str(value or "").strip().casefold()
+    return any(
+        normalized.endswith(suffix)
+        for suffix in ANONYMOUS_SESSION_SUFFIXES
     )
 
 
@@ -60,10 +66,19 @@ def ensure_anonymous_session_id(value) -> str:
     if not session_id:
         return session_id
 
+    normalized = session_id.casefold()
     suffix_length = len(ANONYMOUS_SESSION_SUFFIX)
+    matched_suffix = next(
+        (
+            suffix
+            for suffix in ANONYMOUS_SESSION_SUFFIXES
+            if normalized.endswith(suffix)
+        ),
+        "",
+    )
     base = (
-        session_id[:-suffix_length]
-        if is_anonymous_session_id(session_id)
+        session_id[:-len(matched_suffix)]
+        if matched_suffix
         else session_id
     )
     base = base[: max(0, 80 - suffix_length)]

@@ -82,7 +82,7 @@ class LTMentionBackfillTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir) / "logs"
             normal = root / "2026-08-30" / "normal-session"
-            anonymous = root / "2026-08-30" / "private-session-anon"
+            anonymous = root / "2026-08-30" / "private-session_anon"
             normal.mkdir(parents=True)
             anonymous.mkdir(parents=True)
 

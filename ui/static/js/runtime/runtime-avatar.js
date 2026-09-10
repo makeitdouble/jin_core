@@ -15,20 +15,23 @@
     "is-memory-row-hover-zoom";
 
   const CENTER = 180;
-  const INNER_RING_SCALE = 0.90;
-  const MIN_RING_RADIUS = 48 * INNER_RING_SCALE;
-  const MAX_RING_RADIUS = 160 * INNER_RING_SCALE;
-  const INNER_DECORATION_MAX_RADIUS = 151;
-  const STATIC_SCAFFOLD_RADII =
-    [42, 61, 83, 108, 135, 162]
-      .map(radius => radius * INNER_RING_SCALE);
-  const STATIC_RADIAL_LINE_INNER_RADIUS = 38 * INNER_RING_SCALE;
-  const STATIC_RADIAL_LINE_OUTER_RADIUS = 166 * INNER_RING_SCALE;
+  const AVATAR_OUTER_RADIUS = 172;
+  const FILE_RING_OUTER_RADIUS = AVATAR_OUTER_RADIUS;
+  const ACTIVE_MEMORY_RING_RADIUS = 160;
+  const LT_MEMORY_RING_OUTER_RADIUS = 150;
+  const LT_TO_DELAYED_RING_GAP = 10;
+  const DELAYED_TO_RUNTIME_RING_GAP = 10;
+  const MIN_RING_RADIUS = 48;
+  const STATIC_SCAFFOLD_BASE_RADII =
+    [42, 61, 83, 108, 135, 162];
+  const STATIC_SCAFFOLD_BASE_MAX_RADIUS =
+    Math.max(...STATIC_SCAFFOLD_BASE_RADII);
+  const STATIC_RADIAL_LINE_INNER_RADIUS = 38;
+  const STATIC_RADIAL_LINE_OUTER_RADIUS = 166;
   const LT_MEMORY_RING_MAX_FACTS = 100;
   const LT_MEMORY_RING_RADIUS_STEP = 4;
   const MEMORY_RING_LAYOUT = Object.freeze({
     lt: Object.freeze({
-      radius: 178,
       strokeWidth: 1.05,
       minArcDegrees: 3.2,
       maxArcDegrees: 8.8,
@@ -37,7 +40,6 @@
       startAngle: -6,
     }),
     delayed: Object.freeze({
-      radius: 168,
       strokeWidth: 3.10,
       minArcDegrees: 3.4,
       maxArcDegrees: 9.4,
@@ -53,7 +55,7 @@
     }),
   });
   const FILE_RING_LAYOUT = Object.freeze({
-    radius: 198,
+    radius: FILE_RING_OUTER_RADIUS,
     dotRadius: 2.7,
     baseColor: "#7ab8d8",
     glowColor: "#7ab8d8",
@@ -1586,7 +1588,13 @@
     return bestMatch;
   }
 
-  function computeRingRecords(lines, snapshotSeed, changeMarkers = new Map()) {
+  function computeRingRecords(lines, snapshotSeed, changeMarkers = new Map(), radiusBounds = {}) {
+    const minRadius = Number.isFinite(Number(radiusBounds.minRadius))
+      ? Number(radiusBounds.minRadius)
+      : MIN_RING_RADIUS;
+    const maxRadius = Number.isFinite(Number(radiusBounds.maxRadius))
+      ? Math.max(minRadius, Number(radiusBounds.maxRadius))
+      : minRadius;
     const lengths = lines.map(line => line.length);
     const maxLength = Math.max(...lengths);
     const averageLength = lengths.reduce((sum, value) => sum + value, 0) / lengths.length;
@@ -1595,7 +1603,7 @@
       0
     ) / lengths.length;
     const deviation = Math.sqrt(variance);
-    const radiusRange = MAX_RING_RADIUS - MIN_RING_RADIUS;
+    const radiusRange = maxRadius - minRadius;
 
     const records = lines.map((line, index) => {
       const random = createRandom(`${snapshotSeed}:${line.key}:${line.value}:${index}`);
@@ -1603,14 +1611,15 @@
         lines.length <= 1
           ? 0.5
           : 1 - index / (lines.length - 1);
-      const radius = MIN_RING_RADIUS
+      const radius = minRadius
         + sourceOrderRatio * radiusRange;
 
       return {
         ...line,
         index,
         random,
-        radius: clamp(radius, MIN_RING_RADIUS, MAX_RING_RADIUS),
+        radius: clamp(radius, minRadius, maxRadius),
+        maxDecorationRadius: maxRadius,
         isLong: line.length >= averageLength + Math.max(7, deviation * 0.62)
           || (line.length === maxLength && lines.length > 1),
         aggressive: getAggressiveMatch(line.text),
@@ -1630,7 +1639,7 @@
       const maximumRadius = previous.radius - Math.max(1.7, 4.4 - records.length * 0.08);
 
       if (record.radius > maximumRadius) {
-        record.radius = Math.max(MIN_RING_RADIUS, maximumRadius);
+        record.radius = Math.max(minRadius, maximumRadius);
       }
     });
 
@@ -2401,7 +2410,7 @@
     svg.appendChild(ring);
   }
 
-  function appendFileSignalRing(svg, records) {
+  function appendFileSignalRing(svg, records, avatarLayout = null) {
     if (!records.length) {
       return;
     }
@@ -2432,9 +2441,14 @@
     ring.appendChild(reasoningMotion.layer);
     const slotDegrees = 360 / records.length;
 
+    const fileRadius =
+      avatarLayout && Number.isFinite(Number(avatarLayout.fileRadius))
+        ? Number(avatarLayout.fileRadius)
+        : FILE_RING_LAYOUT.radius;
+
     records.forEach((record, index) => {
       const angle = FILE_RING_LAYOUT.startAngle + slotDegrees * index;
-      const point = polarPoint(FILE_RING_LAYOUT.radius, angle);
+      const point = polarPoint(fileRadius, angle);
       const opacity = record.pinned
         ? 0.96
         : 0.36;
@@ -2506,7 +2520,83 @@
     }
   }
 
-  function getLTMemoryRingBatches(records) {
+  function getLTMemoryLaneCount(records) {
+    const recordCount =
+      Array.isArray(records)
+        ? records.length
+        : 0;
+    const baseLaneCount = Math.max(
+      1,
+      Math.ceil(recordCount / LT_MEMORY_RING_MAX_FACTS)
+    );
+    const maxLaneCount = Math.max(
+      1,
+      Math.floor(
+        (
+          LT_MEMORY_RING_OUTER_RADIUS
+          - MIN_RING_RADIUS
+          - LT_TO_DELAYED_RING_GAP
+          - DELAYED_TO_RUNTIME_RING_GAP
+        ) / LT_MEMORY_RING_RADIUS_STEP
+      ) + 1
+    );
+
+    return Math.min(baseLaneCount, maxLaneCount);
+  }
+
+  function getAvatarLayout(ltMemoryRecords) {
+    const ltLaneCount =
+      getLTMemoryLaneCount(ltMemoryRecords);
+    const ltInnermostRadius =
+      LT_MEMORY_RING_OUTER_RADIUS
+      - LT_MEMORY_RING_RADIUS_STEP * (ltLaneCount - 1);
+    const delayedRadius = Math.max(
+      MIN_RING_RADIUS + DELAYED_TO_RUNTIME_RING_GAP,
+      ltInnermostRadius - LT_TO_DELAYED_RING_GAP
+    );
+    const runtimeMaxRadius = Math.max(
+      MIN_RING_RADIUS,
+      delayedRadius - DELAYED_TO_RUNTIME_RING_GAP
+    );
+    const scaffoldScale =
+      clamp(
+        runtimeMaxRadius / STATIC_SCAFFOLD_BASE_MAX_RADIUS,
+        0.24,
+        1
+      );
+
+    return {
+      signature: [
+        FILE_RING_OUTER_RADIUS,
+        ACTIVE_MEMORY_RING_RADIUS,
+        ltLaneCount,
+        delayedRadius,
+        runtimeMaxRadius,
+      ].join(":"),
+      fileRadius: FILE_RING_OUTER_RADIUS,
+      activeRadius: ACTIVE_MEMORY_RING_RADIUS,
+      ltLaneCount,
+      ltOutermostRadius: LT_MEMORY_RING_OUTER_RADIUS,
+      ltInnermostRadius,
+      delayedRadius,
+      runtimeMinRadius: MIN_RING_RADIUS,
+      runtimeMaxRadius,
+      scaffoldRadii:
+        STATIC_SCAFFOLD_BASE_RADII.map(
+          radius => radius * scaffoldScale
+        ),
+      scaffoldRayInnerRadius:
+        STATIC_RADIAL_LINE_INNER_RADIUS * scaffoldScale,
+      scaffoldRayOuterRadius:
+        STATIC_RADIAL_LINE_OUTER_RADIUS * scaffoldScale,
+      haloRadius: Math.min(
+        delayedRadius + 6,
+        runtimeMaxRadius + 22
+      ),
+    };
+  }
+
+  function getLTMemoryRingBatches(records, avatarLayout = getAvatarLayout(records)) {
     if (!Array.isArray(records) || !records.length) {
       return [];
     }
@@ -2524,8 +2614,8 @@
         layout: {
           ...MEMORY_RING_LAYOUT.lt,
           radius:
-            MEMORY_RING_LAYOUT.lt.radius
-            + LT_MEMORY_RING_RADIUS_STEP * laneIndex,
+            avatarLayout.ltOutermostRadius
+            - LT_MEMORY_RING_RADIUS_STEP * laneIndex,
         },
         records:
           records.slice(
@@ -2539,36 +2629,37 @@
   }
 
   function getOutermostLTMemoryRingRadius(records) {
-    const recordCount =
-      Array.isArray(records)
-        ? records.length
-        : 0;
-    const laneCount = Math.max(
-      1,
-      Math.ceil(recordCount / LT_MEMORY_RING_MAX_FACTS)
-    );
-
-    return (
-      MEMORY_RING_LAYOUT.lt.radius
-      + LT_MEMORY_RING_RADIUS_STEP * (laneCount - 1)
-    );
+    return getAvatarLayout(records).ltOutermostRadius;
   }
 
   function getActiveMemoryRingLayout(ltMemoryRecords) {
-    const outermostLTRadius =
-      getOutermostLTMemoryRingRadius(ltMemoryRecords);
-
     return {
       ...MEMORY_RING_LAYOUT.active,
-      radius: (
-        outermostLTRadius
-        + FILE_RING_LAYOUT.radius
-      ) / 2,
+      radius:
+        getAvatarLayout(ltMemoryRecords).activeRadius,
     };
   }
 
-  function appendLTMemorySignalRings(svg, records, overallColor) {
-    getLTMemoryRingBatches(records)
+  function getDelayedMemoryRingLayout(ltMemoryRecords) {
+    return {
+      ...MEMORY_RING_LAYOUT.delayed,
+      radius:
+        getAvatarLayout(ltMemoryRecords).delayedRadius,
+    };
+  }
+
+  function getRuntimeRingRadiusBounds(ltMemoryRecords) {
+    const avatarLayout =
+      getAvatarLayout(ltMemoryRecords);
+
+    return {
+      minRadius: avatarLayout.runtimeMinRadius,
+      maxRadius: avatarLayout.runtimeMaxRadius,
+    };
+  }
+
+  function appendLTMemorySignalRings(svg, records, overallColor, avatarLayout = getAvatarLayout(records)) {
+    getLTMemoryRingBatches(records, avatarLayout)
       .forEach((batch) => {
         appendMemorySignalRing(
           svg,
@@ -2681,11 +2772,17 @@
       avatarRoot.querySelector("svg");
     const records =
       getMemorySignalRecords(kind);
+    const ltMemoryRecords =
+      getLTMemoryAvatarRecords();
     const layout =
       kind === "active"
         ? getActiveMemoryRingLayout(
-          getLTMemoryAvatarRecords()
+          ltMemoryRecords
         )
+        : kind === "delayed"
+          ? getDelayedMemoryRingLayout(
+            ltMemoryRecords
+          )
         : MEMORY_RING_LAYOUT[kind];
 
     if (
@@ -2723,7 +2820,8 @@
         appendLTMemorySignalRings(
           temporaryParent,
           records,
-          overallColor
+          overallColor,
+          getAvatarLayout(ltMemoryRecords)
         );
       } else {
         appendMemorySignalRing(
@@ -3112,6 +3210,11 @@
   }
 
   function syncLTMemoryState() {
+    const delayedSynced =
+      syncMemorySignalLayer(
+        "delayed",
+        { applyGlows: false }
+      );
     const ltSynced =
       syncMemorySignalLayer(
         "lt",
@@ -3123,7 +3226,7 @@
         { applyGlows: false }
       );
 
-    if (!ltSynced || !activeSynced) {
+    if (!delayedSynced || !ltSynced || !activeSynced) {
       return false;
     }
 
@@ -3301,19 +3404,21 @@
     activeMemoryRecords,
     delayedMemoryRecords,
     ltMemoryRecords,
-    overallColor
+    overallColor,
+    avatarLayout = getAvatarLayout(ltMemoryRecords)
   ) {
     appendMemorySignalRing(
       svg,
       delayedMemoryRecords,
-      MEMORY_RING_LAYOUT.delayed,
+      getDelayedMemoryRingLayout(ltMemoryRecords),
       "delayed",
       overallColor
     );
     appendLTMemorySignalRings(
       svg,
       ltMemoryRecords,
-      overallColor
+      overallColor,
+      avatarLayout
     );
     appendMemorySignalRing(
       svg,
@@ -3324,8 +3429,8 @@
     );
   }
 
-  function appendFileRing(svg, fileRecords) {
-    appendFileSignalRing(svg, fileRecords);
+  function appendFileRing(svg, fileRecords, avatarLayout = null) {
+    appendFileSignalRing(svg, fileRecords, avatarLayout);
   }
 
   function appendDefs(svg, overallColor, currentCenterColor) {
@@ -3389,7 +3494,7 @@
     svg.appendChild(defs);
   }
 
-  function appendStaticScaffold(svg, overallColor, currentCenterColor, diffPercent, random) {
+  function appendStaticScaffold(svg, overallColor, currentCenterColor, diffPercent, random, avatarLayout) {
     const scaffold = createSvgElement("g", {
       class: "jin-avatar-scaffold",
       fill: "none",
@@ -3419,14 +3524,31 @@
       );
     }
 
+    const scaffoldRadii =
+      avatarLayout && Array.isArray(avatarLayout.scaffoldRadii)
+        ? avatarLayout.scaffoldRadii
+        : STATIC_SCAFFOLD_BASE_RADII;
+    const scaffoldRayInnerRadius =
+      avatarLayout && Number.isFinite(Number(avatarLayout.scaffoldRayInnerRadius))
+        ? Number(avatarLayout.scaffoldRayInnerRadius)
+        : STATIC_RADIAL_LINE_INNER_RADIUS;
+    const scaffoldRayOuterRadius =
+      avatarLayout && Number.isFinite(Number(avatarLayout.scaffoldRayOuterRadius))
+        ? Number(avatarLayout.scaffoldRayOuterRadius)
+        : STATIC_RADIAL_LINE_OUTER_RADIUS;
+    const haloRadius =
+      avatarLayout && Number.isFinite(Number(avatarLayout.haloRadius))
+        ? Number(avatarLayout.haloRadius)
+        : scaffoldRadii[scaffoldRadii.length - 1];
+
     scaffoldContent.appendChild(createSvgElement("circle", {
       cx: CENTER,
       cy: CENTER,
-      r: 168,
+      r: haloRadius,
       fill: "url(#jin-avatar-halo)",
     }));
 
-    STATIC_SCAFFOLD_RADII.forEach((radius, index) => {
+    scaffoldRadii.forEach((radius, index) => {
       scaffoldContent.appendChild(createSvgElement("circle", {
         cx: CENTER,
         cy: CENTER,
@@ -3440,8 +3562,8 @@
 
     for (let index = 0; index < rayCount; index += 1) {
       const angle = index * 22.5 + (random() - 0.5) * 2;
-      const inner = polarPoint(STATIC_RADIAL_LINE_INNER_RADIUS, angle);
-      const outer = polarPoint(STATIC_RADIAL_LINE_OUTER_RADIUS, angle);
+      const inner = polarPoint(scaffoldRayInnerRadius, angle);
+      const outer = polarPoint(scaffoldRayOuterRadius, angle);
       const activeRay =
         activeRayIndexes.has(index);
       const visibilitySeed = random();
@@ -3535,7 +3657,9 @@
       const angle = startAngle + arcSpan * ratio;
       const innerRadius = record.radius - 1.5;
       const outerRadius = Math.min(
-        INNER_DECORATION_MAX_RADIUS,
+        Number.isFinite(Number(record.maxDecorationRadius))
+          ? Number(record.maxDecorationRadius)
+          : record.radius,
         record.radius + stripeHeight * (0.55 + random() * 0.45)
       );
       const inner = polarPoint(innerRadius, angle);
@@ -4538,7 +4662,8 @@
     snapshot,
     lines,
     snapshotIndex = null,
-    seedNonce = 0
+    seedNonce = 0,
+    avatarLayoutSignature = ""
   ) {
     const normalizedSnapshotIndex =
       Number.isInteger(Number(snapshotIndex))
@@ -4560,6 +4685,7 @@
         line.changeRatio,
       ].join("␟")).join("␞"),
       seedNonce,
+      avatarLayoutSignature,
     ].join("␝");
   }
 
@@ -4685,12 +4811,15 @@
     const delayedMemoryRecords = getDelayedMemoryAvatarRecords();
     const ltMemoryRecords = getLTMemoryAvatarRecords();
     const fileRecords = getPersistentFileAvatarRecords();
+    const avatarLayout =
+      getAvatarLayout(ltMemoryRecords);
     const runtimeSignature =
       buildRuntimeRenderSignature(
         snapshot,
         lines,
         snapshotIndex,
-        seedNonce
+        seedNonce,
+        avatarLayout.signature
       );
     const auxiliarySignatures =
       buildAuxiliaryRenderSignatures(
@@ -4750,7 +4879,8 @@
         ? computeRingRecords(
           lines,
           seed || "jin-avatar",
-          changeMarkers
+          changeMarkers,
+          getRuntimeRingRadiusBounds(ltMemoryRecords)
         )
         : [];
     const overallColor = lines.length
@@ -4772,7 +4902,14 @@
     });
 
     appendDefs(svg, overallColor, centerColor);
-    appendStaticScaffold(svg, overallColor, centerColor, diffPercent, random);
+    appendStaticScaffold(
+      svg,
+      overallColor,
+      centerColor,
+      diffPercent,
+      random,
+      avatarLayout
+    );
 
     records.forEach((record, index) => {
       appendOrbit(svg, record, records, overallColor, diffPercent, {
@@ -4786,11 +4923,13 @@
       activeMemoryRecords,
       delayedMemoryRecords,
       ltMemoryRecords,
-      overallColor
+      overallColor,
+      avatarLayout
     );
     appendFileRing(
       svg,
-      fileRecords
+      fileRecords,
+      avatarLayout
     );
 
     appendCenter(svg, overallColor, centerColor);

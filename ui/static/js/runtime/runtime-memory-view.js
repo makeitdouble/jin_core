@@ -6045,7 +6045,16 @@
     }
 
     const activate = () => dispatchRuntimeMemoryLineAvatarHover(row, true);
-    const deactivate = () => dispatchRuntimeMemoryLineAvatarHover(row, false);
+    const deactivate = () => {
+      // Child controls share the row hover signal. Leaving a child for the
+      // row's padded area must not clear the avatar highlight while the row
+      // itself is still hovered (or contains keyboard focus).
+      if (row.matches(":hover") || row.matches(":focus-within")) {
+        return;
+      }
+
+      dispatchRuntimeMemoryLineAvatarHover(row, false);
+    };
 
     target.addEventListener("mouseenter", activate);
     target.addEventListener("mouseleave", deactivate);

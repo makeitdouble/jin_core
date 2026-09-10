@@ -135,11 +135,11 @@ class ChatLogSearchTests(unittest.TestCase):
         path = self.archive([self.row('user', 'пицца'), self.row('user', 'пицца', 'missing', ts='')])
         with path.open('a', encoding='utf-8') as stream:
             stream.write('\n{broken\n')
-        self.archive([self.row('user', 'пицца')], session='private-anon')
+        self.archive([self.row('user', 'пицца')], session='private_anon')
         result = self.search()
         self.assertEqual(result['matched_turns'], 1)
         self.assertEqual(result['skipped_records'], 2)
-        self.context.session_id = 'private-anon'
+        self.context.session_id = 'private_anon'
         self.assertEqual(self.search()['matched_turns'], 2)
 
     def test_full_messages_survive_checkpoint_hydration_without_json_slicing(self):

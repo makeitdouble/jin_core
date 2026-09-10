@@ -1,6 +1,6 @@
 import json
 import re
-import secrets
+from uuid import uuid4
 import shutil
 from datetime import datetime
 from pathlib import Path
@@ -15,7 +15,6 @@ from runtime.anonymous_mode import (
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 CHAT_LOG_ROOT = PROJECT_ROOT / "logs"
-LEGACY_CHAT_LOG_ANON_ROOT = PROJECT_ROOT / "logs_anon"
 CHAT_LOG_SESSION_ID_MAX_CHARS = 80
 CHAT_LOG_SESSION_ID_RE = re.compile(
     r"[^a-zA-Z0-9_.-]"
@@ -121,7 +120,7 @@ def _context_session_id(
     if existing:
         return existing
 
-    generated = f"session_{secrets.token_hex(4)}"
+    generated = str(uuid4())
     context.runtime_chat_log_session_id = generated
 
     return generated
@@ -496,16 +495,35 @@ def _chat_log_has_content(path: Path) -> bool:
     )
 
 
-def _save_or_defer_chat_snapshot(context, path: Path, text: str) -> Path | None:
+def _save_or_defer_chat_snapshot(
+    context,
+    path: Path,
+    text: str,
+    *,
+    overwrite: bool = True,
+) -> Path | None:
     # Prompt preparation and inherited FRAME are not conversation activity.
-    # Keep just the latest text per destination until a real log write succeeds.
+    # Primary snapshots keep the newest text. The bootstrap snapshot is the
+    # immutable lineage anchor: once queued or written, later restore/follow-up
+    # prompts must not erase its RESTORED_SESSION_DIALOG predecessor metadata.
     pending = getattr(context, "runtime_chat_pending_snapshots", None)
     if pending is None:
         pending = context.runtime_chat_pending_snapshots = {}
-    pending[str(path)] = text
+
+    key = str(path)
+    if overwrite:
+        pending[key] = text
+    elif key not in pending and not path.is_file():
+        pending[key] = text
+
     log_path = Path(context.runtime_chat_log_path)
     if not _chat_log_has_content(log_path):
         return None
+
+    if not overwrite and path.is_file():
+        context.runtime_chat_bootstrap_context_path = key
+        return path
+
     _flush_chat_snapshots(context, log_path)
     return path
 
@@ -618,6 +636,7 @@ def save_chat_bootstrap_context_snapshot(
             root=root,
         ),
         text,
+        overwrite=False,
     )
     return path
 
@@ -978,92 +997,6 @@ def _migrate_date_reasoning_directory(
     return moved
 
 
-def _migrate_legacy_anonymous_chat_logs(
-    source_root: Path,
-    target_root: Path,
-) -> list[tuple[Path, Path]]:
-
-    if not source_root.is_dir():
-        return []
-
-    # First normalize any old flat ``YYYY-MM-DD-session`` layout in-place.
-    moved = migrate_legacy_chat_logs(
-        root=source_root,
-    )
-
-    for date_directory in sorted(
-        source_root.iterdir(),
-        key=lambda item: item.name,
-    ):
-        if (
-            not date_directory.is_dir()
-            or not re.fullmatch(
-                r"\d{4}-\d{2}-\d{2}",
-                date_directory.name,
-            )
-        ):
-            continue
-
-        for source_session in sorted(
-            date_directory.iterdir(),
-            key=lambda item: item.name,
-        ):
-            if not source_session.is_dir():
-                continue
-
-            session_id = _clean_session_id(
-                ensure_anonymous_session_id(
-                    source_session.name
-                )
-            )
-            if not session_id:
-                continue
-
-            target_session = (
-                target_root
-                / date_directory.name
-                / session_id
-            )
-            target_session.parent.mkdir(
-                parents=True,
-                exist_ok=True,
-            )
-
-            if target_session.exists():
-                _merge_directory_contents(
-                    source_session,
-                    target_session,
-                )
-                try:
-                    source_session.rmdir()
-                except OSError:
-                    pass
-            else:
-                shutil.move(
-                    str(source_session),
-                    str(target_session),
-                )
-
-            _ensure_reasoning_directory(
-                target_session
-            )
-            moved.append(
-                (source_session, target_session)
-            )
-
-        try:
-            date_directory.rmdir()
-        except OSError:
-            pass
-
-    try:
-        source_root.rmdir()
-    except OSError:
-        pass
-
-    return moved
-
-
 def migrate_legacy_chat_logs(
     *,
     root: Path | str | None = None,
@@ -1156,14 +1089,6 @@ def migrate_legacy_chat_logs(
                     date_directory
                 )
             )
-
-    if root is None:
-        moved.extend(
-            _migrate_legacy_anonymous_chat_logs(
-                LEGACY_CHAT_LOG_ANON_ROOT,
-                root_path,
-            )
-        )
 
     return moved
 

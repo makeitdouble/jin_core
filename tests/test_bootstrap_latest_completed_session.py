@@ -42,7 +42,7 @@ def test_latest_completed_selector_ignores_newer_blank_boot_session(tmp_path):
 
 def test_normal_selector_skips_anon_sessions_in_shared_log_root(tmp_path):
     normal_session = "normal-session"
-    anonymous_session = "anonymous-newer-anon"
+    anonymous_session = "anonymous-newer_anon"
 
     _write_dialog(tmp_path, normal_session, "195000", [
         {"ts": "2026-08-24T19:50:00+03:00", "turn": 1, "role": "user", "text": "normal user"},
@@ -70,7 +70,7 @@ def test_normal_selector_skips_anon_sessions_in_shared_log_root(tmp_path):
 
 def test_normal_bootstrap_never_reads_newer_anon_session_from_shared_logs(tmp_path):
     normal_session = "normal-source"
-    anonymous_session = "anonymous-newer-anon"
+    anonymous_session = "anonymous-newer_anon"
 
     _write_dialog(tmp_path, normal_session, "195000", [
         {"ts": "2026-08-24T19:50:00+03:00", "turn": 1, "role": "user", "text": "normal user"},

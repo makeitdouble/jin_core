@@ -314,7 +314,7 @@ The server supplies `session_snapshot` on `message_end` and `agent_runtime_end`.
 
 ### 9.2 Raw-log source selection and split freshness
 
-Despite its historical name, `find_latest_completed_session_restore_payload()` now selects the newest non-anonymous raw-log session containing a real USER move. A blank bootstrap-only session is ignored. A stopped USER-only move qualifies, as does an action-only completion whose durable JIN row has empty visible text. `-anon` log sessions are never restore candidates.
+Despite its historical name, `find_latest_completed_session_restore_payload()` now selects the newest non-anonymous raw-log session containing a real USER move. A blank bootstrap-only session is ignored. A stopped USER-only move qualifies, as does an action-only completion whose durable JIN row has empty visible text. `_anon` log sessions are never restore candidates.
 
 If raw logs prove a different session has a strictly newer USER tail than both the requested archive and browser tail, bootstrap switches `source_session_id` and discards the stale source's browser actions/color with it.
 
@@ -423,7 +423,7 @@ The older concept of a full nightly self-review cycle that reads cropped reasoni
 
 ## 12. Anonymous room status
 
-Anonymous mode is now explicit JIN behavior and does not attempt to detect Chrome/Incognito/private browsing. Long-pressing the avatar opens a fresh anonymous room with a generated `-anon` session id.
+Anonymous mode is now explicit JIN behavior and does not attempt to detect Chrome/Incognito/private browsing. Long-pressing the avatar opens a fresh anonymous room with a generated `_anon` session id.
 
 Backend `runtime/anonymous_mode.py` currently:
 
@@ -434,9 +434,9 @@ Backend `runtime/anonymous_mode.py` currently:
 - preserves Delayed reports and loaded bodies on a soft WebSocket reconnect;
 - blocks persistent asset-write actions;
 - prevents anonymous L1 pending journals under `memory/runtime`;
-- keeps chat/reasoning logging under ordinary `logs/` with the `-anon` session suffix.
+- keeps chat/reasoning logging under ordinary `logs/` with the `_anon` session suffix.
 
-Browser state is a fresh `sessionStorage` snapshot (`jin.anonymousSession.v1`) holding the room id and empty FRAME/Active/L-T/Delayed structures. It disappears with the tab and never reads the normal profile's durable memory/checkpoint state. Normal restore/bootstrap and L-T log-freshness scans skip `-anon` logs.
+Browser state is a fresh `sessionStorage` snapshot (`jin.anonymousSession.v1`) holding the room id and empty FRAME/Active/L-T/Delayed structures. It disappears with the tab and never reads the normal profile's durable memory/checkpoint state. Normal restore/bootstrap and L-T log-freshness scans skip `_anon` logs.
 
 ---
 

@@ -15,7 +15,9 @@ class AnonymousModeClientContractTests(unittest.TestCase):
 
         self.assertIn('ANONYMOUS_MODE_QUERY_PARAM = "anonymous_mode"', source)
         self.assertIn('ANONYMOUS_SESSION_QUERY_PARAM = "anonymous_session_id"', source)
-        self.assertIn('ANONYMOUS_SESSION_SUFFIX = "-anon"', source)
+        self.assertIn('ANONYMOUS_SESSION_SUFFIX = "_anon"', source)
+        self.assertIn('const ANONYMOUS_SESSION_SUFFIXES = [', source)
+        self.assertIn('"-anon",', source)
         self.assertIn('ANONYMOUS_SESSION_STORAGE_KEY = "jin.anonymousSession.v1"', source)
         self.assertIn("readExplicitRequest", source)
         self.assertIn("buildAnonymousWindowUrl", source)

@@ -7,6 +7,7 @@ import re
 from datetime import date, datetime, time, timezone
 from pathlib import Path
 
+from runtime.anonymous_mode import is_anonymous_session_id
 from utils.chat_log import chat_log_root_for_context, summarize_attachments
 
 CHAT_LOG_SEARCH_DEFAULT_LIMIT = 10
@@ -170,7 +171,10 @@ def search_chat_logs(context, request: dict) -> dict:
     current_session = str(getattr(context, "session_id", "") or "")
     for path in sorted(root.glob("*/*/*.jsonl")):
         # Normal history does not expose other anonymous rooms.
-        if path.parent.name.endswith("-anon") and path.parent.name != current_session:
+        if (
+            is_anonymous_session_id(path.parent.name)
+            and path.parent.name != current_session
+        ):
             continue
         if not path.resolve().is_relative_to(root.resolve()):
             continue
