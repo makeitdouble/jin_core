@@ -1,6 +1,7 @@
 from collections import OrderedDict
 from dataclasses import dataclass
 import hashlib
+import time
 
 from contracts.rules_assembler import (
     build_runtime_action_display_text,
@@ -23,6 +24,7 @@ class RuntimeActionCount:
     count: int
     payloads: tuple[str, ...] = ()
     identity: str = ""
+    created_ats: tuple[float, ...] = ()
 
     @property
     def payload(self) -> str:
@@ -47,6 +49,7 @@ class RuntimeActionCounter:
     def __init__(self):
         self._counts = OrderedDict()
         self._payloads = {}
+        self._created_ats = {}
 
     @staticmethod
     def _identity_key(
@@ -103,8 +106,12 @@ class RuntimeActionCounter:
             if identity_key not in self._counts:
                 self._counts[identity_key] = 0
                 self._payloads[identity_key] = []
+                self._created_ats[identity_key] = []
 
             self._counts[identity_key] += 1
+            self._created_ats[identity_key].append(
+                time.time()
+            )
 
             if payload:
                 self._payloads[identity_key].append(
@@ -143,6 +150,12 @@ class RuntimeActionCounter:
                 )
             ),
             identity=identity,
+            created_ats=tuple(
+                self._created_ats.get(
+                    identity_key,
+                    (),
+                )
+            ),
         )
 
     def get(
@@ -229,6 +242,10 @@ class RuntimeActionCounter:
                 "payloads": normalized_payloads,
             }
 
+            if entry.created_ats:
+                marker_action["created_at"] = entry.created_ats[0]
+                marker_action["created_ats"] = list(entry.created_ats)
+
             if raw_payloads:
                 marker_action["raw_payloads"] = raw_payloads
 
@@ -256,6 +273,7 @@ def resolve_runtime_action_counter_display_payloads(
 
     if entry.name not in {
         "ATTACH_FILE_CONTENT",
+        "ATTACH_FILE_BY_ID",
     }:
         return normalized_payloads
 

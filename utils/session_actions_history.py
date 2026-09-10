@@ -28,6 +28,24 @@ from utils.chat_log_search import extract_chat_log_search_query
 MAX_SESSION_ACTION_HISTORY_ITEMS = 200
 
 
+def _normalize_session_action_created_at(
+    value,
+) -> float:
+
+    try:
+        created_at = float(
+            value
+            or 0
+        )
+    except (
+        TypeError,
+        ValueError,
+    ):
+        return 0.0
+
+    return created_at if created_at > 0 else 0.0
+
+
 def get_session_action_session_id(
     context,
 ) -> str:
@@ -897,6 +915,12 @@ def _normalize_session_action_display_parts(
                 )
                 or ""
             ).strip()
+            created_at = _normalize_session_action_created_at(
+                part.get(
+                    "_created_at",
+                    0,
+                )
+            )
             try:
                 count = max(
                     0,
@@ -924,6 +948,7 @@ def _normalize_session_action_display_parts(
             colors = []
             sizes = []
             context_detail = ""
+            created_at = 0.0
             count = 0
 
         if not part_text:
@@ -953,6 +978,9 @@ def _normalize_session_action_display_parts(
 
         if context_detail:
             normalized_part["context_detail"] = context_detail
+
+        if created_at > 0:
+            normalized_part["_created_at"] = created_at
 
         if count > 1:
             normalized_part["count"] = count
@@ -1411,6 +1439,7 @@ def _build_session_action_marker_detail(
         "LOAD_DELAYED_MEMORY",
         "UNLOAD_DELAYED_MEMORY",
         "ATTACH_FILE_CONTENT",
+        "ATTACH_FILE_BY_ID",
     }:
         return normalized_payload
 
@@ -1523,9 +1552,21 @@ def _build_payload_distinct_session_action_parts(
                 "details": [],
                 "fallback": normalized_payload,
                 "result_counts": [],
+                "created_ats": [],
             },
         )
         payload_group["count"] += 1
+
+        created_at = _normalize_session_action_created_at(
+            payload_entry.get(
+                "created_at",
+                0,
+            )
+        )
+        if created_at > 0:
+            payload_group["created_ats"].append(
+                created_at
+            )
 
         result_count = payload_entry.get(
             "result_count",
@@ -1554,6 +1595,7 @@ def _build_payload_distinct_session_action_parts(
 
     attachment_marker_action = action_name in {
         "ATTACH_FILE_CONTENT",
+        "ATTACH_FILE_BY_ID",
     }
     chat_log_search_action = (
         action_name == "CHAT_LOG_SEARCH"
@@ -1580,6 +1622,25 @@ def _build_payload_distinct_session_action_parts(
         part = {
             "text": action_name,
         }
+        group_created_ats = [
+            created_at
+            for created_at in (
+                _normalize_session_action_created_at(value)
+                for value in group.get(
+                    "created_ats",
+                    [],
+                )
+            )
+            if created_at > 0
+        ]
+        if group_created_ats:
+            part["_created_at"] = min(
+                group_created_ats
+            )
+        if payload_group["created_ats"]:
+            part["_created_at"] = min(
+                payload_group["created_ats"]
+            )
 
         if chat_log_search_action:
             query = (
@@ -1633,6 +1694,7 @@ def _build_payload_distinct_session_action_parts(
                 "LOAD_DELAYED_MEMORY",
                 "UNLOAD_DELAYED_MEMORY",
                 "ATTACH_FILE_CONTENT",
+                "ATTACH_FILE_BY_ID",
                     }
             and payload_key
             and payload_key != part.get(
@@ -1670,6 +1732,7 @@ def _build_formatted_session_action_marker_parts(
         marker_status = ""
         marker_failure_reason = ""
         marker_result_count = None
+        marker_created_ats = []
 
         if isinstance(
             marker_action,
@@ -1730,6 +1793,37 @@ def _build_formatted_session_action_marker_parts(
             )
             if isinstance(raw_result_count, int) and raw_result_count >= 0:
                 marker_result_count = raw_result_count
+
+            raw_created_ats = marker_action.get(
+                "created_ats",
+                [],
+            )
+            if not isinstance(
+                raw_created_ats,
+                (list, tuple),
+            ):
+                raw_created_ats = [
+                    raw_created_ats,
+                ]
+            marker_created_ats = [
+                created_at
+                for created_at in (
+                    _normalize_session_action_created_at(value)
+                    for value in raw_created_ats
+                )
+                if created_at > 0
+            ]
+            if not marker_created_ats:
+                created_at = _normalize_session_action_created_at(
+                    marker_action.get(
+                        "created_at",
+                        0,
+                    )
+                )
+                if created_at > 0:
+                    marker_created_ats = [
+                        created_at,
+                    ]
 
             if isinstance(
                 raw_payloads,
@@ -1822,6 +1916,17 @@ def _build_formatted_session_action_marker_parts(
                 marker_payloads = [
                     normalized_payload,
                 ]
+            created_at = _normalize_session_action_created_at(
+                getattr(
+                    marker_action,
+                    "created_at",
+                    0,
+                )
+            )
+            if created_at > 0:
+                marker_created_ats = [
+                    created_at,
+                ]
         else:
             action_name = marker_action
 
@@ -1873,11 +1978,15 @@ def _build_formatted_session_action_marker_parts(
                 "colors": [],
                 "sizes": [],
                 "details": [],
+                "created_ats": [],
                 "status": marker_status,
                 "failure_reason": marker_failure_reason,
             },
         )
         group["count"] += marker_count
+        group["created_ats"].extend(
+            marker_created_ats
+        )
         group["payload_identity_aware"] = (
             group["payload_identity_aware"]
             or marker_identity_aware
@@ -1890,6 +1999,15 @@ def _build_formatted_session_action_marker_parts(
                 "key": marker_identity_payloads[index],
                 "display": payload,
                 "result_count": marker_result_count,
+                "created_at": (
+                    marker_created_ats[index]
+                    if index < len(marker_created_ats)
+                    else (
+                        marker_created_ats[0]
+                        if marker_created_ats
+                        else 0.0
+                    )
+                ),
             }
             for index, payload in enumerate(
                 marker_payloads
@@ -2019,6 +2137,21 @@ def _build_formatted_session_action_marker_parts(
         part = {
             "text": action_name,
         }
+        group_created_ats = [
+            created_at
+            for created_at in (
+                _normalize_session_action_created_at(value)
+                for value in group.get(
+                    "created_ats",
+                    [],
+                )
+            )
+            if created_at > 0
+        ]
+        if group_created_ats:
+            part["_created_at"] = min(
+                group_created_ats
+            )
 
         if action_name == "RECALL_FACT_CONTEXT":
             fact_ids = _unique_session_action_values(
@@ -2262,10 +2395,48 @@ def _build_session_action_marker_history_items(
         if not text:
             return
 
+        part_created_ats = [
+            part_created_at
+            for part_created_at in (
+                _normalize_session_action_created_at(
+                    part.get(
+                        "_created_at",
+                        0,
+                    )
+                )
+                for part in normalized_item_parts
+                if isinstance(
+                    part,
+                    dict,
+                )
+            )
+            if part_created_at > 0
+        ]
+        item_created_at = (
+            min(part_created_ats)
+            if part_created_ats
+            else _normalize_session_action_created_at(
+                created_at
+            )
+        )
+        if item_created_at <= 0:
+            item_created_at = time.time()
+
+        stored_parts = []
+        for part in normalized_item_parts:
+            stored_part = dict(part)
+            stored_part.pop(
+                "_created_at",
+                None,
+            )
+            stored_parts.append(
+                stored_part
+            )
+
         item = {
             "text": text,
-            "created_at": created_at,
-            "parts": normalized_item_parts,
+            "created_at": item_created_at,
+            "parts": stored_parts,
             "runtime_session_action_marker_item": True,
         }
 
@@ -2351,6 +2522,23 @@ def _build_session_action_marker_history_items(
     flush_grouped_parts()
 
     return items
+
+
+def build_session_action_marker_history_items(
+    marker_actions,
+    *,
+    created_at,
+    runtime_turn_id: str = "",
+) -> list[dict]:
+    """Build session-action rows from marker metadata without action-specific logic."""
+
+    return _build_session_action_marker_history_items(
+        _build_formatted_session_action_marker_parts(
+            marker_actions
+        ),
+        created_at=created_at,
+        runtime_turn_id=runtime_turn_id,
+    )
 
 
 def _normalize_jin_message_content(
@@ -3269,6 +3457,49 @@ async def emit_session_actions_update(
     if not items and not bootstrap_restore:
         return
 
+    if not bootstrap_restore and not current_sequence:
+        history = getattr(
+            context,
+            "runtime_session_action_history",
+            [],
+        )
+        session_id = get_session_action_session_id(
+            context
+        )
+        persisted_items = [
+            dict(item)
+            for item in history
+            if isinstance(
+                item,
+                dict,
+            )
+            and str(
+                item.get(
+                    "text",
+                    "",
+                )
+                or ""
+            ).strip()
+            and session_action_belongs_to_session(
+                item,
+                session_id,
+            )
+        ][-MAX_SESSION_ACTION_HISTORY_ITEMS:]
+        try:
+            from utils.chat_log import append_chat_runtime_event
+
+            append_chat_runtime_event(
+                context,
+                event="session_actions_snapshot",
+                payload={
+                    "items": persisted_items,
+                    "created_at": time.time(),
+                },
+            )
+        except Exception:
+            # Session-action logging must never block the live runtime/UI.
+            pass
+
     emitter = getattr(
         context,
         "emitter",
@@ -3393,7 +3624,7 @@ def _add_tool_ids_to_history_parts(context, marker_actions, parts):
                 for index, event in candidates
                 if (event.get("status") == "failed") == failed
             ]
-        if name in {"ATTACH_FILE_CONTENT", "LOAD_SKILL", "UNLOAD_SKILL"}:
+        if name in {"ATTACH_FILE_CONTENT", "ATTACH_FILE_BY_ID", "LOAD_SKILL", "UNLOAD_SKILL"}:
             identities = {
                 str(part.get("id") or "").strip(),
                 str(part.get("detail") or "").strip(),
@@ -3416,12 +3647,12 @@ def _add_tool_ids_to_history_parts(context, marker_actions, parts):
         if selected:
             part["tool_ids"] = [event["tool_id"] for _index, event in selected]
             consumed_event_indexes.update(index for index, _event in selected)
-            if name in {"ATTACH_FILE_CONTENT"}:
+            if name in {"ATTACH_FILE_CONTENT", "ATTACH_FILE_BY_ID"}:
                 from utils.context.files import file_result_summary
                 result = next((entry.get("result") for entry in
                                getattr(context, "runtime_tool_results", []) or []
                                if entry.get("tool_id") == selected[-1][1]["tool_id"]), None)
-                if isinstance(result, dict) and result.get("ok") is False:
+                if isinstance(result, dict) and (result.get("ok") is False or name == "ATTACH_FILE_BY_ID"):
                     part["text"] = file_result_summary(result)
                     part.pop("detail", None)
                     part.pop("message", None)

@@ -390,6 +390,15 @@ The composer projects currently pinned files as compact attachment chips. A chip
 
 ### Project review through linked files
 
+`ATTACH_FILE_BY_ID: file_id` attaches a whole existing persistent file through
+the ordinary pin/hydration path. Text uses the shared attachment context budget;
+images use the existing multimodal Brain payload when image input is enabled.
+It accepts only system IDs, never paths, stored filenames, or line ranges.
+Missing/deleted IDs fail without falling back to project reading. Its result
+uses the existing bubble, Session Actions, tool-result and checkpoint paths.
+`ATTACH_FILE_CONTENT` remains the source-path/range reader, with its old
+persistent-ID handling retained for compatibility.
+
 `LINK FOLDER` beside `ATTACH FILE` accepts a local path (including a folder
 copied into `assets/`) or a `file:///` URL. The user-facing endpoint validates
 the directory and stores an ordinary `.jin-folder` descriptor in Files. Its

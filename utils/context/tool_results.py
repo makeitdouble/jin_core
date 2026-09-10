@@ -192,7 +192,7 @@ def _persistent_file_result_id(context, result) -> str:
     if not isinstance(result, dict):
         return ""
     if (
-        result.get("action") != "attach_file_content"
+        result.get("action") not in {"attach_file_content", "attach_file_by_id"}
         or result.get("source") == "project"
         or result.get("ok") is False
         or result.get("loaded") is False

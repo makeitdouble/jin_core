@@ -20,7 +20,7 @@
       "<ATTACH_FILE_CONTENT: relative/path#L1-L200 >"
     ],
     "rules": [
-      "Use ATTACH_FILE_CONTENT to load source into FILE_CONTENT. After emitting the marker, wait for the follow-up tick before reasoning about the file contents. A bare project path continues from the next unread window; an explicit #Lstart-Lend range may be read again. When no project folder is linked in the UI, relative paths and jin_core/relative/path resolve against JIN's own read-only source directory without activating Project Mode. If a folder is linked, normal linked-project resolution takes precedence."
+      "Use ATTACH_FILE_CONTENT to read source paths and line ranges into FILE_CONTENT. To attach a whole existing text file or photo/image by its system ID, use ATTACH_FILE_BY_ID instead; never use a stored image filename as a source path. After emitting the marker, wait for the follow-up tick before reasoning about the file contents. A bare project path continues from the next unread window; an explicit #Lstart-Lend range may be read again. When no project folder is linked in the UI, relative paths and jin_core/relative/path resolve against JIN's own read-only source directory without activating Project Mode. If a folder is linked, normal linked-project resolution takes precedence."
     ],
     "close_tag": false
   }

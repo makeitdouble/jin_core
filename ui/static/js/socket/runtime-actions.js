@@ -1765,7 +1765,7 @@ function handleRuntimeAction(
     counterOnly
     && (
       reportScopedDelayedAction
-      || action === "attach_file_content"
+      || ["attach_file_content", "attach_file_by_id"].includes(action)
     )
   ) {
     return;

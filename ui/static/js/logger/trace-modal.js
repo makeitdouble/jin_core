@@ -4182,7 +4182,83 @@ function decodeContextEntities(value) {
     .replace(/&amp;/g, "&");
 }
 
-function renderContextToolResultBody(parent, content) {
+function renderContextChatLogSearchBody(parent, content) {
+  // Archive formatter indents message bodies two spaces beyond structural
+  // headers. Keep that distinction so quoted headers remain message text.
+  const lines = decodeContextEntities(content).replace(/\r\n?/g, "\n").split("\n");
+  // parseContextBlocks trims the first line, while subsequent lines retain
+  // the TOOL_RESULT envelope indentation. Anchor to a real result header.
+  const firstHit = lines.find(line => /^ *\[\d+\] Session: .*? \| Turn: .*? \| Archive: /.test(line));
+  if (!firstHit) return false;
+  const indent = firstHit.match(/^ */)[0].length;
+  const normalized = lines.map(line => line.slice(Math.min(indent, line.match(/^ */)[0].length)));
+  const hits = [];
+  const summary = [];
+  let hit = null;
+  let section = null;
+  for (const line of normalized) {
+    const heading = line.match(/^\[(\d+)\] Session: (.*?) \| Turn: (.*?) \| Archive: (.*)$/);
+    if (heading) {
+      hit = {number: heading[1], session: heading[2], turn: heading[3], archive: heading[4], sections: []};
+      hits.push(hit);
+      section = null;
+      continue;
+    }
+    if (!hit) { summary.push(line); continue; }
+    const message = line.match(/^(USER|JIN) \[(.*?)\]:$/);
+    const reasoning = line.match(/^JIN reasoning excerpts \[(.*?)\] \(matching USER above\):$/);
+    const attachments = line.match(/^Attachments: (.*)$/);
+    if (message || reasoning || attachments) {
+      section = {
+        role: message ? message[1] : reasoning ? "JIN REASONING" : "Attachments",
+        timestamp: message ? message[2] : reasoning ? reasoning[1] : "",
+        lines: attachments ? [attachments[1]] : [],
+      };
+      hit.sections.push(section);
+    } else if (section) {
+      section.lines.push(line.startsWith("  ") ? line.slice(2) : line);
+    } else if (line.trim()) {
+      // Preserve unexpected legacy content instead of silently losing it.
+      section = {role: "", timestamp: "", lines: [line]};
+      hit.sections.push(section);
+    }
+  }
+  if (!hits.length) return false;
+  const stack = contextElement("div", "jin-context-stack");
+  stack.appendChild(contextElement("pre", "jin-context-raw", summary.join("\n").trim()));
+  for (const item of hits) {
+    appendContextCard(stack, {
+      title: `#${item.number} · ${item.turn}`,
+      attributes: [],
+      metaLabel: item.sections.find(part => part.timestamp)?.timestamp || "",
+      content: "",
+      renderBody(body) {
+        const messages = contextElement("div", "jin-context-chat-list");
+        const metadata = contextElement("div", "jin-context-kv-list");
+        for (const [key, value] of [["Session", item.session], ["Archive", item.archive]]) {
+          const row = contextElement("div", "jin-context-kv-row");
+          row.appendChild(contextElement("div", "jin-context-kv-key", key));
+          row.appendChild(contextElement("div", "jin-context-kv-value", value));
+          metadata.appendChild(row);
+        }
+        messages.appendChild(metadata);
+        for (const part of item.sections) {
+          const row = contextElement("div", "jin-context-chat-row jin-context-search-message");
+          row.appendChild(contextElement("div", "jin-context-chat-role", [part.role, part.timestamp].filter(Boolean).join(" · ")));
+          row.appendChild(contextElement("div", "jin-context-chat-content", part.lines.join("\n").trim()));
+          messages.appendChild(row);
+        }
+        body.appendChild(messages);
+      },
+    });
+  }
+  parent.appendChild(stack);
+  return true;
+}
+
+function renderContextToolResultBody(parent, content, toolName = "") {
+  if (String(toolName).trim().toUpperCase() === "CHAT_LOG_SEARCH"
+      && renderContextChatLogSearchBody(parent, content)) return;
   const blocks = parseContextBlocks(content);
   const hasNestedXml = blocks.some((block) => Boolean(block.xml));
 
@@ -4224,7 +4300,7 @@ function renderContextToolResultBody(parent, content) {
 }
 
 function contextToolResultFileTitleSuffix(content, toolName) {
-  if (String(toolName || "").trim().toUpperCase() !== "ATTACH_FILE_CONTENT") {
+  if (!["ATTACH_FILE_CONTENT", "ATTACH_FILE_BY_ID"].includes(String(toolName || "").trim().toUpperCase())) {
     return "";
   }
 
@@ -4235,7 +4311,12 @@ function contextToolResultFileTitleSuffix(content, toolName) {
   const filePath = String(fileMatch[1] || "").trim();
   const failed = /^\s*Status:\s*failed\s*$/m.test(decoded);
   const reason = decoded.match(/^\s*Reason:\s*(.+?)\s*$/m);
-  if (failed) return `${filePath} - failed: ${reason ? reason[1] : "action failed"}`;
+  if (failed) {
+    const failure = reason ? reason[1] : "action failed";
+    return String(toolName).toUpperCase() === "ATTACH_FILE_BY_ID"
+      ? `${filePath} : failed - ${failure}`
+      : `${filePath} - failed: ${failure}`;
+  }
   if (/#\d+-\d+$/.test(filePath)) return filePath;
 
   const rangeMatch = decoded.match(/^\s*File lines:\s*(\d+)-(\d+)\s+of\b.*$/m);
@@ -4289,7 +4370,7 @@ function renderContextToolResultsBody(parent, content) {
         ...block,
         title,
         attributes,
-        renderBody: (body) => renderContextToolResultBody(body, block.content),
+        renderBody: (body) => renderContextToolResultBody(body, block.content, toolName),
       }
     );
   });

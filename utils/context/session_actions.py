@@ -177,6 +177,7 @@ def _format_memory_action_context_part(
 
     if normalized_action in {
         "ATTACH_FILE_CONTENT",
+        "ATTACH_FILE_BY_ID",
     }:
         if detail and part_id:
             return (

@@ -5,7 +5,7 @@ from utils.token_usage import (
     get_runtime_token_estimate_scale,
 )
 from utils.tokens import (
-    estimate_stream_input_tokens,
+    estimate_prompt_tokens,
 )
 
 
@@ -302,24 +302,10 @@ def estimate_current_context_tokens(
     user_prompt,
 ) -> int:
 
-    prompt_text = "\n".join(
-        value
-        for value in (
-            str(
-                system_prompt
-                or ""
-            ),
-            provider_counted_user_prompt_text(
-                context,
-                user_prompt,
-            ),
-        )
-        if value
-    )
-
-    return estimate_stream_input_tokens(
-        None,
-        prompt_text=prompt_text,
+    return estimate_prompt_tokens(
+        system_prompt=str(system_prompt or ""),
+        user_prompt=(user_prompt if isinstance(user_prompt, list) else
+                     provider_counted_user_prompt_text(context, user_prompt)),
         scale=get_runtime_token_estimate_scale(
             context,
             runtime_id,

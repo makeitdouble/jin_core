@@ -1693,6 +1693,11 @@ button.jin-context-lt-fact-id.is-linked:focus-visible {
     letter-spacing: 0.08em;
 }
 
+.jin-context-search-message {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 7px;
+}
+
 .jin-context-chat-content {
     min-width: 0;
     white-space: pre-wrap;

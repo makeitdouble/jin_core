@@ -1,0 +1,18 @@
+{
+  "attach_file_by_id": {
+    "version": 1,
+    "description": "Attaches an entire existing persistent file, including text or an image, by its system ID.",
+    "runtime_action": "ATTACH_FILE_BY_ID",
+    "enable_flag": "CAN_USE_ASSETS",
+    "runtime_order": 131,
+    "private_marker": "<ATTACH_FILE_BY_ID: id >",
+    "triggers": [],
+    "blockers": [],
+    "effects": {"emit_followup": true, "follow_up_on_fail": true},
+    "schema": ["<ATTACH_FILE_BY_ID: file_id >"],
+    "rules": [
+      "Use ATTACH_FILE_BY_ID to attach a whole file already present in the system and having a persistent file ID (6 characters random letters-numbers)."
+    ],
+    "close_tag": false
+  }
+}

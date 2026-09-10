@@ -204,6 +204,7 @@ def record_stream_token_usage(
     stream,
     prompt_text: str = "",
     estimate_scale: float = 1.0,
+    image_tokens: int = 0,
 ):
 
     prompt_tokens = (
@@ -217,6 +218,7 @@ def record_stream_token_usage(
         or estimate_stream_input_tokens(
             stream,
             prompt_text=prompt_text,
+            image_tokens=image_tokens,
             scale=estimate_scale,
         )
     )
@@ -263,6 +265,7 @@ def record_stream_token_usage(
     context_tokens = estimate_stream_live_tokens(
         stream,
         prompt_text=prompt_text,
+        image_tokens=image_tokens,
         scale=estimate_scale,
     )
 

@@ -668,6 +668,12 @@ L-T facts are projected to Live Avatar in lanes of at most 100 records. Addition
 
 **Status:** Accepted / implemented
 
+Whole-file recall uses `ATTACH_FILE_BY_ID` with an existing persistent system
+ID (text or image). Paths and source line ranges belong to `ATTACH_FILE_CONTENT`.
+Unknown IDs must fail, never become project paths. Success is displayed as
+`ATTACH_FILE_BY_ID: full_filename.ext`; a missing file is displayed as
+`ATTACH_FILE_BY_ID: id : failed - file not exists`.
+
 `CHAT_LOG_SEARCH` searches saved USER/JIN messages with literal case-insensitive
 substrings, OR queries, inclusive date/daily-time bounds and newest-first results.
 The default limit is 10 turns, hard maximum 50. Including JIN permits bounded

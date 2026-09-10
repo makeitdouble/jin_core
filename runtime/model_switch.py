@@ -13,6 +13,7 @@ LM_STUDIO_NATIVE_V1_MODELS_ENDPOINT = "/api/v1/models"
 MODEL_LOAD_CONFIG_FIELDS = (
     "context_length",
     "eval_batch_size",
+    "physical_batch_size",
     "flash_attention",
     "num_experts",
     "offload_kv_cache_to_gpu",

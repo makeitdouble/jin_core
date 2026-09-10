@@ -18,6 +18,7 @@ const RUNTIME_MODEL_LOAD_CACHE_STORAGE_KEY =
 const RUNTIME_MODEL_LOAD_CONFIG_FIELDS = [
     "context_length",
     "eval_batch_size",
+    "physical_batch_size",
     "flash_attention",
     "num_experts",
     "offload_kv_cache_to_gpu",

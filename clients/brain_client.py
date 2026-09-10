@@ -3,6 +3,8 @@ import json
 import re
 import uuid
 
+from utils.tokens import estimate_prompt_tokens
+
 from config_loader import (
     config,
 )
@@ -250,6 +252,7 @@ def build_brain_context_snapshot(
     *,
     system_prompt: str,
     user_prompt: str,
+    model_user_prompt=None,
 ) -> dict:
 
     snapshot = {
@@ -258,6 +261,11 @@ def build_brain_context_snapshot(
         "user_prompt": user_prompt,
     }
 
+    if isinstance(model_user_prompt, list):
+        snapshot["image_input_tokens"] = estimate_prompt_tokens(
+            system_prompt="", user_prompt=[part for part in model_user_prompt
+                if isinstance(part, dict) and part.get("type") == "image_url"],
+        )
     return snapshot
 
 
@@ -311,6 +319,7 @@ async def ask_brain(
     action_context_snapshot = build_brain_context_snapshot(
         system_prompt=system_prompt,
         user_prompt=brain_payload,
+        model_user_prompt=model_user_prompt,
     )
     runtime_message_id = str(
         uuid.uuid4()
@@ -622,6 +631,7 @@ async def ask_brain_stream(
     action_context_snapshot = build_brain_context_snapshot(
         system_prompt=resolved_system_prompt,
         user_prompt=resolved_brain_payload,
+        model_user_prompt=model_user_prompt,
     )
     runtime_message_id = str(
         uuid.uuid4()

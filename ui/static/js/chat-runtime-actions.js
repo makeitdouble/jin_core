@@ -3242,7 +3242,7 @@ function updateRuntimeActionRow(
   }
 
   if (
-      action === "attach_file_content"
+      ["attach_file_content", "attach_file_by_id"].includes(action)
       && typeof window.bindRuntimeActionAttachmentPreview === "function"
   ) {
     window.bindRuntimeActionAttachmentPreview(
@@ -3841,7 +3841,7 @@ function appendRuntimeAction(
   }
 
   if (
-      action === "attach_file_content"
+      ["attach_file_content", "attach_file_by_id"].includes(action)
       && typeof window.bindRuntimeActionAttachmentPreview === "function"
   ) {
     window.bindRuntimeActionAttachmentPreview(

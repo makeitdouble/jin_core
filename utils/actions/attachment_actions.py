@@ -5,6 +5,7 @@ from utils import attached_files_store as files
 from contracts.rules_assembler import (
     RUNTIME_ACTION_LIST_FILES,
     RUNTIME_ACTION_ATTACH_FILE_CONTENT,
+    RUNTIME_ACTION_ATTACH_FILE_BY_ID,
     get_runtime_action_display_name,
     runtime_action_has_close_tag,
 )
@@ -173,14 +174,15 @@ async def apply_attachment_actions(
         results.append(result)
 
     for action in attach_actions:
-        name = "attach_file_content"
+        by_id = action.name == RUNTIME_ACTION_ATTACH_FILE_BY_ID
+        name = "attach_file_by_id" if by_id else "attach_file_content"
         file_id = _clean_id(action.payload)
         record = get_file_record(file_id)
         result = {"action": name, "ok": False, "id": str(action.payload or "").strip()}
         target, target_error = None, ""
         try:
             # Persistent IDs retain priority; everything else is a project path.
-            if record is None:
+            if record is None and not by_id:
                 target = parse_project_file_target(action.payload, context)
         except ValueError as error:
             target_error = str(error)
@@ -204,6 +206,8 @@ async def apply_attachment_actions(
             )
         elif not file_id or record is None:
             result["error"] = "file_not_found"
+            if by_id:
+                result["detail"] = "file not exists"
         else:
             previous_ids = list(active_ids)
             if restricted_writes:
@@ -240,6 +244,7 @@ async def apply_attachment_actions(
             action_name = {
                 "list_files": RUNTIME_ACTION_LIST_FILES,
                 "attach_file_content": RUNTIME_ACTION_ATTACH_FILE_CONTENT,
+                "attach_file_by_id": RUNTIME_ACTION_ATTACH_FILE_BY_ID,
             }.get(result.get("action"), result.get("action", ""))
             display_name = get_runtime_action_display_name(action_name)
             from utils.context.files import format_file_result, file_result_summary

@@ -22,6 +22,9 @@ from utils.actions import (
     normalize_jin_position_dict,
     normalize_jin_speed_value,
 )
+from utils.session_actions_history import (
+    build_session_action_marker_history_items,
+)
 
 
 BLOCK_RE_TEMPLATE = r"<{name}(?:\s+[^>]*)?>\s*(?P<body>[\s\S]*?)\s*</{name}>"
@@ -62,8 +65,15 @@ ACTION_LABELS = {
     "DELETE_ACTIVE_MEMORY": "Deleted active memory",
     "UPDATE_LT_FACTS": "Updated L-T facts",
     "ATTACH_FILE_CONTENT": "Attached file content",
+    "ATTACH_FILE_BY_ID": "Attached file by ID",
     "JIN_COLOR": "JIN color",
     "JIN_SIZE": "JIN size",
+}
+
+ACTION_LABEL_KEYS = {
+    str(label or "").strip().casefold(): action
+    for action, label in ACTION_LABELS.items()
+    if str(label or "").strip()
 }
 
 
@@ -947,6 +957,7 @@ def _tool_result_kind(name: str) -> str:
     if action_name in {
         "LIST_FILES",
         "ATTACH_FILE_CONTENT",
+        "ATTACH_FILE_BY_ID",
     }:
         return "files"
     if action_name == "UPDATE_LT_FACTS":
@@ -981,9 +992,15 @@ def _clean_restored_tool_result_body(value: str) -> str:
 def _parse_restore_tool_results(
     context_text: str,
     fallback_created_at: float,
+    *,
+    runtime_tool_result_created_ats: dict[str, list[float]] | None = None,
 ) -> list[dict]:
     items = []
     offset = 0.0
+    timestamp_queues = {
+        key: list(values)
+        for key, values in (runtime_tool_result_created_ats or {}).items()
+    }
 
     for match in TOOL_RESULT_RE.finditer(str(context_text or "")):
         kind = _tool_result_kind(
@@ -1007,12 +1024,19 @@ def _parse_restore_tool_results(
             if isinstance(parsed_result, dict):
                 result = parsed_result
 
+        attrs = str(match.group("before_attrs") or "") + str(match.group("attrs") or "")
+        created_at = _consume_runtime_tool_result_created_at(
+            attrs,
+            timestamp_queues,
+        )
+        if created_at <= 0:
+            created_at = fallback_created_at + offset
+
         item = {
             "kind": kind,
             "result": result,
-            "created_at": fallback_created_at + offset,
+            "created_at": created_at,
         }
-        attrs = str(match.group("before_attrs") or "") + str(match.group("attrs") or "")
         tool_id_match = re.search(r'\btool_id="(T[1-9][0-9]*)"', attrs)
         if tool_id_match:
             item["tool_id"] = tool_id_match[1]
@@ -1030,9 +1054,45 @@ def _parse_restore_tool_results(
     return items[-20:]
 
 
-def _build_session_actions(context_text: str, fallback_created_at: float) -> list[dict]:
+def _consume_runtime_tool_result_created_at(
+    attrs: str,
+    timestamp_queues: dict[str, list[float]] | None,
+) -> float:
+    if not timestamp_queues:
+        return 0.0
+
+    tool_id_match = re.search(r'\btool_id="(T[1-9][0-9]*)"', attrs)
+    result_id_match = re.search(
+        r'\bid="(?P<id>[^"]+)"',
+        attrs,
+        re.IGNORECASE,
+    )
+    keys = []
+    if tool_id_match:
+        keys.append(f"tool:{tool_id_match.group(1)}")
+    if result_id_match is not None:
+        keys.append(f"id:{unescape(result_id_match.group('id').strip())}")
+
+    for key in keys:
+        queue = timestamp_queues.get(key)
+        if isinstance(queue, list) and queue:
+            return float(queue.pop(0))
+
+    return 0.0
+
+
+def _build_session_actions(
+    context_text: str,
+    fallback_created_at: float,
+    *,
+    runtime_tool_result_created_ats: dict[str, list[float]] | None = None,
+) -> list[dict]:
     items = []
     offset = 0.0
+    timestamp_queues = {
+        key: list(values)
+        for key, values in (runtime_tool_result_created_ats or {}).items()
+    }
 
     for match in TOOL_RESULT_RE.finditer(str(context_text or "")):
         raw_payload = match.group("body").strip()
@@ -1062,7 +1122,13 @@ def _build_session_actions(context_text: str, fallback_created_at: float) -> lis
                     if detail:
                         break
 
-        created_at = fallback_created_at + offset
+        attrs = str(match.group("before_attrs") or "") + str(match.group("attrs") or "")
+        created_at = _consume_runtime_tool_result_created_at(
+            attrs,
+            timestamp_queues,
+        )
+        if created_at <= 0:
+            created_at = fallback_created_at + offset
         offset += 0.001
 
         report = payload.get("report")
@@ -1106,94 +1172,243 @@ def _runtime_event_created_at(entry: dict, payload: dict) -> float:
     return created_at if created_at > 0 else _entry_timestamp(entry)
 
 
-def _build_runtime_event_session_actions(entries: list[dict]) -> list[dict]:
-    items = []
+def _runtime_tool_result_timestamp_queues(
+    entries: list[dict],
+) -> dict[str, list[float]]:
+    queues: dict[str, list[float]] = {}
 
+    for entry in entries:
+        if str(entry.get("event", "") or "").strip() != "runtime_tool_result":
+            continue
+        payload = entry.get("payload")
+        if not isinstance(payload, dict):
+            continue
+        created_at = _runtime_event_created_at(entry, payload)
+        if created_at <= 0:
+            continue
+
+        tool_id = str(payload.get("tool_id", "") or "").strip()
+        result_id = str(payload.get("id", "") or "").strip()
+        if re.fullmatch(r"T[1-9][0-9]*", tool_id):
+            queues.setdefault(f"tool:{tool_id}", []).append(created_at)
+        if result_id:
+            queues.setdefault(f"id:{result_id}", []).append(created_at)
+
+    return queues
+
+
+def _merge_timestamp_queues(
+    *sources: dict[str, list[float]],
+) -> dict[str, list[float]]:
+    merged: dict[str, list[float]] = {}
+    for source in sources:
+        for key, values in (source or {}).items():
+            merged.setdefault(key, []).extend(
+                float(value)
+                for value in values
+                if float(value) > 0
+            )
+    return merged
+
+
+def _normalize_runtime_session_action_item(
+    raw_action,
+    *,
+    entry: dict | None = None,
+    payload: dict | None = None,
+) -> dict | None:
+    if not isinstance(raw_action, dict):
+        return None
+
+    text = str(raw_action.get("text", "") or "").strip()
+    if not text:
+        return None
+
+    item = dict(raw_action)
+    item["text"] = text
+
+    parts = raw_action.get("parts", [])
+    item["parts"] = [
+        dict(part)
+        for part in parts
+        if isinstance(part, dict)
+        and str(part.get("text", "") or "").strip()
+    ]
+
+    event_payload = payload if isinstance(payload, dict) else {}
+    event_entry = entry if isinstance(entry, dict) else {}
+    created_at = _runtime_event_created_at(
+        event_entry,
+        {
+            "created_at": raw_action.get(
+                "created_at",
+                event_payload.get("created_at", 0),
+            ),
+        },
+    )
+    if created_at > 0:
+        item["created_at"] = created_at
+
+    runtime_turn_id = str(
+        raw_action.get("runtime_turn_id", "")
+        or event_entry.get("turn_id", "")
+        or ""
+    ).strip()
+    if runtime_turn_id:
+        item["runtime_turn_id"] = runtime_turn_id
+
+    event_id = str(
+        raw_action.get("id", "")
+        or event_payload.get("event_id", "")
+        or ""
+    ).strip()
+    if event_id:
+        item["id"] = event_id
+
+    return item
+
+
+def _build_runtime_event_session_actions(entries: list[dict]) -> list[dict]:
+    latest_snapshot = None
+
+    for entry in entries:
+        if str(entry.get("event", "") or "").strip() != "session_actions_snapshot":
+            continue
+        payload = entry.get("payload")
+        if not isinstance(payload, dict):
+            continue
+        raw_items = payload.get("items")
+        if not isinstance(raw_items, list):
+            continue
+
+        snapshot_items = []
+        for raw_item in raw_items:
+            item = _normalize_runtime_session_action_item(
+                raw_item,
+                entry=entry,
+                payload=payload,
+            )
+            if item is not None:
+                snapshot_items.append(item)
+        latest_snapshot = snapshot_items[-200:]
+
+    if latest_snapshot is not None:
+        return latest_snapshot
+
+    # Legacy logs before generic snapshots persisted a session-action payload
+    # on some runtime_action_request rows. Restore that payload generically;
+    # action names are deliberately irrelevant here.
+    items = []
     for entry in entries:
         if str(entry.get("event", "") or "").strip() != "runtime_action_request":
             continue
         payload = entry.get("payload")
         if not isinstance(payload, dict):
             continue
-
-        action_name = str(
-            payload.get("action", "")
-            or ""
-        ).strip().upper()
-        created_at = _runtime_event_created_at(entry, payload)
-        runtime_turn_id = str(
-            entry.get("turn_id", "")
-            or ""
-        ).strip()
-
-        if action_name == "JIN_COLOR":
-            color = normalize_jin_color_payload(
-                payload.get("color")
-                or payload.get("payload")
-            )
-            if not color:
-                continue
-            raw_action = payload.get("session_action")
-            raw_action = raw_action if isinstance(raw_action, dict) else {}
-            item = {
-                "text": str(raw_action.get("text", "") or "JIN_COLOR").strip(),
-                "created_at": created_at,
-                "parts": [{
-                    "text": "JIN_COLOR",
-                    "colors": [color],
-                }],
-            }
-            event_id = str(
-                raw_action.get("id", "")
-                or payload.get("event_id", "")
-                or ""
-            ).strip()
-            if event_id:
-                item["id"] = event_id
-            action_turn_id = str(
-                raw_action.get("runtime_turn_id", "")
-                or runtime_turn_id
-                or ""
-            ).strip()
-            if action_turn_id:
-                item["runtime_turn_id"] = action_turn_id
+        item = _normalize_runtime_session_action_item(
+            payload.get("session_action"),
+            entry=entry,
+            payload=payload,
+        )
+        if item is not None:
             items.append(item)
             continue
 
-        if action_name != "UPDATE_LT_FACTS":
+        action_name = str(payload.get("action", "") or "").strip()
+        if not action_name:
             continue
-
-        raw_action = payload.get("session_action")
-        raw_action = raw_action if isinstance(raw_action, dict) else {}
-        message = " ".join(str(payload.get("message", "") or "").split()).strip()
-        text = str(raw_action.get("text", "") or "").strip()
-        if not text:
-            text = "UPDATE_LT_FACTS" + (f": {message}" if message else "")
-
-        part = {"text": "UPDATE_LT_FACTS"}
-        if message:
-            part["message"] = message
-        action_id = str(payload.get("id", "") or "").strip()
-        if action_id:
-            part["id"] = action_id
-
-        item = {
-            "text": text,
+        created_at = _runtime_event_created_at(entry, payload)
+        runtime_turn_id = str(entry.get("turn_id", "") or "").strip()
+        marker_action = {
+            "name": action_name,
+            "payload": str(payload.get("payload", "") or "").strip(),
             "created_at": created_at,
-            "parts": [part],
         }
-        event_id = str(
-            raw_action.get("id", "")
-            or payload.get("event_id", "")
-            or ""
-        ).strip()
-        if event_id:
-            item["id"] = event_id
-        if runtime_turn_id:
-            item["runtime_turn_id"] = runtime_turn_id
-        items.append(item)
+        marker_items = build_session_action_marker_history_items(
+            [marker_action],
+            created_at=created_at,
+            runtime_turn_id=runtime_turn_id,
+        )
+        items.extend(marker_items)
 
     return items[-200:]
+
+
+def _session_action_part_name(part: dict) -> str:
+    if not isinstance(part, dict):
+        return ""
+
+    text = str(part.get("text", "") or "").strip()
+    if not text:
+        return ""
+
+    label_key = text.casefold()
+    if label_key in ACTION_LABEL_KEYS:
+        return ACTION_LABEL_KEYS[label_key]
+
+    head = text.split(":", 1)[0].strip()
+    if head.casefold() in ACTION_LABEL_KEYS:
+        return ACTION_LABEL_KEYS[head.casefold()]
+
+    normalized = re.sub(r"[^A-Za-z0-9]+", "_", head).strip("_").upper()
+    return normalized
+
+
+def _session_action_part_counts(item: dict) -> dict[str, int]:
+    counts = {}
+    if not isinstance(item, dict):
+        return counts
+
+    parts = item.get("parts", [])
+    if not isinstance(parts, list) or not parts:
+        parts = [{"text": item.get("text", "")}]
+
+    for part in parts:
+        name = _session_action_part_name(part)
+        if not name:
+            continue
+        try:
+            count = max(1, int(part.get("count", 1) or 1))
+        except (TypeError, ValueError, AttributeError):
+            count = 1
+        counts[name] = counts.get(name, 0) + count
+
+    return counts
+
+
+def _merge_session_actions_preferring_runtime(
+    parsed_actions: list[dict],
+    runtime_actions: list[dict],
+) -> list[dict]:
+    if not runtime_actions:
+        return list(parsed_actions)
+
+    covered = {}
+    for item in runtime_actions:
+        for name, count in _session_action_part_counts(item).items():
+            covered[name] = covered.get(name, 0) + count
+
+    remaining_parsed = []
+    for item in parsed_actions:
+        item_counts = _session_action_part_counts(item)
+        if not item_counts:
+            remaining_parsed.append(item)
+            continue
+
+        fully_covered = True
+        for name, count in item_counts.items():
+            if covered.get(name, 0) < count:
+                fully_covered = False
+                break
+
+        if not fully_covered:
+            remaining_parsed.append(item)
+            continue
+
+        for name, count in item_counts.items():
+            covered[name] -= count
+
+    return (remaining_parsed + runtime_actions)[-200:]
 
 
 def _build_predecessor_runtime_event_session_actions(
@@ -1249,6 +1464,60 @@ def _build_predecessor_runtime_event_session_actions(
         older_actions
         + _build_runtime_event_session_actions(entries)
     )[-200:]
+
+
+def _build_predecessor_runtime_tool_result_timestamp_queues(
+    context_text: str,
+    root: Path,
+    *,
+    seen_session_ids: set[str],
+    remaining_sessions: int = 3,
+) -> dict[str, list[float]]:
+    if remaining_sessions <= 0:
+        return {}
+
+    match = RESTORED_DIALOG_SOURCE_RE.search(str(context_text or ""))
+    if match is None:
+        return {}
+
+    source_session_id = _clean_session_id(match.group("session_id"))
+    if not source_session_id or source_session_id in seen_session_ids:
+        return {}
+
+    seen_session_ids.add(source_session_id)
+    session_directory = _find_session_directory(source_session_id, root)
+    if session_directory is None:
+        return {}
+
+    dialog_paths = sorted(
+        (path for path in session_directory.glob("*.jsonl") if path.is_file()),
+        key=lambda path: path.name,
+    )
+    if not dialog_paths:
+        return {}
+
+    dialog_path = dialog_paths[-1]
+    entries = _load_dialog(dialog_path)
+    context_path = dialog_path.with_suffix(".txt")
+    try:
+        predecessor_context = (
+            context_path.read_text(encoding="utf-8", errors="replace")
+            if context_path.is_file()
+            else ""
+        )
+    except OSError:
+        predecessor_context = ""
+
+    older = _build_predecessor_runtime_tool_result_timestamp_queues(
+        predecessor_context,
+        root,
+        seen_session_ids=seen_session_ids,
+        remaining_sessions=remaining_sessions - 1,
+    )
+    return _merge_timestamp_queues(
+        older,
+        _runtime_tool_result_timestamp_queues(entries),
+    )
 
 
 def _latest_runtime_jin_color(entries: list[dict]) -> str:
@@ -1721,7 +1990,19 @@ def build_archived_session_restore_payload(
             pass
 
     fallback_created_at = _entry_timestamp(visible_entries[0]) or dialog_path.stat().st_mtime
-    session_actions = _build_session_actions(context_text, fallback_created_at)
+    runtime_tool_result_created_ats = _merge_timestamp_queues(
+        _build_predecessor_runtime_tool_result_timestamp_queues(
+            context_text,
+            root_path,
+            seen_session_ids={_clean_session_id(session_id)},
+        ),
+        _runtime_tool_result_timestamp_queues(entries),
+    )
+    session_actions = _build_session_actions(
+        context_text,
+        fallback_created_at,
+        runtime_tool_result_created_ats=runtime_tool_result_created_ats,
+    )
     runtime_session_actions = (
         _build_predecessor_runtime_event_session_actions(
             context_text,
@@ -1730,32 +2011,11 @@ def build_archived_session_restore_payload(
         )
         + _build_runtime_event_session_actions(entries)
     )[-200:]
-    runtime_has_lt_action = any(
-        isinstance(item, dict)
-        and any(
-            isinstance(part, dict)
-            and str(part.get("text", "") or "").strip().upper()
-            == "UPDATE_LT_FACTS"
-            for part in item.get("parts", []) or []
-        )
-        for item in runtime_session_actions
-    )
-    if runtime_has_lt_action:
-        session_actions = [
-            item
-            for item in session_actions
-            if not (
-                isinstance(item, dict)
-                and any(
-                    isinstance(part, dict)
-                    and str(part.get("text", "") or "").strip()
-                    == ACTION_LABELS["UPDATE_LT_FACTS"]
-                    for part in item.get("parts", []) or []
-                )
-            )
-        ]
     if runtime_session_actions:
-        session_actions.extend(runtime_session_actions)
+        session_actions = _merge_session_actions_preferring_runtime(
+            session_actions,
+            runtime_session_actions,
+        )
     elif not any(
         isinstance(item, dict)
         and any(
@@ -1778,6 +2038,7 @@ def build_archived_session_restore_payload(
         _parse_restore_tool_results(
             context_text,
             fallback_created_at,
+            runtime_tool_result_created_ats=runtime_tool_result_created_ats,
         ),
         _build_runtime_event_tool_results(entries),
     )

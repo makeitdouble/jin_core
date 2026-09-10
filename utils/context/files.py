@@ -225,7 +225,7 @@ def unload_persistent_file_results(
         if not isinstance(result, dict):
             continue
         if (
-            result.get("action") != "attach_file_content"
+            result.get("action") not in {"attach_file_content", "attach_file_by_id"}
             or result.get("source") == "project"
             or result.get("ok") is False
             or str(result.get("id") or "").strip().lower() != normalized_id
@@ -295,7 +295,8 @@ def file_result_summary(result):
     text = f"{action}: {reference}" if reference else action
     if result.get("ok") is False:
         reason = str(result.get("detail") or result.get("error") or "action failed").strip()
-        text += f" - failed: {reason}"
+        text += (f" : failed - {reason}" if action == "ATTACH_FILE_BY_ID"
+                 else f" - failed: {reason}")
     return text
 
 
@@ -334,7 +335,7 @@ def select_file_tool_results(entries, limit):
             return "content" in result
         return (
             entry.get("kind") == "files"
-            and result.get("action") == "attach_file_content"
+            and result.get("action") in {"attach_file_content", "attach_file_by_id"}
         )
 
     return [

@@ -2,6 +2,7 @@ from contracts.rules_assembler import (
     RUNTIME_ACTION_CHAT_LOG_SEARCH,
     RUNTIME_ACTION_LOAD_DELAYED_MEMORY,
     RUNTIME_ACTION_ATTACH_FILE_CONTENT,
+    RUNTIME_ACTION_ATTACH_FILE_BY_ID,
     RUNTIME_ACTION_LIST_FILES,
     RUNTIME_ACTION_LOAD_SKILL,
     RUNTIME_ACTION_ASSET_ACTION,
@@ -895,6 +896,7 @@ async def apply_runtime_action_calls(
         if action.name in {
             RUNTIME_ACTION_LIST_FILES,
             RUNTIME_ACTION_ATTACH_FILE_CONTENT,
+            RUNTIME_ACTION_ATTACH_FILE_BY_ID,
         }:
             if not accept_runtime_action_once_per_message(action):
                 continue
@@ -1706,7 +1708,7 @@ async def apply_runtime_action_calls(
     attach_file_content_actions = [
         action
         for action in filtered_actions
-        if action.name == RUNTIME_ACTION_ATTACH_FILE_CONTENT
+        if action.name in {RUNTIME_ACTION_ATTACH_FILE_CONTENT, RUNTIME_ACTION_ATTACH_FILE_BY_ID}
     ]
     update_lt_facts_actions = [
         action

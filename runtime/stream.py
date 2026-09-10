@@ -463,6 +463,8 @@ class RuntimeStream:
 
     async def refresh_provider_token_usage(self):
 
+        self.sync_loaded_context_window()
+
         prompt_tokens = getattr(
             self.stream,
             "prompt_tokens",
@@ -513,7 +515,7 @@ class RuntimeStream:
             used_tokens=total_tokens,
             context_tokens=context_tokens,
             total_tokens=total_tokens,
-            max_tokens=self.context_window,
+            max_tokens=self.context_window or None,
             last_error=None,
             status="online",
         )
@@ -525,10 +527,22 @@ class RuntimeStream:
             self.runtime_id,
         )
 
+    def sync_loaded_context_window(self):
+        # A JIT-loaded model may have had no live n_ctx at stream creation.
+        # Reconcile the same client after loading; never overwrite a known
+        # panel limit with that initial unknown (zero) snapshot.
+        clients = getattr(self.context, "clients", {}) or {}
+        client = clients.get(self.runtime_id)
+        detected = getattr(client, "detected_context_window", None)
+        if isinstance(detected, int) and detected > 0:
+            ceiling = getattr(client, "provider_context_window_ceiling", None)
+            self.context_window = min(detected, ceiling) if ceiling else detected
+
     def estimate_raw_input_tokens(self) -> int:
 
         return estimate_stream_input_tokens(
             self.stream,
+            image_tokens=int(self.context_snapshot.get("image_input_tokens", 0) or 0),
             prompt_text=(
                 self.build_input_prompt_text()
             ),
@@ -538,6 +552,7 @@ class RuntimeStream:
 
         return estimate_stream_input_tokens(
             self.stream,
+            image_tokens=int(self.context_snapshot.get("image_input_tokens", 0) or 0),
             prompt_text=(
                 self.build_input_prompt_text()
             ),
@@ -548,6 +563,7 @@ class RuntimeStream:
 
         return estimate_stream_live_tokens(
             self.stream,
+            image_tokens=int(self.context_snapshot.get("image_input_tokens", 0) or 0),
             prompt_text=(
                 self.build_input_prompt_text()
             ),
@@ -570,6 +586,8 @@ class RuntimeStream:
         )
 
     async def refresh_token_usage(self):
+
+        self.sync_loaded_context_window()
 
         prompt_tokens = getattr(
             self.stream,
@@ -618,7 +636,7 @@ class RuntimeStream:
             context_tokens=context_tokens,
             total_tokens=total_tokens,
             max_tokens=(
-                self.context_window
+                self.context_window or None
             ),
             last_error=None,
             status="online",
@@ -645,6 +663,7 @@ class RuntimeStream:
             stream=(
                 self.stream
             ),
+            image_tokens=int(self.context_snapshot.get("image_input_tokens", 0) or 0),
             prompt_text=(
                 self.build_input_prompt_text()
             ),

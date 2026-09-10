@@ -12,7 +12,7 @@ from utils.urls import (
     join_url,
 )
 from utils.tokens import (
-    estimate_runtime_tokens,
+    estimate_prompt_tokens,
 )
 
 from clients.response_extractor import (
@@ -24,7 +24,8 @@ logger = logging.getLogger(__name__)
 MODEL_LIMITS_CACHE_TTL_SECONDS = 2.0
 LEGACY_NATIVE_MODELS_ENDPOINT = "/api/v0/models"
 LM_STUDIO_CONTEXT_WINDOW_PATTERNS = (
-    re.compile(r"\bn_ctx\s*[:=]\s*(\d+)\b", re.IGNORECASE),
+    re.compile(r"\bn_ctx[\"']?\s*[:=]\s*[\"']?(\d+)\b", re.IGNORECASE),
+    re.compile(r"available context size\s*\(\s*(\d+)\s+tokens\s*\)", re.IGNORECASE),
     re.compile(
         r"\bcontext(?:\s+length|\s+window)?\s*(?:is|[:=])\s*(\d+)\b",
         re.IGNORECASE,
@@ -656,6 +657,29 @@ class RuntimeClient:
             error,
     ) -> int | None:
 
+        # Error details retain the full JSON payload even when the public
+        # summary is shortened. Prefer its explicit n_ctx to prose fallbacks.
+        stack = [error, getattr(error, "details", None)]
+        while stack:
+            value = stack.pop()
+            if isinstance(value, str):
+                try:
+                    decoded = json.loads(value)
+                except (ValueError, TypeError):
+                    continue
+                if isinstance(decoded, (dict, list)):
+                    stack.append(decoded)
+            elif isinstance(value, dict):
+                try:
+                    limit = int(value.get("n_ctx", 0))
+                except (ValueError, TypeError):
+                    limit = 0
+                if limit > 0:
+                    return limit
+                stack.extend(value.values())
+            elif isinstance(value, list):
+                stack.extend(value)
+
         text_parts = [
             str(
                 getattr(
@@ -1008,17 +1032,30 @@ class RuntimeClient:
         if not request_context_window or not request_max_tokens:
             return request_max_tokens
 
-        prompt_tokens = estimate_runtime_tokens(
+        prompt_tokens = estimate_prompt_tokens(
             system_prompt=system_prompt,
-            user_input=self.text_from_user_prompt(
-                user_prompt
-            ),
+            user_prompt=user_prompt,
         )
         response_budget = (
             request_context_window
             - prompt_tokens
             - settings.RUNTIME_OUTPUT_TOKEN_RESERVE
         )
+
+        if response_budget <= 0:
+            raise LMStudioAPIError(
+                "Context overflow before request: estimated prompt "
+                f"({prompt_tokens} tokens) plus output reserve "
+                f"({settings.RUNTIME_OUTPUT_TOKEN_RESERVE}) exceeds available "
+                f"context size ({request_context_window} tokens). "
+                "Reduce attached context and retry.",
+                details=json.dumps({
+                    "error_kind": "context_overflow",
+                    "phase": "preflight",
+                    "estimated_prompt_tokens": prompt_tokens,
+                    "n_ctx": request_context_window,
+                }),
+            )
 
         # One generation budget covers reasoning + visible answer together.
         # There is deliberately no fixed reasoning/answer split.
@@ -1175,6 +1212,7 @@ class RuntimeClient:
             max_tokens=safe_max_tokens,
             stream=stream,
         )
+
 
     # ---------------------------------------------------------
     # NORMAL REQUEST
@@ -1360,6 +1398,15 @@ class RuntimeClient:
 
                     if not line:
                         continue
+
+                    if not self.detected_context_window:
+                        # The request can trigger LM Studio JIT loading after
+                        # preflight metadata said loaded_instances: []. Retry
+                        # discovery once when the response starts, not per token.
+                        if not valid_json_chunks:
+                            await self.resolve_request_context_window(
+                                force_refresh=True,
+                            )
 
                     # -------------------------------------------------
                     # SSE / NON-SSE SUPPORT

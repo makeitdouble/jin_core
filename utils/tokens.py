@@ -3,6 +3,33 @@ from math import ceil
 from app_settings import settings
 
 
+# Model-agnostic fallback reservation, not an exact vision tokenizer count.
+# Keep encoded bytes/URLs out of text tokenization. Providers may use different
+# crop/patch budgets; this reserve cannot guarantee an exact provider count.
+DEFAULT_IMAGE_INPUT_TOKEN_RESERVE = 4096
+
+
+def estimate_prompt_tokens(*, system_prompt: str, user_prompt, scale=1.0) -> int:
+    image_count = 0
+    if isinstance(user_prompt, list):
+        text_parts = []
+        for item in user_prompt:
+            if not isinstance(item, dict):
+                continue
+            if item.get("type") == "text":
+                text_parts.append(str(item.get("text", "")))
+            elif item.get("type") == "image_url":
+                image_count += 1
+        user_text = "\n".join(text_parts)
+    else:
+        user_text = str(user_prompt or "")
+    text = "\n".join(value for value in (system_prompt, user_text) if value)
+    return apply_token_estimate_scale(
+        estimate_stream_text_tokens(text)
+        + image_count * DEFAULT_IMAGE_INPUT_TOKEN_RESERVE, scale,
+    )
+
+
 def estimate_tokens(
         text: str,
 ) -> int:
@@ -107,11 +134,12 @@ def estimate_stream_input_tokens(
         *,
         prompt_text: str = "",
         scale: float = 1.0,
+        image_tokens: int = 0,
 ) -> int:
     return estimate_stream_text_tokens(
         prompt_text,
         scale=scale,
-    )
+    ) + apply_token_estimate_scale(image_tokens, scale)
 
 
 def estimate_stream_live_tokens(
@@ -119,10 +147,12 @@ def estimate_stream_live_tokens(
         *,
         prompt_text: str = "",
         scale: float = 1.0,
+        image_tokens: int = 0,
 ) -> int:
     return estimate_stream_input_tokens(
         stream,
         prompt_text=prompt_text,
+        image_tokens=image_tokens,
         scale=scale,
     ) + estimate_stream_text_tokens(
         getattr(

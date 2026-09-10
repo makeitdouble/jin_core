@@ -15,6 +15,7 @@ from clients.brain_client import (
     ask_brain_stream,
     build_brain_context_snapshot,
     build_brain_payload,
+    build_brain_user_prompt_content,
     emit_active_memory_records_update_if_dirty,
 )
 from rules.brain_context_builder import (
@@ -1590,12 +1591,15 @@ class BrainNode(BaseNode):
             )
             context.runtime_followup_tick_active = True
 
+        model_user_prompt = build_brain_user_prompt_content(
+            effective_brain_payload, context=context,
+        )
         prepared_context_window = await prepare_current_context_window_prompt(
             client=brain_client,
             context=context,
             runtime_id=brain_runtime["runtime_id"],
             system_prompt=system_prompt,
-            user_prompt=effective_brain_payload,
+            user_prompt=model_user_prompt,
             fallback_context_window=brain_runtime["context_window"],
             force_refresh=True,
         )
@@ -1607,6 +1611,7 @@ class BrainNode(BaseNode):
         context_snapshot = build_brain_context_snapshot(
             system_prompt=system_prompt,
             user_prompt=effective_brain_payload,
+            model_user_prompt=model_user_prompt,
         )
 
         if preserve_runtime_action_markers:

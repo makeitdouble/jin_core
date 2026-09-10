@@ -577,7 +577,7 @@ function buildSessionActionRow(
         part.text
       );
     const isAttachmentAction = (
-      normalizedActionName === "ATTACH_FILE_CONTENT"
+      ["ATTACH_FILE_CONTENT", "ATTACH_FILE_BY_ID"].includes(normalizedActionName)
     );
 
     if (isAttachmentAction && part.detail) {
