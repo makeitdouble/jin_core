@@ -133,6 +133,35 @@ async def apply_runtime_action_calls(
     ):
         return 0
 
+    # Keep malformed results in source order with valid batches. They are
+    # notifications only and never pass through guards or concrete handlers.
+    if any(action.name == "MALFORMED_ACTION" for action in actions):
+        from .malformed_action_utils import record_malformed_action
+        applied = 0
+        batch = []
+        async def apply_batch():
+            return await apply_runtime_action_calls(
+                context, tuple(batch), user_message=user_message,
+                context_snapshot=context_snapshot, assistant_message=assistant_message,
+                confirmed_action_ids=confirmed_action_ids, rejected_action_ids=rejected_action_ids,
+                guard_confirmation_ids=guard_confirmation_ids, action_display_ids=action_display_ids,
+                runtime_message_id=runtime_message_id,
+            )
+        for action in actions:
+            if action.name != "MALFORMED_ACTION":
+                batch.append(action)
+                continue
+            if batch:
+                applied += await apply_batch()
+                batch.clear()
+            await record_malformed_action(
+                context, action, runtime_message_id=runtime_message_id,
+                context_snapshot=context_snapshot,
+            )
+        if batch:
+            applied += await apply_batch()
+        return applied
+
     if not hasattr(
         context,
         "runtime_action_events",

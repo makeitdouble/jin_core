@@ -244,6 +244,8 @@ def format_runtime_action_result(
         result,
         runtime_action,
     )
+    if action_name == "MALFORMED_ACTION":
+        return f"Action: {result.get('malformed_action', '')}\nPayload: {result.get('payload', '')}"
     ok = result.get("ok") is not False
     if ok and action_name == "CHAT_LOG_SEARCH":
         from utils.chat_log_search import format_chat_log_search

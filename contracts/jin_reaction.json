@@ -12,7 +12,9 @@
       "emit_followup": false,
       "follow_up_on_fail": false
     },
-    "schema": [],
+    "schema": [
+      "<JIN_REACTION: 😂 >"
+    ],
     "rules": [
       "Use JIN_REACTION to send user an emoji reaction! Place single marker an any place of visible response."
     ],

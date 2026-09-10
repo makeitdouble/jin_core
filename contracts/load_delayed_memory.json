@@ -12,7 +12,9 @@
       "emit_followup": false,
       "follow_up_on_fail": false
     },
-    "schema": [],
+    "schema": [
+      "<LOAD_DELAYED_MEMORY: id >"
+    ],
     "rules": [
       ""
     ],

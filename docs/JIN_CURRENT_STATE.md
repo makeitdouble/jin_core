@@ -585,3 +585,19 @@ When the owner explicitly asks for legacy cleanup:
 5. only then delete compatibility adapters/readers that are proven unused.
 
 Do not combine that cleanup with unrelated runtime behavior patches.
+
+---
+
+## Malformed-action recovery — 2026-09-10
+
+Three targeted envelope masks now feed the shared failure-follow-up mechanism.
+`MALFORMED_ACTION` is internal telemetry, not a new model-invokable contract.
+Its result persists the detected name and original payload; ordered notifications
+at the top of the next prompt carry the contract schema. Repeated malformed
+attempts remain separately visible and are not stopped by a repair-attempt cap.
+Ordinary action limits still apply to other action workflows.
+
+Thirteen contracts previously had empty `schema` arrays despite the documented
+schema invariant. Their existing canonical syntax was moved/copied into those
+arrays so recovery can use the JSON field for every registered action. No action
+payload semantics or feature flags changed.

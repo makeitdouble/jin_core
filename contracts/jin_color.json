@@ -12,11 +12,11 @@
       "emit_followup": false,
       "follow_up_on_fail": false
     },
-    "schema": [],
+    "schema": [
+      "<JIN_COLOR> #00f2ff </JIN_COLOR>"
+    ],
     "rules": [
       "Use to set single color for the JIN Live Avatar center point color and chat interface background tint.",
-      "Schema:",
-      "<JIN_COLOR> #00f2ff </JIN_COLOR>",
       "Emit several markers in one message for consecutive color change or blinking effect, last color in sequence will be used as current."
     ],
     "close_tag": true

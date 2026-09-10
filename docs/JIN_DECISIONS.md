@@ -695,3 +695,19 @@ on soft reconnect with page-local event deduplication; live server state wins
 over the stale page snapshot. Browser freeze/discard cannot be prevented by a
 server timeout setting. Process termination remains outside in-memory recovery.
 
+---
+
+## Malformed-action recovery — 2026-09-10
+
+**Status:** Accepted / implemented
+
+Recognize the three owner-provided malformed envelopes without repairing or
+executing their payload. Every occurrence gets an independent `MALFORMED_ACTION`
+bubble, history item and T-id. The next shared follow-up starts with one ordered
+notification per occurrence: target action, original extracted payload, and the
+correct contract `schema`. Do not quote the malformed envelope in that notice.
+Valid action results and normal sequence history remain available together.
+
+**Rejected:** the attachment's one-repair-attempt/hard-fail proposal, a separate
+repair-only conversation, inferred action execution, or collapsing repeated
+malformed attempts into one bubble. Repeat the follow-up when needed.

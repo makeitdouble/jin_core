@@ -3778,6 +3778,7 @@ class RuntimeStream:
                     item.get(
                         "runtime_session_action_marker_item"
                     ) is not True
+                    and not str(item.get("text", "")).startswith("MALFORMED_ACTION:")
                     for item in live_history_tail
                 )
 
@@ -3795,6 +3796,17 @@ class RuntimeStream:
                         ) is not True
                     ]
                     marker_history_replaced = True
+
+            if has_recorded_history and any(
+                str(item.get("text", "")).startswith("MALFORMED_ACTION:")
+                for item in session_action_history[session_action_history_start:]
+                if isinstance(item, dict)
+            ):
+                session_action_history[session_action_history_start:] = sorted(
+                    session_action_history[session_action_history_start:],
+                    key=lambda item: float(item.get("created_at", 0) or 0),
+                )
+                marker_history_replaced = True
 
             if (
                 counted_markers

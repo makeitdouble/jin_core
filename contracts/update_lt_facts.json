@@ -12,14 +12,14 @@
       "emit_followup": false,
       "follow_up_on_fail": false
     },
-    "schema": [],
-    "rules": [
-      "JIN can update, merge, or create durable Long-Term facts through this marker.",
-      "Use this marker only to update or merge existing durable facts, or create a genuinely new durable fact.",
-      "Emit fulfilled with plain English text inside the marker:",
+    "schema": [
       "<UPDATE_LT_FACTS>",
       "Write concise English instruction. Update/merge: name exact F<number> IDs. Create: describe the new fact.",
       "</UPDATE_LT_FACTS>"
+    ],
+    "rules": [
+      "JIN can update, merge, or create durable Long-Term facts through this marker.",
+      "Use this marker only to update or merge existing durable facts, or create a genuinely new durable fact."
     ],
     "close_tag": true
   }

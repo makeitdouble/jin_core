@@ -12,11 +12,11 @@
       "emit_followup": false,
       "follow_up_on_fail": false
     },
-    "schema": [],
+    "schema": [
+      "<JIN_SIZE> w:120 h:120 </JIN_SIZE>"
+    ],
     "rules": [
       "Use to set JIN Live Avatar size.",
-      "Schema:",
-      "<JIN_SIZE> w:120 h:120 </JIN_SIZE>",
       "Value may use px, vw, vh, or %. Default - px.",
       "Percent values are axis-relative to current window."
     ],

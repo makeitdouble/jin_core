@@ -12,7 +12,10 @@
       "emit_followup": true,
       "follow_up_on_fail": false
     },
-    "schema": [],
+    "schema": [
+      "<LOAD_SKILL: name of skill >",
+      "<LOAD_SKILLS: name1, name2, name3 >"
+    ],
     "rules": [
       "For multiple skills use: <LOAD_SKILLS: name1, name2, name3 >"
     ],

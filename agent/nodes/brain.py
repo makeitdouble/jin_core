@@ -104,6 +104,9 @@ def action_event_requires_follow_up(event) -> bool:
 
     name = str(event.get("name", "") or "").strip().casefold()
 
+    if name == "malformed_action":
+        return True
+
     if status == "failed":
         if event.get("error") == "no_close_tag_provided_in_output":
             return True
@@ -556,11 +559,19 @@ def consume_action_failure_followup_context(
             or []
             if entry.get("tool_id") in pending_ids
         ]
+    from utils.actions.malformed_action_utils import build_malformed_notification
+    malformed = [entry for entry in entries
+                 if entry.get("result", {}).get("action") == "malformed_action"]
+    notifications = "\n\n".join(build_malformed_notification(entry) for entry in malformed)
+    entries = [entry for entry in entries if entry not in malformed]
+    if not entries and notifications:
+        return notifications
     summaries = [format_action_failure_summary(entry) for entry in entries
                  if not pending_ids or entry.get("tool_id") in pending_ids]
     details = "\n\n".join(summary for summary in summaries if summary)
     return (
-        "<ACTION_FAILURE_FOLLOWUP>\n"
+        (notifications + "\n\n" if notifications else "")
+        + "<ACTION_FAILURE_FOLLOWUP>\n"
         f"{ACTION_FAILURE_FOLLOWUP_MESSAGE}\n"
         + ("\n" + escape(details) + "\n" if details else "")
         + "</ACTION_FAILURE_FOLLOWUP>"
@@ -1099,9 +1110,10 @@ class BrainNode(BaseNode):
             else ""
         )
         if action_failure_followup_context:
-            sections.append(
-                action_failure_followup_context
-            )
+            if action_failure_followup_context.startswith("<MALFORMED_ACTION_NOTIFICATION>"):
+                sections.insert(0, action_failure_followup_context)
+            else:
+                sections.append(action_failure_followup_context)
 
         failed_action_context = (
             build_failed_runtime_action_followup_contexts(
@@ -2192,7 +2204,18 @@ class BrainNode(BaseNode):
 
             return pending_action_events
 
-        while followup_count < max_followups:
+        def malformed_followup_pending():
+            return any(
+                entry.get("result", {}).get("action") == "malformed_action"
+                for entry in getattr(context, "runtime_failure_followup_entries", [])
+            )
+
+        while followup_count < max_followups or malformed_followup_pending():
+            repairing_malformed = malformed_followup_pending()
+            if repairing_malformed:
+                # A protocol repair remains executable even if the preceding
+                # ordinary batch used the final allowed workflow tick.
+                followup_count = min(followup_count, max_followups - 1)
 
             if abort_requested():
                 break
@@ -2264,7 +2287,7 @@ class BrainNode(BaseNode):
                     filter_runtime_actions=True,
                 )
 
-                followup_count += 1
+                followup_count += int(not repairing_malformed)
                 continue
 
             if context.runtime_deep_search_calls:
@@ -2366,7 +2389,7 @@ class BrainNode(BaseNode):
                     filter_runtime_actions=True,
                 )
 
-                followup_count += 1
+                followup_count += int(not repairing_malformed)
                 continue
 
             if context.runtime_search_queries:
@@ -2487,7 +2510,7 @@ class BrainNode(BaseNode):
                         search_result
                     )
 
-                followup_count += 1
+                followup_count += int(not repairing_malformed)
                 continue
 
             pending_action_events = (
@@ -2543,7 +2566,7 @@ class BrainNode(BaseNode):
                     filter_runtime_actions=True,
                 )
 
-                followup_count += 1
+                followup_count += int(not repairing_malformed)
                 continue
 
             delayed_memory_results = getattr(
@@ -2606,7 +2629,7 @@ class BrainNode(BaseNode):
                     filter_runtime_actions=True,
                 )
 
-                followup_count += 1
+                followup_count += int(not repairing_malformed)
                 continue
 
             asset_results = getattr(
@@ -2689,7 +2712,7 @@ class BrainNode(BaseNode):
                     filter_runtime_actions=True,
                 )
 
-                followup_count += 1
+                followup_count += int(not repairing_malformed)
                 continue
 
             followup_action_events = (
@@ -2734,7 +2757,7 @@ class BrainNode(BaseNode):
                 filter_runtime_actions=True,
             )
 
-            followup_count += 1
+            followup_count += int(not repairing_malformed)
             continue
 
         remember_recovery_reasoning_for_followup(

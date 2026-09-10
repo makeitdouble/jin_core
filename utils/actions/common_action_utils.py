@@ -86,6 +86,12 @@ from .web_search_utils import (
 )
 
 
+from .malformed_action_utils import (
+    MALFORMED_ACTION, find_malformed_action_matches,
+    find_pending_malformed_action_start,
+)
+
+
 KNOWN_RUNTIME_ACTIONS = get_contract_runtime_action_names(
     None
 )
@@ -204,6 +210,12 @@ def _runtime_action_allows_bare_prefix_fallback(
     )
 
 
+def _short_payload_action_names(names):
+    return tuple(name for name in names
+                 if name not in CLOSE_TAG_RUNTIME_ACTIONS
+                 and extract_private_marker_parts(_runtime_action_marker_config(name)[0])[1])
+
+
 def _find_all_runtime_action_matches(
     text: str,
     action_names=None,
@@ -215,6 +227,10 @@ def _find_all_runtime_action_matches(
     enabled_action_names = normalize_runtime_action_names(
         action_names
     )
+
+    matches.extend(find_malformed_action_matches(
+        text, enabled_action_names, _short_payload_action_names(enabled_action_names),
+    ))
 
     for action_name in enabled_action_names:
         private_marker, close_tag = _runtime_action_marker_config(
@@ -1397,7 +1413,7 @@ def _replace_runtime_action_matches(
         start = match.start
         end = match.end
 
-        if replacement == "":
+        if replacement == "" and match.source != "malformed":
             start, end = _action_match_removal_span(
                 text,
                 start,
@@ -1728,6 +1744,14 @@ def extract_runtime_actions(
         match: RuntimeActionRegexpMatch,
     ) -> str:
 
+        if match.source == "malformed":
+            actions.append(RuntimeActionCall(
+                name=MALFORMED_ACTION, payload=match.payload, marker_name=match.name,
+            ))
+            if not preserve_action_text:
+                removed_markers.append(match.raw)
+            return match.raw if preserve_action_text else ""
+
         if match.source == "compat_closing":
             if not preserve_action_text:
                 removed_markers.append(
@@ -1780,7 +1804,7 @@ def _enabled_action_start_markers(
     enabled_actions=None,
 ) -> tuple[str, ...]:
 
-    markers = []
+    markers = ["<tool_call>", "<|tool_call>"]
 
     for action_name in normalize_runtime_action_names(
         enabled_actions
@@ -1789,6 +1813,7 @@ def _enabled_action_start_markers(
             action_name
         )
 
+        markers.append("<" + action_name)
         for marker in get_runtime_action_start_markers(
             private_marker,
             action_name,
@@ -2089,7 +2114,11 @@ def _unclosed_internal_action_request_start(
     enabled_actions=None,
 ) -> int | None:
 
-    marker_starts = []
+    names = normalize_runtime_action_names(enabled_actions)
+    malformed_start = find_pending_malformed_action_start(
+        text, names, _short_payload_action_names(names),
+    )
+    marker_starts = [] if malformed_start is None else [malformed_start]
 
     for action_name in normalize_runtime_action_names(
         enabled_actions
@@ -2766,6 +2795,28 @@ class RuntimeActionStreamFilter:
                     ),),
                     removed_markers=(unfinished_recall.group(0),),
                 )
+
+        malformed_start = find_pending_malformed_action_start(
+            pending, self.enabled_actions, _short_payload_action_names(self.enabled_actions),
+        )
+        if malformed_start is not None:
+            tail = pending[malformed_start:]
+            match = re.match(r"<\|?tool_call>\s*call\s*:\s*([A-Z][A-Z0-9_]*)\s*(.*)", tail, re.I | re.S)
+            if match is None:
+                match = re.match(r"<([A-Z][A-Z0-9_]*)(?:\s+|>)(.*)", tail, re.I | re.S)
+            if match and match.group(1).upper() in self.enabled_actions:
+                name = match.group(1).upper()
+                # Canonical open blocks retain their existing no-close-tag path.
+                if name not in CLOSE_TAG_RUNTIME_ACTIONS or tail.lower().startswith(("<tool_call>", "<|tool_call>")):
+                    payload = re.split(r"</|<\|?tool_call", match.group(2), maxsplit=1, flags=re.I)[0].rstrip("> ").strip()
+                    return RuntimeActionResult(
+                        text=pending[:malformed_start],
+                        actions=(RuntimeActionCall(name=MALFORMED_ACTION, payload=payload, marker_name=name),),
+                        removed_markers=(tail,),
+                    )
+            # An unfinished name alone is a false prefix, not a detected action.
+            if match is None:
+                return RuntimeActionResult(text=pending)
 
         marker_start = _unclosed_internal_action_request_start(
             pending,

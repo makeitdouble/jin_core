@@ -17,10 +17,7 @@
       "emit_followup": false,
       "follow_up_on_fail": false
     },
-    "schema": [],
-    "rules": [
-      "Use this marker after the user explicitly asks to create/save a delayed memory report, or when PROJECT_REVIEW is active and saving findings would help continue the project review.",
-      "Emit marker using this form:",
+    "schema": [
       "<SAVE_DELAYED_MEMORY>",
       "{",
       "  \"title\": \"\",",
@@ -32,6 +29,9 @@
       "  \"attachments_ids\": []",
       "}",
       "</SAVE_DELAYED_MEMORY>"
+    ],
+    "rules": [
+      "Use this marker after the user explicitly asks to create/save a delayed memory report, or when PROJECT_REVIEW is active and saving findings would help continue the project review."
     ],
     "close_tag": true
   }

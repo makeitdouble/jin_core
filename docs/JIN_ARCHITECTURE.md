@@ -282,6 +282,27 @@ That ordering is part of observability semantics. Moving the emission back to fi
 
 ---
 
+
+### 6.7 Malformed action recovery
+
+The stream parser also recognizes three non-executable forms for enabled action
+names: tool-call wrappers with an object payload, paired tags with attribute
+payloads, and short payload-bearing actions incorrectly emitted as paired tags
+with a `{ key="value" }` body. The existing quote-prefix rule still protects
+literal examples. Known unfinished envelopes remain private at stream flush.
+
+Each detection is dispatched as internal `MALFORMED_ACTION` telemetry, never as
+the attempted mutation. It receives its own T-id, action bubble and preserved
+Session Actions row. The existing runtime tool-result store persists the action
+name and original extracted payload. Ordered `MALFORMED_ACTION_NOTIFICATION`
+blocks lead the shared follow-up prompt and obtain the correct syntax exclusively
+from the target contract's `schema` array. Valid results in the same response
+remain in that same follow-up. These repairs do not consume the ordinary workflow
+follow-up limit, including when malformed output occurs on its last tick; user
+Stop and transport/provider interruption retain their normal behavior.
+
+---
+
 ## 7. Memory architecture — current model
 
 The old numbered four-layer architecture is not the current implementation.
