@@ -1449,39 +1449,33 @@ class RuntimeStreamFilterTests(RuntimeActionTestCase):
             ),
         )
 
-        for split_at in range(1, len(marker_text)):
-            with self.subTest(split_at=split_at):
+        split_points = (
+            1,
+            marker_text.index("UPDATE_ACTIVE_MEMORY") + len("UPDATE_"),
+            marker_text.index("active_memory_id"),
+            marker_text.index("last_photo_id"),
+            len(marker_text) - 2,
+        )
+        variants = [("charwise", list(marker_text))]
+        variants.extend(
+            (f"split:{split_at}", [marker_text[:split_at], marker_text[split_at:]])
+            for split_at in split_points
+        )
+
+        for label, chunks in variants:
+            with self.subTest(chunks=label):
                 stream_filter = RuntimeActionStreamFilter(
                     enabled_actions=[
                         "CAN_SAVE_ACTIVE_MEMORY",
                     ],
                 )
+                results = [stream_filter.filter(chunk) for chunk in chunks]
+                results.append(stream_filter.flush_result())
 
-                first = stream_filter.filter(
-                    marker_text[:split_at]
-                )
-                second = stream_filter.filter(
-                    marker_text[split_at:]
-                )
-                final = stream_filter.flush_result()
-
+                self.assertEqual("".join(result.text for result in results), "")
                 self.assertEqual(
-                    (
-                        first.text
-                        + second.text
-                        + final.text
-                    ),
-                    "",
-                )
-                self.assertEqual(
-                    (
-                        *first.actions,
-                        *second.actions,
-                        *final.actions,
-                    ),
-                    (
-                        expected_action,
-                    ),
+                    tuple(action for result in results for action in result.actions),
+                    (expected_action,),
                 )
 
 
@@ -1562,7 +1556,7 @@ class RuntimeStreamFilterTests(RuntimeActionTestCase):
         )
 
 
-    def test_stream_filter_executes_consecutive_markers_across_all_chunk_boundaries(self):
+    def test_stream_filter_executes_consecutive_markers_boundary_matrix(self):
 
         marker_text = (
             "<WEB_SEARCH: latest breakthroughs in fusion energy 2026>\n"
@@ -1582,37 +1576,36 @@ class RuntimeStreamFilterTests(RuntimeActionTestCase):
             ),
         )
 
-        for split_at in range(1, len(marker_text)):
-            with self.subTest(split_at=split_at):
+        first_marker_end = marker_text.index("\n") + 1
+        split_points = (
+            1,
+            marker_text.index("WEB_SEARCH") + len("WEB_"),
+            first_marker_end - 1,
+            first_marker_end,
+            marker_text.index("SAVE_ACTIVE_MEMORY") + len("SAVE_"),
+            len(marker_text) - len("</SAVE_ACTIVE_MEMORY>"),
+            len(marker_text) - 1,
+        )
+        variants = [("charwise", list(marker_text))]
+        variants.extend(
+            (f"split:{split_at}", [marker_text[:split_at], marker_text[split_at:]])
+            for split_at in split_points
+        )
+
+        for label, chunks in variants:
+            with self.subTest(chunks=label):
                 stream_filter = RuntimeActionStreamFilter(
                     enabled_actions=[
                         "CAN_WEB_SEARCH",
                         "CAN_SAVE_ACTIVE_MEMORY",
                     ],
                 )
+                results = [stream_filter.filter(chunk) for chunk in chunks]
+                results.append(stream_filter.flush_result())
 
-                first = stream_filter.filter(
-                    marker_text[:split_at]
-                )
-                second = stream_filter.filter(
-                    marker_text[split_at:]
-                )
-                final = stream_filter.flush_result()
-
+                self.assertEqual("".join(result.text for result in results).strip(), "")
                 self.assertEqual(
-                    (
-                        first.text
-                        + second.text
-                        + final.text
-                    ).strip(),
-                    "",
-                )
-                self.assertEqual(
-                    (
-                        *first.actions,
-                        *second.actions,
-                        *final.actions,
-                    ),
+                    tuple(action for result in results for action in result.actions),
                     expected_actions,
                 )
 

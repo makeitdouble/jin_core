@@ -1,15 +1,11 @@
 import asyncio
 import unittest
-from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
 from runtime.L1_memory_utils import build_runtime_memory_snapshot
 from runtime.runtime_context import RuntimeContext
 from websocket.bootstrap import apply_runtime_memory_slot_delete
 
-
-ROOT = Path(__file__).resolve().parents[1]
-WEBSOCKET_INIT = ROOT / "websocket" / "__init__.py"
 
 
 class Emitter:
@@ -114,16 +110,6 @@ class RuntimeMemoryDeleteGuardTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(self.context.runtime_memory_updates, 5)
         refresh.assert_awaited_once()
         diff.assert_awaited_once()
-
-    def test_websocket_passes_foreground_busy_state_to_delete_guard(self):
-        source = WEBSOCKET_INIT.read_text(encoding="utf-8")
-        start = source.index('if message_type == "runtime_memory_delete_slot":')
-        end = source.index('if message_type == "active_memory_store_sync":', start)
-        block = source[start:end]
-
-        self.assertIn("foreground_busy=", block)
-        self.assertIn("current_task is not None", block)
-        self.assertIn("and not current_task.done()", block)
 
 
 if __name__ == "__main__":

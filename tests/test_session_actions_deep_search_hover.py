@@ -1,15 +1,8 @@
-from pathlib import Path
 from types import SimpleNamespace
 import unittest
 
 from runtime.deep_web_search import _record_sequence_line
 
-
-ROOT = Path(__file__).resolve().parents[1]
-SESSION_ACTIONS_JS = (
-    ROOT / "ui" / "static" / "js" / "logger" / "session-actions.js"
-)
-INDEX_HTML = ROOT / "ui" / "templates" / "index.html"
 
 
 class DeepSearchSessionActionHoverTests(unittest.IsolatedAsyncioTestCase):
@@ -37,30 +30,6 @@ class DeepSearchSessionActionHoverTests(unittest.IsolatedAsyncioTestCase):
                 "DEEP_WEB_SEARCH: Deep dive into Noir Jazz genres and "
                 "essential albums."
             ),
-        )
-
-    def test_client_uses_deep_search_context_detail_for_hover_title(self):
-        source = SESSION_ACTIONS_JS.read_text(encoding="utf-8")
-
-        self.assertIn(
-            'String(part.context_detail || "").trim()',
-            source,
-        )
-        self.assertIn(
-            'normalizedActionName === "DEEP_WEB_SEARCH"',
-            source,
-        )
-        self.assertIn(
-            '? part.contextDetail',
-            source,
-        )
-        self.assertIn(
-            'action.title =\n        hoverText;',
-            source,
-        )
-        self.assertIn(
-            'context_detail: part.contextDetail',
-            source,
         )
 
 

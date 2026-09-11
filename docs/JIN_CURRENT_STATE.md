@@ -165,9 +165,7 @@ also reproduce with the original changed reader functions and original action
 flags: old `runtimeMemory.saved_at` client expectation, one-shot restore prompt,
 three-pair restore-dialog bound, and bounded URL-restore UI tail. The latter two
 expose pre-existing implementation/documented-intent disagreement (full archive
-versus bounded tail), outside chat-search scope. Older cleanup tests still name
-removed function/log strings; the pytest-based tool-ID module cannot run in the
-system Python environment without pytest. This is not a full-suite green claim.
+versus bounded tail), outside chat-search scope. Older cleanup tests still name removed function/log strings. The tool-ID tests now run on the standard unittest stack. This is not a full-suite green claim.
 
 The contract assembler currently maps these actions:
 

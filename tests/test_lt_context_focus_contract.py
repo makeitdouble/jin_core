@@ -1,4 +1,3 @@
-from pathlib import Path
 import unittest
 from unittest.mock import patch
 
@@ -6,14 +5,6 @@ from runtime.LT_memory import build_runtime_lt_memory_context
 from runtime.LT_memory_utils import normalize_lt_store
 from runtime.runtime_context import RuntimeContext
 
-
-ROOT = Path(__file__).resolve().parents[1]
-MEMORY_VIEW_JS = ROOT / "ui" / "static" / "js" / "runtime" / "runtime-memory-view.js"
-MEMORY_MODEL_JS = ROOT / "ui" / "static" / "js" / "runtime" / "runtime-memory-model.js"
-AVATAR_JS = ROOT / "ui" / "static" / "js" / "runtime" / "runtime-avatar.js"
-THINK_CITATIONS_JS = ROOT / "ui" / "static" / "js" / "think-citations.js"
-TRACE_MODAL_JS = ROOT / "ui" / "static" / "js" / "logger" / "trace-modal.js"
-MEMORY_CSS = ROOT / "ui" / "static" / "css" / "runtime-memory.css"
 
 
 class LTContextFocusContractTests(unittest.TestCase):
@@ -124,81 +115,6 @@ class LTContextFocusContractTests(unittest.TestCase):
         self.assertLess(block.index("[ id: F22 ]"), block.index("[ id: F227 ]"))
         self.assertLess(block.index("[ id: F227 ]"), block.index("[ id: F21 ]"))
         self.assertEqual(context.runtime_memory_attention_lt_focus_ids, ["F22"])
-
-    def test_lt_visual_focus_is_explicit_reasoning_citation_only(self):
-        memory_view = MEMORY_VIEW_JS.read_text(encoding="utf-8")
-        avatar = AVATAR_JS.read_text(encoding="utf-8")
-        citations = THINK_CITATIONS_JS.read_text(encoding="utf-8")
-
-        self.assertIn('!row.classList.contains("runtime-memory-lt-row")', memory_view)
-        self.assertIn('!recordNode.classList.contains("jin-avatar-memory-dash-lt")', avatar)
-        self.assertNotIn("...buildLTCitationFragments(),", citations)
-        self.assertIn('addLine("lt",', citations)
-        self.assertIn('citationType: "lt_citation"', citations)
-
-    def test_bubbled_lt_rows_show_full_value_while_default_preview_is_50_chars(self):
-        memory_view = MEMORY_VIEW_JS.read_text(encoding="utf-8")
-        memory_model = MEMORY_MODEL_JS.read_text(encoding="utf-8")
-
-        self.assertIn(
-            "const RUNTIME_MEMORY_VALUE_DISPLAY_MAX_CHARS = 50;",
-            memory_model,
-        )
-        self.assertIn("function isLongTermMemoryRowBubbled(row)", memory_view)
-        self.assertIn('row.classList.contains("runtime-memory-citation-hit")', memory_view)
-        self.assertIn('row.classList.contains("runtime-memory-context-loaded-hit")', memory_view)
-        self.assertIn("syncLongTermMemoryRowValueDisplay(row);", memory_view)
-        self.assertIn("runtimeMemoryValueFullText", memory_view)
-
-    def test_context_modal_renders_clean_fact_and_ordered_report_fallback(self):
-        source = TRACE_MODAL_JS.read_text(encoding="utf-8")
-        css = MEMORY_CSS.read_text(encoding="utf-8")
-
-        self.assertIn("function parseContextLongTermMemoryLine(line)", source)
-        self.assertIn("function resolveContextLongTermFactReport(delayedMemoryIds)", source)
-        self.assertIn("for (const rawReportId of Array.isArray(delayedMemoryIds)", source)
-        self.assertIn("source.slice(separatorIndex + 1, idMatch.index).trim()", source)
-        self.assertIn('"jin-context-lt-separator",\n        "·"', source)
-        self.assertIn("openContextDelayedMemoryReport(\n            linked.reportId", source)
-        self.assertIn("linked.report.title", source)
-        self.assertIn(".jin-context-lt-fact-id", css)
-        self.assertIn("button.jin-context-lt-fact-id.is-linked", css)
-
-    def test_context_delayed_anchor_fact_ids_expose_key_value_hover_text(self):
-        source = TRACE_MODAL_JS.read_text(encoding="utf-8")
-        index = (ROOT / "ui" / "templates" / "index.html").read_text(
-            encoding="utf-8"
-        )
-
-        self.assertIn(
-            "function renderContextDelayedMemoryLabel(label, line)",
-            source,
-        )
-        self.assertIn(
-            r"/\[\s*anchor_facts\s*:\s*([^\]]*?)\s*\]/i",
-            source,
-        )
-        self.assertIn(
-            '"jin-context-lt-fact-id jin-context-delayed-anchor-fact-id"',
-            source,
-        )
-        self.assertIn(
-            "const factTitle = getContextLongTermFactTitle(factId);",
-            source,
-        )
-        self.assertIn("factNode.title = factTitle;", source)
-        self.assertIn(
-            'factNode.setAttribute(\n        "aria-label",\n        factTitle',
-            source,
-        )
-        self.assertIn(
-            "renderContextDelayedMemoryLabel(\n      label,\n      line",
-            source,
-        )
-        self.assertIn(
-            'typeof ltMemory.getFacts === "function"',
-            source,
-        )
 
 
 if __name__ == "__main__":

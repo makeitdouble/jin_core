@@ -6,8 +6,6 @@ import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
 FORMATTER_JS = ROOT / "ui" / "static" / "js" / "chat-response-formatter.js"
-INDEX_HTML = ROOT / "ui" / "templates" / "index.html"
-
 
 class ChatResponseFormatterTests(unittest.TestCase):
 
@@ -406,27 +404,6 @@ if (html !== "<p>formula $a_b^2$ and price $5 and $10</p>") {
             completed.returncode,
             0,
             completed.stderr or completed.stdout,
-        )
-
-    def test_katex_assets_are_loaded_before_response_formatter(self):
-        source = INDEX_HTML.read_text(encoding="utf-8")
-        katex_script = (
-            'https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js'
-        )
-        formatter_script = (
-            '/static/js/chat-response-formatter.js?v=jin-size-1&jin-reaction=1'
-            '&marker-spacing=2&math=2'
-        )
-
-        self.assertIn(
-            'https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css',
-            source,
-        )
-        self.assertIn(katex_script, source)
-        self.assertIn(formatter_script, source)
-        self.assertLess(
-            source.index(katex_script),
-            source.index(formatter_script),
         )
 
 

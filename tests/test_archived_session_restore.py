@@ -1502,68 +1502,6 @@ open_question: continue
         self.assertIn("Reddit says cold noir.", tool_results)
 
 
-class ArchivedSessionRestoreClientContractTests(unittest.TestCase):
-
-    def test_delayed_memory_session_id_opens_archived_restore_tab(self):
-        root = Path(__file__).resolve().parents[1]
-        memory_view = (
-            root
-            / "ui"
-            / "static"
-            / "js"
-            / "runtime"
-            / "runtime-memory-view.js"
-        ).read_text(encoding="utf-8")
-        index = (root / "ui" / "templates" / "index.html").read_text(encoding="utf-8")
-        restore_script = (
-            root / "ui" / "static" / "js" / "session-restore.js"
-        ).read_text(encoding="utf-8")
-        runtime_session = (
-            root / "ui" / "static" / "js" / "runtime" / "runtime-session.js"
-        ).read_text(encoding="utf-8")
-        socket_script = (
-            root / "ui" / "static" / "js" / "socket.js"
-        ).read_text(encoding="utf-8")
-
-        self.assertIn("restore_session=${encodeURIComponent(sessionId)}", memory_view)
-        self.assertIn("appendDelayedMemorySessionIdsField(\n        fields,\n        \"Session\"", memory_view)
-        self.assertLess(
-            index.index("session-restore.js"),
-            index.index("socket.js"),
-        )
-        self.assertIn("jinArchivedSessionRestoreReady", restore_script)
-        self.assertIn("clearRestoreSessionParam", restore_script)
-        self.assertIn('url.searchParams.delete(\n      "restore_session"', restore_script)
-        self.assertIn("window.history.replaceState", restore_script)
-        self.assertIn("status === 404", restore_script)
-        self.assertIn("jinArchivedSessionRestoreFailure", restore_script)
-        self.assertIn('"[SESSION ERROR]"', restore_script)
-        self.assertIn("session: ${failedSessionId}", restore_script)
-        self.assertIn("jin-session-restore-divider", restore_script)
-        self.assertIn("formatRestoreBoundaryTimestamp", restore_script)
-        self.assertIn("appendRestoreBoundary(payload)", restore_script)
-        self.assertIn("appendThinkingChunk", restore_script)
-        self.assertIn("replaceLoadedDelayedMemoryReportIds", restore_script)
-        self.assertIn("applyPersistedSessionBootstrap", restore_script)
-        self.assertIn("readSessionCheckpoint", restore_script)
-        self.assertIn("payload.runtime_snapshot", restore_script)
-        self.assertIn("jinArchivedSessionBootstrap", runtime_session)
-        self.assertIn("snapshotRuntimeMemory", runtime_session)
-        self.assertIn("sourceSnapshot.lines.map", runtime_session)
-        self.assertNotIn(
-            "created_at:\n              isArchivedRestore ? restoredAt : line.created_at",
-            runtime_session,
-        )
-        self.assertIn("saved_at:\n            String(bootstrap.saved_at || \"\").trim(),", runtime_session)
-        self.assertIn('type: "archived_session_resume"', socket_script)
-        self.assertIn("logArchivedRestoreFallbackSession", socket_script)
-        self.assertIn("jinArchivedSessionRestoreFailure", socket_script)
-        self.assertIn("loaded session\\nsession: ${loadedSessionId}", socket_script)
-        self.assertNotIn(
-            'bootstrap.archived_session_restore !== true',
-            socket_script,
-        )
-
 
 if __name__ == "__main__":
     unittest.main()

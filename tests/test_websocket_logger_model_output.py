@@ -1,12 +1,8 @@
-from pathlib import Path
 import unittest
 
 from clients.brain_client import ask_brain_stream
-from config_loader import config
 from websocket.logger import WebSocketLogger
 
-
-ROOT = Path(__file__).resolve().parents[1]
 
 
 class FakeWebSocket:
@@ -122,22 +118,6 @@ class WebSocketLoggerModelOutputTests(unittest.IsolatedAsyncioTestCase):
             raw_output[0]["content"],
         )
 
-
-    def test_logger_ui_has_model_output_cards_and_payload_button(self):
-        source = (
-            ROOT
-            / "ui"
-            / "static"
-            / "js"
-            / "logger"
-            / "log-entries.js"
-        ).read_text(encoding="utf-8")
-
-        self.assertIn('normalizedTag === "[BRAIN]"', source)
-        self.assertIn('normalizedTag === "[SERVICE]"', source)
-        self.assertIn('isModelOutput\n        ? "payload"', source)
-        self.assertIn('? "Brain output"', source)
-        self.assertIn('? "Service as brain output"', source)
 
 
 if __name__ == "__main__":

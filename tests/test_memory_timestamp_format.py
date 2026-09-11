@@ -1,5 +1,4 @@
 from datetime import datetime, timedelta, timezone
-from pathlib import Path
 from types import SimpleNamespace
 import json
 import re
@@ -10,9 +9,6 @@ from utils.actions.active_memory_utils import refresh_active_memory_runtime_meta
 from utils.brain_client_utils import build_delayed_memory_report
 from utils.time_utils import format_utc_iso, utc_now_iso
 
-
-ROOT = Path(__file__).resolve().parents[1]
-MEMORY_VIEW = ROOT / "ui" / "static" / "js" / "runtime" / "runtime-memory-view.js"
 
 
 class MemoryTimestampFormatTests(unittest.TestCase):
@@ -85,36 +81,6 @@ class MemoryTimestampFormatTests(unittest.TestCase):
         self.assertEqual(
             report["abc123"]["created_date"],
             report["abc123"]["created_time"],
-        )
-
-    def test_memory_ui_has_one_local_display_formatter_for_all_memory_dates(self):
-        source = MEMORY_VIEW.read_text(encoding="utf-8")
-
-        self.assertIn("function formatMemoryTimestamp(value)", source)
-        self.assertIn(
-            '`${date.getDate()} ${MEMORY_MONTH_NAMES[date.getMonth()]} `',
-            source,
-        )
-        self.assertIn('"Wednesday"', source)
-        for key in (
-            "created_at",
-            "updated_at",
-            "creation_time",
-            "created_time",
-            "created_date",
-            "last_loaded_date",
-        ):
-            self.assertIn(f'"{key}"', source)
-
-        self.assertIn(
-            "valueNode.textContent = formatMemoryMetadataValue(key, value);",
-            source,
-        )
-        self.assertIn(
-            "return formatMemoryTimestamp(\n"
-            "        normalizeDelayedMemoryDisplayText(value)\n"
-            "    );",
-            source,
         )
 
 

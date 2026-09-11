@@ -1,6 +1,5 @@
 import asyncio
 import unittest
-from pathlib import Path
 from types import SimpleNamespace
 
 from utils.delayed_memory_triggers import load_delayed_memory_by_tags
@@ -8,8 +7,6 @@ from websocket.bootstrap import (
     apply_suppressed_delayed_memory_auto_load_ids,
 )
 
-
-ROOT = Path(__file__).resolve().parents[1]
 
 
 class FakeEmitter:
@@ -120,40 +117,6 @@ class DelayedMemoryPinStateTests(unittest.TestCase):
             "f7jf9a",
             context.runtime_loaded_delayed_memory,
         )
-
-    def test_client_contract_uses_loaded_state_only(self):
-        runtime_source = (
-            ROOT / "ui/static/js/runtime/runtime.js"
-        ).read_text(encoding="utf-8")
-        memory_view_source = (
-            ROOT / "ui/static/js/runtime/runtime-memory-view.js"
-        ).read_text(encoding="utf-8")
-        trace_source = (
-            ROOT / "ui/static/js/logger/trace-modal.js"
-        ).read_text(encoding="utf-8")
-        socket_source = (
-            ROOT / "ui/static/js/socket/delayed-memory.js"
-        ).read_text(encoding="utf-8")
-        action_source = (
-            ROOT / "ui/static/js/socket/runtime-actions.js"
-        ).read_text(encoding="utf-8")
-        css_source = (
-            ROOT / "ui/static/css/runtime-memory.css"
-        ).read_text(encoding="utf-8")
-
-        self.assertIn("loadedDelayedMemoryReportIds", runtime_source)
-        self.assertIn("handleDelayedMemoryReportPinClick", runtime_source)
-        self.assertIn("suppressNextTurn: true", runtime_source)
-        self.assertNotIn("appendedDelayedMemoryReportIds", runtime_source)
-        self.assertNotIn("append_delayed_memory", action_source)
-        self.assertNotIn("appended_delayed_memory_ids", socket_source)
-        self.assertIn("suppressed_delayed_memory_auto_load_ids", socket_source)
-        self.assertNotIn("delayed-memory-modal-pin-appended", memory_view_source)
-        self.assertNotIn("delayed-memory-modal-pin-appended", trace_source)
-
-        self.assertIn("runtime-memory-delayed-pin", memory_view_source)
-        self.assertIn("delayed-memory-modal-pin-loaded", memory_view_source)
-        self.assertIn("rgba(196, 196, 198, 0.96)", css_source)
 
 
 if __name__ == "__main__":

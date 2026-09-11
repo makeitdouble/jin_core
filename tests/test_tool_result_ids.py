@@ -1,7 +1,5 @@
-from types import SimpleNamespace
 from unittest.mock import patch
 import asyncio
-import pytest
 from utils.tool_results import record_runtime_tool_result, clean_runtime_tool_result, clear_runtime_tool_results
 from utils.actions import RuntimeActionStreamFilter, RuntimeActionCall
 from utils.context import build_tool_results_context
@@ -12,18 +10,25 @@ from websocket.bootstrap import apply_bootstrap_tool_results, clean_bootstrap_to
 from utils.session_actions_history import upsert_session_action_marker_history_since
 
 
-@pytest.mark.parametrize('tag,payload', [('<CLEAN_TOOL_RESULTS>', ''), ('<CLEAN_TOOL_RESULTS: T1 >', 'T1'), ('<CLEAN_TOOL_RESULTS: wrong >', 'wrong'), ('<CLEAN_TOOL_RESULTS: >', ':'), ('<CLEAN_TOOL_RESULTS:>', ':')])
-def test_every_stream_boundary(tag, payload):
-    for split in range(len(tag) + 1):
+def test_every_stream_boundary():
+    cases = [
+        ('<CLEAN_TOOL_RESULTS>', ''),
+        ('<CLEAN_TOOL_RESULTS: T1 >', 'T1'),
+        ('<CLEAN_TOOL_RESULTS: wrong >', 'wrong'),
+        ('<CLEAN_TOOL_RESULTS: >', ':'),
+        ('<CLEAN_TOOL_RESULTS:>', ':'),
+    ]
+    for tag, payload in cases:
+        for split in range(len(tag) + 1):
+            parser = RuntimeActionStreamFilter()
+            results = [parser.filter(tag[:split]), parser.filter(tag[split:]), parser.flush_result()]
+            assert ''.join(r.text for r in results) == ''
+            assert [(a.name, a.payload) for r in results for a in r.actions] == [('CLEAN_TOOL_RESULTS', payload)]
         parser = RuntimeActionStreamFilter()
-        results = [parser.filter(tag[:split]), parser.filter(tag[split:]), parser.flush_result()]
-        assert ''.join(r.text for r in results) == ''
-        assert [(a.name, a.payload) for r in results for a in r.actions] == [('CLEAN_TOOL_RESULTS', payload)]
-    parser = RuntimeActionStreamFilter()
-    literal = '`' + tag + '`'
-    results = [parser.filter(c) for c in literal] + [parser.flush_result()]
-    assert ''.join(r.text for r in results) == literal
-    assert not [a for r in results for a in r.actions]
+        literal = '`' + tag + '`'
+        results = [parser.filter(c) for c in literal] + [parser.flush_result()]
+        assert ''.join(r.text for r in results) == literal
+        assert not [a for r in results for a in r.actions]
 
 
 def test_legacy_modern_clear_and_counter_roundtrip():
@@ -46,26 +51,27 @@ def test_legacy_modern_clear_and_counter_roundtrip():
     assert restored.runtime_tool_results[0]['tool_id'] == 'T3'
 
 
-@pytest.mark.parametrize('target', ['T999', 't1', 'T0', 'T01', 'T1 T2', ':'])
-def test_invalid_clear_fails_everywhere(target):
+def test_invalid_clear_fails_everywhere():
     class Emitter:
         def __init__(self): self.events = []
         async def emit(self, data): self.events.append(data)
-    ctx = RuntimeContext(websocket=None, emitter=None, logger=None, clients={})
-    ctx.runtime_current_turn_id = 'turn_1'
-    ctx.emitter = Emitter()
-    record_runtime_tool_result(ctx, 'search', 'keep me')
-    with patch('utils.actions.dispatcher.ensure_assets_tree'), patch('utils.chat_log.append_chat_runtime_event'):
-        asyncio.run(apply_runtime_action_calls(ctx, (RuntimeActionCall(name='CLEAN_TOOL_RESULTS', payload=target),)))
-    assert ctx.runtime_tool_results[0]['result'] == 'keep me'
-    assert ctx.runtime_tool_results[-1]['result']['ok'] is False
-    assert ctx.runtime_action_events[-1]['status'] == 'failed'
-    assert any(e.get('status') == 'failed' and target in e.get('text', '') for e in ctx.emitter.events)
-    upsert_session_action_marker_history_since(ctx, 0, [{'name': 'CLEAN_TOOL_RESULTS', 'payload': target}])
-    assert 'failed' in ctx.runtime_session_action_history[-1]['text']
-    assert target in ctx.runtime_session_action_history[-1]['text']
-    assert 'Unknown or invalid tool_id' in build_tool_results_context(ctx)
-    assert ctx.runtime_followup_action_failure_pending
+
+    for target in ['T999', 't1', 'T0', 'T01', 'T1 T2', ':']:
+        ctx = RuntimeContext(websocket=None, emitter=None, logger=None, clients={})
+        ctx.runtime_current_turn_id = 'turn_1'
+        ctx.emitter = Emitter()
+        record_runtime_tool_result(ctx, 'search', 'keep me')
+        with patch('utils.actions.dispatcher.ensure_assets_tree'), patch('utils.chat_log.append_chat_runtime_event'):
+            asyncio.run(apply_runtime_action_calls(ctx, (RuntimeActionCall(name='CLEAN_TOOL_RESULTS', payload=target),)))
+        assert ctx.runtime_tool_results[0]['result'] == 'keep me'
+        assert ctx.runtime_tool_results[-1]['result']['ok'] is False
+        assert ctx.runtime_action_events[-1]['status'] == 'failed'
+        assert any(e.get('status') == 'failed' and target in e.get('text', '') for e in ctx.emitter.events)
+        upsert_session_action_marker_history_since(ctx, 0, [{'name': 'CLEAN_TOOL_RESULTS', 'payload': target}])
+        assert 'failed' in ctx.runtime_session_action_history[-1]['text']
+        assert target in ctx.runtime_session_action_history[-1]['text']
+        assert 'Unknown or invalid tool_id' in build_tool_results_context(ctx)
+        assert ctx.runtime_followup_action_failure_pending
 
 
 def test_attach_history_id_and_restore():

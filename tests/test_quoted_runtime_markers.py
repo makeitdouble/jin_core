@@ -59,15 +59,38 @@ class QuotedRuntimeMarkerTests(unittest.TestCase):
             self.assertFalse(result.removed_markers)
             self.assertFalse(result.marker_repetition_exceeded)
 
-    def test_quotes_and_brackets_preserve_markers_in_batch_and_stream(self):
+    def test_quotes_and_brackets_preserve_every_marker_in_batch(self):
         for opening, closing in WRAPPERS:
             for marker in MARKERS:
                 text = f"before {opening}{marker}{closing} after"
                 with self.subTest(text=text):
                     self.assert_literal(text, [extract_runtime_actions(text)])
+
+    def test_quoted_stream_boundary_matrix(self):
+        # Streaming behavior depends on marker *shape*, not on every action name.
+        # Keep one representative for each parser shape and exercise every quote
+        # wrapper with maximally fragmented chunks. Exhaustive two-chunk splits
+        # are covered once per shape instead of once per wrapper x every marker.
+        representatives = (
+            "<CLEAN_TOOL_RESULTS>",
+            "<WEB_SEARCH: test query>",
+            "<JIN_COLOR> #00f2ff </JIN_COLOR>",
+            '<SAVE_ACTIVE_MEMORY>{"conditions":"test"}</SAVE_ACTIVE_MEMORY>',
+            '<UPDATE_ACTIVE_MEMORY active_memory_id="abc123" field="x" value="y" />',
+        )
+
+        for opening, closing in WRAPPERS:
+            for marker in representatives:
+                text = f"before {opening}{marker}{closing} after"
+                with self.subTest(wrapper=(opening, closing), marker=marker, chunks="charwise"):
                     self.assert_literal(text, stream_results(text, range(1, len(text))))
-                    for split in range(1, len(text)):
-                        self.assert_literal(text, stream_results(text, [split]))
+
+        opening, closing = '"', '"'
+        for marker in representatives:
+            text = f"before {opening}{marker}{closing} after"
+            for split in range(1, len(text)):
+                with self.subTest(marker=marker, split=split):
+                    self.assert_literal(text, stream_results(text, [split]))
 
     def test_screenshot_and_incomplete_literals_survive_stop(self):
         for text in (

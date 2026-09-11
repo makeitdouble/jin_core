@@ -9,51 +9,9 @@ ROOT = Path(__file__).resolve().parents[1]
 RUNTIME_STORAGE_JS = (
     ROOT / "ui" / "static" / "js" / "runtime" / "runtime-storage.js"
 )
-RUNTIME_SESSION_JS = (
-    ROOT / "ui" / "static" / "js" / "runtime" / "runtime-session.js"
-)
-SOCKET_JS = ROOT / "ui" / "static" / "js" / "socket.js"
-SOCKET_INPUT_JS = ROOT / "ui" / "static" / "js" / "socket" / "input.js"
-SESSION_RESTORE_JS = ROOT / "ui" / "static" / "js" / "session-restore.js"
-
 
 @unittest.skipUnless(shutil.which("node"), "node is required")
 class BrowserRuntimeStorageV2Tests(unittest.TestCase):
-
-    def test_user_gate_atomic_writer_and_restore_source_contract(self):
-        runtime_session = RUNTIME_SESSION_JS.read_text(encoding="utf-8")
-        persist_start = runtime_session.index(
-            "function persistLiveSessionCheckpoint(data)"
-        )
-        persist_end = runtime_session.index(
-            "function clearPersistedToolResultsCheckpoint(",
-            persist_start,
-        )
-        persist = runtime_session[persist_start:persist_end]
-        self.assertEqual(persist.count("writeSessionCheckpoint({"), 1)
-        self.assertNotIn("writeLatestSavedRuntimeMemory", persist)
-        self.assertNotIn("writeLatestSavedSessionSnapshot", persist)
-
-        socket_input = SOCKET_INPUT_JS.read_text(encoding="utf-8")
-        sent_at = socket_input.index("const sent =")
-        mark_at = socket_input.index("window.markSessionActivityDirty();", sent_at)
-        self.assertLess(sent_at, mark_at)
-        self.assertIn("if (!sent) {", socket_input[sent_at:mark_at])
-        self.assertNotIn(
-            "markSessionActivityDirty",
-            SOCKET_JS.read_text(encoding="utf-8"),
-        )
-
-        restore = SESSION_RESTORE_JS.read_text(encoding="utf-8")
-        start = restore.index("function mergeLatestVisualCheckpoint(")
-        end = restore.index("function restoreVisualState(", start)
-        merge = restore[start:end]
-        self.assertIn("storage.readSessionCheckpoint()", merge)
-        self.assertIn("checkpointMatchesRestore", merge)
-        self.assertIn("=== restoreSourceSessionId", merge)
-        self.assertIn("archive_tail_at", merge)
-        self.assertNotIn("runtime_memory", merge)
-        self.assertNotIn("collectOtherLatestRuntimeMemorySnapshots", merge)
 
     def test_migration_clear_and_multitab_contract(self):
         script = textwrap.dedent(

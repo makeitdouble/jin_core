@@ -35,16 +35,30 @@ class MalformedParserTests(TestCase):
             }})
             self.assertIn('\n'.join(schema), notification)
 
-    def test_all_boundaries_and_repeated_calls(self):
+    def test_malformed_syntax_boundary_matrix_and_repeated_calls(self):
         for form, payload in zip(FORMS, PAYLOADS):
             text = 'before ' + form + ' after'
-            variants = [[text], list(text)] + [[text[:i], text[i:]] for i in range(1, len(text))]
-            for chunks in variants:
-                with self.subTest(chunks=chunks):
+            split_points = (
+                1,
+                text.index('ATTACH_FILE_BY_ID') + len('ATTACH_'),
+                text.index('z4tsdy'),
+                len(text) - len(' after'),
+                len(text) - 1,
+            )
+            variants = [("whole", [text]), ("charwise", list(text))]
+            variants.extend(
+                (f"split:{split}", [text[:split], text[split:]])
+                for split in split_points
+            )
+            for label, chunks in variants:
+                with self.subTest(form=form, chunks=label):
                     visible, actions = parse(chunks)
                     self.assertEqual(visible.split(), ['before', 'after'])
-                    self.assertEqual([(a.name, a.marker_name, a.payload) for a in actions],
-                                     [('MALFORMED_ACTION', 'ATTACH_FILE_BY_ID', payload)])
+                    self.assertEqual(
+                        [(a.name, a.marker_name, a.payload) for a in actions],
+                        [('MALFORMED_ACTION', 'ATTACH_FILE_BY_ID', payload)],
+                    )
+
             visible, actions = parse(list(form * 5))
             self.assertEqual(visible, '')
             self.assertEqual(len(actions), 5)
@@ -175,8 +189,9 @@ class MalformedRuntimeTests(IsolatedAsyncioTestCase):
             runtime_actions=['ATTACH_FILE_BY_ID'],
         )
         async def chunks():
-            for chunk in 'before ' + ''.join(FORMS) + ' after':
-                yield {'type': 'content', 'content': chunk}
+            # Parser tests above own provider-boundary fragmentation. Runtime
+            # coverage here is about result/event/history propagation.
+            yield {'type': 'content', 'content': 'before ' + ''.join(FORMS) + ' after'}
         response = await stream.run(chunks())
         self.assertEqual(response.split(), ['before', 'after'], context.logger.messages)
         events = [e for e in context.emitter.events if e.get('action') == 'malformed_action']

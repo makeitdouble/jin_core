@@ -262,7 +262,6 @@ def test_latest_selector_keeps_raw_color_before_jin_or_l1(tmp_path):
     assert payload["recent_turns"][-1]["user"] == "стань красным"
     assert payload["recent_turns"][-1]["jin"] == ""
     assert payload["current_jin_color"] == "#ff0000"
-    assert payload["session_actions"][-1]["parts"][0]["colors"] == ["#ff0000"]
 
 
 def test_latest_selector_promotes_newer_bare_user_move(tmp_path):

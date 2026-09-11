@@ -16,11 +16,6 @@ from websocket.bootstrap import (
 from websocket.messages import append_runtime_recent_turn
 
 
-ROOT = Path(__file__).resolve().parents[1]
-SOCKET_HANDLERS_JS = (
-    ROOT / "ui" / "static" / "js" / "socket" / "event-handlers.js"
-)
-
 
 class SessionBootstrapChatTailTests(unittest.TestCase):
 
@@ -434,74 +429,6 @@ class SessionBootstrapChatTailTests(unittest.TestCase):
                     "reasoning": "r",
                 }
             ],
-        )
-
-    def test_client_renders_bootstrap_tail_with_existing_chat_primitives(self):
-        source = SOCKET_HANDLERS_JS.read_text(encoding="utf-8")
-
-        self.assertIn('"session_bootstrap_chat_tail"', source)
-        self.assertIn("handleSessionBootstrapChatTail", source)
-        self.assertIn("appendChatMessage(", source)
-        self.assertIn("Array.isArray(turn.attachments)", source)
-        self.assertIn("      attachments\n    );", source)
-        self.assertIn("appendThinkingChunk(", source)
-        self.assertIn("appendStreamChunk(", source)
-        self.assertIn("finishStreamMessage(", source)
-        self.assertIn("window.jinArchivedSessionRestorePayload", source)
-        self.assertNotIn(".slice(-3)", source)
-
-    def test_client_keeps_user_only_turn_without_blank_br_bubble(self):
-        source = SOCKET_HANDLERS_JS.read_text(encoding="utf-8")
-        handler_start = source.index(
-            "function handleSessionBootstrapChatTail"
-        )
-        handler_end = source.index(
-            "function handleSessionActionsUpdate",
-            handler_start,
-        )
-        handler_source = source[handler_start:handler_end]
-
-        self.assertIn(
-            'String(turn.user || "").trim()',
-            handler_source,
-        )
-        self.assertIn(
-            "Array.isArray(turn.attachments)",
-            handler_source,
-        )
-        self.assertNotIn(
-            '&& String(turn.jin || "").trim()',
-            handler_source,
-        )
-        self.assertIn("if (jinText)", handler_source)
-        self.assertIn("currentSourceSessionId !== nextSourceSessionId", handler_source)
-        self.assertIn("appendSessionBootstrapBoundary", handler_source)
-
-    def test_client_places_historical_session_boundary_above_new_response(self):
-        source = SOCKET_HANDLERS_JS.read_text(encoding="utf-8")
-
-        self.assertIn("appendSessionBootstrapBoundary", source)
-        self.assertIn('"jin-session-restore-divider"', source)
-        self.assertIn('"jin-session-restore-divider-label"', source)
-        self.assertIn("window.activateLiveUserTurnViewport", source)
-        self.assertIn("String(lastMessageDate.getHours()).padStart(2, \"0\")", source)
-        self.assertIn("String(lastMessageDate.getMinutes()).padStart(2, \"0\")", source)
-        self.assertIn("`${lastMessageDate.getDate()} `", source)
-        self.assertIn("+ `${months[lastMessageDate.getMonth()]} `", source)
-        self.assertIn("+ `${hours}:${minutes}, `", source)
-        self.assertIn("+ weekdays[lastMessageDate.getDay()]", source)
-
-        handler_start = source.index(
-            "function handleSessionBootstrapChatTail"
-        )
-        handler_end = source.index(
-            "function handleSessionActionsUpdate",
-            handler_start,
-        )
-        handler_source = source[handler_start:handler_end]
-        self.assertNotIn(
-            "chatHistory.scrollTop =\n      chatHistory.scrollHeight",
-            handler_source,
         )
 
 

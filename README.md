@@ -277,7 +277,7 @@ Every uppercase option can also be supplied through environment variables. Plain
 
 ## Tests
 
-Run the fast local suite:
+Run the local suite:
 
 ```bash
 npm test
@@ -286,7 +286,7 @@ npm test
 You can also run the same suite directly with Python:
 
 ```bash
-python -m unittest discover -s tests
+python -m tests.run_unittest
 ```
 
 Run optional behavior probes:
@@ -300,4 +300,4 @@ npm run probe save
 npm run probe delayed
 ```
 
-GitHub Actions runs the fast suite. Model-dependent probes remain local unless CI is connected to a compatible runtime.
+GitHub Actions runs the same suite. Browser client tests stay separate because they require Playwright and an Edge browser channel; run them explicitly with `npm run browser_tests` in an environment that provides those dependencies. Model-dependent probes remain local unless CI is connected to a compatible runtime.
