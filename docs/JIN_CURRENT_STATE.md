@@ -601,3 +601,63 @@ Thirteen contracts previously had empty `schema` arrays despite the documented
 schema invariant. Their existing canonical syntax was moved/copied into those
 arrays so recovery can use the JSON field for every registered action. No action
 payload semantics or feature flags changed.
+
+
+## Owner bootstrap lifecycle correction — 2026-09-11
+
+D049 records the four owner-approved scenarios. The rejected generic JIN-only
+bootstrap-rendering workaround has been removed. Normal restore continues to
+use actual USER-owned turns and existing per-session boundaries.
+
+Cancelled startup packets are checked again after FRAME waiting and at
+process_message entry; a real USER cancels unfinished startup before queueing.
+A pending USER stopped before Brain uses the same interrupted USER commit path,
+so it is not silently discarded. Greeting-only checkpoint writes are rejected
+also when the normal browser profile has no previous checkpoint.
+
+The owner supplied MHTML proving the last visible USER/JIN/reasoning pair in
+session 7e91148a-2077-454d-a3ec-be6028cd6aec. Its misowned JIN 138 text/reasoning
+reference was moved into the existing empty JIN 139 completion, leaving the
+USER and its completion timestamp intact. This is a one-time evidence-based
+archive repair, not a general text-matching or timestamp-reordering heuristic.
+The original log and repair details are in artifacts/bootstrap-repair-2026-09-11.
+The older 19:35 session is preserved, as shown in the supplied MHTML.
+
+Verification covers all four lifecycle scenarios, cancelled startup while
+queued/running, USER-only cancellation, clean/existing browser checkpoints,
+serialized archive enrichment and the real chat DOM/reasoning toggle. The
+current source's five-pair budget is unchanged; older three-pair descriptions
+remain a separate known documentation mismatch.
+
+Focused verification: 60 unittest cases pass, both JavaScript lifecycle/boundary
+suites pass, and Python/JS syntax plus git diff --check pass. Of 13 additional
+function-style bootstrap/checkpoint checks, 12 pass; the raw-color metadata
+check fails with KeyError(colors), reproduced against HEAD before these changes.
+
+## Physical archive deletion correction — 2026-09-11
+
+The owner confirmed two distinct photo sends interrupted by LM Studio crashes,
+then physical removal of today's logs followed by a server/browser restart.
+Normal bootstrap previously returned the browser payload unchanged when its
+archive was missing. The persistent localStorage replica therefore restored
+both deleted USER rows. New startup responses then created fresh date/session
+directories (the inspected 14:33/14:34 JSONL files contain no USER rows).
+
+Missing archives now invalidate the whole normal-bootstrap replica before
+hydration; the newest surviving real USER archive wins regardless of the stale
+replica's timestamp. With none surviving the bootstrap is empty. Startup logs
+and reasoning stay in RAM until a real USER flushes them in order. Late writers
+cannot recreate their deleted materialized session directory. This supersedes
+the older test expectation that cancelled startup reasoning creates disk files;
+the reasoning remains available in RAM until real activity makes it saveable.
+
+Verification: 65 targeted unittest cases pass, including physical deletion of
+two USER-only photo turns, serialized reload, repeated bootstrap, all four D049
+scenarios, and late-write protection in normal/anonymous mode. Both JS lifecycle
+and boundary suites, Python compilation and git diff --check pass. The additional
+13 function-style checks retain the one previously established raw-color
+KeyError(colors); 12 pass. A real-browser harness using the actual chat scripts
+and existing archive selected Sept 10's 7e91148a session, displayed its USER/JIN
+pair and reasoning before the 19:38 divider, contained no deleted photo rows,
+and kept 14 DOM children after replay (14 -> 14). The running JIN server itself
+was not restarted; it must load the changed Python code on restart.

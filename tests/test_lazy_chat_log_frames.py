@@ -221,10 +221,8 @@ class CancelledBootstrapLogTests(unittest.IsolatedAsyncioTestCase):
                     self.assertEqual(context.runtime_turn_reasoning_content, reasoning)
                     self.assertEqual(list(root.rglob("*.jsonl")), [])
                     logs = list(root.rglob("*_turn_*.txt"))
+                    self.assertEqual(logs, [])
                     if reasoning:
-                        self.assertEqual(len(logs), 1)
-                        self.assertIn(reasoning, logs[0].read_text())
-                        self.assertEqual(len(list(root.rglob("*.bootstrap.txt"))), 1)
-                        self.assertEqual(len(list(root.rglob("*_frame_1.txt"))), 1)
-                    else:
-                        self.assertEqual(list(root.iterdir()), [])
+                        pending = context.runtime_chat_pending_snapshots
+                        self.assertTrue(any(reasoning in text for text in pending.values()))
+                    self.assertEqual(list(root.iterdir()), [])

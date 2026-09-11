@@ -375,10 +375,11 @@ async def run_runtime_session(websocket, context, resumed_context):
                 if batch_state is not None:
                     batch_state["committing"] = True
 
-                    await websocket.send_json({
-                        "type": "pending_user_batch_commit",
-                        "batch_id": batch_state["id"],
-                    })
+                    if not batch_state.get("aborted"):
+                        await websocket.send_json({
+                            "type": "pending_user_batch_commit",
+                            "batch_id": batch_state["id"],
+                        })
 
                     try:
                         await asyncio.wait_for(
@@ -404,9 +405,12 @@ async def run_runtime_session(websocket, context, resumed_context):
 
                     if batch_state.get("aborted"):
                         await logger.log_runtime(
-                            "[WS] pending user batch aborted before Brain start"
+                            "[WS] pending user batch stopped before Brain start"
                         )
-                        continue
+                        # D049 scenario 3: Stop cancels generation, not the real
+                        # USER send. Commit through process_message's ordinary
+                        # USER-only cancellation path after the FRAME boundary.
+                        message_data = {**message_data, "_interrupt_before_brain": True}
 
                     if appended_messages:
                         message_data = merge_pending_user_message_batch(
@@ -424,6 +428,14 @@ async def run_runtime_session(websocket, context, resumed_context):
                             "[WS] pending user batch committed "
                             f"({1 + len(appended_messages)} messages)"
                         )
+                # D049: a Stop or real USER can invalidate startup while this
+                # dequeued tick waits for FRAME. Do not restart it afterwards.
+                if (
+                    message_data.get("type") == "archived_session_resume"
+                    and not getattr(context, "runtime_session_restore_priming", False)
+                ):
+                    continue
+
                 await apply_runtime_response_feedback(
                     context,
                     (
@@ -1139,7 +1151,6 @@ async def run_runtime_session(websocket, context, resumed_context):
                 if (
                     current_task is None
                     and batch_state is not None
-                    and batch_state.get("committing")
                 ):
                     batch_state["aborted"] = True
                     batch_state["ack_event"].set()
@@ -1194,6 +1205,18 @@ async def run_runtime_session(websocket, context, resumed_context):
                 )
 
                 continue
+
+            # D049: the first real USER owns the conversation. Cancel an
+            # unfinished startup before queueing it, rather than displaying a
+            # late greeting beneath the USER and logging that USER afterwards.
+            if getattr(context, "runtime_session_restore_priming", False):
+                await cancel_current_task(
+                    current_task, logger, context, update_memory=False,
+                )
+                discard_session_restore_continuation_state(
+                    context, drop_previous_actions=True,
+                )
+                current_task = None
 
             # Foreground conversation always wins over idle L-T maintenance.
             # Cancelling here aborts the in-flight background model request

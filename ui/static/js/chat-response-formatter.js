@@ -6,7 +6,7 @@
     || {};
 
   const markerPattern =
-    /(?<!["'`«‹“‘„‚(\[{])(?:<(JIN_COLOR|JIN_SIZE)\s*>([\s\S]*?)<\/\1\s*>|<JIN_REACTION\s*:\s*([^>\r\n]+?)\s*>)/gi;
+    /(?<!["'`«‹“‘„‚(\[{])(?:<(JIN_COLOR|JIN_SIZE)\s*>([\s\S]*?)<\/\1\s*>|<JIN_REACTION\s*>([\s\S]*?)<\/JIN_REACTION\s*>|<JIN_REACTION\s*:\s*([^>\r\n]+?)\s*>)/gi;
 
   const MATRIX_START_PATTERN =
     /^[ \t]*(?:(?:[A-Za-z](?:_\{?[A-Za-z0-9]+\}?)?)\s*=\s*)?\\begin\{(matrix|pmatrix|bmatrix|Bmatrix|vmatrix|Vmatrix|smallmatrix)\}[ \t]*$/;
@@ -628,9 +628,9 @@
           match.index
         )
       );
-      if (match[3] !== undefined) {
+      if (match[3] !== undefined || match[4] !== undefined) {
         rendered += buildChatJinReactionMarkerHtml(
-          match[3]
+          match[3] !== undefined ? match[3] : match[4]
         );
       } else if (String(match[1] || "").toUpperCase() === "JIN_COLOR") {
         rendered += buildChatJinColorMarkerHtml(
@@ -1243,7 +1243,7 @@
     const source =
       String(line || "");
     const reactionPattern =
-      /(?<!["'`«‹“‘„‚(\[{])<JIN_REACTION\s*:\s*([^>\r\n]+?)\s*>/gi;
+      /(?<!["'`«‹“‘„‚(\[{])(?:<JIN_REACTION\s*>[\s\S]*?<\/JIN_REACTION\s*>|<JIN_REACTION\s*:\s*[^>\r\n]+?\s*>)/gi;
 
     return Boolean(
       source.trim()

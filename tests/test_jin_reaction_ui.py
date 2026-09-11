@@ -26,7 +26,10 @@ global.window = {};
 eval(fs.readFileSync(process.argv[1], "utf8"));
 
 const actual = window.JinResponseFormatter.render(
-  "before <JIN_REACTION: 😂 > after"
+  "before <JIN_REACTION> 😂 </JIN_REACTION> after"
+);
+const legacy = window.JinResponseFormatter.render(
+  "before <JIN_REACTION: 😎 > after"
 );
 
 if (!actual.includes('class="jin-chat-jin-reaction-anchor"')) {
@@ -37,6 +40,9 @@ if (!actual.includes('data-jin-reaction-emoji="😂"')) {
 }
 if (actual.includes("JIN_REACTION")) {
   throw new Error(`raw reaction marker leaked: ${JSON.stringify(actual)}`);
+}
+if (!legacy.includes('data-jin-reaction-emoji="😎"') || legacy.includes("JIN_REACTION")) {
+  throw new Error(`legacy reaction marker stopped rendering: ${JSON.stringify(legacy)}`);
 }
 '''
         completed = subprocess.run(
@@ -68,13 +74,13 @@ global.window = {};
 eval(fs.readFileSync(process.argv[1], "utf8"));
 
 const leading = window.JinResponseFormatter.render(
-  "\n<JIN_REACTION: 🤨 >\n<JIN_REACTION: 👋 >\nОтвет начинается сразу."
+  "\n<JIN_REACTION> 🤨 </JIN_REACTION>\n<JIN_REACTION> 👋 </JIN_REACTION>\nОтвет начинается сразу."
 );
 const middle = window.JinResponseFormatter.render(
-  "До\n<JIN_REACTION: 🤨 >\nПосле"
+  "До\n<JIN_REACTION> 🤨 </JIN_REACTION>\nПосле"
 );
 const leadingWithBlankLine = window.JinResponseFormatter.render(
-  "<JIN_REACTION: 🤨 >\n\nОтвет после пустой строки."
+  "<JIN_REACTION> 🤨 </JIN_REACTION>\n\nОтвет после пустой строки."
 );
 
 if ((leading.match(/<br>/g) || []).length !== 0) {
@@ -131,7 +137,7 @@ const makeElement = () => ({
   dataset: {},
   innerHTML: "",
 });
-const userText = "before <JIN_REACTION: 😂 > <JIN_COLOR> #ff0000 </JIN_COLOR> after";
+const userText = "before <JIN_REACTION> 😂 </JIN_REACTION> <JIN_COLOR> #ff0000 </JIN_COLOR> after";
 const userElement = makeElement();
 renderChatTextElement(userElement, userText, {
   format: shouldFormatChatRole("user"),
@@ -144,7 +150,7 @@ if (userElement.innerHTML.includes("jin-chat-jin-reaction-anchor")) {
 if (userElement.innerHTML.includes("jin-chat-runtime-marker")) {
   throw new Error(`USER visual marker was interpreted: ${userElement.innerHTML}`);
 }
-if (!userElement.innerHTML.includes("&lt;JIN_REACTION: 😂 &gt;")) {
+if (!userElement.innerHTML.includes("&lt;JIN_REACTION&gt; 😂 &lt;/JIN_REACTION&gt;")) {
   throw new Error(`USER reaction marker was not kept literal: ${userElement.innerHTML}`);
 }
 if (!userElement.innerHTML.includes("&lt;JIN_COLOR&gt; #ff0000 &lt;/JIN_COLOR&gt;")) {
@@ -152,7 +158,7 @@ if (!userElement.innerHTML.includes("&lt;JIN_COLOR&gt; #ff0000 &lt;/JIN_COLOR&gt
 }
 
 const brainElement = makeElement();
-renderChatTextElement(brainElement, "before <JIN_REACTION: 😂 > after", {
+renderChatTextElement(brainElement, "before <JIN_REACTION> 😂 </JIN_REACTION> after", {
   format: false,
   interpretRuntimeMarkers: shouldInterpretChatRuntimeMarkers("brain"),
 });

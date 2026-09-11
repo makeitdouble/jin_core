@@ -2833,8 +2833,18 @@ def enrich_session_bootstrap_from_archive(
             )
         )
     except Exception:
-        archived = None
-        latest_completed_archive = None
+        # An unavailable reader is not evidence that the owner deleted a log.
+        return message_data
+
+    if not isinstance(archived, dict):
+        # D049: deleting an archive invalidates its browser replica, regardless
+        # of the replica's timestamp. Never hydrate its FRAME/dialogue/resources
+        # into a new session or let them outrank an older surviving archive.
+        message_data = {"type": "session_bootstrap"}
+        archived = latest_completed_archive
+        if not isinstance(archived, dict):
+            return message_data
+        source_session_id = str(archived.get("source_session_id", "") or "")
 
     # source_session_id comes from browser persistence and can be stale. The
     # raw JSONL dialogue is authoritative: if another session has a strictly

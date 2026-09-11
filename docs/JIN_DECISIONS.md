@@ -711,3 +711,50 @@ Valid action results and normal sequence history remain available together.
 **Rejected:** the attachment's one-repair-attempt/hard-fail proposal, a separate
 repair-only conversation, inferred action execution, or collapsing repeated
 malformed attempts into one bubble. Repeat the follow-up when needed.
+
+
+## D049 — Bootstrap lifecycle is fixed by the owner (2026-09-11)
+
+**Status:** Accepted. Do not redesign this flow during bootstrap/UI fixes.
+
+1. Console starts, a tab opens, JIN writes its startup greeting, USER never
+   responds and closes the tab: this session is NOT saved for continuation.
+2. Console starts, a tab opens, JIN writes its greeting, USER sends a message
+   and closes the tab: this session IS saved; the next bootstrap sees that USER.
+3. Console starts, a tab opens, USER presses Stop before the greeting, then
+   sends a real message and presses Stop: this session IS saved as USER-only.
+4. Console starts, a tab opens, USER stops the greeting, sends a real message,
+   JIN answers: this session IS saved with that USER and its JIN/reasoning.
+
+A startup greeting, runtime ID, FRAME update, or completed bootstrap tick is
+not a real USER send and cannot promote the session into durable continuation.
+Stop cancels the pending/running startup tick; it must not resume later after a
+FRAME wait or consume the subsequent real message. A real USER supersedes any
+unfinished startup tick. Real USER input must survive interruption.
+
+Restore source sessions in chronological groups: USER then its actual answer
+and reasoning, followed by one divider dated to that session's last message.
+Earlier sessions remain above the newest session; never split a USER/JIN pair
+with a divider or turn one send into two USER rows. Do not guess pair ownership
+from identical text. Legacy archive corrections require concrete evidence and
+must be isolated from the ordinary bootstrap algorithm.
+
+The owner's supplied MHTML for session 7e91148a-2077-454d-a3ec-be6028cd6aec
+shows the final USER followed by the calmer-color answer/reasoning. Its JSONL
+instead recorded that answer as turn 138 before USER turn 139, then an empty
+JIN 139. The 2026-09-11 generic JIN-only-row rendering workaround was rejected;
+it exposed the corrupt ordering rather than restoring the actual pair.
+
+Physical deletion is also authoritative (owner clarification, 2026-09-11): two
+real photo messages survived provider crashes as USER-only turns, then the
+owner deleted their date directory and restarted server/browser. localStorage
+must not bring those deleted turns back. A missing source archive invalidates
+the entire browser bootstrap replica; select the latest surviving real USER
+archive even if older, or start empty when none survives. Reader exceptions
+are not proof of deletion. Explicit archived checkout and anonymous isolation
+retain their separate paths.
+
+Startup greeting/reasoning/actions remain in RAM until the first real USER
+send flushes them with the original order and reasoning reference. Closing a
+greeting-only tab must not create a date directory. Workers whose materialized
+archive directory was removed must not recreate that directory with late writes.

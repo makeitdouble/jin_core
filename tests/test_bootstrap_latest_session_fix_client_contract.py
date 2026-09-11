@@ -38,7 +38,7 @@ class BootstrapLatestSessionFixClientContractTests(unittest.TestCase):
         persist = source[persist_start:persist_end]
 
         self.assertIn("const sessionMoved = Boolean(", persist)
-        guard = "previousCheckpoint\n          && !sameSession\n          && !sessionMoved"
+        guard = "!sameSession\n          && !sessionMoved"
         self.assertIn(guard, persist)
         self.assertLess(
             persist.index(guard),

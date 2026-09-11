@@ -12,8 +12,11 @@ _KEYCAP = "\u20e3"
 
 _JIN_REACTION_MARKER_RE = re.compile(
     "(?<![" + re.escape(RUNTIME_ACTION_QUOTE_OPENERS) + "])"
-    r"<\s*JIN_REACTION\s*:\s*([^>\r\n]*?)\s*>",
-    re.IGNORECASE,
+    r"(?:"
+    r"<\s*JIN_REACTION\s*>.*?<\s*/\s*JIN_REACTION\s*>"
+    r"|<\s*JIN_REACTION\s*:\s*[^>\r\n]*?\s*>"
+    r")",
+    re.IGNORECASE | re.DOTALL,
 )
 
 

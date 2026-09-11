@@ -289,6 +289,7 @@ def resume_chat_log_session(
         return None
 
     path = existing_logs[-1]
+    context.runtime_chat_materialized_directory = str(path.parent)
     context.runtime_chat_log_path = str(
         path
     )
@@ -495,6 +496,23 @@ def _chat_log_has_content(path: Path) -> bool:
     )
 
 
+def _chat_archive_deleted(context, path: Path) -> bool:
+    """A live worker must not recreate a directory the owner removed."""
+    directory = getattr(context, "runtime_chat_materialized_directory", "")
+    if directory and not Path(directory).is_dir():
+        context.runtime_chat_archive_deleted = True
+    return bool(getattr(context, "runtime_chat_archive_deleted", False))
+
+
+def _defer_bootstrap_archive(context, path: Path) -> bool:
+    # D049: startup output is page-local until a real USER makes this session
+    # saveable. Keep its original rows/reasoning in RAM for scenario 2.
+    if (getattr(context, "runtime_session_restore_priming", False)
+            and not path.is_file()):
+        context.runtime_chat_bootstrap_deferred = True
+    return bool(getattr(context, "runtime_chat_bootstrap_deferred", False))
+
+
 def _save_or_defer_chat_snapshot(
     context,
     path: Path,
@@ -517,6 +535,8 @@ def _save_or_defer_chat_snapshot(
         pending[key] = text
 
     log_path = Path(context.runtime_chat_log_path)
+    if _chat_archive_deleted(context, log_path):
+        return None
     if not _chat_log_has_content(log_path):
         return None
 
@@ -529,7 +549,10 @@ def _save_or_defer_chat_snapshot(
 
 
 def _flush_chat_snapshots(context, log_path: Path) -> None:
+    if _chat_archive_deleted(context, log_path):
+        return
     _ensure_reasoning_directory(log_path.parent)
+    context.runtime_chat_materialized_directory = str(log_path.parent)
     (log_path.parent / "frames").mkdir(parents=True, exist_ok=True)
     pending = getattr(context, "runtime_chat_pending_snapshots", {})
     for filename, text in list(pending.items()):
@@ -746,9 +769,12 @@ def save_turn_reasoning(
         now=timestamp,
         root=root,
     )
-    reasoning_directory = _ensure_reasoning_directory(
-        chat_log_path.parent
-    )
+    if _chat_archive_deleted(context, chat_log_path):
+        return None
+    deferred = _defer_bootstrap_archive(context, chat_log_path)
+    reasoning_directory = chat_log_path.parent / "reasoning"
+    if not deferred:
+        _ensure_reasoning_directory(chat_log_path.parent)
     session_id = _context_session_id(
         context
     )
@@ -766,8 +792,7 @@ def save_turn_reasoning(
     context_path = chat_log_path.with_suffix(
         ".txt"
     )
-    reasoning_path.write_text(
-        "\n".join([
+    reasoning_text = "\n".join([
             f"captured_at: {timestamp.isoformat(timespec='seconds')}",
             f"session_id: {session_id}",
             f"turn: {int(getattr(context, 'runtime_turn_counter', 0) or 0)}",
@@ -778,15 +803,20 @@ def save_turn_reasoning(
             "--- REASONING ---",
             cleaned_reasoning,
             "",
-        ]),
-        encoding="utf-8",
-        newline="\n",
-    )
+        ])
+    if deferred:
+        pending = getattr(context, "runtime_chat_pending_snapshots", None)
+        if pending is None:
+            pending = context.runtime_chat_pending_snapshots = {}
+        pending[str(reasoning_path)] = reasoning_text.rstrip("\n")
+    else:
+        reasoning_path.write_text(reasoning_text, encoding="utf-8", newline="\n")
     context.runtime_turn_reasoning_log_path = str(
         reasoning_path
     )
 
-    _flush_chat_snapshots(context, chat_log_path)
+    if not deferred:
+        _flush_chat_snapshots(context, chat_log_path)
     return reasoning_path
 
 
@@ -1414,10 +1444,15 @@ def append_chat_runtime_event(
         "payload": dict(payload or {}),
     }
 
-    _append_chat_log_json_entry(
-        path,
-        entry,
-    )
+    if _chat_archive_deleted(context, path):
+        return None
+    if _defer_bootstrap_archive(context, path):
+        pending = getattr(context, "runtime_chat_pending_entries", None)
+        if pending is None:
+            pending = context.runtime_chat_pending_entries = []
+        pending.append(entry)
+        return None
+    _append_chat_log_json_entry(path, entry)
     _flush_chat_snapshots(context, path)
     return path
 
@@ -1446,6 +1481,8 @@ def replace_latest_chat_log_entry(
         now=timestamp,
         root=root,
     )
+    if _chat_archive_deleted(context, path):
+        return None
 
     if not path.is_file():
         return append_chat_log_entry(
@@ -1565,6 +1602,8 @@ def append_chat_log_entry(
         now=timestamp,
         root=root,
     )
+    if _chat_archive_deleted(context, path):
+        return None
     entry = build_chat_log_entry(
         context,
         role=role,
@@ -1596,15 +1635,24 @@ def append_chat_log_entry(
     if (
         str(role or "").casefold() == "jin"
         and reasoning_path
-        and Path(reasoning_path).exists()
+        and (Path(reasoning_path).exists()
+             or reasoning_path in getattr(context, "runtime_chat_pending_snapshots", {}))
     ):
         entry["reasoning_path"] = _public_project_path(
             Path(reasoning_path)
         )
 
-    _append_chat_log_json_entry(
-        path,
-        entry,
-    )
+    if str(role or "").casefold() == "user":
+        context.runtime_chat_bootstrap_deferred = False
+        for pending_entry in getattr(context, "runtime_chat_pending_entries", []):
+            _append_chat_log_json_entry(path, pending_entry)
+        context.runtime_chat_pending_entries = []
+    elif _defer_bootstrap_archive(context, path):
+        pending = getattr(context, "runtime_chat_pending_entries", None)
+        if pending is None:
+            pending = context.runtime_chat_pending_entries = []
+        pending.append(entry)
+        return None
+    _append_chat_log_json_entry(path, entry)
     _flush_chat_snapshots(context, path)
     return path

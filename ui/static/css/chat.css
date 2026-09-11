@@ -179,13 +179,13 @@
 .jin-message-row {
     /* Горизонтальная строка: аватарка слева, бабл справа. */
     display: flex;
-    padding-left: 54px;
+    padding-left: 52px;
 
     /* Прижимает аватарку и бабл к верхнему краю строки. */
     align-items: flex-start;
 
     /* Расстояние между аватаркой и баблом: ровно половина прежнего gap. */
-    gap: 6px;
+    gap: 16px;
 }
 
 .jin-runtime-action-row {

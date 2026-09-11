@@ -168,7 +168,7 @@ function renderChatTextHtml(text) {
       text || ""
     );
   const markerPattern =
-    /(?<!["'`«‹“‘„‚(\[{])(?:<(JIN_COLOR|JIN_SIZE)\s*>([\s\S]*?)<\/\1\s*>|<JIN_REACTION\s*:\s*([^>\r\n]+?)\s*>)/gi;
+    /(?<!["'`«‹“‘„‚(\[{])(?:<(JIN_COLOR|JIN_SIZE)\s*>([\s\S]*?)<\/\1\s*>|<JIN_REACTION\s*>([\s\S]*?)<\/JIN_REACTION\s*>|<JIN_REACTION\s*:\s*([^>\r\n]+?)\s*>)/gi;
   let rendered = "";
   let lastIndex = 0;
   let match = null;
@@ -181,12 +181,12 @@ function renderChatTextHtml(text) {
       )
     );
     if (
-      match[3] !== undefined
+      (match[3] !== undefined || match[4] !== undefined)
       && window.JinResponseFormatter
       && typeof window.JinResponseFormatter.buildJinReactionMarkerHtml === "function"
     ) {
       rendered += window.JinResponseFormatter.buildJinReactionMarkerHtml(
-        match[3]
+        match[3] !== undefined ? match[3] : match[4]
       );
     } else if (
       String(match[1] || "").toUpperCase() === "JIN_COLOR"
@@ -1322,6 +1322,42 @@ function getRoleConfig(role) {
 
 }
 
+function appendJinBubbleSkin(
+  bubble
+) {
+
+  if (
+    !bubble
+    || !(
+      bubble.classList.contains(
+        "jin-chat-bubble-service"
+      )
+      || bubble.classList.contains(
+        "jin-chat-bubble-brain"
+      )
+    )
+  ) {
+    return;
+  }
+
+  const skin =
+    document.createElement("span");
+
+  skin.className =
+    "jin-chat-bubble-skin";
+
+  skin.setAttribute(
+    "aria-hidden",
+    "true"
+  );
+
+  bubble.appendChild(
+    skin
+  );
+
+}
+
+
 function formatContextSnapshot(
   role,
   contextSnapshot
@@ -1490,6 +1526,10 @@ function createMessageElement(
 
   bubble.className =
     config.bubbleClass;
+
+  appendJinBubbleSkin(
+    bubble
+  );
 
   bubble.appendChild(pre);
 
@@ -2639,6 +2679,10 @@ function createStreamGroup(
 
   bubble.className =
     config.bubbleClass;
+
+  appendJinBubbleSkin(
+    bubble
+  );
 
   bubble.appendChild(pre);
 

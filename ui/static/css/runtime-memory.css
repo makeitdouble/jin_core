@@ -2388,3 +2388,35 @@ button.jin-context-lt-fact-id.is-linked:focus-visible {
         gap: 3px;
     }
 }
+
+/* Context SETTINGS: intentionally reuses the comma-separated tag language
+   from delayed-memory tags, with a persistent active-state glow. */
+.jin-context-setting-row {
+    align-items: center;
+}
+
+.jin-context-setting-tags {
+    display: flex;
+    min-height: 18px;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 5px 0;
+    white-space: normal;
+}
+
+.jin-context-setting-tag {
+    appearance: none;
+    border: 0;
+    background: transparent;
+    padding: 0;
+    margin: 0;
+    font: inherit;
+    line-height: inherit;
+}
+
+.jin-context-setting-tag.is-active {
+    color: rgba(240, 253, 250, 0.98);
+    text-shadow:
+            0 0 7px rgba(240, 253, 250, 0.24),
+            0 0 15px rgba(153, 246, 228, 0.14);
+}

@@ -1307,6 +1307,14 @@ async def process_message(
 
     try:
 
+        # D049: Stop may land after the queue's first check, while FRAME is
+        # awaited. A cancelled startup packet is never a real USER request.
+        if (
+            message_data.get("type") == "archived_session_resume"
+            and not getattr(context, "runtime_session_restore_priming", False)
+        ):
+            return
+
         is_session_restore_resume = bool(
             message_data.get("type") == "archived_session_resume"
             and getattr(
@@ -1573,6 +1581,11 @@ async def process_message(
                     "[CHAT_LOG] local user message save failed: "
                     + str(error)
                 )
+
+        if message_data.get("_interrupt_before_brain"):
+            # The accepted pending USER survives Stop even if no model request
+            # started. Reuse the same cancellation commit as an in-flight turn.
+            raise asyncio.CancelledError()
 
         state = AgentState(
             user_input=user_text
@@ -1924,6 +1937,14 @@ async def process_message(
                 ),
             )
             recent_turn_committed = True
+
+        if message_data.get("_interrupt_before_brain") and recent_turn_committed:
+            await websocket.send_json({
+                "type": "agent_runtime_end",
+                "retryable_response": False,
+                "session_snapshot": build_runtime_session_checkpoint(context),
+                "completed_turn_commit": False,
+            })
 
         await logger.log_runtime(
             "Agent runtime task cancelled."

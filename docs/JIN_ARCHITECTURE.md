@@ -515,7 +515,22 @@ FRAME audit files live beside `reasoning/` in `frames/<HHMMSS>_frame_<N>.txt`, s
 
 ### 9.2 Session bootstrap / live checkpoint
 
+The owner-locked lifecycle is D049 in `JIN_DECISIONS.md`: greeting-only tabs
+never become saved continuation sessions; any real USER send does, including
+an interrupted USER-only turn. Completed real turns restore as USER then JIN
+with reasoning, before the source session divider. Stop invalidates a queued
+startup tick even across a FRAME wait; accepting a real USER cancels unfinished
+startup before queueing that USER. An aborted pending USER batch commits through
+the ordinary USER-only cancellation path without making a model request.
+
 `ui/static/js/runtime/runtime-session.js` persists live checkpoints and sends `session_bootstrap` data when appropriate. The backend normalizes and hydrates the browser-provided snapshot in `websocket/bootstrap.py`.
+
+For normal bootstrap, a missing source archive invalidates its whole browser
+replica before hydration. The newest surviving real USER archive wins even if
+older than that replica; with no surviving archive the bootstrap is empty.
+Startup-only log rows/reasoning are deferred in RuntimeContext until the first
+real USER, alongside the existing deferred prompt/FRAME snapshots. A live
+worker cannot recreate its previously materialized directory after deletion.
 
 Browser runtime continuity has two intentionally different lifetimes. `jin.liveRuntimeMemory.v2` exists only in the current page's `sessionStorage` and supports soft WebSocket reconnect. The module clears that key on page execution, so reload and new-tab bootstrap cannot inherit a copied live FRAME. `jin.sessionCheckpoint.v2` is the single durable, atomic `localStorage` record containing lineage, runtime memory and update count, runtime snapshot, and `session_snapshot`.
 

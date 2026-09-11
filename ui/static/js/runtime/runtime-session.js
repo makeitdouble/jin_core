@@ -423,9 +423,10 @@
       // The common checkpoint switches to this session only after a real move.
       // A user send marks activity immediately; completedTurnCommit is only a
       // server-side fallback for paths that reached us without that UI mark.
+      // D049: greeting-only is never a saved session, even on a clean profile
+      // with no previous checkpoint. Stop does not revoke a real USER move.
       if (
-          previousCheckpoint
-          && !sameSession
+          !sameSession
           && !sessionMoved
       ) {
         return false;

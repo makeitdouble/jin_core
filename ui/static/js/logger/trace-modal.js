@@ -11,6 +11,11 @@ const CONTEXT_FILES_STORE_CHANGED_EVENT =
   "jin:files-store-changed";
 const CONTEXT_ATTACHMENT_HOVER_BOUND_DATASET_KEY =
   "jinContextAttachmentHoverBound";
+const CONTEXT_BUBBLE_SKINS = [
+  "dark",
+  "light",
+  "bamboo",
+];
 
 function clearContextAttachedFileHoverPreview() {
   if (traceModalContent) {
@@ -365,6 +370,15 @@ function ensureTraceModal() {
     CONTEXT_FILES_STORE_CHANGED_EVENT,
     function () {
       syncContextAttachedFileRows();
+    }
+  );
+
+  window.addEventListener(
+    "jin:bubble-skin-changed",
+    function () {
+      syncContextBubbleSkinControls(
+        traceModalContent
+      );
     }
   );
 }
@@ -2478,6 +2492,156 @@ function contextElement(
   }
 
   return element;
+}
+
+function getContextBubbleSkin() {
+  const appearance =
+    window.JinAppearance;
+
+  if (
+      appearance
+      && typeof appearance.getBubbleSkin === "function"
+  ) {
+    return String(
+      appearance.getBubbleSkin() || ""
+    ).trim().toLowerCase();
+  }
+
+  const datasetSkin =
+    String(
+      document.body.dataset.jinBubbleSkin || ""
+    ).trim().toLowerCase();
+
+  return CONTEXT_BUBBLE_SKINS.includes(datasetSkin)
+    ? datasetSkin
+    : "dark";
+}
+
+function syncContextBubbleSkinControls(root) {
+  if (!root) {
+    return;
+  }
+
+  const activeSkin =
+    getContextBubbleSkin();
+
+  root.querySelectorAll(
+    "[data-jin-bubble-skin-option]"
+  ).forEach((button) => {
+    const selected =
+      button.dataset.jinBubbleSkinOption
+      === activeSkin;
+
+    button.classList.toggle(
+      "is-active",
+      selected
+    );
+    button.setAttribute(
+      "aria-pressed",
+      selected ? "true" : "false"
+    );
+  });
+}
+
+function setContextBubbleSkin(skin) {
+  const normalized =
+    String(skin || "")
+      .trim()
+      .toLowerCase();
+
+  if (!CONTEXT_BUBBLE_SKINS.includes(normalized)) {
+    return;
+  }
+
+  const appearance =
+    window.JinAppearance;
+
+  if (
+      appearance
+      && typeof appearance.setBubbleSkin === "function"
+  ) {
+    appearance.setBubbleSkin(normalized);
+  } else {
+    CONTEXT_BUBBLE_SKINS.forEach((name) => {
+      document.body.classList.remove(
+        `jin-bubble-skin-${name}`
+      );
+    });
+    document.body.classList.add(
+      `jin-bubble-skin-${normalized}`
+    );
+    document.body.dataset.jinBubbleSkin =
+      normalized;
+
+    try {
+      window.localStorage.setItem(
+        "jin_bubble_skin",
+        normalized
+      );
+    } catch (_) {
+      // The live visual switch still works without persistent storage.
+    }
+  }
+
+  syncContextBubbleSkinControls(
+    traceModalContent
+  );
+}
+
+function renderContextSettingsBody(parent) {
+  const list =
+    contextElement(
+      "div",
+      "jin-context-kv-list jin-context-settings-list"
+    );
+  const row =
+    contextElement(
+      "div",
+      "jin-context-kv-row jin-context-setting-row"
+    );
+  const key =
+    contextElement(
+      "div",
+      "jin-context-kv-key",
+      "jin_bubble_skin"
+    );
+  const tags =
+    contextElement(
+      "div",
+      "jin-context-kv-value delayed-memory-modal-tags jin-context-setting-tags"
+    );
+
+  CONTEXT_BUBBLE_SKINS.forEach((skin) => {
+    const button =
+      contextElement(
+        "button",
+        "delayed-memory-modal-tag jin-context-setting-tag",
+        skin
+      );
+
+    button.type = "button";
+    button.dataset.jinBubbleSkinOption =
+      skin;
+    button.setAttribute(
+      "aria-pressed",
+      "false"
+    );
+    button.addEventListener(
+      "click",
+      function () {
+        setContextBubbleSkin(skin);
+      }
+    );
+
+    tags.appendChild(button);
+  });
+
+  row.appendChild(key);
+  row.appendChild(tags);
+  list.appendChild(row);
+  parent.appendChild(list);
+
+  syncContextBubbleSkinControls(parent);
 }
 
 function parseContextTraceSnapshot(details) {
@@ -4758,6 +4922,19 @@ function renderContextSnapshotTrace(snapshot) {
       event.preventDefault();
       toggleAllCards();
     }
+  );
+
+  appendContextCard(
+    stack,
+    {
+      title: "SETTINGS",
+      content: "jin_bubble_skin",
+      attributes: [],
+      xml: false,
+      metaLabel: "1 setting",
+      renderBody: renderContextSettingsBody,
+    },
+    syncCollapseAllToggle
   );
 
   const actionMarkerBlocks =

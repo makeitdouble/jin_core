@@ -28,7 +28,7 @@ class RuntimeJinReactionActionTests(unittest.TestCase):
             get_runtime_action_private_marker(
                 RUNTIME_ACTION_JIN_REACTION
             ),
-            "<JIN_REACTION: 😂 >",
+            "<JIN_REACTION>",
         )
 
         instructions = build_runtime_action_contract_instructions(
@@ -39,13 +39,13 @@ class RuntimeJinReactionActionTests(unittest.TestCase):
             instructions,
         )
         self.assertIn(
-            "Place single marker",
+            "<JIN_REACTION> 😂 </JIN_REACTION>",
             instructions,
         )
 
     def test_jin_reaction_marker_parses_and_is_removed_from_text(self):
         result = extract_runtime_actions(
-            "before <JIN_REACTION: 😂 > after",
+            "before <JIN_REACTION> 😂 </JIN_REACTION> after",
             enabled_actions=(
                 RUNTIME_ACTION_JIN_REACTION,
             ),
@@ -65,8 +65,27 @@ class RuntimeJinReactionActionTests(unittest.TestCase):
             ),
         )
 
+    def test_legacy_jin_reaction_marker_remains_valid(self):
+        result = extract_runtime_actions(
+            "before <JIN_REACTION: 😂 > after",
+            enabled_actions=(
+                RUNTIME_ACTION_JIN_REACTION,
+            ),
+        )
+
+        self.assertEqual(result.text, "before after")
+        self.assertEqual(
+            result.actions,
+            (
+                RuntimeActionCall(
+                    name=RUNTIME_ACTION_JIN_REACTION,
+                    payload="😂",
+                ),
+            ),
+        )
+
     def test_jin_reaction_marker_can_stay_in_stream_and_still_execute(self):
-        marker = "<JIN_REACTION: 😂 >"
+        marker = "<JIN_REACTION> 😂 </JIN_REACTION>"
         result = extract_runtime_actions(
             f"before {marker} after",
             enabled_actions=(
@@ -97,7 +116,7 @@ class RuntimeJinReactionActionTests(unittest.TestCase):
         )
 
     def test_quoted_jin_reaction_marker_remains_literal(self):
-        text = 'example: "<JIN_REACTION: 😂 >"'
+        text = 'example: "<JIN_REACTION> 😂 </JIN_REACTION>"'
         result = extract_runtime_actions(
             text,
             enabled_actions=(
@@ -152,7 +171,7 @@ class RuntimeJinReactionActionTests(unittest.TestCase):
         class FakeBrainClient:
             async def stream(self, **_kwargs):
                 yield {
-                    "content": "before <JIN_REACTION: \U0001f602 > after",
+                    "content": "before <JIN_REACTION> \U0001f602 </JIN_REACTION> after",
                 }
 
         async def run_case():
@@ -205,7 +224,7 @@ class RuntimeJinReactionActionTests(unittest.TestCase):
                 if isinstance(chunk, dict)
             )
             self.assertIn(
-                "<JIN_REACTION: \U0001f602 >",
+                "<JIN_REACTION> \U0001f602 </JIN_REACTION>",
                 content,
             )
             self.assertFalse(
