@@ -1535,7 +1535,7 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
             context.runtime_turn_interrupted
         )
 
-    async def test_context_limit_runs_followup_without_l1_break(self):
+    async def test_context_limit_runs_followup_without_frame_break(self):
 
         calls = []
 

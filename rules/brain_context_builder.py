@@ -185,7 +185,7 @@ def _append_user_feedback(
     context=None,
 ) -> None:
 
-    from runtime.L1_memory_utils import (
+    from runtime.frame_memory_utils import (
         build_runtime_response_feedback_value,
     )
     from runtime.runtime_context import (
@@ -256,7 +256,7 @@ def _append_user_retry_context(
     )
 
 
-def _append_L1_runtime_memory(
+def _append_FRAME_runtime_memory(
     parts: list[str],
     context=None,
     *,
@@ -265,7 +265,7 @@ def _append_L1_runtime_memory(
     previous_chat_messages_context: str = "",
 ) -> None:
 
-    from runtime.L1_memory_utils import (
+    from runtime.frame_memory_utils import (
         build_runtime_memory_context_text,
         canonicalize_runtime_memory_text,
         format_runtime_memory_snapshot_timestamp,
@@ -1431,7 +1431,7 @@ def build_brain_context(
 
     # Keep the recent visible dialogue directly above the FRAME snapshot so
     # those two views of the live conversation stay adjacent in the prompt.
-    _append_L1_runtime_memory(
+    _append_FRAME_runtime_memory(
         runtime_context_parts,
         context,
         user_input=user_input,

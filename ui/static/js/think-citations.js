@@ -834,7 +834,7 @@
             : "";
 
           // Active memory has its own live store and stable ids. Treat that
-          // store as canonical so a mirrored L1 line cannot steal the match
+          // store as canonical so a mirrored FRAME line cannot steal the match
           // or keep a resolved slot highlighted.
           return !/^active_memory(?:_\d+)?$/i.test(key);
         })

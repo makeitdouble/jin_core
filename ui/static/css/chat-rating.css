@@ -46,7 +46,7 @@
     background: transparent;
 }
 
-.jin-chat-bubble-rateable.jin-rating-l1-waiting .jin-rating-zone {
+.jin-chat-bubble-rateable.jin-rating-frame-waiting .jin-rating-zone {
     cursor: pointer;
 }
 
@@ -59,7 +59,7 @@
     cursor: default;
 }
 
-.jin-chat-bubble-rateable.jin-rating-l1-waiting {
+.jin-chat-bubble-rateable.jin-rating-frame-waiting {
     filter: saturate(0.92);
 }
 

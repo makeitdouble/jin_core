@@ -357,7 +357,6 @@ function memoryLogIncludes(data, text) {
     && (
         String(data.message || "").includes(text)
         || String(data.message || "").includes(`[MEMORY] ${text}`)
-        || String(data.message || "").includes(`[MEMORY:L1] ${text}`)
         || String(data.message || "").includes(`[MEMORY:L2] ${text}`)
         || String(data.message || "").includes(`[MEMORY:L3] ${text}`)
     )
@@ -365,7 +364,7 @@ function memoryLogIncludes(data, text) {
 }
 
 function memoryLogLevelIs(data, level) {
-  const normalizeLevel = value => String(value || "").toUpperCase().replace(/^L1$/, "FRAME");
+  const normalizeLevel = value => String(value || "").toUpperCase();
   const normalizedLevel = normalizeLevel(level);
 
   return Boolean(

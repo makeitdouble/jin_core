@@ -11,7 +11,7 @@ const sandbox = {window: {JinRuntime: {storage}}};
 vm.createContext(sandbox);
 vm.runInContext(fs.readFileSync(base+'runtime-lt-memory.js','utf8'),sandbox);
 const api=sandbox.window.JINRuntimeLTMemory;
-const sources=[{session_id:'s',runtime_snapshot_id:'L1_one'},{session_id:'s',turn_id:'t1'}];
+const sources=[{session_id:'s',runtime_snapshot_id:'FRAME_one'},{session_id:'s',turn_id:'t1'}];
 api.writeStore({facts:[{id:'F1',key:'city',value:'Kyiv',sources,created_at:'2026-01-01',updated_at:'2026-09-06'}]});
 assert.deepStrictEqual(JSON.parse(JSON.stringify(api.readStore().facts[0].sources)),sources);
 // Execute the actual intake writer with its normal boundary dependencies.

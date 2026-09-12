@@ -137,7 +137,7 @@ class BrowserRuntimeStorageV2Tests(unittest.TestCase):
               assert.strictEqual(local.getItem(LIVE), null);
             }}
 
-            // The common legacy SAVE owns migration; only its exact L1 may join it.
+            // The common legacy SAVE owns migration; only its exact FRAME may join it.
             {{
               const local = new MemoryStorage({{
                 [LEGACY_SAVE]: {{

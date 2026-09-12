@@ -660,7 +660,7 @@ def generate_active_memory_slot_key(
 
 def _runtime_memory_helpers():
 
-    from runtime.L1_memory_utils import (
+    from runtime.frame_memory_utils import (
         runtime_memory_line_text,
         normalize_memory_key,
         parse_runtime_memory_lines,

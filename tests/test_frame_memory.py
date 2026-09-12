@@ -7,7 +7,7 @@ from types import (
     SimpleNamespace,
 )
 import httpx
-from runtime.L1_memory_rules import (
+from runtime.frame_memory_rules import (
     DEFAULT_RUNTIME_MEMORY,
     build_runtime_memory_system_prompt,
 )
@@ -17,7 +17,7 @@ from runtime.state import (
 from runtime.runtime_context import (
     RuntimeContext,
 )
-from runtime.L1_memory_utils import (
+from runtime.frame_memory_utils import (
     build_interrupted_assistant_message,
     build_runtime_memory_context_text,
     build_runtime_memory_snapshot,
@@ -27,7 +27,7 @@ from runtime.L1_memory_utils import (
     parse_runtime_memory_lines,
     record_runtime_memory_reasoning_quotes,
 )
-from runtime.L1_memory import (
+from runtime.frame_memory import (
     apply_runtime_response_feedback,
     build_runtime_response_feedback_value,
     normalize_runtime_response_feedback,
@@ -118,7 +118,7 @@ class RuntimeMemoryCompoundLineTests(unittest.TestCase):
             r"Я нарисовал домик:\n/\\\n/  \\\n|---|",
         )
 
-class L1MemoryTests(
+class FrameMemoryTests(
     unittest.IsolatedAsyncioTestCase
 ):
 
@@ -536,7 +536,7 @@ class L1MemoryTests(
 
             prompt = build_runtime_memory_system_prompt()
 
-            # Keep this test focused on L1 prompt contracts, not exact wording.
+            # Keep this test focused on FRAME prompt contracts, not exact wording.
             # Rules text is intentionally editable and should not break tests on every polish.
             for required_text in (
                     "runtime frame memory summarizer",
@@ -849,7 +849,7 @@ class L1MemoryTests(
 
             self.assertEqual(
                 diff_event["type"],
-                "runtime_l1_diff_update",
+                "runtime_frame_diff_update",
             )
 
             self.assertIn(
@@ -1087,7 +1087,7 @@ class L1MemoryTests(
                 rendered,
             )
 
-    def test_strip_active_memory_runtime_metadata_keeps_status_for_l1(self):
+    def test_strip_active_memory_runtime_metadata_keeps_status_for_frame(self):
 
             memory = strip_active_memory_runtime_metadata(
                 (
@@ -1128,7 +1128,7 @@ class L1MemoryTests(
                 memory,
             )
 
-    def test_strip_active_memory_runtime_metadata_keeps_value_suffix_for_l1(self):
+    def test_strip_active_memory_runtime_metadata_keeps_value_suffix_for_frame(self):
 
             memory = strip_active_memory_runtime_metadata(
                 (
@@ -1163,7 +1163,7 @@ class L1MemoryTests(
                 memory,
             )
 
-    def test_remove_active_memory_entries_hides_runtime_owned_memory_from_l1(self):
+    def test_remove_active_memory_entries_hides_runtime_owned_memory_from_frame(self):
 
             memory = remove_active_memory_entries(
                 (
@@ -1250,7 +1250,7 @@ class L1MemoryTests(
                 updated_memory,
             )
 
-    async def test_l1_summarizer_user_prompt_stays_turn_only(self):
+    async def test_frame_summarizer_user_prompt_stays_turn_only(self):
 
             service_client = FakeServiceClient(
                 (
@@ -1541,7 +1541,7 @@ class L1MemoryTests(
                 assistant_message="I can answer questions and write text.",
             )
 
-            # Keep this test focused on the L1 request budget contract.
+            # Keep this test focused on the FRAME request budget contract.
             # The summarizer may normalize bullet prefixes, so exact formatting is not relevant here.
             self.assertIn(
                 "Active topic: available functions",

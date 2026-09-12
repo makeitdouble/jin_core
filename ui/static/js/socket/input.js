@@ -650,8 +650,8 @@ chatForm.addEventListener(
       return;
     }
 
-    if (window.startJinAnswerRatingL1GateForTurn) {
-      window.startJinAnswerRatingL1GateForTurn();
+    if (window.startJinAnswerRatingFrameGateForTurn) {
+      window.startJinAnswerRatingFrameGateForTurn();
     }
 
     if (window.prepareLiveUserTurnViewport) {

@@ -12,7 +12,7 @@ if str(PROJECT_ROOT) not in sys.path:
 
 
 _SPLIT_MODULES = (
-    "tests.test_l1_memory",
+    "tests.test_frame_memory",
     "tests.test_l2_memory",
     "tests.test_l3_session_memory",
     "tests.test_brain_prompt_memory",

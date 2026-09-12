@@ -37,7 +37,7 @@ RUNTIME_RESPONSE_FEEDBACK_KEY = "JIN_LAST_RESPONSE_USER_FEEDBACK"
 # Stores the runtime state key used for user idle markers.
 RUNTIME_USER_IDLE_KEY = "user_idle"
 
-# Template used to pass interrupted assistant turns into L1 memory.
+# Template used to pass interrupted assistant turns into FRAME memory.
 INTERRUPTED_ASSISTANT_MEMORY_TEMPLATE = (
     "JIN response was interrupted by the user and is incomplete. "
     "Do not treat this turn as resolved.\n\n"
@@ -48,10 +48,10 @@ INTERRUPTED_ASSISTANT_MEMORY_TEMPLATE = (
 )
 
 # Template used to pass turns where JIN produced no visible reply and no
-# runtime action into L1 memory (e.g. the user explicitly asked for a
+# runtime action into FRAME memory (e.g. the user explicitly asked for a
 # blank/empty response and got one). Without this, such turns had no
 # textual signal at all and were silently dropped before ever reaching
-# L1, so the fact that the request was made — and answered with nothing —
+# FRAME, so the fact that the request was made — and answered with nothing —
 # was lost.
 EMPTY_ASSISTANT_REPLY_MEMORY_TEMPLATE = (
     ""
@@ -121,8 +121,8 @@ LIVE_INTERACTION_SIGNALS = (
     "\n"
 )
 
-# Enables automatic language forcing for generated L1 memory values.
-# Flip to False to remove the language instruction from the L1 system prompt.
+# Enables automatic language forcing for generated FRAME memory values.
+# Flip to False to remove the language instruction from the FRAME system prompt.
 RUNTIME_MEMORY_VALUE_LANGUAGE_DETECTION_ENABLED = True
 # Intentionally repeated: small local models may ignore a single
 # language constraint when the surrounding prompt is predominantly English.

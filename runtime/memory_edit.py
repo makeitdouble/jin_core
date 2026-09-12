@@ -2,7 +2,7 @@
 
 import re
 
-from runtime.L1_memory_utils import (
+from runtime.frame_memory_utils import (
     build_runtime_memory_snapshot,
     emit_runtime_memory_snapshot_refresh,
     rebuild_latest_runtime_memory_snapshot,

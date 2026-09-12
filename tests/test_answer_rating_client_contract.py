@@ -17,11 +17,11 @@ class AnswerRatingClientContractTests(unittest.TestCase):
 
         self.assertIn("const ratingPressClasses = [", source)
         self.assertIn(
-            "const waitingForL1 = !blocked && !pastTurn && !l1Ready;",
+            "const waitingForFrame = !blocked && !pastTurn && !frameReady;",
             source,
         )
         self.assertIn(
-            'bubble.classList.toggle("jin-rating-l1-waiting", waitingForL1);',
+            'bubble.classList.toggle("jin-rating-frame-waiting", waitingForFrame);',
             source,
         )
         self.assertIn("bubble.classList.remove(...ratingPressClasses);", source)

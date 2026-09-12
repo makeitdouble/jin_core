@@ -9,7 +9,7 @@ from utils.time_utils import (
     format_utc_iso,
 )
 
-from runtime.L1_memory_rules import (
+from runtime.frame_memory_rules import (
     DEFAULT_RUNTIME_MEMORY,
     EMPTY_ASSISTANT_REPLY_MEMORY_TEMPLATE,
     HOT_THRESHOLD,
@@ -132,7 +132,7 @@ def _escape_multiline_runtime_memory_entries(
 
     """Keep accidental multiline values attached to their owning key.
 
-    L1 sometimes copies markdown/code/ascii into a value after a real
+    FRAME sometimes copies markdown/code/ascii into a value after a real
     ``key: value`` prefix.  Physical continuation lines must stay inside
     that value as escaped ``\n`` text; otherwise the generic parser turns
     every ascii line into a separate fallback runtime-memory entry.
@@ -1106,7 +1106,7 @@ def remove_default_runtime_memory_lines(
     ).strip()
 
 
-def build_l1_current_memory_prompt_block(
+def build_frame_current_memory_prompt_block(
         current_memory: str,
 ) -> str:
 
@@ -1131,7 +1131,7 @@ def build_runtime_memory_user_prompt(
 ) -> str:
 
     return (
-        build_l1_current_memory_prompt_block(
+        build_frame_current_memory_prompt_block(
             current_memory
         )
         + "Latest user message:\n"
@@ -1347,7 +1347,7 @@ def normalize_compound_runtime_memory_lines(
         memory: str,
 ) -> str:
 
-    """Split L1-glued memory entries into separate lines.
+    """Split FRAME-glued memory entries into separate lines.
 
     Examples:
         "jin_identity: hi; user_name: Sergey"
@@ -2537,7 +2537,7 @@ def build_runtime_memory_snapshot(
             "assistant_message_count",
             0,
         ),
-        # Keep the causal L1 revision inside the snapshot itself. The browser
+        # Keep the causal FRAME revision inside the snapshot itself. The browser
         # prefers its newest in-memory snapshot during a soft reconnect; if
         # this field is missing it falls back to zero and the backend can
         # replay an already committed crash-recovery journal after restart.
@@ -2897,7 +2897,7 @@ def build_runtime_session_checkpoint(
     }
 
 
-# Runtime L1 memory emit/update helpers.
+# Runtime FRAME memory emit/update helpers.
 def _average_diff(values: list[float]) -> float:
     if not values:
         return 0
@@ -2926,7 +2926,7 @@ def _format_diff_value(value: float) -> str:
     )
 
 
-def _runtime_l1_patch_total_diff(patch: dict) -> float:
+def _runtime_frame_patch_total_diff(patch: dict) -> float:
     total_diff = 0
 
     total_diff += 30 * len(
@@ -2964,14 +2964,14 @@ def _compact_runtime_user_message(
     return text[:limit].rstrip()
 
 
-async def record_runtime_l1_diff(
+async def record_runtime_frame_diff(
         context,
         snapshot: dict,
         turns: list[dict] | None = None,
 ) -> None:
     patch = snapshot.get("patch", {}) or {}
     total_diff = (
-        _runtime_l1_patch_total_diff(patch)
+        _runtime_frame_patch_total_diff(patch)
         if patch
         else snapshot.get("total_diff", 0)
     )
@@ -3006,12 +3006,12 @@ async def record_runtime_l1_diff(
         "user_messages": observed_user_messages[-3:],
     }
 
-    if not hasattr(context, "runtime_l1_diff_history"):
-        context.runtime_l1_diff_history = []
+    if not hasattr(context, "runtime_frame_diff_history"):
+        context.runtime_frame_diff_history = []
 
-    context.runtime_l1_diff_history.append({
+    context.runtime_frame_diff_history.append({
         **diff_entry,
-        "history_index": len(context.runtime_l1_diff_history),
+        "history_index": len(context.runtime_frame_diff_history),
     })
 
     if total_diff == 0:
@@ -3036,14 +3036,14 @@ async def record_runtime_l1_diff(
         ),
         details=getattr(
             context,
-            "runtime_l1_last_summarizer_response_details",
+            "runtime_frame_last_summarizer_response_details",
             None,
         ),
         fallback_channel="service",
         event="summarizer_response",
     )
 
-    await emit_runtime_l1_diff_update(context)
+    await emit_runtime_frame_diff_update(context)
 
 
 async def log_runtime_frame_snapshot(context, snapshot: dict) -> None:
@@ -3054,7 +3054,7 @@ async def log_runtime_frame_snapshot(context, snapshot: dict) -> None:
     except Exception as error:
         await log_memory_event(
             context,
-            level="L1",
+            level="FRAME",
             message="FRAME log save failed",
             details=str(error),
             fallback_channel="error",
@@ -3122,7 +3122,7 @@ async def emit_runtime_memory_update(
     return snapshot
 
 
-def build_runtime_l1_diff_stats(
+def build_runtime_frame_diff_stats(
         diff_history: list[dict],
 ) -> dict:
 
@@ -3287,7 +3287,7 @@ async def emit_runtime_memory_snapshot_refresh(
         },
     )
 
-async def emit_runtime_l1_diff_update(
+async def emit_runtime_frame_diff_update(
         context,
 ) -> None:
 
@@ -3306,7 +3306,7 @@ async def emit_runtime_l1_diff_update(
     history = list(
         getattr(
             context,
-            "runtime_l1_diff_history",
+            "runtime_frame_diff_history",
             [],
         )
         or []
@@ -3329,9 +3329,9 @@ async def emit_runtime_l1_diff_update(
     await safe_call(
         emit,
         {
-            "type": "runtime_l1_diff_update",
+            "type": "runtime_frame_diff_update",
             "diffs": history,
-            "stats": build_runtime_l1_diff_stats(
+            "stats": build_runtime_frame_diff_stats(
                 history
             ),
             "strength_map": build_strength_map(

@@ -4497,7 +4497,7 @@
     syncRuntimeMemoryLazyMode(displayMode);
 
     // Alternate memory views should stay open, but they must not freeze the
-    // avatar on the previous L1 snapshot. The runtime update handler already
+    // avatar on the previous FRAME snapshot. The runtime update handler already
     // advances history.index to the newest snapshot before calling render.
     if (displayMode !== "runtime") {
       dispatchRuntimeAvatarSnapshot(

@@ -311,7 +311,7 @@ The old numbered four-layer architecture is not the current implementation.
 
 FRAME is the compact live runtime state exposed in the memory panel and as `<FRAME_MEMORY_N>` in Brain context. It is integrated through the logical Service route after foreground turns, has snapshots/diffs, and has a distinct interrupted-turn update path. With no dedicated Service endpoint, that background route deliberately reuses the Brain client. The FRAME integration prompt detects the current user-message language for values while keeping structural keys as English `snake_case`; localization is a value-format rule, not a schema rename.
 
-FRAME is not a durable long-term tier. Some implementation filenames and identifiers still carry the pre-FRAME naming from earlier revisions; those are code-cleanup residue, not a second memory concept.
+FRAME is not a durable long-term tier. Its implementation modules, state fields, events, pending journal, UI identifiers, and tests use FRAME naming consistently.
 
 ### 7.2 L2 and L3
 
@@ -609,7 +609,7 @@ Backend behavior:
 - runtime is marked anonymous and persistent writes are restricted;
 - global Delayed and L-T file stores are not hydrated into the room;
 - Delayed and L-T file-store persistence is disabled;
-- the L1 crash-recovery journal under `memory/runtime` is disabled;
+- the FRAME crash-recovery journal under `memory/runtime` is disabled;
 - `UPDATE_LT_FACTS` and `SAVE_DELAYED_MEMORY` mutate only the anonymous session snapshot;
 - Delayed browser sync supports restore, pin/unpin, and delete without accessing global files;
 - a soft WebSocket reconnect preserves the room's reports and loaded bodies;

@@ -14,7 +14,7 @@ sys.path.insert(0, str(ROOT))
 
 from agent import AgentRuntime, AgentState  # noqa: E402
 from clients.registry import build_clients  # noqa: E402
-from runtime.L1_memory import (  # noqa: E402
+from runtime.frame_memory import (  # noqa: E402
     build_runtime_memory_snapshot,
     schedule_runtime_memory_update,
 )

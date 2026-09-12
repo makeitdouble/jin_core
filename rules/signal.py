@@ -27,7 +27,7 @@ RUNTIME_RESPONSE_FEEDBACK_RATINGS = {
 }
 
 ZERO_DIFF_RULES = (
-    "Previous L1 memory update produced total_diff 0. "
+    "Previous FRAME memory update produced total_diff 0. "
     "Do not alarm from this fact alone. "
     "If the current user input manifests the same local interaction that caused this zero-diff turn, "
     "treat it as a maximum stall signal: stop continuing normally and refuse the repeated frame. "

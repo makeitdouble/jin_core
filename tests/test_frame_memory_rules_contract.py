@@ -1,6 +1,6 @@
 import unittest
 
-from runtime.L1_memory_rules import build_runtime_memory_system_prompt
+from runtime.frame_memory_rules import build_runtime_memory_system_prompt
 
 
 class FrameMemoryRulesContractTests(unittest.TestCase):

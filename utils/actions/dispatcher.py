@@ -1882,7 +1882,7 @@ async def apply_runtime_action_calls(
         )
 
     if clean_tool_result_actions:
-        from runtime.L1_memory_utils import build_runtime_session_checkpoint
+        from runtime.frame_memory_utils import build_runtime_session_checkpoint
         from utils.context.runtime_action_result_text import format_runtime_action_result
         from utils.chat_log import append_chat_runtime_event
         emit = getattr(getattr(context, "emitter", None), "emit", None)

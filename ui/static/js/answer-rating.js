@@ -239,7 +239,7 @@
         bubble.classList.remove(
             ...ratingSelectionClasses,
             "jin-rating-disabled",
-            "jin-rating-l1-waiting",
+            "jin-rating-frame-waiting",
             "jin-rating-interaction-blocked"
         );
 
@@ -443,8 +443,8 @@
         const bubbleGeneration = Number(
             bubble && bubble.dataset.ratingGateGeneration || 0
         );
-        const gateState = window.getJinAnswerRatingL1GateState
-            ? window.getJinAnswerRatingL1GateState()
+        const gateState = window.getJinAnswerRatingFrameGateState
+            ? window.getJinAnswerRatingFrameGateState()
             : {};
         const lockedBelow = Number(gateState.lockedBelowGeneration || 0);
 
@@ -556,7 +556,7 @@
         bubble.classList.remove("jin-rating-disabled");
         delete bubble.dataset.ratingDisabled;
         clearBubbleRatingModeTitle(bubble);
-        markBubbleRatingL1State(bubble);
+        markBubbleRatingFrameState(bubble);
 
         bubble.dispatchEvent(new CustomEvent("jin:answer-rating-enabled", {
             bubbles: true,
@@ -641,15 +641,15 @@
     }
 
     function getCurrentRatingGateGeneration() {
-        if (!window.getJinAnswerRatingL1GateState) {
+        if (!window.getJinAnswerRatingFrameGateState) {
             return 0;
         }
 
-        const gateState = window.getJinAnswerRatingL1GateState() || {};
+        const gateState = window.getJinAnswerRatingFrameGateState() || {};
         return Number(gateState.waitingGeneration || gateState.generation || 0);
     }
 
-    function isBubbleRatingL1Ready(bubble) {
+    function isBubbleRatingFrameReady(bubble) {
         const generation = Number(bubble && bubble.dataset.ratingGateGeneration || 0);
 
         if (!generation) {
@@ -663,25 +663,25 @@
         return Boolean(window.isJinAnswerRatingReadyForGateGeneration(generation));
     }
 
-    function markBubbleRatingL1State(bubble) {
+    function markBubbleRatingFrameState(bubble) {
         if (!bubble) {
             return;
         }
 
         const blocked = isRatingInteractionBlocked();
         const pastTurn = bubble.dataset.ratingPastTurn === "true";
-        const l1Ready = isBubbleRatingL1Ready(bubble);
-        const ready = !blocked && !pastTurn && l1Ready;
-        const waitingForL1 = !blocked && !pastTurn && !l1Ready;
-        bubble.dataset.ratingL1Ready = ready ? "true" : "false";
-        bubble.classList.toggle("jin-rating-l1-waiting", waitingForL1);
+        const frameReady = isBubbleRatingFrameReady(bubble);
+        const ready = !blocked && !pastTurn && frameReady;
+        const waitingForFrame = !blocked && !pastTurn && !frameReady;
+        bubble.dataset.ratingFrameReady = ready ? "true" : "false";
+        bubble.classList.toggle("jin-rating-frame-waiting", waitingForFrame);
         bubble.classList.toggle("jin-rating-interaction-blocked", blocked);
 
         const zones = bubble.querySelector(":scope > .jin-rating-hover-zones");
         if (zones && blocked) {
             zones.title = "rating is locked while JIN is generating";
-        } else if (zones && waitingForL1 && !bubble.dataset.ratingSelected) {
-            zones.title = "waiting for L1 snapshot before rating";
+        } else if (zones && waitingForFrame && !bubble.dataset.ratingSelected) {
+            zones.title = "waiting for FRAME snapshot before rating";
         } else if (zones && !bubble.dataset.ratingSelected) {
             zones.title = "";
         }
@@ -837,7 +837,7 @@
             ensureBubbleRatingSequence(bubble);
 
             if (bubble.querySelector(":scope > .jin-rating-hover-zones")) {
-                markBubbleRatingL1State(bubble);
+                markBubbleRatingFrameState(bubble);
                 syncBubbleRatingZoneTitles(bubble);
                 return;
             }
@@ -846,7 +846,7 @@
                 bubble.dataset.ratingGateGeneration = String(getCurrentRatingGateGeneration());
             }
 
-            markBubbleRatingL1State(bubble);
+            markBubbleRatingFrameState(bubble);
 
             const zones = document.createElement("div");
             zones.className = "jin-rating-hover-zones";
@@ -879,13 +879,13 @@
                         || bubble.dataset.ratingPastTurn === "true"
                         || isRatingInteractionBlocked()
                     ) {
-                        markBubbleRatingL1State(bubble);
+                        markBubbleRatingFrameState(bubble);
                         return;
                     }
 
                     if (!isLatestRateableBubble(bubble)) {
                         markBubbleAsPastTurn(bubble);
-                        markBubbleRatingL1State(bubble);
+                        markBubbleRatingFrameState(bubble);
                         return;
                     }
 
@@ -896,11 +896,11 @@
                         bubble.classList.add("jin-rating-committed");
                         bubble.dataset.ratingCommitted = "true";
                         bubble.dataset.ratingPastTurn = "true";
-                        markBubbleRatingL1State(bubble);
+                        markBubbleRatingFrameState(bubble);
                         return;
                     }
 
-                    markBubbleRatingL1State(bubble);
+                    markBubbleRatingFrameState(bubble);
 
                     const globalCounts = window.jinAnswerRatingCounts || {
                         minus: 0,
@@ -975,7 +975,7 @@
         });
     }
 
-    window.addEventListener("jin:l1-rating-gate-ready", () => {
+    window.addEventListener("jin:frame-rating-gate-ready", () => {
         addRatingHoverZones(document);
     });
 
@@ -985,7 +985,7 @@
         }
         document
             .querySelectorAll(ratingBubbleSelector)
-            .forEach(markBubbleRatingL1State);
+            .forEach(markBubbleRatingFrameState);
     });
 
     addRatingHoverZones(document);

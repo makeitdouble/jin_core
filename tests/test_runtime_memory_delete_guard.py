@@ -2,7 +2,7 @@ import asyncio
 import unittest
 from unittest.mock import AsyncMock, patch
 
-from runtime.L1_memory_utils import build_runtime_memory_snapshot
+from runtime.frame_memory_utils import build_runtime_memory_snapshot
 from runtime.runtime_context import RuntimeContext
 from websocket.bootstrap import apply_runtime_memory_slot_delete
 
@@ -49,7 +49,7 @@ class RuntimeMemoryDeleteGuardTests(unittest.IsolatedAsyncioTestCase):
             "websocket.bootstrap.emit_runtime_memory_snapshot_refresh",
             new_callable=AsyncMock,
         ) as refresh, patch(
-            "websocket.bootstrap.emit_runtime_l1_diff_update",
+            "websocket.bootstrap.emit_runtime_frame_diff_update",
             new_callable=AsyncMock,
         ) as diff:
             deleted = await apply_runtime_memory_slot_delete(
@@ -97,7 +97,7 @@ class RuntimeMemoryDeleteGuardTests(unittest.IsolatedAsyncioTestCase):
             "websocket.bootstrap.emit_runtime_memory_snapshot_refresh",
             new_callable=AsyncMock,
         ) as refresh, patch(
-            "websocket.bootstrap.emit_runtime_l1_diff_update",
+            "websocket.bootstrap.emit_runtime_frame_diff_update",
             new_callable=AsyncMock,
         ) as diff:
             deleted = await apply_runtime_memory_slot_delete(

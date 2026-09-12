@@ -53,9 +53,8 @@ function createFrameMemorySequenceCard() {
 }
 
 function handleFrameMemorySequenceLog(tag, message, details, meta) {
-  // Keep the old wire-level name readable while the remaining runtime migrates.
   const level = String(meta?.memory_level || "").toUpperCase();
-  if (!(["FRAME", "L1"].includes(level) || /\[MEMORY:(?:FRAME|L1)\]/i.test(tag))) {
+  if (!(level === "FRAME" || /\[MEMORY:FRAME\]/i.test(tag))) {
     return undefined;
   }
   const event = String(meta?.memory_event || "");

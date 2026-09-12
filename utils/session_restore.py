@@ -1899,7 +1899,7 @@ def find_latest_completed_session_restore_payload(
     """Return the newest raw-log session containing a real user move.
 
     A USER row qualifies immediately, even if generation was stopped before a
-    JIN row or L1 update. Bootstrap-only sessions with no real USER row do not
+    JIN row or FRAME update. Bootstrap-only sessions with no real USER row do not
     qualify, so merely opening/stopping a fresh tab keeps the predecessor.
     """
     if bool(anonymous_mode):

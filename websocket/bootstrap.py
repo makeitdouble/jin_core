@@ -11,17 +11,17 @@ from runtime.runtime_context import (
     RuntimeContext,
     RuntimeEmitter,
 )
-from runtime.L1_memory import (
+from runtime.frame_memory import (
     build_runtime_memory_snapshot,
     parse_runtime_memory_lines,
 )
-from runtime.L1_memory_pending import (
-    restore_pending_l1_update,
+from runtime.frame_memory_pending import (
+    restore_pending_frame_update,
 )
-from runtime.L1_memory_utils import (
+from runtime.frame_memory_utils import (
     build_runtime_memory_context_text,
     canonicalize_runtime_memory_key,
-    emit_runtime_l1_diff_update,
+    emit_runtime_frame_diff_update,
     emit_runtime_memory_snapshot_refresh,
     rebuild_latest_runtime_memory_snapshot,
     remove_runtime_user_idle_lines,
@@ -1314,7 +1314,7 @@ async def apply_runtime_memory_slot_delete(
         context,
         snapshot,
     )
-    await emit_runtime_l1_diff_update(
+    await emit_runtime_frame_diff_update(
         context
     )
 
@@ -1772,7 +1772,7 @@ def get_or_create_connection_context(
     hydrate_attached_files_from_store(
         context
     )
-    restore_pending_l1_update(
+    restore_pending_frame_update(
         context
     )
 
@@ -2064,7 +2064,7 @@ async def emit_current_runtime_memory(
             context.runtime_memory,
         )
 
-    from runtime.L1_memory_utils import log_runtime_frame_snapshot
+    from runtime.frame_memory_utils import log_runtime_frame_snapshot
 
     await log_runtime_frame_snapshot(context, snapshot)
     await context.emitter.emit({
@@ -3410,7 +3410,7 @@ def apply_session_bootstrap(
         runtime_memory_is_snapshot_fallback = True
 
     if is_archived_restore and runtime_memory:
-        # The persisted runtime snapshot owns the historical L1 lifecycle.
+        # The persisted runtime snapshot owns the historical FRAME lifecycle.
         # Prefer its canonical raw_memory so snapshot timestamp + per-line
         # created_at/updated_at survive the restore instead of being rebased to
         # the current boot time.
@@ -3654,7 +3654,7 @@ async def initialize_connection(
         context
     )
 
-    await emit_runtime_l1_diff_update(
+    await emit_runtime_frame_diff_update(
         context
     )
 

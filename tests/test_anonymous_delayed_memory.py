@@ -143,7 +143,7 @@ class AnonymousDelayedMemoryTests(unittest.IsolatedAsyncioTestCase):
         with (
             patch("websocket.bootstrap.hydrate_attached_files_from_store"),
             patch("websocket.bootstrap.resume_chat_log_session"),
-            patch("websocket.bootstrap.restore_pending_l1_update"),
+            patch("websocket.bootstrap.restore_pending_frame_update"),
             patch("websocket.bootstrap.load_delayed_memory_reports_from_files") as disk,
         ):
             resumed, reused = get_or_create_connection_context(socket, FakeLogger())

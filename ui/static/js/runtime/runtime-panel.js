@@ -16,7 +16,7 @@
 
   const sceneContextPressureState = {
     promt_context_presure: 0,
-    L1_memory_context_presure: 0,
+    frame_memory_context_presure: 0,
     middleTurns: 0,
     highTurns: 0,
     lowTurns: 0,
@@ -416,8 +416,8 @@
     window.jinSceneContextPressure = {
       promt_context_presure:
         sceneContextPressureState.promt_context_presure,
-      L1_memory_context_presure:
-        sceneContextPressureState.L1_memory_context_presure,
+      frame_memory_context_presure:
+        sceneContextPressureState.frame_memory_context_presure,
       middleTurns:
         sceneContextPressureState.middleTurns,
       highTurns:
@@ -438,7 +438,7 @@
     }
 
     const key =
-      `${sample.promptPressure}:${sample.l1Pressure}`;
+      `${sample.promptPressure}:${sample.framePressure}`;
 
     const turnKey =
       sample.turnKey || "turn:0";
@@ -460,20 +460,20 @@
     sceneContextPressureState.promt_context_presure =
       sample.promptPressure;
 
-    sceneContextPressureState.L1_memory_context_presure =
-      sample.l1Pressure;
+    sceneContextPressureState.frame_memory_context_presure =
+      sample.framePressure;
 
     const bothMiddleHigh =
       sample.promptPressure > SCENE_CONTEXT_PRESSURE_MIDDLE_THRESHOLD
-      && sample.l1Pressure > SCENE_CONTEXT_PRESSURE_MIDDLE_THRESHOLD;
+      && sample.framePressure > SCENE_CONTEXT_PRESSURE_MIDDLE_THRESHOLD;
 
     const bothClutteredHigh =
       sample.promptPressure > SCENE_CONTEXT_PRESSURE_CLUTTERED_THRESHOLD
-      && sample.l1Pressure > SCENE_CONTEXT_PRESSURE_CLUTTERED_THRESHOLD;
+      && sample.framePressure > SCENE_CONTEXT_PRESSURE_CLUTTERED_THRESHOLD;
 
     const bothClearLow =
       sample.promptPressure < SCENE_CONTEXT_PRESSURE_CLEAR_THRESHOLD
-      && sample.l1Pressure < SCENE_CONTEXT_PRESSURE_CLEAR_THRESHOLD;
+      && sample.framePressure < SCENE_CONTEXT_PRESSURE_CLEAR_THRESHOLD;
 
     if (bothMiddleHigh) {
       sceneContextPressureState.middleTurns += 1;
@@ -522,27 +522,27 @@
 
   function scheduleSceneContextPressureSample(
     promptPressure,
-    l1Pressure
+    framePressure
   ) {
 
     const sample = {
       promptPressure:
         clampContextPressure(promptPressure),
-      l1Pressure:
-        clampContextPressure(l1Pressure),
+      framePressure:
+        clampContextPressure(framePressure),
       turnKey:
         getSceneContextPressureTurnKey(),
     };
 
     if (
       sample.promptPressure <= 0
-      && sample.l1Pressure <= 0
+      && sample.framePressure <= 0
     ) {
       return;
     }
 
     const key =
-      `${sample.promptPressure}:${sample.l1Pressure}`;
+      `${sample.promptPressure}:${sample.framePressure}`;
 
     const turnKey =
       sample.turnKey || "turn:0";
@@ -589,7 +589,7 @@
 
   function updateSceneContextPressureFromLines(
     promptContextLine,
-    l1ContextLine
+    frameContextLine
   ) {
 
     scheduleSceneContextPressureSample(
@@ -597,7 +597,7 @@
         promptContextLine
       ),
       getContextLinePressure(
-        l1ContextLine
+        frameContextLine
       )
     );
 

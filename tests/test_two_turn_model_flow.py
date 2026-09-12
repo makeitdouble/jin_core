@@ -23,7 +23,7 @@ from runtime.runtime_context import (
     RuntimeContext,
     RuntimeEmitter,
 )
-from runtime.L1_memory import (
+from runtime.frame_memory import (
     build_runtime_memory_snapshot,
     schedule_runtime_memory_update,
 )

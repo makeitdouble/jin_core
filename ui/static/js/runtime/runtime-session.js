@@ -933,7 +933,7 @@
       }
 
       // An exact text match against the restored baseline is never a new page.
-      // The first real post-restore L1 update is allowed naturally because its
+      // The first real post-restore FRAME update is allowed naturally because its
       // memory text changes. Treating an identical server echo as "real" was the
       // source of the duplicated page 0/page 1 restore snapshot race.
       if (latestSnapshot && latestSnapshot.restored_from_checkpoint) {
@@ -1240,7 +1240,7 @@
           && String(bootstrap.runtime_memory || "").trim()
           && hydrateLiveRuntimeMemoryFromCheckpoint
       ) {
-        // Materialize inherited L1 only in this page's ephemeral live cache.
+        // Materialize inherited FRAME only in this page's ephemeral live cache.
         // Opening a tab does not create another durable per-session record and
         // does not advance the common conversation checkpoint.
         hydrateLiveRuntimeMemoryFromCheckpoint({
@@ -1291,9 +1291,9 @@
         );
 
       // Archived restore must never manufacture "Session started" / "no history"
-      // pages. PREVIOUS_RUNTIME_STATE is the only valid initial L1 baseline. If
+      // pages. PREVIOUS_RUNTIME_STATE is the only valid initial FRAME baseline. If
       // an old archive genuinely has no such block, leave the panel empty and
-      // let the next real L1 update create its first page.
+      // let the next real FRAME update create its first page.
       if (
           !snapshot
           && bootstrap

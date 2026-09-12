@@ -229,7 +229,7 @@ def test_latest_selector_accepts_committed_user_only_action_turn(tmp_path):
     assert payload["recent_turns"][-1]["jin"] == ""
 
 
-def test_latest_selector_keeps_raw_color_before_jin_or_l1(tmp_path):
+def test_latest_selector_keeps_raw_color_before_jin_or_frame(tmp_path):
     previous_session = "previous"
     color_session = "color-move"
 

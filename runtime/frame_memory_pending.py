@@ -3,17 +3,17 @@ import re
 from pathlib import Path
 
 
-PENDING_L1_DIR = (
+PENDING_FRAME_DIR = (
     Path(__file__).resolve().parents[1]
     / "memory"
     / "runtime"
 )
-PENDING_L1_SESSION_RE = re.compile(
+PENDING_FRAME_SESSION_RE = re.compile(
     r"[^a-zA-Z0-9_.-]"
 )
 
 
-def _pending_l1_path(
+def _pending_frame_path(
         context,
 ) -> Path | None:
 
@@ -28,7 +28,7 @@ def _pending_l1_path(
     ):
         return None
 
-    session_id = PENDING_L1_SESSION_RE.sub(
+    session_id = PENDING_FRAME_SESSION_RE.sub(
         "_",
         str(
             getattr(
@@ -45,7 +45,7 @@ def _pending_l1_path(
     if not session_id:
         return None
 
-    return PENDING_L1_DIR / f"{session_id}.l1_pending.json"
+    return PENDING_FRAME_DIR / f"{session_id}.frame_pending.json"
 
 
 def _pending_turns(
@@ -80,11 +80,11 @@ def _pending_turns(
     ]
 
 
-def persist_pending_l1_update(
+def persist_pending_frame_update(
         context,
 ) -> bool:
 
-    path = _pending_l1_path(
+    path = _pending_frame_path(
         context
     )
     turns = _pending_turns(
@@ -143,11 +143,11 @@ def persist_pending_l1_update(
     return True
 
 
-def restore_pending_l1_update(
+def restore_pending_frame_update(
         context,
 ) -> bool:
 
-    path = _pending_l1_path(
+    path = _pending_frame_path(
         context
     )
 
@@ -196,7 +196,7 @@ def restore_pending_l1_update(
     ]
 
     if not context.runtime_memory_pending_turns:
-        clear_pending_l1_update(
+        clear_pending_frame_update(
             context
         )
         return False
@@ -218,11 +218,11 @@ def restore_pending_l1_update(
     return True
 
 
-def clear_pending_l1_update(
+def clear_pending_frame_update(
         context,
 ) -> bool:
 
-    path = _pending_l1_path(
+    path = _pending_frame_path(
         context
     )
 

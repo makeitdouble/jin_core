@@ -6,7 +6,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock
 
-from runtime.L1_memory_rules import build_runtime_memory_system_prompt
+from runtime.frame_memory_rules import build_runtime_memory_system_prompt
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -20,7 +20,7 @@ class FrameBootstrapLanguageTests(unittest.IsolatedAsyncioTestCase):
             "ask_runtime_memory_model",
             "ask_runtime_memory_batch_model",
         }
-        tree = ast.parse((ROOT / "runtime/L1_memory.py").read_text(encoding="utf-8"))
+        tree = ast.parse((ROOT / "runtime/frame_memory.py").read_text(encoding="utf-8"))
         self.env = {
             "build_runtime_memory_system_prompt": build_runtime_memory_system_prompt,
             "config": SimpleNamespace(SERVICE_TEMPERATURE=0.1),

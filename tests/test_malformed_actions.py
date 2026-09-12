@@ -174,7 +174,7 @@ class MalformedRuntimeTests(IsolatedAsyncioTestCase):
         from agent.nodes.brain import BrainNode, action_event_requires_follow_up
         from utils.context.tool_results import build_tool_results_context
         from contracts.rules_assembler import get_runtime_action_schema
-        from runtime.L1_memory_utils import build_runtime_session_checkpoint
+        from runtime.frame_memory_utils import build_runtime_session_checkpoint
         from websocket.bootstrap import clean_bootstrap_tool_results
 
         context = SimpleNamespace(

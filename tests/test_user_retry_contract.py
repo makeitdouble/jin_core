@@ -4,7 +4,7 @@ import unittest
 from unittest.mock import patch
 
 from rules.brain_context_builder import _append_user_retry_context
-from runtime.L1_memory import discard_latest_runtime_memory_pending_turn
+from runtime.frame_memory import discard_latest_runtime_memory_pending_turn
 from websocket.messages import (
     build_user_retry_request,
     discard_latest_visible_turn_for_user_retry,
@@ -119,7 +119,7 @@ class UserRetryContractTests(unittest.TestCase):
         self.assertEqual(context.runtime_previous_reasoning_content, "")
         self.assertEqual(context.runtime_previous_reasoning_loop_contents, [])
 
-    def test_retry_is_explicit_in_brain_and_l1_context(self):
+    def test_retry_is_explicit_in_brain_and_frame_context(self):
         context = SimpleNamespace(
             runtime_user_retry_active=True,
             runtime_user_retry_count=2,
@@ -128,14 +128,14 @@ class UserRetryContractTests(unittest.TestCase):
         parts = []
 
         _append_user_retry_context(parts, context)
-        l1_message = format_runtime_memory_user_message(context, "same request")
+        frame_message = format_runtime_memory_user_message(context, "same request")
 
         self.assertIn('<USER_RETRY attempt="2">', parts[0])
         self.assertIn("previous JIN answer has been discarded", parts[0])
-        self.assertIn("user_retry: true", l1_message)
-        self.assertIn("previous_jin_answer_discarded: true", l1_message)
+        self.assertIn("user_retry: true", frame_message)
+        self.assertIn("previous_jin_answer_discarded: true", frame_message)
 
-    def test_websocket_has_retry_rejection_and_l1_discard_path(self):
+    def test_websocket_has_retry_rejection_and_frame_discard_path(self):
         source = WEBSOCKET_INIT.read_text(encoding="utf-8")
 
         self.assertIn('if message_type == "retry_last_response":', source)
@@ -146,7 +146,7 @@ class UserRetryContractTests(unittest.TestCase):
 
 class UserRetryAsyncContractTests(unittest.IsolatedAsyncioTestCase):
 
-    async def test_l1_retry_discards_latest_pending_turn_before_replacement(self):
+    async def test_frame_retry_discards_latest_pending_turn_before_replacement(self):
         context = SimpleNamespace(
             runtime_memory_update_task=None,
             runtime_memory_pending_turns=[{
@@ -158,9 +158,9 @@ class UserRetryAsyncContractTests(unittest.IsolatedAsyncioTestCase):
         )
 
         with (
-            patch("runtime.L1_memory.clear_pending_l1_update") as clear_pending,
-            patch("runtime.L1_memory.persist_pending_l1_update") as persist_pending,
-            patch("runtime.L1_memory.resume_runtime_memory_pending_update") as resume_pending,
+            patch("runtime.frame_memory.clear_pending_frame_update") as clear_pending,
+            patch("runtime.frame_memory.persist_pending_frame_update") as persist_pending,
+            patch("runtime.frame_memory.resume_runtime_memory_pending_update") as resume_pending,
         ):
             discarded = await discard_latest_runtime_memory_pending_turn(context)
 

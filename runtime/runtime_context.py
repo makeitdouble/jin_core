@@ -3,7 +3,7 @@ from datetime import datetime
 from typing import TYPE_CHECKING
 from xml.sax.saxutils import escape
 
-from runtime.L1_memory_rules import (
+from runtime.frame_memory_rules import (
     DEFAULT_RUNTIME_MEMORY,
 )
 
@@ -286,7 +286,7 @@ class RuntimeContext:
 
     runtime_repeated_input_count: int = 0
 
-    runtime_l1_diff_history: list[dict] = field(
+    runtime_frame_diff_history: list[dict] = field(
         default_factory=list
     )
 

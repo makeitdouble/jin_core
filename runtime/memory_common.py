@@ -18,7 +18,7 @@ from app_settings import (
 from runtime.runtime_context import (
     ContextContract,
 )
-from runtime.L1_memory_rules import (
+from runtime.frame_memory_rules import (
     DEFAULT_RUNTIME_MEMORY,
 )
 from runtime.registry import (

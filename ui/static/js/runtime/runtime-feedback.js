@@ -49,7 +49,7 @@
   let pendingRuntimeResponseFeedback = null;
   let runtimeResponseFeedbackCommitted = false;
 
-  const jinAnswerRatingL1Gate = {
+  const jinAnswerRatingFrameGate = {
     generation: 0,
     waiting: false,
     waitingGeneration: 0,
@@ -110,11 +110,11 @@
     );
   }
 
-  function markL1ReadyFromRuntimeUpdate(
+  function markFrameReadyFromRuntimeUpdate(
     data,
     snapshotIndex = null
   ) {
-    if (!jinAnswerRatingL1Gate.waiting) {
+    if (!jinAnswerRatingFrameGate.waiting) {
       return;
     }
 
@@ -122,13 +122,13 @@
       data && data.updates || 0
     );
 
-    if (incomingUpdates <= jinAnswerRatingL1Gate.baselineUpdates) {
+    if (incomingUpdates <= jinAnswerRatingFrameGate.baselineUpdates) {
       return;
     }
 
-    jinAnswerRatingL1Gate.waiting = false;
-    jinAnswerRatingL1Gate.readyGeneration =
-      jinAnswerRatingL1Gate.waitingGeneration;
+    jinAnswerRatingFrameGate.waiting = false;
+    jinAnswerRatingFrameGate.readyGeneration =
+      jinAnswerRatingFrameGate.waitingGeneration;
     runtimeResponseFeedbackCommitted = false;
 
     const rawSnapshotIndex =
@@ -155,9 +155,9 @@
       .forEach((bubble) => {
         if (
             Number(bubble.dataset.ratingGateGeneration || 0)
-            === jinAnswerRatingL1Gate.readyGeneration
+            === jinAnswerRatingFrameGate.readyGeneration
         ) {
-          bubble.dataset.ratingL1Ready = "true";
+          bubble.dataset.ratingFrameReady = "true";
 
           if (resolvedSnapshotIndex !== null) {
             bubble.dataset.runtimeSnapshotIndex =
@@ -165,7 +165,7 @@
           }
 
           bubble.classList.remove(
-            "jin-rating-l1-waiting"
+            "jin-rating-frame-waiting"
           );
         }
       });
@@ -174,7 +174,7 @@
         pendingRuntimeResponseFeedback
         && Number(
           pendingRuntimeResponseFeedback.ratingGateGeneration || 0
-        ) === jinAnswerRatingL1Gate.readyGeneration
+        ) === jinAnswerRatingFrameGate.readyGeneration
     ) {
       pendingRuntimeResponseFeedback = {
         ...pendingRuntimeResponseFeedback,
@@ -190,10 +190,10 @@
 
     window.dispatchEvent(
       new CustomEvent(
-        "jin:l1-rating-gate-ready",
+        "jin:frame-rating-gate-ready",
         {
           detail: {
-            generation: jinAnswerRatingL1Gate.readyGeneration,
+            generation: jinAnswerRatingFrameGate.readyGeneration,
             updates: incomingUpdates,
             snapshotIndex: resolvedSnapshotIndex,
           },
@@ -202,12 +202,12 @@
     );
   }
 
-  function startL1GateForTurn() {
-    jinAnswerRatingL1Gate.generation += 1;
-    jinAnswerRatingL1Gate.waiting = true;
-    jinAnswerRatingL1Gate.waitingGeneration =
-      jinAnswerRatingL1Gate.generation;
-    jinAnswerRatingL1Gate.baselineUpdates =
+  function startFrameGateForTurn() {
+    jinAnswerRatingFrameGate.generation += 1;
+    jinAnswerRatingFrameGate.waiting = true;
+    jinAnswerRatingFrameGate.waitingGeneration =
+      jinAnswerRatingFrameGate.generation;
+    jinAnswerRatingFrameGate.baselineUpdates =
       getLatestRuntimeMemoryUpdatesForRatingGate();
 
     // Hard-lock every bubble that belongs to a generation older than the one
@@ -215,8 +215,8 @@
     // just sent a new message, so rating any previous assistant turn is no
     // longer valid regardless of the committed/waiting state of the feedback
     // flags.
-    jinAnswerRatingL1Gate.lockedBelowGeneration =
-      jinAnswerRatingL1Gate.generation;
+    jinAnswerRatingFrameGate.lockedBelowGeneration =
+      jinAnswerRatingFrameGate.generation;
 
     if (typeof document !== "undefined") {
       document
@@ -227,7 +227,7 @@
           const bubbleGen = Number(
             bubble.dataset.ratingGateGeneration || 0
           );
-          if (bubbleGen < jinAnswerRatingL1Gate.lockedBelowGeneration) {
+          if (bubbleGen < jinAnswerRatingFrameGate.lockedBelowGeneration) {
             bubble.classList.remove(
               ...ratingLockedTransientClasses
             );
@@ -247,14 +247,14 @@
     }
 
     return {
-      generation: jinAnswerRatingL1Gate.waitingGeneration,
-      baselineUpdates: jinAnswerRatingL1Gate.baselineUpdates,
+      generation: jinAnswerRatingFrameGate.waitingGeneration,
+      baselineUpdates: jinAnswerRatingFrameGate.baselineUpdates,
     };
   }
 
-  function getL1GateState() {
+  function getFrameGateState() {
     return {
-      ...jinAnswerRatingL1Gate,
+      ...jinAnswerRatingFrameGate,
     };
   }
 
@@ -262,10 +262,10 @@
     const gateGeneration = Number(generation || 0);
 
     if (!gateGeneration) {
-      return !jinAnswerRatingL1Gate.waiting;
+      return !jinAnswerRatingFrameGate.waiting;
     }
 
-    return gateGeneration === jinAnswerRatingL1Gate.readyGeneration;
+    return gateGeneration === jinAnswerRatingFrameGate.readyGeneration;
   }
 
   function normalizeRating(rating) {
@@ -319,7 +319,7 @@
     return value;
   }
 
-  // In-place rating mutation: rating clicks are part of the current L1 page,
+  // In-place rating mutation: rating clicks are part of the current FRAME page,
   // not a new runtime memory page.
   function getLatestSnapshotIndexForMutation() {
     const runtimeDeps = ensureDeps();
@@ -345,15 +345,15 @@
       detail && detail.ratingGateGeneration || 0
     );
 
-    // A rating click for the generation that has just become L1-ready must
+    // A rating click for the generation that has just become FRAME-ready must
     // always mutate the newest runtime snapshot. Bubble dataset values can be
-    // stale when the hover zones were attached before the final L1-ready event
+    // stale when the hover zones were attached before the final FRAME-ready event
     // rewrote runtimeSnapshotIndex, so the server receives the right feedback
     // while the visible panel mutates the previous page. Prefer the current
     // runtime history tail for the active ready generation.
     if (
         incomingGeneration > 0
-        && incomingGeneration === jinAnswerRatingL1Gate.readyGeneration
+        && incomingGeneration === jinAnswerRatingFrameGate.readyGeneration
     ) {
       const latestSnapshotIndex = getLatestSnapshotIndexForMutation();
 
@@ -625,7 +625,7 @@
     );
     if (
       incomingGeneration > 0
-      && incomingGeneration < jinAnswerRatingL1Gate.lockedBelowGeneration
+      && incomingGeneration < jinAnswerRatingFrameGate.lockedBelowGeneration
     ) {
       return null;
     }
@@ -704,22 +704,21 @@
     clearPendingRating,
     getPendingRating,
     consumePendingLastResponseRating,
-    markL1ReadyFromRuntimeUpdate,
-    startL1GateForTurn,
-    getL1GateState,
+    markFrameReadyFromRuntimeUpdate,
+    startFrameGateForTurn,
+    getFrameGateState,
     isReadyForGateGeneration,
   };
 
   root.feedback = api;
 
-  // Legacy window API. Keep old names until socket.js/status.js/templates stop
-  // calling them directly.
-  window.startJinAnswerRatingL1GateForTurn = function () {
-    return api.startL1GateForTurn();
+  // Window API consumed by socket/input and answer-rating.
+  window.startJinAnswerRatingFrameGateForTurn = function () {
+    return api.startFrameGateForTurn();
   };
 
-  window.getJinAnswerRatingL1GateState = function () {
-    return api.getL1GateState();
+  window.getJinAnswerRatingFrameGateState = function () {
+    return api.getFrameGateState();
   };
 
   window.isJinAnswerRatingReadyForGateGeneration = function (generation) {

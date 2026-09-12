@@ -5,15 +5,15 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
-import runtime.L1_memory as l1_memory
-import runtime.L1_memory_pending as l1_pending
+import runtime.frame_memory as frame_memory
+import runtime.frame_memory_pending as frame_pending
 from tests.helpers.memory import (
     FakeLogger,
     FakeServiceClient,
 )
 
 
-class L1ReconnectResumeTests(
+class FrameReconnectResumeTests(
     unittest.IsolatedAsyncioTestCase
 ):
 
@@ -58,13 +58,13 @@ class L1ReconnectResumeTests(
             runtime_memory_snapshot_index=0,
         )
 
-    async def test_interrupted_l1_request_replays_after_backend_restart(self):
+    async def test_interrupted_frame_request_replays_after_backend_restart(self):
         with tempfile.TemporaryDirectory() as directory:
             pending_dir = Path(directory)
 
             with patch.object(
-                l1_pending,
-                "PENDING_L1_DIR",
+                frame_pending,
+                "PENDING_FRAME_DIR",
                 pending_dir,
             ):
                 first_context = self.build_context(
@@ -73,21 +73,21 @@ class L1ReconnectResumeTests(
                     )
                 )
 
-                first_task = l1_memory.schedule_runtime_memory_update(
+                first_task = frame_memory.schedule_runtime_memory_update(
                     context=first_context,
                     user_message="Remember the interrupted turn.",
-                    assistant_message="I will keep it in L1.",
+                    assistant_message="I will keep it in FRAME.",
                 )
 
                 self.assertIsNotNone(
                     first_task
                 )
                 self.assertEqual(
-                    len(list(pending_dir.glob("*.l1_pending.json"))),
+                    len(list(pending_dir.glob("*.frame_pending.json"))),
                     1,
                 )
 
-                # Simulate the backend process disappearing while the L1 job is
+                # Simulate the backend process disappearing while the FRAME job is
                 # still owned by that process. The durable checkpoint must stay.
                 first_task.cancel()
                 with self.assertRaises(
@@ -102,7 +102,7 @@ class L1ReconnectResumeTests(
                     service_client=restarted_service,
                 )
 
-                restored = l1_pending.restore_pending_l1_update(
+                restored = frame_pending.restore_pending_frame_update(
                     restarted_context
                 )
 
@@ -114,12 +114,12 @@ class L1ReconnectResumeTests(
                     [
                         {
                             "turn_id": "", "user_message": "Remember the interrupted turn.",
-                            "assistant_message": "I will keep it in L1.",
+                            "assistant_message": "I will keep it in FRAME.",
                         },
                     ],
                 )
 
-                resumed_task = l1_memory.resume_runtime_memory_pending_update(
+                resumed_task = frame_memory.resume_runtime_memory_pending_update(
                     restarted_context
                 )
 
@@ -148,13 +148,13 @@ class L1ReconnectResumeTests(
                     )
                 )
 
-    async def test_restricted_mode_never_persists_pending_l1_journal(self):
+    async def test_restricted_mode_never_persists_pending_frame_journal(self):
         with tempfile.TemporaryDirectory() as directory:
             pending_dir = Path(directory)
 
             with patch.object(
-                l1_pending,
-                "PENDING_L1_DIR",
+                frame_pending,
+                "PENDING_FRAME_DIR",
                 pending_dir,
             ):
                 context = self.build_context(
@@ -164,7 +164,7 @@ class L1ReconnectResumeTests(
                     runtime_persistent_writes_restricted=True,
                 )
 
-                task = l1_memory.schedule_runtime_memory_update(
+                task = frame_memory.schedule_runtime_memory_update(
                     context=context,
                     user_message="Keep this only inside the anonymous room.",
                     assistant_message="No persistent journal.",
@@ -172,7 +172,7 @@ class L1ReconnectResumeTests(
 
                 self.assertIsNotNone(task)
                 self.assertEqual(
-                    list(pending_dir.glob("*.l1_pending.json")),
+                    list(pending_dir.glob("*.frame_pending.json")),
                     [],
                 )
 
@@ -185,7 +185,7 @@ class L1ReconnectResumeTests(
                     runtime_persistent_writes_restricted=True,
                 )
                 self.assertFalse(
-                    l1_pending.restore_pending_l1_update(
+                    frame_pending.restore_pending_frame_update(
                         restarted_context
                     )
                 )
@@ -196,8 +196,8 @@ class L1ReconnectResumeTests(
             pending_dir = Path(directory)
 
             with patch.object(
-                l1_pending,
-                "PENDING_L1_DIR",
+                frame_pending,
+                "PENDING_FRAME_DIR",
                 pending_dir,
             ):
                 source_context = self.build_context(
@@ -209,13 +209,13 @@ class L1ReconnectResumeTests(
                 source_context.runtime_memory_pending_turns = [
                     {
                         "user_message": "Already committed.",
-                        "assistant_message": "Already visible in browser L1.",
+                        "assistant_message": "Already visible in browser FRAME.",
                     },
                 ]
                 source_context.runtime_memory_pending_base_updates = 4
 
                 self.assertTrue(
-                    l1_pending.persist_pending_l1_update(
+                    frame_pending.persist_pending_frame_update(
                         source_context
                     )
                 )
@@ -228,12 +228,12 @@ class L1ReconnectResumeTests(
                 )
 
                 self.assertTrue(
-                    l1_pending.restore_pending_l1_update(
+                    frame_pending.restore_pending_frame_update(
                         resumed_context
                     )
                 )
 
-                resumed_task = l1_memory.resume_runtime_memory_pending_update(
+                resumed_task = frame_memory.resume_runtime_memory_pending_update(
                     resumed_context
                 )
 
@@ -245,7 +245,7 @@ class L1ReconnectResumeTests(
                     [],
                 )
                 self.assertEqual(
-                    list(pending_dir.glob("*.l1_pending.json")),
+                    list(pending_dir.glob("*.frame_pending.json")),
                     [],
                 )
 
@@ -255,8 +255,8 @@ class L1ReconnectResumeTests(
             pending_dir = Path(directory)
 
             with patch.object(
-                l1_pending,
-                "PENDING_L1_DIR",
+                frame_pending,
+                "PENDING_FRAME_DIR",
                 pending_dir,
             ):
                 source_context = self.build_context(
@@ -272,7 +272,7 @@ class L1ReconnectResumeTests(
                 source_context.runtime_memory_pending_base_updates = 27
 
                 self.assertTrue(
-                    l1_pending.persist_pending_l1_update(
+                    frame_pending.persist_pending_frame_update(
                         source_context
                     )
                 )
@@ -286,12 +286,12 @@ class L1ReconnectResumeTests(
                 )
 
                 self.assertTrue(
-                    l1_pending.restore_pending_l1_update(
+                    frame_pending.restore_pending_frame_update(
                         restarted_context
                     )
                 )
 
-                resumed_task = l1_memory.resume_runtime_memory_pending_update(
+                resumed_task = frame_memory.resume_runtime_memory_pending_update(
                     restarted_context
                 )
 
@@ -314,18 +314,18 @@ class L1ReconnectResumeTests(
                     runtime_memory_updates=28,
                 )
                 self.assertTrue(
-                    l1_pending.restore_pending_l1_update(
+                    frame_pending.restore_pending_frame_update(
                         persisted_context
                     )
                 )
 
                 self.assertIsNone(
-                    l1_memory.resume_runtime_memory_pending_update(
+                    frame_memory.resume_runtime_memory_pending_update(
                         persisted_context
                     )
                 )
                 self.assertEqual(
-                    list(pending_dir.glob("*.l1_pending.json")),
+                    list(pending_dir.glob("*.frame_pending.json")),
                     [],
                 )
 

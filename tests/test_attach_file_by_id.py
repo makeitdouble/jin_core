@@ -8,7 +8,7 @@ from unittest.mock import patch
 from tests import test_project_review as fixture
 from clients.brain_client import build_brain_user_prompt_content
 from contracts.rules_assembler import build_runtime_action_instructions, get_enabled_runtime_actions
-from runtime.L1_memory_utils import build_runtime_session_checkpoint
+from runtime.frame_memory_utils import build_runtime_session_checkpoint
 from utils import attached_files_store as files
 from utils.actions import RuntimeActionStreamFilter, extract_runtime_actions
 from utils.actions.attachment_actions import apply_attachment_context_ids

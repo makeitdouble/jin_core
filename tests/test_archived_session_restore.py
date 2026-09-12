@@ -848,7 +848,7 @@ open_question: continue
                 {
                     "type": "session_bootstrap",
                     "source_session_id": "archive-session",
-                    "runtime_memory": "browser L1 checkpoint",
+                    "runtime_memory": "browser FRAME checkpoint",
                     "runtime_memory_updates": 9,
                     "loaded_memory_ids": ["abc123"],
                 },
@@ -860,7 +860,7 @@ open_question: continue
         self.assertIn("old flow", context.runtime_restored_session_dialog)
         self.assertIn("raw", context.runtime_session_restore_reasoning_dump)
         self.assertEqual(context.runtime_session_restore_lt_fact_ids, ["F7"])
-        self.assertIn("browser L1 checkpoint", context.runtime_memory)
+        self.assertIn("browser FRAME checkpoint", context.runtime_memory)
         self.assertEqual(
             context.runtime_session_restore_pending_loaded_memory_ids,
             ["abc123"],

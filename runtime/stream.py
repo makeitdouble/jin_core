@@ -12,7 +12,7 @@ from runtime.state_sync import (
     refresh_runtime_state,
 )
 
-from runtime.L1_memory_utils import (
+from runtime.frame_memory_utils import (
     build_runtime_session_checkpoint,
 )
 from runtime.runtime_context import (

@@ -2510,13 +2510,13 @@ function replaceDelayedMemoryReportsAndRender(
   return readDelayedMemoryReports();
 }
 
-const ACTIVE_MEMORY_RUNTIME_ACTIONS_TO_SILENCE_ON_L1 = [
+const ACTIVE_MEMORY_RUNTIME_ACTIONS_TO_SILENCE_ON_FRAME = [
   "save_active_memory",
   "update_active_memory",
   "delete_active_memory",
 ];
 
-function silenceActiveMemoryRuntimeActionsAfterL1(
+function silenceActiveMemoryRuntimeActionsAfterFrame(
   data
 ) {
 
@@ -2528,17 +2528,17 @@ function silenceActiveMemoryRuntimeActionsAfterL1(
     data.type === "runtime_memory_update"
     && Number(data.updates || 0) > 0;
 
-  const isRuntimeL1DiffUpdate =
-    data.type === "runtime_l1_diff_update";
+  const isRuntimeFrameDiffUpdate =
+    data.type === "runtime_frame_diff_update";
 
   if (
       !isRuntimeMemoryUpdate
-      && !isRuntimeL1DiffUpdate
+      && !isRuntimeFrameDiffUpdate
   ) {
     return;
   }
 
-  ACTIVE_MEMORY_RUNTIME_ACTIONS_TO_SILENCE_ON_L1
+  ACTIVE_MEMORY_RUNTIME_ACTIONS_TO_SILENCE_ON_FRAME
     .forEach((action) => {
       window.fadeRuntimeAction(
         action
@@ -2553,8 +2553,8 @@ function handleRuntimeMemoryMessage(data) {
     return;
   }
 
-  if (data.type === "runtime_l1_diff_update") {
-    silenceActiveMemoryRuntimeActionsAfterL1(
+  if (data.type === "runtime_frame_diff_update") {
+    silenceActiveMemoryRuntimeActionsAfterFrame(
       data
     );
 
@@ -2591,7 +2591,7 @@ function handleRuntimeMemoryMessage(data) {
     return;
   }
 
-  silenceActiveMemoryRuntimeActionsAfterL1(
+  silenceActiveMemoryRuntimeActionsAfterFrame(
     data
   );
 
@@ -2655,13 +2655,13 @@ function handleRuntimeMemoryMessage(data) {
         clientSnapshot
       );
 
-      feedback.markL1ReadyFromRuntimeUpdate(
+      feedback.markFrameReadyFromRuntimeUpdate(
         data,
         clientIndex
       );
     }
   } else {
-    feedback.markL1ReadyFromRuntimeUpdate(
+    feedback.markFrameReadyFromRuntimeUpdate(
       data
     );
   }

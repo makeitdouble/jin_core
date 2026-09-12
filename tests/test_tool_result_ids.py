@@ -5,7 +5,7 @@ from utils.actions import RuntimeActionStreamFilter, RuntimeActionCall
 from utils.context import build_tool_results_context
 from clients.brain_client import apply_runtime_action_calls
 from runtime.runtime_context import RuntimeContext
-from runtime.L1_memory_utils import build_runtime_session_checkpoint
+from runtime.frame_memory_utils import build_runtime_session_checkpoint
 from websocket.bootstrap import apply_bootstrap_tool_results, clean_bootstrap_tool_results
 from utils.session_actions_history import upsert_session_action_marker_history_since
 

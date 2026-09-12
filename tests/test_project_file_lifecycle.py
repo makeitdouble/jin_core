@@ -18,7 +18,7 @@ from utils.context.tool_results import build_tool_results_context
 from utils.tool_results import record_runtime_tool_result, clear_runtime_tool_results
 from websocket.attachments import build_user_text_with_attachments
 from websocket.bootstrap import apply_bootstrap_tool_results
-from runtime.L1_memory_utils import build_runtime_session_checkpoint
+from runtime.frame_memory_utils import build_runtime_session_checkpoint
 
 
 class ProjectFileLifecycleTests(unittest.TestCase):
@@ -187,7 +187,9 @@ class ProjectFileLifecycleTests(unittest.TestCase):
             self.assertTrue(fixture.project_review_active(self.context))
             self.assertFalse(any(r.get('implicit_project') for r in loaded_project_files(self.context)))
 
-        self.assertIn('<ATTACH_FILE_CONTENT: relative/path >', get_runtime_action_schema('ATTACH_FILE_CONTENT'))
+        schema = get_runtime_action_schema('ATTACH_FILE_CONTENT')
+        self.assertIn('<ATTACH_FILE_CONTENT: relative/path >', schema)
+        self.assertIn('<ATTACH_FILE_CONTENT: relative/path#L1-L200 >', schema)
 
     def test_persistent_id_wins_over_same_relative_filename(self):
         record, _, _ = files.store_uploaded_file(name='upload.txt', content=b'persistent body', pin=False)

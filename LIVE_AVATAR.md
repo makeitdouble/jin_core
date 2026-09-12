@@ -115,7 +115,7 @@ Several interactions intentionally avoid a full `avatar.refresh()`:
 - `jin:files-store-changed` triggers file-state synchronization;
 - delayed-memory state synchronization also refreshes related L-T and file-link states.
 
-The memory panel may stay on `[active]`, `[delayed]`, `[facts]`, `[long_term]`, or `[files]` while L1 updates. `renderRuntimeMemorySnapshot()` now still dispatches the newest runtime snapshot to the avatar when the visible panel mode is not `[runtime]`. This prevents the radar from freezing merely because the user is looking at another memory tab.
+The memory panel may stay on `[active]`, `[delayed]`, `[facts]`, `[long_term]`, or `[files]` while FRAME updates. `renderRuntimeMemorySnapshot()` now still dispatches the newest runtime snapshot to the avatar when the visible panel mode is not `[runtime]`. This prevents the radar from freezing merely because the user is looking at another memory tab.
 
 ## Static Scaffold
 
@@ -893,7 +893,7 @@ Use this after avatar visual/state changes.
 | Pin a file | Same dot becomes bright white without jumping/restarting solely because of pin state |
 | Unpin file while loaded report references it | Dot falls back to the softer indirect-context accent |
 | Unpin file with no loaded-report link | Dot returns to normal blue state |
-| Switch away from `[runtime]`, then receive L1 update | Visible tab stays put, but radar still updates to newest L1 snapshot |
+| Switch away from `[runtime]`, then receive FRAME update | Visible tab stays put, but radar still updates to newest FRAME snapshot |
 | Collapsed memory panel | Radar keeps stable size |
 | Win95 theme | Radar still fits |
 | Reduced motion | Orbit/scaffold/entry animations are suppressed appropriately |

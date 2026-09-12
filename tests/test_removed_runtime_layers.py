@@ -11,7 +11,7 @@ from unittest.mock import AsyncMock, patch
 from clients.brain_client import build_brain_context_snapshot
 from contracts.rules_assembler import get_action_contracts, get_enabled_runtime_actions
 from rules.brain_context_builder import BRAIN_RUNTIME_ACTIONS, build_brain_context
-from runtime.L1_memory import (
+from runtime.frame_memory import (
     summarize_runtime_memory,
     summarize_runtime_memory_pending_turns,
 )
@@ -89,9 +89,9 @@ vm.runInNewContext(fs.readFileSync(process.argv[1], "utf8"), {
 assert.deepStrictEqual(Object.keys(handlers).sort(), ["active_memory_records_update", "log"]);
 handlers.active_memory_records_update({active_memory_records: ["keep active"]});
 assert.deepStrictEqual(activeRecords, ["keep active"]);
-handlers.log({tag: "[MEMORY:L1]", memory_level: "L1", memory_event: "summarizer_request"});
+handlers.log({tag: "[MEMORY:FRAME]", memory_level: "FRAME", memory_event: "summarizer_request"});
 assert(classes.has("memory-updating"));
-handlers.log({tag: "[MEMORY:L1]", memory_level: "L1", memory_event: "summarizer_result"});
+handlers.log({tag: "[MEMORY:FRAME]", memory_level: "FRAME", memory_event: "summarizer_result"});
 assert(classes.has("memory-fading"));
 window.cancelPanelGlows();
 assert.strictEqual(classes.size, 0);
@@ -114,9 +114,9 @@ class RemovedRuntimeLayerAsyncTests(unittest.IsolatedAsyncioTestCase):
                     runtime_memory_pending_turns=[{"user_message": "это факт", "assistant_message": "OK"}],
                 )
                 target = "ask_runtime_memory_batch_model" if batch else "ask_runtime_memory_model"
-                with patch(f"runtime.L1_memory.{target}", new=AsyncMock(return_value=response)), \
-                     patch("runtime.L1_memory.emit_runtime_memory_update", new=AsyncMock()) as emit, \
-                     patch("runtime.L1_memory.record_runtime_l1_diff", new=AsyncMock()):
+                with patch(f"runtime.frame_memory.{target}", new=AsyncMock(return_value=response)), \
+                     patch("runtime.frame_memory.emit_runtime_memory_update", new=AsyncMock()) as emit, \
+                     patch("runtime.frame_memory.record_runtime_frame_diff", new=AsyncMock()):
                     if batch:
                         result = await summarize_runtime_memory_pending_turns(context=context)
                         self.assertEqual(context.runtime_memory_pending_turns, [])

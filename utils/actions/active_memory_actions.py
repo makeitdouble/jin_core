@@ -319,7 +319,7 @@ async def apply_save_active_memory_actions(
 
     if saved_active_memory_texts:
         # Tells schedule_runtime_memory_update() that this turn is
-        # meaningful for L1 even if the visible assistant text ends up
+        # meaningful for FRAME even if the visible assistant text ends up
         # empty (e.g. the model was instructed to only emit the
         # marker and say nothing else).
         context.runtime_active_memory_saved_this_turn = True

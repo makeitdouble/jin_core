@@ -23,13 +23,13 @@ from utils.context.context_exports import (
 from utils.session_actions_history import (
     upsert_session_action_marker_history_since,
 )
-from runtime.L1_memory_rules import (
+from runtime.frame_memory_rules import (
     DEFAULT_RUNTIME_MEMORY,
 )
 from runtime.runtime_context import (
     RuntimeContext,
 )
-from runtime.L1_memory_utils import (
+from runtime.frame_memory_utils import (
     build_runtime_memory_snapshot,
 )
 
@@ -1500,7 +1500,7 @@ class BrainPromptMemoryTests(
                 prompt,
             )
             self.assertNotIn(
-                "SOURCE_L1_DIFF",
+                "SOURCE_FRAME_DIFF",
                 prompt,
             )
             self.assertIn(
@@ -1614,7 +1614,7 @@ class BrainPromptMemoryTests(
                 prompt,
             )
             self.assertNotIn(
-                "SOURCE_L1_DIFF",
+                "SOURCE_FRAME_DIFF",
                 prompt,
             )
 

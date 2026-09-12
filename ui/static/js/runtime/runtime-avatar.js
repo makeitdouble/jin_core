@@ -5320,7 +5320,7 @@
       || classes.contains("memory-pulse")
       || classes.contains("memory-fading")
     ) {
-      return "l1";
+      return "frame";
     }
 
     return null;
@@ -5378,7 +5378,7 @@
     }
 
     // Keep request-layer state suppressed while the snapshot swaps, so
-    // the panel glow remains the only L1/L2/L3 request accent around updates.
+    // the panel glow remains the only FRAME/L2/L3 request accent around updates.
     memoryLayerSuppressedForSnapshot = true;
     suppressedMemoryLayer = activeLayer;
     syncMemoryLayer();

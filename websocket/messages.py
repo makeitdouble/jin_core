@@ -20,11 +20,11 @@ from contracts.rules_assembler import (
     get_runtime_action_display_name,
     runtime_action_has_close_tag,
 )
-from runtime.L1_memory import (
+from runtime.frame_memory import (
     schedule_interrupted_runtime_memory_update,
     schedule_runtime_memory_update,
 )
-from runtime.L1_memory_utils import (
+from runtime.frame_memory_utils import (
     build_runtime_session_checkpoint,
     record_runtime_memory_reasoning_quotes,
 )
@@ -1816,7 +1816,7 @@ async def process_message(
             # runtime-action dispatcher. Keep only a defensive cleanup here;
             # never mutate resource state or emit a second store snapshot from
             # the websocket tail, because that used to race the action/avatar
-            # UI and make the load visible only after L1 completed.
+            # UI and make the load visible only after FRAME completed.
             context.runtime_session_restore_pending_loaded_memory_ids = []
             context.runtime_session_restore_pending_attached_file_ids = []
             context.runtime_session_restore_priming = False
@@ -1844,7 +1844,7 @@ async def process_message(
                 context=context,
             )
         else:
-            # Commit the interrupted turn through the ordinary L1 path.
+            # Commit the interrupted turn through the ordinary FRAME path.
             record_runtime_memory_reasoning_quotes(
                 context,
                 getattr(

@@ -823,7 +823,7 @@ def format_previous_runtime_memory_tag(
     ):
         return "<PREVIOUS_RUNTIME_STATE>"
 
-    from runtime.L1_memory_utils import (
+    from runtime.frame_memory_utils import (
         format_user_idle_seconds,
     )
 

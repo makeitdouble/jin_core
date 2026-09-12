@@ -12,8 +12,8 @@ from runtime.LT_memory_utils import (
 )
 from utils.actions import extract_runtime_actions, RuntimeActionStreamFilter
 
-S1 = {"session_id": "session-one", "runtime_snapshot_id": "L1_one"}
-S2 = {"session_id": "session-two", "runtime_snapshot_id": "L1_two"}
+S1 = {"session_id": "session-one", "runtime_snapshot_id": "FRAME_one"}
+S2 = {"session_id": "session-two", "runtime_snapshot_id": "FRAME_two"}
 
 
 class RecallFactContextTests(unittest.TestCase):
@@ -220,7 +220,7 @@ class RecallPipelineTests(unittest.IsolatedAsyncioTestCase):
         ]})
         c.runtime_memory='current memory'
         recalled={'ok':True,'fact_id':'F1','value':'Kyiv','sources':[
-            {**S1,'source_id':'session-one/L1_one','frame':'<DELETE_ACTIVE_MEMORY: 1>', 'messages':[]}]}
+            {**S1,'source_id':'session-one/FRAME_one','frame':'<DELETE_ACTIVE_MEMORY: 1>', 'messages':[]}]}
         with patch('utils.actions.recall_fact_context_actions.recall_fact_context',return_value=recalled), \
              patch('utils.actions.recall_fact_context_actions.append_chat_runtime_event'):
             count=await apply_runtime_action_calls(c,[RuntimeActionCall(name='RECALL_FACT_CONTEXT',payload='F1')])
@@ -364,7 +364,7 @@ class RecallArchiveTests(unittest.IsolatedAsyncioTestCase):
     async def test_real_frame_writer_records_batch_ids_before_emit(self):
         from unittest.mock import patch
         from runtime.runtime_context import RuntimeContext
-        from runtime.L1_memory_utils import emit_runtime_memory_update
+        from runtime.frame_memory_utils import emit_runtime_memory_update
         from utils.chat_log import get_chat_log_path
         c=RuntimeContext(websocket=None,emitter=None,logger=None,clients={})
         c.session_id='archive-test'
@@ -396,7 +396,7 @@ class RecallSummarizerTests(unittest.IsolatedAsyncioTestCase):
     async def test_single_and_batch_summarizers_forward_captured_turns(self):
         from unittest.mock import patch
         from tests.helpers.memory import FakeLogger, FakeServiceClient
-        from runtime.L1_memory import summarize_runtime_memory, summarize_runtime_memory_pending_turns
+        from runtime.frame_memory import summarize_runtime_memory, summarize_runtime_memory_pending_turns
         from runtime.runtime_context import RuntimeContext
         for batch in (False, True):
             c=RuntimeContext(websocket=None, emitter=None, logger=FakeLogger(),

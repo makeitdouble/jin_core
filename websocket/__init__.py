@@ -12,13 +12,13 @@ from .logger import WebSocketLogger
 from .transport import RuntimeTransport
 from runtime.memory_edit import apply_memory_value_edit
 
-from runtime.L1_memory import (
+from runtime.frame_memory import (
     apply_runtime_response_feedback,
     discard_latest_runtime_memory_pending_turn,
     resume_runtime_memory_pending_update,
 )
-from runtime.L1_memory_utils import (
-    emit_runtime_l1_diff_update,
+from runtime.frame_memory_utils import (
+    emit_runtime_frame_diff_update,
 )
 from runtime.LT_memory import (
     apply_facts_memory_store_sync,
@@ -618,7 +618,7 @@ async def run_runtime_session(websocket, context, resumed_context):
                             context
                         )
 
-                        await emit_runtime_l1_diff_update(
+                        await emit_runtime_frame_diff_update(
                             context
                         )
 
@@ -946,7 +946,7 @@ async def run_runtime_session(websocket, context, resumed_context):
                         replace_latest=True,
                     )
 
-                    await emit_runtime_l1_diff_update(
+                    await emit_runtime_frame_diff_update(
                         context
                     )
 

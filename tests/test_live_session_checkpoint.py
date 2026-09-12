@@ -1,7 +1,7 @@
 import unittest
 from types import SimpleNamespace
 
-from runtime.L1_memory_utils import build_runtime_session_checkpoint
+from runtime.frame_memory_utils import build_runtime_session_checkpoint
 
 
 

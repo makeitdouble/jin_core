@@ -4,7 +4,7 @@ import contextlib
 from .logger import WebSocketLogger
 
 from runtime.runtime_context import RuntimeContext
-from runtime.L1_memory import schedule_interrupted_runtime_memory_update
+from runtime.frame_memory import schedule_interrupted_runtime_memory_update
 from utils.runtime_action_abort import abort_active_runtime_actions
 
 async def cancel_current_task(
@@ -35,7 +35,7 @@ async def cancel_current_task(
             context,
             logger=logger,
             emit_to_client=emit_aborted_actions,
-            remember_for_l1=update_memory,
+            remember_for_frame=update_memory,
         )
 
         active_streams = (

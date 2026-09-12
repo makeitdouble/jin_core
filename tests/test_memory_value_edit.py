@@ -6,7 +6,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from runtime.L1_memory_utils import build_runtime_memory_snapshot
+from runtime.frame_memory_utils import build_runtime_memory_snapshot
 from runtime.LT_memory import ensure_runtime_lt_state
 from runtime.LT_memory_utils import normalize_lt_store
 from runtime.memory_edit import apply_memory_value_edit, split_editable_memory_value

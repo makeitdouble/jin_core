@@ -22,7 +22,7 @@ Current high-signal state:
 - archived `role=service` / `RUNTIME_MODE=SERVICE` handling and the logger's old `[SERVICE]` output-card presentation are historical reader compatibility only; there is no current writer/foreground route for that mode;
 - L2/L3 remain removed architectural layers. Remaining production references are compatibility comments/log filters/storage migration residue, not active modules;
 - the memory UI exposes exactly `FRAME`, `ACTIVE`, `DELAYED`, `L-T`, and `FILES`; the internal Facts Memory candidate buffer is not a sixth tab;
-- FRAME is now the canonical documentation name for live runtime memory. Some source filenames/identifiers still use the previous internal naming and are scheduled for separate code cleanup; documentation must not treat that residue as a second concept.
+- FRAME is the canonical name for live runtime memory across documentation, implementation modules, state fields, events, the pending journal, UI identifiers, and tests.
 - direct value editing is live for the latest FRAME, Active conditions/value, and L-T fact values; keys/IDs remain read-only, drafts are page-local until acknowledged, and Active/L-T edits surface `updated_at`.
 - the L-T panel defaults to active facts, can toggle `show all` to reveal report-absorbed facts in normal sort order, and keeps report-linked fact IDs clickable.
 - L-T recall now tracks `mention_count`/`last_mentioned_at`: facts untouched for 24 hours are compacted to 100-character sentence previews in Brain context until JIN references them again.
@@ -50,7 +50,7 @@ Present and active:
 - `agent/nodes/brain.py`
 - `runtime/runtime_context.py`
 - `runtime/stream.py`
-- live FRAME implementation modules under `runtime/` (source filenames still carry pre-FRAME naming pending separate code cleanup)
+- live FRAME implementation modules under `runtime/`, including `frame_memory.py`, `frame_memory_rules.py`, `frame_memory_utils.py`, and `frame_memory_pending.py`
 - `runtime/LT_memory.py`, `LT_memory_rules.py`, `LT_memory_utils.py`
 - `runtime/memory_attention.py`
 - `runtime/anonymous_mode.py`
@@ -431,7 +431,7 @@ Backend `runtime/anonymous_mode.py` currently:
 - accepts Delayed browser sync without file writes/deletes, including after reload;
 - preserves Delayed reports and loaded bodies on a soft WebSocket reconnect;
 - blocks persistent asset-write actions;
-- prevents anonymous L1 pending journals under `memory/runtime`;
+- prevents anonymous FRAME pending journals under `memory/runtime`;
 - keeps chat/reasoning logging under ordinary `logs/` with the `_anon` session suffix.
 
 Browser state is a fresh `sessionStorage` snapshot (`jin.anonymousSession.v1`) holding the room id and empty FRAME/Active/L-T/Delayed structures. It disappears with the tab and never reads the normal profile's durable memory/checkpoint state. Normal restore/bootstrap and L-T log-freshness scans skip `_anon` logs.
@@ -455,7 +455,7 @@ Owner intent from the latest UX pass was approximately 250 ms reveal and 1 s hid
 
 ### 13.2 FRAME naming
 
-The live runtime-memory view is `FRAME`, and FRAME is the canonical documentation/product name for this live state. Some implementation identifiers still use the prior internal name; code cleanup is intentionally separate from this documentation pass. FRAME integration detects the current user-message language for values, while keys remain structural English `snake_case`.
+The live runtime-memory view is `FRAME`, and FRAME is the canonical documentation/product/implementation name for this live state. FRAME integration detects the current user-message language for values, while keys remain structural English `snake_case`.
 
 The panel always shows `FRAME`, `ACTIVE`, `DELAYED`, `L-T`, and `FILES`, even when a non-FRAME view is empty. The shared counter moves below the selected tab; FRAME keeps the existing snapshot arrows while the other tabs show only their record count. The temporary unprocessed-facts projection is not exposed as a tab.
 

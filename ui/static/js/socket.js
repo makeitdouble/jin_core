@@ -1006,7 +1006,7 @@ async function initializeSocketClient() {
 
   // Archived restore owns the initial Runtime Memory page. Wait until the
   // RESTORE API has painted PREVIOUS_RUNTIME_STATE before opening the socket,
-  // otherwise the server's brand-new-session L1 can race it and briefly/
+  // otherwise the server's brand-new-session FRAME can race it and briefly/
   // permanently become page 0 or page 1. The restore promise always resolves
   // to payload/null, so a failed archive fetch still falls through to normal
   // websocket bootstrap instead of blocking the client.

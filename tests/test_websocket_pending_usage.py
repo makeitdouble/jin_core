@@ -700,7 +700,7 @@ class WebSocketPendingUsageTests(unittest.IsolatedAsyncioTestCase):
             ],
         )
 
-    async def test_runtime_resume_ignores_removed_l3_only_payload_without_live_l1(self):
+    async def test_runtime_resume_ignores_removed_l3_only_payload_without_live_frame(self):
 
         context = SimpleNamespace(
             runtime_memory="session status: New session",

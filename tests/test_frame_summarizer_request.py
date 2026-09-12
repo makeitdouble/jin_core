@@ -12,7 +12,7 @@ ROOT = Path(__file__).resolve().parents[1]
 
 class FrameSummarizerRequestTests(unittest.IsolatedAsyncioTestCase):
     def load_request(self, response=None, error=None):
-        tree = ast.parse((ROOT / "runtime/L1_memory.py").read_text(encoding="utf-8"))
+        tree = ast.parse((ROOT / "runtime/frame_memory.py").read_text(encoding="utf-8"))
         request = next(node for node in tree.body
                        if isinstance(node, ast.AsyncFunctionDef)
                        and node.name == "ask_frame_summarizer")

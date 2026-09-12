@@ -7,12 +7,12 @@ from clients.service_client import (
 from config_loader import (
     config,
 )
-from runtime.L1_memory_rules import (
+from runtime.frame_memory_rules import (
     build_runtime_memory_system_prompt,
 )
-from runtime.L1_memory_pending import (
-    clear_pending_l1_update,
-    persist_pending_l1_update,
+from runtime.frame_memory_pending import (
+    clear_pending_frame_update,
+    persist_pending_frame_update,
 )
 from rules.signal import (
     RUNTIME_RESPONSE_FEEDBACK_RATINGS,
@@ -32,11 +32,11 @@ from runtime.memory_common import (
     runtime_prompt_is_context_overloaded,
 )
 from runtime.LT_lane import track_lt_frame_task
-from runtime.L1_memory_utils import (
+from runtime.frame_memory_utils import (
     emit_runtime_memory_update,
-    record_runtime_l1_diff,
+    record_runtime_frame_diff,
 )
-from runtime.L1_memory_utils import (
+from runtime.frame_memory_utils import (
     build_empty_assistant_message,
     build_interrupted_assistant_message,
     build_runtime_response_feedback_value,
@@ -531,7 +531,7 @@ async def summarize_runtime_memory(
         updated_memory = normalize_compound_runtime_memory_lines(
             updated_memory
         )
-        context.runtime_l1_last_summarizer_response_details = (
+        context.runtime_frame_last_summarizer_response_details = (
             build_runtime_summarizer_response_details(
                 response,
                 extracted_memory=updated_memory,
@@ -559,7 +559,7 @@ async def summarize_runtime_memory(
                     previous_memory=current_memory,
                     candidate_memory=updated_memory,
                     summarizer_response_details=(
-                        context.runtime_l1_last_summarizer_response_details
+                        context.runtime_frame_last_summarizer_response_details
                     ),
                 ),
                 fallback_channel="error",
@@ -592,7 +592,7 @@ async def summarize_runtime_memory(
                 context, source_turns=[{"turn_id": source_turn_id}],
             )
 
-            await record_runtime_l1_diff(
+            await record_runtime_frame_diff(
                 context,
                 snapshot,
                 turns=[
@@ -716,7 +716,7 @@ async def summarize_runtime_memory_pending_turns(
         updated_memory = normalize_compound_runtime_memory_lines(
             updated_memory
         )
-        context.runtime_l1_last_summarizer_response_details = (
+        context.runtime_frame_last_summarizer_response_details = (
             build_runtime_summarizer_response_details(
                 response,
                 extracted_memory=updated_memory,
@@ -745,7 +745,7 @@ async def summarize_runtime_memory_pending_turns(
                     previous_memory=initial_memory,
                     candidate_memory=updated_memory,
                     summarizer_response_details=(
-                        context.runtime_l1_last_summarizer_response_details
+                        context.runtime_frame_last_summarizer_response_details
                     ),
                 ),
                 fallback_channel="error",
@@ -785,7 +785,7 @@ async def summarize_runtime_memory_pending_turns(
                 context.runtime_memory_pending_base_updates = (
                     context.runtime_memory_updates
                 )
-                persist_pending_l1_update(
+                persist_pending_frame_update(
                     context
                 )
 
@@ -793,7 +793,7 @@ async def summarize_runtime_memory_pending_turns(
                 context, source_turns=turns,
             )
 
-            await record_runtime_l1_diff(
+            await record_runtime_frame_diff(
                 context,
                 snapshot,
                 turns=turns,
@@ -946,12 +946,12 @@ def resume_runtime_memory_pending_update(
         base_updates = 0
         current_updates = 0
 
-    # The pending journal records the L1 revision that existed before the
+    # The pending journal records the FRAME revision that existed before the
     # request. A newer persisted revision proves that the browser already
     # received this commit; otherwise replay is the safe crash-recovery path.
     if current_updates > base_updates:
         context.runtime_memory_pending_turns = []
-        clear_pending_l1_update(
+        clear_pending_frame_update(
             context
         )
         return None
@@ -980,10 +980,10 @@ def schedule_runtime_memory_update(
     # textual signal of their own. Previously such turns were skipped
     # outright — but "the model produced nothing" is itself a fact
     # (e.g. the user explicitly asked for a blank/empty reply and got
-    # one), and silently dropping the turn means L1 never learns the
+    # one), and silently dropping the turn means FRAME never learns the
     # request happened at all. Instead of skipping, such turns are still
     # enqueued with an explicit placeholder describing the emptiness, so
-    # L1 records the exchange as resolved rather than losing it.
+    # FRAME records the exchange as resolved rather than losing it.
     if (
             not assistant_message.strip()
             and not getattr(
@@ -1013,7 +1013,7 @@ def schedule_runtime_memory_update(
             0,
         )
 
-    persist_pending_l1_update(
+    persist_pending_frame_update(
         context
     )
 
@@ -1112,7 +1112,7 @@ async def cancel_runtime_memory_update(
 async def discard_latest_runtime_memory_pending_turn(
         context,
 ) -> bool:
-    """Drop the pending L1 turn that is being replaced by a user retry."""
+    """Drop the pending FRAME turn that is being replaced by a user retry."""
 
     await cancel_runtime_memory_update(
         context
@@ -1134,7 +1134,7 @@ async def discard_latest_runtime_memory_pending_turn(
     context.runtime_memory_pending_turns = pending_turns
 
     if pending_turns:
-        persist_pending_l1_update(
+        persist_pending_frame_update(
             context
         )
         resume_runtime_memory_pending_update(
@@ -1146,7 +1146,7 @@ async def discard_latest_runtime_memory_pending_turn(
             "runtime_memory_updates",
             0,
         )
-        clear_pending_l1_update(
+        clear_pending_frame_update(
             context
         )
 

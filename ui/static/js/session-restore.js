@@ -443,7 +443,7 @@
       return merged;
     }
 
-    // The RESTORE endpoint owns archived dialogue, reasoning and L1. A local
+    // The RESTORE endpoint owns archived dialogue, reasoning and FRAME. A local
     // checkpoint for the same session may contain a newer room/logger
     // projection, but it must never replace only one side of the archived
     // conversation and create a mixed bootstrap prompt.

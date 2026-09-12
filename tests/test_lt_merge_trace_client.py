@@ -306,7 +306,7 @@ assert.equal(traceModalTitle.textContent, "FRAME SUMMARIZER REQUEST");
 assert.ok(traceModalContent.textContent.includes("test-model"));
 assert.ok(traceModalContent.textContent.includes("Summarize frame"));
 const count = consoleStream.children.length;
-frameEmit("summarizer_stream_chunk", "ignored old stream", "L1");
+frameEmit("summarizer_stream_chunk", "ignored old stream", "FRAME");
 assert.equal(consoleStream.children.length, count);
 const frameResponse = JSON.stringify({kind: "summarizer_response", model: "test-model",
   content: "raw model answer", reasoning_content: "private dump",
@@ -333,9 +333,9 @@ assert.deepEqual(snapshot(traceModalContent), frameDOM);
 frame.extract.click();
 assert.equal(traceModalTitle.textContent, "FRAME SUMMARIZER REQUEST");
 for (const event of ["summarizer_failed", "summarizer_skipped", "summarizer_cancelled"]) {
-  const pending = frameEmit("summarizer_request", frameRequest, "L1");
+  const pending = frameEmit("summarizer_request", frameRequest, "FRAME");
   assert.notEqual(pending, frame);
-  assert.equal(frameEmit(event, "Failure detail", "L1"), pending);
+  assert.equal(frameEmit(event, "Failure detail", "FRAME"), pending);
   assert.equal(pending.complete, true);
   assert.equal(pending.extract.dataset.status, "failed");
   assert.equal(pending.showButton.disabled, true);

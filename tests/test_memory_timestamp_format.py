@@ -4,7 +4,7 @@ import json
 import re
 import unittest
 
-from runtime.L1_memory_utils import format_runtime_memory_lifecycle_timestamp
+from runtime.frame_memory_utils import format_runtime_memory_lifecycle_timestamp
 from utils.actions.active_memory_utils import refresh_active_memory_runtime_metadata
 from utils.brain_client_utils import build_delayed_memory_report
 from utils.time_utils import format_utc_iso, utc_now_iso

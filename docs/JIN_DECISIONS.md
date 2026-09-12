@@ -331,11 +331,11 @@ The existing JIN skeleton already has state, named prompt sections, dynamic cont
 
 ## D024 — `FRAME` is the canonical product name for live runtime memory
 
-**Status:** Accepted / implemented in product/docs; code naming cleanup is transitional
+**Status:** Accepted / implemented
 
 The first memory-panel tab is labelled `FRAME`, Brain context exposes it as `<FRAME_MEMORY_N>`, and current documentation uses FRAME for the live runtime-memory concept everywhere. It retains snapshot/diff paging and remains distinct from Active, Delayed, L-T, Files, and durable checkpoints.
 
-Some source filenames, field names, tests, and compatibility readers still use the previous internal name. Those are migration/code-cleanup residue and must not be documented as a separate memory layer. Rename code only in an explicit cleanup task that traces storage/events/bootstrap compatibility end-to-end.
+Implementation modules, state fields, events, pending journals, UI identifiers, and tests use FRAME naming. The previous internal name has no compatibility reader or fallback path; old pending journals and wire events are intentionally unsupported.
 
 The memory panel always exposes exactly five tabs: `FRAME`, `ACTIVE`, `DELAYED`, `L-T`, and `FILES`. The temporary unprocessed-facts view is not part of this tab bar. The shared count/paging control sits below the active tab; arrows are visible only for `FRAME`.
 

@@ -114,7 +114,7 @@ class UnclosedRuntimeTests(IsolatedAsyncioTestCase):
             _build_failed_runtime_action_marker,
         )
         from runtime.stream import RuntimeStream
-        from runtime.L1_memory_utils import build_runtime_session_checkpoint
+        from runtime.frame_memory_utils import build_runtime_session_checkpoint
         from websocket.bootstrap import clean_bootstrap_tool_results
         from utils.context.tool_results import build_tool_results_context
         from tests.test_runtime_stream_tokens import FakeEmitter, FakeLogger, FakeWebSocket

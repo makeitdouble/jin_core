@@ -147,7 +147,7 @@ class LazyChatLogTests(unittest.TestCase):
 
 class CancelledBootstrapLogTests(unittest.IsolatedAsyncioTestCase):
     async def test_frame_emission_and_refresh_write_archive_without_blocking_on_disk_error(self):
-        from runtime.L1_memory_utils import emit_runtime_memory_update, emit_runtime_memory_snapshot_refresh
+        from runtime.frame_memory_utils import emit_runtime_memory_update, emit_runtime_memory_snapshot_refresh
         from runtime.runtime_context import RuntimeContext
 
         with ExitStack() as stack:

@@ -3150,7 +3150,7 @@ def get_conversation_activity_diff(
     patch_sources = (
         getattr(
             context,
-            "runtime_l1_diff_history",
+            "runtime_frame_diff_history",
             None,
         )
         or getattr(

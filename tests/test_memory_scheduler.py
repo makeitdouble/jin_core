@@ -2,7 +2,7 @@ import unittest
 from types import (
     SimpleNamespace,
 )
-from runtime.L1_memory import (
+from runtime.frame_memory import (
     schedule_interrupted_runtime_memory_update,
     schedule_runtime_memory_update,
     summarize_runtime_memory_pending_turns,

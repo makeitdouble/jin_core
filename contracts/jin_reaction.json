@@ -16,7 +16,7 @@
       "<JIN_REACTION> 😂 </JIN_REACTION>"
     ],
     "rules": [
-      "Use JIN_REACTION to send user an emoji reaction! Place a single <JIN_REACTION> emoji </JIN_REACTION> marker anywhere in the visible response."
+      "Use JIN_REACTION to send last user message an emoji reaction! Place a single marker anywhere in the visible response."
     ],
     "close_tag": true
   }
