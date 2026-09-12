@@ -43,7 +43,10 @@ class ProjectReviewTests(unittest.TestCase):
         self.context.runtime_recent_turns = [{"user": "our prior question", "jin": "our prior answer"}]
         self.context.runtime_previous_reasoning_content = "previous thought"
         self.context.runtime_turn_reasoning_content = "first inspection thought"
+        # This suite uses synthetic L-T fixtures. Never let a fake websocket
+        # make those fixtures eligible for the real persistent memory store.
         self.context.delayed_memory_file_store_enabled = False
+        self.context.runtime_lt_file_store_enabled = False
 
     def action(self, action, **kwargs):
         return run_project_action(self.context, {"action": action, "attachment": self.record["id"], **kwargs})
@@ -59,9 +62,9 @@ class ProjectReviewTests(unittest.TestCase):
         self.context.runtime_loaded_delayed_memory = dict(self.context.delayed_memory_reports)
         self.context.runtime_loaded_delayed_memory_ids = ["abc123", "def456"]
         self.context.runtime_long_term_memory_store = {"facts": [
-            {"id": "F1", "key": "selected", "value": "SELECTED_FACT_VALUE"},
-            {"id": "F2", "key": "unrelated", "value": "UNRELATED_FACT_VALUE"},
-            {"id": "F3", "key": "ordinary", "value": "ORDINARY_FACT_VALUE"},
+            {"id": "F1", "key": "project_review.selected", "value": "PROJECT_REVIEW_SELECTED_FACT"},
+            {"id": "F2", "key": "project_review.unrelated", "value": "PROJECT_REVIEW_UNRELATED_FACT"},
+            {"id": "F3", "key": "project_review.ordinary", "value": "PROJECT_REVIEW_ORDINARY_FACT"},
         ]}
 
     def test_link_url_dedupe_restore_and_delete_only_descriptor(self):
@@ -206,7 +209,7 @@ class ProjectReviewTests(unittest.TestCase):
     def test_clean_review_keeps_dialogue_frame_thought_and_no_memory(self):
         self.memories()
         prompt = self.prompt()
-        for value in ("SELECTED_REPORT_BODY", "UNRELATED_REPORT_BODY", "UNRELATED_REPORT_TITLE", "SELECTED_FACT_VALUE", "UNRELATED_FACT_VALUE", "ORDINARY_FACT_VALUE"):
+        for value in ("SELECTED_REPORT_BODY", "UNRELATED_REPORT_BODY", "UNRELATED_REPORT_TITLE", "PROJECT_REVIEW_SELECTED_FACT", "PROJECT_REVIEW_UNRELATED_FACT", "PROJECT_REVIEW_ORDINARY_FACT"):
             self.assertNotIn(value, prompt)
         for value in ("our prior question", "our prior answer", "task: inspect source", "previous thought"):
             self.assertIn(value, prompt)
@@ -263,10 +266,10 @@ class ProjectReviewTests(unittest.TestCase):
             base = build_brain_context(self.context, runtime_actions=BRAIN_RUNTIME_ACTIONS, include_previous_chat_messages=False, include_previous_reasoning=False, include_turn_reasoning=True)
             prompt = BrainNode.build_followup_system_prompt(base, "inspect project", context=self.context)
             self.assertIn("SELECTED_REPORT_BODY", prompt)
-            self.assertIn("SELECTED_FACT_VALUE", prompt)
+            self.assertIn("PROJECT_REVIEW_SELECTED_FACT", prompt)
             self.assertNotIn("UNRELATED_REPORT_BODY", prompt)
-            self.assertNotIn("UNRELATED_FACT_VALUE", prompt)
-            self.assertNotIn("ORDINARY_FACT_VALUE", prompt)
+            self.assertNotIn("PROJECT_REVIEW_UNRELATED_FACT", prompt)
+            self.assertNotIn("PROJECT_REVIEW_ORDINARY_FACT", prompt)
             self.assertIn("our prior question", prompt)
             self.assertIn("first inspection thought", prompt)
             self.assertIn("CUTTED", prompt)
@@ -281,7 +284,7 @@ class ProjectReviewTests(unittest.TestCase):
         self.assertNotIn("SELECTED_REPORT_BODY", self.prompt())
         self.context.runtime_attached_file_ids = []
         self.assertFalse(project_review_active(self.context))
-        self.assertIn("ORDINARY_FACT_VALUE", self.prompt())
+        self.assertIn("PROJECT_REVIEW_ORDINARY_FACT", self.prompt())
         self.assertIn("UNRELATED_REPORT_TITLE", self.prompt())
 
     def test_old_tool_memories_do_not_leak_and_write_acknowledgement_survives(self):
@@ -378,8 +381,8 @@ class ProjectReviewTests(unittest.TestCase):
             index = len(calls) - 1
             prompt = kwargs["system_prompt"]
             self.assertIn("SELECTED_REPORT_BODY", prompt)
-            self.assertIn("SELECTED_FACT_VALUE", prompt)
-            self.assertNotIn("ORDINARY_FACT_VALUE", prompt)
+            self.assertIn("PROJECT_REVIEW_SELECTED_FACT", prompt)
+            self.assertNotIn("PROJECT_REVIEW_ORDINARY_FACT", prompt)
             self.assertIn("our prior question", prompt)
             if index:
                 self.assertIn("thought-step-0", prompt)

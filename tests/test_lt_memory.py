@@ -4085,6 +4085,10 @@ class LTMemoryTests(unittest.IsolatedAsyncioTestCase):
             logger=FakeLogger(),
             clients={},
         )
+        # The report below is a fixture, not real Delayed Memory. Keep both
+        # persistent stores explicitly off even if RuntimeContext defaults change.
+        context.runtime_lt_file_store_enabled = False
+        context.delayed_memory_file_store_enabled = False
         context.runtime_long_term_memory_store = normalize_lt_store({
             "facts": [
                 {
