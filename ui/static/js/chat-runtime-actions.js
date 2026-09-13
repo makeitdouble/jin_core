@@ -245,6 +245,11 @@ const runtimeActionIconDefinitions = {
     tone: "asset",
     svg: '<path d="m12 3 8 4.5v9L12 21l-8-4.5v-9z"></path><path d="M4 7.5 12 12l8-4.5"></path><path d="M12 12v9"></path>',
   },
+  posting_board: {
+    title: "posting board",
+    tone: "asset",
+    svg: '<rect x="4" y="5" width="16" height="14" rx="1.5"></rect><path d="M8 9h8"></path><path d="M8 13h5"></path><path d="M7 3v4"></path><path d="M17 3v4"></path>',
+  },
   idle: {
     title: "idle",
     tone: "idle",
@@ -378,6 +383,78 @@ function canPreviewAssetResult(
     && assetResult.ok === true
   );
 
+}
+
+function bindPostingBoardResultPreview(
+  element,
+  postingBoardResult
+) {
+  if (!element) {
+    return;
+  }
+
+  if (element._postingBoardPreviewHandler) {
+    element.removeEventListener(
+      "click",
+      element._postingBoardPreviewHandler
+    );
+    element.removeEventListener(
+      "keydown",
+      element._postingBoardPreviewKeyHandler
+    );
+    delete element._postingBoardPreviewHandler;
+    delete element._postingBoardPreviewKeyHandler;
+  }
+
+  element.classList.remove(
+    "cursor-pointer"
+  );
+  if (element.dataset.postingBoardPreviewTitle) {
+    element.removeAttribute("title");
+    delete element.dataset.postingBoardPreviewTitle;
+  }
+  element.removeAttribute("role");
+  element.removeAttribute("tabindex");
+
+  if (
+    !postingBoardResult
+    || typeof postingBoardResult !== "object"
+  ) {
+    return;
+  }
+
+  const openPreview = () => {
+    if (typeof window.showPostingBoardTrace === "function") {
+      window.showPostingBoardTrace(
+        postingBoardResult
+      );
+      return;
+    }
+
+    if (typeof window.showTrace === "function") {
+      window.showTrace(
+        JSON.stringify(postingBoardResult, null, 2),
+        "POSTING BOARD"
+      );
+    }
+  };
+  const keyHandler = (event) => {
+    if (event.key !== "Enter" && event.key !== " ") {
+      return;
+    }
+    event.preventDefault();
+    openPreview();
+  };
+
+  element._postingBoardPreviewHandler = openPreview;
+  element._postingBoardPreviewKeyHandler = keyHandler;
+  element.addEventListener("click", openPreview);
+  element.addEventListener("keydown", keyHandler);
+  element.classList.add("cursor-pointer");
+  element.dataset.postingBoardPreviewTitle = "1";
+  element.title = "show posting board request / response";
+  element.setAttribute("role", "button");
+  element.setAttribute("tabindex", "0");
 }
 
 function runtimeActionRowIsTerminal(
@@ -1889,6 +1966,203 @@ function runtimeActionRowMatchesScope(
 
 }
 
+function normalizeRuntimeActionLifecycleStatus(value) {
+
+  return normalizeRuntimeActionKeyPart(
+    value
+  );
+
+}
+
+function isRuntimeActionLifecycleStartStatus(value) {
+
+  return [
+    "started",
+    "start",
+    "pending",
+  ].includes(
+    normalizeRuntimeActionLifecycleStatus(
+      value
+    )
+  );
+
+}
+
+function isRuntimeActionLifecycleProgressStatus(value) {
+
+  const status =
+    normalizeRuntimeActionLifecycleStatus(
+      value
+    );
+
+  return Boolean(status)
+    && !isRuntimeActionLifecycleStartStatus(
+      status
+    )
+    && status !== "summary"
+    && status !== "counter_final";
+
+}
+
+function isRuntimeActionLifecycleTerminalStatus(value) {
+
+  return [
+    "completed",
+    "complete",
+    "done",
+    "failed",
+    "interrupted",
+    "aborted",
+  ].includes(
+    normalizeRuntimeActionLifecycleStatus(
+      value
+    )
+  );
+
+}
+
+function runtimeActionRowMatchesLifecycleScope(
+  row,
+  runtimeTurnId,
+  runtimeMessageId
+) {
+
+  if (!row) {
+    return false;
+  }
+
+  const rowRuntimeTurnId =
+    normalizeRuntimeActionKeyPart(
+      row.dataset.runtimeActionRuntimeTurn
+    );
+  const normalizedRuntimeTurnId =
+    normalizeRuntimeActionKeyPart(
+      runtimeTurnId
+    );
+
+  if (
+    rowRuntimeTurnId
+    && normalizedRuntimeTurnId
+    && rowRuntimeTurnId !== normalizedRuntimeTurnId
+  ) {
+    return false;
+  }
+
+  const rowRuntimeMessageId =
+    normalizeRuntimeActionKeyPart(
+      row.dataset.runtimeActionRuntimeMessage
+    );
+  const normalizedRuntimeMessageId =
+    normalizeRuntimeActionKeyPart(
+      runtimeMessageId
+    );
+
+  if (
+    rowRuntimeMessageId
+    && normalizedRuntimeMessageId
+    && rowRuntimeMessageId !== normalizedRuntimeMessageId
+  ) {
+    return false;
+  }
+
+  return true;
+
+}
+
+function markRuntimeActionLifecyclePhase(
+  row,
+  status
+) {
+
+  if (!row) {
+    return;
+  }
+
+  const normalizedStatus =
+    normalizeRuntimeActionLifecycleStatus(
+      status
+    );
+
+  if (!normalizedStatus) {
+    return;
+  }
+
+  row.dataset.runtimeActionLifecycleStatus =
+    normalizedStatus;
+
+  if (
+    isRuntimeActionLifecycleStartStatus(
+      normalizedStatus
+    )
+  ) {
+    row.dataset.runtimeActionLifecycleStarted =
+      "true";
+    if (
+      row.dataset.runtimeActionLifecycleBound
+      !== "true"
+    ) {
+      row.dataset.runtimeActionLifecycleBound =
+        "false";
+    }
+    return;
+  }
+
+  if (
+    isRuntimeActionLifecycleProgressStatus(
+      normalizedStatus
+    )
+  ) {
+    row.dataset.runtimeActionLifecycleBound =
+      "true";
+  }
+
+}
+
+function findRuntimeActionLifecycleRow(
+  action,
+  options = {},
+  {allowBound = false} = {}
+) {
+
+  const normalizedAction =
+    normalizeRuntimeActionKeyPart(
+      action
+    );
+
+  if (
+    !normalizedAction
+    || !isRuntimeActionLifecycleProgressStatus(
+      options.status
+    )
+  ) {
+    return null;
+  }
+
+  const candidates = Array.from(
+    chatHistory.querySelectorAll(
+      `.jin-runtime-action-row[data-runtime-action="${normalizedAction}"]`
+    )
+  ).filter((row) => (
+    row.dataset.runtimeActionTurn
+      === String(jinConversationTurnCounter)
+    && row.dataset.runtimeActionCompleted !== "true"
+    && row.dataset.runtimeActionLifecycleStarted === "true"
+    && runtimeActionRowMatchesLifecycleScope(
+      row,
+      options.runtimeTurnId,
+      options.runtimeMessageId
+    )
+    && (
+      allowBound
+      || row.dataset.runtimeActionLifecycleBound
+        !== "true"
+    )
+  ));
+
+  return candidates[0] || null;
+
+}
+
 function normalizeRuntimeActionColor(value) {
 
   const match =
@@ -3241,6 +3515,13 @@ function updateRuntimeActionRow(
     );
   }
 
+  if (action === "posting_board") {
+    bindPostingBoardResultPreview(
+      label,
+      options.postingBoardResult || null
+    );
+  }
+
   if (
       ["attach_file_content", "attach_file_by_id"].includes(action)
       && typeof window.bindRuntimeActionAttachmentPreview === "function"
@@ -3544,6 +3825,26 @@ function appendRuntimeAction(
         });
     }
 
+    // Stream parsing and action execution are two separate passes. Most of
+    // the time they carry the same action id, but a regenerated/missing id
+    // must not create a second glowing row for the same logical action.
+    // Pair later running/terminal events with the oldest unbound started row
+    // in the same message scope, then adopt the execution id below. This is
+    // generic for every runtime action rather than action-specific cleanup.
+    if (!existingRow) {
+      existingRow =
+        findRuntimeActionLifecycleRow(
+          action,
+          options,
+          {
+            allowBound:
+              isRuntimeActionLifecycleTerminalStatus(
+                options.status
+              ),
+          }
+        );
+    }
+
     if (
         !existingRow
         && shouldAggregateRuntimeAction(
@@ -3637,6 +3938,10 @@ function appendRuntimeAction(
         existingRow.dataset.runtimeActionRuntimeMessage =
           String(options.runtimeMessageId);
       }
+      markRuntimeActionLifecyclePhase(
+        existingRow,
+        options.status
+      );
       removeDuplicateRuntimeActionRows(
         existingRow,
         actionKey,
@@ -3707,6 +4012,11 @@ function appendRuntimeAction(
     row.dataset.runtimeActionRuntimeMessage =
       String(options.runtimeMessageId);
   }
+
+  markRuntimeActionLifecyclePhase(
+    row,
+    options.status
+  );
 
   options = applyRuntimeActionAggregateState(
     row,
@@ -3837,6 +4147,13 @@ function appendRuntimeAction(
       )
         ? options.assetResult
         : null
+    );
+  }
+
+  if (action === "posting_board") {
+    bindPostingBoardResultPreview(
+      label,
+      options.postingBoardResult || null
     );
   }
 
@@ -3984,6 +4301,8 @@ function queueRuntimeActionAfterNextResponse(
       options.closeTag === true,
     assetResult:
       options.assetResult || null,
+    postingBoardResult:
+      options.postingBoardResult || null,
     attachmentResult:
       options.attachmentResult || null,
     detail:
@@ -4042,6 +4361,8 @@ function flushRuntimeActionsAfterResponse(
           entry.closeTag === true,
         assetResult:
           entry.assetResult || null,
+        postingBoardResult:
+          entry.postingBoardResult || null,
         attachmentResult:
           entry.attachmentResult || null,
         detail:
@@ -4123,6 +4444,26 @@ function fadeRuntimeAction(
         options.runtimeMessageId
       )
     ));
+  }
+
+  // Last-resort lifecycle reconciliation for terminal events that arrive
+  // without a matching execution id (or without a renderable terminal
+  // label). This retires the original started bubble instead of leaving a
+  // permanent glow behind.
+  if (!rows.length) {
+    const lifecycleRow =
+      findRuntimeActionLifecycleRow(
+        action,
+        {
+          ...options,
+          status: options.status || "completed",
+        },
+        {allowBound: true}
+      );
+
+    if (lifecycleRow) {
+      rows = [lifecycleRow];
+    }
   }
 
   if (

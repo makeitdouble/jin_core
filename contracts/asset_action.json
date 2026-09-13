@@ -21,11 +21,10 @@
     ],
     "rules": [
       "Project actions read the active local source root.",
-      "As soon as the user links any project folder in the UI, the implicit JIN source root is disabled and normal linked-project / PROJECT_REVIEW behavior applies unchanged.",
-      "project_tree lists file/folder paths. Start project review with path \".\" and the default depth; use depth 2..20 only for deliberate drill-down, preferably on a specific subfolder. Returned paths are always rooted at the visible attached-folder name, e.g. jin_core/docs/ and jin_core/docs/file.md.",
+      "project_tree lists file/folder paths. Start project review with path \".\" and the default depth; use depth 2..20 only for deliberate drill-down, preferably on a specific subfolder.",
       "project_search searches file contents, not filenames. query is literal text, case-insensitive.",
       "offset is the number of results to skip (default 0). limit is the maximum number of returned paths or matching lines (default 100, allowed 1..200). For a next page, use the returned offset and keep the other inputs unchanged. A larger limit or offset does not extend the scan.",
-      "To inspect a file copy the returned folder-rooted path into ATTACH_FILE_CONTENT, optionally with #Lstart-Lend."
+      "To inspect a file copy the returned folder-rooted path into ATTACH_FILE_CONTENT, optionally with #Lstart-Lend for example L1-L101."
     ],
     "close_tag": true
   }

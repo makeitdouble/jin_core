@@ -12,6 +12,7 @@ from contracts.rules_assembler import (
     RUNTIME_ACTION_DEEP_WEB_SEARCH,
     RUNTIME_ACTION_LOAD_DELAYED_MEMORY,
     RUNTIME_ACTION_LOAD_SKILL,
+    RUNTIME_ACTION_POSTING_BOARD,
     RUNTIME_ACTION_ASSET_ACTION,
     RUNTIME_ACTION_JIN_COLOR,
     RUNTIME_ACTION_JIN_REACTION,
@@ -115,6 +116,26 @@ def get_response_enabled_runtime_actions(
         enabled_actions.remove(
             RUNTIME_ACTION_SAVE_DELAYED_MEMORY
         )
+
+    if RUNTIME_ACTION_POSTING_BOARD in enabled_actions:
+        loaded_skill_names = {
+            normalize_skill_name(
+                skill.get("name", "")
+            )
+            for skill in (
+                getattr(
+                    context,
+                    "runtime_loaded_skills",
+                    [],
+                )
+                or []
+            )
+            if isinstance(skill, dict)
+        }
+        if "posting_board" not in loaded_skill_names:
+            enabled_actions.remove(
+                RUNTIME_ACTION_POSTING_BOARD
+            )
 
     return tuple(
         enabled_actions
@@ -466,6 +487,7 @@ async def ask_brain_stream(
     runtime_actions=None,
     filter_runtime_actions: bool = True,
     action_user_message: str | None = None,
+    context_window_prepared: bool = False,
 ):
 
     # ``text`` is the model-turn fallback payload. Internal follow-up ticks
@@ -513,15 +535,16 @@ async def ask_brain_stream(
         context=context,
     )
 
-    prepared_context_window = await prepare_current_context_window_prompt(
-        client=client,
-        context=context,
-        runtime_id=get_brain_runtime_id(),
-        system_prompt=resolved_system_prompt,
-        user_prompt=model_user_prompt,
-        force_refresh=True,
-    )
-    resolved_system_prompt = prepared_context_window.system_prompt
+    if not context_window_prepared:
+        prepared_context_window = await prepare_current_context_window_prompt(
+            client=client,
+            context=context,
+            runtime_id=get_brain_runtime_id(),
+            system_prompt=resolved_system_prompt,
+            user_prompt=model_user_prompt,
+            force_refresh=True,
+        )
+        resolved_system_prompt = prepared_context_window.system_prompt
 
     loaded_skill_marker_names = {
         normalize_skill_name(

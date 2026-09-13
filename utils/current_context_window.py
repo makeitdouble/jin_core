@@ -496,10 +496,73 @@ async def prepare_current_context_window_prompt(
         fallback_context_window=fallback_context_window,
         force_refresh=force_refresh,
     )
+
+    prompt = str(
+        system_prompt
+        or ""
+    )
+
+    if str(runtime_id or "").strip().casefold() == "brain":
+        # L-T is the one large memory inventory whose prompt projection can shrink
+        # safely. Measure the CURRENT prompt without L-T first, then keep a simple
+        # 50% -> all / 90% -> one linear budget between those points. Selection is
+        # by last_mentioned_at, while the surviving lines stay in their existing
+        # prompt order. Storage, panel order and memory-attention ordering are not
+        # touched.
+        try:
+            from runtime.LT_context_budget import (
+                calculate_lt_context_fact_limit,
+                get_lt_context_fact_ids,
+                limit_long_term_memory_context,
+                split_long_term_memory_context,
+            )
+
+            prompt_without_lt, lt_block, _lt_match = (
+                split_long_term_memory_context(
+                    prompt
+                )
+            )
+            lt_fact_ids = get_lt_context_fact_ids(
+                lt_block
+            )
+
+            if lt_fact_ids and context_window > 0:
+                base_prepared = annotate_current_context_window(
+                    context=context,
+                    runtime_id=runtime_id,
+                    system_prompt=prompt_without_lt,
+                    user_prompt=user_prompt,
+                    context_window=context_window,
+                )
+                fact_limit = calculate_lt_context_fact_limit(
+                    total_facts=len(lt_fact_ids),
+                    used_tokens_without_lt=base_prepared.used_tokens,
+                    context_window=context_window,
+                )
+                prompt = limit_long_term_memory_context(
+                    context=context,
+                    system_prompt=prompt,
+                    fact_limit=fact_limit,
+                )
+                context.runtime_lt_context_budget = {
+                    "used_tokens_without_lt": base_prepared.used_tokens,
+                    "context_window": context_window,
+                    "usage_without_lt": round(
+                        base_prepared.used_tokens / context_window,
+                        4,
+                    ),
+                    "available_facts": len(lt_fact_ids),
+                    "loaded_facts": fact_limit,
+                }
+        except Exception:
+            # Prompt budgeting must be fail-open: if anything about the optional
+            # projection fails, keep the historical all-facts prompt intact.
+            pass
+
     prepared = annotate_current_context_window(
         context=context,
         runtime_id=runtime_id,
-        system_prompt=system_prompt,
+        system_prompt=prompt,
         user_prompt=user_prompt,
         context_window=context_window,
     )

@@ -4993,6 +4993,127 @@ function renderContextSnapshotTrace(snapshot) {
   traceModalContent.appendChild(stack);
 }
 
+function renderPostingBoardTrace(result) {
+  const trace =
+    result && typeof result === "object"
+      ? result
+      : {};
+  const request =
+    trace.request && typeof trace.request === "object"
+      ? trace.request
+      : {};
+  const response =
+    trace.response;
+  const requestLines = [];
+
+  if (request.method || request.path) {
+    requestLines.push(
+      `${String(request.method || "REQUEST").toUpperCase()} ${String(request.path || "")}`.trim()
+    );
+  }
+  if (request.headers && Object.keys(request.headers).length) {
+    requestLines.push(
+      "",
+      "headers:",
+      JSON.stringify(request.headers, null, 2)
+    );
+  }
+  if (request.query && Object.keys(request.query).length) {
+    requestLines.push(
+      "",
+      "query:",
+      JSON.stringify(request.query, null, 2)
+    );
+  }
+  if (request.body !== undefined) {
+    requestLines.push(
+      "",
+      "body:",
+      JSON.stringify(request.body, null, 2)
+    );
+  }
+
+  const responseText =
+    typeof response === "string"
+      ? response
+      : JSON.stringify(
+          response === undefined ? null : response,
+          null,
+          2
+        );
+  const stack = contextElement(
+    "div",
+    "jin-context-stack"
+  );
+  const action = String(
+    trace.action || "unknown"
+  ).trim().toUpperCase();
+  const requestMeta = [
+    `ACTION ${action}`,
+  ];
+  const responseMeta = [];
+
+  if (trace.status_code !== undefined && trace.status_code !== null) {
+    responseMeta.push(
+      `HTTP ${trace.status_code}`
+    );
+  }
+  responseMeta.push(
+    trace.ok === false ? "FAILED" : "SUCCESS"
+  );
+
+  appendContextCard(stack, {
+    title: "REQUEST",
+    content: requestLines.join("\n") || "<no request was sent>",
+    attributes: requestMeta,
+    xml: false,
+    metaLabel: request.method
+      ? String(request.method).toUpperCase()
+      : "local validation",
+    renderBody: (body) => {
+      body.appendChild(
+        contextElement(
+          "pre",
+          "jin-context-raw",
+          requestLines.join("\n") || "<no request was sent>"
+        )
+      );
+    },
+  });
+
+  appendContextCard(stack, {
+    title: "RESPONSE",
+    content: responseText || "<empty>",
+    attributes: responseMeta,
+    xml: false,
+    metaLabel:
+      trace.status_code !== undefined && trace.status_code !== null
+        ? `HTTP ${trace.status_code}`
+        : (trace.ok === false ? "failed before HTTP" : "result"),
+    renderBody: (body) => {
+      body.appendChild(
+        contextElement(
+          "pre",
+          "jin-context-raw",
+          responseText || "<empty>"
+        )
+      );
+    },
+  });
+
+  if (trace.ok === false && (trace.detail || trace.error)) {
+    appendContextCard(stack, {
+      title: "ERROR",
+      content: String(trace.detail || trace.error || "failed"),
+      attributes: [String(trace.error || "failed").toUpperCase()],
+      xml: false,
+      metaLabel: "runtime",
+    });
+  }
+
+  traceModalContent.appendChild(stack);
+}
+
 function renderTraceDetails(
   details,
   title = "Trace",
@@ -5019,6 +5140,19 @@ function renderTraceDetails(
     );
     traceModalCopyButton.title =
       "Copy raw context";
+  }
+
+  if (
+    structuredTrace
+    && structuredTrace.kind === "posting_board"
+  ) {
+    traceModal.classList.remove(
+      "jin-context-trace-modal"
+    );
+    renderPostingBoardTrace(
+      structuredTrace.result || {}
+    );
+    return;
   }
 
   const contextSnapshot =
@@ -5229,7 +5363,31 @@ function showTrace(
   );
 }
 
+function showPostingBoardTrace(result) {
+  const trace =
+    result && typeof result === "object"
+      ? result
+      : {};
+  const action = String(
+    trace.action || "unknown"
+  ).trim().toUpperCase();
+  const reason =
+    trace.ok === false
+      ? String(trace.detail || trace.error || "failed")
+      : null;
 
+  showTrace(
+    "",
+    `POSTING BOARD · ${action}`,
+    reason,
+    {
+      kind: "posting_board",
+      result: trace,
+    }
+  );
+}
 
 window.showTrace =
   showTrace;
+window.showPostingBoardTrace =
+  showPostingBoardTrace;

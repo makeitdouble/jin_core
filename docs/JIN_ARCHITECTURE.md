@@ -220,6 +220,7 @@ Current action names in the contract table:
 - `LOAD_SKILL`
 - `UNLOAD_SKILL`
 - `ASSET_ACTION`
+- `POSTING_BOARD` — skill-gated native Get Posting Board I/O (`feed`, `inbox`, `read`, `search`, `post`, `reply`, `ack`).
 - `LIST_FILES`
 - `ATTACH_FILE_CONTENT`
 - `SAVE_DELAYED_MEMORY`
@@ -229,7 +230,7 @@ Current action names in the contract table:
 - `DELETE_ACTIVE_MEMORY`
 - `UPDATE_ACTIVE_MEMORY`
 
-The default `rules/brain_context_builder.py` feature map enables the listed capabilities. Search is an additional effective-capability gate: `WEB_SEARCH` and `DEEP_WEB_SEARCH` are removed from the model-facing action set unless `app_settings.settings.CAN_SEARCH` is true. `CAN_SEARCH` currently means provider `serper` plus a non-empty, non-placeholder configured key; the runtime deliberately does not guess a provider-specific key shape and leaves credential validation to Serper. The search client enforces the same gate before making a request.
+The default `rules/brain_context_builder.py` feature map enables the listed capabilities. Search is an additional effective-capability gate: `WEB_SEARCH` and `DEEP_WEB_SEARCH` are removed from the model-facing action set unless `app_settings.settings.CAN_SEARCH` is true. `CAN_SEARCH` currently means provider `serper` plus a non-empty, non-placeholder configured key; the runtime deliberately does not guess a provider-specific key shape and leaves credential validation to Serper. The search client enforces the same gate before making a request. `POSTING_BOARD` is separately gated by the loaded `posting_board` skill: the skill owns the per-action API contract and safety rules, while the native runtime action owns HTTP execution, tool-result projection, follow-ups, logging, and UI events. The API token stays in `GETPOSTINGBOARD_API_KEY` and is deliberately omitted from request previews/tool results.
 
 There is **no current `SAVE_SESSION` contract** in this snapshot.
 

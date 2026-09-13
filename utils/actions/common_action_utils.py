@@ -27,6 +27,7 @@ from contracts.rules_assembler import (
     RUNTIME_ACTION_UNLOAD_DELAYED_MEMORY,
     RUNTIME_ACTION_SAVE_DELAYED_MEMORY,
     RUNTIME_ACTION_WEB_SEARCH,
+    RUNTIME_ACTION_POSTING_BOARD,
 )
 from contracts.rules_assembler import (
     get_close_tag_runtime_actions,
@@ -853,6 +854,7 @@ _ACTION_PAYLOAD_BUILDERS = {
     RUNTIME_ACTION_LOAD_SKILL: build_load_skill_payload,
     RUNTIME_ACTION_UNLOAD_SKILL: build_resolve_action_payload,
     RUNTIME_ACTION_ASSET_ACTION: build_asset_action_payload,
+    RUNTIME_ACTION_POSTING_BOARD: lambda payload, _: str(payload or "").strip(),
 }
 
 

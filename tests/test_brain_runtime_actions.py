@@ -122,8 +122,20 @@ def expected_enabled_runtime_actions(runtime_actions: dict) -> tuple[str, ...]:
                 "LOAD_SKILL",
                 "UNLOAD_SKILL",
                 "ASSET_ACTION",
+            )
+        )
+
+    if bool(runtime_actions.get("CAN_POSTING_BOARD", False)):
+        expected_actions.append(
+            "POSTING_BOARD"
+        )
+
+    if bool(runtime_actions.get("CAN_USE_ASSETS", False)):
+        expected_actions.extend(
+            (
                 "LIST_FILES",
                 "ATTACH_FILE_CONTENT",
+                "ATTACH_FILE_BY_ID",
             )
         )
 

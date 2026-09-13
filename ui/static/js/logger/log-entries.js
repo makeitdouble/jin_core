@@ -23,6 +23,13 @@ function getInternalActionPayload(data) {
     return null;
   }
 
+  if (
+    data.posting_board_result
+    && typeof data.posting_board_result === "object"
+  ) {
+    return data.posting_board_result;
+  }
+
   const payloadKeys = [
     "payload",
     "action_payload",

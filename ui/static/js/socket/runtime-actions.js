@@ -1195,6 +1195,7 @@ const PAYLOAD_DISTINCT_RUNTIME_ACTIONS = new Set([
   "save_delayed_memory",
   "load_delayed_memory",
   "unload_delayed_memory",
+  "posting_board",
 ]);
 
 function normalizeRuntimeActionPayloadIdentity(value) {
@@ -1660,6 +1661,8 @@ function handleRuntimeAction(
     );
 
   const runtimeDetail =
+    (action === "posting_board" ? String(data.detail || "").trim() : "")
+    ||
     (action === "chat_log_search" ? data.detail : "")
     ||
     (missingCloseTagFailure ? data.detail : "")
@@ -2352,6 +2355,8 @@ function handleRuntimeAction(
             data.context || null,
           assetResult:
             data.asset_result || null,
+          postingBoardResult:
+            data.posting_board_result || null,
           attachmentResult:
             data.attachment_result || null,
           delayedMemoryReportId:
@@ -2402,6 +2407,7 @@ function handleRuntimeAction(
           deepSearchChild,
           deepSearchParentId,
           deepSearchObjective,
+          status,
         }
       );
     }
@@ -2417,6 +2423,30 @@ function handleRuntimeAction(
   }
 
   if (!displayText.trim()) {
+    if (
+      (
+        counterFinal
+        || terminalFailure
+      )
+      && window.fadeRuntimeAction
+    ) {
+      window.fadeRuntimeAction(
+        action,
+        {
+          id: actionDisplayId,
+          runtimeTurnId,
+          runtimeMessageId,
+          sceneEffect,
+          deepSearchParent,
+          deepSearchChild,
+          deepSearchParentId,
+          deepSearchObjective,
+          status,
+          fallbackToLatestActive:
+            terminalFailure,
+        }
+      );
+    }
     return;
   }
 
@@ -2456,6 +2486,8 @@ function handleRuntimeAction(
         data.context || null,
       assetResult:
         data.asset_result || null,
+      postingBoardResult:
+        data.posting_board_result || null,
       attachmentResult:
         data.attachment_result || null,
       delayedMemoryReportId:
@@ -2503,7 +2535,8 @@ function handleRuntimeAction(
         deepSearchChild,
         deepSearchParentId,
         deepSearchObjective,
-          fallbackToLatestActive:
+        status,
+        fallbackToLatestActive:
           terminalFailure,
       }
     );

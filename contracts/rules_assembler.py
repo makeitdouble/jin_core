@@ -457,6 +457,46 @@ def _context_has_delayed_memory_reports(context=None) -> bool:
     return bool(isinstance(reports, dict) and reports)
 
 
+def _context_has_loaded_skill(
+    context=None,
+    skill_name: str = "",
+) -> bool:
+    normalized_skill_name = re.sub(
+        r"[^A-Za-z0-9]+",
+        "_",
+        str(skill_name or "").strip(),
+    ).strip("_").lower()
+    if not normalized_skill_name:
+        return False
+
+    for skill in getattr(context, "runtime_loaded_skills", []) or []:
+        if not isinstance(skill, dict):
+            continue
+
+        candidate = re.sub(
+            r"[^A-Za-z0-9]+",
+            "_",
+            str(skill.get("name", "") or "").strip(),
+        ).strip("_").lower()
+        if candidate == normalized_skill_name:
+            return True
+
+    return False
+
+
+def _runtime_action_available_in_context(
+    action_name: str,
+    context=None,
+) -> bool:
+    normalized_name = _normalize_action_name(action_name)
+    if normalized_name == "POSTING_BOARD":
+        return _context_has_loaded_skill(
+            context,
+            "posting_board",
+        )
+    return True
+
+
 def _context_has_files(context=None) -> bool:
     from utils.attached_files_store import list_file_records
 
@@ -504,6 +544,12 @@ def build_allowed_markers(
     for action in enabled_actions:
         action_name = _normalize_action_name(action)
 
+        if not _runtime_action_available_in_context(
+            action_name,
+            context,
+        ):
+            continue
+
         if (
             action_name in {"JIN_SIZE", "JIN_POSITION", "JIN_SPEED"}
             and _context_disables_jin_avatar_geometry(
@@ -548,6 +594,12 @@ def build_runtime_action_instructions(
 
     for action_name in enabled_actions:
         normalized_name = _normalize_action_name(action_name)
+
+        if not _runtime_action_available_in_context(
+            normalized_name,
+            context,
+        ):
+            continue
 
         if (
             normalized_name in {"JIN_SIZE", "JIN_POSITION", "JIN_SPEED"}
@@ -622,3 +674,4 @@ RUNTIME_ACTION_JIN_POSITION = get_runtime_action_name("jin_position")
 RUNTIME_ACTION_JIN_SPEED = get_runtime_action_name("jin_speed")
 RUNTIME_ACTION_UPDATE_LT_FACTS = get_runtime_action_name("update_lt_facts")
 RUNTIME_ACTION_RECALL_FACT_CONTEXT = get_runtime_action_name("recall_fact_context")
+RUNTIME_ACTION_POSTING_BOARD = get_runtime_action_name("posting_board")

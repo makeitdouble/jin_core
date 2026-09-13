@@ -619,7 +619,11 @@ def _append_recorded_tool_results(
             runtime_action = (
                 RUNTIME_ACTION_UPDATE_LT_FACTS
                 if kind == TOOL_RESULT_KIND_LT
-                else str(result.get("action") or "").upper()
+                else str(
+                    result.get("runtime_action_name")
+                    or result.get("action")
+                    or ""
+                ).upper()
             )
             payload = format_runtime_action_result(
                 result,

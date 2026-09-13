@@ -74,6 +74,7 @@ from contracts.rules_assembler import (
     RUNTIME_ACTION_JIN_COLOR,
     RUNTIME_ACTION_JIN_REACTION,
     RUNTIME_ACTION_JIN_SIZE,
+    RUNTIME_ACTION_POSTING_BOARD,
     RUNTIME_ACTION_SAVE_ACTIVE_MEMORY,
     RUNTIME_ACTION_UPDATE_LT_FACTS,
     RUNTIME_ACTION_UNLOAD_DELAYED_MEMORY,
@@ -207,6 +208,7 @@ class RuntimeStream:
         self.action_guard_confirmation_ids = {}
         self.jin_color_action_id = ""
         self.jin_size_action_ids = {}
+        self.posting_board_action_ids = {}
         self.deep_web_search_action_ids = {}
         self.started_deep_web_search_action_ids = []
         self.update_lt_facts_action_ids = {}
@@ -1799,6 +1801,41 @@ class RuntimeStream:
                     sequence,
                 )
                 self.jin_size_action_ids[
+                    action_key
+                ] = (action, action_id)
+
+            return action_id
+
+        if action.name == RUNTIME_ACTION_POSTING_BOARD:
+            action_key = id(action)
+            action_entry = self.posting_board_action_ids.get(
+                action_key
+            )
+            action_id = (
+                str(action_entry[1] or "").strip()
+                if (
+                    isinstance(action_entry, tuple)
+                    and len(action_entry) == 2
+                    and action_entry[0] is action
+                )
+                else ""
+            )
+
+            if not action_id:
+                sequence = int(
+                    getattr(
+                        self.context,
+                        "runtime_posting_board_action_sequence",
+                        0,
+                    )
+                    or 0
+                ) + 1
+                self.context.runtime_posting_board_action_sequence = sequence
+                action_id = build_runtime_action_id(
+                    RUNTIME_ACTION_POSTING_BOARD,
+                    sequence,
+                )
+                self.posting_board_action_ids[
                     action_key
                 ] = (action, action_id)
 

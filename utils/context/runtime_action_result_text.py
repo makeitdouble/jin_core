@@ -1,4 +1,5 @@
 # Renders runtime action results as readable text for <TOOL_RESULT> blocks.
+import json
 import re
 
 
@@ -177,6 +178,70 @@ def _failure_reason(result: dict) -> str:
     return "action failed"
 
 
+def _format_posting_board_result(result: dict) -> str:
+    action = str(result.get("action") or "unknown").strip().casefold()
+    ok = result.get("ok") is not False
+    lines = [
+        f"Posting board action: {action}",
+        f"Status: {'success' if ok else 'failed'}",
+    ]
+
+    status_code = result.get("status_code")
+    if status_code not in (None, ""):
+        lines.append(f"HTTP status: {status_code}")
+
+    if not ok:
+        lines.append(f"Reason: {_failure_reason(result)}")
+        error_code = str(result.get("error") or "").strip()
+        if error_code:
+            lines.append(f"Error code: {error_code}")
+
+    request = result.get("request")
+    if request not in (None, "", {}, []):
+        lines.extend((
+            "",
+            "Request:",
+            *[
+                f"  {line}"
+                for line in json.dumps(
+                    request,
+                    ensure_ascii=False,
+                    indent=2,
+                ).splitlines()
+            ],
+        ))
+
+    response = result.get("response")
+    if response not in (None, "", {}, []):
+        if isinstance(response, str):
+            response_text = response
+        else:
+            response_text = json.dumps(
+                response,
+                ensure_ascii=False,
+                indent=2,
+            )
+        lines.extend((
+            "",
+            "Response:",
+            *[f"  {line}" for line in response_text.splitlines()],
+        ))
+
+    if not ok:
+        schema = _action_schema("POSTING_BOARD")
+        if schema:
+            lines.extend(("", "Correct action schema:"))
+            lines.extend(
+                f"  {line}"
+                for line in schema
+            )
+
+    retry_after = str(result.get("retry_after") or "").strip()
+    if retry_after:
+        lines.extend(("", f"Retry after: {retry_after}"))
+
+    return "\n".join(lines).strip()
+
 def _action_schema(runtime_action: str) -> tuple[str, ...]:
     if not runtime_action:
         return ()
@@ -244,8 +309,16 @@ def format_runtime_action_result(
         result,
         runtime_action,
     )
+    if str(result.get("error") or "").strip().casefold() == "duplicate_action_execution":
+        return "\n".join((
+            "Status: failed",
+            "Reason: DUPLICATED ACTION EXECUTION. CHECK PREVIOUS TOOL RESULTS.",
+            "Error code: duplicate_action_execution",
+        ))
     if action_name == "MALFORMED_ACTION":
         return f"Action: {result.get('malformed_action', '')}\nPayload: {result.get('payload', '')}"
+    if action_name == "POSTING_BOARD":
+        return _format_posting_board_result(result)
     ok = result.get("ok") is not False
     if ok and action_name == "CHAT_LOG_SEARCH":
         from utils.chat_log_search import format_chat_log_search

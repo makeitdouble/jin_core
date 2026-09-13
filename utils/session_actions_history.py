@@ -1428,6 +1428,24 @@ def _build_session_action_marker_detail(
             or ""
         ).strip()
 
+    if normalized_name == "POSTING_BOARD":
+        try:
+            parsed_payload = json.loads(
+                normalized_payload
+            )
+        except (
+            TypeError,
+            ValueError,
+        ):
+            return "action:unknown"
+
+        action = str(
+            parsed_payload.get("action", "")
+            if isinstance(parsed_payload, dict)
+            else ""
+        ).strip().casefold()
+        return f"action:{action or 'unknown'}"
+
     if normalized_name == "JIN_REACTION":
         return normalize_jin_reaction_payload(
             normalized_payload
@@ -1470,6 +1488,7 @@ PAYLOAD_DISTINCT_SESSION_ACTIONS = {
     "SAVE_DELAYED_MEMORY",
     "LOAD_DELAYED_MEMORY",
     "UNLOAD_DELAYED_MEMORY",
+    "POSTING_BOARD",
 }
 
 SEPARATE_REPEATED_SESSION_ACTION_MARKER_ITEMS = {
@@ -1600,12 +1619,16 @@ def _build_payload_distinct_session_action_parts(
     chat_log_search_action = (
         action_name == "CHAT_LOG_SEARCH"
     )
+    posting_board_action = (
+        action_name == "POSTING_BOARD"
+    )
 
     if (
         len(payload_groups) <= 1
         and not skill_marker_action
         and not attachment_marker_action
         and not chat_log_search_action
+        and not posting_board_action
     ):
         return []
 
@@ -1671,6 +1694,17 @@ def _build_payload_distinct_session_action_parts(
                 part["text"] += (
                     f" : {result_counts[-1]} results"
                 )
+        elif posting_board_action:
+            action_detail = (
+                details[-1]
+                if details
+                else "action:unknown"
+            )
+            part["text"] = (
+                f"{action_name}: {action_detail}"
+            )
+            if group.get("status") == "failed":
+                part["text"] += " - failed"
         elif skill_marker_action:
             part["text"] = (
                 f"{action_name}: {display_payload}"
@@ -1943,17 +1977,24 @@ def _build_formatted_session_action_marker_parts(
         if not normalized_name:
             continue
 
+        duplicate_action_failure = (
+            marker_status == "failed"
+            and marker_failure_reason.casefold()
+            == "duplicated action execution. check previous tool results."
+        )
         preserve_failure_state = (
             normalized_name in {
                 "UPDATE_ACTIVE_MEMORY",
                 "RECALL_FACT_CONTEXT",
                 "CLEAN_TOOL_RESULTS",
+                "POSTING_BOARD",
             }
             or (
                 marker_status == "failed"
                 and marker_failure_reason.casefold()
                 == "restricted write"
             )
+            or duplicate_action_failure
         )
         group_key = (
             normalized_name,
@@ -2210,7 +2251,10 @@ def _build_formatted_session_action_marker_parts(
                         "",
                     )
                     or ""
-                ).strip().casefold() == "restricted write"
+                ).strip().casefold() in {
+                    "restricted write",
+                    "duplicated action execution. check previous tool results.",
+                }
             )
         ):
             part["text"] = (
@@ -2732,6 +2776,7 @@ def _apply_session_action_runtime_outcomes(
                 "update_active_memory",
                 "recall_fact_context",
                 "clean_tool_results",
+                "posting_board",
             }
             and not restricted_write_failure
         ):

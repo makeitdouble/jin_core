@@ -52,6 +52,12 @@ _ASSET_WRITE_PREFIXES = (
     "move_",
 )
 
+_POSTING_BOARD_WRITE_ACTIONS = {
+    "post",
+    "reply",
+    "ack",
+}
+
 
 def is_anonymous_session_id(value) -> bool:
     normalized = str(value or "").strip().casefold()
@@ -227,6 +233,12 @@ def runtime_action_write_is_restricted(
 
     if normalized_name == "ASSET_ACTION":
         return asset_action_writes_persistent_data(payload)
+
+    if normalized_name == "POSTING_BOARD":
+        return (
+            _parse_asset_action_name(payload)
+            in _POSTING_BOARD_WRITE_ACTIONS
+        )
 
     return False
 

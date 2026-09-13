@@ -1708,6 +1708,10 @@ class BrainNode(BaseNode):
                 brain_payload=effective_brain_payload,
                 runtime_actions=runtime_actions,
                 filter_runtime_actions=filter_runtime_actions,
+                # run_brain_stream already resolved/annotated the live context
+                # window above. Do not prepare it a second time in the client:
+                # L-T budgeting must run once against the full turn prompt.
+                context_window_prepared=True,
             )
 
             text = await runtime.run(
