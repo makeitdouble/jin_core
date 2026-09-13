@@ -23,7 +23,6 @@ from rules.brain_context_builder import (
 )
 from rules.runtime import (
     ACTION_FAILURE_FOLLOWUP_MESSAGE,
-    ANSWERING_RECOVERY_MESSAGE,
     CONTEXT_LIMIT_RECOVERY_MESSAGE,
     REASONING_RECOVERY_MESSAGE,
 )
@@ -502,16 +501,7 @@ def prepare_asset_results_for_turn(
     asset_results.clear()
 
 
-def build_reasoning_recovery_context(
-        reason: str = "",
-) -> str:
-
-    if str(reason or "").strip() == "same answer output":
-        return (
-            "<ANSWERING_RECOVERY>\n"
-            f"{ANSWERING_RECOVERY_MESSAGE}\n"
-            "</ANSWERING_RECOVERY>"
-        )
+def build_reasoning_recovery_context() -> str:
 
     return (
         "<REASONING_RECOVERY>\n"
@@ -1146,17 +1136,11 @@ class BrainNode(BaseNode):
             ).strip()
 
             sections.append(
-                build_reasoning_recovery_context(
-                    interruption_reason
-                )
+                build_reasoning_recovery_context()
             )
 
             if interruption_reason:
-                recovery_reason_tag = (
-                    "ANSWERING_RECOVERY_REASON"
-                    if interruption_reason == "same answer output"
-                    else "REASONING_RECOVERY_REASON"
-                )
+                recovery_reason_tag = "REASONING_RECOVERY_REASON"
                 sections.append(
                     f"<{recovery_reason_tag}>\n"
                     f'{interruption_reason}\n'

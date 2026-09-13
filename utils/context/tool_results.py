@@ -426,6 +426,19 @@ def _append_recorded_tool_results(
 
         tool_id_attr = f'tool_id="{escape(entry["tool_id"])}" ' if entry.get("tool_id") else ""
 
+        if entry.get("absorbed_by"):
+            attrs = tool_id_attr + f'name="{escape(entry.get("action_name", "runtime_action"))}"'
+            body = (
+                f'Payload: {entry.get("action_payload", "")}\n'
+                f'Result absorbed by duplicate action {entry["absorbed_by"]}.'
+            )
+            parts.append(
+                f"{_build_tool_result_open_tag(attrs, created_at=created_at, now=now)}\n"
+                f"{indent_xml(escape(body))}\n    </TOOL_RESULT>"
+            )
+            appended = True
+            continue
+
         if kind == TOOL_RESULT_KIND_SEARCH:
             search_result = strip_empty_results_xml(
                 str(

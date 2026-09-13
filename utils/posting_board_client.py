@@ -61,7 +61,11 @@ def _error_detail(body, fallback: str) -> str:
     return fallback
 
 
-async def execute_posting_board_request(payload: dict[str, Any]) -> dict[str, Any]:
+async def execute_posting_board_request(
+    payload: dict[str, Any],
+    *,
+    idempotency_key: str = "",
+) -> dict[str, Any]:
     action = str(payload.get("action") or "").strip().casefold()
     override = get_env_override(POSTING_BOARD_API_KEY_ENV)
     api_key = str(
@@ -176,7 +180,7 @@ async def execute_posting_board_request(payload: dict[str, Any]) -> dict[str, An
             "body": body_text,
         }
         headers["Content-Type"] = "application/json"
-        headers["Idempotency-Key"] = str(uuid.uuid4())
+        headers["Idempotency-Key"] = str(idempotency_key or uuid.uuid4())
 
     elif action == "reply":
         thread_id = str(payload.get("thread_id") or "").strip()
@@ -195,7 +199,7 @@ async def execute_posting_board_request(payload: dict[str, Any]) -> dict[str, An
         path = f"/v1/posts/{quote(thread_id, safe='')}/replies"
         body = {"body": body_text}
         headers["Content-Type"] = "application/json"
-        headers["Idempotency-Key"] = str(uuid.uuid4())
+        headers["Idempotency-Key"] = str(idempotency_key or uuid.uuid4())
 
     elif action == "ack":
         try:
@@ -225,13 +229,28 @@ async def execute_posting_board_request(payload: dict[str, Any]) -> dict[str, An
         body = {"through": through}
         headers["Content-Type"] = "application/json"
 
+    elif action == "delete":
+        post_id = str(payload.get("post_id") or "").strip()
+        if not post_id:
+            return {
+                "ok": False,
+                "runtime_action_name": "POSTING_BOARD",
+                "action": action,
+                "error": "invalid_payload",
+                "detail": "delete requires post_id",
+                "request": {},
+                "response": None,
+            }
+        method = "DELETE"
+        path = f"/v1/posts/{quote(post_id, safe='')}"
+
     else:
         return {
             "ok": False,
             "runtime_action_name": "POSTING_BOARD",
             "action": action or "unknown",
             "error": "unknown_posting_board_action",
-            "detail": "supported actions: feed, inbox, read, search, post, reply, ack",
+            "detail": "supported actions: feed, inbox, read, search, post, reply, ack, delete",
             "request": {},
             "response": None,
         }

@@ -96,6 +96,7 @@ from utils.actions.chat_log_search_actions import apply_chat_log_search_actions
 from utils.actions.posting_board_actions import (
     apply_posting_board_actions,
     build_posting_board_display_text,
+    canonical_posting_board_payload,
     posting_board_action_name,
 )
 from utils.actions.jin_visual_sequence_actions import (
@@ -120,63 +121,6 @@ from utils.brain_client_utils import (
     normalize_active_memory_runtime_payload,
     resolve_runtime_action_user_message,
 )
-
-
-DUPLICATE_ACTION_EXECUTION_ERROR = "duplicate_action_execution"
-DUPLICATE_ACTION_EXECUTION_MESSAGE = (
-    "DUPLICATED ACTION EXECUTION. CHECK PREVIOUS TOOL RESULTS."
-)
-
-
-def _canonical_runtime_action_payload(payload) -> str:
-    """Build a stable identity for exact/concrete action payload deduping."""
-
-    normalized = str(payload or "").strip()
-    if not normalized:
-        return ""
-
-    try:
-        parsed = json.loads(normalized)
-    except (TypeError, ValueError, json.JSONDecodeError):
-        return normalized
-
-    if not isinstance(parsed, (dict, list)):
-        return normalized
-
-    return json.dumps(
-        parsed,
-        ensure_ascii=False,
-        sort_keys=True,
-        separators=(",", ":"),
-    )
-
-
-def _runtime_action_execution_signature(action) -> str:
-    action_name = str(getattr(action, "name", "") or "").strip().upper()
-    if not action_name:
-        return ""
-
-    return (
-        f"{action_name}\0"
-        f"{_canonical_runtime_action_payload(getattr(action, 'payload', ''))}"
-    )
-
-
-def _duplicate_runtime_action_result(action) -> dict:
-    action_name = str(getattr(action, "name", "") or "").strip().upper()
-    result_action = action_name.casefold()
-    if action_name == RUNTIME_ACTION_POSTING_BOARD:
-        result_action = posting_board_action_name(
-            getattr(action, "payload", "")
-        ) or "unknown"
-
-    return {
-        "ok": False,
-        "runtime_action_name": action_name,
-        "action": result_action,
-        "error": DUPLICATE_ACTION_EXECUTION_ERROR,
-        "detail": DUPLICATE_ACTION_EXECUTION_MESSAGE,
-    }
 
 
 async def apply_runtime_action_calls(
@@ -346,6 +290,7 @@ async def apply_runtime_action_calls(
         if event.get("name") == RUNTIME_ACTION_DEEP_WEB_SEARCH.lower()
     )
 
+    reused_count = 0
     accepted_action_names = set()
 
     search_calls = []
@@ -417,42 +362,6 @@ async def apply_runtime_action_calls(
         )
         or ""
     ).strip()
-
-    consecutive_action_dedup_state = getattr(
-        context,
-        "runtime_consecutive_action_dedup_state",
-        None,
-    )
-    if current_turn_id:
-        if (
-            not isinstance(consecutive_action_dedup_state, dict)
-            or consecutive_action_dedup_state.get("turn_id") != current_turn_id
-        ):
-            consecutive_action_dedup_state = {
-                "turn_id": current_turn_id,
-                "last_signature": "",
-                "last_runtime_message_id": "",
-            }
-            context.runtime_consecutive_action_dedup_state = (
-                consecutive_action_dedup_state
-            )
-        consecutive_action_signature = str(
-            consecutive_action_dedup_state.get("last_signature", "")
-            or ""
-        )
-        consecutive_action_runtime_message_id = str(
-            consecutive_action_dedup_state.get(
-                "last_runtime_message_id",
-                "",
-            )
-            or ""
-        )
-    else:
-        # Without a turn boundary, disable cross-message dedupe so an
-        # unrelated later request cannot be mistaken for the same agent loop.
-        consecutive_action_dedup_state = None
-        consecutive_action_signature = ""
-        consecutive_action_runtime_message_id = ""
 
     runtime_action_dedup_scope = resolved_runtime_message_id
     runtime_action_seen_keys = set()
@@ -532,6 +441,10 @@ async def apply_runtime_action_calls(
                 RUNTIME_ACTION_UNLOAD_SKILL,
             }:
                 payload_identity = normalize_skill_name(
+                    action.payload
+                )
+            elif action_name == RUNTIME_ACTION_POSTING_BOARD:
+                payload_identity = canonical_posting_board_payload(
                     action.payload
                 )
             else:
@@ -911,57 +824,15 @@ async def apply_runtime_action_calls(
             rejected_action_events[id(action)] = rejection_event
             continue
 
-        action_execution_signature = _runtime_action_execution_signature(
-            action
-        )
-        if (
-            action_execution_signature
-            and action_execution_signature == consecutive_action_signature
-            and bool(
-                getattr(
-                    context,
-                    "runtime_followup_tick_active",
-                    False,
-                )
-            )
-            and resolved_runtime_message_id
-            and consecutive_action_runtime_message_id
-            and resolved_runtime_message_id != consecutive_action_runtime_message_id
+        from utils.actions.result_reuse import reuse_action_result
+        if await reuse_action_result(
+            context, action, runtime_message_id=resolved_runtime_message_id,
+            action_display_ids=action_display_ids,
+            with_action_context=with_action_context,
         ):
-            if action.name == RUNTIME_ACTION_POSTING_BOARD:
-                duplicate_title = build_posting_board_display_text(
-                    action.payload,
-                    failed=True,
-                )
-            else:
-                duplicate_title = build_runtime_action_display_text(
-                    action.name,
-                    action.payload,
-                )
-                if duplicate_title:
-                    duplicate_title += " - failed"
-                else:
-                    duplicate_title = f"{action.name} - failed"
-
-            rejected_action_events[id(action)] = {
-                "status": "failed",
-                "error": DUPLICATE_ACTION_EXECUTION_ERROR,
-                "title": duplicate_title,
-                "failure_reason": DUPLICATE_ACTION_EXECUTION_MESSAGE,
-                "_tool_result": _duplicate_runtime_action_result(action),
-            }
+            accept_runtime_action_once_per_message(action)
+            reused_count += 1
             continue
-
-        if action_execution_signature:
-            consecutive_action_signature = action_execution_signature
-            consecutive_action_runtime_message_id = resolved_runtime_message_id
-            if consecutive_action_dedup_state is not None:
-                consecutive_action_dedup_state["last_signature"] = (
-                    action_execution_signature
-                )
-                consecutive_action_dedup_state["last_runtime_message_id"] = (
-                    resolved_runtime_message_id
-                )
 
         if action.name == RUNTIME_ACTION_JIN_REACTION:
             if not accept_runtime_action_once_per_message(
@@ -1369,7 +1240,7 @@ async def apply_runtime_action_calls(
         not filtered_actions
         and not rejected_action_events
     ):
-        return 0
+        return reused_count
 
     accepted_action_ids = {
         id(action)
@@ -1474,6 +1345,8 @@ async def apply_runtime_action_calls(
         ).strip()
         if runtime_turn_id:
             action_event["runtime_turn_id"] = runtime_turn_id
+        if resolved_runtime_message_id:
+            action_event["runtime_message_id"] = resolved_runtime_message_id
 
         query = ""
         chat_log_search_query = ""
@@ -1643,37 +1516,6 @@ async def apply_runtime_action_calls(
             action_event
         )
 
-        if rejected_event is not None:
-            duplicate_tool_result = rejected_event.get(
-                "_tool_result"
-            )
-            if isinstance(duplicate_tool_result, dict):
-                duplicate_tool_result = dict(duplicate_tool_result)
-                if action_display_id:
-                    duplicate_tool_result["id"] = action_display_id
-                record_runtime_tool_result(
-                    context,
-                    TOOL_RESULT_KIND_RUNTIME_ACTION,
-                    duplicate_tool_result,
-                )
-
-                logger = getattr(
-                    context,
-                    "logger",
-                    None,
-                )
-                log_runtime = getattr(
-                    logger,
-                    "log_runtime",
-                    None,
-                )
-                if log_runtime is not None:
-                    await log_runtime(
-                        "[RUNTIME ACTION] "
-                        f"{action.name.lower()} failed: "
-                        f"{DUPLICATE_ACTION_EXECUTION_ERROR}"
-                    )
-
         if rejected_event is None:
             runtime_action_display_name = (
                 get_runtime_action_display_name(
@@ -1793,7 +1635,6 @@ async def apply_runtime_action_calls(
                     and rejected_event.get("error") not in {
                         "behavior_contract_blocker_matched",
                         "restricted_write",
-                        DUPLICATE_ACTION_EXECUTION_ERROR,
                     }
                     and not runtime_action_follows_up_on_fail(
                         action.name
@@ -1899,7 +1740,7 @@ async def apply_runtime_action_calls(
         and not rejected_active_memory_results
         and not rejected_action_events
     ):
-        return 0
+        return reused_count
 
     save_active_memory_actions = [
         action
@@ -2331,4 +2172,4 @@ async def apply_runtime_action_calls(
         },
     )
 
-    return applied_count
+    return applied_count + reused_count

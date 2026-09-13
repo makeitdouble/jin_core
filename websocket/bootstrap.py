@@ -1476,6 +1476,9 @@ def clean_bootstrap_tool_results(value) -> tuple[list[dict], list]:
         tool_id = str(raw_item.get("tool_id", ""))
         if re.fullmatch(r"T[1-9][0-9]*", tool_id):
             item["tool_id"] = tool_id
+        for key in ("action_name", "action_payload", "absorbed_by", "reused_from"):
+            if isinstance(raw_item.get(key), str):
+                item[key] = raw_item[key]
 
         created_at = 0.0
         for key in (

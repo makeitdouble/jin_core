@@ -2712,6 +2712,9 @@ def build_runtime_session_checkpoint(
             restored_item["id"] = result_id
         if item.get("tool_id"):
             restored_item["tool_id"] = item["tool_id"]
+        for key in ("action_name", "action_payload", "absorbed_by", "reused_from"):
+            if key in item:
+                restored_item[key] = item[key]
 
         created_at = item.get(
             "created_at",

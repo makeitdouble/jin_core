@@ -146,9 +146,9 @@ def build_skills_inventory_context(
     )
 
     return (
-        "<SKILLS>\n"
+        "<SKILLS_LIST>\n"
         f"{indent_xml(escape(body), spaces=4)}\n"
-        "</SKILLS>"
+        "</SKILLS_LIST>"
     )
 
 

@@ -6,14 +6,9 @@ ACTION_FAILURE_FOLLOWUP_MESSAGE = (
 )
 
 REASONING_RECOVERY_MESSAGE = (
-    "You stuck in your reasoning during previous turn. "
-    "This time you must act instantly"
-)
-
-ANSWERING_RECOVERY_MESSAGE = (
-    "Your previous answer started repeating the already visible answer. "
-    "Do not restart or repeat it. Continue from the conversation and CURRENT_REQUEST_ACTIONS_HISTORY and only "
-    "produce the remaining answer or action."
+    "!!! MANDATORY !!! You stuck in your reasoning during previous turn.\n"
+    "!!! MANDATORY !!! This time you must act instantly!.\n"
+    "!!! MANDATORY !!! Check PREVIOUS_REASONING_LOOP_CONTENT block, derive your goal AND MUST ACT INSTANTLY OUTPUT NOW !!!!!.\n"
 )
 
 CONTEXT_LIMIT_RECOVERY_MESSAGE = (
@@ -60,9 +55,9 @@ SKILL_ROUTING_RULES_ = ("\n"
     "\n"
     "SKILL ROUTING RULES:\n"
     "1. For extended tasks (e.g. file creation, console, and much more) determine whether the request requires a skill.\n"
-    "2. Check <SKILLS> for available project skills and their loaded status.\n"
+    "2. Check <SKILLS_LIST> for available project skills and their loaded status.\n"
     "3. If a relevant skill is available but not loaded, use LOAD_SKILL before using its capabilities.\n"
-    "4. Never load a skill already marked as loaded in <SKILLS>.\n"
+    "4. Never load a skill already marked as loaded in <SKILLS_LIST>.\n"
     "5. Use UNLOAD_SKILL when a loaded skill is no longer needed in the current runtime context.\n"
     "\n"
     "Do not derive skill capabilities from a skill name or filename; load the skill first and use its loaded content.\n"

@@ -32,10 +32,6 @@ from utils.chat_log import (
 from utils.stream_handler import (
     StreamHandler,
 )
-from utils.stream_validator import (
-    SAME_ANSWER_OUTPUT_REASON,
-)
-
 from utils.token_usage import (
     calibrate_runtime_token_estimate,
     get_runtime_token_estimate_scale,
@@ -234,15 +230,6 @@ class RuntimeStream:
             ),
             context_snapshot=(
                 context_snapshot
-            ),
-            previous_output=(
-                getattr(
-                    self.context,
-                    "runtime_turn_assistant_response",
-                    "",
-                )
-                if self.is_brain_context()
-                else ""
             ),
         )
 
@@ -679,26 +666,6 @@ class RuntimeStream:
         if not self.is_brain_context():
             return
 
-        validator = getattr(
-            self.stream,
-            "validator",
-            None,
-        )
-
-        if validator and (
-            getattr(
-                validator,
-                "same_output_reference_prefix",
-                "",
-            )
-            or getattr(
-                validator,
-                "last_failure_reason",
-                "",
-            ) == SAME_ANSWER_OUTPUT_REASON
-        ):
-            return
-
         self.context.runtime_turn_assistant_response = (
             strip_jin_reaction_markers(
                 self.stream.response
@@ -1052,15 +1019,9 @@ class RuntimeStream:
             or ""
         ).strip()
 
-        if reason == SAME_ANSWER_OUTPUT_REASON:
-            history_text = (
-                'stuck in answering loop reason '
-                f'"{reason}"'
-            )
-        else:
-            history_text = build_reasoning_loop_history_text(
-                quote
-            )
+        history_text = build_reasoning_loop_history_text(
+            quote
+        )
 
         record_session_action_history(
             self.context,

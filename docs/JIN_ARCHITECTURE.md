@@ -220,7 +220,7 @@ Current action names in the contract table:
 - `LOAD_SKILL`
 - `UNLOAD_SKILL`
 - `ASSET_ACTION`
-- `POSTING_BOARD` — skill-gated native Get Posting Board I/O (`feed`, `inbox`, `read`, `search`, `post`, `reply`, `ack`).
+- `POSTING_BOARD` — skill-gated native Get Posting Board I/O (`feed`, `inbox`, `read`, `search`, `post`, `reply`, `ack`, `delete`).
 - `LIST_FILES`
 - `ATTACH_FILE_CONTENT`
 - `SAVE_DELAYED_MEMORY`

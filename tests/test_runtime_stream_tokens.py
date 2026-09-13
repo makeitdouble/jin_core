@@ -12,7 +12,6 @@ from runtime.client import LMStudioAPIError
 from runtime.registry import runtime_state
 from utils.stream_validator import (
     MAX_REPEAT_SENTENCES,
-    SAME_ANSWER_OUTPUT_REASON,
 )
 from agent.nodes.brain import (
     BrainNode,
@@ -198,22 +197,6 @@ async def fake_sentence_loop_generator():
         yield {
             "type": "content",
             "content": repeated,
-        }
-
-
-async def fake_same_answer_generator():
-    repeated = (
-        "This is a deliberately long visible answer that should be "
-        "recognized when the next generation actually repeats it. "
-    )
-    for content in (
-        repeated[:40],
-        repeated[40:80],
-        repeated[80:],
-    ):
-        yield {
-            "type": "content",
-            "content": content,
         }
 
 
@@ -1038,83 +1021,6 @@ class RuntimeStreamTokenTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(
             len(errors),
             1,
-        )
-
-
-    async def test_same_answer_output_is_hidden_and_arms_followup(self):
-        previous_output = (
-            "This is a deliberately long visible answer that should be "
-            "recognized when the next generation actually repeats it. "
-        )
-        active_stream = FakeActiveStream()
-        context = SimpleNamespace(
-            websocket=FakeWebSocket(),
-            logger=FakeLogger(),
-            emitter=FakeEmitter(),
-            active_streams={1: active_stream},
-            runtime_action_events=[],
-            runtime_usage_events=[],
-            runtime_turn_assistant_response=previous_output,
-            runtime_turn_interrupted=False,
-            runtime_turn_interruption_reason="",
-            runtime_turn_interruption_quote="",
-            runtime_reasoning_recovery_pending=False,
-            runtime_current_turn_id="turn-same-answer",
-            runtime_turn_started_at=0,
-            runtime_action_sequence_turn_ids=["turn-same-answer"],
-            runtime_session_action_history=[],
-        )
-        stream = RuntimeStream(
-            context=context,
-            runtime_id="brain",
-            role="brain",
-            context_window=8192,
-            log_method=context.logger.log_service,
-            context_snapshot={
-                "context_role": "brain",
-                "system_prompt": "system prompt",
-                "user_prompt": "user payload",
-            },
-        )
-
-        result = await stream.run(fake_same_answer_generator())
-
-        self.assertIsNone(result)
-        self.assertTrue(context.runtime_reasoning_recovery_pending)
-        self.assertEqual(
-            context.runtime_turn_interruption_reason,
-            SAME_ANSWER_OUTPUT_REASON,
-        )
-        self.assertEqual(
-            context.runtime_turn_assistant_response,
-            previous_output,
-        )
-        self.assertTrue(active_stream.closed)
-        self.assertFalse(any(
-            message.get("type") == "message_chunk"
-            for message in context.websocket.messages
-        ))
-        self.assertEqual(
-            context.runtime_session_action_history[-1]["text"],
-            'stuck in answering loop reason "same answer output"',
-        )
-
-        followup_prompt = BrainNode.build_followup_system_prompt(
-            "system prompt",
-            "continue immediately",
-            context=context,
-        )
-        self.assertIn(
-            "<ANSWERING_RECOVERY>\n",
-            followup_prompt,
-        )
-        self.assertIn(
-            "<ANSWERING_RECOVERY_REASON>\nsame answer output\n",
-            followup_prompt,
-        )
-        self.assertNotIn(
-            "<REASONING_RECOVERY>\n",
-            followup_prompt,
         )
 
 

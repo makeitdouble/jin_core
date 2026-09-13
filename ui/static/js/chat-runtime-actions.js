@@ -3772,6 +3772,9 @@ function appendRuntimeAction(
               action,
               options.id
             )
+            && runtimeActionRowMatchesScope(
+              row, options.runtimeTurnId, options.runtimeMessageId
+            )
             && (
               options.reuseCompleted
               || row.dataset.runtimeActionCompleted !== "true"

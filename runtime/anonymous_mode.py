@@ -56,6 +56,7 @@ _POSTING_BOARD_WRITE_ACTIONS = {
     "post",
     "reply",
     "ack",
+    "delete",
 }
 
 

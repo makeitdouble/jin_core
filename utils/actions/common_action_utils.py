@@ -161,7 +161,11 @@ def _runtime_action_allows_inline_payload(
     action_name: str,
 ) -> bool:
     return (action_name in JIN_INLINE_PAYLOAD_ACTIONS
-            or action_name in {RUNTIME_ACTION_RECALL_FACT_CONTEXT, RUNTIME_ACTION_CLEAN_TOOL_RESULTS})
+            or action_name in {
+                RUNTIME_ACTION_RECALL_FACT_CONTEXT,
+                RUNTIME_ACTION_CLEAN_TOOL_RESULTS,
+                RUNTIME_ACTION_POSTING_BOARD,
+            })
 
 
 @lru_cache(maxsize=None)

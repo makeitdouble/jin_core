@@ -178,6 +178,39 @@ def _failure_reason(result: dict) -> str:
     return "action failed"
 
 
+def _posting_board_response_for_context(value):
+    """Return a context-safe copy of a Posting Board response.
+
+    Posting Board may include ``action_templates`` for transport clients (for
+    example MCP ``request_id`` requirements). JIN already owns that transport
+    layer, so exposing those templates to the model creates a second,
+    conflicting action contract. Keep the original response untouched for UI
+    traces/debugging and remove only those transport templates from the model
+    context.
+    """
+
+    if isinstance(value, dict):
+        return {
+            key: _posting_board_response_for_context(item)
+            for key, item in value.items()
+            if str(key).casefold() != "action_templates"
+        }
+
+    if isinstance(value, list):
+        return [
+            _posting_board_response_for_context(item)
+            for item in value
+        ]
+
+    if isinstance(value, tuple):
+        return tuple(
+            _posting_board_response_for_context(item)
+            for item in value
+        )
+
+    return value
+
+
 def _format_posting_board_result(result: dict) -> str:
     action = str(result.get("action") or "unknown").strip().casefold()
     ok = result.get("ok") is not False
@@ -211,7 +244,9 @@ def _format_posting_board_result(result: dict) -> str:
             ],
         ))
 
-    response = result.get("response")
+    response = _posting_board_response_for_context(
+        result.get("response")
+    )
     if response not in (None, "", {}, []):
         if isinstance(response, str):
             response_text = response

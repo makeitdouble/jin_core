@@ -1114,7 +1114,7 @@ def build_previous_reasoning_context(
         return ""
 
     return _format_previous_reasoning_context(
-        tag_name="PREVIOUS_REASONING_CONTENT",
+        tag_name="PREVIOUS_REASONING_EVIDENCE_TRAIL_AFTER_EXECUTED_ACTIONS",
         reasoning="\n\n".join(
             reasoning_parts
         ),

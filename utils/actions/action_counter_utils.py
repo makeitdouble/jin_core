@@ -529,6 +529,7 @@ async def emit_runtime_action_counter_updates(
 
             event["counter_id"] = (
                 f"{runtime_turn_id}:"
+                f"{resolved_runtime_message_id}:"
                 f"{entry.name.lower()}"
                 f"{counter_suffix}"
             )

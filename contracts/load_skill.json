@@ -17,7 +17,7 @@
       "<LOAD_SKILLS: name1, name2, name3 >"
     ],
     "rules": [
-      "For multiple skills use: <LOAD_SKILLS: name1, name2, name3 >"
+      "JIN must load skill before use! Available skills listed inside <SKILLS_LIST> block are titles only! Skill required to load first before use!"
     ],
     "close_tag": false
   }

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import uuid
 
 from contracts.rules_assembler import (
     RUNTIME_ACTION_POSTING_BOARD,
@@ -24,6 +25,103 @@ def parse_posting_board_payload(payload) -> dict:
         except (TypeError, ValueError, json.JSONDecodeError):
             return {}
     return value if isinstance(value, dict) else {}
+
+
+def canonical_posting_board_payload(payload) -> str:
+    parsed = parse_posting_board_payload(payload)
+    if not parsed:
+        return str(payload or "").strip()
+
+    action = str(parsed.get("action") or "").strip().casefold()
+    if action == "post":
+        parsed = {
+            "action": action,
+            "topic": str(parsed.get("topic") or "general").strip() or "general",
+            "title": str(parsed.get("title") or "").strip(),
+            "body": str(parsed.get("body") or "").strip(),
+        }
+    elif action == "reply":
+        parsed = {
+            "action": action,
+            "thread_id": str(parsed.get("thread_id") or "").strip(),
+            "body": str(parsed.get("body") or "").strip(),
+        }
+    else:
+        parsed = dict(parsed)
+        if action:
+            parsed["action"] = action
+
+    return json.dumps(
+        parsed,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+
+
+def _posting_board_idempotency_key(context, payload) -> str:
+    if posting_board_action_name(payload) not in {"post", "reply"}:
+        return ""
+
+    keys = getattr(
+        context,
+        "runtime_posting_board_idempotency_keys",
+        None,
+    )
+    if not isinstance(keys, dict):
+        keys = {}
+        context.runtime_posting_board_idempotency_keys = keys
+
+    canonical = canonical_posting_board_payload(payload)
+    key = str(keys.get(canonical) or "").strip()
+    if not key:
+        key = str(uuid.uuid4())
+        keys[canonical] = key
+    return key
+
+
+def _clear_posting_board_idempotency_key(context, payload) -> None:
+    keys = getattr(
+        context,
+        "runtime_posting_board_idempotency_keys",
+        None,
+    )
+    if not isinstance(keys, dict):
+        return
+    keys.pop(canonical_posting_board_payload(payload), None)
+
+
+def _acquire_posting_board_inflight(context, payload) -> tuple[str, bool]:
+    canonical = canonical_posting_board_payload(payload)
+    if not canonical:
+        return "", True
+
+    inflight = getattr(
+        context,
+        "runtime_posting_board_inflight_payloads",
+        None,
+    )
+    if not isinstance(inflight, set):
+        inflight = set()
+        context.runtime_posting_board_inflight_payloads = inflight
+
+    if canonical in inflight:
+        return canonical, False
+
+    inflight.add(canonical)
+    return canonical, True
+
+
+def _release_posting_board_inflight(context, canonical: str) -> None:
+    if not canonical:
+        return
+    inflight = getattr(
+        context,
+        "runtime_posting_board_inflight_payloads",
+        None,
+    )
+    if isinstance(inflight, set):
+        inflight.discard(canonical)
 
 
 def posting_board_action_name(payload) -> str:
@@ -74,76 +172,126 @@ async def apply_posting_board_actions(
         parsed = parse_posting_board_payload(action_call.payload)
         action_id = str(action_display_ids.get(id(action_call), "") or "").strip()
         if not action_id:
-            sequence = int(getattr(context, "runtime_posting_board_action_sequence", 0) or 0) + 1
+            sequence = int(
+                getattr(context, "runtime_posting_board_action_sequence", 0) or 0
+            ) + 1
             context.runtime_posting_board_action_sequence = sequence
-            action_id = build_runtime_action_id(RUNTIME_ACTION_POSTING_BOARD, sequence)
+            action_id = build_runtime_action_id(
+                RUNTIME_ACTION_POSTING_BOARD,
+                sequence,
+            )
             action_display_ids[id(action_call)] = action_id
 
         request_text = build_posting_board_display_text(action_call.payload)
-
-        if emit is not None:
-            await emit(with_action_context({
-                "type": "runtime_action",
-                "action": "posting_board",
-                "id": action_id,
-                "status": "running",
-                "display_name": get_runtime_action_display_name(RUNTIME_ACTION_POSTING_BOARD),
-                "text": request_text,
-                "payload": str(action_call.payload or "").strip(),
-                "posting_board_request": parsed,
-                "close_tag": runtime_action_has_close_tag(RUNTIME_ACTION_POSTING_BOARD),
-            }))
-
-        if not parsed:
-            result = {
-                "ok": False,
-                "runtime_action_name": "POSTING_BOARD",
-                "action": "unknown",
-                "error": "invalid_json",
-                "detail": "POSTING_BOARD payload must be one JSON object",
-                "request": {},
-                "response": None,
-            }
-        else:
-            result = await execute_posting_board_request(parsed)
-
-        result["id"] = action_id
-        record_runtime_tool_result(
+        inflight_key, acquired = _acquire_posting_board_inflight(
             context,
-            TOOL_RESULT_KIND_RUNTIME_ACTION,
-            result,
-        )
-        _update_runtime_event(
-            context,
-            action_call,
-            result=result,
-            action_id=action_id,
+            action_call.payload,
         )
 
-        if log_runtime is not None:
-            board_action = str(result.get("action") or "unknown")
-            status = "success" if result.get("ok") is not False else "failed"
-            await log_runtime(
-                f"[RUNTIME ACTION] posting_board action:{board_action} {status}"
+        try:
+            if not acquired:
+                result = {
+                    "ok": False,
+                    "runtime_action_name": "POSTING_BOARD",
+                    "action": posting_board_action_name(action_call.payload) or "unknown",
+                    "error": "duplicate_action_execution",
+                    "detail": (
+                        "DUPLICATED ACTION EXECUTION. CHECK PREVIOUS TOOL RESULTS."
+                    ),
+                    "request": {},
+                    "response": None,
+                }
+            else:
+                if emit is not None:
+                    await emit(with_action_context({
+                        "type": "runtime_action",
+                        "action": "posting_board",
+                        "id": action_id,
+                        "status": "running",
+                        "display_name": get_runtime_action_display_name(
+                            RUNTIME_ACTION_POSTING_BOARD
+                        ),
+                        "text": request_text,
+                        "payload": str(action_call.payload or "").strip(),
+                        "posting_board_request": parsed,
+                        "close_tag": runtime_action_has_close_tag(
+                            RUNTIME_ACTION_POSTING_BOARD
+                        ),
+                    }))
+
+                if not parsed:
+                    result = {
+                        "ok": False,
+                        "runtime_action_name": "POSTING_BOARD",
+                        "action": "unknown",
+                        "error": "invalid_json",
+                        "detail": "POSTING_BOARD payload must be one JSON object",
+                        "request": {},
+                        "response": None,
+                    }
+                else:
+                    result = await execute_posting_board_request(
+                        parsed,
+                        idempotency_key=_posting_board_idempotency_key(
+                            context,
+                            action_call.payload,
+                        ),
+                    )
+                    if result.get("ok") is not False:
+                        _clear_posting_board_idempotency_key(
+                            context,
+                            action_call.payload,
+                        )
+
+            result["id"] = action_id
+            record_runtime_tool_result(
+                context,
+                TOOL_RESULT_KIND_RUNTIME_ACTION,
+                result,
+            )
+            _update_runtime_event(
+                context,
+                action_call,
+                result=result,
+                action_id=action_id,
             )
 
-        if emit is not None:
-            await emit(with_action_context({
-                "type": "runtime_action",
-                "action": "posting_board",
-                "id": action_id,
-                "status": "completed" if result.get("ok") is not False else "failed",
-                "display_name": get_runtime_action_display_name(RUNTIME_ACTION_POSTING_BOARD),
-                "text": build_posting_board_display_text(
-                    action_call.payload,
-                    failed=result.get("ok") is False,
-                ),
-                "payload": str(action_call.payload or "").strip(),
-                "detail": str(result.get("detail") or "").strip(),
-                "posting_board_result": result,
-                "close_tag": runtime_action_has_close_tag(RUNTIME_ACTION_POSTING_BOARD),
-            }))
+            if log_runtime is not None:
+                board_action = str(result.get("action") or "unknown")
+                status = "success" if result.get("ok") is not False else "failed"
+                await log_runtime(
+                    f"[RUNTIME ACTION] posting_board action:{board_action} {status}"
+                )
 
-        results.append(result)
+            if emit is not None:
+                await emit(with_action_context({
+                    "type": "runtime_action",
+                    "action": "posting_board",
+                    "id": action_id,
+                    "status": (
+                        "completed" if result.get("ok") is not False else "failed"
+                    ),
+                    "display_name": get_runtime_action_display_name(
+                        RUNTIME_ACTION_POSTING_BOARD
+                    ),
+                    "text": build_posting_board_display_text(
+                        action_call.payload,
+                        failed=result.get("ok") is False,
+                    ),
+                    "payload": str(action_call.payload or "").strip(),
+                    "detail": str(result.get("detail") or "").strip(),
+                    "posting_board_result": result,
+                    "close_tag": runtime_action_has_close_tag(
+                        RUNTIME_ACTION_POSTING_BOARD
+                    ),
+                }))
+
+            results.append(result)
+        finally:
+            if acquired:
+                _release_posting_board_inflight(
+                    context,
+                    inflight_key,
+                )
 
     return results

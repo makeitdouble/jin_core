@@ -1110,6 +1110,69 @@ class BrainRuntimeActionTests(unittest.TestCase):
             ],
         )
 
+    def test_followup_without_stored_result_executes_without_duplicate_failure(self):
+
+        async def run_case():
+            context = SimpleNamespace(
+                runtime_action_events=[],
+                runtime_search_calls=[],
+                runtime_loaded_skills=[],
+                runtime_save_session_requested=False,
+                runtime_save_session_action_emitted=False,
+                runtime_skill_state_barrier_active=False,
+                runtime_current_turn_id="turn-interleaved-dedup",
+                runtime_followup_tick_active=True,
+                logger=None,
+            )
+
+            first_count = await apply_runtime_action_calls(
+                context,
+                (
+                    RuntimeActionCall(
+                        name="CLEAN_TOOL_RESULTS",
+                        payload="",
+                    ),
+                    RuntimeActionCall(
+                        name="JIN_COLOR",
+                        payload="#112233",
+                    ),
+                ),
+                runtime_message_id="message-one",
+            )
+
+            second_count = await apply_runtime_action_calls(
+                context,
+                (
+                    RuntimeActionCall(
+                        name="CLEAN_TOOL_RESULTS",
+                        payload="",
+                    ),
+                    RuntimeActionCall(
+                        name="JIN_COLOR",
+                        payload="#112233",
+                    ),
+                ),
+                runtime_message_id="message-two",
+            )
+
+            return first_count, second_count, context
+
+        first_count, second_count, context = asyncio.run(run_case())
+
+        self.assertEqual(first_count, 2)
+        self.assertEqual(second_count, 2)
+        self.assertEqual(
+            [event.get("name") for event in context.runtime_action_events],
+            [
+                "clean_tool_results",
+                "jin_color",
+                "clean_tool_results",
+                "jin_color",
+            ],
+        )
+        self.assertFalse(any(event.get("status") == "failed"
+                             for event in context.runtime_action_events[-2:]))
+
     def test_stream_groups_two_current_action_markers_into_one_history_item(self):
 
         class FakeBrainClient:
@@ -2754,7 +2817,7 @@ class BrainRuntimeActionTests(unittest.TestCase):
         assert_contains_text(
             self,
             prompt,
-            "<SKILLS>",
+            "<SKILLS_LIST>",
         )
         assert_contains_text(
             self,
@@ -2802,7 +2865,7 @@ class BrainRuntimeActionTests(unittest.TestCase):
         assert_contains_text(
             self,
             prompt,
-            "<SKILLS>",
+            "<SKILLS_LIST>",
         )
         assert_contains_text(
             self,
@@ -2849,7 +2912,7 @@ class BrainRuntimeActionTests(unittest.TestCase):
         assert_contains_text(
             self,
             prompt,
-            "<SKILLS>",
+            "<SKILLS_LIST>",
         )
         assert_contains_text(
             self,
@@ -2909,10 +2972,10 @@ class BrainRuntimeActionTests(unittest.TestCase):
         )
         self.assertLess(
             prompt.index("</SESSION_ACTIONS_HISTORY>"),
-            prompt.index("<SKILLS>"),
+            prompt.index("<SKILLS_LIST>"),
         )
         self.assertLess(
-            prompt.index("<SKILLS>"),
+            prompt.index("<SKILLS_LIST>"),
             prompt.index("<LOADED_SKILLS_CONTENT>"),
         )
         self.assertLess(
@@ -3111,7 +3174,7 @@ class BrainRuntimeActionTests(unittest.TestCase):
                 expected_inventory
             ),
             prompt.index(
-                "<SKILLS>"
+                "<SKILLS_LIST>"
             ),
         )
         self.assertFalse(

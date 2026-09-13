@@ -1,3 +1,4 @@
+import asyncio
 import json
 import os
 import unittest
@@ -63,6 +64,26 @@ class PostingBoardTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(
             parsed.actions[0].payload,
             '{"action":"feed","limit":30}',
+        )
+
+    def test_inline_posting_board_payload_is_accepted_as_compatibility_fallback(self):
+        source = (
+            '<POSTING_BOARD: {"action":"read","source":"named",'
+            '"root_id":"74184b96-95ca-4ba0-ba14-6db104400132"} >'
+        )
+
+        parsed = extract_runtime_actions(
+            source,
+            enabled_actions=("POSTING_BOARD",),
+        )
+
+        self.assertEqual(parsed.text, "")
+        self.assertEqual(len(parsed.actions), 1)
+        self.assertEqual(parsed.actions[0].name, "POSTING_BOARD")
+        self.assertEqual(
+            parsed.actions[0].payload,
+            '{"action":"read","source":"named",'
+            '"root_id":"74184b96-95ca-4ba0-ba14-6db104400132"}',
         )
 
     def test_stream_reuses_posting_board_display_id_until_terminal_event(self):
@@ -137,7 +158,7 @@ class PostingBoardTests(unittest.IsolatedAsyncioTestCase):
             context=with_skill,
         )
         self.assertIn("<POSTING_BOARD>", instructions)
-        self.assertIn("feed|inbox|read|search|post|reply|ack", instructions)
+        self.assertIn("feed|inbox|read|search|post|reply|ack|delete", instructions)
         self.assertTrue(
             action_event_requires_follow_up({
                 "name": "posting_board",
@@ -178,6 +199,14 @@ class PostingBoardTests(unittest.IsolatedAsyncioTestCase):
             },
             "response": {
                 "items": [{"title": "A public thread"}],
+                "action_templates": {
+                    "reply": {
+                        "method": "POST",
+                        "url": "/v1/posts/{thread_id}/replies",
+                        "mcp": "reply_to_thread",
+                        "required_fields": ["body", "request_id"],
+                    },
+                },
             },
         }
 
@@ -206,6 +235,10 @@ class PostingBoardTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(events[1]["text"], "POSTING_BOARD: action:feed")
         self.assertNotIn("posting_board_result", events[0])
         self.assertEqual(events[1]["posting_board_result"]["response"], board_result["response"])
+        self.assertIn(
+            "action_templates",
+            events[1]["posting_board_result"]["response"],
+        )
 
         self.assertEqual(context.runtime_action_events[0]["status"], "completed")
         self.assertEqual(context.runtime_action_events[0]["tool_id"], "T1")
@@ -213,6 +246,10 @@ class PostingBoardTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(
             context.runtime_tool_results[0]["result"]["runtime_action_name"],
             "POSTING_BOARD",
+        )
+        self.assertIn(
+            "action_templates",
+            context.runtime_tool_results[0]["result"]["response"],
         )
         self.assertEqual(
             context.logger.lines,
@@ -224,6 +261,9 @@ class PostingBoardTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("Posting board action: feed", tool_context)
         self.assertIn("A public thread", tool_context)
         self.assertNotIn("Authorization", tool_context)
+        self.assertNotIn("action_templates", tool_context)
+        self.assertNotIn("request_id", tool_context)
+        self.assertNotIn("reply_to_thread", tool_context)
 
     async def test_failed_action_is_terminal_and_followup_readable(self):
         context = SimpleNamespace(
@@ -320,6 +360,245 @@ class PostingBoardTests(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn("body that must stay out of history", formatted)
         self.assertNotIn("nope", formatted)
 
+    async def test_semantic_duplicate_payload_in_one_message_executes_board_once(self):
+        context = SimpleNamespace(
+            emitter=FakeEmitter(),
+            logger=FakeLogger(),
+            runtime_current_turn_id="turn-dedup",
+            runtime_loaded_skills=[{"name": "posting_board"}],
+        )
+        first = RuntimeActionCall(
+            name="POSTING_BOARD",
+            payload='{"action":"reply","thread_id":"root","body":"same"}',
+        )
+        second = RuntimeActionCall(
+            name="POSTING_BOARD",
+            payload='{ "body": "same", "thread_id": "root", "action": "reply" }',
+        )
+        board_result = {
+            "ok": True,
+            "runtime_action_name": "POSTING_BOARD",
+            "action": "reply",
+            "status_code": 201,
+            "response": {"id": "reply-1"},
+        }
+
+        with (
+            patch(
+                "utils.actions.posting_board_actions.execute_posting_board_request",
+                return_value=board_result,
+            ) as request,
+            patch("utils.actions.dispatcher.ensure_assets_tree"),
+        ):
+            applied = await apply_runtime_action_calls(
+                context,
+                [first, second],
+                runtime_message_id="message-dedup",
+            )
+
+        self.assertEqual(applied, 1)
+        self.assertEqual(request.call_count, 1)
+        self.assertEqual(len(context.runtime_tool_results), 1)
+
+    async def test_equivalent_write_payloads_share_one_effective_request(self):
+        context = SimpleNamespace(
+            emitter=FakeEmitter(),
+            logger=FakeLogger(),
+            runtime_current_turn_id="turn-write-normalize",
+            runtime_loaded_skills=[{"name": "posting_board"}],
+        )
+        first = RuntimeActionCall(
+            name="POSTING_BOARD",
+            payload='{"action":"post","title":"hello","body":"world"}',
+        )
+        second = RuntimeActionCall(
+            name="POSTING_BOARD",
+            payload=(
+                '{"ignored":"x","body":" world ","topic":"general",'
+                '"title":" hello ","action":"POST"}'
+            ),
+        )
+        board_result = {
+            "ok": True,
+            "runtime_action_name": "POSTING_BOARD",
+            "action": "post",
+            "status_code": 201,
+            "response": {"id": "post-1"},
+        }
+
+        with (
+            patch(
+                "utils.actions.posting_board_actions.execute_posting_board_request",
+                return_value=board_result,
+            ) as request,
+            patch("utils.actions.dispatcher.ensure_assets_tree"),
+        ):
+            applied = await apply_runtime_action_calls(
+                context,
+                [first, second],
+                runtime_message_id="message-write-normalize",
+            )
+
+        self.assertEqual(applied, 1)
+        self.assertEqual(request.call_count, 1)
+
+    async def test_concurrent_semantic_duplicate_never_starts_second_board_request(self):
+        context = SimpleNamespace(
+            emitter=FakeEmitter(),
+            logger=FakeLogger(),
+            runtime_current_turn_id="turn-concurrent",
+            runtime_loaded_skills=[{"name": "posting_board"}],
+        )
+        first_started = asyncio.Event()
+        release_first = asyncio.Event()
+
+        async def delayed_result(*_args, **_kwargs):
+            first_started.set()
+            await release_first.wait()
+            return {
+                "ok": True,
+                "runtime_action_name": "POSTING_BOARD",
+                "action": "reply",
+                "status_code": 201,
+                "response": {"id": "reply-1"},
+            }
+
+        first = RuntimeActionCall(
+            name="POSTING_BOARD",
+            payload='{"action":"reply","thread_id":"root","body":"same"}',
+        )
+        second = RuntimeActionCall(
+            name="POSTING_BOARD",
+            payload='{ "body": "same", "thread_id": "root", "action": "reply" }',
+        )
+
+        with (
+            patch(
+                "utils.actions.posting_board_actions.execute_posting_board_request",
+                side_effect=delayed_result,
+            ) as request,
+            patch("utils.actions.dispatcher.ensure_assets_tree"),
+        ):
+            first_task = asyncio.create_task(
+                apply_runtime_action_calls(
+                    context,
+                    [first],
+                    runtime_message_id="message-one",
+                )
+            )
+            await first_started.wait()
+            second_result = await asyncio.wait_for(
+                apply_runtime_action_calls(
+                    context,
+                    [second],
+                    runtime_message_id="message-two",
+                ),
+                timeout=1.0,
+            )
+            self.assertEqual(second_result, 1)
+            self.assertEqual(request.call_count, 1)
+            self.assertEqual(
+                context.runtime_tool_results[-1]["result"]["error"],
+                "duplicate_action_execution",
+            )
+            release_first.set()
+            await first_task
+
+        self.assertEqual(request.call_count, 1)
+
+    async def test_successful_equivalent_write_is_reused_across_runtime_messages(self):
+        context = SimpleNamespace(
+            emitter=FakeEmitter(),
+            logger=FakeLogger(),
+            runtime_current_turn_id="turn-cross-message",
+            runtime_loaded_skills=[{"name": "posting_board"}],
+        )
+        board_result = {
+            "ok": True,
+            "runtime_action_name": "POSTING_BOARD",
+            "action": "post",
+            "status_code": 201,
+            "response": {"id": "post-1"},
+        }
+        payloads = (
+            '{"action":"post","title":"hello","body":"world"}',
+            (
+                '{"ignored":"x","body":" world ","topic":"general",'
+                '"title":" hello ","action":"POST"}'
+            ),
+        )
+
+        with (
+            patch(
+                "utils.actions.posting_board_actions.execute_posting_board_request",
+                return_value=board_result,
+            ) as request,
+            patch("utils.actions.dispatcher.ensure_assets_tree"),
+        ):
+            for index, payload in enumerate(payloads, 1):
+                action = RuntimeActionCall(name="POSTING_BOARD", payload=payload)
+                applied = await apply_runtime_action_calls(
+                    context,
+                    [action],
+                    runtime_message_id=f"message-{index}",
+                )
+                self.assertEqual(applied, 1)
+
+        self.assertEqual(request.call_count, 1)
+        self.assertEqual(len(context.runtime_tool_results), 2)
+        self.assertEqual(context.runtime_tool_results[-1]["reused_from"], "T1")
+
+    async def test_write_retry_reuses_same_idempotency_key_within_turn(self):
+        context = SimpleNamespace(
+            emitter=FakeEmitter(),
+            logger=FakeLogger(),
+            runtime_current_turn_id="turn-retry",
+            runtime_loaded_skills=[{"name": "posting_board"}],
+        )
+        seen_keys = []
+
+        async def retryable_result(_payload, *, idempotency_key=""):
+            seen_keys.append(idempotency_key)
+            if len(seen_keys) == 1:
+                return {
+                    "ok": False,
+                    "runtime_action_name": "POSTING_BOARD",
+                    "action": "reply",
+                    "error": "network_error",
+                    "detail": "lost response",
+                    "request": {},
+                    "response": None,
+                }
+            return {
+                "ok": True,
+                "runtime_action_name": "POSTING_BOARD",
+                "action": "reply",
+                "status_code": 201,
+                "response": {"id": "reply-1", "replayed": True},
+            }
+
+        with (
+            patch(
+                "utils.actions.posting_board_actions.execute_posting_board_request",
+                side_effect=retryable_result,
+            ),
+            patch("utils.actions.dispatcher.ensure_assets_tree"),
+        ):
+            for message_id in ("retry-one", "retry-two"):
+                action = RuntimeActionCall(
+                    name="POSTING_BOARD",
+                    payload='{"action":"reply","thread_id":"root","body":"same"}',
+                )
+                await apply_runtime_action_calls(
+                    context,
+                    [action],
+                    runtime_message_id=message_id,
+                )
+
+        self.assertEqual(len(seen_keys), 2)
+        self.assertTrue(seen_keys[0])
+        self.assertEqual(seen_keys[0], seen_keys[1])
+
     def test_anonymous_mode_allows_reads_but_blocks_public_writes(self):
         context = SimpleNamespace(runtime_persistent_writes_restricted=True)
 
@@ -333,7 +612,7 @@ class PostingBoardTests(unittest.IsolatedAsyncioTestCase):
                     )
                 )
 
-        for action_name in ("post", "reply", "ack"):
+        for action_name in ("post", "reply", "ack", "delete"):
             with self.subTest(action=action_name):
                 self.assertTrue(
                     runtime_action_write_is_restricted(
@@ -362,6 +641,16 @@ class PostingBoardTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(bad_ack["request"], {})
         self.assertNotIn("secret", str(bad_ack))
 
+
+    async def test_client_rejects_delete_without_post_id_without_network(self):
+        with patch.dict(os.environ, {"GETPOSTINGBOARD_API_KEY": "secret"}, clear=True):
+            result = await execute_posting_board_request({"action": "delete"})
+
+        self.assertFalse(result["ok"])
+        self.assertEqual(result["error"], "invalid_payload")
+        self.assertEqual(result["detail"], "delete requires post_id")
+        self.assertEqual(result["request"], {})
+        self.assertNotIn("secret", str(result))
 
     async def test_client_accepts_config_and_environment_overrides(self):
         for env, expected in (
@@ -417,11 +706,14 @@ class PostingBoardTests(unittest.IsolatedAsyncioTestCase):
                 FakeClient,
             ),
         ):
-            result = await execute_posting_board_request({
-                "action": "reply",
-                "thread_id": "root/with/slashes",
-                "body": "hello",
-            })
+            result = await execute_posting_board_request(
+                {
+                    "action": "reply",
+                    "thread_id": "root/with/slashes",
+                    "body": "hello",
+                },
+                idempotency_key="fixed-retry-key-1234",
+            )
 
         self.assertTrue(result["ok"])
         self.assertEqual(calls[0][0], "POST")
@@ -433,9 +725,70 @@ class PostingBoardTests(unittest.IsolatedAsyncioTestCase):
             calls[0][2]["headers"]["Authorization"],
             "Bearer super-secret-key",
         )
+        self.assertEqual(
+            calls[0][2]["headers"]["Idempotency-Key"],
+            "fixed-retry-key-1234",
+        )
         self.assertNotIn("Authorization", result["request"]["headers"])
         self.assertNotIn("super-secret-key", str(result))
         self.assertEqual(result["request"]["body"], {"body": "hello"})
+
+    async def test_client_deletes_owned_post_by_exact_id(self):
+        calls = []
+
+        class FakeResponse:
+            status_code = 200
+            headers = {}
+            text = ""
+
+            @staticmethod
+            def json():
+                return {"deleted": True}
+
+        class FakeClient:
+            def __init__(self, **kwargs):
+                self.kwargs = kwargs
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, exc_type, exc, tb):
+                return False
+
+            async def request(self, method, path, **kwargs):
+                calls.append((method, path, kwargs))
+                return FakeResponse()
+
+        with (
+            patch.dict(
+                os.environ,
+                {"GETPOSTINGBOARD_API_KEY": "super-secret-key"},
+                clear=True,
+            ),
+            patch(
+                "utils.posting_board_client.httpx.AsyncClient",
+                FakeClient,
+            ),
+        ):
+            result = await execute_posting_board_request({
+                "action": "delete",
+                "post_id": "reply/with/slashes",
+            })
+
+        self.assertTrue(result["ok"])
+        self.assertEqual(calls[0][0], "DELETE")
+        self.assertEqual(calls[0][1], "/v1/posts/reply%2Fwith%2Fslashes")
+        self.assertIsNone(calls[0][2]["json"])
+        self.assertEqual(
+            calls[0][2]["headers"]["Authorization"],
+            "Bearer super-secret-key",
+        )
+        self.assertNotIn("Idempotency-Key", calls[0][2]["headers"])
+        self.assertNotIn("Authorization", result["request"]["headers"])
+        self.assertNotIn("super-secret-key", str(result))
+        self.assertEqual(result["request"]["method"], "DELETE")
+        self.assertEqual(result["request"]["path"], "/v1/posts/reply%2Fwith%2Fslashes")
+        self.assertNotIn("body", result["request"])
 
     def test_ui_contract_keeps_live_bubble_logger_and_request_response_modal(self):
         chat_js = CHAT_RUNTIME_ACTIONS_JS.read_text(encoding="utf-8")

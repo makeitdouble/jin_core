@@ -754,7 +754,9 @@ def bind_tool_result_to_action(context, entry) -> None:
         if (event.get("name") == name and not event.get("tool_id")
                 and (not turn_id or event.get("runtime_turn_id", "") == turn_id)):
             event["tool_id"] = entry["tool_id"]
-            entry["action_payload"] = event.get("payload", "")
+            entry["runtime_message_id"] = event.get("runtime_message_id", "")
+            entry["action_name"] = name.upper()
+            entry["action_payload"] = event.get("payload", event.get("query", ""))
             entry["runtime_turn_id"] = turn_id
             if kind == TOOL_RESULT_KIND_FILES and result.get("ok") is False:
                 event["status"] = "failed"
