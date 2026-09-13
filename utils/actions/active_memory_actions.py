@@ -485,7 +485,10 @@ async def apply_update_active_memory_actions(
                 RUNTIME_ACTION_UPDATE_ACTIVE_MEMORY
             ),
             "text": (
-                f"{display_name}: {result.get('title', 'Active memory')}"
+                (
+                    f"{display_name}: "
+                    f"{result.get('key', '') or 'success'}"
+                )
                 if result.get("ok")
                 else (
                     f"{display_name}: failed"
@@ -498,6 +501,7 @@ async def apply_update_active_memory_actions(
             ),
             "active_memory_result": result,
             "active_memory_id": result.get("id", ""),
+            "active_memory_key": result.get("key", ""),
             "active_memory_title": result.get("title", ""),
             "active_memory_changes": result.get("changes", []),
             "active_memory_requested_changes": result.get(

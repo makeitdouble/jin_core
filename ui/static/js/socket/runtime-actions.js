@@ -607,8 +607,36 @@ function formatActiveMemoryUpdateDetail(
   data
 ) {
 
-  const activeMemoryId = String(
+  const rawPayload = String(
     data && (
+      data.payload
+      || (
+        data.active_memory_result
+        && data.active_memory_result.payload
+      )
+    )
+    || ""
+  ).trim();
+  let payload = null;
+
+  if (rawPayload.startsWith("{")) {
+    try {
+      const parsed = JSON.parse(rawPayload);
+      if (
+        parsed
+        && typeof parsed === "object"
+        && !Array.isArray(parsed)
+      ) {
+        payload = parsed;
+      }
+    } catch (error) {
+      payload = null;
+    }
+  }
+
+  const activeMemoryId = String(
+    payload && payload.active_memory_id
+    || data && (
       data.active_memory_id
       || data.id
       || (
@@ -618,6 +646,14 @@ function formatActiveMemoryUpdateDetail(
     )
     || ""
   ).trim();
+  const payloadFields = (
+    payload
+    && payload.fields_to_update
+    && typeof payload.fields_to_update === "object"
+    && !Array.isArray(payload.fields_to_update)
+  )
+    ? payload.fields_to_update
+    : null;
   const requestedChanges = Array.isArray(
     data && data.active_memory_requested_changes
   )
@@ -639,27 +675,36 @@ function formatActiveMemoryUpdateDetail(
   const changes = requestedChanges.length
     ? requestedChanges
     : appliedChanges;
+  const fields = payloadFields
+    ? Object.entries(payloadFields)
+    : changes
+      .map((change) => [
+        String(
+          change && change.field || ""
+        ).trim(),
+        change && change.after,
+      ])
+      .filter(([field]) => Boolean(field));
   const lines = activeMemoryId
     ? [`active_memory_id: ${activeMemoryId}`]
     : [];
 
-  changes
-    .map((change) => {
-      const field = String(
-        change && change.field || ""
-      ).trim();
-      const after = String(
-        change && change.after || ""
-      ).trim();
+  if (fields.length) {
+    lines.push("fields_to_update:");
 
-      if (!field) {
-        return "";
+    fields.forEach(([field, value]) => {
+      const fieldName = String(field || "").trim();
+      const fieldValue = value === null || value === undefined
+        ? ""
+        : String(value).trim();
+
+      if (!fieldName) {
+        return;
       }
 
-      return `${field}: ${after}`;
-    })
-    .filter(Boolean)
-    .forEach(line => lines.push(line));
+      lines.push(`\t${fieldName}: ${fieldValue}`);
+    });
+  }
 
   return lines.join("\n");
 
@@ -1522,23 +1567,35 @@ function handleRuntimeAction(
       ? getUpdateLTFactsMessage(data)
       : "";
 
-  const activeMemoryUpdateTitle =
-    action === "update_active_memory"
-      ? String(
-        data.active_memory_title
-        || (
-          data.active_memory_result
-          && data.active_memory_result.title
-        )
-        || ""
-      ).trim()
-      : "";
-
   const displayName =
     getRuntimeActionDisplayName(
       data,
       action
     );
+
+  const savedActiveMemoryKey = action === "save_active_memory"
+    ? (String(data.active_memory || "").match(/^\s*(active_memory_\d+)\s*:/i) || [])[1]
+    : "";
+  const activeMemorySuccessText =
+    (action === "update_active_memory" || savedActiveMemoryKey)
+    && [
+      "completed",
+      "complete",
+      "done",
+    ].includes(status)
+      ? (
+        `${displayName}: `
+        + (
+          data.active_memory_key
+          || savedActiveMemoryKey
+          || (
+            data.active_memory_result
+            && data.active_memory_result.key
+          )
+          || "success"
+        )
+      )
+      : "";
 
   const sceneEffect =
     getRuntimeActionSceneEffect(
@@ -1558,6 +1615,8 @@ function handleRuntimeAction(
   const displayText =
     missingCloseTagFailure
       ? text
+      : activeMemorySuccessText
+      ? activeMemorySuccessText
       : shouldUseDeepSearchStartedDisplayNameOnly(
       action,
       status,
@@ -1565,11 +1624,6 @@ function handleRuntimeAction(
       deepSearchPayloadReady
     )
       ? displayName
-      : activeMemoryUpdateTitle
-      ? (
-        `${displayName}: `
-        + activeMemoryUpdateTitle
-      )
       : updateLTFactsMessage
       ? (
         `${displayName}: `
@@ -1610,18 +1664,15 @@ function handleRuntimeAction(
     ||
     (missingCloseTagFailure ? data.detail : "")
     || (
-      [
-        "save_active_memory",
-        "update_active_memory",
-      ].includes(action)
+      action === "update_active_memory"
+        ? formatActiveMemoryUpdateDetail(data)
+        : ""
+    )
+    || (
+      action === "save_active_memory"
         ? formatActiveMemoryRecordDetail(data)
         : ""
     )
-      || (
-        action === "update_active_memory"
-          ? formatActiveMemoryUpdateDetail(data)
-          : ""
-      )
       || updateLTFactsMessage
       || buildRuntimeActionDetail(
         data,

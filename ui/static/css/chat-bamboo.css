@@ -13,6 +13,13 @@
     display: none;
 }
 
+/* Layout mode is independent of the selected custom artwork. */
+body.default-theme-bubble #chat-history .jin-chat-bubble-service,
+body.default-theme-bubble #chat-history .jin-chat-bubble-brain {
+    margin-top: 0;
+    margin-left: 0;
+}
+
 /* =========================
    DARK
    ========================= */
@@ -227,20 +234,19 @@ body.jin-bubble-skin-bamboo #chat-history .jin-chat-bubble-brain .jin-chat-markd
     text-shadow: none;
 }
 
-body.jin-bubble-skin-bamboo #chat-history .jin-chat-bubble-skin {
+body.custom-theme-bubble #chat-history .jin-chat-bubble-skin {
     /*
-     * Source: 100x100. The skin extends 12.5px around the logical bubble.
+     * Source: 100x100. The skin extends 10px around the logical bubble.
      * The 28px source slice keeps all four corners fixed while edge/center
      * tiles repeat as the answer grows, so the raster is never stretched.
      */
     display: block;
     position: absolute;
-    inset: -12.5px;
+    inset: -10px;
     z-index: 0;
     pointer-events: none;
 
     border: 25px solid transparent;
-    border-image-source: url("/static/images/bamboo_bubble.png");
     border-image-slice: 28 fill;
     border-image-width: 25px;
     border-image-repeat: repeat;
@@ -248,8 +254,18 @@ body.jin-bubble-skin-bamboo #chat-history .jin-chat-bubble-skin {
     image-rendering: pixelated;
 }
 
-/* Code blocks keep their dark panel from chat.css, so their nested code stays
-   light even when the surrounding light/parchment skin uses dark ink. */
+body.jin-bubble-skin-bamboo #chat-history .jin-chat-bubble-skin {
+    border-image-source: url("/static/images/bamboo_bubble.png");
+}
+
+/* Darker code panels with light text on light/parchment skins. */
+body.jin-bubble-skin-light #chat-history .jin-chat-bubble-service .jin-chat-code-block,
+body.jin-bubble-skin-light #chat-history .jin-chat-bubble-brain .jin-chat-code-block,
+body.jin-bubble-skin-bamboo #chat-history .jin-chat-bubble-service .jin-chat-code-block,
+body.jin-bubble-skin-bamboo #chat-history .jin-chat-bubble-brain .jin-chat-code-block {
+    background: rgba(2, 6, 23, 0.5);
+}
+
 body.jin-bubble-skin-light #chat-history .jin-chat-bubble-service .jin-chat-code-block code,
 body.jin-bubble-skin-light #chat-history .jin-chat-bubble-brain .jin-chat-code-block code,
 body.jin-bubble-skin-bamboo #chat-history .jin-chat-bubble-service .jin-chat-code-block code,

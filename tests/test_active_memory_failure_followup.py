@@ -146,7 +146,7 @@ class ActiveMemoryFailureFollowupTests(IsolatedAsyncioTestCase):
         tools = prompt.index("<TOOLS_RESULTS>")
         self.assertLess(mandatory, failed)
         self.assertLess(failed, tools)
-        self.assertIn("Use to update active memory values.", prompt)
+        self.assertIn("Use `fields_to_update` for every update, including a single field.", prompt)
         self.assertIn(
             "<FAILED_MARKER_CONTENT>\n"
             "<UPDATE_ACTIVE_MEMORY>\n"

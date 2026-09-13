@@ -248,20 +248,14 @@ Old key/value bodies and `<SAVE_DELAYED_MEMORY_CONTENT>` may still be normalized
 `UPDATE_ACTIVE_MEMORY` version 2:
 
 ```json
-{"active_memory_id":"existing id VALUE","field_name":"NEW_VALUE"}
+{"active_memory_id":"existing id VALUE","fields_to_update":{"field_name":"NEW_VALUE","another_field":"NEW_VALUE"}}
 ```
 
 The create parser now treats custom fields as explicit JSON structure only. A non-JSON body is preserved as the complete `conditions` value; parenthesized prose such as `(date: tomorrow)` is no longer reinterpreted as a custom field. JSON custom fields are capped at three after normalized duplicate keys use last-value-wins behavior.
 
-The update parser accepts:
+The model-facing update contract has one canonical shape: every changed field goes inside `fields_to_update`, including single-field updates. Keys are exact existing field names.
 
-- current flat root fields;
-- legacy `fields` object;
-- legacy `updates` object;
-- older line-based payloads;
-- a self-closing attribute compatibility form such as `<UPDATE_ACTIVE_MEMORY active_memory_id="abc123" field=value />`.
-
-The self-closing attribute form is compatibility only; the model-facing contract remains paired flat JSON.
+The parser still accepts older flat/nested/line-based and self-closing attribute forms as reader compatibility only; they are not advertised to the model.
 
 ### Current internal representation
 

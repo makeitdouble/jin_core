@@ -1,7 +1,7 @@
 {
   "update_active_memory": {
     "version": 2,
-    "description": "Allows JIN to update the active memory description (`conditions`) or state fields already fixed on an active memory record.",
+    "description": "Updates one or more existing fields on an active memory record. Put every field to change inside `fields_to_update`; each key is the exact existing field name and each value is its new value.",
     "runtime_action": "UPDATE_ACTIVE_MEMORY",
     "enable_flag": "CAN_SAVE_ACTIVE_MEMORY",
     "runtime_order": 230,
@@ -14,21 +14,13 @@
     },
     "schema": [
       "<UPDATE_ACTIVE_MEMORY>",
-      "{\"active_memory_id\":\"abcdef\",\"field_name\":\"new_value\"}",
-      "</UPDATE_ACTIVE_MEMORY>",
-      "or",
-      "<UPDATE_ACTIVE_MEMORY>",
       "{\"active_memory_id\":\"abcdef\",\"fields_to_update\":{\"field_name\":\"new_value\",\"another_field\":\"new_value\"}}",
-      "</UPDATE_ACTIVE_MEMORY>",
-      "or",
-      "<UPDATE_ACTIVE_MEMORY>",
-      "{\"active_memory_id\":\"abcdef\",\"field_to_update\":{\"field_name\":\"new_value\"}}",
       "</UPDATE_ACTIVE_MEMORY>"
     ],
     "rules": [
-      "Use to update active memory values.",
-      "`conditions` is the primary active-memory description before metadata; it can always be updated and is never stored as a separate suffix.",
-      "Other fields may only update custom state fields already declared on the active memory record."
+      "Use `fields_to_update` for every update, including a single field.",
+      "Keys inside `fields_to_update` must be exact existing field names on the target active memory record.",
+      "`conditions` can always be updated; other fields may only update custom state fields already declared on the active memory record."
     ],
     "close_tag": true
   }

@@ -44,15 +44,23 @@ const {chromium} = require('playwright');
     const cdp = await page.context().newCDPSession(page);
     await cdp.send('Page.setWebLifecycleState', {state:'frozen'});
     await cdp.send('Page.setWebLifecycleState', {state:'active'});
-    // Even after freeze and while hidden, repeated failures keep retrying.
+    // Hidden pages cancel scheduled retries and ignore focus/resume/online.
     await page.evaluate(() => {
       Object.defineProperty(document, 'hidden', {configurable:true, get:()=>true});
+      document.dispatchEvent(new Event('visibilitychange'));
       document.dispatchEvent(new Event('freeze'));
+      document.dispatchEvent(new Event('resume'));
+      window.dispatchEvent(new Event('online'));
+      window.dispatchEvent(new Event('focus'));
     });
-    for (let n=2; n<=5; n++) {
-      await page.waitForFunction(n => sockets.length === n, n, {timeout:7000});
-      if (n<5) await page.evaluate(() => sockets.at(-1).close());
-    }
+    const hiddenCount = await page.evaluate(() => sockets.length);
+    await page.waitForTimeout(1200);
+    assert.equal(await page.evaluate(() => sockets.length), hiddenCount);
+    await page.evaluate(() => {
+      Object.defineProperty(document, 'hidden', {configurable:true, get:()=>false});
+      document.dispatchEvent(new Event('visibilitychange'));
+    });
+    assert.equal(await page.evaluate(() => sockets.length), hiddenCount + 1);
     await page.evaluate(() => {
       window.getSoftReconnectRuntimeResume = () => { throw Error('Stale bootstrap must not overwrite live runtime'); };
       openSocket(true);
@@ -74,6 +82,6 @@ const {chromium} = require('playwright');
     assert.equal(await page.locator('#output').textContent(), 'ABC');
     assert.equal(await page.evaluate(() => sent.some(e=>e.type==='runtime_resume')), true);
     assert.deepEqual(errors, []);
-    console.log('PASS: hidden/frozen retries beyond three failures, live DOM continuity, replay dedupe, restart fallback');
+    console.log('PASS: hidden retries paused, visible reconnect, live DOM continuity, replay dedupe, restart fallback');
   } finally { await browser.close(); }
 })().catch(error => { console.error(error); process.exitCode = 1; });

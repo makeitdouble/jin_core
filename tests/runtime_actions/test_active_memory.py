@@ -979,7 +979,11 @@ class RuntimeActiveMemoryTests(RuntimeActionTestCase):
         self.assertEqual(event["status"], "completed")
         self.assertEqual(
             event["text"],
-            "UPDATE_ACTIVE_MEMORY: Once a day ask for a photo.",
+            "UPDATE_ACTIVE_MEMORY: active_memory_1",
+        )
+        self.assertEqual(
+            event["active_memory_key"],
+            "active_memory_1",
         )
         self.assertEqual(
             event["active_memory_changes"],

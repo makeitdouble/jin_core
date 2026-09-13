@@ -389,7 +389,7 @@ Current model-facing boundary:
 {"conditions":"...","custom_field":"..."}
 ```
 
-`UPDATE_ACTIVE_MEMORY` also prefers flat JSON at the root after `active_memory_id`.
+`UPDATE_ACTIVE_MEMORY` exposes one canonical JSON shape: `active_memory_id` plus a `fields_to_update` object containing every field change.
 
 Creation custom fields are explicit structure only: JSON root fields beside `conditions` are accepted (up to the current three-custom-field cap), while non-JSON text is preserved as conditions and is not mined for `(field: value)` suffixes. Duplicate normalized JSON keys follow normal last-value-wins behavior before the cap is applied.
 

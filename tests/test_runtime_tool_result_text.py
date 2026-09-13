@@ -27,6 +27,32 @@ class RuntimeToolResultTextTests(TestCase):
                     msg=name,
                 )
 
+    def test_update_active_memory_contract_has_one_canonical_schema(self):
+        path = (
+            Path(__file__).resolve().parents[1]
+            / "contracts"
+            / "update_active_memory.json"
+        )
+        contract = json.loads(path.read_text(encoding="utf-8"))[
+            "update_active_memory"
+        ]
+
+        self.assertEqual(
+            contract["schema"],
+            [
+                "<UPDATE_ACTIVE_MEMORY>",
+                (
+                    '{"active_memory_id":"abcdef",'
+                    '"fields_to_update":{"field_name":"new_value",'
+                    '"another_field":"new_value"}}'
+                ),
+                "</UPDATE_ACTIVE_MEMORY>",
+            ],
+        )
+        self.assertIn("fields_to_update", contract["description"])
+        self.assertNotIn("field_to_update", "\n".join(contract["schema"]))
+
+
     def test_failed_update_is_readable_and_includes_schema(self):
         payload = (
             '{"active_memory_id":"zgctxy",'
@@ -55,8 +81,12 @@ class RuntimeToolResultTextTests(TestCase):
         self.assertIn("Provided payload:", rendered)
         self.assertIn(payload, rendered)
         self.assertIn("Correct action schema:", rendered)
-        self.assertIn('"fields_to_update"', rendered)
-        self.assertIn('"field_to_update"', rendered)
+        schema = rendered.split("Correct action schema:", 1)[1].split(
+            "Available fields:", 1
+        )[0]
+        self.assertIn('"fields_to_update"', schema)
+        self.assertNotIn('"field_to_update"', schema)
+        self.assertNotIn('\nor\n', schema)
         self.assertNotIn('"ok": false', rendered)
 
 

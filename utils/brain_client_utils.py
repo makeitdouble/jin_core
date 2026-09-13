@@ -1650,6 +1650,10 @@ async def update_active_memory_runtime_record(
         result["error"] = "active_memory_not_found"
         return result
 
+    active_memory_key = str(
+        current_record
+    ).partition(":")[0].strip().casefold()
+    result["key"] = active_memory_key
     result["previous_title"] = get_active_memory_record_title(
         current_record
     )

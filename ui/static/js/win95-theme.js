@@ -110,6 +110,9 @@
             bubbleSkinClasses[normalized]
         );
         document.body.dataset.jinBubbleSkin = normalized;
+        const customBubble = normalized !== "dark" && normalized !== "light";
+        document.body.classList.toggle("default-theme-bubble", !customBubble);
+        document.body.classList.toggle("custom-theme-bubble", customBubble);
 
         if (options.persist !== false) {
             writeStoredBubbleSkinState(normalized);

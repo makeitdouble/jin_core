@@ -282,6 +282,9 @@ function scheduleWebSocketReconnect() {
   }
 
   websocketReconnectAwaitingFocus = true;
+  if (document.hidden) {
+    return;
+  }
   websocketReconnectAttempts += 1;
 
   const delay =
@@ -296,7 +299,8 @@ function scheduleWebSocketReconnect() {
       websocketReconnectTimer = null;
 
       if (
-          isWebSocketOpen()
+          document.hidden
+          || isWebSocketOpen()
           || (
               ws
               && ws.readyState === WebSocket.CONNECTING
@@ -939,7 +943,8 @@ window.connectWebSocket = connectWebSocket;
 function retryWebSocketOnFocus(event) {
 
   if (
-      isWebSocketOpen()
+      document.hidden
+      || isWebSocketOpen()
       || (
           ws
           && ws.readyState === WebSocket.CONNECTING
@@ -970,7 +975,9 @@ window.addEventListener("online", retryWebSocketOnFocus);
 document.addEventListener(
   "visibilitychange",
   function () {
-    if (!document.hidden) {
+    if (document.hidden) {
+      clearWebSocketReconnectTimer();
+    } else {
       retryWebSocketOnFocus();
     }
   }
