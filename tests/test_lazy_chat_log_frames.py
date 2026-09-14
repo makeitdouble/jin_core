@@ -20,7 +20,7 @@ class LazyChatLogTests(unittest.TestCase):
         self.stack = ExitStack()
         self.addCleanup(self.stack.close)
         self.root = Path(self.stack.enter_context(tempfile.TemporaryDirectory()))
-        self.stack.enter_context(patch.object(config, "LOG_CHAT", True))
+        self.stack.enter_context(patch.object(config, "ENABLE_RUNTIME_LOGS", True))
         self.stack.enter_context(patch.object(chat_log, "CHAT_LOG_ROOT", self.root))
         self.stack.enter_context(patch.object(chat_log, "_now", return_value=NOW))
 
@@ -136,7 +136,7 @@ class LazyChatLogTests(unittest.TestCase):
 
     def test_disabled_logging_does_not_stage_or_write(self):
         context = self.context()
-        with patch.object(config, "LOG_CHAT", False):
+        with patch.object(config, "ENABLE_RUNTIME_LOGS", False):
             chat_log.save_chat_bootstrap_context_snapshot(context, system_prompt="bootstrap")
             chat_log.save_frame_snapshot(context, {"index": 0, "raw_memory": "frame"})
             chat_log.save_turn_reasoning(context, "reasoning")
@@ -152,7 +152,7 @@ class CancelledBootstrapLogTests(unittest.IsolatedAsyncioTestCase):
 
         with ExitStack() as stack:
             root = Path(stack.enter_context(tempfile.TemporaryDirectory()))
-            stack.enter_context(patch.object(config, "LOG_CHAT", True))
+            stack.enter_context(patch.object(config, "ENABLE_RUNTIME_LOGS", True))
             stack.enter_context(patch.object(chat_log, "CHAT_LOG_ROOT", root))
             stack.enter_context(patch.object(chat_log, "_now", return_value=NOW))
             context = RuntimeContext(websocket=SimpleNamespace(send_json=AsyncMock()),
@@ -187,7 +187,7 @@ class CancelledBootstrapLogTests(unittest.IsolatedAsyncioTestCase):
             for reasoning in ("", "already visible reasoning"):
                 with self.subTest(anonymous=anonymous, reasoning=reasoning), ExitStack() as stack:
                     root = Path(stack.enter_context(tempfile.TemporaryDirectory()))
-                    stack.enter_context(patch.object(config, "LOG_CHAT", True))
+                    stack.enter_context(patch.object(config, "ENABLE_RUNTIME_LOGS", True))
                     stack.enter_context(patch.object(chat_log, "CHAT_LOG_ROOT", root))
                     stack.enter_context(patch.object(chat_log, "_now", return_value=NOW))
                     logger = SimpleNamespace(log_system=AsyncMock(), log_runtime=AsyncMock(), log_brain=AsyncMock())

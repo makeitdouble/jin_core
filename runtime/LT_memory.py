@@ -10,6 +10,7 @@ import traceback
 from clients.response_extractor import ResponseExtractor
 from clients.service_client import ask_service_model
 from config_loader import config
+from app_settings import settings
 from runtime.client import LMStudioAPIError
 from runtime.LT_lane import (
     LTAttemptPreempted,
@@ -827,10 +828,6 @@ def build_lt_truncation_details(
     return details
 
 
-def lt_memory_enabled() -> bool:
-    return bool(getattr(config, "LT_MEMORY_ENABLED", True))
-
-
 def get_lt_idle_seconds() -> int:
     return (
         _positive_int(
@@ -1285,19 +1282,11 @@ def collect_loaded_delayed_memory_fact_report_ids(
 
         _anchor_ids, fact_ids = normalize_delayed_memory_fact_ids(
             report.get(
-                "anchor_fact_ids",
+                "anchor_lt_facts_ids",
                 [],
             ),
             report.get(
-                "facts_ids",
-                [],
-            ),
-            legacy_absorbed_fact_ids=report.get(
-                "absorbed_fact_ids",
-                [],
-            ),
-            legacy_long_term_fact_ids=report.get(
-                "long_term_facts_ids",
+                "lt_facts_ids",
                 [],
             ),
         )
@@ -1389,12 +1378,12 @@ def refresh_runtime_lt_archived_fact_ids(
     )
     # Anchor is a global visibility guarantee: if any delayed report keeps a
     # fact as an anchor, another report cannot accidentally hide it.
-    anchor_fact_ids = set(
+    anchor_lt_facts_ids = set(
         collect_anchor_fact_report_ids(
             reports
         )
     )
-    fact_ids.difference_update(anchor_fact_ids)
+    fact_ids.difference_update(anchor_lt_facts_ids)
     # A loaded delayed-memory report is in the prompt as an active context
     # attachment, so every L-T fact represented by that report becomes visible
     # again for the duration of the load.
@@ -1693,10 +1682,8 @@ def remap_delayed_memory_lt_fact_ids(
 
         current_anchor_ids, current_fact_ids = (
             normalize_delayed_memory_fact_ids(
-                report.get("anchor_fact_ids", []),
-                report.get("facts_ids", []),
-                legacy_absorbed_fact_ids=report.get("absorbed_fact_ids", []),
-                legacy_long_term_fact_ids=report.get("long_term_facts_ids", []),
+                report.get("anchor_lt_facts_ids", []),
+                report.get("lt_facts_ids", []),
             )
         )
         removed_anchor_ids = [
@@ -1717,8 +1704,8 @@ def remap_delayed_memory_lt_fact_ids(
 
         removed_report_refs.append({
             "report_id": str(report_id or "").strip(),
-            "anchor_fact_ids": removed_anchor_ids,
-            "facts_ids": removed_fact_ids_for_report,
+            "anchor_lt_facts_ids": removed_anchor_ids,
+            "lt_facts_ids": removed_fact_ids_for_report,
         })
 
         next_anchor_ids = [
@@ -1745,11 +1732,9 @@ def remap_delayed_memory_lt_fact_ids(
         )
         updated_report = {
             **report,
-            "anchor_fact_ids": next_anchor_ids,
-            "facts_ids": next_fact_ids,
+            "anchor_lt_facts_ids": next_anchor_ids,
+            "lt_facts_ids": next_fact_ids,
         }
-        updated_report.pop("absorbed_fact_ids", None)
-        updated_report.pop("long_term_facts_ids", None)
         reports[report_id] = updated_report
         changed_reports[report_id] = updated_report
 
@@ -1799,18 +1784,18 @@ def normalize_lt_fact_restore_report_refs(value) -> list[dict]:
         if not report_id:
             continue
 
-        anchor_fact_ids = normalize_long_term_fact_ids(
-            ref.get("anchor_fact_ids", [])
+        anchor_lt_facts_ids = normalize_long_term_fact_ids(
+            ref.get("anchor_lt_facts_ids", [])
         )
         fact_ids = normalize_long_term_fact_ids(
-            ref.get("facts_ids", [])
+            ref.get("lt_facts_ids", [])
         )
-        if not anchor_fact_ids and not fact_ids:
+        if not anchor_lt_facts_ids and not fact_ids:
             continue
 
         dedupe_key = (
             report_id,
-            tuple(anchor_fact_ids),
+            tuple(anchor_lt_facts_ids),
             tuple(fact_ids),
         )
         if dedupe_key in seen:
@@ -1819,8 +1804,8 @@ def normalize_lt_fact_restore_report_refs(value) -> list[dict]:
         seen.add(dedupe_key)
         clean_refs.append({
             "report_id": report_id,
-            "anchor_fact_ids": anchor_fact_ids,
-            "facts_ids": fact_ids,
+            "anchor_lt_facts_ids": anchor_lt_facts_ids,
+            "lt_facts_ids": fact_ids,
         })
 
     return clean_refs
@@ -1863,8 +1848,8 @@ def restore_delayed_memory_lt_fact_refs(
         ref
         for ref in normalize_lt_fact_restore_report_refs(restore_meta)
         if (
-            target_id in ref.get("anchor_fact_ids", [])
-            or target_id in ref.get("facts_ids", [])
+            target_id in ref.get("anchor_lt_facts_ids", [])
+            or target_id in ref.get("lt_facts_ids", [])
         )
     ]
     if not refs:
@@ -1902,22 +1887,20 @@ def restore_delayed_memory_lt_fact_refs(
 
         current_anchor_ids, current_fact_ids = (
             normalize_delayed_memory_fact_ids(
-                report.get("anchor_fact_ids", []),
-                report.get("facts_ids", []),
-                legacy_absorbed_fact_ids=report.get("absorbed_fact_ids", []),
-                legacy_long_term_fact_ids=report.get("long_term_facts_ids", []),
+                report.get("anchor_lt_facts_ids", []),
+                report.get("lt_facts_ids", []),
             )
         )
         next_anchor_ids = list(current_anchor_ids)
         next_fact_ids = list(current_fact_ids)
 
         if (
-            target_id in ref.get("anchor_fact_ids", [])
+            target_id in ref.get("anchor_lt_facts_ids", [])
             and target_id not in next_anchor_ids
         ):
             next_anchor_ids.append(target_id)
         if (
-            target_id in ref.get("facts_ids", [])
+            target_id in ref.get("lt_facts_ids", [])
             and target_id not in next_fact_ids
         ):
             next_fact_ids.append(target_id)
@@ -1936,11 +1919,9 @@ def restore_delayed_memory_lt_fact_refs(
 
         updated_report = {
             **report,
-            "anchor_fact_ids": next_anchor_ids,
-            "facts_ids": next_fact_ids,
+            "anchor_lt_facts_ids": next_anchor_ids,
+            "lt_facts_ids": next_fact_ids,
         }
-        updated_report.pop("absorbed_fact_ids", None)
-        updated_report.pop("long_term_facts_ids", None)
         reports[report_id] = updated_report
         changed_reports[report_id] = updated_report
 
@@ -2051,7 +2032,7 @@ async def ask_lt_model(
         user_prompt=user_prompt,
         temperature=getattr(config, "SERVICE_TEMPERATURE", 0.1),
         max_tokens=effective_max_tokens,
-        timeout=getattr(config, "SERVICE_REQUEST_TIMEOUT", 1000.0),
+        timeout=settings.SERVICE_REQUEST_TIMEOUT,
         track_usage=False,
     )
 
@@ -2822,7 +2803,7 @@ async def run_lt_merge_phase(*, context, service_client) -> dict:
     )
 
     runtime_output_reserve = _positive_int(
-        getattr(config, "RUNTIME_OUTPUT_TOKEN_RESERVE", 256)
+        settings.RUNTIME_OUTPUT_TOKEN_RESERVE
     )
     protected_fact_ids = get_runtime_lt_explicit_edit_fact_ids(context)
     active_existing_facts = get_runtime_lt_active_facts(
@@ -3614,13 +3595,6 @@ async def run_lt_jin_note(
     ensure_runtime_lt_state(context)
     attempt = get_current_lt_attempt(context)
 
-    if not lt_memory_enabled():
-        return {
-            "phase": "jin_note",
-            "status": "skipped",
-            "reason": "lt_memory_disabled",
-        }
-
     service_client = getattr(context, "clients", {}).get("service")
     if service_client is None:
         return {
@@ -3834,9 +3808,6 @@ async def maybe_update_runtime_lt_memory(
     try:
         ensure_runtime_lt_state(context)
 
-        if not lt_memory_enabled():
-            return {"status": "disabled"}
-
         if user_idle_seconds is not None:
             try:
                 normalized_idle_seconds = int(float(user_idle_seconds))
@@ -3931,9 +3902,6 @@ def schedule_lt_memory_idle_update(
     minimum_interval_seconds: float | None = None,
 ) -> asyncio.Task | None:
     if lt_memory_writes_restricted(context):
-        return None
-
-    if not lt_memory_enabled():
         return None
 
     # Background consolidation is the lowest-priority L-T producer. A live
@@ -4210,7 +4178,7 @@ async def run_lt_memory_server_scheduler(app_state) -> None:
         wake_event.clear()
 
         contexts = _lt_scheduler_contexts(app_state)
-        if not contexts or not lt_memory_enabled():
+        if not contexts:
             await _wait_for_lt_scheduler_wake(wake_event)
             continue
 
@@ -4459,9 +4427,6 @@ def get_runtime_lt_active_facts(
 
 
 def build_runtime_lt_memory_context(*, context, fact_ids=None, user_input: str = "") -> str:
-    if not lt_memory_enabled():
-        return ""
-
     store = ensure_runtime_lt_state(context)
     reports = getattr(context, "delayed_memory_reports", {})
     anchor_report_ids_by_fact_id = collect_anchor_fact_report_ids(

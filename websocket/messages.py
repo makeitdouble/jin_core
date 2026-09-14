@@ -10,6 +10,7 @@ from agent import (
     AgentState,
 )
 from clients.brain_client import build_brain_payload
+from app_settings import settings
 from config_loader import config
 from rules.brain_context_builder import build_brain_context
 from runtime.runtime_context import RECENT_MESSAGES_MAX_PAIRS
@@ -220,7 +221,7 @@ async def check_model_status(
         response = await http_client.get(
             join_url(
                 base_url,
-                config.MODELS_ENDPOINT,
+                settings.MODELS_ENDPOINT,
             ),
             timeout=RUNTIME_STATUS_CHECK_TIMEOUT,
         )

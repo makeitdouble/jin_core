@@ -1806,15 +1806,13 @@
         const summary =
           String(report.summary || "").trim();
         const anchorFactIds =
-          normalizeLTFactIds(report.anchor_fact_ids);
+          normalizeLTFactIds(report.anchor_lt_facts_ids);
         const factIds =
-          normalizeLTFactIds(report.facts_ids);
+          normalizeLTFactIds(report.lt_facts_ids);
         const linkedFactIds =
           normalizeLTFactIds([
-            report.anchor_fact_ids,
-            report.facts_ids,
-            report.absorbed_fact_ids,
-            report.long_term_facts_ids,
+            report.anchor_lt_facts_ids,
+            report.lt_facts_ids,
           ]);
         // Keep pin and explicit-load state separate. Both are direct DM
         // states for Tier 2 and both may act as secondary-link sources.

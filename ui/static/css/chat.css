@@ -206,6 +206,9 @@
     align-items: center;
     justify-content: center;
 
+    position: relative;
+    overflow: visible;
+
     /* Скругление аватарки. Сейчас 4px — тот же радиус, что у баблов. */
     border-radius: 4px;
 
@@ -228,6 +231,59 @@
             0 0 0 1px rgba(0, 0, 0, 0.35),
             0 0 14px rgba(20, 184, 166, 0.14),
             inset 0 0 12px rgba(103, 232, 249, 0.04);
+
+    --jin-chat-avatar-progress-angle: 0deg;
+    --jin-chat-avatar-progress-color: rgba(255, 255, 255, 0.96);
+    --jin-chat-avatar-progress-glow-strong: rgba(255, 255, 255, 0.78);
+    --jin-chat-avatar-progress-glow-soft: rgba(255, 255, 255, 0.34);
+}
+
+.jin-chat-avatar-label {
+    position: relative;
+    z-index: 2;
+}
+
+.jin-chat-avatar-progress-ring {
+    position: absolute;
+    inset: -4px;
+    z-index: 1;
+    pointer-events: none;
+    opacity: 0;
+    border-radius: 8px;
+    padding: 1px;
+    background: conic-gradient(
+            from -90deg,
+            var(--jin-chat-avatar-progress-color) 0deg,
+            var(--jin-chat-avatar-progress-color) var(--jin-chat-avatar-progress-angle),
+            transparent var(--jin-chat-avatar-progress-angle),
+            transparent 360deg
+    );
+    -webkit-mask:
+            linear-gradient(#000 0 0) content-box,
+            linear-gradient(#000 0 0);
+    -webkit-mask-composite: xor;
+    mask-composite: exclude;
+    transition: opacity 0.18s ease, background 0.12s linear, filter 0.12s linear;
+    filter:
+            drop-shadow(0 0 1px var(--jin-chat-avatar-progress-color))
+            drop-shadow(0 0 4px var(--jin-chat-avatar-progress-glow-strong))
+            drop-shadow(0 0 8px var(--jin-chat-avatar-progress-glow-soft));
+}
+
+.jin-chat-avatar.has-progress .jin-chat-avatar-progress-ring {
+    opacity: 1;
+}
+
+.jin-chat-avatar.progress-phase-model-load {
+    --jin-chat-avatar-progress-color: rgba(255, 255, 255, 0.98);
+    --jin-chat-avatar-progress-glow-strong: rgba(255, 255, 255, 0.84);
+    --jin-chat-avatar-progress-glow-soft: rgba(255, 255, 255, 0.38);
+}
+
+.jin-chat-avatar.progress-phase-prompt-processing {
+    --jin-chat-avatar-progress-color: rgba(248, 204, 92, 0.98);
+    --jin-chat-avatar-progress-glow-strong: rgba(248, 204, 92, 0.80);
+    --jin-chat-avatar-progress-glow-soft: rgba(248, 204, 92, 0.34);
 }
 
 .jin-chat-avatar-user {

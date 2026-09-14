@@ -26,22 +26,22 @@ class ChatLogTests(unittest.TestCase):
 
     def setUp(self):
 
-        self.original_log_chat = getattr(
+        self.original_runtime_logs = getattr(
             config,
-            "LOG_CHAT",
+            "ENABLE_RUNTIME_LOGS",
             None,
         )
-        config.LOG_CHAT = True
+        config.ENABLE_RUNTIME_LOGS = True
 
     def tearDown(self):
 
-        if self.original_log_chat is None:
+        if self.original_runtime_logs is None:
             delattr(
                 config,
-                "LOG_CHAT",
+                "ENABLE_RUNTIME_LOGS",
             )
         else:
-            config.LOG_CHAT = self.original_log_chat
+            config.ENABLE_RUNTIME_LOGS = self.original_runtime_logs
 
     def test_extract_active_memory_ids_prefers_explicit_ids(self):
 
@@ -645,9 +645,9 @@ class ChatLogTests(unittest.TestCase):
             first = save_chat_bootstrap_context_snapshot(
                 context,
                 system_prompt=(
-                    '<RESTORED_SESSION_DIALOG session_id="previous-session">'
+                    '<OLD_SESSION_RESTORED_STATE session_id="previous-session">'
                     "original lineage"
-                    "</RESTORED_SESSION_DIALOG>"
+                    "</OLD_SESSION_RESTORED_STATE>"
                 ),
                 now=now,
                 root=root,
@@ -677,7 +677,7 @@ class ChatLogTests(unittest.TestCase):
             saved = bootstrap_path.read_text(encoding="utf-8")
 
         self.assertIn(
-            '<RESTORED_SESSION_DIALOG session_id="previous-session">',
+            '<OLD_SESSION_RESTORED_STATE session_id="previous-session">',
             saved,
         )
         self.assertNotIn(

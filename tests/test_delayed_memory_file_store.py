@@ -33,10 +33,10 @@ class DelayedMemoryFileStoreTests(unittest.TestCase):
             ],
             "body": body,
             "pinned": True,
-            "anchor_fact_ids": [
+            "anchor_lt_facts_ids": [
                 "F1",
             ],
-            "facts_ids": [
+            "lt_facts_ids": [
                 "F1",
                 "F2",
             ],
@@ -90,13 +90,13 @@ class DelayedMemoryFileStoreTests(unittest.TestCase):
                 True,
             )
             self.assertEqual(
-                payload["anchor_fact_ids"],
+                payload["anchor_lt_facts_ids"],
                 [
                     "F1",
                 ],
             )
             self.assertEqual(
-                payload["facts_ids"],
+                payload["lt_facts_ids"],
                 [
                     "F1",
                     "F2",
@@ -108,10 +108,6 @@ class DelayedMemoryFileStoreTests(unittest.TestCase):
                     "abc123",
                     "def456",
                 ],
-            )
-            self.assertNotIn(
-                "absorbed_fact_ids",
-                payload,
             )
 
             reports, warnings = (
@@ -137,13 +133,13 @@ class DelayedMemoryFileStoreTests(unittest.TestCase):
                 True,
             )
             self.assertEqual(
-                reports["48ggds"]["anchor_fact_ids"],
+                reports["48ggds"]["anchor_lt_facts_ids"],
                 [
                     "F1",
                 ],
             )
             self.assertEqual(
-                reports["48ggds"]["facts_ids"],
+                reports["48ggds"]["lt_facts_ids"],
                 [
                     "F1",
                     "F2",
@@ -352,7 +348,7 @@ class DelayedMemoryFileStoreTests(unittest.TestCase):
         browser_report = self.build_report(
             title="Browser title",
         )
-        browser_report["facts_ids"] = [
+        browser_report["lt_facts_ids"] = [
             "F1",
         ]
         browser_reports = {
@@ -373,13 +369,13 @@ class DelayedMemoryFileStoreTests(unittest.TestCase):
             "File only",
         )
         self.assertEqual(
-            merged["48ggds"]["anchor_fact_ids"],
+            merged["48ggds"]["anchor_lt_facts_ids"],
             [
                 "F1",
             ],
         )
         self.assertEqual(
-            merged["48ggds"]["facts_ids"],
+            merged["48ggds"]["lt_facts_ids"],
             [
                 "F1",
                 "F2",
@@ -424,18 +420,18 @@ class DelayedMemoryFileStoreTests(unittest.TestCase):
         existing_report = self.build_report(
             title="File title",
         )
-        existing_report["anchor_fact_ids"] = [
+        existing_report["anchor_lt_facts_ids"] = [
             "F1",
         ]
-        existing_report["facts_ids"] = [
+        existing_report["lt_facts_ids"] = [
             "F1",
             "F2",
         ]
         incoming_report = self.build_report(
             title="Browser title",
         )
-        incoming_report["anchor_fact_ids"] = []
-        incoming_report["facts_ids"] = [
+        incoming_report["anchor_lt_facts_ids"] = []
+        incoming_report["lt_facts_ids"] = [
             "F2",
         ]
         context = SimpleNamespace(
@@ -457,11 +453,11 @@ class DelayedMemoryFileStoreTests(unittest.TestCase):
         )
 
         self.assertEqual(
-            context.delayed_memory_reports["48ggds"]["anchor_fact_ids"],
+            context.delayed_memory_reports["48ggds"]["anchor_lt_facts_ids"],
             [],
         )
         self.assertEqual(
-            context.delayed_memory_reports["48ggds"]["facts_ids"],
+            context.delayed_memory_reports["48ggds"]["lt_facts_ids"],
             [
                 "F2",
             ],

@@ -159,15 +159,16 @@ The runtime status modal is also the current model-switch surface. For an availa
 The current high-level order is:
 
 1. optional `<CURRENT_RUNTIME_SETTINGS>` — absolute first block when non-empty;
-2. on archived restore only: session-restore continuation instruction;
-3. current concerns;
-4. trusted runtime XML / enabled actions;
-5. recent tool results;
-6. session action history;
-7. ordinary turn: attached-files inventory, then Delayed Memory inventory; restore turn: staged resource metadata instead;
-8. skills inventory;
-9. loaded skill content;
-10. runtime-context group:
+2. on archived restore only: `<MANDATORY_SYSTEM_NOTIFICATION>`;
+3. on archived restore only: `<OLD_SESSION_RESTORED_STATE>` immediately below the mandatory notification;
+4. current concerns;
+5. trusted runtime XML / enabled actions;
+6. recent tool results;
+7. session action history;
+8. ordinary turn: attached-files inventory, then Delayed Memory inventory; restore turn: staged resource metadata instead;
+9. skills inventory;
+10. loaded skill content;
+11. runtime-context group:
    - explicit user feedback / retry context when present;
    - Active Memory view;
    - ordinary turns: `<PREVIOUS_CHAT_MESSAGES>`;
@@ -176,8 +177,7 @@ The current high-level order is:
    - loaded Delayed Memory bodies;
    - L-T long-term memory;
    - zero-diff stall alert;
-11. archived exact-dialogue priming block when restoring; ordinary rolling chat is already adjacent to FRAME above;
-12. archived reasoning dump, otherwise previous-reasoning loop/crop;
+12. ordinary turns only: previous-reasoning loop/crop; archived restore does not inject saved reasoning;
 13. runtime-action instructions assembled from current contracts;
 14. identity block;
 15. turn/loop rules.
@@ -230,7 +230,7 @@ Current action names in the contract table:
 - `DELETE_ACTIVE_MEMORY`
 - `UPDATE_ACTIVE_MEMORY`
 
-The default `rules/brain_context_builder.py` feature map enables the listed capabilities. Search is an additional effective-capability gate: `WEB_SEARCH` and `DEEP_WEB_SEARCH` are removed from the model-facing action set unless `app_settings.settings.CAN_SEARCH` is true. `CAN_SEARCH` currently means provider `serper` plus a non-empty, non-placeholder configured key; the runtime deliberately does not guess a provider-specific key shape and leaves credential validation to Serper. The search client enforces the same gate before making a request. `POSTING_BOARD` is separately gated by the loaded `posting_board` skill: the skill owns the per-action API contract and safety rules, while the native runtime action owns HTTP execution, tool-result projection, follow-ups, logging, and UI events. The API token stays in `GETPOSTINGBOARD_API_KEY` and is deliberately omitted from request previews/tool results.
+The default `rules/brain_context_builder.py` feature map enables the listed capabilities. Search is an additional effective-capability gate: `WEB_SEARCH` and `DEEP_WEB_SEARCH` are removed from the model-facing action set unless `app_settings.settings.CAN_SEARCH` is true. `CAN_SEARCH` currently means provider `serper` plus a non-empty, non-placeholder key supplied through `SEARCH_SERPER_API_KEY` or `JIN_SEARCH_SERPER_API_KEY`; the runtime deliberately does not guess a provider-specific key shape and leaves credential validation to Serper. The Windows launcher loads repository-root `.env` values into its child JIN process, while direct `python app.py` starts require the variables to be exported by the calling shell. The search client enforces the same gate before making a request. `POSTING_BOARD` is separately gated by the loaded `posting_board` skill: the skill owns the per-action API contract and safety rules, while the native runtime action owns HTTP execution, tool-result projection, follow-ups, logging, and UI events. Its API token follows the same process-environment path through `GETPOSTINGBOARD_API_KEY` or `JIN_GETPOSTINGBOARD_API_KEY` and is deliberately omitted from request previews/tool results.
 
 There is **no current `SAVE_SESSION` contract** in this snapshot.
 
@@ -365,8 +365,8 @@ Current save contract:
   "summary": "",
   "tags": [],
   "body": "",
-  "anchor_fact_ids": [],
-  "facts_ids": [],
+  "anchor_lt_facts_ids": [],
+  "lt_facts_ids": [],
   "attachments_ids": []
 }
 </SAVE_DELAYED_MEMORY>
@@ -376,7 +376,7 @@ Important semantics:
 
 - report inventory and loaded report body are different prompt concepts;
 - reports can link L-T facts and persistent files;
-- `anchor_fact_ids` must be a subset of `facts_ids` under the current contract;
+- `anchor_lt_facts_ids` must be a subset of `lt_facts_ids` under the current contract;
 - loaded/pinned/referenced/inspected are different states;
 - old key/value `SAVE_DELAYED_MEMORY_CONTENT` form is legacy only.
 
@@ -582,16 +582,16 @@ Archived restore is a distinct path:
 2. Browser renders the same bounded three-USER-move tail carried by the restore payload and sends a `session_bootstrap`/restore payload. Saved reasoning is attached to its owning JIN turn after archive-file metadata is removed; later visible JIN-only restore rows remain in order.
 3. Backend sets `runtime_session_restore_priming` and stages historical resource IDs/metadata.
 4. A hidden `archived_session_resume` Brain tick receives restore-specific context.
-5. The restore prompt includes the newest complete visible dialog pairs plus a bounded recent reasoning dump.
+5. The restore prompt includes the newest complete visible USER/JIN dialog pairs only. Each restored message is followed by its compact relative age (for example `(5m ago)`) derived from the archived message timestamp. Archived reasoning remains available to the archive/UI continuity path but is intentionally excluded from the hidden bootstrap Brain prompt so stale action intent cannot be replayed as current intent.
 6. Historical loaded Delayed IDs and attached files are staged until after the restore greeting; room/avatar state is already restored by the bootstrap path and is not replayed as runtime actions.
 7. `BrainNode` consumes the staged restore envelope and replays only those delayed-memory/file resources through the normal runtime-action dispatcher.
 8. The WebSocket tail performs defensive cleanup only; it must not apply the same resources a second time.
 
-The restore instruction is stamped at prompt-build time with the current timezone-aware bootstrap time immediately before `Current session was bootstrapped in a browser tab!`. Archived USER timestamps remain historical dialogue metadata and are never reused as the bootstrap time.
+At prompt-build time the restore instruction prepends the fresh runtime session ID and timezone-aware current time directly above `!!! USER DIDN'T SEND NEW MESSAGE! !!!`. Archived USER timestamps remain historical dialogue metadata and are never reused as the bootstrap time.
 
-Constants in the current source limit the restore reasoning dump to two recent reasoning items with a per-item character cap. Restored visible dialogue uses the normal three-pair limit and, like ordinary recent-message context, does not impose a per-message character cap.
+The legacy restore-reasoning dump is retired. Saved reasoning remains available to archive/UI continuity and restore-derived metadata such as the latest reasoning/fact references, but it is not serialized into a separate bootstrap dump. Restored visible dialogue uses the normal three-pair limit and, like ordinary recent-message context, does not impose a per-message character cap.
 
-The RESTORE endpoint owns archived dialogue, reasoning, and FRAME for explicit URL checkout. A same-session browser checkpoint may contribute a newer room/avatar and Session Actions projection, but it cannot overwrite only `recent_turns`, reasoning, or runtime memory and thereby create a mixed conversation source. The restore instruction names `RESTORED_SESSION_DIALOG` as the newest conversational authority; FRAME remains background state and may legitimately predate the final archived turn.
+The RESTORE endpoint owns archived dialogue, reasoning, and FRAME for explicit URL checkout. A same-session browser checkpoint may contribute a newer room/avatar and Session Actions projection, but it cannot overwrite only `recent_turns`, reasoning, or runtime memory and thereby create a mixed conversation source. The restore instruction names `OLD_SESSION_RESTORED_STATE` as the newest conversational authority; FRAME remains background state and may legitimately predate the final archived turn.
 
 `utils/session_restore.py` still understands historical `SAVE_SESSION` labels in archived logs. That is restore compatibility, not proof of a current `SAVE_SESSION` runtime action.
 

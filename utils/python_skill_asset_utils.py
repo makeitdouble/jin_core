@@ -11,11 +11,24 @@ import tempfile
 from pathlib import Path
 from time import monotonic
 
-from config_loader import config
+from app_settings import settings
 from clients.service_client import ask_service_model
 from utils import assets_utils as assets_common
 from utils.skills_asset_utils import normalize_skill_name
 from utils.tokens import estimate_tokens
+from skills.skills_config import (
+    DOCUMENT_READER_INVALID_OUTPUT_RETRIES,
+    DOCUMENT_READER_MAX_CHUNK_TOKENS,
+    DOCUMENT_READER_MAX_ITERATIONS,
+    DOCUMENT_READER_MIN_CHUNK_TOKENS,
+    DOCUMENT_READER_MODEL_TIMEOUT_SECONDS,
+    DOCUMENT_READER_PROGRESS_HEARTBEAT_SECONDS,
+    DOCUMENT_READER_RESULT_MAX_TOKENS,
+    DOCUMENT_READER_SCRIPT_TIMEOUT_SECONDS,
+    DOCUMENT_READER_TEMPERATURE,
+    PYTHON_SKILL_OUTPUT_MAX_CHARS,
+    PYTHON_SKILL_TIMEOUT_SECONDS,
+)
 
 
 DEFAULT_READER_MODE = "plain-mode.md"
@@ -714,11 +727,7 @@ def _estimate_document_reader_total_chunks(
 
 def _document_reader_heartbeat_seconds() -> float:
 
-    configured = getattr(
-        config,
-        "DOCUMENT_READER_PROGRESS_HEARTBEAT_SECONDS",
-        1.0,
-    )
+    configured = DOCUMENT_READER_PROGRESS_HEARTBEAT_SECONDS
 
     try:
         interval = float(configured or 1.0)
@@ -1290,11 +1299,7 @@ async def run_python_skill_action(
             float(
                 payload.get(
                     "timeout_seconds",
-                    getattr(
-                        config,
-                        "PYTHON_SKILL_TIMEOUT_SECONDS",
-                        120,
-                    ),
+                    PYTHON_SKILL_TIMEOUT_SECONDS,
                 )
                 or 120
             ),
@@ -1377,11 +1382,7 @@ async def run_python_skill_action(
         output_limit = max(
             1000,
             int(
-                getattr(
-                    config,
-                    "PYTHON_SKILL_OUTPUT_MAX_CHARS",
-                    60000,
-                )
+                PYTHON_SKILL_OUTPUT_MAX_CHARS
                 or 60000
             ),
         )
@@ -1492,11 +1493,7 @@ def _resolve_reader_budgets(
         ),
     )
     configured_result_cap = int(
-        getattr(
-            config,
-            "DOCUMENT_READER_RESULT_MAX_TOKENS",
-            0,
-        )
+        DOCUMENT_READER_RESULT_MAX_TOKENS
         or 0
     )
     automatic_result_cap = min(
@@ -1532,11 +1529,7 @@ def _resolve_reader_budgets(
     configured_reserve = max(
         0,
         int(
-            getattr(
-                config,
-                "RUNTIME_OUTPUT_TOKEN_RESERVE",
-                256,
-            )
+            settings.RUNTIME_OUTPUT_TOKEN_RESERVE
             or 0
         ),
     )
@@ -1568,20 +1561,12 @@ def _resolve_reader_budgets(
     minimum_chunk_tokens = max(
         hard_minimum_chunk_tokens,
         int(
-            getattr(
-                config,
-                "DOCUMENT_READER_MIN_CHUNK_TOKENS",
-                256,
-            )
+            DOCUMENT_READER_MIN_CHUNK_TOKENS
             or 256
         ),
     )
     configured_maximum_chunk_tokens = int(
-        getattr(
-            config,
-            "DOCUMENT_READER_MAX_CHUNK_TOKENS",
-            0,
-        )
+        DOCUMENT_READER_MAX_CHUNK_TOKENS
         or 0
     )
     automatic_maximum_chunk_tokens = min(
@@ -2000,11 +1985,7 @@ async def _run_document_pass(
         "chunk_reader.py",
     )
     timeout_seconds = float(
-        getattr(
-            config,
-            "DOCUMENT_READER_SCRIPT_TIMEOUT_SECONDS",
-            120,
-        )
+        DOCUMENT_READER_SCRIPT_TIMEOUT_SECONDS
         or 120
     )
     info = await _run_subprocess_json(
@@ -2064,11 +2045,7 @@ async def _run_document_pass(
     max_iterations = max(
         1,
         int(
-            getattr(
-                config,
-                "DOCUMENT_READER_MAX_ITERATIONS",
-                128,
-            )
+            DOCUMENT_READER_MAX_ITERATIONS
             or 128
         ),
     )
@@ -2237,11 +2214,7 @@ async def _run_document_pass(
         max_invalid_output_retries = max(
             0,
             int(
-                getattr(
-                    config,
-                    "DOCUMENT_READER_INVALID_OUTPUT_RETRIES",
-                    2,
-                )
+                DOCUMENT_READER_INVALID_OUTPUT_RETRIES
                 or 0
             ),
         )
@@ -2311,24 +2284,12 @@ async def _run_document_pass(
                     system_prompt=system_prompt,
                     user_prompt=user_prompt,
                     temperature=float(
-                        getattr(
-                            config,
-                            "DOCUMENT_READER_TEMPERATURE",
-                            0.1,
-                        )
+                        DOCUMENT_READER_TEMPERATURE
                         or 0.1
                     ),
                     max_tokens=fitted["output_tokens"],
                     timeout=float(
-                        getattr(
-                            config,
-                            "DOCUMENT_READER_MODEL_TIMEOUT_SECONDS",
-                            getattr(
-                                config,
-                                "SERVICE_REQUEST_TIMEOUT",
-                                1000.0,
-                            ),
-                        )
+                        DOCUMENT_READER_MODEL_TIMEOUT_SECONDS
                         or 1000.0
                     ),
                 )

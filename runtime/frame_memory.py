@@ -260,7 +260,7 @@ async def ask_frame_summarizer(
             user_prompt=user_prompt,
             temperature=temperature,
             max_tokens=max_tokens,
-            timeout=config.SERVICE_REQUEST_TIMEOUT,
+            timeout=1000.0,
             track_usage=False,
         )
     except asyncio.CancelledError:

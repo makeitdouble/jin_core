@@ -123,7 +123,6 @@ def normalize_model_role_config(
         for suffix in (
             "API_BASE",
             "MODEL_UID",
-            "REQUEST_TIMEOUT",
         ):
             service_name = f"SERVICE_{suffix}"
             brain_name = f"BRAIN_{suffix}"
@@ -188,10 +187,6 @@ def normalize_model_role_config(
         "SERVICE_MODEL_UID": getattr(
             config_module,
             "BRAIN_MODEL_UID",
-        ),
-        "SERVICE_REQUEST_TIMEOUT": getattr(
-            config_module,
-            "BRAIN_REQUEST_TIMEOUT",
         ),
     }
 

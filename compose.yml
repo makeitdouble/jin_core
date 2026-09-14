@@ -1,0 +1,34 @@
+services:
+  jin:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    env_file:
+      - .env
+    environment:
+      # app.py stays localhost-only outside containers; Compose opts in to
+      # listening on the container interface.
+      JIN_HOST: 0.0.0.0
+      JIN_PORT: 8000
+
+      # Inside a container, 127.0.0.1 is the container itself. Docker Desktop
+      # exposes the Windows/macOS host as host.docker.internal. Override this
+      # in .env when the Brain lives somewhere else.
+      BRAIN_API_BASE: ${BRAIN_API_BASE:-http://host.docker.internal:1234}
+    ports:
+      - "127.0.0.1:8000:8000"
+    extra_hosts:
+      # Also makes host.docker.internal work on modern Linux Docker engines.
+      - "host.docker.internal:host-gateway"
+    volumes:
+      # Keep model selection/config edits made from the JIN status UI.
+      - ./config.py:/app/config.py
+
+      # Persistent JIN state. Removing/recreating the container must not erase
+      # memory, logs, attachments, or generated outputs.
+      - ./memory:/app/memory
+      - ./logs:/app/logs
+      - ./logs_anon:/app/logs_anon
+      - ./assets/files:/app/assets/files
+      - ./assets/outputs:/app/assets/outputs
+    restart: unless-stopped

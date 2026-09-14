@@ -202,17 +202,6 @@ def build_brain_user_prompt_content(
     context=None,
 ):
 
-    image_input_enabled = bool(
-        getattr(
-            config,
-            "BRAIN_IMAGE_INPUT_ENABLED",
-            False,
-        )
-    )
-
-    if not image_input_enabled:
-        return text
-
     content = [
         {
             "type": "text",

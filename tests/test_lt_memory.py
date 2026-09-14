@@ -832,8 +832,8 @@ class LTMemoryTests(unittest.IsolatedAsyncioTestCase):
         context.delayed_memory_reports = {
             "abc123": {
                 "title": "Archived model context",
-                "anchor_fact_ids": ["F3"],
-                "facts_ids": ["F2", "F3"],
+                "anchor_lt_facts_ids": ["F3"],
+                "lt_facts_ids": ["F2", "F3"],
             },
         }
 
@@ -896,7 +896,7 @@ class LTMemoryTests(unittest.IsolatedAsyncioTestCase):
         context.delayed_memory_reports = {
             "abc123": {
                 "title": "Old model history",
-                "facts_ids": ["F1"],
+                "lt_facts_ids": ["F1"],
             },
         }
 
@@ -2175,9 +2175,9 @@ class LTMemoryTests(unittest.IsolatedAsyncioTestCase):
         )
         context.delayed_memory_file_store_enabled = False
         context.delayed_memory_reports = {
-            "left": {"facts_ids": ["F1"]},
-            "right": {"facts_ids": ["F3"]},
-            "both": {"facts_ids": ["F2", "F4"]},
+            "left": {"lt_facts_ids": ["F1"]},
+            "right": {"lt_facts_ids": ["F3"]},
+            "both": {"lt_facts_ids": ["F2", "F4"]},
         }
 
         change = remap_delayed_memory_lt_fact_ids(
@@ -2193,10 +2193,10 @@ class LTMemoryTests(unittest.IsolatedAsyncioTestCase):
         )
 
         self.assertTrue(change["changed"])
-        self.assertEqual(context.delayed_memory_reports["left"]["facts_ids"], ["F5"])
-        self.assertEqual(context.delayed_memory_reports["right"]["facts_ids"], ["F6"])
+        self.assertEqual(context.delayed_memory_reports["left"]["lt_facts_ids"], ["F5"])
+        self.assertEqual(context.delayed_memory_reports["right"]["lt_facts_ids"], ["F6"])
         self.assertEqual(
-            context.delayed_memory_reports["both"]["facts_ids"],
+            context.delayed_memory_reports["both"]["lt_facts_ids"],
             ["F5", "F6"],
         )
 
@@ -3597,8 +3597,8 @@ class LTMemoryTests(unittest.IsolatedAsyncioTestCase):
         context.delayed_memory_reports = {
             "abc123": {
                 "title": "Social context",
-                "anchor_fact_ids": ["F1"],
-                "facts_ids": ["F1", "F2"],
+                "anchor_lt_facts_ids": ["F1"],
+                "lt_facts_ids": ["F1", "F2"],
             },
         }
 
@@ -3641,10 +3641,10 @@ class LTMemoryTests(unittest.IsolatedAsyncioTestCase):
         context.delayed_memory_reports = {
             "abc123": {
                 "title": "Social context",
-                "anchor_fact_ids": [
+                "anchor_lt_facts_ids": [
                     "F1",
                 ],
-                "facts_ids": [
+                "lt_facts_ids": [
                     "F1",
                     "F2",
                 ],
@@ -3701,10 +3701,10 @@ class LTMemoryTests(unittest.IsolatedAsyncioTestCase):
             "abc123": {
                 "title": "Social context",
                 "pinned": True,
-                "anchor_fact_ids": [
+                "anchor_lt_facts_ids": [
                     "F1",
                 ],
-                "facts_ids": [
+                "lt_facts_ids": [
                     "F1",
                     "F2",
                 ],
@@ -3748,12 +3748,12 @@ class LTMemoryTests(unittest.IsolatedAsyncioTestCase):
         context.delayed_memory_reports = {
             "abc123": {
                 "title": "Identity",
-                "anchor_fact_ids": ["F1"],
-                "facts_ids": ["F1"],
+                "anchor_lt_facts_ids": ["F1"],
+                "lt_facts_ids": ["F1"],
             },
             "def456": {
                 "title": "Social",
-                "facts_ids": ["F1"],
+                "lt_facts_ids": ["F1"],
             },
         }
 
@@ -3787,34 +3787,26 @@ class LTMemoryTests(unittest.IsolatedAsyncioTestCase):
         context.delayed_memory_reports = {
             "abc123": {
                 "title": "Social context",
-                "anchor_fact_ids": ["F1"],
-                "facts_ids": ["F1", "F2"],
+                "anchor_lt_facts_ids": ["F1"],
+                "lt_facts_ids": ["F1", "F2"],
             },
         }
         context.delayed_memory_file_store_enabled = False
 
         self.assertTrue(await delete_lt_memory_fact(context, "F1"))
         self.assertEqual(
-            context.delayed_memory_reports["abc123"]["anchor_fact_ids"],
+            context.delayed_memory_reports["abc123"]["anchor_lt_facts_ids"],
             [],
         )
         self.assertEqual(
-            context.delayed_memory_reports["abc123"]["facts_ids"],
+            context.delayed_memory_reports["abc123"]["lt_facts_ids"],
             ["F2"],
         )
 
         self.assertTrue(await delete_lt_memory_fact(context, "F2"))
         self.assertEqual(
-            context.delayed_memory_reports["abc123"]["facts_ids"],
+            context.delayed_memory_reports["abc123"]["lt_facts_ids"],
             [],
-        )
-        self.assertNotIn(
-            "absorbed_fact_ids",
-            context.delayed_memory_reports["abc123"],
-        )
-        self.assertNotIn(
-            "long_term_facts_ids",
-            context.delayed_memory_reports["abc123"],
         )
         self.assertGreaterEqual(
             sum(
@@ -3843,16 +3835,16 @@ class LTMemoryTests(unittest.IsolatedAsyncioTestCase):
         context.delayed_memory_reports = {
             "abc123": {
                 "title": "Primary report",
-                "anchor_fact_ids": ["F1"],
-                "facts_ids": ["F1"],
+                "anchor_lt_facts_ids": ["F1"],
+                "lt_facts_ids": ["F1"],
             },
             "def456": {
                 "title": "Related report",
-                "facts_ids": ["F1"],
+                "lt_facts_ids": ["F1"],
             },
             "ghi789": {
                 "title": "Unrelated report",
-                "facts_ids": [],
+                "lt_facts_ids": [],
             },
         }
         context.delayed_memory_file_store_enabled = False
@@ -3866,13 +3858,13 @@ class LTMemoryTests(unittest.IsolatedAsyncioTestCase):
             [
                 {
                     "report_id": "abc123",
-                    "anchor_fact_ids": ["F1"],
-                    "facts_ids": ["F1"],
+                    "anchor_lt_facts_ids": ["F1"],
+                    "lt_facts_ids": ["F1"],
                 },
                 {
                     "report_id": "def456",
-                    "anchor_fact_ids": [],
-                    "facts_ids": ["F1"],
+                    "anchor_lt_facts_ids": [],
+                    "lt_facts_ids": ["F1"],
                 },
             ],
         )
@@ -3907,12 +3899,12 @@ class LTMemoryTests(unittest.IsolatedAsyncioTestCase):
         context.delayed_memory_reports = {
             "abc123": {
                 "title": "Primary report",
-                "anchor_fact_ids": ["F1"],
-                "facts_ids": ["F1", "F2"],
+                "anchor_lt_facts_ids": ["F1"],
+                "lt_facts_ids": ["F1", "F2"],
             },
             "def456": {
                 "title": "Related report",
-                "facts_ids": ["F1"],
+                "lt_facts_ids": ["F1"],
             },
         }
         context.delayed_memory_file_store_enabled = False
@@ -3920,15 +3912,15 @@ class LTMemoryTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(await delete_lt_memory_fact(context, "F1"))
         deleted_fact = logger.logs[0]["deleted_fact"]
         self.assertEqual(
-            context.delayed_memory_reports["abc123"]["anchor_fact_ids"],
+            context.delayed_memory_reports["abc123"]["anchor_lt_facts_ids"],
             [],
         )
         self.assertEqual(
-            context.delayed_memory_reports["abc123"]["facts_ids"],
+            context.delayed_memory_reports["abc123"]["lt_facts_ids"],
             ["F2"],
         )
         self.assertEqual(
-            context.delayed_memory_reports["def456"]["facts_ids"],
+            context.delayed_memory_reports["def456"]["lt_facts_ids"],
             [],
         )
 
@@ -3946,15 +3938,15 @@ class LTMemoryTests(unittest.IsolatedAsyncioTestCase):
             context.runtime_long_term_memory_store["facts"][-1],
         )
         self.assertEqual(
-            context.delayed_memory_reports["abc123"]["anchor_fact_ids"],
+            context.delayed_memory_reports["abc123"]["anchor_lt_facts_ids"],
             ["F1"],
         )
         self.assertEqual(
-            context.delayed_memory_reports["abc123"]["facts_ids"],
+            context.delayed_memory_reports["abc123"]["lt_facts_ids"],
             ["F1", "F2"],
         )
         self.assertEqual(
-            context.delayed_memory_reports["def456"]["facts_ids"],
+            context.delayed_memory_reports["def456"]["lt_facts_ids"],
             ["F1"],
         )
         self.assertTrue(any(
@@ -3993,7 +3985,7 @@ class LTMemoryTests(unittest.IsolatedAsyncioTestCase):
         context.delayed_memory_reports = {
             "abc123": {
                 "title": "Topic report",
-                "long_term_facts_ids": [
+                "lt_facts_ids": [
                     "F1",
                 ],
             },
@@ -4048,7 +4040,7 @@ class LTMemoryTests(unittest.IsolatedAsyncioTestCase):
         context.delayed_memory_reports = {
             "abc123": {
                 "title": "Social context",
-                "long_term_facts_ids": [
+                "lt_facts_ids": [
                     "F9",
                 ],
             },
@@ -4106,7 +4098,7 @@ class LTMemoryTests(unittest.IsolatedAsyncioTestCase):
                     "project",
                 ],
                 "body": "Reusable project report.",
-                "long_term_facts_ids": [
+                "lt_facts_ids": [
                     "F1",
                 ],
             },
@@ -4128,19 +4120,11 @@ class LTMemoryTests(unittest.IsolatedAsyncioTestCase):
             context.delayed_memory_reports[
                 "abc123"
             ][
-                "facts_ids"
+                "lt_facts_ids"
             ],
             [
                 "F1",
             ],
-        )
-        self.assertNotIn(
-            "absorbed_fact_ids",
-            context.delayed_memory_reports["abc123"],
-        )
-        self.assertNotIn(
-            "long_term_facts_ids",
-            context.delayed_memory_reports["abc123"],
         )
         self.assertEqual(
             context.runtime_lt_archived_fact_ids,

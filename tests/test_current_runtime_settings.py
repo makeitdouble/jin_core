@@ -1,5 +1,4 @@
 import unittest
-from datetime import datetime
 from types import SimpleNamespace
 from unittest.mock import patch
 
@@ -12,6 +11,7 @@ class CurrentRuntimeSettingsTests(unittest.TestCase):
     @staticmethod
     def _context(*, restore_priming=False):
         return SimpleNamespace(
+            session_id="current-session-test",
             runtime_memory="",
             active_memory_records=[],
             runtime_attached_file_ids=[],
@@ -63,15 +63,19 @@ class CurrentRuntimeSettingsTests(unittest.TestCase):
         )
 
     def test_runtime_settings_stay_before_restore_priming(self):
+        context = self._context(
+            restore_priming=True
+        )
+        context.runtime_restored_session_dialog = (
+            "<OLD_SESSION_RESTORED_STATE>old</OLD_SESSION_RESTORED_STATE>"
+        )
         with patch.object(
             brain_context_builder,
             "CURRENT_RUNTIME_SETTINGS_CONTENT",
             "restore_mode: enabled",
         ):
             prompt = build_brain_context(
-                context=self._context(
-                    restore_priming=True
-                ),
+                context=context,
                 runtime_actions={},
                 include_runtime_action_instructions=False,
             )
@@ -84,61 +88,50 @@ class CurrentRuntimeSettingsTests(unittest.TestCase):
         self.assertTrue(
             prompt.startswith(
                 settings_prefix
-                + "<RESTORED_SESSION_INSTRUCTIONS>\n"
+                + "<MANDATORY_SYSTEM_NOTIFICATION>\n"
             )
         )
-        restore_lines = prompt[len(settings_prefix):].splitlines()[:3]
-        self.assertIsNotNone(
-            datetime.fromisoformat(restore_lines[1]).utcoffset()
-        )
-        self.assertEqual(
-            restore_lines[2],
-            "Current session was bootstrapped in a browser tab!",
-        )
+        mandatory_pos = prompt.index("<MANDATORY_SYSTEM_NOTIFICATION>")
+        old_session_pos = prompt.index("<OLD_SESSION_RESTORED_STATE")
+        concerns_pos = prompt.index("<CURRENT_CONCERNS>")
+        self.assertLess(mandatory_pos, old_session_pos)
+        self.assertLess(old_session_pos, concerns_pos)
 
-    def test_restore_priming_prefixes_current_bootstrap_timestamp(self):
+    def test_restore_priming_places_old_session_state_under_mandatory_notification(self):
         context = self._context(
             restore_priming=True
         )
         context.runtime_restored_session_dialog = (
-            '<RESTORED_SESSION_DIALOG session_id="old">\n'
+            '<OLD_SESSION_RESTORED_STATE session_id="old">\n'
             '<USER ts="2026-08-26T00:31:00+03:00">first</USER>\n'
             '<JIN ts="2026-08-26T00:31:30+03:00">reply</JIN>\n'
             '<USER ts="2026-08-26T00:32:28+03:00">latest</USER>\n'
-            '</RESTORED_SESSION_DIALOG>'
+            '</OLD_SESSION_RESTORED_STATE>'
         )
 
-        before = datetime.now().astimezone()
         prompt = build_brain_context(
             context=context,
             runtime_actions={},
             include_runtime_action_instructions=False,
         )
-        after = datetime.now().astimezone()
 
-        prefix_lines = prompt.splitlines()[:3]
-        self.assertEqual(
-            prefix_lines[0],
-            "<RESTORED_SESSION_INSTRUCTIONS>",
+        self.assertTrue(
+            prompt.startswith("<MANDATORY_SYSTEM_NOTIFICATION>\n")
         )
-        self.assertEqual(
-            prefix_lines[2],
-            "Current session was bootstrapped in a browser tab!",
+        self.assertIn(
+            "Current session id: current-session-test\nCurrent time: ",
+            prompt,
         )
-        bootstrap_time = datetime.fromisoformat(prefix_lines[1])
-        self.assertIsNotNone(bootstrap_time.utcoffset())
-        self.assertLessEqual(
-            before.replace(microsecond=0),
-            bootstrap_time,
-        )
-        self.assertLessEqual(
-            bootstrap_time,
-            after,
-        )
-        self.assertNotEqual(
-            prefix_lines[1],
-            "2026-08-26T00:32:28+03:00",
-        )
+        session_pos = prompt.index("Current session id: current-session-test")
+        time_pos = prompt.index("Current time: ")
+        no_user_pos = prompt.index("!!! USER DIDN'T SEND NEW MESSAGE! !!!")
+        self.assertLess(session_pos, time_pos)
+        self.assertLess(time_pos, no_user_pos)
+        mandatory_end = prompt.index("</MANDATORY_SYSTEM_NOTIFICATION>")
+        old_session_pos = prompt.index("<OLD_SESSION_RESTORED_STATE")
+        concerns_pos = prompt.index("<CURRENT_CONCERNS>")
+        self.assertLess(mandatory_end, old_session_pos)
+        self.assertLess(old_session_pos, concerns_pos)
 
 
 if __name__ == "__main__":

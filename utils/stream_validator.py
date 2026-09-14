@@ -1,7 +1,6 @@
 from contracts.rules_assembler import (
     get_stream_validator_excluded_markers,
 )
-from config_loader import config
 from utils.actions.regexp_utils import (
     RUNTIME_ACTION_QUOTE_OPENERS,
     is_quoted_runtime_marker,
@@ -46,73 +45,28 @@ TRAILING_ARTIFACTS = [
 # VALIDATION THRESHOLDS
 # ---------------------------------------------------------
 
-def configured_int(
-    name: str,
-    default: int,
-    *,
-    minimum: int = 1,
-    zero_disables: bool = False,
-) -> int:
+STREAM_VALIDATOR_WORD_WINDOW_SIZE = 30
+STREAM_VALIDATOR_MAX_REPEAT_WORDS = 8
+STREAM_VALIDATOR_MAX_REPEAT_WORD_SEQUENCE_SIZE = 6
+STREAM_VALIDATOR_MAX_REPEAT_WORD_SEQUENCE_REPETITIONS = 6
+STREAM_VALIDATOR_MAX_REPEAT_SENTENCES = 7
+STREAM_VALIDATOR_MAX_REPEAT_SYMBOLIC_MOTIFS = 5
+STREAM_VALIDATOR_SYMBOLIC_MOTIF_HISTORY_LINES = 48
+STREAM_VALIDATOR_MAX_SENTENCE_LOOP_SEQUENCE_SIZE = 16
+STREAM_VALIDATOR_MIN_RECURRENT_SENTENCE_WORDS = 5
+STREAM_VALIDATOR_MIN_RECURRENT_SENTENCE_ALNUM = 20
 
-    try:
-        value = int(
-            getattr(
-                config,
-                name,
-                default,
-            )
-        )
-    except (TypeError, ValueError):
-        value = default
+WORD_WINDOW_SIZE = STREAM_VALIDATOR_WORD_WINDOW_SIZE
+MAX_REPEAT_WORDS = STREAM_VALIDATOR_MAX_REPEAT_WORDS
+MAX_REPEAT_WORD_SEQUENCE_SIZE = STREAM_VALIDATOR_MAX_REPEAT_WORD_SEQUENCE_SIZE
+MAX_REPEAT_WORD_SEQUENCE_REPETITIONS = STREAM_VALIDATOR_MAX_REPEAT_WORD_SEQUENCE_REPETITIONS
+MAX_REPEAT_SENTENCES = STREAM_VALIDATOR_MAX_REPEAT_SENTENCES
+MAX_REPEAT_SYMBOLIC_MOTIFS = STREAM_VALIDATOR_MAX_REPEAT_SYMBOLIC_MOTIFS
+SYMBOLIC_MOTIF_HISTORY_LINES = STREAM_VALIDATOR_SYMBOLIC_MOTIF_HISTORY_LINES
+MAX_SENTENCE_LOOP_SEQUENCE_SIZE = STREAM_VALIDATOR_MAX_SENTENCE_LOOP_SEQUENCE_SIZE
+MIN_RECURRENT_SENTENCE_WORDS = STREAM_VALIDATOR_MIN_RECURRENT_SENTENCE_WORDS
+MIN_RECURRENT_SENTENCE_ALNUM = STREAM_VALIDATOR_MIN_RECURRENT_SENTENCE_ALNUM
 
-    if zero_disables and value <= 0:
-        return 0
-
-    return max(
-        minimum,
-        value,
-    )
-
-
-WORD_WINDOW_SIZE = configured_int(
-    "STREAM_VALIDATOR_WORD_WINDOW_SIZE",
-    30,
-)
-MAX_REPEAT_WORDS = configured_int(
-    "STREAM_VALIDATOR_MAX_REPEAT_WORDS",
-    8,
-    minimum=2,
-    zero_disables=True,
-)
-MAX_REPEAT_WORD_SEQUENCE_SIZE = configured_int(
-    "STREAM_VALIDATOR_MAX_REPEAT_WORD_SEQUENCE_SIZE",
-    6,
-    minimum=2,
-    zero_disables=True,
-)
-MAX_REPEAT_WORD_SEQUENCE_REPETITIONS = configured_int(
-    "STREAM_VALIDATOR_MAX_REPEAT_WORD_SEQUENCE_REPETITIONS",
-    6,
-    minimum=2,
-    zero_disables=True,
-)
-MAX_REPEAT_SENTENCES = configured_int(
-    "STREAM_VALIDATOR_MAX_REPEAT_SENTENCES",
-    5,
-    minimum=2,
-    zero_disables=True,
-)
-MAX_REPEAT_SYMBOLIC_MOTIFS = configured_int(
-    "STREAM_VALIDATOR_MAX_REPEAT_SYMBOLIC_MOTIFS",
-    8,
-    minimum=3,
-    zero_disables=True,
-)
-SYMBOLIC_MOTIF_HISTORY_LINES = configured_int(
-    "STREAM_VALIDATOR_SYMBOLIC_MOTIF_HISTORY_LINES",
-    48,
-    minimum=8,
-)
 # Inline symbol degeneration is deliberately conservative. A finite geometric
 # drawing may repeat the same visual pattern for several rows, so line breaks
 # are hard boundaries here. Only a long low-period run inside one physical line
@@ -129,24 +83,12 @@ ASCII_REPEAT_LOOP_MIN_VISIBLE_CHARS = 3
 # runaway shape. Keep this deliberately high so finite diagonals stay valid.
 ASCII_DRIFT_LOOP_MIN_LINES = 24
 ASCII_DRIFT_LOOP_MIN_BODY_WIDTH = 12
-MAX_SENTENCE_LOOP_SEQUENCE_SIZE = configured_int(
-    "STREAM_VALIDATOR_MAX_SENTENCE_LOOP_SEQUENCE_SIZE",
-    16,
-)
 MAX_RECURRENT_SENTENCE_HISTORY_SIZE = (
     MAX_SENTENCE_LOOP_SEQUENCE_SIZE
     * max(
         1,
         MAX_REPEAT_SENTENCES,
     )
-)
-MIN_RECURRENT_SENTENCE_WORDS = configured_int(
-    "STREAM_VALIDATOR_MIN_RECURRENT_SENTENCE_WORDS",
-    5,
-)
-MIN_RECURRENT_SENTENCE_ALNUM = configured_int(
-    "STREAM_VALIDATOR_MIN_RECURRENT_SENTENCE_ALNUM",
-    20,
 )
 SENTENCE_HISTORY_SIZE = (
     MAX_SENTENCE_LOOP_SEQUENCE_SIZE

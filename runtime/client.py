@@ -32,6 +32,13 @@ LM_STUDIO_CONTEXT_WINDOW_PATTERNS = (
     ),
 )
 
+GENERIC_STREAM_PROVIDER = "generic_openai"
+LM_STUDIO_STREAM_PROVIDER = "lm_studio"
+LLAMA_CPP_STREAM_PROVIDER = "llama_cpp"
+LM_STUDIO_NATIVE_CHAT_ENDPOINT = "/api/v1/chat"
+LLAMA_CPP_PROPS_ENDPOINT = "/props"
+LLAMA_CPP_MODEL_EVENTS_ENDPOINT = "/models/sse"
+
 
 class LMStudioAPIError(RuntimeError):
 
@@ -242,8 +249,14 @@ def _build_stream_json_error_details(
         "messages",
         [],
     )
-    system_prompt = ""
-    user_prompt = ""
+    system_prompt = payload.get(
+        "system_prompt",
+        "",
+    )
+    user_prompt = payload.get(
+        "input",
+        "",
+    )
 
     if isinstance(
         messages,
@@ -262,12 +275,12 @@ def _build_stream_json_error_details(
             if role == "system":
                 system_prompt = message.get(
                     "content",
-                    "",
+                    system_prompt,
                 )
             elif role == "user":
                 user_prompt = message.get(
                     "content",
-                    "",
+                    user_prompt,
                 )
 
     details = {
@@ -334,6 +347,7 @@ async def _log_context_error(
         )
 
 
+
 class RuntimeClient:
 
     def __init__(
@@ -357,6 +371,8 @@ class RuntimeClient:
         self.provider_context_window_ceiling_detected_context = None
         self.model_limits_detection_attempted = False
         self.model_limits_detected_at = 0.0
+        self.stream_provider_kind = None
+        self.stream_provider_detected_at = 0.0
 
     # ---------------------------------------------------------
     # MODEL LIMIT DETECTION
@@ -1214,6 +1230,320 @@ class RuntimeClient:
         )
 
 
+    async def detect_stream_provider_kind(
+            self,
+            *,
+            force_refresh: bool = False,
+    ) -> str:
+
+        if (
+                self.stream_provider_kind
+                and not force_refresh
+        ):
+            return self.stream_provider_kind
+
+        native_models_endpoint = getattr(
+            settings,
+            "NATIVE_MODELS_ENDPOINT",
+            None,
+        ) or LEGACY_NATIVE_MODELS_ENDPOINT
+
+        native_models_payload = await self._probe_json_endpoint(
+            native_models_endpoint
+        )
+
+        if native_models_payload is None and native_models_endpoint != LEGACY_NATIVE_MODELS_ENDPOINT:
+            native_models_payload = await self._probe_json_endpoint(
+                LEGACY_NATIVE_MODELS_ENDPOINT
+            )
+
+        # LM Studio native v1 returns {"models": [...]}; legacy native v0
+        # returned {"data": [...]}. Accept both. The previous detector only
+        # recognized v0, so LM Studio 0.4.x fell through to /props and was
+        # incorrectly classified as plain llama.cpp (LM Studio exposes that
+        # compatibility endpoint because its engine is llama.cpp-based).
+        is_lm_studio_native = bool(
+            isinstance(native_models_payload, dict)
+            and (
+                isinstance(native_models_payload.get("models"), list)
+                or isinstance(native_models_payload.get("data"), list)
+            )
+        )
+
+        if is_lm_studio_native:
+            provider_kind = LM_STUDIO_STREAM_PROVIDER
+        else:
+            props_payload = await self._probe_json_endpoint(
+                LLAMA_CPP_PROPS_ENDPOINT
+            )
+            provider_kind = (
+                LLAMA_CPP_STREAM_PROVIDER
+                if isinstance(props_payload, dict) and props_payload
+                else GENERIC_STREAM_PROVIDER
+            )
+
+        self.stream_provider_kind = provider_kind
+        self.stream_provider_detected_at = time.time()
+        return provider_kind
+
+    async def _probe_json_endpoint(
+            self,
+            endpoint: str,
+    ):
+
+        if not endpoint:
+            return None
+
+        try:
+            response = await self.client.get(
+                join_url(
+                    self.api_base,
+                    endpoint,
+                ),
+                timeout=2.0,
+            )
+        except (
+            httpx.HTTPError,
+            asyncio.TimeoutError,
+            RuntimeError,
+        ):
+            return None
+
+        if getattr(response, "status_code", 0) != 200:
+            return None
+
+        try:
+            return response.json()
+        except Exception:
+            return None
+
+    @staticmethod
+    def build_lm_studio_input(
+            user_prompt,
+    ):
+
+        if isinstance(user_prompt, str):
+            return user_prompt
+
+        if not isinstance(user_prompt, list):
+            return str(user_prompt or "")
+
+        normalized_items = []
+
+        for item in user_prompt:
+            if not isinstance(item, dict):
+                continue
+
+            item_type = str(
+                item.get("type", "")
+            ).strip().lower()
+
+            if item_type == "text":
+                content = item.get("text") or item.get("content") or ""
+                if isinstance(content, str) and content:
+                    normalized_items.append({
+                        "type": "text",
+                        "content": content,
+                    })
+                continue
+
+            if item_type == "image_url":
+                image_url = item.get("image_url") or {}
+                if isinstance(image_url, dict):
+                    data_url = image_url.get("url")
+                else:
+                    data_url = image_url
+
+                if isinstance(data_url, str) and data_url:
+                    normalized_items.append({
+                        "type": "image",
+                        "data_url": data_url,
+                    })
+
+        return normalized_items or " "
+
+    async def build_stream_request(
+            self,
+            *,
+            provider_kind: str,
+            system_prompt: str,
+            user_prompt,
+            temperature: float,
+            max_tokens: int | None,
+            force_refresh_limits: bool,
+    ) -> tuple[str, dict[str, object]]:
+
+        safe_max_tokens = await self.resolve_safe_max_tokens(
+            system_prompt=system_prompt,
+            user_prompt=user_prompt,
+            requested_max_tokens=max_tokens,
+            force_refresh=force_refresh_limits,
+        )
+
+        if provider_kind == LM_STUDIO_STREAM_PROVIDER:
+            payload: dict[str, object] = {
+                "model": self.model_uid,
+                "input": self.build_lm_studio_input(
+                    user_prompt
+                ),
+                "system_prompt": system_prompt,
+                "temperature": temperature,
+                "stream": True,
+                "store": False,
+            }
+
+            request_context_window = await self.resolve_request_context_window(
+                force_refresh=force_refresh_limits,
+            )
+
+            if safe_max_tokens is not None and int(safe_max_tokens) > 0:
+                payload["max_output_tokens"] = int(
+                    safe_max_tokens
+                )
+
+            if request_context_window is not None and int(request_context_window) > 0:
+                payload["context_length"] = int(
+                    request_context_window
+                )
+
+            return (
+                join_url(
+                    self.api_base,
+                    LM_STUDIO_NATIVE_CHAT_ENDPOINT,
+                ),
+                payload,
+            )
+
+        payload = self.build_payload(
+            system_prompt=system_prompt,
+            user_prompt=user_prompt,
+            temperature=temperature,
+            max_tokens=safe_max_tokens,
+            stream=True,
+        )
+
+        if provider_kind == LLAMA_CPP_STREAM_PROVIDER:
+            payload["return_progress"] = True
+
+        return (
+            join_url(
+                self.api_base,
+                settings.CHAT_ENDPOINT,
+            ),
+            payload,
+        )
+
+    @staticmethod
+    def _normalize_sse_data_line(
+            raw_line,
+            *,
+            is_sse_stream: bool,
+    ) -> tuple[bool, str | None, bool]:
+
+        if raw_line is None:
+            return is_sse_stream, None, False
+
+        line = raw_line.strip()
+
+        if not line:
+            return is_sse_stream, None, False
+
+        if line.startswith("data:"):
+            data = line.split(
+                "data:",
+                1,
+            )[1].strip()
+            return True, data, False
+
+        if line.startswith(":"):
+            return is_sse_stream, None, False
+
+        sse_field = line.split(
+            ":",
+            1,
+        )[0].strip().lower()
+
+        if sse_field == "event":
+            event_name = line.split(
+                ":",
+                1,
+            )[1].strip() if ":" in line else ""
+            return True, None, event_name
+
+        if sse_field in {
+            "id",
+            "retry",
+        }:
+            return True, None, False
+
+        if is_sse_stream:
+            return is_sse_stream, None, False
+
+        return is_sse_stream, line, False
+
+    def extract_llama_model_progress_event(
+            self,
+            payload,
+    ):
+
+        if not isinstance(payload, dict):
+            return None
+
+        if str(payload.get("event", "")).strip().casefold() != "model_status":
+            return None
+
+        model = str(
+            payload.get("model", "")
+            or ""
+        ).strip()
+
+        if model and model != "*" and model.casefold() != str(self.model_uid or "").strip().casefold():
+            return None
+
+        data = payload.get("data") or {}
+        if not isinstance(data, dict):
+            return None
+
+        status = str(
+            data.get("status", "")
+            or ""
+        ).strip().casefold()
+
+        if status == "loading":
+            progress_data = data.get("progress") or {}
+            progress_value = None
+
+            if isinstance(progress_data, dict):
+                progress_value = ResponseExtractor._clamp_progress(
+                    progress_data.get("value")
+                )
+
+            event = {
+                "type": "progress",
+                "phase": "model_load",
+                "state": "progress" if progress_value is not None else "start",
+                "provider": "llama_cpp",
+            }
+
+            if progress_value is not None:
+                event["progress"] = progress_value
+            else:
+                event["progress"] = 0.0
+
+            return event
+
+        if status == "loaded":
+            return {
+                "type": "progress",
+                "phase": "model_load",
+                "state": "end",
+                "provider": "llama_cpp",
+                "progress": 1.0,
+            }
+
+        return None
+
+
     # ---------------------------------------------------------
     # NORMAL REQUEST
     # ---------------------------------------------------------
@@ -1317,168 +1647,297 @@ class RuntimeClient:
             user_prompt,
         )
 
-        payload = await self.build_safe_payload(
+        provider_kind = await self.detect_stream_provider_kind()
+        endpoint, payload = await self.build_stream_request(
+            provider_kind=provider_kind,
             system_prompt=system_prompt,
             user_prompt=provider_user_prompt,
             temperature=temperature,
             max_tokens=max_tokens,
-            stream=True,
             force_refresh_limits=True,
         )
 
-        stream_id = None
-        valid_json_chunks = 0
-        invalid_json_samples: list[str] = []
-        endpoint = join_url(
-            self.api_base,
-            settings.CHAT_ENDPOINT,
-        )
+        event_queue: asyncio.Queue = asyncio.Queue()
+        llama_model_progress_stop = asyncio.Event()
 
-        try:
+        async def produce_primary_stream():
 
-            async with self.client.stream(
-                    "POST",
-                    endpoint,
-                    json=payload,
-                    timeout=None,
-            ) as response:
+            stream_id = None
+            valid_json_chunks = 0
+            invalid_json_samples: list[str] = []
+            llama_prompt_processing_active = False
 
-                try:
-                    response.raise_for_status()
-                except httpx.HTTPStatusError as error:
-                    read_response = getattr(
+            try:
+
+                async with self.client.stream(
+                        "POST",
+                        endpoint,
+                        json=payload,
+                        timeout=None,
+                ) as response:
+
+                    try:
+                        response.raise_for_status()
+                    except httpx.HTTPStatusError as error:
+                        read_response = getattr(
+                            response,
+                            "aread",
+                            None,
+                        )
+                        if read_response is not None:
+                            try:
+                                await read_response()
+                            except Exception:
+                                pass
+
+                        api_error = _build_lm_studio_error(
+                            endpoint=endpoint,
+                            payload=payload,
+                            response=response,
+                            error=error,
+                        )
+                        self.remember_provider_context_window(
+                            api_error
+                        )
+                        raise api_error from error
+
+                    stream_id = id(response)
+                    context.active_streams[
+                        stream_id
+                    ] = response
+
+                    response_headers = getattr(
                         response,
-                        "aread",
-                        None,
+                        "headers",
+                        {},
+                    ) or {}
+                    content_type = str(
+                        response_headers.get(
+                            "content-type",
+                            "",
+                        )
+                    ).lower()
+                    is_sse_stream = (
+                        "text/event-stream" in content_type
                     )
-                    if read_response is not None:
-                        try:
-                            await read_response()
-                        except Exception:
-                            pass
+                    current_sse_event_name = ""
 
-                    api_error = _build_lm_studio_error(
-                        endpoint=endpoint,
-                        payload=payload,
-                        response=response,
-                        error=error,
-                    )
-                    self.remember_provider_context_window(
-                        api_error
-                    )
-                    raise api_error from error
+                    async for raw_line in response.aiter_lines():
 
-                stream_id = id(response)
+                        is_sse_stream, data, event_name = self._normalize_sse_data_line(
+                            raw_line,
+                            is_sse_stream=is_sse_stream,
+                        )
 
-                context.active_streams[
-                    stream_id
-                ] = response
+                        if event_name is not False:
+                            current_sse_event_name = str(
+                                event_name or ""
+                            ).strip()
 
-                response_headers = getattr(
-                    response,
-                    "headers",
-                    {},
-                ) or {}
-                content_type = str(
-                    response_headers.get(
-                        "content-type",
-                        "",
-                    )
-                ).lower()
-                is_sse_stream = (
-                    "text/event-stream" in content_type
-                )
+                        if data is None:
+                            continue
 
-                async for raw_line in response.aiter_lines():
-
-                    if raw_line is None:
-                        continue
-
-                    line = raw_line.strip()
-
-                    if not line:
-                        continue
-
-                    if not self.detected_context_window:
-                        # The request can trigger LM Studio JIT loading after
-                        # preflight metadata said loaded_instances: []. Retry
-                        # discovery once when the response starts, not per token.
-                        if not valid_json_chunks:
+                        if not self.detected_context_window and not valid_json_chunks:
+                            # The request can trigger LM Studio JIT loading after
+                            # preflight metadata said loaded_instances: []. Retry
+                            # discovery once when the response starts, not per token.
                             await self.resolve_request_context_window(
                                 force_refresh=True,
                             )
 
-                    # -------------------------------------------------
-                    # SSE / NON-SSE SUPPORT
-                    # -------------------------------------------------
+                        if data == "[DONE]":
+                            break
 
-                    if line.startswith("data:"):
-
-                        is_sse_stream = True
-                        data = (
-                            line.split(
-                                "data:",
-                                1,
-                            )[1]
-                            .strip()
-                        )
-
-                    else:
-
-                        if line.startswith(":"):
+                        if not data:
                             continue
 
-                        sse_field = (
-                            line.split(
-                                ":",
-                                1,
-                            )[0]
-                            .strip()
-                            .lower()
-                        )
-
-                        if sse_field in {
-                            "event",
-                            "id",
-                            "retry",
-                        }:
-                            is_sse_stream = True
-                            continue
-
-                        if is_sse_stream:
-                            continue
-
-                        data = line.strip()
-
-                    # -------------------------------------------------
-                    # DONE
-                    # -------------------------------------------------
-
-                    if data == "[DONE]":
-
-                        break
-
-                    if not data:
-
-                        continue
-
-                    # -------------------------------------------------
-                    # JSON
-                    # -------------------------------------------------
-
-                    try:
-
-                        chunk = json.loads(
-                            data
-                        )
-
-                    except Exception as e:
-
-                        if len(invalid_json_samples) < 3:
-                            invalid_json_samples.append(
-                                data[:200]
+                        try:
+                            chunk = json.loads(
+                                data
                             )
+                        except Exception as e:
+                            if len(invalid_json_samples) < 3:
+                                invalid_json_samples.append(
+                                    data[:200]
+                                )
 
+                            followup_tick = bool(
+                                getattr(
+                                    context,
+                                    "runtime_followup_tick_active",
+                                    False,
+                                )
+                            )
+                            await _log_context_error(
+                                context,
+                                f"[JSON PARSE ERROR] {e}",
+                                details=_build_stream_json_error_details(
+                                    payload=payload,
+                                    error=e,
+                                    invalid_json_samples=[
+                                        data[:200],
+                                    ],
+                                    valid_json_chunks=valid_json_chunks,
+                                    followup_tick=followup_tick,
+                                ),
+                            )
+                            continue
+
+                        if (
+                            current_sse_event_name
+                            and isinstance(chunk, dict)
+                            and not str(chunk.get("type", "") or "").strip()
+                            and current_sse_event_name.casefold() not in {"message", "data"}
+                        ):
+                            chunk = {
+                                **chunk,
+                                "type": current_sse_event_name,
+                            }
+
+                        current_sse_event_name = ""
+                        valid_json_chunks += 1
+
+                        provider_error = (
+                            _extract_lm_studio_error_payload(
+                                chunk
+                            )
+                        )
+                        if provider_error is not None:
+                            api_error = _build_lm_studio_error(
+                                endpoint=endpoint,
+                                payload=payload,
+                                error_payload=provider_error,
+                                response=response,
+                            )
+                            self.remember_provider_context_window(
+                                api_error
+                            )
+                            raise api_error
+
+                        progress_event = (
+                            ResponseExtractor
+                            .extract_progress_event(
+                                chunk
+                            )
+                        )
+                        if progress_event:
+                            if progress_event.get("phase") == "prompt_processing":
+                                llama_prompt_processing_active = (
+                                    provider_kind == LLAMA_CPP_STREAM_PROVIDER
+                                    and progress_event.get("state") != "end"
+                                )
+                            await event_queue.put((
+                                "event",
+                                progress_event,
+                            ))
+
+                        usage = (
+                            ResponseExtractor
+                            .extract_usage(
+                                chunk
+                            )
+                        )
+
+                        if usage:
+                            await event_queue.put((
+                                "event",
+                                usage,
+                            ))
+
+                        reasoning = (
+                            ResponseExtractor
+                            .extract_reasoning_chunk(
+                                chunk
+                            )
+                        )
+
+                        if reasoning:
+                            if llama_prompt_processing_active:
+                                llama_prompt_processing_active = False
+                                await event_queue.put((
+                                    "event",
+                                    {
+                                        "type": "progress",
+                                        "phase": "prompt_processing",
+                                        "state": "end",
+                                        "provider": "llama_cpp",
+                                        "progress": 1.0,
+                                    },
+                                ))
+
+                            await event_queue.put((
+                                "event",
+                                reasoning,
+                            ))
+
+                        content = (
+                            ResponseExtractor
+                            .extract_content_chunk(
+                                chunk
+                            )
+                        )
+
+                        if content:
+                            if llama_prompt_processing_active:
+                                llama_prompt_processing_active = False
+                                await event_queue.put((
+                                    "event",
+                                    {
+                                        "type": "progress",
+                                        "phase": "prompt_processing",
+                                        "state": "end",
+                                        "provider": "llama_cpp",
+                                        "progress": 1.0,
+                                    },
+                                ))
+
+                            await event_queue.put((
+                                "event",
+                                content,
+                            ))
+
+                        finish_reason = (
+                            ResponseExtractor
+                            .extract_finish_reason(
+                                chunk
+                            )
+                        )
+
+                        if finish_reason:
+                            if llama_prompt_processing_active:
+                                llama_prompt_processing_active = False
+                                await event_queue.put((
+                                    "event",
+                                    {
+                                        "type": "progress",
+                                        "phase": "prompt_processing",
+                                        "state": "end",
+                                        "provider": "llama_cpp",
+                                        "progress": 1.0,
+                                    },
+                                ))
+
+                            await event_queue.put((
+                                "event",
+                                {
+                                    "type": "finish",
+                                    "finish_reason": finish_reason,
+                                },
+                            ))
+
+                    if llama_prompt_processing_active:
+                        await event_queue.put((
+                            "event",
+                            {
+                                "type": "progress",
+                                "phase": "prompt_processing",
+                                "state": "end",
+                                "provider": "llama_cpp",
+                                "progress": 1.0,
+                            },
+                        ))
+
+                    if valid_json_chunks <= 0:
                         followup_tick = bool(
                             getattr(
                                 context,
@@ -1486,206 +1945,228 @@ class RuntimeClient:
                                 False,
                             )
                         )
-                        await _log_context_error(
-                            context,
-                            f"[JSON PARSE ERROR] {e}",
-                            details=_build_stream_json_error_details(
-                                payload=payload,
-                                error=e,
-                                invalid_json_samples=[
-                                    data[:200],
-                                ],
-                                valid_json_chunks=valid_json_chunks,
-                                followup_tick=followup_tick,
-                            ),
-                        )
-
-                        continue
-
-                    valid_json_chunks += 1
-
-                    provider_error = (
-                        _extract_lm_studio_error_payload(
-                            chunk
-                        )
-                    )
-                    if provider_error is not None:
-                        api_error = _build_lm_studio_error(
-                            endpoint=endpoint,
+                        _build_stream_json_error_details(
                             payload=payload,
-                            error_payload=provider_error,
-                            response=response,
+                            invalid_json_samples=invalid_json_samples,
+                            valid_json_chunks=valid_json_chunks,
+                            followup_tick=followup_tick,
                         )
-                        self.remember_provider_context_window(
-                            api_error
-                        )
-                        raise api_error
 
-                    # -------------------------------------------------
-                    # USAGE
-                    # -------------------------------------------------
+                        if invalid_json_samples:
+                            first_sample = invalid_json_samples[0]
+                            raise RuntimeError(
+                                "runtime stream ended without any valid JSON "
+                                "chunks; first invalid payload: "
+                                f"{first_sample!r}"
+                            )
 
-                    usage = (
-                        ResponseExtractor
-                        .extract_usage(
-                            chunk
-                        )
-                    )
-
-                    if usage:
-
-                        yield usage
-
-                    # -------------------------------------------------
-                    # THINKING
-                    # -------------------------------------------------
-
-                    reasoning = (
-                        ResponseExtractor
-                        .extract_reasoning_chunk(
-                            chunk
-                        )
-                    )
-
-                    if reasoning:
-
-                        yield reasoning
-
-                    # -------------------------------------------------
-                    # CONTENT
-                    # -------------------------------------------------
-
-                    content = (
-                        ResponseExtractor
-                        .extract_content_chunk(
-                            chunk
-                        )
-                    )
-
-                    if content:
-
-                        yield content
-
-                    # -------------------------------------------------
-                    # FINISH REASON
-                    # -------------------------------------------------
-
-                    finish_reason = (
-                        ResponseExtractor
-                        .extract_finish_reason(
-                            chunk
-                        )
-                    )
-
-                    if finish_reason:
-
-                        yield {
-                            "type": "finish",
-                            "finish_reason": finish_reason,
-                        }
-
-                        continue
-
-                if valid_json_chunks <= 0:
-                    followup_tick = bool(
-                        getattr(
-                            context,
-                            "runtime_followup_tick_active",
-                            False,
-                        )
-                    )
-                    error_details = _build_stream_json_error_details(
-                        payload=payload,
-                        invalid_json_samples=invalid_json_samples,
-                        valid_json_chunks=valid_json_chunks,
-                        followup_tick=followup_tick,
-                    )
-
-                    if invalid_json_samples:
-                        first_sample = invalid_json_samples[0]
                         raise RuntimeError(
-                            "runtime stream ended without any valid JSON "
-                            "chunks; first invalid payload: "
-                            f"{first_sample!r}"
+                            "runtime stream ended without any JSON chunks"
                         )
 
-                    raise RuntimeError(
-                        "runtime stream ended without any JSON chunks"
+            except asyncio.CancelledError:
+                raise
+            except LMStudioAPIError as error:
+                self.remember_provider_context_window(
+                    error
+                )
+                await event_queue.put((
+                    "error",
+                    error,
+                ))
+            except httpx.HTTPError as e:
+                api_error = _build_lm_studio_error(
+                    endpoint=endpoint,
+                    payload=payload,
+                    response=getattr(
+                        e,
+                        "response",
+                        None,
+                    ),
+                    error=e,
+                )
+                self.remember_provider_context_window(
+                    api_error
+                )
+                await event_queue.put((
+                    "error",
+                    api_error,
+                ))
+            except Exception as e:
+                context_logger = getattr(
+                    context,
+                    "logger",
+                    None,
+                )
+                log_error = getattr(
+                    context_logger,
+                    "log_error",
+                    None,
+                )
+
+                if log_error is not None:
+                    await log_error(
+                        f"[RUNTIME CLIENT ERROR] {repr(e)}"
                     )
 
-        # ---------------------------------------------------------
-        # TASK CANCELLED
-        # ---------------------------------------------------------
+                logger.exception(
+                    "Runtime client error"
+                )
+
+                await event_queue.put((
+                    "error",
+                    e,
+                ))
+            finally:
+                if (
+                        context
+                        and stream_id is not None
+                ):
+                    context.active_streams.pop(
+                        stream_id,
+                        None,
+                    )
+
+                await event_queue.put((
+                    "done",
+                    "primary",
+                ))
+
+        async def produce_llama_model_progress():
+
+
+            try:
+                async with self.client.stream(
+                        "GET",
+                        join_url(
+                            self.api_base,
+                            LLAMA_CPP_MODEL_EVENTS_ENDPOINT,
+                        ),
+                        json=None,
+                        timeout=None,
+                ) as response:
+                    try:
+                        response.raise_for_status()
+                    except Exception:
+                        return
+
+                    response_headers = getattr(
+                        response,
+                        "headers",
+                        {},
+                    ) or {}
+                    content_type = str(
+                        response_headers.get(
+                            "content-type",
+                            "",
+                        )
+                    ).lower()
+                    is_sse_stream = (
+                        "text/event-stream" in content_type
+                    )
+                    current_sse_event_name = ""
+
+                    async for raw_line in response.aiter_lines():
+                        if llama_model_progress_stop.is_set():
+                            break
+
+                        is_sse_stream, data, event_name = self._normalize_sse_data_line(
+                            raw_line,
+                            is_sse_stream=is_sse_stream,
+                        )
+
+                        if event_name is not False:
+                            current_sse_event_name = str(
+                                event_name or ""
+                            ).strip()
+
+                        if not data or data == "[DONE]":
+                            continue
+
+                        try:
+                            chunk = json.loads(
+                                data
+                            )
+                        except Exception:
+                            continue
+
+                        progress_event = self.extract_llama_model_progress_event(
+                            chunk
+                        )
+                        if progress_event:
+                            await event_queue.put((
+                                "event",
+                                progress_event,
+                            ))
+
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                return
+            finally:
+                await event_queue.put((
+                    "done",
+                    "llama_model_progress",
+                ))
+
+        llama_model_progress_task = None
+        pending_producers = 1
+
+        if provider_kind == LLAMA_CPP_STREAM_PROVIDER:
+            llama_model_progress_task = asyncio.create_task(
+                produce_llama_model_progress()
+            )
+            pending_producers += 1
+            await asyncio.sleep(0)
+
+        primary_task = asyncio.create_task(
+            produce_primary_stream()
+        )
+
+        try:
+            while pending_producers > 0:
+                item_type, item_value = await event_queue.get()
+
+                if item_type == "event":
+                    yield item_value
+                    continue
+
+                if item_type == "done":
+                    pending_producers -= 1
+
+                    if item_value == "primary":
+                        llama_model_progress_stop.set()
+                        if (
+                                llama_model_progress_task is not None
+                                and not llama_model_progress_task.done()
+                        ):
+                            llama_model_progress_task.cancel()
+
+                    continue
+
+                if item_type == "error":
+                    raise item_value
 
         except asyncio.CancelledError:
-
             raise
-
-        # ---------------------------------------------------------
-        # FATAL ERROR
-        # ---------------------------------------------------------
-
-        except LMStudioAPIError as error:
-
-            self.remember_provider_context_window(
-                error
-            )
-
-            raise
-
-        except httpx.HTTPError as e:
-
-            api_error = _build_lm_studio_error(
-                endpoint=endpoint,
-                payload=payload,
-                response=getattr(
-                    e,
-                    "response",
-                    None,
-                ),
-                error=e,
-            )
-            self.remember_provider_context_window(
-                api_error
-            )
-            raise api_error from e
-
-        except Exception as e:
-
-            context_logger = getattr(
-                context,
-                "logger",
-                None,
-            )
-            log_error = getattr(
-                context_logger,
-                "log_error",
-                None,
-            )
-
-            if log_error is not None:
-                await log_error(
-                    f"[RUNTIME CLIENT ERROR] {repr(e)}"
-                )
-
-            logger.exception(
-                "Runtime client error"
-            )
-
-            raise
-
-        # ---------------------------------------------------------
-        # FINAL CLEANUP
-        # ---------------------------------------------------------
-
         finally:
+            llama_model_progress_stop.set()
 
-            if (
-                    context
-                    and stream_id is not None
+            for task in (
+                primary_task,
+                llama_model_progress_task,
             ):
+                if task is not None and not task.done():
+                    task.cancel()
 
-                context.active_streams.pop(
-                    stream_id,
-                    None,
-                )
+            await asyncio.gather(
+                *[
+                    task
+                    for task in (
+                        primary_task,
+                        llama_model_progress_task,
+                    )
+                    if task is not None
+                ],
+                return_exceptions=True,
+            )

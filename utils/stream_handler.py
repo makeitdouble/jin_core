@@ -332,6 +332,43 @@ class StreamHandler:
 
         return True
 
+
+    # ---------------------------------------------------------
+    # RUNTIME PROGRESS
+    # ---------------------------------------------------------
+
+    async def send_progress(
+        self,
+        progress_chunk: dict,
+        *,
+        emit: bool = True,
+    ):
+
+        if not emit:
+            return
+
+        if not isinstance(
+            progress_chunk,
+            dict,
+        ):
+            return
+
+        # The normalized websocket envelope must keep its own event type.
+        # progress_chunk itself contains {"type": "progress"}; merging it
+        # afterwards used to overwrite "runtime_progress", so the browser's
+        # runtime_progress handler never saw any progress at all.
+        payload = {
+            **progress_chunk,
+            "type": "runtime_progress",
+            "message_id": (
+                self.message_id
+            ),
+        }
+
+        await self.websocket.send_json(
+            payload
+        )
+
     # ---------------------------------------------------------
     # TOKEN USAGE
     # ---------------------------------------------------------

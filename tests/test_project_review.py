@@ -56,8 +56,8 @@ class ProjectReviewTests(unittest.TestCase):
 
     def memories(self, pinned=False):
         self.context.delayed_memory_reports = {
-            "abc123": {"id": "abc123", "title": "selected report", "body": "SELECTED_REPORT_BODY", "summary": "selected summary", "pinned": pinned, "facts_ids": ["F1"], "anchor_fact_ids": []},
-            "def456": {"id": "def456", "title": "UNRELATED_REPORT_TITLE", "body": "UNRELATED_REPORT_BODY", "summary": "unrelated summary", "facts_ids": ["F2"], "anchor_fact_ids": []},
+            "abc123": {"id": "abc123", "title": "selected report", "body": "SELECTED_REPORT_BODY", "summary": "selected summary", "pinned": pinned, "lt_facts_ids": ["F1"], "anchor_lt_facts_ids": []},
+            "def456": {"id": "def456", "title": "UNRELATED_REPORT_TITLE", "body": "UNRELATED_REPORT_BODY", "summary": "unrelated summary", "lt_facts_ids": ["F2"], "anchor_lt_facts_ids": []},
         }
         self.context.runtime_loaded_delayed_memory = dict(self.context.delayed_memory_reports)
         self.context.runtime_loaded_delayed_memory_ids = ["abc123", "def456"]
@@ -356,7 +356,7 @@ class ProjectReviewTests(unittest.TestCase):
         self.assertTrue(should_pause_action_guard_for_confirmation("save_delayed_memory", "inspect project"))
         payload = json.dumps({"title": "Project findings", "summary": "The requested source was inspected.",
             "body": "src/main.py lines 2-3: needle is assigned 42. The rest of the project remains unread.",
-            "tags": ["project"], "facts_ids": [], "anchor_fact_ids": [], "attachments_ids": [self.record["id"]]})
+            "tags": ["project"], "lt_facts_ids": [], "anchor_lt_facts_ids": [], "attachments_ids": [self.record["id"]]})
         asyncio.run(apply_runtime_action_calls(self.context, (
             extract_runtime_actions("<SAVE_DELAYED_MEMORY>" + payload + "</SAVE_DELAYED_MEMORY>", enabled_actions=["CAN_SAVE_DELAYED_MEMORY"]).actions[0],
             RuntimeActionCall(name="SAVE_ACTIVE_MEMORY", payload='{"conditions":"Inspect the remaining project files when the user returns."}'),

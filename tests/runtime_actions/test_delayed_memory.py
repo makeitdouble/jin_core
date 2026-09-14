@@ -136,8 +136,8 @@ class RuntimeDelayedMemoryTests(RuntimeActionTestCase):
                     "A complete, self-sufficient summary..."
                 ),
                 "pinned": False,
-                "anchor_fact_ids": [],
-                "facts_ids": [],
+                "anchor_lt_facts_ids": [],
+                "lt_facts_ids": [],
                 "attachments_ids": [],
                 "created_session_id": "session-1",
                 "created_time": "2026-06-29T12:00:00",
@@ -145,7 +145,7 @@ class RuntimeDelayedMemoryTests(RuntimeActionTestCase):
         )
 
 
-    def test_parses_long_term_fact_ids_for_delayed_memory_report(self):
+    def test_parses_lt_fact_ids_for_delayed_memory_report(self):
 
         report = parse_delayed_memory_payload(
             (
@@ -154,7 +154,7 @@ class RuntimeDelayedMemoryTests(RuntimeActionTestCase):
                 "tags: project, context\n"
                 "body:\n"
                 "Reusable project summary.\n"
-                "long_term_facts_ids: "
+                "lt_facts_ids: "
                 "F1, F2, invalid, F1"
             )
         )
@@ -164,13 +164,12 @@ class RuntimeDelayedMemoryTests(RuntimeActionTestCase):
         )
 
         self.assertEqual(
-            report_value["facts_ids"],
+            report_value["lt_facts_ids"],
             [
                 "F1",
                 "F2",
             ],
         )
-        self.assertNotIn("long_term_facts_ids", report_value)
 
 
     def test_parses_anchor_and_facts_ids_for_delayed_memory_report(self):
@@ -181,15 +180,15 @@ class RuntimeDelayedMemoryTests(RuntimeActionTestCase):
                 "summary: Consolidated social details.\n"
                 "tags: social\n"
                 "body: Reusable summary.\n"
-                "anchor_fact_ids: F1, F1\n"
-                "facts_ids: F1, F2, F3"
+                "anchor_lt_facts_ids: F1, F1\n"
+                "lt_facts_ids: F1, F2, F3"
             )
         )
         report_value = next(iter(report.values()))
 
-        self.assertEqual(report_value["anchor_fact_ids"], ["F1"])
+        self.assertEqual(report_value["anchor_lt_facts_ids"], ["F1"])
         self.assertEqual(
-            report_value["facts_ids"],
+            report_value["lt_facts_ids"],
             ["F1", "F2", "F3"],
         )
 
@@ -201,18 +200,18 @@ class RuntimeDelayedMemoryTests(RuntimeActionTestCase):
                 "summary: Consolidated architecture details.\n"
                 "tags: architecture, protocol\n"
                 "body: Reusable summary.\n"
-                'anchor_fact_ids: ["F1", "F5", "F13"]\n'
-                'facts_ids: ["F1", "F5", "F13", "F25", "F26"]'
+                'anchor_lt_facts_ids: ["F1", "F5", "F13"]\n'
+                'lt_facts_ids: ["F1", "F5", "F13", "F25", "F26"]'
             )
         )
         report_value = next(iter(report.values()))
 
         self.assertEqual(
-            report_value["anchor_fact_ids"],
+            report_value["anchor_lt_facts_ids"],
             ["F1", "F5", "F13"],
         )
         self.assertEqual(
-            report_value["facts_ids"],
+            report_value["lt_facts_ids"],
             ["F1", "F5", "F13", "F25", "F26"],
         )
 
@@ -264,7 +263,7 @@ class RuntimeDelayedMemoryTests(RuntimeActionTestCase):
                     "summary": "Summary",
                     "tags": ["project"],
                     "body": "Body",
-                    "long_term_facts_ids": [
+                    "lt_facts_ids": [
                         "F1",
                         "F99",
                     ],
@@ -275,13 +274,11 @@ class RuntimeDelayedMemoryTests(RuntimeActionTestCase):
         report_value = report["abc123"]
 
         self.assertEqual(
-            report_value["facts_ids"],
+            report_value["lt_facts_ids"],
             [
                 "F1",
             ],
         )
-        self.assertNotIn("absorbed_fact_ids", report_value)
-        self.assertNotIn("long_term_facts_ids", report_value)
 
 
     def test_extracts_delayed_memory_content_block(self):
@@ -925,9 +922,8 @@ class RuntimeDelayedMemoryTests(RuntimeActionTestCase):
             delayed_memory_reports={
                 "abc123": {
                     "title": "Architecture",
-                    "anchor_fact_ids": ["F1", "F9"],
-                    "facts_ids": ["F1", "F2", "F9"],
-                    "long_term_facts_ids": ["F10"],
+                    "anchor_lt_facts_ids": ["F1", "F9"],
+                    "lt_facts_ids": ["F1", "F2", "F9", "F10"],
                 },
             },
             runtime_long_term_memory_store={
@@ -940,7 +936,7 @@ class RuntimeDelayedMemoryTests(RuntimeActionTestCase):
                 "abc123": {
                     "id": "abc123",
                     "title": "Architecture",
-                    "facts_ids": ["F1", "F2", "F9", "F10"],
+                    "lt_facts_ids": ["F1", "F2", "F9", "F10"],
                 },
             },
             runtime_loaded_delayed_memory_ids=[],
@@ -956,27 +952,23 @@ class RuntimeDelayedMemoryTests(RuntimeActionTestCase):
 
         self.assertTrue(result["ok"])
         self.assertEqual(
-            result["report"]["anchor_fact_ids"],
+            result["report"]["anchor_lt_facts_ids"],
             ["F1"],
         )
         self.assertEqual(
-            result["report"]["facts_ids"],
+            result["report"]["lt_facts_ids"],
             ["F1", "F2"],
         )
         self.assertEqual(
             result["pruned_fact_ids"],
             ["F9", "F10"],
         )
-        self.assertNotIn(
-            "long_term_facts_ids",
-            result["report"],
-        )
         self.assertEqual(
-            context.delayed_memory_reports["abc123"]["facts_ids"],
+            context.delayed_memory_reports["abc123"]["lt_facts_ids"],
             ["F1", "F2"],
         )
         self.assertEqual(
-            context.runtime_loaded_delayed_memory["abc123"]["facts_ids"],
+            context.runtime_loaded_delayed_memory["abc123"]["lt_facts_ids"],
             ["F1", "F2"],
         )
 
@@ -1001,7 +993,7 @@ class RuntimeDelayedMemoryTests(RuntimeActionTestCase):
                     "tag",
                 ],
                 "body": "Body",
-                "long_term_facts_ids": [
+                "lt_facts_ids": [
                     "14_1dbac3ba8724",
                 ],
                 "created_session_id": "session-a",
@@ -1068,7 +1060,7 @@ class RuntimeDelayedMemoryTests(RuntimeActionTestCase):
             ),
         )
         for metadata_key in (
-            "long_term_facts_ids",
+            "lt_facts_ids",
             "created_session_id",
             "created_time",
             "created_date",

@@ -24,7 +24,7 @@ class CrossDayLineageTests(unittest.TestCase):
                                      ts=f'{day}T10:{i:02}:00+03:00'))
             (directory / '100000.jsonl').write_text(
                 '\n'.join(map(json.dumps, rows)), encoding='utf-8')
-        link = f'<RESTORED_SESSION_DIALOG session_id="{predecessor}"></RESTORED_SESSION_DIALOG>' if predecessor else ''
+        link = f'<OLD_SESSION_RESTORED_STATE session_id="{predecessor}"></OLD_SESSION_RESTORED_STATE>' if predecessor else ''
         (directory / '100000.bootstrap.txt').write_text(
             '' if primary else link, encoding='utf-8')
         (directory / '100000.txt').write_text(

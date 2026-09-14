@@ -1918,11 +1918,11 @@
           sourceReport._storage_key || sourceReport.id
         );
         const hiddenFactIds = new Set(
-          normalizeDelayedMemoryFactIds(sourceReport.facts_ids)
+          normalizeDelayedMemoryFactIds(sourceReport.lt_facts_ids)
         );
 
         normalizeDelayedMemoryFactIds(
-          sourceReport.anchor_fact_ids
+          sourceReport.anchor_lt_facts_ids
         ).forEach((factId) => hiddenFactIds.delete(factId));
 
         if (!hiddenFactIds.size) {
@@ -1942,7 +1942,7 @@
 
           const targetAnchorIds = new Set(
             normalizeDelayedMemoryFactIds(
-              targetReport.anchor_fact_ids
+              targetReport.anchor_lt_facts_ids
             )
           );
 
@@ -1966,10 +1966,8 @@
       .filter(isDelayedMemoryReportInContext)
       .forEach((report) => {
         normalizeDelayedMemoryFactIds([
-          report.anchor_fact_ids,
-          report.facts_ids,
-          report.absorbed_fact_ids,
-          report.long_term_facts_ids,
+          report.anchor_lt_facts_ids,
+          report.lt_facts_ids,
         ]).forEach(factId => factIds.add(factId));
       });
 
@@ -1996,10 +1994,8 @@
     }
 
     return normalizeDelayedMemoryFactIds([
-      report.anchor_fact_ids,
-      report.facts_ids,
-      report.absorbed_fact_ids,
-      report.long_term_facts_ids,
+      report.anchor_lt_facts_ids,
+      report.lt_facts_ids,
     ]).includes(normalizedFactId);
   }
 
@@ -2008,10 +2004,8 @@
 
     (Array.isArray(reports) ? reports : []).forEach((report) => {
       normalizeDelayedMemoryFactIds([
-        report.anchor_fact_ids,
-        report.facts_ids,
-        report.absorbed_fact_ids,
-        report.long_term_facts_ids,
+        report.anchor_lt_facts_ids,
+        report.lt_facts_ids,
       ]).forEach((factId) => {
         if (!reportByFactId.has(factId)) {
           reportByFactId.set(factId, report);
@@ -3810,11 +3804,11 @@
           .filter(Boolean);
     const anchorFactIds =
         normalizeDelayedMemoryFactIds(
-            report && report.anchor_fact_ids
+            report && report.anchor_lt_facts_ids
         );
     const factIds =
         normalizeDelayedMemoryFactIds(
-            report && report.facts_ids
+            report && report.lt_facts_ids
         );
     const createdAt =
         normalizeDelayedMemoryDisplayText(
@@ -3880,14 +3874,14 @@
     );
     appendLongTermMemoryHoverMetadataRow(
         metadata,
-        "anchor_fact_ids",
+        "anchor_lt_facts_ids",
         anchorFactIds.length
           ? anchorFactIds.join(", ")
           : "[]"
     );
     appendLongTermMemoryHoverMetadataRow(
         metadata,
-        "facts_ids",
+        "lt_facts_ids",
         factIds.length
           ? factIds.join(", ")
           : "[]"
@@ -4957,10 +4951,8 @@
     const linkedFactHoverIds =
         new Set(
             normalizeDelayedMemoryFactIds([
-              report.anchor_fact_ids,
-              report.facts_ids,
-              report.absorbed_fact_ids,
-              report.long_term_facts_ids,
+              report.anchor_lt_facts_ids,
+              report.lt_facts_ids,
             ]).map((factId) => (
               buildAvatarMemoryHoverId(
                   "lt",
@@ -6586,10 +6578,8 @@
 
   function isDelayedMemoryFactIdField(key) {
     return [
-      "anchor_fact_ids",
-      "facts_ids",
-      "absorbed_fact_ids",
-      "long_term_facts_ids",
+      "anchor_lt_facts_ids",
+      "lt_facts_ids",
     ].includes(
         String(key || "").trim()
     );
@@ -6708,7 +6698,7 @@
       const anchorIds =
           new Set(
               normalizeDelayedMemoryFactIds(
-                  report.anchor_fact_ids
+                  report.anchor_lt_facts_ids
               )
           );
 
@@ -6984,6 +6974,44 @@
     activeDelayedMemoryFactPicker.close(options);
   }
 
+  function reopenDelayedMemoryFactPicker(query = "") {
+    if (!delayedMemoryModalContent) {
+      return false;
+    }
+
+    const picker =
+        delayedMemoryModalContent.querySelector(
+            ".delayed-memory-modal-fact-picker"
+        );
+    const container =
+        picker
+          ? picker.closest(
+              ".delayed-memory-modal-fact-ids"
+            )
+          : null;
+    const pickerInput =
+        picker
+          ? picker.querySelector(
+              ".delayed-memory-modal-fact-input"
+            )
+          : null;
+
+    if (!picker || !container || !pickerInput) {
+      return false;
+    }
+
+    container.click();
+    pickerInput.value =
+        String(query || "");
+    pickerInput.dispatchEvent(
+        new Event("input", {
+          bubbles: true,
+        })
+    );
+
+    return true;
+  }
+
   function createDelayedMemoryPickerOverlay(input, dropdown) {
     let opened = false;
     let pointer = null;
@@ -7244,11 +7272,40 @@
         optionButton.addEventListener("click", (event) => {
           event.preventDefault();
           event.stopPropagation();
-          closePicker();
-          linkFactToDelayedMemoryModal(
-              option.factId
-          );
         });
+
+        configureOpenableMemoryRowHoldDelete(
+            optionButton,
+            () => {
+              const query =
+                  input.value;
+              const linked =
+                  linkFactToDelayedMemoryModal(
+                      option.factId
+                  );
+
+              if (linked) {
+                reopenDelayedMemoryFactPicker(
+                    query
+                );
+              }
+            },
+            () => {
+              const deleted =
+                  typeof deleteLongTermMemoryFact === "function"
+                    ? deleteLongTermMemoryFact(
+                        option.factId
+                      )
+                    : false;
+
+              if (deleted !== false) {
+                renderOptions();
+                overlay.position();
+              }
+
+              return deleted;
+            }
+        );
 
         dropdown.appendChild(
             optionButton
@@ -7326,10 +7383,18 @@
 
       event.preventDefault();
       event.stopPropagation();
-      closePicker();
-      linkFactsToDelayedMemoryModal(
-          pastedFactIds
-      );
+      const query =
+          input.value;
+      const linked =
+          linkFactsToDelayedMemoryModal(
+              pastedFactIds
+          );
+
+      if (linked) {
+        reopenDelayedMemoryFactPicker(
+            query
+        );
+      }
     });
 
     input.addEventListener("keydown", (event) => {
@@ -7366,10 +7431,18 @@
           || "";
 
       if (nextFactId) {
-        closePicker();
-        linkFactToDelayedMemoryModal(
-            nextFactId
-        );
+        const query =
+            input.value;
+        const linked =
+            linkFactToDelayedMemoryModal(
+                nextFactId
+            );
+
+        if (linked) {
+          reopenDelayedMemoryFactPicker(
+              query
+          );
+        }
       }
     });
 
@@ -7437,7 +7510,7 @@
     const currentAnchorIds =
         new Set(
             normalizeDelayedMemoryFactIds(
-                delayedMemoryModalReport.anchor_fact_ids
+                delayedMemoryModalReport.anchor_lt_facts_ids
             )
         );
     const hadAnchor =
@@ -8586,13 +8659,13 @@
     const normalizedFactIds =
         normalizeDelayedMemoryFactIds(value);
     const factIds =
-        fieldName === "facts_ids"
+        fieldName === "lt_facts_ids"
           ? sortDelayedMemoryFactIdsByNumber(normalizedFactIds)
           : normalizedFactIds;
 
     if (
         !factIds.length
-        && fieldName !== "facts_ids"
+        && fieldName !== "lt_facts_ids"
     ) {
       if (Array.isArray(value) && value.length < 1) {
         appendDelayedMemoryModalField(
@@ -8717,7 +8790,7 @@
 
         setDelayedMemoryModalAnchorFactId(
             factId,
-            fieldName === "anchor_fact_ids"
+            fieldName === "anchor_lt_facts_ids"
               ? false
               : !isAnchorFactId
         );
@@ -8739,7 +8812,7 @@
       );
     });
 
-    if (fieldName === "facts_ids") {
+    if (fieldName === "lt_facts_ids") {
       appendDelayedMemoryFactPicker(
           list,
           factLookup,
@@ -9436,7 +9509,7 @@
     const anchorFactIds =
         new Set(
             normalizeDelayedMemoryFactIds(
-                report && report.anchor_fact_ids
+                report && report.anchor_lt_facts_ids
             )
         );
 

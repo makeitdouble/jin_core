@@ -87,12 +87,14 @@ class FakeHttpClient:
             models_payload=None,
             models_payloads_by_url=None,
             stream_lines=None,
+            stream_lines_by_url=None,
             stream_status_code: int = 200,
     ):
 
         self.models_payload = models_payload
         self.models_payloads_by_url = models_payloads_by_url or {}
         self.stream_lines = stream_lines or []
+        self.stream_lines_by_url = stream_lines_by_url or {}
         self.stream_status_code = stream_status_code
         self.get_calls = []
         self.post_calls = []
@@ -159,7 +161,10 @@ class FakeHttpClient:
 
         return FakeStreamContext(
             FakeStreamResponse(
-                self.stream_lines,
+                self.stream_lines_by_url.get(
+                    url,
+                    self.stream_lines,
+                ),
                 status_code=self.stream_status_code,
             )
         )
@@ -171,6 +176,19 @@ class FakeLogger:
 
         self.errors = []
         self.error_details = []
+        self.logs = []
+
+    async def log(
+            self,
+            tag,
+            message,
+            **_kwargs,
+    ):
+
+        self.logs.append((
+            tag,
+            message,
+        ))
 
     async def log_error(
             self,
@@ -1018,6 +1036,311 @@ class RuntimeClientTests(
                 )
             ]
 
+
+    async def test_lm_studio_named_sse_events_supply_missing_type(self):
+
+        http_client = FakeHttpClient(
+            models_payload={
+                "models": [
+                    {
+                        "key": "test-model",
+                        "type": "llm",
+                    }
+                ]
+            },
+            stream_lines=[
+                "event: model_load.start",
+                'data: {"model_instance_id":"test-model"}',
+                "",
+                "event: model_load.progress",
+                'data: {"model_instance_id":"test-model","progress":0.12}',
+                "",
+                "event: model_load.progress",
+                'data: {"model_instance_id":"test-model","progress":0.19}',
+                "",
+                "event: model_load.progress",
+                'data: {"model_instance_id":"test-model","progress":0.24}',
+                "",
+                "event: model_load.end",
+                'data: {"model_instance_id":"test-model"}',
+                "",
+                "event: prompt_processing.start",
+                "data: {}",
+                "",
+                "event: prompt_processing.progress",
+                'data: {"progress":0.07}',
+                "",
+                "event: prompt_processing.progress",
+                'data: {"progress":0.18}',
+                "",
+                "event: prompt_processing.end",
+                "data: {}",
+                "",
+                "event: message.delta",
+                'data: {"content":"ok"}',
+                "",
+                "event: chat.end",
+                'data: {"result":{"stats":{"input_tokens":10,"total_output_tokens":1}}}',
+                "",
+            ],
+        )
+        client = RuntimeClient(
+            api_base="http://runtime.test",
+            model_uid="test-model",
+            timeout=30.0,
+            client=http_client,
+        )
+        context = FakeStreamContextObject()
+
+        events = [
+            event
+            async for event in client.stream(
+                context=context,
+                system_prompt="system",
+                user_prompt="user",
+                temperature=0.1,
+                max_tokens=100,
+            )
+        ]
+
+        progress = [
+            event
+            for event in events
+            if event.get("type") == "progress"
+        ]
+
+        self.assertEqual(
+            progress[1]["phase"],
+            "model_load",
+        )
+        self.assertEqual(
+            progress[1]["progress"],
+            0.12,
+        )
+        self.assertEqual(
+            progress[-2]["phase"],
+            "prompt_processing",
+        )
+        self.assertEqual(
+            progress[-2]["progress"],
+            0.18,
+        )
+
+    async def test_lm_studio_native_stream_emits_progress_chunks(self):
+
+        http_client = FakeHttpClient(
+            models_payload={
+                "models": [
+                    {
+                        "key": "test-model",
+                        "context_length": 8192,
+                    }
+                ]
+            },
+            stream_lines=[
+                'data: {"type":"model_load.start","model_instance_id":"test-model"}',
+                'data: {"type":"model_load.progress","model_instance_id":"test-model","progress":0.5}',
+                'data: {"type":"model_load.end","model_instance_id":"test-model","load_time_seconds":1.23}',
+                'data: {"type":"prompt_processing.start"}',
+                'data: {"type":"prompt_processing.progress","progress":0.25}',
+                'data: {"type":"prompt_processing.end"}',
+                'data: {"type":"reasoning.delta","content":"think"}',
+                'data: {"type":"message.delta","content":"done"}',
+                'data: {"type":"chat.end","result":{"stats":{"input_tokens":10,"total_output_tokens":4}}}',
+            ],
+        )
+        client = RuntimeClient(
+            api_base="http://runtime.test",
+            model_uid="test-model",
+            timeout=30.0,
+            client=http_client,
+        )
+        context = FakeStreamContextObject()
+
+        events = [
+            event
+            async for event in client.stream(
+                context=context,
+                system_prompt="system",
+                user_prompt="user",
+                temperature=0.1,
+                max_tokens=100,
+            )
+        ]
+
+        self.assertEqual(
+            events,
+            [
+                {
+                    "type": "progress",
+                    "phase": "model_load",
+                    "state": "start",
+                    "provider": "lm_studio",
+                    "progress": 0.0,
+                },
+                {
+                    "type": "progress",
+                    "phase": "model_load",
+                    "state": "progress",
+                    "provider": "lm_studio",
+                    "progress": 0.5,
+                },
+                {
+                    "type": "progress",
+                    "phase": "model_load",
+                    "state": "end",
+                    "provider": "lm_studio",
+                    "progress": 1.0,
+                },
+                {
+                    "type": "progress",
+                    "phase": "prompt_processing",
+                    "state": "start",
+                    "provider": "lm_studio",
+                    "progress": 0.0,
+                },
+                {
+                    "type": "progress",
+                    "phase": "prompt_processing",
+                    "state": "progress",
+                    "provider": "lm_studio",
+                    "progress": 0.25,
+                },
+                {
+                    "type": "progress",
+                    "phase": "prompt_processing",
+                    "state": "end",
+                    "provider": "lm_studio",
+                    "progress": 1.0,
+                },
+                {
+                    "type": "thinking",
+                    "content": "think",
+                },
+                {
+                    "type": "content",
+                    "content": "done",
+                },
+                {
+                    "type": "usage",
+                    "prompt_tokens": 10,
+                    "completion_tokens": 4,
+                    "total_tokens": 14,
+                },
+                {
+                    "type": "finish",
+                    "finish_reason": "stop",
+                },
+            ],
+        )
+
+        self.assertEqual(
+            http_client.stream_calls[0]["url"],
+            "http://runtime.test/api/v1/chat",
+        )
+        self.assertEqual(
+            http_client.stream_calls[0]["json"]["input"],
+            "user",
+        )
+        self.assertEqual(
+            http_client.stream_calls[0]["json"]["system_prompt"],
+            "system",
+        )
+        self.assertEqual(
+            http_client.stream_calls[0]["json"]["max_output_tokens"],
+            100,
+        )
+
+    async def test_llama_cpp_stream_emits_prompt_progress_and_requests_return_progress(self):
+
+        http_client = FakeHttpClient(
+            models_payloads_by_url={
+                "http://runtime.test/props": {
+                    "build_info": {
+                        "version": "test",
+                    },
+                },
+            },
+            stream_lines_by_url={
+                "http://runtime.test/v1/chat/completions": [
+                    'data: {"prompt_progress":{"total":20,"cache":5,"processed":10}}',
+                    'data: {"choices":[{"delta":{"content":"ok"}}]}',
+                    'data: [DONE]',
+                ],
+                "http://runtime.test/models/sse": [
+                    'data: {"event":"model_status","model":"test-model","data":{"status":"loading","progress":{"value":0.4}}}',
+                    'data: {"event":"model_status","model":"test-model","data":{"status":"loaded"}}',
+                ],
+            },
+        )
+        client = RuntimeClient(
+            api_base="http://runtime.test",
+            model_uid="test-model",
+            timeout=30.0,
+            client=http_client,
+        )
+        context = FakeStreamContextObject()
+
+        events = [
+            event
+            async for event in client.stream(
+                context=context,
+                system_prompt="system",
+                user_prompt="user",
+                temperature=0.1,
+                max_tokens=100,
+            )
+        ]
+
+        self.assertEqual(
+            events,
+            [
+                {
+                    "type": "progress",
+                    "phase": "model_load",
+                    "state": "progress",
+                    "provider": "llama_cpp",
+                    "progress": 0.4,
+                },
+                {
+                    "type": "progress",
+                    "phase": "model_load",
+                    "state": "end",
+                    "provider": "llama_cpp",
+                    "progress": 1.0,
+                },
+                {
+                    "type": "progress",
+                    "phase": "prompt_processing",
+                    "state": "progress",
+                    "provider": "llama_cpp",
+                    "progress": (10 - 5) / (20 - 5),
+                },
+                {
+                    "type": "progress",
+                    "phase": "prompt_processing",
+                    "state": "end",
+                    "provider": "llama_cpp",
+                    "progress": 1.0,
+                },
+                {
+                    "type": "content",
+                    "content": "ok",
+                },
+            ],
+        )
+
+        self.assertEqual(
+            http_client.stream_calls[1]["url"],
+            "http://runtime.test/v1/chat/completions",
+        )
+        self.assertEqual(
+            http_client.stream_calls[0]["url"],
+            "http://runtime.test/models/sse",
+        )
+        self.assertTrue(
+            http_client.stream_calls[1]["json"]["return_progress"]
+        )
 
 
 if __name__ == "__main__":

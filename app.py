@@ -26,6 +26,7 @@ import asyncio
 import ast
 import httpx
 import json
+import os
 from pathlib import Path
 
 from config_loader import (
@@ -477,7 +478,6 @@ def apply_runtime_config_values(
         fallback_pairs = {
             "SERVICE_API_BASE": "BRAIN_API_BASE",
             "SERVICE_MODEL_UID": "BRAIN_MODEL_UID",
-            "SERVICE_REQUEST_TIMEOUT": "BRAIN_REQUEST_TIMEOUT",
         }
         for service_name, brain_name in fallback_pairs.items():
             value = getattr(
@@ -659,7 +659,7 @@ async def fetch_runtime_model_status(
         detected_url = request_url
         detected_source = (
             "openai"
-            if endpoint == config.MODELS_ENDPOINT
+            if endpoint == settings.MODELS_ENDPOINT
             else "native"
         )
 
@@ -801,13 +801,7 @@ async def build_status_snapshot(
             if settings.SERVICE_CONFIGURED
             else "brain_fallback"
         ),
-        "format_response": bool(
-            getattr(
-                config,
-                "FORMAT_RESPONSE",
-                True,
-            )
-        ),
+        "format_response": True,
         "runtime_config": runtime_config,
     }
 
@@ -995,9 +989,7 @@ async def api_switch_runtime_model(request: Request):
                 if settings.SERVICE_CONFIGURED
                 else "brain_fallback"
             ),
-            "format_response": bool(
-                getattr(config, "FORMAT_RESPONSE", True)
-            ),
+            "format_response": True,
             "runtime_config": runtime_config,
         }
 
@@ -1127,22 +1119,6 @@ async def api_asset_text_preview(
 @app.get("/api/debug/rule-citations")
 async def api_debug_rule_citations():
 
-    enabled = bool(
-        getattr(
-            config,
-            "DEBUG_RULE_CITATIONS",
-            True,
-        )
-    )
-
-    if not enabled:
-        return {
-            "enabled": False,
-            "version": "disabled",
-            "fragmentCount": 0,
-            "fragments": [],
-        }
-
     registry = get_rule_citation_registry()
 
     return {
@@ -1159,19 +1135,40 @@ if __name__ == "__main__":
 
     import uvicorn
 
+    host = str(
+        os.environ.get(
+            "JIN_HOST",
+            "127.0.0.1",
+        )
+        or "127.0.0.1"
+    ).strip()
+
+    raw_port = str(
+        os.environ.get(
+            "JIN_PORT",
+            "8000",
+        )
+        or "8000"
+    ).strip()
+
+    try:
+        port = int(raw_port)
+    except ValueError as error:
+        raise RuntimeError(
+            f"Invalid JIN_PORT: {raw_port!r}"
+        ) from error
+
+    if not 1 <= port <= 65535:
+        raise RuntimeError(
+            f"JIN_PORT must be between 1 and 65535, got {port}"
+        )
+
     uvicorn.run(
         app,
-        host="127.0.0.1",
-        port=8000,
-        ws_max_size=int(
-            getattr(
-                config,
-                "WEBSOCKET_MAX_MESSAGE_BYTES",
-                64 * 1024 * 1024,
-            )
-            or 64 * 1024 * 1024
-        ),
-        # JIN serves the browser only on localhost. Uvicorn's default
+        host=host,
+        port=port,
+        ws_max_size=64 * 1024 * 1024,
+        # Native JIN defaults to localhost; containers opt in via JIN_HOST. Uvicorn's default
         # WebSocket heartbeat (20s ping + 20s timeout) is actively harmful
         # here: Chrome can freeze a background tab, suspending the renderer
         # long enough for the server to declare a perfectly healthy local

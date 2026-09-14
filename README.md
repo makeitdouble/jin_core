@@ -177,6 +177,8 @@ JIN can inspect available skills, attach the one required for the current task, 
 |-- app_settings.py            # Typed settings wrapper
 |-- launch_jin.bat             # Windows one-click launcher
 |-- launch_jin.ps1             # LM Studio readiness and startup script
+|-- Dockerfile                 # Container image
+|-- compose.yml                # Docker Compose local runtime
 |-- requirements.txt           # Python dependencies
 |-- package.json               # Test and probe commands
 |-- docs/                      # Current architecture, state, and durable decisions
@@ -256,24 +258,70 @@ Then open:
 http://127.0.0.1:8000
 ```
 
+### Docker / Docker Compose
+
+Docker uses the same `config.py` and `.env` contract as the native launcher.
+The Compose setup bind-mounts `config.py`, memory, logs, persistent files, and
+generated outputs so recreating the container does not reset JIN.
+
+Make sure `config.py` and `.env` exist, then run:
+
+```bash
+docker compose up --build
+```
+
+Open:
+
+```text
+http://127.0.0.1:8000
+```
+
+By default Compose points `BRAIN_API_BASE` at
+`http://host.docker.internal:1234`, because `127.0.0.1` inside the container
+means the container itself. To use another Brain endpoint, set
+`BRAIN_API_BASE` in the root `.env` before starting Compose. A configured
+dedicated `SERVICE_API_BASE` continues to come from `config.py` unless you
+override it through the environment.
+
+If you use JIN's linked-project-folder feature, remember that the backend can
+only see paths mounted into the container; add an extra bind mount for any
+external project directory you want JIN to read.
+
+Stop the container with:
+
+```bash
+docker compose down
+```
+
 ## Configuration
 
 Copy `config.example.py` to `config.py`, then set the provider URLs and model IDs. `config.py` is ignored by Git.
 
 | Option | Purpose |
 | --- | --- |
-| `BRAIN_API_BASE`, `BRAIN_MODEL_UID` | Configure the required foreground Brain provider and model. |
-| `SERVICE_API_BASE`, `SERVICE_MODEL_UID` | Optionally configure a dedicated background Service provider/model. Leave `SERVICE_API_BASE` empty to reuse Brain. |
-| `FOLLOW_UP_ON_LIMIT` | Continue a Brain generation in an internal tick when the provider stops at its output/context limit. |
-| `NATIVE_MODELS_ENDPOINT` | Optional provider-native model metadata endpoint. JIN reads the active context window from the loaded model and uses the same live value for request budgeting and UI telemetry. |
-| `BRAIN_IMAGE_INPUT_ENABLED` | Allow image attachments on the foreground Brain request when the selected provider/model supports OpenAI-compatible image input. |
-| `LT_MEMORY_ENABLED`, `LT_IDLE_SECONDS` | Enable L-T consolidation and set its idle delay. |
-| `SEARCH_SERPER_API_KEY`, `SEARCH_MAX_RESULTS` | Configure built-in web search. |
-| `DEEP_WEB_SEARCH_MAX_*` | Bound the Service-worker research sequence used by Deep Web Search. |
+| `ENABLE_RUNTIME_LOGS` | Enable local runtime/chat logs. |
+| `BRAIN_API_BASE`, `BRAIN_MODEL_UID`, `BRAIN_TEMPERATURE` | Configure the required foreground Brain runtime. |
 | `BRAIN_MAX_FOLLOWUPS` | Limit internal action/follow-up continuation ticks per user turn. |
-| `WEBSOCKET_MAX_MESSAGE_BYTES` | Set the WebSocket ceiling used for large attachment transport. |
+| `SERVICE_API_BASE`, `SERVICE_MODEL_UID`, `SERVICE_TEMPERATURE` | Optionally configure a dedicated background Service runtime. Leave `SERVICE_API_BASE` empty to reuse Brain. |
+| `LT_IDLE_SECONDS` | Set the L-T background consolidation idle delay. L-T memory itself is always enabled. |
+| `SEARCH_PROVIDER`, `SEARCH_MAX_RESULTS` | Configure the built-in web-search provider and result count. |
+| `DEEP_WEB_SEARCH_MAX_QUERIES_PER_WORKER`, `DEEP_WEB_SEARCH_MAX_WORKER_CALLS` | Bound worker fan-out/call count for Deep Web Search. |
 
-Every uppercase option can also be supplied through environment variables. Plain names and `JIN_`-prefixed names are supported; plain names take priority.
+User-facing config values can also be supplied through environment variables. Plain names and `JIN_`-prefixed names are supported; plain names take priority.
+
+For the Windows one-click launcher, copy `.env.example` to `.env` in the repository root and replace the placeholders. `launch_jin.bat` delegates to `launch_jin.ps1`, which loads that file into the JIN process before configuration is resolved. Variables already present in the process environment are not overwritten. The local `.env` is ignored by Git; `.env.example` contains names and placeholders only and is safe to commit.
+
+```dotenv
+SEARCH_SERPER_API_KEY=your-serper-api-key
+GETPOSTINGBOARD_API_KEY=your-getpostingboard-api-key
+```
+
+When starting JIN manually with `python app.py`, export the same variables in the shell first; automatic `.env` loading belongs to the Windows launcher.
+
+Secrets are environment-only and are intentionally not stored in `config.py`:
+
+- `SEARCH_SERPER_API_KEY` or `JIN_SEARCH_SERPER_API_KEY`
+- `GETPOSTINGBOARD_API_KEY` or `JIN_GETPOSTINGBOARD_API_KEY`
 
 ## Tests
 

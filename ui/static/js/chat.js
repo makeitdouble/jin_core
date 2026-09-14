@@ -9,6 +9,8 @@ const chatInputShell =
 
 const streamMessages =
   new Map();
+const pendingStreamAvatarProgress =
+  new Map();
 
 const STREAM_AVATAR_LEFT_PX = 54;
 const STREAM_AVATAR_SIZE_PX = 28;
@@ -1465,8 +1467,30 @@ function createAvatarElement(
       " cursor-help transition";
   }
 
-  avatar.textContent =
+  const progressRing =
+    document.createElement("div");
+
+  progressRing.className =
+    "jin-chat-avatar-progress-ring";
+  progressRing.setAttribute(
+    "aria-hidden",
+    "true"
+  );
+
+  const label =
+    document.createElement("span");
+
+  label.className =
+    "jin-chat-avatar-label";
+  label.textContent =
     config.avatar;
+
+  avatar.appendChild(
+    progressRing
+  );
+  avatar.appendChild(
+    label
+  );
 
   if (contextSnapshot) {
     avatar.addEventListener(
@@ -1949,6 +1973,245 @@ function setStreamAvatarProcessing(
 
 }
 
+function applyAvatarProgressState(
+  avatar,
+  state = {}
+) {
+
+  if (!avatar) {
+    return;
+  }
+
+  const phase =
+    String(
+      state.phase
+      || ""
+    ).trim();
+
+  const hasActivePhase = Boolean(
+    phase
+  );
+
+  if (!hasActivePhase) {
+    avatar.classList.remove(
+      "has-progress",
+      "progress-phase-model-load",
+      "progress-phase-prompt-processing"
+    );
+    avatar.style.removeProperty(
+      "--jin-chat-avatar-progress-angle"
+    );
+    delete avatar.dataset.progressPhase;
+    return;
+  }
+
+  let progress = Number(
+    state.progress
+  );
+
+  if (!Number.isFinite(progress)) {
+    progress = 0;
+  }
+
+  progress = Math.max(
+    0,
+    Math.min(1, progress)
+  );
+
+  avatar.classList.add(
+    "has-progress"
+  );
+  avatar.classList.toggle(
+    "progress-phase-model-load",
+    phase === "model_load"
+  );
+  avatar.classList.toggle(
+    "progress-phase-prompt-processing",
+    phase === "prompt_processing"
+  );
+  avatar.style.setProperty(
+    "--jin-chat-avatar-progress-angle",
+    `${progress * 360}deg`
+  );
+
+  avatar.dataset.progressPhase =
+    phase;
+
+}
+
+function clearStreamAvatarProgress(
+  messageId,
+  options = {}
+) {
+
+  const dropPending =
+    options.dropPending !== false;
+
+  if (dropPending) {
+    pendingStreamAvatarProgress.delete(
+      messageId
+    );
+  }
+
+  const stream =
+    streamMessages.get(
+      messageId
+    );
+
+  if (!stream) {
+    return;
+  }
+
+  if (stream.avatarProgressClearTimer) {
+    clearTimeout(
+      stream.avatarProgressClearTimer
+    );
+    stream.avatarProgressClearTimer =
+      null;
+  }
+
+  stream.avatarProgress = null;
+
+  const avatar =
+    stream.group
+    && stream.group.avatar;
+
+  applyAvatarProgressState(
+    avatar,
+    {}
+  );
+
+}
+
+function setStreamAvatarProgress(
+  messageId,
+  payload = {}
+) {
+
+  const phase =
+    String(
+      payload.phase
+      || ""
+    ).trim();
+  const state =
+    String(
+      payload.state
+      || "progress"
+    ).trim();
+
+  if (!phase) {
+    clearStreamAvatarProgress(
+      messageId
+    );
+    return true;
+  }
+
+  let progress = Number(
+    payload.progress
+  );
+
+  if (!Number.isFinite(progress)) {
+    progress = state === "end"
+      ? 1
+      : 0;
+  }
+
+  progress = Math.max(
+    0,
+    Math.min(1, progress)
+  );
+
+  const normalizedProgress = {
+    phase,
+    state,
+    progress,
+  };
+
+  pendingStreamAvatarProgress.set(
+    messageId,
+    normalizedProgress
+  );
+
+  const stream =
+    streamMessages.get(
+      messageId
+    );
+
+  if (!stream) {
+    if (
+      activeStreamAvatarStream
+      && activeStreamAvatarStream.messageId === messageId
+    ) {
+      activeStreamAvatarStream.avatarProgress = {
+        ...normalizedProgress,
+      };
+
+      applyAvatarProgressState(
+        activeStreamAvatarStream.group
+        && activeStreamAvatarStream.group.avatar,
+        activeStreamAvatarStream.avatarProgress
+      );
+    }
+
+    return false;
+  }
+
+  if (stream.avatarProgressClearTimer) {
+    clearTimeout(
+      stream.avatarProgressClearTimer
+    );
+    stream.avatarProgressClearTimer =
+      null;
+  }
+
+  stream.avatarProgress = {
+    ...normalizedProgress,
+  };
+
+  const avatar =
+    stream.group
+    && stream.group.avatar;
+
+  applyAvatarProgressState(
+    avatar,
+    stream.avatarProgress
+  );
+
+  if (state === "end") {
+    stream.avatarProgressClearTimer =
+      window.setTimeout(
+        () => {
+          const liveStream =
+            streamMessages.get(
+              messageId
+            );
+
+          if (!liveStream) {
+            pendingStreamAvatarProgress.delete(
+              messageId
+            );
+            return;
+          }
+
+          if (
+            liveStream.avatarProgress
+            && liveStream.avatarProgress.phase === phase
+            && liveStream.avatarProgress.state === "end"
+          ) {
+            clearStreamAvatarProgress(
+              messageId
+            );
+          }
+        },
+        180
+      );
+    return true;
+  }
+
+  return true;
+
+}
+
 function disconnectStreamThinkResizeObserver(
   stream
 ) {
@@ -2313,6 +2576,10 @@ function releaseActiveStreamAvatar() {
   if (stream) {
     stopStreamRuntimeAvatarReasoning(
       stream
+    );
+
+    clearStreamAvatarProgress(
+      stream.messageId
     );
 
     const group = stream.group || {};
@@ -2746,6 +3013,11 @@ function ensureStreamGroup(
   stream.group.avatar =
     realGroup.avatar;
 
+  applyAvatarProgressState(
+    stream.group.avatar,
+    stream.avatarProgress || {}
+  );
+
   stream.group.thinkWrapper =
     realGroup.thinkWrapper;
 
@@ -2908,6 +3180,10 @@ function startStreamMessage(
     pendingThinking: "",
     pendingAnswer: "",
     runtimeAvatarReasoningActive: false,
+    avatarProgress: pendingStreamAvatarProgress.get(
+      messageId
+    ) || null,
+    avatarProgressClearTimer: null,
   };
 
   streamMessages.set(
@@ -3121,6 +3397,10 @@ function finishStreamMessage(
       stream
     );
 
+    clearStreamAvatarProgress(
+      stream.messageId
+    );
+
     flushStreamFrame();
 
     if (
@@ -3256,6 +3536,11 @@ window.finishStreamMessage =
 
 window.appendThinkingChunk =
   appendThinkingChunk;
+
+window.setStreamAvatarProgress =
+  setStreamAvatarProgress;
+window.clearStreamAvatarProgress =
+  clearStreamAvatarProgress;
 
 window.flushStreamFrame =
   flushStreamFrame;

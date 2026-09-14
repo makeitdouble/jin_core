@@ -744,10 +744,8 @@ function getContextLoadedLongTermFactIds() {
     }
 
     normalizeRuntimeLongTermFactIds([
-      report.anchor_fact_ids,
-      report.facts_ids,
-      report.absorbed_fact_ids,
-      report.long_term_facts_ids,
+      report.anchor_lt_facts_ids,
+      report.lt_facts_ids,
     ]).forEach(factId => factIds.add(factId));
   });
 
@@ -1677,7 +1675,7 @@ function setDelayedMemoryReportAnchorFactIds(
 
   reports[normalizedId] = {
     ...report,
-    anchor_fact_ids:
+    anchor_lt_facts_ids:
       Array.isArray(anchorFactIds)
         ? anchorFactIds
         : [],
@@ -1987,11 +1985,11 @@ function linkDelayedMemoryReportFactIds(
 
   const currentFactIds =
     normalizeRuntimeLongTermFactIds(
-      report.facts_ids
+      report.lt_facts_ids
     );
   const anchorFactIds =
     normalizeRuntimeLongTermFactIds(
-      report.anchor_fact_ids
+      report.anchor_lt_facts_ids
     );
   const shouldAnchor =
     Boolean(options && options.anchor);
@@ -2036,8 +2034,8 @@ function linkDelayedMemoryReportFactIds(
 
   reports[normalizedId] = {
     ...report,
-    facts_ids: nextFactIds,
-    anchor_fact_ids: nextAnchorFactIds,
+    lt_facts_ids: nextFactIds,
+    anchor_lt_facts_ids: nextAnchorFactIds,
   };
 
   return writeDelayedMemoryFactLinksAndRender(
@@ -2079,33 +2077,19 @@ function unlinkDelayedMemoryReportFactId(
 
   const factIds =
     normalizeRuntimeLongTermFactIds(
-      report.facts_ids
+      report.lt_facts_ids
     );
   const anchorFactIds =
     normalizeRuntimeLongTermFactIds(
-      report.anchor_fact_ids
-    );
-  const absorbedFactIds =
-    normalizeRuntimeLongTermFactIds(
-      report.absorbed_fact_ids
-    );
-  const longTermFactIds =
-    normalizeRuntimeLongTermFactIds(
-      report.long_term_facts_ids
+      report.anchor_lt_facts_ids
     );
   const nextFactIds =
     factIds.filter(item => item !== normalizedFactId);
   const nextAnchorFactIds =
     anchorFactIds.filter(item => item !== normalizedFactId);
-  const nextAbsorbedFactIds =
-    absorbedFactIds.filter(item => item !== normalizedFactId);
-  const nextLongTermFactIds =
-    longTermFactIds.filter(item => item !== normalizedFactId);
   const changed =
     nextFactIds.length !== factIds.length
-    || nextAnchorFactIds.length !== anchorFactIds.length
-    || nextAbsorbedFactIds.length !== absorbedFactIds.length
-    || nextLongTermFactIds.length !== longTermFactIds.length;
+    || nextAnchorFactIds.length !== anchorFactIds.length;
 
   if (!changed) {
     return {
@@ -2116,23 +2100,9 @@ function unlinkDelayedMemoryReportFactId(
 
   const updatedReport = {
     ...report,
-    facts_ids: nextFactIds,
-    anchor_fact_ids: nextAnchorFactIds,
+    lt_facts_ids: nextFactIds,
+    anchor_lt_facts_ids: nextAnchorFactIds,
   };
-
-  if (nextAbsorbedFactIds.length) {
-    updatedReport.absorbed_fact_ids =
-      nextAbsorbedFactIds;
-  } else {
-    delete updatedReport.absorbed_fact_ids;
-  }
-
-  if (nextLongTermFactIds.length) {
-    updatedReport.long_term_facts_ids =
-      nextLongTermFactIds;
-  } else {
-    delete updatedReport.long_term_facts_ids;
-  }
 
   reports[normalizedId] =
     updatedReport;
@@ -2356,31 +2326,27 @@ function removeLongTermFactIdFromDelayedMemoryReports(
 
     const nextAnchorFactIds =
       withoutLongTermFactId(
-        report.anchor_fact_ids,
+        report.anchor_lt_facts_ids,
         normalizedFactId
       );
     const nextFactIds =
       withoutLongTermFactId(
-        report.facts_ids,
+        report.lt_facts_ids,
         normalizedFactId
       );
 
     if (
-        nextAnchorFactIds.length === (report.anchor_fact_ids || []).length
-        && nextFactIds.length === (report.facts_ids || []).length
-        && !report.absorbed_fact_ids
-        && !report.long_term_facts_ids
+        nextAnchorFactIds.length === (report.anchor_lt_facts_ids || []).length
+        && nextFactIds.length === (report.lt_facts_ids || []).length
     ) {
       return;
     }
 
     const updatedReport = {
       ...report,
-      anchor_fact_ids: nextAnchorFactIds,
-      facts_ids: nextFactIds,
+      anchor_lt_facts_ids: nextAnchorFactIds,
+      lt_facts_ids: nextFactIds,
     };
-    delete updatedReport.absorbed_fact_ids;
-    delete updatedReport.long_term_facts_ids;
     reports[reportId] = updatedReport;
     changed = true;
   });

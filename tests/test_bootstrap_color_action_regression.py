@@ -202,8 +202,8 @@ class BootstrapColorActionRegressionTests(unittest.TestCase):
             encoding="utf-8",
         )
         (current_dir / "session.txt").write_text(
-            '<RESTORED_SESSION_DIALOG session_id="previous-blue-session">\n'
-            "</RESTORED_SESSION_DIALOG>",
+            '<OLD_SESSION_RESTORED_STATE session_id="previous-blue-session">\n'
+            "</OLD_SESSION_RESTORED_STATE>",
             encoding="utf-8",
         )
 

@@ -771,18 +771,18 @@ def _append_delayed_memory_inventory_metadata(
     if not isinstance(report, dict):
         return text
 
-    fact_ids = report.get("facts_ids", [])
+    fact_ids = report.get("lt_facts_ids", [])
 
     if not isinstance(fact_ids, list) or not fact_ids:
         return text
 
     suffixes = []
-    anchor_fact_ids = report.get("anchor_fact_ids", [])
+    anchor_lt_facts_ids = report.get("anchor_lt_facts_ids", [])
 
-    if isinstance(anchor_fact_ids, list) and anchor_fact_ids:
+    if isinstance(anchor_lt_facts_ids, list) and anchor_lt_facts_ids:
         suffixes.append(
             "[ anchor_facts: "
-            + ", ".join(anchor_fact_ids)
+            + ", ".join(anchor_lt_facts_ids)
             + " ]"
         )
 
@@ -1255,28 +1255,33 @@ def build_brain_context(
 
     if restore_priming:
         from .runtime import SESSION_RESTORE_MESSAGE
+        from utils.context.session_restore import (
+            build_session_restore_message,
+        )
 
         # This remains the first restore-specific prompt block, immediately
         # below optional CURRENT_RUNTIME_SETTINGS. It is a hidden restore tick,
-        # not a user request. Timestamp the bootstrap itself; archived message
-        # timestamps describe the old dialogue and must not be used here.
-        bootstrap_timestamp = (
-            datetime.now()
-            .astimezone()
-            .isoformat(timespec="seconds")
-        )
-        restore_message = SESSION_RESTORE_MESSAGE.replace(
-            "Current session was bootstrapped in a browser tab!",
-            (
-                f"{bootstrap_timestamp}\n"
-                "Current session was bootstrapped in a browser tab!"
-            ),
-            1,
+        # not a user request. Put the fresh runtime identity/time directly above
+        # the restore instruction so the model cannot confuse archived timing
+        # with the current bootstrap tick.
+        prompt_parts.append(
+            build_session_restore_message(
+                SESSION_RESTORE_MESSAGE,
+                session_id=getattr(
+                    context,
+                    "session_id",
+                    "",
+                ),
+            )
         )
 
-        prompt_parts.append(
-            restore_message
-        )
+        # Keep OLD_SESSION_RESTORED_STATE immediately below the mandatory
+        # restore notification so archived dialogue is inspected before any
+        # live concerns/runtime metadata on the hidden continuation tick.
+        if restored_session_dialog:
+            prompt_parts.append(
+                restored_session_dialog
+            )
 
     enabled_actions = get_enabled_runtime_actions(
         runtime_actions
@@ -1509,34 +1514,20 @@ def build_brain_context(
             )
         )
 
-    # Archived-session checkout still gets its one-shot exact dialogue dump.
-    # Normal rolling chat already lives beside FRAME_MEMORY above.
-    if restored_session_dialog:
+    # Outside restore priming, preserve the fallback placement if an archived
+    # dialogue is still present. During priming OLD_SESSION_RESTORED_STATE
+    # was already inserted directly under MANDATORY_SYSTEM_NOTIFICATION.
+    if restored_session_dialog and not restore_priming:
         prompt_parts.append(
             restored_session_dialog
         )
 
-    # Previous reasoning block: a restore tick receives a one-shot raw dump of
-    # the latest archived reasonings (newest first). Ordinary turns keep the
-    # existing previous-reasoning behavior.
-    restore_reasoning_dump = str(
-        getattr(
-            context,
-            "runtime_session_restore_reasoning_dump",
-            "",
-        )
-        or ""
-    ).strip()
-
-    if restore_priming:
-        if (
-            restore_reasoning_dump
-            and "<JIN_REASONING" not in restored_session_dialog
-        ):
-            prompt_parts.append(
-                restore_reasoning_dump
-            )
-    else:
+    # Archived reasoning is deliberately excluded from the hidden bootstrap
+    # prompt. OLD_SESSION_RESTORED_STATE carries visible USER/JIN dialogue only;
+    # saved reasoning remains available to archive/UI continuity but must not
+    # resurrect stale action intent during the one-shot restore tick. Ordinary
+    # turns keep the existing previous-reasoning behavior.
+    if not restore_priming:
         previous_reasoning_loop_context = (
             build_previous_reasoning_loop_context(
                 context

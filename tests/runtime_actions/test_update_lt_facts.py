@@ -225,7 +225,7 @@ class RuntimeUpdateLTFactsTests(unittest.IsolatedAsyncioTestCase):
         context.delayed_memory_reports = {
             "abc123": {
                 "title": "Social and project context",
-                "long_term_facts_ids": [
+                "lt_facts_ids": [
                     "F1",
                     "F2",
                 ],
@@ -265,16 +265,8 @@ class RuntimeUpdateLTFactsTests(unittest.IsolatedAsyncioTestCase):
         )
 
         self.assertEqual(
-            context.delayed_memory_reports["abc123"]["facts_ids"],
+            context.delayed_memory_reports["abc123"]["lt_facts_ids"],
             ["F3"],
-        )
-        self.assertNotIn(
-            "absorbed_fact_ids",
-            context.delayed_memory_reports["abc123"],
-        )
-        self.assertNotIn(
-            "long_term_facts_ids",
-            context.delayed_memory_reports["abc123"],
         )
 
         lifecycle = [

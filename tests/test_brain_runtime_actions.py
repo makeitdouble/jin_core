@@ -439,146 +439,35 @@ class BrainRuntimeActionTests(unittest.TestCase):
         self.assertEqual(lifecycle[0]["id"], lifecycle[1]["id"])
         self.assertEqual(applied, [])
 
-    def test_image_attachments_do_not_enter_model_payload_by_default(self):
+    def test_image_attachments_enter_model_payload(self):
 
         context = SimpleNamespace(
-            runtime_turn_attachments=[
-                {
-                    "kind": "image",
-                    "name": "screen.png",
-                    "data_url": "data:image/png;base64,AAAA",
-                },
-            ],
+            runtime_turn_attachments=[{
+                "kind": "image",
+                "name": "screen.png",
+                "data_url": "data:image/png;base64,AAAA",
+            }],
         )
+        prompt = build_brain_user_prompt_content("look", context=context)
+        self.assertEqual(prompt, [
+            {"type": "text", "text": "look"},
+            {"type": "image_url", "image_url": {"url": "data:image/png;base64,AAAA"}},
+        ])
 
-        original_service_image_input = getattr(
-            config,
-            "BRAIN_IMAGE_INPUT_ENABLED",
-            None,
-        )
-
-        try:
-            if hasattr(
-                config,
-                "BRAIN_IMAGE_INPUT_ENABLED",
-            ):
-                delattr(
-                    config,
-                    "BRAIN_IMAGE_INPUT_ENABLED",
-                )
-
-            prompt = build_brain_user_prompt_content(
-                "look",
-                context=context,
-            )
-        finally:
-            if original_service_image_input is not None:
-                config.BRAIN_IMAGE_INPUT_ENABLED = original_service_image_input
-
-        self.assertEqual(
-            prompt,
-            "look",
-        )
-
-    def test_image_attachments_enter_model_payload_when_enabled(self):
+    def test_image_attachments_enter_empty_followup_payload(self):
 
         context = SimpleNamespace(
-            runtime_turn_attachments=[
-                {
-                    "kind": "image",
-                    "name": "screen.png",
-                    "data_url": "data:image/png;base64,AAAA",
-                },
-            ],
+            runtime_turn_attachments=[{
+                "kind": "image",
+                "name": "screen.png",
+                "data_url": "data:image/png;base64,AAAA",
+            }],
         )
-
-        original_service_image_input = getattr(
-            config,
-            "BRAIN_IMAGE_INPUT_ENABLED",
-            None,
-        )
-
-        try:
-            config.BRAIN_IMAGE_INPUT_ENABLED = True
-
-            prompt = build_brain_user_prompt_content(
-                "look",
-                context=context,
-            )
-        finally:
-            if original_service_image_input is None:
-                delattr(
-                    config,
-                    "BRAIN_IMAGE_INPUT_ENABLED",
-                )
-            else:
-                config.BRAIN_IMAGE_INPUT_ENABLED = original_service_image_input
-
-        self.assertEqual(
-            prompt,
-            [
-                {
-                    "type": "text",
-                    "text": "look",
-                },
-                {
-                    "type": "image_url",
-                    "image_url": {
-                        "url": "data:image/png;base64,AAAA",
-                    },
-                },
-            ],
-        )
-
-    def test_image_attachments_enter_empty_followup_payload_when_enabled(self):
-
-        context = SimpleNamespace(
-            runtime_turn_attachments=[
-                {
-                    "kind": "image",
-                    "name": "screen.png",
-                    "data_url": "data:image/png;base64,AAAA",
-                },
-            ],
-        )
-
-        original_service_image_input = getattr(
-            config,
-            "BRAIN_IMAGE_INPUT_ENABLED",
-            None,
-        )
-
-        try:
-            config.BRAIN_IMAGE_INPUT_ENABLED = True
-
-            prompt = build_brain_user_prompt_content(
-                "",
-                context=context,
-            )
-        finally:
-            if original_service_image_input is None:
-                delattr(
-                    config,
-                    "BRAIN_IMAGE_INPUT_ENABLED",
-                )
-            else:
-                config.BRAIN_IMAGE_INPUT_ENABLED = original_service_image_input
-
-        self.assertEqual(
-            prompt,
-            [
-                {
-                    "type": "text",
-                    "text": "",
-                },
-                {
-                    "type": "image_url",
-                    "image_url": {
-                        "url": "data:image/png;base64,AAAA",
-                    },
-                },
-            ],
-        )
+        prompt = build_brain_user_prompt_content("", context=context)
+        self.assertEqual(prompt, [
+            {"type": "text", "text": ""},
+            {"type": "image_url", "image_url": {"url": "data:image/png;base64,AAAA"}},
+        ])
 
     def test_brain_system_prompt_keeps_runtime_rule_sentences_separated(self):
 

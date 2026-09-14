@@ -2373,20 +2373,18 @@
             String(report.body || "").trim(),
           pinned:
             Boolean(report.pinned),
-          anchor_fact_ids:
+          anchor_lt_facts_ids:
             normalizeLongTermFactIds(
-              report.anchor_fact_ids
+              report.anchor_lt_facts_ids
             ),
-          facts_ids:
+          lt_facts_ids:
             sortLongTermFactIdsByNumber(
               normalizeLongTermFactIds(
                 [
                   // Anchors only affect highlighting. The full list keeps
                   // normal numeric F-id order instead of promoting anchors.
-                  report.facts_ids,
-                  report.anchor_fact_ids,
-                  report.absorbed_fact_ids,
-                  report.long_term_facts_ids,
+                  report.lt_facts_ids,
+                  report.anchor_lt_facts_ids,
                 ]
               )
             ),

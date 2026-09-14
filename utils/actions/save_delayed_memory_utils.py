@@ -8,8 +8,8 @@ LONG_TERM_FACT_ID_RE = re.compile(r"^F[1-9]\d*$", re.IGNORECASE)
 ATTACHMENT_FILE_ID_RE = re.compile(r"^[a-z0-9]{6}$", re.IGNORECASE)
 
 DELAYED_MEMORY_FIELD_RE = re.compile(
-    r"(?im)^[^\S\r\n]*(title|summary|tags|body|anchor_fact_ids|"
-    r"facts_ids|attachments_ids|absorbed_fact_ids|long_term_facts_ids)"
+    r"(?im)^[^\S\r\n]*(title|summary|tags|body|anchor_lt_facts_ids|"
+    r"lt_facts_ids|attachments_ids)"
     r"[^\S\r\n]*:[^\S\r\n]*(.*)$",
 )
 
@@ -74,36 +74,27 @@ def normalize_long_term_fact_ids(value) -> list[str]:
 
 
 def normalize_delayed_memory_fact_ids(
-    anchor_fact_ids=None,
-    facts_ids=None,
-    legacy_absorbed_fact_ids=None,
-    legacy_long_term_fact_ids=None,
+    anchor_lt_facts_ids=None,
+    lt_facts_ids=None,
 ) -> tuple[list[str], list[str]]:
     """Normalize delayed-memory L-T references.
 
-    ``facts_ids`` is the full set of L-T facts represented by the report.
-    ``anchor_fact_ids`` is a visible, important subset and is always folded
-    into ``facts_ids``.  Legacy absorbed/long-term fields are treated as
-    non-anchor report facts for compatibility with older reports.
+    ``lt_facts_ids`` is the full set of L-T facts represented by the report.
+    ``anchor_lt_facts_ids`` is a visible, important subset and is always folded
+    into ``lt_facts_ids``.
     """
 
     anchor_ids = normalize_long_term_fact_ids(
-        anchor_fact_ids or []
+        anchor_lt_facts_ids or []
     )
     fact_ids = normalize_long_term_fact_ids([
         *normalize_long_term_fact_ids(
-            facts_ids or []
+            lt_facts_ids or []
         ),
         # Anchors are a highlighted subset, not a sorting key. Missing
         # anchors are folded into the full list, then the full list is kept
         # in normal numeric F-id order (F1, F15, ... F190).
         *anchor_ids,
-        *normalize_long_term_fact_ids(
-            legacy_absorbed_fact_ids or []
-        ),
-        *normalize_long_term_fact_ids(
-            legacy_long_term_fact_ids or []
-        ),
     ])
     fact_ids.sort(
         key=lambda fact_id: int(fact_id[1:])
@@ -172,29 +163,6 @@ def normalize_delayed_memory_attachment_ids(value) -> list[str]:
     return attachment_ids
 
 
-def normalize_delayed_memory_fact_roles(
-    anchor_fact_ids=None,
-    absorbed_fact_ids=None,
-    legacy_long_term_fact_ids=None,
-) -> tuple[list[str], list[str]]:
-    """Compatibility wrapper returning legacy non-anchor absorbed facts."""
-
-    anchor_ids, fact_ids = normalize_delayed_memory_fact_ids(
-        anchor_fact_ids,
-        facts_ids=None,
-        legacy_absorbed_fact_ids=absorbed_fact_ids,
-        legacy_long_term_fact_ids=legacy_long_term_fact_ids,
-    )
-    anchor_set = set(anchor_ids)
-    absorbed_ids = [
-        fact_id
-        for fact_id in fact_ids
-        if fact_id not in anchor_set
-    ]
-
-    return anchor_ids, absorbed_ids
-
-
 def collect_long_term_fact_ids_from_reports(
     reports,
 ) -> set[str]:
@@ -210,10 +178,8 @@ def collect_long_term_fact_ids_from_reports(
             continue
 
         _anchor_ids, report_fact_ids = normalize_delayed_memory_fact_ids(
-            report.get("anchor_fact_ids", []),
-            report.get("facts_ids", []),
-            legacy_absorbed_fact_ids=report.get("absorbed_fact_ids", []),
-            legacy_long_term_fact_ids=report.get("long_term_facts_ids", []),
+            report.get("anchor_lt_facts_ids", []),
+            report.get("lt_facts_ids", []),
         )
         fact_ids.update(report_fact_ids)
 
@@ -239,10 +205,8 @@ def collect_anchor_fact_report_ids(
             continue
 
         anchor_ids, _fact_ids = normalize_delayed_memory_fact_ids(
-            report.get("anchor_fact_ids", []),
-            report.get("facts_ids", []),
-            legacy_absorbed_fact_ids=report.get("absorbed_fact_ids", []),
-            legacy_long_term_fact_ids=report.get("long_term_facts_ids", []),
+            report.get("anchor_lt_facts_ids", []),
+            report.get("lt_facts_ids", []),
         )
 
         for fact_id in anchor_ids:
@@ -420,10 +384,8 @@ def parse_delayed_memory_payload(
                     if part
                 ).strip()
             elif field_name in {
-                "anchor_fact_ids",
-                "facts_ids",
-                "absorbed_fact_ids",
-                "long_term_facts_ids",
+                "anchor_lt_facts_ids",
+                "lt_facts_ids",
             }:
                 value = normalize_long_term_fact_ids(
                     " ".join(
@@ -469,11 +431,9 @@ def parse_delayed_memory_payload(
         )
     )
 
-    anchor_fact_ids, fact_ids = normalize_delayed_memory_fact_ids(
-        fields.get("anchor_fact_ids", []),
-        fields.get("facts_ids", []),
-        legacy_absorbed_fact_ids=fields.get("absorbed_fact_ids", []),
-        legacy_long_term_fact_ids=fields.get("long_term_facts_ids", []),
+    anchor_lt_facts_ids, fact_ids = normalize_delayed_memory_fact_ids(
+        fields.get("anchor_lt_facts_ids", []),
+        fields.get("lt_facts_ids", []),
     )
     attachment_ids = normalize_delayed_memory_attachment_ids(
         fields.get("attachments_ids", [])
@@ -502,8 +462,8 @@ def parse_delayed_memory_payload(
                 or ""
             ).strip(),
             "pinned": False,
-            "anchor_fact_ids": anchor_fact_ids,
-            "facts_ids": fact_ids,
+            "anchor_lt_facts_ids": anchor_lt_facts_ids,
+            "lt_facts_ids": fact_ids,
             "attachments_ids": attachment_ids,
             "created_session_id": str(
                 created_session_id

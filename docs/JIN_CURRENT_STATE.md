@@ -197,7 +197,7 @@ UPDATE_ACTIVE_MEMORY
 
 `POSTING_BOARD` is a native action exposed only after `LOAD_SKILL: posting_board`. The side skill documents the minimal inner actions (`feed`, `inbox`, `read`, `search`, `post`, `reply`, `ack`, `delete`); the runtime executes them against Get Posting Board and records the exact public request preview plus response as a runtime tool result. Chat bubbles use one stable action ID from running to completed/failed, then fade and become clickable for the reused trace modal. Session Actions intentionally keep only compact markers such as `POSTING_BOARD: action:feed` or `POSTING_BOARD: action:post - failed`; request/response bodies stay out of session-action text. Public writes, including deletion, are blocked when persistent writes are restricted, while board reads remain available. `delete` targets one owned message by exact `post_id`; deleting a root removes the entire thread, so the skill requires explicit authorization and warns Brain to preserve roots unless whole-thread deletion is intended. The bearer token comes only from `GETPOSTINGBOARD_API_KEY` and is never projected into model/UI context.
 
-The mapped Brain feature flags in `rules/brain_context_builder.py` are enabled. `WEB_SEARCH` and `DEEP_WEB_SEARCH` are then filtered again by `settings.CAN_SEARCH`, so they are not model-visible unless provider `serper` has a non-empty, non-placeholder configured key. `config.example.py` exposes the search settings with `mock-serper-api-key`; that placeholder intentionally keeps search disabled until a real local key is configured. The local availability check intentionally does not impose an invented key-length/shape regex; Serper remains the credential authority.
+The mapped Brain feature flags in `rules/brain_context_builder.py` are enabled. `WEB_SEARCH` and `DEEP_WEB_SEARCH` are then filtered again by `settings.CAN_SEARCH`, so they are not model-visible unless provider `serper` has a non-empty, non-placeholder process-environment key. `launch_jin.ps1` imports an ignored repository-root `.env` before resolving configuration and starting Python; `.env.example` documents the supported secret names without containing credentials. Direct `python app.py` starts still rely on variables exported by the calling shell. The local availability check intentionally does not impose an invented key-length/shape regex; Serper remains the credential authority.
 
 `CLEAN_TOOL_RESULTS` is a no-payload action. The canonical bare `<CLEAN_TOOL_RESULTS>` marker and a redundant paired-looking `<CLEAN_TOOL_RESULTS>...</CLEAN_TOOL_RESULTS>` form resolve to one cleanup; the closing tag is consumed as parser noise, including when split across stream chunks.
 
@@ -215,7 +215,7 @@ The JIN visual sequence path preserves the model's marker order across color/siz
 
 ### Current canonical contract
 
-`contracts/save_delayed_memory.json` is version 4 and requires a JSON body inside `<SAVE_DELAYED_MEMORY> ... </SAVE_DELAYED_MEMORY>`.
+`contracts/save_delayed_memory.json` is version 5 and requires a JSON body inside `<SAVE_DELAYED_MEMORY> ... </SAVE_DELAYED_MEMORY>`.
 
 Required fields:
 
@@ -226,11 +226,11 @@ Required fields:
 
 Relationship fields:
 
-- `anchor_fact_ids`
-- `facts_ids`
+- `anchor_lt_facts_ids`
+- `lt_facts_ids`
 - `attachments_ids`
 
-The contract explicitly requires exact existing IDs and `anchor_fact_ids` as a subset of `facts_ids`.
+The contract explicitly requires exact existing IDs and `anchor_lt_facts_ids` as a subset of `lt_facts_ids`.
 
 ### Legacy
 
@@ -350,7 +350,7 @@ Verified behavior:
 
 - archived visible dialogue is rebuilt from logs;
 - the newest three real USER moves are used for the restore context in chronological order, with empty JIN retained where the turn was interrupted/action-only;
-- a bounded recent reasoning dump is included;
+- no separate restore-reasoning dump is generated; saved reasoning remains available to UI/archive restore data but is excluded from the hidden bootstrap prompt;
 - loaded Delayed IDs and attached files are staged; room/avatar state is restored by bootstrap and is not replayed as runtime actions;
 - restore Brain response occurs before normal resource reactivation;
 - `BrainNode.replay_session_restore_resource_actions()` consumes the staged Delayed/file envelope and applies only those resources through the real action dispatcher;

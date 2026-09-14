@@ -623,10 +623,7 @@ class PostingBoardTests(unittest.IsolatedAsyncioTestCase):
                 )
 
     async def test_client_rejects_missing_key_and_bad_ack_without_network(self):
-        with (
-            patch.dict(os.environ, {}, clear=True),
-            patch("utils.posting_board_client.config.GETPOSTINGBOARD_API_KEY", ""),
-        ):
+        with patch.dict(os.environ, {}, clear=True):
             missing_key = await execute_posting_board_request({"action": "feed"})
         self.assertFalse(missing_key["ok"])
         self.assertEqual(missing_key["error"], "missing_api_key")
@@ -652,16 +649,14 @@ class PostingBoardTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result["request"], {})
         self.assertNotIn("secret", str(result))
 
-    async def test_client_accepts_config_and_environment_overrides(self):
+    async def test_client_accepts_environment_overrides(self):
         for env, expected in (
-            ({}, "config-key"),
             ({"GETPOSTINGBOARD_API_KEY": "env-key"}, "env-key"),
             ({"JIN_GETPOSTINGBOARD_API_KEY": "prefixed-key"}, "prefixed-key"),
         ):
             with (
                 self.subTest(env=env),
                 patch.dict(os.environ, env, clear=True),
-                patch("utils.posting_board_client.config.GETPOSTINGBOARD_API_KEY", "config-key"),
                 patch("utils.posting_board_client._base_headers", return_value={}) as headers,
             ):
                 result = await execute_posting_board_request({"action": "ack", "through": "invalid"})

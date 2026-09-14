@@ -830,13 +830,6 @@ class RuntimeStream:
         return (
             not self.context_limit_recovery_armed
             and self.is_brain_context()
-            and bool(
-                getattr(
-                    config,
-                    "FOLLOW_UP_ON_LIMIT",
-                    True,
-                )
-            )
             and normalized_reason
             in GENERATION_LIMIT_FINISH_REASONS
         )
@@ -3242,6 +3235,18 @@ class RuntimeStream:
                 chunk_type = chunk.get(
                     "type"
                 )
+
+                # -------------------------------------------------
+                # PROGRESS
+                # -------------------------------------------------
+
+                if chunk_type == "progress":
+                    await self.stream.send_progress(
+                        chunk,
+                        emit=self.emit_to_chat,
+                    )
+
+                    continue
 
                 # -------------------------------------------------
                 # USAGE

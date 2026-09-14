@@ -7,16 +7,15 @@ from unittest.mock import patch
 
 from agent.nodes.brain import replay_session_restore_resource_actions
 from rules.brain_context_builder import build_brain_context
-from rules.runtime import (
-    SESSION_RESTORE_REASONING_CHAR_LIMIT,
-    SESSION_RESTORE_REASONING_COUNT,
-)
 from runtime.client import RuntimeClient
 from runtime.runtime_context import RuntimeContext
 from utils.context.session_actions import build_session_actions_history_context
 from utils.context.tool_results import build_tool_results_context
 from utils.session_actions_history import record_session_action_history
-from utils.session_restore import build_archived_session_restore_payload
+from utils.session_restore import (
+    _build_restored_dialog_context,
+    build_archived_session_restore_payload,
+)
 from websocket.bootstrap import (
     apply_archived_session_continuation_state,
     apply_session_bootstrap,
@@ -26,6 +25,63 @@ from websocket.bootstrap import (
 
 
 class ArchivedSessionRestoreTests(unittest.TestCase):
+
+    def test_restore_priming_prompt_excludes_archived_reasoning(self):
+        context = RuntimeContext(
+            websocket=None,
+            emitter=None,
+            logger=None,
+            clients={},
+        )
+        context.runtime_session_restore_priming = True
+        context.runtime_restored_session_dialog = (
+            "<OLD_SESSION_RESTORED_STATE>"
+            "<USER>old user</USER>"
+            "<JIN>old answer</JIN>"
+            "</OLD_SESSION_RESTORED_STATE>"
+        )
+        context.runtime_session_restore_reasoning_dump = (
+            "<RESTORED_SESSION_REASONING_DUMP>"
+            "stale action intent"
+            "</RESTORED_SESSION_REASONING_DUMP>"
+        )
+
+        prompt = build_brain_context(
+            context=context,
+            runtime_actions={},
+        )
+
+        self.assertIn("<USER>old user</USER>", prompt)
+        self.assertIn("<JIN>old answer</JIN>", prompt)
+        self.assertNotIn("RESTORED_SESSION_REASONING_DUMP", prompt)
+        self.assertNotIn("stale action intent", prompt)
+
+    def test_old_session_dialog_appends_relative_message_age(self):
+        entries = [
+            {
+                "role": "user",
+                "text": "old user",
+                "ts": "1970-01-01T00:05:00+00:00",
+                "turn": 1,
+            },
+            {
+                "role": "jin",
+                "text": "old answer",
+                "ts": "1970-01-01T00:05:00+00:00",
+                "turn": 1,
+            },
+        ]
+
+        with patch("utils.session_restore.time.time", return_value=600.0):
+            dialog = _build_restored_dialog_context(
+                entries,
+                "old-session",
+            )
+
+        self.assertIn("<USER>old user</USER> (5m ago)", dialog)
+        self.assertIn("<JIN>old answer</JIN> (5m ago)", dialog)
+        self.assertNotIn(' ts="', dialog)
+
 
     def test_archived_restore_keeps_fresh_runtime_session_identity(self):
         context = RuntimeContext(
@@ -77,8 +133,8 @@ class ArchivedSessionRestoreTests(unittest.TestCase):
                 "source_session_id": "archived-session",
                 "archived_session_restore": True,
                 "dialog_context": (
-                    "<RESTORED_SESSION_DIALOG>old clean-results dialog"
-                    "</RESTORED_SESSION_DIALOG>"
+                    "<OLD_SESSION_RESTORED_STATE>old clean-results dialog"
+                    "</OLD_SESSION_RESTORED_STATE>"
                 ),
                 "previous_reasoning": "old CLEAN_TOOL_RESULTS reasoning",
                 "restore_reasoning_dump": "old reasoning dump",
@@ -138,7 +194,7 @@ class ArchivedSessionRestoreTests(unittest.TestCase):
             user_input="brand new task",
             include_runtime_action_instructions=False,
         )
-        self.assertNotIn("RESTORED_SESSION_DIALOG", prompt)
+        self.assertNotIn("OLD_SESSION_RESTORED_STATE", prompt)
         self.assertNotIn("old CLEAN_TOOL_RESULTS reasoning", prompt)
         self.assertNotIn("<PREVIOUS_REASONING_CONTENT>", prompt)
         self.assertIn("older real user", prompt)
@@ -470,6 +526,8 @@ session_snapshot_last_turn: 1
             payload["messages"][3]["reasoning"],
         )
         self.assertNotIn("captured_at", payload["dialog_context"])
+        self.assertNotIn("<JIN_REASONING", payload["dialog_context"])
+        self.assertNotIn("reasoning 5", payload["dialog_context"])
         self.assertNotIn("captured_at", payload["restore_reasoning_dump"])
         self.assertEqual(payload["previous_reasoning"], "reasoning 5")
         self.assertEqual(
@@ -528,7 +586,7 @@ session_snapshot_last_turn: 1
         session_dir = root / "2026-08-16" / session_id
         (session_dir / "222828.bootstrap.txt").write_text(
             """
-<SESSION_RESTORE>bootstrap only</SESSION_RESTORE>
+<OLD_SESSION_RESTORED_STATE>bootstrap only</OLD_SESSION_RESTORED_STATE>
 <PREVIOUS_RUNTIME_STATE>
 last_jin_response: WRONG BOOTSTRAP VALUE
 open_question: wrong bootstrap question
@@ -684,7 +742,7 @@ open_question: wrong bootstrap question
         self.assertEqual(payload["loaded_memory_ids"], ["ehfw65"])
         self.assertEqual(payload["runtime_turn_counter"], 8)
 
-    def test_restore_reasoning_dump_is_newest_first_limited_and_middle_cropped(self):
+    def test_restore_reasoning_dump_is_retired_but_reasoning_stays_available_for_restore_data(self):
         root = Path(tempfile.mkdtemp())
         session_id = "restore-reasoning-session"
         session_dir = root / "2026-08-17" / session_id
@@ -779,20 +837,17 @@ open_question: continue
         )
 
         self.assertIsNotNone(payload)
-        dump = payload["restore_reasoning_dump"]
-        self.assertEqual(dump.count("<REASONING "), SESSION_RESTORE_REASONING_COUNT)
-        self.assertLess(
-            dump.index('turn_id="turn_000006"'),
-            dump.index('turn_id="turn_000005"'),
+        self.assertNotIn("<JIN_REASONING", payload["dialog_context"])
+        self.assertNotIn("LATEST-HEAD F99", payload["dialog_context"])
+        self.assertEqual(payload["restore_reasoning_dump"], "")
+        self.assertIn("LATEST-HEAD F99", payload["previous_reasoning"])
+        self.assertIn("LATEST-TAIL", payload["previous_reasoning"])
+        self.assertTrue(
+            any(
+                "LATEST-HEAD F99" in str(message.get("reasoning", ""))
+                for message in payload["messages"]
+            )
         )
-        self.assertNotIn('turn_id="turn_000001"', dump)
-        self.assertIn("LATEST-HEAD F99", dump)
-        self.assertIn("LATEST-TAIL", dump)
-        self.assertIn("MIDDLE CHARS", dump)
-
-        latest_block = dump.split("</REASONING>", 1)[0]
-        latest_body = latest_block.split("<REASONING ", 1)[1].split(">\n", 1)[1].rstrip("\n")
-        self.assertLessEqual(len(latest_body), SESSION_RESTORE_REASONING_CHAR_LIMIT)
         self.assertEqual(
             payload["restore_lt_fact_ids"],
             ["F99", "F42"],
@@ -821,7 +876,7 @@ open_question: continue
         )
         archived = {
             "source_session_id": "archive-session",
-            "dialog_context": "<RESTORED_SESSION_DIALOG>old flow</RESTORED_SESSION_DIALOG>",
+            "dialog_context": "<OLD_SESSION_RESTORED_STATE>old flow</OLD_SESSION_RESTORED_STATE>",
             "recent_turns": [{"user": "old user", "jin": "old jin"}],
             "previous_reasoning": "latest raw reasoning",
             "restore_reasoning_dump": "<RESTORED_SESSION_REASONING_DUMP>raw</RESTORED_SESSION_REASONING_DUMP>",
@@ -883,7 +938,7 @@ open_question: continue
                 },
             ],
             "dialog_context": (
-                "<RESTORED_SESSION_DIALOG>Enderman</RESTORED_SESSION_DIALOG>"
+                "<OLD_SESSION_RESTORED_STATE>Enderman</OLD_SESSION_RESTORED_STATE>"
             ),
             "recent_turns": [
                 {"user": "про ендера", "jin": "обсудим ендера"},
@@ -1138,7 +1193,7 @@ open_question: continue
                 },
             ],
             "dialog_context": (
-                "<RESTORED_SESSION_DIALOG>current tail</RESTORED_SESSION_DIALOG>"
+                "<OLD_SESSION_RESTORED_STATE>current tail</OLD_SESSION_RESTORED_STATE>"
             ),
             "restore_reasoning_dump": (
                 "<RESTORED_SESSION_REASONING_DUMP>current reasoning</RESTORED_SESSION_REASONING_DUMP>"
@@ -1279,7 +1334,7 @@ open_question: continue
         )
         context.runtime_session_restore_priming = True
         context.runtime_restored_session_dialog = (
-            "<RESTORED_SESSION_DIALOG>EXACT OLD FLOW</RESTORED_SESSION_DIALOG>"
+            "<OLD_SESSION_RESTORED_STATE>EXACT OLD FLOW</OLD_SESSION_RESTORED_STATE>"
         )
         context.runtime_session_restore_reasoning_dump = (
             "<RESTORED_SESSION_REASONING_DUMP>RAW REASONING</RESTORED_SESSION_REASONING_DUMP>"
@@ -1311,18 +1366,16 @@ open_question: continue
             )
 
         self.assertTrue(
-            prompt.startswith("<RESTORED_SESSION_INSTRUCTIONS>\n")
+            prompt.startswith("<MANDATORY_SYSTEM_NOTIFICATION>\n")
         )
-        self.assertIn(
-            "\nCurrent session was bootstrapped in a browser tab!\n",
-            prompt,
-        )
-        self.assertIn(
-            "RESTORED_SESSION_DIALOG is the authoritative newest visible conversation state.",
-            prompt,
-        )
+        mandatory_end = prompt.index("</MANDATORY_SYSTEM_NOTIFICATION>")
+        old_session_pos = prompt.index("<OLD_SESSION_RESTORED_STATE")
+        concerns_pos = prompt.index("<CURRENT_CONCERNS>")
+        self.assertLess(mandatory_end, old_session_pos)
+        self.assertLess(old_session_pos, concerns_pos)
         self.assertIn("EXACT OLD FLOW", prompt)
-        self.assertIn("RAW REASONING", prompt)
+        self.assertNotIn("RAW REASONING", prompt)
+        self.assertNotIn("RESTORED_SESSION_REASONING_DUMP", prompt)
         self.assertIn("Old report [ id: abc123 ]", prompt)
         self.assertIn("old.txt [ id: file1 ]", prompt)
         self.assertNotIn("HEAVY DELAYED BODY", prompt)

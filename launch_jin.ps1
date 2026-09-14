@@ -23,6 +23,61 @@ function Fail-WithMessage {
     exit 1
 }
 
+function Import-DotEnv {
+    param([string]$Path)
+
+    if (-not (Test-Path -LiteralPath $Path)) {
+        Write-Host "No .env file found. Keeping the current process environment."
+        return
+    }
+
+    $loadedCount = 0
+
+    foreach ($line in [System.IO.File]::ReadAllLines($Path)) {
+        $candidate = $line.Trim()
+
+        if ($candidate.Length -eq 0 -or $candidate.StartsWith("#")) {
+            continue
+        }
+
+        if ($candidate.StartsWith("export ", [System.StringComparison]::OrdinalIgnoreCase)) {
+            $candidate = $candidate.Substring(7).TrimStart()
+        }
+
+        $separatorIndex = $candidate.IndexOf("=")
+
+        if ($separatorIndex -le 0) {
+            throw "Invalid .env entry. Expected NAME=value."
+        }
+
+        $name = $candidate.Substring(0, $separatorIndex).Trim()
+        $value = $candidate.Substring($separatorIndex + 1).Trim()
+
+        if ($name -notmatch '^[A-Za-z_][A-Za-z0-9_]*$') {
+            throw "Invalid .env variable name: $name"
+        }
+
+        if (
+            $value.Length -ge 2 -and
+            (
+                ($value.StartsWith('"') -and $value.EndsWith('"')) -or
+                ($value.StartsWith("'") -and $value.EndsWith("'"))
+            )
+        ) {
+            $value = $value.Substring(1, $value.Length - 2)
+        }
+
+        if ($null -ne [Environment]::GetEnvironmentVariable($name, "Process")) {
+            continue
+        }
+
+        [Environment]::SetEnvironmentVariable($name, $value, "Process")
+        $loadedCount += 1
+    }
+
+    Write-Host "Loaded $loadedCount variable(s) from .env. Existing process values were kept."
+}
+
 function Normalize-BaseUrl {
     param([string]$BaseUrl)
 
@@ -489,6 +544,8 @@ try {
     Set-Location $Root
 
     Write-Host "JIN one-click launcher"
+
+    Import-DotEnv -Path (Join-Path $Root ".env")
 
     Write-Step "Checking LM Studio Local Server..."
 

@@ -123,7 +123,7 @@ def test_bootstrap_replaces_stale_source_with_newer_user_move():
             "user_created_at": 100.0,
             "jin_created_at": 101.0,
         }],
-        "dialog_context": "<RESTORED_SESSION_DIALOG>old</RESTORED_SESSION_DIALOG>",
+        "dialog_context": "<OLD_SESSION_RESTORED_STATE>old</OLD_SESSION_RESTORED_STATE>",
     }
     fresh = {
         "source_session_id": "fresh-session",
@@ -132,7 +132,7 @@ def test_bootstrap_replaces_stale_source_with_newer_user_move():
             "jin": "",
             "user_created_at": 200.0,
         }],
-        "dialog_context": "<RESTORED_SESSION_DIALOG>fresh</RESTORED_SESSION_DIALOG>",
+        "dialog_context": "<OLD_SESSION_RESTORED_STATE>fresh</OLD_SESSION_RESTORED_STATE>",
     }
 
     with (

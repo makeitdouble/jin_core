@@ -579,6 +579,33 @@ function handleMessageStart(
 
 }
 
+function handleRuntimeProgress(
+  data
+) {
+
+  if (
+    !data
+    || !data.message_id
+  ) {
+    return;
+  }
+
+  if (!window.setStreamAvatarProgress) {
+    return;
+  }
+
+  window.setStreamAvatarProgress(
+    data.message_id,
+    {
+      phase: data.phase,
+      state: data.state,
+      progress: data.progress,
+      provider: data.provider,
+    }
+  );
+
+}
+
 function handleMessageChunk(
   data
 ) {
@@ -785,6 +812,11 @@ registerSocketMessageHandler(
 registerSocketMessageHandler(
   "agent_runtime_end",
   handleAgentRuntimeEnd
+);
+
+registerSocketMessageHandler(
+  "runtime_progress",
+  handleRuntimeProgress
 );
 
 registerSocketMessageHandler(

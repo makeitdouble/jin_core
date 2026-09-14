@@ -54,8 +54,7 @@ class AttachFileByIdTests(unittest.TestCase):
         tools = build_tool_results_context(self.context)
         self.assertEqual(tools.count('whole file line 399'), 1)
         self.assertTrue(all(line in tools for line in body.splitlines()))
-        with patch('clients.brain_client.config.BRAIN_IMAGE_INPUT_ENABLED', True):
-            payload = build_brain_user_prompt_content('continue', self.context)
+        payload = build_brain_user_prompt_content('continue', self.context)
         self.assertEqual(base64.b64decode(payload[1]['image_url']['url'].split(',', 1)[1]), image_bytes)
         for i in range(65):
             record_runtime_tool_result(self.context, 'runtime_action', {'action': 'test', 'ok': True, 'value': i})

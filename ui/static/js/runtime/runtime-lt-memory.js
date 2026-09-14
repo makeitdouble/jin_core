@@ -394,7 +394,7 @@
         return;
       }
 
-      normalizeList(report.anchor_fact_ids).forEach((rawId) => {
+      normalizeList(report.anchor_lt_facts_ids).forEach((rawId) => {
         const factId = normalizeFactId(rawId, false);
         if (factId) {
           anchorIds.add(factId);
@@ -402,9 +402,7 @@
       });
 
       [
-        report.facts_ids,
-        report.absorbed_fact_ids,
-        report.long_term_facts_ids,
+        report.lt_facts_ids,
       ].forEach((rawIds) => {
         normalizeList(rawIds).forEach((rawId) => {
           const factId = normalizeFactId(rawId, false);

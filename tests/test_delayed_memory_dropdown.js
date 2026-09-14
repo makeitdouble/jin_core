@@ -51,18 +51,22 @@ function flushFrames() {
 }
 let hitElement = null;
 document.elementFromPoint = () => hitElement;
-let linkedFact, linkedFile;
+let linkedFact, linkedFile, deletedFact;
+const deletedFacts = new Set();
 const env = {document, window,
   persistentFileHoverCard: null, persistentFileHoverCardAnchor: null, persistentFileHoverRequestSerial: 0,
   persistentFileHoverRows: new WeakMap(),
   memoryPanel: {getBoundingClientRect: () => ({left: 800, right: 1000, width: 200})},
   activeDelayedMemoryFactPicker: null, activeDelayedMemoryAttachmentPicker: null,
   bindRuntimeMemoryHoverTitle() {}, bindPersistentFileHoverPreview() {}, dispatchDelayedMemoryAttachmentAvatarHover() {},
-  getDelayedMemoryFactOptions: () => [{factId: 'F379', title: 'Fact', label: 'F379 . Fact'}],
+  getDelayedMemoryFactOptions: () => deletedFacts.has('F379') ? [] : [{factId: 'F379', title: 'Fact', label: 'F379 . Fact'}],
   getDelayedMemoryAttachmentOptions: () => [{fileId: 'file1', record: {name: 'image.png'}}],
   normalizeDelayedMemoryFactIds: () => [], normalizeDelayedMemoryFactId: value => value,
   normalizeDelayedMemoryAttachmentIds: value => [value],
-  linkFactToDelayedMemoryModal: id => {linkedFact = id;},
+  linkFactToDelayedMemoryModal: id => {linkedFact = id; return true;},
+  reopenDelayedMemoryFactPicker: () => true,
+  deleteLongTermMemoryFact: id => {deletedFact = id; deletedFacts.add(id); return true;},
+  configureOpenableMemoryRowHoldDelete: (row, onOpen, onDelete) => { row.addEventListener('click', onOpen); row.holdDelete = onDelete; },
   linkAttachmentToDelayedMemoryModal: id => {linkedFile = id;},
 };
 vm.createContext(env);
@@ -99,6 +103,11 @@ for (const kind of ['Fact', 'Attachment']) {
   assert.equal(dropdown.style.left, '692px');
   assert.equal(dropdown.style.top, '460px');
   dropdown.children[0].fire('click');
+  if (kind === 'Fact') {
+    assert.equal(dropdown.parent, body, 'selecting a fact must keep the dropdown open');
+    assert.notEqual(env.activeDelayedMemoryFactPicker, null);
+    document.fire('click', {target: body});
+  }
   assert.equal(dropdown.parent, null);
   assert.equal(env['activeDelayedMemory' + kind + 'Picker'], null);
   assert.equal(window.listeners.resize.size, 0);
@@ -112,6 +121,17 @@ for (const kind of ['Fact', 'Attachment']) {
   assert.equal(dropdown.parent, null);
 }
 assert.equal(linkedFact, 'F379'); assert.equal(linkedFile, 'file1');
+const deleteFacts = new Element('div'); body.append(deleteFacts);
+env.appendDelayedMemoryFactPicker(deleteFacts, {}, []);
+deleteFacts.fire('click');
+const deleteMenu = env.activeDelayedMemoryFactPicker.dropdown;
+const deleteOption = deleteMenu.children[0];
+assert.equal(typeof deleteOption.holdDelete, 'function');
+deleteOption.holdDelete();
+assert.equal(deletedFact, 'F379', 'hold-delete must use the normal L-T deletion path');
+assert.equal(deleteMenu.children[0].textContent, 'no facts', 'deleted fact disappears from the open dropdown');
+env.closeActiveDelayedMemoryFactPicker();
+deletedFacts.clear();
 const facts = new Element('div'), files = new Element('div'); body.append(facts, files);
 env.appendDelayedMemoryFactPicker(facts, {}, []);
 env.appendDelayedMemoryAttachmentPicker(files, []);
@@ -209,4 +229,4 @@ assert.equal(env.persistentFileHoverCardAnchor, null);
 const css = fs.readFileSync(path.join(__dirname, '../ui/static/css/runtime-memory.css'), 'utf8');
 assert.match(css, /\.delayed-memory-modal-fact-dropdown\s*\{\s*position: fixed;/);
 assert.ok(!css.includes('.delayed-memory-modal-fact-ids .delayed-memory-modal-fact-dropdown'));
-console.log('PASS: fact/file portals, caret positioning, viewport bounds, scrolling, selection, outside click, Escape, cleanup');
+console.log('PASS: fact/file portals, persistent fact selection, L-T hold-delete, caret positioning, viewport bounds, outside click, Escape, cleanup');

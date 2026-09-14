@@ -3,10 +3,12 @@ import tempfile
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
+from unittest.mock import patch
 
 from utils.session_restore import (
     _build_recent_turns,
     build_archived_session_restore_payload,
+    build_session_bootstrap_lineage_dialog_context,
     build_session_bootstrap_lineage_recent_turns,
 )
 from websocket.bootstrap import (
@@ -18,6 +20,34 @@ from websocket.messages import append_runtime_recent_turn
 
 
 class SessionBootstrapChatTailTests(unittest.TestCase):
+
+    def test_bootstrap_old_session_prompt_omits_saved_reasoning(self):
+        with patch("utils.session_restore.time.time", return_value=600.0):
+            dialog = build_session_bootstrap_lineage_dialog_context(
+                [
+                    {
+                        "user": "old user",
+                        "jin": "old jin",
+                        "reasoning": "stale action intent",
+                        "source_session_id": "old-session",
+                        "user_created_at": 300.0,
+                        "jin_created_at": 300.0,
+                    },
+                ],
+                "old-session",
+            )
+
+        self.assertIn(
+            '<USER source_session_id="old-session">old user</USER> (5m ago)',
+            dialog,
+        )
+        self.assertIn(
+            '<JIN source_session_id="old-session">old jin</JIN> (5m ago)',
+            dialog,
+        )
+        self.assertNotIn("<JIN_REASONING", dialog)
+        self.assertNotIn("stale action intent", dialog)
+
 
     def test_archive_tail_keeps_six_newest_user_moves_with_reasoning(self):
         entries = []
@@ -117,9 +147,9 @@ class SessionBootstrapChatTailTests(unittest.TestCase):
             )
             (child_dir / "111606.txt").write_text(
                 (
-                    f'<RESTORED_SESSION_DIALOG session_id="{previous_id}">\n'
+                    f'<OLD_SESSION_RESTORED_STATE session_id="{previous_id}">\n'
                     "older context\n"
-                    "</RESTORED_SESSION_DIALOG>\n"
+                    "</OLD_SESSION_RESTORED_STATE>\n"
                 ),
                 encoding="utf-8",
             )
@@ -156,7 +186,7 @@ class SessionBootstrapChatTailTests(unittest.TestCase):
                 turns,
             )
             self.assertIn(
-                f'<RESTORED_SESSION_DIALOG session_id="{child_id}">',
+                f'<OLD_SESSION_RESTORED_STATE session_id="{child_id}">',
                 payload["bootstrap_lineage_dialog_context"],
             )
             self.assertIn(

@@ -1,5 +1,6 @@
 import json
 import re
+import time
 from datetime import datetime
 from html import unescape
 from pathlib import Path
@@ -7,10 +8,6 @@ from xml.sax.saxutils import escape
 
 from runtime.runtime_context import RECENT_MESSAGES_MAX_PAIRS
 from runtime.anonymous_mode import is_anonymous_session_id
-from rules.runtime import (
-    SESSION_RESTORE_REASONING_CHAR_LIMIT,
-    SESSION_RESTORE_REASONING_COUNT,
-)
 from utils.chat_log import (
     CHAT_LOG_ROOT,
     _clean_session_id,
@@ -25,6 +22,7 @@ from utils.actions import (
 from utils.session_actions_history import (
     build_session_action_marker_history_items,
 )
+from utils.context.session_actions import format_session_action_age
 
 
 BLOCK_RE_TEMPLATE = r"<{name}(?:\s+[^>]*)?>\s*(?P<body>[\s\S]*?)\s*</{name}>"
@@ -51,7 +49,7 @@ UPDATE_LT_FACTS_BLOCK_RE = re.compile(
     re.IGNORECASE | re.MULTILINE,
 )
 RESTORED_DIALOG_SOURCE_RE = re.compile(
-    r'<RESTORED_SESSION_DIALOG\b[^>]*\bsession_id="(?P<session_id>[^"]+)"',
+    r'<OLD_SESSION_RESTORED_STATE\b[^>]*\bsession_id="(?P<session_id>[^"]+)"',
     re.IGNORECASE,
 )
 
@@ -260,49 +258,42 @@ def _recent_visible_dialog_entries(entries: list[dict]) -> list[dict]:
     return []
 
 
-def _append_restored_dialog_entry(lines: list[str], entry: dict) -> None:
+def _format_restored_dialog_age_suffix(created_at, *, now: float) -> str:
+    try:
+        timestamp = float(created_at)
+    except (TypeError, ValueError):
+        timestamp = _parse_iso_timestamp(created_at)
+
+    if timestamp <= 0:
+        return ""
+
+    return f" ({format_session_action_age(now - timestamp)} ago)"
+
+
+def _append_restored_dialog_entry(
+    lines: list[str],
+    entry: dict,
+    *,
+    now: float,
+) -> None:
     role = str(entry.get("role", "")).strip().lower()
     tag = "USER" if role == "user" else "JIN"
     text = str(entry.get("text", "") or "").strip()
-    timestamp = str(entry.get("ts", "") or "").strip()
-    timestamp_attr = f' ts="{escape(timestamp)}"' if timestamp else ""
-    lines.append(f"<{tag}{timestamp_attr}>{escape(text)}</{tag}>")
-
-
-def _append_restored_reasoning_entry(
-    lines: list[str],
-    jin_entry: dict,
-    reasoning_by_turn_id: dict[str, str],
-) -> None:
-    turn_id = str(jin_entry.get("turn_id", "") or "").strip()
-    reasoning = _crop_restore_reasoning(
-        _extract_reasoning_body(
-            reasoning_by_turn_id.get(turn_id, "")
-        )
+    age_suffix = _format_restored_dialog_age_suffix(
+        entry.get("ts"),
+        now=now,
     )
-    if not reasoning:
-        return
+    lines.append(f"<{tag}>{escape(text)}</{tag}>{age_suffix}")
 
-    timestamp = str(jin_entry.get("ts", "") or "").strip()
-    attrs = []
-    if turn_id:
-        attrs.append(f'turn_id="{escape(turn_id)}"')
-    if timestamp:
-        attrs.append(f'ts="{escape(timestamp)}"')
-    attr_text = (" " + " ".join(attrs)) if attrs else ""
-    lines.append(
-        f"<JIN_REASONING{attr_text}>\n{reasoning}\n</JIN_REASONING>"
-    )
 
 
 def _build_restored_dialog_context(
     entries: list[dict],
     session_id: str,
-    reasoning_by_turn_id: dict[str, str],
 ) -> str:
     lines = [
-        f'<RESTORED_SESSION_DIALOG session_id="{escape(session_id)}">',
-        "This is the exact visible dialogue restored from the archived session. The newest complete USER/JIN pairs are shown in chronological order. For the latest pair, archived JIN reasoning is placed between the USER message and the visible JIN answer when available; continue from that interaction state and do not summarize or re-introduce it unless the user asks.",
+        f'<OLD_SESSION_RESTORED_STATE session_id="{escape(session_id)}">',
+        "This is the exact visible dialogue restored from the archived session. The newest complete USER/JIN pairs are shown in chronological order. Archived JIN reasoning is intentionally excluded from this bootstrap block; continue from the visible interaction state and do not summarize or re-introduce it unless the user asks.",
     ]
 
     pairs = _recent_restored_dialog_pairs(entries)
@@ -322,20 +313,20 @@ def _build_restored_dialog_context(
     if latest_user_is_unpaired:
         pairs = pairs[-max(RECENT_MESSAGES_MAX_PAIRS - 1, 0):]
 
-    for index, (user_entry, jin_entry) in enumerate(pairs):
-        _append_restored_dialog_entry(lines, user_entry)
-        if index == len(pairs) - 1 and not latest_user_is_unpaired:
-            _append_restored_reasoning_entry(
-                lines,
-                jin_entry,
-                reasoning_by_turn_id,
-            )
-        _append_restored_dialog_entry(lines, jin_entry)
+    now = time.time()
+
+    for user_entry, jin_entry in pairs:
+        _append_restored_dialog_entry(lines, user_entry, now=now)
+        _append_restored_dialog_entry(lines, jin_entry, now=now)
 
     if latest_user_is_unpaired:
-        _append_restored_dialog_entry(lines, latest_user_entry)
+        _append_restored_dialog_entry(
+            lines,
+            latest_user_entry,
+            now=now,
+        )
 
-    lines.append("</RESTORED_SESSION_DIALOG>")
+    lines.append("</OLD_SESSION_RESTORED_STATE>")
     return "\n".join(lines)
 
 
@@ -529,7 +520,7 @@ def _load_session_lineage_source(
         except OSError:
             continue
         # The immutable bootstrap prompt owns the direct predecessor. Later
-        # primary contexts can drop RESTORED_SESSION_DIALOG after continuation.
+        # primary contexts can drop OLD_SESSION_RESTORED_STATE after continuation.
         if _direct_predecessor_session_id(text):
             context_text = text
             break
@@ -584,7 +575,7 @@ def _find_previous_real_user_session_id(
     """Find the immediately preceding real USER session by raw timestamps.
 
     This is a repair fallback for histories whose immutable bootstrap context
-    was overwritten by older builds and therefore lost RESTORED_SESSION_DIALOG.
+    was overwritten by older builds and therefore lost OLD_SESSION_RESTORED_STATE.
     An explicit predecessor marker always wins; this scan is used only when
     that metadata is completely absent.
     """
@@ -661,7 +652,7 @@ def build_session_bootstrap_lineage_recent_turns(
     """Build the normal-bootstrap tail across direct predecessor sessions.
 
     The newest session still owns continuation. This helper only backfills its
-    visible/history tail from the exact RESTORED_SESSION_DIALOG predecessor
+    visible/history tail from the exact OLD_SESSION_RESTORED_STATE predecessor
     chain when the newest session itself does not contain five completed turns.
     """
     source_session_id = _clean_session_id(session_id)
@@ -720,7 +711,7 @@ def build_session_bootstrap_lineage_recent_turns(
             continue
 
         # Older builds rewrote ``*.bootstrap.txt`` on follow-up requests. Once
-        # RESTORED_SESSION_DIALOG disappeared, bootstrap could see only the
+        # OLD_SESSION_RESTORED_STATE disappeared, bootstrap could see only the
         # newest local turn and stopped. Recover only when predecessor metadata
         # is absent; an explicit (even missing/deleted) predecessor remains
         # authoritative and is never guessed around.
@@ -746,21 +737,16 @@ def build_session_bootstrap_lineage_dialog_context(
         return ""
 
     lines = [
-        f'<RESTORED_SESSION_DIALOG session_id="{escape(_clean_session_id(source_session_id))}">',
-        (
-            "This is the immediate visible dialogue inherited across the direct "
-            "session-predecessor chain. Preserve its chronological continuity; "
-            "a USER entry without a JIN entry is an interrupted real user move, "
-            "not a completed exchange."
-        ),
+        f'<OLD_SESSION_RESTORED_STATE session_id="{escape(_clean_session_id(source_session_id))}">'
     ]
+
+    now = time.time()
 
     for turn in turns:
         if not isinstance(turn, dict):
             continue
         user_text = str(turn.get("user", "") or "").strip()
         jin_text = str(turn.get("jin", "") or "").strip()
-        reasoning = str(turn.get("reasoning", "") or "").strip()
         source_id = _clean_session_id(turn.get("source_session_id", ""))
         source_attr = (
             f' source_session_id="{escape(source_id)}"'
@@ -769,21 +755,23 @@ def build_session_bootstrap_lineage_dialog_context(
         )
 
         if user_text:
-            lines.append(
-                f"<USER{source_attr}>{escape(user_text)}</USER>"
+            age_suffix = _format_restored_dialog_age_suffix(
+                turn.get("user_created_at"),
+                now=now,
             )
-        if reasoning:
             lines.append(
-                f"<JIN_REASONING{source_attr}>\n"
-                f"{reasoning}\n"
-                "</JIN_REASONING>"
+                f"<USER{source_attr}>{escape(user_text)}</USER>{age_suffix}"
             )
         if jin_text:
+            age_suffix = _format_restored_dialog_age_suffix(
+                turn.get("jin_created_at"),
+                now=now,
+            )
             lines.append(
-                f"<JIN{source_attr}>{escape(jin_text)}</JIN>"
+                f"<JIN{source_attr}>{escape(jin_text)}</JIN>{age_suffix}"
             )
 
-    lines.append("</RESTORED_SESSION_DIALOG>")
+    lines.append("</OLD_SESSION_RESTORED_STATE>")
     return "\n".join(lines)
 
 
@@ -820,88 +808,6 @@ def _read_reasoning(session_directory: Path, entries: list[dict]) -> dict[str, s
 
     return by_turn_id
 
-
-def _crop_restore_reasoning(
-    text: str,
-    *,
-    limit: int = SESSION_RESTORE_REASONING_CHAR_LIMIT,
-) -> str:
-    cleaned = str(text or "").strip()
-    if not cleaned:
-        return ""
-
-    try:
-        max_chars = max(int(limit), 0)
-    except (TypeError, ValueError):
-        max_chars = SESSION_RESTORE_REASONING_CHAR_LIMIT
-
-    if not max_chars or len(cleaned) <= max_chars:
-        return cleaned
-
-    marker_template = "\n--- CUT {chars} MIDDLE CHARS ---\n"
-    marker = marker_template.format(chars=0)
-    edge_budget = max(max_chars - len(marker), 2)
-    head_chars = edge_budget // 2
-    tail_chars = edge_budget - head_chars
-    cut_chars = len(cleaned) - head_chars - tail_chars
-    marker = marker_template.format(chars=max(cut_chars, 0))
-
-    # Recalculate once because the digit count inside the marker changes its size.
-    edge_budget = max(max_chars - len(marker), 2)
-    head_chars = edge_budget // 2
-    tail_chars = edge_budget - head_chars
-    cut_chars = len(cleaned) - head_chars - tail_chars
-    marker = marker_template.format(chars=max(cut_chars, 0))
-
-    return (
-        cleaned[:head_chars]
-        + marker
-        + cleaned[-tail_chars:]
-    )[:max_chars]
-
-
-def _build_restore_reasoning_dump(
-    entries: list[dict],
-    reasoning_by_turn_id: dict[str, str],
-) -> str:
-    blocks = []
-
-    for entry in reversed(entries):
-        role = str(entry.get("role", "")).strip().lower()
-        if role not in {"jin", "assistant", "brain", "service"}:
-            continue
-
-        turn_id = str(entry.get("turn_id", "") or "").strip()
-        reasoning = _crop_restore_reasoning(
-            _extract_reasoning_body(
-                reasoning_by_turn_id.get(turn_id, "")
-            )
-        )
-        if not reasoning:
-            continue
-
-        timestamp = str(entry.get("ts", "") or "").strip()
-        attrs = []
-        if turn_id:
-            attrs.append(f'turn_id="{escape(turn_id)}"')
-        if timestamp:
-            attrs.append(f'ts="{escape(timestamp)}"')
-        attr_text = (" " + " ".join(attrs)) if attrs else ""
-        blocks.append(
-            f"<REASONING{attr_text}>\n{reasoning}\n</REASONING>"
-        )
-
-        if len(blocks) >= SESSION_RESTORE_REASONING_COUNT:
-            break
-
-    if not blocks:
-        return ""
-
-    return (
-        '<RESTORED_SESSION_REASONING_DUMP order="newest_first">\n'
-        + "\n\n".join(blocks)
-        + "\n</RESTORED_SESSION_REASONING_DUMP>"
-    )
 
 
 def _extract_lt_fact_ids(*texts: str) -> list[str]:
@@ -1833,7 +1739,7 @@ def _parse_loaded_delayed_reports(context_text: str) -> dict:
                 )
 
             body_match = re.search(
-                r'"body"\s*:\s*"(?P<value>[\s\S]*?)"\s*(?:,\s*"(?:pinned|anchor_fact_ids|facts_ids|attachments_ids|created_session_id|created_time|created_date|loaded_times|load_streak|last_loaded_date|last_loaded_session_id|all_loaded_session_ids|id)"|\n\s*})',
+                r'"body"\s*:\s*"(?P<value>[\s\S]*?)"\s*(?:,\s*"(?:pinned|anchor_lt_facts_ids|lt_facts_ids|attachments_ids|created_session_id|created_time|created_date|loaded_times|load_streak|last_loaded_date|last_loaded_session_id|all_loaded_session_ids|id)"|\n\s*})',
                 body,
                 re.IGNORECASE,
             )
@@ -2084,10 +1990,10 @@ def build_archived_session_restore_payload(
         if latest_reasoning:
             break
 
-    restore_reasoning_dump = _build_restore_reasoning_dump(
-        visible_entries,
-        reasoning_by_turn_id,
-    )
+    # Archived reasoning remains available through UI message payloads and
+    # previous_reasoning, but the legacy bootstrap reasoning dump is retired.
+    # Keep the response key empty for compatibility with older clients.
+    restore_reasoning_dump = ""
     restore_lt_fact_ids = _extract_lt_fact_ids(
         latest_reasoning,
         latest_jin_text,
@@ -2240,7 +2146,6 @@ def build_archived_session_restore_payload(
         "dialog_context": _build_restored_dialog_context(
             visible_entries,
             _clean_session_id(session_id),
-            reasoning_by_turn_id,
         ),
         "recent_turns": _build_recent_turns(
             entries,

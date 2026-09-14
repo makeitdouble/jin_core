@@ -31,17 +31,13 @@ ACTION_BLOCKED_TRIGGER_WORD_MESSAGE = (
     "Action failed. DO NOT REPEAT THIS ACTION! Blocked trigger word: {blocked_trigger_word}"
 )
 
-SESSION_RESTORE_REASONING_COUNT = 2
-SESSION_RESTORE_REASONING_CHAR_LIMIT = 2000
 SESSION_RESTORE_MESSAGE = (
-    "<RESTORED_SESSION_INSTRUCTIONS>\n"
-    "This is session boostrap system message!\n"
-    "User opened runtime in a new tab!\n"
-    "You must think and derive current time and pending tasks before continue!\n"
-    "Analyze PREVIOUS_CHAT_MESSAGES and answer in language of user message.\n"
-    "Think deep and fresh, extract all vibe and re-enable the archived conversation as fluently as possible.\n"
-    "Respond briefly and naturally, quickly acknowledge your presence and make it easy for the user to continue from exactly where we left off and move on.\n"
-    "</RESTORED_SESSION_INSTRUCTIONS>"
+    "!!! USER DIDN'T SEND NEW MESSAGE! !!!\n"
+    "!!! Current session was initiated automatically in a new tab!\n"
+    "!!! YOU MUST CHECK PREVIOUS DONE ACTIONS AND TOOL_RESULTS BLOCK TO DERIVE YOUR NEXT ACTION! !!!\n"
+    "!!! DO NOT CONTINUE TASK IF ITS OBVIOUSLY DONE! !!!\n"
+    "!!! Answer in user language.\n"
+    "!!! Respond briefly and naturally; acknowledge your presence; explicitly bring unfinished tasks to user.\n"
 )
 RUNTIME_ACTIONS_RULES = ""
 RUNTIME_ACTIONS_RULES_ = (

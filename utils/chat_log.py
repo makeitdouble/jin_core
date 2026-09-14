@@ -37,7 +37,7 @@ def chat_logging_enabled() -> bool:
     return bool(
         getattr(
             config,
-            "LOG_CHAT",
+            "ENABLE_RUNTIME_LOGS",
             False,
         )
     )
@@ -523,7 +523,7 @@ def _save_or_defer_chat_snapshot(
     # Prompt preparation and inherited FRAME are not conversation activity.
     # Primary snapshots keep the newest text. The bootstrap snapshot is the
     # immutable lineage anchor: once queued or written, later restore/follow-up
-    # prompts must not erase its RESTORED_SESSION_DIALOG predecessor metadata.
+    # prompts must not erase its OLD_SESSION_RESTORED_STATE predecessor metadata.
     pending = getattr(context, "runtime_chat_pending_snapshots", None)
     if pending is None:
         pending = context.runtime_chat_pending_snapshots = {}

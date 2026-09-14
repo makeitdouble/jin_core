@@ -479,13 +479,9 @@ class RuntimeStreamTokenTests(unittest.IsolatedAsyncioTestCase):
             },
         )
 
-        with patch(
-            "runtime.stream.config.FOLLOW_UP_ON_LIMIT",
-            True,
-        ):
-            result = await stream.run(
-                fake_reasoning_limit_generator()
-            )
+        result = await stream.run(
+            fake_reasoning_limit_generator()
+        )
 
         self.assertEqual(result, "")
         self.assertTrue(context.runtime_turn_interrupted)
@@ -526,13 +522,9 @@ class RuntimeStreamTokenTests(unittest.IsolatedAsyncioTestCase):
             },
         )
 
-        with patch(
-            "runtime.stream.config.FOLLOW_UP_ON_LIMIT",
-            True,
-        ):
-            result = await stream.run(
-                fake_answer_limit_generator()
-            )
+        result = await stream.run(
+            fake_answer_limit_generator()
+        )
 
         self.assertEqual(result, "partial answer")
         self.assertEqual(
@@ -569,13 +561,9 @@ class RuntimeStreamTokenTests(unittest.IsolatedAsyncioTestCase):
             },
         )
 
-        with patch(
-            "runtime.stream.config.FOLLOW_UP_ON_LIMIT",
-            True,
-        ):
-            await stream.run(
-                fake_context_limit_generator()
-            )
+        await stream.run(
+            fake_context_limit_generator()
+        )
 
         self.assertEqual(
             context.runtime_context_limit_kind,
@@ -584,40 +572,6 @@ class RuntimeStreamTokenTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(
             context.runtime_session_action_history[-1]["text"],
             "context limit reached during reasoning",
-        )
-
-    async def test_limit_followup_flag_can_disable_recovery(self):
-
-        context = self.build_limit_context()
-        runtime_id = "brain"
-        stream = RuntimeStream(
-            context=context,
-            runtime_id=runtime_id,
-            role="brain",
-            context_window=8192,
-            log_method=context.logger.log_service,
-            context_snapshot={
-                "context_role": "brain",
-                "system_prompt": "system prompt",
-                "user_prompt": "user payload",
-            },
-        )
-
-        with patch(
-            "runtime.stream.config.FOLLOW_UP_ON_LIMIT",
-            False,
-        ):
-            await stream.run(
-                fake_reasoning_limit_generator()
-            )
-
-        self.assertFalse(
-            context.runtime_context_limit_recovery_pending
-        )
-        self.assertFalse(context.runtime_turn_interrupted)
-        self.assertEqual(
-            context.runtime_session_action_history,
-            [],
         )
 
     async def test_runtime_context_counter_grows_during_stream(self):

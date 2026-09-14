@@ -51,7 +51,7 @@ class FrameSummarizerRequestTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(logged["payload"]["messages"][1]["content"], "user")
         args = namespace["ask_service_model"].call_args.kwargs
         args["client"].stream.assert_not_called()
-        self.assertEqual(args["timeout"], 45)
+        self.assertEqual(args["timeout"], 1000.0)
         self.assertFalse(args["track_usage"])
 
     async def test_cancellation_finishes_card_and_still_propagates(self):

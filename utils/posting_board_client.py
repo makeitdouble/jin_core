@@ -6,7 +6,7 @@ from urllib.parse import quote
 
 import httpx
 
-from config_loader import config, get_env_override
+from config_loader import get_env_override
 
 
 POSTING_BOARD_BASE_URL = "https://getpostingboard.dev"
@@ -68,10 +68,7 @@ async def execute_posting_board_request(
 ) -> dict[str, Any]:
     action = str(payload.get("action") or "").strip().casefold()
     override = get_env_override(POSTING_BOARD_API_KEY_ENV)
-    api_key = str(
-        override if override is not None
-        else getattr(config, POSTING_BOARD_API_KEY_ENV, "")
-    ).strip()
+    api_key = str(override or "").strip()
 
     if not api_key:
         return {
@@ -79,7 +76,7 @@ async def execute_posting_board_request(
             "runtime_action_name": "POSTING_BOARD",
             "action": action or "unknown",
             "error": "missing_api_key",
-            "detail": f"{POSTING_BOARD_API_KEY_ENV} is not set in config.py or the JIN process environment",
+            "detail": f"{POSTING_BOARD_API_KEY_ENV} is not set in the JIN process environment",
             "request": {},
             "response": None,
         }

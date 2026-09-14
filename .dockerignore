@@ -1,0 +1,30 @@
+.git
+.github
+.idea
+.vscode
+.venv
+.pytest_cache
+**/__pycache__
+**/*.py[cod]
+node_modules
+
+# Local secrets and machine-specific config are injected at runtime.
+.env
+.env.*
+!.env.example
+config.py
+
+# Local/dev artifacts.
+*.zip
+*.patch
+repomix-output.xml
+.codegraph
+pack_for_patch.bat
+
+# Runtime state is mounted from the host by compose.yml.
+memory
+logs
+logs_anon
+assets/files/*
+!assets/files/.gitkeep
+assets/outputs

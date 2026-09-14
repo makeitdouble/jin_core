@@ -214,16 +214,14 @@ def prune_missing_delayed_memory_fact_ids(
     ):
         return dict(report), []
 
-    anchor_fact_ids, facts_ids = normalize_delayed_memory_fact_ids(
-        report.get("anchor_fact_ids", []),
-        report.get("facts_ids", []),
-        legacy_absorbed_fact_ids=report.get("absorbed_fact_ids", []),
-        legacy_long_term_fact_ids=report.get("long_term_facts_ids", []),
+    anchor_lt_facts_ids, lt_facts_ids = normalize_delayed_memory_fact_ids(
+        report.get("anchor_lt_facts_ids", []),
+        report.get("lt_facts_ids", []),
     )
     available_fact_ids = get_runtime_lt_fact_ids(context)
     referenced_fact_ids = list(dict.fromkeys([
-        *anchor_fact_ids,
-        *facts_ids,
+        *anchor_lt_facts_ids,
+        *lt_facts_ids,
     ]))
     removed_fact_ids = [
         fact_id
@@ -232,12 +230,12 @@ def prune_missing_delayed_memory_fact_ids(
     ]
     clean_anchor_fact_ids = [
         fact_id
-        for fact_id in anchor_fact_ids
+        for fact_id in anchor_lt_facts_ids
         if fact_id in available_fact_ids
     ]
     clean_facts_ids = [
         fact_id
-        for fact_id in facts_ids
+        for fact_id in lt_facts_ids
         if fact_id in available_fact_ids
     ]
     clean_anchor_fact_ids, clean_facts_ids = normalize_delayed_memory_fact_ids(
@@ -247,11 +245,9 @@ def prune_missing_delayed_memory_fact_ids(
 
     updated_report = {
         **report,
-        "anchor_fact_ids": clean_anchor_fact_ids,
-        "facts_ids": clean_facts_ids,
+        "anchor_lt_facts_ids": clean_anchor_fact_ids,
+        "lt_facts_ids": clean_facts_ids,
     }
-    updated_report.pop("absorbed_fact_ids", None)
-    updated_report.pop("long_term_facts_ids", None)
 
     return updated_report, removed_fact_ids
 
@@ -337,28 +333,26 @@ def build_delayed_memory_report(
 
         requested_anchor_fact_ids, requested_facts_ids = (
             normalize_delayed_memory_fact_ids(
-                value.get("anchor_fact_ids", []),
-                value.get("facts_ids", []),
-                legacy_absorbed_fact_ids=value.get("absorbed_fact_ids", []),
-                legacy_long_term_fact_ids=value.get("long_term_facts_ids", []),
+                value.get("anchor_lt_facts_ids", []),
+                value.get("lt_facts_ids", []),
             )
         )
         available_lt_fact_ids = get_runtime_lt_fact_ids(
             context
         )
-        anchor_fact_ids = [
+        anchor_lt_facts_ids = [
             fact_id
             for fact_id in requested_anchor_fact_ids
             if fact_id in available_lt_fact_ids
         ]
-        facts_ids = [
+        lt_facts_ids = [
             fact_id
             for fact_id in requested_facts_ids
             if fact_id in available_lt_fact_ids
         ]
-        anchor_fact_ids, facts_ids = normalize_delayed_memory_fact_ids(
-            anchor_fact_ids,
-            facts_ids,
+        anchor_lt_facts_ids, lt_facts_ids = normalize_delayed_memory_fact_ids(
+            anchor_lt_facts_ids,
+            lt_facts_ids,
         )
         from utils.attached_files_store import filter_existing_file_ids
 
@@ -370,8 +364,8 @@ def build_delayed_memory_report(
 
         enriched_report[report_id] = {
             **value,
-            "anchor_fact_ids": anchor_fact_ids,
-            "facts_ids": facts_ids,
+            "anchor_lt_facts_ids": anchor_lt_facts_ids,
+            "lt_facts_ids": lt_facts_ids,
             "attachments_ids": attachments_ids,
             "pinned": bool(value.get("pinned", False)),
             "created_session_id": (
@@ -447,8 +441,6 @@ def build_delayed_memory_report(
                 )
             ),
         }
-        enriched_report[report_id].pop("absorbed_fact_ids", None)
-        enriched_report[report_id].pop("long_term_facts_ids", None)
 
     return enriched_report
 

@@ -25,6 +25,11 @@ from utils.session_actions_history import (
 )
 
 
+
+DEEP_WEB_SEARCH_MAX_QUERIES = 10
+DEEP_WEB_SEARCH_MAX_DEPTH = 4
+DEEP_WEB_SEARCH_MAX_TOKENS = 700
+
 DEEP_WEB_SEARCH_WORKER_SYSTEM_PROMPT = """You are a web research worker inside JIN.
 Your job is research, not conversation.
 
@@ -440,7 +445,7 @@ async def _call_worker(
         system_prompt=DEEP_WEB_SEARCH_WORKER_SYSTEM_PROMPT,
         user_prompt=build_deep_search_current_sequence(pool, worker),
         temperature=float(getattr(config, "SERVICE_TEMPERATURE", 0.1) or 0.1),
-        max_tokens=int(getattr(config, "DEEP_WEB_SEARCH_MAX_TOKENS", 700) or 700),
+        max_tokens=DEEP_WEB_SEARCH_MAX_TOKENS,
     )
     return parse_deep_search_worker_response(
         ResponseExtractor.extract_content_text(response)
@@ -710,7 +715,7 @@ async def run_deep_web_search(
     parent_action_id: str = "",
 ) -> str:
     normalized_objective = _normalize_text(objective)
-    max_queries = max(1, int(getattr(config, "DEEP_WEB_SEARCH_MAX_QUERIES", 10) or 10))
+    max_queries = DEEP_WEB_SEARCH_MAX_QUERIES
     queries_per_worker = min(
         3,
         max(1, int(getattr(config, "DEEP_WEB_SEARCH_MAX_QUERIES_PER_WORKER", 3) or 3)),
@@ -719,7 +724,7 @@ async def run_deep_web_search(
         2,
         int(getattr(config, "DEEP_WEB_SEARCH_MAX_WORKER_CALLS", 24) or 24),
     )
-    max_depth = max(0, int(getattr(config, "DEEP_WEB_SEARCH_MAX_DEPTH", 4) or 4))
+    max_depth = DEEP_WEB_SEARCH_MAX_DEPTH
 
     pool = DeepSearchPool(
         objective=normalized_objective,

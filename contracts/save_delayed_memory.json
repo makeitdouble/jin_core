@@ -1,6 +1,6 @@
 {
   "save_delayed_memory": {
-    "version": 4,
+    "version": 5,
     "description": "Allows the model to save a delayed memory report.",
     "runtime_action": "SAVE_DELAYED_MEMORY",
     "enable_flag": "CAN_SAVE_DELAYED_MEMORY",
@@ -24,14 +24,17 @@
       "  \"summary\": \"\",",
       "  \"tags\": [],",
       "  \"body\": \"\",",
-      "  \"anchor_fact_ids\": [],",
-      "  \"facts_ids\": [],",
+      "  \"anchor_lt_facts_ids\": [],",
+      "  \"lt_facts_ids\": [],",
       "  \"attachments_ids\": []",
       "}",
       "</SAVE_DELAYED_MEMORY>"
     ],
     "rules": [
-      "Use this marker after the user explicitly asks to create/save a delayed memory report, or when PROJECT_REVIEW is active and saving findings would help continue the project review."
+      "Use this marker after the user explicitly asks to create/save a delayed memory report, or when PROJECT_REVIEW is active and saving findings would help continue the project review.",
+      "lt_facts_ids contains exact existing committed L-T fact IDs (F<number>) that this report absorbs/represents. These IDs already exist before the report is created; populate them explicitly when collecting L-T facts into a report.",
+      "anchor_lt_facts_ids is the subset of lt_facts_ids that must remain globally visible as anchors after the report absorbs the other linked L-T facts.",
+      "Do not leave lt_facts_ids or anchor_lt_facts_ids empty merely because the report is new when the user explicitly asked to collect existing L-T facts into it."
     ],
     "close_tag": true
   }

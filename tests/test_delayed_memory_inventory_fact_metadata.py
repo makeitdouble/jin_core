@@ -15,8 +15,8 @@ class DelayedMemoryInventoryFactMetadataTests(unittest.TestCase):
                 "u5xx8l": {
                     "title": "Вкусы и предпочтения Сергея",
                     "created_time": "2026-08-28T12:00:00Z",
-                    "anchor_fact_ids": ["F193"],
-                    "facts_ids": ["F5", "F2", "F193", "F4", "F3"],
+                    "anchor_lt_facts_ids": ["F193"],
+                    "lt_facts_ids": ["F5", "F2", "F193", "F4", "F3"],
                 },
             },
         )
@@ -40,8 +40,8 @@ class DelayedMemoryInventoryFactMetadataTests(unittest.TestCase):
             delayed_memory_reports={
                 "empty1": {
                     "title": "Report without facts",
-                    "anchor_fact_ids": [],
-                    "facts_ids": [],
+                    "anchor_lt_facts_ids": [],
+                    "lt_facts_ids": [],
                 },
             },
         )

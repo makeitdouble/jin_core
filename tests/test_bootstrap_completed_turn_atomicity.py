@@ -52,7 +52,7 @@ def test_archive_dialogue_freshness_is_not_blocked_by_newer_runtime_saved_at():
                 "jin_created_at": 201.0,
             },
         ],
-        "dialog_context": "<RESTORED_SESSION_DIALOG>new</RESTORED_SESSION_DIALOG>",
+        "dialog_context": "<OLD_SESSION_RESTORED_STATE>new</OLD_SESSION_RESTORED_STATE>",
         "previous_reasoning": "new reasoning",
         "session_actions": [{"id": "archive-action"}],
     }

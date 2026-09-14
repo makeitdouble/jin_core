@@ -97,7 +97,6 @@ from .save_delayed_memory_utils import (
     collect_long_term_fact_ids_from_reports,
     normalize_delayed_memory_attachment_ids,
     normalize_delayed_memory_fact_ids,
-    normalize_delayed_memory_fact_roles,
     normalize_long_term_fact_ids,
     parse_delayed_memory_payload,
 )
@@ -166,7 +165,6 @@ __all__ = [
     "collect_long_term_fact_ids_from_reports",
     "normalize_delayed_memory_attachment_ids",
     "normalize_delayed_memory_fact_ids",
-    "normalize_delayed_memory_fact_roles",
     "normalize_long_term_fact_ids",
     "parse_delayed_memory_payload",
     "parse_jin_position_payload",

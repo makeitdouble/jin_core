@@ -17,9 +17,7 @@ def project_fact_ids(context) -> list[str]:
     ids = set()
     for report in pinned_project_reports(context).values():
         anchors, facts = normalize_delayed_memory_fact_ids(
-            report.get("anchor_fact_ids", []), report.get("facts_ids", []),
-            legacy_absorbed_fact_ids=report.get("absorbed_fact_ids", []),
-            legacy_long_term_fact_ids=report.get("long_term_facts_ids", []),
+            report.get("anchor_lt_facts_ids", []), report.get("lt_facts_ids", []),
         )
         ids.update(anchors)
         ids.update(facts)

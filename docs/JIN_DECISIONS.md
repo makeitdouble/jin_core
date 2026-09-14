@@ -123,8 +123,8 @@ Canonical form:
   "summary": "",
   "tags": [],
   "body": "",
-  "anchor_fact_ids": [],
-  "facts_ids": [],
+  "anchor_lt_facts_ids": [],
+  "lt_facts_ids": [],
   "attachments_ids": []
 }
 </SAVE_DELAYED_MEMORY>
@@ -359,7 +359,7 @@ Current code uses 333 ms reveal and 1000 ms hide. This mismatch is documented, n
 
 **Status:** Accepted / implemented
 
-`WEB_SEARCH` and `DEEP_WEB_SEARCH` are model-visible only when both their runtime feature flags and `settings.CAN_SEARCH` allow them. For the current Serper integration, local capability means provider `serper` plus a non-empty, non-placeholder configured API key. The placeholder in `config.example.py` is configuration documentation, not an enabled capability.
+`WEB_SEARCH` and `DEEP_WEB_SEARCH` are model-visible only when both their runtime feature flags and `settings.CAN_SEARCH` allow them. For the current Serper integration, local capability means provider `serper` plus a non-empty, non-placeholder API key supplied through the process environment. Secrets do not belong in `config.py` or `config.example.py`; the Windows launcher may populate its child process from an ignored repository-root `.env`, with `.env.example` documenting names through placeholders only.
 
 **Why:** advertising an action that cannot execute creates fake affordance and failed loops. Conversely, Serper does not define a stable client-side key shape, so arbitrary length/prefix regexes can incorrectly hide valid credentials.
 
@@ -488,7 +488,9 @@ The first bootstrap color uses the one 2-second avatar-and-scene transition. Lat
 
 Normal bootstrap renders the three newest real USER moves with JIN/reasoning where present, then places the current-session date divider and starts the live viewport there. USER-only turns remain visible without an empty JIN bubble. Explicit archived restore uses its own history renderer but projects the same bounded USER-owned tail, keeps later visible JIN-only continuation rows, and must not duplicate the normal-bootstrap tail. Its reasoning bubbles contain the reasoning body, not archive-file headers.
 
-For explicit URL restore, the server archive owns dialogue, reasoning, and FRAME as one causal bundle. A same-session browser checkpoint can recover presentation state (room/avatar and Session Actions), but cannot replace individual conversation fields inside that bundle. `RESTORED_SESSION_DIALOG` is the newest conversation authority during the one-shot priming turn; restored FRAME is background and may be one update behind the final visible turn.
+The hidden bootstrap Brain prompt is intentionally stricter than the UI projection: `OLD_SESSION_RESTORED_STATE` contains visible USER/JIN dialogue only, each message is followed by its compact archived age such as `(5m ago)`, and archived reasoning is not injected elsewhere on that one-shot restore tick. The restore notification itself starts with the fresh current session ID and current timezone-aware time before `!!! USER DIDN'T SEND NEW MESSAGE! !!!`, so archived time cannot be mistaken for live bootstrap time. Saved reasoning remains archive/UI continuity data, but it is not treated as current executable intent after a bootstrap.
+
+For explicit URL restore, the server archive owns dialogue, reasoning, and FRAME as one causal bundle. A same-session browser checkpoint can recover presentation state (room/avatar and Session Actions), but cannot replace individual conversation fields inside that bundle. `OLD_SESSION_RESTORED_STATE` is the newest conversation authority during the one-shot priming turn; restored FRAME is background and may be one update behind the final visible turn.
 
 **Why:** the user can scroll slightly upward for immediate continuity while the current response begins from a clean, stable boundary.
 

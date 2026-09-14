@@ -140,7 +140,7 @@ class MemorySchedulerTests(
             )
             self.assertEqual(
                 service_client.calls[0]["timeout"],
-                config.SERVICE_REQUEST_TIMEOUT,
+                1000.0,
             )
             self.assertEqual(
                 len(
@@ -186,7 +186,7 @@ class MemorySchedulerTests(
             )
             self.assertEqual(
                 service_client.calls[0]["timeout"],
-                config.SERVICE_REQUEST_TIMEOUT,
+                1000.0,
             )
 
     async def test_interrupted_update_uses_partial_response(self):

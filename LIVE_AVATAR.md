@@ -348,19 +348,19 @@ Archived does **not** mean deleted. It means the fact has been absorbed into del
 
 Current classification is intentionally simple and global:
 
-1. collect archive candidates from every report's `facts_ids`, legacy `absorbed_fact_ids`, and legacy `long_term_facts_ids`;
-2. collect every report's `anchor_fact_ids`;
+1. collect archive candidates from every report's `lt_facts_ids`;
+2. collect every report's `anchor_lt_facts_ids`;
 3. remove all anchor ids from the archived set.
 
 So the important direct-id rule is:
 
-**Anchor ids are removed globally from the archived-id set. Loaded/pinned does not remove an ordinary `facts_ids` id from that set.**
+**Anchor ids are removed globally from the archived-id set. Loaded/pinned does not remove an ordinary `lt_facts_ids` id from that set.**
 
 `factMatchesArchivedIds()` then checks both `fact.id` and `source_fact_ids`. That matters for merged/derived L-T records: even when the record's own id is anchored, an archived source id can still make the combined record classify as archived.
 
 A report being loaded or pinned can make its linked archived L-T dot glow through `is-delayed-memory-linked-hit`, but load state by itself never changes archive classification.
 
-This distinction prevents a report load from rewriting the structural meaning of L-T. Load/pin is context emphasis; `anchor_fact_ids` is the structural exception that keeps an L-T fact exposed.
+This distinction prevents a report load from rewriting the structural meaning of L-T. Load/pin is context emphasis; `anchor_lt_facts_ids` is the structural exception that keeps an L-T fact exposed.
 
 ### Delayed Memory Highlight Contract
 
@@ -379,7 +379,7 @@ Transient hover/modal focus reuses Tier 1; it never introduces another visual in
 
 ### Cross-Report Anchor Signal
 
-A loaded/pinned report can contain an ordinary fact that is archived behind it while another report uses the same fact in `anchor_fact_ids`. In that case the **other delayed report** receives the softer class:
+A loaded/pinned report can contain an ordinary fact that is archived behind it while another report uses the same fact in `anchor_lt_facts_ids`. In that case the **other delayed report** receives the softer class:
 
 ```text
 is-delayed-memory-secondary-linked
@@ -660,8 +660,8 @@ Shapes:
 
 Cross-layer behavior is separate from same-id hover:
 
-- hover/focus an L-T fact -> delayed reports whose `anchor_fact_ids` contain it can glow;
-- hover/focus a delayed report -> its linked L-T facts from `facts_ids` can glow, including archived dots;
+- hover/focus an L-T fact -> delayed reports whose `anchor_lt_facts_ids` contain it can glow;
+- hover/focus a delayed report -> its linked L-T facts from `lt_facts_ids` can glow, including archived dots;
 - loaded/pinned delayed reports keep linked L-T facts highlighted without row hover;
 - if one of those hidden ordinary facts is an anchor in another report, that other report gets the softer secondary-link accent;
 - hover/focus a delayed report -> attached file dots from `attachments_ids` can receive the stronger relation glow;
@@ -885,7 +885,7 @@ Use this after avatar visual/state changes.
 | Normal delayed report | Dim base dash at `0.36` |
 | Runtime-loaded delayed report | Bright active dash at `0.82` even when not pinned |
 | Pinned delayed report | Same strong active family, with pin state retained |
-| Loaded report with ordinary `facts_ids` fact | Fact remains archived as a dot; load does not turn it back into a dash |
+| Loaded report with ordinary `lt_facts_ids` fact | Fact remains archived as a dot; load does not turn it back into a dash |
 | Direct fact id used as any `anchor_fact_id` | That id is removed from the archive-id set; merged `source_fact_ids` can still affect final classification |
 | Loaded report ordinary fact anchored by another report | Other report gets softer secondary-linked accent |
 | Long-term facts panel | Archived ordinary report facts stay hidden; globally anchored facts stay listed |

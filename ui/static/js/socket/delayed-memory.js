@@ -217,7 +217,7 @@ function parseDelayedMemoryReportPayload(
   if (!fields) {
     // Compatibility for reports emitted before the JSON marker contract.
     const fieldPattern =
-      /^[^\S\r\n]*(title|summary|tags|body|anchor_fact_ids|facts_ids|attachments_ids|absorbed_fact_ids|long_term_facts_ids)[^\S\r\n]*:[^\S\r\n]*(.*)$/gim;
+      /^[^\S\r\n]*(title|summary|tags|body|anchor_lt_facts_ids|lt_facts_ids|attachments_ids)[^\S\r\n]*:[^\S\r\n]*(.*)$/gim;
 
     const matches = [];
     let match = fieldPattern.exec(text);
@@ -262,11 +262,9 @@ function parseDelayedMemoryReportPayload(
                 .join("\n")
                 .trim()
             : [
-                "anchor_fact_ids",
-                "facts_ids",
+                "anchor_lt_facts_ids",
+                "lt_facts_ids",
                 "attachments_ids",
-                "absorbed_fact_ids",
-                "long_term_facts_ids",
               ].includes(field.name)
               ? [field.inline, blockValue]
                   .filter(Boolean)
@@ -297,14 +295,12 @@ function parseDelayedMemoryReportPayload(
 
   const anchorFactIds =
     normalizeDelayedMemoryFactIds(
-      fields.anchor_fact_ids
+      fields.anchor_lt_facts_ids
     );
   const factsIds =
     normalizeDelayedMemoryFactIds([
-      ...normalizeDelayedMemoryFactIds(fields.facts_ids),
+      ...normalizeDelayedMemoryFactIds(fields.lt_facts_ids),
       ...anchorFactIds,
-      ...normalizeDelayedMemoryFactIds(fields.absorbed_fact_ids),
-      ...normalizeDelayedMemoryFactIds(fields.long_term_facts_ids),
     ]).sort(function (left, right) {
       // Anchor ids are only highlighted; they never jump to the front.
       return Number(left.slice(1)) - Number(right.slice(1));
@@ -325,8 +321,8 @@ function parseDelayedMemoryReportPayload(
               .filter(Boolean),
       body:
         String(fields.body || "").trim(),
-      anchor_fact_ids: anchorFactIds,
-      facts_ids: factsIds,
+      anchor_lt_facts_ids: anchorFactIds,
+      lt_facts_ids: factsIds,
       attachments_ids:
         normalizeDelayedMemoryAttachmentIds(
           fields.attachments_ids

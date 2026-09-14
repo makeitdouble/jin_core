@@ -1562,7 +1562,7 @@ class FrameMemoryTests(
             )
             self.assertEqual(
                 service_client.calls[0]["timeout"],
-                config.SERVICE_REQUEST_TIMEOUT,
+                1000.0,
             )
 
     async def test_summarizer_skips_incomplete_memory(self):
