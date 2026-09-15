@@ -3233,7 +3233,7 @@ function stripInternalActionMarkers(
       "$1"
     )
     .replace(
-      /(^|\n)[^\S\r\n]*<LOAD_SKILLS?:[^>\n]*>[^\S\r\n]*(?=\n|$)/gi,
+      /(^|\n)[^\S\r\n]*<LOAD_SKILL_CONTEXT\s*>[\s\S]*?<\/LOAD_SKILL_CONTEXT\s*>[^\S\r\n]*(?=\n|$)/gi,
       "$1"
     )
     .replace(

@@ -5,6 +5,15 @@ ACTION_FAILURE_FOLLOWUP_MESSAGE = (
     "Inspect the error in TOOLS_RESULTS and continue from the failed result."
 )
 
+FOLLOW_UP_RESPONSE_MESSAGE = (
+    "!!! YOU MUST USE DEEP REASONING! !!!\n"
+    "!!! USER DIDN'T SEND NEW MESSAGE! !!!\n"
+    "!!! THIS IS AUTOMATIC FOLLOW-UP RESPONSE MESSAGE!\n"
+    "!!! YOU MUST CHECK PREVIOUS DONE ACTIONS AND TOOL_RESULTS BLOCK TO DERIVE YOUR NEXT ACTION! !!!\n"
+    "!!! DO NOT CONTINUE TASK IF ITS OBVIOUSLY DONE! !!!\n"
+    "!!! Answer in user language.\n"
+)
+
 REASONING_RECOVERY_MESSAGE = (
     "!!! MANDATORY !!! You stuck in your reasoning during previous turn.\n"
     "!!! MANDATORY !!! This time you must act instantly!.\n"
@@ -52,8 +61,8 @@ SKILL_ROUTING_RULES_ = ("\n"
     "SKILL ROUTING RULES:\n"
     "1. For extended tasks (e.g. file creation, console, and much more) determine whether the request requires a skill.\n"
     "2. Check <SKILLS_LIST> for available project skills and their loaded status.\n"
-    "3. If a relevant skill is available but not loaded, use LOAD_SKILL before using its capabilities.\n"
-    "4. Never load a skill already marked as loaded in <SKILLS_LIST>.\n"
+    "3. If a relevant skill is available but not loaded, use one <LOAD_SKILL_CONTEXT> skill_name </LOAD_SKILL_CONTEXT> block for that skill before using its capabilities.\n"
+    "4. Load exactly one skill per LOAD_SKILL_CONTEXT block; for multiple skills emit multiple separate blocks. Never load a skill already marked as loaded in <SKILLS_LIST>.\n"
     "5. Use UNLOAD_SKILL when a loaded skill is no longer needed in the current runtime context.\n"
     "\n"
     "Do not derive skill capabilities from a skill name or filename; load the skill first and use its loaded content.\n"

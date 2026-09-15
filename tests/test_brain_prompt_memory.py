@@ -482,7 +482,7 @@ class BrainPromptMemoryTests(
             )
 
             self.assertIn(
-                "<PREVIOUS_REASONING_CONTENT>",
+                "<PREVIOUS_REASONING_EVIDENCE_TRAIL_AFTER_EXECUTED_ACTIONS>",
                 prompt,
             )
             self.assertIn(
@@ -491,10 +491,10 @@ class BrainPromptMemoryTests(
             )
             self.assertLess(
                 prompt.index("</SESSION_ACTIONS_HISTORY>"),
-                prompt.index("<PREVIOUS_REASONING_CONTENT>"),
+                prompt.index("<PREVIOUS_REASONING_EVIDENCE_TRAIL_AFTER_EXECUTED_ACTIONS>"),
             )
             self.assertLess(
-                prompt.index("</PREVIOUS_REASONING_CONTENT>"),
+                prompt.index("</PREVIOUS_REASONING_EVIDENCE_TRAIL_AFTER_EXECUTED_ACTIONS>"),
                 prompt.index("I identify as JIN"),
             )
 
@@ -518,7 +518,7 @@ class BrainPromptMemoryTests(
             )
 
             self.assertNotIn(
-                "<PREVIOUS_REASONING_CONTENT>",
+                "<PREVIOUS_REASONING_EVIDENCE_TRAIL_AFTER_EXECUTED_ACTIONS>",
                 prompt,
             )
 
@@ -667,7 +667,7 @@ class BrainPromptMemoryTests(
             )
 
             self.assertNotIn(
-                "<PREVIOUS_REASONING_CONTENT>",
+                "<PREVIOUS_REASONING_EVIDENCE_TRAIL_AFTER_EXECUTED_ACTIONS>",
                 prompt,
             )
 
@@ -680,7 +680,7 @@ class BrainPromptMemoryTests(
             )
 
             self.assertNotIn(
-                "<PREVIOUS_REASONING_CONTENT>",
+                "<PREVIOUS_REASONING_EVIDENCE_TRAIL_AFTER_EXECUTED_ACTIONS>",
                 guarded_prompt,
             )
 

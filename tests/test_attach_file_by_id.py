@@ -121,7 +121,7 @@ class AttachFileByIdTests(unittest.TestCase):
         rules = build_runtime_action_instructions(enabled, self.context)
         self.assertIn(f'<{ACTION}: file_id >', rules)
         self.assertIn('whole file', rules)
-        self.assertIn('photos/images', rules)
+        self.assertIn('photo/image', rules)
 
 
 if __name__ == '__main__':

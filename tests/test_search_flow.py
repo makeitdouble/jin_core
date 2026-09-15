@@ -1141,10 +1141,6 @@ class SearchFlowTests(
             "Objective: Research blue tomato varieties.",
             followup_prompt,
         )
-        self.assertIn(
-            "<WEB_SEARCH: plain text query >",
-            followup_prompt,
-        )
         self.assertNotIn(
             "do not start another web search",
             followup_prompt,

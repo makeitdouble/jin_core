@@ -32,6 +32,24 @@ def _normalize_spacing(text: str) -> str:
     )
 
 
+def has_nonempty_tools_results_context(
+    text: str,
+) -> bool:
+    source = str(text or "")
+    match = TOOLS_RESULTS_BLOCK_RE.search(
+        source
+    )
+
+    if match is None:
+        return False
+
+    return bool(
+        str(
+            match.group(1)
+            or ""
+        ).strip()
+    )
+
 def split_tools_results_context(
     text: str,
 ) -> tuple[list[str], str]:

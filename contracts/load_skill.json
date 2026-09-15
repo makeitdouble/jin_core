@@ -5,7 +5,7 @@
     "runtime_action": "LOAD_SKILL",
     "enable_flag": "CAN_USE_ASSETS",
     "runtime_order": 90,
-    "private_marker": "<LOAD_SKILL: name of skill >",
+    "private_marker": "<LOAD_SKILL_CONTEXT>",
     "triggers": [],
     "blockers": [],
     "effects": {
@@ -13,12 +13,13 @@
       "follow_up_on_fail": false
     },
     "schema": [
-      "<LOAD_SKILL: name of skill >",
-      "<LOAD_SKILLS: name1, name2, name3 >"
+      "<LOAD_SKILL_CONTEXT> name of skill </LOAD_SKILL_CONTEXT>"
     ],
     "rules": [
-      "JIN must load skill before use! Available skills listed inside <SKILLS_LIST> block are titles only! Skill required to load first before use!"
+      "JIN must load a skill before using it. Available skills listed inside <SKILLS_LIST> are titles only; load the skill to receive its full context.",
+      "Load exactly one skill per <LOAD_SKILL_CONTEXT> tag. To load multiple skills, emit a separate <LOAD_SKILL_CONTEXT>...</LOAD_SKILL_CONTEXT> tag for each skill."
     ],
-    "close_tag": false
+    "close_tag": true,
+    "display_payload": true
   }
 }

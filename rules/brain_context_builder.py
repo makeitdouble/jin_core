@@ -409,11 +409,6 @@ def _append_FRAME_runtime_memory(
                 "</ACTIVE_MEMORY>"
             )
 
-    if previous_chat_messages_context:
-        parts.append(
-            previous_chat_messages_context
-        )
-
     if runtime_memory.strip():
         snapshots = getattr(
             context,
@@ -497,6 +492,11 @@ def _append_FRAME_runtime_memory(
             f'<{frame_memory_tag} {" ".join(runtime_memory_attrs)}>\n'
             f"{indent_xml(escape(canonicalize_runtime_memory_text(runtime_memory)))}\n"
             f"</{frame_memory_tag}>"
+        )
+
+    if previous_chat_messages_context:
+        parts.append(
+            previous_chat_messages_context
         )
 
 
@@ -942,7 +942,14 @@ def build_long_term_memory_context(
     if context is None:
         return ""
 
-    from runtime.LT_memory import build_runtime_lt_memory_context
+    from runtime.LT_memory import (
+        build_runtime_lt_memory_context,
+        get_runtime_lt_active_facts,
+    )
+    from runtime.LT_memory_utils import (
+        LT_FACT_FULL_RECALL_SECONDS,
+        lt_timestamp_sort_value,
+    )
 
     restore_fact_ids = None
     if getattr(
@@ -950,6 +957,12 @@ def build_long_term_memory_context(
         "runtime_session_restore_priming",
         False,
     ):
+        # The hidden restore/bootstrap tick gets a deliberately narrow L-T
+        # snapshot: facts explicitly referenced by JIN in the predecessor
+        # session plus every currently active fact created/updated during the
+        # last 24 hours. runtime_session_restore_priming is consumed before any
+        # action follow-up, so this widening applies to the first bootstrap hop
+        # only.
         restore_fact_ids = list(
             getattr(
                 context,
@@ -958,6 +971,28 @@ def build_long_term_memory_context(
             )
             or []
         )
+        seen_restore_fact_ids = {
+            str(fact_id or "").strip().upper()
+            for fact_id in restore_fact_ids
+            if str(fact_id or "").strip()
+        }
+        now = datetime.now().timestamp()
+        for fact in get_runtime_lt_active_facts(context):
+            if not isinstance(fact, dict):
+                continue
+            fact_id = str(fact.get("id", "") or "").strip().upper()
+            if not fact_id or fact_id in seen_restore_fact_ids:
+                continue
+            lifecycle_timestamp = (
+                lt_timestamp_sort_value(fact.get("updated_at"))
+                or lt_timestamp_sort_value(fact.get("created_at"))
+            )
+            if (
+                lifecycle_timestamp > 0
+                and now - lifecycle_timestamp <= LT_FACT_FULL_RECALL_SECONDS
+            ):
+                restore_fact_ids.append(fact_id)
+                seen_restore_fact_ids.add(fact_id)
 
     if project_review_active(context):
         restore_fact_ids = project_fact_ids(context)
@@ -1204,8 +1239,10 @@ def build_brain_context(
         build_session_actions_history_context,
     )
     from utils.context.tool_results import (
-        build_loaded_skills_content_context,
         build_tool_results_context,
+    )
+    from utils.tool_results_context import (
+        has_nonempty_tools_results_context,
     )
     from utils.context.skills import (
         build_skills_inventory_context,
@@ -1235,23 +1272,19 @@ def build_brain_context(
             False,
         )
     )
-    restored_session_dialog = str(
-        getattr(
-            context,
-            "runtime_restored_session_dialog",
-            "",
-        )
-        or ""
-    ).strip()
 
-    current_runtime_settings_context = (
-        build_current_runtime_settings_context()
-    )
-    if current_runtime_settings_context:
-        # Runtime settings are the absolute first prompt block on every turn.
-        prompt_parts.append(
-            current_runtime_settings_context
+    previous_chat_messages_context = (
+        build_previous_chat_messages_context(
+            context,
+            extra_user_message=(
+                user_input
+                if include_current_user_in_previous_chat
+                else ""
+            ),
         )
+        if include_previous_chat_messages
+        else ""
+    )
 
     if restore_priming:
         from .runtime import SESSION_RESTORE_MESSAGE
@@ -1259,11 +1292,31 @@ def build_brain_context(
             build_session_restore_message,
         )
 
-        # This remains the first restore-specific prompt block, immediately
-        # below optional CURRENT_RUNTIME_SETTINGS. It is a hidden restore tick,
-        # not a user request. Put the fresh runtime identity/time directly above
-        # the restore instruction so the model cannot confuse archived timing
-        # with the current bootstrap tick.
+        # Bootstrap continuity follows the same ordering as action follow-ups:
+        # show the inherited visible dialogue first, then its carried reasoning
+        # evidence, then the synthetic automatic-response instruction. This
+        # makes the state Brain is continuing from visible before the notice
+        # tells it that there is no new USER move.
+        if previous_chat_messages_context:
+            prompt_parts.append(
+                previous_chat_messages_context
+            )
+
+        previous_reasoning_context = (
+            build_previous_reasoning_context(
+                context,
+                include_previous_reasoning=(
+                    include_previous_reasoning
+                ),
+                include_turn_reasoning=include_turn_reasoning,
+                crop=crop_previous_reasoning,
+            )
+        )
+        if previous_reasoning_context:
+            prompt_parts.append(
+                previous_reasoning_context
+            )
+
         prompt_parts.append(
             build_session_restore_message(
                 SESSION_RESTORE_MESSAGE,
@@ -1275,16 +1328,29 @@ def build_brain_context(
             )
         )
 
-        # Keep OLD_SESSION_RESTORED_STATE immediately below the mandatory
-        # restore notification so archived dialogue is inspected before any
-        # live concerns/runtime metadata on the hidden continuation tick.
-        if restored_session_dialog:
-            prompt_parts.append(
-                restored_session_dialog
-            )
+    current_runtime_settings_context = (
+        build_current_runtime_settings_context()
+    )
+    if current_runtime_settings_context:
+        # Ordinary turns keep SETTINGS first. During bootstrap the inherited
+        # dialogue/reasoning + automatic bootstrap notice deliberately precede
+        # every other block, matching the follow-up continuation layout.
+        prompt_parts.append(
+            current_runtime_settings_context
+        )
 
     enabled_actions = get_enabled_runtime_actions(
         runtime_actions
+    )
+
+    # Build tool results before CURRENT_CONCERNS so the live warning can say
+    # whether there is actually transient tool output available to clean. The
+    # rendered ordering is unchanged: concerns still stay above tool results.
+    tool_results_context = build_tool_results_context(
+        context
+    )
+    has_tool_results = has_nonempty_tools_results_context(
+        tool_results_context
     )
 
     # Current concerns is an always-present live interrupt summary. Keep trusted
@@ -1292,7 +1358,8 @@ def build_brain_context(
     # visible before transient tool/action output.
     prompt_parts.append(
         build_current_concerns_context(
-            context
+            context,
+            has_tool_results=has_tool_results,
         )
     )
 
@@ -1331,10 +1398,6 @@ def build_brain_context(
         prompt_parts.append(project_review_context)
 
     # Tool results block: places recent tool/action outputs near the top.
-    tool_results_context = build_tool_results_context(
-        context
-    )
-
     if tool_results_context:
         prompt_parts.append(
             tool_results_context
@@ -1396,16 +1459,6 @@ def build_brain_context(
         )
     )
 
-    loaded_skills_content_context = (
-        build_loaded_skills_content_context(
-            context
-        )
-    )
-    if loaded_skills_content_context:
-        prompt_parts.append(
-            loaded_skills_content_context
-        )
-
     # User feedback block: carries the latest explicit response feedback forward.
     _append_user_feedback(
         runtime_context_parts,
@@ -1419,30 +1472,19 @@ def build_brain_context(
         context,
     )
 
-    previous_chat_messages_context = (
-        build_previous_chat_messages_context(
-            context,
-            extra_user_message=(
-                user_input
-                if include_current_user_in_previous_chat
-                else ""
-            ),
-        )
-        if (
-            include_previous_chat_messages
-            and not restored_session_dialog
-        )
-        else ""
-    )
-
-    # Keep the recent visible dialogue directly above the FRAME snapshot so
-    # those two views of the live conversation stay adjacent in the prompt.
+    # Ordinary turns keep the canonical dialogue block immediately below the
+    # FRAME snapshot. Bootstrap dialogue was already projected at the absolute
+    # front of the prompt together with its reasoning evidence.
     _append_FRAME_runtime_memory(
         runtime_context_parts,
         context,
         user_input=user_input,
         commit_active_memory_refresh=commit_active_memory_refresh,
-        previous_chat_messages_context=previous_chat_messages_context,
+        previous_chat_messages_context=(
+            ""
+            if restore_priming
+            else previous_chat_messages_context
+        ),
     )
 
     # Visible session state block: records visible turn and message counters.
@@ -1514,19 +1556,9 @@ def build_brain_context(
             )
         )
 
-    # Outside restore priming, preserve the fallback placement if an archived
-    # dialogue is still present. During priming OLD_SESSION_RESTORED_STATE
-    # was already inserted directly under MANDATORY_SYSTEM_NOTIFICATION.
-    if restored_session_dialog and not restore_priming:
-        prompt_parts.append(
-            restored_session_dialog
-        )
-
-    # Archived reasoning is deliberately excluded from the hidden bootstrap
-    # prompt. OLD_SESSION_RESTORED_STATE carries visible USER/JIN dialogue only;
-    # saved reasoning remains available to archive/UI continuity but must not
-    # resurrect stale action intent during the one-shot restore tick. Ordinary
-    # turns keep the existing previous-reasoning behavior.
+    # Bootstrap reasoning was already projected directly under
+    # PREVIOUS_CHAT_MESSAGES at the front of the prompt. Ordinary turns keep
+    # their existing previous-reasoning placement below the runtime context.
     if not restore_priming:
         previous_reasoning_loop_context = (
             build_previous_reasoning_loop_context(

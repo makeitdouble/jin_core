@@ -1499,6 +1499,7 @@ async def process_message(
                 context.runtime_current_sequence_turn_id
             )
         context.runtime_turn_assistant_response = ""
+        context.runtime_current_sequence_jin_messages = []
         context.runtime_turn_reasoning_log_path = ""
         context.runtime_turn_reasoning_content = ""
         context.runtime_active_action_markers = []

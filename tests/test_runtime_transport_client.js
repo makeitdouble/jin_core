@@ -13,13 +13,15 @@ const {chromium} = require('playwright');
     await page.evaluate(() => {
       window.sockets = [];
       window.sent = [];
+      window.beacons = [];
+      navigator.sendBeacon = (url, body) => { beacons.push({url, body}); return true; };
       window.appendLog = () => {};
       window.syncDelayedMemoryReportsToRuntime = () => {};
       window.WebSocket = class {
         static OPEN = 1; static CONNECTING = 0;
         constructor() { this.readyState = 0; sockets.push(this); }
         send(text) { sent.push(JSON.parse(text)); }
-        close() { this.readyState = 3; this.onclose({code:1006, wasClean:false}); }
+        close(code=1006) { this.closeCode = code; this.readyState = 3; this.onclose({code, wasClean:false}); }
       };
       window.deliver = data => sockets.at(-1).onmessage({data:JSON.stringify(data)});
       window.openSocket = (live, epoch='first') => {
@@ -81,7 +83,23 @@ const {chromium} = require('playwright');
     });
     assert.equal(await page.locator('#output').textContent(), 'ABC');
     assert.equal(await page.evaluate(() => sent.some(e=>e.type==='runtime_resume')), true);
+    // BFCache preserves this page, while actual page departure retires it.
+    await page.evaluate(() => window.dispatchEvent(new PageTransitionEvent('pagehide', {persisted:true})));
+    assert.equal(await page.evaluate(() => sockets.at(-1).readyState), 1);
+    const countBeforeClose = await page.evaluate(() => sockets.length);
+    await page.evaluate(() => {
+      window.dispatchEvent(new PageTransitionEvent('pagehide', {persisted:false}));
+      window.dispatchEvent(new Event('focus'));
+      window.dispatchEvent(new Event('online'));
+      connectWebSocket();
+    });
+    assert.equal(await page.evaluate(() => sockets.at(-1).closeCode), 4001);
+    assert.equal(await page.evaluate(() => beacons.length), 1);
+    assert.equal(await page.evaluate(() => beacons[0].url), '/ws/chat/close');
+    assert.equal(await page.evaluate(async () => JSON.parse(await beacons[0].body.text()).epoch), 'restarted');
+    await page.waitForTimeout(800);
+    assert.equal(await page.evaluate(() => sockets.length), countBeforeClose);
     assert.deepEqual(errors, []);
-    console.log('PASS: hidden retries paused, visible reconnect, live DOM continuity, replay dedupe, restart fallback');
+    console.log('PASS: hidden retries, reconnect, DOM continuity, replay, restart, BFCache, page departure');
   } finally { await browser.close(); }
 })().catch(error => { console.error(error); process.exitCode = 1; });

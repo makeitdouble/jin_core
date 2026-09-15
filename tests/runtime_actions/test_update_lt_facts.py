@@ -69,7 +69,7 @@ class RuntimeUpdateLTFactsTests(unittest.IsolatedAsyncioTestCase):
         instructions = build_runtime_action_contract_instructions(
             RUNTIME_ACTION_UPDATE_LT_FACTS
         )
-        self.assertIn("plain English text", instructions)
+        self.assertIn("Write concise English instruction", instructions)
         self.assertIn("update, merge, or create", instructions)
         self.assertNotIn("delete", instructions.casefold())
 

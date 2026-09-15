@@ -324,6 +324,10 @@ class RuntimeContext:
 
     runtime_current_sequence_attachments_turn_id: str = ""
 
+    runtime_current_sequence_jin_messages: list[dict] = field(
+        default_factory=list
+    )
+
     user_message_count: int = 0
 
     assistant_message_count: int = 0

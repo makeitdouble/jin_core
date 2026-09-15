@@ -684,7 +684,7 @@ class RuntimeDelayedMemoryTests(RuntimeActionTestCase):
         )
 
 
-    def test_delayed_memory_save_events_use_monotonic_action_ids(self):
+    def test_duplicate_delayed_memory_save_uses_distinct_reuse_action_id(self):
 
         Emitter = FakeEmitter
 
@@ -760,7 +760,7 @@ class RuntimeDelayedMemoryTests(RuntimeActionTestCase):
             ],
             [
                 "save_delayed_memory_001",
-                "save_delayed_memory_002",
+                "save_delayed_memory_001_reused",
             ],
         )
 

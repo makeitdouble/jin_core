@@ -23,7 +23,7 @@ MARKERS = (
     "<JIN_COLOR> #00f2ff </JIN_COLOR>",
     "< JIN_COLOR : #00f2ff >",
     "<JIN_SIZE> w:120 h:120 </JIN_SIZE>",
-    "<LOAD_SKILL: file_manager>",
+    "<LOAD_SKILL_CONTEXT> file_manager </LOAD_SKILL_CONTEXT>",
     "<UNLOAD_SKILL: file_manager>",
     "<LOAD_SKILLS: file_manager, wildcards>",
     "<LOAD_DELAYED_MEMORY: abc123>",

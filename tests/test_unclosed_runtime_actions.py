@@ -15,6 +15,7 @@ PAYLOADS = {
     'JIN_POSITION': 'x:100px y:200px',
     'JIN_SIZE': 'w:120 h:120',
     'JIN_SPEED': '600px/s',
+    'POSTING_BOARD': '{"action":"feed"}',
     'SAVE_ACTIVE_MEMORY': '{"conditions":"remember to test"}',
     'SAVE_DELAYED_MEMORY': '{"title":"test","summary":"summary","body":"body"}',
     'UPDATE_ACTIVE_MEMORY': '{"active_memory_id":"abc123","conditions":"test"}',

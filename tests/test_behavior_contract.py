@@ -333,8 +333,13 @@ class BehaviorContractTests(unittest.TestCase):
             instructions.startswith(
                 "<JIN_COLOR></JIN_COLOR>\n"
                 "Follow-up: false\n"
-                "Use to set single color for the JIN Live Avatar"
+                "Schema:\n"
+                "<JIN_COLOR> #00f2ff </JIN_COLOR>\n"
             )
+        )
+        self.assertIn(
+            "Use to set single color for the JIN Live Avatar",
+            instructions,
         )
 
     def test_runtime_action_instruction_blocks_are_separated(self):

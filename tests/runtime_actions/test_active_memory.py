@@ -2093,7 +2093,11 @@ class RuntimeActiveMemoryTests(RuntimeActionTestCase):
             context.runtime_tool_results,
             [
                 {
-                    "tool_id": "T1", "action_payload": "active_memory_id: 5fdg4g", "runtime_turn_id": "",
+                    "tool_id": "T1",
+                    "action_name": "DELETE_ACTIVE_MEMORY",
+                    "action_payload": "active_memory_id: 5fdg4g",
+                    "runtime_turn_id": "",
+                    "runtime_message_id": "",
                     "kind": TOOL_RESULT_KIND_ACTIVE_MEMORY,
                     "result": {
                         "ok": True,
@@ -2428,7 +2432,11 @@ class RuntimeActiveMemoryTests(RuntimeActionTestCase):
             context.runtime_tool_results,
             [
                 {
-                    "tool_id": "T1", "action_payload": "active_memory_10", "runtime_turn_id": "",
+                    "tool_id": "T1",
+                    "action_name": "DELETE_ACTIVE_MEMORY",
+                    "action_payload": "active_memory_10",
+                    "runtime_turn_id": "",
+                    "runtime_message_id": "",
                     "kind": TOOL_RESULT_KIND_ACTIVE_MEMORY,
                     "result": {
                         "ok": False,

@@ -35,7 +35,7 @@ class RuntimeJinReactionActionTests(unittest.TestCase):
             RUNTIME_ACTION_JIN_REACTION
         )
         self.assertIn(
-            "send user an emoji reaction",
+            "send last user message an emoji reaction",
             instructions,
         )
         self.assertIn(

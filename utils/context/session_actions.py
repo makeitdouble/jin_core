@@ -359,6 +359,8 @@ def _format_context_action_text(
 
 def _format_jin_message_content(
     text: str,
+    *,
+    truncate: bool = True,
 ) -> str:
 
     preview = re.sub(
@@ -370,7 +372,7 @@ def _format_jin_message_content(
         ).strip(),
     )
 
-    if len(preview) <= 150:
+    if not truncate or len(preview) <= 150:
         return preview
 
     return (
@@ -543,7 +545,13 @@ def build_session_actions_history_context(
                 item.get(
                     "jin_message_content",
                     "",
-                )
+                ),
+                # CURRENT_REQUEST_ACTIONS_HISTORY is the live continuation
+                # trace. Never chop the model text that led into an action:
+                # the next follow-up needs the complete message, not a 150
+                # character preview. The ordinary session-history projection
+                # keeps the compact preview behaviour.
+                truncate=not current_sequence,
             )
             jin_message_signature = (
                 jin_message_content,
@@ -638,6 +646,7 @@ def strip_actions_history_context(
     )
 
     for tag_name in (
+        "FOLLOW_UP_RESPONSE_MESSAGE",
         "SESSION_ACTIONS_HISTORY",
         "CURRENT_REQUEST_ACTIONS_HISTORY",
         "CURRENT_CONCERNS",

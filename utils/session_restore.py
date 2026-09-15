@@ -49,7 +49,7 @@ UPDATE_LT_FACTS_BLOCK_RE = re.compile(
     re.IGNORECASE | re.MULTILINE,
 )
 RESTORED_DIALOG_SOURCE_RE = re.compile(
-    r'<OLD_SESSION_RESTORED_STATE\b[^>]*\bsession_id="(?P<session_id>[^"]+)"',
+    r'<(?:PREVIOUS_CHAT_MESSAGES|OLD_SESSION_RESTORED_STATE)\b[^>]*\bsession_id="(?P<session_id>[^"]+)"',
     re.IGNORECASE,
 )
 
@@ -292,7 +292,7 @@ def _build_restored_dialog_context(
     session_id: str,
 ) -> str:
     lines = [
-        f'<OLD_SESSION_RESTORED_STATE session_id="{escape(session_id)}">',
+        f'<PREVIOUS_CHAT_MESSAGES session_id="{escape(session_id)}">',
         "This is the exact visible dialogue restored from the archived session. The newest complete USER/JIN pairs are shown in chronological order. Archived JIN reasoning is intentionally excluded from this bootstrap block; continue from the visible interaction state and do not summarize or re-introduce it unless the user asks.",
     ]
 
@@ -326,7 +326,7 @@ def _build_restored_dialog_context(
             now=now,
         )
 
-    lines.append("</OLD_SESSION_RESTORED_STATE>")
+    lines.append("</PREVIOUS_CHAT_MESSAGES>")
     return "\n".join(lines)
 
 
@@ -737,7 +737,7 @@ def build_session_bootstrap_lineage_dialog_context(
         return ""
 
     lines = [
-        f'<OLD_SESSION_RESTORED_STATE session_id="{escape(_clean_session_id(source_session_id))}">'
+        f'<PREVIOUS_CHAT_MESSAGES session_id="{escape(_clean_session_id(source_session_id))}">'
     ]
 
     now = time.time()
@@ -771,7 +771,7 @@ def build_session_bootstrap_lineage_dialog_context(
                 f"<JIN{source_attr}>{escape(jin_text)}</JIN>{age_suffix}"
             )
 
-    lines.append("</OLD_SESSION_RESTORED_STATE>")
+    lines.append("</PREVIOUS_CHAT_MESSAGES>")
     return "\n".join(lines)
 
 
@@ -1349,9 +1349,12 @@ def _build_runtime_event_session_actions(entries: list[dict]) -> list[dict]:
             continue
         created_at = _runtime_event_created_at(entry, payload)
         runtime_turn_id = str(entry.get("turn_id", "") or "").strip()
+        action_payload = payload.get("payload", "")
+        if not action_payload and action_name.strip().upper() == "JIN_COLOR":
+            action_payload = payload.get("color", "")
         marker_action = {
             "name": action_name,
-            "payload": str(payload.get("payload", "") or "").strip(),
+            "payload": str(action_payload or "").strip(),
             "created_at": created_at,
         }
         marker_items = build_session_action_marker_history_items(
@@ -1953,7 +1956,10 @@ def build_archived_session_restore_payload(
         return None
 
     trusted_values = _parse_trusted_values(context_text)
-    previous_runtime_state = _extract_block(context_text, "PREVIOUS_RUNTIME_STATE")
+    previous_runtime_state = (
+        _extract_block(context_text, "PREVIOUS_FRAME_MEMORY_SNAPSHOT")
+        or _extract_block(context_text, "PREVIOUS_RUNTIME_STATE")
+    )
     attached_files_block = _extract_block(context_text, "ATTACHED_FILES")
 
     last_entry = visible_entries[-1]

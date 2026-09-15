@@ -42,6 +42,7 @@ let persistedSessionBootstrapSent = false;
 let archivedSessionResumeSent = false;
 let generationRunning = false;
 let socketClientInitialized = false;
+let websocketPageClosed = false;
 
 window.jinGenerationRunning = false;
 window.JinSocketEventHandlers =
@@ -271,7 +272,8 @@ function clearWebSocketReconnectTimer() {
 function scheduleWebSocketReconnect() {
 
   if (
-      websocketReconnectTimer
+      websocketPageClosed
+      || websocketReconnectTimer
       || isWebSocketOpen()
       || (
           ws
@@ -862,6 +864,9 @@ async function handleSocketOpen(liveResume = false) {
 function handleSocketClose(event = null) {
 
   window.jinWebSocketConnected = false;
+  if (websocketPageClosed) {
+    return;
+  }
 
   if (!websocketDisconnectedLogged) {
     websocketDisconnectedLogged = true;
@@ -887,6 +892,10 @@ function handleSocketClose(event = null) {
 }
 
 function connectWebSocket() {
+
+  if (websocketPageClosed) {
+    return false;
+  }
 
   if (
       ws
@@ -939,6 +948,33 @@ function connectWebSocket() {
 }
 
 window.connectWebSocket = connectWebSocket;
+
+window.addEventListener("pagehide", function (event) {
+  // Back/forward cache and background freeze keep this same loaded page alive.
+  if (event.persisted) {
+    return;
+  }
+  websocketPageClosed = true;
+  clearWebSocketReconnectTimer();
+  websocketReconnectAwaitingFocus = false;
+  if (websocketTransportEpoch && typeof navigator.sendBeacon === "function") {
+    try {
+      navigator.sendBeacon("/ws/chat/close", new Blob([JSON.stringify({
+        client_id: websocketClientId,
+        epoch: websocketTransportEpoch,
+      })], {type: "application/json"}));
+    } catch (error) {
+      // The close frame and server expiry remain fallback paths.
+    }
+  }
+  if (ws) {
+    try {
+      ws.close(4001, "page closed");
+    } catch (error) {
+      // If teardown cannot send the close frame, the server's grace expires.
+    }
+  }
+});
 
 function retryWebSocketOnFocus(event) {
 

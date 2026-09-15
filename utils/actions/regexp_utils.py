@@ -105,13 +105,18 @@ def _runtime_action_aliases(
     action_name = str(runtime_action or "").strip().upper()
     names: list[str] = []
 
-    for name in (marker_name, action_name):
-        if name and name not in names:
-            names.append(name)
+    # A model-facing marker may intentionally differ from the internal
+    # runtime action name. In that case only the public contract marker is
+    # executable; do not silently keep the old internal tag as an alias.
+    if marker_name:
+        names.append(marker_name)
+    elif action_name:
+        names.append(action_name)
 
-    # Keep compatibility with plural skill markers without putting aliases in
-    # every contract.
-    if action_name in {"LOAD_SKILL", "UNLOAD_SKILL"}:
+    # Plural compatibility exists only while the contract itself still uses
+    # the canonical runtime-action name. LOAD_SKILL_CONTEXT therefore does
+    # not inherit the old LOAD_SKILLS form.
+    if marker_name == action_name and action_name in {"LOAD_SKILL", "UNLOAD_SKILL"}:
         plural_name = f"{action_name}S"
         if plural_name not in names:
             names.append(plural_name)

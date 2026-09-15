@@ -30,7 +30,7 @@ class RuntimeProgressAvatarClientContractTests(unittest.TestCase):
         self.assertIn("progress-phase-model-load", source)
         self.assertIn("rgba(255, 255, 255, 0.96)", source)
         self.assertIn("progress-phase-prompt-processing", source)
-        self.assertIn("rgba(245, 199, 84, 0.98)", source)
+        self.assertIn("rgba(248, 204, 92, 0.98)", source)
 
 
 if __name__ == "__main__":

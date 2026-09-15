@@ -731,6 +731,7 @@ def normalize_runtime_action_name(
         "USE_ASSETS": RUNTIME_ACTION_ASSET_ACTION,
         "CLEAN_TOOL_RESULTS": RUNTIME_ACTION_CLEAN_TOOL_RESULTS,
         "LOAD_SKILL": RUNTIME_ACTION_LOAD_SKILL,
+        "LOAD_SKILL_CONTEXT": RUNTIME_ACTION_LOAD_SKILL,
         "UNLOAD_SKILL": RUNTIME_ACTION_UNLOAD_SKILL,
         "ASSET_ACTION": RUNTIME_ACTION_ASSET_ACTION,
         "JIN_SIZE": RUNTIME_ACTION_JIN_SIZE,
@@ -1819,7 +1820,12 @@ def _enabled_action_start_markers(
             action_name
         )
 
-        markers.append("<" + action_name)
+        marker_name, _ = extract_private_marker_parts(
+            private_marker
+        )
+        if not marker_name or marker_name == action_name:
+            markers.append("<" + action_name)
+
         for marker in get_runtime_action_start_markers(
             private_marker,
             action_name,

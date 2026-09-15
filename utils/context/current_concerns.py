@@ -127,8 +127,73 @@ def _count_loaded_delayed_memory(
     )
 
 
+def _get_previous_context_usage_percent(
+    context=None,
+) -> float | None:
+
+    if context is None:
+        return None
+
+    previous_context_window = getattr(
+        context,
+        "runtime_previous_answer_context_window",
+        {},
+    )
+
+    if not isinstance(
+        previous_context_window,
+        dict,
+    ):
+        return None
+
+    try:
+        used_tokens = int(
+            previous_context_window.get(
+                "used_tokens",
+                0,
+            )
+            or 0
+        )
+        context_window = int(
+            previous_context_window.get(
+                "context_window",
+                0,
+            )
+            or 0
+        )
+    except (
+        TypeError,
+        ValueError,
+    ):
+        return None
+
+    if context_window <= 0 or used_tokens < 0:
+        return None
+
+    return min(
+        100.0,
+        max(
+            0.0,
+            (used_tokens / context_window) * 100.0,
+        ),
+    )
+
+
+def _format_context_usage_percent(
+    usage_percent: float,
+) -> str:
+
+    return (
+        f"{usage_percent:.1f}"
+        .rstrip("0")
+        .rstrip(".")
+        + "%"
+    )
+
 def build_current_concerns_context(
     context=None,
+    *,
+    has_tool_results: bool = False,
 ) -> str:
 
     pending_active_memory_count = (
@@ -146,6 +211,30 @@ def build_current_concerns_context(
     )
 
     lines = []
+
+    previous_usage_percent = (
+        _get_previous_context_usage_percent(
+            context
+        )
+    )
+
+    if (
+        previous_usage_percent is not None
+        and previous_usage_percent >= 50.0
+    ):
+        context_usage_line = (
+            "Current context window usage is above normal: "
+            + _format_context_usage_percent(
+                previous_usage_percent
+            )
+        )
+        if has_tool_results:
+            context_usage_line += (
+                " - check and clean redundant tool results"
+            )
+        lines.append(
+            context_usage_line
+        )
 
     if pending_active_memory_count:
         active_memory_label = (

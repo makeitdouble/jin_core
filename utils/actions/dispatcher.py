@@ -2012,6 +2012,36 @@ async def apply_runtime_action_calls(
     loaded_skill_results = skill_results["loaded_skill_results"]
     unloaded_skill_results = skill_results["unloaded_skill_results"]
 
+    # Successful skill loads/unloads used to live only in the synthetic
+    # <TOOL_RESULT name="LOAD_SKILL"> projection. That made the payload visible
+    # to Brain, but it had no Txx identity, so follow-up ticks could not refer
+    # to it like every other tool result. Record the real result in
+    # the generic store first; build_loaded_skills_content_context() detects
+    # the recorded LOAD_SKILL and suppresses the legacy id-less duplicate.
+    # skill_not_found is already recorded through append_asset_runtime_result.
+    for skill_state_result in (
+        loaded_skill_results
+        + unloaded_skill_results
+    ):
+        if not isinstance(skill_state_result, dict):
+            continue
+        if (
+            skill_state_result.get("ok") is False
+            and skill_state_result.get("error") == "skill_not_found"
+        ):
+            continue
+
+        public_skill_result = {
+            key: value
+            for key, value in skill_state_result.items()
+            if not str(key or "").startswith("_runtime_")
+        }
+        record_runtime_tool_result(
+            context,
+            TOOL_RESULT_KIND_RUNTIME_ACTION,
+            public_skill_result,
+        )
+
     saved_asset_results.extend(
         await apply_asset_actions(
             context,

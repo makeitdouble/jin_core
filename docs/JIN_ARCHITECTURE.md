@@ -106,6 +106,15 @@ The websocket endpoint uses a normal `asyncio.Queue` to serialize queued request
 
 The queue worker now belongs to the live `RuntimeContext` session through `runtime_transport`, rather than to a physical WebSocket. `websocket/transport.py` buffers serialized output until browser acknowledgement; reconnect attaches a new sender/receiver and replays unacknowledged events in order. Brain, FRAME waits, and pending USER batches keep running while the page is frozen/disconnected. A live transport reconnect does not apply a stale browser runtime/store snapshot. Process restart still uses the existing browser bootstrap fallback. This delivery buffer is in-process transport state, not a new browser checkpoint or durable memory system.
 
+Page departure (`pagehide`, excluding back/forward cache) retires its transport
+through a same-origin, exact-epoch close beacon, with WebSocket code 4001 as a
+fallback. An unexplained disconnect retains the runtime for 600 seconds; a soft
+reconnect cancels that deadline. Retirement cancels the session/guard/background
+tasks, closes provider streams, releases both the resume-store and cached L-T
+owner references, and discards the replay buffer. Accepted queued USER moves
+use the existing interrupted-turn path; retirement cannot start another Brain
+turn or finish a cancelled stream as a completed turn.
+
 ### 3.3 Foreground turn
 
 `websocket/messages.py::process_message()` currently performs the foreground lifecycle:
@@ -349,6 +358,13 @@ L-T owns durable facts. The current L-T path includes:
 - recall decay: after 24 hours without a mention, Brain context uses sentence previews capped at 100 characters per sentence until JIN references the fact again.
 
 A valid `F<number>` reference in JIN reasoning or visible output counts once per turn for that canonical fact, updates `last_mentioned_at`, increments `mention_count`, persists the store, and makes the next prompt eligible for the full fact value again. Historical mention backfill may repair older dates but never rewinds a newer live mention.
+
+In the current single-server-event-loop deployment, L-T commits are synchronous:
+read/reconcile the latest file state, apply the change, then persist without an
+intervening `await`. Backfill scans archives in a worker but performs this whole
+commit on the event loop too. Offloading only the final snapshot write breaks
+that ordering and can overwrite another page's committed edit/deletion. This
+does not provide cross-process locking for multiple servers sharing one file.
 
 L-T work is scheduled from an explicit browser idle tick (`lt_memory_idle_tick`) and is guarded so it does not begin while foreground work is running or queued.
 

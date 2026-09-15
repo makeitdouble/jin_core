@@ -4176,6 +4176,10 @@ async def run_lt_memory_server_scheduler(app_state) -> None:
 
     while True:
         wake_event.clear()
+        # A wake may follow the last page's retirement. Drop the previous
+        # iteration's targets before an empty-store wait can retain them forever.
+        pending_contexts = candidates = ready = ()
+        context = task = None
 
         contexts = _lt_scheduler_contexts(app_state)
         if not contexts:

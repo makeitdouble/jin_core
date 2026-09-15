@@ -333,7 +333,10 @@ async def run_lt_log_mention_backfill(context) -> dict:
         activated_at=state["activated_at"],
     )
 
-    # Re-read only after disk scanning so a concurrent new live mention wins.
+    # Re-read after scanning, then keep read -> repair -> persist on the same
+    # event loop without an await, like the other L-T writers. Offloading just
+    # the write lets an old snapshot overwrite another page's successful edit,
+    # deletion or live mention. Only archive scanning belongs in the worker.
     current_store = clone_lt_store(ensure_runtime_lt_state(context))
     if not (current_store.get("facts") or []):
         return {"changed": False, "skipped": "no_facts", **scan}
@@ -347,10 +350,8 @@ async def run_lt_log_mention_backfill(context) -> dict:
         now=now,
     )
     if change["changed"]:
+        persist_runtime_lt_file_store(context, repaired_store)
         context.runtime_long_term_memory_store = repaired_store
-        await asyncio.to_thread(
-            persist_runtime_lt_file_store, context, repaired_store
-        )
         await emit_lt_memory_update(
             context, change={**change, "source": "historical_logs"}
         )

@@ -606,7 +606,7 @@ class RuntimeStreamFilterTests(RuntimeActionTestCase):
                 }),
             ),
             (
-                "<LOAD_SKILL: file_manager/>",
+                "<LOAD_SKILL_CONTEXT> file_manager </LOAD_SKILL_CONTEXT>",
                 "LOAD_SKILL",
                 "file_manager",
             ),
@@ -1661,11 +1661,11 @@ class RuntimeStreamFilterTests(RuntimeActionTestCase):
         )
 
         result = stream_filter.filter(
-            "<LOAD_SKILL: wildcards>\n"
-            "<LOAD_SKILL: wildcards>\n"
-            "<LOAD_SKILL: wildcards>\n"
-            "<LOAD_SKILL: wildcards>\n"
-            "<LOAD_SKILL: wildcards>"
+            "<LOAD_SKILL_CONTEXT> wildcards </LOAD_SKILL_CONTEXT>\n"
+            "<LOAD_SKILL_CONTEXT> wildcards </LOAD_SKILL_CONTEXT>\n"
+            "<LOAD_SKILL_CONTEXT> wildcards </LOAD_SKILL_CONTEXT>\n"
+            "<LOAD_SKILL_CONTEXT> wildcards </LOAD_SKILL_CONTEXT>\n"
+            "<LOAD_SKILL_CONTEXT> wildcards </LOAD_SKILL_CONTEXT>"
         )
 
         self.assertTrue(
@@ -1690,17 +1690,17 @@ class RuntimeStreamFilterTests(RuntimeActionTestCase):
         )
 
         result = stream_filter.filter(
-            "<LOAD_SKILL: file_manager>\n"
-            "<LOAD_SKILL: wildcards>\n"
-            "<LOAD_SKILL: file_manager>\n"
-            "<LOAD_SKILL: wildcards>\n"
-            "<LOAD_SKILL: file_manager>\n"
-            "<LOAD_SKILL: wildcards>\n"
-            "<LOAD_SKILL: file_manager>\n"
-            "<LOAD_SKILL: wildcards>\n"
-            "<LOAD_SKILL: file_manager>\n"
-            "<LOAD_SKILL: wildcards>\n"
-            "<LOAD_SKILL: file_manager>"
+            "<LOAD_SKILL_CONTEXT> file_manager </LOAD_SKILL_CONTEXT>\n"
+            "<LOAD_SKILL_CONTEXT> wildcards </LOAD_SKILL_CONTEXT>\n"
+            "<LOAD_SKILL_CONTEXT> file_manager </LOAD_SKILL_CONTEXT>\n"
+            "<LOAD_SKILL_CONTEXT> wildcards </LOAD_SKILL_CONTEXT>\n"
+            "<LOAD_SKILL_CONTEXT> file_manager </LOAD_SKILL_CONTEXT>\n"
+            "<LOAD_SKILL_CONTEXT> wildcards </LOAD_SKILL_CONTEXT>\n"
+            "<LOAD_SKILL_CONTEXT> file_manager </LOAD_SKILL_CONTEXT>\n"
+            "<LOAD_SKILL_CONTEXT> wildcards </LOAD_SKILL_CONTEXT>\n"
+            "<LOAD_SKILL_CONTEXT> file_manager </LOAD_SKILL_CONTEXT>\n"
+            "<LOAD_SKILL_CONTEXT> wildcards </LOAD_SKILL_CONTEXT>\n"
+            "<LOAD_SKILL_CONTEXT> file_manager </LOAD_SKILL_CONTEXT>"
         )
 
         self.assertTrue(

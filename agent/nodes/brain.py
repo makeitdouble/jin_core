@@ -1,4 +1,5 @@
 from copy import deepcopy
+import re
 import time
 from xml.sax.saxutils import escape
 
@@ -24,6 +25,7 @@ from rules.brain_context_builder import (
 from rules.runtime import (
     ACTION_FAILURE_FOLLOWUP_MESSAGE,
     CONTEXT_LIMIT_RECOVERY_MESSAGE,
+    FOLLOW_UP_RESPONSE_MESSAGE,
     REASONING_RECOVERY_MESSAGE,
 )
 from contracts.rules_assembler import (
@@ -84,6 +86,7 @@ from utils.tool_results import (
 )
 from utils.tool_results_context import (
     build_tools_results_context,
+    has_nonempty_tools_results_context,
     split_tools_results_context,
 )
 
@@ -797,7 +800,7 @@ def format_previous_runtime_memory_tag(
         sequence_started_at,
         (int, float),
     ) or sequence_started_at <= 0:
-        return "<PREVIOUS_RUNTIME_STATE>"
+        return "<PREVIOUS_FRAME_MEMORY_SNAPSHOT>"
 
     if now is None:
         now = time.time()
@@ -811,7 +814,7 @@ def format_previous_runtime_memory_tag(
         TypeError,
         ValueError,
     ):
-        return "<PREVIOUS_RUNTIME_STATE>"
+        return "<PREVIOUS_FRAME_MEMORY_SNAPSHOT>"
 
     from runtime.frame_memory_utils import (
         format_user_idle_seconds,
@@ -822,10 +825,10 @@ def format_previous_runtime_memory_tag(
     )
 
     if not elapsed_text:
-        return "<PREVIOUS_RUNTIME_STATE>"
+        return "<PREVIOUS_FRAME_MEMORY_SNAPSHOT>"
 
     return (
-        "<PREVIOUS_RUNTIME_STATE "
+        "<PREVIOUS_FRAME_MEMORY_SNAPSHOT "
         f"( {elapsed_text} ago ) >"
     )
 
@@ -930,10 +933,129 @@ def rename_runtime_memory_for_followup(
         prompt[:opening_index]
         + previous_opening_tag
         + prompt[opening_end_index + 1:closing_index]
-        + "</PREVIOUS_RUNTIME_STATE>"
+        + "</PREVIOUS_FRAME_MEMORY_SNAPSHOT>"
         + prompt[closing_index + len(closing_tag):]
     )
 
+
+def place_previous_chat_messages_after_frame_snapshot(
+        system_prompt: str,
+        previous_chat_messages_context: str,
+) -> str:
+
+    prompt = str(
+        system_prompt
+        or ""
+    ).strip()
+    block = str(
+        previous_chat_messages_context
+        or ""
+    ).strip()
+
+    if not block:
+        return prompt
+
+    # Follow-ups rebuild this block from live context, so remove any stale
+    # inherited copy before placing the fresh one beside the FRAME snapshot.
+    for tag_name in (
+        "PREVIOUS_CHAT_MESSAGES",
+        "OLD_SESSION_RESTORED_STATE",
+    ):
+        prompt = re.sub(
+            rf"(?:^|\n)<{tag_name}(?:\s+[^>]*)?>.*?</{tag_name}>\n*",
+            "\n",
+            prompt,
+            flags=re.DOTALL | re.IGNORECASE,
+        ).strip()
+
+    snapshot_match = re.search(
+        r"<PREVIOUS_FRAME_MEMORY_SNAPSHOT(?:\s+[^>]*)?>[\s\S]*?"
+        r"</PREVIOUS_FRAME_MEMORY_SNAPSHOT>",
+        prompt,
+        flags=re.IGNORECASE,
+    )
+    if snapshot_match is None:
+        snapshot_match = re.search(
+            r"<FRAME_MEMORY_[^>]+>[\s\S]*?</FRAME_MEMORY_[^>]+>",
+            prompt,
+            flags=re.IGNORECASE,
+        )
+    if snapshot_match is None:
+        snapshot_match = re.search(
+            r"<RUNTIME_MEMORY(?:\s+[^>]*)?>[\s\S]*?</RUNTIME_MEMORY>",
+            prompt,
+            flags=re.IGNORECASE,
+        )
+
+    if snapshot_match is not None:
+        return (
+            prompt[:snapshot_match.end()].rstrip()
+            + "\n\n"
+            + block
+            + "\n\n"
+            + prompt[snapshot_match.end():].lstrip()
+        ).strip()
+
+    current_session_match = re.search(
+        r"(?:^|\n)<CURRENT_SESSION_STATE>",
+        prompt,
+        flags=re.IGNORECASE,
+    )
+    if current_session_match is not None:
+        insertion_index = current_session_match.start()
+        return (
+            prompt[:insertion_index].rstrip()
+            + "\n\n"
+            + block
+            + "\n\n"
+            + prompt[insertion_index:].lstrip()
+        ).strip()
+
+    return (prompt + "\n\n" + block).strip()
+
+
+def extract_prompt_context_block(
+        system_prompt: str,
+        tag_name: str,
+) -> tuple[str, str]:
+
+    prompt = str(
+        system_prompt
+        or ""
+    ).strip()
+    normalized_tag_name = str(
+        tag_name
+        or ""
+    ).strip()
+
+    if not prompt or not normalized_tag_name:
+        return "", prompt
+
+    pattern = (
+        rf"(?:^|\n)(<{re.escape(normalized_tag_name)}(?:\s+[^>]*)?>"
+        rf"[\s\S]*?</{re.escape(normalized_tag_name)}>)\n*"
+    )
+    match = re.search(
+        pattern,
+        prompt,
+        flags=re.IGNORECASE,
+    )
+
+    if match is None:
+        return "", prompt
+
+    block = str(
+        match.group(1)
+        or ""
+    ).strip()
+    prompt = re.sub(
+        pattern,
+        "\n",
+        prompt,
+        flags=re.IGNORECASE,
+    ).strip()
+
+    return block, prompt
 
 def restore_sequence_attachments_for_followup(
         context,
@@ -992,6 +1114,330 @@ def build_followup_attachment_payload(
         return ""
 
     return "Continue the current request using the action results; loaded FILE_CONTENT is nested inside TOOLS_RESULTS."
+
+
+def _format_followup_action_history_items(
+        items,
+) -> list[str]:
+
+    from utils.context.session_actions import (
+        format_session_action_age,
+    )
+
+    now = time.time()
+    lines = []
+
+    for item in items or []:
+        if not isinstance(item, dict):
+            continue
+
+        text = str(
+            item.get(
+                "text",
+                "",
+            )
+            or ""
+        ).strip()
+        if not text:
+            continue
+
+        try:
+            created_at = float(
+                item.get(
+                    "created_at",
+                    0,
+                )
+                or 0
+            )
+        except (
+            TypeError,
+            ValueError,
+        ):
+            created_at = 0.0
+
+        if created_at > 0:
+            text += (
+                " ( "
+                f"{format_session_action_age(now - created_at)}"
+                " ago )"
+            )
+
+        lines.append(
+            text
+        )
+
+    return lines
+
+
+def _fallback_followup_action_lines(
+        context,
+) -> list[str]:
+
+    if context is None:
+        return []
+
+    history = getattr(
+        context,
+        "runtime_session_action_history",
+        [],
+    )
+    if not isinstance(history, list):
+        return []
+
+    current_turn_id = str(
+        getattr(
+            context,
+            "runtime_current_sequence_turn_id",
+            "",
+        )
+        or getattr(
+            context,
+            "runtime_current_turn_id",
+            "",
+        )
+        or ""
+    ).strip()
+    sequence_started_at = getattr(
+        context,
+        "runtime_current_sequence_started_at",
+        None,
+    )
+    if not isinstance(sequence_started_at, (int, float)):
+        sequence_started_at = getattr(
+            context,
+            "runtime_turn_started_at",
+            None,
+        )
+
+    for item in reversed(history):
+        if not isinstance(item, dict):
+            continue
+
+        item_turn_id = str(
+            item.get(
+                "runtime_turn_id",
+                "",
+            )
+            or ""
+        ).strip()
+        if (
+            current_turn_id
+            and item_turn_id
+            and item_turn_id != current_turn_id
+        ):
+            continue
+
+        created_at = item.get(
+            "created_at"
+        )
+        if (
+            isinstance(sequence_started_at, (int, float))
+            and isinstance(created_at, (int, float))
+            and float(created_at) < float(sequence_started_at)
+        ):
+            continue
+
+        return _format_followup_action_history_items(
+            [item]
+        )
+
+    return []
+
+
+def _fallback_followup_tool_ids(
+        context,
+) -> list[str]:
+
+    if context is None:
+        return []
+
+    current_turn_id = str(
+        getattr(
+            context,
+            "runtime_current_sequence_turn_id",
+            "",
+        )
+        or getattr(
+            context,
+            "runtime_current_turn_id",
+            "",
+        )
+        or ""
+    ).strip()
+    events = getattr(
+        context,
+        "runtime_action_events",
+        [],
+    )
+    if not isinstance(events, list):
+        return []
+
+    matching_events = []
+    for event in reversed(events):
+        if not isinstance(event, dict):
+            continue
+
+        event_turn_id = str(
+            event.get(
+                "runtime_turn_id",
+                "",
+            )
+            or ""
+        ).strip()
+        if (
+            current_turn_id
+            and event_turn_id
+            and event_turn_id != current_turn_id
+        ):
+            continue
+
+        tool_id = str(
+            event.get(
+                "tool_id",
+                "",
+            )
+            or ""
+        ).strip()
+        if not tool_id:
+            continue
+
+        if not matching_events:
+            matching_events.append(
+                event
+            )
+            continue
+
+        latest_message_id = str(
+            matching_events[0].get(
+                "runtime_message_id",
+                "",
+            )
+            or ""
+        ).strip()
+        event_message_id = str(
+            event.get(
+                "runtime_message_id",
+                "",
+            )
+            or ""
+        ).strip()
+        if (
+            latest_message_id
+            and event_message_id != latest_message_id
+        ):
+            break
+
+        if not latest_message_id:
+            break
+
+        matching_events.append(
+            event
+        )
+
+    tool_ids = []
+    for event in reversed(matching_events):
+        tool_id = str(
+            event.get(
+                "tool_id",
+                "",
+            )
+            or ""
+        ).strip()
+        if tool_id and tool_id not in tool_ids:
+            tool_ids.append(
+                tool_id
+            )
+
+    return tool_ids
+
+
+def build_followup_response_message_context(
+        context=None,
+        *,
+        latest_action: str = "",
+) -> str:
+
+    action_lines = list(
+        getattr(
+            context,
+            "runtime_followup_response_action_lines",
+            [],
+        )
+        or []
+    ) if context is not None else []
+
+    if not action_lines:
+        action_lines = _fallback_followup_action_lines(
+            context
+        )
+
+    if not action_lines:
+        fallback_action = str(
+            latest_action
+            or ""
+        ).strip()
+        if fallback_action:
+            action_lines = [
+                fallback_action,
+            ]
+
+    tool_ids = []
+    if context is not None:
+        for tool_id in (
+            getattr(
+                context,
+                "runtime_followup_response_tool_ids",
+                [],
+            )
+            or []
+        ):
+            normalized_tool_id = str(
+                tool_id
+                or ""
+            ).strip()
+            if (
+                normalized_tool_id
+                and normalized_tool_id not in tool_ids
+            ):
+                tool_ids.append(
+                    normalized_tool_id
+                )
+
+    if not tool_ids:
+        tool_ids = _fallback_followup_tool_ids(
+            context
+        )
+
+    lines = [
+        FOLLOW_UP_RESPONSE_MESSAGE.rstrip(),
+    ]
+
+    if action_lines:
+        rendered_actions = ", ".join(
+            str(line or "").strip()
+            for line in action_lines
+            if str(line or "").strip()
+        )
+        lines.append(
+            "Last executed actions: "
+            + escape(rendered_actions)
+        )
+
+    if tool_ids:
+        lines.append(
+            "Tool results are available by id: "
+            + escape(", ".join(tool_ids))
+        )
+
+    return (
+        "<FOLLOW_UP_RESPONSE_MESSAGE>\n"
+        + "\n".join(
+            line
+            for line in lines
+            if line
+        )
+        + "\n</FOLLOW_UP_RESPONSE_MESSAGE>"
+    )
 
 
 class BrainNode(BaseNode):
@@ -1084,7 +1530,19 @@ class BrainNode(BaseNode):
             )
         )
 
-        sections = []
+        # Every internal tick is synthetic from the user's point of view. The
+        # generic continuation notice stays ahead of every recovery/action
+        # instruction, but live dialogue and the carried reasoning evidence are
+        # projected above it so Brain reads the exact conversational/thought
+        # state before being told how to continue the automatic follow-up.
+        # The live action/result suffix is refreshed immediately before each
+        # follow-up prompt is built.
+        sections = [
+            build_followup_response_message_context(
+                context,
+                latest_action=latest_action,
+            )
+        ]
 
         if potential_loop_detected:
             sections.append(
@@ -1101,7 +1559,7 @@ class BrainNode(BaseNode):
         )
         if action_failure_followup_context:
             if action_failure_followup_context.startswith("<MALFORMED_ACTION_NOTIFICATION>"):
-                sections.insert(0, action_failure_followup_context)
+                sections.insert(1, action_failure_followup_context)
             else:
                 sections.append(action_failure_followup_context)
 
@@ -1183,18 +1641,27 @@ class BrainNode(BaseNode):
                 session_actions_history_context
             )
 
+        followup_tool_results_context = (
+            build_tools_results_context(
+                tool_result_blocks
+            )
+        )
+
         # Rebuild this live block on every internal follow-up instead of
         # inheriting the stale snapshot from the initial prompt.
         sections.append(
             build_current_concerns_context(
-                context
+                context,
+                has_tool_results=(
+                    has_nonempty_tools_results_context(
+                        followup_tool_results_context
+                    )
+                ),
             )
         )
 
         sections.append(
-            build_tools_results_context(
-                tool_result_blocks
-            )
+            followup_tool_results_context
         )
 
         if (
@@ -1224,18 +1691,63 @@ class BrainNode(BaseNode):
                     loaded_delayed_memory_context
                 )
 
-        from utils.project_reader import project_review_active
+        from utils.context.messages import (
+            build_previous_chat_messages_context,
+        )
+
+        base_prompt = rename_runtime_memory_for_followup(
+            strip_loaded_delayed_memory_context(
+                strip_actions_history_context(
+                    system_prompt,
+                    keep_previous_chat_messages=False,
+                )
+            ),
+            sequence_started_at=sequence_started_at,
+        )
+        previous_chat_messages_context = (
+            build_previous_chat_messages_context(
+                context,
+                extra_user_message=initial_user_request,
+            )
+            if context is not None
+            else ""
+        )
+        base_prompt = place_previous_chat_messages_after_frame_snapshot(
+            base_prompt,
+            previous_chat_messages_context,
+        )
+
+        # Follow-up continuity must be the first thing Brain sees: visible chat
+        # first, then the accumulated reasoning evidence, then the synthetic
+        # FOLLOW_UP_RESPONSE_MESSAGE. Remove these blocks from their ordinary
+        # base-prompt positions before projecting them at the front so repeated
+        # follow-ups never duplicate them.
+        previous_chat_messages_context, base_prompt = (
+            extract_prompt_context_block(
+                base_prompt,
+                "PREVIOUS_CHAT_MESSAGES",
+            )
+        )
+        previous_reasoning_evidence_context, base_prompt = (
+            extract_prompt_context_block(
+                base_prompt,
+                "PREVIOUS_REASONING_EVIDENCE_TRAIL_AFTER_EXECUTED_ACTIONS",
+            )
+        )
+
+        continuity_sections = [
+            block
+            for block in (
+                previous_chat_messages_context,
+                previous_reasoning_evidence_context,
+            )
+            if block
+        ]
+        if continuity_sections:
+            sections = continuity_sections + sections
 
         sections.append(
-            rename_runtime_memory_for_followup(
-                strip_loaded_delayed_memory_context(
-                    strip_actions_history_context(
-                        system_prompt,
-                        keep_previous_chat_messages=project_review_active(context),
-                    )
-                ),
-                sequence_started_at=sequence_started_at,
-            )
+            base_prompt
         )
 
         return "\n\n".join(
@@ -1721,6 +2233,16 @@ class BrainNode(BaseNode):
                     if str(part or "").strip()
                 )
 
+        if emit_content_to_chat and str(text or "").strip():
+            from utils.context.messages import (
+                remember_current_sequence_jin_message,
+            )
+
+            remember_current_sequence_jin_message(
+                context,
+                text,
+            )
+
         return (
             text or "",
             runtime.stream.reasoning,
@@ -1902,6 +2424,16 @@ class BrainNode(BaseNode):
             )
             or []
         )
+        session_action_history_followup_offset = len(
+            getattr(
+                context,
+                "runtime_session_action_history",
+                [],
+            )
+            or []
+        )
+        context.runtime_followup_response_action_lines = []
+        context.runtime_followup_response_tool_ids = []
 
         text, reasoning = await self.run_brain_stream(
             state=state,
@@ -2138,10 +2670,141 @@ class BrainNode(BaseNode):
             nonlocal asset_result_offset
             nonlocal delayed_memory_result_offset
             nonlocal runtime_tool_result_followup_offset
+            nonlocal session_action_history_followup_offset
 
             pending_action_events = (
                 collect_pending_action_events()
             )
+
+            action_history = getattr(
+                context,
+                "runtime_session_action_history",
+                [],
+            )
+            if not isinstance(action_history, list):
+                action_history = []
+            safe_history_offset = max(
+                0,
+                min(
+                    session_action_history_followup_offset,
+                    len(action_history),
+                ),
+            )
+            pending_history_items = [
+                dict(item)
+                for item in action_history[
+                    safe_history_offset:
+                ]
+                if isinstance(item, dict)
+                and str(
+                    item.get(
+                        "text",
+                        "",
+                    )
+                    or ""
+                ).strip()
+            ]
+            session_action_history_followup_offset = len(
+                action_history
+            )
+
+            pending_tool_ids = []
+            for event in pending_action_events:
+                if not isinstance(event, dict):
+                    continue
+                tool_id = str(
+                    event.get(
+                        "tool_id",
+                        "",
+                    )
+                    or ""
+                ).strip()
+                if tool_id and tool_id not in pending_tool_ids:
+                    pending_tool_ids.append(
+                        tool_id
+                    )
+
+            tool_results = getattr(
+                context,
+                "runtime_tool_results",
+                [],
+            )
+            if not isinstance(tool_results, list):
+                tool_results = []
+
+            for entry in tool_results[
+                runtime_tool_result_followup_offset:
+            ]:
+                if (
+                    id(entry) in restore_replay_tool_result_ids
+                    or not isinstance(entry, dict)
+                ):
+                    continue
+
+                entry_turn_id = str(
+                    entry.get(
+                        "runtime_turn_id",
+                        "",
+                    )
+                    or ""
+                ).strip()
+                if (
+                    current_turn_id
+                    and entry_turn_id
+                    and entry_turn_id
+                    not in {
+                        current_turn_id,
+                        current_sequence_turn_id,
+                    }
+                ):
+                    continue
+
+                tool_id = str(
+                    entry.get(
+                        "tool_id",
+                        "",
+                    )
+                    or ""
+                ).strip()
+                if tool_id and tool_id not in pending_tool_ids:
+                    pending_tool_ids.append(
+                        tool_id
+                    )
+
+            action_lines = _format_followup_action_history_items(
+                pending_history_items
+            )
+            if not action_lines and pending_action_events:
+                for event in pending_action_events:
+                    if not isinstance(event, dict):
+                        continue
+                    action_name = str(
+                        event.get(
+                            "name",
+                            "",
+                        )
+                        or ""
+                    ).strip().upper()
+                    action_payload = str(
+                        event.get(
+                            "payload",
+                            "",
+                        )
+                        or ""
+                    ).strip()
+                    if not action_name:
+                        continue
+                    action_lines.append(
+                        (
+                            f"{action_name}: {action_payload}"
+                            if action_payload
+                            else action_name
+                        )
+                    )
+
+            context.runtime_followup_response_action_lines = action_lines
+            context.runtime_followup_response_tool_ids = pending_tool_ids
+
             action_event_followup_offset = len(
                 getattr(
                     context,
@@ -2804,6 +3467,12 @@ class BrainNode(BaseNode):
                 "claim unfinished work is complete.\n"
                 "</FOLLOWUP_LIMIT_REACHED>"
             )
+
+            # The final executable tick may itself have produced actions/tool
+            # results. Refresh the generic follow-up header before the forced
+            # non-executable response so it describes that immediately
+            # preceding tick rather than the older batch.
+            consume_current_action_batch()
 
             final_system_prompt = (
                 self.build_followup_system_prompt(

@@ -16,7 +16,7 @@
       "<JIN_SPEED> 600px/s </JIN_SPEED>"
     ],
     "rules": [
-      "Use only with JIN_POSITION marker.\n",
+      "Use only with JIN_POSITION marker.",
       "Set how quickly the JIN Live Avatar moves.",
       "Small values such as 20-80px/s create a slow crawl; large values such as 2000-6000px/s create a quick jump-like move."
     ],

@@ -1,5 +1,4 @@
 from contracts.rules_assembler import (
-    RUNTIME_ACTION_LOAD_SKILL,
     RUNTIME_ACTION_UNLOAD_SKILL,
 )
 
@@ -15,9 +14,6 @@ def plural_skill_marker_action_name(
         .strip()
         .upper()
     )
-
-    if normalized_name == "LOAD_SKILLS":
-        return RUNTIME_ACTION_LOAD_SKILL
 
     if normalized_name == "UNLOAD_SKILLS":
         return RUNTIME_ACTION_UNLOAD_SKILL

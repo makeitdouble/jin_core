@@ -190,7 +190,7 @@ class RuntimeSkillActionTests(RuntimeActionTestCase):
 
         result = extract_runtime_actions(
             (
-                "<LOAD_SKILL: image_prompt_generator>\n"
+                "<LOAD_SKILL_CONTEXT> image_prompt_generator </LOAD_SKILL_CONTEXT>\n"
                 "<UNLOAD_SKILL: wildcards>"
             ),
             enabled_actions=[
@@ -217,12 +217,15 @@ class RuntimeSkillActionTests(RuntimeActionTestCase):
         )
 
 
-    def test_extracts_plural_append_and_unload_skill_markers(self):
+    def test_legacy_plural_load_stays_text_while_plural_unload_still_executes(self):
 
+        load_marker = (
+            "<LOAD_SKILLS: "
+            "file_manager, image_prompt_generator, porn, wildcards>"
+        )
         result = extract_runtime_actions(
             (
-                "<LOAD_SKILLS: "
-                "file_manager, image_prompt_generator, porn, wildcards>\n"
+                load_marker + "\n"
                 "<UNLOAD_SKILLS: old_skill, unused_skill>"
             ),
             enabled_actions=[
@@ -232,56 +235,25 @@ class RuntimeSkillActionTests(RuntimeActionTestCase):
 
         self.assertEqual(
             result.text,
-            "",
-        )
-        append_payload = (
-            "file_manager, image_prompt_generator, porn, wildcards"
+            load_marker,
         )
         remove_payload = "old_skill, unused_skill"
         self.assertEqual(
             result.actions,
             (
                 RuntimeActionCall(
-                    name="LOAD_SKILL",
-                    payload="file_manager",
-                    marker_name="LOAD_SKILLS",
-                    marker_payload=append_payload,
-                    marker_group="load_skills_001",
-                ),
-                RuntimeActionCall(
-                    name="LOAD_SKILL",
-                    payload="image_prompt_generator",
-                    marker_name="LOAD_SKILLS",
-                    marker_payload=append_payload,
-                    marker_group="load_skills_001",
-                ),
-                RuntimeActionCall(
-                    name="LOAD_SKILL",
-                    payload="porn",
-                    marker_name="LOAD_SKILLS",
-                    marker_payload=append_payload,
-                    marker_group="load_skills_001",
-                ),
-                RuntimeActionCall(
-                    name="LOAD_SKILL",
-                    payload="wildcards",
-                    marker_name="LOAD_SKILLS",
-                    marker_payload=append_payload,
-                    marker_group="load_skills_001",
-                ),
-                RuntimeActionCall(
                     name="UNLOAD_SKILL",
                     payload="old_skill",
                     marker_name="UNLOAD_SKILLS",
                     marker_payload=remove_payload,
-                    marker_group="unload_skills_002",
+                    marker_group="unload_skills_001",
                 ),
                 RuntimeActionCall(
                     name="UNLOAD_SKILL",
                     payload="unused_skill",
                     marker_name="UNLOAD_SKILLS",
                     marker_payload=remove_payload,
-                    marker_group="unload_skills_002",
+                    marker_group="unload_skills_001",
                 ),
             ),
         )
@@ -289,21 +261,15 @@ class RuntimeSkillActionTests(RuntimeActionTestCase):
             result.observed_actions,
             (
                 RuntimeActionCall(
-                    name="LOAD_SKILLS",
-                    payload=append_payload,
-                    marker_name="LOAD_SKILLS",
-                    marker_payload=append_payload,
-                    marker_group="load_skills_001",
-                ),
-                RuntimeActionCall(
                     name="UNLOAD_SKILLS",
                     payload=remove_payload,
                     marker_name="UNLOAD_SKILLS",
                     marker_payload=remove_payload,
-                    marker_group="unload_skills_002",
+                    marker_group="unload_skills_001",
                 ),
             ),
         )
+
     def test_load_skill_name_attribute_stays_visible_text(self):
 
         result = extract_runtime_actions(
@@ -340,7 +306,7 @@ class RuntimeSkillActionTests(RuntimeActionTestCase):
 
         self.assertEqual(
             first.text,
-            '<LOAD_SKILL name="file',
+            "",
         )
         self.assertEqual(
             first.actions,
@@ -348,7 +314,7 @@ class RuntimeSkillActionTests(RuntimeActionTestCase):
         )
         self.assertEqual(
             second.text,
-            '_manager" />',
+            '<LOAD_SKILL name="file_manager" />',
         )
         self.assertEqual(
             second.actions,
@@ -360,7 +326,7 @@ class RuntimeSkillActionTests(RuntimeActionTestCase):
         )
 
 
-    def test_stream_filter_handles_split_plural_load_skill_marker(self):
+    def test_stream_filter_keeps_split_legacy_plural_load_marker_as_text(self):
 
         stream_filter = RuntimeActionStreamFilter(
             enabled_actions=[
@@ -377,7 +343,7 @@ class RuntimeSkillActionTests(RuntimeActionTestCase):
 
         self.assertEqual(
             first.text,
-            "",
+            "<LOAD_SKILLS: file_manager,",
         )
         self.assertEqual(
             first.actions,
@@ -385,60 +351,17 @@ class RuntimeSkillActionTests(RuntimeActionTestCase):
         )
         self.assertEqual(
             second.text,
-            "",
-        )
-        marker_payload = (
-            "file_manager, image_prompt_generator, porn, wildcards"
+            " image_prompt_generator, porn, wildcards>",
         )
         self.assertEqual(
             second.actions,
-            (
-                RuntimeActionCall(
-                    name="LOAD_SKILL",
-                    payload="file_manager",
-                    marker_name="LOAD_SKILLS",
-                    marker_payload=marker_payload,
-                    marker_group="load_skills_001",
-                ),
-                RuntimeActionCall(
-                    name="LOAD_SKILL",
-                    payload="image_prompt_generator",
-                    marker_name="LOAD_SKILLS",
-                    marker_payload=marker_payload,
-                    marker_group="load_skills_001",
-                ),
-                RuntimeActionCall(
-                    name="LOAD_SKILL",
-                    payload="porn",
-                    marker_name="LOAD_SKILLS",
-                    marker_payload=marker_payload,
-                    marker_group="load_skills_001",
-                ),
-                RuntimeActionCall(
-                    name="LOAD_SKILL",
-                    payload="wildcards",
-                    marker_name="LOAD_SKILLS",
-                    marker_payload=marker_payload,
-                    marker_group="load_skills_001",
-                ),
-            ),
-        )
-        self.assertEqual(
-            second.observed_actions,
-            (
-                RuntimeActionCall(
-                    name="LOAD_SKILLS",
-                    payload=marker_payload,
-                    marker_name="LOAD_SKILLS",
-                    marker_payload=marker_payload,
-                    marker_group="load_skills_001",
-                ),
-            ),
+            (),
         )
         self.assertEqual(
             stream_filter.flush(),
             "",
         )
+
     def test_duplicate_load_skill_markers_are_preserved_as_text(self):
 
         loaded_skill_names = set()
@@ -460,12 +383,12 @@ class RuntimeSkillActionTests(RuntimeActionTestCase):
             return False
 
         text = (
-            "<LOAD_SKILL: file_manager >\n"
-            "<LOAD_SKILL: image_prompt_generator >\n"
-            "<LOAD_SKILL: wildcards >\n"
-            "<LOAD_SKILL: porn >\n"
-            "<LOAD_SKILL: file_manager >\n"
-            "<LOAD_SKILL: image_prompt_generator >"
+            "<LOAD_SKILL_CONTEXT> file_manager </LOAD_SKILL_CONTEXT>\n"
+            "<LOAD_SKILL_CONTEXT> image_prompt_generator </LOAD_SKILL_CONTEXT>\n"
+            "<LOAD_SKILL_CONTEXT> wildcards </LOAD_SKILL_CONTEXT>\n"
+            "<LOAD_SKILL_CONTEXT> porn </LOAD_SKILL_CONTEXT>\n"
+            "<LOAD_SKILL_CONTEXT> file_manager </LOAD_SKILL_CONTEXT>\n"
+            "<LOAD_SKILL_CONTEXT> image_prompt_generator </LOAD_SKILL_CONTEXT>"
         )
 
         result = extract_runtime_actions(
@@ -498,15 +421,15 @@ class RuntimeSkillActionTests(RuntimeActionTestCase):
             ),
         )
         self.assertIn(
-            "<LOAD_SKILL: file_manager >",
+            "<LOAD_SKILL_CONTEXT> file_manager </LOAD_SKILL_CONTEXT>",
             result.text,
         )
         self.assertIn(
-            "<LOAD_SKILL: image_prompt_generator >",
+            "<LOAD_SKILL_CONTEXT> image_prompt_generator </LOAD_SKILL_CONTEXT>",
             result.text,
         )
         self.assertNotIn(
-            "<LOAD_SKILL: wildcards >",
+            "<LOAD_SKILL_CONTEXT> wildcards </LOAD_SKILL_CONTEXT>",
             result.text,
         )
         self.assertEqual(
@@ -537,8 +460,8 @@ class RuntimeSkillActionTests(RuntimeActionTestCase):
 
         result = extract_runtime_actions(
             (
-                "<LOAD_SKILL: name of skill >\n"
-                "<LOAD_SKILL: name of skill >"
+                "<LOAD_SKILL_CONTEXT> name of skill </LOAD_SKILL_CONTEXT>\n"
+                "<LOAD_SKILL_CONTEXT> name of skill </LOAD_SKILL_CONTEXT>"
             ),
             enabled_actions=[
                 "CAN_USE_ASSETS",
@@ -556,7 +479,7 @@ class RuntimeSkillActionTests(RuntimeActionTestCase):
             ),
         )
         self.assertIn(
-            "<LOAD_SKILL: name of skill >",
+            "<LOAD_SKILL_CONTEXT> name of skill </LOAD_SKILL_CONTEXT>",
             result.text,
         )
         self.assertEqual(

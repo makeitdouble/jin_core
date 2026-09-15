@@ -1,18 +1,23 @@
 import asyncio
 import contextlib
 import json
+import gc
+import weakref
 import unittest
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
 from starlette.websockets import WebSocketDisconnect
+from starlette.datastructures import Headers
 import websocket as ws
 from runtime.runtime_context import RuntimeContext
-from websocket.transport import RuntimeTransport, stop_runtime_transports
+from websocket.transport import PAGE_CLOSED_CODE, RECONNECT_GRACE_SECONDS, RuntimeTransport, stop_runtime_transports
 
 
 class Socket:
     def __init__(self, app=None, soft=False):
+        self.headers = Headers({"host": "localhost:8000", "origin": "http://localhost:8000"})
+        self.scope = {"scheme": "ws"}
         self.app = app or SimpleNamespace(state=SimpleNamespace(clients={}))
         self.query_params = {"client_id": "transport-test", "resume": "soft" if soft else ""}
         self.incoming = asyncio.Queue()
@@ -32,10 +37,12 @@ class Socket:
         data = await self.incoming.get()
         if data is None:
             raise WebSocketDisconnect(1006)
+        if isinstance(data, WebSocketDisconnect):
+            raise data
         return json.dumps(data)
 
     async def close(self, code=1000):
-        await self.incoming.put(None)
+        await self.incoming.put(WebSocketDisconnect(code))
 
 
 async def until(predicate):
@@ -95,13 +102,103 @@ class TransportTests(unittest.IsolatedAsyncioTestCase):
     async def test_frame_wait_and_appended_user_batch_survive_disconnect(self):
         await self.exercise_queue(frame_wait=True)
 
-    async def exercise_queue(self, frame_wait=False):
+    async def test_page_close_cancels_generation_and_preserves_queued_user(self):
+        await self.exercise_queue(page_close=True)
+
+    async def test_page_close_cancels_guard_wait(self):
+        await self.exercise_queue(page_close=True, guard_wait=True)
+
+    async def test_page_close_preserves_user_batch_waiting_for_frame(self):
+        await self.exercise_queue(page_close=True, frame_wait=True)
+
+    async def test_grace_expiry_cancels_guard_and_removes_context(self):
+        with patch("websocket.transport.RECONNECT_GRACE_SECONDS", .03):
+            await self.exercise_queue(expire=True, guard_wait=True)
+
+    async def test_grace_is_ten_minutes(self):
+        self.assertEqual(RECONNECT_GRACE_SECONDS, 600)
+
+    async def test_retirement_cancels_background_streams_and_lt_owner(self):
+        socket = Socket()
+        context = RuntimeContext(None, None, None, {})
+        transport = RuntimeTransport(socket)
+        transport.context = context
+        transport.client_id = "transport-test"
+        context.runtime_transport = transport
+        socket.app.state.websocket_runtime_contexts = {"transport-test": context}
+        socket.app.state.lt_runtime_context = context
+        socket.app.state.lt_memory_scheduler_wake_event = asyncio.Event()
+        tasks = [asyncio.create_task(asyncio.Event().wait()) for _ in range(4)]
+        transport.task = tasks[0]
+        context.background_tasks.add(tasks[1])
+        context.runtime_memory_update_task = tasks[2]
+        context.runtime_lt_log_mention_backfill_task = tasks[3]
+        response = SimpleNamespace(aclose=AsyncMock())
+        context.active_streams["brain"] = response
+        await transport.send_json({"type": "private"})
+        await asyncio.sleep(0)
+        await transport.stop()
+        await transport.stop()  # Idempotent and no second close/write.
+        self.assertTrue(all(task.cancelled() for task in tasks))
+        self.assertIsNone(socket.app.state.lt_runtime_context)
+        self.assertTrue(socket.app.state.lt_memory_scheduler_wake_event.is_set())
+        self.assertEqual(socket.app.state.websocket_runtime_contexts, {})
+        self.assertFalse(transport.pending)
+        response.aclose.assert_awaited_once()
+
+    async def test_old_socket_and_old_cleanup_cannot_retire_replacement(self):
+        socket = Socket()
+        context = RuntimeContext(None, None, None, {})
+        transport = RuntimeTransport(socket)
+        transport.context = context
+        transport.client_id = "transport-test"
+        transport.attach(socket)
+        replacement = Socket(socket.app, soft=True)
+        transport.attach(replacement)
+        transport.detach(socket)
+        self.assertIs(transport.socket, replacement)
+        self.assertIsNone(transport.expiry)
+        new_context = RuntimeContext(None, None, None, {})
+        socket.app.state.websocket_runtime_contexts = {"transport-test": new_context}
+        socket.app.state.lt_runtime_context = new_context
+        await transport.stop()
+        self.assertIs(socket.app.state.websocket_runtime_contexts["transport-test"], new_context)
+        self.assertIs(socket.app.state.lt_runtime_context, new_context)
+
+    async def test_idle_lt_scheduler_releases_retired_context_from_ram(self):
+        import runtime.LT_memory as lt
+        socket = Socket()
+        context = RuntimeContext(None, None, None, {})
+        transport = RuntimeTransport(socket)
+        transport.context = context
+        transport.client_id = "transport-test"
+        context.runtime_transport = transport
+        socket.app.state.websocket_runtime_contexts = {"transport-test": context}
+        ref = weakref.ref(context)
+        with patch.object(lt, "lt_memory_has_pending_work", lambda _: True), \
+                patch.object(lt, "get_lt_scheduler_interval_seconds", lambda **_: 0.01), \
+                patch.object(lt, "schedule_lt_memory_idle_update", lambda **_: None):
+            scheduler = asyncio.create_task(lt.run_lt_memory_server_scheduler(socket.app.state))
+            try:
+                await until(lambda: getattr(socket.app.state, "lt_runtime_context", None) is context)
+                await transport.stop()
+                del context, transport
+                await asyncio.sleep(.03)
+                gc.collect()
+                self.assertIsNone(ref())
+            finally:
+                scheduler.cancel()
+                with contextlib.suppress(asyncio.CancelledError):
+                    await scheduler
+
+    async def exercise_queue(self, frame_wait=False, page_close=False, guard_wait=False, expire=False):
         socket = Socket()
         context = RuntimeContext(None, None, None, {})
         socket.app.state.websocket_runtime_contexts = {"transport-test": context}
         release = asyncio.Event()
         started = []
         completed = []
+        interrupted = []
         frame_release = asyncio.Event()
         if frame_wait:
             context.runtime_memory_update_task = asyncio.create_task(frame_release.wait())
@@ -111,9 +208,17 @@ class TransportTests(unittest.IsolatedAsyncioTestCase):
                 await asyncio.shield(context.runtime_memory_update_task)
 
         async def process(context, message):
+            if message.get("_interrupt_before_brain"):
+                interrupted.append(message["text"])
+                raise asyncio.CancelledError()
             started.append(message["text"])
             await context.websocket.send_json({"type": "agent_runtime_start"})
-            await release.wait()
+            if guard_wait:
+                future = asyncio.get_running_loop().create_future()
+                context.runtime_action_guard_confirmations["test"] = future
+                await future
+            else:
+                await release.wait()
             completed.append(message["text"])
             await context.websocket.send_json({"type": "chunk", "text": message["text"]})
             await context.websocket.send_json({"type": "agent_runtime_end"})
@@ -147,8 +252,23 @@ class TransportTests(unittest.IsolatedAsyncioTestCase):
                     await socket.incoming.put({"text": "second"})
                     await until(lambda: context.runtime_pending_requests_queue.qsize() == 1)
                 worker = context.runtime_transport.task
-                await socket.close()
+                await socket.close(code=PAGE_CLOSED_CODE if page_close else 1006)
                 await asyncio.wait_for(endpoint, 1)
+                if page_close or expire:
+                    await until(lambda: context.runtime_transport.stop_task is not None)
+                    await asyncio.wait_for(context.runtime_transport.stop_task, 1)
+                    self.assertTrue(worker.done())
+                    self.assertFalse(socket.app.state.websocket_runtime_contexts)
+                    self.assertFalse(context.runtime_action_guard_confirmations)
+                    self.assertFalse(context.runtime_transport.pending)
+                    self.assertEqual(completed, [])
+                    if frame_wait:
+                        self.assertTrue(all(text in interrupted[0] for text in ("first", "second", "third")))
+                    else:
+                        self.assertEqual(interrupted, ["second"])
+                    return
+                expiry = context.runtime_transport.expiry
+                self.assertIsNotNone(expiry)
                 release.set()
                 frame_release.set()
                 expected_count = 1 if frame_wait else 2
@@ -163,6 +283,8 @@ class TransportTests(unittest.IsolatedAsyncioTestCase):
                 await until(lambda: sum(e.get("type") == "agent_runtime_end" for e in replacement.events) == expected_count)
                 self.assertTrue(replacement.events[0]["live_resume"])
                 self.assertIs(context.runtime_transport.task, worker)
+                self.assertTrue(expiry.cancelled())
+                self.assertIsNone(context.runtime_transport.expiry)
                 self.assertEqual(started, completed)
                 await replacement.incoming.put({"type": "runtime_event_ack", "sequence": context.runtime_transport.sequence})
                 await until(lambda: not context.runtime_transport.pending)

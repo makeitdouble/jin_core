@@ -694,7 +694,7 @@ class BrainRuntimeActionTests(unittest.TestCase):
                     "\n",
                     "<SAVE_ACTIVE_MEMORY>astronomical news tracker</SAVE_ACTIVE_MEMORY>",
                     "\n",
-                    "<LOAD_SKILL: wildcards>",
+                    "<LOAD_SKILL_CONTEXT> wildcards </LOAD_SKILL_CONTEXT>",
                 ):
                     yield {
                         "type": "content",
@@ -1641,8 +1641,8 @@ class BrainRuntimeActionTests(unittest.TestCase):
                 yield {
                     "type": "content",
                     "content": (
-                        "<LOAD_SKILL: name of skill >\n"
-                        "<LOAD_SKILL: name of skill >"
+                        "<LOAD_SKILL_CONTEXT> name of skill </LOAD_SKILL_CONTEXT>\n"
+                        "<LOAD_SKILL_CONTEXT> name of skill </LOAD_SKILL_CONTEXT>"
                     ),
                 }
 
@@ -1695,20 +1695,16 @@ class BrainRuntimeActionTests(unittest.TestCase):
         )
 
         self.assertIn(
-            "<LOAD_SKILL: name of skill >",
+            "<LOAD_SKILL_CONTEXT> name of skill </LOAD_SKILL_CONTEXT>",
             visible_text,
         )
-        self.assertEqual(
-            context.runtime_action_events,
-            [
-                {
-                    "name": "load_skill",
-                    "runtime_turn_id": "turn-1",
-                    "payload": "name of skill",
-                    "tool_id": "T1",
-                },
-            ],
-        )
+        self.assertEqual(len(context.runtime_action_events), 1)
+        event = context.runtime_action_events[0]
+        self.assertEqual(event["name"], "load_skill")
+        self.assertEqual(event["runtime_turn_id"], "turn-1")
+        self.assertEqual(event["payload"], "name of skill")
+        self.assertEqual(event["tool_id"], "T1")
+        self.assertTrue(event.get("runtime_message_id"))
         self.assertEqual(
             context.runtime_asset_results[-1]["action"],
             "load_skill",
@@ -2032,17 +2028,13 @@ class BrainRuntimeActionTests(unittest.TestCase):
             context.active_memory_records,
             [],
         )
-        self.assertEqual(
-            context.runtime_action_events,
-            [
-                {
-                    "name": "delete_active_memory",
-                    "id": "5fdg4g",
-                    "payload": "active_memory_id: 5fdg4g",
-                    "tool_id": "T1",
-                },
-            ],
-        )
+        self.assertEqual(len(context.runtime_action_events), 1)
+        event = context.runtime_action_events[0]
+        self.assertEqual(event["name"], "delete_active_memory")
+        self.assertEqual(event["id"], "5fdg4g")
+        self.assertEqual(event["payload"], "active_memory_id: 5fdg4g")
+        self.assertEqual(event["tool_id"], "T1")
+        self.assertTrue(event.get("runtime_message_id"))
 
     def test_stream_ignores_web_search_internal_action_in_thinking(self):
 

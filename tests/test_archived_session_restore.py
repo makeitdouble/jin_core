@@ -456,7 +456,7 @@ session_snapshot_last_turn: 1
         self.assertEqual(payload["tool_results"][0]["kind"], "search")
         self.assertIn("People recommend cold noir music.", payload["tool_results"][0]["result"])
 
-    def test_url_restore_ui_uses_same_bounded_tail_and_clean_reasoning(self):
+    def test_url_restore_ui_uses_five_pair_bounded_tail_and_clean_reasoning(self):
         root = Path(tempfile.mkdtemp())
         session_id = "bounded-url-restore"
         session_dir = root / "2026-08-16" / session_id
@@ -512,18 +512,20 @@ session_snapshot_last_turn: 1
         self.assertEqual(
             [item["text"] for item in payload["messages"]],
             [
+                "user 1", "jin 1",
+                "user 2", "jin 2",
                 "user 3", "jin 3",
                 "user 4", "jin 4",
                 "user 5", "jin 5",
             ],
         )
         self.assertEqual(
-            payload["messages"][3]["reasoning"],
+            payload["messages"][7]["reasoning"],
             "reasoning 4",
         )
         self.assertNotIn(
             "captured_at",
-            payload["messages"][3]["reasoning"],
+            payload["messages"][7]["reasoning"],
         )
         self.assertNotIn("captured_at", payload["dialog_context"])
         self.assertNotIn("<JIN_REASONING", payload["dialog_context"])
@@ -532,7 +534,7 @@ session_snapshot_last_turn: 1
         self.assertEqual(payload["previous_reasoning"], "reasoning 5")
         self.assertEqual(
             [turn["user"] for turn in payload["recent_turns"]],
-            ["user 3", "user 4", "user 5"],
+            ["user 1", "user 2", "user 3", "user 4", "user 5"],
         )
 
     def test_runtime_color_event_restores_color_and_structured_action(self):
@@ -612,7 +614,7 @@ open_question: wrong bootstrap question
         self.assertNotIn("WRONG BOOTSTRAP VALUE", payload["runtime_memory"])
         self.assertEqual(payload["context_file"], "222828.txt")
 
-    def test_restored_dialog_keeps_three_newest_complete_pairs_chronological(self):
+    def test_restored_dialog_keeps_up_to_five_complete_pairs_chronological(self):
         root = Path(tempfile.mkdtemp())
         session_id = "reverse-three-pairs"
         session_dir = root / "2026-08-17" / session_id
@@ -657,8 +659,8 @@ open_question: wrong bootstrap question
         )
 
         dialog = payload["dialog_context"]
-        self.assertNotIn("question 1", dialog)
-        self.assertNotIn("answer 1", dialog)
+        self.assertLess(dialog.index("question 1"), dialog.index("answer 1"))
+        self.assertLess(dialog.index("answer 1"), dialog.index("question 2"))
         self.assertLess(dialog.index("question 2"), dialog.index("answer 2"))
         self.assertLess(dialog.index("answer 2"), dialog.index("question 3"))
         self.assertLess(dialog.index("answer 3"), dialog.index("question 4"))

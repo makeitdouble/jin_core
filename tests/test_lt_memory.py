@@ -2353,13 +2353,21 @@ class LTMemoryTests(unittest.IsolatedAsyncioTestCase):
             clients={},
         )
 
-        context.runtime_lt_idle_last_started_at = 123.0
+        stale_idle_anchor = (
+            time.monotonic()
+            - float(lt_memory_module.get_lt_idle_seconds())
+            - 1.0
+        )
+        context.runtime_lt_idle_last_started_at = stale_idle_anchor
         empty = schedule_lt_memory_idle_update(
             context=context,
             user_idle_seconds=61,
         )
         self.assertIsNone(empty)
-        self.assertEqual(context.runtime_lt_idle_last_started_at, 123.0)
+        self.assertEqual(
+            context.runtime_lt_idle_last_started_at,
+            stale_idle_anchor,
+        )
 
         context.runtime_long_term_memory_store = normalize_lt_store({
             "pending_facts": [{

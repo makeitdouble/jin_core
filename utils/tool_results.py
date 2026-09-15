@@ -751,6 +751,13 @@ def bind_tool_result_to_action(context, entry) -> None:
     for event in events:
         if name == "clean_tool_results" and event.get("payload", "") != result.get("payload", ""):
             continue
+        if name in {"load_skill", "unload_skill"}:
+            from utils.skills_asset_utils import normalize_skill_name
+
+            requested = normalize_skill_name(result.get("requested", ""))
+            event_requested = normalize_skill_name(event.get("payload", ""))
+            if requested and event_requested != requested:
+                continue
         if (event.get("name") == name and not event.get("tool_id")
                 and (not turn_id or event.get("runtime_turn_id", "") == turn_id)):
             event["tool_id"] = entry["tool_id"]

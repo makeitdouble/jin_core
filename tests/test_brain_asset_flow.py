@@ -444,7 +444,7 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
         )
 
         self.assertIn(
-            "<PREVIOUS_REASONING_CONTENT>",
+            "<PREVIOUS_REASONING_EVIDENCE_TRAIL_AFTER_EXECUTED_ACTIONS>",
             prompt,
         )
         self.assertIn(
@@ -465,10 +465,10 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
         )
         self.assertLess(
             prompt.index("<TOOLS_RESULTS>"),
-            prompt.index("<PREVIOUS_REASONING_CONTENT>"),
+            prompt.index("<PREVIOUS_REASONING_EVIDENCE_TRAIL_AFTER_EXECUTED_ACTIONS>"),
         )
         self.assertLess(
-            prompt.index("</PREVIOUS_REASONING_CONTENT>"),
+            prompt.index("</PREVIOUS_REASONING_EVIDENCE_TRAIL_AFTER_EXECUTED_ACTIONS>"),
             prompt.index("I identify as JIN"),
         )
 
@@ -506,7 +506,7 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
         )
 
         self.assertNotIn(
-            "<PREVIOUS_REASONING_CONTENT>",
+            "<PREVIOUS_REASONING_EVIDENCE_TRAIL_AFTER_EXECUTED_ACTIONS>",
             prompt,
         )
         self.assertIn(
@@ -2343,7 +2343,8 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
                         "type": "content",
                         "content": (
                             "Load the requested skills. "
-                            "<LOAD_SKILLS: chunk_reader, image_prompt_generator>"
+                            "<LOAD_SKILL_CONTEXT> chunk_reader </LOAD_SKILL_CONTEXT>"
+                            "<LOAD_SKILL_CONTEXT> image_prompt_generator </LOAD_SKILL_CONTEXT>"
                         ),
                     }
                     return
@@ -2494,7 +2495,7 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
                         "type": "content",
                         "content": (
                             "Load the needed skill. "
-                            "<LOAD_SKILL: chunk_reader> trailing text"
+                            "<LOAD_SKILL_CONTEXT> chunk_reader </LOAD_SKILL_CONTEXT> trailing text"
                         ),
                     }
                     kwargs["context"].runtime_current_turn_id = (

@@ -12,6 +12,7 @@ BROWSER_TESTS = (
     "test_chat_log_search_modal.js",
     "test_malformed_actions_client.js",
     "test_runtime_transport_client.js",
+    "test_runtime_transport_navigation.js",
 )
 
 

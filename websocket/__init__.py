@@ -1,6 +1,8 @@
 from fastapi import (
     APIRouter,
     WebSocket,
+    Request,
+    Response,
 )
 from starlette.websockets import WebSocketDisconnect
 
@@ -9,7 +11,8 @@ import contextlib
 import json
 
 from .logger import WebSocketLogger
-from .transport import RuntimeTransport
+from .transport import PAGE_CLOSED_CODE, RuntimeTransport
+from .origin import has_same_origin
 from runtime.memory_edit import apply_memory_value_edit
 
 from runtime.frame_memory import (
@@ -113,6 +116,27 @@ from utils.session_actions_history import (
 websocket_router = APIRouter()
 
 
+@websocket_router.post("/ws/chat/close")
+async def close_runtime_page(request: Request):
+    # pagehide's close frame is not reliably delivered during navigation.
+    # The epoch binds this beacon to one transport, including anonymous reloads
+    # that reuse the client id. Never retire a replacement from a stale beacon.
+    if not has_same_origin(request):
+        return Response(status_code=403)
+    try:
+        payload = await request.json()
+    except ValueError:
+        return Response(status_code=400)
+    if not isinstance(payload, dict):
+        return Response(status_code=400)
+    client_id = normalize_resume_client_id(payload.get("client_id"))
+    context = get_resume_context_store(request).get(client_id)
+    transport = getattr(context, "runtime_transport", None)
+    if transport is not None and payload.get("epoch") == transport.epoch:
+        await transport.stop()
+    return Response(status_code=204)
+
+
 def preserve_reconnect_pending_request(
     context,
     message_data: dict,
@@ -172,6 +196,10 @@ async def restore_reconnect_pending_requests(
 async def websocket_endpoint(
     websocket: WebSocket,
 ):
+    if not has_same_origin(websocket):
+        await websocket.close(code=1008)
+        return
+
     client_id = normalize_resume_client_id(websocket.query_params.get("client_id", ""))
     if websocket_requests_anonymous_mode(websocket) and client_id:
         client_id = normalize_resume_client_id(ensure_anonymous_session_id(client_id))
@@ -180,19 +208,22 @@ async def websocket_endpoint(
     live_resume = bool(
         is_soft_resume_request(websocket)
         and transport is not None
+        and not transport.stopping
         and transport.task is not None
         and not transport.task.done()
     )
     await websocket.accept()
+    if transport is not None and transport.stopping:
+        live_resume = False
     if not live_resume:
-        if transport is not None and transport.task is not None and not transport.task.done():
-            transport.task.cancel()
-            with contextlib.suppress(asyncio.CancelledError, Exception):
-                await transport.task
+        if transport is not None:
+            await transport.stop()
         transport = RuntimeTransport(websocket)
         logger = WebSocketLogger(transport)
         context, resumed_context = get_or_create_connection_context(transport, logger)
         context.runtime_transport = transport
+        transport.context = context
+        transport.client_id = client_id
         attach_websocket_to_context(context, transport, logger)
         transport.task = asyncio.create_task(
             run_runtime_session(transport, context, resumed_context)
@@ -201,14 +232,14 @@ async def websocket_endpoint(
     # A replacement connection has one receiver/sender; the runtime and FIFO
     # worker remain the same tasks, including an open pending USER batch.
     previous = transport.socket
-    transport.socket = websocket
-    transport.changed.set()
+    transport.attach(websocket)
     if previous is not None and previous is not websocket:
         with contextlib.suppress(Exception):
             await previous.close(code=1000)
     register_lt_websocket_connection(context, app_state=websocket.app.state, websocket=websocket)
     sender = None
     receiver = None
+    page_closed = False
     try:
         await websocket.send_json({
             "type": "runtime_transport_ready", "live_resume": live_resume,
@@ -235,7 +266,9 @@ async def websocket_endpoint(
                 transport.acknowledge(payload.get("sequence"))
             else:
                 await transport.incoming.put(raw)
-    except (WebSocketDisconnect, OSError):
+    except WebSocketDisconnect as error:
+        page_closed = error.code == PAGE_CLOSED_CODE
+    except OSError:
         pass
     finally:
         if receiver is not None:
@@ -247,8 +280,11 @@ async def websocket_endpoint(
             with contextlib.suppress(asyncio.CancelledError, Exception):
                 await sender
         if transport.socket is websocket:
-            transport.socket = None
-            context.runtime_lt_websocket_connected = False
+            if page_closed or transport.task.done():
+                await transport.stop()
+                transport.socket = None
+            else:
+                transport.detach(websocket)
         unregister_lt_websocket_connection(context, app_state=websocket.app.state, websocket=websocket)
 
 
@@ -466,7 +502,7 @@ async def run_runtime_session(websocket, context, resumed_context):
                     await asyncio.shield(active_task)
 
                 except asyncio.CancelledError:
-                    if active_task.cancelled():
+                    if active_task.cancelled() and not asyncio.current_task().cancelling():
                         await logger.log_runtime(
                             "[WS] queued request interrupted"
                         )
@@ -491,7 +527,9 @@ async def run_runtime_session(websocket, context, resumed_context):
                 ):
                     preserve_reconnect_pending_request(
                         context,
-                        message_data,
+                        merge_pending_user_message_batch(
+                            message_data, batch_state.get("messages", []),
+                        ) if batch_state and batch_state.get("messages") else message_data,
                     )
                 raise
 
@@ -1335,4 +1373,18 @@ async def run_runtime_session(websocket, context, resumed_context):
             )
             pending_requests.task_done()
 
-
+        if getattr(websocket, "stopping", False):
+            # A page that left cannot replay its accepted USER queue. Preserve
+            # those moves through the existing USER-only interruption path,
+            # without starting Brain or executing a queued action/restore tick.
+            while not websocket.incoming.empty():
+                raw = websocket.incoming.get_nowait()
+                try:
+                    preserve_reconnect_pending_request(context, json.loads(raw))
+                except (ValueError, TypeError):
+                    pass
+            abandoned = getattr(context, "runtime_reconnect_pending_requests", [])
+            context.runtime_reconnect_pending_requests = []
+            for message in abandoned:
+                with contextlib.suppress(asyncio.CancelledError, Exception):
+                    await process_message(context, {**message, "_interrupt_before_brain": True})

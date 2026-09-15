@@ -726,12 +726,43 @@ def build_loaded_skills_content_context(
     if not loaded_skills:
         return ""
 
-    return (
-        "<LOADED_SKILLS_CONTENT>\n"
-        f"{indent_xml(escape(format_tool_result_payload(loaded_skills)))}\n"
-        "</LOADED_SKILLS_CONTENT>"
-    )
+    # Once a repeated LOAD_SKILL has entered the generic result-reuse path,
+    # that path owns the full skill payload. Do not emit the legacy synthetic
+    # loaded-skill block as a second full copy; only the newest reusable result
+    # should carry the body while older attempts remain as absorbed records.
+    from utils.skills_asset_utils import normalize_skill_name
 
+    represented_skill_names = set()
+    for entry in get_runtime_tool_results(context):
+        if not isinstance(entry, dict) or entry.get("absorbed_by"):
+            continue
+        result = entry.get("result")
+        if not isinstance(result, dict) or result.get("ok") is False:
+            continue
+        action_name = str(
+            result.get("runtime_action_name")
+            or result.get("action")
+            or entry.get("action_name")
+            or ""
+        ).strip().upper()
+        if action_name != "LOAD_SKILL":
+            continue
+        skill = result.get("skill")
+        if not isinstance(skill, dict):
+            continue
+        skill_name = normalize_skill_name(skill.get("name", ""))
+        if skill_name:
+            represented_skill_names.add(skill_name)
+
+    return "\n".join(
+        _build_recorded_tool_result_block(
+            f'name="LOAD_SKILL" skill="{escape(str(skill.get("name") or ""))}"',
+            format_tool_result_payload(skill),
+        )
+        for skill in loaded_skills
+        if isinstance(skill, dict)
+        and normalize_skill_name(skill.get("name", "")) not in represented_skill_names
+    )
 
 def _append_asset_results(
     parts: list[str],
@@ -871,6 +902,9 @@ def build_tool_results_context(
 ) -> str:
 
     tool_result_blocks = []
+    loaded_skills_content = build_loaded_skills_content_context(context)
+    if loaded_skills_content:
+        tool_result_blocks.append(loaded_skills_content)
     represented_attachment_ids = set()
     embedded_project_refs = set()
     try:

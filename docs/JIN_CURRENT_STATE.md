@@ -656,3 +656,34 @@ and existing archive selected Sept 10's 7e91148a session, displayed its USER/JIN
 pair and reasoning before the 19:38 divider, contained no deleted photo rows,
 and kept 14 DOM children after replay (14 -> 14). The running JIN server itself
 was not restarted; it must load the changed Python code on restart.
+
+## Transport lifecycle correction — 2026-09-15
+
+Explicit page departure now retires its runtime; unexplained disconnects have
+a 600-second reconnect grace. A same-origin close beacon names both client id
+and transport epoch, so a stale beacon cannot stop an anonymous reload/replacement
+that reused the id. Retirement clears the scheduler's cached L-T context and
+cancels guard/background work. Scheduler iterations release old local references
+before waiting with an empty store. RuntimeStream propagates cancellation for
+retiring transports instead of returning into the ordinary completed-turn tail.
+USER-only interruption semantics remain.
+
+Verification includes shortened-clock expiry, real Edge reload during streaming
+and action-guard waiting, tab close, reconnect replay, BFCache/freeze preservation,
+same-origin/epoch rejection, and garbage collection of the retired context while
+the global L-T scheduler remains alive. Model output is mocked in browser tests;
+they do not use personal memory or call providers.
+
+## L-T backfill lost-update correction — 2026-09-15
+
+Backfill previously read/repaired a snapshot on the event loop, then persisted
+it via `asyncio.to_thread`. That worker could overwrite a successful deletion,
+value edit, or live mention committed by another runtime. Each of those losses
+was reproduced before the fix in an isolated file-store regression test.
+
+Backfill now follows the other L-T writers: its latest-state read, repair and
+write have no suspension point, and RAM publishes the repaired snapshot only
+after persistence succeeds. Archive scanning stays off-thread. Six interleaving
+tests cover changes during scanning and immediately after snapshot preparation,
+including reload into a fresh context. This relies on the current single server
+event loop; multiple processes sharing the profile would need separate locking.

@@ -697,6 +697,13 @@ on soft reconnect with page-local event deduplication; live server state wins
 over the stale page snapshot. Browser freeze/discard cannot be prevented by a
 server timeout setting. Process termination remains outside in-memory recovery.
 
+Owner clarification (2026-09-15): reload/close explicitly retires the departing
+page runtime. If its departure signal is lost, retain a disconnected runtime for
+10 minutes, then cancel its work and release it. Reconnecting within that window
+preserves the live runtime. Connected background tabs and persisted BFCache pages
+are not explicit departures. This bounds the earlier disconnected-retention rule;
+it is not a ten-minute generation limit or a timeout on a connected action guard.
+
 ---
 
 ## Malformed-action recovery — 2026-09-10

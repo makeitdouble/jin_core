@@ -189,7 +189,11 @@ class RuntimeStream:
         self.filter_runtime_actions_enabled = filter_runtime_actions
         if self.filter_runtime_actions_enabled:
             self.context.runtime_skill_state_barrier_active = False
-        self.load_skill_marker_names = self.build_loaded_skill_name_set()
+        # Deduplicate LOAD_SKILL only inside this model message. A skill that
+        # was loaded by a previous message must still be parsed as a real action
+        # so the dispatcher can reuse/absorb its existing result and preserve
+        # the normal follow-up lifecycle.
+        self.load_skill_marker_names = set()
         self.repetition_guard = RuntimeActionRepetitionGuard()
         self.action_counter = RuntimeActionCounter()
         self.marker_repetition_aborted = False
@@ -232,40 +236,6 @@ class RuntimeStream:
                 context_snapshot
             ),
         )
-
-    def build_loaded_skill_name_set(self) -> set[str]:
-
-        names = set()
-
-        for skill in (
-            getattr(
-                self.context,
-                "runtime_loaded_skills",
-                [],
-            )
-            or []
-        ):
-            if isinstance(
-                skill,
-                dict,
-            ):
-                name = skill.get(
-                    "name",
-                    "",
-                )
-            else:
-                name = skill
-
-            normalized_name = normalize_skill_name(
-                name
-            )
-
-            if normalized_name:
-                names.add(
-                    normalized_name
-                )
-
-        return names
 
     def get_action_guard_retry(
         self,
@@ -3558,6 +3528,11 @@ class RuntimeStream:
                 await self.stream.finish(
                     emit=self.emit_to_chat
                 )
+
+            if getattr(getattr(self.context, "runtime_transport", None), "stopping", False):
+                # Retiring pages must unwind the turn, not run its normal
+                # completion/FRAME/action tail after a swallowed cancellation.
+                raise
 
             return None
 

@@ -40,22 +40,16 @@ class SkillMarkerSemanticsTests(RuntimeActionTestCase):
                 f"{name}\nTest skill.",
             )
 
-    def test_plural_load_skills_is_one_uncounted_marker(self):
+    def test_legacy_plural_load_skills_is_plain_text(self):
         marker = "<LOAD_SKILLS: file_manager, wildcards, porn>"
         parsed = extract_runtime_actions(
             marker,
             enabled_actions=["CAN_USE_ASSETS"],
         )
 
-        self.assertEqual(
-            [(action.name, action.payload) for action in parsed.observed_actions],
-            [
-                (
-                    "LOAD_SKILLS",
-                    "file_manager, wildcards, porn",
-                ),
-            ],
-        )
+        self.assertEqual(parsed.text, marker)
+        self.assertEqual(parsed.observed_actions, ())
+        self.assertEqual(parsed.actions, ())
 
         counter = RuntimeActionCounter()
         self.assertEqual(
@@ -63,60 +57,11 @@ class SkillMarkerSemanticsTests(RuntimeActionTestCase):
             (),
         )
 
-        with tempfile.TemporaryDirectory() as temp_dir:
-            root = Path(temp_dir)
-            with contextlib.ExitStack() as stack:
-                for patcher in self.patch_asset_roots(root):
-                    stack.enter_context(patcher)
-
-                self._write_skills(
-                    root,
-                    "file_manager",
-                    "wildcards",
-                    "porn",
-                )
-                context = FakeContext()
-                context.emitter = FakeEmitter()
-                context.runtime_current_turn_id = "turn-1"
-
-                applied_count = asyncio.run(
-                    apply_runtime_action_calls(
-                        context,
-                        parsed.actions,
-                        runtime_message_id="message-1",
-                    )
-                )
-
-        self.assertEqual(applied_count, 3)
-        self.assertEqual(len(context.emitter.events), 2)
-        self.assertEqual(
-            {event["action"] for event in context.emitter.events},
-            {"load_skills"},
-        )
-        self.assertEqual(
-            {event["id"] for event in context.emitter.events},
-            {context.emitter.events[0]["id"]},
-        )
-        self.assertEqual(
-            {event["text"] for event in context.emitter.events},
-            {"LOAD_SKILLS: file_manager, wildcards, porn"},
-        )
-        self.assertTrue(
-            all("marker_count" not in event for event in context.emitter.events)
-        )
-        self.assertTrue(
-            all("counter_only" not in event for event in context.emitter.events)
-        )
-        self.assertEqual(
-            [item["text"] for item in context.runtime_session_action_history],
-            ["LOAD_SKILLS: file_manager, wildcards, porn"],
-        )
-
     def test_singular_load_skill_markers_stay_separate_without_counter(self):
         parsed = extract_runtime_actions(
             (
-                "<LOAD_SKILL: wildcards>\n"
-                "<LOAD_SKILL: porn>"
+                "<LOAD_SKILL_CONTEXT> wildcards </LOAD_SKILL_CONTEXT>\n"
+                "<LOAD_SKILL_CONTEXT> porn </LOAD_SKILL_CONTEXT>"
             ),
             enabled_actions=["CAN_USE_ASSETS"],
         )

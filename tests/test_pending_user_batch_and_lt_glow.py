@@ -85,9 +85,9 @@ class MemoryPriorityFlowTests(unittest.TestCase):
             ),
         ]
 
-        with (
-            patch("runtime.LT_memory.lt_memory_writes_restricted", return_value=False),
-            patch("runtime.LT_memory.lt_memory_enabled", return_value=True),
+        with patch(
+            "runtime.LT_memory.lt_memory_writes_restricted",
+            return_value=False,
         ):
             for context in cases:
                 with self.subTest(context=context):
