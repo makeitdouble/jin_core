@@ -214,8 +214,12 @@ def _posting_board_response_for_context(value):
 def _format_posting_board_result(result: dict) -> str:
     action = str(result.get("action") or "unknown").strip().casefold()
     ok = result.get("ok") is not False
+    display_text = str(
+        result.get("display_text")
+        or f"POSTING_BOARD: action:{action}"
+    ).strip()
     lines = [
-        f"Posting board action: {action}",
+        display_text,
         f"Status: {'success' if ok else 'failed'}",
     ]
 

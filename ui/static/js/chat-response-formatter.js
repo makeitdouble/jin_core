@@ -657,33 +657,42 @@
 
   function renderInlineMarkdown(text) {
 
-    return String(text || "")
-      .split(/(`[^`\n]*`)/g)
-      .map((chunk) => {
+    const codeHtml = [];
+    const source =
+      String(text || "").replace(
+        /`([^`\n]*)`/g,
+        (_whole, code) => {
+          const token =
+            `\uE002JINCODE${codeHtml.length}\uE003`;
 
-        if (
-          chunk.length >= 2
-          && chunk[0] === "`"
-          && chunk[chunk.length - 1] === "`"
-        ) {
-          return (
+          codeHtml.push(
             "<code>"
             + escapeHtml(
-              chunk.slice(
-                1,
-                -1
-              )
+              code
             )
             + "</code>"
           );
+
+          return token;
         }
+      );
 
-        return renderInlinePlain(
-          chunk
+    let rendered =
+      renderInlinePlain(
+        source
+      );
+
+    codeHtml.forEach(
+      (html, codeIndex) => {
+        rendered = rendered.split(
+          `\uE002JINCODE${codeIndex}\uE003`
+        ).join(
+          html
         );
+      }
+    );
 
-      })
-      .join("");
+    return rendered;
 
   }
 

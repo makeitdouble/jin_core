@@ -172,6 +172,28 @@ class PostingBoardTests(unittest.IsolatedAsyncioTestCase):
             })
         )
 
+    def test_search_action_uses_one_canonical_display_form(self):
+        payload = '{"action":"search","query":"Meatproxy"}'
+
+        from utils.actions.posting_board_actions import (
+            build_posting_board_display_text,
+        )
+
+        self.assertEqual(
+            build_posting_board_display_text(payload),
+            "POSTING_BOARD: action:search | query: Meatproxy",
+        )
+        self.assertEqual(
+            format_session_action_marker_names([{
+                "name": "POSTING_BOARD",
+                "payload": payload,
+                "payloads": [payload],
+                "raw_payloads": [payload],
+                "status": "completed",
+            }]),
+            "POSTING_BOARD: action:search | query: Meatproxy",
+        )
+
     async def test_dispatcher_emits_running_then_terminal_and_records_tool_result(self):
         context = SimpleNamespace(
             emitter=FakeEmitter(),
@@ -231,8 +253,8 @@ class PostingBoardTests(unittest.IsolatedAsyncioTestCase):
         ]
         self.assertEqual([event["status"] for event in events], ["running", "completed"])
         self.assertEqual(events[0]["id"], events[1]["id"])
-        self.assertEqual(events[0]["text"], "POSTING_BOARD: action:feed")
-        self.assertEqual(events[1]["text"], "POSTING_BOARD: action:feed")
+        self.assertEqual(events[0]["text"], "POSTING_BOARD: action:feed | limit: 5")
+        self.assertEqual(events[1]["text"], "POSTING_BOARD: action:feed | limit: 5")
         self.assertNotIn("posting_board_result", events[0])
         self.assertEqual(events[1]["posting_board_result"]["response"], board_result["response"])
         self.assertIn(
@@ -253,12 +275,12 @@ class PostingBoardTests(unittest.IsolatedAsyncioTestCase):
         )
         self.assertEqual(
             context.logger.lines,
-            ["[RUNTIME ACTION] posting_board action:feed success"],
+            ["[RUNTIME ACTION] POSTING_BOARD: action:feed | limit: 5 success"],
         )
 
         tool_context = build_tool_results_context(context)
         self.assertIn('name="POSTING_BOARD"', tool_context)
-        self.assertIn("Posting board action: feed", tool_context)
+        self.assertIn("POSTING_BOARD: action:feed | limit: 5", tool_context)
         self.assertIn("A public thread", tool_context)
         self.assertNotIn("Authorization", tool_context)
         self.assertNotIn("action_templates", tool_context)
@@ -312,7 +334,7 @@ class PostingBoardTests(unittest.IsolatedAsyncioTestCase):
             if event.get("action") == "posting_board"
         ][-1]
         self.assertEqual(terminal["status"], "failed")
-        self.assertEqual(terminal["text"], "POSTING_BOARD: action:post - failed")
+        self.assertEqual(terminal["text"], "POSTING_BOARD: action:post | topic: general - failed")
         self.assertEqual(context.runtime_action_events[0]["status"], "failed")
         self.assertEqual(context.runtime_action_events[0]["failure_reason"], "rate limited")
         self.assertTrue(context.runtime_followup_action_failure_pending)
@@ -354,7 +376,8 @@ class PostingBoardTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(
             formatted,
-            "POSTING_BOARD: action:feed, POSTING_BOARD: action:post - failed",
+            "POSTING_BOARD: action:feed | limit: 30, "
+            "POSTING_BOARD: action:post | topic: general - failed",
         )
         self.assertNotIn("title that must stay out of history", formatted)
         self.assertNotIn("body that must stay out of history", formatted)

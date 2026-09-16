@@ -2,6 +2,8 @@
 
 from fastapi import WebSocket
 
+from utils.posting_board_display import compact_posting_board_model_output
+
 
 class WebSocketLogger:
     MODEL_OUTPUT_PREVIEW_LIMIT = 100
@@ -53,10 +55,12 @@ class WebSocketLogger:
             tag: str,
             message: str,
     ):
-        full_text = str(
-            message
-            or ""
-        ).strip()
+        full_text = compact_posting_board_model_output(
+            str(
+                message
+                or ""
+            ).strip()
+        )
 
         if not full_text:
             return

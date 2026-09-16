@@ -1429,22 +1429,13 @@ def _build_session_action_marker_detail(
         ).strip()
 
     if normalized_name == "POSTING_BOARD":
-        try:
-            parsed_payload = json.loads(
-                normalized_payload
-            )
-        except (
-            TypeError,
-            ValueError,
-        ):
-            return "action:unknown"
+        from utils.posting_board_display import (
+            build_posting_board_display_detail,
+        )
 
-        action = str(
-            parsed_payload.get("action", "")
-            if isinstance(parsed_payload, dict)
-            else ""
-        ).strip().casefold()
-        return f"action:{action or 'unknown'}"
+        return build_posting_board_display_detail(
+            normalized_payload
+        )
 
     if normalized_name == "JIN_REACTION":
         return normalize_jin_reaction_payload(

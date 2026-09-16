@@ -10,21 +10,15 @@ from contracts.rules_assembler import (
 )
 from utils.actions import build_runtime_action_id
 from utils.posting_board_client import execute_posting_board_request
+from utils.posting_board_display import (
+    build_posting_board_display_text,
+    parse_posting_board_payload,
+    posting_board_action_name,
+)
 from utils.tool_results import (
     TOOL_RESULT_KIND_RUNTIME_ACTION,
     record_runtime_tool_result,
 )
-
-
-def parse_posting_board_payload(payload) -> dict:
-    if isinstance(payload, dict):
-        value = dict(payload)
-    else:
-        try:
-            value = json.loads(str(payload or "").strip())
-        except (TypeError, ValueError, json.JSONDecodeError):
-            return {}
-    return value if isinstance(value, dict) else {}
 
 
 def canonical_posting_board_payload(payload) -> str:
@@ -122,19 +116,6 @@ def _release_posting_board_inflight(context, canonical: str) -> None:
     )
     if isinstance(inflight, set):
         inflight.discard(canonical)
-
-
-def posting_board_action_name(payload) -> str:
-    parsed = parse_posting_board_payload(payload)
-    return str(parsed.get("action") or "").strip().casefold()
-
-
-def build_posting_board_display_text(payload, *, failed: bool = False) -> str:
-    action = posting_board_action_name(payload) or "unknown"
-    text = f"POSTING_BOARD: action:{action}"
-    if failed:
-        text += " - failed"
-    return text
 
 
 def _update_runtime_event(context, action_call, *, result: dict, action_id: str) -> None:
@@ -243,6 +224,10 @@ async def apply_posting_board_actions(
                             action_call.payload,
                         )
 
+            result["display_text"] = build_posting_board_display_text(
+                action_call.payload,
+                failed=result.get("ok") is False,
+            )
             result["id"] = action_id
             record_runtime_tool_result(
                 context,
@@ -257,10 +242,9 @@ async def apply_posting_board_actions(
             )
 
             if log_runtime is not None:
-                board_action = str(result.get("action") or "unknown")
                 status = "success" if result.get("ok") is not False else "failed"
                 await log_runtime(
-                    f"[RUNTIME ACTION] posting_board action:{board_action} {status}"
+                    f"[RUNTIME ACTION] {request_text} {status}"
                 )
 
             if emit is not None:

@@ -517,6 +517,88 @@ function Test-PythonCommand {
     }
 }
 
+function Test-JinBrowserTabOpen {
+    param([string]$Title = "JIN Core Engine")
+
+    try {
+        Add-Type -AssemblyName UIAutomationClient -ErrorAction Stop
+        Add-Type -AssemblyName UIAutomationTypes -ErrorAction Stop
+    }
+    catch {
+        Write-Host "Browser tab detection is unavailable. A new browser tab may be opened."
+        return $false
+    }
+
+    $browserProcessNames = @(
+        "chrome",
+        "msedge",
+        "firefox",
+        "brave",
+        "opera",
+        "vivaldi"
+    )
+
+    try {
+        $nameCondition = New-Object -TypeName System.Windows.Automation.PropertyCondition -ArgumentList @(
+            [System.Windows.Automation.AutomationElement]::NameProperty,
+            $Title
+        )
+
+        $desktopWindows = [System.Windows.Automation.AutomationElement]::RootElement.FindAll(
+            [System.Windows.Automation.TreeScope]::Children,
+            [System.Windows.Automation.Condition]::TrueCondition
+        )
+
+        foreach ($window in $desktopWindows) {
+            try {
+                $processId = $window.Current.ProcessId
+                if ($processId -le 0) {
+                    continue
+                }
+
+                $process = Get-Process -Id $processId -ErrorAction Stop
+                if ($browserProcessNames -notcontains $process.ProcessName.ToLowerInvariant()) {
+                    continue
+                }
+
+                $windowTitle = [string]$window.Current.Name
+                if (
+                    $windowTitle.StartsWith(
+                        $Title,
+                        [System.StringComparison]::OrdinalIgnoreCase
+                    )
+                ) {
+                    return $true
+                }
+
+                $matches = $window.FindAll(
+                    [System.Windows.Automation.TreeScope]::Descendants,
+                    $nameCondition
+                )
+
+                foreach ($match in $matches) {
+                    if (
+                        $match.Current.ControlType -eq
+                        [System.Windows.Automation.ControlType]::TabItem
+                    ) {
+                        return $true
+                    }
+                }
+            }
+            catch {
+                # One inaccessible browser window must not break the launcher.
+                continue
+            }
+        }
+    }
+    catch {
+        Write-Host "Browser tab detection failed. A new browser tab may be opened."
+        return $false
+    }
+
+    return $false
+}
+
 function Get-PythonCommand {
     $py = Get-Command py -ErrorAction SilentlyContinue
     if ($py -and (Test-PythonCommand -Executable $py.Source -Arguments @("-3"))) {
@@ -616,35 +698,46 @@ try {
 
     Write-Step "Starting JIN backend..."
     Write-Host "Backend URL: $AppUrl"
-    Write-Host "Opening browser shortly. Keep this window open while using JIN."
 
-    $browserJob = Start-Job -ScriptBlock {
-        param([string]$Url)
+    $browserJob = $null
+    $browserAlreadyOpen = Test-JinBrowserTabOpen
 
-        for ($i = 0; $i -lt 30; $i++) {
-            try {
-                $response = Invoke-WebRequest -Uri $Url -UseBasicParsing -TimeoutSec 1
-                if ($response.StatusCode -lt 500) {
-                    break
+    if ($browserAlreadyOpen) {
+        Write-Host "JIN Core Engine is already open in the browser. Reusing the existing tab."
+    }
+    else {
+        Write-Host "Opening browser shortly. Keep this window open while using JIN."
+
+        $browserJob = Start-Job -ScriptBlock {
+            param([string]$Url)
+
+            for ($i = 0; $i -lt 30; $i++) {
+                try {
+                    $response = Invoke-WebRequest -Uri $Url -UseBasicParsing -TimeoutSec 1
+                    if ($response.StatusCode -lt 500) {
+                        break
+                    }
+                }
+                catch {
+                    Start-Sleep -Seconds 1
                 }
             }
-            catch {
-                Start-Sleep -Seconds 1
-            }
-        }
 
-        Start-Process $Url
-    } -ArgumentList $AppUrl
+            Start-Process $Url
+        } -ArgumentList $AppUrl
+    }
 
     try {
         & $venvPython (Join-Path $Root "app.py")
     }
     finally {
-        if ($browserJob.State -eq "Running") {
-            Stop-Job $browserJob | Out-Null
-        }
+        if ($null -ne $browserJob) {
+            if ($browserJob.State -eq "Running") {
+                Stop-Job $browserJob | Out-Null
+            }
 
-        Remove-Job $browserJob -Force -ErrorAction SilentlyContinue
+            Remove-Job $browserJob -Force -ErrorAction SilentlyContinue
+        }
     }
 }
 finally {

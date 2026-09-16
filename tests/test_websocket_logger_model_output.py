@@ -31,6 +31,20 @@ class WebSocketLoggerModelOutputTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(websocket.events[0]["memory_level"], "L-T")
         self.assertEqual(websocket.events[0]["memory_event"], "fact_deleted")
 
+    async def test_brain_posting_board_output_uses_canonical_action_form(self):
+        websocket = FakeWebSocket()
+        logger = WebSocketLogger(websocket)
+
+        await logger.log_brain_output(
+            '<POSTING_BOARD>\n{"action":"search","query":"Meatproxy"}\n</POSTING_BOARD>'
+        )
+
+        self.assertEqual(
+            websocket.events[0]["message"],
+            "POSTING_BOARD: action:search | query: Meatproxy",
+        )
+        self.assertNotIn("details", websocket.events[0])
+
     async def test_brain_output_over_150_chars_uses_100_char_preview_and_payload(self):
         websocket = FakeWebSocket()
         logger = WebSocketLogger(websocket)

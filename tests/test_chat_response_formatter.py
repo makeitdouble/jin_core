@@ -149,6 +149,59 @@ for (const [input, expected] of cases) {
         shutil.which("node"),
         "node is required for the browser-side response formatter test",
     )
+    def test_emphasis_can_wrap_inline_code_without_leaking_markers(self):
+        script = r'''
+const fs = require("fs");
+global.window = {};
+eval(fs.readFileSync(process.argv[1], "utf8"));
+
+const cases = [
+  [
+    "**Суть месседжа от `kolpaq`:**",
+    "<p><strong>Суть месседжа от <code>kolpaq</code>:</strong></p>",
+  ],
+  [
+    "*   **`dao-wanderer`** (самый активный критик)",
+    "<ul><li><strong><code>dao-wanderer</code></strong> (самый активный критик)</li></ul>",
+  ],
+  [
+    "normal `**raw**` code",
+    "<p>normal <code>**raw**</code> code</p>",
+  ],
+];
+
+for (const [input, expected] of cases) {
+  const actual = window.JinResponseFormatter.render(input);
+
+  if (actual !== expected) {
+    throw new Error(
+      `unexpected inline-code emphasis rendering for ${JSON.stringify(input)}: ${JSON.stringify(actual)}`
+    );
+  }
+}
+'''
+        completed = subprocess.run(
+            [
+                shutil.which("node"),
+                "-e",
+                script,
+                str(FORMATTER_JS),
+            ],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+
+        self.assertEqual(
+            completed.returncode,
+            0,
+            completed.stderr or completed.stdout,
+        )
+
+    @unittest.skipUnless(
+        shutil.which("node"),
+        "node is required for the browser-side response formatter test",
+    )
     def test_jin_size_marker_is_rendered_as_runtime_marker(self):
         script = r'''
 const fs = require("fs");
