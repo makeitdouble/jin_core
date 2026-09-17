@@ -292,7 +292,7 @@ class RuntimeUpdateLTFactsTests(unittest.IsolatedAsyncioTestCase):
             any(event.get("status") == "failed" for event in lifecycle)
         )
 
-    async def test_foreground_action_retires_marker_then_runs_after_frame_request(self):
+    async def test_foreground_action_retires_marker_then_runs_after_frame_completion(self):
         emitter = FakeEmitter()
         logger = FakeLogger()
         context = RuntimeContext(
@@ -349,7 +349,6 @@ class RuntimeUpdateLTFactsTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(len(completed), 1)
             self.assertTrue(completed[0].get("lt_queued"))
 
-            frame_request_started = asyncio.Event()
             frame_release = asyncio.Event()
 
             async def fake_frame_task():
@@ -359,16 +358,19 @@ class RuntimeUpdateLTFactsTests(unittest.IsolatedAsyncioTestCase):
             lt_task = schedule_pending_update_lt_facts_actions(
                 context,
                 frame_task=frame_task,
-                frame_request_event=frame_request_started,
             )
             await asyncio.sleep(0)
             self.assertFalse(note_started.is_set())
 
-            frame_request_started.set()
+            for _ in range(10):
+                await asyncio.sleep(0)
+            self.assertFalse(note_started.is_set(), "L-T started before FRAME completed")
+            frame_release.set()
+            await frame_task
             await asyncio.wait_for(note_started.wait(), timeout=0.2)
 
             # A real next USER message preempts only the attempt, not the
-            # queued instruction. It is retried after the next FRAME request.
+            # queued instruction. It is retried after the next FRAME completion.
             self.assertTrue(await preempt_update_lt_facts_actions(
                 context,
                 reason="user_message",
@@ -378,19 +380,19 @@ class RuntimeUpdateLTFactsTests(unittest.IsolatedAsyncioTestCase):
 
             note_started.clear()
             release_note.set()
-            next_frame_request_started = asyncio.Event()
-            next_frame_request_started.set()
+            next_frame_release = asyncio.Event()
+            next_frame_task = asyncio.create_task(next_frame_release.wait())
             retry_task = schedule_pending_update_lt_facts_actions(
                 context,
-                frame_task=frame_task,
-                frame_request_event=next_frame_request_started,
+                frame_task=next_frame_task,
             )
+            await asyncio.sleep(0)
+            self.assertFalse(note_started.is_set())
+            next_frame_release.set()
             await asyncio.wait_for(note_started.wait(), timeout=0.2)
             await retry_task
             self.assertEqual(context.runtime_lt_explicit_note_queue, [])
 
-            frame_release.set()
-            await frame_task
 
     async def test_sealed_explicit_tail_cannot_start_next_note_under_new_foreground_turn(self):
         context = RuntimeContext(
@@ -452,7 +454,7 @@ class RuntimeUpdateLTFactsTests(unittest.IsolatedAsyncioTestCase):
             first_frame.set()
             task = schedule_pending_update_lt_facts_actions(
                 context,
-                frame_request_event=first_frame,
+                frame_task=asyncio.create_task(first_frame.wait()),
             )
             await asyncio.wait_for(first_committed.wait(), timeout=0.2)
 
@@ -472,7 +474,7 @@ class RuntimeUpdateLTFactsTests(unittest.IsolatedAsyncioTestCase):
             next_frame = asyncio.Event()
             retry_task = schedule_pending_update_lt_facts_actions(
                 context,
-                frame_request_event=next_frame,
+                frame_task=asyncio.create_task(next_frame.wait()),
             )
             await asyncio.sleep(0)
             self.assertFalse(second_started.is_set())
@@ -545,7 +547,7 @@ class RuntimeUpdateLTFactsTests(unittest.IsolatedAsyncioTestCase):
             self.assertIs(
                 schedule_pending_update_lt_facts_actions(
                     context,
-                    frame_request_event=old_frame,
+                    frame_task=asyncio.create_task(old_frame.wait()),
                 ),
                 auto_task,
             )
@@ -580,7 +582,7 @@ class RuntimeUpdateLTFactsTests(unittest.IsolatedAsyncioTestCase):
             next_frame = asyncio.Event()
             retry_task = schedule_pending_update_lt_facts_actions(
                 context,
-                frame_request_event=next_frame,
+                frame_task=asyncio.create_task(next_frame.wait()),
             )
             await asyncio.sleep(0)
             self.assertFalse(note_started.is_set())

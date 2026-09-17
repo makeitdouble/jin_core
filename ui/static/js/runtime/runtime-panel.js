@@ -197,6 +197,35 @@
 
   }
 
+
+  function syncAvatarContextPressure(percent, pressureColor) {
+
+    const root = document.documentElement;
+
+    if (!root) {
+      return;
+    }
+
+    const clamped =
+      Math.max(
+        0,
+        Math.min(
+          100,
+          Number(percent || 0)
+        )
+      );
+
+    root.style.setProperty(
+      "--jin-context-pressure-color",
+      String(pressureColor || getContextPressureColor(clamped))
+    );
+    root.style.setProperty(
+      "--jin-context-pressure-percent",
+      String(clamped)
+    );
+
+  }
+
   function getSceneRoot() {
 
     return document.querySelector(
@@ -967,6 +996,21 @@
       serviceLineElement,
       serviceBarElement,
       servicePercentElement
+    );
+
+    const avatarPressureLine =
+      brainRuntime
+        ? brainLine
+        : serviceLine;
+    const avatarPressurePercent =
+      Math.max(
+        Number(avatarPressureLine.percent || 0),
+        Number(avatarPressureLine.totalPercent || 0)
+      );
+
+    syncAvatarContextPressure(
+      avatarPressurePercent,
+      getContextPressureColor(avatarPressurePercent)
     );
 
     updateSceneContextPressureFromLines(

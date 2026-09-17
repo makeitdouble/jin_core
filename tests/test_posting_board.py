@@ -529,6 +529,84 @@ class PostingBoardTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(request.call_count, 1)
 
+    async def test_inbox_is_refetched_after_ack_instead_of_reusing_stale_result(self):
+        context = SimpleNamespace(
+            emitter=FakeEmitter(),
+            logger=FakeLogger(),
+            runtime_current_turn_id="turn-inbox-ack",
+            runtime_loaded_skills=[{"name": "posting_board"}],
+        )
+        responses = [
+            {
+                "ok": True,
+                "runtime_action_name": "POSTING_BOARD",
+                "action": "inbox",
+                "status_code": 200,
+                "response": {
+                    "items": [{"seq": 36563, "inbox_seq": 59767}],
+                    "read_through": 0,
+                    "latest_cursor": 59767,
+                    "resume_after": 59767,
+                    "unread_count": 1,
+                },
+            },
+            {
+                "ok": True,
+                "runtime_action_name": "POSTING_BOARD",
+                "action": "ack",
+                "status_code": 200,
+                "response": {"acknowledged_through": 59767},
+            },
+            {
+                "ok": True,
+                "runtime_action_name": "POSTING_BOARD",
+                "action": "inbox",
+                "status_code": 200,
+                "response": {
+                    "items": [],
+                    "read_through": 59767,
+                    "latest_cursor": 59767,
+                    "resume_after": 59767,
+                    "unread_count": 0,
+                },
+            },
+        ]
+
+        with (
+            patch(
+                "utils.actions.posting_board_actions.execute_posting_board_request",
+                side_effect=responses,
+            ) as request,
+            patch("utils.actions.dispatcher.ensure_assets_tree"),
+        ):
+            for message_id, payload in (
+                ("message-inbox-before", '{"action":"inbox","limit":10}'),
+                ("message-ack", '{"action":"ack","through":59767}'),
+                ("message-inbox-after", '{"action":"inbox","limit":10}'),
+            ):
+                action = RuntimeActionCall(name="POSTING_BOARD", payload=payload)
+                applied = await apply_runtime_action_calls(
+                    context,
+                    [action],
+                    runtime_message_id=message_id,
+                )
+                self.assertEqual(applied, 1)
+
+        self.assertEqual(request.call_count, 3)
+        self.assertEqual(len(context.runtime_tool_results), 3)
+        self.assertFalse(any(
+            result.get("reused_from")
+            for result in context.runtime_tool_results
+        ))
+        self.assertEqual(
+            context.runtime_tool_results[-1]["result"]["response"]["unread_count"],
+            0,
+        )
+        self.assertEqual(
+            context.runtime_tool_results[-1]["result"]["response"]["read_through"],
+            59767,
+        )
+
     async def test_successful_equivalent_write_is_reused_across_runtime_messages(self):
         context = SimpleNamespace(
             emitter=FakeEmitter(),

@@ -38,7 +38,6 @@ def _bind_update_lt_frame_gate(
     context,
     *,
     frame_task=None,
-    frame_request_event=None,
 ) -> None:
     """Bind the current turn's FRAME boundary to still-unclaimed LT notes."""
     for entry in _ensure_update_lt_facts_queue(context):
@@ -46,7 +45,6 @@ def _bind_update_lt_frame_gate(
             continue
         entry["_lt_frame_gate_bound"] = True
         entry["_lt_frame_task"] = frame_task
-        entry["_lt_frame_request_event"] = frame_request_event
 
 
 def _clear_update_lt_frame_gates(context) -> None:
@@ -54,7 +52,6 @@ def _clear_update_lt_frame_gates(context) -> None:
     for entry in _ensure_update_lt_facts_queue(context):
         entry["_lt_frame_gate_bound"] = False
         entry["_lt_frame_task"] = None
-        entry["_lt_frame_request_event"] = None
 
 
 def _resume_explicit_lt_after_task(context, task: asyncio.Task) -> None:
@@ -305,41 +302,6 @@ async def _emit_update_lt_facts_queued(
     )
 
 
-async def _wait_for_frame_request_boundary(
-    frame_task,
-    frame_request_event,
-) -> None:
-    """Start explicit L-T only after FRAME has emitted its request card."""
-    done = getattr(frame_task, "done", None)
-    if frame_task is not None and callable(done) and done():
-        return
-
-    is_set = getattr(frame_request_event, "is_set", None)
-    if frame_request_event is None or not callable(is_set):
-        # No boundary signal exists (legacy/direct caller). Yield once so a
-        # previously-created FRAME task still gets the first event-loop slot.
-        await asyncio.sleep(0)
-        return
-
-    if is_set():
-        return
-
-    waiter = asyncio.create_task(frame_request_event.wait())
-    try:
-        if frame_task is None:
-            await waiter
-        else:
-            await asyncio.wait(
-                {waiter, frame_task},
-                return_when=asyncio.FIRST_COMPLETED,
-            )
-    finally:
-        if not waiter.done():
-            waiter.cancel()
-            with contextlib.suppress(asyncio.CancelledError):
-                await waiter
-
-
 async def _run_update_lt_facts_entry(
     context,
     *,
@@ -427,9 +389,6 @@ async def _run_update_lt_facts_entry(
 
 async def _drain_update_lt_facts_queue(
     context,
-    *,
-    frame_task=None,
-    frame_request_event=None,
 ) -> None:
     current_task = asyncio.current_task()
 
@@ -443,10 +402,16 @@ async def _drain_update_lt_facts_queue(
             if not entry.get("_lt_frame_gate_bound"):
                 return
 
-            await _wait_for_frame_request_boundary(
-                entry.get("_lt_frame_task", frame_task),
-                entry.get("_lt_frame_request_event", frame_request_event),
-            )
+            frame_task = entry.get("_lt_frame_task")
+            if frame_task is not None:
+                try:
+                    # FRAME must finish applying/publishing before L-T starts.
+                    # A new USER may cancel this waiter, never the FRAME it needs.
+                    await asyncio.shield(frame_task)
+                except asyncio.CancelledError:
+                    entry["_lt_frame_gate_bound"] = False
+                    entry["_lt_frame_task"] = None
+                    raise
 
             attempt = get_current_lt_attempt(context)
             if attempt is None:
@@ -470,7 +435,6 @@ async def _drain_update_lt_facts_queue(
                 # boundary before retrying with a fresh flow id.
                 entry["_lt_frame_gate_bound"] = False
                 entry["_lt_frame_task"] = None
-                entry["_lt_frame_request_event"] = None
                 return
 
             if queue and queue[0] is entry:
@@ -502,7 +466,6 @@ def schedule_pending_update_lt_facts_actions(
     context,
     *,
     frame_task=None,
-    frame_request_event=None,
 ) -> asyncio.Task | None:
     """Kick queued explicit notes on the single ordered L-T lane."""
     if not _ensure_update_lt_facts_queue(context):
@@ -512,7 +475,6 @@ def schedule_pending_update_lt_facts_actions(
     _bind_update_lt_frame_gate(
         context,
         frame_task=frame_task,
-        frame_request_event=frame_request_event,
     )
 
     active = get_active_lt_attempt(context)
@@ -551,8 +513,6 @@ def schedule_pending_update_lt_facts_actions(
         task = asyncio.create_task(
             _drain_update_lt_facts_queue(
                 context,
-                frame_task=frame_task,
-                frame_request_event=frame_request_event,
             )
         )
     except Exception:
@@ -647,7 +607,6 @@ async def schedule_update_lt_facts_actions(
             "log_runtime": log_runtime,
             "_lt_frame_gate_bound": False,
             "_lt_frame_task": None,
-            "_lt_frame_request_event": None,
         })
         mark_lt_priority_work_started(context)
         queued_any = True
@@ -662,7 +621,7 @@ async def schedule_update_lt_facts_actions(
     # Direct/unit callers have no foreground Brain->FRAME tail to kick the
     # queue, so preserve standalone behavior by starting immediately there.
     # Production chat keeps foreground_turn_running=True until process_message
-    # schedules FRAME and explicitly starts this queue behind its request card.
+    # schedules FRAME and explicitly starts this queue behind its completion.
     task = None
     if (
         queued_any

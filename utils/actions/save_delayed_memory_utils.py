@@ -14,6 +14,67 @@ DELAYED_MEMORY_FIELD_RE = re.compile(
 )
 
 
+def _character_is_escaped(text: str, index: int) -> bool:
+    backslashes = 0
+    cursor = index - 1
+
+    while cursor >= 0 and text[cursor] == "\\":
+        backslashes += 1
+        cursor -= 1
+
+    return bool(backslashes % 2)
+
+
+def _repair_json_quotes_inside_markdown_code(text: str) -> str:
+    """Repair unescaped JSON quotes inside Markdown code spans/fences.
+
+    A model can emit valid Markdown inside a JSON string, for example
+    ``server returned `"unread_count": 1` ``, while forgetting that the inner
+    quotes still need JSON escaping. Repair only quotes inside backtick-delimited
+    Markdown so the surrounding JSON structure is not guessed or rewritten.
+    """
+
+    source = str(text or "")
+    if "`" not in source or '"' not in source:
+        return source
+
+    repaired = []
+    active_backtick_run = 0
+    index = 0
+
+    while index < len(source):
+        character = source[index]
+
+        if character == "`" and not _character_is_escaped(source, index):
+            run_end = index + 1
+            while run_end < len(source) and source[run_end] == "`":
+                run_end += 1
+
+            run_length = run_end - index
+            repaired.append(source[index:run_end])
+
+            if active_backtick_run == 0:
+                active_backtick_run = run_length
+            elif run_length >= active_backtick_run:
+                active_backtick_run = 0
+
+            index = run_end
+            continue
+
+        if (
+            character == '"'
+            and active_backtick_run
+            and not _character_is_escaped(source, index)
+        ):
+            repaired.append('\\"')
+        else:
+            repaired.append(character)
+
+        index += 1
+
+    return "".join(repaired)
+
+
 def normalize_long_term_fact_ids(value) -> list[str]:
 
     source = value if isinstance(value, list) else [value]
@@ -319,7 +380,19 @@ def parse_delayed_memory_payload(
             text
         )
     except json.JSONDecodeError:
-        parsed = None
+        repaired_text = _repair_json_quotes_inside_markdown_code(
+            text
+        )
+
+        if repaired_text != text:
+            try:
+                parsed = json.loads(
+                    repaired_text
+                )
+            except json.JSONDecodeError:
+                parsed = None
+        else:
+            parsed = None
 
     if isinstance(
         parsed,

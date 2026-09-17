@@ -145,6 +145,75 @@ class RuntimeDelayedMemoryTests(RuntimeActionTestCase):
         )
 
 
+    def test_parses_json_report_with_unescaped_quotes_inside_markdown_code(self):
+
+        payload = (
+            '{\n'
+            '  "title": "Posting board excursion",\n'
+            '  "summary": "Runtime dedupe incident.",\n'
+            '  "tags": ["posting_board", "debug"],\n'
+            '  "body": "Ack succeeded, but inbox returned `"unread_count": 1` again."\n'
+            '}'
+        )
+
+        report = parse_delayed_memory_payload(
+            payload
+        )
+
+        self.assertEqual(
+            len(report),
+            1,
+        )
+        report_value = next(
+            iter(report.values())
+        )
+        self.assertEqual(
+            report_value["body"],
+            'Ack succeeded, but inbox returned `"unread_count": 1` again.',
+        )
+        self.assertEqual(report_value["anchor_lt_facts_ids"], [])
+        self.assertEqual(report_value["lt_facts_ids"], [])
+        self.assertEqual(report_value["attachments_ids"], [])
+
+        extracted = extract_runtime_actions(
+            (
+                "<SAVE_DELAYED_MEMORY>\n"
+                + payload
+                + "\n</SAVE_DELAYED_MEMORY>"
+            ),
+            enabled_actions=[
+                "CAN_SAVE_DELAYED_MEMORY",
+            ],
+        )
+
+        self.assertEqual(len(extracted.actions), 1)
+        self.assertEqual(extracted.actions[0].name, "SAVE_DELAYED_MEMORY")
+
+        context = FakeContext()
+        context.emitter = FakeEmitter()
+        context.runtime_turn_user_message = "сохрани отчёт"
+        context.runtime_action_guard_confirmations = {}
+        context.runtime_delayed_memory_results = []
+        context.delayed_memory_reports = {}
+        context.session_id = "session-1"
+        context.timestamp = "2026-09-16T18:20:00"
+
+        applied_count = asyncio.run(
+            apply_runtime_action_calls(
+                context,
+                extracted.actions,
+            )
+        )
+
+        self.assertEqual(applied_count, 1)
+        self.assertEqual(len(context.delayed_memory_reports), 1)
+        saved_report = next(iter(context.delayed_memory_reports.values()))
+        self.assertEqual(
+            saved_report["body"],
+            'Ack succeeded, but inbox returned `"unread_count": 1` again.',
+        )
+
+
     def test_parses_lt_fact_ids_for_delayed_memory_report(self):
 
         report = parse_delayed_memory_payload(

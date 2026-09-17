@@ -240,18 +240,6 @@ async def ask_frame_summarizer(
         ),
     )
 
-    frame_request_event = getattr(
-        context,
-        "runtime_frame_summarizer_request_event",
-        None,
-    )
-    if (
-        frame_request_event is not None
-        and getattr(context, "runtime_memory_update_task", None)
-        is asyncio.current_task()
-    ):
-        frame_request_event.set()
-
     try:
         return await ask_service_model(
             client=service_client,
@@ -868,8 +856,6 @@ def _start_runtime_memory_update_task(
             and not previous_task.done()
     ):
         previous_task.cancel()
-
-    context.runtime_frame_summarizer_request_event = asyncio.Event()
 
     task = asyncio.create_task(
         summarize_runtime_memory_pending_turns(

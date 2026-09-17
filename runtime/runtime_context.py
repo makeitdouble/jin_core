@@ -410,7 +410,6 @@ class RuntimeContext:
     )
 
     runtime_memory_update_task: object | None = None
-    runtime_frame_summarizer_request_event: object | None = None
 
     runtime_memory_snapshots: list[dict] = field(
         default_factory=list

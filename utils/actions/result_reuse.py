@@ -88,6 +88,17 @@ def find_reusable_result(context, action):
     # to the previous execution and must never be satisfied from reuse cache.
     if action.name in {"CLEAN_TOOL_RESULTS", "ATTACH_FILE_CONTENT"}:
         return None
+
+    # Posting Board reads/checkpoints are live server state, not reusable
+    # results. Reusing inbox/feed/read/search would return stale data after an
+    # intervening ack/write, while reusing ack/delete would suppress the state
+    # transition itself. Only successful content-creating writes are safe to
+    # move across model messages: their idempotency protection is intentional.
+    if action.name == "POSTING_BOARD":
+        from utils.posting_board_display import posting_board_action_name
+
+        if posting_board_action_name(action.payload) not in {"post", "reply"}:
+            return None
     for entry in reversed(get_runtime_tool_results(context)):
         if not isinstance(entry, dict) or not entry.get("tool_id") or entry.get("absorbed_by"):
             continue

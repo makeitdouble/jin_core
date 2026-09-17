@@ -1870,16 +1870,11 @@ async def process_message(
 
         # UPDATE_LT_FACTS is accepted during Brain dispatch, but its actual
         # service-model work waits for this exact ordering point: FRAME has
-        # been scheduled first, then explicit L-T starts as soon as FRAME's
-        # request card is emitted. No browser idle tick is involved.
+        # been scheduled first, then explicit L-T waits for FRAME completion
+        # (including state publication). No browser idle tick is involved.
         schedule_pending_update_lt_facts_actions(
             context,
             frame_task=memory_update_task,
-            frame_request_event=getattr(
-                context,
-                "runtime_frame_summarizer_request_event",
-                None,
-            ),
         )
 
     except asyncio.CancelledError:

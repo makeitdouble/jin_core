@@ -1908,7 +1908,7 @@ async def apply_runtime_action_calls(
 
     # Accept explicit L-T edits immediately so their chat marker can retire,
     # but queue the actual service-model work. In the websocket turn flow the
-    # queue is kicked only after the FRAME request card has been emitted.
+    # queued work waits for FRAME completion before starting its L-T request.
     await schedule_update_lt_facts_actions(
         context,
         update_lt_facts_actions,

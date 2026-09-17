@@ -366,7 +366,7 @@ commit on the event loop too. Offloading only the final snapshot write breaks
 that ordering and can overwrite another page's committed edit/deletion. This
 does not provide cross-process locking for multiple servers sharing one file.
 
-L-T work is scheduled from an explicit browser idle tick (`lt_memory_idle_tick`) and is guarded so it does not begin while foreground work is running or queued.
+L-T work is scheduled from an explicit browser idle tick (`lt_memory_idle_tick`) and is guarded so it does not begin while foreground work is running or queued. Explicit `UPDATE_LT_FACTS` notes instead queue during Brain dispatch and wait for that turn's FRAME task to finish applying and publishing state before their Service request starts. The request-card event is not a completion boundary. Cancelling an explicit L-T waiter for a new USER preserves both its queued note and the running FRAME task.
 
 ### 7.5 Delayed Memory
 
