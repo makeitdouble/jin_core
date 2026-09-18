@@ -1,3 +1,4 @@
+from runtime.memory_profile import refresh_profile, commit_active
 from rules.brain_context_builder import (
     BRAIN_RUNTIME_ACTIONS,
 )
@@ -1595,6 +1596,8 @@ async def update_active_memory_runtime_record(
         "payload": str(payload or "").strip(),
     }
 
+    refresh_profile(context)
+
     if context is None:
         return result
 
@@ -1753,7 +1756,7 @@ async def update_active_memory_runtime_record(
         records_changed = True
 
     if records_changed:
-        context.active_memory_records = records
+        commit_active(context, records)
         context.runtime_active_memory_records_dirty = True
 
     result.update({
@@ -1774,6 +1777,8 @@ async def delete_active_memory_runtime_record(
     context,
     payload: str,
 ) -> tuple[bool, str, str]:
+
+    refresh_profile(context)
 
     if context is None:
         return (
@@ -1847,11 +1852,7 @@ async def delete_active_memory_runtime_record(
             )
 
         if len(kept_records) != len(records):
-            setattr(
-                context,
-                "active_memory_records",
-                kept_records,
-            )
+            commit_active(context, kept_records)
 
     return (
         removed,
@@ -1864,6 +1865,8 @@ async def save_active_memory_runtime_record(
     context,
     payload: str,
 ) -> bool:
+
+    refresh_profile(context)
 
     if context is None:
         return False
@@ -1910,9 +1913,8 @@ async def save_active_memory_runtime_record(
         )
 
     if active_memory_line not in active_records:
-        active_records.append(
-            active_memory_line
-        )
+        active_records = [*active_records, active_memory_line]
+        commit_active(context, active_records)
 
     return True
 
@@ -2631,11 +2633,9 @@ def load_delayed_memory_report(
             False,
         )
     ):
-        from utils.delayed_memory_file_store import (
-            persist_delayed_memory_reports,
-        )
+        from runtime.memory_profile import persist_delayed as persist_delayed_memory_reports
 
-        file_errors = persist_delayed_memory_reports({
+        file_errors = persist_delayed_memory_reports(context, {
             report_id: updated_report,
         })
 
@@ -2718,11 +2718,9 @@ def include_pinned_delayed_memory_reports(
             False,
         )
     ):
-        from utils.delayed_memory_file_store import (
-            persist_delayed_memory_reports,
-        )
+        from runtime.memory_profile import persist_delayed as persist_delayed_memory_reports
 
-        persist_delayed_memory_reports(reports_to_persist)
+        persist_delayed_memory_reports(context, reports_to_persist)
 
     return loaded_reports
 

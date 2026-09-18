@@ -2527,6 +2527,9 @@ class BrainNode(BaseNode):
                 config.BRAIN_MAX_FOLLOWUPS
             ),
         )
+        malformed_repair_count = 0
+        max_malformed_repairs = 1
+        malformed_repair_limit_reached = False
         current_turn_id = str(
             getattr(
                 context,
@@ -2862,14 +2865,19 @@ class BrainNode(BaseNode):
             )
 
         while followup_count < max_followups or malformed_followup_pending():
-            repairing_malformed = malformed_followup_pending()
-            if repairing_malformed:
-                # A protocol repair remains executable even if the preceding
-                # ordinary batch used the final allowed workflow tick.
-                followup_count = min(followup_count, max_followups - 1)
-
             if abort_requested():
                 break
+
+            repairing_malformed = malformed_followup_pending()
+            if repairing_malformed:
+                if malformed_repair_count >= max_malformed_repairs:
+                    malformed_repair_limit_reached = True
+                    break
+
+                # Give malformed protocol output one repair tick outside the
+                # ordinary workflow budget. A repeated malformed action stops
+                # the sequence instead of opening an unbounded repair loop.
+                malformed_repair_count += 1
 
             remember_recovery_reasoning_for_followup(
                 context,
@@ -3416,15 +3424,42 @@ class BrainNode(BaseNode):
             reasoning,
         )
 
-        if followup_count >= max_followups:
+        if followup_count >= max_followups or malformed_repair_limit_reached:
             context.runtime_active_memory_refresh_tick = (
                 followup_count + 1
             )
-            stop_reason = (
-                "Brain workflow stopped after reaching the configured "
-                f"follow-up limit ({max_followups}). "
-                "One final non-executable response tick will run."
-            )
+
+            if malformed_repair_limit_reached:
+                stop_reason = (
+                    "Brain workflow stopped after a repeated malformed "
+                    "runtime action. One repair tick was attempted; one "
+                    "final non-executable response tick will run."
+                )
+                stop_event_text = (
+                    "Malformed action repair failed after 1 retry. "
+                    "Running one final response tick with runtime actions "
+                    "disabled."
+                )
+                stop_instruction_reason = (
+                    "The runtime stopped this workflow because malformed "
+                    "runtime-action syntax remained malformed after one "
+                    "repair attempt."
+                )
+            else:
+                stop_reason = (
+                    "Brain workflow stopped after reaching the configured "
+                    f"follow-up limit ({max_followups}). "
+                    "One final non-executable response tick will run."
+                )
+                stop_event_text = (
+                    f"Follow-up limit reached ({max_followups}). "
+                    "Running one final response tick with runtime actions "
+                    "disabled."
+                )
+                stop_instruction_reason = (
+                    f"The runtime stopped this workflow after {max_followups} "
+                    "internal follow-up ticks."
+                )
 
             await logger.log_runtime(
                 "[BRAIN FOLLOW-UP LIMIT] "
@@ -3439,11 +3474,7 @@ class BrainNode(BaseNode):
                     or "current_turn"
                 ),
                 "status": "stopped",
-                "text": (
-                    f"Follow-up limit reached ({max_followups}). "
-                    "Running one final response tick with runtime "
-                    "actions disabled."
-                ),
+                "text": stop_event_text,
             })
 
             final_runtime_actions = {
@@ -3453,8 +3484,7 @@ class BrainNode(BaseNode):
 
             followup_limit_instruction = (
                 "<FOLLOWUP_LIMIT_REACHED>\n"
-                f"The runtime stopped this workflow after {max_followups} "
-                "internal follow-up ticks. This is the final response "
+                f"{stop_instruction_reason} This is the final response "
                 "tick. No runtime action emitted in this response will "
                 "execute, and no further follow-up tick will run. Any "
                 "runtime action marker you output will be shown to the "

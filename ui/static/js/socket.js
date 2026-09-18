@@ -163,6 +163,15 @@ function sendSocketMessage(
     return false;
   }
 
+  const memoryKind = {
+    active_memory_store_sync: "active", delayed_memory_store_sync: "delayed",
+    lt_memory_store_sync: "lt", facts_memory_store_sync: "pending",
+  }[payload.type];
+  if (memoryKind) {
+    if (window.jinMemoryProfileApplying) return false;
+    payload = { ...payload, memory_revision: window.jinMemoryProfileRevisions?.[memoryKind] };
+  }
+
   ws.send(
     JSON.stringify(
       payload

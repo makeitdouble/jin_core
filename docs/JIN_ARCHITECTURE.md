@@ -1,8 +1,9 @@
 # JIN Core Engine — Current Architecture
 
-**Verified snapshot:** `jin_core(20260901-112006).zip`<br>
-**Inspection date:** 2026-09-01<br>
-**Intent sources used for reconciliation:** current source plus the accumulated 2026-08-23--2026-09-01 project decisions; targeted memory/UI contract tests were executed for the newly documented behavior<br>
+**Verified snapshot:** `jin_core(20260917-184157).zip`<br>
+**Inspection date:** 2026-09-17<br>
+**Reconciliation basis:** current production source is the implementation source of truth; durable decisions are retained where they still match it, and legacy tests/comments are treated as compatibility evidence only.<br>
+
 **Purpose:** describe the architecture that is actually visible in the current source tree, while explicitly separating legacy compatibility from active design.
 
 This document is the current architectural baseline. `README.md` is kept as the shorter product-facing overview; legacy tests/comments remain lower-confidence historical evidence.
@@ -11,7 +12,7 @@ This document is the current architectural baseline. `README.md` is kept as the 
 
 ## 1. Product boundary
 
-JIN Core Engine is an experimental local cognitive runtime for interchangeable OpenAI-compatible models. The runtime, not a particular model, is the product.
+JIN Core Engine is an experimental cognitive runtime for interchangeable OpenAI-compatible models, designed to work especially well with local runtimes. The runtime, not a particular model, is the product.
 
 Core product properties:
 
@@ -165,35 +166,29 @@ The runtime status modal is also the current model-switch surface. For an availa
 
 `rules/brain_context_builder.py::build_brain_context()` is the authoritative prompt assembly path.
 
-The current high-level order is:
+The current high-level order differs slightly between an ordinary user turn and archived-restore priming.
+
+Ordinary turn:
 
 1. optional `<CURRENT_RUNTIME_SETTINGS>` — absolute first block when non-empty;
-2. on archived restore only: `<MANDATORY_SYSTEM_NOTIFICATION>`;
-3. on archived restore only: `<OLD_SESSION_RESTORED_STATE>` immediately below the mandatory notification;
-4. current concerns;
-5. trusted runtime XML / enabled actions;
-6. recent tool results;
-7. session action history;
-8. ordinary turn: attached-files inventory, then Delayed Memory inventory; restore turn: staged resource metadata instead;
-9. skills inventory;
-10. loaded skill content;
-11. runtime-context group:
-   - explicit user feedback / retry context when present;
-   - Active Memory view;
-   - ordinary turns: `<PREVIOUS_CHAT_MESSAGES>`;
-   - current `<FRAME_MEMORY_N ...>` snapshot;
-   - visible session counters;
-   - loaded Delayed Memory bodies;
-   - L-T long-term memory;
-   - zero-diff stall alert;
-12. ordinary turns only: previous-reasoning loop/crop; archived restore does not inject saved reasoning;
-13. runtime-action instructions assembled from current contracts;
-14. identity block;
-15. turn/loop rules.
+2. always-present `<CURRENT_CONCERNS>`; from 50% previous-answer context usage it includes the current percentage, and when tool results exist the warning also asks Brain to clean redundant tool results;
+3. trusted runtime XML / enabled actions, optional user-waiting state, and `<CONTEXT_USAGE>`;
+4. optional project-review context;
+5. `TOOLS_RESULTS` — this is also where loaded skill bodies are projected;
+6. session action history;
+7. attached-files inventory, then Delayed Memory inventory;
+8. always-present `<SKILLS_LIST>` availability/loaded-state inventory;
+9. runtime-context group: explicit feedback/retry, Active Memory, current `<FRAME_MEMORY_N ...>` snapshot, then `<PREVIOUS_CHAT_MESSAGES>`, visible session counters, loaded Delayed Memory bodies, L-T facts, and any zero-diff alert;
+10. previous reasoning evidence/loop block when applicable;
+11. runtime-action instructions assembled from current contracts;
+12. identity block;
+13. turn/loop rules.
 
-On ordinary turns, `<PREVIOUS_CHAT_MESSAGES>` takes the newest three recent USER/JIN pairs. The bound is pair count only: selected message bodies are no longer character-cropped. CRLF/CR is normalized, physical newlines are serialized as literal `\\n`, surrounding whitespace is stripped, and XML-sensitive characters are escaped without removing the remaining text.
+Archived restore priming deliberately moves continuity to the absolute front: inherited `<PREVIOUS_CHAT_MESSAGES>` first, then `<PREVIOUS_REASONING_EVIDENCE_TRAIL_AFTER_EXECUTED_ACTIONS>` when available, then `<MANDATORY_SYSTEM_NOTIFICATION>`. `<CURRENT_RUNTIME_SETTINGS>` follows that restore preamble, after which the normal concerns/runtime/tool/action scaffolding continues. Restore resource metadata replaces the ordinary attached-file/Delayed inventories, and the ordinary previous-reasoning slot is suppressed because reasoning evidence was already projected at the front.
 
-The ordinary initial Brain prompt also includes the previous successfully completed reasoning in `<PREVIOUS_REASONING_CONTENT>`. Up to 2000 characters are kept whole; above that threshold the projection keeps the first and last 25% and replaces the middle with `CUTTED N chars`. Interrupted/recovery reasoning is tracked separately. Action and recovery follow-ups explicitly assemble their own current-turn/loop reasoning context instead of duplicating the ordinary previous-reasoning block.
+On ordinary turns, `<PREVIOUS_CHAT_MESSAGES>` takes the newest five recent USER/JIN pairs. The bound is pair count only: selected message bodies are not character-cropped. CRLF/CR is normalized, physical newlines are serialized as literal `\n`, surrounding whitespace is stripped, and XML-sensitive characters are escaped without removing the remaining text.
+
+The ordinary initial Brain prompt also includes the previous successfully completed reasoning in `<PREVIOUS_REASONING_EVIDENCE_TRAIL_AFTER_EXECUTED_ACTIONS>`. Up to 2000 characters are kept whole; above that threshold the projection keeps the first and last 25% and replaces the middle with `CUTTED N chars`. Action/recovery follow-ups project visible dialogue first, then carried reasoning evidence, then `<FOLLOW_UP_RESPONSE_MESSAGE>` and the current failure/recovery/tool state, rather than duplicating the ordinary previous-reasoning slot.
 
 Prompt text is a transient projection. Canonical state remains in `RuntimeContext`, browser persistence, and filesystem stores.
 
@@ -215,23 +210,26 @@ Recovery paths also live around the stream/Brain sequence: repetition protection
 
 Concrete action schemas live in `contracts/*.json`. `contracts/rules_assembler.py` loads them and maps runtime actions to feature flags. Each concrete contract exposes a `schema` string array separately from its `rules`; the assembler emits `Schema:` before action rules, and `get_runtime_action_schema()` is also the canonical source used to explain invalid payloads back to the model.
 
-Current action names in the contract table:
+Current action names in runtime order are:
 
 - `DEEP_WEB_SEARCH`
 - `WEB_SEARCH`
-- `CHAT_LOG_SEARCH` — literal local archive search; see [CHAT_LOG_SEARCH.md](CHAT_LOG_SEARCH.md).
 - `CLEAN_TOOL_RESULTS`
 - `JIN_COLOR`
+- `JIN_REACTION`
 - `JIN_SIZE`
 - `JIN_POSITION`
 - `JIN_SPEED`
 - `UPDATE_LT_FACTS`
-- `LOAD_SKILL`
+- `RECALL_FACT_CONTEXT` — source-backed L-T recall; see [RECALL_FACT_CONTEXT.md](RECALL_FACT_CONTEXT.md).
+- `CHAT_LOG_SEARCH` — literal local archive search; see [CHAT_LOG_SEARCH.md](CHAT_LOG_SEARCH.md).
+- `LOAD_SKILL` — internal runtime name; the canonical model marker is `<LOAD_SKILL_CONTEXT> skill_name </LOAD_SKILL_CONTEXT>` and loads exactly one skill per block.
 - `UNLOAD_SKILL`
 - `ASSET_ACTION`
 - `POSTING_BOARD` — skill-gated native Get Posting Board I/O (`feed`, `inbox`, `read`, `search`, `post`, `reply`, `ack`, `delete`).
 - `LIST_FILES`
 - `ATTACH_FILE_CONTENT`
+- `ATTACH_FILE_BY_ID`
 - `SAVE_DELAYED_MEMORY`
 - `LOAD_DELAYED_MEMORY`
 - `UNLOAD_DELAYED_MEMORY`
@@ -258,8 +256,10 @@ Important current compatibility boundaries:
 - `CLEAN_TOOL_RESULTS` is intentionally a no-payload bare marker. A redundant `</CLEAN_TOOL_RESULTS>` is consumed as parser-only noise, including when it arrives in a later stream chunk; the paired-looking form still means one action.
 - `JIN_COLOR` and `JIN_SIZE` advertise paired XML with their payload in the tag body. Legacy inline/colon/space forms remain parser compatibility only. The stream filter must remove only the marker and preserve ordinary answer text before and after it, even across chunk boundaries.
 - `JIN_SIZE` normalization preserves positive decimal `px`, `vw`, `vh`, and `%` values instead of stripping their units. Unitless values become `px`. The browser resolves relative values at application time against its live viewport: `%` uses the matching width/height axis, while `vw` and `vh` always use viewport width and height respectively. The ordinary room-state checkpoint still stores the clamped rendered pixel geometry, so reload does not reinterpret an old relative command against a different window.
-- `UPDATE_ACTIVE_MEMORY` is advertised as paired flat JSON, while localized compatibility code can also read a self-closing attribute form. That attribute form is compatibility, not the canonical model contract.
-- `SAVE_ACTIVE_MEMORY` does not infer custom fields from parenthesized plain prose. Only explicit JSON root fields are structural custom fields; non-JSON text remains the `conditions` value.
+- `UPDATE_ACTIVE_MEMORY` is advertised as paired JSON containing `active_memory_id` plus `fields_to_update`. Localized compatibility code can still read legacy flat/nested/line-based payloads and a self-closing attribute form, but none of those are canonical model syntax.
+- `SAVE_ACTIVE_MEMORY` keeps `conditions` and optional custom fields at the JSON root and does not infer custom fields from parenthesized plain prose. Only explicit JSON root fields are structural custom fields; non-JSON text remains the `conditions` value.
+- `LOAD_SKILL_CONTEXT` is a renamed public marker for internal action `LOAD_SKILL`; because the public marker differs, old `<LOAD_SKILL...>` / `<LOAD_SKILLS...>` tags are not inherited executable aliases. Emit one skill per paired block.
+- `JIN_REACTION` advertises paired XML with a single emoji. Its older colon form remains parser/display compatibility only.
 
 ### 6.4 Guard and dispatcher
 
@@ -331,9 +331,9 @@ Remaining L2/L3 names occur in stale tests, old docs, comments, UI compatibility
 
 ### 7.3 Facts Memory
 
-Facts Memory is a companion candidate index derived from persisted live runtime snapshots on the browser side. `ui/static/js/runtime/runtime-storage.js` stores per-session facts-memory buckets and synchronizes them to the backend through `facts_memory_store_sync`.
+Facts Memory is a companion candidate index produced from FRAME snapshots on the server. Its durable source is `memory/facts/pending_facts.json` (or `pending_facts_anon.json` in anonymous mode); browser facts-memory buckets are only a projection of that file-backed profile.
 
-Backend L-T code normalizes these records and marks analyzed fields. This is an intake/candidate mechanism for L-T, not an independent durable product layer equivalent to old L2/L3.
+`facts_memory_store_sync` no longer makes an ordinary browser inventory authoritative. It has one narrow upgrade bridge that can import pre-file-store browser candidates once while the pending-facts file carries a legacy migration flag. Backend L-T code then normalizes these records and marks analyzed fields. This is an intake/candidate mechanism for L-T, not an independent durable product layer equivalent to old L2/L3.
 
 ### 7.4 L-T long-term memory
 
@@ -514,10 +514,11 @@ JIN deliberately splits persistence by owner/lifetime.
 | --- | --- |
 | live runtime FRAME for soft reconnect | `sessionStorage`: `jin.liveRuntimeMemory.v2` |
 | atomic browser session checkpoint | `localStorage`: `jin.sessionCheckpoint.v2` |
-| Active Memory | normal: browser runtime storage; anonymous room: tab-scoped `jin.anonymousSession.v1` snapshot |
-| Facts Memory candidate buckets | browser storage per facts-memory session ID |
-| Delayed Memory | normal: `memory/delayed/*.json`; anonymous: tab-scoped snapshot |
-| L-T facts | normal: `memory/facts/long_term_facts.json`; anonymous: tab-scoped snapshot |
+| Active Memory | `memory/active/<active_memory_id>.json`; anonymous uses `<active_memory_id>_anon.json` |
+| Facts Memory candidates / pending extraction | `memory/facts/pending_facts.json`; anonymous uses `pending_facts_anon.json` |
+| Delayed Memory | `memory/delayed/*.json`; anonymous reports use the `_anon.json` suffix |
+| L-T facts | `memory/facts/long_term_facts.json`; anonymous uses `long_term_facts_anon.json` |
+| FRAME crash-recovery journal | normal rooms: `memory/frame/*.frame_pending.json`; disabled for anonymous rooms |
 | persistent files | `assets/files/` + file index |
 | visible chat / reasoning logs | `logs/` |
 | live in-process orchestration | `RuntimeContext` |
@@ -586,28 +587,28 @@ Old L3-era fields can still appear in tests/compatibility paths, but there is no
 
 ### 9.3 Normal bootstrap chat tail
 
-After backend hydration, normal bootstrap emits at most the three newest `runtime_recent_turns` to the browser. Each item may carry USER text, JIN text, saved reasoning, and original timestamps. Attachment-context boilerplate is removed from the visible USER bubble.
+After backend hydration, normal bootstrap emits at most the five newest `runtime_recent_turns` to the browser. Each item may carry USER text, JIN text, saved reasoning, and original timestamps. Attachment-context boilerplate is removed from the visible USER bubble.
 
-The client rebuilds the tail through the existing chat primitives. It keeps a real USER-only interrupted/action-only turn but does not manufacture an empty BR bubble. It then appends a divider labelled with the source session's last message time (`jin_created_at`, otherwise `user_created_at`, in the browser's local timezone; no dated divider if neither timestamp is available) and activates the live-turn viewport at that boundary, leaving the inherited three-turn history immediately above the initial screen. Explicit archived restore owns its own rendering path and suppresses this normal-bootstrap tail.
+The client rebuilds the tail through the existing chat primitives. It keeps a real USER-only interrupted/action-only turn but does not manufacture an empty BR bubble. It then appends a divider labelled with the source session's last message time (`jin_created_at`, otherwise `user_created_at`, in the browser's local timezone; no dated divider if neither timestamp is available) and activates the live-turn viewport at that boundary, leaving the inherited five-turn history immediately above the initial screen. Explicit archived restore owns its own rendering path and suppresses this normal-bootstrap tail.
 
 ### 9.4 Archived session restore
 
 Archived restore is a distinct path:
 
 1. HTTP endpoint `/api/sessions/{session_id}/restore` builds payload from logs via `utils/session_restore.py`.
-2. Browser renders the same bounded three-USER-move tail carried by the restore payload and sends a `session_bootstrap`/restore payload. Saved reasoning is attached to its owning JIN turn after archive-file metadata is removed; later visible JIN-only restore rows remain in order.
+2. Browser renders the same bounded five-USER-move tail carried by the restore payload and sends a `session_bootstrap`/restore payload. Saved reasoning is attached to its owning JIN turn after archive-file metadata is removed; later visible JIN-only restore rows remain in order.
 3. Backend sets `runtime_session_restore_priming` and stages historical resource IDs/metadata.
 4. A hidden `archived_session_resume` Brain tick receives restore-specific context.
-5. The restore prompt includes the newest complete visible USER/JIN dialog pairs only. Each restored message is followed by its compact relative age (for example `(5m ago)`) derived from the archived message timestamp. Archived reasoning remains available to the archive/UI continuity path but is intentionally excluded from the hidden bootstrap Brain prompt so stale action intent cannot be replayed as current intent.
+5. The hidden restore prompt projects the newest complete visible USER/JIN dialogue in `<PREVIOUS_CHAT_MESSAGES>`, with compact relative ages derived from archived timestamps, then carries the previous reasoning evidence in `<PREVIOUS_REASONING_EVIDENCE_TRAIL_AFTER_EXECUTED_ACTIONS>` when available, and only then emits the mandatory automatic-restore notification. There is no separate raw reasoning dump or replay of old action markers as executable intent.
 6. Historical loaded Delayed IDs and attached files are staged until after the restore greeting; room/avatar state is already restored by the bootstrap path and is not replayed as runtime actions.
 7. `BrainNode` consumes the staged restore envelope and replays only those delayed-memory/file resources through the normal runtime-action dispatcher.
 8. The WebSocket tail performs defensive cleanup only; it must not apply the same resources a second time.
 
 At prompt-build time the restore instruction prepends the fresh runtime session ID and timezone-aware current time directly above `!!! USER DIDN'T SEND NEW MESSAGE! !!!`. Archived USER timestamps remain historical dialogue metadata and are never reused as the bootstrap time.
 
-The legacy restore-reasoning dump is retired. Saved reasoning remains available to archive/UI continuity and restore-derived metadata such as the latest reasoning/fact references, but it is not serialized into a separate bootstrap dump. Restored visible dialogue uses the normal three-pair limit and, like ordinary recent-message context, does not impose a per-message character cap.
+The legacy restore-reasoning dump is retired. Saved reasoning remains available to archive/UI continuity and restore-derived metadata such as the latest reasoning/fact references, but it is not serialized into a separate bootstrap dump. Restored visible dialogue uses the normal five-pair limit and, like ordinary recent-message context, does not impose a per-message character cap.
 
-The RESTORE endpoint owns archived dialogue, reasoning, and FRAME for explicit URL checkout. A same-session browser checkpoint may contribute a newer room/avatar and Session Actions projection, but it cannot overwrite only `recent_turns`, reasoning, or runtime memory and thereby create a mixed conversation source. The restore instruction names `OLD_SESSION_RESTORED_STATE` as the newest conversational authority; FRAME remains background state and may legitimately predate the final archived turn.
+The RESTORE endpoint owns archived dialogue, reasoning, and FRAME for explicit URL checkout. A same-session browser checkpoint may contribute a newer room/avatar and Session Actions projection, but it cannot overwrite only `recent_turns`, reasoning, or runtime memory and thereby create a mixed conversation source. Legacy `<OLD_SESSION_RESTORED_STATE>` wrappers are normalized to the canonical `<PREVIOUS_CHAT_MESSAGES>` block. On the one-shot priming turn, that inherited dialogue and its carried reasoning evidence are projected before the mandatory automatic-restore notification; FRAME remains background state and may legitimately predate the final archived turn.
 
 `utils/session_restore.py` still understands historical `SAVE_SESSION` labels in archived logs. That is restore compatibility, not proof of a current `SAVE_SESSION` runtime action.
 
@@ -623,12 +624,12 @@ Anonymous mode is an explicit JIN room state, not browser-private/incognito dete
 
 Backend behavior:
 
-- runtime is marked anonymous and persistent writes are restricted;
-- global Delayed and L-T file stores are not hydrated into the room;
-- Delayed and L-T file-store persistence is disabled;
-- the FRAME crash-recovery journal under `memory/runtime` is disabled;
-- `UPDATE_LT_FACTS` and `SAVE_DELAYED_MEMORY` mutate only the anonymous session snapshot;
-- Delayed browser sync supports restore, pin/unpin, and delete without accessing global files;
+- runtime is marked anonymous and unrelated persistent side effects remain restricted;
+- Active, Delayed, Facts Memory candidates, and L-T use the same file-backed profile machinery as normal mode but with `_anon.json` filenames;
+- those anonymous memory files are shared by concurrently open anonymous rooms and are removed after the last anonymous room closes;
+- the FRAME crash-recovery journal under `memory/frame` is disabled;
+- `UPDATE_LT_FACTS` and `SAVE_DELAYED_MEMORY` mutate only the anonymous file-backed profile;
+- Delayed sync supports restore, pin/unpin, and delete against the anonymous profile without touching normal files;
 - a soft WebSocket reconnect preserves the room's reports and loaded bodies;
 - persistent asset-write actions are restricted;
 - chat and reasoning still log normally under `logs/<date>/<session>_anon/`;
@@ -636,9 +637,9 @@ Backend behavior:
 
 Browser behavior:
 
-- `sessionStorage` owns one `jin.anonymousSession.v1` snapshot for the lifetime of that tab;
-- the snapshot starts empty and contains the anonymous id plus FRAME, Active, L-T, and Delayed state;
-- normal `localStorage` Active/L-T/Delayed/checkpoint data is not read or mutated;
+- `sessionStorage` still carries tab-local room/bootstrap state, but it is not the source of truth for Active/L-T/Delayed/Facts Memory;
+- server `memory_profile_snapshot` replaces browser memory projections from the `_anon.json` files;
+- normal `localStorage` Active/L-T/Delayed/Facts Memory data is not allowed to seed the anonymous profile;
 - a dedicated scene tint visually marks the room.
 
 ---
@@ -700,6 +701,12 @@ JIN visual-action chat bubbles are currently release-gated off, but parsing, exe
 Color has one visual transition owner in the avatar API. The initial bootstrap application consumes the one 2000 ms transition; later/live JIN_COLOR applications use 333 ms. The API writes the same temporary duration to avatar-center and scene-tint CSS variables before applying the color, so both projections move together. The old color queue and separate bootstrap tint-shift helper are absent.
 
 Normal session bootstrap applies the color from the common local checkpoint during early room restoration, then accepts one server `session_actions_update` reconciliation with `bootstrap_restore=true`. There is no client-side color resolver scanning competing sources.
+
+### Chat bubble skins and context-pressure scaffold
+
+Chat bubbles currently support `dark`, `light`, and `bamboo` skins through `ui/static/js/win95-theme.js` and `ui/static/css/chat-bamboo.css`. Normal theme defaults to `dark`; Win95 defaults to `light`. `jin_bubble_skin` stores the selected skin and `jin_bubble_skin_pinned` records whether it should survive theme changes. Choosing the current theme default leaves the skin unpinned; choosing a different skin pins it. The Context/trace settings surface exposes all three choices.
+
+The Live Avatar scaffold is also part of the context-pressure UI. `runtime-panel.js` writes `--jin-context-pressure-color` and `--jin-context-pressure-percent` from the Brain context meter (hue 150 -> 15 as usage goes 0 -> 100). Static scaffold circles do not rotate and use that pressure color. Sixteen rays breathe on a fixed 30-second cycle, fully fading to zero; pressure raises the active subset from 3 toward 7 rays and raises peak opacity from 0.10 toward 0.50 before each ray's local-strength multiplier. Center hide fades scaffold/runtime/memory/file layers for 420 ms and then switches them to dormant display/animation state; the central light remains visible.
 
 ### Header auto-hide
 

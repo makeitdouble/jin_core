@@ -1,3 +1,4 @@
+from runtime.memory_profile import enabled as profile_enabled, refresh_profile, enable_profile
 import json
 import re
 from datetime import datetime
@@ -129,6 +130,10 @@ def apply_active_memory_records(
     context,
     message_data: dict,
 ) -> None:
+
+    if profile_enabled(context):
+        refresh_profile(context)
+        return
 
     records = clean_active_memory_records(
         message_data.get(
@@ -1021,6 +1026,10 @@ def apply_delayed_memory_reports(
     message_data: dict,
 ) -> list[str]:
 
+    if profile_enabled(context) and not message_data.get("_profile_edit"):
+        refresh_profile(context)
+        return []
+
     deleted_report_ids = clean_deleted_delayed_memory_report_ids(
         message_data.get(
             "deleted_delayed_memory_report_ids",
@@ -1109,6 +1118,10 @@ def apply_delayed_memory_reports(
 def hydrate_delayed_memory_reports_from_files(
     context,
 ) -> None:
+
+    if profile_enabled(context):
+        refresh_profile(context)
+        return
 
     if bool(
         getattr(
@@ -1701,6 +1714,7 @@ def get_or_create_connection_context(
             context,
             anonymous_mode_enabled,
         )
+        enable_profile(context)
         hydrate_delayed_memory_reports_from_files(
             context
         )
@@ -1766,6 +1780,7 @@ def get_or_create_connection_context(
         context,
         anonymous_mode_enabled,
     )
+    enable_profile(context)
     resume_chat_log_session(
         context
     )
@@ -3611,6 +3626,8 @@ async def initialize_connection(
     skip_initial_runtime_state: bool = False,
 ):
 
+    from runtime.memory_profile import publish_profile
+    publish_profile(context)
     await context.websocket.accept()
 
     await send_telemetry(

@@ -333,12 +333,10 @@ async def apply_save_delayed_memory_actions(
                 False,
             )
         ):
-            from utils.delayed_memory_file_store import (
-                persist_delayed_memory_reports,
-            )
+            from runtime.memory_profile import persist_delayed as persist_delayed_memory_reports
 
             file_errors = persist_delayed_memory_reports(
-                report
+                context, report
             )
 
             if file_errors and log_runtime is not None:

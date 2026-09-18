@@ -787,3 +787,22 @@ registerSocketMessageHandler(
   "log",
   handleSocketLog
 );
+
+// One authoritative publication for both profiles. Rendering this snapshot
+// never sends a browser inventory back as a mutation.
+registerSocketMessageHandler("memory_profile_snapshot", function (data) {
+  const profile = data.profile || {};
+  const runtime = window.JinRuntime.runtime;
+  const storage = window.JinRuntime.storage;
+  window.jinMemoryProfileApplying = true;
+  try {
+    storage.clearMemoryProjection();
+    runtime.replaceActiveMemoryRecords(profile.active || []);
+    runtime.replaceDelayedMemoryReports(profile.delayed || {});
+    window.JinRuntime.ltMemory.applyFactsMemoryRecordsUpdate({ records: profile.pending || [] });
+    window.JinRuntime.ltMemory.applyServerUpdate({ store: profile.lt || {}, authoritative: true });
+    window.jinMemoryProfileRevisions = data.revisions || {};
+  } finally {
+    window.jinMemoryProfileApplying = false;
+  }
+});

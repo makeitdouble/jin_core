@@ -133,31 +133,40 @@ class MalformedRuntimeTests(IsolatedAsyncioTestCase):
         self.assertIn('name="LIST_FILES"', prompt)
         self.assertEqual(prompt.count('<MALFORMED_ACTION_NOTIFICATION>'), 2)
 
-    async def test_repeated_malformed_followups_have_no_repair_limit(self):
+    async def test_repeated_malformed_followups_stop_after_one_repair(self):
         from unittest.mock import patch
         from agent.nodes.brain import BrainNode
         from agent.state import AgentState
         from tests.test_brain_asset_flow import _context, _brain_runtime, _async_noop
-        from tests.test_runtime_stream_tokens import FakeLogger
+        from tests.test_runtime_stream_tokens import FakeLogger, FakeWebSocket
         from utils.actions.malformed_action_utils import record_malformed_action
         context = _context()
         context.logger = FakeLogger()
+        context.websocket = FakeWebSocket()
         context.runtime_current_turn_id = 'turn-test'
         calls = []
+
         async def run(**kwargs):
             calls.append(kwargs)
-            if len(calls) > 2:
-                self.assertTrue(kwargs['system_prompt'].startswith('<MALFORMED_ACTION_NOTIFICATION>'))
-                self.assertTrue(kwargs['filter_runtime_actions'])
-                self.assertNotIn('<FOLLOWUP_LIMIT_REACHED>', kwargs['system_prompt'])
-            if len(calls) == 1:
+            call_number = len(calls)
+            if call_number == 1:
                 context.runtime_action_events.append({'name':'list_files', 'status':'completed'})
                 return '', 'first valid action'
-            if len(calls) <= 5:
-                action = extract_runtime_actions(FORMS[(len(calls)-1) % 3]).actions[0]
+            if call_number in (2, 3):
+                if call_number == 3:
+                    self.assertIn('<MALFORMED_ACTION_NOTIFICATION>', kwargs['system_prompt'])
+                    self.assertTrue(kwargs['filter_runtime_actions'])
+                action = extract_runtime_actions(FORMS[(call_number - 2) % 3]).actions[0]
                 await record_malformed_action(context, action)
                 return '', 'attempt reasoning'
-            return 'done', 'done reasoning'
+
+            self.assertEqual(call_number, 4)
+            self.assertIn('<FOLLOWUP_LIMIT_REACHED>', kwargs['system_prompt'])
+            self.assertIn('malformed runtime-action syntax', kwargs['system_prompt'])
+            self.assertFalse(kwargs['filter_runtime_actions'])
+            self.assertTrue(all(value is False for value in kwargs['runtime_actions'].values()))
+            return 'stopped cleanly', 'final reasoning'
+
         state = AgentState(user_input='attach file')
         with patch('agent.nodes.brain.get_brain_runtime_config', return_value=_brain_runtime()), \
              patch('agent.nodes.brain.build_brain_payload', return_value='payload'), \
@@ -165,8 +174,15 @@ class MalformedRuntimeTests(IsolatedAsyncioTestCase):
              patch('agent.nodes.brain.config.BRAIN_MAX_FOLLOWUPS', 1), \
              patch.object(BrainNode, 'run_brain_stream', staticmethod(run)):
             await BrainNode().run(state, context)
-        self.assertEqual(len(calls), 6)
-        self.assertEqual(state.brain_response, 'done')
+
+        self.assertEqual(len(calls), 4)
+        self.assertEqual(state.brain_response, 'stopped cleanly')
+        stop_events = [
+            event for event in context.websocket.messages
+            if event.get('action') == 'followup_limit_reached'
+        ]
+        self.assertEqual(len(stop_events), 1)
+        self.assertIn('Malformed action repair failed after 1 retry', stop_events[0]['text'])
 
     async def test_stream_results_notifications_history_and_checkpoint(self):
         from runtime.stream import RuntimeStream

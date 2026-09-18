@@ -56,8 +56,5 @@ Dates remain in the existing fact tooltip; it now also shows source count.
 
 - `python -m unittest tests.test_recall_fact_context -q`
 - `node tests/test_recall_fact_context_client.js`
-- Existing L-T, tool-result, incomplete-marker and stream-filter tests compared
-  against the exact unmodified input archive: the same five pre-existing failures
-  in `tests.test_lt_memory` occur on both trees; the other tests pass.
-- Python syntax/import checks, JavaScript syntax, diff whitespace and clean
-  patch application checked. No live LM Studio conversation was run here.
+- Also run the related L-T, tool-result, incomplete-marker and stream-filter tests when changing recall/provenance behavior.
+- For documentation-only synchronization, verify the contract/source references and patch whitespace/application separately; no live LM Studio conversation is required.

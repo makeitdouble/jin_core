@@ -548,6 +548,7 @@ function syncDelayedMemoryReportsToRuntime(options = {}) {
 
   return sendSocketMessage({
     type: "delayed_memory_store_sync",
+    mutation: Boolean(options.mutation || deletedReportIds.length),
     delayed_memory_reports: delayedMemoryReports,
     deleted_delayed_memory_report_ids: deletedReportIds,
     loaded_delayed_memory_ids: loadedDelayedMemoryIds,
@@ -599,7 +600,6 @@ function handleDelayedMemoryStoreSnapshot(
 
 
   window.JinRuntime.runtime.replaceDelayedMemoryReports({
-    ...localReports,
     ...data.delayed_memory_reports,
   });
 

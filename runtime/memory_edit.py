@@ -1,3 +1,4 @@
+from runtime.memory_profile import commit_active, refresh_profile
 """Explicit value-only edits from the memory inspector (no model action)."""
 
 import re
@@ -153,7 +154,7 @@ async def apply_memory_value_edit(context, data, *, foreground_busy=False):
                 context.runtime_memory_stable = context.runtime_memory
                 context.runtime_memory_updates = int(getattr(context, "runtime_memory_updates", 0) or 0) + 1
             else:
-                context.active_memory_records = records
+                commit_active(context, records)
                 context.runtime_active_memory_records_dirty = True
                 # Keep legacy inline Active projections consistent; never touch historical snapshots.
                 for attr in ("runtime_memory", "runtime_memory_stable"):

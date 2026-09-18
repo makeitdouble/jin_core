@@ -1003,6 +1003,11 @@ def _preserve_server_analyzed_facts_memory(
 
 
 def _publish_server_facts_memory_state(context) -> None:
+    from runtime.memory_profile import enabled, file_options, publish_profile
+    if enabled(context):
+        from utils.long_term_facts_file_store import persist_pending_records
+        persist_pending_records(context.runtime_facts_memory_records, **file_options(context, "facts"))
+        publish_profile(context)
     app_state = getattr(
         context,
         "runtime_lt_app_state",
@@ -1082,6 +1087,10 @@ def get_runtime_lt_file_store_root(context):
 
 def load_runtime_lt_file_store(context) -> dict:
 
+    from runtime.memory_profile import enabled, file_options
+    if enabled(context):
+        return load_long_term_facts_store(**file_options(context, "facts"))[0]
+
     root = get_runtime_lt_file_store_root(
         context,
     )
@@ -1097,6 +1106,14 @@ def load_runtime_lt_file_store(context) -> dict:
 
 
 def persist_runtime_lt_file_store(context, store) -> None:
+
+    from runtime.memory_profile import enabled, file_options, publish_profile
+    if enabled(context):
+        if getattr(getattr(context, "runtime_transport", None), "stopping", False):
+            return
+        persist_long_term_facts_store(store, **file_options(context, "facts"))
+        publish_profile(context)
+        return
 
     if bool(
         getattr(
@@ -1129,6 +1146,10 @@ def persist_runtime_lt_file_store(context, store) -> None:
 
 
 def merge_with_runtime_lt_file_store(context, store) -> tuple[dict, bool]:
+
+    from runtime.memory_profile import enabled
+    if enabled(context):
+        return load_runtime_lt_file_store(context), False
 
     if not runtime_lt_file_store_enabled(
         context,
@@ -1398,6 +1419,10 @@ def refresh_runtime_lt_archived_fact_ids(
     return context.runtime_lt_archived_fact_ids
 
 def ensure_runtime_lt_state(context) -> dict:
+    from runtime.memory_profile import enabled, file_options
+    if enabled(context):
+        from utils.long_term_facts_file_store import load_pending_facts
+        context.runtime_facts_memory_records = load_pending_facts(**file_options(context, "facts")).get("records", [])
     context.runtime_facts_memory_records = normalize_facts_memory_records(
         getattr(context, "runtime_facts_memory_records", [])
     )
@@ -1748,9 +1773,9 @@ def remap_delayed_memory_lt_fact_ids(
     if changed_reports and bool(
         getattr(context, "delayed_memory_file_store_enabled", False)
     ):
-        from utils.delayed_memory_file_store import persist_delayed_memory_reports
+        from runtime.memory_profile import persist_delayed as persist_delayed_memory_reports
 
-        file_errors = persist_delayed_memory_reports(changed_reports)
+        file_errors = persist_delayed_memory_reports(context, changed_reports)
 
     if changed_reports:
         refresh_runtime_lt_archived_fact_ids(context)
@@ -1935,9 +1960,9 @@ def restore_delayed_memory_lt_fact_refs(
     if changed_reports and bool(
         getattr(context, "delayed_memory_file_store_enabled", False)
     ):
-        from utils.delayed_memory_file_store import persist_delayed_memory_reports
+        from runtime.memory_profile import persist_delayed as persist_delayed_memory_reports
 
-        file_errors = persist_delayed_memory_reports(changed_reports)
+        file_errors = persist_delayed_memory_reports(context, changed_reports)
 
     if changed_reports:
         refresh_runtime_lt_archived_fact_ids(context)
@@ -4064,8 +4089,9 @@ def _lt_scheduler_contexts(app_state) -> list:
         if lt_memory_writes_restricted(context):
             continue
 
-        contexts.append(context)
-        seen.add(id(context))
+        if not any(getattr(item, "runtime_anonymous_mode", False) for item in contexts):
+            contexts.append(context)
+            seen.add(id(context))
 
     return contexts
 

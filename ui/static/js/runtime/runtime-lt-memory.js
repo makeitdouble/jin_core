@@ -502,6 +502,9 @@
       records: storage.collectFactsMemoryRecords
         ? storage.collectFactsMemoryRecords()
         : [],
+      legacy_records: storage.getLegacyFactsMemoryRecords
+        ? storage.getLegacyFactsMemoryRecords()
+        : [],
     };
   }
 
@@ -618,12 +621,12 @@
     const incoming = normalizeStore(payload && payload.store);
     const local = readStore();
 
-    if (incoming.revision < local.revision) {
+    if (!payload.authoritative && incoming.revision < local.revision) {
       return local;
     }
 
     if (
-      incoming.revision === local.revision
+      !payload.authoritative && incoming.revision === local.revision
       && countStoreItems(local) > countStoreItems(incoming)
     ) {
       return local;

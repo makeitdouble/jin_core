@@ -58,6 +58,26 @@ class FrameReconnectResumeTests(
             runtime_memory_snapshot_index=0,
         )
 
+
+    def test_legacy_runtime_folder_migrates_frame_and_removes_l1_queues(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            legacy = root / "runtime"
+            legacy.mkdir()
+            (legacy / ".gitkeep").write_text("", encoding="utf-8")
+            (legacy / "live.frame_pending.json").write_text(
+                '{"base_runtime_memory_updates": 4, "turns": []}\n',
+                encoding="utf-8",
+            )
+            (legacy / "stale.l1_pending.json").write_text("{}\n", encoding="utf-8")
+
+            stats = frame_pending.migrate_legacy_runtime_journal(root)
+
+            self.assertEqual(stats["moved_frame"], 1)
+            self.assertEqual(stats["removed_l1"], 1)
+            self.assertTrue((root / "frame/live.frame_pending.json").exists())
+            self.assertFalse(legacy.exists())
+
     async def test_interrupted_frame_request_replays_after_backend_restart(self):
         with tempfile.TemporaryDirectory() as directory:
             pending_dir = Path(directory)

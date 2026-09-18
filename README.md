@@ -16,7 +16,7 @@ The main chat stays visually simple while memory layers, reasoning, context pres
 
 ![JIN Core Engine runtime workspace](ui/static/images/jin-core-default-theme.jpg)
 
-The JIN workspace combines the chat stream, draggable/collapsible runtime panels, model telemetry, inspectable memory layers, runtime actions, persistent files, and the Live Avatar.
+The JIN workspace combines the chat stream, draggable/collapsible runtime panels, model telemetry, inspectable memory layers, runtime actions, persistent files, and the Live Avatar. Chat bubbles have three current skins: `dark`, `light`, and `bamboo`. Normal theme defaults to `dark`, Win95 defaults to `light`, and an explicit non-default skin is pinned across theme switches (`jin_bubble_skin` / `jin_bubble_skin_pinned`).
 
 ### Live Avatar
 <table>
@@ -24,8 +24,9 @@ The JIN workspace combines the chat stream, draggable/collapsible runtime panels
 <td width="66%" valign="top">
 <p>Live Avatar visualizes JIN's runtime state in real time.</p>
 <p>Inner orbits react to live FRAME/runtime-memory changes, while outer signal rings track Delayed Memory, L-T facts, Active Memory, and persistent files.</p>
-<p>The avatar is interactive: reasoning references light up matching runtime signals, memory-row hover zooms/highlights the corresponding signal, and larger L-T stores fan out across additional outer rings.</p>
-<p>During reasoning, the avatar shifts into a dedicated motion state. Runtime actions can also change its size and tint the workspace, giving the model a small visual language beyond text.</p>
+<p>The non-rotating scaffold rings and breathing rays also mirror context pressure: they use the same green-to-warm progress color as the context meter, while ray peak opacity rises from roughly 0.10 toward 0.70 as the window fills. Rays fade fully out and back over a 30-second cycle.</p>
+<p>The avatar is interactive: reasoning references light up matching runtime signals, memory-row hover zooms/highlights the corresponding signal, and larger L-T stores fan out across additional outer rings. The center toggle fades all scaffold/runtime/memory/file rings, then removes those hidden layers from painting/animation after the fade; the central light remains.</p>
+<p>During reasoning, the avatar shifts into a dedicated motion state. Runtime actions can change its color, reaction, size, position, and speed, giving the model a small visual language beyond text.</p>
 </td>
 <td width="34%" align="center" valign="middle">
 <img src="ui/static/images/live-avatar.jpg" alt="Live Avatar memory rings" width="260" />
@@ -66,7 +67,7 @@ JIN no longer uses the old numbered four-layer hierarchy. The current user-facin
 * **Inspectable Memory:** Keeps FRAME/live state, long-term facts, delayed reports, active commitments, persistent files, and continuity checkpoints as separate systems.
 * **Session Continuity:** Supports soft WebSocket resume, atomic browser checkpoints for reload/new-tab continuity, and explicit archived-session restore from persisted logs.
 * **Persistent Files:** Stores uploaded text, images, PDFs, and other files under stable ids; the same stored files can be attached to or detached from context across turns.
-* **Runtime Telemetry:** Shows model status, token usage, live context pressure, memory updates, action state, and runtime logs; the status modal can switch the configured LM Studio model for an available runtime role.
+* **Runtime Telemetry:** Shows model status, token usage, live context pressure, memory updates, action state, and runtime logs; at 50%+ previous-answer context usage the Brain also receives a live `<CURRENT_CONCERNS>` warning, with an explicit cleanup reminder when tool results are present. The status modal can switch the configured LM Studio model for an available runtime role.
 * **Explicit Response Copy:** Completed assistant output exposes a small `Copy all` control under the avatar/message shell instead of hidden bubble gestures.
 * **Interruptible Generation:** Stops an active response while preserving the logical session and a dedicated interrupted-memory path.
 
@@ -76,15 +77,18 @@ JIN no longer uses the old numbered four-layer hierarchy. The current user-facin
 
 JIN can request an action while answering. The runtime validates and executes it, then returns any required result to the model before the workflow continues. Concrete contracts carry their own readable schema; a failed action is returned as a human-readable tool result with the reason, supplied payload when relevant, and the correct schema, followed by an explicit continuation instruction so the Brain does not treat the failed mutation as completed.
 
-Available actions include:
+Current contract families include:
 
-* one-shot web search and bounded multi-query Deep Web Search;
-* Active Memory creation and resolution;
-* Delayed Memory save, load, and unload;
-* persistent file listing, attachment, and detachment;
-* focused L-T fact updates and reconciliation;
-* asset and skill discovery, including bounded local Python skills;
-* Live Avatar size changes and workspace tint/color changes.
+* `WEB_SEARCH`, `DEEP_WEB_SEARCH`, and local `CHAT_LOG_SEARCH` when their capability gates allow them;
+* `CLEAN_TOOL_RESULTS`, `UPDATE_LT_FACTS`, and `RECALL_FACT_CONTEXT`;
+* `SAVE_ACTIVE_MEMORY`, `UPDATE_ACTIVE_MEMORY`, and `DELETE_ACTIVE_MEMORY`;
+* `SAVE_DELAYED_MEMORY`, `LOAD_DELAYED_MEMORY`, and `UNLOAD_DELAYED_MEMORY`;
+* `LIST_FILES`, `ATTACH_FILE_CONTENT`, and whole-file `ATTACH_FILE_BY_ID`;
+* skill/assets actions. The model-facing loader is `<LOAD_SKILL_CONTEXT> skill_name </LOAD_SKILL_CONTEXT>` and loads exactly one skill per tag; `LOAD_SKILL` remains the internal runtime action name;
+* `POSTING_BOARD` after the `posting_board` skill is loaded;
+* `JIN_COLOR`, `JIN_REACTION`, `JIN_SIZE`, `JIN_POSITION`, and `JIN_SPEED`.
+
+Concrete schemas in `contracts/*.json` are authoritative; compatibility parser aliases are not the preferred model-facing syntax.
 
 ## Architecture
 
@@ -92,7 +96,7 @@ Available actions include:
 
 ### Runtime Flow
 
-The WebSocket layer creates a `RuntimeContext` for each connection. Every user message is then handled by `AgentRuntime`.
+The WebSocket layer resolves a session-owned `RuntimeContext` for the browser client. A soft reconnect can reattach to the same live runtime/transport instead of creating a new foreground state container; explicit page departure retires it, while an unexplained disconnect has a 600-second reconnect grace. Every accepted user message is then handled by `AgentRuntime`.
 
 A normal turn follows this path:
 
@@ -102,7 +106,7 @@ A normal turn follows this path:
 4. Stream validation guards repetition and malformed generation while private runtime-action markers are extracted.
 5. Runtime Actions can mutate state or return trusted results; actions that need another model step continue inside the same user sequence.
 6. After the visible turn completes, the logical Service route performs background FRAME integration; if no dedicated Service endpoint is configured, this route reuses the Brain client.
-7. A later user turn waits for any pending FRAME update, then receives current Active Memory, recent chat beside `<FRAME_MEMORY_N>`, loaded Delayed Memory, L-T facts, files/skills, action history, and trusted tool results.
+7. A later user turn waits for any pending FRAME update, then receives current Active Memory, `<FRAME_MEMORY_N>` followed by up to five recent USER/JIN pairs, loaded Delayed Memory, L-T facts, files/skills, action history, context-usage/concern signals, and trusted tool results.
 
 The model path is intentionally direct:
 
@@ -154,7 +158,7 @@ assets/
 `-- outputs/      # Generated files
 ```
 
-JIN can inspect available skills, attach the one required for the current task, run its allowed actions, and remove it afterward. Python skills execute from `.py` files inside the selected skill directory with bounded execution and output limits. Persistent uploaded files are stored separately under `assets/files/` and keep stable ids across turns.
+JIN can inspect `<SKILLS_LIST>`, load exactly one required skill per `<LOAD_SKILL_CONTEXT> ... </LOAD_SKILL_CONTEXT>` block, run its allowed actions, and unload it afterward. Loaded skill bodies are projected through the normal tool-results context, while `<SKILLS_LIST>` remains the compact availability/loaded-state inventory. Python skills execute from `.py` files inside the selected skill directory with bounded execution and output limits. Persistent uploaded files are stored separately under `assets/files/` and keep stable ids across turns.
 
 ## Project Layout
 

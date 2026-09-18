@@ -376,6 +376,7 @@ def persist_delayed_memory_report(
     report: dict,
     *,
     root: Path | str = DELAYED_MEMORY_ROOT,
+    anonymous: bool = False,
 ) -> Path:
 
     root_path = Path(root)
@@ -387,6 +388,8 @@ def persist_delayed_memory_report(
         payload["id"],
         payload["title"],
     )
+    if anonymous:
+        filename = filename[:-5] + "_anon.json"
     destination = root_path / filename
 
     root_path.mkdir(
@@ -401,10 +404,11 @@ def persist_delayed_memory_report(
     ) + "\n"
 
     same_id_candidates = sorted(
-        root_path.glob(f"{payload['id']}_*.json"),
+        (p for p in root_path.glob(f"{payload['id']}_*.json")
+         if p.stem.endswith("_anon") == anonymous),
         key=lambda path: path.name.casefold(),
     )
-    legacy_candidate = root_path / f"{payload['id']}.json"
+    legacy_candidate = root_path / f"{payload['id']}{'_anon' if anonymous else ''}.json"
     existing_path = (
         destination
         if destination.exists()
@@ -511,7 +515,7 @@ def persist_delayed_memory_report(
     for candidate in root_path.glob(
         f"{payload['id']}_*.json"
     ):
-        if candidate == destination:
+        if candidate == destination or candidate.stem.endswith("_anon") != anonymous:
             continue
 
         try:
@@ -519,7 +523,7 @@ def persist_delayed_memory_report(
         except OSError:
             pass
 
-    legacy_candidate = root_path / f"{payload['id']}.json"
+    legacy_candidate = root_path / f"{payload['id']}{'_anon' if anonymous else ''}.json"
 
     if legacy_candidate != destination and legacy_candidate.exists():
         try:
@@ -534,6 +538,7 @@ def persist_delayed_memory_reports(
     reports,
     *,
     root: Path | str = DELAYED_MEMORY_ROOT,
+    anonymous: bool = False,
 ) -> list[str]:
 
     normalized_reports = normalize_delayed_memory_reports(
@@ -547,6 +552,7 @@ def persist_delayed_memory_reports(
                 report_id,
                 report,
                 root=root,
+                anonymous=anonymous,
             )
         except (OSError, TypeError, ValueError) as error:
             errors.append(
@@ -560,6 +566,7 @@ def delete_delayed_memory_report_files(
     report_id: str,
     *,
     root: Path | str = DELAYED_MEMORY_ROOT,
+    anonymous: bool = False,
 ) -> list[str]:
 
     normalized_id = str(
@@ -581,7 +588,7 @@ def delete_delayed_memory_report_files(
         *root_path.glob(
             f"{normalized_id}_*.json"
         ),
-        root_path / f"{normalized_id}.json",
+        root_path / f"{normalized_id}{'_anon' if anonymous else ''}.json",
     ]
     errors = []
     seen = set()
@@ -599,7 +606,7 @@ def delete_delayed_memory_report_files(
             resolved_candidate
         )
 
-        if not candidate.exists():
+        if not candidate.exists() or candidate.stem.endswith("_anon") != anonymous:
             continue
 
         try:
@@ -615,6 +622,7 @@ def delete_delayed_memory_report_files(
 def load_delayed_memory_reports_from_files(
     *,
     root: Path | str = DELAYED_MEMORY_ROOT,
+    anonymous: bool = False,
 ) -> tuple[dict[str, dict], list[str]]:
 
     root_path = Path(root)
@@ -635,6 +643,7 @@ def load_delayed_memory_reports_from_files(
                 for path in root_path.glob("*.json")
                 if path.is_file()
                 and not path.name.startswith(".")
+                and path.stem.endswith("_anon") == anonymous
             ),
             key=lambda path: (
                 path.stat().st_mtime_ns,
@@ -728,6 +737,7 @@ def load_delayed_memory_reports_from_files(
                 report_id,
                 report,
                 root=root_path,
+                anonymous=anonymous,
             )
             report_sources[report_id] = migrated_path.name
             report_has_attachments_field[report_id] = True

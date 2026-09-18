@@ -1,3 +1,4 @@
+from runtime.memory_profile import handle_store_sync, refresh_profile, publish_profile
 from fastapi import (
     APIRouter,
     WebSocket,
@@ -323,6 +324,7 @@ async def run_runtime_session(websocket, context, resumed_context):
         while True:
 
             message_data = await pending_requests.get()
+            refresh_profile(context)
             batch_state = None
             brain_started = False
 
@@ -581,6 +583,9 @@ async def run_runtime_session(websocket, context, resumed_context):
                 )
             )
 
+            if handle_store_sync(context, message_data):
+                continue
+
             if message_type == "pending_user_batch_commit_ack":
                 batch_id = str(
                     message_data.get(
@@ -673,6 +678,7 @@ async def run_runtime_session(websocket, context, resumed_context):
             # -------------------------------------------------
 
             if message_type == "memory_value_edit":
+                refresh_profile(context)
                 try:
                     result = await apply_memory_value_edit(
                         context, message_data,
@@ -871,6 +877,7 @@ async def run_runtime_session(websocket, context, resumed_context):
                 continue
 
             if message_type == "lt_memory_delete_fact":
+                refresh_profile(context)
                 if lt_memory_writes_restricted(context):
                     await logger.log_runtime(
                         "[RUNTIME ACTION] lt_memory_delete_fact failed: "
@@ -897,6 +904,7 @@ async def run_runtime_session(websocket, context, resumed_context):
                 continue
 
             if message_type == "lt_memory_restore_fact":
+                refresh_profile(context)
                 fact = message_data.get(
                     "fact",
                     {},

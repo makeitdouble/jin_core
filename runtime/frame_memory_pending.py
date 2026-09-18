@@ -6,11 +6,83 @@ from pathlib import Path
 PENDING_FRAME_DIR = (
     Path(__file__).resolve().parents[1]
     / "memory"
-    / "runtime"
+    / "frame"
 )
 PENDING_FRAME_SESSION_RE = re.compile(
     r"[^a-zA-Z0-9_.-]"
 )
+
+
+def migrate_legacy_runtime_journal(
+        memory_root=None,
+) -> dict:
+    """Move live FRAME checkpoints out of the retired memory/runtime folder.
+
+    Old ``*.l1_pending.json`` files are obsolete extraction queues and can be
+    discarded. ``*.frame_pending.json`` remains crash-recovery state, so keep
+    the newest copy when a destination already exists. Unknown files are left
+    alone instead of being deleted blindly.
+    """
+
+    root = Path(memory_root) if memory_root is not None else PENDING_FRAME_DIR.parent
+    legacy_dir = root / "runtime"
+    frame_dir = root / "frame"
+    stats = {
+        "moved_frame": 0,
+        "removed_l1": 0,
+        "removed_temp": 0,
+        "removed_runtime_dir": False,
+    }
+
+    if not legacy_dir.is_dir():
+        return stats
+
+    for source in legacy_dir.glob("*.frame_pending.json"):
+        target = frame_dir / source.name
+        try:
+            frame_dir.mkdir(parents=True, exist_ok=True)
+            if target.exists():
+                try:
+                    source_is_newer = source.stat().st_mtime_ns > target.stat().st_mtime_ns
+                except OSError:
+                    source_is_newer = False
+                if source_is_newer:
+                    source.replace(target)
+                else:
+                    source.unlink()
+            else:
+                source.replace(target)
+            stats["moved_frame"] += 1
+        except OSError:
+            # A failed migration must never destroy the only recovery copy.
+            continue
+
+    for pattern, stat_key in (
+        ("*.l1_pending.json", "removed_l1"),
+        ("*.tmp", "removed_temp"),
+    ):
+        for path in legacy_dir.glob(pattern):
+            try:
+                path.unlink()
+                stats[stat_key] += 1
+            except OSError:
+                continue
+
+    gitkeep = legacy_dir / ".gitkeep"
+    try:
+        gitkeep.unlink()
+    except (FileNotFoundError, OSError):
+        pass
+
+    try:
+        legacy_dir.rmdir()
+        stats["removed_runtime_dir"] = True
+    except OSError:
+        # Preserve an unknown file rather than treating memory/runtime as a
+        # disposable directory.
+        pass
+
+    return stats
 
 
 def _pending_frame_path(
@@ -18,7 +90,7 @@ def _pending_frame_path(
 ) -> Path | None:
 
     # Anonymous rooms are browser-ephemeral. They must never create or read a
-    # crash-recovery journal under memory/runtime.
+    # crash-recovery journal under memory/frame.
     if bool(
         getattr(
             context,

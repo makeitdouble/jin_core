@@ -1,8 +1,8 @@
 # JIN Core Engine — Current State / Migration Notes
 
-**Snapshot inspected:** `jin_core(20260901-112006).zip`<br>
-**Inspection date:** 2026-09-01<br>
-**Context reference:** current production source plus the accumulated 2026-08-23--2026-09-01 project decisions. Targeted tests were executed for the newly documented memory/UI behavior.
+**Snapshot inspected:** `jin_core(20260917-184157).zip`<br>
+**Inspection date:** 2026-09-17<br>
+**Context reference:** current production source is the implementation baseline; durable decisions and historical correction notes are retained only where they remain compatible with that source.
 
 This is the document to read before touching transitional code. It lists what is true in the inspected snapshot, what is legacy residue, and where product intent and implementation currently differ.
 
@@ -14,7 +14,7 @@ The production runtime is on the post-L2/L3, Brain-first architecture and the ro
 
 Current high-signal state:
 
-- 2026-09-08 background-tab fix: the physical WebSocket no longer owns/cancels the runtime queue. `RuntimeContext.runtime_transport` retains accepted work and unacknowledged output in process RAM; a resumed page attaches to that live task and does not re-upload stale memory stores. Client retries continue with capped delay while hidden and after more than three failures. This requires reloading the client after restarting the backend; it does not preserve tasks across a backend restart or reconstruct a discarded page's full DOM. Undelivered output occupies RAM until acknowledged or the process ends.
+- transport continuity: the physical WebSocket no longer owns/cancels the runtime queue. `RuntimeContext.runtime_transport` retains accepted work and unacknowledged output in process RAM; a soft reconnect attaches to that live task and does not re-upload stale memory stores. Explicit page departure retires the runtime, while an unexplained disconnect has a 600-second reconnect grace before cancellation/release. Process restart still loses this in-memory transport state, and a discarded page's full DOM is not reconstructed server-side.
 
 - foreground user turns always execute through `AgentRuntime -> BrainNode -> context.clients["brain"]`; no production branch can switch visible responses to Service;
 - Service is background-only. With `SERVICE_API_BASE` empty, `clients["service"]` intentionally aliases the Brain client; configuring a dedicated Service endpoint changes only background execution;
@@ -27,12 +27,15 @@ Current high-signal state:
 - the L-T panel defaults to active facts, can toggle `show all` to reveal report-absorbed facts in normal sort order, and keeps report-linked fact IDs clickable.
 - L-T recall now tracks `mention_count`/`last_mentioned_at`: facts untouched for 24 hours are compacted to 100-character sentence previews in Brain context until JIN references them again.
 - pinned outgoing files appear as composer attachment chips; click previews, hold detaches from context without deleting the persistent file.
-- Brain recent-message context is adjacent to `<FRAME_MEMORY_N>` and keeps the newest three pairs in full, with newline/XML normalization but no per-message character crop;
+- Brain recent-message context is adjacent to `<FRAME_MEMORY_N>` and keeps the newest five pairs in full, with newline/XML normalization but no per-message character crop;
 - ordinary Brain turns include the previous successful reasoning block with explicit middle-crop semantics, while follow-ups keep their dedicated reasoning context;
 - browser continuity uses page-ephemeral `jin.liveRuntimeMemory.v2` plus one atomic `jin.sessionCheckpoint.v2`; legacy per-session FRAME selection is migration-only and never freshness-scanned;
 - Session CLEAR is a durable tombstone that blocks passive resurrection across already-open tabs until a new USER message is successfully sent;
 - `SAVE_SESSION` is not a current runtime-action contract; archived-session restore is handled by the bootstrap/restore path;
-- stale compatibility tests may still encode historical Brain-as-Service / `SAVE_SESSION` assumptions, but the targeted 2026-09-01 checks cover the new memory editing, Active pause synchronization, L-T recall, and attachment UI contracts.
+- the current action set includes `JIN_REACTION`, `RECALL_FACT_CONTEXT`, `CHAT_LOG_SEARCH`, and whole-file `ATTACH_FILE_BY_ID`; skill loading is taught as one paired `<LOAD_SKILL_CONTEXT>...</LOAD_SKILL_CONTEXT>` block per skill while `LOAD_SKILL` remains the internal action name;
+- `<CURRENT_CONCERNS>` is always present; at 50%+ previous-answer context usage it shows the live percentage, and if tool results are present it explicitly recommends cleaning redundant results;
+- bubble skins are `dark`, `light`, and `bamboo`, with dark/light following normal/Win95 theme defaults unless a non-default skin is explicitly pinned;
+- Live Avatar scaffold circles/rays now mirror the context-pressure color, ray peak opacity scales approximately 0.10 -> 0.50 over a 30-second fade-to-zero breathing cycle, and center hide includes the file ring before switching hidden layers to dormant mode after the fade.
 
 New agents must not “repair” compatibility residue by restoring the old topology.
 
@@ -101,7 +104,7 @@ These paths are localized compatibility readers/adapters. None changes current f
 
 ### Test residue
 
-Tests still contain historical assumptions around `USE_SERVICE_AS_BRAIN`, `CAN_SAVE_SESSION`, and old `<SAVE_SESSION>` parsing. The 2026-09-01 targeted runs also exposed presentation-contract residue: several client tests still assert removed asset cache-buster query strings, and the older response-gesture test still expects the retired retryable-bubble path. The underlying editing, recall, action-result, merge-trace, Delayed-memory, and explicit-copy implementation was inspected separately. Test code was not changed in this documentation-only patch.
+Some tests still mention `CAN_SAVE_SESSION`, `<SAVE_SESSION>`, or other retired names as negative/compatibility fixtures. Treat those occurrences as test intent that must be read in context, not evidence that the action/topology is live. Current contract and prompt tests also cover the renamed `LOAD_SKILL_CONTEXT`, five-pair dialogue window, structured Active update payload, chat/fact recall, and context/avatar client contracts. This documentation pass does not modify tests.
 
 ### Rule for agents
 
@@ -163,21 +166,22 @@ history/checkpoint JS test pass. Extending the run with archived restore and
 bootstrap-tail tests yields 54/58 passing. The four archived-restore failures
 also reproduce with the original changed reader functions and original action
 flags: old `runtimeMemory.saved_at` client expectation, one-shot restore prompt,
-three-pair restore-dialog bound, and bounded URL-restore UI tail. The latter two
-expose pre-existing implementation/documented-intent disagreement (full archive
-versus bounded tail), outside chat-search scope. Older cleanup tests still name removed function/log strings. The tool-ID tests now run on the standard unittest stack. This is not a full-suite green claim.
+the then-current restore-dialog bound, and bounded URL-restore UI tail. Those were historical failures from the 2026-09-08 search work; the current shared dialogue bound is five pairs and the restore/follow-up prompt ordering has since changed. Older cleanup tests may still name removed function/log strings. This paragraph is historical evidence, not the current verification status.
 
-The contract assembler currently maps these actions:
+The contract assembler currently maps these actions in runtime order:
 
 ```text
 DEEP_WEB_SEARCH
 WEB_SEARCH
 CLEAN_TOOL_RESULTS
 JIN_COLOR
+JIN_REACTION
 JIN_SIZE
 JIN_POSITION
 JIN_SPEED
 UPDATE_LT_FACTS
+RECALL_FACT_CONTEXT
+CHAT_LOG_SEARCH
 LOAD_SKILL
 UNLOAD_SKILL
 ASSET_ACTION
@@ -193,9 +197,11 @@ DELETE_ACTIVE_MEMORY
 UPDATE_ACTIVE_MEMORY
 ```
 
+`LOAD_SKILL` is the internal runtime action name only. Its canonical public/model marker is `<LOAD_SKILL_CONTEXT> name of skill </LOAD_SKILL_CONTEXT>` and exactly one skill is loaded per block. Old `LOAD_SKILL`/`LOAD_SKILLS` tags do not become executable aliases simply because the internal action retains that name.
+
 `utils/actions/dispatcher.py` contains execution branches for the same action family. Every concrete contract now carries a separate `schema` string array before `rules`; `contracts/rules_assembler.py::get_runtime_action_schema()` feeds both model-facing contract text and failed-action diagnostics. Failed tool results are rendered as readable text (status/reason, supplied payload when relevant, `Correct action schema:`), and `ACTION_FAILURE_FOLLOWUP_MESSAGE` explicitly tells Brain not to assume the failed action completed.
 
-`POSTING_BOARD` is a native action exposed only after `LOAD_SKILL: posting_board`. The side skill documents the minimal inner actions (`feed`, `inbox`, `read`, `search`, `post`, `reply`, `ack`, `delete`); the runtime executes them against Get Posting Board and records the exact public request preview plus response as a runtime tool result. Chat bubbles use one stable action ID from running to completed/failed, then fade and become clickable for the reused trace modal. Session Actions intentionally keep only compact markers such as `POSTING_BOARD: action:feed` or `POSTING_BOARD: action:post - failed`; request/response bodies stay out of session-action text. Public writes, including deletion, are blocked when persistent writes are restricted, while board reads remain available. `delete` targets one owned message by exact `post_id`; deleting a root removes the entire thread, so the skill requires explicit authorization and warns Brain to preserve roots unless whole-thread deletion is intended. The bearer token comes only from `GETPOSTINGBOARD_API_KEY` and is never projected into model/UI context.
+`POSTING_BOARD` is a native action exposed only after `<LOAD_SKILL_CONTEXT> posting_board </LOAD_SKILL_CONTEXT>`. The side skill documents the minimal inner actions (`feed`, `inbox`, `read`, `search`, `post`, `reply`, `ack`, `delete`); the runtime executes them against Get Posting Board and records the exact public request preview plus response as a runtime tool result. Chat bubbles use one stable action ID from running to completed/failed, then fade and become clickable for the reused trace modal. Session Actions intentionally keep only compact markers such as `POSTING_BOARD: action:feed` or `POSTING_BOARD: action:post - failed`; request/response bodies stay out of session-action text. Public writes, including deletion, are blocked when persistent writes are restricted, while board reads remain available. `delete` targets one owned message by exact `post_id`; deleting a root removes the entire thread, so the skill requires explicit authorization and warns Brain to preserve roots unless whole-thread deletion is intended. The bearer token is resolved through the environment override helper from `GETPOSTINGBOARD_API_KEY` (or its supported `JIN_GETPOSTINGBOARD_API_KEY` alias) and is never projected into model/UI context.
 
 The mapped Brain feature flags in `rules/brain_context_builder.py` are enabled. `WEB_SEARCH` and `DEEP_WEB_SEARCH` are then filtered again by `settings.CAN_SEARCH`, so they are not model-visible unless provider `serper` has a non-empty, non-placeholder process-environment key. `launch_jin.ps1` imports an ignored repository-root `.env` before resolving configuration and starting Python; `.env.example` documents the supported secret names without containing credentials. Direct `python app.py` starts still rely on variables exported by the calling shell. The local availability check intentionally does not impose an invented key-length/shape regex; Serper remains the credential authority.
 
@@ -256,7 +262,7 @@ Old key/value bodies and `<SAVE_DELAYED_MEMORY_CONTENT>` may still be normalized
 
 The create parser now treats custom fields as explicit JSON structure only. A non-JSON body is preserved as the complete `conditions` value; parenthesized prose such as `(date: tomorrow)` is no longer reinterpreted as a custom field. JSON custom fields are capped at three after normalized duplicate keys use last-value-wins behavior.
 
-The model-facing update contract has one canonical shape: every changed field goes inside `fields_to_update`, including single-field updates. Keys are exact existing field names.
+The model-facing update contract has one canonical shape: paired `<UPDATE_ACTIVE_MEMORY>...</UPDATE_ACTIVE_MEMORY>` containing `active_memory_id` plus `fields_to_update`; every changed field goes inside that object, including single-field updates. Keys are exact existing field names. Creation remains paired `<SAVE_ACTIVE_MEMORY>...</SAVE_ACTIVE_MEMORY>` with `conditions` and optional custom fields at the JSON root.
 
 The parser still accepts older flat/nested/line-based and self-closing attribute forms as reader compatibility only; they are not advertised to the model.
 
@@ -266,7 +272,7 @@ Active records are still stored/transported in a string-oriented record format w
 
 ### Risk
 
-Do not “finish the migration” by replacing the internal storage shape in an unrelated task. The flat JSON decision applies to the action/model boundary; storage migration needs its own end-to-end plan.
+Do not “finish the migration” by replacing the internal storage shape in an unrelated task. The structured JSON action boundary is settled separately from the string-oriented internal record representation; storage migration needs its own end-to-end plan.
 
 ---
 
@@ -274,18 +280,17 @@ Do not “finish the migration” by replacing the internal storage shape in an 
 
 Current `build_brain_context()` order is intentionally structured. Important anchors:
 
-- `CURRENT_RUNTIME_SETTINGS` is first when non-empty;
-- restore instruction is next only for restore priming;
-- current concerns and trusted runtime XML precede tool/session/action state;
-- file + delayed inventories sit near the top on ordinary turns;
-- Active/FRAME/loaded Delayed/L-T live together in the runtime-context group;
-- restored exact dialog replaces the normal recent-dialog window for the one-shot restore path;
-- ordinary `<PREVIOUS_CHAT_MESSAGES>` keeps the newest three pairs without per-message character cropping; physical newlines become literal `\\n` and XML-sensitive characters are escaped;
-- ordinary initial turns include the previous successful reasoning; blocks over 2000 characters keep the first and last 25% with an explicit middle-cut marker;
-- action/recovery follow-ups suppress that ordinary previous-reasoning block and inject their current-turn/loop reasoning through dedicated builders;
+- ordinary turns put `CURRENT_RUNTIME_SETTINGS` first when non-empty, then always-present `CURRENT_CONCERNS`, trusted runtime XML, optional waiting state, and `CONTEXT_USAGE`;
+- at 50%+ previous-answer context usage, `CURRENT_CONCERNS` shows the percentage; with nonempty tool results it appends `check and clean redundant tool results`;
+- tool results precede Session Actions, attached-file/Delayed inventories, and the always-present `SKILLS_LIST`; loaded skill bodies are part of the tool-results projection rather than a second independent prompt section;
+- the runtime-context group orders Active Memory before FRAME, and `<PREVIOUS_CHAT_MESSAGES>` immediately after `<FRAME_MEMORY_N>`; loaded Delayed/L-T follow later in the same group;
+- ordinary `<PREVIOUS_CHAT_MESSAGES>` keeps the newest five pairs without per-message character cropping; physical newlines become literal `\n` and XML-sensitive characters are escaped;
+- ordinary initial turns include previous successful reasoning in `<PREVIOUS_REASONING_EVIDENCE_TRAIL_AFTER_EXECUTED_ACTIONS>`; blocks over 2000 characters keep the first and last 25% with an explicit middle-cut marker;
+- archived restore priming instead begins with inherited `<PREVIOUS_CHAT_MESSAGES>`, then carried reasoning evidence, then `<MANDATORY_SYSTEM_NOTIFICATION>`; `CURRENT_RUNTIME_SETTINGS` and the normal live scaffolding come after that continuity preamble;
+- action/recovery follow-ups likewise move visible dialogue and carried reasoning ahead of `<FOLLOW_UP_RESPONSE_MESSAGE>`, then append failure/recovery/action history/current concerns/tool results and the base prompt without duplicating those continuity blocks;
 - action contracts remain present even on restore ticks, subject to effective capability filtering;
-- both search contracts disappear from the prompt when `settings.CAN_SEARCH` is false;
-- identity and loop rules are at the bottom.
+- `WEB_SEARCH` and `DEEP_WEB_SEARCH` disappear when `settings.CAN_SEARCH` is false;
+- identity and loop rules remain at the bottom of the base prompt.
 
 Any prompt-order change can alter behavior materially. Do not reorder sections for aesthetics.
 
@@ -340,7 +345,7 @@ The first bootstrap color consumes a synchronized 2000 ms avatar-center + scene-
 
 ### 9.5 Normal bootstrap chat tail
 
-The backend emits at most three newest real USER moves from `runtime_recent_turns`, with JIN, reasoning, and original timestamps where available. The browser rebuilds them through existing chat primitives, strips synthetic attached-context boilerplate from USER display, keeps USER-only moves without an empty BR bubble, appends the current date/session divider, and activates the live viewport at that divider. Explicit archived restore suppresses this duplicate normal-bootstrap tail.
+The backend emits at most five newest real USER moves from `runtime_recent_turns`, with JIN, reasoning, and original timestamps where available. The browser rebuilds them through existing chat primitives, strips synthetic attached-context boilerplate from USER display, keeps USER-only moves without an empty BR bubble, appends the current date/session divider, and activates the live viewport at that divider. Explicit archived restore suppresses this duplicate normal-bootstrap tail.
 
 ### 9.6 Archived restore
 
@@ -349,8 +354,8 @@ Current restore code deliberately prevents the “double apply” class of bugs.
 Verified behavior:
 
 - archived visible dialogue is rebuilt from logs;
-- the newest three real USER moves are used for the restore context in chronological order, with empty JIN retained where the turn was interrupted/action-only;
-- no separate restore-reasoning dump is generated; saved reasoning remains available to UI/archive restore data but is excluded from the hidden bootstrap prompt;
+- the newest five real USER moves are used for the restore context in chronological order, with empty JIN retained where the turn was interrupted/action-only;
+- no separate restore-reasoning dump is generated; the hidden bootstrap prompt instead carries the prior reasoning through `<PREVIOUS_REASONING_EVIDENCE_TRAIL_AFTER_EXECUTED_ACTIONS>` after `<PREVIOUS_CHAT_MESSAGES>` and before the mandatory automatic-restore notification;
 - loaded Delayed IDs and attached files are staged; room/avatar state is restored by bootstrap and is not replayed as runtime actions;
 - restore Brain response occurs before normal resource reactivation;
 - `BrainNode.replay_session_restore_resource_actions()` consumes the staged Delayed/file envelope and applies only those resources through the real action dispatcher;
@@ -422,16 +427,16 @@ Anonymous mode is now explicit JIN behavior and does not attempt to detect Chrom
 
 Backend `runtime/anonymous_mode.py` currently:
 
-- marks runtime persistent writes restricted;
-- disables both Delayed and L-T file-store hydration/persistence;
-- allows `UPDATE_LT_FACTS` and `SAVE_DELAYED_MEMORY` in the isolated session snapshot;
-- accepts Delayed browser sync without file writes/deletes, including after reload;
+- marks unrelated runtime persistent side effects restricted;
+- stores Active, Delayed, Facts Memory candidates, and L-T in the normal memory folders with `_anon.json` filenames;
+- shares those anonymous memory files across concurrently open anonymous rooms and deletes them after the last anonymous room closes;
+- allows `UPDATE_LT_FACTS` and `SAVE_DELAYED_MEMORY` only inside that anonymous file-backed profile;
 - preserves Delayed reports and loaded bodies on a soft WebSocket reconnect;
 - blocks persistent asset-write actions;
-- prevents anonymous FRAME pending journals under `memory/runtime`;
+- prevents anonymous FRAME pending journals under `memory/frame`;
 - keeps chat/reasoning logging under ordinary `logs/` with the `_anon` session suffix.
 
-Browser state is a fresh `sessionStorage` snapshot (`jin.anonymousSession.v1`) holding the room id and empty FRAME/Active/L-T/Delayed structures. It disappears with the tab and never reads the normal profile's durable memory/checkpoint state. Normal restore/bootstrap and L-T log-freshness scans skip `_anon` logs.
+Browser `sessionStorage` still carries tab-local anonymous room/bootstrap state, but Active/L-T/Delayed/Facts Memory are server file-owned and browser values are projections. The normal profile's durable memory is never used to seed an anonymous room. Normal restore/bootstrap and L-T log-freshness scans skip `_anon` logs.
 
 ---
 
@@ -482,31 +487,37 @@ Runtime-action bubbles persist their detail in DOM dataset state. Counter-only u
 - answer-rating implementation remains in the client but is release-gated off; the old invisible bubble double-click/hold utility surface has been removed, and completed assistant output instead exposes an explicit `Copy all` button under the avatar/message host;
 - Win95 theme localStorage reads/writes are guarded so restricted storage contexts do not break theme switching.
 
-### 13.8 Direct memory editing
+### 13.8 Chat skins and avatar context pressure
+
+`win95-theme.js` exposes three bubble skins: `dark`, `light`, and `bamboo`. Normal theme defaults to dark and Win95 to light. `jin_bubble_skin` stores the current choice; `jin_bubble_skin_pinned` means the user's explicit non-default choice survives a theme switch. The Context/trace settings UI renders the same three options.
+
+`runtime-panel.js` synchronizes the Brain context meter into `--jin-context-pressure-color` and `--jin-context-pressure-percent`. Static scaffold circles do not rotate; their stroke and the ray stroke use the pressure color. Sixteen rays breathe to zero on a 30-second cycle. Pressure selects roughly 3..7 stronger rays and raises their maximum unmultiplied opacity from 0.10 at empty context to 0.50 at full context. The center toggle fades scaffold, runtime/memory rings, file ring/dots, and center rings; after the 420 ms fade the hidden layers enter `is-memory-layers-dormant`, which removes them from display and disables their orbit/reasoning animations. The center light remains visible.
+
+### 13.9 Direct memory editing
 
 Double-clicking a FRAME, Active, or L-T row converts the existing details tooltip into a fixed editor rather than opening a separate styling primitive. Only values are editable. FRAME accepts edits only on the newest snapshot; Active edits conditions/value while preserving custom fields, pause status, IDs, and other metadata; L-T edits only the durable fact value and preserves identity/provenance. Keys are never editable.
 
 Editor drafts are page-local. The checkmark sends `memory_value_edit` with `expected_value`; conflicting/stale writes are rejected without discarding the draft, and FRAME writes are additionally rejected while the live FRAME/foreground writer is busy. FRAME row deletion uses the same busy guard; because the browser applies long-hold deletion optimistically, a rejected delete immediately re-emits the authoritative latest FRAME snapshot. Active edits stay writable during Brain/FRAME work because they mutate the independent `active_memory_records` store. The rollback arrow restores the last acknowledged value. Active and L-T successful edits create/update `updated_at` immediately in the open tooltip. Active pause/resume panel writes synchronize `active_memory_store_sync` before the local changed event so a later edit cannot revive stale pause state.
 
-### 13.9 Composer attachment chips
+### 13.10 Composer attachment chips
 
 Pinned files attached to the outgoing message are rendered immediately to the left of the input as compact chips using the existing attachment preview primitive. New chips animate in through the established composer style. Click opens preview; hold detaches/unpins the file from the outgoing context. The persistent file remains in the library, and attaching/detaching no longer expands Console as a side effect.
 
-### 13.10 Delayed/L-T inspection and Live Avatar scaling
+### 13.11 Delayed/L-T inspection and Live Avatar scaling
 
 Delayed panel rows now expose the shared floating detail card with title/summary, creation time, tags, report ID, anchor/fact IDs, and a body preview capped at 200 characters. Unpinning a report produces the shared `memory_unpinned` logger card/state rather than only changing the panel.
 
 L-T merge Apply/Show inspection prefers the structured `lt_merge_applied.operation_details` trace and renders per-operation update/create/merge/ignore rows with token-level diffs; legacy text parsing remains fallback compatibility. Live Avatar L-T facts are split into lanes of at most 100 facts, with additional outer rings as needed. Active Memory is positioned outside the outermost L-T ring but inside the file ring. Hovering a memory row reuses the avatar memory-row zoom/highlight state.
 
-### 13.11 Runtime model status/switch
+### 13.12 Runtime model status/switch
 
 The BRAIN/SERVICE status modal reads role-specific LM Studio metadata. Where the role is available, its model field opens the model picker; selection POSTs the model plus remembered load configuration to `/api/runtime-model/switch`, then reconciles from `/api/status`. This switches the physical model backing the role and does not change the Brain-first routing invariant.
 
-### 13.12 Normal bootstrap tail
+### 13.13 Normal bootstrap tail
 
-Normal bootstrap renders the inherited three-USER-move tail above a date-labelled current-session divider and places the live viewport at the divider. Saved reasoning is rendered through the existing reasoning bubble path. A USER-only interrupted/action-only move remains visible without a blank BR bubble. Archived restore has its own renderer and blocks this path.
+Normal bootstrap renders the inherited five-USER-move tail above a date-labelled current-session divider and places the live viewport at the divider. Saved reasoning is rendered through the existing reasoning bubble path. A USER-only interrupted/action-only move remains visible without a blank BR bubble. Archived restore has its own renderer and blocks this path.
 
-### 13.13 JIN color projection
+### 13.14 JIN color projection
 
 JIN visual-action chat bubbles are currently gated off by `ENABLE_JIN_VISUAL_ACTION_BUBBLES=false`; parsing, execution, avatar updates, raw action logging, and Session Actions remain live.
 
@@ -516,15 +527,10 @@ Avatar center and scene tint now share one transition duration variable set. Fir
 
 ## 14. Verification status for this exact snapshot
 
-The 2026-09-01 documentation sync traced the current source tree and ran targeted tests covering behavior added after the 2026-08-29 baseline. Results on the supplied snapshot:
+The 2026-09-17 documentation sync uses `jin_core(20260917-184157).zip` as the source baseline. The audit traced the live action contracts/assembler, Brain context builder, follow-up builder, bootstrap/restore paths, model-role normalization/registry, memory editors/stores, bubble-skin controller, runtime context meter, Live Avatar JS/CSS, and relevant client/server tests. Historical verification notes below this numbered current-state section remain dated history and must not be read as the status of this snapshot.
 
-- 15/17 tests passed across direct FRAME/Active/L-T editing, Active pause/store synchronization, L-T client recall projection, and composer attachment UI contracts;
-- the two failures are stale asset-cache-buster assertions that still expect `memory-value-edit=2` and `lt-recall-decay=1` query strings even though the current HTML intentionally loads those scripts without cache-buster parameters;
-- 4 additional L-T server tests passed for stale sentence previewing, recent full recall, reasoning-reference mention refresh, and visible-message mention deduplication;
-- 38 focused action/Delayed/L-T UI tests were also run: 33 passed, while 5 Delayed-memory contract failures are stale asset-cache-buster assertions against query-string versions no longer present in `index.html`;
-- the older response-gesture contract was run separately: 9/11 assertions pass, and its 2 failures still expect the retired retryable-bubble gesture path rather than the explicit `Copy all` control now present in `answer-rating.js`.
+Focused verification for this documentation pass ran 65 Python tests across five-pair chat continuity, follow-up reasoning, current concerns, bootstrap tail, context/avatar contracts, bubble skins, JIN reaction, Active Memory failure follow-up, and skill assets: 64 passed and one stale bootstrap-tail assertion failed because it still expects `<OLD_SESSION_RESTORED_STATE>` while current source emits `<PREVIOUS_CHAT_MESSAGES>`. Three dependency-free JavaScript checks also passed (`recall_fact_context`, `session_bootstrap_boundary`, `bootstrap_owner_lifecycle`); the Playwright Active-Memory bubble check could not run because `playwright` is not installed in the supplied environment. This is not a claim that every model-dependent/browser integration probe in the repository was executed. The documentation-only patch changes no runtime or test code.
 
-So the newly documented behavior is covered, while the remaining targeted failures are tests that still encode removed cache-buster/gesture presentation contracts. This is not a claim that the entire repository test suite is green. The documentation patch itself changes no runtime/test code. Future code changes should still run the smallest relevant checks and must not resurrect L2/L3, foreground Service routing, or `SAVE_SESSION` merely to satisfy stale compatibility expectations.
 ---
 
 ## 15. Documentation status
@@ -534,7 +540,7 @@ As of this snapshot, the documentation set has been synchronized with the produc
 - root `README.md` describes FRAME/L-T/Active/Delayed/Files instead of the old numbered four-layer model;
 - README model-role/setup/configuration text describes Brain as the only foreground route and Service as optional/dedicated background execution with Brain fallback;
 - `AGENTS.md` records the same routing invariant and explicitly classifies old `USE_SERVICE_AS_BRAIN` / archived Service labels as compatibility;
-- `docs/JIN_ARCHITECTURE.md`, `docs/JIN_DECISIONS.md`, and this file use the 2026-09-01 Brain-first/FRAME/L-T topology as the baseline and include the latest memory-edit, recall, L-T-view, and attachment interaction contracts.
+- `docs/JIN_ARCHITECTURE.md`, `docs/JIN_DECISIONS.md`, and this file use the 2026-09-17 inspected source as the Brain-first/FRAME/L-T baseline and include the latest memory-edit, recall, L-T-view, and attachment interaction contracts.
 
 There is no root `ARCHITECTURE.md` in the inspected archive. `docs/JIN_ARCHITECTURE.md` is the canonical architecture document.
 
@@ -559,7 +565,7 @@ Do not present these as settled without fresh code evidence:
 - whether the full night self-review concept is implemented outside the inspected paths;
 - which remaining L2/L3-named compatibility fields/readers are still required for real historical data;
 - when stale tests that directly mutate `config.USE_SERVICE_AS_BRAIN` or expect `SAVE_SESSION` should be migrated to the Brain-first/checkpoint architecture;
-- final intended internal storage format for Active Memory after the flat-JSON boundary migration;
+- final intended internal storage format for Active Memory if the current string-record representation is ever migrated;
 - whether reveal debounce should now be restored from 333 ms to the earlier 250 ms preference;
 - final canonical list of supported noncanonical action marker aliases after compatibility cleanup;
 - which stale tests are still intentional compatibility coverage versus obsolete pre-Brain-first/pre-checkpoint expectations;
@@ -621,8 +627,8 @@ The older 19:35 session is preserved, as shown in the supplied MHTML.
 Verification covers all four lifecycle scenarios, cancelled startup while
 queued/running, USER-only cancellation, clean/existing browser checkpoints,
 serialized archive enrichment and the real chat DOM/reasoning toggle. The
-current source's five-pair budget is unchanged; older three-pair descriptions
-remain a separate known documentation mismatch.
+current source uses the shared five-pair budget; the old three-pair documentation
+mismatch was removed by the 2026-09-17 documentation sync.
 
 Focused verification: 60 unittest cases pass, both JavaScript lifecycle/boundary
 suites pass, and Python/JS syntax plus git diff --check pass. Of 13 additional

@@ -1,9 +1,10 @@
+from __future__ import annotations
+from runtime.memory_profile import commit_active
 # =============================================================================
 #  JIN BRAIN CONTEXT BUILDER
 #  Builds the complete brain system context in one place.
 # =============================================================================
 
-from __future__ import annotations
 
 from datetime import datetime
 from utils.project_context import (
@@ -374,7 +375,7 @@ def _append_FRAME_runtime_memory(
             ]
 
             if refreshed_records != stored_active_memory_records:
-                context.active_memory_records = refreshed_records
+                commit_active(context, refreshed_records)
                 context.runtime_active_memory_records_dirty = True
 
         active_memory_context_records = [

@@ -42,6 +42,31 @@
   const factsMemoryStorageKeyVersion =
     "v2";
 
+  window.jinMemoryProfileRevisions = null;
+  window.jinMemoryProfileApplying = false;
+
+  // Upgrade bridge only: snapshot browser-only Facts Memory before the disk
+  // profile clears its old projection. The backend accepts this inventory only
+  // while pending_facts.json carries its one-time migration flag.
+  let legacyFactsMemoryRecords = [];
+
+  function clearMemoryProjection() {
+    const store = shouldIsolateAnonymousStorage() ? window.sessionStorage : window.localStorage;
+    try {
+      const keys = Array.from({ length: store.length }, (_, index) => store.key(index));
+      keys.forEach((key) => {
+        if (/^jin\.(?:activeMemory|delayedMemoryReports|longTermFacts|factsMemory)(?:\.|$)/.test(key)) {
+          store.removeItem(key);
+        }
+      });
+    } catch (_error) { /* Restricted browser storage remains optional. */ }
+    if (shouldIsolateAnonymousStorage()) {
+      ["active_memory", "delayed_memory_reports", "long_term_memory"].forEach((key) => {
+        updateAnonymousSessionSnapshotField(key, key === "active_memory" ? [] : {});
+      });
+    }
+  }
+
   let bootSourceRuntimeSessionId = null;
   let sessionCheckpointMigrationAttempted = false;
   let sessionCheckpointUserActivityAt = 0;
@@ -2667,7 +2692,20 @@
   }
 
 
+  legacyFactsMemoryRecords = collectFactsMemoryRecords();
+  clearMemoryProjection();
+
+  function getLegacyFactsMemoryRecords() {
+    return legacyFactsMemoryRecords.map(function (record) {
+      return {
+        ...record,
+        signals: { ...(record.signals || {}) },
+      };
+    });
+  }
+
   const storage = {
+    clearMemoryProjection,
     keys: {
       liveRuntimeMemoryStorageKey,
       sessionCheckpointStorageKey,
@@ -2713,6 +2751,7 @@
     isFactsMemoryStorageKey,
     getSessionIdFromFactsMemoryStorageKey,
     collectFactsMemoryRecords,
+    getLegacyFactsMemoryRecords,
     hasFactsMemoryForSession,
     canAppendFactsMemoryByStorageKey,
     appendFactsMemoryByStorageKey,

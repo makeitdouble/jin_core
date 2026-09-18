@@ -111,6 +111,8 @@ class RuntimeTransport:
                         await response.aclose()
                 context.active_streams.clear()
         finally:
+            from runtime.memory_profile import release_profile
+            release_profile(context, self.app.state)
             self.pending.clear()
             while not self.incoming.empty():
                 self.incoming.get_nowait()
@@ -127,6 +129,9 @@ class RuntimeTransport:
         return await self.incoming.get()
 
     async def send_json(self, payload):
+        self.publish(payload)
+
+    def publish(self, payload):
         if self.stopping:
             return
         self.sequence += 1

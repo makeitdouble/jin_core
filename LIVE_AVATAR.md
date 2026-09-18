@@ -1,4 +1,4 @@
-LIVE_AVATAR v1.1
+LIVE_AVATAR v1.2
 
 # Live Avatar Visual Manual
 
@@ -19,7 +19,7 @@ Read the radar like this:
 | Color shifts in inner rings | Keyword/emotional content in runtime memory |
 | Vertical stripes on a runtime ring | That runtime value contains `?` or `!` |
 | Runtime change markers | Last real runtime transition: filled = new line, hollow = changed line |
-| Breathing scaffold rays | Ambient runtime activity; ray energy follows snapshot diff |
+| Breathing scaffold rays | Context pressure; pressure controls active-ray count/peak opacity and the context meter controls color |
 | Delayed report dashes | Stored delayed memory reports |
 | Bright delayed dash | Report is pinned or currently loaded into runtime context |
 | Half-accent delayed dash | A loaded report hides an ordinary fact that another report keeps as an anchor |
@@ -88,7 +88,7 @@ Important helpers:
 | Helper | Role |
 |---|---|
 | `appendDefs()` | SVG filters and gradients |
-| `appendStaticScaffold()` | background radar structure and diff-reactive rays |
+| `appendStaticScaffold()` | background radar structure and context-pressure rays |
 | `computeRingRecords()` | turns runtime lines into orbit records |
 | `appendOrbit()` | draws one runtime memory orbit |
 | `appendMemorySignalRings()` | draws delayed, L-T, active memory rings |
@@ -119,33 +119,36 @@ The memory panel may stay on `[active]`, `[delayed]`, `[facts]`, `[long_term]`, 
 
 ## Static Scaffold
 
-The scaffold is the quiet radar structure behind the live memory rings. It is not a memory item. It gives the avatar depth and now carries a very slow activity signal from the current runtime diff.
+The scaffold is the quiet radar structure behind the live memory rings. It is not a memory item. Its circles stay static (they do not rotate), while both circles and rays now mirror the same context-pressure color used by the Brain context meter.
 
 It is drawn by:
 
 ```js
-appendStaticScaffold(svg, overallColor, currentCenterColor, diffPercent, random)
+appendStaticScaffold(svg, overallColor, currentCenterColor, diffPercent, random, avatarLayout)
 ```
+
+`diffPercent` remains in the function signature because the scaffold is built from the same render path, but it no longer drives scaffold-ray intensity. `getContextPressureRatio()` reads `--jin-context-pressure-percent`, which `runtime-panel.js` keeps synchronized with the Brain context bar.
 
 Current behavior:
 
-- the concentric circles remain faint and structural;
-- there are `16` radial rays;
-- only a seeded subset of roughly `3..7` rays receives stronger breathing energy;
-- `diffPercent` controls `rayEnergy`, so a larger runtime diff makes the active rays somewhat more visible;
-- ray color mixes the current center color, overall runtime color, and a dark base;
-- each ray receives a long seeded duration/phase, so the effect reads as ambient breathing rather than a busy equalizer;
+- scaffold circles are faint, structural, and non-rotating; their stroke uses `--jin-context-pressure-color`;
+- the context meter maps 0..100% to HSL hue 150..15 (`68%` saturation, `64%` lightness), so scaffold color shifts with the same green-to-warm pressure gradient;
+- there are `16` radial rays; pressure raises the stronger seeded subset from `3` toward `7`;
+- `buildRayOpacityProfile()` sets unmultiplied peak opacity to `0.10 + pressure * 0.40`; each ray then applies a local strength (`0.60..1.00` for stronger rays, `0.12..0.44` for weaker rays);
+- every ray uses a fixed `30s` cycle with a seeded phase offset; the CSS keyframes reach opacity `0` at both ends, so rays genuinely disappear and reappear rather than merely pulsing around a nonzero floor;
+- ray stroke also uses `--jin-context-pressure-color`; the JS-computed ray color remains only the fallback/custom variable underneath it;
 - `prefers-reduced-motion` disables the breathing animation.
 
 Change these when you want the background to feel denser, cleaner, brighter, or more technical:
 
 | Visual part | Where |
 |---|---|
-| Concentric scaffold circles | `STATIC_SCAFFOLD_RADII` |
-| Radial guide line range | `STATIC_RADIAL_LINE_INNER_RADIUS`, `STATIC_RADIAL_LINE_OUTER_RADIUS` |
-| Number of rays | `rayCount` in `appendStaticScaffold()` |
-| Diff response | `rayEnergy`, `activeRayCount` |
-| Ray color/opacity/duration | `appendStaticScaffold()` |
+| Concentric scaffold circles | `STATIC_SCAFFOLD_BASE_RADII` / resolved `avatarLayout.scaffoldRadii` |
+| Radial guide line range | `STATIC_RADIAL_LINE_INNER_RADIUS`, `STATIC_RADIAL_LINE_OUTER_RADIUS` / resolved avatar layout |
+| Context pressure color/percent | `getContextPressureColor()`, `syncAvatarContextPressure()` in `runtime-panel.js` |
+| Number/strong subset of rays | `rayCount`, `activeRayCount` in `appendStaticScaffold()` |
+| Pressure opacity curve | `getContextPressureRatio()`, `buildRayOpacityProfile()` |
+| Ray duration/phase | `appendStaticScaffold()` (`30s`) |
 | Breathing curve | `.jin-avatar-scaffold-ray.is-jin-avatar-ray-breathing`, `@keyframes jin-avatar-scaffold-ray-breathe` in `runtime-avatar.css` |
 
 The inner scaffold/ring geometry is globally compressed with `INNER_RING_SCALE = 0.90`. The SVG itself also renders at `transform: scale(0.90)` so the new outer file perimeter has breathing room inside the square avatar shell.
@@ -722,16 +725,17 @@ Current click behavior:
 window.JinRuntime.avatar.toggleMemoryLayers()
 ```
 
-The click toggles `is-memory-layers-hidden` on `#jin-runtime-avatar`. Current CSS hides:
+The click toggles `is-memory-layers-hidden` on `#jin-runtime-avatar` (and mirrors the state onto the shell). Current CSS fades/hides:
 
 - scaffold;
-- runtime orbit entries;
+- runtime orbit/counter-orbit entries;
 - delayed/L-T/active memory rings and dashes;
+- persistent file ring and file dots;
 - thin center rings.
 
-The central light remains visible. The **file ring currently also remains visible**, because `.jin-avatar-file-ring` / `.jin-avatar-file-dot` are not part of the `is-memory-layers-hidden` selector. Treat that as current behavior when changing the toggle; do not assume "memory layers" automatically includes files.
+The central light remains visible. After `MEMORY_LAYERS_FADE_MS = 420`, the avatar also enters `is-memory-layers-dormant`: the hidden SVG layers become `display:none`, orbit/reasoning animations are disabled, and `will-change` is cleared. Showing the layers removes dormant mode before the opacity fade-in and recreates animation objects as needed.
 
-Center click does not call `avatar.refresh()`.
+Center click does not call `avatar.refresh()` and therefore does not mutate memory/file data.
 
 ## Edit Recipes
 
@@ -874,8 +878,8 @@ Use this after avatar visual/state changes.
 | Runtime update | Inner orbits refresh; entry animation is soft rather than a hard pop |
 | Runtime value contains `?` or `!` | That orbit gets the legacy vertical stripe texture |
 | Long runtime value without `?`/`!` | Length alone does not create stripes |
-| Runtime diff changes | Ring speed and scaffold-ray energy respond without becoming noisy |
-| Center click | Scaffold/runtime/memory dash layers hide without refresh; central light and current file ring remain visible |
+| Runtime diff changes | Inner runtime-ring speed responds; scaffold rays remain driven by context pressure, not diff |
+| Center click | Scaffold/runtime/memory/file layers fade out, then become dormant; central light remains visible and no data refresh occurs |
 | Runtime memory row hover | Matching inner orbit glows |
 | L-T row hover | Matching L-T dash or archived dot glows |
 | Delayed row hover | Matching delayed dash glows and linked L-T facts/file attachments react |

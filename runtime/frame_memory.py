@@ -580,6 +580,9 @@ async def summarize_runtime_memory(
                 context, source_turns=[{"turn_id": source_turn_id}],
             )
 
+            from runtime.memory_profile import collect_frame_candidates
+            collect_frame_candidates(context, snapshot)
+
             await record_runtime_frame_diff(
                 context,
                 snapshot,
@@ -776,10 +779,17 @@ async def summarize_runtime_memory_pending_turns(
                 persist_pending_frame_update(
                     context
                 )
+            # Keep the final pre-commit journal until a later bootstrap proves
+            # that the incremented FRAME revision was durably persisted by the
+            # browser. Clearing it here creates a crash window between this
+            # in-memory commit and the browser checkpoint write.
 
             snapshot = await emit_runtime_memory_update(
                 context, source_turns=turns,
             )
+
+            from runtime.memory_profile import collect_frame_candidates
+            collect_frame_candidates(context, snapshot)
 
             await record_runtime_frame_diff(
                 context,

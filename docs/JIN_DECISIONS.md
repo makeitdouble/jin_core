@@ -1,6 +1,6 @@
 # JIN Core Engine — Durable Decisions
 
-**Decision baseline:** reconciled on 2026-09-01 against `jin_core(20260901-112006).zip` and the accumulated project context. The latest reconciliation traced production source and ran targeted tests for the newly documented memory/UI behavior.
+**Decision baseline:** reconciled on 2026-09-17 against `jin_core(20260917-184157).zip`. Existing decisions are retained where current source still implements their product meaning; compatibility syntax is documented separately from the canonical model boundary.
 
 This file records product/architecture intent that should survive refactors. It is not a changelog and not a dump of historical experiments.
 
@@ -136,15 +136,15 @@ Canonical form:
 
 ---
 
-## D009 — Active Memory model boundary is flat JSON
+## D009 — Active Memory model boundary uses explicit structured JSON
 
-**Status:** Accepted / transitional
+**Status:** Accepted / implemented at the model boundary; internal storage remains transitional
 
-Create and update payloads should be plain root-level JSON. `conditions` is the default required create field; update uses `active_memory_id` plus changed fields at the root.
+`SAVE_ACTIVE_MEMORY` uses a paired block whose JSON root contains `conditions` plus optional explicit custom fields. `UPDATE_ACTIVE_MEMORY` uses a paired block with `active_memory_id` and a mandatory `fields_to_update` object; even a one-field update goes inside that object.
 
-**Why:** simpler model contract and less parser ambiguity.
+**Why:** the create and update responsibilities are explicit, update keys are constrained to existing fields, and prose cannot be silently promoted into structure.
 
-**Compatibility rule:** old nested `fields`/`updates`, older line-based updates, and a self-closing UPDATE attribute form may be accepted by localized compatibility code but should not be taught as the primary format. SAVE custom fields come only from explicit JSON root fields; plain prose/parenthesized text must not be silently promoted into schema.
+**Compatibility rule:** old flat/nested `fields`/`updates`, line-based updates, and a self-closing UPDATE attribute form may be accepted by localized compatibility code but must not be taught as current syntax. SAVE custom fields come only from explicit JSON root fields; plain prose/parenthesized text remains conditions.
 
 ---
 
@@ -212,7 +212,7 @@ Serialize/deserialize must preserve entity/snapshot timestamps. `now()` is only 
 
 **Status:** Accepted / implemented
 
-Long-pressing the avatar opens a fresh JIN room with a generated `_anon` session id. The room gets only tab-scoped FRAME/Active/L-T/Delayed browser state, does not hydrate durable L-T/Delayed memory, and saves memory mutations only in its own tab-scoped snapshot. Global memory/asset writes remain restricted. Chat and reasoning remain auditable in ordinary `logs/` under the suffixed session id, while normal bootstrap and L-T freshness scanners ignore those logs.
+Long-pressing the avatar opens a fresh JIN room with a generated `_anon` session id. Active, Delayed, Facts Memory candidates, and L-T use the ordinary memory folders with `_anon.json` filenames, are shared by concurrently open anonymous rooms, and are deleted after the last anonymous room closes. The browser is only a projection of this anonymous file-backed profile; normal memory never seeds it. FRAME remains tab/runtime-local and does not create a crash journal for anonymous rooms. Global non-memory/asset writes remain restricted. Chat and reasoning remain auditable in ordinary `logs/` under the suffixed session id, while normal bootstrap and L-T freshness scanners ignore those logs.
 
 **Why:** anonymous experimentation must not inherit or contaminate the durable memory room, and browser Incognito detection is not a reliable product primitive.
 
@@ -486,11 +486,11 @@ The first bootstrap color uses the one 2-second avatar-and-scene transition. Lat
 
 **Status:** Accepted / implemented
 
-Normal bootstrap renders the three newest real USER moves with JIN/reasoning where present, then places the current-session date divider and starts the live viewport there. USER-only turns remain visible without an empty JIN bubble. Explicit archived restore uses its own history renderer but projects the same bounded USER-owned tail, keeps later visible JIN-only continuation rows, and must not duplicate the normal-bootstrap tail. Its reasoning bubbles contain the reasoning body, not archive-file headers.
+Normal bootstrap renders the five newest real USER moves with JIN/reasoning where present, then places the current-session date divider and starts the live viewport there. USER-only turns remain visible without an empty JIN bubble. Explicit archived restore uses its own history renderer but projects the same bounded USER-owned tail, keeps later visible JIN-only continuation rows, and must not duplicate the normal-bootstrap tail. Its reasoning bubbles contain the reasoning body, not archive-file headers.
 
-The hidden bootstrap Brain prompt is intentionally stricter than the UI projection: `OLD_SESSION_RESTORED_STATE` contains visible USER/JIN dialogue only, each message is followed by its compact archived age such as `(5m ago)`, and archived reasoning is not injected elsewhere on that one-shot restore tick. The restore notification itself starts with the fresh current session ID and current timezone-aware time before `!!! USER DIDN'T SEND NEW MESSAGE! !!!`, so archived time cannot be mistaken for live bootstrap time. Saved reasoning remains archive/UI continuity data, but it is not treated as current executable intent after a bootstrap.
+The hidden bootstrap Brain prompt projects continuity before the synthetic instruction: inherited `<PREVIOUS_CHAT_MESSAGES>` first, then carried `<PREVIOUS_REASONING_EVIDENCE_TRAIL_AFTER_EXECUTED_ACTIONS>` when available, then `<MANDATORY_SYSTEM_NOTIFICATION>` with the fresh current session ID/time and `!!! USER DIDN'T SEND NEW MESSAGE! !!!`. Legacy `<OLD_SESSION_RESTORED_STATE>` wrappers are reader compatibility and normalize into `<PREVIOUS_CHAT_MESSAGES>`; they are not the current model-facing block name.
 
-For explicit URL restore, the server archive owns dialogue, reasoning, and FRAME as one causal bundle. A same-session browser checkpoint can recover presentation state (room/avatar and Session Actions), but cannot replace individual conversation fields inside that bundle. `OLD_SESSION_RESTORED_STATE` is the newest conversation authority during the one-shot priming turn; restored FRAME is background and may be one update behind the final visible turn.
+For explicit URL restore, the server archive owns dialogue, reasoning, and FRAME as one causal bundle. A same-session browser checkpoint can recover presentation state (room/avatar and Session Actions), but cannot replace individual conversation fields inside that bundle. The inherited dialogue/reasoning continuity is the newest conversational authority during the one-shot priming turn; restored FRAME is background and may be one update behind the final visible turn.
 
 **Why:** the user can scroll slightly upward for immediate continuity while the current response begins from a clean, stable boundary.
 
@@ -502,7 +502,7 @@ For explicit URL restore, the server archive owns dialogue, reasoning, and FRAME
 
 **Status:** Accepted / implemented
 
-`<PREVIOUS_CHAT_MESSAGES>` contains the newest three recent USER/JIN pairs. Every selected message body is preserved in full after newline normalization, literal `\\n` serialization, whitespace trimming, and XML escaping. There is no per-message character cap.
+`<PREVIOUS_CHAT_MESSAGES>` contains the newest five recent USER/JIN pairs. Every selected message body is preserved in full after newline normalization, literal `\\n` serialization, whitespace trimming, and XML escaping. There is no per-message character cap.
 
 **Why:** pair-count bounding already limits history breadth; silently cutting the substance of one selected message breaks exact conversational continuity.
 
@@ -514,9 +514,9 @@ For explicit URL restore, the server archive owns dialogue, reasoning, and FRAME
 
 **Status:** Accepted / implemented
 
-An ordinary user turn includes the previous successful reasoning in `<PREVIOUS_REASONING_CONTENT>`. The projection preserves the whole block through 2000 characters; for a larger block it keeps the first and last 25% and replaces only the middle with an explicit `CUTTED N chars` separator.
+An ordinary user turn includes previous successful reasoning in `<PREVIOUS_REASONING_EVIDENCE_TRAIL_AFTER_EXECUTED_ACTIONS>`. The projection preserves the whole block through 2000 characters; for a larger block it keeps the first and last 25% and replaces only the middle with an explicit `CUTTED N chars` separator.
 
-Action/recovery follow-ups do not append this ordinary block again. They construct the relevant current-turn or loop-recovery reasoning context explicitly.
+Action/recovery follow-ups move current visible dialogue and carried reasoning evidence to the front before `<FOLLOW_UP_RESPONSE_MESSAGE>` and do not duplicate those blocks in the base prompt. Archived restore priming uses the same continuity-first ordering before its mandatory synthetic instruction.
 
 **Why:** the opening and conclusion preserve the previous line of thought without spending the entire context window on its middle, while dedicated follow-up context avoids stale or duplicated reasoning.
 

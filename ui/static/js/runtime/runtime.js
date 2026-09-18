@@ -527,13 +527,11 @@ function persistRuntimeMemorySnapshot(
   // Facts memory is a companion index for the persisted live runtime.
   // Keep them behind the exact same updates > 0 gate so bootstrap/reload
   // snapshots never create empty one-off factsMemory records.
-  persistRuntimeFactsMemory(
-    persistedSnapshot
-  );
+  // Pending candidates are committed by the server with FRAME.
 
-  // Facts Memory still originates in the browser profile, but scheduling no
-  // longer does. Hand fresh pending fields to the backend immediately; from
-  // this point L-T consolidation is driven entirely by the server scheduler.
+  // Facts Memory is disk-owned and produced by FRAME on the server. This sync
+  // normally carries only the browser projection; during the storage upgrade it
+  // also carries the one-time pre-file-store candidate snapshot.
   if (typeof window.syncFactsMemoryToRuntime === "function") {
     window.syncFactsMemoryToRuntime();
   }
@@ -1166,6 +1164,7 @@ function writeActiveMemoryRecordsAndRefresh(
   if (typeof window.sendSocketMessage === "function") {
     window.sendSocketMessage({
       type: "active_memory_store_sync",
+      mutation: true,
       active_memory_records: activeMemoryRecords,
     });
   }

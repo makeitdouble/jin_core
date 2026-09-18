@@ -414,7 +414,7 @@
     const clampedPressure = clamp(Number(pressureRatio || 0), 0, 1);
     const clampedStrength = clamp(Number(localStrength || 0), 0.08, 1);
     const peakOpacity =
-      (0.10 + clampedPressure * 0.40)
+      (0.10 + clampedPressure * 0.60)
       * clampedStrength;
 
     return {

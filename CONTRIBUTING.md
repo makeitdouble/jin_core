@@ -47,4 +47,4 @@ Before opening a PR:
 
 ## Project direction
 
-JIN Core is focused on runtime continuity for local LLMs: memory layers, visible process state, feedback signals, and a UI that helps the human and the model stay synchronized.
+JIN Core is focused on runtime continuity for OpenAI-compatible models, especially local runtimes: memory layers, visible process state, feedback signals, and a UI that helps the human and the model stay synchronized.
