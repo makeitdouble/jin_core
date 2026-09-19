@@ -835,9 +835,8 @@ function parseLTMergeAppliedTrace(details, title, parsed = null) {
     const operations = rawOperations
       .map(normalizeStructuredLTMergeOperation)
       .filter(Boolean);
-    return operations.length
-      ? { kind: "lt_merge_applied", operations }
-      : null;
+    return { kind: "lt_merge_applied", operations,
+      before_count: parsed.before_count, after_count: parsed.after_count };
   }
 
   if (!isLTMergeAppliedTraceTitle(title)) {
@@ -1034,7 +1033,10 @@ function renderLTMergeAppliedTrace(trace) {
 
   const stats = document.createElement("div");
   stats.className = "jin-lt-merge-overview-stats";
-  ["update", "merge", "create", "ignore"].forEach((action) => {
+  if (Number.isInteger(trace.before_count) && Number.isInteger(trace.after_count)) {
+    title.textContent = `${trace.before_count} → ${trace.after_count} FACTS`;
+  }
+  ["update", "merge", "create", "ignore", "delete"].forEach((action) => {
     if (!counts[action]) {
       return;
     }
@@ -1094,7 +1096,9 @@ function renderLTMergeAppliedTrace(trace) {
 
       if (targetId) {
         const target = document.createElement("span");
-        target.textContent = targetId;
+        target.textContent = operation.action === "delete"
+          ? `KEEP ${targetId}`
+          : targetId;
         route.appendChild(target);
       }
 

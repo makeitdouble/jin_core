@@ -360,7 +360,7 @@ class RuntimeAssetActionTests(RuntimeActionTestCase):
         )
         result = stream_filter.filter(
             (
-                "<CLEAN_TOOL_RESULTS>\n"
+                "<CLEAN_TOOL_RESULTS></CLEAN_TOOL_RESULTS>\n"
                 "<ASSET_ACTION>\n"
                 "Продолжаем тест. Следующий маркер – ASSET_ACTION."
             )
@@ -378,7 +378,7 @@ class RuntimeAssetActionTests(RuntimeActionTestCase):
         )
         self.assertEqual(
             result.started_actions,
-            (),
+            (RuntimeActionCall(name="CLEAN_TOOL_RESULTS", payload=""),),
         )
         self.assertEqual(
             tail.actions,

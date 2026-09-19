@@ -647,6 +647,7 @@ def strip_actions_history_context(
 
     for tag_name in (
         "FOLLOW_UP_RESPONSE_MESSAGE",
+        "FOLLOW_UP_CONTEXT_OVERFLOW_MESSAGE",
         "SESSION_ACTIONS_HISTORY",
         "CURRENT_REQUEST_ACTIONS_HISTORY",
         "CURRENT_CONCERNS",

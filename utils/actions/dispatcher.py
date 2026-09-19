@@ -62,7 +62,7 @@ from utils.skills_asset_utils import (
 from utils.tool_results import (
     TOOL_RESULT_KIND_ACTIVE_MEMORY,
     TOOL_RESULT_KIND_RUNTIME_ACTION,
-    clean_runtime_tool_result,
+    clean_runtime_tool_results_by_ids,
     clear_runtime_tool_results_before_state,
     record_runtime_tool_result,
     snapshot_runtime_tool_results_state,
@@ -1953,9 +1953,18 @@ async def apply_runtime_action_calls(
         original_entries = list(getattr(context, "runtime_tool_results", []))[:tool_results_clean_state["tool_result_count"]]
         full_cleaned = False
         for clean_action in clean_tool_result_actions:
-            target_id = str(clean_action.payload or "").strip()
-            if target_id:
-                ok = clean_runtime_tool_result(context, target_id)
+            target_payload = str(clean_action.payload or "").strip()
+            raw_parts = target_payload.split(",") if target_payload else []
+            target_ids = tuple(part.strip() for part in raw_parts if part.strip())
+            malformed_id_list = bool(target_payload) and (
+                not target_ids
+                or any(not part.strip() for part in raw_parts)
+            )
+            if target_payload:
+                ok = (
+                    not malformed_id_list
+                    and clean_runtime_tool_results_by_ids(context, target_ids)
+                )
             else:
                 if not full_cleaned:
                     survivors = sum(any(entry is original for original in original_entries)
@@ -1964,15 +1973,15 @@ async def apply_runtime_action_calls(
                     clear_runtime_tool_results_before_state(context, clean_state)
                     full_cleaned = True
                 ok = True
-            reason = "" if ok else f"Unknown or invalid tool_id: {target_id}"
+            reason = "" if ok else f"Unknown or invalid tool_id list: {target_payload}"
             event = next((event for event in context.runtime_action_events
                           if event.get("name") == "clean_tool_results"
-                          and event.get("payload", "") == target_id
+                          and event.get("payload", "") == target_payload
                           and event.get("status") not in {"completed", "failed"}), None)
             if event is not None:
                 event.update(status="completed" if ok else "failed", failure_reason=reason)
             failure = {"action": "clean_tool_results", "ok": False,
-                       "error": "invalid_tool_id", "detail": reason, "payload": target_id}
+                       "error": "invalid_tool_id", "detail": reason, "payload": target_payload}
             if not ok:
                 record_runtime_tool_result(context, TOOL_RESULT_KIND_RUNTIME_ACTION, failure)
             payload = with_action_context({
@@ -1980,11 +1989,15 @@ async def apply_runtime_action_calls(
                 "id": action_display_ids.get(id(clean_action), ""),
                 "status": "completed" if ok else "failed",
                 "display_name": get_runtime_action_display_name(RUNTIME_ACTION_CLEAN_TOOL_RESULTS),
-                "close_tag": False,
-                "text": (f"Tool result {target_id} cleared" if target_id else "All tool results cleared") if ok else reason,
+                "close_tag": runtime_action_has_close_tag(RUNTIME_ACTION_CLEAN_TOOL_RESULTS),
+                "text": ((
+                    f"Tool results {', '.join(target_ids)} cleared"
+                    if len(target_ids) > 1
+                    else f"Tool result {target_ids[0]} cleared"
+                ) if target_ids else "All tool results cleared") if ok else reason,
                 "detail": "" if ok else format_runtime_action_result(failure),
                 "failure_reason": reason,
-                "payload": target_id,
+                "payload": target_payload,
             })
             if ok:
                 checkpoint = build_runtime_session_checkpoint(context)

@@ -54,6 +54,20 @@ class LMStudioAPIError(RuntimeError):
         self.details = str(details or "")
 
 
+    def is_context_overflow(self) -> bool:
+        # Inspect provider diagnostics only; request prompt text is not an error.
+        diagnostic = (self.summary + "\n" + self.details).casefold()
+        return any(marker in diagnostic for marker in (
+            "context_overflow",
+            "context_length_exceeded",
+            "context window is full",
+            "context length too small",
+            "exceeds the available context",
+            "exceed the available context",
+            "maximum context length",
+        ))
+
+
 def _extract_lm_studio_error_payload(value):
 
     if not isinstance(value, dict):

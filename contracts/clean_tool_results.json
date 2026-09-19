@@ -1,6 +1,6 @@
 {
   "clean_tool_results": {
-    "version": 2,
+    "version": 3,
     "description": "Allows the model to clean redundant tool results.",
     "runtime_action": "CLEAN_TOOL_RESULTS",
     "enable_flag": "CAN_CLEAN_TOOL_RESULTS",
@@ -13,12 +13,13 @@
       "follow_up_on_fail": true
     },
     "schema": [
-      "<CLEAN_TOOL_RESULTS>",
-      "<CLEAN_TOOL_RESULTS: T1 >"
+      "<CLEAN_TOOL_RESULTS> T1, T2, T3 </CLEAN_TOOL_RESULTS>",
+      "<CLEAN_TOOL_RESULTS></CLEAN_TOOL_RESULTS>"
     ],
     "rules": [
-      "Use <CLEAN_TOOL_RESULTS> single or with other actions to delete ALL tool results and clean all block OR use <CLEAN_TOOL_RESULTS: T1 > to remove ONLY one existing TOOL_RESULT whose tool_id is exactly T1; every other result stays. Supply one exact T<number> ID from the current TOOLS_RESULTS block."
+      "Use <CLEAN_TOOL_RESULTS> T1, T2, T3 </CLEAN_TOOL_RESULTS> to remove one or more existing TOOL_RESULT entries. Put exact T<number> tool_id values from the current TOOLS_RESULTS block inside the paired tags, separated by commas. Every listed ID is validated before cleanup; if any ID is invalid or missing, nothing is removed. Use an empty <CLEAN_TOOL_RESULTS></CLEAN_TOOL_RESULTS> block only when ALL tool results must be deleted, including legacy ID-less results."
     ],
-    "close_tag": false
+    "close_tag": true,
+    "display_payload": true
   }
 }

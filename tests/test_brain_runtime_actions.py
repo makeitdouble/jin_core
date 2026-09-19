@@ -1069,7 +1069,7 @@ class BrainRuntimeActionTests(unittest.TestCase):
                 yield {
                     "type": "content",
                     "content": (
-                        "<CLEAN_TOOL_RESULTS>\n"
+                        "<CLEAN_TOOL_RESULTS></CLEAN_TOOL_RESULTS>\n"
                         "<JIN_COLOR> #112233 </JIN_COLOR>"
                     ),
                 }
@@ -1117,8 +1117,8 @@ class BrainRuntimeActionTests(unittest.TestCase):
                 yield {
                     "type": "content",
                     "content": (
-                        "<CLEAN_TOOL_RESULTS>\n"
-                        "<CLEAN_TOOL_RESULTS>"
+                        "<CLEAN_TOOL_RESULTS></CLEAN_TOOL_RESULTS>\n"
+                        "<CLEAN_TOOL_RESULTS></CLEAN_TOOL_RESULTS>"
                     ),
                 }
 
@@ -2120,7 +2120,7 @@ class BrainRuntimeActionTests(unittest.TestCase):
                     "content": (
                         "<LOAD_DELAYED_MEMORY: pwajtw>\n\n"
                         f"{visible_answer}\n\n"
-                        "<CLEAN_TOOL_RESULTS>"
+                        "<CLEAN_TOOL_RESULTS></CLEAN_TOOL_RESULTS>"
                     ),
                 }
 

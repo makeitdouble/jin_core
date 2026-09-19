@@ -163,7 +163,6 @@ def _runtime_action_allows_inline_payload(
     return (action_name in JIN_INLINE_PAYLOAD_ACTIONS
             or action_name in {
                 RUNTIME_ACTION_RECALL_FACT_CONTEXT,
-                RUNTIME_ACTION_CLEAN_TOOL_RESULTS,
                 RUNTIME_ACTION_POSTING_BOARD,
             })
 
@@ -290,15 +289,6 @@ def _find_all_runtime_action_matches(
                 *action_matches,
             )
 
-        if action_name == RUNTIME_ACTION_CLEAN_TOOL_RESULTS:
-            action_matches = (
-                *action_matches,
-                *_find_clean_tool_results_closing_matches(
-                    text,
-                    private_marker,
-                ),
-            )
-
         matches.extend(
             action_matches
         )
@@ -400,39 +390,6 @@ def _mask_compact_project_asset_action_markers(
 
     parts.append(text[cursor:])
     return "".join(parts)
-
-
-def _find_clean_tool_results_closing_matches(
-    text: str,
-    private_marker: str,
-) -> tuple[RuntimeActionRegexpMatch, ...]:
-    """Treat a redundant CLEAN_TOOL_RESULTS close tag as parser-only noise."""
-
-    matches = []
-    end_pattern = compile_runtime_action_end_regexp(
-        private_marker,
-        RUNTIME_ACTION_CLEAN_TOOL_RESULTS,
-    )
-
-    for match in end_pattern.finditer(
-        str(
-            text
-            or ""
-        )
-    ):
-        matches.append(
-            RuntimeActionRegexpMatch(
-                start=match.start(),
-                end=match.end(),
-                raw=match.group(0),
-                name=RUNTIME_ACTION_CLEAN_TOOL_RESULTS,
-                source="compat_closing",
-            )
-        )
-
-    return tuple(
-        matches
-    )
 
 
 def _find_update_active_memory_attribute_matches(
@@ -1834,18 +1791,6 @@ def _enabled_action_start_markers(
             if marker not in markers:
                 markers.append(
                     marker
-                )
-
-        if action_name == RUNTIME_ACTION_CLEAN_TOOL_RESULTS:
-            marker_name, _ = extract_private_marker_parts(
-                private_marker
-            )
-            markers.append(f"<{marker_name}:")
-            closing_marker = f"</{marker_name}>"
-
-            if closing_marker not in markers:
-                markers.append(
-                    closing_marker
                 )
 
     return tuple(

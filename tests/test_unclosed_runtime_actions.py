@@ -8,6 +8,7 @@ from utils.actions import RuntimeActionStreamFilter
 
 PAYLOADS = {
     'CHAT_LOG_SEARCH': '{"query":"pizza"}',
+    'CLEAN_TOOL_RESULTS': 'T1, T2',
     'ASSET_ACTION': '{"action":"list_files"}',
     'DEEP_WEB_SEARCH': 'research this topic',
     'JIN_COLOR': '#112233',
@@ -32,7 +33,11 @@ def parse_chunks(chunks):
 
 class UnclosedParserTests(TestCase):
     def test_covers_every_paired_contract(self):
-        self.assertEqual(set(PAYLOADS), set(get_close_tag_runtime_actions()))
+        # LOAD_SKILL uses the public LOAD_SKILL_CONTEXT marker and has its own tests.
+        self.assertEqual(
+            set(PAYLOADS),
+            set(get_close_tag_runtime_actions()) - {'LOAD_SKILL'},
+        )
 
     def assert_unclosed_failure(self, name, body, chunks):
         parser, results = parse_chunks(chunks)
@@ -104,8 +109,11 @@ class UnclosedParserTests(TestCase):
             self.assertEqual(''.join(r.text for r in results), text)
             self.assertFalse([a for r in results for a in r.failed_actions])
         _, results = parse_chunks(list('<CLEAN_TOOL_RESULTS>'))
-        self.assertEqual(len([a for r in results for a in r.actions]), 1)
-        self.assertFalse([a for r in results for a in r.failed_actions])
+        self.assertFalse([a for r in results for a in r.actions])
+        self.assertEqual(
+            [a.name for r in results for a in r.failed_actions],
+            ['CLEAN_TOOL_RESULTS'],
+        )
 
 
 class UnclosedRuntimeTests(IsolatedAsyncioTestCase):

@@ -800,8 +800,19 @@ class RuntimeStream:
         return (
             not self.context_limit_recovery_armed
             and self.is_brain_context()
-            and normalized_reason
-            in GENERATION_LIMIT_FINISH_REASONS
+            and (
+                normalized_reason in GENERATION_LIMIT_FINISH_REASONS
+                or (normalized_reason == "stop" and self.provider_context_is_full())
+            )
+        )
+
+    def provider_context_is_full(self) -> bool:
+        # Native chat.end is normalized to stop, even at the context boundary.
+        # Only provider usage may turn that normal stop into overflow recovery.
+        return (
+            self.context_window > 0
+            and self.stream.prompt_tokens + self.stream.completion_tokens
+            >= self.context_window
         )
 
     @staticmethod
@@ -838,6 +849,13 @@ class RuntimeStream:
         limit_kind = self.classify_generation_limit(
             normalized_reason
         )
+        # OpenAI-compatible providers may report `length` for a full context.
+        # Use actual provider usage, never the UI's clamped/estimated counter.
+        if (
+            limit_kind == "output"
+            and self.provider_context_is_full()
+        ):
+            limit_kind = "context"
         limit_label = (
             "Output token limit"
             if limit_kind == "output"
@@ -864,6 +882,7 @@ class RuntimeStream:
                 stage,
                 limit_kind,
             ),
+            preserve_separate=True,
         )
 
         return True
@@ -3561,6 +3580,18 @@ class RuntimeStream:
             return None
 
         except Exception as e:
+
+            if (
+                isinstance(e, LMStudioAPIError)
+                and e.is_context_overflow()
+                and self.mark_context_limit_recovery("context_overflow")
+            ):
+                await emit_session_actions_update(self.context, current_sequence=True)
+                await self.logger.log_runtime(
+                    "[CONTEXT OVERFLOW] Starting cleanup follow-up."
+                )
+                await self.stream.finish(emit=self.emit_to_chat)
+                return None
 
             tb = traceback.format_exc()
 

@@ -797,3 +797,29 @@ def clean_runtime_tool_result(context, tool_id: str) -> bool:
     if was_current:
         context.runtime_tool_results_turn_count = max(0, int(getattr(context, "runtime_tool_results_turn_count", 0) or 0) - 1)
     return True
+
+
+def clean_runtime_tool_results_by_ids(context, tool_ids) -> bool:
+    """Atomically remove one or more modern results by exact tool_id."""
+    normalized_ids = tuple(dict.fromkeys(
+        str(tool_id or "").strip()
+        for tool_id in tool_ids
+    ))
+    if not normalized_ids or any(
+        not re.fullmatch(r"T[1-9][0-9]*", tool_id)
+        for tool_id in normalized_ids
+    ):
+        return False
+
+    existing_ids = {
+        str(entry.get("tool_id") or "")
+        for entry in get_runtime_tool_results(context)
+        if entry.get("tool_id")
+    }
+    if any(tool_id not in existing_ids for tool_id in normalized_ids):
+        return False
+
+    return all(
+        clean_runtime_tool_result(context, tool_id)
+        for tool_id in normalized_ids
+    )

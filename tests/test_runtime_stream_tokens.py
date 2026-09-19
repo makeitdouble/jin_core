@@ -172,13 +172,13 @@ async def fake_cancelled_generator():
 async def fake_lm_studio_error_generator():
 
     raise LMStudioAPIError(
-        "HTTP 400: context length too small",
+        "HTTP 400: model failed to load",
         details=json.dumps({
             "provider": "LM Studio",
-            "summary": "HTTP 400: context length too small",
+            "summary": "HTTP 400: model failed to load",
             "status": 400,
             "lm_studio_error": {
-                "message": "context length too small",
+                "message": "model failed to load",
             },
         }),
     )
@@ -430,7 +430,7 @@ class RuntimeStreamTokenTests(unittest.IsolatedAsyncioTestCase):
         )
         self.assertEqual(
             context.runtime_turn_interruption_reason,
-            "HTTP 400: context length too small",
+            "HTTP 400: model failed to load",
         )
 
         error_logs = [
@@ -451,7 +451,7 @@ class RuntimeStreamTokenTests(unittest.IsolatedAsyncioTestCase):
             "lm_studio",
         )
         self.assertIn(
-            "context length too small",
+            "model failed to load",
             error_logs[0][2]["details"],
         )
         self.assertTrue(

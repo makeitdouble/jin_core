@@ -1286,7 +1286,7 @@ function resolveLTMetaPhase(meta) {
       .toLowerCase()
       .replace(/-/g, "_");
 
-  if (phase === "jin_note") {
+  if (phase === "jin_note" || phase === "deduplication") {
     return "merge";
   }
 
@@ -1455,6 +1455,11 @@ function createLTMemorySequenceCard(flowId = "", flowKind = "") {
     mergeArrow,
     applyStep,
   );
+
+  if (flowKind === "deduplication") {
+    mergeStep.textContent = "request";
+    track.replaceChildren(mergeStep, mergeArrow, applyStep);
+  }
 
   const showButton =
     document.createElement("button");
@@ -1699,7 +1704,9 @@ function inspectLTSequenceElement(
   const failed =
     status === "failed";
   const titlePhase =
-    phase === "extraction"
+    state.flowKind === "deduplication"
+      ? "deduplication"
+      : phase === "extraction"
       ? "extraction"
       : "merge";
 
@@ -1938,6 +1945,7 @@ function isLTSequenceTerminalFailure(event) {
   return (
     event.startsWith("extract_")
     || event.startsWith("merge_")
+    || event.startsWith("deduplication_")
   ) && (
     event.endsWith("_skipped")
     || event.endsWith("_failed")
@@ -1969,6 +1977,7 @@ function handleLTMemorySequenceLog(
     phase && summarizerEvent
     || event === "extract_applied"
     || event === "merge_applied"
+    || event === "deduplication_applied"
     || event === "jin_note_applied"
     || event === "jin_note_no_change"
     || event === "lt_preempted"
@@ -1983,7 +1992,9 @@ function handleLTMemorySequenceLog(
   const state =
     getLTMemorySequence(
       meta && meta.lt_flow_id,
-      meta && meta.lt_flow_kind
+      meta && meta.lt_phase === "deduplication"
+        ? "deduplication"
+        : meta && meta.lt_flow_kind
     );
 
   if (summarizerEvent === "summarizer_request") {
@@ -2059,7 +2070,7 @@ function handleLTMemorySequenceLog(
       state.showButton.disabled = false;
       finishLTSequence(state);
     }
-  } else if (event === "merge_applied") {
+  } else if (event === "merge_applied" || event === "deduplication_applied") {
     settleLTSequenceResponse(
       state,
       "merge"
@@ -2083,7 +2094,9 @@ function handleLTMemorySequenceLog(
       String(details || "No changes");
     state.diffTrace = meta.trace || null;
     state.diffTitle =
-      "L-T merge applied";
+      event === "deduplication_applied"
+        ? "L-T deduplication applied"
+        : "L-T merge applied";
     setLTSequenceInspectable(
       state.elements.apply.label,
       Boolean(state.diffDetails)

@@ -26,6 +26,7 @@ from rules.runtime import (
     ACTION_FAILURE_FOLLOWUP_MESSAGE,
     CONTEXT_LIMIT_RECOVERY_MESSAGE,
     FOLLOW_UP_RESPONSE_MESSAGE,
+    FOLLOW_UP_CONTEXT_OVERFLOW_MESSAGE,
     REASONING_RECOVERY_MESSAGE,
 )
 from contracts.rules_assembler import (
@@ -1530,15 +1531,20 @@ class BrainNode(BaseNode):
             )
         )
 
-        # Every internal tick is synthetic from the user's point of view. The
-        # generic continuation notice stays ahead of every recovery/action
-        # instruction, but live dialogue and the carried reasoning evidence are
-        # projected above it so Brain reads the exact conversational/thought
-        # state before being told how to continue the automatic follow-up.
-        # The live action/result suffix is refreshed immediately before each
-        # follow-up prompt is built.
+        context_overflow_pending = bool(
+            context_limit_recovery_pending
+            and getattr(context, "runtime_context_limit_kind", "context") != "output"
+        )
+        # Overflow needs an immediate cleanup instruction, without the ordinary
+        # deep-reasoning notice or its last-executed-action/result suffix.
         sections = [
-            build_followup_response_message_context(
+            (
+                "<FOLLOW_UP_CONTEXT_OVERFLOW_MESSAGE>\n"
+                + FOLLOW_UP_CONTEXT_OVERFLOW_MESSAGE
+                + "</FOLLOW_UP_CONTEXT_OVERFLOW_MESSAGE>"
+            )
+            if context_overflow_pending
+            else build_followup_response_message_context(
                 context,
                 latest_action=latest_action,
             )
@@ -1614,20 +1620,13 @@ class BrainNode(BaseNode):
             context is not None
             and context_limit_recovery_pending
         ):
-            sections.append(
-                build_context_limit_recovery_context(
-                    getattr(
-                        context,
-                        "runtime_context_limit_stage",
-                        "generation",
-                    ),
-                    getattr(
-                        context,
-                        "runtime_context_limit_kind",
-                        "context",
-                    ),
+            if not context_overflow_pending:
+                sections.append(
+                    build_context_limit_recovery_context(
+                        getattr(context, "runtime_context_limit_stage", "generation"),
+                        getattr(context, "runtime_context_limit_kind", "context"),
+                    )
                 )
-            )
             context.runtime_context_limit_recovery_pending = False
             context.runtime_context_limit_stage = ""
             context.runtime_context_limit_kind = ""

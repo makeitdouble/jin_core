@@ -521,78 +521,54 @@ class RuntimeStreamFilterTests(RuntimeActionTestCase):
             )
 
 
-    def test_extracts_clean_tool_results_marker(self):
+    def test_extracts_clean_tool_results_block(self):
 
         result = extract_runtime_actions(
-            get_runtime_action_private_marker("CLEAN_TOOL_RESULTS"),
+            "<CLEAN_TOOL_RESULTS> T1, T2, T3 </CLEAN_TOOL_RESULTS>",
             enabled_actions=[
                 RUNTIME_ACTION_CLEAN_TOOL_RESULTS,
             ],
         )
 
-        self.assertEqual(
-            result.text,
-            "",
-        )
+        self.assertEqual(result.text, "")
         self.assertEqual(
             result.actions,
-            (
-                RuntimeActionCall(
-                    name=RUNTIME_ACTION_CLEAN_TOOL_RESULTS,
-                    payload="",
-                ),
-            ),
-        )
-
-
-    def test_clean_tool_results_redundant_close_tag_is_same_action(self):
-
-        result = extract_runtime_actions(
-            "<CLEAN_TOOL_RESULTS> </CLEAN_TOOL_RESULTS>",
-            enabled_actions=[
-                RUNTIME_ACTION_CLEAN_TOOL_RESULTS,
-            ],
-        )
-
-        self.assertEqual(
-            result.text,
-            "",
-        )
-        self.assertEqual(
-            result.actions,
-            (
-                RuntimeActionCall(
-                    name=RUNTIME_ACTION_CLEAN_TOOL_RESULTS,
-                    payload="",
-                ),
-            ),
+            (RuntimeActionCall(
+                name=RUNTIME_ACTION_CLEAN_TOOL_RESULTS,
+                payload="T1, T2, T3",
+            ),),
         )
         self.assertEqual(
             result.removed_markers,
-            (
-                "<CLEAN_TOOL_RESULTS>",
-                "</CLEAN_TOOL_RESULTS>",
-            ),
+            ("<CLEAN_TOOL_RESULTS> T1, T2, T3 </CLEAN_TOOL_RESULTS>",),
         )
 
 
-    def test_repeated_clean_tool_results_markers_remain_countable(self):
+    def test_clean_tool_results_empty_block_means_full_cleanup(self):
 
         result = extract_runtime_actions(
-            "<CLEAN_TOOL_RESULTS>" * 3,
-            enabled_actions=[
-                RUNTIME_ACTION_CLEAN_TOOL_RESULTS,
-            ],
+            "<CLEAN_TOOL_RESULTS></CLEAN_TOOL_RESULTS>",
+            enabled_actions=[RUNTIME_ACTION_CLEAN_TOOL_RESULTS],
+        )
+
+        self.assertEqual(result.text, "")
+        self.assertEqual(
+            result.actions,
+            (RuntimeActionCall(name=RUNTIME_ACTION_CLEAN_TOOL_RESULTS, payload=""),),
+        )
+
+
+    def test_repeated_clean_tool_results_blocks_remain_countable(self):
+
+        block = "<CLEAN_TOOL_RESULTS> T1 </CLEAN_TOOL_RESULTS>"
+        result = extract_runtime_actions(
+            block * 3,
+            enabled_actions=[RUNTIME_ACTION_CLEAN_TOOL_RESULTS],
             repetition_guard=RuntimeActionRepetitionGuard(),
         )
 
-        self.assertEqual(
-            len(result.actions),
-            3,
-        )
-        self.assertFalse(
-            result.marker_repetition_exceeded,
-        )
+        self.assertEqual(len(result.actions), 3)
+        self.assertFalse(result.marker_repetition_exceeded)
 
 
     def test_extracts_self_closing_runtime_markers_without_blocks(self):
@@ -984,103 +960,52 @@ class RuntimeStreamFilterTests(RuntimeActionTestCase):
         )
 
 
-    def test_stream_filter_handles_split_clean_tool_results_marker(self):
+    def test_stream_filter_handles_split_clean_tool_results_block(self):
 
         stream_filter = RuntimeActionStreamFilter(
-            enabled_actions=[
-                RUNTIME_ACTION_CLEAN_TOOL_RESULTS,
-            ],
+            enabled_actions=[RUNTIME_ACTION_CLEAN_TOOL_RESULTS],
         )
 
-        first = stream_filter.filter(
-            "visible answer\n\n<CLEAN_"
-        )
-        second = stream_filter.filter(
-            "TOOL_RESULTS>"
-        )
+        first = stream_filter.filter("visible answer\n\n<CLEAN_")
+        second = stream_filter.filter("TOOL_RESULTS> T1, T2 ")
+        third = stream_filter.filter("</CLEAN_")
+        fourth = stream_filter.filter("TOOL_RESULTS>")
 
+        self.assertEqual(first.text, "visible answer")
+        self.assertEqual(first.actions, ())
+        self.assertEqual(second.text, "")
+        self.assertEqual(second.actions, ())
+        self.assertEqual(third.text, "")
+        self.assertEqual(third.actions, ())
+        self.assertEqual(fourth.text, "")
         self.assertEqual(
-            first.text,
-            "visible answer",
+            fourth.actions,
+            (RuntimeActionCall(
+                name=RUNTIME_ACTION_CLEAN_TOOL_RESULTS,
+                payload="T1, T2",
+            ),),
         )
-        self.assertEqual(
-            first.actions,
-            (),
-        )
-        self.assertEqual(
-            second.text,
-            "",
-        )
-        self.assertEqual(
-            second.actions,
-            (),
-        )
+        self.assertEqual(stream_filter.flush(), "")
 
+
+    def test_stream_filter_requires_clean_tool_results_close_tag(self):
+
+        stream_filter = RuntimeActionStreamFilter(
+            enabled_actions=[RUNTIME_ACTION_CLEAN_TOOL_RESULTS],
+        )
+        first = stream_filter.filter("visible answer\n\n<CLEAN_TOOL_RESULTS> T1")
         flushed = stream_filter.flush_result()
 
+        self.assertEqual(first.text, "visible answer")
+        self.assertEqual(first.actions, ())
+        self.assertEqual(flushed.text, "")
+        self.assertEqual(flushed.actions, ())
         self.assertEqual(
-            flushed.text,
-            "",
-        )
-        self.assertEqual(
-            flushed.actions,
-            (
-                RuntimeActionCall(
-                    name=RUNTIME_ACTION_CLEAN_TOOL_RESULTS,
-                ),
-            ),
-        )
-
-
-    def test_stream_filter_strips_redundant_clean_tool_results_close_tag(self):
-
-        stream_filter = RuntimeActionStreamFilter(
-            enabled_actions=[
-                RUNTIME_ACTION_CLEAN_TOOL_RESULTS,
-            ],
-        )
-
-        first = stream_filter.filter(
-            "visible answer\n\n<CLEAN_TOOL_RESULTS> "
-        )
-        second = stream_filter.filter(
-            "</CLEAN_"
-        )
-        third = stream_filter.filter(
-            "TOOL_RESULTS>"
-        )
-
-        self.assertEqual(
-            first.text,
-            "visible answer",
-        )
-        self.assertEqual(
-            first.actions,
-            (
-                RuntimeActionCall(
-                    name=RUNTIME_ACTION_CLEAN_TOOL_RESULTS,
-                ),
-            ),
-        )
-        self.assertEqual(
-            second.text,
-            "",
-        )
-        self.assertEqual(
-            second.actions,
-            (),
-        )
-        self.assertEqual(
-            third.text,
-            "",
-        )
-        self.assertEqual(
-            third.actions,
-            (),
-        )
-        self.assertEqual(
-            stream_filter.flush(),
-            "",
+            flushed.failed_actions,
+            (RuntimeActionCall(
+                name=RUNTIME_ACTION_CLEAN_TOOL_RESULTS,
+                payload=" T1",
+            ),),
         )
 
 

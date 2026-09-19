@@ -47,3 +47,6 @@ memory/**/*.tmp
 !assets/files/
 assets/files/*
 !assets/files/.gitkeep
+
+# Windows launcher runtime cache/logs
+.jin_launcher/

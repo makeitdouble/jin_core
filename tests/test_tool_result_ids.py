@@ -12,11 +12,10 @@ from utils.session_actions_history import upsert_session_action_marker_history_s
 
 def test_every_stream_boundary():
     cases = [
-        ('<CLEAN_TOOL_RESULTS>', ''),
-        ('<CLEAN_TOOL_RESULTS: T1 >', 'T1'),
-        ('<CLEAN_TOOL_RESULTS: wrong >', 'wrong'),
-        ('<CLEAN_TOOL_RESULTS: >', ':'),
-        ('<CLEAN_TOOL_RESULTS:>', ':'),
+        ('<CLEAN_TOOL_RESULTS></CLEAN_TOOL_RESULTS>', ''),
+        ('<CLEAN_TOOL_RESULTS> T1 </CLEAN_TOOL_RESULTS>', 'T1'),
+        ('<CLEAN_TOOL_RESULTS> T1, T2, T3 </CLEAN_TOOL_RESULTS>', 'T1, T2, T3'),
+        ('<CLEAN_TOOL_RESULTS> wrong </CLEAN_TOOL_RESULTS>', 'wrong'),
     ]
     for tag, payload in cases:
         for split in range(len(tag) + 1):
@@ -29,6 +28,37 @@ def test_every_stream_boundary():
         results = [parser.filter(c) for c in literal] + [parser.flush_result()]
         assert ''.join(r.text for r in results) == literal
         assert not [a for r in results for a in r.actions]
+
+
+def test_old_inline_clean_syntax_is_not_executable():
+    cases = (
+        ('<CLEAN_TOOL_RESULTS>', '', [('CLEAN_TOOL_RESULTS', '')]),
+        ('<CLEAN_TOOL_RESULTS: T1 >', '', [('CLEAN_TOOL_RESULTS', '')]),
+        ('</CLEAN_TOOL_RESULTS>', '</CLEAN_TOOL_RESULTS>', []),
+    )
+    for marker, visible_text, failed in cases:
+        parser = RuntimeActionStreamFilter()
+        results = [parser.filter(marker), parser.flush_result()]
+        assert ''.join(r.text for r in results) == visible_text
+        assert not [a for r in results for a in r.actions]
+        assert [(a.name, a.payload) for r in results for a in r.failed_actions] == failed
+
+
+def test_comma_separated_cleanup_is_atomic():
+    ctx = RuntimeContext(websocket=None, emitter=None, logger=None, clients={})
+    for value in ('one', 'two', 'three'):
+        record_runtime_tool_result(ctx, 'search', value)
+    with patch('utils.actions.dispatcher.ensure_assets_tree'), patch('utils.chat_log.append_chat_runtime_event'):
+        asyncio.run(apply_runtime_action_calls(ctx, (RuntimeActionCall(name='CLEAN_TOOL_RESULTS', payload='T1, T3'),)))
+    assert [entry.get('tool_id') for entry in ctx.runtime_tool_results] == ['T2']
+
+    ctx = RuntimeContext(websocket=None, emitter=None, logger=None, clients={})
+    for value in ('one', 'two', 'three'):
+        record_runtime_tool_result(ctx, 'search', value)
+    with patch('utils.actions.dispatcher.ensure_assets_tree'), patch('utils.chat_log.append_chat_runtime_event'):
+        asyncio.run(apply_runtime_action_calls(ctx, (RuntimeActionCall(name='CLEAN_TOOL_RESULTS', payload='T1, T999'),)))
+    assert [entry.get('tool_id') for entry in ctx.runtime_tool_results[:3]] == ['T1', 'T2', 'T3']
+    assert ctx.runtime_tool_results[-1]['result']['ok'] is False
 
 
 def test_legacy_modern_clear_and_counter_roundtrip():

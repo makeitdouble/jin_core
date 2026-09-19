@@ -317,7 +317,7 @@ class BehaviorContractTests(unittest.TestCase):
 
         self.assertTrue(
             instructions.startswith(
-                "<CLEAN_TOOL_RESULTS>\n"
+                "<CLEAN_TOOL_RESULTS></CLEAN_TOOL_RESULTS>\n"
                 "Follow-up: false\n"
                 "Schema:"
             )

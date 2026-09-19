@@ -40,6 +40,12 @@ from app_settings import (
 from utils.urls import (
     join_url,
 )
+from utils.launcher_trace import (
+    launcher_trace_enabled,
+    trace_inbound_http,
+    trace_outgoing_request,
+    trace_outgoing_response,
+)
 from utils.chat_log import (
     migrate_legacy_chat_logs,
 )
@@ -118,6 +124,11 @@ async def lifespan(application: FastAPI):
         ),
 
         http2=False,
+
+        event_hooks={
+            "request": [trace_outgoing_request],
+            "response": [trace_outgoing_response],
+        },
     )
 
     # -----------------------------------------------------
@@ -149,6 +160,8 @@ async def lifespan(application: FastAPI):
 app = FastAPI(
     lifespan=lifespan,
 )
+
+app.middleware("http")(trace_inbound_http)
 
 templates = Jinja2Templates(
     directory="ui/templates",
@@ -1180,4 +1193,6 @@ if __name__ == "__main__":
         # tab suspension into a transport failure.
         ws_ping_interval=None,
         ws_ping_timeout=None,
+        access_log=not launcher_trace_enabled(),
+        log_level=("warning" if launcher_trace_enabled() else "info"),
     )

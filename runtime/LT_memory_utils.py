@@ -2002,6 +2002,7 @@ def merge_lt_store_snapshots(
         "ignored_pending_fact_ids": ignored_pending_fact_ids,
         "next_fact_id": next_fact_id,
         "next_pending_fact_id": next_pending_fact_id,
+        "deduplication_pending": bool(primary.get("deduplication_pending") or pending_facts),
     }
 
     if changed:
@@ -2279,6 +2280,7 @@ def normalize_lt_store(value, *, now: str | None = None) -> dict:
         "version": LT_STORE_VERSION,
         "revision": revision,
         "updated_at": normalize_lt_text(value.get("updated_at")) or current_time,
+        "deduplication_pending": bool(value.get("deduplication_pending", bool(pending_facts))),
         "facts": facts,
         "pending_facts": pending_facts,
         "deleted_fact_ids": deleted_fact_ids,

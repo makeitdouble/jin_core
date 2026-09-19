@@ -18,7 +18,7 @@ MARKERS = (
     "<UPDATE_LT_FACTS>Remember this.</UPDATE_LT_FACTS>",
     "<WEB_SEARCH: test query>",
     "<DEEP_WEB_SEARCH>research this</DEEP_WEB_SEARCH>",
-    "<CLEAN_TOOL_RESULTS>",
+    "<CLEAN_TOOL_RESULTS> T1, T2 </CLEAN_TOOL_RESULTS>",
     "</CLEAN_TOOL_RESULTS>",
     "<JIN_COLOR> #00f2ff </JIN_COLOR>",
     "< JIN_COLOR : #00f2ff >",
@@ -72,7 +72,7 @@ class QuotedRuntimeMarkerTests(unittest.TestCase):
         # wrapper with maximally fragmented chunks. Exhaustive two-chunk splits
         # are covered once per shape instead of once per wrapper x every marker.
         representatives = (
-            "<CLEAN_TOOL_RESULTS>",
+            "<CLEAN_TOOL_RESULTS> T1 </CLEAN_TOOL_RESULTS>",
             "<WEB_SEARCH: test query>",
             "<JIN_COLOR> #00f2ff </JIN_COLOR>",
             '<SAVE_ACTIVE_MEMORY>{"conditions":"test"}</SAVE_ACTIVE_MEMORY>',
@@ -117,14 +117,15 @@ class QuotedRuntimeMarkerTests(unittest.TestCase):
         self.assertIn("real fact", result.actions[0].payload)
 
     def test_quote_rule_is_immediate_and_does_not_disable_real_markers(self):
+        block = '<CLEAN_TOOL_RESULTS> T1 </CLEAN_TOOL_RESULTS>'
         for text in (
-            '<CLEAN_TOOL_RESULTS>',
-            '(<CLEAN_TOOL_RESULTS>) <CLEAN_TOOL_RESULTS>',
-            '" <CLEAN_TOOL_RESULTS>',
-            ')<CLEAN_TOOL_RESULTS>',
-            '<CLEAN_TOOL_RESULTS>' * 3,
+            block,
+            f'({block}) {block}',
+            f'" {block}',
+            f'){block}',
+            block * 3,
         ):
-            expected = 3 if text.endswith('<CLEAN_TOOL_RESULTS>' * 3) else 1
+            expected = 3 if text.endswith(block * 3) else 1
             for cuts in ([], list(range(1, len(text)))):
                 results = stream_results(text, cuts)
                 self.assertEqual(len([a for r in results for a in r.actions]), expected)

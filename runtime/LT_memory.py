@@ -12,6 +12,7 @@ from clients.service_client import ask_service_model
 from config_loader import config
 from app_settings import settings
 from runtime.client import LMStudioAPIError
+from runtime.LT_memory_rules import LT_DEDUPLICATION_SYSTEM_PROMPT
 from runtime.LT_lane import (
     LTAttemptPreempted,
     assert_lt_attempt_can_commit,
@@ -1054,6 +1055,7 @@ def lt_memory_has_pending_work(context) -> bool:
         ensure_runtime_lt_state(context).get(
             "pending_facts"
         )
+        or ensure_runtime_lt_state(context).get("deduplication_pending")
     )
 
 
@@ -2006,6 +2008,8 @@ async def ask_lt_model(
     normalized_label = str(label or "").strip().casefold()
     if "jin note" in normalized_label:
         phase = "jin_note"
+    elif "deduplication" in normalized_label:
+        phase = "deduplication"
     elif "extraction" in normalized_label:
         phase = "extraction"
     elif "merge" in normalized_label:
@@ -3824,6 +3828,135 @@ async def run_lt_jin_note(
     }
 
 
+def _lt_deduplication_facts(context, store) -> list[dict]:
+    report_ids = {}
+    for report_id, report in (getattr(context, "delayed_memory_reports", {}) or {}).items():
+        if not isinstance(report, dict):
+            continue
+        anchors, linked = normalize_delayed_memory_fact_ids(
+            report.get("anchor_lt_facts_ids", []), report.get("lt_facts_ids", []),
+        )
+        for fact_id in anchors + linked:
+            report_ids.setdefault(fact_id, set()).add(str(report_id))
+    return [
+        {**{key: fact.get(key, "") for key in ("id", "key", "value", "category")},
+         "report_ids": sorted(report_ids.get(fact["id"], []))}
+        for fact in store.get("facts", [])
+    ]
+
+
+async def run_lt_deduplication_phase(*, context, service_client) -> dict:
+    from runtime.memory_profile import refresh_profile
+
+    attempt = get_current_lt_attempt(context)
+    set_lt_attempt_phase(attempt, "deduplication")
+    refresh_profile(context)
+    store = ensure_runtime_lt_state(context)
+    if (lt_memory_writes_restricted(context) or _lt_context_priority_work_busy(context)
+            or store.get("pending_facts") or collect_pending_facts_memory_fields(
+                getattr(context, "runtime_facts_memory_records", []))):
+        return {"status": "skipped", "reason": "pending_or_priority_work"}
+    if not store.get("deduplication_pending"):
+        return {"status": "skipped", "reason": "nothing_pending"}
+
+    facts = _lt_deduplication_facts(context, store)
+    # Consume this cycle before its one request: errors/cancellation must not
+    # cause repeated autonomous requests against an unchanged queue.
+    store = clone_lt_store(store)
+    store["deduplication_pending"] = False
+    store["revision"] += 1
+    store["updated_at"] = utc_now_iso()
+    assert_lt_attempt_can_commit(context, attempt)
+    persist_runtime_lt_file_store(context, store)
+    context.runtime_long_term_memory_store = store
+
+    response = await ask_lt_model(
+        context=context, service_client=service_client,
+        label="L-T deduplication", system_prompt=LT_DEDUPLICATION_SYSTEM_PROMPT,
+        user_prompt=json.dumps({"facts": facts}, ensure_ascii=False), max_tokens=None,
+    )
+    reason = ""
+    payload = extract_lt_json_payload(extract_runtime_memory_text(response))
+    groups = payload.get("groups") if isinstance(payload, dict) else None
+    if is_runtime_memory_response_truncated(response):
+        reason = "response_truncated"
+    elif not isinstance(groups, list) or set(payload) != {"groups"}:
+        reason = "invalid_groups"
+    else:
+        known = {fact["id"] for fact in facts}
+        seen = set()
+        for group in groups:
+            if not isinstance(group, dict) or set(group) != {"keep_id", "delete_ids"}:
+                reason = "invalid_group"
+                break
+            keep = group["keep_id"]
+            removed = group["delete_ids"]
+            if not isinstance(keep, str) or not isinstance(removed, list) or not removed:
+                reason = "invalid_ids"
+                break
+            ids = [keep, *removed]
+            if (any(not isinstance(item, str) or item not in known for item in ids)
+                    or len(set(ids)) != len(ids) or seen.intersection(ids)):
+                reason = "unknown_or_repeated_ids"
+                break
+            seen.update(ids)
+
+    # Re-read all owners after the model wait. No suspension between checking
+    # the snapshot, deleting records and persisting the latest store.
+    refresh_profile(context)
+    current = ensure_runtime_lt_state(context)
+    assert_lt_attempt_can_commit(context, attempt)
+    if (lt_memory_writes_restricted(context) or _lt_context_priority_work_busy(context)
+            or current.get("pending_facts") or collect_pending_facts_memory_fields(
+                getattr(context, "runtime_facts_memory_records", []))
+            or _lt_deduplication_facts(context, current) != facts):
+        reason = reason or "snapshot_changed"
+    if reason:
+        return await log_lt_skip_event(
+            context, phase="deduplication", message_phase="deduplication",
+            reason=reason, details={"facts_count": len(facts)},
+        )
+
+    by_id = {fact["id"]: fact for fact in current["facts"]}
+    next_store = current
+    replacements = {}
+    operation_details = []
+    for group in groups:
+        kept = by_id[group["keep_id"]]
+        for fact_id in group["delete_ids"]:
+            next_store, _changed = delete_lt_fact_from_store(next_store, fact_id)
+            replacements[fact_id] = [kept["id"]]
+            operation_details.append({
+                "action": "delete", "target_id": kept["id"],
+                "target_before": by_id[fact_id], "target_after": kept,
+                "comment": "Duplicate deleted; existing survivor unchanged. Report links redirected.",
+            })
+    if replacements:
+        persist_runtime_lt_file_store(context, next_store)
+        context.runtime_long_term_memory_store = next_store
+    delayed_change = remap_delayed_memory_lt_fact_ids(
+        context, removed_fact_ids=list(replacements), replacement_fact_ids=[],
+        replacement_fact_id_map=replacements,
+    )
+    seal_lt_attempt(attempt)
+    trace = {"kind": "lt_merge_applied", "operation_details": operation_details,
+             "before_count": len(current["facts"]), "after_count": len(next_store["facts"])}
+    await log_memory_event(
+        context, level=LT_LOG_LEVEL, message="L-T deduplication applied",
+        details=json.dumps(trace, ensure_ascii=False, indent=2), trace=trace,
+        fallback_channel="summarizer", event="deduplication_applied",
+        facts_changed=bool(replacements),
+        **lt_attempt_log_metadata(attempt, phase="deduplication"),
+    )
+    await emit_lt_memory_update(context, change={
+        "changed": bool(replacements), "removed_ids": list(replacements),
+        "removed_fact_ids": list(replacements), "replacement_fact_id_map": replacements,
+    })
+    if delayed_change.get("changed"):
+        await emit_delayed_memory_reference_update(context)
+    return {"phase": "deduplication", "status": "completed", "deleted_count": len(replacements)}
+
+
 async def maybe_update_runtime_lt_memory(
     *,
     context,
@@ -3893,6 +4026,9 @@ async def maybe_update_runtime_lt_memory(
 
         if extraction_result is not None:
             return extraction_result
+
+        if ensure_runtime_lt_state(context).get("deduplication_pending"):
+            return await run_lt_deduplication_phase(context=context, service_client=service_client)
 
         reset_lt_merge_recovery_state(context)
         return {"status": "skipped", "reason": "nothing_pending"}
@@ -3969,6 +4105,17 @@ def schedule_lt_memory_idle_update(
         return None
 
     context.runtime_lt_idle_last_started_at = now
+    store = ensure_runtime_lt_state(context)
+    if not store.get("deduplication_pending") and (
+        store.get("pending_facts") or collect_pending_facts_memory_fields(
+            getattr(context, "runtime_facts_memory_records", []))
+    ):
+        store = clone_lt_store(store)
+        store["deduplication_pending"] = True
+        store["revision"] += 1
+        store["updated_at"] = utc_now_iso()
+        persist_runtime_lt_file_store(context, store)
+        context.runtime_long_term_memory_store = store
     attempt = begin_lt_attempt(
         context,
         kind="auto",

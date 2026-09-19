@@ -459,6 +459,20 @@ async def initialize_runtime_model(
                 current_load_config,
             )
 
+        # A caller may request load settings even when the target model is
+        # already loaded. This is how the launcher changes the live context
+        # window without pretending that selecting the same model is a no-op.
+        explicit_load_config = normalize_model_load_config(
+            cached_load_config
+        )
+        max_context = _model_max_context(target_model)
+        explicit_context = int(
+            explicit_load_config.get("context_length", 0)
+            or 0
+        )
+        if max_context > 0 and explicit_context > max_context:
+            explicit_load_config["context_length"] = max_context
+
         unloaded_current = False
         if (
             same_runtime_endpoint
@@ -483,43 +497,90 @@ async def initialize_runtime_model(
 
         target_instance = _first_loaded_instance(target_model)
         if target_instance is not None:
-            load_config = _instance_load_config(target_instance)
-            if not load_config:
-                load_config = _cached_load_config(
+            loaded_config = _instance_load_config(target_instance)
+            if not loaded_config:
+                loaded_config = _cached_load_config(
                     base_url,
                     target_model_uid,
                 )
-            _remember_load_config(
-                base_url,
-                target_model_uid,
-                load_config,
-            )
-            return {
-                "role": normalized_role,
-                "base_url": base_url,
-                "model": target_model_uid,
-                "instance_id": _instance_id(target_instance),
-                "load_config": load_config,
-                "cache_hit": True,
-                "load_time_seconds": 0.0,
-            }
 
-        requested_load_config = normalize_model_load_config(
-            cached_load_config
-        )
-        if not requested_load_config:
-            requested_load_config = _cached_load_config(
-                base_url,
-                target_model_uid,
+            reconfigure_requested = bool(explicit_load_config)
+            reconfigure_needed = any(
+                loaded_config.get(name) != value
+                for name, value in explicit_load_config.items()
             )
 
-        max_context = _model_max_context(target_model)
-        requested_context = int(
-            requested_load_config.get("context_length", 0)
-            or 0
-        )
-        if max_context > 0 and requested_context > max_context:
-            requested_load_config["context_length"] = max_context
+            if not reconfigure_requested or not reconfigure_needed:
+                _remember_load_config(
+                    base_url,
+                    target_model_uid,
+                    loaded_config,
+                )
+                return {
+                    "role": normalized_role,
+                    "base_url": base_url,
+                    "model": target_model_uid,
+                    "instance_id": _instance_id(target_instance),
+                    "load_config": loaded_config,
+                    "cache_hit": True,
+                    "load_time_seconds": 0.0,
+                }
+
+            if _other_runtime_uses_model(
+                normalized_role,
+                base_url=base_url,
+                model_uid=target_model_uid,
+            ):
+                raise RuntimeModelSwitchError(
+                    "Cannot change load settings for a model instance shared "
+                    "by Brain and Service"
+                )
+
+            # Keep the currently loaded non-context settings (flash attention,
+            # batching, KV placement, etc.) and override only fields explicitly
+            # requested by the caller.
+            requested_load_config = dict(loaded_config)
+            requested_load_config.update(explicit_load_config)
+            requested_context = int(
+                requested_load_config.get("context_length", 0)
+                or 0
+            )
+            if max_context > 0 and requested_context > max_context:
+                requested_load_config["context_length"] = max_context
+
+            target_instance_id = _instance_id(target_instance)
+            if not target_instance_id:
+                raise RuntimeModelSwitchError(
+                    "Loaded model instance has no instance id for reload"
+                )
+
+            await _post_model_management(
+                client,
+                base_url=base_url,
+                suffix="unload",
+                payload={
+                    "instance_id": target_instance_id,
+                },
+                timeout=min(timeout, 30.0),
+            )
+            unloaded_current = (
+                same_runtime_endpoint
+                and current_model_uid == target_model_uid
+            )
+        else:
+            requested_load_config = explicit_load_config
+            if not requested_load_config:
+                requested_load_config = _cached_load_config(
+                    base_url,
+                    target_model_uid,
+                )
+
+            requested_context = int(
+                requested_load_config.get("context_length", 0)
+                or 0
+            )
+            if max_context > 0 and requested_context > max_context:
+                requested_load_config["context_length"] = max_context
 
         try:
             load_result = await _load_model(

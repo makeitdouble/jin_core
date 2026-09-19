@@ -371,7 +371,7 @@ Current code uses 333 ms reveal and 1000 ms hide. This mismatch is documented, n
 
 **Status:** Accepted / implemented
 
-Full cleanup persists `session_snapshot.tool_results = []` in the existing browser checkpoint. Targeted `<CLEAN_TOOL_RESULTS: T1 >` persists the remaining results instead. New results have increasing temporary `tool_id` values, also retained in action history; the counter survives cleanup/bootstrap. Legacy results remain ID-less and require full cleanup. An invalid target fails visibly without clearing any existing result. That explicit empty value is authoritative during predecessor bootstrap and must not be repopulated from older archived tool results.
+Full cleanup persists `session_snapshot.tool_results = []` in the existing browser checkpoint and is requested with an empty `<CLEAN_TOOL_RESULTS></CLEAN_TOOL_RESULTS>` block. Targeted `<CLEAN_TOOL_RESULTS> T1, T2, T3 </CLEAN_TOOL_RESULTS>` persists only the survivors; IDs are comma-separated and validated as one atomic set before mutation. New results have increasing temporary `tool_id` values, also retained in action history; the counter survives cleanup/bootstrap. Legacy results remain ID-less and require full cleanup. Any invalid or missing target fails visibly without clearing any listed result. That explicit empty value is authoritative during predecessor bootstrap and must not be repopulated from older archived tool results.
 
 The cleanup must preserve the checkpoint's `saved_at`, lineage, and unrelated fields. `saved_at` is the freshness boundary used to decide whether archived dialogue/reasoning/session-actions/files are safe to mix into browser state; touching it for one cleared field can suppress the rest of bootstrap.
 
@@ -767,3 +767,10 @@ Startup greeting/reasoning/actions remain in RAM until the first real USER
 send flushes them with the original order and reasoning reference. Closing a
 greeting-only tab must not create a date directory. Workers whose materialized
 archive directory was removed must not recreate that directory with late writes.
+
+
+## D050 — Context overflow requests immediate tool-result cleanup (2026-09-18)
+
+**Status:** Owner requested / implemented
+
+Context overflow uses a separate `FOLLOW_UP_CONTEXT_OVERFLOW_MESSAGE`, asking Brain to skip deep reasoning and immediately emit `CLEAN_TOOL_RESULTS` with a redundant tool-result ID. Do not prepend the ordinary follow-up message or its last-executed-action/result suffix. Output-only limits keep their existing continuation. Preserve the current request sequence and record/emit the interruption before recovery, as a separate Session Actions row. Provider overflow errors and native completion at the provider-reported context boundary must not silently bypass this flow.
