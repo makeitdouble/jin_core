@@ -88,7 +88,7 @@ class BootstrapOwnerLifecycleTests(unittest.IsolatedAsyncioTestCase):
             await process_message(c, {'type': 'archived_session_resume'})
         model.assert_not_called()
         log.assert_not_called()
-        self.assertEqual(c.current_session_user_message_count, 0)
+        self.assertEqual(c.turn_number, 0)
 
     async def test_stopped_pending_user_commits_without_model(self):
         with tempfile.TemporaryDirectory() as tmp, patch.object(chat_log, 'CHAT_LOG_ROOT', Path(tmp)), patch.object(chat_log, 'chat_logging_enabled', return_value=True):

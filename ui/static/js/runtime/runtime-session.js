@@ -217,54 +217,6 @@
             || runtimeSnapshot.turn_number
             || 0
           ),
-        user_message_count:
-          Number(
-            source.user_message_count
-            || (data && data.user_message_count)
-            || runtimeSnapshot.user_message_count
-            || 0
-          ),
-        assistant_message_count:
-          Number(
-            source.assistant_message_count
-            || (data && data.assistant_message_count)
-            || runtimeSnapshot.assistant_message_count
-            || 0
-          ),
-        current_session_user_message_count:
-          Number(
-            Object.prototype.hasOwnProperty.call(
-              source,
-              "current_session_user_message_count"
-            )
-              ? source.current_session_user_message_count
-              : (
-                  data
-                  && Object.prototype.hasOwnProperty.call(
-                    data,
-                    "current_session_user_message_count"
-                  )
-                    ? data.current_session_user_message_count
-                    : (runtimeSnapshot.current_session_user_message_count || 0)
-                )
-          ),
-        current_session_assistant_message_count:
-          Number(
-            Object.prototype.hasOwnProperty.call(
-              source,
-              "current_session_assistant_message_count"
-            )
-              ? source.current_session_assistant_message_count
-              : (
-                  data
-                  && Object.prototype.hasOwnProperty.call(
-                    data,
-                    "current_session_assistant_message_count"
-                  )
-                    ? data.current_session_assistant_message_count
-                    : (runtimeSnapshot.current_session_assistant_message_count || 0)
-                )
-          ),
         current_jin_color:
           String(
             source.current_jin_color

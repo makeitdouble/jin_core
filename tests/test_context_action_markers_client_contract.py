@@ -22,11 +22,11 @@ class ContextActionMarkersClientContractTests(unittest.TestCase):
             source,
         )
         self.assertIn(
-            'title: "ACTION MARKERS",',
+            'title: "ACTIONS",',
             source,
         )
         self.assertIn(
-            'metaLabel: `${markerBlocks.length} markers`,',
+            'metaLabel: `${markerBlocks.length} actions`,',
             source,
         )
         self.assertIn(
@@ -39,6 +39,29 @@ class ContextActionMarkersClientContractTests(unittest.TestCase):
         )
         self.assertIn(
             "block.runtimeActionMarker === true",
+            source,
+        )
+
+    def test_plain_runtime_action_titles_are_detected(self):
+        source = (
+            ROOT
+            / "ui"
+            / "static"
+            / "js"
+            / "logger"
+            / "trace-modal.js"
+        ).read_text(encoding="utf-8")
+
+        self.assertIn(
+            "const titleMatch =",
+            source,
+        )
+        self.assertIn(
+            "^([A-Z][A-Z0-9_]*)$",
+            source,
+        )
+        self.assertIn(
+            "return titleMatch",
             source,
         )
 

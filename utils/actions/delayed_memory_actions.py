@@ -1,5 +1,3 @@
-from copy import deepcopy
-
 from contracts.rules_assembler import (
     RUNTIME_ACTION_SAVE_DELAYED_MEMORY,
     get_runtime_action_display_name,
@@ -23,13 +21,8 @@ async def apply_delayed_memory_actions(
     from utils.brain_client_utils import (
         load_delayed_memory_report,
         record_delayed_memory_runtime_result,
-        build_delayed_memory_failure_result,
         build_delayed_memory_history_text,
-        clear_loaded_delayed_memory_report,
         clear_delayed_memory_runtime_results,
-        get_delayed_memory_reports,
-        unload_delayed_memory_report,
-        set_loaded_delayed_memory_report,
     )
 
     delayed_memory_results = []
@@ -49,75 +42,11 @@ async def apply_delayed_memory_actions(
                 context,
                 action.payload,
             )
-            did_load_delayed_memory = set_loaded_delayed_memory_report(
-                context,
-                result,
-            )
-            if result.get("ok") is False:
-                record_delayed_memory_runtime_result(
-                    context,
-                    result,
-                )
-            if did_load_delayed_memory:
-                history_text = build_delayed_memory_history_text(
-                    result
-                )
-                if history_text:
-                    record_session_action_history(
-                        context,
-                        history_text,
-                    )
-            delayed_memory_results.append(
-                result
-            )
-
-    if unload_delayed_memory_actions:
-        if log_runtime is not None:
-            await log_runtime(
-                "[RUNTIME ACTION] unload_delayed_memory requested"
-            )
-
-        clear_delayed_memory_runtime_results(
-            context
-        )
-
-        saved_reports_before_remove = deepcopy(
-            get_delayed_memory_reports(
-                context
-            )
-        )
-
-        for action in unload_delayed_memory_actions:
-            result = unload_delayed_memory_report(
-                context,
-                action.payload,
-            )
-            did_unload_delayed_memory = clear_loaded_delayed_memory_report(
-                context,
-                result.get(
-                    "id",
-                    "",
-                ),
-            )
-            result["unloaded"] = did_unload_delayed_memory
-            if (
-                result.get("ok") is not False
-                and not did_unload_delayed_memory
-            ):
-                result = build_delayed_memory_failure_result(
-                    action="unload_delayed_memory",
-                    requested=result.get(
-                        "id",
-                        "",
-                    ),
-                    error="delayed_memory_not_loaded",
-                )
-                result["unloaded"] = False
             record_delayed_memory_runtime_result(
                 context,
                 result,
             )
-            if did_unload_delayed_memory:
+            if result.get("ok") is not False:
                 history_text = build_delayed_memory_history_text(
                     result
                 )
@@ -128,15 +57,6 @@ async def apply_delayed_memory_actions(
                     )
             delayed_memory_results.append(
                 result
-            )
-
-        if get_delayed_memory_reports(
-            context
-        ) != saved_reports_before_remove:
-            setattr(
-                context,
-                "delayed_memory_reports",
-                saved_reports_before_remove,
             )
 
     return delayed_memory_results

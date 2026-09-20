@@ -145,6 +145,10 @@ class RuntimeContext:
         default_factory=list
     )
 
+    runtime_mcp_action_sequence: int = 0
+
+    runtime_mcp_manager: object | None = None
+
     runtime_action_events: list[dict] = field(
         default_factory=list
     )
@@ -304,18 +308,6 @@ class RuntimeContext:
 
     runtime_turn_started_at: float = 0.0
 
-    runtime_user_waiting_for_jin_answer_session_id: str = ""
-
-    runtime_user_waiting_for_jin_answer_started_at: float = 0.0
-
-    runtime_user_waiting_for_jin_answer_last_seconds: float | None = None
-
-    runtime_user_waiting_for_jin_answer_total_seconds: float = 0.0
-
-    runtime_user_waiting_for_jin_answer_count: int = 0
-
-    runtime_user_waiting_for_jin_answer_tracking_enabled: bool = False
-
     runtime_current_sequence_started_at: float = 0.0
 
     runtime_current_sequence_attachments: list[dict] = field(
@@ -328,16 +320,6 @@ class RuntimeContext:
         default_factory=list
     )
 
-    user_message_count: int = 0
-
-    assistant_message_count: int = 0
-
-    # CURRENT_SESSION_STATE is scoped to this live runtime session. The
-    # counters above remain monotonic across predecessor bootstrap because
-    # Active Memory lifecycle metadata uses that message scale.
-    current_session_user_message_count: int = 0
-
-    current_session_assistant_message_count: int = 0
 
     runtime_memory_pending_turns: list[dict] = field(
         default_factory=list
@@ -521,8 +503,6 @@ def format_xml_field(
     value,
 ) -> str:
 
-    if tag == "CURRENT_SESSION_STATE":
-        return str(value)
 
     rendered_value = escape(
         str(value)
@@ -582,26 +562,6 @@ def format_user_datetime(
     )
 
 
-def format_session_state(
-    *,
-    turn_number: int | None,
-    user_message_count: int | None,
-    assistant_message_count: int | None,
-) -> str:
-
-    lines = [
-        "<CURRENT_SESSION_STATE>",
-    ]
-
-    lines.extend([
-        f"    User messages count:          {user_message_count or 0}",
-        f"    JIN messages count:           {assistant_message_count or 0}",
-        f"    Total messages count:         {(user_message_count or 0) + (assistant_message_count or 0)}",
-        "</CURRENT_SESSION_STATE>",
-    ])
-
-    return "\n".join(lines)
-
 
 def format_user_feedback(
     user_feedback: str,
@@ -641,41 +601,38 @@ class ContextContract:
     year: int = field(default_factory=lambda: datetime.now().year)
     conversation_activity_instruction: str = ""
 
-    turn_number: int | None = None
-    user_message_count: int | None = None
-    assistant_message_count: int | None = None
 
     def build_runtime_fields(self) -> str:
 
         fields = {}
 
         if self.current_session_id:
-            fields["CURRENT_SESSION_ID"] = self.current_session_id
+            fields["SESSION_ID"] = self.current_session_id
 
         if self.current_model_uid:
-            fields["CURRENT_MODEL_UID"] = self.current_model_uid
+            fields["MODEL_UID"] = self.current_model_uid
 
         if self.current_context_window:
-            fields["CURRENT_CONTEXT_WINDOW"] = (
+            fields["CONTEXT_WINDOW"] = (
                 self.current_context_window
             )
 
         if self.jin_color:
-            fields["CURRENT_JIN_COLOR"] = self.jin_color
+            fields["JIN_COLOR"] = self.jin_color
 
         if self.jin_size_context:
-            fields["CURRENT_JIN_SIZE"] = self.jin_size_context
+            fields["JIN_SIZE"] = self.jin_size_context
 
         if self.jin_position_context:
-            fields["CURRENT_JIN_POSITION"] = self.jin_position_context
+            fields["JIN_POSITION"] = self.jin_position_context
 
         if self.jin_speed_context:
-            fields["CURRENT_JIN_SPEED"] = self.jin_speed_context
+            fields["JIN_SPEED"] = self.jin_speed_context
 
         if self.window_size_context:
-            fields["CURRENT_WINDOW_SIZE"] = self.window_size_context
+            fields["WINDOW_SIZE"] = self.window_size_context
 
-        fields["CURRENT_USER_DATETIME"] = format_user_datetime(
+        fields["USER_DATETIME"] = format_user_datetime(
             self.current_date,
             self.current_time,
             self.weekday,
@@ -684,22 +641,6 @@ class ContextContract:
         if self.conversation_activity_instruction:
             fields["CONVERSATION_ACTIVITY"] = (
                 self.conversation_activity_instruction
-            )
-
-        has_session_counts = any(
-            value is not None
-            for value in (
-                self.turn_number,
-                self.user_message_count,
-                self.assistant_message_count,
-            )
-        )
-
-        if has_session_counts:
-            fields["CURRENT_SESSION_STATE"] = format_session_state(
-                turn_number=self.turn_number,
-                user_message_count=self.user_message_count,
-                assistant_message_count=self.assistant_message_count,
             )
 
         state_fields = [
@@ -806,7 +747,7 @@ class ContextContract:
         )
 
         return (
-            "<CURRENT_TRUSTED_RUNTIME_VARIABLES>\n"
+            "<TRUSTED_RUNTIME_VARIABLES>\n"
             f"    {fields_xml}\n"
-            "</CURRENT_TRUSTED_RUNTIME_VARIABLES>"
+            "</TRUSTED_RUNTIME_VARIABLES>"
         )

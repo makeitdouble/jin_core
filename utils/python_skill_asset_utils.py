@@ -2763,11 +2763,31 @@ async def run_context_asset_action(
     try:
         from utils.project_reader import PROJECT_ACTIONS, run_project_action
 
+        loaded_skills = getattr(
+            context,
+            "runtime_loaded_skills",
+            [],
+        ) if context is not None else []
+        if not loaded_skills:
+            raise PermissionError(
+                "ASSET_ACTION requires a loaded skill context"
+            )
+
         if action == "project_read":
+            _require_loaded_skill(context, "project")
+            _require_loaded_skill(context, "file_manager")
             from utils.actions.attachment_actions import attach_project_file_content
             return await attach_project_file_content(context, payload)
         if action in PROJECT_ACTIONS:
+            _require_loaded_skill(context, "project")
             return await asyncio.to_thread(run_project_action, context, payload)
+
+        if action in {
+            "create_asset_file",
+            "append_asset_file",
+            "preview_file",
+        }:
+            _require_loaded_skill(context, "file_manager")
 
         if action == "run_document_reader":
             return await run_document_reader_action(

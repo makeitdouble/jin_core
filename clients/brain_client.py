@@ -3,6 +3,8 @@ import json
 import re
 import uuid
 
+from utils.stream_action_queue import StreamActionQueue
+
 from utils.tokens import estimate_prompt_tokens
 
 from config_loader import (
@@ -13,6 +15,7 @@ from contracts.rules_assembler import (
     RUNTIME_ACTION_LOAD_DELAYED_MEMORY,
     RUNTIME_ACTION_LOAD_SKILL,
     RUNTIME_ACTION_POSTING_BOARD,
+    RUNTIME_ACTION_CALL_MCP,
     RUNTIME_ACTION_ASSET_ACTION,
     RUNTIME_ACTION_JIN_COLOR,
     RUNTIME_ACTION_JIN_REACTION,
@@ -135,6 +138,14 @@ def get_response_enabled_runtime_actions(
         if "posting_board" not in loaded_skill_names:
             enabled_actions.remove(
                 RUNTIME_ACTION_POSTING_BOARD
+            )
+
+    if RUNTIME_ACTION_CALL_MCP in enabled_actions:
+        from utils.mcp_skill_utils import has_loaded_mcp_skill
+
+        if not has_loaded_mcp_skill(context):
+            enabled_actions.remove(
+                RUNTIME_ACTION_CALL_MCP
             )
 
     return tuple(
@@ -477,6 +488,7 @@ async def ask_brain_stream(
     filter_runtime_actions: bool = True,
     action_user_message: str | None = None,
     context_window_prepared: bool = False,
+    action_queue: StreamActionQueue | None = None,
 ):
 
     # ``text`` is the model-turn fallback payload. Internal follow-up ticks
@@ -632,6 +644,7 @@ async def ask_brain_stream(
         repetition_guard=RuntimeActionRepetitionGuard(),
         #preserve_action_text=True
     )
+    action_queue = action_queue if action_queue is not None else StreamActionQueue()
     stop_for_runtime_action = False
     delayed_memory_bubble_started = False
     active_memory_pending_bubble_ids = []
@@ -2020,9 +2033,15 @@ async def ask_brain_stream(
             source="brain stream content",
         )
 
-        action_applied = await apply_runtime_action_result(
-            result
-        )
+        async def apply_and_sync():
+            await apply_runtime_action_result(result)
+            if counter_entries:
+                await sync_session_action_marker_history()
+
+        action_applied = bool(result.actions)
+        if action_applied:
+            action_queue.submit(apply_and_sync)
+            await asyncio.sleep(0)
 
         if counter_entries:
             await sync_session_action_marker_history()
@@ -2239,9 +2258,8 @@ async def ask_brain_stream(
             source="brain stream tail",
         )
 
-        await apply_runtime_action_result(
-            tail_result
-        )
+        if tail_result.actions:
+            action_queue.submit(lambda: apply_runtime_action_result(tail_result))
 
         if tail_counter_entries:
             await sync_session_action_marker_history()
@@ -2249,6 +2267,7 @@ async def ask_brain_stream(
         if await stop_on_marker_repetition(
             tail_result
         ):
+            await action_queue.drain()
             await finalize_session_action_history()
             yield build_raw_model_output_chunk()
             return
@@ -2262,19 +2281,23 @@ async def ask_brain_stream(
                 "content": content_tail,
             }
 
+        await action_queue.drain()
         await finalize_session_action_history()
         yield build_raw_model_output_chunk()
 
     except asyncio.CancelledError:
+        await action_queue.close()
         await finalize_session_action_history()
         raise
 
     except LMStudioAPIError:
+        await action_queue.close()
         await finalize_session_action_history()
         raise
 
     except Exception as error:
 
+        await action_queue.close()
         await finalize_session_action_history()
 
         formatted_error = (
@@ -2290,4 +2313,5 @@ async def ask_brain_stream(
             formatted_error
         )
 
-
+    finally:
+        await action_queue.close()

@@ -34,7 +34,7 @@ DEEP_WEB_SEARCH_WORKER_SYSTEM_PROMPT = """You are a web research worker inside J
 Your job is research, not conversation.
 
 Rules:
-- Work only on the CURRENT_TASK and use CURRENT_SEQUENCE as shared memory.
+- Work only on the TASK and use SEQUENCE as shared memory.
 - Search broadly enough to answer the task, but do not repeat queries already listed.
 - A query must be a useful real web-search phrase, not an explanation.
 - If evidence is weak, ambiguous, or too narrow, reformulate the next query.
@@ -395,7 +395,7 @@ def build_deep_search_current_sequence(
     worker: DeepSearchWorker,
 ) -> str:
     lines = [
-        "<CURRENT_SEQUENCE>",
+        "<SEQUENCE>",
         f"research_objective: {pool.objective}",
         f"current_worker: {worker.worker_id}",
         f"current_task: {worker.task}",
@@ -426,7 +426,7 @@ def build_deep_search_current_sequence(
     elif pool.notes:
         lines.append(f"runtime_note: {pool.notes[-1]}")
 
-    lines.append("</CURRENT_SEQUENCE>")
+    lines.append("</SEQUENCE>")
     return "\n".join(lines)
 
 

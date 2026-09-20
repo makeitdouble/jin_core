@@ -5,17 +5,17 @@
     "runtime_action": "DELETE_ACTIVE_MEMORY",
     "enable_flag": "CAN_SAVE_ACTIVE_MEMORY",
     "runtime_order": 220,
-    "private_marker": "<DELETE_ACTIVE_MEMORY: id >",
+    "private_marker": "<DELETE_ACTIVE_MEMORY>",
     "triggers": [],
     "blockers": [],
     "effects": {
       "emit_followup": false,
       "follow_up_on_fail": false
     },
-    "schema": ["<DELETE_ACTIVE_MEMORY: id >"],
+    "schema": ["<DELETE_ACTIVE_MEMORY> id1, id2 </DELETE_ACTIVE_MEMORY>"],
     "rules": [
-      "Use to remove active memory!"
+      "Delete one or more Active Memory records by comma-separated IDs."
     ],
-    "close_tag": false
+    "close_tag": true
   }
 }

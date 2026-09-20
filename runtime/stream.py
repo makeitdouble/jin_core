@@ -1,4 +1,6 @@
 import asyncio
+from functools import partial
+from utils.stream_action_queue import StreamActionQueue
 import contextlib
 import traceback
 import uuid
@@ -71,6 +73,7 @@ from contracts.rules_assembler import (
     RUNTIME_ACTION_JIN_REACTION,
     RUNTIME_ACTION_JIN_SIZE,
     RUNTIME_ACTION_POSTING_BOARD,
+    RUNTIME_ACTION_CALL_MCP,
     RUNTIME_ACTION_SAVE_ACTIVE_MEMORY,
     RUNTIME_ACTION_UPDATE_LT_FACTS,
     RUNTIME_ACTION_UNLOAD_DELAYED_MEMORY,
@@ -209,6 +212,7 @@ class RuntimeStream:
         self.jin_color_action_id = ""
         self.jin_size_action_ids = {}
         self.posting_board_action_ids = {}
+        self.mcp_action_ids = {}
         self.deep_web_search_action_ids = {}
         self.started_deep_web_search_action_ids = []
         self.update_lt_facts_action_ids = {}
@@ -219,6 +223,7 @@ class RuntimeStream:
         self.delayed_memory_action_payload = ""
         self.raw_content_parts = []
         self.raw_model_output = ""
+        self.action_queue = StreamActionQueue()
         self.action_filter = RuntimeActionStreamFilter(
             enabled_actions=self.runtime_actions,
             preserve_action_marker=self.should_preserve_action_marker,
@@ -727,28 +732,6 @@ class RuntimeStream:
             "runtime_user_retry_active",
             False,
         ):
-            session_snapshot["assistant_message_count"] = (
-                int(
-                    session_snapshot.get(
-                        "assistant_message_count",
-                        0,
-                    )
-                    or 0
-                )
-                + 1
-            )
-            session_snapshot[
-                "current_session_assistant_message_count"
-            ] = (
-                int(
-                    session_snapshot.get(
-                        "current_session_assistant_message_count",
-                        0,
-                    )
-                    or 0
-                )
-                + 1
-            )
             session_snapshot["turn_number"] = (
                 int(
                     session_snapshot.get(
@@ -1638,7 +1621,8 @@ class RuntimeStream:
                         for action in actions_to_apply
                     }
 
-                    await apply_runtime_action_calls(
+                    self.action_queue.submit(partial(
+                        apply_runtime_action_calls,
                         self.context,
                         actions_to_apply,
                         context_snapshot=self.context_snapshot,
@@ -1651,7 +1635,8 @@ class RuntimeStream:
                         runtime_message_id=(
                             self.stream.message_id
                         ),
-                    )
+                    ))
+                    await asyncio.sleep(0)
 
         if counter_entries:
             await self.sync_session_action_marker_history()
@@ -1779,6 +1764,41 @@ class RuntimeStream:
                     sequence,
                 )
                 self.posting_board_action_ids[
+                    action_key
+                ] = (action, action_id)
+
+            return action_id
+
+        if action.name == RUNTIME_ACTION_CALL_MCP:
+            action_key = id(action)
+            action_entry = self.mcp_action_ids.get(
+                action_key
+            )
+            action_id = (
+                str(action_entry[1] or "").strip()
+                if (
+                    isinstance(action_entry, tuple)
+                    and len(action_entry) == 2
+                    and action_entry[0] is action
+                )
+                else ""
+            )
+
+            if not action_id:
+                sequence = int(
+                    getattr(
+                        self.context,
+                        "runtime_mcp_action_sequence",
+                        0,
+                    )
+                    or 0
+                ) + 1
+                self.context.runtime_mcp_action_sequence = sequence
+                action_id = build_runtime_action_id(
+                    RUNTIME_ACTION_CALL_MCP,
+                    sequence,
+                )
+                self.mcp_action_ids[
                     action_key
                 ] = (action, action_id)
 
@@ -3307,32 +3327,6 @@ class RuntimeStream:
                         )
                     )
 
-                    if (
-                        is_valid
-                        and thinking_content.strip()
-                        and self.is_brain_context()
-                        and self.emit_to_chat
-                        and getattr(
-                            self.context,
-                            "runtime_user_waiting_for_jin_answer_tracking_enabled",
-                            False,
-                        )
-                        and not float(
-                            getattr(
-                                self.context,
-                                "runtime_user_waiting_for_jin_answer_started_at",
-                                0.0,
-                            )
-                            or 0.0
-                        )
-                    ):
-                        # Start only after the first visible reasoning chunk has
-                        # actually been emitted to the user. Follow-up Brain
-                        # streams in the same answer reuse this single timer.
-                        self.context.runtime_user_waiting_for_jin_answer_started_at = (
-                            time.monotonic()
-                        )
-
                     if not is_valid:
                         self.capture_runtime_turn_response()
                         self.mark_validator_interruption(
@@ -3349,6 +3343,7 @@ class RuntimeStream:
                                 current_sequence=True,
                             )
 
+                        await self.action_queue.close()
                         await self.close_active_streams()
                         await self.close_generator(
                             generator
@@ -3394,6 +3389,7 @@ class RuntimeStream:
 
                     if self.potential_loop_aborted:
                         self.capture_runtime_turn_response()
+                        await self.action_queue.close()
                         await self.close_active_streams()
                         await self.close_generator(
                             generator
@@ -3401,6 +3397,7 @@ class RuntimeStream:
                         break
 
                     if self.action_guard_rejected_aborted:
+                        await self.action_queue.close()
                         await self.close_active_streams()
                         await self.close_generator(
                             generator
@@ -3434,6 +3431,7 @@ class RuntimeStream:
                                 current_sequence=True,
                             )
 
+                        await self.action_queue.close()
                         await self.close_active_streams()
                         await self.close_generator(
                             generator
@@ -3468,6 +3466,8 @@ class RuntimeStream:
                         and self.emit_content_to_chat
                     ),
                 )
+
+            await self.action_queue.drain()
 
             if self.action_guard_rejected_aborted:
                 await self.fail_unfinished_delayed_memory_actions()
@@ -3523,6 +3523,7 @@ class RuntimeStream:
         # ---------------------------------------------------------
 
         except asyncio.CancelledError:
+            await self.action_queue.close()
 
             self.context.runtime_turn_interrupted = True
             self.capture_runtime_turn_response()
@@ -3563,6 +3564,7 @@ class RuntimeStream:
                 httpx.ReadError,
                 httpx.RemoteProtocolError,
         ):
+            await self.action_queue.close()
 
             self.context.runtime_turn_interrupted = True
             self.capture_runtime_turn_response()
@@ -3580,6 +3582,7 @@ class RuntimeStream:
             return None
 
         except Exception as e:
+            await self.action_queue.close()
 
             if (
                 isinstance(e, LMStudioAPIError)
@@ -3722,6 +3725,7 @@ class RuntimeStream:
             return None
 
         finally:
+            await self.action_queue.close()
 
             with contextlib.suppress(
                 Exception

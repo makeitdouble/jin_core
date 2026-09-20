@@ -296,10 +296,7 @@ def normalize_runtime_action_names(enabled_actions=None) -> tuple[str, ...]:
             normalized_names.append("DELETE_ACTIVE_MEMORY")
 
         if normalized_name == "SAVE_DELAYED_MEMORY":
-            normalized_names.extend((
-                "LOAD_DELAYED_MEMORY",
-                "UNLOAD_DELAYED_MEMORY",
-            ))
+            normalized_names.append("LOAD_DELAYED_MEMORY")
 
         if normalized_name == "ASSET_ACTION":
             normalized_names.extend((
@@ -366,7 +363,7 @@ def build_runtime_action_contract_instructions(runtime_action: str) -> str:
     lines = [
         line
         for line in (
-            build_runtime_action_marker_schema(contract),
+            get_runtime_action_display_name(runtime_action),
             f"Follow-up: {str(bool(emit_followup)).lower()}",
         )
         if line
@@ -494,6 +491,10 @@ def _runtime_action_available_in_context(
             context,
             "posting_board",
         )
+    if normalized_name == "CALL_MCP":
+        from utils.mcp_skill_utils import has_loaded_mcp_skill
+
+        return has_loaded_mcp_skill(context)
     return True
 
 
@@ -559,10 +560,16 @@ def build_allowed_markers(
             continue
 
         if action_name in {
-            "LIST_FILES",
+            "LIST_ALL_USER_SHARED_FILES",
             "ATTACH_FILE_CONTENT",
             "ATTACH_FILE_BY_ID",
         } and not _context_has_files(context):
+            continue
+
+        if action_name in {
+            "ATTACH_FILE_CONTENT",
+            "ATTACH_FILE_BY_ID",
+        } and not _context_has_loaded_skill(context, "file_manager"):
             continue
 
         marker = get_runtime_action_private_marker(action_name)
@@ -612,17 +619,20 @@ def build_runtime_action_instructions(
         if normalized_name in {"DELETE_ACTIVE_MEMORY", "UPDATE_ACTIVE_MEMORY"} and not _context_has_active_memory(context):
             continue
 
-        if normalized_name in {
-            "LOAD_DELAYED_MEMORY",
-            "UNLOAD_DELAYED_MEMORY",
-        } and not _context_has_delayed_memory_reports(context):
+        if normalized_name == "LOAD_DELAYED_MEMORY" and not _context_has_delayed_memory_reports(context):
             continue
 
         if normalized_name in {
-            "LIST_FILES",
+            "LIST_ALL_USER_SHARED_FILES",
             "ATTACH_FILE_CONTENT",
             "ATTACH_FILE_BY_ID",
         } and not _context_has_files(context):
+            continue
+
+        if normalized_name in {
+            "ATTACH_FILE_CONTENT",
+            "ATTACH_FILE_BY_ID",
+        } and not _context_has_loaded_skill(context, "file_manager"):
             continue
 
         append_rules(normalized_name)
@@ -646,9 +656,9 @@ RUNTIME_ACTION_SAVE_DELAYED_MEMORY = get_runtime_action_name(
 RUNTIME_ACTION_LOAD_DELAYED_MEMORY = get_runtime_action_name(
     "load_delayed_memory"
 )
-RUNTIME_ACTION_UNLOAD_DELAYED_MEMORY = get_runtime_action_name(
-    "unload_delayed_memory"
-)
+# Reader/backward-compatibility name only. There is intentionally no current
+# model-facing contract for unloading delayed memory.
+RUNTIME_ACTION_UNLOAD_DELAYED_MEMORY = "UNLOAD_DELAYED_MEMORY"
 RUNTIME_ACTION_SAVE_ACTIVE_MEMORY = get_runtime_action_name(
     "save_active_memory"
 )
@@ -675,3 +685,4 @@ RUNTIME_ACTION_JIN_SPEED = get_runtime_action_name("jin_speed")
 RUNTIME_ACTION_UPDATE_LT_FACTS = get_runtime_action_name("update_lt_facts")
 RUNTIME_ACTION_RECALL_FACT_CONTEXT = get_runtime_action_name("recall_fact_context")
 RUNTIME_ACTION_POSTING_BOARD = get_runtime_action_name("posting_board")
+RUNTIME_ACTION_CALL_MCP = get_runtime_action_name("call_mcp")

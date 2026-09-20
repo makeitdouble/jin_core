@@ -5,19 +5,19 @@
     "runtime_action": "RECALL_FACT_CONTEXT",
     "enable_flag": "CAN_RECALL_FACT_CONTEXT",
     "runtime_order": 85,
-    "private_marker": "<RECALL_FACT_CONTEXT: F1>",
+    "private_marker": "<RECALL_FACTS_CONTEXT>",
     "triggers": [],
     "blockers": [],
     "effects": {
       "emit_followup": true,
       "follow_up_on_fail": true
     },
-    "close_tag": false,
+    "close_tag": true,
+    "display_payload": true,
     "schema": [
-      "<RECALL_FACT_CONTEXT: F123>"
+      "<RECALL_FACTS_CONTEXT> F1, F2 </RECALL_FACTS_CONTEXT>"
     ],
     "rules": [
-      "Use one RECALL_FACT_CONTEXT marker per committed F<number> ID; multiple markers are allowed.",
       "Use this when a relevant fact needs its original evidence."
     ]
   }

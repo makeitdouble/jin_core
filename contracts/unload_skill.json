@@ -5,7 +5,7 @@
     "runtime_action": "UNLOAD_SKILL",
     "enable_flag": "CAN_USE_ASSETS",
     "runtime_order": 100,
-    "private_marker": "<UNLOAD_SKILL: name of skill >",
+    "private_marker": "<UNLOAD_SKILLS_CONTEXT>",
     "triggers": [],
     "blockers": [],
     "effects": {
@@ -13,12 +13,12 @@
       "follow_up_on_fail": false
     },
     "schema": [
-      "<UNLOAD_SKILL: name of skill >",
-      "<UNLOAD_SKILLS: name1, name2, name3 >"
+      "<UNLOAD_SKILLS_CONTEXT> skill1, skill2 </UNLOAD_SKILLS_CONTEXT>"
     ],
     "rules": [
-      "Use to unload from the context previously loaded skill content."
+      "List one or more loaded skill names in one UNLOAD_SKILLS_CONTEXT block, separated by commas."
     ],
-    "close_tag": false
+    "close_tag": true,
+    "display_payload": true
   }
 }

@@ -473,8 +473,6 @@ class SimpleBehaviorProbe(unittest.IsolatedAsyncioTestCase):
             ],
             "final_memory": build_memory_blob(self.context),
             "turn_number": self.context.turn_number,
-            "user_message_count": self.context.user_message_count,
-            "assistant_message_count": self.context.assistant_message_count,
             "websocket_message_count": len(self.websocket.messages),
         }
 

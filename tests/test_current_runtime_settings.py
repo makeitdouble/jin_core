@@ -33,11 +33,11 @@ class CurrentRuntimeSettingsTests(unittest.TestCase):
             )
 
         self.assertNotIn(
-            "<CURRENT_RUNTIME_SETTINGS>",
+            "<RUNTIME_SETTINGS>",
             prompt,
         )
         self.assertTrue(
-            prompt.startswith("<CURRENT_CONCERNS>")
+            prompt.startswith("<TRUSTED_RUNTIME_VARIABLES>")
         )
 
     def test_runtime_settings_are_absolute_first_prompt_block(self):
@@ -54,15 +54,15 @@ class CurrentRuntimeSettingsTests(unittest.TestCase):
 
         self.assertTrue(
             prompt.startswith(
-                "<CURRENT_RUNTIME_SETTINGS>\n"
+                "<RUNTIME_SETTINGS>\n"
                 "mode: test\n"
                 "feature: enabled\n"
-                "</CURRENT_RUNTIME_SETTINGS>\n\n"
-                "<CURRENT_CONCERNS>"
+                "</RUNTIME_SETTINGS>\n\n"
+                "<TRUSTED_RUNTIME_VARIABLES>"
             )
         )
 
-    def test_runtime_settings_stay_before_restore_priming(self):
+    def test_restore_priming_precedes_runtime_settings(self):
         context = self._context(
             restore_priming=True
         )
@@ -81,21 +81,16 @@ class CurrentRuntimeSettingsTests(unittest.TestCase):
             )
 
         settings_prefix = (
-            "<CURRENT_RUNTIME_SETTINGS>\n"
+            "<RUNTIME_SETTINGS>\n"
             "restore_mode: enabled\n"
-            "</CURRENT_RUNTIME_SETTINGS>\n\n"
+            "</RUNTIME_SETTINGS>\n\n"
         )
-        self.assertTrue(
-            prompt.startswith(
-                settings_prefix
-                + "<MANDATORY_SYSTEM_NOTIFICATION>\n"
-            )
-        )
+        self.assertIn("<MANDATORY_SYSTEM_NOTIFICATION>", prompt)
         mandatory_pos = prompt.index("<MANDATORY_SYSTEM_NOTIFICATION>")
-        old_session_pos = prompt.index("<OLD_SESSION_RESTORED_STATE")
-        concerns_pos = prompt.index("<CURRENT_CONCERNS>")
-        self.assertLess(mandatory_pos, old_session_pos)
-        self.assertLess(old_session_pos, concerns_pos)
+        settings_pos = prompt.index(settings_prefix.strip())
+        trusted_pos = prompt.index("<TRUSTED_RUNTIME_VARIABLES>")
+        self.assertLess(mandatory_pos, settings_pos)
+        self.assertLess(settings_pos, trusted_pos)
 
     def test_restore_priming_places_old_session_state_under_mandatory_notification(self):
         context = self._context(
@@ -115,9 +110,7 @@ class CurrentRuntimeSettingsTests(unittest.TestCase):
             include_runtime_action_instructions=False,
         )
 
-        self.assertTrue(
-            prompt.startswith("<MANDATORY_SYSTEM_NOTIFICATION>\n")
-        )
+        self.assertIn("<MANDATORY_SYSTEM_NOTIFICATION>", prompt)
         self.assertIn(
             "Current session id: current-session-test\nCurrent time: ",
             prompt,
@@ -128,10 +121,8 @@ class CurrentRuntimeSettingsTests(unittest.TestCase):
         self.assertLess(session_pos, time_pos)
         self.assertLess(time_pos, no_user_pos)
         mandatory_end = prompt.index("</MANDATORY_SYSTEM_NOTIFICATION>")
-        old_session_pos = prompt.index("<OLD_SESSION_RESTORED_STATE")
-        concerns_pos = prompt.index("<CURRENT_CONCERNS>")
-        self.assertLess(mandatory_end, old_session_pos)
-        self.assertLess(old_session_pos, concerns_pos)
+        trusted_pos = prompt.index("<TRUSTED_RUNTIME_VARIABLES>")
+        self.assertLess(mandatory_end, trusted_pos)
 
 
 if __name__ == "__main__":

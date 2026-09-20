@@ -86,7 +86,7 @@ def find_reusable_result(context, action):
     # Bare ATTACH_FILE_CONTENT is stateful: each call advances to the next
     # unread project-file window, so an identical payload is not equivalent
     # to the previous execution and must never be satisfied from reuse cache.
-    if action.name in {"CLEAN_TOOL_RESULTS", "ATTACH_FILE_CONTENT"}:
+    if action.name in {"CLEAN_TOOL_RESULTS", "ATTACH_FILE_CONTENT", "CALL_MCP"}:
         return None
 
     # Posting Board reads/checkpoints are live server state, not reusable

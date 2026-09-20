@@ -31,10 +31,8 @@
       "</SAVE_DELAYED_MEMORY>"
     ],
     "rules": [
-      "Use this marker after the user explicitly asks to create/save a delayed memory report, or when PROJECT_REVIEW is active and saving findings would help continue the project review.",
-      "lt_facts_ids contains exact existing committed L-T fact IDs (F<number>) that this report absorbs/represents. These IDs already exist before the report is created; populate them explicitly when collecting L-T facts into a report.",
-      "anchor_lt_facts_ids is the subset of lt_facts_ids that must remain globally visible as anchors after the report absorbs the other linked L-T facts.",
-      "Do not leave lt_facts_ids or anchor_lt_facts_ids empty merely because the report is new when the user explicitly asked to collect existing L-T facts into it."
+      "Use to save explicit delayed-memory report!",
+      "Listed facts in lt_facts_ids will be hidden from context until delayed memory is loaded, anchors remain visible."
     ],
     "close_tag": true
   }

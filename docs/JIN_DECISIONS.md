@@ -289,11 +289,11 @@ For bootstrap, tint, timestamp, linked-highlight, and session bugs, first enumer
 
 ---
 
-## D021 — `CURRENT_RUNTIME_SETTINGS` is the absolute first optional prompt block
+## D021 — `RUNTIME_SETTINGS` is the first optional live-settings block
 
 **Status:** Accepted / implemented
 
-`rules/brain_context_builder.py` owns `CURRENT_RUNTIME_SETTINGS_CONTENT`. If it is empty, the block is omitted. If present, it precedes every other prompt section, including restore-specific instructions.
+`rules/brain_context_builder.py` owns `CURRENT_RUNTIME_SETTINGS_CONTENT`. If it is empty, the `<RUNTIME_SETTINGS>` block is omitted. On ordinary turns it precedes the remaining live prompt scaffolding; restore continuity keeps its documented preamble first.
 
 **Why:** this block is an explicit runtime-level override/context injector and must have deterministic placement.
 
@@ -678,6 +678,18 @@ Unknown IDs must fail, never become project paths. Success is displayed as
 
 `CHAT_LOG_SEARCH` searches saved USER/JIN messages with literal case-insensitive
 substrings, OR queries, inclusive date/daily-time bounds and newest-first results.
+
+### D055 — Paired list actions and delayed-memory ownership
+
+**Status:** Accepted / implemented
+
+`WEB_SEARCH` uses `<WEB_SEARCH> query </WEB_SEARCH>`. Delayed report loading,
+Active Memory deletion, and whole-file attachment accept comma-separated IDs in
+paired markers. Each ID becomes one ordered internal action. Model-issued
+`LOAD_DELAYED_MEMORY` results are ordinary tool results with tool IDs and can be
+removed through `CLEAN_TOOL_RESULTS`; they never populate
+`<LOADED_DELAYED_MEMORY>`. That block is exclusively owned by explicit user pin
+state. Consequently there is no model-facing `UNLOAD_DELAYED_MEMORY` contract.
 The default limit is 10 turns, hard maximum 50. Including JIN permits bounded
 reasoning excerpts only alongside a matching USER in that same turn; USER-only
 search excludes reasoning. Matched messages retain their attachment metadata.

@@ -6,6 +6,7 @@ import json
 import mimetypes
 import re
 import time
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Iterable
 
@@ -514,6 +515,8 @@ def format_age(created_at: float, *, now: float | None = None) -> str:
 
 
 def format_list_files_lines(records: list[dict] | None = None) -> list[str]:
+    from utils.time_utils import format_utc_iso
+
     records = records if records is not None else list_file_records()
     lines = []
     for index, record in enumerate(records[:MAX_FILE_RECORDS], start=1):
@@ -521,8 +524,12 @@ def format_list_files_lines(records: list[dict] | None = None) -> list[str]:
         dims = ""
         if record.get("width") and record.get("height"):
             dims = f" {record['width']}x{record['height']}"
-        age = format_age(record.get("created_at") or time.time())
+        created_at = float(record.get("created_at") or time.time())
+        created_timestamp = format_utc_iso(
+            datetime.fromtimestamp(created_at, tz=timezone.utc)
+        )
         lines.append(
-            f"{index}. {file_display_name(record['name'])} {size}{dims} [ id: {record['id']} ] ( {age} ago )"
+            f"{index}. {file_display_name(record['name'])} {size}{dims} "
+            f"[ id: {record['id']} ] [ created_at: {created_timestamp} ]"
         )
     return lines

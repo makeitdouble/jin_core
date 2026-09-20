@@ -25,6 +25,7 @@ from contracts.rules_assembler import (
     RUNTIME_ACTION_DEEP_WEB_SEARCH,
     RUNTIME_ACTION_WEB_SEARCH,
     RUNTIME_ACTION_POSTING_BOARD,
+    RUNTIME_ACTION_CALL_MCP,
     build_runtime_action_display_text,
     get_runtime_action_display_name,
     runtime_action_has_close_tag,
@@ -98,6 +99,11 @@ from utils.actions.posting_board_actions import (
     build_posting_board_display_text,
     canonical_posting_board_payload,
     posting_board_action_name,
+)
+from utils.actions.mcp_actions import (
+    apply_mcp_actions,
+    build_call_mcp_display_text,
+    canonical_call_mcp_payload,
 )
 from utils.actions.jin_visual_sequence_actions import (
     emit_jin_visual_sequences,
@@ -323,6 +329,7 @@ async def apply_runtime_action_calls(
         RUNTIME_ACTION_UPDATE_LT_FACTS,
         RUNTIME_ACTION_RECALL_FACT_CONTEXT,
         RUNTIME_ACTION_POSTING_BOARD,
+        RUNTIME_ACTION_CALL_MCP,
     }
     loaded_skill_names = {
         normalize_skill_name(
@@ -445,6 +452,10 @@ async def apply_runtime_action_calls(
                 )
             elif action_name == RUNTIME_ACTION_POSTING_BOARD:
                 payload_identity = canonical_posting_board_payload(
+                    action.payload
+                )
+            elif action_name == RUNTIME_ACTION_CALL_MCP:
+                payload_identity = canonical_call_mcp_payload(
                     action.payload
                 )
             else:
@@ -1314,6 +1325,25 @@ async def apply_runtime_action_calls(
 
         if (
             not action_display_id
+            and action.name == RUNTIME_ACTION_CALL_MCP
+        ):
+            mcp_action_sequence = int(
+                getattr(
+                    context,
+                    "runtime_mcp_action_sequence",
+                    0,
+                )
+                or 0
+            ) + 1
+            context.runtime_mcp_action_sequence = mcp_action_sequence
+            action_display_id = build_runtime_action_id(
+                RUNTIME_ACTION_CALL_MCP,
+                mcp_action_sequence,
+            )
+            action_display_ids[id(action)] = action_display_id
+
+        if (
+            not action_display_id
             and action.name == RUNTIME_ACTION_CHAT_LOG_SEARCH
         ):
             chat_log_search_action_sequence = int(
@@ -1549,6 +1579,12 @@ async def apply_runtime_action_calls(
             elif action.name == RUNTIME_ACTION_POSTING_BOARD:
                 runtime_action_display_text = (
                     build_posting_board_display_text(
+                        action.payload
+                    )
+                )
+            elif action.name == RUNTIME_ACTION_CALL_MCP:
+                runtime_action_display_text = (
+                    build_call_mcp_display_text(
                         action.payload
                     )
                 )
@@ -1863,6 +1899,12 @@ async def apply_runtime_action_calls(
         if action.name == RUNTIME_ACTION_POSTING_BOARD
     ]
 
+    mcp_actions = [
+        action
+        for action in filtered_actions
+        if action.name == RUNTIME_ACTION_CALL_MCP
+    ]
+
     search_queries = [
         query
         for query in (
@@ -2095,6 +2137,14 @@ async def apply_runtime_action_calls(
         with_action_context=with_action_context,
     )
 
+    mcp_results = await apply_mcp_actions(
+        context,
+        mcp_actions,
+        action_display_ids=action_display_ids,
+        log_runtime=log_runtime,
+        with_action_context=with_action_context,
+    )
+
     delayed_memory_results = await apply_delayed_memory_actions(
         context,
         load_delayed_memory_actions=load_delayed_memory_actions,
@@ -2157,6 +2207,7 @@ async def apply_runtime_action_calls(
     applied_count = (
         len(chat_log_search_results)
         + len(posting_board_results)
+        + len(mcp_results)
         + len(
             search_queries
         )

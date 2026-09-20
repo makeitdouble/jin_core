@@ -1653,7 +1653,7 @@ def _runtime_memory_quote_response_id(
         )
         or getattr(
             context,
-            "assistant_message_count",
+            "runtime_turn_counter",
             0,
         )
         or getattr(
@@ -2531,12 +2531,6 @@ def build_runtime_memory_snapshot(
             "runtime_turn_counter",
             0,
         ),
-        "user_message_count": getattr(context, "user_message_count", 0),
-        "assistant_message_count": getattr(
-            context,
-            "assistant_message_count",
-            0,
-        ),
         # Keep the causal FRAME revision inside the snapshot itself. The browser
         # prefers its newest in-memory snapshot during a soft reconnect; if
         # this field is missing it falls back to zero and the backend can
@@ -2544,16 +2538,6 @@ def build_runtime_memory_snapshot(
         "runtime_memory_updates": getattr(
             context,
             "runtime_memory_updates",
-            0,
-        ),
-        "current_session_user_message_count": getattr(
-            context,
-            "current_session_user_message_count",
-            0,
-        ),
-        "current_session_assistant_message_count": getattr(
-            context,
-            "current_session_assistant_message_count",
             0,
         ),
         "created_at": format_runtime_memory_lifecycle_timestamp(
@@ -2806,38 +2790,6 @@ def build_runtime_session_checkpoint(
             )
             or 0
         ),
-        "user_message_count": int(
-            getattr(
-                context,
-                "user_message_count",
-                0,
-            )
-            or 0
-        ),
-        "assistant_message_count": int(
-            getattr(
-                context,
-                "assistant_message_count",
-                0,
-            )
-            or 0
-        ),
-        "current_session_user_message_count": int(
-            getattr(
-                context,
-                "current_session_user_message_count",
-                0,
-            )
-            or 0
-        ),
-        "current_session_assistant_message_count": int(
-            getattr(
-                context,
-                "current_session_assistant_message_count",
-                0,
-            )
-            or 0
-        ),
         "runtime_memory_updates": int(
             getattr(
                 context,
@@ -2996,7 +2948,7 @@ async def record_runtime_frame_diff(
         else ""
     )
     user_turn_count = int(
-        getattr(context, "user_message_count", 0)
+        getattr(context, "turn_number", 0)
         or 0
     )
 

@@ -616,7 +616,7 @@ def _append_recorded_tool_results(
                     else "  No files."
                 )
             )
-            attrs = tool_id_attr + 'name="LIST_FILES"'
+            attrs = tool_id_attr + 'name="LIST_ALL_USER_SHARED_FILES"'
             parts.append(
                 f"{_build_tool_result_open_tag(attrs, created_at=created_at, now=now)}\n"
                 f"{indent_xml(_escape_runtime_action_payload(payload))}\n"

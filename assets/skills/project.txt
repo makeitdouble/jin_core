@@ -1,0 +1,24 @@
+project
+
+Purpose:
+Inspect a user-pinned local project folder through the generic ASSET_ACTION envelope. This skill applies only while a project folder is linked in the UI.
+
+Mandatory workflow:
+1. Do not use these actions unless a project folder is currently linked.
+2. Project actions read the active linked local source root.
+3. Emit JSON inside <ASSET_ACTION>...</ASSET_ACTION>.
+
+Schemas:
+<ASSET_ACTION>
+{"action":"project_tree","attachment":"attached folder name or selector id","path":".","offset":0,"limit":100}
+</ASSET_ACTION>
+
+<ASSET_ACTION>
+{"action":"project_search","attachment":"attached folder name or selector id","path":".","query":"literal text","offset":0,"limit":100}
+</ASSET_ACTION>
+
+Rules:
+- project_tree lists file and folder paths. Start with path "." and the default depth. Use depth 2..20 only for deliberate drill-down, preferably on a specific subfolder.
+- project_search searches file contents, not filenames. query is literal text and case-insensitive.
+- offset is the number of results to skip (default 0). limit is the maximum returned paths or matching lines (default 100, allowed 1..200). For the next page, reuse the returned offset and keep all other inputs unchanged. A larger limit or offset does not extend the scan.
+- To inspect a returned file, load the file_manager skill and use its ATTACH_FILE_CONTENT schema with the returned folder-rooted path.

@@ -15,9 +15,7 @@
       "<CHAT_LOG_SEARCH>{\"has_attachments\":true,\"start_date\":\"2026-09-01\",\"end_date\":\"2026-09-01\"}</CHAT_LOG_SEARCH>"
     ],
     "rules": [
-      "Use CHAT_LOG_SEARCH to search messages or attachments using date range!",
-      "query is optional, omit query to search filter-only. has_attachments=true filters for messages that contain one or more attached files.",
-      "source=user searches only USER text. source=['user','jin'] includes JIN text and reasoning for text searches."
+      "Use CHAT_LOG_SEARCH to search chat text/attachments by filters! All fields optional."
     ]
   }
 }

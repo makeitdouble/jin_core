@@ -2736,12 +2736,25 @@ function parseContextRuntimeActionMarkerTitle(
 
   const marker =
     String(line || "").trim();
-  const match =
+  const tagMatch =
     marker.match(
       /^<([A-Z][A-Z0-9_]*)(?::[^>\n]*)?>(?:<\/\1>)?$/
     );
 
-  return match ? match[1] : "";
+  if (tagMatch) {
+    return tagMatch[1];
+  }
+
+  // Runtime contracts are rendered as a plain action name followed by
+  // `Follow-up: ...`. Keep supporting the older marker-form heading too.
+  const titleMatch =
+    marker.match(
+      /^([A-Z][A-Z0-9_]*)$/
+    );
+
+  return titleMatch
+    ? titleMatch[1]
+    : "";
 }
 
 function splitContextPlainText(text) {
@@ -4767,13 +4780,13 @@ function appendContextActionMarkersCard(
     appendContextCard(
       parent,
       {
-        title: "ACTION MARKERS",
+        title: "ACTIONS",
         content: markerBlocks
           .map((block) => block.content || "")
           .join("\n"),
         attributes: [],
         xml: false,
-        metaLabel: `${markerBlocks.length} markers`,
+        metaLabel: `${markerBlocks.length} actions`,
         renderBody: (body) => {
           markerBlocks.forEach((block) => {
             appendContextCard(

@@ -62,7 +62,7 @@ class BrainPromptMemoryTests(
                 prompt,
             )
 
-    def test_runtime_memory_tag_uses_snapshot_timestamp(self):
+    def test_runtime_memory_tag_omits_snapshot_metadata(self):
 
             context = RuntimeContext(
                 websocket=object(),
@@ -87,11 +87,17 @@ class BrainPromptMemoryTests(
 
             self.assertIn(
                 (
-                    '<FRAME_MEMORY_0 '
-                    'ts="2026-08-18T23:12:31+03:00" '
-                    'session_id="snapshot-session">'
+                    '<FRAME_MEMORY_0>'
                 ),
                 prompt,
+            )
+            self.assertNotIn(
+                'session_id="snapshot-session"',
+                prompt,
+            )
+            self.assertNotIn(
+                'ts="',
+                prompt.split("<FRAME_MEMORY_0", 1)[1].split(">", 1)[0],
             )
 
     def test_frame_memory_number_matches_ui_and_chat_sits_directly_above_it(self):
@@ -127,20 +133,20 @@ class BrainPromptMemoryTests(
 
             self.assertIn(
                 (
-                    '<FRAME_MEMORY_5 '
-                    'ts="2026-08-28T18:41:32+03:00" '
-                    'session_id="frame-session">'
+                    '<FRAME_MEMORY_5>'
                 ),
                 prompt,
             )
             self.assertIn(
                 (
                     "</PREVIOUS_CHAT_MESSAGES>\n"
-                    '<FRAME_MEMORY_5 '
-                    'ts="2026-08-28T18:41:32+03:00" '
-                    'session_id="frame-session">'
+                    '<FRAME_MEMORY_5>'
                 ),
                 prompt,
+            )
+            self.assertNotIn(
+                'ts="',
+                prompt.split("<FRAME_MEMORY_5", 1)[1].split(">", 1)[0],
             )
 
     def test_brain_prompt_places_user_idle_in_runtime_memory(self):
@@ -186,14 +192,8 @@ class BrainPromptMemoryTests(
                 snapshot["turn_number"],
                 0,
             )
-            self.assertEqual(
-                snapshot["user_message_count"],
-                0,
-            )
-            self.assertEqual(
-                snapshot["assistant_message_count"],
-                0,
-            )
+            self.assertNotIn("user_message_count", snapshot)
+            self.assertNotIn("assistant_message_count", snapshot)
             self.assertIn(
                 DEFAULT_RUNTIME_MEMORY.strip(),
                 snapshot["raw_memory"],
@@ -366,8 +366,6 @@ class BrainPromptMemoryTests(
                 runtime_search_result="",
                 runtime_search_result_id="",
                 turn_number=1,
-                user_message_count=2,
-                assistant_message_count=1,
                 runtime_loaded_skills=[
                     {
                         "name": "wildcards",
@@ -426,14 +424,10 @@ class BrainPromptMemoryTests(
                 prompt.index("<LOADED_SKILLS_CONTENT>"),
                 prompt.index("<FRAME_MEMORY_"),
             )
-            self.assertLess(
-                prompt.index("<CURRENT_TRUSTED_RUNTIME_VARIABLES>"),
-                prompt.index("<CURRENT_SESSION_STATE>"),
-            )
-            self.assertIn(
-                "Total messages count:         4",
-                prompt,
-            )
+            self.assertNotIn("<SESSION_STATE>", prompt)
+            self.assertNotIn("<CURRENT_SESSION_STATE>", prompt)
+            self.assertNotIn("User messages count:", prompt)
+            self.assertNotIn("JIN messages count:", prompt)
             self.assertIn(
                 "<LOADED_SKILLS_CONTENT>\n        [\n          {\n            \"name\": \"wildcards\"\n          }\n        ]\n</LOADED_SKILLS_CONTENT>",
                 prompt,
@@ -1165,23 +1159,17 @@ class BrainPromptMemoryTests(
                 ),
             )
 
-    def test_brain_prompt_does_not_count_runtime_actions_as_messages(self):
+    def test_brain_prompt_omits_session_state_and_message_counters(self):
 
             context = SimpleNamespace(
                 runtime_memory="",
                 deep_thought_count=0,
                 runtime_search_result="",
                 runtime_search_result_id="",
-                turn_number=0,
-                user_message_count=1,
-                assistant_message_count=0,
+                turn_number=699,
                 runtime_action_events=[
-                    {
-                        "name": "list_skills",
-                    },
-                    {
-                        "name": "load_skill",
-                    },
+                    {"name": "list_skills"},
+                    {"name": "load_skill"},
                 ],
             )
 
@@ -1192,64 +1180,10 @@ class BrainPromptMemoryTests(
                 },
             )
 
-            session_state = prompt.split(
-                "<CURRENT_SESSION_STATE>",
-                1,
-            )[1].split(
-                "</CURRENT_SESSION_STATE>",
-                1,
-            )[0]
-
-            self.assertIn(
-                "JIN messages count:           1",
-                session_state,
-            )
-
-    def test_current_session_state_uses_session_local_counters(self):
-
-            context = RuntimeContext(
-                websocket=object(),
-                emitter=object(),
-                logger=object(),
-                clients={},
-            )
-            context.user_message_count = 699
-            context.assistant_message_count = 699
-            context.turn_number = 699
-            context.current_session_user_message_count = 2
-            context.current_session_assistant_message_count = 2
-
-            prompt = build_brain_context(
-                context=context,
-                runtime_actions={
-                    "CAN_WEB_SEARCH": False,
-                },
-            )
-
-            session_state = prompt.split(
-                "<CURRENT_SESSION_STATE>",
-                1,
-            )[1].split(
-                "</CURRENT_SESSION_STATE>",
-                1,
-            )[0]
-
-            self.assertIn(
-                "User messages count:          2",
-                session_state,
-            )
-            self.assertIn(
-                "JIN messages count:           2",
-                session_state,
-            )
-            self.assertIn(
-                "Total messages count:         4",
-                session_state,
-            )
-            self.assertNotIn(
-                "699",
-                session_state,
-            )
+            self.assertNotIn("<SESSION_STATE>", prompt)
+            self.assertNotIn("<CURRENT_SESSION_STATE>", prompt)
+            self.assertNotIn("User messages count:", prompt)
+            self.assertNotIn("JIN messages count:", prompt)
 
     def test_brain_prompt_anchors_short_feedback_to_last_jin_response(self):
 
@@ -1288,8 +1222,6 @@ class BrainPromptMemoryTests(
                     "rating": "disliked",
                 },
                 turn_number=57,
-                user_message_count=58,
-                assistant_message_count=57,
                 deep_thought_count=0,
                 runtime_search_result="",
                 runtime_search_result_id="",
@@ -1302,13 +1234,6 @@ class BrainPromptMemoryTests(
                 },
             )
 
-            session_state = prompt.split(
-                "<CURRENT_SESSION_STATE>",
-                1,
-            )[1].split(
-                "</CURRENT_SESSION_STATE>",
-                1,
-            )[0]
             user_feedback = prompt.split(
                 "<LATEST_USER_FEEDBACK priority=HIGH_PRIORITY>",
                 1,
@@ -1370,10 +1295,7 @@ class BrainPromptMemoryTests(
                 "User feedback:",
                 prompt,
             )
-            self.assertNotIn(
-                "Last response was disliked.",
-                session_state,
-            )
+            self.assertNotIn("<SESSION_STATE>", prompt)
             self.assertNotIn(
                 "<LATEST_USER_FEEDBACK",
                 runtime_memory,

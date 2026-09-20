@@ -985,6 +985,7 @@ def _tool_result_kind(name: str) -> str:
     }:
         return "delayed_memory"
     if action_name in {
+        "LIST_ALL_USER_SHARED_FILES",
         "LIST_FILES",
         "ATTACH_FILE_CONTENT",
         "ATTACH_FILE_BY_ID",
@@ -1677,6 +1678,15 @@ def _parse_trusted_values(context_text: str) -> dict:
 
     for name in (
         "RUNTIME_MODE",
+        "MODEL_UID",
+        "CONTEXT_WINDOW",
+        "JIN_COLOR",
+        "JIN_SIZE",
+        "JIN_POSITION",
+        "JIN_SPEED",
+        "WINDOW_SIZE",
+        "USER_DATETIME",
+        # Reader compatibility for archives written before the prompt-tag rename.
         "CURRENT_MODEL_UID",
         "SERVICE_MODEL_UID",
         "BRAIN_MODEL_UID",
@@ -2176,30 +2186,39 @@ def build_archived_session_restore_payload(
         "tool_results": tool_results,
         "runtime_turn_counter": max_turn,
         "turn_number": max_turn,
-        "user_message_count": len(user_entries),
-        "assistant_message_count": len(jin_entries),
         "current_jin_color": (
             _latest_runtime_jin_color(entries)
+            or trusted_values.get("JIN_COLOR", "")
             or trusted_values.get("CURRENT_JIN_COLOR", "")
         ),
         "current_jin_size": _parse_jin_size(
-            trusted_values.get("CURRENT_JIN_SIZE", "")
+            trusted_values.get("JIN_SIZE", "")
+            or trusted_values.get("CURRENT_JIN_SIZE", "")
         ),
         "current_jin_position": normalize_jin_position_dict(
-            trusted_values.get("CURRENT_JIN_POSITION", "")
+            trusted_values.get("JIN_POSITION", "")
+            or trusted_values.get("CURRENT_JIN_POSITION", "")
         ),
         "current_jin_speed": (
             normalize_jin_speed_value(
-                trusted_values.get("CURRENT_JIN_SPEED", "")
+                trusted_values.get("JIN_SPEED", "")
+                or trusted_values.get("CURRENT_JIN_SPEED", "")
             )
             or 900
         ),
         "current_window_size": _parse_jin_size(
-            trusted_values.get("CURRENT_WINDOW_SIZE", "")
+            trusted_values.get("WINDOW_SIZE", "")
+            or trusted_values.get("CURRENT_WINDOW_SIZE", "")
         ),
         "current_jin_collapsed": bool(
-            str(trusted_values.get("CURRENT_JIN_SIZE", "")).strip()
-            or str(trusted_values.get("CURRENT_JIN_POSITION", "")).strip()
+            str(
+                trusted_values.get("JIN_SIZE", "")
+                or trusted_values.get("CURRENT_JIN_SIZE", "")
+            ).strip()
+            or str(
+                trusted_values.get("JIN_POSITION", "")
+                or trusted_values.get("CURRENT_JIN_POSITION", "")
+            ).strip()
         ),
         "runtime_mode": runtime_mode,
         "archived_context": context_text,

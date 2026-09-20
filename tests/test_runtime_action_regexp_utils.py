@@ -2,6 +2,7 @@ import re
 import unittest
 
 from contracts.rules_assembler import get_action_contracts
+from utils.actions.common_action_utils import extract_runtime_actions
 from utils.actions.regexp_utils import (
     REGEXP_TEMPLATES,
     compile_runtime_action_regexp,
@@ -143,6 +144,46 @@ class RuntimeActionRegexpUtilsTests(unittest.TestCase):
     def test_shared_template_collection_is_application_level(self):
         self.assertIsInstance(REGEXP_TEMPLATES, tuple)
         self.assertGreaterEqual(len(REGEXP_TEMPLATES), 4)
+
+    def test_new_paired_action_contracts_expand_ordered_id_lists(self):
+        cases = (
+            (
+                "<LOAD_DELAYED_MEMORY> a1b2c3, d4e5f6 </LOAD_DELAYED_MEMORY>",
+                "LOAD_DELAYED_MEMORY",
+                ("a1b2c3", "d4e5f6"),
+            ),
+            (
+                "<DELETE_ACTIVE_MEMORY> a1b2c3, d4e5f6 </DELETE_ACTIVE_MEMORY>",
+                "DELETE_ACTIVE_MEMORY",
+                ("a1b2c3", "d4e5f6"),
+            ),
+            (
+                "<ATTACH_FILES_BY_ID> a1b2c3, d4e5f6 </ATTACH_FILES_BY_ID>",
+                "ATTACH_FILE_BY_ID",
+                ("a1b2c3", "d4e5f6"),
+            ),
+        )
+
+        for source, action_name, expected_ids in cases:
+            with self.subTest(action=action_name):
+                result = extract_runtime_actions(source, enabled_actions=[action_name])
+                self.assertEqual(result.text, "")
+                self.assertEqual(tuple(action.name for action in result.actions), (action_name,) * 2)
+                self.assertEqual(tuple(action.payload for action in result.actions), expected_ids)
+
+    def test_web_search_uses_paired_body_contract(self):
+        result = extract_runtime_actions(
+            "before <WEB_SEARCH> blue tomato </WEB_SEARCH> after",
+            enabled_actions=["WEB_SEARCH"],
+        )
+        self.assertEqual(result.text, "before after")
+        self.assertEqual(len(result.actions), 1)
+        self.assertEqual(result.actions[0].name, "WEB_SEARCH")
+        self.assertIn("blue tomato", result.actions[0].payload)
+
+    def test_unload_delayed_memory_contract_is_absent(self):
+        contracts = get_action_contracts()
+        self.assertNotIn("unload_delayed_memory", contracts)
 
 
 if __name__ == "__main__":

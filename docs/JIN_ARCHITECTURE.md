@@ -170,9 +170,9 @@ The current high-level order differs slightly between an ordinary user turn and 
 
 Ordinary turn:
 
-1. optional `<CURRENT_RUNTIME_SETTINGS>` — absolute first block when non-empty;
-2. always-present `<CURRENT_CONCERNS>`; from 50% previous-answer context usage it includes the current percentage, and when tool results exist the warning also asks Brain to clean redundant tool results;
-3. trusted runtime XML / enabled actions, optional user-waiting state, and `<CONTEXT_USAGE>`;
+1. optional `<RUNTIME_SETTINGS>` — first live-settings block when non-empty;
+2. optional `<CONCERNS>`; it is omitted when empty, and from 50% previous-answer context usage it includes the percentage and can ask Brain to clean redundant tool results;
+3. trusted runtime XML / enabled actions;
 4. optional project-review context;
 5. `TOOLS_RESULTS` — this is also where loaded skill bodies are projected;
 6. session action history;
@@ -184,7 +184,7 @@ Ordinary turn:
 12. identity block;
 13. turn/loop rules.
 
-Archived restore priming deliberately moves continuity to the absolute front: inherited `<PREVIOUS_CHAT_MESSAGES>` first, then `<PREVIOUS_REASONING_EVIDENCE_TRAIL_AFTER_EXECUTED_ACTIONS>` when available, then `<MANDATORY_SYSTEM_NOTIFICATION>`. `<CURRENT_RUNTIME_SETTINGS>` follows that restore preamble, after which the normal concerns/runtime/tool/action scaffolding continues. Restore resource metadata replaces the ordinary attached-file/Delayed inventories, and the ordinary previous-reasoning slot is suppressed because reasoning evidence was already projected at the front.
+Archived restore priming deliberately moves continuity to the absolute front: inherited `<PREVIOUS_CHAT_MESSAGES>` first, then `<PREVIOUS_REASONING_EVIDENCE_TRAIL_AFTER_EXECUTED_ACTIONS>` when available, then `<MANDATORY_SYSTEM_NOTIFICATION>`. `<RUNTIME_SETTINGS>` follows that restore preamble, after which the normal concerns/runtime/tool/action scaffolding continues. Restore resource metadata replaces the ordinary attached-file/Delayed inventories, and the ordinary previous-reasoning slot is suppressed because reasoning evidence was already projected at the front.
 
 On ordinary turns, `<PREVIOUS_CHAT_MESSAGES>` takes the newest five recent USER/JIN pairs. The bound is pair count only: selected message bodies are not character-cropped. CRLF/CR is normalized, physical newlines are serialized as literal `\n`, surrounding whitespace is stripped, and XML-sensitive characters are escaped without removing the remaining text.
 
@@ -206,6 +206,8 @@ Prompt text is a transient projection. Canonical state remains in `RuntimeContex
 
 Recovery paths also live around the stream/Brain sequence: repetition protection, context/output-limit continuation, stop/cancel, and action follow-ups.
 
+Brain-client and outer RuntimeStream action dispatch share one message-local `StreamActionQueue`. Marker parsing and visible chunks continue while asynchronous action execution waits. Actions remain ordered; normal completion drains their results before message-end/checkpoint/follow-up. Stream cancellation closes the queue so pending actions cannot outlive the turn.
+
 ### 6.2 Contract-driven action boundary
 
 Concrete action schemas live in `contracts/*.json`. `contracts/rules_assembler.py` loads them and maps runtime actions to feature flags. Each concrete contract exposes a `schema` string array separately from its `rules`; the assembler emits `Schema:` before action rules, and `get_runtime_action_schema()` is also the canonical source used to explain invalid payloads back to the model.
@@ -221,18 +223,17 @@ Current action names in runtime order are:
 - `JIN_POSITION`
 - `JIN_SPEED`
 - `UPDATE_LT_FACTS`
-- `RECALL_FACT_CONTEXT` — source-backed L-T recall; see [RECALL_FACT_CONTEXT.md](RECALL_FACT_CONTEXT.md).
+- `RECALL_FACT_CONTEXT` — internal source-backed L-T recall; the model marker is `<RECALL_FACTS_CONTEXT> F1, F2 </RECALL_FACTS_CONTEXT>`; see [RECALL_FACT_CONTEXT.md](RECALL_FACT_CONTEXT.md).
 - `CHAT_LOG_SEARCH` — literal local archive search; see [CHAT_LOG_SEARCH.md](CHAT_LOG_SEARCH.md).
-- `LOAD_SKILL` — internal runtime name; the canonical model marker is `<LOAD_SKILL_CONTEXT> skill_name </LOAD_SKILL_CONTEXT>` and loads exactly one skill per block.
-- `UNLOAD_SKILL`
+- `LOAD_SKILL` — internal runtime name; `<LOAD_SKILLS_CONTEXT> skill1, skill2 </LOAD_SKILLS_CONTEXT>` expands an ordered comma-separated list.
+- `UNLOAD_SKILL` — internal runtime name; `<UNLOAD_SKILLS_CONTEXT> skill1, skill2 </UNLOAD_SKILLS_CONTEXT>` expands an ordered comma-separated list.
 - `ASSET_ACTION`
 - `POSTING_BOARD` — skill-gated native Get Posting Board I/O (`feed`, `inbox`, `read`, `search`, `post`, `reply`, `ack`, `delete`).
-- `LIST_FILES`
+- `LIST_ALL_USER_SHARED_FILES`
 - `ATTACH_FILE_CONTENT`
-- `ATTACH_FILE_BY_ID`
+- `ATTACH_FILE_BY_ID` (model-facing paired list marker: `ATTACH_FILES_BY_ID`)
 - `SAVE_DELAYED_MEMORY`
 - `LOAD_DELAYED_MEMORY`
-- `UNLOAD_DELAYED_MEMORY`
 - `SAVE_ACTIVE_MEMORY`
 - `DELETE_ACTIVE_MEMORY`
 - `UPDATE_ACTIVE_MEMORY`
@@ -258,7 +259,7 @@ Important current compatibility boundaries:
 - `JIN_SIZE` normalization preserves positive decimal `px`, `vw`, `vh`, and `%` values instead of stripping their units. Unitless values become `px`. The browser resolves relative values at application time against its live viewport: `%` uses the matching width/height axis, while `vw` and `vh` always use viewport width and height respectively. The ordinary room-state checkpoint still stores the clamped rendered pixel geometry, so reload does not reinterpret an old relative command against a different window.
 - `UPDATE_ACTIVE_MEMORY` is advertised as paired JSON containing `active_memory_id` plus `fields_to_update`. Localized compatibility code can still read legacy flat/nested/line-based payloads and a self-closing attribute form, but none of those are canonical model syntax.
 - `SAVE_ACTIVE_MEMORY` keeps `conditions` and optional custom fields at the JSON root and does not infer custom fields from parenthesized plain prose. Only explicit JSON root fields are structural custom fields; non-JSON text remains the `conditions` value.
-- `LOAD_SKILL_CONTEXT` is a renamed public marker for internal action `LOAD_SKILL`; because the public marker differs, old `<LOAD_SKILL...>` / `<LOAD_SKILLS...>` tags are not inherited executable aliases. Emit one skill per paired block.
+- `LOAD_SKILLS_CONTEXT` and `UNLOAD_SKILLS_CONTEXT` are public list markers for the singular internal actions. The immediately previous singular `*_SKILL_CONTEXT` paired tags remain localized reader compatibility; the model contract advertises only the plural list forms.
 - `JIN_REACTION` advertises paired XML with a single emoji. Its older colon form remains parser/display compatibility only.
 
 ### 6.4 Guard and dispatcher
@@ -428,10 +429,18 @@ The composer projects currently pinned files as compact attachment chips. A chip
 
 ### Project review through linked files
 
-`ATTACH_FILE_BY_ID: file_id` attaches a whole existing persistent file through
+`<ATTACH_FILES_BY_ID> id1, id2 </ATTACH_FILES_BY_ID>` expands to ordered
+internal `ATTACH_FILE_BY_ID` actions and attaches whole existing persistent files through
 the ordinary pin/hydration path. Text uses the shared attachment context budget;
 images use the existing multimodal Brain payload when image input is enabled.
 It accepts only system IDs, never paths, stored filenames, or line ranges.
+
+`<LOAD_DELAYED_MEMORY> id1, id2 </LOAD_DELAYED_MEMORY>` expands to ordered
+loads whose report bodies are stored as individually identified tool results.
+Model loading never writes `<LOADED_DELAYED_MEMORY>`; that durable context block
+is reserved for reports the user explicitly pins. There is no model-facing
+`UNLOAD_DELAYED_MEMORY` contract because `CLEAN_TOOL_RESULTS` removes model-loaded
+reports from context.
 Missing/deleted IDs fail without falling back to project reading. Its result
 uses the existing bubble, Session Actions, tool-result and checkpoint paths.
 `ATTACH_FILE_CONTENT` remains the source-path/range reader, with its old

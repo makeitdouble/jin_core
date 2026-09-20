@@ -176,21 +176,29 @@ class RecallFactContextTests(unittest.TestCase):
                 self.assertEqual(len(result['sources'][0]['messages']),expected)
 
     def test_all_stream_boundaries_repeated_quoted_incomplete(self):
-        text='before <RECALL_FACT_CONTEXT: F1><RECALL_FACT_CONTEXT: F2><RECALL_FACT_CONTEXT: F1> after'
+        text='before <RECALL_FACTS_CONTEXT> F1, F2, F1 </RECALL_FACTS_CONTEXT> after'
         for split in range(len(text)+1):
             stream=RuntimeActionStreamFilter(enabled_actions=('RECALL_FACT_CONTEXT',))
             results=[stream.filter(text[:split]), stream.filter(text[split:]), stream.flush_result()]
-            self.assertEqual([a.payload for r in results for a in r.actions], ['F1','F2','F1'], split)
-            self.assertNotIn('RECALL_FACT_CONTEXT',''.join(r.text for r in results))
-        for text in ['"<RECALL_FACT_CONTEXT: F1>', '`<RECALL_FACT_CONTEXT: F1>', '[<RECALL_FACT_CONTEXT: F1>', '<RECALL_FACTORY: F1>']:
+            self.assertEqual([a.payload for r in results for a in r.actions], ['F1','F2'], split)
+            self.assertNotIn('RECALL_FACTS_CONTEXT',''.join(r.text for r in results))
+        for text in ['"<RECALL_FACTS_CONTEXT> F1, F2 </RECALL_FACTS_CONTEXT>', '`<RECALL_FACTS_CONTEXT> F1 </RECALL_FACTS_CONTEXT>', '[<RECALL_FACTS_CONTEXT> F1 </RECALL_FACTS_CONTEXT>', '<RECALL_FACTORY> F1 </RECALL_FACTORY>']:
             stream=RuntimeActionStreamFilter(enabled_actions=('RECALL_FACT_CONTEXT',))
             results=[stream.filter(c) for c in text]+[stream.flush_result()]
             self.assertFalse([a for r in results for a in r.actions])
             self.assertEqual(''.join(r.text for r in results),text)
         stream=RuntimeActionStreamFilter(enabled_actions=('RECALL_FACT_CONTEXT',))
-        results=[stream.filter('<RECALL_FACT_CONTEXT: F1'),stream.flush_result()]
+        results=[stream.filter('<RECALL_FACTS_CONTEXT> F1, F2'),stream.flush_result()]
         self.assertFalse([a for r in results for a in r.actions])
         self.assertEqual(''.join(r.text for r in results),'')
+
+    def test_recall_fact_list_rejects_the_whole_invalid_payload(self):
+        result = extract_runtime_actions(
+            '<RECALL_FACTS_CONTEXT> F1, nope, F2 </RECALL_FACTS_CONTEXT>',
+            enabled_actions=('RECALL_FACT_CONTEXT',),
+        )
+        self.assertEqual(result.actions, ())
+        self.assertEqual(result.text, '')
 
 class RecallPipelineTests(unittest.IsolatedAsyncioTestCase):
     async def test_dispatcher_tool_result_read_only_and_failure_followup(self):
@@ -241,7 +249,7 @@ class RecallPipelineTests(unittest.IsolatedAsyncioTestCase):
         ][-1]
         self.assertEqual(
             failed_event['text'],
-            'RECALL_FACT_CONTEXT: F2: failed - source not found',
+            'RECALL_FACTS_CONTEXT: F2: failed - source not found',
         )
         self.assertEqual(failed_event['failure_reason'], 'source not found')
         self.assertEqual(failed_event['error'], 'source_not_saved')

@@ -17,6 +17,7 @@ PAYLOADS = {
     'JIN_SIZE': 'w:120 h:120',
     'JIN_SPEED': '600px/s',
     'POSTING_BOARD': '{"action":"feed"}',
+    'CALL_MCP': '{"skill":"demo_mcp","tool":"ping","arguments":{}}',
     'SAVE_ACTIVE_MEMORY': '{"conditions":"remember to test"}',
     'SAVE_DELAYED_MEMORY': '{"title":"test","summary":"summary","body":"body"}',
     'UPDATE_ACTIVE_MEMORY': '{"active_memory_id":"abc123","conditions":"test"}',

@@ -265,7 +265,8 @@ def test_list_files_tool_result_format(monkeypatch, tmp_path):
         {"action": "list_files", "ok": True, "files": [record], "lines": lines},
     )
     rendered = build_tool_results_context(context)
-    assert 'name="LIST_FILES"' in rendered
+    assert 'name="LIST_ALL_USER_SHARED_FILES"' in rendered
     assert "1. image.png" in rendered
     assert "768x543" in rendered
     assert f"[ id: {record['id']} ]" in rendered
+    assert "[ created_at: " in rendered

@@ -47,6 +47,7 @@ BRAIN_RUNTIME_ACTIONS = {
     "CAN_UPDATE_LT_FACTS": True,
     "CAN_RECALL_FACT_CONTEXT": True,
     "CAN_POSTING_BOARD": True,
+    "CAN_CALL_MCP": True,
 }
 
 
@@ -117,9 +118,9 @@ def build_current_runtime_settings_context() -> str:
         return ""
 
     return (
-        "<CURRENT_RUNTIME_SETTINGS>\n"
+        "<RUNTIME_SETTINGS>\n"
         f"{content}\n"
-        "</CURRENT_RUNTIME_SETTINGS>"
+        "</RUNTIME_SETTINGS>"
     )
 
 
@@ -149,37 +150,6 @@ def build_loop_rules(
 
     return ""
 
-
-def _append_visible_session_state(
-    parts: list[str],
-    context=None,
-) -> None:
-
-    from runtime.runtime_context import (
-        format_session_state,
-    )
-    from utils.context.runtime_state import (
-        get_current_session_user_message_count,
-        get_visible_assistant_message_count,
-        get_visible_turn_count,
-    )
-
-    if context is None:
-        return
-
-    parts.append(
-        format_session_state(
-            turn_number=get_visible_turn_count(
-                context
-            ),
-            user_message_count=get_current_session_user_message_count(
-                context
-            ),
-            assistant_message_count=get_visible_assistant_message_count(
-                context
-            ),
-        )
-    )
 
 
 def _append_user_feedback(
@@ -270,8 +240,6 @@ def _append_FRAME_runtime_memory(
     from runtime.frame_memory_utils import (
         build_runtime_memory_context_text,
         canonicalize_runtime_memory_text,
-        format_runtime_memory_snapshot_timestamp,
-        get_runtime_memory_snapshot_datetime,
     )
     from utils.brain_client_utils import (
         indent_xml,
@@ -313,12 +281,7 @@ def _append_FRAME_runtime_memory(
         active_memory_refresh_base_turn = (
             getattr(
                 context,
-                "turn_number",
-                0,
-            ),
-            getattr(
-                context,
-                "user_message_count",
+                "runtime_turn_counter",
                 0,
             ),
         )
@@ -345,7 +308,7 @@ def _append_FRAME_runtime_memory(
                 previous_active_memory_refresh_turn,
                 tuple,
             )
-            and previous_active_memory_refresh_turn[:2]
+            and previous_active_memory_refresh_turn[:1]
             == active_memory_refresh_base_turn
         )
         previous_active_memory_text = "\n".join(
@@ -422,39 +385,6 @@ def _append_FRAME_runtime_memory(
             else None
         )
 
-        snapshot_timestamp = ""
-        snapshot_session_id = ""
-        if isinstance(latest_snapshot, dict):
-            snapshot_timestamp = str(
-                latest_snapshot.get(
-                    "timestamp",
-                    "",
-                )
-                or ""
-            ).strip()
-            snapshot_session_id = str(
-                latest_snapshot.get(
-                    "session_id",
-                    "",
-                )
-                or ""
-            ).strip()
-
-            snapshot_created_at = latest_snapshot.get(
-                "created_at",
-            )
-            if not snapshot_timestamp and snapshot_created_at:
-                snapshot_timestamp = format_runtime_memory_snapshot_timestamp(
-                    snapshot_created_at
-                )
-
-        if not snapshot_timestamp:
-            snapshot_timestamp = format_runtime_memory_snapshot_timestamp(
-                get_runtime_memory_snapshot_datetime(
-                    context
-                )
-            )
-
         frame_memory_index = int(
             getattr(
                 context,
@@ -481,16 +411,9 @@ def _append_FRAME_runtime_memory(
         frame_memory_tag = (
             f"FRAME_MEMORY_{max(frame_memory_index, 0)}"
         )
-        runtime_memory_attrs = [
-            f'ts="{escape(snapshot_timestamp)}"'
-        ]
-        if snapshot_session_id:
-            runtime_memory_attrs.append(
-                f'session_id="{escape(snapshot_session_id)}"'
-            )
 
         parts.append(
-            f'<{frame_memory_tag} {" ".join(runtime_memory_attrs)}>\n'
+            f"<{frame_memory_tag}>\n"
             f"{indent_xml(escape(canonicalize_runtime_memory_text(runtime_memory)))}\n"
             f"</{frame_memory_tag}>"
         )
@@ -1232,9 +1155,7 @@ def build_brain_context(
         build_previous_chat_messages_context,
     )
     from utils.context.runtime_state import (
-        build_context_usage_context,
         build_runtime_xml,
-        build_user_waiting_for_jin_answer_context,
     )
     from utils.context.session_actions import (
         build_session_actions_history_context,
@@ -1344,7 +1265,7 @@ def build_brain_context(
         runtime_actions
     )
 
-    # Build tool results before CURRENT_CONCERNS so the live warning can say
+    # Build tool results before CONCERNS so the live warning can say
     # whether there is actually transient tool output available to clean. The
     # rendered ordering is unchanged: concerns still stay above tool results.
     tool_results_context = build_tool_results_context(
@@ -1354,15 +1275,13 @@ def build_brain_context(
         tool_results_context
     )
 
-    # Current concerns is an always-present live interrupt summary. Keep trusted
-    # runtime variables directly below it so the live operational state is
-    # visible before transient tool/action output.
-    prompt_parts.append(
-        build_current_concerns_context(
-            context,
-            has_tool_results=has_tool_results,
-        )
+    # Omit CONCERNS entirely when there is no live concern to report.
+    concerns_context = build_current_concerns_context(
+        context,
+        has_tool_results=has_tool_results,
     )
+    if concerns_context:
+        prompt_parts.append(concerns_context)
 
     # Runtime XML block: exposes trusted runtime variables and enabled actions.
     prompt_parts.append(
@@ -1373,26 +1292,6 @@ def build_brain_context(
             ),
         )
     )
-
-    user_waiting_context = (
-        build_user_waiting_for_jin_answer_context(
-            context
-        )
-    )
-    if user_waiting_context:
-        prompt_parts.append(
-            user_waiting_context
-        )
-
-    context_usage_context = (
-        build_context_usage_context(
-            context
-        )
-    )
-    if context_usage_context:
-        prompt_parts.append(
-            context_usage_context
-        )
 
     project_review_context = build_project_review_context(context)
     if project_review_context:
@@ -1488,11 +1387,6 @@ def build_brain_context(
         ),
     )
 
-    # Visible session state block: records visible turn and message counters.
-    _append_visible_session_state(
-        runtime_context_parts,
-        context,
-    )
 
     # Loaded delayed memory block: pins the selected delayed memory report.
     # During archived restore, suppress only reports staged from the old

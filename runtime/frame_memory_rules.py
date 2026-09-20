@@ -146,7 +146,7 @@ OUTPUT_FORMAT = (
     "Do not output empty keys or bare values.\n"
     "Do not output JSON, Markdown headings, nested bullets, numbered lists, or tables.\n"
     "Do not explain your reasoning or the summarization process.\n"
-    "Do not write the current turn number or user_message_count.\n"
+    "Do not write the current turn number.\n"
     "Do not quote markdown, ASCII art, or other symbolic output — describe it in plain text instead.\n"
     "\n"
 )

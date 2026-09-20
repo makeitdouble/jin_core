@@ -28,7 +28,7 @@ REASONING_RECOVERY_MESSAGE = (
 
 CONTEXT_LIMIT_RECOVERY_MESSAGE = (
     "The previous generation reached the {limit_label} during {stage}.\n"
-    "Continue the current task from the conversation, CURRENT_REQUEST_ACTIONS_HISTORY and TOOLS_RESULTS without restarting it.\n"
+    "Continue the current task from the conversation, REQUEST_ACTIONS_HISTORY and TOOLS_RESULTS without restarting it.\n"
     "You MUST be MUCH shorter and act FASTER.\n"
 )
 
@@ -67,9 +67,9 @@ SKILL_ROUTING_RULES_ = ("\n"
     "SKILL ROUTING RULES:\n"
     "1. For extended tasks (e.g. file creation, console, and much more) determine whether the request requires a skill.\n"
     "2. Check <SKILLS_LIST> for available project skills and their loaded status.\n"
-    "3. If a relevant skill is available but not loaded, use one <LOAD_SKILL_CONTEXT> skill_name </LOAD_SKILL_CONTEXT> block for that skill before using its capabilities.\n"
-    "4. Load exactly one skill per LOAD_SKILL_CONTEXT block; for multiple skills emit multiple separate blocks. Never load a skill already marked as loaded in <SKILLS_LIST>.\n"
-    "5. Use UNLOAD_SKILL when a loaded skill is no longer needed in the current runtime context.\n"
+    "3. If relevant skills are available but not loaded, list them once in <LOAD_SKILLS_CONTEXT> skill1, skill2 </LOAD_SKILLS_CONTEXT> before using their capabilities.\n"
+    "4. Put one or more comma-separated skill names in the block. Never load a skill already marked as loaded in <SKILLS_LIST>.\n"
+    "5. When loaded skills are no longer needed, list them in <UNLOAD_SKILLS_CONTEXT> skill1, skill2 </UNLOAD_SKILLS_CONTEXT>.\n"
     "\n"
     "Do not derive skill capabilities from a skill name or filename; load the skill first and use its loaded content.\n"
     "\n"

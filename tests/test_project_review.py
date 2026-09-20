@@ -38,6 +38,10 @@ class ProjectReviewTests(unittest.TestCase):
         self.record, _, _ = link_project_folder(str(self.project))
         self.context = RuntimeContext(websocket=object(), emitter=FakeEmitter(), logger=object(), clients={})
         self.context.runtime_attached_file_ids = [self.record["id"]]
+        self.context.runtime_loaded_skills = [
+            {"name": "project"},
+            {"name": "file_manager"},
+        ]
         self.context.runtime_current_turn_id = "turn-project"
         self.context.runtime_memory = "task: inspect source"
         self.context.runtime_recent_turns = [{"user": "our prior question", "jin": "our prior answer"}]
@@ -386,7 +390,7 @@ class ProjectReviewTests(unittest.TestCase):
             self.assertIn("our prior question", prompt)
             if index:
                 self.assertIn("thought-step-0", prompt)
-                self.assertIn("CURRENT_REQUEST_ACTIONS_HISTORY", prompt)
+                self.assertIn("REQUEST_ACTIONS_HISTORY", prompt)
                 self.assertNotIn("CURRENT_REQUEST_FLOW", prompt)
             if index == 3:
                 self.assertIn("thought-step-2", prompt)

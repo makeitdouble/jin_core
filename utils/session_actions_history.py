@@ -1437,6 +1437,21 @@ def _build_session_action_marker_detail(
             normalized_payload
         )
 
+    if normalized_name == "CALL_MCP":
+        from utils.actions.mcp_actions import parse_call_mcp_payload
+
+        parsed_payload = parse_call_mcp_payload(
+            normalized_payload
+        )
+
+        if not parsed_payload:
+            return ""
+
+        return (
+            f"{parsed_payload['skill']} / "
+            f"{parsed_payload['tool']}"
+        )
+
     if normalized_name == "JIN_REACTION":
         return normalize_jin_reaction_payload(
             normalized_payload
@@ -1480,6 +1495,7 @@ PAYLOAD_DISTINCT_SESSION_ACTIONS = {
     "LOAD_DELAYED_MEMORY",
     "UNLOAD_DELAYED_MEMORY",
     "POSTING_BOARD",
+    "CALL_MCP",
 }
 
 SEPARATE_REPEATED_SESSION_ACTION_MARKER_ITEMS = {
@@ -1613,6 +1629,9 @@ def _build_payload_distinct_session_action_parts(
     posting_board_action = (
         action_name == "POSTING_BOARD"
     )
+    call_mcp_action = (
+        action_name == "CALL_MCP"
+    )
 
     if (
         len(payload_groups) <= 1
@@ -1620,6 +1639,7 @@ def _build_payload_distinct_session_action_parts(
         and not attachment_marker_action
         and not chat_log_search_action
         and not posting_board_action
+        and not call_mcp_action
     ):
         return []
 
@@ -2188,7 +2208,10 @@ def _build_formatted_session_action_marker_parts(
                 group_created_ats
             )
 
-        if action_name == "LIST_FILES":
+        if action_name in {
+            "LIST_ALL_USER_SHARED_FILES",
+            "LIST_FILES",  # Historical session-action compatibility.
+        }:
             result_count = group.get("result_count")
             if isinstance(result_count, int) and result_count >= 0:
                 part["text"] = f"{action_name}: {result_count} files"
@@ -2899,7 +2922,11 @@ def _apply_session_action_runtime_outcomes(
         ).strip().casefold()
         marker_action["status"] = status
 
-        if marker_name in {"CHAT_LOG_SEARCH", "LIST_FILES"}:
+        if marker_name in {
+            "CHAT_LOG_SEARCH",
+            "LIST_ALL_USER_SHARED_FILES",
+            "LIST_FILES",  # Historical event compatibility.
+        }:
             result_count = matching_event.get(
                 "result_count",
                 None,

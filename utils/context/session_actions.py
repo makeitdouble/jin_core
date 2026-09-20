@@ -546,7 +546,7 @@ def build_session_actions_history_context(
                     "jin_message_content",
                     "",
                 ),
-                # CURRENT_REQUEST_ACTIONS_HISTORY is the live continuation
+                # REQUEST_ACTIONS_HISTORY is the live continuation
                 # trace. Never chop the model text that led into an action:
                 # the next follow-up needs the complete message, not a 150
                 # character preview. The ordinary session-history projection
@@ -579,7 +579,7 @@ def build_session_actions_history_context(
     # sequence delimiters. Removing this switch makes old actions look like
     # steps of the current task. Both views use the same canonical history.
     tag_name = (
-        "CURRENT_REQUEST_ACTIONS_HISTORY"
+        "REQUEST_ACTIONS_HISTORY"
         if current_sequence
         else "SESSION_ACTIONS_HISTORY"
     )
@@ -649,8 +649,10 @@ def strip_actions_history_context(
         "FOLLOW_UP_RESPONSE_MESSAGE",
         "FOLLOW_UP_CONTEXT_OVERFLOW_MESSAGE",
         "SESSION_ACTIONS_HISTORY",
-        "CURRENT_REQUEST_ACTIONS_HISTORY",
-        "CURRENT_CONCERNS",
+        "REQUEST_ACTIONS_HISTORY",
+        "CONCERNS",
+        "CURRENT_REQUEST_ACTIONS_HISTORY",  # Legacy saved prompts.
+        "CURRENT_CONCERNS",  # Legacy saved prompts.
         "CURREN_USER_INPUT",
         "CURRENT_RUNTIME",
         "CURRENT_REQUEST_FLOW",  # Strip obsolete blocks from saved prompts.

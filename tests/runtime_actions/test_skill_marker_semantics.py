@@ -40,6 +40,43 @@ class SkillMarkerSemanticsTests(RuntimeActionTestCase):
                 f"{name}\nTest skill.",
             )
 
+    def test_plural_context_markers_expand_multiple_skill_payloads(self):
+        for marker_name, internal_name in (
+            ("LOAD_SKILLS_CONTEXT", "LOAD_SKILL"),
+            ("UNLOAD_SKILLS_CONTEXT", "UNLOAD_SKILL"),
+        ):
+            marker = (
+                f"<{marker_name}> file_manager, wildcards "
+                f"</{marker_name}>"
+            )
+            for split in range(len(marker) + 1):
+                from utils.actions import RuntimeActionStreamFilter
+                stream = RuntimeActionStreamFilter(
+                    enabled_actions=["CAN_USE_ASSETS"],
+                )
+                results = [
+                    stream.filter(marker[:split]),
+                    stream.filter(marker[split:]),
+                    stream.flush_result(),
+                ]
+                actions = [
+                    action
+                    for result in results
+                    for action in result.actions
+                ]
+                self.assertEqual(
+                    [(action.name, action.payload) for action in actions],
+                    [
+                        (internal_name, "file_manager"),
+                        (internal_name, "wildcards"),
+                    ],
+                    (marker_name, split),
+                )
+                self.assertEqual(
+                    "".join(result.text for result in results),
+                    "",
+                )
+
     def test_legacy_plural_load_skills_is_plain_text(self):
         marker = "<LOAD_SKILLS: file_manager, wildcards, porn>"
         parsed = extract_runtime_actions(

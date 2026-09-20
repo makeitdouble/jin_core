@@ -317,7 +317,7 @@ class BehaviorContractTests(unittest.TestCase):
 
         self.assertTrue(
             instructions.startswith(
-                "<CLEAN_TOOL_RESULTS></CLEAN_TOOL_RESULTS>\n"
+                "CLEAN_TOOL_RESULTS\n"
                 "Follow-up: false\n"
                 "Schema:"
             )
@@ -331,7 +331,7 @@ class BehaviorContractTests(unittest.TestCase):
 
         self.assertTrue(
             instructions.startswith(
-                "<JIN_COLOR></JIN_COLOR>\n"
+                "JIN_COLOR\n"
                 "Follow-up: false\n"
                 "Schema:\n"
                 "<JIN_COLOR> #00f2ff </JIN_COLOR>\n"
@@ -340,6 +340,21 @@ class BehaviorContractTests(unittest.TestCase):
         self.assertIn(
             "Use to set single color for the JIN Live Avatar",
             instructions,
+        )
+
+    def test_inline_runtime_action_instruction_starts_with_marker_name_only(self):
+
+        instructions = build_runtime_action_contract_instructions(
+            "WEB_SEARCH"
+        )
+
+        self.assertTrue(
+            instructions.startswith(
+                "WEB_SEARCH\n"
+                "Follow-up: true\n"
+                "Schema:\n"
+                "<WEB_SEARCH: plain text query >\n"
+            )
         )
 
     def test_runtime_action_instruction_blocks_are_separated(self):

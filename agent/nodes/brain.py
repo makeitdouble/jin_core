@@ -997,21 +997,6 @@ def place_previous_chat_messages_after_frame_snapshot(
             + prompt[snapshot_match.end():].lstrip()
         ).strip()
 
-    current_session_match = re.search(
-        r"(?:^|\n)<CURRENT_SESSION_STATE>",
-        prompt,
-        flags=re.IGNORECASE,
-    )
-    if current_session_match is not None:
-        insertion_index = current_session_match.start()
-        return (
-            prompt[:insertion_index].rstrip()
-            + "\n\n"
-            + block
-            + "\n\n"
-            + prompt[insertion_index:].lstrip()
-        ).strip()
-
     return (prompt + "\n\n" + block).strip()
 
 
@@ -2207,6 +2192,7 @@ class BrainNode(BaseNode):
                 # window above. Do not prepare it a second time in the client:
                 # L-T budgeting must run once against the full turn prompt.
                 context_window_prepared=True,
+                action_queue=runtime.action_queue,
             )
 
             text = await runtime.run(

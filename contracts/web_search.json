@@ -5,7 +5,7 @@
     "runtime_action": "WEB_SEARCH",
     "enable_flag": "CAN_WEB_SEARCH",
     "runtime_order": 20,
-    "private_marker": "<WEB_SEARCH: plain text query >",
+    "private_marker": "<WEB_SEARCH>",
     "triggers": [],
     "blockers": [],
     "effects": {
@@ -13,11 +13,11 @@
       "follow_up_on_fail": false
     },
     "schema": [
-      "<WEB_SEARCH: plain text query >"
+      "<WEB_SEARCH> query </WEB_SEARCH>"
     ],
     "rules": [
-      "Use this marker for web searching via google. For casual searching must prefer this marker."
+      "Use this marker for web search by google!"
     ],
-    "close_tag": false
+    "close_tag": true
   }
 }

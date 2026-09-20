@@ -15,6 +15,26 @@ def normalize_recall_fact_context_id(value) -> str:
     return f"F{int(match.group(1))}"
 
 
+def split_recall_fact_context_ids(value) -> tuple[str, ...]:
+    """Normalize a comma-separated public recall list without partial acceptance."""
+
+    raw_parts = tuple(
+        part.strip()
+        for part in str(value or "").split(",")
+    )
+    if not raw_parts or any(not part for part in raw_parts):
+        return ()
+
+    fact_ids = tuple(
+        normalize_recall_fact_context_id(part)
+        for part in raw_parts
+    )
+    if any(not fact_id for fact_id in fact_ids):
+        return ()
+
+    return tuple(dict.fromkeys(fact_ids))
+
+
 def build_recall_fact_context_payload(
     query: str,
     placeholder_payloads=(),

@@ -49,13 +49,13 @@ EXTREME_LOW_DIFF_RULES = (
 
 # activity <= 30%
 LOW_DIFF_RULES = (
-    "LOW activity. The conversation is fading; find and remove the cause. "
+    "LOW activity."
     "Strongly prefer acting against the expected pattern."
 )
 
 # activity <= 50%
 MIDDLE_DIFF_RULES = (
-    "VERY COOLING activity. The conversation is almost dead. "
+    "VERY COOLING activity."
     "Look for friction, unresolved loops, or stale offers, then adjust strategy before it stalls."
 )
 

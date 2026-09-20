@@ -1,7 +1,8 @@
 # RECALL_FACT_CONTEXT
 
-`<RECALL_FACT_CONTEXT: F123>` reads saved historical evidence through the ordinary
-contract/parser/dispatcher/tool-result/follow-up path. Several markers are allowed.
+`<RECALL_FACTS_CONTEXT> F1, F2 </RECALL_FACTS_CONTEXT>` reads saved historical
+evidence through the ordinary contract/parser/dispatcher/tool-result/follow-up
+path. One block accepts one or more comma-separated committed fact IDs.
 Historical text is escaped in TOOL_RESULT, never applied as current FRAME,
 loaded resources, or executable actions. CLEAN_TOOL_RESULTS owns its lifetime.
 

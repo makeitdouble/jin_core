@@ -44,3 +44,9 @@ Action workflow:
    {"action":"append_asset_file","path":"assets/outputs/example.txt","content":"line three"}
 7. Use preview_file to inspect a small sample of an existing asset file.
 8. After ASSET_ACTION completes, report paths, counts, and 3-5 examples when useful. Do not paste huge generated files into chat.
+
+User-shared file context:
+- Use <ATTACH_FILE_BY_ID: file_id > to attach a whole persistent text file or image by its 6-character system ID. Do not use a stored image filename as a source path. Wait for the follow-up tick before reasoning about its content.
+- Use <ATTACH_FILE_CONTENT: file_id > for a persistent text file, or <ATTACH_FILE_CONTENT: folder_name/relative/path > to read a source path into FILE_CONTENT.
+- To read an explicit source window use <ATTACH_FILE_CONTENT: folder_name/relative/path#L1-L200 >. A bare project path continues from the next unread window; an explicit range may be read again.
+- When no project folder is linked, relative paths resolve against JIN's own read-only source directory. When a folder is linked, linked-project resolution takes precedence.

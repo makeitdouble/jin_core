@@ -274,15 +274,12 @@ def build_current_concerns_context(
         )
 
     if not lines:
-        return (
-            "<CURRENT_CONCERNS>\n"
-            "</CURRENT_CONCERNS>"
-        )
+        return ""
 
     return (
-        "<CURRENT_CONCERNS>\n"
+        "<CONCERNS>\n"
         + "\n".join(
             lines
         )
-        + "\n</CURRENT_CONCERNS>"
+        + "\n</CONCERNS>"
     )

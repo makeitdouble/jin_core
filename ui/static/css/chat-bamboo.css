@@ -194,6 +194,20 @@ body.jin-bubble-skin-light #chat-history .jin-chat-bubble-brain .jin-chat-markdo
     text-shadow: none;
 }
 
+/* Base markdown styles use light foregrounds for the dark bubble. Keep those
+   nested elements dark when the answer bubble itself is light. */
+body.jin-bubble-skin-light #chat-history .jin-chat-bubble-service .jin-chat-markdown blockquote,
+body.jin-bubble-skin-light #chat-history .jin-chat-bubble-brain .jin-chat-markdown blockquote,
+body.jin-bubble-skin-light #chat-history .jin-chat-bubble-service .jin-chat-markdown .jin-chat-table th,
+body.jin-bubble-skin-light #chat-history .jin-chat-bubble-brain .jin-chat-markdown .jin-chat-table th {
+    color: inherit;
+}
+
+body.jin-bubble-skin-light #chat-history .jin-chat-bubble-service .jin-chat-markdown blockquote,
+body.jin-bubble-skin-light #chat-history .jin-chat-bubble-brain .jin-chat-markdown blockquote {
+    border-left-color: rgba(0, 0, 0, 0.34);
+}
+
 /* =========================
    BAMBOO / PARCHMENT
    ========================= */
@@ -232,6 +246,18 @@ body.jin-bubble-skin-bamboo #chat-history .jin-chat-bubble-service .jin-chat-mar
 body.jin-bubble-skin-bamboo #chat-history .jin-chat-bubble-brain .jin-chat-markdown code {
     color: rgba(48, 39, 27, 0.96);
     text-shadow: none;
+}
+
+body.jin-bubble-skin-bamboo #chat-history .jin-chat-bubble-service .jin-chat-markdown blockquote,
+body.jin-bubble-skin-bamboo #chat-history .jin-chat-bubble-brain .jin-chat-markdown blockquote,
+body.jin-bubble-skin-bamboo #chat-history .jin-chat-bubble-service .jin-chat-markdown .jin-chat-table th,
+body.jin-bubble-skin-bamboo #chat-history .jin-chat-bubble-brain .jin-chat-markdown .jin-chat-table th {
+    color: rgba(48, 39, 27, 0.96);
+}
+
+body.jin-bubble-skin-bamboo #chat-history .jin-chat-bubble-service .jin-chat-markdown blockquote,
+body.jin-bubble-skin-bamboo #chat-history .jin-chat-bubble-brain .jin-chat-markdown blockquote {
+    border-left-color: rgba(74, 54, 32, 0.42);
 }
 
 body.custom-theme-bubble #chat-history .jin-chat-bubble-skin {

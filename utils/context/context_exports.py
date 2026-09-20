@@ -7,8 +7,6 @@ from .formatting import (
 from .runtime_state import (
     build_runtime_xml,
     get_conversation_activity_instruction,
-    get_visible_assistant_message_count,
-    get_visible_turn_count,
 )
 from .skills import (
     _loaded_skill_names,
@@ -66,8 +64,6 @@ __all__ = [
     "format_session_action_age",
     "format_tool_result_payload",
     "get_conversation_activity_instruction",
-    "get_visible_assistant_message_count",
-    "get_visible_turn_count",
     "strip_actions_history_context",
     "time",
 ]

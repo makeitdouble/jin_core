@@ -771,9 +771,109 @@ function Stop-JinBackend {
     }
 }
 
+function Get-JinPageTitle {
+    try {
+        $response = Invoke-WebRequest -Uri $AppUrl -UseBasicParsing -TimeoutSec 2 -ErrorAction Stop
+        $content = [string]$response.Content
+        $match = [regex]::Match($content, '(?is)<title[^>]*>(?<title>.*?)</title>')
+        if ($match.Success) {
+            $title = [System.Net.WebUtility]::HtmlDecode($match.Groups["title"].Value).Trim()
+            if (-not [string]::IsNullOrWhiteSpace($title)) { return $title }
+        }
+    }
+    catch {}
+
+    # Stable fallback for builds where the root page cannot be read yet.
+    return "JIN"
+}
+
+function Test-JinBrowserTabOpen {
+    # Start-Process URL always creates another tab. Before doing that, inspect the
+    # accessibility tree of common desktop browsers and look for the JIN page by
+    # its real HTML <title>. This survives launcher restarts, unlike BrowserOpened.
+    $pageTitle = Get-JinPageTitle
+    if ([string]::IsNullOrWhiteSpace($pageTitle)) { return $false }
+
+    try {
+        Add-Type -AssemblyName UIAutomationClient -ErrorAction Stop
+        Add-Type -AssemblyName UIAutomationTypes -ErrorAction Stop
+    }
+    catch {
+        # UI Automation is a best-effort guard. If it is unavailable, keep the
+        # old launcher behaviour rather than blocking browser opening entirely.
+        return $false
+    }
+
+    $browserProcessNames = @(
+        "chrome",
+        "msedge",
+        "brave",
+        "firefox",
+        "vivaldi",
+        "opera"
+    )
+
+    $controlTypeProperty = [System.Windows.Automation.AutomationElement]::ControlTypeProperty
+    $tabItemType = [System.Windows.Automation.ControlType]::TabItem
+    $tabCondition = New-Object System.Windows.Automation.PropertyCondition -ArgumentList @(
+        $controlTypeProperty,
+        $tabItemType
+    )
+
+    foreach ($processName in $browserProcessNames) {
+        foreach ($process in @(Get-Process -Name $processName -ErrorAction SilentlyContinue)) {
+            if ($process.MainWindowHandle -eq 0) { continue }
+
+            try {
+                $window = [System.Windows.Automation.AutomationElement]::FromHandle($process.MainWindowHandle)
+                if ($null -eq $window) { continue }
+
+                # Fast path: JIN is already the active tab in this browser window.
+                $windowName = [string]$window.Current.Name
+                if (
+                    -not [string]::IsNullOrWhiteSpace($windowName) -and
+                    $windowName.IndexOf($pageTitle, [System.StringComparison]::OrdinalIgnoreCase) -ge 0
+                ) {
+                    return $true
+                }
+
+                # Chromium/Firefox expose background tabs as TabItem elements, so
+                # this also catches a JIN tab that is open but not currently active.
+                $tabs = $window.FindAll(
+                    [System.Windows.Automation.TreeScope]::Descendants,
+                    $tabCondition
+                )
+                foreach ($tab in $tabs) {
+                    $tabName = [string]$tab.Current.Name
+                    if (
+                        -not [string]::IsNullOrWhiteSpace($tabName) -and
+                        $tabName.IndexOf($pageTitle, [System.StringComparison]::OrdinalIgnoreCase) -ge 0
+                    ) {
+                        return $true
+                    }
+                }
+            }
+            catch {
+                # A browser may deny accessibility for one window/process. Keep
+                # checking the others instead of failing the launcher.
+                continue
+            }
+        }
+    }
+
+    return $false
+}
+
 function Open-JinBrowser {
     if ($script:BrowserOpened) { return }
+
     try {
+        if (Test-JinBrowserTabOpen) {
+            $script:BrowserOpened = $true
+            Add-Event "UI      existing JIN browser tab detected" 10
+            return
+        }
+
         Start-Process $AppUrl | Out-Null
         $script:BrowserOpened = $true
     }

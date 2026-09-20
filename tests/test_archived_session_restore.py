@@ -887,8 +887,6 @@ open_question: continue
             "restore_attached_file_metadata": [{"id": "file1", "title": "old.txt"}],
             "session_actions": [],
             "runtime_turn_counter": 9,
-            "user_message_count": 4,
-            "assistant_message_count": 5,
             "attached_file_ids": ["file1"],
             "runtime_memory": "archive runtime",
             "runtime_memory_updates": 9,
@@ -1444,8 +1442,6 @@ open_question: continue
                     }
                 ],
                 "runtime_turn_counter": 6,
-                "user_message_count": 6,
-                "assistant_message_count": 6,
             },
         )
 
@@ -1454,8 +1450,6 @@ open_question: continue
         self.assertEqual(context.runtime_previous_reasoning_content, "old reasoning")
         self.assertEqual(context.runtime_session_action_history[-1]["text"], "Saved session")
         self.assertGreaterEqual(context.runtime_turn_counter, 6)
-        self.assertGreaterEqual(context.user_message_count, 6)
-        self.assertGreaterEqual(context.assistant_message_count, 6)
 
     @patch(
         "websocket.bootstrap.enrich_session_bootstrap_from_archive",

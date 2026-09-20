@@ -5,7 +5,7 @@
     "runtime_action": "LOAD_DELAYED_MEMORY",
     "enable_flag": "CAN_SAVE_DELAYED_MEMORY",
     "runtime_order": 190,
-    "private_marker": "<LOAD_DELAYED_MEMORY: id >",
+    "private_marker": "<LOAD_DELAYED_MEMORY>",
     "triggers": [],
     "blockers": [],
     "effects": {
@@ -13,11 +13,11 @@
       "follow_up_on_fail": false
     },
     "schema": [
-      "<LOAD_DELAYED_MEMORY: id >"
+      "<LOAD_DELAYED_MEMORY> id1, id2 </LOAD_DELAYED_MEMORY>"
     ],
     "rules": [
-      ""
+      "Use to load one or more delayed-memory reports by id."
     ],
-    "close_tag": false
+    "close_tag": true
   }
 }

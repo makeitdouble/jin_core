@@ -4,6 +4,7 @@
 ![FastAPI](https://img.shields.io/badge/FastAPI-runtime-009688.svg)
 ![WebSocket](https://img.shields.io/badge/WebSocket-streaming-orange.svg)
 ![OpenAI Compatible](https://img.shields.io/badge/API-OpenAI--compatible-111827.svg)
+![MCP Compatible](https://img.shields.io/badge/MCP-compatible-6f42c1.svg)
 ![Tests](https://github.com/makeitdouble/jin_core/actions/workflows/tests.yml/badge.svg)
 
 **JIN Core Engine** is an experimental cognitive runtime for OpenAI-compatible models with **visible memory, session continuity, and model-driven actions.**
@@ -67,7 +68,7 @@ JIN no longer uses the old numbered four-layer hierarchy. The current user-facin
 * **Inspectable Memory:** Keeps FRAME/live state, long-term facts, delayed reports, active commitments, persistent files, and continuity checkpoints as separate systems.
 * **Session Continuity:** Supports soft WebSocket resume, atomic browser checkpoints for reload/new-tab continuity, and explicit archived-session restore from persisted logs.
 * **Persistent Files:** Stores uploaded text, images, PDFs, and other files under stable ids; the same stored files can be attached to or detached from context across turns.
-* **Runtime Telemetry:** Shows model status, token usage, live context pressure, memory updates, action state, and runtime logs; at 50%+ previous-answer context usage the Brain also receives a live `<CURRENT_CONCERNS>` warning, with an explicit cleanup reminder when tool results are present. The status modal can switch the configured LM Studio model for an available runtime role.
+* **Runtime Telemetry:** Shows model status, token usage, live context pressure, memory updates, action state, and runtime logs; at 50%+ previous-answer context usage the Brain also receives a live `<CONCERNS>` warning, with an explicit cleanup reminder when tool results are present. Empty concerns are omitted. The status modal can switch the configured LM Studio model for an available runtime role.
 * **Explicit Response Copy:** Completed assistant output exposes a small `Copy all` control under the avatar/message shell instead of hidden bubble gestures.
 * **Interruptible Generation:** Stops an active response while preserving the logical session and a dedicated interrupted-memory path.
 
@@ -80,12 +81,13 @@ JIN can request an action while answering. The runtime validates and executes it
 Current contract families include:
 
 * `WEB_SEARCH`, `DEEP_WEB_SEARCH`, and local `CHAT_LOG_SEARCH` when their capability gates allow them;
-* `CLEAN_TOOL_RESULTS`, `UPDATE_LT_FACTS`, and `RECALL_FACT_CONTEXT`;
-* `SAVE_ACTIVE_MEMORY`, `UPDATE_ACTIVE_MEMORY`, and `DELETE_ACTIVE_MEMORY`;
-* `SAVE_DELAYED_MEMORY`, `LOAD_DELAYED_MEMORY`, and `UNLOAD_DELAYED_MEMORY`;
-* `LIST_FILES`, `ATTACH_FILE_CONTENT`, and whole-file `ATTACH_FILE_BY_ID`;
-* skill/assets actions. The model-facing loader is `<LOAD_SKILL_CONTEXT> skill_name </LOAD_SKILL_CONTEXT>` and loads exactly one skill per tag; `LOAD_SKILL` remains the internal runtime action name;
+* `CLEAN_TOOL_RESULTS`, `UPDATE_LT_FACTS`, and model-facing `<RECALL_FACTS_CONTEXT> F1, F2 </RECALL_FACTS_CONTEXT>`;
+* `SAVE_ACTIVE_MEMORY`, `UPDATE_ACTIVE_MEMORY`, and paired multi-ID `DELETE_ACTIVE_MEMORY`;
+* `SAVE_DELAYED_MEMORY` and paired multi-ID `LOAD_DELAYED_MEMORY`; loaded reports are removable tool results, while only user-pinned reports enter the dedicated loaded-memory block;
+* `LIST_ALL_USER_SHARED_FILES`, plus skill-gated `ATTACH_FILE_CONTENT` and paired multi-ID `ATTACH_FILES_BY_ID` (internally `ATTACH_FILE_BY_ID` per file);
+* skill/assets actions. Model-facing `<LOAD_SKILLS_CONTEXT>` and `<UNLOAD_SKILLS_CONTEXT>` accept comma-separated skill lists; the internal actions remain singular;
 * `POSTING_BOARD` after the `posting_board` skill is loaded;
+* `CALL_MCP` after any skill containing a valid `<MCP_SERVER>...</MCP_SERVER>` declaration is loaded;
 * `JIN_COLOR`, `JIN_REACTION`, `JIN_SIZE`, `JIN_POSITION`, and `JIN_SPEED`.
 
 Concrete schemas in `contracts/*.json` are authoritative; compatibility parser aliases are not the preferred model-facing syntax.
@@ -158,7 +160,13 @@ assets/
 `-- outputs/      # Generated files
 ```
 
-JIN can inspect `<SKILLS_LIST>`, load exactly one required skill per `<LOAD_SKILL_CONTEXT> ... </LOAD_SKILL_CONTEXT>` block, run its allowed actions, and unload it afterward. Loaded skill bodies are projected through the normal tool-results context, while `<SKILLS_LIST>` remains the compact availability/loaded-state inventory. Python skills execute from `.py` files inside the selected skill directory with bounded execution and output limits. Persistent uploaded files are stored separately under `assets/files/` and keep stable ids across turns.
+JIN can inspect `<SKILLS_LIST>`, load required skills with one comma-separated `<LOAD_SKILLS_CONTEXT> ... </LOAD_SKILLS_CONTEXT>` block, run their allowed actions, and unload one or more with `<UNLOAD_SKILLS_CONTEXT> ... </UNLOAD_SKILLS_CONTEXT>`. Loaded skill bodies are projected through the normal tool-results context, while `<SKILLS_LIST>` remains the compact availability/loaded-state inventory. Python skills execute from `.py` files inside the selected skill directory with bounded execution and output limits. Persistent uploaded files are stored separately under `assets/files/` and keep stable ids across turns.
+
+### MCP skills
+
+JIN is an MCP client for tool servers. A skill can declare one MCP server in its `JIN_SKILL.md` with a machine-readable `<MCP_SERVER>...</MCP_SERVER>` JSON block. Loading that skill opens/discovers the server, appends the live `tools/list` catalog to the in-memory skill context, and enables the single generic `<CALL_MCP>...</CALL_MCP>` runtime action. Tool-specific names and argument schemas stay in the skill/server; adding another MCP integration does not require another Python runtime action.
+
+Supported transports are `stdio`, Streamable HTTP, and legacy SSE. Stdio connections remain alive across automatic JIN follow-ups and are closed when the skill/runtime is unloaded. MCP image results are stored in the normal JIN file store and injected as image attachments into the next Brain follow-up, so visual tools can return screenshots/renders without embedding base64 into `<TOOL_RESULT>`. See `docs/MCP_SKILLS.md` for the skill contract.
 
 ## Project Layout
 

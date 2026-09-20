@@ -1458,6 +1458,7 @@ function createLTMemorySequenceCard(flowId = "", flowKind = "") {
 
   if (flowKind === "deduplication") {
     mergeStep.textContent = "request";
+    track.classList.add("jin-frame-sequence-track");
     track.replaceChildren(mergeStep, mergeArrow, applyStep);
   }
 

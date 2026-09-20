@@ -24,10 +24,10 @@ from contracts.rules_assembler import (
     RUNTIME_ACTION_RECALL_FACT_CONTEXT,
     RUNTIME_ACTION_CLEAN_TOOL_RESULTS,
     RUNTIME_ACTION_UNLOAD_SKILL,
-    RUNTIME_ACTION_UNLOAD_DELAYED_MEMORY,
     RUNTIME_ACTION_SAVE_DELAYED_MEMORY,
     RUNTIME_ACTION_WEB_SEARCH,
     RUNTIME_ACTION_POSTING_BOARD,
+    RUNTIME_ACTION_CALL_MCP,
 )
 from contracts.rules_assembler import (
     get_close_tag_runtime_actions,
@@ -61,6 +61,7 @@ from .update_lt_facts_utils import build_update_lt_facts_payload
 from .recall_fact_context_utils import (
     build_recall_fact_context_payload,
     normalize_recall_fact_context_id,
+    split_recall_fact_context_ids,
 )
 from .update_active_memory_utils import build_update_active_memory_payload
 from .resolve_action_utils import build_resolve_action_payload
@@ -162,8 +163,8 @@ def _runtime_action_allows_inline_payload(
 ) -> bool:
     return (action_name in JIN_INLINE_PAYLOAD_ACTIONS
             or action_name in {
-                RUNTIME_ACTION_RECALL_FACT_CONTEXT,
                 RUNTIME_ACTION_POSTING_BOARD,
+                RUNTIME_ACTION_UNLOAD_SKILL,
             })
 
 
@@ -685,17 +686,22 @@ def normalize_runtime_action_name(
         "SAVE_DELAYED_MEMORY": RUNTIME_ACTION_SAVE_DELAYED_MEMORY,
         "SAVE_ACTIVE_MEMORY": RUNTIME_ACTION_SAVE_ACTIVE_MEMORY,
         "DELETE_ACTIVE_MEMORY": RUNTIME_ACTION_DELETE_ACTIVE_MEMORY,
+        "ATTACH_FILES_BY_ID": RUNTIME_ACTION_ATTACH_FILE_BY_ID,
         "USE_ASSETS": RUNTIME_ACTION_ASSET_ACTION,
         "CLEAN_TOOL_RESULTS": RUNTIME_ACTION_CLEAN_TOOL_RESULTS,
         "LOAD_SKILL": RUNTIME_ACTION_LOAD_SKILL,
         "LOAD_SKILL_CONTEXT": RUNTIME_ACTION_LOAD_SKILL,
+        "LOAD_SKILLS_CONTEXT": RUNTIME_ACTION_LOAD_SKILL,
         "UNLOAD_SKILL": RUNTIME_ACTION_UNLOAD_SKILL,
+        "UNLOAD_SKILL_CONTEXT": RUNTIME_ACTION_UNLOAD_SKILL,
+        "UNLOAD_SKILLS_CONTEXT": RUNTIME_ACTION_UNLOAD_SKILL,
         "ASSET_ACTION": RUNTIME_ACTION_ASSET_ACTION,
         "JIN_SIZE": RUNTIME_ACTION_JIN_SIZE,
         "JIN_POSITION": RUNTIME_ACTION_JIN_POSITION,
         "JIN_SPEED": RUNTIME_ACTION_JIN_SPEED,
         "UPDATE_LT_FACTS": RUNTIME_ACTION_UPDATE_LT_FACTS,
         "RECALL_FACT_CONTEXT": RUNTIME_ACTION_RECALL_FACT_CONTEXT,
+        "RECALL_FACTS_CONTEXT": RUNTIME_ACTION_RECALL_FACT_CONTEXT,
     }
 
     return aliases.get(
@@ -749,9 +755,6 @@ def normalize_runtime_action_names(
         if normalized_name == RUNTIME_ACTION_SAVE_DELAYED_MEMORY:
             normalized_names.append(
                 RUNTIME_ACTION_LOAD_DELAYED_MEMORY
-            )
-            normalized_names.append(
-                RUNTIME_ACTION_UNLOAD_DELAYED_MEMORY
             )
 
         if normalized_name == RUNTIME_ACTION_ASSET_ACTION:
@@ -810,13 +813,13 @@ _ACTION_PAYLOAD_BUILDERS = {
     RUNTIME_ACTION_UPDATE_ACTIVE_MEMORY: build_update_active_memory_payload,
     RUNTIME_ACTION_SAVE_DELAYED_MEMORY: build_save_delayed_memory_payload,
     RUNTIME_ACTION_LOAD_DELAYED_MEMORY: build_load_delayed_memory_payload,
-    RUNTIME_ACTION_UNLOAD_DELAYED_MEMORY: build_resolve_action_payload,
     RUNTIME_ACTION_ATTACH_FILE_CONTENT: build_resolve_action_payload,
     RUNTIME_ACTION_ATTACH_FILE_BY_ID: build_resolve_action_payload,
     RUNTIME_ACTION_LOAD_SKILL: build_load_skill_payload,
     RUNTIME_ACTION_UNLOAD_SKILL: build_resolve_action_payload,
     RUNTIME_ACTION_ASSET_ACTION: build_asset_action_payload,
     RUNTIME_ACTION_POSTING_BOARD: lambda payload, _: str(payload or "").strip(),
+    RUNTIME_ACTION_CALL_MCP: lambda payload, _: str(payload or "").strip(),
 }
 
 
@@ -889,10 +892,7 @@ def _bare_prefix_payload_is_strictly_valid(
             )
         )
 
-    if action_name in {
-        RUNTIME_ACTION_LOAD_DELAYED_MEMORY,
-        RUNTIME_ACTION_UNLOAD_DELAYED_MEMORY,
-    }:
+    if action_name == RUNTIME_ACTION_LOAD_DELAYED_MEMORY:
         return is_delayed_memory_report_id(
             payload
         )
@@ -1438,6 +1438,8 @@ def extract_runtime_actions(
     marker_repetition_exceeded = False
     marker_repetition_reason = ""
     plural_skill_marker_index = 0
+    plural_id_marker_index = 0
+    recall_facts_marker_index = 0
 
     if seen_action_keys is None:
         seen_action_keys = set()
@@ -1451,6 +1453,19 @@ def extract_runtime_actions(
     ) -> str:
         nonlocal marker_repetition_exceeded
         nonlocal marker_repetition_reason
+
+        if normalize_runtime_action_name(action_name) in {
+            RUNTIME_ACTION_LOAD_DELAYED_MEMORY,
+            RUNTIME_ACTION_DELETE_ACTIVE_MEMORY,
+            RUNTIME_ACTION_ATTACH_FILE_BY_ID,
+        }:
+            return handle_plural_id_marker(raw_marker, action_name, query)
+
+        if str(action_name or "").strip().upper() == "RECALL_FACTS_CONTEXT":
+            return handle_recall_facts_marker(
+                raw_marker,
+                query,
+            )
 
         if marker_repetition_exceeded:
             if not preserve_action_text:
@@ -1473,6 +1488,7 @@ def extract_runtime_actions(
                 raw_marker,
                 plural_skill_action_name,
                 query,
+                marker_name=action_name,
             )
 
         normalized_action_name = normalize_runtime_action_name(
@@ -1569,10 +1585,127 @@ def extract_runtime_actions(
             else ""
         )
 
+    def handle_plural_id_marker(
+        raw_marker: str,
+        action_name: str,
+        query: str = "",
+    ) -> str:
+        nonlocal plural_id_marker_index
+        nonlocal marker_repetition_exceeded
+        nonlocal marker_repetition_reason
+
+        normalized_action_name = normalize_runtime_action_name(action_name)
+        if normalized_action_name not in enabled_action_names:
+            return raw_marker
+
+        item_ids = tuple(dict.fromkeys(
+            item.strip().casefold()
+            for item in str(query or "").split(",")
+            if item.strip()
+        ))
+        plural_id_marker_index += 1
+        marker_name = extract_private_marker_parts(
+            get_runtime_action_private_marker(normalized_action_name)
+        )[0]
+        marker_payload = ", ".join(item_ids)
+        marker_group = f"{marker_name.lower()}_{plural_id_marker_index:03d}"
+        marker_action = RuntimeActionCall(
+            name=normalized_action_name,
+            payload=marker_payload,
+            marker_name=marker_name,
+            marker_payload=marker_payload,
+            marker_group=marker_group,
+        )
+        observed_actions.append(marker_action)
+
+        if repetition_guard is not None and repetition_guard.record(marker_action):
+            marker_repetition_exceeded = True
+            marker_repetition_reason = repetition_guard.reason
+            return ""
+
+        should_preserve_marker = False
+        for item_id in item_ids:
+            action = _build_internal_action_call(normalized_action_name, item_id)
+            if action is None:
+                continue
+            action = RuntimeActionCall(
+                name=action.name,
+                payload=action.payload,
+                marker_name=marker_name,
+                marker_payload=marker_payload,
+                marker_group=marker_group,
+            )
+            if preserve_action_marker is not None and preserve_action_marker(raw_marker, action):
+                should_preserve_marker = True
+                continue
+            action_key = (action.name, action.payload)
+            if action_key not in seen_action_keys:
+                seen_action_keys.add(action_key)
+                actions.append(action)
+
+        if not preserve_action_text and not should_preserve_marker:
+            removed_markers.append(raw_marker)
+        return raw_marker if preserve_action_text or should_preserve_marker else ""
+
+    def handle_recall_facts_marker(
+        raw_marker: str,
+        query: str = "",
+    ) -> str:
+        nonlocal recall_facts_marker_index
+        nonlocal marker_repetition_exceeded
+        nonlocal marker_repetition_reason
+
+        if RUNTIME_ACTION_RECALL_FACT_CONTEXT not in enabled_action_names:
+            return raw_marker
+
+        fact_ids = split_recall_fact_context_ids(query)
+        if not fact_ids:
+            if not preserve_action_text:
+                removed_markers.append(raw_marker)
+            return raw_marker if preserve_action_text else ""
+
+        recall_facts_marker_index += 1
+        marker_payload = ", ".join(fact_ids)
+        marker_group = f"recall_facts_context_{recall_facts_marker_index:03d}"
+        marker_action = RuntimeActionCall(
+            name="RECALL_FACTS_CONTEXT",
+            payload=marker_payload,
+            marker_name="RECALL_FACTS_CONTEXT",
+            marker_payload=marker_payload,
+            marker_group=marker_group,
+        )
+        observed_actions.append(marker_action)
+
+        if repetition_guard is not None and repetition_guard.record(marker_action):
+            marker_repetition_exceeded = True
+            marker_repetition_reason = repetition_guard.reason
+            return ""
+
+        should_preserve_marker = False
+        for fact_id in fact_ids:
+            action = RuntimeActionCall(
+                name=RUNTIME_ACTION_RECALL_FACT_CONTEXT,
+                payload=fact_id,
+                marker_name="RECALL_FACTS_CONTEXT",
+                marker_payload=marker_payload,
+                marker_group=marker_group,
+            )
+            if preserve_action_marker is not None and preserve_action_marker(raw_marker, action):
+                should_preserve_marker = True
+                continue
+            actions.append(action)
+
+        if not preserve_action_text and not should_preserve_marker:
+            removed_markers.append(raw_marker)
+
+        return raw_marker if preserve_action_text or should_preserve_marker else ""
+
     def handle_plural_skill_marker(
         raw_marker: str,
         action_name: str,
         query: str = "",
+        *,
+        marker_name: str = "",
     ) -> str:
         nonlocal marker_repetition_exceeded
         nonlocal marker_repetition_reason
@@ -1596,11 +1729,14 @@ def extract_runtime_actions(
         skill_names = _split_internal_skill_marker_list(
             query
         )
-        plural_marker_name = (
-            "LOAD_SKILLS"
-            if action_name == RUNTIME_ACTION_LOAD_SKILL
-            else "UNLOAD_SKILLS"
-        )
+        plural_marker_name = str(
+            marker_name
+            or (
+                "LOAD_SKILLS"
+                if action_name == RUNTIME_ACTION_LOAD_SKILL
+                else "UNLOAD_SKILLS"
+            )
+        ).strip().upper()
         plural_marker_payload = ", ".join(
             skill_names
         )

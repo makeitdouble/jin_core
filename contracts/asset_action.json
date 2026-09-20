@@ -14,17 +14,11 @@
     },
     "schema": [
       "<ASSET_ACTION>",
-      "{\"action\":\"project_tree\",\"attachment\":\"attached folder name or selector id\",\"path\":\".\",\"offset\":0,\"limit\":100}",
-      "</ASSET_ACTION>",
-      "Or: {\"action\":\"project_search\",\"attachment\":\"attached folder name or selector id\",\"path\":\".\",\"query\":\"literal text\",\"offset\":0,\"limit\":100}",
-      "Other asset action schemas come from LOADED_SKILLS_CONTENT."
+      "{\"action\":\"action_from_loaded_skill\",\"...\":\"schema defined by that skill\"}",
+      "</ASSET_ACTION>"
     ],
     "rules": [
-      "Project actions read the active local source root.",
-      "project_tree lists file/folder paths. Start project review with path \".\" and the default depth; use depth 2..20 only for deliberate drill-down, preferably on a specific subfolder.",
-      "project_search searches file contents, not filenames. query is literal text, case-insensitive.",
-      "offset is the number of results to skip (default 0). limit is the maximum number of returned paths or matching lines (default 100, allowed 1..200). For a next page, use the returned offset and keep the other inputs unchanged. A larger limit or offset does not extend the scan.",
-      "To inspect a file copy the returned folder-rooted path into ATTACH_FILE_CONTENT, optionally with #Lstart-Lend for example L1-L101."
+      "MANDATORY: ASSET_ACTION requires a loaded skill context that defines the requested action schema."
     ],
     "close_tag": true
   }

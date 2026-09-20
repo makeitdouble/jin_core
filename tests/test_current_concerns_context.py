@@ -11,7 +11,7 @@ from utils.context.current_concerns import (
 
 class CurrentConcernsContextTests(unittest.TestCase):
 
-    def test_empty_current_concerns_block_is_followed_by_trusted_variables(self):
+    def test_empty_concerns_block_is_omitted(self):
         context = SimpleNamespace(
             runtime_memory="",
             active_memory_records=[],
@@ -28,14 +28,10 @@ class CurrentConcernsContextTests(unittest.TestCase):
             include_runtime_action_instructions=False,
         )
 
-        self.assertTrue(
-            prompt.startswith(
-                "<CURRENT_CONCERNS>\n</CURRENT_CONCERNS>\n\n"
-                "<CURRENT_TRUSTED_RUNTIME_VARIABLES>"
-            )
-        )
+        self.assertNotIn("<CONCERNS>", prompt)
+        self.assertTrue(prompt.startswith("<TRUSTED_RUNTIME_VARIABLES>"))
         self.assertLess(
-            prompt.index("</CURRENT_TRUSTED_RUNTIME_VARIABLES>"),
+            prompt.index("</TRUSTED_RUNTIME_VARIABLES>"),
             prompt.index("<TOOLS_RESULTS>"),
         )
 
@@ -78,10 +74,10 @@ class CurrentConcernsContextTests(unittest.TestCase):
         self.assertEqual(
             block,
             (
-                "<CURRENT_CONCERNS>\n"
+                "<CONCERNS>\n"
                 "You have 2 pending active memories to resolve.\n"
                 "Loaded: 2 files, 2 delayed memory\n"
-                "</CURRENT_CONCERNS>"
+                "</CONCERNS>"
             ),
         )
 
@@ -144,7 +140,7 @@ class CurrentConcernsContextTests(unittest.TestCase):
         )
 
         self.assertEqual(
-            prompt.count("<CURRENT_CONCERNS>"),
+            prompt.count("<CONCERNS>"),
             1,
         )
         self.assertIn(
@@ -160,7 +156,7 @@ class CurrentConcernsContextTests(unittest.TestCase):
             prompt,
         )
         self.assertLess(
-            prompt.index("</CURRENT_CONCERNS>"),
+            prompt.index("</CONCERNS>"),
             prompt.index("<TOOLS_RESULTS>"),
         )
 

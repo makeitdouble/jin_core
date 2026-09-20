@@ -9,33 +9,18 @@ from utils.tokens import (
 )
 
 
-CURRENT_CONTEXT_WINDOW_TAG = "CURRENT_CONTEXT_WINDOW"
+CURRENT_CONTEXT_WINDOW_TAG = "CONTEXT_WINDOW"
 CURRENT_CONTEXT_WINDOW_PLACEHOLDER = "__JIN_CURRENT_CONTEXT_WINDOW__"
-CURRENT_AVAILABLE_TOKENS_PLACEHOLDER = "__JIN_CURRENT_AVAILABLE_TOKENS__"
 
 CURRENT_CONTEXT_WINDOW_RE = re.compile(
     (
         r"(?P<indent>[ \t]*)"
-        r"<CURRENT_CONTEXT_WINDOW>"
+        r"<CONTEXT_WINDOW>"
         r".*?"
-        r"</CURRENT_CONTEXT_WINDOW>"
+        r"</CONTEXT_WINDOW>"
     ),
     re.DOTALL,
 )
-
-CONTEXT_USAGE_CURRENT_AVAILABLE_RE = re.compile(
-    (
-        r"(?P<prefix>"
-        r"<CONTEXT_USAGE>"
-        r".*?"
-        r"current_available_tokens:\s*"
-        r")"
-        r"(?P<value>.*?)"
-        r"(?P<suffix>\s*</CONTEXT_USAGE>)"
-    ),
-    re.DOTALL,
-)
-
 
 @dataclass(frozen=True)
 class CurrentContextWindowPrompt:
@@ -43,8 +28,6 @@ class CurrentContextWindowPrompt:
     used_tokens: int
     context_window: int
     value: str
-    available_tokens: int
-    available_value: str
 
 
 def _as_int(
@@ -155,33 +138,6 @@ def format_current_context_window_value(
     return f"{used_tokens}/unknown occupied"
 
 
-def format_current_available_tokens_value(
-    *,
-    used_tokens: int,
-    context_window: int,
-) -> str:
-
-    used_tokens = max(
-        0,
-        _as_int(
-            used_tokens
-        ),
-    )
-    context_window = _as_int(
-        context_window
-    )
-
-    if context_window <= 0:
-        return "unknown/unknown"
-
-    available_tokens = max(
-        0,
-        context_window - used_tokens,
-    )
-
-    return f"{available_tokens}/{context_window}"
-
-
 def _format_field(
     value: str,
     *,
@@ -189,9 +145,9 @@ def _format_field(
 ) -> str:
 
     return (
-        f"{indent}<CURRENT_CONTEXT_WINDOW>"
+        f"{indent}<CONTEXT_WINDOW>"
         f"{value}"
-        "</CURRENT_CONTEXT_WINDOW>"
+        "</CONTEXT_WINDOW>"
     )
 
 
@@ -219,15 +175,15 @@ def ensure_current_context_window_field(
             count=1,
         )
 
-    close_tag = "</CURRENT_TRUSTED_RUNTIME_VARIABLES>"
+    close_tag = "</TRUSTED_RUNTIME_VARIABLES>"
     if close_tag not in prompt:
         return prompt
 
     for tag in (
-        "CURRENT_MODEL_UID",
+        "MODEL_UID",
         "BRAIN_MODEL_UID",
         "SERVICE_MODEL_UID",
-        "CURRENT_SESSION_ID",
+        "SESSION_ID",
     ):
         match = re.search(
             (
@@ -268,32 +224,6 @@ def ensure_current_context_window_field(
     )
 
 
-def ensure_current_available_tokens_field(
-    system_prompt: str,
-    value: str = CURRENT_AVAILABLE_TOKENS_PLACEHOLDER,
-) -> str:
-
-    prompt = str(
-        system_prompt
-        or ""
-    )
-
-    if not CONTEXT_USAGE_CURRENT_AVAILABLE_RE.search(
-        prompt
-    ):
-        return prompt
-
-    return CONTEXT_USAGE_CURRENT_AVAILABLE_RE.sub(
-        lambda match: (
-            match.group("prefix")
-            + value
-            + match.group("suffix")
-        ),
-        prompt,
-        count=1,
-    )
-
-
 def estimate_current_context_tokens(
     *,
     context,
@@ -326,14 +256,9 @@ def annotate_current_context_window(
         system_prompt,
         CURRENT_CONTEXT_WINDOW_PLACEHOLDER,
     )
-    prompt = ensure_current_available_tokens_field(
-        prompt,
-        CURRENT_AVAILABLE_TOKENS_PLACEHOLDER,
-    )
 
     used_tokens = 0
     value = CURRENT_CONTEXT_WINDOW_PLACEHOLDER
-    available_value = CURRENT_AVAILABLE_TOKENS_PLACEHOLDER
 
     for _ in range(12):
         used_tokens = estimate_current_context_tokens(
@@ -346,18 +271,9 @@ def annotate_current_context_window(
             used_tokens=used_tokens,
             context_window=context_window,
         )
-        available_value = format_current_available_tokens_value(
-            used_tokens=used_tokens,
-            context_window=context_window,
-        )
-
         next_prompt = ensure_current_context_window_field(
             prompt,
             value,
-        )
-        next_prompt = ensure_current_available_tokens_field(
-            next_prompt,
-            available_value,
         )
 
         if next_prompt == prompt:
@@ -375,26 +291,9 @@ def annotate_current_context_window(
         used_tokens=used_tokens,
         context_window=context_window,
     )
-    available_value = format_current_available_tokens_value(
-        used_tokens=used_tokens,
-        context_window=context_window,
-    )
     prompt = ensure_current_context_window_field(
         prompt,
         value,
-    )
-    prompt = ensure_current_available_tokens_field(
-        prompt,
-        available_value,
-    )
-
-    available_tokens = (
-        max(
-            0,
-            _as_int(context_window) - used_tokens,
-        )
-        if _as_int(context_window) > 0
-        else 0
     )
 
     return CurrentContextWindowPrompt(
@@ -404,8 +303,6 @@ def annotate_current_context_window(
             context_window
         ),
         value=value,
-        available_tokens=available_tokens,
-        available_value=available_value,
     )
 
 

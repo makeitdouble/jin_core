@@ -113,6 +113,19 @@ def _runtime_action_aliases(
     elif action_name:
         names.append(action_name)
 
+    # Localized reader compatibility for the previous paired skill marker.
+    # The contract and model-facing instructions advertise only the plural
+    # list form.
+    if marker_name == "LOAD_SKILLS_CONTEXT":
+        names.append("LOAD_SKILL_CONTEXT")
+
+    if marker_name == "UNLOAD_SKILLS_CONTEXT":
+        names.extend((
+            "UNLOAD_SKILL_CONTEXT",
+            "UNLOAD_SKILL",
+            "UNLOAD_SKILLS",
+        ))
+
     # Plural compatibility exists only while the contract itself still uses
     # the canonical runtime-action name. LOAD_SKILL_CONTEXT therefore does
     # not inherit the old LOAD_SKILLS form.

@@ -302,7 +302,6 @@ class BehaviorProbeHelpers:
         context.runtime_turn_user_message = user_text
         context.runtime_turn_assistant_response = ""
         context.runtime_turn_interrupted = False
-        context.user_message_count += 1
 
         if hasattr(context, "runtime_usage_events"):
             context.runtime_usage_events.clear()
@@ -345,8 +344,6 @@ class BehaviorProbeHelpers:
 
             if self.setting("WAIT_FOR_MEMORY_UPDATE_AFTER_EACH_TURN", True):
                 await wait_for_runtime_memory_update(context)
-
-        context.assistant_message_count += 1
         context.turn_number += 1
 
         return state
@@ -826,8 +823,6 @@ class BehaviorProbeHelpers:
 
         print("\n" + self.paint("COUNTERS", "blue", bold=True))
         print(f"  turns: {report['turn_number']}")
-        print(f"  user messages: {report['user_message_count']}")
-        print(f"  assistant messages: {report['assistant_message_count']}")
         print(f"  websocket messages: {report['websocket_message_count']}")
         print(self.paint("=" * len(header), "cyan", bold=True) + "\n")
 

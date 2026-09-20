@@ -1873,7 +1873,7 @@ def attach_user_idle_to_initial_runtime_snapshot(
 
     if getattr(
         context,
-        "user_message_count",
+        "turn_number",
         0,
     ) != 0:
         return
@@ -2286,8 +2286,6 @@ def hydrate_runtime_counters_from_bootstrap_metadata(
     for field_name in (
         "turn_number",
         "runtime_turn_counter",
-        "user_message_count",
-        "assistant_message_count",
     ):
         floor = parse_bootstrap_counter(
             message_data.get(
@@ -2305,49 +2303,6 @@ def hydrate_runtime_counters_from_bootstrap_metadata(
             floor,
         )
 
-
-def hydrate_current_session_counters_from_resume_metadata(
-    context,
-    message_data: dict,
-):
-
-    if not isinstance(
-        message_data,
-        dict,
-    ):
-        return
-
-    runtime_snapshot = message_data.get(
-        "runtime_snapshot",
-        {},
-    )
-    snapshot_data = (
-        runtime_snapshot
-        if isinstance(
-            runtime_snapshot,
-            dict,
-        )
-        else {}
-    )
-
-    for field_name in (
-        "current_session_user_message_count",
-        "current_session_assistant_message_count",
-    ):
-        floor = parse_bootstrap_counter(
-            message_data.get(
-                field_name,
-                snapshot_data.get(
-                    field_name,
-                    0,
-                ),
-            )
-        )
-        _raise_runtime_counter_floor(
-            context,
-            field_name,
-            floor,
-        )
 
 
 def hydrate_runtime_counters_from_active_memory(
@@ -2364,8 +2319,6 @@ def hydrate_runtime_counters_from_active_memory(
 
     for field_name in (
         "turn_number",
-        "assistant_message_count",
-        "user_message_count",
     ):
         _raise_runtime_counter_floor(
             context,
@@ -2520,13 +2473,6 @@ def apply_runtime_resume(
         runtime_memory,
     )
 
-    # runtime_resume reconnects the same live session. A normal
-    # session_bootstrap deliberately does not hydrate these counters, so each
-    # fresh runtime session starts CURRENT_SESSION_STATE from zero.
-    hydrate_current_session_counters_from_resume_metadata(
-        context,
-        message_data,
-    )
 
     current_updates = parse_bootstrap_counter(
         getattr(
@@ -2595,26 +2541,6 @@ def apply_runtime_resume(
             restored_snapshot_session_id
         )
 
-    restored_snapshot[
-        "current_session_user_message_count"
-    ] = int(
-        getattr(
-            context,
-            "current_session_user_message_count",
-            0,
-        )
-        or 0
-    )
-    restored_snapshot[
-        "current_session_assistant_message_count"
-    ] = int(
-        getattr(
-            context,
-            "current_session_assistant_message_count",
-            0,
-        )
-        or 0
-    )
 
     context.runtime_memory_display_index_offset = parse_bootstrap_counter(
         message_data.get(
@@ -3040,8 +2966,6 @@ def enrich_session_bootstrap_from_archive(
             "runtime_action_sequence_turn_ids",
             "runtime_turn_counter",
             "turn_number",
-            "user_message_count",
-            "assistant_message_count",
         ):
             value = archived.get(field)
             if value not in (None, "", [], {}):
@@ -3551,28 +3475,6 @@ def apply_session_bootstrap(
                 restored_snapshot_session_id
             )
 
-        # The FRAME may come from the predecessor, but visible message counts
-        # belong to the new live session and must not inherit that history.
-        restored_snapshot[
-            "current_session_user_message_count"
-        ] = int(
-            getattr(
-                context,
-                "current_session_user_message_count",
-                0,
-            )
-            or 0
-        )
-        restored_snapshot[
-            "current_session_assistant_message_count"
-        ] = int(
-            getattr(
-                context,
-                "current_session_assistant_message_count",
-                0,
-            )
-            or 0
-        )
 
         context.runtime_memory_display_index_offset = parse_bootstrap_counter(
             message_data.get(

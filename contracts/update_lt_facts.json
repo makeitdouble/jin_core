@@ -18,8 +18,7 @@
       "</UPDATE_LT_FACTS>"
     ],
     "rules": [
-      "JIN can update, merge, or create durable Long-Term facts through this marker.",
-      "Use this marker only to update or merge existing durable facts, or create a genuinely new durable fact."
+      "Use this marker to update or merge existing L-T facts or create new durable Long-Term facts."
     ],
     "close_tag": true
   }

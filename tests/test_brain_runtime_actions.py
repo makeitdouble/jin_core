@@ -130,6 +130,11 @@ def expected_enabled_runtime_actions(runtime_actions: dict) -> tuple[str, ...]:
             "POSTING_BOARD"
         )
 
+    if bool(runtime_actions.get("CAN_CALL_MCP", False)):
+        expected_actions.append(
+            "CALL_MCP"
+        )
+
     if bool(runtime_actions.get("CAN_USE_ASSETS", False)):
         expected_actions.extend(
             (
@@ -3312,7 +3317,6 @@ class BrainRuntimeActionTests(unittest.TestCase):
             ],
             timestamp="2026-06-20T10:00:00",
             turn_number=4,
-            user_message_count=2,
             runtime_user_idle_seconds=300,
             runtime_active_memory_refresh_tick=0,
         )

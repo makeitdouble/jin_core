@@ -32,8 +32,8 @@ Current high-signal state:
 - browser continuity uses page-ephemeral `jin.liveRuntimeMemory.v2` plus one atomic `jin.sessionCheckpoint.v2`; legacy per-session FRAME selection is migration-only and never freshness-scanned;
 - Session CLEAR is a durable tombstone that blocks passive resurrection across already-open tabs until a new USER message is successfully sent;
 - `SAVE_SESSION` is not a current runtime-action contract; archived-session restore is handled by the bootstrap/restore path;
-- the current action set includes `JIN_REACTION`, `RECALL_FACT_CONTEXT`, `CHAT_LOG_SEARCH`, and whole-file `ATTACH_FILE_BY_ID`; skill loading is taught as one paired `<LOAD_SKILL_CONTEXT>...</LOAD_SKILL_CONTEXT>` block per skill while `LOAD_SKILL` remains the internal action name;
-- `<CURRENT_CONCERNS>` is always present; at 50%+ previous-answer context usage it shows the live percentage, and if tool results are present it explicitly recommends cleaning redundant results;
+- the current action set includes `JIN_REACTION`, internal `RECALL_FACT_CONTEXT`, `CHAT_LOG_SEARCH`, and whole-file `ATTACH_FILE_BY_ID`; fact recall, delayed-memory loading, Active deletion, file-by-ID attachment, skill loading, and skill unloading use paired list markers while their internal actions remain singular;
+- `<CONCERNS>` is omitted when empty; at 50%+ previous-answer context usage it shows the live percentage, and if tool results are present it explicitly recommends cleaning redundant results;
 - bubble skins are `dark`, `light`, and `bamboo`, with dark/light following normal/Win95 theme defaults unless a non-default skin is explicitly pinned;
 - Live Avatar scaffold circles/rays now mirror the context-pressure color, ray peak opacity scales approximately 0.10 -> 0.50 over a 30-second fade-to-zero breathing cycle, and center hide includes the file ring before switching hidden layers to dormant mode after the fade.
 
@@ -104,7 +104,7 @@ These paths are localized compatibility readers/adapters. None changes current f
 
 ### Test residue
 
-Some tests still mention `CAN_SAVE_SESSION`, `<SAVE_SESSION>`, or other retired names as negative/compatibility fixtures. Treat those occurrences as test intent that must be read in context, not evidence that the action/topology is live. Current contract and prompt tests also cover the renamed `LOAD_SKILL_CONTEXT`, five-pair dialogue window, structured Active update payload, chat/fact recall, and context/avatar client contracts. This documentation pass does not modify tests.
+Some tests still mention `CAN_SAVE_SESSION`, `<SAVE_SESSION>`, or other retired names as negative/compatibility fixtures. Treat those occurrences as test intent that must be read in context, not evidence that the action/topology is live. Current contract and prompt tests also cover the plural skill-context markers, five-pair dialogue window, structured Active update payload, chat/fact recall, and context/avatar client contracts. This documentation pass does not modify tests.
 
 ### Rule for agents
 
@@ -186,24 +186,32 @@ LOAD_SKILL
 UNLOAD_SKILL
 ASSET_ACTION
 POSTING_BOARD
-LIST_FILES
+LIST_ALL_USER_SHARED_FILES
 ATTACH_FILE_CONTENT
 ATTACH_FILE_BY_ID
 SAVE_DELAYED_MEMORY
 LOAD_DELAYED_MEMORY
-UNLOAD_DELAYED_MEMORY
 SAVE_ACTIVE_MEMORY
 DELETE_ACTIVE_MEMORY
 UPDATE_ACTIVE_MEMORY
 ```
 
-`LOAD_SKILL` is the internal runtime action name only. Its canonical public/model marker is `<LOAD_SKILL_CONTEXT> name of skill </LOAD_SKILL_CONTEXT>` and exactly one skill is loaded per block. Old `LOAD_SKILL`/`LOAD_SKILLS` tags do not become executable aliases simply because the internal action retains that name.
+`LOAD_SKILL` and `UNLOAD_SKILL` are singular internal runtime action names. Their canonical public/model markers are `<LOAD_SKILLS_CONTEXT> skill1, skill2 </LOAD_SKILLS_CONTEXT>` and `<UNLOAD_SKILLS_CONTEXT> skill1, skill2 </UNLOAD_SKILLS_CONTEXT>`; each valid comma-separated item becomes one ordered internal action.
 
 `utils/actions/dispatcher.py` contains execution branches for the same action family. Every concrete contract now carries a separate `schema` string array before `rules`; `contracts/rules_assembler.py::get_runtime_action_schema()` feeds both model-facing contract text and failed-action diagnostics. Failed tool results are rendered as readable text (status/reason, supplied payload when relevant, `Correct action schema:`), and `ACTION_FAILURE_FOLLOWUP_MESSAGE` explicitly tells Brain not to assume the failed action completed.
 
-`POSTING_BOARD` is a native action exposed only after `<LOAD_SKILL_CONTEXT> posting_board </LOAD_SKILL_CONTEXT>`. The side skill documents the minimal inner actions (`feed`, `inbox`, `read`, `search`, `post`, `reply`, `ack`, `delete`); the runtime executes them against Get Posting Board and records the exact public request preview plus response as a runtime tool result. Chat bubbles use one stable action ID from running to completed/failed, then fade and become clickable for the reused trace modal. Session Actions intentionally keep only compact markers such as `POSTING_BOARD: action:feed` or `POSTING_BOARD: action:post - failed`; request/response bodies stay out of session-action text. Public writes, including deletion, are blocked when persistent writes are restricted, while board reads remain available. `delete` targets one owned message by exact `post_id`; deleting a root removes the entire thread, so the skill requires explicit authorization and warns Brain to preserve roots unless whole-thread deletion is intended. The bearer token is resolved through the environment override helper from `GETPOSTINGBOARD_API_KEY` (or its supported `JIN_GETPOSTINGBOARD_API_KEY` alias) and is never projected into model/UI context.
+`POSTING_BOARD` is a native action exposed only after `<LOAD_SKILLS_CONTEXT> posting_board </LOAD_SKILLS_CONTEXT>`. The side skill documents the minimal inner actions (`feed`, `inbox`, `read`, `search`, `post`, `reply`, `ack`, `delete`); the runtime executes them against Get Posting Board and records the exact public request preview plus response as a runtime tool result. Chat bubbles use one stable action ID from running to completed/failed, then fade and become clickable for the reused trace modal. Session Actions intentionally keep only compact markers such as `POSTING_BOARD: action:feed` or `POSTING_BOARD: action:post - failed`; request/response bodies stay out of session-action text. Public writes, including deletion, are blocked when persistent writes are restricted, while board reads remain available. `delete` targets one owned message by exact `post_id`; deleting a root removes the entire thread, so the skill requires explicit authorization and warns Brain to preserve roots unless whole-thread deletion is intended. The bearer token is resolved through the environment override helper from `GETPOSTINGBOARD_API_KEY` (or its supported `JIN_GETPOSTINGBOARD_API_KEY` alias) and is never projected into model/UI context.
 
 The mapped Brain feature flags in `rules/brain_context_builder.py` are enabled. `WEB_SEARCH` and `DEEP_WEB_SEARCH` are then filtered again by `settings.CAN_SEARCH`, so they are not model-visible unless provider `serper` has a non-empty, non-placeholder process-environment key. `launch_jin.ps1` imports an ignored repository-root `.env` before resolving configuration and starting Python; `.env.example` documents the supported secret names without containing credentials. Direct `python app.py` starts still rely on variables exported by the calling shell. The local availability check intentionally does not impose an invented key-length/shape regex; Serper remains the credential authority.
+
+Canonical short action syntax is paired: `<WEB_SEARCH> query </WEB_SEARCH>`,
+`<LOAD_DELAYED_MEMORY> id1, id2 </LOAD_DELAYED_MEMORY>`,
+`<DELETE_ACTIVE_MEMORY> id1, id2 </DELETE_ACTIVE_MEMORY>`, and
+`<ATTACH_FILES_BY_ID> id1, id2 </ATTACH_FILES_BY_ID>`. A model-issued delayed
+load records each report as a separately identified tool result and does not
+populate `<LOADED_DELAYED_MEMORY>`. Only explicit user pinning populates that
+block. `UNLOAD_DELAYED_MEMORY` is no longer a model-facing contract; tool-result
+cleanup is the removal path.
 
 `CLEAN_TOOL_RESULTS` is a strict paired-block action. The canonical targeted form is `<CLEAN_TOOL_RESULTS> T1, T2, T3 </CLEAN_TOOL_RESULTS>`; one or more exact `T<number>` IDs are listed in the body, separated by commas. Targeted cleanup validates the whole list before mutating state, so an invalid or missing ID removes nothing. An empty `<CLEAN_TOOL_RESULTS></CLEAN_TOOL_RESULTS>` block performs the explicit full cleanup, including legacy ID-less results. The old bare marker and `<CLEAN_TOOL_RESULTS: T1 >` inline form are no longer executable syntax.
 
@@ -280,13 +288,13 @@ Do not “finish the migration” by replacing the internal storage shape in an 
 
 Current `build_brain_context()` order is intentionally structured. Important anchors:
 
-- ordinary turns put `CURRENT_RUNTIME_SETTINGS` first when non-empty, then always-present `CURRENT_CONCERNS`, trusted runtime XML, optional waiting state, and `CONTEXT_USAGE`;
-- at 50%+ previous-answer context usage, `CURRENT_CONCERNS` shows the percentage; with nonempty tool results it appends `check and clean redundant tool results`;
+- ordinary turns put `RUNTIME_SETTINGS` first when non-empty, then optional `CONCERNS` and trusted runtime XML; the former user-waiting and separate context-usage prompt blocks are removed;
+- at 50%+ previous-answer context usage, `CONCERNS` shows the percentage; with nonempty tool results it appends `check and clean redundant tool results`;
 - tool results precede Session Actions, attached-file/Delayed inventories, and the always-present `SKILLS_LIST`; loaded skill bodies are part of the tool-results projection rather than a second independent prompt section;
 - the runtime-context group orders Active Memory before FRAME, and `<PREVIOUS_CHAT_MESSAGES>` immediately after `<FRAME_MEMORY_N>`; loaded Delayed/L-T follow later in the same group;
 - ordinary `<PREVIOUS_CHAT_MESSAGES>` keeps the newest five pairs without per-message character cropping; physical newlines become literal `\n` and XML-sensitive characters are escaped;
 - ordinary initial turns include previous successful reasoning in `<PREVIOUS_REASONING_EVIDENCE_TRAIL_AFTER_EXECUTED_ACTIONS>`; blocks over 2000 characters keep the first and last 25% with an explicit middle-cut marker;
-- archived restore priming instead begins with inherited `<PREVIOUS_CHAT_MESSAGES>`, then carried reasoning evidence, then `<MANDATORY_SYSTEM_NOTIFICATION>`; `CURRENT_RUNTIME_SETTINGS` and the normal live scaffolding come after that continuity preamble;
+- archived restore priming instead begins with inherited `<PREVIOUS_CHAT_MESSAGES>`, then carried reasoning evidence, then `<MANDATORY_SYSTEM_NOTIFICATION>`; `RUNTIME_SETTINGS` and the normal live scaffolding come after that continuity preamble;
 - action/recovery follow-ups likewise move visible dialogue and carried reasoning ahead of `<FOLLOW_UP_RESPONSE_MESSAGE>`, then append failure/recovery/action history/current concerns/tool results and the base prompt without duplicating those continuity blocks;
 - action contracts remain present even on restore ticks, subject to effective capability filtering;
 - `WEB_SEARCH` and `DEEP_WEB_SEARCH` disappear when `settings.CAN_SEARCH` is false;

@@ -110,6 +110,9 @@ class RuntimeTransport:
                     with contextlib.suppress(Exception):
                         await response.aclose()
                 context.active_streams.clear()
+                from utils.mcp_client import close_context_mcp_manager
+                with contextlib.suppress(Exception):
+                    await close_context_mcp_manager(context)
         finally:
             from runtime.memory_profile import release_profile
             release_profile(context, self.app.state)

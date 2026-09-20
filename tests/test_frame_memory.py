@@ -218,7 +218,7 @@ class FrameMemoryTests(
                 prompt,
             )
 
-    def test_runtime_memory_snapshot_persists_session_counters(self):
+    def test_runtime_memory_snapshot_omits_message_counters(self):
 
             context = RuntimeContext(
                 websocket=object(),
@@ -229,8 +229,6 @@ class FrameMemoryTests(
             context.runtime_memory = "topic: reconnect counters"
             context.turn_number = 14
             context.runtime_turn_counter = 19
-            context.user_message_count = 15
-            context.assistant_message_count = 14
             context.runtime_memory_updates = 28
 
             snapshot = build_runtime_memory_snapshot(
@@ -246,14 +244,8 @@ class FrameMemoryTests(
                 snapshot["runtime_turn_counter"],
                 19,
             )
-            self.assertEqual(
-                snapshot["user_message_count"],
-                15,
-            )
-            self.assertEqual(
-                snapshot["assistant_message_count"],
-                14,
-            )
+            self.assertNotIn("user_message_count", snapshot)
+            self.assertNotIn("assistant_message_count", snapshot)
             self.assertEqual(
                 snapshot["runtime_memory_updates"],
                 28,
@@ -1280,8 +1272,6 @@ class FrameMemoryTests(
                 weekday="Friday",
                 year=2026,
                 turn_number=12,
-                user_message_count=7,
-                assistant_message_count=6,
             )
 
             async def emit(event):

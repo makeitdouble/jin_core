@@ -8,6 +8,14 @@ from utils.skills_asset_utils import (
     load_skill,
     normalize_skill_name,
 )
+from utils.mcp_client import (
+    close_mcp_skill,
+    discover_mcp_skill_tools,
+)
+from utils.mcp_skill_utils import (
+    append_mcp_runtime_catalog,
+    get_skill_mcp_config,
+)
 
 
 _RUNTIME_MARKER_NAME = "_runtime_marker_name"
@@ -316,6 +324,42 @@ async def apply_skill_actions(
             )
 
             if result.get("ok") and isinstance(skill, dict):
+                mcp_config = get_skill_mcp_config(skill)
+                if mcp_config is not None:
+                    if mcp_config.get("_invalid"):
+                        discovery = {
+                            "ok": False,
+                            "error": str(mcp_config.get("error") or "invalid_mcp_config"),
+                            "detail": str(mcp_config.get("detail") or "Invalid MCP_SERVER config"),
+                            "tools": [],
+                        }
+                    else:
+                        try:
+                            discovery = await discover_mcp_skill_tools(
+                                context,
+                                skill,
+                            )
+                        except Exception as exc:
+                            discovery = {
+                                "ok": False,
+                                "error": "mcp_discovery_failed",
+                                "detail": str(exc),
+                                "tools": [],
+                            }
+                    skill = append_mcp_runtime_catalog(
+                        skill,
+                        discovery,
+                    )
+                    result["skill"] = skill
+
+                    if log_runtime is not None:
+                        status = "connected" if discovery.get("ok") is not False else "unavailable"
+                        await log_runtime(
+                            "[MCP] skill "
+                            f"{normalize_skill_name(skill.get('name', ''))} "
+                            f"{status}"
+                        )
+
                 skill_name = normalize_skill_name(
                     skill.get(
                         "name",
@@ -390,6 +434,10 @@ async def apply_skill_actions(
                 ) != requested
             ]
             context.runtime_loaded_skills = current_skills
+            await close_mcp_skill(
+                context,
+                requested,
+            )
             result = {
                 "ok": True,
                 "action": "unload_skill",

@@ -163,7 +163,6 @@ async def run_standard_turn(
     context.runtime_turn_user_message = user_text
     context.runtime_turn_assistant_response = ""
     context.runtime_turn_interrupted = False
-    context.user_message_count += 1
 
     if hasattr(
         context,
@@ -213,8 +212,6 @@ async def run_standard_turn(
             await wait_for_runtime_memory_update(
                 context
             )
-
-    context.assistant_message_count += 1
     context.turn_number += 1
 
     return state
@@ -396,8 +393,6 @@ class TwoTurnModelFlowTests(
                     "runtime_memory": self.context.runtime_memory,
                     "runtime_l2_memory": self.context.runtime_l2_memory,
                     "turn_number": self.context.turn_number,
-                    "user_message_count": self.context.user_message_count,
-                    "assistant_message_count": self.context.assistant_message_count,
                     "websocket_message_count": len(
                         self.websocket.messages
                     ),

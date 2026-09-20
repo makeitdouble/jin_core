@@ -50,24 +50,12 @@ def format_delayed_memory_result_sections(
         )
 
         if action == "load_delayed_memory":
-            if result.get("ok") is False:
-                sections.append(
-                    (
-                        "LOAD_DELAYED_MEMORY",
-                        format_delayed_memory_failure_result(
-                            result
-                        ),
-                    )
-                )
-            continue
-
-        if action == "unload_delayed_memory":
             sections.append(
                 (
-                    "UNLOAD_DELAYED_MEMORY",
+                    "LOAD_DELAYED_MEMORY",
                     format_runtime_action_result(
                         result,
-                        runtime_action="UNLOAD_DELAYED_MEMORY",
+                        runtime_action="LOAD_DELAYED_MEMORY",
                     ),
                 )
             )

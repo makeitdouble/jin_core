@@ -2,10 +2,10 @@
   "list_files": {
     "version": 1,
     "description": "Lists persistent files available to JIN.",
-    "runtime_action": "LIST_FILES",
+    "runtime_action": "LIST_ALL_USER_SHARED_FILES",
     "enable_flag": "CAN_USE_ASSETS",
     "runtime_order": 120,
-    "private_marker": "<LIST_FILES>",
+    "private_marker": "<LIST_ALL_USER_SHARED_FILES>",
     "triggers": [],
     "blockers": [],
     "effects": {
@@ -13,11 +13,9 @@
       "follow_up_on_fail": false
     },
     "schema": [
-      "<LIST_FILES>"
+      "<LIST_ALL_USER_SHARED_FILES>"
     ],
     "rules": [
-      "Use LIST_FILES to get all files user shared with JIN.",
-      "Files DO NOT CONTAIN ANY METADATA;mMust use CHAT_LOG_SEARCH for explicit context."
     ],
     "close_tag": false
   }

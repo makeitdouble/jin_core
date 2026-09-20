@@ -68,29 +68,33 @@ class CurrentContextWindowTests(
             CURRENT_CONTEXT_WINDOW_PLACEHOLDER,
             prepared.system_prompt,
         )
+        self.assertNotIn(
+            "<CONTEXT_USAGE>",
+            prepared.system_prompt,
+        )
         self.assertIn(
-            "/32728 occupied</CURRENT_CONTEXT_WINDOW>",
+            "/32728 occupied</CONTEXT_WINDOW>",
             prepared.system_prompt,
         )
         self.assertLess(
             prepared.system_prompt.index(
-                "<CURRENT_MODEL_UID>"
+                "<MODEL_UID>"
             ),
             prepared.system_prompt.index(
-                "<CURRENT_CONTEXT_WINDOW>"
+                "<CONTEXT_WINDOW>"
             ),
         )
         self.assertLess(
             prepared.system_prompt.index(
-                "<CURRENT_CONTEXT_WINDOW>"
+                "<CONTEXT_WINDOW>"
             ),
             prepared.system_prompt.index(
-                "<CURRENT_JIN_COLOR>"
+                "<JIN_COLOR>"
             ),
         )
 
         match = re.search(
-            r"<CURRENT_CONTEXT_WINDOW>(\d+)/32728 occupied</CURRENT_CONTEXT_WINDOW>",
+            r"<CONTEXT_WINDOW>(\d+)/32728 occupied</CONTEXT_WINDOW>",
             prepared.system_prompt,
         )
         self.assertIsNotNone(

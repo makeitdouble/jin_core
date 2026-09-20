@@ -725,16 +725,6 @@
           payload.turn_number
           || 0
         ),
-      user_message_count:
-        Number(
-          payload.user_message_count
-          || 0
-        ),
-      assistant_message_count:
-        Number(
-          payload.assistant_message_count
-          || 0
-        ),
       current_jin_color:
         String(
           payload.current_jin_color
