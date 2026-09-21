@@ -10,7 +10,10 @@ from .action_payload_utils import (
     _build_internal_action_payload,
     _clean_internal_action_query,
 )
-from .active_memory_utils import generate_short_runtime_id
+from .active_memory_utils import (
+    generate_short_runtime_id,
+    normalize_active_memory_slot_id,
+)
 from .regexp_utils import extract_private_marker_parts
 
 
@@ -18,9 +21,17 @@ def generate_active_memory_slot_id(
     existing_ids=None,
 ) -> str:
 
-    return generate_short_runtime_id(
-        existing_ids
-    )
+    used_suffixes = [
+        active_memory_id[3:]
+        for value in (existing_ids or ())
+        if (
+            active_memory_id := normalize_active_memory_slot_id(
+                value
+            )
+        )
+    ]
+
+    return f"AM-{generate_short_runtime_id(used_suffixes)}"
 
 def normalize_active_memory_marker_field(
     field: str,
@@ -134,3 +145,25 @@ def build_save_active_memory_payload(
         query,
         placeholders,
     )
+
+
+def is_save_active_memory_update_payload(
+    payload: str,
+) -> bool:
+    """Return True when SAVE_ACTIVE_MEMORY explicitly targets an existing id.
+
+    The unified contract uses a flat JSON object. Presence of ``id`` switches
+    SAVE_ACTIVE_MEMORY into update mode.
+    """
+
+    text = str(payload or "").strip()
+
+    if not text.startswith("{"):
+        return False
+
+    try:
+        data = json.loads(text)
+    except (TypeError, ValueError, json.JSONDecodeError):
+        return False
+
+    return isinstance(data, dict) and "id" in data

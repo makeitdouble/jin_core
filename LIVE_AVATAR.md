@@ -488,7 +488,7 @@ active_memory: ...
 active_memory_2: ...
 ```
 
-For hover identity, active records use `[active_memory_id: abc123]` embedded in the text when present; otherwise the fallback id is `record-<index>`.
+For hover identity, active records use `[id: AM-abc123]` embedded in the text when present; otherwise the fallback id is `record-<index>`.
 
 If you want active memory to feel less dominant, lower opacity or move the ring inward.
 
@@ -658,7 +658,7 @@ Shapes:
 | Runtime line | `runtime:<line_id>` or `runtime:line-<index>` |
 | L-T fact | `lt:<fact_id>` |
 | Delayed report | `delayed:<report_id>` |
-| Active memory | `active:<active_memory_id>` or `active:record-<index>` |
+| Active memory | `active:<id>` or `active:record-<index>` |
 | Persistent file | `file:<file_id>` |
 
 Cross-layer behavior is separate from same-id hover:

@@ -1173,7 +1173,7 @@ class BrainRuntimeActionTests(unittest.TestCase):
                 for item in context.runtime_session_action_history
             ],
             [
-                "CLEAN_TOOL_RESULTS (count: 2)",
+                "CLEAN_TOOL_RESULTS, CLEAN_TOOL_RESULTS",
             ],
         )
 
@@ -1191,9 +1191,12 @@ class BrainRuntimeActionTests(unittest.TestCase):
             ] * 24,
         )
 
+        repeated_actions = ", ".join(
+            ["DELETE_ACTIVE_MEMORY"] * 24
+        )
         self.assertEqual(
             context.runtime_session_action_history[0]["text"],
-            "DELETE_ACTIVE_MEMORY (count: 24)",
+            repeated_actions,
         )
 
         prompt = build_brain_context(
@@ -1202,9 +1205,10 @@ class BrainRuntimeActionTests(unittest.TestCase):
         )
 
         self.assertIn(
-            "1. DELETE_ACTIVE_MEMORY (count: 24)",
+            f"1. {repeated_actions}",
             prompt,
         )
+        self.assertNotIn("(count:", prompt)
 
     def test_session_history_includes_loaded_and_unloaded_skill_names(self):
 

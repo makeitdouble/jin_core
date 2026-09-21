@@ -23,8 +23,7 @@ LEGACY_CHAT_LOG_DIR_RE = re.compile(
     r"^(?P<date>\d{4}-\d{2}-\d{2})-(?P<session>.+)$"
 )
 ACTIVE_MEMORY_ID_SUFFIX_RE = re.compile(
-    r"\[\s*active_memory_id\s*:\s*([^\]\s]+)\s*\]",
-    re.IGNORECASE,
+    r"\[\s*id\s*:\s*(AM-[a-z0-9]{6})\s*\]",
 )
 ACTIVE_MEMORY_KEY_RE = re.compile(
     r"^\s*(active_memory(?:_\d+)?)\s*:",

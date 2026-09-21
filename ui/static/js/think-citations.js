@@ -31,10 +31,9 @@
   const ACTIVE_MEMORY_VALUE_MIN_CHARS = 24;
 
   function normalizeActiveMemoryId(value) {
-    const normalized =
-      String(value || "").trim().toLowerCase();
+    const normalized = String(value || "").trim();
 
-    return /^[a-z0-9]{6}$/.test(normalized)
+    return /^AM-[a-z0-9]{6}$/.test(normalized)
       ? normalized
       : "";
   }
@@ -59,7 +58,7 @@
 
   function extractActiveMemoryId(value) {
     const match = String(value || "").match(
-      /\[\s*active_memory_id\s*:\s*([a-z0-9]{6})\s*\]/i
+      /\[\s*id\s*:\s*(AM-[a-z0-9]{6})\s*\]/
     );
 
     return match
@@ -125,7 +124,7 @@
       ? Number(slotMatch[1])
       : index + 1;
     const runtimeOwnedMetadataKeys = new Set([
-      "active_memory_id",
+      "id",
       "conditions",
       "status",
       "title",

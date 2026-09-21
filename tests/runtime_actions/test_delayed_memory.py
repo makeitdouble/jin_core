@@ -1171,13 +1171,13 @@ class RuntimeDelayedMemoryTests(RuntimeActionTestCase):
             [
                 (
                     "a1b2c3",
-                    "LOAD_DELAYED_MEMORY: First report",
+                    "LOAD_DELAYED_MEMORY",
                     "a1b2c3",
                     "First report",
                 ),
                 (
                     "b2c3d4",
-                    "LOAD_DELAYED_MEMORY: Second report",
+                    "LOAD_DELAYED_MEMORY",
                     "b2c3d4",
                     "Second report",
                 ),

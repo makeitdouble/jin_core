@@ -10,14 +10,16 @@ from utils.time_utils import (
 
 
 ACTIVE_MEMORY_SLOT_ID_RE = re.compile(
-    r"^[a-z0-9]{6}$",
+    r"^AM-[a-z0-9]{6}$",
 )
 
-SHORT_RUNTIME_ID_RE = ACTIVE_MEMORY_SLOT_ID_RE
+SHORT_RUNTIME_ID_RE = re.compile(
+    r"^[a-z0-9]{6}$",
+    re.IGNORECASE,
+)
 
 ACTIVE_MEMORY_SLOT_ID_SUFFIX_RE = re.compile(
-    r"\[\s*active_memory_id\s*:\s*([a-z0-9]{6})\s*\]",
-    re.IGNORECASE,
+    r"\[\s*id\s*:\s*(AM-[a-z0-9]{6})\s*\]",
 )
 
 ACTIVE_MEMORY_SLOT_ID_ALPHABET = (
@@ -47,7 +49,7 @@ ACTIVE_MEMORY_LIFECYCLE_SUFFIX_NAMES = (
 )
 
 ACTIVE_MEMORY_RUNTIME_MANAGED_SUFFIX_NAMES = (
-    "active_memory_id",
+    "id",
     *ACTIVE_MEMORY_LIFECYCLE_SUFFIX_NAMES,
     # Removed metadata is still consumed so historical records cannot expose
     # it as a custom field after the attention-only migration.
@@ -98,6 +100,18 @@ ACTIVE_MEMORY_RESERVED_CUSTOM_FIELD_NAMES = frozenset({
     "conditions",
     "trace",
 })
+
+
+def normalize_active_memory_slot_id(
+    value: str,
+) -> str:
+
+    normalized = str(value or "").strip()
+
+    if not ACTIVE_MEMORY_SLOT_ID_RE.fullmatch(normalized):
+        return ""
+
+    return f"AM-{normalized[3:].casefold()}"
 
 
 def normalize_active_memory_custom_field_name(
@@ -567,11 +581,11 @@ def collect_active_memory_slot_ids(
         for match in ACTIVE_MEMORY_SLOT_ID_SUFFIX_RE.finditer(
             str(text or "")
         ):
-            ids.add(
-                match.group(
-                    1
-                ).casefold()
+            active_memory_id = normalize_active_memory_slot_id(
+                match.group(1)
             )
+            if active_memory_id:
+                ids.add(active_memory_id)
 
     return ids
 

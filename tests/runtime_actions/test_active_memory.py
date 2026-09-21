@@ -472,6 +472,7 @@ class RuntimeActiveMemoryTests(RuntimeActionTestCase):
                 "id": "save_active_memory_001",
                 "status": "completed",
                 "display_name": "SAVE_ACTIVE_MEMORY",
+                "text": "SAVE_ACTIVE_MEMORY: remind later",
                 "close_tag": True,
                 "active_memory_id": (
                     context.emitter.events[0]["active_memory_id"]
@@ -1951,6 +1952,7 @@ class RuntimeActiveMemoryTests(RuntimeActionTestCase):
                     "id": "save_active_memory_001",
                     "status": "completed",
                     "display_name": "SAVE_ACTIVE_MEMORY",
+                    "text": "SAVE_ACTIVE_MEMORY: remember cuckoo",
                     "close_tag": True,
                 },
             ],
@@ -2025,6 +2027,7 @@ class RuntimeActiveMemoryTests(RuntimeActionTestCase):
                     "id": "save_active_memory_001",
                     "status": "completed",
                     "display_name": "SAVE_ACTIVE_MEMORY",
+                    "text": "SAVE_ACTIVE_MEMORY: remember cuckoo",
                     "close_tag": True,
                 },
             ],
@@ -2461,8 +2464,8 @@ class RuntimeActiveMemoryTests(RuntimeActionTestCase):
                 for event in context.emitter.events
             ],
             [
-                "completed",
                 "failed",
+                "completed",
             ],
         )
 

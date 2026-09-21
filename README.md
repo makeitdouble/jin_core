@@ -82,7 +82,7 @@ Current contract families include:
 
 * `WEB_SEARCH`, `DEEP_WEB_SEARCH`, and local `CHAT_LOG_SEARCH` when their capability gates allow them;
 * `CLEAN_TOOL_RESULTS`, `UPDATE_LT_FACTS`, and model-facing `<RECALL_FACTS_CONTEXT> F1, F2 </RECALL_FACTS_CONTEXT>`;
-* `SAVE_ACTIVE_MEMORY`, `UPDATE_ACTIVE_MEMORY`, and paired multi-ID `DELETE_ACTIVE_MEMORY`;
+* unified `SAVE_ACTIVE_MEMORY` for both create/update, plus paired multi-ID `DELETE_ACTIVE_MEMORY`;
 * `SAVE_DELAYED_MEMORY` and paired multi-ID `LOAD_DELAYED_MEMORY`; loaded reports are removable tool results, while only user-pinned reports enter the dedicated loaded-memory block;
 * `LIST_ALL_USER_SHARED_FILES`, plus skill-gated `ATTACH_FILE_CONTENT` and paired multi-ID `ATTACH_FILES_BY_ID` (internally `ATTACH_FILE_BY_ID` per file);
 * skill/assets actions. Model-facing `<LOAD_SKILLS_CONTEXT>` and `<UNLOAD_SKILLS_CONTEXT>` accept comma-separated skill lists; the internal actions remain singular;

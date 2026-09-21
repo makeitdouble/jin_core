@@ -485,12 +485,22 @@ function buildSessionActionColorSwatches(
 function expandSessionActionDisplayParts(
   parts,
 ) {
+  // One Session Actions row is one model message. Never turn repeated
+  // markers into separate rows: expand them only into comma-separated parts
+  // inside that message's existing row.
   return parts.flatMap((part) => {
     if (
       normalizeSessionActionName(part.text)
         !== "JIN_COLOR"
     ) {
-      return [part];
+      const repeatCount = Math.max(
+        1,
+        Number.parseInt(part.count || 0, 10) || 1
+      );
+      return Array.from(
+        { length: repeatCount },
+        () => ({ ...part, count: 0 })
+      );
     }
 
     if (!part.colors.length) {
@@ -625,22 +635,6 @@ function buildSessionActionRow(
 
       action.appendChild(
         message
-      );
-    }
-
-    if (part.count > 1) {
-      const count =
-        document.createElement("span");
-
-      count.textContent =
-        formatRuntimeActionCountLabel(
-          part.count
-        );
-      count.className =
-        "ml-1 opacity-70";
-
-      action.appendChild(
-        count
       );
     }
 

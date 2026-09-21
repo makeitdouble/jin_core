@@ -185,8 +185,8 @@ class SkillMarkerSemanticsTests(RuntimeActionTestCase):
         self.assertEqual(
             format_session_action_marker_names(counter.marker_actions()),
             (
-                "LIST_SKILLS (count: 2), "
-                "WEB_SEARCH - alpha (count: 2), "
+                "LIST_SKILLS, LIST_SKILLS, "
+                "WEB_SEARCH - alpha, WEB_SEARCH - alpha, "
                 "WEB_SEARCH - beta"
             ),
         )
@@ -207,7 +207,7 @@ class SkillMarkerSemanticsTests(RuntimeActionTestCase):
 
         self.assertEqual(
             format_session_action_marker_names(marker_actions),
-            "JIN_SIZE - 120px, JIN_COLOR",
+            "JIN_SIZE - 120px, JIN_COLOR: #ff69b4",
         )
 
     def test_active_memory_marker_history_keeps_payloads_separate(self):

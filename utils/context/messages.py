@@ -8,6 +8,7 @@ from xml.sax.saxutils import escape
 from runtime.runtime_context import RECENT_MESSAGES_MAX_PAIRS
 
 from .session_actions import (
+    build_previous_chat_action_messages,
     format_session_action_age,
 )
 
@@ -265,6 +266,7 @@ def build_previous_chat_messages_context_text(
     *,
     extra_user_message: str = "",
     extra_user_created_at=None,
+    context=None,
 ) -> str:
 
     turns = list(
@@ -310,6 +312,25 @@ def build_previous_chat_messages_context_text(
             )
             lines.append(
                 f"<USER>{escape(user_text)}"
+            )
+
+        action_messages = build_previous_chat_action_messages(
+            context,
+            turn.get("runtime_turn_id", ""),
+        )
+        for action_message in action_messages:
+            action_text = normalize_recent_message_text(
+                action_message.get("text", "")
+            )
+            if not action_text:
+                continue
+            action_text = append_context_message_age(
+                action_text,
+                action_message.get("created_at"),
+                now=now,
+            )
+            lines.append(
+                f"<JIN>{escape(action_text)}"
             )
 
         if jin_text:
@@ -395,6 +416,7 @@ def build_previous_chat_messages_context(
                 "runtime_turn_started_at",
                 None,
             ) if context is not None else None,
+            context=context,
         )
     else:
         base_context = ""

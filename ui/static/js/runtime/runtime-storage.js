@@ -1383,7 +1383,7 @@
     if (!/^active_memory(?:_\d+)?$/i.test(key)) return text;
 
     const value = text.slice(separatorIndex + 1).trim();
-    const idMatch = /\[\s*active_memory_id\s*:/i.exec(value);
+    const idMatch = /\[\s*id\s*:/.exec(value);
     const firstMetadataMatch = /\[\s*[a-z][a-z0-9_]{0,31}\s*:/i.exec(value);
     const metadataStart = idMatch
       ? idMatch.index
@@ -1519,6 +1519,23 @@
   }
 
 
+  function activeMemoryRecordHasId(record, activeMemoryId) {
+
+    const id = String(activeMemoryId || "").trim();
+
+    if (!/^AM-[a-z0-9]{6}$/.test(id)) {
+      return false;
+    }
+
+    const match = String(record || "").match(
+      /\[\s*id\s*:\s*(AM-[a-z0-9]{6})\s*\]/
+    );
+
+    return Boolean(match && match[1] === id);
+
+  }
+
+
   function appendActiveMemoryRecords(
     records
   ) {
@@ -1542,13 +1559,10 @@
     record
   ) {
 
-    const needle =
-      String(activeMemoryId || "")
-        .trim()
-        .toLowerCase();
+    const needle = String(activeMemoryId || "").trim();
     const nextRecord = String(record || "").trim();
 
-    if (!needle || !nextRecord) {
+    if (!/^AM-[a-z0-9]{6}$/.test(needle) || !nextRecord) {
       return readActiveMemoryRecords();
     }
 
@@ -1559,7 +1573,7 @@
 
         if (
           replaced
-          || !text.toLowerCase().includes(needle)
+          || !activeMemoryRecordHasId(text, needle)
         ) {
           return currentRecord;
         }
@@ -1582,17 +1596,14 @@
     activeMemoryId
   ) {
 
-    const needle =
-      String(activeMemoryId || "")
-        .trim()
-        .toLowerCase();
+    const needle = String(activeMemoryId || "").trim();
 
-    if (!needle) {
+    if (!/^AM-[a-z0-9]{6}$/.test(needle)) {
       return readActiveMemoryRecords();
     }
 
     const kept = readActiveMemoryRecords()
-      .filter(record => !String(record).toLowerCase().includes(needle));
+      .filter(record => !activeMemoryRecordHasId(record, needle));
 
     writeActiveMemoryRecords(
       kept

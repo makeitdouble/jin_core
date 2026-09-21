@@ -9,7 +9,7 @@ RUNTIME_SESSION_JS = (
 RUNTIME_ACTIONS_JS = (
     ROOT / "ui" / "static" / "js" / "socket" / "runtime-actions.js"
 )
-DISPATCHER_PY = ROOT / "utils" / "actions" / "dispatcher.py"
+CLEAN_ACTIONS_PY = ROOT / "utils" / "actions" / "clean_tool_results_actions.py"
 
 
 class CleanToolResultsBootstrapCheckpointContractTests(unittest.TestCase):
@@ -41,13 +41,10 @@ class CleanToolResultsBootstrapCheckpointContractTests(unittest.TestCase):
         self.assertNotIn("data.session_snapshot", block)
 
     def test_backend_clean_completion_no_longer_ships_full_session_snapshot(self):
-        source = DISPATCHER_PY.read_text(encoding="utf-8")
-        start = source.index("    if clean_tool_result_actions:")
-        end = source.index("await emit_rejected_active_memory_results", start)
-        block = source[start:end]
-
-        self.assertIn('payload["tool_results"] = checkpoint["tool_results"]', block)
-        self.assertNotIn('"session_snapshot": session_snapshot', block)
+        source = CLEAN_ACTIONS_PY.read_text(encoding="utf-8")
+        self.assertIn('payload["tool_results"] = checkpoint["tool_results"]', source)
+        self.assertIn('payload["tool_result_sequence"] = checkpoint["tool_result_sequence"]', source)
+        self.assertNotIn('"session_snapshot": session_snapshot', source)
 
 
 if __name__ == "__main__":

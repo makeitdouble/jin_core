@@ -2552,26 +2552,11 @@ function syncRuntimeActionMarkerCount(
     duplicate.remove();
   });
 
-  if (markerCount <= 1) {
-    if (countLabel) {
-      countLabel.remove();
-    }
-    return;
+  // Action bubbles are per-marker lifecycle projections. Marker counters are
+  // transport metadata and must never be rendered on a bubble.
+  if (countLabel) {
+    countLabel.remove();
   }
-
-  if (!countLabel) {
-    countLabel = document.createElement("span");
-    countLabel.className =
-      "jin-runtime-action-count";
-    label.appendChild(
-      countLabel
-    );
-  }
-
-  countLabel.textContent =
-    formatRuntimeActionCountLabel(
-      markerCount
-    );
 
 }
 
@@ -3754,6 +3739,30 @@ function appendRuntimeAction(
           )
         );
       });
+
+    // A terminal executor event must replace the visible started bubble.
+    // Counter/telemetry rows can carry the same id, so do not let one of
+    // those steal completion while the real lifecycle row keeps glowing.
+    if (
+        isRuntimeActionLifecycleTerminalStatus(
+          options.status
+        )
+        && (
+          !existingRow
+          || existingRow.dataset.runtimeActionLifecycleStarted !== "true"
+        )
+    ) {
+      const lifecycleRow =
+        findRuntimeActionLifecycleRow(
+          action,
+          options,
+          {allowBound: true}
+        );
+
+      if (lifecycleRow) {
+        existingRow = lifecycleRow;
+      }
+    }
 
     if (
         !existingRow

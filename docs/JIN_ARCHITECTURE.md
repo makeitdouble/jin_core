@@ -236,7 +236,6 @@ Current action names in runtime order are:
 - `LOAD_DELAYED_MEMORY`
 - `SAVE_ACTIVE_MEMORY`
 - `DELETE_ACTIVE_MEMORY`
-- `UPDATE_ACTIVE_MEMORY`
 
 The default `rules/brain_context_builder.py` feature map enables the listed capabilities. Search is an additional effective-capability gate: `WEB_SEARCH` and `DEEP_WEB_SEARCH` are removed from the model-facing action set unless `app_settings.settings.CAN_SEARCH` is true. `CAN_SEARCH` currently means provider `serper` plus a non-empty, non-placeholder key supplied through `SEARCH_SERPER_API_KEY` or `JIN_SEARCH_SERPER_API_KEY`; the runtime deliberately does not guess a provider-specific key shape and leaves credential validation to Serper. The Windows launcher loads repository-root `.env` values into its child JIN process, while direct `python app.py` starts require the variables to be exported by the calling shell. The search client enforces the same gate before making a request. `POSTING_BOARD` is separately gated by the loaded `posting_board` skill: the skill owns the per-action API contract and safety rules, while the native runtime action owns HTTP execution, tool-result projection, follow-ups, logging, and UI events. Its API token follows the same process-environment path through `GETPOSTINGBOARD_API_KEY` or `JIN_GETPOSTINGBOARD_API_KEY` and is deliberately omitted from request previews/tool results.
 
@@ -257,8 +256,7 @@ Important current compatibility boundaries:
 - `CLEAN_TOOL_RESULTS` is a strict paired block. Targeted cleanup uses `<CLEAN_TOOL_RESULTS> T1, T2, T3 </CLEAN_TOOL_RESULTS>` with comma-separated exact tool-result IDs; the entire list is validated before mutation. An empty `<CLEAN_TOOL_RESULTS></CLEAN_TOOL_RESULTS>` block performs full cleanup, including legacy ID-less results. The former bare marker and `<CLEAN_TOOL_RESULTS: T1 >` form are not executable compatibility syntax.
 - `JIN_COLOR` and `JIN_SIZE` advertise paired XML with their payload in the tag body. Legacy inline/colon/space forms remain parser compatibility only. The stream filter must remove only the marker and preserve ordinary answer text before and after it, even across chunk boundaries.
 - `JIN_SIZE` normalization preserves positive decimal `px`, `vw`, `vh`, and `%` values instead of stripping their units. Unitless values become `px`. The browser resolves relative values at application time against its live viewport: `%` uses the matching width/height axis, while `vw` and `vh` always use viewport width and height respectively. The ordinary room-state checkpoint still stores the clamped rendered pixel geometry, so reload does not reinterpret an old relative command against a different window.
-- `UPDATE_ACTIVE_MEMORY` is advertised as paired JSON containing `active_memory_id` plus `fields_to_update`. Localized compatibility code can still read legacy flat/nested/line-based payloads and a self-closing attribute form, but none of those are canonical model syntax.
-- `SAVE_ACTIVE_MEMORY` keeps `conditions` and optional custom fields at the JSON root and does not infer custom fields from parenthesized plain prose. Only explicit JSON root fields are structural custom fields; non-JSON text remains the `conditions` value.
+- `SAVE_ACTIVE_MEMORY` is the single create/update contract. Without root `id`, it creates from `conditions` plus optional custom root fields. With root `id`, it updates that existing record using the remaining root fields; `conditions` may always change and custom fields must already exist. Parenthesized plain prose is never promoted into schema. Old `UPDATE_ACTIVE_MEMORY` payload shapes are rejected; the current write parser accepts only the flat `SAVE_ACTIVE_MEMORY` JSON shape and exact `AM-xxxxxx` IDs.
 - `LOAD_SKILLS_CONTEXT` and `UNLOAD_SKILLS_CONTEXT` are public list markers for the singular internal actions. The immediately previous singular `*_SKILL_CONTEXT` paired tags remain localized reader compatibility; the model contract advertises only the plural list forms.
 - `JIN_REACTION` advertises paired XML with a single emoji. Its older colon form remains parser/display compatibility only.
 
@@ -407,11 +405,15 @@ Current model-facing boundary:
 {"conditions":"...","custom_field":"..."}
 ```
 
-`UPDATE_ACTIVE_MEMORY` exposes one canonical JSON shape: `active_memory_id` plus a `fields_to_update` object containing every field change.
+The same `SAVE_ACTIVE_MEMORY` block updates when `id` is present, for example:
+
+```json
+{"id":"AM-abcdef","conditions":"updated...","custom_field":"new value"}
+```
 
 Creation custom fields are explicit structure only: JSON root fields beside `conditions` are accepted (up to the current three-custom-field cap), while non-JSON text is preserved as conditions and is not mined for `(field: value)` suffixes. Duplicate normalized JSON keys follow normal last-value-wins behavior before the cap is applied.
 
-Compatibility code still accepts legacy nested `fields`/`updates`, older line-based update payloads, and a self-closing UPDATE attribute form. Those are localized reader compatibility. Internally/browser-side, Active Memory is still represented in a transitional string-record format with metadata suffixes; that is an implementation detail, not the desired model-facing schema.
+Historical nested `fields`/`updates`, line-based update payloads, self-closing UPDATE attribute forms, old `active_memory_id` storage fields, and bare six-character Active Memory IDs are not accepted by the current write/storage path. Internally/browser-side, Active Memory is still represented in a string-record format with metadata suffixes; the identity suffix is `[ id: AM-xxxxxx ]`.
 
 Paused Active records are removed from the Brain prompt. Memory Attention may reorder the prompt projection by lexical/context relevance without changing canonical storage order.
 
@@ -523,7 +525,7 @@ JIN deliberately splits persistence by owner/lifetime.
 | --- | --- |
 | live runtime FRAME for soft reconnect | `sessionStorage`: `jin.liveRuntimeMemory.v2` |
 | atomic browser session checkpoint | `localStorage`: `jin.sessionCheckpoint.v2` |
-| Active Memory | `memory/active/<active_memory_id>.json`; anonymous uses `<active_memory_id>_anon.json` |
+| Active Memory | `memory/active/<id>.json`; anonymous uses `<id>_anon.json`; ids use `AM-xxxxxx` |
 | Facts Memory candidates / pending extraction | `memory/facts/pending_facts.json`; anonymous uses `pending_facts_anon.json` |
 | Delayed Memory | `memory/delayed/*.json`; anonymous reports use the `_anon.json` suffix |
 | L-T facts | `memory/facts/long_term_facts.json`; anonymous uses `long_term_facts_anon.json` |

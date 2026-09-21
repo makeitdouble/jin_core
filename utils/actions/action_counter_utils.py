@@ -361,25 +361,16 @@ def format_runtime_action_count(
         return ""
 
     try:
-        normalized_count = max(
-            0,
-            int(
-                count
-                or 0
-            ),
-        )
-    except (
-        TypeError,
-        ValueError,
-    ):
-        normalized_count = 0
+        normalized_count = max(1, int(count or 0))
+    except (TypeError, ValueError):
+        normalized_count = 1
 
-    if normalized_count <= 1:
-        return normalized_text
-
-    return (
-        f"{normalized_text} "
-        f"(count: {normalized_count})"
+    # A count represents real repeated markers compressed into one structured
+    # part. Project those markers individually instead of displaying lossy
+    # bookkeeping such as ``(count: N)``.
+    return ", ".join(
+        normalized_text
+        for _ in range(normalized_count)
     )
 
 

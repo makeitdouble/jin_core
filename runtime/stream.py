@@ -59,6 +59,7 @@ from utils.actions import (
     RuntimeActionRepetitionGuard,
     RuntimeActionStreamFilter,
 )
+from utils.actions.action_registry import apply_action_feedback
 from runtime.behavior_contract import (
     get_action_guard_name_for_runtime_action,
     get_action_guard_triggers,
@@ -2813,6 +2814,11 @@ class RuntimeStream:
 
             if action_context_snapshot:
                 payload["context"] = action_context_snapshot
+
+            payload = apply_action_feedback(
+                action,
+                payload,
+            )
 
             mark_runtime_action_started(
                 self.context,

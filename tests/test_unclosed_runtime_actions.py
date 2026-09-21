@@ -101,6 +101,37 @@ class UnclosedParserTests(TestCase):
             self.assertEqual([a.name for r in results for a in r.failed_actions], [name])
             self.assertTrue(all(a.name == name for r in results for a in r.started_actions))
 
+    def test_closed_outer_block_keeps_nested_marker_text_in_payload(self):
+        payload = (
+            '{"conditions":"demo <JIN_REACTION>.",'
+            '"custom_field":"topic","custom_value":"markers"}'
+        )
+        text = (
+            'before <SAVE_ACTIVE_MEMORY>'
+            + payload
+            + '</SAVE_ACTIVE_MEMORY> after'
+        )
+
+        for label, chunks in (("whole", [text]), ("charwise", list(text))):
+            with self.subTest(chunks=label):
+                _, results = parse_chunks(chunks)
+                visible_text = ''.join(r.text for r in results)
+                self.assertEqual(
+                    ' '.join(visible_text.split()),
+                    'before after',
+                )
+                self.assertNotIn('SAVE_ACTIVE_MEMORY', visible_text)
+                self.assertNotIn('JIN_REACTION', visible_text)
+                self.assertEqual(
+                    [(a.name, a.payload) for r in results for a in r.actions],
+                    [('SAVE_ACTIVE_MEMORY', payload)],
+                )
+                self.assertFalse([a for r in results for a in r.failed_actions])
+                self.assertEqual(
+                    [a.name for r in results for a in r.started_actions],
+                    ['SAVE_ACTIVE_MEMORY'],
+                )
+
     def test_complete_then_incomplete_and_partial_false_prefix(self):
         _, results = parse_chunks(list('<UPDATE_LT_FACTS>first</UPDATE_LT_FACTS><UPDATE_LT_FACTS>second'))
         self.assertEqual(len([a for r in results for a in r.actions]), 1)

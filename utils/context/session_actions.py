@@ -250,6 +250,17 @@ def _format_session_action_context_parts(
             )
             or ""
         ).strip()
+        if part_text.upper() == "JIN_COLOR":
+            colors = part.get("colors", [])
+            formatted_colors = format_session_action_display_parts([
+                {
+                    "text": "JIN_COLOR",
+                    "colors": colors,
+                },
+            ])
+            if formatted_colors:
+                context_parts.append(formatted_colors)
+                continue
         part_detail = str(
             part.get(
                 "detail",
@@ -355,6 +366,46 @@ def _format_context_action_text(
             or ""
         ).strip(),
     )
+
+
+def build_previous_chat_action_messages(
+    context,
+    runtime_turn_id: str,
+) -> list[dict]:
+    """Project one turn's executed actions as timestamped JIN messages."""
+
+    turn_id = str(runtime_turn_id or "").strip()
+    if context is None or not turn_id:
+        return []
+
+    session_id = get_session_action_session_id(context)
+    messages = []
+    for raw_item in list(
+        getattr(context, "runtime_session_action_history", []) or []
+    ):
+        item = _normalize_session_action_history_item(raw_item)
+        if (
+            not item["text"]
+            or item["runtime_turn_id"] != turn_id
+            or not session_action_belongs_to_session(item, session_id)
+        ):
+            continue
+
+        text = _format_context_action_text(
+            _format_session_action_context_parts(
+                item.get("parts", []),
+                fallback_text=item["text"],
+            )
+        )
+        if not text:
+            continue
+
+        messages.append({
+            "text": text,
+            "created_at": item.get("created_at"),
+        })
+
+    return messages
 
 
 def _format_jin_message_content(

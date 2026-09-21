@@ -177,8 +177,9 @@ async def emit_jin_visual_sequences(
                     "y": event["y"],
                 }
             elif action_name == RUNTIME_ACTION_JIN_COLOR:
-                created_at = time.time()
                 color = event["color"]
+                context.jin_color = color
+                created_at = time.time()
                 event_id = f"{sequence_id}:{sequence_index}"
                 session_action = {
                     "id": event_id,

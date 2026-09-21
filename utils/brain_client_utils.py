@@ -84,6 +84,7 @@ from utils.actions import (
     is_active_memory_record_paused,
     normalize_active_memory_custom_field_name,
     normalize_active_memory_custom_field_value,
+    normalize_active_memory_slot_id,
     parse_delayed_memory_payload,
     parse_update_active_memory_payload,
     normalize_jin_color_payload,
@@ -812,7 +813,7 @@ def build_active_memory_runtime_line(
         part
         for part in (
             visible_value,
-            f"[ active_memory_id: {active_memory_id} ]",
+            f"[ id: {active_memory_id} ]",
             suffix_text,
             "[ status: pending ]",
         )
@@ -848,7 +849,7 @@ def normalize_active_memory_content_for_duplicate_check(
     )
     memory = re.sub(
         (
-            r"\s*\[\s*(?:active_memory_id|creation_time|"
+            r"\s*\[\s*(?:id|creation_time|"
             r"created_session_id|created_jin_message_number|"
             r"elapsed_time|elapsed_jin_message_number|updated_at|status)"
             r"\s*:\s*[^\]]*\]\s*"
@@ -959,25 +960,6 @@ ACTIVE_MEMORY_RUNTIME_LINE_RE = re.compile(
     r"^\s*active_memory(?:_\d+)?\s*:",
     re.IGNORECASE,
 )
-UPDATE_ACTIVE_MEMORY_SLOT_KEY_RE = re.compile(
-    r"^active_memory_[1-9]\d*$",
-    re.IGNORECASE,
-)
-
-UPDATE_ACTIVE_MEMORY_SLOT_KEY_TOKEN_RE = re.compile(
-    r"(?<![a-z0-9_])(active_memory_[1-9]\d*)(?![a-z0-9_])",
-    re.IGNORECASE,
-)
-
-UPDATE_ACTIVE_MEMORY_OPEN_TAG_RE = re.compile(
-    r"^\s*<\s*UPDATE_ACTIVE_MEMORY(?:\s*:\s*([^>]*?))?\s*>\s*$",
-    re.IGNORECASE,
-)
-
-UPDATE_ACTIVE_MEMORY_CLOSE_TAG_RE = re.compile(
-    r"^\s*</\s*UPDATE_ACTIVE_MEMORY\s*>\s*$",
-    re.IGNORECASE,
-)
 
 def _collect_context_active_memory_sources(
     context,
@@ -1003,278 +985,14 @@ def _collect_context_active_memory_sources(
     ]
 
 
-def _extract_update_active_memory_slot_key(
-    payload: str,
-) -> str:
-
-    for line in str(
-        payload or ""
-    ).splitlines():
-        text = str(
-            line or ""
-        ).strip()
-
-        if not text:
-            continue
-
-        match = UPDATE_ACTIVE_MEMORY_SLOT_KEY_TOKEN_RE.search(
-            text
-        )
-        if match is None:
-            return ""
-
-        return match.group(
-            1
-        ).casefold()
-
-    return ""
-
-
-def _unwrap_update_active_memory_marker_payload(
-    payload: str,
-) -> str:
-
-    attribute_payload = ""
-    payload_lines = []
-    did_read_first_line = False
-
-    for line in str(
-        payload or ""
-    ).splitlines():
-        text = str(
-            line or ""
-        ).strip()
-
-        if not text:
-            continue
-
-        if not did_read_first_line:
-            did_read_first_line = True
-            match = UPDATE_ACTIVE_MEMORY_OPEN_TAG_RE.fullmatch(
-                text
-            )
-
-            if match is not None:
-                attribute_payload = str(
-                    match.group(1)
-                    or ""
-                ).strip()
-                continue
-
-        if UPDATE_ACTIVE_MEMORY_CLOSE_TAG_RE.fullmatch(
-            text
-        ):
-            continue
-
-        payload_lines.append(
-            text
-        )
-
-    return "\n".join(
-        part
-        for part in (
-            attribute_payload,
-            *payload_lines,
-        )
-        if part
-    )
-
-
-def _extract_update_active_memory_json_slot_key(
-    payload: str,
-) -> str:
-
-    text = str(
-        payload or ""
-    ).strip()
-
-    if not text.startswith("{"):
-        return ""
-
-    try:
-        data = json.loads(text)
-    except (TypeError, ValueError):
-        return ""
-
-    if not isinstance(
-        data,
-        dict,
-    ):
-        return ""
-
-    candidate = str(
-        data.get("active_memory_id")
-        or data.get("id")
-        or ""
-    ).strip().casefold()
-
-    if UPDATE_ACTIVE_MEMORY_SLOT_KEY_RE.fullmatch(
-        candidate
-    ):
-        return candidate
-
-    return ""
-
-
-def _replace_update_active_memory_json_slot_key(
-    payload: str,
-    active_memory_id: str,
-) -> str:
-
-    text = str(
-        payload or ""
-    ).strip()
-
-    if not text.startswith("{"):
-        return ""
-
-    try:
-        data = json.loads(text)
-    except (TypeError, ValueError):
-        return ""
-
-    if not isinstance(
-        data,
-        dict,
-    ):
-        return ""
-
-    for key in (
-        "active_memory_id",
-        "id",
-    ):
-        candidate = str(
-            data.get(key)
-            or ""
-        ).strip().casefold()
-
-        if UPDATE_ACTIVE_MEMORY_SLOT_KEY_RE.fullmatch(
-            candidate
-        ):
-            data[key] = active_memory_id
-            return json.dumps(
-                data,
-                ensure_ascii=False,
-            )
-
-    return ""
-
-
-def _find_active_memory_slot_record_by_key(
-    context,
-    active_memory_key: str,
-) -> str:
-
-    normalized_key = str(
-        active_memory_key or ""
-    ).strip().casefold()
-
-    if not UPDATE_ACTIVE_MEMORY_SLOT_KEY_RE.fullmatch(
-        normalized_key
-    ):
-        return ""
-
-    for source in _collect_context_active_memory_sources(
-        context
-    ):
-        for line in str(
-            source or ""
-        ).splitlines():
-            key, separator, _ = str(
-                line or ""
-            ).partition(":")
-
-            if (
-                separator
-                and key.strip().casefold() == normalized_key
-                and ACTIVE_MEMORY_RUNTIME_LINE_RE.match(line)
-                and not is_active_memory_record_paused(line)
-            ):
-                return line.strip()
-
-    return ""
-
-
-def normalize_update_active_memory_payload_reference(
-    context,
-    payload: str,
-) -> tuple[str, str, str]:
-
-    original_payload = _unwrap_update_active_memory_marker_payload(
-        payload
-    )
-    slot_key = _extract_update_active_memory_slot_key(
-        original_payload
-    ) or _extract_update_active_memory_json_slot_key(
-        original_payload
-    )
-
-    if not slot_key:
-        return original_payload, "", ""
-
-    slot_record = _find_active_memory_slot_record_by_key(
-        context,
-        slot_key,
-    )
-    active_memory_ids = sorted(
-        collect_active_memory_slot_ids(
-            slot_record
-        )
-    )
-    active_memory_id = (
-        active_memory_ids[0]
-        if active_memory_ids
-        else ""
-    )
-
-    if not active_memory_id:
-        return original_payload, slot_key, ""
-
-    json_payload = _replace_update_active_memory_json_slot_key(
-        original_payload,
-        active_memory_id,
-    )
-    if json_payload:
-        return json_payload, slot_key, active_memory_id
-
-    lines = []
-    did_write_id = False
-
-    for line in original_payload.splitlines():
-        text = str(
-            line or ""
-        ).strip()
-
-        if not text:
-            continue
-
-        if UPDATE_ACTIVE_MEMORY_CLOSE_TAG_RE.fullmatch(
-            text
-        ):
-            continue
-
-        if not did_write_id:
-            lines.append(
-                active_memory_id
-            )
-            did_write_id = True
-            continue
-
-        lines.append(
-            text
-        )
-
-    return "\n".join(lines), slot_key, active_memory_id
-
-
 def remove_active_memory_slot_from_text(
     memory: str,
     active_memory_id: str,
 ) -> tuple[str, bool]:
 
-    active_memory_id = str(
-        active_memory_id or ""
-    ).strip().casefold()
+    active_memory_id = normalize_active_memory_slot_id(
+        active_memory_id
+    )
 
     if not active_memory_id:
         return (
@@ -1330,9 +1048,9 @@ def find_active_memory_slot_record(
     active_memory_id: str,
 ) -> str:
 
-    normalized_id = str(
-        active_memory_id or ""
-    ).strip().casefold()
+    normalized_id = normalize_active_memory_slot_id(
+        active_memory_id
+    )
 
     if not normalized_id:
         return ""
@@ -1392,7 +1110,7 @@ def build_active_memory_delete_failure_result(
     ).strip()
     detail = (
         "Active memory was not deleted. "
-        "Use an exact 6-character active_memory_id from <ACTIVE_MEMORY> "
+        "Use an exact Active Memory id in AM-xxxxxx format from <ACTIVE_MEMORY> "
         "and retry only for a record that is still pending."
     )
 
@@ -1601,20 +1319,7 @@ async def update_active_memory_runtime_record(
     if context is None:
         return result
 
-    normalized_payload, requested_reference, resolved_reference_id = (
-        normalize_update_active_memory_payload_reference(
-            context,
-            payload,
-        )
-    )
-
-    if requested_reference:
-        result["requested_id"] = requested_reference
-
-    if requested_reference and not resolved_reference_id:
-        result["id"] = requested_reference
-        result["error"] = "active_memory_not_found"
-        return result
+    normalized_payload = str(payload or "").strip()
 
     active_memory_id, changes = parse_update_active_memory_payload(
         normalized_payload

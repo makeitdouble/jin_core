@@ -140,11 +140,11 @@ Canonical form:
 
 **Status:** Accepted / implemented at the model boundary; internal storage remains transitional
 
-`SAVE_ACTIVE_MEMORY` uses a paired block whose JSON root contains `conditions` plus optional explicit custom fields. `UPDATE_ACTIVE_MEMORY` uses a paired block with `active_memory_id` and a mandatory `fields_to_update` object; even a one-field update goes inside that object.
+`SAVE_ACTIVE_MEMORY` is the single paired create/update block. Without `id`, its JSON root contains required `conditions` plus optional explicit custom fields and creates a record. With `id`, it updates that exact existing active-memory record and every other root field is a requested change; `conditions` may always change and custom fields must already exist.
 
-**Why:** the create and update responsibilities are explicit, update keys are constrained to existing fields, and prose cannot be silently promoted into structure.
+**Why:** one action owns the Active Memory write path while the presence of `id` makes create versus update explicit; update keys remain constrained to existing fields, and prose cannot be silently promoted into structure.
 
-**Compatibility rule:** old flat/nested `fields`/`updates`, line-based updates, and a self-closing UPDATE attribute form may be accepted by localized compatibility code but must not be taught as current syntax. SAVE custom fields come only from explicit JSON root fields; plain prose/parenthesized text remains conditions.
+**Strict format rule:** Active Memory updates accept only flat `SAVE_ACTIVE_MEMORY` JSON with exact `id: "AM-xxxxxx"`; old UPDATE markers/shapes, nested `fields`/`updates`, `active_memory_id`, and bare six-character IDs are rejected. SAVE custom fields come only from explicit JSON root fields; plain prose/parenthesized text remains conditions.
 
 ---
 

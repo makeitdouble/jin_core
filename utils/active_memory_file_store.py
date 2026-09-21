@@ -14,8 +14,8 @@ def record_payload(record):
     if not re.fullmatch(r"active_memory(?:_\d+)?", key.strip()):
         raise ValueError("Invalid Active key")
     tags = list(TAG.finditer(value))
-    identity = next((m for m in tags if m[1].strip() == "active_memory_id"), None)
-    if identity is None or not re.fullmatch(r"[a-z0-9]{6}", identity[2].strip()):
+    identity = next((m for m in tags if m[1].strip() == "id"), None)
+    if identity is None or not re.fullmatch(r"AM-[a-z0-9]{6}", identity[2].strip()):
         raise ValueError("Invalid Active id")
     return {
         "key": key.strip(), "conditions": value[:identity.start()].strip(),
@@ -46,9 +46,9 @@ def persist_active_records(records, *, root=ACTIVE_MEMORY_ROOT, anonymous=False)
     root = Path(root)
     suffix = "_anon" if anonymous else ""
     payloads = [record_payload(row) for row in records]
-    names = {f"{p['active_memory_id']}{suffix}.json" for p in payloads}
+    names = {f"{p['id']}{suffix}.json" for p in payloads}
     for payload in payloads:
-        atomic_write_json(root / f"{payload['active_memory_id']}{suffix}.json", payload)
+        atomic_write_json(root / f"{payload['id']}{suffix}.json", payload)
     for path in root.glob("*.json"):
         if path.stem.endswith("_anon") == anonymous and path.name not in names:
             path.unlink()

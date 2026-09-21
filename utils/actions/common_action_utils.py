@@ -748,9 +748,6 @@ def normalize_runtime_action_names(
             normalized_names.append(
                 RUNTIME_ACTION_DELETE_ACTIVE_MEMORY
             )
-            normalized_names.append(
-                RUNTIME_ACTION_UPDATE_ACTIVE_MEMORY
-            )
 
         if normalized_name == RUNTIME_ACTION_SAVE_DELAYED_MEMORY:
             normalized_names.append(
@@ -2202,12 +2199,37 @@ def _extract_runtime_actions_if_needed(
     )
 
 
+def _complete_runtime_action_block_ranges(
+    text: str,
+    enabled_actions=None,
+) -> tuple[tuple[int, int], ...]:
+
+    ranges = []
+
+    for action_name in normalize_runtime_action_names(enabled_actions):
+        if action_name not in CLOSE_TAG_RUNTIME_ACTIONS:
+            continue
+
+        private_marker, _ = _runtime_action_marker_config(action_name)
+        ranges.extend(
+            (match.start, match.end)
+            for match in find_runtime_action_matches(
+                text, private_marker, action_name, True
+            )
+        )
+
+    return tuple(ranges)
+
+
 def _unclosed_internal_action_request_start(
     text: str,
     enabled_actions=None,
 ) -> int | None:
 
     names = normalize_runtime_action_names(enabled_actions)
+    complete_block_ranges = _complete_runtime_action_block_ranges(
+        text, names,
+    )
     malformed_start = find_pending_malformed_action_start(
         text, names, _short_payload_action_names(names),
     )
@@ -2261,6 +2283,15 @@ def _unclosed_internal_action_request_start(
             marker_starts.append(
                 marker_start
             )
+
+    marker_starts = [
+        marker_start
+        for marker_start in marker_starts
+        if not any(
+            block_start < marker_start < block_end
+            for block_start, block_end in complete_block_ranges
+        )
+    ]
 
     if not marker_starts:
         return None
@@ -2447,6 +2478,9 @@ class RuntimeActionStreamFilter:
     ) -> tuple[RuntimeActionCall, ...]:
 
         marker_starts = []
+        complete_block_ranges = _complete_runtime_action_block_ranges(
+            text, self.enabled_actions,
+        )
         candidate_action_names = (
             tuple(action_names)
             if action_names is not None
@@ -2468,13 +2502,21 @@ class RuntimeActionStreamFilter:
             for match in start_pattern.finditer(
                 text
             ):
+                marker_start = match.start()
+
+                if any(
+                    block_start < marker_start < block_end
+                    for block_start, block_end in complete_block_ranges
+                ):
+                    continue
+
                 marker_starts.append(
-                    match.start()
+                    marker_start
                 )
 
             # UPDATE_ACTIVE_MEMORY also supports the compact self-closing
             # attribute form, e.g.
-            # <UPDATE_ACTIVE_MEMORY active_memory_id="abc123" field="x" />.
+            # <UPDATE_ACTIVE_MEMORY id="AM-abc123" field="x" />.
             # Detect the opening name itself, before the attribute payload
             # is complete, so its pending bubble lights up while streaming.
             if action_name == RUNTIME_ACTION_UPDATE_ACTIVE_MEMORY:

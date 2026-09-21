@@ -1,13 +1,135 @@
 import unittest
+from unittest.mock import patch
 from types import SimpleNamespace
 
 from utils.context.messages import (
+    build_previous_chat_messages_context,
     build_previous_chat_messages_context_text,
 )
-from websocket.messages import append_interrupted_runtime_recent_turn
+from utils.context.session_actions import build_session_actions_history_context
+from utils.session_actions_history import upsert_session_action_marker_history_since
+from websocket.messages import (
+    append_interrupted_runtime_recent_turn,
+    append_runtime_recent_turn,
+)
 
 
 class PreviousChatMessagesContextTests(unittest.TestCase):
+
+    def test_projects_executed_actions_as_timestamped_jin_messages(self):
+        context = SimpleNamespace(
+            session_id="session-1",
+            runtime_restored_session_dialog="",
+            runtime_current_sequence_jin_messages=[],
+            runtime_recent_turns=[{
+                "user": "помигай своим цветом",
+                "jin": "",
+                "runtime_turn_id": "turn-7",
+                "user_created_at": 100.0,
+            }],
+            runtime_session_action_history=[],
+            runtime_current_sequence_turn_id="turn-7",
+            runtime_action_events=[],
+        )
+
+        colors = [
+            "#00f2ff",
+            "#ff00cc",
+            "#00f2ff",
+            "#ff00cc",
+            "#00f2ff",
+        ]
+        with patch(
+            "utils.session_actions_history.time.time",
+            return_value=110.0,
+        ):
+            self.assertTrue(
+                upsert_session_action_marker_history_since(
+                    context,
+                    0,
+                    [{
+                        "name": "JIN_COLOR",
+                        "marker_count": 5,
+                        "payloads": colors,
+                        "raw_payloads": colors,
+                        "colors": colors,
+                    }],
+                )
+            )
+
+        with patch(
+            "utils.context.messages.time.time",
+            return_value=170.0,
+        ):
+            context_text = build_previous_chat_messages_context(context)
+
+        self.assertIn("<USER>помигай своим цветом", context_text)
+        self.assertIn(
+            (
+                "<JIN>JIN_COLOR: #00f2ff, JIN_COLOR: #ff00cc, "
+                "JIN_COLOR: #00f2ff, JIN_COLOR: #ff00cc, "
+                "JIN_COLOR: #00f2ff ( 1m ago )"
+            ),
+            context_text,
+        )
+
+        with patch(
+            "utils.context.session_actions.time.time",
+            return_value=170.0,
+        ):
+            session_actions = build_session_actions_history_context(context)
+
+        self.assertIn(
+            (
+                "1. JIN_COLOR: #00f2ff, JIN_COLOR: #ff00cc, "
+                "JIN_COLOR: #00f2ff, JIN_COLOR: #ff00cc, "
+                "JIN_COLOR: #00f2ff ( 1m ago )"
+            ),
+            session_actions,
+        )
+        self.assertNotIn("count: 5", session_actions)
+
+    def test_does_not_project_actions_from_another_runtime_turn(self):
+        context = SimpleNamespace(
+            session_id="session-1",
+            runtime_restored_session_dialog="",
+            runtime_current_sequence_jin_messages=[],
+            runtime_recent_turns=[{
+                "user": "current request",
+                "jin": "visible answer",
+                "runtime_turn_id": "turn-2",
+            }],
+            runtime_session_action_history=[{
+                "text": "SAVE_ACTIVE_MEMORY - stale",
+                "created_at": 110.0,
+                "runtime_turn_id": "turn-1",
+                "session_id": "session-1",
+            }],
+        )
+
+        context_text = build_previous_chat_messages_context(context)
+
+        self.assertNotIn("SAVE_ACTIVE_MEMORY", context_text)
+        self.assertIn("<JIN>visible answer", context_text)
+
+    def test_recent_turn_keeps_runtime_turn_identity_for_action_projection(self):
+        context = SimpleNamespace(
+            runtime_recent_turns=[],
+            runtime_restored_session_dialog="",
+            runtime_current_sequence_turn_id="turn-9",
+            runtime_turn_jin_reaction="",
+        )
+
+        append_runtime_recent_turn(
+            context,
+            user_message="save it",
+            assistant_message="",
+        )
+
+        self.assertEqual(
+            context.runtime_recent_turns[0]["runtime_turn_id"],
+            "turn-9",
+        )
 
     def test_preserves_complete_recent_messages_without_character_crop(self):
 

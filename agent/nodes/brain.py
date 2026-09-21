@@ -70,6 +70,9 @@ from utils.runtime_action_abort import (
 from utils.actions import (
     RuntimeActionCall,
 )
+from utils.actions.action_registry import (
+    apply_action_feedback,
+)
 
 from utils.actions.action_counter_utils import (
     format_runtime_action_count,
@@ -2957,33 +2960,61 @@ class BrainNode(BaseNode):
                     f"id={tool_call_id!r} objective={objective!r}"
                 )
 
-                deep_search_result = await run_deep_web_search(
-                    context=context,
-                    objective=objective,
-                    context_snapshot=deep_search_call.get("context"),
-                    parent_action_id=tool_call_id,
+                deep_search_action = RuntimeActionCall(
+                    name=RUNTIME_ACTION_DEEP_WEB_SEARCH,
+                    payload=str(deep_search_call.get("payload") or objective),
                 )
+                try:
+                    deep_search_result = await run_deep_web_search(
+                        context=context,
+                        objective=objective,
+                        context_snapshot=deep_search_call.get("context"),
+                        parent_action_id=tool_call_id,
+                    )
+                except Exception as exc:
+                    failed_event = apply_action_feedback(
+                        deep_search_action,
+                        {
+                            "type": "runtime_action",
+                            "action": RUNTIME_ACTION_DEEP_WEB_SEARCH.lower(),
+                            "display_name": get_runtime_action_display_name(
+                                RUNTIME_ACTION_DEEP_WEB_SEARCH
+                            ),
+                            "id": tool_call_id,
+                            "status": "failed",
+                            "error": type(exc).__name__,
+                            "detail": str(exc),
+                            "query": objective,
+                            "scene_effect": "search",
+                            "context": deep_search_call.get("context"),
+                            "deep_search_parent": True,
+                            "deep_search_payload_ready": True,
+                        },
+                    )
+                    await context.websocket.send_json(failed_event)
+                    raise
 
                 deep_search_display_name = (
                     get_runtime_action_display_name(
                         RUNTIME_ACTION_DEEP_WEB_SEARCH
                     )
                 )
-                await context.websocket.send_json({
-                    "type": "runtime_action",
-                    "action": RUNTIME_ACTION_DEEP_WEB_SEARCH.lower(),
-                    "display_name": deep_search_display_name,
-                    "id": tool_call_id,
-                    "status": "completed",
-                    "text": (
-                        f"{deep_search_display_name}: {objective}"
-                    ),
-                    "query": objective,
-                    "scene_effect": "search",
-                    "context": deep_search_call.get("context"),
-                    "deep_search_parent": True,
-                    "deep_search_payload_ready": True,
-                })
+                completed_event = apply_action_feedback(
+                    deep_search_action,
+                    {
+                        "type": "runtime_action",
+                        "action": RUNTIME_ACTION_DEEP_WEB_SEARCH.lower(),
+                        "display_name": deep_search_display_name,
+                        "id": tool_call_id,
+                        "status": "completed",
+                        "query": objective,
+                        "scene_effect": "search",
+                        "context": deep_search_call.get("context"),
+                        "deep_search_parent": True,
+                        "deep_search_payload_ready": True,
+                    },
+                )
+                await context.websocket.send_json(completed_event)
                 mark_runtime_action_completed(
                     context,
                     action=RUNTIME_ACTION_DEEP_WEB_SEARCH,
@@ -3065,34 +3096,61 @@ class BrainNode(BaseNode):
                     )
                 )
 
-                await context.websocket.send_json({
-                    "type": "runtime_action",
-                    "action": RUNTIME_ACTION_WEB_SEARCH.lower(),
-                    "display_name": search_display_name,
-                    "id": tool_call_id,
-                    "text": (
-                        f"{search_display_name}: {query}"
-                    ),
-                    "query": query,
-                    "scene_effect": "search",
-                    "context": search_call.get(
-                        "context",
-                    ),
-                })
-
-                search_result = await self.run_search_action(
-                    context=context,
-                    query=query,
+                search_action = RuntimeActionCall(
+                    name=RUNTIME_ACTION_WEB_SEARCH,
+                    payload=str(search_call.get("payload") or query),
                 )
+                await context.websocket.send_json(apply_action_feedback(
+                    search_action,
+                    {
+                        "type": "runtime_action",
+                        "action": RUNTIME_ACTION_WEB_SEARCH.lower(),
+                        "display_name": search_display_name,
+                        "id": tool_call_id,
+                        "status": "running",
+                        "query": query,
+                        "scene_effect": "search",
+                        "context": search_call.get(
+                            "context",
+                        ),
+                    },
+                ))
 
-                await context.websocket.send_json({
-                    "type": "runtime_action",
-                    "action": RUNTIME_ACTION_WEB_SEARCH.lower(),
-                    "display_name": search_display_name,
-                    "id": tool_call_id,
-                    "status": "completed",
-                    "scene_effect": "search",
-                })
+                try:
+                    search_result = await self.run_search_action(
+                        context=context,
+                        query=query,
+                    )
+                except Exception as exc:
+                    await context.websocket.send_json(apply_action_feedback(
+                        search_action,
+                        {
+                            "type": "runtime_action",
+                            "action": RUNTIME_ACTION_WEB_SEARCH.lower(),
+                            "display_name": search_display_name,
+                            "id": tool_call_id,
+                            "status": "failed",
+                            "error": type(exc).__name__,
+                            "detail": str(exc),
+                            "query": query,
+                            "scene_effect": "search",
+                            "context": search_call.get("context"),
+                        },
+                    ))
+                    raise
+
+                await context.websocket.send_json(apply_action_feedback(
+                    search_action,
+                    {
+                        "type": "runtime_action",
+                        "action": RUNTIME_ACTION_WEB_SEARCH.lower(),
+                        "display_name": search_display_name,
+                        "id": tool_call_id,
+                        "status": "completed",
+                        "query": query,
+                        "scene_effect": "search",
+                    },
+                ))
                 mark_runtime_action_completed(
                     context,
                     action=RUNTIME_ACTION_WEB_SEARCH,

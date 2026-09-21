@@ -665,9 +665,9 @@ RUNTIME_ACTION_SAVE_ACTIVE_MEMORY = get_runtime_action_name(
 RUNTIME_ACTION_DELETE_ACTIVE_MEMORY = get_runtime_action_name(
     "delete_active_memory"
 )
-RUNTIME_ACTION_UPDATE_ACTIVE_MEMORY = get_runtime_action_name(
-    "update_active_memory"
-)
+# Legacy/internal compatibility only. UPDATE_ACTIVE_MEMORY no longer has a
+# model-facing contract; SAVE_ACTIVE_MEMORY handles both create and update.
+RUNTIME_ACTION_UPDATE_ACTIVE_MEMORY = "UPDATE_ACTIVE_MEMORY"
 RUNTIME_ACTION_CLEAN_TOOL_RESULTS = get_runtime_action_name(
     "clean_tool_results"
 )

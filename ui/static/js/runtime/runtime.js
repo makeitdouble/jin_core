@@ -93,11 +93,11 @@ function getActiveMemoryRecordIds(records) {
       (Array.isArray(records) ? records : [])
         .map((record) => {
           const match = String(record || "").match(
-            /\[\s*active_memory_id\s*:\s*([a-z0-9]{6})\s*\]/i
+            /\[\s*id\s*:\s*(AM-[a-z0-9]{6})\s*\]/
           );
 
           return match
-            ? String(match[1] || "").trim().toLowerCase()
+            ? String(match[1] || "").trim()
             : "";
         })
         .filter(Boolean)

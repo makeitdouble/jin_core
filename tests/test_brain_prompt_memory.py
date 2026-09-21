@@ -841,7 +841,9 @@ class BrainPromptMemoryTests(
             )
             self.assertIn(
                 (
-                    "2. LOAD_SKILL: file_manager (count: 3), "
+                    "2. LOAD_SKILL: file_manager, "
+                    "LOAD_SKILL: file_manager, "
+                    "LOAD_SKILL: file_manager, "
                     "CLEAN_TOOL_RESULTS ( 2s ago )"
                 ),
                 history,

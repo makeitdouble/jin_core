@@ -12,7 +12,7 @@
       "emit_followup": false,
       "follow_up_on_fail": false
     },
-    "schema": ["<DELETE_ACTIVE_MEMORY> id1, id2 </DELETE_ACTIVE_MEMORY>"],
+    "schema": ["<DELETE_ACTIVE_MEMORY> AM-abcdef, AM-ghijkl </DELETE_ACTIVE_MEMORY>"],
     "rules": [
       "Delete one or more Active Memory records by comma-separated IDs."
     ],

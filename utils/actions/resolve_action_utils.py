@@ -3,11 +3,11 @@ import re
 from .action_payload_utils import (
     _build_internal_action_payload,
 )
-from .active_memory_utils import ACTIVE_MEMORY_SLOT_ID_RE
+from .active_memory_utils import normalize_active_memory_slot_id
 
 
 ACTIVE_MEMORY_DELETE_SLOT_ID_TOKEN_RE = re.compile(
-    r"(?<![a-zA-Z0-9_])([a-zA-Z0-9]{6})(?![a-zA-Z0-9_])",
+    r"(?<![a-zA-Z0-9_-])(AM-[a-z0-9]{6})(?![a-zA-Z0-9_-])",
 )
 
 
@@ -29,19 +29,21 @@ def extract_active_memory_delete_slot_id(
 ) -> str:
 
     existing_id_set = {
-        str(active_memory_id or "").strip().casefold()
+        normalized_id
         for active_memory_id in (existing_ids or ())
-        if ACTIVE_MEMORY_SLOT_ID_RE.fullmatch(
-            str(active_memory_id or "").strip().casefold()
+        if (
+            normalized_id := normalize_active_memory_slot_id(
+                active_memory_id
+            )
         )
     }
 
     for match in ACTIVE_MEMORY_DELETE_SLOT_ID_TOKEN_RE.finditer(
         str(payload or "")
     ):
-        active_memory_id = match.group(
-            1
-        ).casefold()
+        active_memory_id = normalize_active_memory_slot_id(
+            match.group(1)
+        )
 
         if (
             existing_id_set

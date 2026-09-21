@@ -618,6 +618,7 @@ function isLTMemoryTerminalFailure(
     (
       event.startsWith("extract_")
       || event.startsWith("merge_")
+      || event.startsWith("deduplication_")
     )
     && (
       event.endsWith("_failed")
@@ -741,7 +742,10 @@ function handleSocketLog(
       && data.continues_to_merge === false
     ) {
       finishLTMemoryGlow("none");
-    } else if (event === "merge_applied") {
+    } else if (
+      event === "merge_applied"
+      || event === "deduplication_applied"
+    ) {
       finishLTMemoryGlow(
         data.facts_changed === true
           ? "success"

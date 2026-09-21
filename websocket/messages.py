@@ -45,7 +45,10 @@ from utils.chat_log import (
 from utils.delayed_memory_triggers import (
     load_delayed_memory_by_tags,
 )
-from utils.session_actions_history import emit_session_actions_update
+from utils.session_actions_history import (
+    emit_session_actions_update,
+    get_current_action_sequence_turn_id,
+)
 from utils.actions import (
     normalize_jin_position_dict,
     normalize_jin_speed_value,
@@ -1080,6 +1083,10 @@ def append_runtime_recent_turn(
         "user": user_message,
         "jin": assistant_message,
     }
+
+    runtime_turn_id = get_current_action_sequence_turn_id(context)
+    if runtime_turn_id:
+        turn["runtime_turn_id"] = runtime_turn_id
 
     attachment_summaries = summarize_attachments(
         attachments

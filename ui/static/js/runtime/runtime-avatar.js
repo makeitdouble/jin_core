@@ -1124,6 +1124,35 @@
     return ids;
   }
 
+  function normalizeActiveMemoryIds(value) {
+    const source = Array.isArray(value)
+      ? value
+      : [value];
+    const ids = [];
+    const seen = new Set();
+
+    source.flat(Infinity).forEach((item) => {
+      String(item || "")
+        .split(/[\s,;]+/)
+        .map((candidate) => (
+          String(candidate || "")
+            .trim()
+            .replace(/^[\[\]"']+|[\[\]"']+$/g, "")
+        ))
+        .filter(Boolean)
+        .forEach((candidate) => {
+          if (!/^AM-[a-z0-9]{6}$/.test(candidate) || seen.has(candidate)) {
+            return;
+          }
+
+          seen.add(candidate);
+          ids.push(candidate);
+        });
+    });
+
+    return ids;
+  }
+
   function shortRuntimeIdSetsIntersect(left, right) {
     if (!left || !right || !left.size || !right.size) {
       return false;
@@ -1289,11 +1318,11 @@
     const match =
       String(value || "")
         .match(
-          /\[\s*active_memory_id\s*:\s*([a-z0-9]{6})\s*\]/i
+          /\[\s*id\s*:\s*(AM-[a-z0-9]{6})\s*\]/
         );
 
     return match
-      ? String(match[1] || "").trim().toLowerCase()
+      ? String(match[1] || "").trim()
       : "";
   }
 
@@ -1386,7 +1415,7 @@
         .filter(record => record && record.id && record.key)
         .map(record => [
           String(record.key).trim().toLowerCase(),
-          String(record.id).trim().toLowerCase(),
+          String(record.id).trim(),
         ])
     );
 
@@ -1404,7 +1433,7 @@
             || extractActiveMemoryId(text)
             || activeMemoryIdsByKey.get(key.toLowerCase())
             || ""
-          ).trim().toLowerCase();
+          ).trim();
         const status =
           String(line && line.status || "").trim().toLowerCase();
         const keyStatus =
@@ -3837,7 +3866,7 @@
     );
     if (record.activeMemoryId) {
       orbitGroup.dataset.activeMemoryId =
-        String(record.activeMemoryId).trim().toLowerCase();
+        String(record.activeMemoryId).trim();
     }
     setAvatarMemoryReferenceAliases(
       orbitGroup,
@@ -4281,7 +4310,7 @@
       String(detail.sourceId || "unknown-think");
     const activeMemoryIds =
       new Set(
-        normalizeShortRuntimeIds(
+        normalizeActiveMemoryIds(
           detail.activeMemoryIds || []
         )
       );
@@ -4406,7 +4435,7 @@
           state && state.runtimeLineIdentity
         );
       const activeMemoryId =
-        normalizeShortRuntimeIds(
+        normalizeActiveMemoryIds(
           orbitGroup.dataset.activeMemoryId
         )[0] || "";
       const lineKey =
@@ -4464,7 +4493,7 @@
     const state = getAvatarNodeState(node);
 
     const activeMemoryId =
-      normalizeShortRuntimeIds(
+      normalizeActiveMemoryIds(
         node.dataset.activeMemoryId
       )[0] || "";
 
@@ -4605,13 +4634,13 @@
           ".jin-avatar-memory-dash-active[data-active-memory-id]"
         )
       )
-        .map(node => normalizeShortRuntimeIds(node.dataset.activeMemoryId)[0] || "")
+        .map(node => normalizeActiveMemoryIds(node.dataset.activeMemoryId)[0] || "")
         .filter(Boolean)
     );
 
     recordNodes.forEach((recordNode) => {
         const activeMemoryId =
-          normalizeShortRuntimeIds(
+          normalizeActiveMemoryIds(
             recordNode.dataset.activeMemoryId
           )[0] || "";
         const mirroredActiveRuntimeNode = Boolean(

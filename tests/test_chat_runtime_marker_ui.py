@@ -17,6 +17,88 @@ class ChatRuntimeMarkerUiTests(unittest.TestCase):
 
     @unittest.skipUnless(
         shutil.which("node"),
+        "node is required for the action-bubble aggregation test",
+    )
+    def test_counter_events_do_not_collapse_color_action_bubbles(self):
+        script = r'''
+const fs = require("fs");
+const captured = [];
+global.window = {
+  appendRuntimeAction(action, text, options) {
+    captured.push({action, text, options});
+    return true;
+  },
+  log_internal_action() {},
+  setTimeout(callback) { callback(); },
+};
+global.registerSocketMessageHandler = () => {};
+const source = fs.readFileSync(process.argv[1], "utf8");
+eval(source);
+
+handleRuntimeAction({
+  action: "jin_color",
+  status: "counted",
+  counter_only: true,
+  aggregate_markers: true,
+  marker_count: 2,
+  counter_id: "turn-1:message-1:jin_color",
+  runtime_turn_id: "turn-1",
+  runtime_message_id: "message-1",
+  payloads: ["#ff0000", "#0000ff"],
+  colors: ["#ff0000", "#0000ff"],
+  text: "JIN_COLOR",
+  display_name: "JIN_COLOR",
+});
+
+for (const [id, color] of [["color-1", "#ff0000"], ["color-2", "#0000ff"]]) {
+  handleRuntimeAction({
+    action: "jin_color",
+    status: "completed",
+    id,
+    runtime_turn_id: "turn-1",
+    runtime_message_id: "message-1",
+    color,
+    payload: color,
+    text: `JIN_COLOR: ${color}`,
+    display_name: "JIN_COLOR",
+  });
+}
+
+if (captured.length !== 2) {
+  throw new Error(`expected two real bubbles, got ${captured.length}`);
+}
+if (captured.map(item => item.options.id).join(",") !== "color-1,color-2") {
+  throw new Error("completed marker ids were collapsed into the counter id");
+}
+for (const item of captured) {
+  if (item.options.aggregateMarkers || item.options.counterOnly || item.options.markerCount) {
+    throw new Error("counter metadata leaked into a real action bubble");
+  }
+  if (item.options.colors.length !== 1) {
+    throw new Error("a color bubble contains more than one marker payload");
+  }
+}
+'''
+        completed = subprocess.run(
+            [
+                shutil.which("node"),
+                "-e",
+                script,
+                str(SOCKET_RUNTIME_ACTIONS_JS),
+            ],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+
+        self.assertEqual(
+            completed.returncode,
+            0,
+            completed.stderr or completed.stdout,
+        )
+
+    @unittest.skipUnless(
+        shutil.which("node"),
         "node is required for the browser-side marker filter test",
     )
     def test_empty_asset_action_blocks_stay_visible_in_chat(self):

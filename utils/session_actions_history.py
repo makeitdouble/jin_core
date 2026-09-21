@@ -1094,6 +1094,14 @@ def _format_session_action_display_part(
         or 0
     )
 
+    if text.upper() == "JIN_COLOR":
+        colors = normalized_part.get("colors", [])
+        if colors:
+            return ", ".join(
+                f"JIN_COLOR: {color}"
+                for color in colors
+            )
+
     if message:
         text = f"{text}: {message}"
     elif (
@@ -1995,6 +2003,7 @@ def _build_formatted_session_action_marker_parts(
         )
         preserve_failure_state = (
             normalized_name in {
+                "SAVE_ACTIVE_MEMORY",
                 "UPDATE_ACTIVE_MEMORY",
                 "RECALL_FACT_CONTEXT",
                 "CLEAN_TOOL_RESULTS",
@@ -2258,7 +2267,11 @@ def _build_formatted_session_action_marker_parts(
                 "status"
             ) == "failed"
             and (
-                action_name in {"UPDATE_ACTIVE_MEMORY", "CLEAN_TOOL_RESULTS"}
+                action_name in {
+                    "SAVE_ACTIVE_MEMORY",
+                    "UPDATE_ACTIVE_MEMORY",
+                    "CLEAN_TOOL_RESULTS",
+                }
                 or str(
                     group.get(
                         "failure_reason",

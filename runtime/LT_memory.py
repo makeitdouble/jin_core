@@ -3550,6 +3550,17 @@ async def run_lt_merge_phase(*, context, service_client) -> dict:
     attempt = get_current_lt_attempt(context)
     assert_lt_attempt_can_commit(context, attempt)
 
+    facts_changed = bool(
+        merge_change.get("added_ids")
+        or merge_change.get("updated_ids")
+        or merge_change.get("merged_ids")
+        or merge_change.get("removed_fact_ids")
+    )
+    # Queue deduplication only after a committed fact change. Keep work
+    # already earned by an earlier changed batch while the queue drains.
+    next_store["deduplication_pending"] = bool(
+        current_store.get("deduplication_pending") or facts_changed
+    )
     context.runtime_long_term_memory_store = next_store
     clear_lt_merge_pending_recovery(
         context,
@@ -3590,12 +3601,7 @@ async def run_lt_merge_phase(*, context, service_client) -> dict:
         details=merge_details or "No changes",
         fallback_channel="summarizer",
         event="merge_applied",
-        facts_changed=bool(
-            merge_change.get("added_ids")
-            or merge_change.get("updated_ids")
-            or merge_change.get("merged_ids")
-            or merge_change.get("removed_fact_ids")
-        ),
+        facts_changed=facts_changed,
         trace={
             "kind": "lt_merge_applied",
             "operation_details": merge_change.get("operation_details", []),
@@ -4105,17 +4111,6 @@ def schedule_lt_memory_idle_update(
         return None
 
     context.runtime_lt_idle_last_started_at = now
-    store = ensure_runtime_lt_state(context)
-    if not store.get("deduplication_pending") and (
-        store.get("pending_facts") or collect_pending_facts_memory_fields(
-            getattr(context, "runtime_facts_memory_records", []))
-    ):
-        store = clone_lt_store(store)
-        store["deduplication_pending"] = True
-        store["revision"] += 1
-        store["updated_at"] = utc_now_iso()
-        persist_runtime_lt_file_store(context, store)
-        context.runtime_long_term_memory_store = store
     attempt = begin_lt_attempt(
         context,
         kind="auto",

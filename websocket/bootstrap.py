@@ -405,6 +405,13 @@ def apply_archived_session_continuation_state(
                 "jin": jin_text,
             }
 
+            runtime_turn_id = clean_bootstrap_memory(
+                turn.get("runtime_turn_id", ""),
+                limit=120,
+            )
+            if runtime_turn_id:
+                normalized_turn["runtime_turn_id"] = runtime_turn_id
+
             attachments = summarize_attachments(
                 turn.get("attachments", [])
             )

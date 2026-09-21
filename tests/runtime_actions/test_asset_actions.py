@@ -1307,7 +1307,7 @@ class RuntimeAssetActionTests(RuntimeActionTestCase):
                 )
                 self.assertEqual(
                     context.emitter.events[0]["text"],
-                    "ASSET_ACTION: invalid payload",
+                    "ASSET_ACTION",
                 )
                 self.assertEqual(
                     context.emitter.events[0]["status"],
@@ -1368,7 +1368,7 @@ class RuntimeAssetActionTests(RuntimeActionTestCase):
                 )
                 self.assertEqual(
                     context.emitter.events[0]["text"],
-                    "ASSET_ACTION: analyze_image",
+                    "ASSET_ACTION",
                 )
                 self.assertEqual(
                     context.emitter.events[1]["text"],
@@ -1429,7 +1429,7 @@ class RuntimeAssetActionTests(RuntimeActionTestCase):
                 )
                 self.assertEqual(
                     context.emitter.events[0]["text"],
-                    "ASSET_ACTION: analyze_image",
+                    "ASSET_ACTION",
                 )
                 self.assertEqual(
                     context.emitter.events[0]["status"],

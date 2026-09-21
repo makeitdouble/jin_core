@@ -1,6 +1,6 @@
 // Temporary UI-only switch. Runtime parsing, execution, avatar updates and
 // logger entries stay active; flip this to true to restore the two chat bubbles.
-const ENABLE_JIN_VISUAL_ACTION_BUBBLES = false;
+const ENABLE_JIN_VISUAL_ACTION_BUBBLES = true;
 const THINK_RUNTIME_CITATION_HIGHLIGHT_EVENT =
   "jin:think-runtime-citation-highlight";
 
@@ -581,11 +581,9 @@ function buildRuntimeActionDetail(
 
 function highlightUpdatedActiveMemory(activeMemoryId) {
   const normalizedId =
-    String(activeMemoryId || "")
-      .trim()
-      .toLowerCase();
+    String(activeMemoryId || "").trim();
 
-  if (!/^[a-z0-9]{6}$/.test(normalizedId)) {
+  if (!/^AM-[a-z0-9]{6}$/.test(normalizedId)) {
     return;
   }
 
@@ -635,7 +633,7 @@ function formatActiveMemoryUpdateDetail(
   }
 
   const activeMemoryId = String(
-    payload && payload.active_memory_id
+    payload && payload.id
     || data && (
       data.active_memory_id
       || data.id
@@ -646,13 +644,12 @@ function formatActiveMemoryUpdateDetail(
     )
     || ""
   ).trim();
-  const payloadFields = (
-    payload
-    && payload.fields_to_update
-    && typeof payload.fields_to_update === "object"
-    && !Array.isArray(payload.fields_to_update)
-  )
-    ? payload.fields_to_update
+  const payloadFields = payload
+    ? Object.fromEntries(
+      Object.entries(payload).filter(([field]) => (
+        String(field || "").trim().toLowerCase() !== "id"
+      ))
+    )
     : null;
   const requestedChanges = Array.isArray(
     data && data.active_memory_requested_changes
@@ -686,12 +683,10 @@ function formatActiveMemoryUpdateDetail(
       ])
       .filter(([field]) => Boolean(field));
   const lines = activeMemoryId
-    ? [`active_memory_id: ${activeMemoryId}`]
+    ? [`id: ${activeMemoryId}`]
     : [];
 
   if (fields.length) {
-    lines.push("fields_to_update:");
-
     fields.forEach(([field, value]) => {
       const fieldName = String(field || "").trim();
       const fieldValue = value === null || value === undefined
@@ -702,7 +697,7 @@ function formatActiveMemoryUpdateDetail(
         return;
       }
 
-      lines.push(`\t${fieldName}: ${fieldValue}`);
+      lines.push(`${fieldName}: ${fieldValue}`);
     });
   }
 
@@ -724,7 +719,7 @@ function formatActiveMemoryRecordDetail(
       )
     )
     || ""
-  ).trim().toLowerCase();
+  ).trim();
   let record = String(
     data && (
       data.active_memory
@@ -754,8 +749,8 @@ function formatActiveMemoryRecordDetail(
     && activeMemoryId
   ) {
     record = activeMemoryRecords
-      .find(item => item.toLowerCase().includes(
-        `[ active_memory_id: ${activeMemoryId} ]`
+      .find(item => item.includes(
+        `[ id: ${activeMemoryId} ]`
       ))
       || "";
   }
@@ -1445,19 +1440,10 @@ function handleRuntimeAction(
     action === "jin_reaction"
     && window.JinChatReactions
     && typeof window.JinChatReactions.handleRuntimeAction === "function"
-    && window.JinChatReactions.handleRuntimeAction(data)
   ) {
-    if (
-      ["completed", "complete", "done"].includes(status)
-      && window.log_internal_action
-    ) {
-      window.log_internal_action(
-        action,
-        data
-      );
-    }
-
-    return;
+    // Reactions still update the reaction badge, but they also participate in
+    // the same runtime-action bubble lifecycle as every other action.
+    window.JinChatReactions.handleRuntimeAction(data);
   }
 
   const delayedMemoryPreview =
@@ -1668,6 +1654,10 @@ function handleRuntimeAction(
     (missingCloseTagFailure ? data.detail : "")
     || (
       action === "update_active_memory"
+      || (
+        action === "save_active_memory"
+        && String(data.active_memory_mode || "").trim().toLowerCase() === "update"
+      )
         ? formatActiveMemoryUpdateDetail(data)
         : ""
     )
@@ -1744,7 +1734,8 @@ function handleRuntimeAction(
     );
 
   const aggregateMarkers =
-    !renderEachMarkerSeparately
+    counterOnly
+    && !renderEachMarkerSeparately
     && !reportScopedDelayedAction
     && !splitPayloadDistinctMarkers
     && (
@@ -1768,14 +1759,13 @@ function handleRuntimeAction(
       ? markerCount
       : 0;
 
-  const completeImmediately =
+  const terminalSuccess =
     [
       "completed",
       "complete",
       "done",
     ].includes(status)
-    && !counterOnly
-    && PAYLOAD_DISTINCT_RUNTIME_ACTIONS.has(action);
+    && !counterOnly;
 
   const actionDisplayId =
     action === "update_active_memory"
@@ -1793,8 +1783,9 @@ function handleRuntimeAction(
         || ""
       )
       : (
-        data.counter_id
+        (counterOnly ? data.counter_id : data.id)
         || data.id
+        || data.counter_id
         || ""
       );
 
@@ -1844,6 +1835,7 @@ function handleRuntimeAction(
 
     if (
       ENABLE_JIN_VISUAL_ACTION_BUBBLES
+      && !counterOnly
       &&
       displayText.trim()
       && window.appendRuntimeAction
@@ -1860,21 +1852,15 @@ function handleRuntimeAction(
           displayName,
           sceneEffect,
           closeTag,
-          reuseCompleted: true,
-          reviveCompleted:
-            !counterFinal,
-          // Every applied color belongs to one live sequence row.
-          // Counter events use another display id, so the shared turn/message
-          // scope keeps them attached to this same aggregate bubble.
-          aggregateMarkers: true,
-          counterOnly:
-            displayCounterOnly,
-          markerCount:
-            displayMarkerCount,
+          reuseCompleted: false,
+          reviveCompleted: false,
+          // Each applied marker owns one bubble. Counter-only telemetry stays
+          // internal and must never collapse the sequence into one bubble.
+          aggregateMarkers: false,
+          counterOnly: false,
+          markerCount: 0,
           colors:
-            Array.isArray(data.colors)
-              ? data.colors
-              : counterPayloads,
+            color ? [color] : [],
           contextSnapshot:
             data.context || null,
           guardConfirmationId,
@@ -2141,19 +2127,8 @@ function handleRuntimeAction(
         );
       }
     }
-    if (
-      shouldLogRuntimeAction
-      && window.log_internal_action
-    ) {
-      window.log_internal_action(
-        action,
-        data
-      );
-    }
-
-    // Intentionally no chat bubble: JIN motion actions are silent avatar
-    // gestures, like JIN_COLOR/JIN_SIZE while visual action bubbles are off.
-    return;
+    // Continue into the generic runtime-action lifecycle so JIN_SPEED uses
+    // the same start/success/fail bubble contract as every other action.
   }
 
   if (action === "jin_position" && !missingCloseTagFailure) {
@@ -2195,17 +2170,8 @@ function handleRuntimeAction(
         });
       }
     }
-    if (
-      shouldLogRuntimeAction
-      && window.log_internal_action
-    ) {
-      window.log_internal_action(
-        action,
-        data
-      );
-    }
-
-    return;
+    // Continue into the generic runtime-action lifecycle so JIN_POSITION uses
+    // the same start/success/fail bubble contract as every other action.
   }
 
   if (
@@ -2215,9 +2181,30 @@ function handleRuntimeAction(
     && window.JinRuntime.runtime
     && window.JinRuntime.runtime.appendActiveMemoryRecords
   ) {
-    window.JinRuntime.runtime.appendActiveMemoryRecords([
-      data.active_memory
-    ]);
+    const saveMode = String(
+      data.active_memory_mode || "create"
+    ).trim().toLowerCase();
+    const activeMemoryId = String(
+      data.active_memory_id || ""
+    ).trim();
+
+    if (
+      saveMode === "update"
+      && activeMemoryId
+      && window.JinRuntime.runtime.replaceActiveMemoryRecordById
+    ) {
+      window.JinRuntime.runtime.replaceActiveMemoryRecordById(
+        activeMemoryId,
+        data.active_memory
+      );
+      highlightUpdatedActiveMemory(
+        activeMemoryId
+      );
+    } else {
+      window.JinRuntime.runtime.appendActiveMemoryRecords([
+        data.active_memory
+      ]);
+    }
 
   }
 
@@ -2364,8 +2351,7 @@ function handleRuntimeAction(
           delayedMemoryReport:
             delayedMemoryPreview.report,
           completed:
-            !aggregateMarkers
-            || completeImmediately,
+            terminalSuccess,
           detail: runtimeDetail,
           displayName,
           sceneEffect,
@@ -2390,10 +2376,7 @@ function handleRuntimeAction(
     }
 
     if (
-      (
-        !aggregateMarkers
-        || completeImmediately
-      )
+      terminalSuccess
       && window.fadeRuntimeAction
     ) {
       window.fadeRuntimeAction(
@@ -2419,6 +2402,22 @@ function handleRuntimeAction(
     counterOnly
     && splitPayloadDistinctMarkers
   ) {
+    return;
+  }
+
+  // Counter events describe how many markers were parsed; they are not
+  // action bubbles. Real lifecycle events below carry each marker's own id
+  // and payload, so rendering only those preserves one bubble per marker.
+  if (counterOnly) {
+    if (
+      shouldLogRuntimeAction
+      && window.log_internal_action
+    ) {
+      window.log_internal_action(
+        action,
+        data
+      );
+    }
     return;
   }
 

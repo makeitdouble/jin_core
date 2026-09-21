@@ -193,7 +193,6 @@ SAVE_DELAYED_MEMORY
 LOAD_DELAYED_MEMORY
 SAVE_ACTIVE_MEMORY
 DELETE_ACTIVE_MEMORY
-UPDATE_ACTIVE_MEMORY
 ```
 
 `LOAD_SKILL` and `UNLOAD_SKILL` are singular internal runtime action names. Their canonical public/model markers are `<LOAD_SKILLS_CONTEXT> skill1, skill2 </LOAD_SKILLS_CONTEXT>` and `<UNLOAD_SKILLS_CONTEXT> skill1, skill2 </UNLOAD_SKILLS_CONTEXT>`; each valid comma-separated item becomes one ordered internal action.
@@ -256,23 +255,23 @@ Old key/value bodies and `<SAVE_DELAYED_MEMORY_CONTENT>` may still be normalized
 
 ### Current model-facing contract
 
-`SAVE_ACTIVE_MEMORY` version 4:
+`SAVE_ACTIVE_MEMORY` version 5 creates or updates Active Memory:
 
 ```json
 {"conditions":"CONDITIONS","custom_field_name":"VALUE"}
 ```
 
-`UPDATE_ACTIVE_MEMORY` version 2:
+When `id` is present, the same contract updates the existing record:
 
 ```json
-{"active_memory_id":"existing id VALUE","fields_to_update":{"field_name":"NEW_VALUE","another_field":"NEW_VALUE"}}
+{"id":"AM-abcdef","conditions":"NEW CONDITIONS","existing_custom_field":"NEW_VALUE"}
 ```
 
 The create parser now treats custom fields as explicit JSON structure only. A non-JSON body is preserved as the complete `conditions` value; parenthesized prose such as `(date: tomorrow)` is no longer reinterpreted as a custom field. JSON custom fields are capped at three after normalized duplicate keys use last-value-wins behavior.
 
-The model-facing update contract has one canonical shape: paired `<UPDATE_ACTIVE_MEMORY>...</UPDATE_ACTIVE_MEMORY>` containing `active_memory_id` plus `fields_to_update`; every changed field goes inside that object, including single-field updates. Keys are exact existing field names. Creation remains paired `<SAVE_ACTIVE_MEMORY>...</SAVE_ACTIVE_MEMORY>` with `conditions` and optional custom fields at the JSON root.
+The model-facing create/update boundary is now one paired `<SAVE_ACTIVE_MEMORY>...</SAVE_ACTIVE_MEMORY>` block. Root `id` switches the action into update mode; without `id`, it creates. Update fields stay flat at the JSON root. `conditions` can always be updated; other keys must be exact custom fields already declared on the target record.
 
-The parser still accepts older flat/nested/line-based and self-closing attribute forms as reader compatibility only; they are not advertised to the model.
+Only the flat JSON shape shown above is accepted for Active Memory updates. Old `UPDATE_ACTIVE_MEMORY` payload shapes and old six-character IDs are rejected.
 
 ### Current internal representation
 

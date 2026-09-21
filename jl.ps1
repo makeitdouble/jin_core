@@ -772,6 +772,10 @@ function Stop-JinBackend {
 }
 
 function Get-JinPageTitle {
+    # Windows PowerShell's web cmdlet can paint its progress UI directly into
+    # the dashboard's cursor-addressed console buffer. Suppress that host UI so
+    # probing the browser title cannot recolor or overwrite dashboard cells.
+    $ProgressPreference = "SilentlyContinue"
     try {
         $response = Invoke-WebRequest -Uri $AppUrl -UseBasicParsing -TimeoutSec 2 -ErrorAction Stop
         $content = [string]$response.Content
