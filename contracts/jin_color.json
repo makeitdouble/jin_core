@@ -16,7 +16,7 @@
       "<JIN_COLOR> #00f2ff </JIN_COLOR>"
     ],
     "rules": [
-      "Use to set the JIN Live Avatar center color and chat background tint.",
+      "Use to set the JIN Live Avatar color.",
       "Emit multiple markers for sequential color changes or blinking, last will set as current color."
     ],
     "close_tag": true

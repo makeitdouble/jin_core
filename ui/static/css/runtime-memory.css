@@ -173,6 +173,12 @@
 }
 
 .runtime-memory-file-row {
+    display: flex;
+    width: 100%;
+    min-width: 0;
+    box-sizing: border-box;
+    align-items: center;
+    overflow: hidden;
     cursor: pointer;
     border-radius: 4px;
     padding: 5px 0;
@@ -180,6 +186,29 @@
     transition:
             background-color 0.18s ease,
             color 0.18s ease;
+}
+
+.runtime-memory-file-row .runtime-memory-delayed-pin,
+.runtime-memory-file-row .runtime-memory-delayed-separator {
+    flex: 0 0 auto;
+}
+
+.runtime-memory-file-row .runtime-memory-delayed-pin {
+    display: inline-flex;
+    width: 15px;
+    height: 16px;
+    align-items: center;
+    justify-content: center;
+    margin: 0 -4px 0 0;
+    vertical-align: baseline;
+}
+
+.runtime-memory-file-row .runtime-memory-key {
+    min-width: 0;
+    overflow: hidden;
+    flex: 1 1 auto;
+    text-overflow: ellipsis;
+    white-space: nowrap;
 }
 
 #runtime-memory-text .runtime-memory-file-row.runtime-memory-sort-transition {

@@ -72,9 +72,21 @@ specific live tool can perform the requested edit. Keep scripts small and scene-
 Use APIs supported by the Blender version reported by the connected add-on; do not assume
 Blender 4.x features when the user is running Blender 3.x.
 
+Do not guess Blender operator names. For native sphere primitives, the canonical operators are
+`bpy.ops.mesh.primitive_uv_sphere_add(...)` for a UV sphere and
+`bpy.ops.mesh.primitive_ico_sphere_add(...)` for an ico sphere. Before using any less familiar
+operator, verify its exact name with `hasattr` or inspect the live API. If an operator is
+unavailable, verify the name and retry the smallest failed edit before choosing a lower-level
+mesh-construction fallback.
+
 For materials, modifiers, render settings, node trees, and enum values, inspect the connected
 Blender state/API when possible instead of hardcoding version-sensitive identifiers. Prefer
 node `type`/`bl_idname` and other stable identifiers over UI-localized node names.
+
+When setting a material color through Blender Python, update both the material viewport color
+(`material.diffuse_color`) and the Principled BSDF `Base Color` when that node exists. Apply the
+requested properties even when reusing an existing material; keep only material creation inside
+`if material is None`.
 
 ## Visual construction strategy
 
@@ -83,8 +95,9 @@ in layers: major forms -> transforms -> materials -> lights/camera -> visual ver
 Keep the first pass cheap and readable. Add complexity only when it improves the requested
 result.
 
-A task is not complete merely because an edit call returned success. For visual scene work,
-try to obtain at least one post-edit screenshot and inspect it before saying the scene is done.
+A successful edit call confirms only that the tool/script executed without an error; it does not
+confirm that the requested visual result is visible. For visual scene work, obtain a post-edit
+screenshot when available and inspect the actual result before saying the scene is done.
 
 ## Connection failures
 

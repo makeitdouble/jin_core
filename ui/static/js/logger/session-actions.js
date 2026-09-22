@@ -225,6 +225,33 @@ function normalizeSessionActionParts(
           let detail =
             String(part.detail || "").trim();
 
+          // Defensive compatibility for checkpoints written before CALL_MCP
+          // got structured display parts. Never render a raw arguments object
+          // in Session Actions; only the integration and tool identify a call.
+          if (text.toUpperCase().startsWith("CALL_MCP")) {
+            let rawPayload = "";
+
+            if (text.toUpperCase().startsWith("CALL_MCP:")) {
+              rawPayload = text.slice(text.indexOf(":") + 1).trim();
+              text = "CALL_MCP";
+            } else if (detail.startsWith("{")) {
+              rawPayload = detail;
+            }
+
+            if (rawPayload) {
+              try {
+                const request = JSON.parse(rawPayload);
+                const skill = String(request.skill || "").trim();
+                const tool = String(request.tool || "").trim();
+                detail = skill && tool
+                  ? `${skill} / ${tool}`
+                  : "invalid request";
+              } catch (_error) {
+                detail = "invalid request";
+              }
+            }
+          }
+
           ({ text, detail } =
             normalizeDeepSearchSessionActionDisplay(
               text,
@@ -589,16 +616,21 @@ function buildSessionActionRow(
     const isAttachmentAction = (
       ["ATTACH_FILE_CONTENT", "ATTACH_FILE_BY_ID"].includes(normalizedActionName)
     );
+    const isCallMcpAction =
+      normalizedActionName === "CALL_MCP";
 
-    if (isAttachmentAction && part.detail) {
-      const attachmentName =
+    if (
+      (isAttachmentAction || isCallMcpAction)
+      && part.detail
+    ) {
+      const detail =
         document.createElement("span");
 
-      attachmentName.textContent =
+      detail.textContent =
         `: ${part.detail}`;
 
       action.appendChild(
-        attachmentName
+        detail
       );
     }
 
@@ -645,13 +677,17 @@ function buildSessionActionRow(
       );
 
     const hoverText =
-      part.message
-      || part.detail
-      || (
-        isDeepWebSearchAction
-          ? part.contextDetail
-          : ""
-      );
+      isCallMcpAction
+        ? ""
+        : (
+          part.message
+          || part.detail
+          || (
+            isDeepWebSearchAction
+              ? part.contextDetail
+              : ""
+          )
+        );
 
     if (hoverText) {
       action.title =

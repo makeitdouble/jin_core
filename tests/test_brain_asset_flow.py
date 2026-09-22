@@ -2523,7 +2523,6 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
             async def log_brain(self, *_args, **_kwargs): return None
             async def log_service_as_brain(self, *_args, **_kwargs): return None
             async def log_service_as_brain_output(self, *_args, **_kwargs): return None
-            async def log_flow(self, *_args, **_kwargs): return None
             async def log(self, *_args, **_kwargs): return None
             async def log_system(self, *_args, **_kwargs): return None
 

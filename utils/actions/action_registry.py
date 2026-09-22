@@ -114,9 +114,10 @@ def default_on_success(action, result) -> ActionFeedback:
 
 
 def default_on_fail(action, error) -> ActionFeedback:
+    message = str(error.get("text") or "").strip() if isinstance(error, Mapping) else ""
     return ActionFeedback(
         result=error,
-        message=_default_feedback_message(action, error),
+        message=message or f"{_default_feedback_message(action, error)} : failed",
     )
 
 

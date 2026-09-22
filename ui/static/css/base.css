@@ -671,7 +671,6 @@ html.jin-anonymous-room #scene-anonymous-tint {
     color: #aeb4bd !important;
 }
 
-#console-stream [data-log-kind="flow"] > .logger-tag,
 #console-stream [data-log-kind="before"] > .logger-tag,
 #console-stream [data-log-kind="after"] > .logger-tag {
     color: #a99bc4 !important;

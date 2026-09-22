@@ -387,13 +387,17 @@ function renderUserPayloadTrace(
 }
 
 function log_user(
-  payload = {}
+  payload = {},
+  visibleText = "",
 ) {
   const text =
     String(
-      payload && payload.text
-        ? payload.text
-        : ""
+      visibleText
+      || (
+        payload && payload.text
+          ? payload.text
+          : ""
+      )
     ).trim();
 
   const logDiv =
@@ -3331,34 +3335,14 @@ function appendLog(
     return delayedMemoryDeletedLog;
   }
 
-  const flowId =
-    meta?.flow_id;
-
-  const existingFlowLog =
-    tag === "[FLOW]"
-      ? findLiveFlowLog(
-          flowId
-        )
-      : null;
-
   const logDiv =
-    existingFlowLog
-    || document.createElement("div");
+    document.createElement("div");
 
   logDiv.className =
     "mb-1 min-w-0 whitespace-pre-wrap break-words";
 
   logDiv.style.overflowWrap =
     "anywhere";
-
-  if (flowId) {
-    logDiv.dataset.flowId =
-      flowId;
-  }
-
-  if (existingFlowLog) {
-    logDiv.replaceChildren();
-  }
 
   const normalizedTag =
     String(tag || "").toUpperCase();
@@ -3406,9 +3390,6 @@ function appendLog(
   } else if (normalizedTag.includes("SUMMARIZER")) {
     logKind =
       "memory";
-  } else if (normalizedTag.includes("FLOW")) {
-    logKind =
-      "flow";
   } else if (normalizedTag.includes("SERVICE")) {
     logKind =
       "service";
@@ -3596,34 +3577,9 @@ function appendLog(
     );
   }
 
-  if (tag.includes("FLOW TELEMETRY")) {
-    tagClass =
-      "text-purple-400";
-  }
-
-  if (tag === "[FLOW]") {
-    tagClass =
-      "text-zinc-400";
-
-    logDiv.classList.add(
-      "font-mono",
-      "text-[12px]",
-      "bg-zinc-500/5",
-      "p-2",
-      "rounded",
-      "border",
-      "border-zinc-500/10",
-    );
-  }
-
   if (tag.includes("USER")) {
     tagClass =
       "text-sky-300 font-bold";
-  }
-
-  if (tag.includes("FLOW")) {
-    tagClass =
-      "text-purple-300 font-bold";
   }
 
   if (tag.includes("USAGE")) {
@@ -4048,15 +4004,9 @@ function appendLog(
     );
   }
 
-  if (existingFlowLog) {
-    moveLogToBottomWithFlip(
-      logDiv
-    );
-  } else {
-    consoleStream.appendChild(
-      logDiv
-    );
-  }
+  consoleStream.appendChild(
+    logDiv
+  );
 
   if (isModelOutput) {
     normalizeLatestModelOutputLogOrder(

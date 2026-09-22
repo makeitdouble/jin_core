@@ -835,8 +835,13 @@ function parseLTMergeAppliedTrace(details, title, parsed = null) {
     const operations = rawOperations
       .map(normalizeStructuredLTMergeOperation)
       .filter(Boolean);
-    return { kind: "lt_merge_applied", operations,
-      before_count: parsed.before_count, after_count: parsed.after_count };
+    return {
+      kind: "lt_merge_applied",
+      operations,
+      before_count: parsed.before_count,
+      after_count: parsed.after_count,
+      deduplication: /deduplication/i.test(String(title || "")),
+    };
   }
 
   if (!isLTMergeAppliedTraceTitle(title)) {
@@ -1034,7 +1039,23 @@ function renderLTMergeAppliedTrace(trace) {
   const stats = document.createElement("div");
   stats.className = "jin-lt-merge-overview-stats";
   if (Number.isInteger(trace.before_count) && Number.isInteger(trace.after_count)) {
-    title.textContent = `${trace.before_count} → ${trace.after_count} FACTS`;
+    if (trace.deduplication) {
+      const removed = Math.max(
+        0,
+        trace.before_count - trace.after_count
+      );
+      const checkedLabel =
+        trace.before_count === 1 ? "FACT CHECKED" : "FACTS CHECKED";
+      const duplicateLabel =
+        removed === 1 ? "DUPLICATE REMOVED" : "DUPLICATES REMOVED";
+      const remainingLabel =
+        trace.after_count === 1 ? "REMAINS" : "REMAIN";
+
+      title.textContent =
+        `${trace.before_count} ${checkedLabel} · ${removed} ${duplicateLabel} · ${trace.after_count} ${remainingLabel}`;
+    } else {
+      title.textContent = `${trace.before_count} → ${trace.after_count} FACTS`;
+    }
   }
   ["update", "merge", "create", "ignore", "delete"].forEach((action) => {
     if (!counts[action]) {
@@ -5010,6 +5031,57 @@ function renderContextSnapshotTrace(snapshot) {
   traceModalContent.appendChild(stack);
 }
 
+
+function renderMcpPayloadTrace(request) {
+  const payload =
+    request && typeof request === "object"
+      ? request
+      : {};
+  const skill = String(payload.skill || "").trim();
+  const tool = String(payload.tool || "").trim();
+  const argumentsPayload =
+    payload.arguments
+    && typeof payload.arguments === "object"
+    && !Array.isArray(payload.arguments)
+      ? payload.arguments
+      : {};
+  const stack = contextElement(
+    "div",
+    "jin-context-stack"
+  );
+
+  appendContextCard(stack, {
+    title: "MCP TARGET",
+    content: "",
+    attributes: ["CALL_MCP"],
+    xml: false,
+    metaLabel: tool || "tool",
+    renderBody: (body) => {
+      appendLTRequestFieldRows(
+        body,
+        {skill, tool},
+        ["skill", "tool"]
+      );
+    },
+  });
+
+  appendContextCard(stack, {
+    title: "ARGUMENTS",
+    content: "",
+    attributes: [],
+    xml: false,
+    metaLabel: `${Object.keys(argumentsPayload).length} fields`,
+    renderBody: (body) => {
+      appendLTRequestFieldRows(
+        body,
+        argumentsPayload
+      );
+    },
+  });
+
+  traceModalContent.appendChild(stack);
+}
+
 function renderPostingBoardTrace(result) {
   const trace =
     result && typeof result === "object"
@@ -5157,6 +5229,19 @@ function renderTraceDetails(
     );
     traceModalCopyButton.title =
       "Copy raw context";
+  }
+
+  if (
+    structuredTrace
+    && structuredTrace.kind === "mcp_payload"
+  ) {
+    traceModal.classList.add(
+      "jin-context-trace-modal"
+    );
+    renderMcpPayloadTrace(
+      structuredTrace.request || {}
+    );
+    return;
   }
 
   if (
@@ -5404,7 +5489,29 @@ function showPostingBoardTrace(result) {
   );
 }
 
+function showMcpPayloadTrace(request) {
+  const payload =
+    request && typeof request === "object"
+      ? request
+      : {};
+  const skill = String(payload.skill || "").trim();
+  const tool = String(payload.tool || "").trim();
+  const target = [skill, tool].filter(Boolean).join(" / ");
+
+  showTrace(
+    "",
+    target ? `CALL_MCP · ${target}` : "CALL_MCP",
+    null,
+    {
+      kind: "mcp_payload",
+      request: payload,
+    }
+  );
+}
+
 window.showTrace =
   showTrace;
 window.showPostingBoardTrace =
   showPostingBoardTrace;
+window.showMcpPayloadTrace =
+  showMcpPayloadTrace;

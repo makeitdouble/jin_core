@@ -217,18 +217,6 @@ function parseValidatorLogPayload(
 }
 
 
-function findLiveFlowLog(
-  flowId,
-) {
-  if (!flowId) {
-    return null;
-  }
-
-  return consoleStream.querySelector(
-    `[data-flow-id="${CSS.escape(flowId)}"]`
-  );
-}
-
 function moveLogToBottomWithFlip(
   logDiv,
 ) {

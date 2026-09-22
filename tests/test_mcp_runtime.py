@@ -13,6 +13,11 @@ from rules.brain_context_builder import BRAIN_RUNTIME_ACTIONS
 from tests.helpers.runtime_actions import patch_asset_roots
 from utils.actions import RuntimeActionCall, extract_runtime_actions
 from utils.actions.mcp_actions import apply_mcp_actions, parse_call_mcp_payload
+from utils.context.session_actions import build_session_actions_history_context
+from utils.session_actions_history import (
+    build_session_action_marker_history_items,
+    build_session_actions_update_items,
+)
 from utils.actions.result_reuse import find_reusable_result
 from utils.actions.skill_actions import apply_skill_actions
 from utils.mcp_client import MCPClientManager, _MCPConnection
@@ -75,6 +80,160 @@ class MCPRuntimeTests(unittest.IsolatedAsyncioTestCase):
             build_runtime_action_instructions(("CALL_MCP",), context=with_skill),
         )
 
+    def test_call_mcp_parser_accepts_literal_newlines_inside_code(self):
+        payload = (
+            '{"skill":"blender_mcp","tool":"execute_blender_code","arguments":{'
+            '"code":"import bpy\\nprint(\'ok\')","user_prompt":"создай сферу"}}'
+        ).replace("\\n", "\n")
+
+        parsed = parse_call_mcp_payload(payload)
+
+        self.assertEqual(parsed["skill"], "blender_mcp")
+        self.assertEqual(parsed["tool"], "execute_blender_code")
+        self.assertEqual(parsed["arguments"]["code"], "import bpy\nprint('ok')")
+        self.assertEqual(parsed["arguments"]["user_prompt"], "создай сферу")
+
+    def test_call_mcp_history_never_projects_raw_arguments(self):
+        raw_payload = (
+            '{"skill":"blender_mcp","tool":"execute_blender_code",'
+            '"arguments":{"code":"SECRET_LONG_PROGRAM"}}'
+        )
+        items = build_session_action_marker_history_items(
+            [{
+                "name": "CALL_MCP",
+                "payload": raw_payload,
+                "status": "failed",
+            }],
+            created_at=1234.0,
+            runtime_turn_id="turn-1",
+        )
+        for item in items:
+            item["session_id"] = "session-1"
+        context = SimpleNamespace(
+            session_id="session-1",
+            runtime_current_sequence_turn_id="turn-1",
+            runtime_current_sequence_started_at=1234.0,
+            runtime_action_sequence_turn_ids=["turn-1"],
+            runtime_session_action_history=items,
+        )
+
+        projected = str(build_session_actions_update_items(
+            context,
+            current_sequence=True,
+        ))
+        prompt = build_session_actions_history_context(
+            context,
+            current_sequence=True,
+        )
+
+        self.assertIn("blender_mcp / execute_blender_code", projected)
+        self.assertIn("blender_mcp / execute_blender_code", prompt)
+        self.assertNotIn("SECRET_LONG_PROGRAM", projected)
+        self.assertNotIn("SECRET_LONG_PROGRAM", prompt)
+
+    def test_legacy_call_mcp_history_is_compacted_on_projection(self):
+        raw_payload = (
+            '{"skill":"blender_mcp","tool":"execute_blender_code",'
+            '"arguments":{"code":"SECRET_LEGACY_PROGRAM"}}'
+        )
+        context = SimpleNamespace(
+            session_id="session-1",
+            runtime_current_sequence_turn_id="turn-1",
+            runtime_session_action_history=[{
+                "session_id": "session-1",
+                "runtime_turn_id": "turn-1",
+                "text": f"CALL_MCP: {raw_payload}",
+                "parts": [{"text": f"CALL_MCP: {raw_payload}"}],
+            }],
+        )
+
+        projected = str(build_session_actions_update_items(
+            context,
+            current_sequence=True,
+        ))
+
+        self.assertIn("blender_mcp / execute_blender_code", projected)
+        self.assertNotIn("SECRET_LEGACY_PROGRAM", projected)
+
+    def test_invalid_call_mcp_history_hides_unparseable_payload(self):
+        raw_payload = '{"skill":"blender_mcp","arguments":"SECRET_BROKEN_PAYLOAD"'
+        items = build_session_action_marker_history_items(
+            [{"name": "CALL_MCP", "payload": raw_payload}],
+            created_at=1234.0,
+            runtime_turn_id="turn-1",
+        )
+        context = SimpleNamespace(
+            session_id="",
+            runtime_current_sequence_turn_id="turn-1",
+            runtime_action_sequence_turn_ids=["turn-1"],
+            runtime_session_action_history=items,
+        )
+
+        projected = str(build_session_actions_update_items(
+            context,
+            current_sequence=True,
+        ))
+        prompt = build_session_actions_history_context(
+            context,
+            current_sequence=True,
+        )
+
+        self.assertIn("invalid request", projected)
+        self.assertIn("invalid request", prompt)
+        self.assertNotIn("SECRET_BROKEN_PAYLOAD", projected)
+        self.assertNotIn("SECRET_BROKEN_PAYLOAD", prompt)
+
+    async def test_call_mcp_invalid_json_reports_exact_parse_location(self):
+        context = SimpleNamespace(
+            emitter=FakeEmitter(),
+            runtime_loaded_skills=[],
+            runtime_action_events=[],
+            runtime_mcp_action_sequence=0,
+        )
+        action = RuntimeActionCall(
+            name="CALL_MCP",
+            payload='{"skill":"demo_mcp","tool":"ping","arguments":{"value":1}',
+        )
+
+        results = await apply_mcp_actions(
+            context,
+            [action],
+            action_display_ids={},
+            log_runtime=None,
+            with_action_context=lambda payload: payload,
+        )
+
+        self.assertFalse(results[0]["ok"])
+        self.assertEqual(results[0]["error"], "invalid_json")
+        self.assertIn("JSON parse failed at line 1, column", results[0]["detail"])
+
+    async def test_call_mcp_invalid_arguments_reports_schema_problem(self):
+        context = SimpleNamespace(
+            emitter=FakeEmitter(),
+            runtime_loaded_skills=[],
+            runtime_action_events=[],
+            runtime_mcp_action_sequence=0,
+        )
+        action = RuntimeActionCall(
+            name="CALL_MCP",
+            payload='{"skill":"demo_mcp","tool":"ping","arguments":[]}',
+        )
+
+        results = await apply_mcp_actions(
+            context,
+            [action],
+            action_display_ids={},
+            log_runtime=None,
+            with_action_context=lambda payload: payload,
+        )
+
+        self.assertFalse(results[0]["ok"])
+        self.assertEqual(results[0]["error"], "invalid_payload")
+        self.assertEqual(
+            results[0]["detail"],
+            "CALL_MCP field 'arguments' must be a JSON object",
+        )
+
     def test_mcp_server_config_supports_stdio_http_sse_and_host_env(self):
         stdio = parse_mcp_server_config(MCP_SKILL_TEXT)
         self.assertEqual(stdio["transport"], "stdio")
@@ -108,6 +267,7 @@ class MCPRuntimeTests(unittest.IsolatedAsyncioTestCase):
                     "protocol_version": "2026-07-28",
                     "server_name": "demo",
                     "server_version": "1.0",
+                    "instructions": "Inspect state before changing it.",
                 },
                 "tools": [
                     {
@@ -142,7 +302,10 @@ class MCPRuntimeTests(unittest.IsolatedAsyncioTestCase):
         loaded = context.runtime_loaded_skills[0]
         self.assertIn("<MCP_RUNTIME>", loaded["content"])
         self.assertIn("create_cube", loaded["content"])
-        self.assertEqual(loaded["mcp_runtime"]["server"]["server_name"], "demo")
+        self.assertIn("server_instructions:", loaded["content"])
+        self.assertIn("Inspect state before changing it.", loaded["content"])
+        self.assertNotIn("mcp_runtime", loaded)
+        self.assertNotIn("mcp_runtime", result["loaded_skill_results"][0]["skill"])
         self.assertTrue(result["loaded_skill_results"][0]["ok"])
 
     async def test_call_mcp_records_result_and_turns_image_block_into_followup_attachment(self):
@@ -197,11 +360,25 @@ class MCPRuntimeTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(attachment["kind"], "image")
         self.assertTrue(attachment["data_url"].startswith("data:image/png;base64,"))
         self.assertEqual(len(results[0]["attachments"]), 1)
+        self.assertEqual(results[0]["attachments"][0]["kind"], "image")
+        self.assertEqual(results[0]["attachments"][0]["type"], "image/png")
         image_block = results[0]["content"][1]
         self.assertNotIn("data", image_block)
         self.assertEqual(image_block["file_id"], attachment["id"])
-        statuses = [event.get("status") for event in context.emitter.events]
+        statuses = [
+            event.get("status")
+            for event in context.emitter.events
+            if event.get("type") == "runtime_action"
+        ]
         self.assertEqual(statuses, ["running", "completed"])
+        file_updates = [
+            event
+            for event in context.emitter.events
+            if event.get("type") == "attached_files_update"
+        ]
+        self.assertEqual(len(file_updates), 1)
+        self.assertIn(attachment["id"], file_updates[0]["pinned_ids"])
+        self.assertIn(attachment["id"], context.runtime_attached_file_ids)
         self.assertTrue(getattr(context, "runtime_tool_results", []))
 
     def test_call_mcp_is_never_satisfied_from_result_reuse_cache(self):
@@ -223,7 +400,7 @@ class MCPRuntimeTests(unittest.IsolatedAsyncioTestCase):
                 self.exit_count = 0
                 self.protocol_version = "test"
                 self.server_info = SimpleNamespace(name="fake", version="1")
-                self.instructions = ""
+                self.instructions = "Use ping carefully."
 
             async def __aenter__(self):
                 self.enter_count += 1
@@ -260,6 +437,8 @@ class MCPRuntimeTests(unittest.IsolatedAsyncioTestCase):
             called = await connection.call_tool("ping", {"x": 1})
             self.assertEqual(fake_client.enter_count, 1)
             self.assertEqual(tools["tools"][0]["name"], "ping")
+            self.assertEqual(tools["server"]["instructions"], "Use ping carefully.")
+            self.assertNotIn("server", called)
             self.assertEqual(called["structured_content"]["arguments"], {"x": 1})
             await connection.close()
 

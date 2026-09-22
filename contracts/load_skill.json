@@ -16,7 +16,7 @@
       "<LOAD_SKILLS_CONTEXT> skill1, skill2 </LOAD_SKILLS_CONTEXT>"
     ],
     "rules": [
-      "JIN must load relevant skill before using it."
+      "MUST LOAD correct skill BEFORE use asset actions."
     ],
     "close_tag": true,
     "display_payload": true

@@ -26,3 +26,10 @@ def test_builtin_blender_mcp_skill_is_discoverable_and_uses_generic_stdio_adapte
     assert '"skill":"blender_mcp"' in content
     assert "viewport screenshot" in content.casefold()
     assert "user_prompt" in content
+    assert "bpy.ops.mesh.primitive_uv_sphere_add" in content
+    assert "bpy.ops.mesh.primitive_ico_sphere_add" in content
+    assert "verify its exact name with `hasattr`" in content
+    assert "material.diffuse_color" in content
+    assert "Principled BSDF" in content
+    assert "reusing an existing material" in content
+    assert "successful edit call confirms only" in content

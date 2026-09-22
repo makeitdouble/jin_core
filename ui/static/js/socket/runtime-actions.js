@@ -2346,6 +2346,12 @@ function handleRuntimeAction(
             data.posting_board_result || null,
           attachmentResult:
             data.attachment_result || null,
+          mcpRequest:
+            data.mcp_request || null,
+          mcpResult:
+            data.mcp_result || null,
+          mcpPayload:
+            data.payload || "",
           delayedMemoryReportId:
             delayedMemoryPreview.reportId,
           delayedMemoryReport:
@@ -2489,6 +2495,12 @@ function handleRuntimeAction(
         data.posting_board_result || null,
       attachmentResult:
         data.attachment_result || null,
+      mcpRequest:
+        data.mcp_request || null,
+      mcpResult:
+        data.mcp_result || null,
+      mcpPayload:
+        data.payload || "",
       delayedMemoryReportId:
         delayedMemoryPreview.reportId,
       delayedMemoryReport:

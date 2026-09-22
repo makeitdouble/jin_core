@@ -4,6 +4,10 @@
 )
 
 $ErrorActionPreference = "Stop"
+# The dashboard owns the console buffer. PowerShell progress (including module
+# auto-loading and HTTP probes) saves/restores cells through the legacy console
+# API, losing their ANSI RGB colors. Disable it before any cmdlet can draw it.
+$ProgressPreference = "SilentlyContinue"
 $Root = Split-Path -Parent $MyInvocation.MyCommand.Path
 $ConfigPath = Join-Path $Root "config.py"
 $ConfigExamplePath = Join-Path $Root "config.example.py"
@@ -772,10 +776,6 @@ function Stop-JinBackend {
 }
 
 function Get-JinPageTitle {
-    # Windows PowerShell's web cmdlet can paint its progress UI directly into
-    # the dashboard's cursor-addressed console buffer. Suppress that host UI so
-    # probing the browser title cannot recolor or overwrite dashboard cells.
-    $ProgressPreference = "SilentlyContinue"
     try {
         $response = Invoke-WebRequest -Uri $AppUrl -UseBasicParsing -TimeoutSec 2 -ErrorAction Stop
         $content = [string]$response.Content

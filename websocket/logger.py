@@ -116,9 +116,23 @@ class WebSocketLogger:
             message: str,
             details: str | None = None,
     ):
+        full_text = str(
+            message
+            or ""
+        ).strip()
+        preview = (
+            full_text[
+                :self.MODEL_OUTPUT_PREVIEW_LIMIT
+            ]
+            + "..."
+            if len(full_text)
+            > self.MODEL_OUTPUT_PAYLOAD_THRESHOLD
+            else full_text
+        )
+
         await self.log(
             "[USER]",
-            message,
+            preview,
             details=details,
         )
 
@@ -175,19 +189,6 @@ class WebSocketLogger:
 
     async def log_runtime(self, message: str):
         await self.log("[RUNTIME]", message)
-
-    async def log_flow(
-            self,
-            message: str,
-            flow_id: str = "agent-runtime",
-    ):
-        await self.log(
-            "[FLOW]",
-            message,
-            channel="flow",
-            flow_id=flow_id,
-            flow_event="agent_route",
-        )
 
     async def log_validator(
             self,

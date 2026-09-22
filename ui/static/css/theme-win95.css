@@ -229,7 +229,6 @@ body.theme-win95 #console-stream [data-log-kind="active-memory"] > .logger-tag {
     color: #404040 !important;
 }
 
-body.theme-win95 #console-stream [data-log-kind="flow"] > .logger-tag,
 body.theme-win95 #console-stream [data-log-kind="before"] > .logger-tag,
 body.theme-win95 #console-stream [data-log-kind="after"] > .logger-tag {
     color: #5a2aa0 !important;
@@ -283,6 +282,29 @@ body.theme-win95 #console-stream button {
 
 body.theme-win95 #console-stream button:hover {
     background: var(--win95-face-soft);
+}
+
+/* Disabled MEMORY sequence labels/arrows are status text, not controls. */
+body.theme-win95 #console-stream .jin-lt-sequence-step:disabled,
+body.theme-win95 #console-stream .jin-lt-sequence-arrow:disabled {
+    height: auto;
+    padding: 0;
+    background: transparent;
+    border: 0;
+    color: #777 !important;
+    box-shadow: none;
+    cursor: default;
+    transform: none;
+}
+
+body.theme-win95 #console-stream .jin-lt-sequence-step:disabled:hover,
+body.theme-win95 #console-stream .jin-lt-sequence-arrow:disabled:hover,
+body.theme-win95 #console-stream .jin-lt-sequence-step:disabled:active,
+body.theme-win95 #console-stream .jin-lt-sequence-arrow:disabled:active {
+    background: transparent;
+    border: 0;
+    box-shadow: none;
+    transform: none;
 }
 
 body.theme-win95 #console-stream [data-log-kind="brain"] button,
@@ -1198,4 +1220,117 @@ body.theme-win95 .jin-think-content.is-structured .jin-think-code-block {
     border-radius: 0;
     background: rgba(255, 255, 255, 0.18);
     color: var(--win95-text);
+}
+
+/* Win95 keeps chat geometry square: the model-load / prompt-processing
+   progress border follows the avatar corners instead of the rounded dark skin. */
+body.theme-win95 .jin-chat-avatar-progress-ring {
+    border-radius: 0;
+}
+
+/* FRAME / L-T activity is deliberately stronger in the light theme. The
+   normal Win95 panel bevel is 2px, so 4px makes the active memory border
+   exactly twice as thick while the stronger alpha keeps the glow readable
+   against the light panel chrome. */
+body.theme-win95 #memory-panel.memory-updating,
+body.theme-win95 #memory-panel.memory-fading,
+body.theme-win95 #memory-panel.memory-lt-updating,
+body.theme-win95 #memory-panel.memory-lt-fading {
+    border-width: 4px;
+    border-style: solid;
+}
+
+body.theme-win95 #memory-panel.memory-updating {
+    border-color: rgba(255, 190, 95, 1);
+    box-shadow:
+            0 0 0 1px rgba(255, 190, 100, 0.50),
+            0 0 18px rgba(255, 170, 70, 0.44),
+            0 0 48px rgba(255, 140, 40, 0.24),
+            inset 0 0 16px rgba(255, 170, 70, 0.10);
+}
+
+body.theme-win95 #memory-panel.memory-updating.memory-pulse {
+    animation: win95MemoryFrameGlowPulse 5s ease-in-out infinite;
+}
+
+body.theme-win95 #memory-panel.memory-fading {
+    border-color: rgba(255, 190, 95, 0.36);
+    box-shadow:
+            0 0 0 1px rgba(255, 190, 100, 0.16),
+            0 0 12px rgba(255, 170, 70, 0.20),
+            0 0 32px rgba(255, 140, 40, 0.12),
+            inset 0 0 10px rgba(255, 170, 70, 0.06);
+}
+
+body.theme-win95 #memory-panel.memory-lt-updating {
+    border-color: rgba(255, 255, 255, 1);
+    box-shadow:
+            0 0 0 1px rgba(255, 255, 255, 0.44),
+            0 0 18px rgba(255, 255, 255, 0.36),
+            0 0 48px rgba(255, 255, 255, 0.20),
+            inset 0 0 16px rgba(255, 255, 255, 0.08);
+}
+
+body.theme-win95 #memory-panel.memory-lt-updating.memory-lt-pulse {
+    animation: win95MemoryLTGlowPulse 5s ease-in-out infinite;
+}
+
+body.theme-win95 #memory-panel.memory-lt-fading {
+    animation: win95MemoryLTNeutralFade 1.4s ease-out forwards;
+}
+
+@keyframes win95MemoryFrameGlowPulse {
+    0%, 100% {
+        box-shadow:
+                0 0 0 1px rgba(255, 190, 100, 0.50),
+                0 0 18px rgba(255, 170, 70, 0.44),
+                0 0 48px rgba(255, 140, 40, 0.24),
+                inset 0 0 16px rgba(255, 170, 70, 0.10);
+    }
+
+    50% {
+        box-shadow:
+                0 0 0 1px rgba(255, 205, 120, 0.84),
+                0 0 26px rgba(255, 180, 80, 0.68),
+                0 0 72px rgba(255, 145, 45, 0.40),
+                inset 0 0 22px rgba(255, 185, 90, 0.16);
+    }
+}
+
+@keyframes win95MemoryLTGlowPulse {
+    0%, 100% {
+        box-shadow:
+                0 0 0 1px rgba(255, 255, 255, 0.44),
+                0 0 18px rgba(255, 255, 255, 0.36),
+                0 0 48px rgba(255, 255, 255, 0.20),
+                inset 0 0 16px rgba(255, 255, 255, 0.08);
+    }
+
+    50% {
+        box-shadow:
+                0 0 0 1px rgba(255, 255, 255, 0.76),
+                0 0 26px rgba(255, 255, 255, 0.56),
+                0 0 72px rgba(255, 255, 255, 0.32),
+                inset 0 0 22px rgba(255, 255, 255, 0.14);
+    }
+}
+
+@keyframes win95MemoryLTNeutralFade {
+    from {
+        border-color: rgba(255, 255, 255, 1);
+        box-shadow:
+                0 0 0 1px rgba(255, 255, 255, 0.44),
+                0 0 18px rgba(255, 255, 255, 0.36),
+                0 0 48px rgba(255, 255, 255, 0.20),
+                inset 0 0 16px rgba(255, 255, 255, 0.08);
+    }
+
+    to {
+        border-color: rgba(255, 255, 255, 0.16);
+        box-shadow:
+                0 0 0 1px rgba(255, 255, 255, 0.04),
+                0 0 8px rgba(255, 255, 255, 0.05),
+                0 0 18px rgba(255, 255, 255, 0.03),
+                inset 0 0 8px rgba(255, 255, 255, 0.02);
+    }
 }

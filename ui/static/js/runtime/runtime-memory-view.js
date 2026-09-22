@@ -5186,7 +5186,16 @@
           line.key || "note";
 
       const valuePresentation =
-          memoryModel.buildRuntimeMemoryValuePresentation(line);
+          memoryModel.buildRuntimeMemoryValuePresentation(
+            line,
+            {
+              truncate: Boolean(
+                options.interactiveLongTermMemory
+                || options.interactiveActiveMemory
+                || options.interactiveFactsMemory
+              ),
+            }
+          );
       const longTermMemoryFullValueText =
           options.interactiveLongTermMemory
             ? getLongTermMemoryFullValueText(line)
@@ -6164,6 +6173,7 @@
       const keySpan = document.createElement("span");
       keySpan.className = "runtime-memory-key";
       keySpan.textContent = String(record.display_name || record.name || "attachment");
+      bindRuntimeMemoryHoverTitle(keySpan, keySpan.textContent);
       bindPersistentFileAvatarHoverTarget(keySpan, row);
 
       row.append(pinButton, separator, keySpan);

@@ -58,7 +58,6 @@ from utils.actions.update_lt_facts_actions import (
     schedule_pending_update_lt_facts_actions,
 )
 from utils.token_usage import (
-    format_token_usage_summary,
     get_runtime_token_estimate_scale,
 )
 from utils.tokens import estimate_stream_input_tokens
@@ -1639,13 +1638,6 @@ async def process_message(
         await emit_session_actions_update(
             context,
             current_sequence=False,
-        )
-
-        await logger.log(
-            "[FLOW TELEMETRY]",
-            format_token_usage_summary(
-                context
-            ),
         )
 
         retryable_response = bool(

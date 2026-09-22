@@ -457,6 +457,140 @@ function bindPostingBoardResultPreview(
   element.setAttribute("tabindex", "0");
 }
 
+
+function getMcpRuntimeActionRequest(
+  options = {}
+) {
+
+  const candidates = [
+    options.mcpRequest,
+    options.mcpResult,
+    options.mcpPayload,
+  ];
+
+  for (const candidate of candidates) {
+    let parsed = candidate;
+
+    if (typeof parsed === "string") {
+      try {
+        parsed = JSON.parse(parsed);
+      } catch (_error) {
+        parsed = null;
+      }
+    }
+
+    if (
+      parsed
+      && typeof parsed === "object"
+      && !Array.isArray(parsed)
+      && (parsed.skill || parsed.tool || parsed.arguments)
+    ) {
+      return {
+        skill: String(parsed.skill || "").trim(),
+        tool: String(parsed.tool || "").trim(),
+        arguments:
+          parsed.arguments
+          && typeof parsed.arguments === "object"
+          && !Array.isArray(parsed.arguments)
+            ? parsed.arguments
+            : {},
+      };
+    }
+  }
+
+  return null;
+
+}
+
+function bindMcpRuntimeActionPreview(
+  element,
+  options = {}
+) {
+
+  if (!element) {
+    return;
+  }
+
+  const request =
+    getMcpRuntimeActionRequest(options);
+
+  element._jinMcpRequest = request;
+
+  if (!request) {
+    return;
+  }
+
+  const isViewportScreenshot =
+    request.tool.toLowerCase()
+    === "get_viewport_screenshot";
+  const attachments =
+    options.mcpResult
+    && Array.isArray(options.mcpResult.attachments)
+      ? options.mcpResult.attachments
+      : [];
+  const screenshot =
+    isViewportScreenshot
+      ? attachments.find((item) => (
+        item
+        && (
+          String(item.kind || "").toLowerCase() === "image"
+          || String(item.type || item.mime_type || "")
+            .toLowerCase().startsWith("image/")
+        )
+      )) || attachments[0]
+      : null;
+
+  if (
+    screenshot
+    && typeof window.bindRuntimeActionAttachmentPreview
+      === "function"
+  ) {
+    window.bindRuntimeActionAttachmentPreview(
+      element,
+      screenshot,
+      screenshot.id || ""
+    );
+    return;
+  }
+
+  if (isViewportScreenshot) {
+    return;
+  }
+
+  element.classList.remove("cursor-help");
+  element.classList.add("cursor-pointer");
+  element.setAttribute("role", "button");
+  element.tabIndex = 0;
+  element.title = "show MCP payload";
+
+  if (element._jinMcpPayloadBound) {
+    return;
+  }
+
+  element._jinMcpPayloadBound = true;
+
+  const openPayload = () => {
+    if (typeof window.showMcpPayloadTrace === "function") {
+      window.showMcpPayloadTrace(
+        element._jinMcpRequest
+      );
+    }
+  };
+
+  element.addEventListener("click", (event) => {
+    event.preventDefault();
+    openPayload();
+  });
+  element.addEventListener("keydown", (event) => {
+    if (event.key !== "Enter" && event.key !== " ") {
+      return;
+    }
+    event.preventDefault();
+    openPayload();
+  });
+
+}
+
 function runtimeActionRowIsTerminal(
   row
 ) {
@@ -3480,7 +3614,8 @@ function updateRuntimeActionRow(
     row,
     label,
     detail,
-    row.classList.contains(
+    action === "call_mcp"
+    || row.classList.contains(
       "jin-runtime-action-deep-search-child"
     )
     || isDeepSearchChildRuntimeAction(
@@ -3516,6 +3651,10 @@ function updateRuntimeActionRow(
       options.attachmentResult || null,
       options.id || ""
     );
+  }
+
+  if (action === "call_mcp") {
+    bindMcpRuntimeActionPreview(label, options);
   }
 
   if (
@@ -4148,7 +4287,7 @@ function appendRuntimeAction(
     row,
     label,
     detail,
-    omitIcon
+    omitIcon || action === "call_mcp"
   );
 
   if (action === "asset_action") {
@@ -4178,6 +4317,10 @@ function appendRuntimeAction(
       options.attachmentResult || null,
       options.id || ""
     );
+  }
+
+  if (action === "call_mcp") {
+    bindMcpRuntimeActionPreview(label, options);
   }
 
   if (

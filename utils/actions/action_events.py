@@ -16,7 +16,6 @@ from contracts.rules_assembler import (
     build_runtime_action_display_text,
     get_runtime_action_display_name,
     runtime_action_has_close_tag,
-    runtime_action_follows_up_on_fail,
 )
 from utils.actions import (
     build_runtime_action_id,
@@ -31,7 +30,7 @@ from utils.actions import (
     normalize_jin_size_dict,
     normalize_jin_size_payload,
 )
-from utils.runtime_action_abort import mark_runtime_action_started
+from utils.runtime_action_abort import mark_runtime_action_completed, mark_runtime_action_started
 from utils.chat_log_search import extract_chat_log_search_query
 from utils.actions.posting_board_actions import build_posting_board_display_text
 from utils.actions.mcp_actions import build_call_mcp_display_text
@@ -143,14 +142,13 @@ async def _emit_rejection(batch, selection, action):
     rejected_event = selection.rejected_action_events.get(id(action))
     if rejected_event is None:
         return
-    if (
-        not rejected_event.get("confirmation_id")
-        and not rejected_event.get("failure_followup_message")
-        and rejected_event.get("error")
-        not in {"behavior_contract_blocker_matched", "restricted_write"}
-        and not runtime_action_follows_up_on_fail(action.name)
-    ):
-        return
+
+    # A terminal UI event is required even when the action has no failure
+    # follow-up. Retire its streaming state before another action can reuse it.
+    action_display_id = str(batch.action_display_ids.get(id(action), "") or "").strip()
+    mark_runtime_action_completed(
+        batch.context, action=action.name, action_id=action_display_id
+    )
 
     emit = getattr(getattr(batch.context, "emitter", None), "emit", None)
     if emit is None:
@@ -163,11 +161,11 @@ async def _emit_rejection(batch, selection, action):
         "display_name": get_runtime_action_display_name(action.name),
         "close_tag": runtime_action_has_close_tag(action.name),
         "text": rejected_event.get("title")
-        or rejected_event.get("error")
-        or f"{action.name} blocked",
+        or f"{get_runtime_action_display_name(action.name)} : failed",
         "error": rejected_event.get("error", ""),
-        "detail": rejected_event.get("failure_followup_message", "")
-        or rejected_event.get("failure_reason", ""),
+        "detail": rejected_event.get("failure_reason", "")
+        or rejected_event.get("failure_followup_message", "")
+        or rejected_event.get("error", ""),
     }
     action_display_id = str(batch.action_display_ids.get(id(action), "") or "").strip()
     if action_display_id:
@@ -190,6 +188,22 @@ async def record_action_event(batch, selection, action, search_counts, *, accept
     rejected_event = selection.rejected_action_events.get(id(action))
     if not accepted and rejected_event is None:
         return None
+
+    if rejected_event is not None:
+        # These older streaming adapters reserve IDs in queues rather than
+        # action_display_ids. Consume the same reservation on rejection as on
+        # execution, so a later action cannot inherit an already-failed bubble.
+        pending_attribute = {
+            "ASSET_ACTION": "runtime_pending_asset_action_ids",
+            "SAVE_DELAYED_MEMORY": "runtime_pending_delayed_memory_action_ids",
+        }.get(action.name)
+        pending_ids = getattr(batch.context, pending_attribute, None) if pending_attribute else None
+        display_id = str(batch.action_display_ids.get(id(action), "") or "").strip()
+        if isinstance(pending_ids, list) and pending_ids:
+            if not display_id:
+                batch.action_display_ids[id(action)] = pending_ids.pop(0)
+            elif display_id in pending_ids:
+                pending_ids.remove(display_id)
 
     action_event = {
         "name": action.name.lower(),

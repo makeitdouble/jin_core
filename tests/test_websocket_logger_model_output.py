@@ -70,6 +70,23 @@ class WebSocketLoggerModelOutputTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(payload["message"], text)
         self.assertNotIn("details", payload)
 
+    async def test_user_output_over_150_chars_uses_100_char_preview_with_full_payload(self):
+        websocket = FakeWebSocket()
+        logger = WebSocketLogger(websocket)
+        text = "u" * 151
+        details = '{"text":"full payload"}'
+
+        await logger.log_user(
+            text,
+            details=details,
+        )
+
+        self.assertEqual(len(websocket.events), 1)
+        payload = websocket.events[0]
+        self.assertEqual(payload["tag"], "[USER]")
+        self.assertEqual(payload["message"], text[:100] + "...")
+        self.assertEqual(payload["details"], details)
+
     async def test_brain_output_strips_outer_blank_lines(self):
         websocket = FakeWebSocket()
         logger = WebSocketLogger(websocket)

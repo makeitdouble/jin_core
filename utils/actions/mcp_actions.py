@@ -11,7 +11,11 @@ from contracts.rules_assembler import (
     runtime_action_has_close_tag,
 )
 from utils.actions import build_runtime_action_id
-from utils.attached_files_store import hydrate_attachment_ids, store_uploaded_file
+from utils.attached_files_store import (
+    get_pinned_file_ids,
+    hydrate_attachment_ids,
+    store_uploaded_file,
+)
 from utils.mcp_client import call_mcp_tool
 from utils.mcp_skill_utils import get_skill_mcp_config, resolve_loaded_mcp_skill
 from utils.skills_asset_utils import normalize_skill_name
@@ -21,29 +25,52 @@ from utils.tool_results import TOOL_RESULT_KIND_RUNTIME_ACTION, record_runtime_t
 MAX_MCP_IMAGE_BYTES = 20 * 1024 * 1024
 
 
-def parse_call_mcp_payload(payload) -> dict | None:
+def _parse_call_mcp_payload(payload) -> tuple[dict | None, str, str]:
     if isinstance(payload, dict):
         data = payload
     else:
+        raw = str(payload or "").strip()
+        if not raw:
+            return None, "invalid_json", "CALL_MCP payload is empty"
         try:
-            data = json.loads(str(payload or "").strip())
-        except (TypeError, ValueError):
-            return None
+            # MCP code arguments are often multiline. Be tolerant of literal
+            # control characters inside JSON strings instead of rejecting an
+            # otherwise usable tool call.
+            data = json.loads(raw, strict=False)
+        except json.JSONDecodeError as exc:
+            return (
+                None,
+                "invalid_json",
+                f"CALL_MCP JSON parse failed at line {exc.lineno}, column {exc.colno}: {exc.msg}",
+            )
+        except (TypeError, ValueError) as exc:
+            return None, "invalid_json", f"CALL_MCP JSON parse failed: {exc}"
 
     if not isinstance(data, dict):
-        return None
+        return None, "invalid_payload", "CALL_MCP payload must be a JSON object"
 
     skill = normalize_skill_name(data.get("skill", ""))
+    if not skill:
+        return None, "invalid_payload", "CALL_MCP field 'skill' must be a non-empty string"
+
     tool = str(data.get("tool") or "").strip()
+    if not tool:
+        return None, "invalid_payload", "CALL_MCP field 'tool' must be a non-empty string"
+
     arguments = data.get("arguments", {})
-    if not skill or not tool or not isinstance(arguments, dict):
-        return None
+    if not isinstance(arguments, dict):
+        return None, "invalid_payload", "CALL_MCP field 'arguments' must be a JSON object"
 
     return {
         "skill": skill,
         "tool": tool,
         "arguments": arguments,
-    }
+    }, "", ""
+
+
+def parse_call_mcp_payload(payload) -> dict | None:
+    parsed, _error, _detail = _parse_call_mcp_payload(payload)
+    return parsed
 
 
 def canonical_call_mcp_payload(payload) -> str:
@@ -101,7 +128,7 @@ def _persist_mcp_images(context, result: dict) -> list[dict]:
             name=name,
             content=payload,
             mime_type=mime_type,
-            pin=False,
+            pin=True,
         )
         if error or not record:
             continue
@@ -132,6 +159,8 @@ def _persist_mcp_images(context, result: dict) -> list[dict]:
             "id": file_id,
             "name": str(record.get("name") or name),
             "mime_type": mime_type,
+            "type": mime_type,
+            "kind": "image",
             "url": str(record.get("url") or ""),
         })
 
@@ -171,7 +200,7 @@ async def apply_mcp_actions(
     emit = getattr(emitter, "emit", None)
 
     for action_call in actions or ():
-        parsed = parse_call_mcp_payload(action_call.payload)
+        parsed, parse_error, parse_detail = _parse_call_mcp_payload(action_call.payload)
         action_id = str(action_display_ids.get(id(action_call), "") or "").strip()
         if not action_id:
             sequence = int(getattr(context, "runtime_mcp_action_sequence", 0) or 0) + 1
@@ -197,8 +226,8 @@ async def apply_mcp_actions(
             result = {
                 "ok": False,
                 "runtime_action_name": "CALL_MCP",
-                "error": "invalid_json",
-                "detail": "CALL_MCP requires JSON with skill, tool and object arguments",
+                "error": parse_error or "invalid_payload",
+                "detail": parse_detail or "Invalid CALL_MCP payload",
             }
         else:
             skill = resolve_loaded_mcp_skill(context, parsed["skill"])
@@ -231,7 +260,21 @@ async def apply_mcp_actions(
                         result["runtime_action_name"] = "CALL_MCP"
                         if result.get("ok") is False and not result.get("detail"):
                             result["detail"] = "MCP tool returned is_error=true"
-                        _persist_mcp_images(context, result)
+                        stored_images = _persist_mcp_images(context, result)
+                        if stored_images:
+                            # MCP images use the same canonical pinned-file state
+                            # and snapshot event as user-attached files. This keeps
+                            # the Console and composer chips in sync immediately.
+                            from utils.actions.attachment_actions import (
+                                _emit_snapshot,
+                                apply_attachment_context_ids,
+                            )
+
+                            apply_attachment_context_ids(
+                                context,
+                                get_pinned_file_ids(),
+                            )
+                            await _emit_snapshot(context)
                     except Exception as exc:
                         result = {
                             "ok": False,

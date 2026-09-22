@@ -270,8 +270,15 @@ def append_mcp_runtime_catalog(skill: dict, discovery: dict) -> dict:
             f"protocol_version: {str(server.get('protocol_version') or '').strip()}",
             f"server_name: {str(server.get('server_name') or '').strip()}",
             f"server_version: {str(server.get('server_version') or '').strip()}",
-            "tools:",
         ))
+        server_instructions = str(server.get("instructions") or "").strip()
+        if server_instructions:
+            lines.append("server_instructions:")
+            lines.extend(
+                f"  {line}"
+                for line in server_instructions.splitlines()
+            )
+        lines.append("tools:")
         tools = discovery.get("tools") if isinstance(discovery.get("tools"), list) else []
         if not tools:
             lines.append("- none")
@@ -297,5 +304,8 @@ def append_mcp_runtime_catalog(skill: dict, discovery: dict) -> dict:
     lines.append("</MCP_RUNTIME>")
     runtime_block = "\n".join(lines)
     enriched["content"] = f"{content}\n\n{runtime_block}".strip()
-    enriched["mcp_runtime"] = deepcopy(discovery)
+    # The live discovery is already represented once inside <MCP_RUNTIME>.
+    # Do not also attach the raw discovery dict to the skill: generic tool-result
+    # formatting recursively expands it and duplicates every MCP description/schema
+    # into the model context. MCP calls use the live connection manager, not this copy.
     return enriched

@@ -4,7 +4,7 @@ from contracts.rules_assembler import (
     RUNTIME_ACTION_SAVE_DELAYED_MEMORY,
     runtime_action_emits_followup,
 )
-from rules.runtime import ACTION_REJECTED_MISSING_TRIGGER_WORDS_MESSAGE
+from rules.runtime import ACTION_FAILURE_FOLLOWUP_MESSAGE, ACTION_REJECTED_MISSING_TRIGGER_WORDS_MESSAGE
 from runtime.anonymous_mode import (
     RESTRICTED_WRITE_REASON,
     build_restricted_write_event,
@@ -20,6 +20,7 @@ from utils.brain_client_utils import (
     build_delayed_memory_report,
 )
 from utils.skills_asset_utils import normalize_skill_name
+from utils.tool_results import TOOL_RESULT_KIND_RUNTIME_ACTION, record_runtime_tool_result
 
 from .action_dedup import ActionDedup
 from .action_registry import SKILL_WORKFLOW_ACTIONS, SOURCE_REPEAT_ACTIONS, get_action
@@ -162,7 +163,28 @@ class ActionState:
             getattr(self.batch.context, "runtime_skill_state_barrier_active", False)
             and action.name not in SKILL_WORKFLOW_ACTIONS
         ):
-            return "skipped"
+            reason = (
+                "Action was not executed: skill context changed in this response. "
+                "Read the updated skill context before emitting the action again."
+            )
+            self.rejected_action_events[id(action)] = {
+                "status": "failed",
+                "error": "skill_context_changed",
+                "failure_reason": reason,
+                "failure_followup_message": ACTION_FAILURE_FOLLOWUP_MESSAGE,
+            }
+            record_runtime_tool_result(
+                self.batch.context,
+                TOOL_RESULT_KIND_RUNTIME_ACTION,
+                {
+                    "ok": False,
+                    "action": action.name.lower(),
+                    "error": "skill_context_changed",
+                    "detail": reason,
+                    "payload": action.payload,
+                },
+            )
+            return "rejected"
 
         if not await self._restricted(action):
             return "rejected"

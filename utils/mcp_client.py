@@ -166,7 +166,9 @@ class _MCPConnection:
             "skill": self.skill_name,
             "tool": tool_name,
             "arguments": _jsonable(arguments),
-            "server": _server_identity(client),
+            # Server identity/instructions belong to the MCP initialize handshake.
+            # Discovery keeps them once in the loaded skill context; repeating the
+            # same static metadata in every tool result only bloats follow-ups.
             "is_error": is_error,
             "content": [
                 _content_block(block)

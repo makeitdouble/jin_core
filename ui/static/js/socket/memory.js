@@ -667,7 +667,8 @@ function handleSocketLog(
     }
 
     window.log_user(
-      payload
+      payload,
+      data.message || ""
     );
 
     return;

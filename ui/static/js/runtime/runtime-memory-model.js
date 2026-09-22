@@ -876,7 +876,10 @@
 
 
   // Builds the UI value presentation while keeping raw hover data, e.g. value "Book" with lifecycle data -> text "Book".
-  function buildRuntimeMemoryValuePresentation(line) {
+  function buildRuntimeMemoryValuePresentation(
+    line,
+    options = {},
+  ) {
 
     const value =
         line && line.value || "";
@@ -914,13 +917,19 @@
     const presentation =
         splitMemoryMeta(rawValue);
 
+    const truncate =
+        options.truncate !== false;
+
     let displayText =
-        truncateRuntimeMemoryValueForDisplay(
-            presentation.text
-        );
+        truncate
+          ? truncateRuntimeMemoryValueForDisplay(
+              presentation.text
+            )
+          : presentation.text;
 
     if (
-        normalizeRuntimeMemoryKey(line && line.key) === "user_message"
+        truncate
+        && normalizeRuntimeMemoryKey(line && line.key) === "user_message"
     ) {
       displayText =
           truncateRuntimeMemoryValueForDisplay(
@@ -929,7 +938,8 @@
               )
           );
     } else if (
-        isJinResponseRuntimeMemoryKey(line && line.key)
+        truncate
+        && isJinResponseRuntimeMemoryKey(line && line.key)
     ) {
       displayText =
           truncateRuntimeMemoryValueForDisplay(

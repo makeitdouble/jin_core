@@ -18,7 +18,7 @@
       "</ASSET_ACTION>"
     ],
     "rules": [
-      "MANDATORY: ASSET_ACTION requires a loaded skill context that defines the requested action schema."
+      "MANDATORY: ASSET_ACTION requires a loaded skill context with action schemas."
     ],
     "close_tag": true
   }

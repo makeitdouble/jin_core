@@ -7,15 +7,6 @@ from agent import (
 )
 
 
-class FakeLogger:
-
-    def __init__(self):
-        self.flows = []
-
-    async def log_flow(self, message):
-        self.flows.append(message)
-
-
 class FakeBrain:
 
     def __init__(self):
@@ -35,9 +26,7 @@ class AgentRuntimeTests(
         state = AgentState(
             user_input="привет"
         )
-        context = SimpleNamespace(
-            logger=FakeLogger(),
-        )
+        context = SimpleNamespace()
         runtime = AgentRuntime()
         brain = FakeBrain()
         runtime.brain = brain
@@ -63,10 +52,6 @@ class AgentRuntimeTests(
         self.assertEqual(
             state.brain_response,
             "direct brain response",
-        )
-        self.assertEqual(
-            context.logger.flows,
-            ["brain"],
         )
 
 if __name__ == "__main__":

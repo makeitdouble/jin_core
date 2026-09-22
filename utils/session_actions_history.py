@@ -954,6 +954,26 @@ def _normalize_session_action_display_parts(
         if not part_text:
             continue
 
+        # CALL_MCP arguments may contain entire programs or other large tool
+        # inputs.  Old checkpoints can contain that raw JSON either in the
+        # part text or its detail, so compact it again at every projection
+        # boundary instead of trusting persisted presentation data.
+        normalized_part_name = part_text.upper()
+        if normalized_part_name.startswith("CALL_MCP"):
+            legacy_payload = ""
+            if part_text.upper().startswith("CALL_MCP:"):
+                legacy_payload = part_text.split(":", 1)[1].strip()
+                part_text = "CALL_MCP"
+            elif detail.startswith("{"):
+                legacy_payload = detail
+
+            if legacy_payload:
+                compact_detail = _build_session_action_marker_detail(
+                    "CALL_MCP",
+                    legacy_payload,
+                )
+                detail = compact_detail or "invalid request"
+
         normalized_part = {
             "text": part_text,
         }
@@ -1724,6 +1744,15 @@ def _build_payload_distinct_session_action_parts(
             )
             if group.get("status") == "failed":
                 part["text"] += " - failed"
+        elif call_mcp_action:
+            action_detail = (
+                details[-1]
+                if details
+                else "invalid request"
+            )
+            if group.get("status") == "failed":
+                action_detail += " (failed)"
+            part["detail"] = action_detail
         elif skill_marker_action:
             part["text"] = (
                 f"{action_name}: {display_payload}"
@@ -3508,6 +3537,15 @@ def build_session_actions_update_items(
                 parts = [
                     fallback_part,
                 ]
+
+        if parts:
+            # The wire-level fallback text is also persisted by the browser.
+            # Rebuild it from sanitized parts so legacy CALL_MCP JSON cannot
+            # survive beside an otherwise compact structured projection.
+            text = format_session_action_display_parts(
+                parts,
+                fallback_text=text,
+            )
 
         update_item = {
             "text": text,
