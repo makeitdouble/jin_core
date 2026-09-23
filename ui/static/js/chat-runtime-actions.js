@@ -215,11 +215,6 @@ const runtimeActionIconDefinitions = {
     tone: "memory",
     svg: '<path d="M7 5h10v15l-5-3-5 3z"></path><path d="M12 8v5"></path><path d="M9.5 10.5h5"></path>',
   },
-  update_active_memory: {
-    title: "update active memory",
-    tone: "memory",
-    svg: '<path d="M7 5h10v15l-5-3-5 3z"></path><path d="M9 10h6"></path><path d="m13 8 2 2-2 2"></path>',
-  },
   delete_active_memory: {
     title: "delete active memory",
     tone: "delete",
@@ -2297,32 +2292,8 @@ function findRuntimeActionLifecycleRow(
 
 }
 
-function normalizeRuntimeActionColor(value) {
-
-  const match =
-    String(
-      value || ""
-    ).trim().match(
-      /^#?([0-9a-f]{3}|[0-9a-f]{6})$/i
-    );
-
-  if (!match) {
-    return "";
-  }
-
-  let hex =
-    match[1].toLowerCase();
-
-  if (hex.length === 3) {
-    hex = hex
-      .split("")
-      .map((char) => char + char)
-      .join("");
-  }
-
-  return `#${hex}`;
-
-}
+const normalizeRuntimeActionColor =
+  window.JinUiUtils.normalizeJinColor;
 
 function extractRuntimeActionColorFromText(text) {
 

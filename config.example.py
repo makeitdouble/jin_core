@@ -10,7 +10,7 @@ ENABLE_RUNTIME_LOGS = True
 BRAIN_API_BASE = "http://brain-host:1234"
 BRAIN_MODEL_UID = "brain-model"
 BRAIN_TEMPERATURE = 0.7
-BRAIN_MAX_FOLLOWUPS = 50
+BRAIN_MAX_FOLLOWUPS = 50  # 0 = unlimited
 
 # ---------------------------------------------------------
 # OPTIONAL SERVICE MODEL

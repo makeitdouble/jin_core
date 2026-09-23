@@ -8,17 +8,7 @@
   const markerPattern =
     /(?<!["'`«‹“‘„‚(\[{])(?:<(JIN_COLOR|JIN_SIZE)\s*>([\s\S]*?)<\/\1\s*>|<JIN_REACTION\s*>([\s\S]*?)<\/JIN_REACTION\s*>|<JIN_REACTION\s*:\s*([^>\r\n]+?)\s*>)/gi;
 
-  const MATRIX_START_PATTERN =
-    /^[ \t]*(?:(?:[A-Za-z](?:_\{?[A-Za-z0-9]+\}?)?)\s*=\s*)?\\begin\{(matrix|pmatrix|bmatrix|Bmatrix|vmatrix|Vmatrix|smallmatrix)\}[ \t]*$/;
-
-  function escapeHtml(text) {
-
-    return String(text || "")
-      .replace(/&/g, "&amp;")
-      .replace(/</g, "&lt;")
-      .replace(/>/g, "&gt;");
-
-  }
+  const escapeHtml = window.JinUiUtils.escapeHtml;
 
   function escapeAttribute(text) {
 
@@ -28,32 +18,8 @@
 
   }
 
-  function normalizeChatJinColorMarker(value) {
-
-    const match =
-      String(
-        value || ""
-      ).trim().match(
-        /^#?([0-9a-f]{6}|[0-9a-f]{3})$/i
-      );
-
-    if (!match) {
-      return "";
-    }
-
-    let hex =
-      match[1].toLowerCase();
-
-    if (hex.length === 3) {
-      hex = hex
-        .split("")
-        .map((char) => char + char)
-        .join("");
-    }
-
-    return `#${hex}`;
-
-  }
+  const normalizeChatJinColorMarker =
+    window.JinUiUtils.normalizeJinColor;
 
   function buildChatJinColorMarkerHtml(color) {
 
@@ -793,80 +759,32 @@
 
   }
 
-  function isMatrixMathStart(line) {
-
-    return MATRIX_START_PATTERN.test(
-      String(line || "")
-    );
-
-  }
+  const isMatrixMathStart =
+    window.JinUiUtils.isMatrixMathStart;
 
   function renderMatrixMath(lines, startIndex) {
 
-    const firstLine =
-      String(lines[startIndex] || "");
-    const match =
-      firstLine.match(
-        MATRIX_START_PATTERN
+    const matrix =
+      window.JinUiUtils.parseMatrixMathBlock(
+        lines,
+        startIndex
       );
 
-    if (!match) {
+    if (!matrix) {
       return null;
-    }
-
-    const closing =
-      `\\end{${match[1]}}`;
-    const firstNonSpace =
-      firstLine.search(/\S|$/);
-    const mathLines = [
-      firstLine.slice(firstNonSpace),
-    ];
-    let index =
-      startIndex + 1;
-
-    while (
-      index < lines.length
-      && String(lines[index] || "").trim() !== closing
-    ) {
-      mathLines.push(
-        String(lines[index] || "")
-      );
-      index += 1;
-    }
-
-    if (index >= lines.length) {
-      return null;
-    }
-
-    mathLines.push(
-      String(lines[index] || "").trim()
-    );
-
-    const latex =
-      mathLines.join("\n");
-    let nextIndex =
-      index + 1;
-
-    if (
-      nextIndex < lines.length
-      && ["$$", "\\]"].includes(
-        String(lines[nextIndex] || "").trim()
-      )
-    ) {
-      nextIndex += 1;
     }
 
     return {
       html: (
         '<div class="jin-chat-matrix-block">'
         + renderMathFormula(
-          latex,
+          matrix.latex,
           true,
-          latex
+          matrix.latex
         )
         + "</div>"
       ),
-      nextIndex,
+      nextIndex: matrix.nextIndex,
     };
 
   }

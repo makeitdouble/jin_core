@@ -34,7 +34,6 @@ from contracts.rules_assembler import (
     RUNTIME_ACTION_SAVE_DELAYED_MEMORY,
     RUNTIME_ACTION_UNLOAD_DELAYED_MEMORY,
     RUNTIME_ACTION_UNLOAD_SKILL,
-    RUNTIME_ACTION_UPDATE_ACTIVE_MEMORY,
     RUNTIME_ACTION_UPDATE_LT_FACTS,
     RUNTIME_ACTION_WEB_SEARCH,
 )
@@ -117,7 +116,7 @@ def default_on_fail(action, error) -> ActionFeedback:
     message = str(error.get("text") or "").strip() if isinstance(error, Mapping) else ""
     return ActionFeedback(
         result=error,
-        message=message or f"{_default_feedback_message(action, error)} : failed",
+        message=message or _default_feedback_message(action, error),
     )
 
 
@@ -314,33 +313,6 @@ def _prepare_save_active(state, action):
         )
         return False
     return state.dedup.accept(action, active_memory_line)
-
-
-def _prepare_update_active(state, action):
-    active_memory_id, update_fields = parse_update_active_memory_payload(action.payload)
-    if not active_memory_id or not update_fields:
-        failure_error = "invalid_update_active_memory_payload"
-        failure_reason = "invalid payload"
-        failure_result = {
-            "ok": False,
-            "action": "update_active_memory",
-            "error": failure_error,
-            "detail": failure_reason,
-            "payload": str(action.payload or "").strip(),
-        }
-        state.rejected_action_events[id(action)] = {
-            "status": "failed",
-            "error": failure_error,
-            "failure_reason": failure_reason,
-            "failed_marker_payload": failure_result["payload"],
-        }
-        record_runtime_tool_result(
-            state.batch.context, TOOL_RESULT_KIND_ACTIVE_MEMORY, failure_result
-        )
-        return False
-    return state.dedup.accept(action, (active_memory_id, tuple(update_fields)))
-
-
 def _prepare_delete_active(state, action):
     active_memory_id = extract_active_memory_delete_slot_id(
         action.payload,
@@ -411,17 +383,16 @@ def _prepare_always(state, action):
 
 
 async def _run_visual(batch, action, _state):
-    from .jin_visual_sequence_actions import emit_jin_visual_sequences
+    from .jin_visual_actions import emit_jin_visual_action
 
     logger = getattr(batch.context, "logger", None)
-    await emit_jin_visual_sequences(
+    return await emit_jin_visual_action(
         batch.context,
-        (action,),
+        action,
         action_display_ids=batch.action_display_ids,
         log_runtime=getattr(logger, "log_runtime", None),
         with_action_context=batch.with_action_context_for(action),
     )
-    return 1
 
 
 async def _run_reaction(batch, action, _state):
@@ -481,7 +452,6 @@ async def _run_clean(batch, action, state):
     await apply_clean_tool_results_actions(
         batch.context,
         (action,),
-        tool_results_clean_state=state["tool_results_clean_state"],
         action_display_ids=batch.action_display_ids,
         with_action_context=batch.with_action_context_for(action),
     )
@@ -655,20 +625,6 @@ async def _run_save_active(batch, action, _state):
         action_display_ids=batch.action_display_ids,
     )
     return len(results)
-
-
-async def _run_update_active(batch, action, _state):
-    from .active_memory_actions import apply_update_active_memory_actions
-
-    logger = getattr(batch.context, "logger", None)
-    return await apply_update_active_memory_actions(
-        batch.context,
-        (action,),
-        log_runtime=getattr(logger, "log_runtime", None),
-        with_action_context=batch.with_action_context_for(action),
-    )
-
-
 async def _run_delete_active(batch, action, _state):
     from .active_memory_actions import apply_delete_active_memory_actions
 
@@ -717,7 +673,6 @@ ACTIONS = {
     RUNTIME_ACTION_LOAD_DELAYED_MEMORY: Action(run=_run_delayed_memory, on_success=_event_text_success, on_fail=_event_text_fail),
     RUNTIME_ACTION_UNLOAD_DELAYED_MEMORY: Action(run=_run_delayed_memory, on_success=_event_text_success, on_fail=_event_text_fail),
     RUNTIME_ACTION_SAVE_ACTIVE_MEMORY: Action(prepare=_prepare_save_active, run=_run_save_active, on_success=_event_text_success, on_fail=_event_text_fail),
-    RUNTIME_ACTION_UPDATE_ACTIVE_MEMORY: Action(prepare=_prepare_update_active, run=_run_update_active, on_success=_event_text_success, on_fail=_event_text_fail),
     RUNTIME_ACTION_DELETE_ACTIVE_MEMORY: Action(prepare=_prepare_delete_active, run=_run_delete_active, on_success=_event_text_success, on_fail=_event_text_fail),
     RUNTIME_ACTION_SAVE_DELAYED_MEMORY: Action(prepare=_prepare_save_delayed, run=_run_save_delayed, on_success=_event_text_success, on_fail=_event_text_fail),
 }

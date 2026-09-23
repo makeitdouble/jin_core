@@ -5,7 +5,6 @@ from itertools import groupby
 from runtime.anonymous_mode import persistent_writes_restricted
 from utils.assets_utils import ensure_assets_tree
 from utils.runtime_action_abort import mark_runtime_actions_completed
-from utils.tool_results import snapshot_runtime_tool_results_state
 
 from .action_registry import KEEP_ACTIVE_ACTIONS, get_action
 from .action_state import ActionState
@@ -85,11 +84,7 @@ async def _run_batch(
     if not persistent_writes_restricted(context):
         ensure_assets_tree()
 
-    state = {
-        # CLEAN_TOOL_RESULTS must only clear results that existed before this
-        # emitted action stream, not results created by earlier calls in it.
-        "tool_results_clean_state": snapshot_runtime_tool_results_state(context),
-    }
+    state = {}
     search_counts = snapshot_search_counts(context)
     action_state = ActionState(batch)
     applied = 0

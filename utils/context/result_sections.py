@@ -37,18 +37,6 @@ def format_active_memory_result_sections(
             )
             continue
 
-        if action == "update_active_memory":
-            sections.append(
-                (
-                    "UPDATE_ACTIVE_MEMORY",
-                    format_runtime_action_result(
-                        result,
-                        runtime_action="UPDATE_ACTIVE_MEMORY",
-                    ),
-                )
-            )
-            continue
-
         if action == "delete_active_memory":
             sections.append(
                 (

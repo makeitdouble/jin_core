@@ -49,8 +49,8 @@ from .delayed_memory_utils import (
     is_delayed_memory_report_id,
     slugify_delayed_memory_title,
 )
-from .update_lt_facts_utils import parse_update_lt_facts_payload
 from .update_active_memory_utils import parse_update_active_memory_payload
+from .update_lt_facts_utils import parse_update_lt_facts_payload
 from .jin_color_utils import (
     get_applied_jin_color,
     is_noop_jin_color_action,
@@ -159,8 +159,8 @@ __all__ = [
     "normalize_jin_speed_value",
     "normalize_jin_size_dict",
     "normalize_jin_size_payload",
-    "parse_update_lt_facts_payload",
     "parse_update_active_memory_payload",
+    "parse_update_lt_facts_payload",
     "normalize_runtime_action_name",
     "normalize_runtime_action_names",
     "collect_anchor_fact_report_ids",

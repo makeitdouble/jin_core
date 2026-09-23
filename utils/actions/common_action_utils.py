@@ -12,7 +12,6 @@ from contracts.rules_assembler import (
     RUNTIME_ACTION_ATTACH_FILE_BY_ID,
     RUNTIME_ACTION_LIST_FILES,
     RUNTIME_ACTION_DELETE_ACTIVE_MEMORY,
-    RUNTIME_ACTION_UPDATE_ACTIVE_MEMORY,
     RUNTIME_ACTION_SAVE_ACTIVE_MEMORY,
     RUNTIME_ACTION_ASSET_ACTION,
     RUNTIME_ACTION_JIN_COLOR,
@@ -32,7 +31,8 @@ from contracts.rules_assembler import (
 from contracts.rules_assembler import (
     get_close_tag_runtime_actions,
     get_runtime_action_private_marker,
-    normalize_runtime_action_names as get_contract_runtime_action_names,
+    normalize_runtime_action_name,
+    normalize_runtime_action_names,
 )
 
 from .action_payload_utils import (
@@ -63,7 +63,6 @@ from .recall_fact_context_utils import (
     normalize_recall_fact_context_id,
     split_recall_fact_context_ids,
 )
-from .update_active_memory_utils import build_update_active_memory_payload
 from .resolve_action_utils import build_resolve_action_payload
 from .regexp_utils import (
     RuntimeActionRegexpMatch,
@@ -94,7 +93,7 @@ from .malformed_action_utils import (
 )
 
 
-KNOWN_RUNTIME_ACTIONS = get_contract_runtime_action_names(
+KNOWN_RUNTIME_ACTIONS = normalize_runtime_action_names(
     None
 )
 
@@ -140,24 +139,6 @@ JIN_INLINE_PAYLOAD_ACTIONS = frozenset({
     RUNTIME_ACTION_JIN_POSITION,
     RUNTIME_ACTION_JIN_SPEED,
 })
-
-UPDATE_ACTIVE_MEMORY_START_RE = re.compile(
-    RUNTIME_ACTION_EXECUTABLE_PREFIX
-    + r"<\s*UPDATE_ACTIVE_MEMORY(?=\s|>)",
-    re.IGNORECASE,
-)
-
-UPDATE_ACTIVE_MEMORY_SELF_CLOSING_ATTRIBUTE_RE = re.compile(
-    RUNTIME_ACTION_EXECUTABLE_PREFIX + (
-        r"<\s*(?P<name>UPDATE_ACTIVE_MEMORY)"
-        r"\s+"
-        r"(?P<payload>(?:[^<>\"']+|\"[^\"]*\"|'[^']*')*?)"
-        r"\s*/\s*>"
-    ),
-    re.IGNORECASE | re.DOTALL,
-)
-
-
 def _runtime_action_allows_inline_payload(
     action_name: str,
 ) -> bool:
@@ -282,13 +263,6 @@ def _find_all_runtime_action_matches(
                 ),
             )
 
-        if action_name == RUNTIME_ACTION_UPDATE_ACTIVE_MEMORY:
-            action_matches = (
-                *_find_update_active_memory_attribute_matches(
-                    text
-                ),
-                *action_matches,
-            )
 
         matches.extend(
             action_matches
@@ -391,41 +365,6 @@ def _mask_compact_project_asset_action_markers(
 
     parts.append(text[cursor:])
     return "".join(parts)
-
-
-def _find_update_active_memory_attribute_matches(
-    text: str,
-) -> tuple[RuntimeActionRegexpMatch, ...]:
-
-    matches = []
-
-    for match in UPDATE_ACTIVE_MEMORY_SELF_CLOSING_ATTRIBUTE_RE.finditer(
-        str(
-            text
-            or ""
-        )
-    ):
-        matches.append(
-            RuntimeActionRegexpMatch(
-                start=match.start(),
-                end=match.end(),
-                raw=match.group(0),
-                name=str(
-                    match.group("name")
-                    or ""
-                ).strip().upper(),
-                payload=str(
-                    match.group("payload")
-                    or ""
-                ).strip(),
-            )
-        )
-
-    return tuple(
-        matches
-    )
-
-
 def _find_deep_web_search_block_matches(
     text: str,
     private_marker: str,
@@ -667,118 +606,6 @@ class RuntimeActionRepetitionGuard:
         return False
 
 
-def normalize_runtime_action_name(
-    action_name: str,
-) -> str:
-
-    normalized_name = (
-        str(action_name)
-        .strip()
-        .upper()
-    )
-
-    if normalized_name.startswith(
-        "CAN_"
-    ):
-        normalized_name = normalized_name[4:]
-
-    aliases = {
-        "SAVE_DELAYED_MEMORY": RUNTIME_ACTION_SAVE_DELAYED_MEMORY,
-        "SAVE_ACTIVE_MEMORY": RUNTIME_ACTION_SAVE_ACTIVE_MEMORY,
-        "DELETE_ACTIVE_MEMORY": RUNTIME_ACTION_DELETE_ACTIVE_MEMORY,
-        "ATTACH_FILES_BY_ID": RUNTIME_ACTION_ATTACH_FILE_BY_ID,
-        "USE_ASSETS": RUNTIME_ACTION_ASSET_ACTION,
-        "CLEAN_TOOL_RESULTS": RUNTIME_ACTION_CLEAN_TOOL_RESULTS,
-        "LOAD_SKILL": RUNTIME_ACTION_LOAD_SKILL,
-        "LOAD_SKILL_CONTEXT": RUNTIME_ACTION_LOAD_SKILL,
-        "LOAD_SKILLS_CONTEXT": RUNTIME_ACTION_LOAD_SKILL,
-        "UNLOAD_SKILL": RUNTIME_ACTION_UNLOAD_SKILL,
-        "UNLOAD_SKILL_CONTEXT": RUNTIME_ACTION_UNLOAD_SKILL,
-        "UNLOAD_SKILLS_CONTEXT": RUNTIME_ACTION_UNLOAD_SKILL,
-        "ASSET_ACTION": RUNTIME_ACTION_ASSET_ACTION,
-        "JIN_SIZE": RUNTIME_ACTION_JIN_SIZE,
-        "JIN_POSITION": RUNTIME_ACTION_JIN_POSITION,
-        "JIN_SPEED": RUNTIME_ACTION_JIN_SPEED,
-        "UPDATE_LT_FACTS": RUNTIME_ACTION_UPDATE_LT_FACTS,
-        "RECALL_FACT_CONTEXT": RUNTIME_ACTION_RECALL_FACT_CONTEXT,
-        "RECALL_FACTS_CONTEXT": RUNTIME_ACTION_RECALL_FACT_CONTEXT,
-    }
-
-    return aliases.get(
-        normalized_name,
-        normalized_name,
-    )
-
-
-def normalize_runtime_action_names(
-    enabled_actions=None,
-) -> tuple[str, ...]:
-
-    if enabled_actions is None:
-        return KNOWN_RUNTIME_ACTIONS
-
-    if isinstance(
-        enabled_actions,
-        dict,
-    ):
-        candidates = (
-            action_name
-            for action_name, is_enabled
-            in enabled_actions.items()
-            if is_enabled
-        )
-
-    else:
-        candidates = enabled_actions
-
-    actions = []
-    removed_markers = []
-
-    for action_name in candidates:
-
-        normalized_name = normalize_runtime_action_name(
-            action_name
-        )
-
-        normalized_names = [
-            normalized_name,
-        ]
-
-        if normalized_name == RUNTIME_ACTION_SAVE_ACTIVE_MEMORY:
-            normalized_names.append(
-                RUNTIME_ACTION_DELETE_ACTIVE_MEMORY
-            )
-
-        if normalized_name == RUNTIME_ACTION_SAVE_DELAYED_MEMORY:
-            normalized_names.append(
-                RUNTIME_ACTION_LOAD_DELAYED_MEMORY
-            )
-
-        if normalized_name == RUNTIME_ACTION_ASSET_ACTION:
-            normalized_names.append(
-                RUNTIME_ACTION_LOAD_SKILL
-            )
-            normalized_names.append(
-                RUNTIME_ACTION_UNLOAD_SKILL
-            )
-
-        if (
-            normalized_name
-            not in KNOWN_RUNTIME_ACTIONS
-        ):
-            continue
-
-        for normalized_name in normalized_names:
-            if normalized_name not in actions:
-                actions.append(
-                    normalized_name
-                )
-
-    return tuple(
-        actions
-    )
-
-
 def build_deep_web_search_payload(
     query: str,
     placeholder_payloads=(),
@@ -807,7 +634,6 @@ _ACTION_PAYLOAD_BUILDERS = {
     RUNTIME_ACTION_WEB_SEARCH: build_web_search_payload,
     RUNTIME_ACTION_SAVE_ACTIVE_MEMORY: build_save_active_memory_payload,
     RUNTIME_ACTION_DELETE_ACTIVE_MEMORY: build_resolve_action_payload,
-    RUNTIME_ACTION_UPDATE_ACTIVE_MEMORY: build_update_active_memory_payload,
     RUNTIME_ACTION_SAVE_DELAYED_MEMORY: build_save_delayed_memory_payload,
     RUNTIME_ACTION_LOAD_DELAYED_MEMORY: build_load_delayed_memory_payload,
     RUNTIME_ACTION_ATTACH_FILE_CONTENT: build_resolve_action_payload,
@@ -1418,7 +1244,7 @@ def extract_runtime_actions(
     seen_action_keys=None,
     preserve_action_marker=None,
     repetition_guard: RuntimeActionRepetitionGuard | None = None,
-    allow_bare_prefix_fallback: bool = False,
+    allow_bare_prefix_fallback: bool = True,
 ) -> RuntimeActionResult:
 
     if not text:
@@ -1910,11 +1736,13 @@ def _enabled_action_start_markers(
             action_name
         )
 
-        marker_name, _ = extract_private_marker_parts(
-            private_marker
-        )
-        if not marker_name or marker_name == action_name:
-            markers.append("<" + action_name)
+        # Malformed-action detection recognizes internal runtime names too.
+        # Keep their partial ``<ACTION_NAME`` prefixes private across arbitrary
+        # stream chunk boundaries even when the canonical public marker uses an
+        # alias (for example ATTACH_FILE_BY_ID -> ATTACH_FILES_BY_ID).
+        internal_marker = "<" + action_name
+        if internal_marker not in markers:
+            markers.append(internal_marker)
 
         for marker in get_runtime_action_start_markers(
             private_marker,
@@ -2238,18 +2066,6 @@ def _unclosed_internal_action_request_start(
     for action_name in normalize_runtime_action_names(
         enabled_actions
     ):
-        if action_name == RUNTIME_ACTION_UPDATE_ACTIVE_MEMORY:
-            marker_start = (
-                _unclosed_update_active_memory_attribute_start(
-                    text
-                )
-            )
-
-            if marker_start is not None:
-                marker_starts.append(
-                    marker_start
-                )
-
         if action_name == RUNTIME_ACTION_ASSET_ACTION:
             compact_marker_start = _unclosed_compact_asset_action_start(
                 text
@@ -2299,44 +2115,6 @@ def _unclosed_internal_action_request_start(
     return min(
         marker_starts
     )
-
-
-def _unclosed_update_active_memory_attribute_start(
-    text: str,
-) -> int | None:
-
-    value = str(
-        text
-        or ""
-    )
-
-    if not value:
-        return None
-
-    marker_start = value.rfind(
-        "<"
-    )
-
-    if marker_start < 0 or is_quoted_runtime_marker(text, marker_start):
-        return None
-
-    candidate = value[
-        marker_start:
-    ]
-
-    if ">" in candidate:
-        return None
-
-    if re.fullmatch(
-        r"<\s*UPDATE_ACTIVE_MEMORY(?:\s+[^<>]*)?",
-        candidate,
-        re.IGNORECASE | re.DOTALL,
-    ) is None:
-        return None
-
-    return marker_start
-
-
 def _asset_action_stream_payload_has_action(
     candidate: str,
 ) -> bool:
@@ -2397,11 +2175,12 @@ class RuntimeActionStreamFilter:
         preserve_action_text: bool = False,
         preserve_action_marker=None,
         repetition_guard: RuntimeActionRepetitionGuard | None = None,
+        allow_bare_prefix_fallback: bool = True,
     ):
         self.pending = ""
         self.pending_is_action = False
         self.bare_prefix_pending = ""
-        self.bare_prefix_fallback_active = True
+        self.bare_prefix_fallback_active = allow_bare_prefix_fallback
         self.preserve_action_text = preserve_action_text
         self.preserve_action_marker = preserve_action_marker
         self.repetition_guard = repetition_guard
@@ -2434,16 +2213,7 @@ class RuntimeActionStreamFilter:
                 marker_start,
             )
 
-            update_attribute_start = (
-                action_name == RUNTIME_ACTION_UPDATE_ACTIVE_MEMORY
-                and UPDATE_ACTIVE_MEMORY_START_RE.match(
-                    text,
-                    marker_start,
-                )
-                is not None
-            )
-
-            if opening_match is None and not update_attribute_start:
+            if opening_match is None:
                 continue
 
             if (
@@ -2513,19 +2283,6 @@ class RuntimeActionStreamFilter:
                 marker_starts.append(
                     marker_start
                 )
-
-            # UPDATE_ACTIVE_MEMORY also supports the compact self-closing
-            # attribute form, e.g.
-            # <UPDATE_ACTIVE_MEMORY id="AM-abc123" field="x" />.
-            # Detect the opening name itself, before the attribute payload
-            # is complete, so its pending bubble lights up while streaming.
-            if action_name == RUNTIME_ACTION_UPDATE_ACTIVE_MEMORY:
-                for match in UPDATE_ACTIVE_MEMORY_START_RE.finditer(
-                    text
-                ):
-                    marker_starts.append(
-                        match.start()
-                    )
 
         started_actions = []
 
@@ -2967,10 +2724,6 @@ class RuntimeActionStreamFilter:
                     pending, private_marker, action_name, close_tag,
                     allow_inline_payload=_runtime_action_allows_inline_payload(action_name),
                 )
-                if action_name == RUNTIME_ACTION_UPDATE_ACTIVE_MEMORY:
-                    attribute_start = _unclosed_update_active_memory_attribute_start(pending)
-                    if attribute_start is not None:
-                        action_start = attribute_start
                 if action_start != marker_start:
                     continue
                 opening = compile_runtime_action_start_regexp(

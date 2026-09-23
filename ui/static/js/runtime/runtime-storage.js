@@ -1521,17 +1521,16 @@
 
   function activeMemoryRecordHasId(record, activeMemoryId) {
 
-    const id = String(activeMemoryId || "").trim();
+    const id =
+      window.JinUiUtils.normalizeActiveMemoryId(
+        activeMemoryId
+      );
 
-    if (!/^AM-[a-z0-9]{6}$/.test(id)) {
+    if (!id) {
       return false;
     }
 
-    const match = String(record || "").match(
-      /\[\s*id\s*:\s*(AM-[a-z0-9]{6})\s*\]/
-    );
-
-    return Boolean(match && match[1] === id);
+    return window.JinUiUtils.extractActiveMemoryId(record) === id;
 
   }
 
@@ -1559,10 +1558,13 @@
     record
   ) {
 
-    const needle = String(activeMemoryId || "").trim();
+    const needle =
+      window.JinUiUtils.normalizeActiveMemoryId(
+        activeMemoryId
+      );
     const nextRecord = String(record || "").trim();
 
-    if (!/^AM-[a-z0-9]{6}$/.test(needle) || !nextRecord) {
+    if (!needle || !nextRecord) {
       return readActiveMemoryRecords();
     }
 
@@ -1596,9 +1598,12 @@
     activeMemoryId
   ) {
 
-    const needle = String(activeMemoryId || "").trim();
+    const needle =
+      window.JinUiUtils.normalizeActiveMemoryId(
+        activeMemoryId
+      );
 
-    if (!/^AM-[a-z0-9]{6}$/.test(needle)) {
+    if (!needle) {
       return readActiveMemoryRecords();
     }
 

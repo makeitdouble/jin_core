@@ -313,7 +313,7 @@ Copy `config.example.py` to `config.py`, then set the provider URLs and model ID
 | --- | --- |
 | `ENABLE_RUNTIME_LOGS` | Enable local runtime/chat logs. |
 | `BRAIN_API_BASE`, `BRAIN_MODEL_UID`, `BRAIN_TEMPERATURE` | Configure the required foreground Brain runtime. |
-| `BRAIN_MAX_FOLLOWUPS` | Limit internal action/follow-up continuation ticks per user turn. |
+| `BRAIN_MAX_FOLLOWUPS` | Limit internal action/follow-up continuation ticks per user turn. Set to `0` for unlimited follow-ups. |
 | `SERVICE_API_BASE`, `SERVICE_MODEL_UID`, `SERVICE_TEMPERATURE` | Optionally configure a dedicated background Service runtime. Leave `SERVICE_API_BASE` empty to reuse Brain. |
 | `LT_IDLE_SECONDS` | Set the L-T background consolidation idle delay. L-T memory itself is always enabled. |
 | `SEARCH_PROVIDER`, `SEARCH_MAX_RESULTS` | Configure the built-in web-search provider and result count. |

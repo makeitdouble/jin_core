@@ -3299,38 +3299,3 @@ async def emit_runtime_frame_diff_update(
     )
 
 
-async def emit_runtime_action_completed(
-        context,
-        *,
-        action: str,
-) -> None:
-
-    from utils.runtime_action_abort import (
-        mark_runtime_action_completed,
-    )
-
-    mark_runtime_action_completed(
-        context,
-        action=action,
-    )
-
-    emitter = getattr(
-        context,
-        "emitter",
-        None,
-    )
-
-    emit = getattr(
-        emitter,
-        "emit",
-        None,
-    )
-
-    await safe_call(
-        emit,
-        {
-            "type": "runtime_action",
-            "action": action,
-            "status": "completed",
-        },
-    )

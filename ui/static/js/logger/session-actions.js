@@ -57,26 +57,8 @@ function normalizeDeepSearchSessionActionDisplay(
   };
 }
 
-function normalizeSessionActionColor(value) {
-  const match = String(value || "")
-    .trim()
-    .match(/^#?([0-9a-f]{3}|[0-9a-f]{6})$/i);
-
-  if (!match) {
-    return "";
-  }
-
-  let hex = match[1].toLowerCase();
-
-  if (hex.length === 3) {
-    hex = hex
-      .split("")
-      .map((char) => char + char)
-      .join("");
-  }
-
-  return `#${hex}`;
-}
+const normalizeSessionActionColor =
+  window.JinUiUtils.normalizeJinColor;
 
 function buildSessionActionPartKey(
   item,

@@ -4,205 +4,8 @@ const ENABLE_JIN_VISUAL_ACTION_BUBBLES = true;
 const THINK_RUNTIME_CITATION_HIGHLIGHT_EVENT =
   "jin:think-runtime-citation-highlight";
 
-const JIN_VISUAL_SEQUENCE_ACTIONS = new Set([
-  "jin_color",
-  "jin_size",
-  "jin_speed",
-  "jin_position",
-]);
-const JIN_VISUAL_SEQUENCE_COLOR_MS = 333;
-const JIN_VISUAL_SEQUENCE_SIZE_MS = 320;
-const JIN_VISUAL_SEQUENCE_CROSS_STAGE_RATIO = 0.58;
-const jinVisualSequenceBuffers = new Map();
-let jinVisualSequencePlayback = Promise.resolve();
+const JIN_COLOR_TRANSITION_MS = 333;
 
-function waitForJinVisualSequence(ms) {
-  const delay = Math.max(0, Number(ms) || 0);
-
-  if (!delay) {
-    return Promise.resolve();
-  }
-
-  return new Promise((resolve) => {
-    window.setTimeout(resolve, delay);
-  });
-}
-
-function applyJinVisualSequenceCommand(command) {
-  if (
-    !command
-    || !JIN_VISUAL_SEQUENCE_ACTIONS.has(command.action)
-  ) {
-    return { action: "", duration: 0 };
-  }
-
-  if (command.action === "jin_color") {
-    const applied =
-      Boolean(
-        command.color
-        && window.JinRuntime
-        && window.JinRuntime.avatar
-        && typeof window.JinRuntime.avatar.setCenterColor === "function"
-        && window.JinRuntime.avatar.setCenterColor(
-          command.color,
-          {
-            transitionDurationMs: JIN_VISUAL_SEQUENCE_COLOR_MS,
-          }
-        )
-      );
-
-    return {
-      action: command.action,
-      duration: applied ? JIN_VISUAL_SEQUENCE_COLOR_MS : 0,
-    };
-  }
-
-  if (command.action === "jin_speed") {
-    if (
-      Number.isFinite(command.speed)
-      && command.speed > 0
-      && window.JinPanels
-      && typeof window.JinPanels.setJinMoveSpeed === "function"
-    ) {
-      window.JinPanels.setJinMoveSpeed(command.speed);
-    }
-
-    return { action: command.action, duration: 0 };
-  }
-
-  if (command.action === "jin_size") {
-    const result =
-      window.JinPanels
-      && typeof window.JinPanels.setPendingJinSize === "function"
-        ? window.JinPanels.setPendingJinSize({
-          size: command.size,
-          width: command.width,
-          height: command.height,
-        })
-        : null;
-
-    return {
-      action: command.action,
-      duration:
-        result && Number.isFinite(Number(result.duration))
-          ? Math.max(0, Number(result.duration))
-          : (result ? JIN_VISUAL_SEQUENCE_SIZE_MS : 0),
-    };
-  }
-
-  const result =
-    window.JinPanels
-    && typeof window.JinPanels.setPendingJinPosition === "function"
-      ? window.JinPanels.setPendingJinPosition({
-        x: command.x,
-        y: command.y,
-      })
-      : null;
-
-  return {
-    action: command.action,
-    duration:
-      result && Number.isFinite(Number(result.duration))
-        ? Math.max(0, Number(result.duration))
-        : 0,
-  };
-}
-
-function resolveJinVisualSequenceStageDelay(current, next) {
-  const duration = Math.max(
-    0,
-    Number(current && current.duration) || 0
-  );
-
-  if (!duration) {
-    return 0;
-  }
-
-  if (
-    !next
-    || !next.action
-    || next.action === current.action
-  ) {
-    return duration;
-  }
-
-  return Math.max(
-    48,
-    duration * JIN_VISUAL_SEQUENCE_CROSS_STAGE_RATIO
-  );
-}
-
-async function playJinVisualSequence(commands) {
-  const sequence =
-    Array.isArray(commands)
-      ? commands.filter(Boolean)
-      : [];
-
-  for (let index = 0; index < sequence.length; index += 1) {
-    const current =
-      applyJinVisualSequenceCommand(sequence[index]);
-    const next = sequence[index + 1] || null;
-    const delay =
-      resolveJinVisualSequenceStageDelay(current, next);
-
-    if (delay > 0) {
-      await waitForJinVisualSequence(delay);
-    }
-  }
-}
-
-function queueJinVisualSequenceCommand(data, command) {
-  const sequenceId =
-    String(data.jin_sequence_id || "").trim();
-  const sequenceIndex =
-    Number.parseInt(data.jin_sequence_index, 10);
-  const sequenceCount =
-    Number.parseInt(data.jin_sequence_count, 10);
-
-  if (
-    !sequenceId
-    || !Number.isInteger(sequenceIndex)
-    || sequenceIndex < 0
-    || !Number.isInteger(sequenceCount)
-    || sequenceCount < 1
-    || sequenceIndex >= sequenceCount
-  ) {
-    return false;
-  }
-
-  let buffer = jinVisualSequenceBuffers.get(sequenceId);
-
-  if (!buffer) {
-    buffer = {
-      count: sequenceCount,
-      commands: new Array(sequenceCount),
-      received: 0,
-    };
-    jinVisualSequenceBuffers.set(sequenceId, buffer);
-  }
-
-  if (!buffer.commands[sequenceIndex]) {
-    buffer.received += 1;
-  }
-
-  buffer.commands[sequenceIndex] = command;
-
-  if (buffer.received < buffer.count) {
-    return true;
-  }
-
-  jinVisualSequenceBuffers.delete(sequenceId);
-
-  const completedSequence =
-    buffer.commands.filter(Boolean);
-
-  jinVisualSequencePlayback =
-    jinVisualSequencePlayback
-      .catch(() => undefined)
-      .then(() => playJinVisualSequence(completedSequence));
-
-  return true;
-}
 function getRuntimeActionMessageId(data) {
 
   return String(
@@ -581,9 +384,9 @@ function buildRuntimeActionDetail(
 
 function highlightUpdatedActiveMemory(activeMemoryId) {
   const normalizedId =
-    String(activeMemoryId || "").trim();
+    window.JinUiUtils.normalizeActiveMemoryId(activeMemoryId);
 
-  if (!/^AM-[a-z0-9]{6}$/.test(normalizedId)) {
+  if (!normalizedId) {
     return;
   }
 
@@ -1185,7 +988,6 @@ function isGenericAssetActionDisplayText(
 const PAYLOAD_DISTINCT_RUNTIME_ACTIONS = new Set([
   "chat_log_search",
   "save_active_memory",
-  "update_active_memory",
   "delete_active_memory",
   "save_delayed_memory",
   "load_delayed_memory",
@@ -1564,7 +1366,13 @@ function handleRuntimeAction(
     ? (String(data.active_memory || "").match(/^\s*(active_memory_\d+)\s*:/i) || [])[1]
     : "";
   const activeMemorySuccessText =
-    (action === "update_active_memory" || savedActiveMemoryKey)
+    (
+      action === "save_active_memory"
+      && (
+        String(data.active_memory_mode || "").trim().toLowerCase() === "update"
+        || savedActiveMemoryKey
+      )
+    )
     && [
       "completed",
       "complete",
@@ -1653,11 +1461,8 @@ function handleRuntimeAction(
     ||
     (missingCloseTagFailure ? data.detail : "")
     || (
-      action === "update_active_memory"
-      || (
-        action === "save_active_memory"
-        && String(data.active_memory_mode || "").trim().toLowerCase() === "update"
-      )
+      action === "save_active_memory"
+      && String(data.active_memory_mode || "").trim().toLowerCase() === "update"
         ? formatActiveMemoryUpdateDetail(data)
         : ""
     )
@@ -1768,14 +1573,7 @@ function handleRuntimeAction(
     && !counterOnly;
 
   const actionDisplayId =
-    action === "update_active_memory"
-      ? (
-        data.active_memory_id
-        || data.id
-        || data.counter_id
-        || ""
-      )
-      : reportScopedDelayedAction
+    reportScopedDelayedAction
       ? (
         delayedMemoryPreview.reportId
         || data.id
@@ -1877,29 +1675,18 @@ function handleRuntimeAction(
       );
     }
 
-    if (colorApplied) {
-      const queued =
-        queueJinVisualSequenceCommand(
-          data,
-          {
-            action: "jin_color",
-            color,
-          }
-        );
-
-      if (
-        !queued
-        && window.JinRuntime
-        && window.JinRuntime.avatar
-        && typeof window.JinRuntime.avatar.setCenterColor === "function"
-      ) {
-        window.JinRuntime.avatar.setCenterColor(
-          color,
-          {
-            transitionDurationMs: JIN_VISUAL_SEQUENCE_COLOR_MS,
-          }
-        );
-      }
+    if (
+      colorApplied
+      && window.JinRuntime
+      && window.JinRuntime.avatar
+      && typeof window.JinRuntime.avatar.setCenterColor === "function"
+    ) {
+      window.JinRuntime.avatar.setCenterColor(
+        color,
+        {
+          transitionDurationMs: JIN_COLOR_TRANSITION_MS,
+        }
+      );
     }
     if (
       shouldLogRuntimeAction
@@ -2002,7 +1789,7 @@ function handleRuntimeAction(
           closeTag,
           reuseCompleted: false,
           reviveCompleted: false,
-          // Keep every emitted size marker as its own ordered bubble.
+          // Keep every emitted size marker as its own bubble.
           // The backend gives each marker a distinct display id.
           aggregateMarkers: false,
           counterOnly: false,
@@ -2024,29 +1811,16 @@ function handleRuntimeAction(
       );
     }
 
-    if (sizeApplied) {
-      const queued =
-        queueJinVisualSequenceCommand(
-          data,
-          {
-            action: "jin_size",
-            size,
-            width,
-            height,
-          }
-        );
-
-      if (
-        !queued
-        && window.JinPanels
-        && typeof window.JinPanels.setPendingJinSize === "function"
-      ) {
-        window.JinPanels.setPendingJinSize({
-          size,
-          width,
-          height,
-        });
-      }
+    if (
+      sizeApplied
+      && window.JinPanels
+      && typeof window.JinPanels.setPendingJinSize === "function"
+    ) {
+      window.JinPanels.setPendingJinSize({
+        size,
+        width,
+        height,
+      });
     }
     if (
       shouldLogRuntimeAction
@@ -2107,25 +1881,14 @@ function handleRuntimeAction(
       || status === "done"
     ) && Number.isFinite(speed) && speed > 0;
 
-    if (speedApplied) {
-      const queued =
-        queueJinVisualSequenceCommand(
-          data,
-          {
-            action: "jin_speed",
-            speed,
-          }
-        );
-
-      if (
-        !queued
-        && window.JinPanels
-        && typeof window.JinPanels.setJinMoveSpeed === "function"
-      ) {
-        window.JinPanels.setJinMoveSpeed(
-          speed
-        );
-      }
+    if (
+      speedApplied
+      && window.JinPanels
+      && typeof window.JinPanels.setJinMoveSpeed === "function"
+    ) {
+      window.JinPanels.setJinMoveSpeed(
+        speed
+      );
     }
     // Continue into the generic runtime-action lifecycle so JIN_SPEED uses
     // the same start/success/fail bubble contract as every other action.
@@ -2148,27 +1911,15 @@ function handleRuntimeAction(
       && Number.isFinite(x)
       && Number.isFinite(y);
 
-    if (positionApplied) {
-      const queued =
-        queueJinVisualSequenceCommand(
-          data,
-          {
-            action: "jin_position",
-            x,
-            y,
-          }
-        );
-
-      if (
-        !queued
-        && window.JinPanels
-        && typeof window.JinPanels.setPendingJinPosition === "function"
-      ) {
-        window.JinPanels.setPendingJinPosition({
-          x,
-          y,
-        });
-      }
+    if (
+      positionApplied
+      && window.JinPanels
+      && typeof window.JinPanels.setPendingJinPosition === "function"
+    ) {
+      window.JinPanels.setPendingJinPosition({
+        x,
+        y,
+      });
     }
     // Continue into the generic runtime-action lifecycle so JIN_POSITION uses
     // the same start/success/fail bubble contract as every other action.
@@ -2206,26 +1957,6 @@ function handleRuntimeAction(
       ]);
     }
 
-  }
-
-  if (
-    action === "update_active_memory"
-    && data.active_memory
-    && (data.active_memory_id || data.id)
-    && window.JinRuntime
-    && window.JinRuntime.runtime
-    && window.JinRuntime.runtime.replaceActiveMemoryRecordById
-  ) {
-    const activeMemoryId =
-      data.active_memory_id || data.id;
-
-    window.JinRuntime.runtime.replaceActiveMemoryRecordById(
-      activeMemoryId,
-      data.active_memory
-    );
-    highlightUpdatedActiveMemory(
-      activeMemoryId
-    );
   }
 
   if (

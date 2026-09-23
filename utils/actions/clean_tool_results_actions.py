@@ -6,7 +6,7 @@ from contracts.rules_assembler import (
 from utils.tool_results import (
     TOOL_RESULT_KIND_RUNTIME_ACTION,
     clean_runtime_tool_results_by_ids,
-    clear_runtime_tool_results_before_state,
+    clear_runtime_tool_results_before_current_turn,
     record_runtime_tool_result,
 )
 
@@ -15,7 +15,6 @@ async def apply_clean_tool_results_actions(
     context,
     clean_tool_result_actions,
     *,
-    tool_results_clean_state,
     action_display_ids,
     with_action_context,
 ):
@@ -27,12 +26,6 @@ async def apply_clean_tool_results_actions(
     from utils.chat_log import append_chat_runtime_event
 
     emit = getattr(getattr(context, "emitter", None), "emit", None)
-    # Full cleanup removes only pre-dispatch results. Compare identities after
-    # targeted cleanup, since list offsets may already have shifted.
-    original_entries = list(getattr(context, "runtime_tool_results", []))[
-        : tool_results_clean_state["tool_result_count"]
-    ]
-    full_cleaned = False
     for clean_action in clean_tool_result_actions:
         target_payload = str(clean_action.payload or "").strip()
         raw_parts = target_payload.split(",") if target_payload else []
@@ -43,16 +36,9 @@ async def apply_clean_tool_results_actions(
         if target_payload:
             ok = not malformed_id_list and clean_runtime_tool_results_by_ids(context, target_ids)
         else:
-            if not full_cleaned:
-                survivors = sum(
-                    (
-                        any((entry is original for original in original_entries))
-                        for entry in getattr(context, "runtime_tool_results", [])
-                    )
-                )
-                clean_state = dict(tool_results_clean_state, tool_result_count=survivors)
-                clear_runtime_tool_results_before_state(context, clean_state)
-                full_cleaned = True
+            # Empty CLEAN drops only results from earlier turns. Results emitted
+            # earlier in this model turn stay alive regardless of stream chunks.
+            clear_runtime_tool_results_before_current_turn(context)
             ok = True
         reason = "" if ok else f"Unknown or invalid tool_id list: {target_payload}"
         event = next(

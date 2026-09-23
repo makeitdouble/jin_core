@@ -122,6 +122,58 @@ def get_matching_action_guard_retry(
     return retry
 
 
+def get_action_guard_retry_confirmation_id(
+    context,
+    action,
+    guard_name: str = "",
+) -> str:
+    expected_guard = (
+        guard_name
+        or get_action_guard_name_for_runtime_action(
+            getattr(action, "name", "")
+        )
+    )
+    if not expected_guard:
+        return ""
+
+    retry = get_matching_action_guard_retry(
+        context,
+        action,
+        expected_guard,
+    )
+    return str(
+        retry.get("confirmation_id", "")
+        if retry
+        else ""
+    ).strip()
+
+
+def get_action_guard_retry_display_id(
+    context,
+    action,
+    guard_name: str = "",
+) -> str:
+    expected_guard = (
+        guard_name
+        or get_action_guard_name_for_runtime_action(
+            getattr(action, "name", "")
+        )
+    )
+    if not expected_guard:
+        return ""
+
+    retry = get_matching_action_guard_retry(
+        context,
+        action,
+        expected_guard,
+    )
+    return str(
+        retry.get("id", "")
+        if retry
+        else ""
+    ).strip()
+
+
 def get_action_guard_display_id(
     context,
     action,
@@ -210,6 +262,7 @@ async def wait_for_action_guard_confirmation(
     *,
     action_id: str = "",
     context_snapshot: dict | None = None,
+    runtime_message_id: str = "",
 ) -> tuple[str, str]:
     emitter = getattr(context, "emitter", None)
     emit = getattr(emitter, "emit", None)
@@ -268,6 +321,10 @@ async def wait_for_action_guard_confirmation(
         "retry_attempt": 1,
     }
 
+    runtime_message_id = str(runtime_message_id or "").strip()
+    if runtime_message_id:
+        payload["runtime_message_id"] = runtime_message_id
+
     if action.name == RUNTIME_ACTION_JIN_COLOR:
         color = normalize_jin_color_payload(action.payload)
         if color:
@@ -303,6 +360,9 @@ async def confirm_runtime_action_guards(
     confirmed_guard_names: set[str] | None = None,
     rejected_guard_names: set[str] | None = None,
     display_state: dict[str, Any] | None = None,
+    action_display_ids: dict[int, str] | None = None,
+    runtime_message_id: str = "",
+    consume_retry: bool = True,
 ) -> tuple[set[int], set[int], dict[int, str], dict[int, str]]:
     confirmed_guard_names = (
         confirmed_guard_names
@@ -323,20 +383,30 @@ async def confirm_runtime_action_guards(
     confirmed_action_ids: set[int] = set()
     rejected_action_ids: set[int] = set()
     confirmation_ids: dict[int, str] = {}
-    action_display_ids: dict[int, str] = {}
+    action_display_ids = (
+        action_display_ids
+        if isinstance(action_display_ids, dict)
+        else {}
+    )
 
     for action in actions:
+        action_key = id(action)
         guard_name = get_action_guard_name_for_runtime_action(
             action.name
         )
-        action_id = get_action_guard_display_id(
-            context,
-            action,
-            display_state,
-        )
+        action_id = str(
+            action_display_ids.get(action_key, "")
+            or ""
+        ).strip()
+        if not action_id:
+            action_id = get_action_guard_display_id(
+                context,
+                action,
+                display_state,
+            )
 
         if action_id:
-            action_display_ids[id(action)] = action_id
+            action_display_ids[action_key] = action_id
 
         if not guard_name:
             continue
@@ -347,6 +417,9 @@ async def confirm_runtime_action_guards(
             guard_name,
         )
         if retry:
+            retry_was_confirmed = (
+                guard_name in confirmed_guard_names
+            )
             retry_action_id = str(
                 retry.get("id", "")
                 or ""
@@ -357,18 +430,20 @@ async def confirm_runtime_action_guards(
             ).strip()
 
             if retry_action_id:
-                action_display_ids[id(action)] = retry_action_id
+                action_display_ids[action_key] = retry_action_id
             if retry_confirmation_id:
-                confirmation_ids[id(action)] = retry_confirmation_id
+                confirmation_ids[action_key] = retry_confirmation_id
 
             confirmed_guard_names.add(guard_name)
-            confirmed_action_ids.add(id(action))
-            context.runtime_action_guard_retry_consumed = True
-            append_action_guard_decision_message(
-                context,
-                guard_name,
-                ACTION_ACCEPTED_MISSING_TRIGGER_WORDS_MESSAGE,
-            )
+            confirmed_action_ids.add(action_key)
+            if consume_retry:
+                context.runtime_action_guard_retry_consumed = True
+            if not retry_was_confirmed:
+                append_action_guard_decision_message(
+                    context,
+                    guard_name,
+                    ACTION_ACCEPTED_MISSING_TRIGGER_WORDS_MESSAGE,
+                )
             continue
 
         if get_action_guard_blocker_match(
@@ -378,11 +453,11 @@ async def confirm_runtime_action_guards(
             continue
 
         if guard_name in rejected_guard_names:
-            rejected_action_ids.add(id(action))
+            rejected_action_ids.add(action_key)
             continue
 
         if guard_name in confirmed_guard_names:
-            confirmed_action_ids.add(id(action))
+            confirmed_action_ids.add(action_key)
             continue
 
         if not should_pause_action_guard_for_confirmation(
@@ -399,15 +474,16 @@ async def confirm_runtime_action_guards(
                 guard_name,
                 action_id=action_id,
                 context_snapshot=context_snapshot,
+                runtime_message_id=runtime_message_id,
             )
         )
 
         if confirmation_id:
-            confirmation_ids[id(action)] = confirmation_id
+            confirmation_ids[action_key] = confirmation_id
 
         if decision == "reject":
             rejected_guard_names.add(guard_name)
-            rejected_action_ids.add(id(action))
+            rejected_action_ids.add(action_key)
             append_action_guard_decision_message(
                 context,
                 guard_name,
@@ -416,7 +492,7 @@ async def confirm_runtime_action_guards(
             continue
 
         confirmed_guard_names.add(guard_name)
-        confirmed_action_ids.add(id(action))
+        confirmed_action_ids.add(action_key)
         append_action_guard_decision_message(
             context,
             guard_name,

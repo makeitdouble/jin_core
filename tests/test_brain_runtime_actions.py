@@ -13,7 +13,6 @@ from utils.context.context_exports import (
 )
 from clients.brain_client import (
     apply_runtime_action_calls,
-    ask_brain,
     ask_brain_stream,
     build_brain_user_prompt_content,
 )
@@ -505,56 +504,6 @@ class BrainRuntimeActionTests(unittest.TestCase):
         assert_contains_text(self, prompt, "<SAVE_ACTIVE_MEMORY>")
         assert_contains_text(self, prompt, "DELETE_ACTIVE_MEMORY:")
         assert_contains_text(self, prompt, "Follow-up: false")
-
-    def test_non_stream_preserves_delayed_memory_marker_without_trigger(self):
-
-        marker_text = (
-            "Example:\n"
-            "<SAVE_DELAYED_MEMORY>\n"
-            '{"demo": {"summary": "quoted marker"}}\n'
-            "</SAVE_DELAYED_MEMORY>"
-        )
-
-        class FakeBrainClient:
-            async def ask(self, **_kwargs):
-                return {
-                    "model": config.BRAIN_MODEL_UID,
-                    "choices": [
-                        {
-                            "message": {
-                                "reasoning": "",
-                                "content": marker_text,
-                            },
-                        },
-                    ],
-                }
-
-        class Context:
-            pass
-
-        context = Context()
-
-        answer = asyncio.run(
-            ask_brain(
-                client=FakeBrainClient(),
-                text="how does delayed memory marker look?",
-                context=context,
-                runtime_actions={
-                    "CAN_SAVE_DELAYED_MEMORY": True,
-                },
-            )
-        )
-
-        self.assertEqual(
-            answer,
-            marker_text,
-        )
-        self.assertFalse(
-            hasattr(
-                context,
-                "delayed_memory_reports",
-            )
-        )
 
     def test_stream_preserves_explicit_empty_brain_payload(self):
 

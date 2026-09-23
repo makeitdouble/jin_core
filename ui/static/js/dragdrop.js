@@ -18,12 +18,7 @@ let uploadQueue = Promise.resolve();
 let projectFolderOutsidePointerCleanup = null;
 const deletedFileRestoreCache = new Map();
 
-function escapeHtml(text) {
-  return String(text || "")
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;");
-}
+const escapeDragdropHtml = window.JinUiUtils.escapeHtml;
 
 function formatBytes(bytes) {
   const size = Number(bytes || 0);

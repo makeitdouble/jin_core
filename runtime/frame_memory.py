@@ -24,12 +24,10 @@ from runtime.memory_common import (
     build_runtime_summarizer_response_details,
     extract_runtime_memory_text,
     is_runtime_memory_response_truncated,
-    latest_turn_context_is_overloaded,
     log_memory_event,
     log_runtime_summarizer_payload,
     looks_like_incomplete_runtime_memory,
     refresh_service_runtime_usage,
-    runtime_prompt_is_context_overloaded,
 )
 from runtime.LT_lane import track_lt_frame_task
 from runtime.frame_memory_utils import (
@@ -39,18 +37,13 @@ from runtime.frame_memory_utils import (
 from runtime.frame_memory_utils import (
     build_empty_assistant_message,
     build_interrupted_assistant_message,
-    build_runtime_response_feedback_value,
     build_runtime_memory_batch_user_prompt,
-    build_runtime_memory_snapshot,
-    build_runtime_memory_user_prompt,
     get_strength_zones,
     normalize_compound_runtime_memory_lines,
-    parse_runtime_memory_lines,
     remove_runtime_response_feedback_text,
     remove_runtime_user_idle_lines,
 )
 from utils.actions import (
-    refresh_active_memory_runtime_metadata,
     remove_active_memory_entries,
 )
 
@@ -157,32 +150,6 @@ def build_runtime_memory_system_prompt_for_turns(
     )
 
 
-def clear_runtime_response_feedback(
-        context,
-) -> None:
-
-    if context is None:
-        return
-
-    context.runtime_memory = remove_runtime_response_feedback_text(
-        getattr(
-            context,
-            "runtime_memory",
-            "",
-        )
-    )
-
-    context.runtime_memory_stable = remove_runtime_response_feedback_text(
-        getattr(
-            context,
-            "runtime_memory_stable",
-            "",
-        )
-    )
-
-    context.runtime_last_response_feedback = None
-
-
 async def apply_runtime_response_feedback(
         context,
         feedback,
@@ -262,106 +229,6 @@ async def ask_frame_summarizer(
         raise
 
 
-async def ask_runtime_memory_model(
-        *,
-        context=None,
-        service_client,
-        current_memory: str,
-        user_message: str,
-        assistant_message: str,
-) -> dict:
-
-    resolve_request_context_window = getattr(
-        service_client,
-        "resolve_request_context_window",
-        None,
-    )
-    detected_context_window = None
-
-    if resolve_request_context_window is not None:
-        detected_context_window = (
-            await resolve_request_context_window()
-        )
-
-    system_prompt = build_runtime_memory_system_prompt_for_turn(
-        context=context,
-        current_memory=current_memory,
-        user_message=user_message,
-    )
-    _snapshots = list(
-        getattr(
-            context,
-            "runtime_memory_snapshots",
-            [],
-        )
-        or []
-    )
-    _latest_lines = (
-        _snapshots[-1].get("lines", [])
-        if _snapshots
-        else []
-    )
-    user_prompt = build_runtime_memory_user_prompt(
-        current_memory=current_memory,
-        user_message=user_message,
-        assistant_message=assistant_message,
-        strength_zones=get_strength_zones(
-            _latest_lines
-        ),
-    )
-
-    last_turn_context_overloaded = (
-        latest_turn_context_is_overloaded(
-            context
-        )
-        or runtime_prompt_is_context_overloaded(
-            system_prompt=system_prompt,
-            user_prompt=user_prompt,
-            context_window=detected_context_window,
-        )
-    )
-
-    if last_turn_context_overloaded:
-        system_prompt = build_runtime_memory_system_prompt_for_turn(
-            context=context,
-            current_memory=current_memory,
-            user_message=user_message,
-            last_turn_context_overloaded=True,
-        )
-
-    await refresh_service_runtime_usage(
-        context,
-        system_prompt=system_prompt,
-        user_prompt=user_prompt,
-        context_window=detected_context_window,
-    )
-
-    temperature = (
-        config.SERVICE_TEMPERATURE
-    )
-    max_tokens = None
-
-    response = await ask_frame_summarizer(
-        context=context,
-        service_client=service_client,
-        label="FRAME",
-        system_prompt=system_prompt,
-        user_prompt=user_prompt,
-        temperature=temperature,
-        max_tokens=max_tokens,
-    )
-
-    await refresh_service_runtime_usage(
-        context,
-        system_prompt=system_prompt,
-        user_prompt=user_prompt,
-        response=response,
-        context_window=detected_context_window,
-    )
-
-    return response
-
-
 async def ask_runtime_memory_batch_model(
         *,
         context=None,
@@ -430,211 +297,6 @@ async def ask_runtime_memory_batch_model(
     )
 
     return response
-
-
-async def summarize_runtime_memory(
-        *,
-        context,
-        user_message: str,
-        assistant_message: str,
-) -> str:
-
-    source_turn_id = str(getattr(context, "runtime_current_turn_id", "") or "")
-
-    if not assistant_message.strip():
-        stored_memory = remove_runtime_response_feedback_text(
-            getattr(
-                context,
-                "runtime_memory",
-                "",
-            )
-        )
-        updated_memory = remove_active_memory_entries(
-            stored_memory
-        )
-        context.runtime_memory = updated_memory
-        context.runtime_memory_stable = updated_memory
-        return updated_memory
-
-    service_client = (
-        getattr(
-            context,
-            "clients",
-            {},
-        )
-        .get(
-            "service"
-        )
-    )
-
-    if service_client is None:
-        stored_memory = remove_runtime_response_feedback_text(
-            getattr(
-                context,
-                "runtime_memory",
-                "",
-            )
-        )
-        updated_memory = remove_active_memory_entries(
-            stored_memory
-        )
-        context.runtime_memory = updated_memory
-        context.runtime_memory_stable = updated_memory
-        return updated_memory
-
-    stored_memory = remove_runtime_response_feedback_text(
-        getattr(
-            context,
-            "runtime_memory",
-            "",
-        )
-    )
-    stored_memory = remove_active_memory_entries(
-        stored_memory
-    )
-    current_memory = stored_memory
-
-    context.runtime_memory = stored_memory
-    context.runtime_memory_stable = remove_runtime_response_feedback_text(
-        getattr(
-            context,
-            "runtime_memory_stable",
-            "",
-        )
-    )
-    context.runtime_last_response_feedback = None
-
-    try:
-        response = await ask_runtime_memory_model(
-            context=context,
-            service_client=service_client,
-            current_memory=current_memory,
-            user_message=user_message,
-            assistant_message=assistant_message,
-        )
-
-        updated_memory = extract_runtime_memory_text(
-            response,
-        )
-        updated_memory = normalize_compound_runtime_memory_lines(
-            updated_memory
-        )
-        context.runtime_frame_last_summarizer_response_details = (
-            build_runtime_summarizer_response_details(
-                response,
-                extracted_memory=updated_memory,
-            )
-        )
-        updated_memory = remove_runtime_response_feedback_text(
-            updated_memory
-        )
-
-        if (
-                is_runtime_memory_response_truncated(
-                    response
-                )
-                or looks_like_incomplete_runtime_memory(
-            updated_memory
-        )
-        ):
-            await log_memory_event(
-                context,
-                level="FRAME",
-                message="FRAME runtime memory update skipped",
-                event="summarizer_skipped",
-                details=build_memory_update_skip_details(
-                    reason="Summarizer returned an incomplete memory update.",
-                    previous_memory=current_memory,
-                    candidate_memory=updated_memory,
-                    summarizer_response_details=(
-                        context.runtime_frame_last_summarizer_response_details
-                    ),
-                ),
-                fallback_channel="error",
-            )
-
-            return stored_memory
-
-        updated_memory = remove_runtime_response_feedback_text(
-            updated_memory
-        )
-        updated_memory = remove_runtime_user_idle_lines(
-            updated_memory
-        )
-        updated_memory = remove_active_memory_entries(
-            updated_memory
-        )
-
-        updates_counter = getattr(
-            context,
-            "runtime_memory_updates",
-            0,
-        )
-
-        if updated_memory or updates_counter == 0:
-            context.runtime_memory = updated_memory
-            context.runtime_memory_stable = updated_memory
-            context.runtime_memory_updates = updates_counter + 1
-
-            snapshot = await emit_runtime_memory_update(
-                context, source_turns=[{"turn_id": source_turn_id}],
-            )
-
-            from runtime.memory_profile import collect_frame_candidates
-            collect_frame_candidates(context, snapshot)
-
-            await record_runtime_frame_diff(
-                context,
-                snapshot,
-                turns=[
-                    {
-                        "user_message": user_message,
-                        "assistant_message": assistant_message,
-                    },
-                ],
-            )
-
-        else:
-            await log_memory_event(
-                context,
-                level="FRAME",
-                message="FRAME empty extraction skipped",
-                details="The summarizer returned no FRAME fields; existing memory was retained.",
-                event="summarizer_skipped",
-            )
-
-        return getattr(
-            context,
-            "runtime_memory",
-            "",
-        )
-
-    except asyncio.CancelledError:
-        raise
-
-    except Exception as error:
-        formatted_traceback = (
-            traceback.format_exc()
-        )
-
-        await log_memory_event(
-            context,
-            level="FRAME",
-            message="FRAME runtime memory update failed",
-            event="summarizer_failed",
-            details=build_memory_failure_details(
-                stage="FRAME runtime memory summarizer",
-                error=error,
-                traceback_text=formatted_traceback,
-            ),
-            fallback_channel="error",
-        )
-
-        return getattr(
-            context,
-            "runtime_memory",
-            "",
-        )
 
 
 async def summarize_runtime_memory_pending_turns(

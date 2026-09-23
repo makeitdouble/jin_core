@@ -21,18 +21,26 @@ ACTIVE_MEMORY_ENTRY_RE = re.compile(
 )
 
 
-def _normalize_action_name(action_name: str) -> str:
+RUNTIME_ACTION_NAME_ALIASES = {
+    "ATTACH_FILES_BY_ID": "ATTACH_FILE_BY_ID",
+    "USE_ASSETS": "ASSET_ACTION",
+    "LOAD_SKILL_CONTEXT": "LOAD_SKILL",
+    "LOAD_SKILLS_CONTEXT": "LOAD_SKILL",
+    "UNLOAD_SKILL_CONTEXT": "UNLOAD_SKILL",
+    "UNLOAD_SKILLS_CONTEXT": "UNLOAD_SKILL",
+    "RECALL_FACTS_CONTEXT": "RECALL_FACT_CONTEXT",
+}
+
+def normalize_runtime_action_name(action_name: str) -> str:
     normalized = str(action_name or "").strip().upper()
 
     if normalized.startswith("CAN_"):
         normalized = normalized[4:]
 
-    aliases = {
-        "SAVE_ACTIVE_MEMORY": "SAVE_ACTIVE_MEMORY",
-        "USE_ASSETS": "ASSET_ACTION",
-    }
-
-    return aliases.get(normalized, normalized)
+    return RUNTIME_ACTION_NAME_ALIASES.get(
+        normalized,
+        normalized,
+    )
 
 
 def _as_list(value) -> list:
@@ -101,13 +109,13 @@ def get_action_contract(name: str) -> dict[str, Any]:
 def get_action_contract_for_runtime_action(
     runtime_action: str,
 ) -> tuple[str, dict[str, Any]]:
-    normalized_action = _normalize_action_name(runtime_action)
+    normalized_action = normalize_runtime_action_name(runtime_action)
 
     if not normalized_action:
         return "", {}
 
     for name, contract in get_action_contracts().items():
-        contract_action = _normalize_action_name(
+        contract_action = normalize_runtime_action_name(
             str(contract.get("runtime_action", "") or "")
         )
 
@@ -123,18 +131,18 @@ def get_action_contract_name_for_runtime_action(runtime_action: str) -> str:
 
 
 def get_runtime_action_name(name_or_runtime_action: str) -> str:
-    normalized = _normalize_action_name(name_or_runtime_action)
+    normalized = normalize_runtime_action_name(name_or_runtime_action)
 
     if not normalized:
         return ""
 
     for contract in get_action_contracts().values():
-        action = _normalize_action_name(contract.get("runtime_action", ""))
+        action = normalize_runtime_action_name(contract.get("runtime_action", ""))
         if action == normalized:
             return action
 
     contract = get_action_contract(str(name_or_runtime_action or "").strip())
-    action = _normalize_action_name(contract.get("runtime_action", ""))
+    action = normalize_runtime_action_name(contract.get("runtime_action", ""))
     return action
 
 
@@ -168,7 +176,7 @@ def get_runtime_action_display_name(name_or_runtime_action: str) -> str:
     return (
         marker_name
         or get_runtime_action_name(name_or_runtime_action)
-        or _normalize_action_name(name_or_runtime_action)
+        or normalize_runtime_action_name(name_or_runtime_action)
     )
 
 
@@ -258,7 +266,7 @@ def get_enabled_runtime_actions(runtime_actions=None) -> tuple[str, ...]:
         if not enable_flag or not bool(action_flags.get(enable_flag, False)):
             continue
 
-        action_name = _normalize_action_name(
+        action_name = normalize_runtime_action_name(
             contract.get("runtime_action", "")
         )
         if action_name and action_name not in enabled_actions:
@@ -269,7 +277,7 @@ def get_enabled_runtime_actions(runtime_actions=None) -> tuple[str, ...]:
 
 def normalize_runtime_action_names(enabled_actions=None) -> tuple[str, ...]:
     known_actions = {
-        _normalize_action_name(contract.get("runtime_action", ""))
+        normalize_runtime_action_name(contract.get("runtime_action", ""))
         for contract in get_action_contracts().values()
     }
     known_actions.discard("")
@@ -289,7 +297,7 @@ def normalize_runtime_action_names(enabled_actions=None) -> tuple[str, ...]:
     actions = []
 
     for action_name in candidates:
-        normalized_name = _normalize_action_name(action_name)
+        normalized_name = normalize_runtime_action_name(action_name)
         normalized_names = [normalized_name]
 
         if normalized_name == "SAVE_ACTIVE_MEMORY":
@@ -384,7 +392,7 @@ def get_close_tag_runtime_actions() -> tuple[str, ...]:
         if not bool(contract.get("close_tag", False)):
             continue
 
-        action = _normalize_action_name(contract.get("runtime_action", ""))
+        action = normalize_runtime_action_name(contract.get("runtime_action", ""))
         if action:
             actions.append(action)
 
@@ -438,13 +446,13 @@ def _action_enabled(
     *names: str,
 ) -> bool:
     normalized_names = {
-        _normalize_action_name(name)
+        normalize_runtime_action_name(name)
         for name in names
         if str(name or "").strip()
     }
 
     return any(
-        _normalize_action_name(action) in normalized_names
+        normalize_runtime_action_name(action) in normalized_names
         for action in enabled_actions
     )
 
@@ -485,7 +493,7 @@ def _runtime_action_available_in_context(
     action_name: str,
     context=None,
 ) -> bool:
-    normalized_name = _normalize_action_name(action_name)
+    normalized_name = normalize_runtime_action_name(action_name)
     if normalized_name == "POSTING_BOARD":
         return _context_has_loaded_skill(
             context,
@@ -537,51 +545,6 @@ def _context_disables_jin_avatar_geometry(context=None) -> bool:
     )
 
 
-def build_allowed_markers(
-    enabled_actions: tuple[str, ...],
-    context=None,
-) -> str:
-    markers: list[str] = []
-    for action in enabled_actions:
-        action_name = _normalize_action_name(action)
-
-        if not _runtime_action_available_in_context(
-            action_name,
-            context,
-        ):
-            continue
-
-        if (
-            action_name in {"JIN_SIZE", "JIN_POSITION", "JIN_SPEED"}
-            and _context_disables_jin_avatar_geometry(
-                context
-            )
-        ):
-            continue
-
-        if action_name in {
-            "LIST_ALL_USER_SHARED_FILES",
-            "ATTACH_FILE_CONTENT",
-            "ATTACH_FILE_BY_ID",
-        } and not _context_has_files(context):
-            continue
-
-        if action_name in {
-            "ATTACH_FILE_CONTENT",
-            "ATTACH_FILE_BY_ID",
-        } and not _context_has_loaded_skill(context, "file_manager"):
-            continue
-
-        marker = get_runtime_action_private_marker(action_name)
-        if marker:
-            markers.append(marker)
-
-    if not markers:
-        return ""
-
-    return "\n".join(markers) + "."
-
-
 def build_runtime_action_instructions(
     enabled_actions: tuple[str, ...],
     context=None,
@@ -600,7 +563,7 @@ def build_runtime_action_instructions(
             instructions.append(action_instructions)
 
     for action_name in enabled_actions:
-        normalized_name = _normalize_action_name(action_name)
+        normalized_name = normalize_runtime_action_name(action_name)
 
         if not _runtime_action_available_in_context(
             normalized_name,
@@ -616,7 +579,7 @@ def build_runtime_action_instructions(
         ):
             continue
 
-        if normalized_name in {"DELETE_ACTIVE_MEMORY", "UPDATE_ACTIVE_MEMORY"} and not _context_has_active_memory(context):
+        if normalized_name == "DELETE_ACTIVE_MEMORY" and not _context_has_active_memory(context):
             continue
 
         if normalized_name == "LOAD_DELAYED_MEMORY" and not _context_has_delayed_memory_reports(context):
@@ -665,9 +628,6 @@ RUNTIME_ACTION_SAVE_ACTIVE_MEMORY = get_runtime_action_name(
 RUNTIME_ACTION_DELETE_ACTIVE_MEMORY = get_runtime_action_name(
     "delete_active_memory"
 )
-# Legacy/internal compatibility only. UPDATE_ACTIVE_MEMORY no longer has a
-# model-facing contract; SAVE_ACTIVE_MEMORY handles both create and update.
-RUNTIME_ACTION_UPDATE_ACTIVE_MEMORY = "UPDATE_ACTIVE_MEMORY"
 RUNTIME_ACTION_CLEAN_TOOL_RESULTS = get_runtime_action_name(
     "clean_tool_results"
 )

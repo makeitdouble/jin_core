@@ -1101,53 +1101,6 @@ class RuntimeClient:
     # PAYLOAD
     # ---------------------------------------------------------
 
-    @staticmethod
-    def text_from_user_prompt(
-            user_prompt,
-    ) -> str:
-
-        if isinstance(
-            user_prompt,
-            str,
-        ):
-            return user_prompt
-
-        if isinstance(
-            user_prompt,
-            list,
-        ):
-            text_parts = []
-
-            for item in user_prompt:
-                if not isinstance(
-                    item,
-                    dict,
-                ):
-                    continue
-
-                if item.get(
-                    "type",
-                ) != "text":
-                    continue
-
-                text_parts.append(
-                    str(
-                        item.get(
-                            "text",
-                            "",
-                        )
-                    )
-                )
-
-            return "\n".join(
-                text_parts,
-            )
-
-        return str(
-            user_prompt
-            or ""
-        )
-
     def build_payload(
             self,
             *,

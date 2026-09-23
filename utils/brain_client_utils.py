@@ -1309,8 +1309,9 @@ async def update_active_memory_runtime_record(
 
     result = {
         "ok": False,
-        "action": "update_active_memory",
-        "error": "invalid_update_active_memory_payload",
+        "action": "save_active_memory",
+        "mode": "update",
+        "error": "invalid_active_memory_payload",
         "payload": str(payload or "").strip(),
     }
 
@@ -2150,56 +2151,6 @@ def set_loaded_delayed_memory_report(
     return True
 
 
-def clear_loaded_delayed_memory_report(
-    context,
-    report_id: str = "",
-) -> bool:
-
-    normalized_report_id = str(
-        report_id
-        or ""
-    ).strip().casefold()
-
-    if not is_delayed_memory_report_id(
-        normalized_report_id
-    ):
-        return False
-
-    saved_report = get_delayed_memory_reports(
-        context
-    ).get(normalized_report_id)
-
-    if isinstance(saved_report, dict) and bool(saved_report.get("pinned", False)):
-        return False
-
-    loaded_reports = get_loaded_delayed_memory_reports(
-        context
-    )
-
-    if normalized_report_id not in loaded_reports:
-        return False
-
-    del loaded_reports[normalized_report_id]
-
-    loaded_ids = getattr(
-        context,
-        "runtime_loaded_delayed_memory_ids",
-        None,
-    )
-
-    if isinstance(
-        loaded_ids,
-        list,
-    ):
-        loaded_ids[:] = [
-            item
-            for item in loaded_ids
-            if str(item or "").strip().casefold()
-            != normalized_report_id
-        ]
-
-    return True
-
 def get_delayed_memory_reports(
     context,
 ) -> dict:
@@ -2428,74 +2379,6 @@ def include_pinned_delayed_memory_reports(
         persist_delayed_memory_reports(context, reports_to_persist)
 
     return loaded_reports
-
-
-def unload_delayed_memory_report(
-    context,
-    payload: str,
-) -> dict:
-
-    report_id = normalize_delayed_memory_action_id(
-        payload
-    )
-
-    if not report_id:
-        return build_delayed_memory_failure_result(
-            action="unload_delayed_memory",
-            requested=payload,
-            error="invalid_delayed_memory_id",
-        )
-
-    reports = get_delayed_memory_reports(
-        context
-    )
-    report = (
-        reports.get(
-            report_id,
-        )
-        if report_id
-        else None
-    )
-
-    if not isinstance(
-        report,
-        dict,
-    ):
-        return build_delayed_memory_failure_result(
-            action="unload_delayed_memory",
-            requested=report_id,
-            error="delayed_memory_not_found",
-        )
-
-    if bool(report.get("pinned", False)):
-        return build_delayed_memory_failure_result(
-            action="unload_delayed_memory",
-            requested=report_id,
-            error="delayed_memory_pinned",
-        )
-
-    return {
-        "ok": True,
-        "action": "unload_delayed_memory",
-        "id": report_id,
-        "unloaded": bool(
-            report_id
-        ),
-        "title": (
-            str(
-                report.get(
-                    "title",
-                    "",
-                )
-                or ""
-            ).strip()
-            if isinstance(
-                report,
-                dict,
-            )
-            else ""
-        ),
-    }
 
 
 def build_delayed_memory_action_text(

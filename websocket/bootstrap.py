@@ -12,19 +12,17 @@ from runtime.runtime_context import (
     RuntimeContext,
     RuntimeEmitter,
 )
-from runtime.frame_memory import (
-    build_runtime_memory_snapshot,
-    parse_runtime_memory_lines,
-)
 from runtime.frame_memory_pending import (
     restore_pending_frame_update,
 )
 from runtime.frame_memory_utils import (
     build_runtime_memory_context_text,
+    build_runtime_memory_snapshot,
     canonicalize_runtime_memory_key,
     emit_runtime_frame_diff_update,
     emit_runtime_memory_snapshot_refresh,
     rebuild_latest_runtime_memory_snapshot,
+    parse_runtime_memory_lines,
     remove_runtime_user_idle_lines,
     strip_runtime_memory_line_metadata,
 )
@@ -778,7 +776,7 @@ def clean_delayed_memory_reports(value) -> dict:
     )
 
 
-def clean_deleted_delayed_memory_report_ids(value) -> list[str]:
+def clean_delayed_memory_report_ids(value) -> list[str]:
 
     source = value if isinstance(value, list) else [value]
     report_ids = []
@@ -808,34 +806,6 @@ def clean_deleted_delayed_memory_report_ids(value) -> list[str]:
 
     return report_ids
 
-
-def clean_loaded_delayed_memory_report_ids(value) -> list[str]:
-
-    source = value if isinstance(value, list) else [value]
-    report_ids = []
-    seen = set()
-
-    for item in source:
-        report_id = str(
-            item
-            or ""
-        ).strip().casefold()
-
-        if (
-            not report_id
-            or report_id in seen
-            or not is_delayed_memory_report_id(
-                report_id
-            )
-        ):
-            continue
-
-        seen.add(report_id)
-        report_ids.append(report_id)
-
-    return report_ids
-
-
 def apply_loaded_delayed_memory_ids(
     context,
     message_data: dict,
@@ -861,7 +831,7 @@ def apply_loaded_delayed_memory_ids(
             or []
         )
 
-    requested_ids = clean_loaded_delayed_memory_report_ids(
+    requested_ids = clean_delayed_memory_report_ids(
         raw_ids
     )
     reports = getattr(
@@ -948,7 +918,7 @@ def stage_session_restore_loaded_delayed_memory_ids(
         "loaded_delayed_memory_ids",
         message_data.get("loaded_memory_ids", []),
     )
-    requested_ids = clean_loaded_delayed_memory_report_ids(
+    requested_ids = clean_delayed_memory_report_ids(
         raw_loaded_ids
     )
     # Keep the archived ids even if a report record has not reached this
@@ -984,7 +954,7 @@ def get_context_loaded_delayed_memory_ids(
     if not isinstance(loaded_reports, dict):
         return []
 
-    return clean_loaded_delayed_memory_report_ids(
+    return clean_delayed_memory_report_ids(
         list(loaded_reports.keys())
     )
 
@@ -1008,7 +978,7 @@ def apply_suppressed_delayed_memory_auto_load_ids(
         ),
     )
 
-    report_ids = clean_loaded_delayed_memory_report_ids(
+    report_ids = clean_delayed_memory_report_ids(
         raw_ids
     )
     reports = getattr(
@@ -1037,7 +1007,7 @@ def apply_delayed_memory_reports(
         refresh_profile(context)
         return []
 
-    deleted_report_ids = clean_deleted_delayed_memory_report_ids(
+    deleted_report_ids = clean_delayed_memory_report_ids(
         message_data.get(
             "deleted_delayed_memory_report_ids",
             [],

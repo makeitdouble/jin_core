@@ -18,6 +18,7 @@ from clients.brain_client import (
     build_brain_payload,
     build_brain_user_prompt_content,
     emit_active_memory_records_update_if_dirty,
+    get_response_enabled_runtime_actions,
 )
 from rules.brain_context_builder import (
     build_brain_context,
@@ -78,9 +79,7 @@ from utils.actions.action_counter_utils import (
     format_runtime_action_count,
 )
 
-from utils.language import (
-    contains_cyrillic,
-)
+
 from utils.tool_results import (
     TOOL_RESULT_KIND_ASSET,
     TOOL_RESULT_KIND_DEEP_SEARCH,
@@ -1756,296 +1755,6 @@ class BrainNode(BaseNode):
         return result.strip()
 
     @staticmethod
-    def build_asset_result_report(
-            result: dict,
-            *,
-            user_text: str = "",
-    ) -> str:
-
-        if not isinstance(
-            result,
-            dict,
-        ):
-            return "Asset operation completed."
-
-        use_russian = contains_cyrillic(
-            user_text
-        )
-
-        action = str(
-            result.get(
-                "action",
-                "asset_action",
-            )
-            or "asset_action"
-        )
-        ok = bool(
-            result.get(
-                "ok",
-                False,
-            )
-        )
-        path = str(
-            result.get(
-                "path",
-                "",
-            )
-            or ""
-        )
-        error = str(
-            result.get(
-                "error",
-                "",
-            )
-            or ""
-        )
-        detail = str(
-            result.get(
-                "detail",
-                "",
-            )
-            or ""
-        )
-
-        if not ok:
-            reason = " — ".join(
-                part
-                for part in (
-                    error,
-                    detail,
-                )
-                if part
-            )
-            if use_russian:
-                return (
-                    f"Не удалось выполнить asset-операцию `{action}`"
-                    f" для `{path}`: {reason or 'unknown error'}."
-                )
-            return (
-                f"Could not complete asset operation `{action}`"
-                f" for `{path}`: {reason or 'unknown error'}."
-            )
-
-        line_count = result.get(
-            "line_count",
-            None,
-        )
-        appended_count = result.get(
-            "appended_count",
-            None,
-        )
-        examples = (
-            result.get("examples")
-            or result.get("items")
-            or []
-        )
-
-        if not isinstance(
-            examples,
-            list,
-        ):
-            examples = []
-
-        def format_ru_line_count(value) -> str:
-            try:
-                count = int(value)
-            except (TypeError, ValueError):
-                return str(value)
-
-            last_two = count % 100
-            last = count % 10
-
-            if 11 <= last_two <= 14:
-                word = "строк"
-            elif last == 1:
-                word = "строку"
-            elif 2 <= last <= 4:
-                word = "строки"
-            else:
-                word = "строк"
-
-            return f"{count} {word}"
-
-        if use_russian:
-            if action == "create_wildcard_file":
-                lines = [
-                    (
-                        f"Создал файл `{path}`"
-                        + (
-                            f" на {format_ru_line_count(line_count)}."
-                            if line_count is not None
-                            else "."
-                        )
-                    )
-                ]
-            elif action == "append_wildcard_file":
-                lines = [
-                    (
-                        f"Обновил файл `{path}`"
-                        + (
-                            f": добавлено {format_ru_line_count(appended_count)}, всего {format_ru_line_count(line_count)}."
-                            if appended_count is not None and line_count is not None
-                            else "."
-                        )
-                    )
-                ]
-            elif action == "generate_prompt_batch":
-                lines = [
-                    (
-                        f"Создал prompt batch `{path}`"
-                        + (
-                            f" на {format_ru_line_count(line_count)}."
-                            if line_count is not None
-                            else "."
-                        )
-                    )
-                ]
-            elif action in {"sample_wildcard", "preview_file", "expand_template"}:
-                lines = [
-                    (
-                        f"Готово: `{action}`"
-                        + (f" для `{path}`." if path else ".")
-                    )
-                ]
-            else:
-                lines = [
-                    (
-                        f"Готово: `{action}`"
-                        + (f" для `{path}`." if path else ".")
-                    )
-                ]
-
-            if examples:
-                lines.append("")
-                lines.append("Примеры:")
-                lines.extend(
-                    f"- {item}"
-                    for item in examples[:5]
-                )
-
-            return "\n".join(lines).strip()
-
-        if action == "create_wildcard_file":
-            lines = [
-                (
-                    f"Created `{path}`"
-                    + (
-                        f" with {line_count} lines."
-                        if line_count is not None
-                        else "."
-                    )
-                )
-            ]
-        elif action == "append_wildcard_file":
-            lines = [
-                (
-                    f"Updated `{path}`"
-                    + (
-                        f": appended {appended_count} lines, {line_count} total."
-                        if appended_count is not None and line_count is not None
-                        else "."
-                    )
-                )
-            ]
-        elif action == "generate_prompt_batch":
-            lines = [
-                (
-                    f"Created prompt batch `{path}`"
-                    + (
-                        f" with {line_count} lines."
-                        if line_count is not None
-                        else "."
-                    )
-                )
-            ]
-        else:
-            lines = [
-                (
-                    f"Completed `{action}`"
-                    + (f" for `{path}`." if path else ".")
-                )
-            ]
-
-        if examples:
-            lines.append("")
-            lines.append("Examples:")
-            lines.extend(
-                f"- {item}"
-                for item in examples[:5]
-            )
-
-        return "\n".join(lines).strip()
-
-    @staticmethod
-    async def emit_brain_text(
-            *,
-            state,
-            context,
-            brain_runtime,
-            text: str,
-            emit_content_to_chat: bool = True,
-            context_snapshot: dict | None = None,
-    ) -> tuple[str, str]:
-
-        async def generator():
-            yield {
-                "type": "content",
-                "content": text,
-            }
-
-        runtime = RuntimeStream(
-            context=context,
-            runtime_id=(
-                brain_runtime[
-                    "runtime_id"
-                ]
-            ),
-            role=(
-                brain_runtime["label"]
-            ),
-            context_window=(
-                brain_runtime[
-                    "context_window"
-                ]
-            ),
-            log_method=getattr(
-                context.logger,
-                brain_runtime[
-                    "log_method"
-                ],
-            ),
-            model_output_log_method=getattr(
-                context.logger,
-                brain_runtime.get(
-                    "model_output_log_method",
-                    "",
-                ),
-                None,
-            ),
-            enable_validator=True,
-            emit_to_chat=True,
-            emit_content_to_chat=emit_content_to_chat,
-            context_snapshot=(
-                context_snapshot
-                or getattr(
-                    state,
-                    "visible_response_context",
-                    None,
-                )
-            ),
-            runtime_actions={},
-        )
-
-        response = await runtime.run(
-            generator()
-        )
-
-        return (
-            response or text,
-            runtime.stream.reasoning,
-        )
-
-    @staticmethod
     async def run_brain_stream(
             *,
             state,
@@ -2141,6 +1850,12 @@ class BrainNode(BaseNode):
             context_snapshot
         )
 
+        enabled_runtime_actions = get_response_enabled_runtime_actions(
+            runtime_actions,
+            state.user_input,
+            context=context,
+        )
+
         runtime = RuntimeStream(
             context=context,
             runtime_id=(
@@ -2174,7 +1889,7 @@ class BrainNode(BaseNode):
             emit_to_chat=True,
             emit_content_to_chat=emit_content_to_chat,
             context_snapshot=context_snapshot,
-            runtime_actions=runtime_actions,
+            runtime_actions=enabled_runtime_actions,
             filter_runtime_actions=filter_runtime_actions,
         )
 
@@ -2185,17 +1900,14 @@ class BrainNode(BaseNode):
                 # second USER move. Never forward the original request through
                 # the generic ``text`` fallback on these ticks.
                 text=("" if is_followup_tick else state.user_input),
-                action_user_message=state.user_input,
                 context=context,
                 system_prompt=system_prompt,
                 brain_payload=effective_brain_payload,
                 runtime_actions=runtime_actions,
-                filter_runtime_actions=filter_runtime_actions,
                 # run_brain_stream already resolved/annotated the live context
                 # window above. Do not prepare it a second time in the client:
                 # L-T budgeting must run once against the full turn prompt.
                 context_window_prepared=True,
-                action_queue=runtime.action_queue,
             )
 
             text = await runtime.run(
@@ -2509,12 +2221,10 @@ class BrainNode(BaseNode):
         asset_result_offset = 0
         delayed_memory_result_offset = 0
         followup_count = 0
-        max_followups = max(
-            1,
-            int(
-                config.BRAIN_MAX_FOLLOWUPS
-            ),
-        )
+        max_followups = int(config.BRAIN_MAX_FOLLOWUPS)
+        unlimited_followups = max_followups == 0
+        if max_followups < 0:
+            max_followups = 1
         malformed_repair_count = 0
         max_malformed_repairs = 1
         malformed_repair_limit_reached = False
@@ -2852,7 +2562,11 @@ class BrainNode(BaseNode):
                 for entry in getattr(context, "runtime_failure_followup_entries", [])
             )
 
-        while followup_count < max_followups or malformed_followup_pending():
+        while (
+            unlimited_followups
+            or followup_count < max_followups
+            or malformed_followup_pending()
+        ):
             if abort_requested():
                 break
 
@@ -3467,7 +3181,10 @@ class BrainNode(BaseNode):
             reasoning,
         )
 
-        if followup_count >= max_followups or malformed_repair_limit_reached:
+        if (
+            (not unlimited_followups and followup_count >= max_followups)
+            or malformed_repair_limit_reached
+        ):
             context.runtime_active_memory_refresh_tick = (
                 followup_count + 1
             )

@@ -30,13 +30,8 @@
   const ACTIVE_MEMORY_VALUE_MIN_TOKENS = 4;
   const ACTIVE_MEMORY_VALUE_MIN_CHARS = 24;
 
-  function normalizeActiveMemoryId(value) {
-    const normalized = String(value || "").trim();
-
-    return /^AM-[a-z0-9]{6}$/.test(normalized)
-      ? normalized
-      : "";
-  }
+  const normalizeActiveMemoryId =
+    window.JinUiUtils.normalizeActiveMemoryId;
 
   function normalizeDelayedMemoryId(value) {
     const normalized =
@@ -56,15 +51,8 @@
       : "";
   }
 
-  function extractActiveMemoryId(value) {
-    const match = String(value || "").match(
-      /\[\s*id\s*:\s*(AM-[a-z0-9]{6})\s*\]/
-    );
-
-    return match
-      ? normalizeActiveMemoryId(match[1])
-      : "";
-  }
+  const extractActiveMemoryId =
+    window.JinUiUtils.extractActiveMemoryId;
 
   function parseActiveMemoryMetadata(value) {
     const fields = new Map();

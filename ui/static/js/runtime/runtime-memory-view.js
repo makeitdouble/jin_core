@@ -408,26 +408,10 @@
     return aliases;
   }
 
-  function extractActiveMemoryId(value) {
-    const match =
-        String(value || "")
-          .match(
-            /\[\s*id\s*:\s*(AM-[a-z0-9]{6})\s*\]/
-          );
-
-    return match
-      ? normalizeActiveMemoryId(match[1])
-      : "";
-  }
-
-  function normalizeActiveMemoryId(value) {
-    const normalized =
-        String(value || "").trim();
-
-    return /^AM-[a-z0-9]{6}$/.test(normalized)
-      ? normalized
-      : "";
-  }
+  const normalizeActiveMemoryId =
+    window.JinUiUtils.normalizeActiveMemoryId;
+  const extractActiveMemoryId =
+    window.JinUiUtils.extractActiveMemoryId;
 
   function collectMemoryRecordReferenceAliases(record) {
     if (!record || typeof record !== "object") {
@@ -2588,25 +2572,123 @@
   const longTermMemoryHoverRows = new WeakMap();
   let longTermMemoryHoverCard = null;
   let longTermMemoryHoverCardAnchor = null;
-  let longTermMemoryHoverSyncFrame = null;
   const activeMemoryHoverRows = new WeakMap();
   let activeMemoryHoverCard = null;
   let activeMemoryHoverCardAnchor = null;
-  let activeMemoryHoverSyncFrame = null;
   const frameMemoryHoverRows = new WeakMap();
   let frameMemoryHoverCard = null;
   let frameMemoryHoverCardAnchor = null;
-  let frameMemoryHoverSyncFrame = null;
   const delayedMemoryHoverRows = new WeakMap();
   let delayedMemoryHoverCard = null;
   let delayedMemoryHoverCardAnchor = null;
-  let delayedMemoryHoverSyncFrame = null;
   const persistentFileHoverRows = new WeakMap();
   const persistentFileHoverTextCache = new Map();
   let persistentFileHoverCard = null;
   let persistentFileHoverCardAnchor = null;
   let persistentFileHoverRequestSerial = 0;
-  let persistentFileHoverSyncFrame = null;
+
+  function createMemoryHoverCardScrollScheduler({
+      selector,
+      rows,
+      hideCard,
+      showCard,
+      getCard,
+      getAnchor,
+  }) {
+    let syncFrame = null;
+
+    function syncAfterScroll() {
+      syncFrame = null;
+
+      if (!runtimeMemoryText || !runtimeMemoryText.isConnected) {
+        hideCard();
+        return;
+      }
+
+      const hoveredRow =
+          runtimeMemoryText.querySelector(selector);
+      const payload = hoveredRow
+        ? rows.get(hoveredRow)
+        : null;
+
+      if (!hoveredRow || !payload) {
+        hideCard();
+        return;
+      }
+
+      const card = getCard();
+
+      if (
+          getAnchor() === hoveredRow
+          && card
+          && card.isConnected
+      ) {
+        positionLongTermMemoryHoverCard(
+            card,
+            hoveredRow
+        );
+        return;
+      }
+
+      showCard(hoveredRow, payload);
+    }
+
+    return function scheduleHoverCardScrollSync() {
+      if (syncFrame !== null) {
+        return;
+      }
+
+      syncFrame = window.requestAnimationFrame(
+          syncAfterScroll
+      );
+    };
+  }
+
+  const schedulePersistentFileHoverCardScrollSync =
+      createMemoryHoverCardScrollScheduler({
+        selector: ".runtime-memory-file-row:hover",
+        rows: persistentFileHoverRows,
+        hideCard: hidePersistentFileHoverCard,
+        showCard: showPersistentFileHoverCard,
+        getCard: () => persistentFileHoverCard,
+        getAnchor: () => persistentFileHoverCardAnchor,
+      });
+  const scheduleFrameMemoryHoverCardScrollSync =
+      createMemoryHoverCardScrollScheduler({
+        selector: ".runtime-memory-frame-row:hover",
+        rows: frameMemoryHoverRows,
+        hideCard: hideFrameMemoryHoverCard,
+        showCard: showFrameMemoryHoverCard,
+        getCard: () => frameMemoryHoverCard,
+        getAnchor: () => frameMemoryHoverCardAnchor,
+      });
+  const scheduleLongTermMemoryHoverCardScrollSync =
+      createMemoryHoverCardScrollScheduler({
+        selector: ".runtime-memory-line:hover",
+        rows: longTermMemoryHoverRows,
+        hideCard: hideLongTermMemoryHoverCard,
+        showCard: showLongTermMemoryHoverCard,
+        getCard: () => longTermMemoryHoverCard,
+        getAnchor: () => longTermMemoryHoverCardAnchor,
+      });
+  const scheduleActiveMemoryHoverCardScrollSync =
+      createMemoryHoverCardScrollScheduler({
+        selector: ".runtime-memory-active-row:hover",
+        rows: activeMemoryHoverRows,
+        hideCard: hideActiveMemoryHoverCard,
+        showCard: showActiveMemoryHoverCard,
+        getCard: () => activeMemoryHoverCard,
+        getAnchor: () => activeMemoryHoverCardAnchor,
+      });
+  const scheduleDelayedMemoryHoverCardScrollSync =
+      createMemoryHoverCardScrollScheduler({
+        selector: ".runtime-memory-delayed-row:hover",
+        rows: delayedMemoryHoverRows,
+        hideCard: hideDelayedMemoryHoverCard,
+        showCard: showDelayedMemoryHoverCard,
+        getCard: () => delayedMemoryHoverCard,
+        getAnchor: () => delayedMemoryHoverCardAnchor,
+      });
 
   const MEMORY_TIMESTAMP_METADATA_KEYS = new Set([
     "created_at",
@@ -3056,56 +3138,6 @@
           element
       );
     });
-  }
-
-  function syncPersistentFileHoverCardAfterScroll() {
-    persistentFileHoverSyncFrame = null;
-
-    if (!runtimeMemoryText || !runtimeMemoryText.isConnected) {
-      hidePersistentFileHoverCard();
-      return;
-    }
-
-    const hoveredRow =
-        runtimeMemoryText.querySelector(
-            ".runtime-memory-file-row:hover"
-        );
-    const record = hoveredRow
-      ? persistentFileHoverRows.get(hoveredRow)
-      : null;
-
-    if (!hoveredRow || !record) {
-      hidePersistentFileHoverCard();
-      return;
-    }
-
-    if (
-        persistentFileHoverCardAnchor === hoveredRow
-        && persistentFileHoverCard
-        && persistentFileHoverCard.isConnected
-    ) {
-      positionLongTermMemoryHoverCard(
-          persistentFileHoverCard,
-          hoveredRow
-      );
-      return;
-    }
-
-    showPersistentFileHoverCard(
-        hoveredRow,
-        record
-    );
-  }
-
-  function schedulePersistentFileHoverCardScrollSync() {
-    if (persistentFileHoverSyncFrame !== null) {
-      return;
-    }
-
-    persistentFileHoverSyncFrame =
-        window.requestAnimationFrame(
-            syncPersistentFileHoverCardAfterScroll
-        );
   }
 
   function buildMemoryDetailsHoverCard(
@@ -3600,51 +3632,6 @@
     });
   }
 
-  function syncFrameMemoryHoverCardAfterScroll() {
-    frameMemoryHoverSyncFrame = null;
-
-    if (!runtimeMemoryText || !runtimeMemoryText.isConnected) {
-      hideFrameMemoryHoverCard();
-      return;
-    }
-
-    const hoveredRow = runtimeMemoryText.querySelector(
-        ".runtime-memory-frame-row:hover"
-    );
-    const line = hoveredRow
-      ? frameMemoryHoverRows.get(hoveredRow)
-      : null;
-
-    if (!hoveredRow || !line) {
-      hideFrameMemoryHoverCard();
-      return;
-    }
-
-    if (
-        frameMemoryHoverCardAnchor === hoveredRow
-        && frameMemoryHoverCard
-        && frameMemoryHoverCard.isConnected
-    ) {
-      positionLongTermMemoryHoverCard(
-          frameMemoryHoverCard,
-          hoveredRow
-      );
-      return;
-    }
-
-    showFrameMemoryHoverCard(hoveredRow, line);
-  }
-
-  function scheduleFrameMemoryHoverCardScrollSync() {
-    if (frameMemoryHoverSyncFrame !== null) {
-      return;
-    }
-
-    frameMemoryHoverSyncFrame = window.requestAnimationFrame(
-        syncFrameMemoryHoverCardAfterScroll
-    );
-  }
-
   function bindLongTermMemoryHoverCard(row, line) {
     if (!row || !line) {
       return;
@@ -3661,51 +3648,6 @@
     });
   }
 
-  function syncLongTermMemoryHoverCardAfterScroll() {
-    longTermMemoryHoverSyncFrame = null;
-
-    if (!runtimeMemoryText || !runtimeMemoryText.isConnected) {
-      hideLongTermMemoryHoverCard();
-      return;
-    }
-
-    const hoveredRow = runtimeMemoryText.querySelector(
-        ".runtime-memory-line:hover"
-    );
-    const line = hoveredRow
-      ? longTermMemoryHoverRows.get(hoveredRow)
-      : null;
-
-    if (!hoveredRow || !line) {
-      hideLongTermMemoryHoverCard();
-      return;
-    }
-
-    if (
-        longTermMemoryHoverCardAnchor === hoveredRow
-        && longTermMemoryHoverCard
-        && longTermMemoryHoverCard.isConnected
-    ) {
-      positionLongTermMemoryHoverCard(
-          longTermMemoryHoverCard,
-          hoveredRow
-      );
-      return;
-    }
-
-    showLongTermMemoryHoverCard(hoveredRow, line);
-  }
-
-  function scheduleLongTermMemoryHoverCardScrollSync() {
-    if (longTermMemoryHoverSyncFrame !== null) {
-      return;
-    }
-
-    longTermMemoryHoverSyncFrame = window.requestAnimationFrame(
-        syncLongTermMemoryHoverCardAfterScroll
-    );
-  }
-
   function bindActiveMemoryHoverCard(row, line) {
     if (!row || !line) {
       return;
@@ -3720,51 +3662,6 @@
     row.addEventListener("mouseleave", () => {
       hideActiveMemoryHoverCard(row);
     });
-  }
-
-  function syncActiveMemoryHoverCardAfterScroll() {
-    activeMemoryHoverSyncFrame = null;
-
-    if (!runtimeMemoryText || !runtimeMemoryText.isConnected) {
-      hideActiveMemoryHoverCard();
-      return;
-    }
-
-    const hoveredRow = runtimeMemoryText.querySelector(
-        ".runtime-memory-active-row:hover"
-    );
-    const line = hoveredRow
-      ? activeMemoryHoverRows.get(hoveredRow)
-      : null;
-
-    if (!hoveredRow || !line) {
-      hideActiveMemoryHoverCard();
-      return;
-    }
-
-    if (
-        activeMemoryHoverCardAnchor === hoveredRow
-        && activeMemoryHoverCard
-        && activeMemoryHoverCard.isConnected
-    ) {
-      positionLongTermMemoryHoverCard(
-          activeMemoryHoverCard,
-          hoveredRow
-      );
-      return;
-    }
-
-    showActiveMemoryHoverCard(hoveredRow, line);
-  }
-
-  function scheduleActiveMemoryHoverCardScrollSync() {
-    if (activeMemoryHoverSyncFrame !== null) {
-      return;
-    }
-
-    activeMemoryHoverSyncFrame = window.requestAnimationFrame(
-        syncActiveMemoryHoverCardAfterScroll
-    );
   }
 
   function truncateDelayedMemoryHoverBody(
@@ -3952,52 +3849,6 @@
     row.addEventListener("pointerdown", () => {
       hideDelayedMemoryHoverCard(row);
     });
-  }
-
-  function syncDelayedMemoryHoverCardAfterScroll() {
-    delayedMemoryHoverSyncFrame = null;
-
-    if (!runtimeMemoryText || !runtimeMemoryText.isConnected) {
-      hideDelayedMemoryHoverCard();
-      return;
-    }
-
-    const hoveredRow = runtimeMemoryText.querySelector(
-        ".runtime-memory-delayed-row:hover"
-    );
-    const report = hoveredRow
-      ? delayedMemoryHoverRows.get(hoveredRow)
-      : null;
-
-    if (!hoveredRow || !report) {
-      hideDelayedMemoryHoverCard();
-      return;
-    }
-
-    if (
-        delayedMemoryHoverCardAnchor === hoveredRow
-        && delayedMemoryHoverCard
-        && delayedMemoryHoverCard.isConnected
-    ) {
-      positionLongTermMemoryHoverCard(
-          delayedMemoryHoverCard,
-          hoveredRow
-      );
-      return;
-    }
-
-    showDelayedMemoryHoverCard(hoveredRow, report);
-  }
-
-  function scheduleDelayedMemoryHoverCardScrollSync() {
-    if (delayedMemoryHoverSyncFrame !== null) {
-      return;
-    }
-
-    delayedMemoryHoverSyncFrame =
-        window.requestAnimationFrame(
-            syncDelayedMemoryHoverCardAfterScroll
-        );
   }
 
   window.addEventListener("resize", () => {

@@ -8,9 +8,6 @@
   const INLINE_TOKEN_PATTERN =
     /(`[^`\n]*`|\$\$[^$\n]+\$\$|\$[^$\n]+\$|\\\([^\n]*?\\\)|\\\[[^\n]*?\\\]|\*\*[^*\n]+\*\*|__[^_\n]+__|\*[^*\n]+\*|(?<![\p{L}\p{N}_])_[^_\n]+_(?![\p{L}\p{N}_]))/gu;
 
-  const MATRIX_START_PATTERN =
-    /^[ \t]*(?:(?:[A-Za-z](?:_\{?[A-Za-z0-9]+\}?)?)\s*=\s*)?\\begin\{(matrix|pmatrix|bmatrix|Bmatrix|vmatrix|Vmatrix|smallmatrix)\}[ \t]*$/;
-
   function appendMathContent(
     element,
     latex,
@@ -656,44 +653,15 @@
     decorations
   ) {
 
-    const firstLine =
-      String(lines[startIndex] || "");
-    const match =
-      firstLine.match(
-        MATRIX_START_PATTERN
+    const matrix =
+      window.JinUiUtils.parseMatrixMathBlock(
+        lines,
+        startIndex
       );
 
-    if (!match) {
+    if (!matrix) {
       return null;
     }
-
-    const closing =
-      `\\end{${match[1]}}`;
-    const firstNonSpace =
-      firstLine.search(/\S|$/);
-    const mathLines = [
-      firstLine.slice(firstNonSpace),
-    ];
-    let index =
-      startIndex + 1;
-
-    while (
-      index < lines.length
-      && String(lines[index] || "").trim() !== closing
-    ) {
-      mathLines.push(
-        String(lines[index] || "")
-      );
-      index += 1;
-    }
-
-    if (index >= lines.length) {
-      return null;
-    }
-
-    mathLines.push(
-      String(lines[index] || "").trim()
-    );
 
     const math =
       createLineElement([
@@ -703,26 +671,14 @@
 
     appendMathContent(
       math,
-      mathLines.join("\n"),
+      matrix.latex,
       true,
-      starts[startIndex] + firstNonSpace,
+      starts[startIndex] + matrix.firstNonSpace,
       decorations
     );
     fragment.appendChild(math);
 
-    let nextIndex =
-      index + 1;
-
-    if (
-      nextIndex < lines.length
-      && ["$$", "\\]"].includes(
-        String(lines[nextIndex] || "").trim()
-      )
-    ) {
-      nextIndex += 1;
-    }
-
-    return nextIndex;
+    return matrix.nextIndex;
 
   }
 

@@ -1141,12 +1141,15 @@
         ))
         .filter(Boolean)
         .forEach((candidate) => {
-          if (!/^AM-[a-z0-9]{6}$/.test(candidate) || seen.has(candidate)) {
+          const id =
+            window.JinUiUtils.normalizeActiveMemoryId(candidate);
+
+          if (!id || seen.has(id)) {
             return;
           }
 
-          seen.add(candidate);
-          ids.push(candidate);
+          seen.add(id);
+          ids.push(id);
         });
     });
 
@@ -1217,22 +1220,8 @@
     return `#${channel(rgb.r)}${channel(rgb.g)}${channel(rgb.b)}`;
   }
 
-  function normalizeHexColor(color) {
-    const normalized =
-      String(color || "")
-        .trim()
-        .replace(/^#/, "");
-
-    if (!/^([0-9a-f]{3}|[0-9a-f]{6})$/i.test(normalized)) {
-      return "";
-    }
-
-    const expanded = normalized.length === 3
-      ? normalized.split("").map(char => `${char}${char}`).join("")
-      : normalized;
-
-    return `#${expanded.toLowerCase()}`;
-  }
+  const normalizeHexColor =
+    window.JinUiUtils.normalizeJinColor;
 
   function mixColors(firstColor, secondColor, amount) {
     const first = hexToRgb(firstColor);
@@ -1314,17 +1303,8 @@
       });
   }
 
-  function extractActiveMemoryId(value) {
-    const match =
-      String(value || "")
-        .match(
-          /\[\s*id\s*:\s*(AM-[a-z0-9]{6})\s*\]/
-        );
-
-    return match
-      ? String(match[1] || "").trim()
-      : "";
-  }
+  const extractActiveMemoryId =
+    window.JinUiUtils.extractActiveMemoryId;
 
   function getActiveMemoryAvatarRecordStatus(value) {
     let source = String(value || "").trimEnd();

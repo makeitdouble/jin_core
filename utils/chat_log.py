@@ -663,46 +663,6 @@ def save_chat_bootstrap_context_snapshot(
     return path
 
 
-def save_current_runtime_context_snapshot(
-    context,
-    *,
-    user_prompt: str = "",
-    now: datetime | None = None,
-    root: Path | str | None = None,
-) -> Path | None:
-
-    if not chat_logging_enabled():
-        return None
-
-    from rules.brain_context_builder import (
-        build_brain_context,
-    )
-    from utils.brain_client_utils import (
-        get_brain_runtime_config,
-    )
-
-    brain_runtime = get_brain_runtime_config()
-    system_prompt = build_brain_context(
-        context,
-        brain_runtime.get(
-            "runtime_actions",
-            {},
-        ),
-        user_input=str(
-            user_prompt
-            or ""
-        ),
-    )
-
-    return save_chat_context_snapshot(
-        context,
-        system_prompt=system_prompt,
-        user_prompt=user_prompt,
-        now=now,
-        root=root,
-    )
-
-
 def save_current_runtime_bootstrap_context_snapshot(
     context,
     *,

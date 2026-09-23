@@ -154,14 +154,7 @@ function updateJinInputLoopCounter(text) {
 
 // ESCAPE HTML
 
-function escapeHtml(text) {
-
-  return String(text || "")
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;");
-
-}
+const escapeChatHtml = window.JinUiUtils.escapeHtml;
 
 function renderChatTextHtml(text) {
 
@@ -176,7 +169,7 @@ function renderChatTextHtml(text) {
   let match = null;
 
   while ((match = markerPattern.exec(source)) !== null) {
-    rendered += escapeHtml(
+    rendered += escapeChatHtml(
       source.slice(
         lastIndex,
         match.index
@@ -207,7 +200,7 @@ function renderChatTextHtml(text) {
         match[2]
       );
     } else {
-      rendered += escapeHtml(
+      rendered += escapeChatHtml(
         match[0]
       );
     }
@@ -215,7 +208,7 @@ function renderChatTextHtml(text) {
       markerPattern.lastIndex;
   }
 
-  rendered += escapeHtml(
+  rendered += escapeChatHtml(
     source.slice(
       lastIndex
     )
@@ -336,7 +329,7 @@ function renderChatTextElement(
           ? renderChatTextHtml(
             text
           )
-          : escapeHtml(
+          : escapeChatHtml(
             text
           )
       );

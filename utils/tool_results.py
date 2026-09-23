@@ -427,125 +427,20 @@ def remove_runtime_tool_results(
         created_ats[:] = next_created_ats
 
 
-def _runtime_result_list_count(
+def clear_runtime_tool_results_before_current_turn(
     context,
-    attribute_name: str,
-) -> int:
-
-    results = getattr(
-        context,
-        attribute_name,
-        None,
-    )
-
-    if not isinstance(
-        results,
-        list,
-    ):
-        return 0
-
-    return len(
-        results
-    )
-
-
-def snapshot_runtime_tool_results_state(
-    context,
-) -> dict:
-
-    return {
-        "tool_result_count": len(
-            get_runtime_tool_results(
-                context
-            )
-        ),
-        "runtime_search_result": getattr(
-            context,
-            "runtime_search_result",
-            "",
-        ),
-        "runtime_search_result_id": getattr(
-            context,
-            "runtime_search_result_id",
-            "",
-        ),
-        "runtime_deep_search_result": getattr(
-            context,
-            "runtime_deep_search_result",
-            "",
-        ),
-        "runtime_deep_search_result_id": getattr(
-            context,
-            "runtime_deep_search_result_id",
-            "",
-        ),
-        "list_counts": {
-            attribute_name: _runtime_result_list_count(
-                context,
-                attribute_name,
-            )
-            for attribute_name in RUNTIME_TOOL_RESULT_LIST_ATTRIBUTES
-        },
-    }
-
-
-def _trim_runtime_result_list_prefix(
-    context,
-    attribute_name: str,
-    count: int,
 ) -> None:
-
-    results = getattr(
-        context,
-        attribute_name,
-        None,
-    )
-
-    if not isinstance(
-        results,
-        list,
-    ):
-        setattr(
-            context,
-            attribute_name,
-            [],
-        )
-        return
-
-    if count <= 0:
-        return
-
-    del results[
-        :min(
-            count,
-            len(results),
-        )
-    ]
-
-
-def clear_runtime_tool_results_before_state(
-    context,
-    state: dict,
-) -> None:
-
-    if not isinstance(
-        state,
-        dict,
-    ):
-        clear_runtime_tool_results(
-            context
-        )
-        return
 
     tool_results = get_runtime_tool_results(
         context
     )
     try:
-        tool_result_count = max(
+        current_turn_count = max(
             0,
             int(
-                state.get(
-                    "tool_result_count",
+                getattr(
+                    context,
+                    "runtime_tool_results_turn_count",
                     0,
                 )
                 or 0
@@ -555,18 +450,43 @@ def clear_runtime_tool_results_before_state(
         TypeError,
         ValueError,
     ):
-        tool_result_count = 0
+        current_turn_count = 0
 
-    if tool_result_count:
+    current_turn_count = min(
+        current_turn_count,
+        len(tool_results),
+    )
+    previous_turn_count = (
+        len(tool_results)
+        - current_turn_count
+    )
+
+    if previous_turn_count:
         del tool_results[
-            :min(
-                tool_result_count,
-                len(tool_results),
-            )
+            :previous_turn_count
         ]
         _trim_runtime_tool_result_created_ats_prefix(
             context,
-            tool_result_count,
+            previous_turn_count,
+        )
+
+    # retry_context is the only legacy mirror intentionally carried across
+    # turns. Other mirrors are reset before the model starts this turn.
+    retry_context = getattr(
+        context,
+        "runtime_asset_retry_context",
+        None,
+    )
+    if isinstance(
+        retry_context,
+        list,
+    ):
+        retry_context.clear()
+    else:
+        setattr(
+            context,
+            "runtime_asset_retry_context",
+            [],
         )
 
     generation = int(
@@ -585,72 +505,8 @@ def clear_runtime_tool_results_before_state(
     setattr(
         context,
         "runtime_tool_results_turn_count",
-        len(tool_results),
+        current_turn_count,
     )
-
-    if (
-        state.get("runtime_search_result")
-        or state.get("runtime_search_result_id")
-    ):
-        setattr(
-            context,
-            "runtime_search_result",
-            "",
-        )
-        setattr(
-            context,
-            "runtime_search_result_id",
-            "",
-        )
-
-    if (
-        state.get("runtime_deep_search_result")
-        or state.get("runtime_deep_search_result_id")
-    ):
-        setattr(
-            context,
-            "runtime_deep_search_result",
-            "",
-        )
-        setattr(
-            context,
-            "runtime_deep_search_result_id",
-            "",
-        )
-
-    list_counts = state.get(
-        "list_counts",
-        {},
-    )
-    if not isinstance(
-        list_counts,
-        dict,
-    ):
-        list_counts = {}
-
-    for attribute_name in RUNTIME_TOOL_RESULT_LIST_ATTRIBUTES:
-        try:
-            list_count = max(
-                0,
-                int(
-                    list_counts.get(
-                        attribute_name,
-                        0,
-                    )
-                    or 0
-                ),
-            )
-        except (
-            TypeError,
-            ValueError,
-        ):
-            list_count = 0
-
-        _trim_runtime_result_list_prefix(
-            context,
-            attribute_name,
-            list_count,
-        )
 
 
 def clear_runtime_tool_results(

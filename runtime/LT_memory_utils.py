@@ -1459,6 +1459,22 @@ def normalize_lt_category(value) -> str:
     return normalize_lt_key(value) or "other"
 
 
+def lt_fact_semantic_signature(fact) -> tuple[str, str, str]:
+    """Return the canonical semantic identity of one L-T fact.
+
+    Identity ignores ids, timestamps, provenance and mention metadata.
+    Missing/blank categories normalize to the canonical ``other`` value.
+    """
+    if not isinstance(fact, dict):
+        return ("", "", "")
+
+    return (
+        normalize_lt_key(fact.get("key")),
+        normalize_lt_text(fact.get("value")),
+        normalize_lt_category(fact.get("category")),
+    )
+
+
 def normalize_lt_string_list(value) -> list[str]:
     candidates = value if isinstance(value, list) else [value]
     result = []
@@ -3225,14 +3241,6 @@ def normalize_lt_jin_note_result(payload) -> dict:
     }
 
 
-def _lt_fact_semantic_signature(fact: dict) -> tuple[str, str, str]:
-    return (
-        normalize_lt_key(fact.get("key")),
-        normalize_lt_text(fact.get("value")),
-        normalize_lt_category(fact.get("category")),
-    )
-
-
 def apply_lt_jin_note_result(
     store,
     *,
@@ -3483,11 +3491,11 @@ def apply_lt_jin_note_result(
         new_facts.append(new_fact)
 
     before_signatures = sorted(
-        _lt_fact_semantic_signature(fact)
+        lt_fact_semantic_signature(fact)
         for fact in selected_facts
     )
     after_signatures = sorted(
-        _lt_fact_semantic_signature(fact)
+        lt_fact_semantic_signature(fact)
         for fact in replacement_facts
     )
 

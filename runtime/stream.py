@@ -2,8 +2,8 @@ import asyncio
 from functools import partial
 from utils.stream_action_queue import StreamActionQueue
 import contextlib
+import re
 import traceback
-import uuid
 import time
 
 import httpx
@@ -47,6 +47,7 @@ from utils.tokens import (
 from utils.actions import (
     build_runtime_action_id,
     emit_runtime_action_counter_updates,
+    extract_active_memory_delete_slot_id,
     extract_search_query,
     is_delayed_memory_report_id,
     RuntimeActionCounter,
@@ -62,8 +63,11 @@ from utils.actions import (
 from utils.actions.action_registry import apply_action_feedback
 from runtime.behavior_contract import (
     get_action_guard_name_for_runtime_action,
-    get_action_guard_triggers,
-    should_pause_action_guard_for_confirmation,
+)
+from runtime.action_guard import (
+    confirm_runtime_action_guards,
+    get_action_guard_retry_confirmation_id,
+    get_action_guard_retry_display_id,
 )
 from contracts.rules_assembler import (
     RUNTIME_ACTION_DEEP_WEB_SEARCH,
@@ -76,16 +80,13 @@ from contracts.rules_assembler import (
     RUNTIME_ACTION_POSTING_BOARD,
     RUNTIME_ACTION_CALL_MCP,
     RUNTIME_ACTION_SAVE_ACTIVE_MEMORY,
+    RUNTIME_ACTION_DELETE_ACTIVE_MEMORY,
     RUNTIME_ACTION_UPDATE_LT_FACTS,
     RUNTIME_ACTION_UNLOAD_DELAYED_MEMORY,
     RUNTIME_ACTION_SAVE_DELAYED_MEMORY,
     build_runtime_action_display_text,
     get_runtime_action_display_name,
     runtime_action_has_close_tag,
-)
-from rules.runtime import (
-    ACTION_ACCEPTED_MISSING_TRIGGER_WORDS_MESSAGE,
-    ACTION_REJECTED_MISSING_TRIGGER_WORDS_MESSAGE,
 )
 from utils.skills_asset_utils import (
     normalize_skill_name,
@@ -207,9 +208,11 @@ class RuntimeStream:
         self.started_active_memory_action_ids = []
         self.started_delayed_memory_action_ids = []
         self.started_update_lt_facts_action_ids = []
+        self.deleted_active_memory_display_payloads = {}
         self.confirmed_action_guard_names = set()
         self.rejected_action_guard_names = set()
         self.action_guard_confirmation_ids = {}
+        self.action_guard_display_ids = {}
         self.jin_color_action_id = ""
         self.jin_size_action_ids = {}
         self.posting_board_action_ids = {}
@@ -242,112 +245,6 @@ class RuntimeStream:
                 context_snapshot
             ),
         )
-
-    def get_action_guard_retry(
-        self,
-        action,
-        guard_name: str = "",
-    ) -> dict:
-
-        retry = getattr(
-            self.context,
-            "runtime_action_guard_retry",
-            None,
-        )
-
-        if not isinstance(retry, dict) or not retry:
-            return {}
-
-        action_name = str(
-            getattr(action, "name", "")
-            or ""
-        ).strip().lower()
-        retry_action = str(
-            retry.get("action", "")
-            or ""
-        ).strip().lower()
-
-        if not action_name or action_name != retry_action:
-            return {}
-
-        expected_guard = get_action_guard_name_for_runtime_action(
-            getattr(action, "name", "")
-        )
-        retry_guard = str(
-            retry.get("guard", "")
-            or ""
-        ).strip()
-
-        if (
-            not expected_guard
-            or retry_guard != expected_guard
-            or (guard_name and guard_name != expected_guard)
-        ):
-            return {}
-
-        return retry
-
-    def get_action_guard_retry_confirmation_id(
-        self,
-        action,
-        guard_name: str = "",
-    ) -> str:
-
-        retry = self.get_action_guard_retry(
-            action,
-            guard_name,
-        )
-
-        return str(
-            retry.get("confirmation_id", "")
-            if retry
-            else ""
-        ).strip()
-
-    def get_action_guard_retry_display_id(
-        self,
-        action,
-    ) -> str:
-
-        retry = self.get_action_guard_retry(
-            action
-        )
-
-        return str(
-            retry.get("id", "")
-            if retry
-            else ""
-        ).strip()
-
-    def accept_action_guard_retry(
-        self,
-        action,
-        guard_name: str,
-        *,
-        completed: bool = False,
-    ) -> bool:
-
-        confirmation_id = (
-            self.get_action_guard_retry_confirmation_id(
-                action,
-                guard_name,
-            )
-        )
-
-        if not confirmation_id:
-            return False
-
-        self.confirmed_action_guard_names.add(
-            guard_name
-        )
-        self.action_guard_confirmation_ids[
-            id(action)
-        ] = confirmation_id
-
-        if completed:
-            self.context.runtime_action_guard_retry_consumed = True
-
-        return True
 
     def should_preserve_action_marker(
         self,
@@ -1183,6 +1080,63 @@ class RuntimeStream:
 
         return markers
 
+    def get_delete_active_memory_display_payload(
+        self,
+        payload,
+    ) -> str:
+
+        from utils.brain_client_utils import (
+            find_active_memory_slot_record,
+        )
+
+        normalized_payload = str(
+            payload
+            or ""
+        ).strip()
+        active_memory_id = extract_active_memory_delete_slot_id(
+            normalized_payload
+        )
+
+        if not active_memory_id:
+            return normalized_payload
+
+        cached_content = self.deleted_active_memory_display_payloads.get(
+            active_memory_id,
+            "",
+        )
+
+        if cached_content:
+            return cached_content
+
+        record = find_active_memory_slot_record(
+            self.context,
+            active_memory_id,
+        )
+        content = re.sub(
+            r"^\s*active_memory(?:_\d+)?\s*:\s*",
+            "",
+            str(record or ""),
+            flags=re.IGNORECASE,
+        )
+        content = re.sub(
+            r"\s*\[[^\]]+\]\s*",
+            " ",
+            content,
+        )
+        content = re.sub(
+            r"\s+",
+            " ",
+            content,
+        ).strip()
+
+        if content:
+            self.deleted_active_memory_display_payloads[
+                active_memory_id
+            ] = content
+            return content
+
+        return normalized_payload
+
     def get_action_counter_display_payloads(
         self,
     ) -> dict:
@@ -1221,6 +1175,92 @@ class RuntimeStream:
             ).append(
                 payload
             )
+
+        for delete_entry in self.action_counter.entries():
+            if (
+                delete_entry is None
+                or delete_entry.name != RUNTIME_ACTION_DELETE_ACTIVE_MEMORY
+                or not delete_entry.payloads
+            ):
+                continue
+
+            display_payloads[(
+                delete_entry.name,
+                delete_entry.identity,
+            )] = [
+                self.get_delete_active_memory_display_payload(
+                    payload
+                )
+                for payload in delete_entry.payloads
+            ]
+
+        delayed_memory_display_actions = (
+            RUNTIME_ACTION_LOAD_DELAYED_MEMORY,
+            RUNTIME_ACTION_UNLOAD_DELAYED_MEMORY,
+        )
+        delayed_memory_entries = [
+            (
+                action_name,
+                self.action_counter.get(
+                    action_name
+                ),
+            )
+            for action_name in delayed_memory_display_actions
+        ]
+
+        if any(
+            entry is not None and entry.payloads
+            for _, entry in delayed_memory_entries
+        ):
+            from utils.brain_client_utils import (
+                get_delayed_memory_reports,
+                normalize_delayed_memory_action_id,
+            )
+
+            reports = get_delayed_memory_reports(
+                self.context
+            )
+
+            for action_name, entry in delayed_memory_entries:
+                if entry is None or not entry.payloads:
+                    continue
+
+                display_values = []
+
+                for payload in entry.payloads:
+                    normalized_payload = str(
+                        payload
+                        or ""
+                    ).strip()
+                    report_id = normalize_delayed_memory_action_id(
+                        normalized_payload
+                    )
+                    report = reports.get(
+                        report_id,
+                    )
+                    title = (
+                        str(
+                            report.get(
+                                "title",
+                                "",
+                            )
+                            or ""
+                        ).strip()
+                        if isinstance(
+                            report,
+                            dict,
+                        )
+                        else ""
+                    )
+                    display_values.append(
+                        title
+                        or normalized_payload
+                        or report_id
+                    )
+
+                display_payloads[
+                    action_name
+                ] = display_values
 
         return display_payloads
 
@@ -1615,12 +1655,18 @@ class RuntimeStream:
                 )
 
                 if actions_to_apply:
-                    action_display_ids = {
-                        id(action): self.get_runtime_action_display_id(
-                            action
+                    action_display_ids = {}
+                    for action in actions_to_apply:
+                        action_key = id(action)
+                        action_display_ids[action_key] = (
+                            self.action_guard_display_ids.get(
+                                action_key,
+                                "",
+                            )
+                            or self.get_runtime_action_display_id(
+                                action
+                            )
                         )
-                        for action in actions_to_apply
-                    }
 
                     self.action_queue.submit(partial(
                         apply_runtime_action_calls,
@@ -1676,8 +1722,9 @@ class RuntimeStream:
         action,
     ) -> str:
 
-        retry_display_id = self.get_action_guard_retry_display_id(
-            action
+        retry_display_id = get_action_guard_retry_display_id(
+            self.context,
+            action,
         )
         if retry_display_id:
             return retry_display_id
@@ -2037,106 +2084,39 @@ class RuntimeStream:
         actions,
     ) -> tuple[set[int], set[int]]:
 
-        confirmed_action_ids = set()
-        rejected_action_ids = set()
-        user_message = str(
-            getattr(
-                self.context,
-                "runtime_turn_user_message",
-                "",
-            )
-            or ""
-        )
-        emitter = getattr(
+        action_display_ids = {
+            id(action): self.get_runtime_action_display_id(action)
+            for action in actions
+        }
+        (
+            confirmed_action_ids,
+            rejected_action_ids,
+            confirmation_ids,
+            resolved_display_ids,
+        ) = await confirm_runtime_action_guards(
             self.context,
-            "emitter",
-            None,
+            actions,
+            user_message=str(
+                getattr(
+                    self.context,
+                    "runtime_turn_user_message",
+                    "",
+                )
+                or ""
+            ),
+            context_snapshot=self.context_snapshot,
+            confirmed_guard_names=self.confirmed_action_guard_names,
+            rejected_guard_names=self.rejected_action_guard_names,
+            action_display_ids=action_display_ids,
+            runtime_message_id=self.stream.message_id,
+            consume_retry=True,
         )
-        emit = getattr(
-            emitter,
-            "emit",
-            None,
+        self.action_guard_confirmation_ids.update(
+            confirmation_ids
         )
-
-        if emit is None:
-            return (
-                confirmed_action_ids,
-                rejected_action_ids,
-            )
-
-        for action in actions:
-            guard_name = get_action_guard_name_for_runtime_action(
-                action.name
-            )
-
-            if not guard_name:
-                continue
-
-            retry_was_confirmed = (
-                guard_name in self.confirmed_action_guard_names
-            )
-            if self.accept_action_guard_retry(
-                action,
-                guard_name,
-                completed=True,
-            ):
-                if not retry_was_confirmed:
-                    self.append_action_guard_missing_trigger_message(
-                        guard_name,
-                        ACTION_ACCEPTED_MISSING_TRIGGER_WORDS_MESSAGE,
-                    )
-                confirmed_action_ids.add(
-                    id(action)
-                )
-                continue
-
-            if guard_name in self.rejected_action_guard_names:
-                rejected_action_ids.add(
-                    id(action)
-                )
-                continue
-
-            if guard_name in self.confirmed_action_guard_names:
-                confirmed_action_ids.add(
-                    id(action)
-                )
-                continue
-
-            if not should_pause_action_guard_for_confirmation(
-                guard_name,
-                user_message,
-                context=self.context,
-            ):
-                continue
-
-            decision = await self.wait_for_action_guard_confirmation(
-                action,
-                guard_name,
-            )
-
-            if decision == "reject":
-                self.rejected_action_guard_names.add(
-                    guard_name
-                )
-                rejected_action_ids.add(
-                    id(action)
-                )
-                self.append_action_guard_missing_trigger_message(
-                    guard_name,
-                    ACTION_REJECTED_MISSING_TRIGGER_WORDS_MESSAGE,
-                )
-                continue
-
-            self.confirmed_action_guard_names.add(
-                guard_name
-            )
-            self.append_action_guard_missing_trigger_message(
-                guard_name,
-                ACTION_ACCEPTED_MISSING_TRIGGER_WORDS_MESSAGE,
-            )
-            confirmed_action_ids.add(
-                id(action)
-            )
+        self.action_guard_display_ids.update(
+            resolved_display_ids
+        )
 
         return (
             confirmed_action_ids,
@@ -2148,73 +2128,49 @@ class RuntimeStream:
         actions,
     ) -> None:
 
-        user_message = str(
-            getattr(
-                self.context,
-                "runtime_turn_user_message",
-                "",
-            )
-            or ""
+        action_display_ids = {
+            id(action): self.get_runtime_action_display_id(action)
+            for action in actions
+        }
+        (
+            _confirmed_action_ids,
+            rejected_action_ids,
+            confirmation_ids,
+            resolved_display_ids,
+        ) = await confirm_runtime_action_guards(
+            self.context,
+            actions,
+            user_message=str(
+                getattr(
+                    self.context,
+                    "runtime_turn_user_message",
+                    "",
+                )
+                or ""
+            ),
+            context_snapshot=self.context_snapshot,
+            confirmed_guard_names=self.confirmed_action_guard_names,
+            rejected_guard_names=self.rejected_action_guard_names,
+            action_display_ids=action_display_ids,
+            runtime_message_id=self.stream.message_id,
+            consume_retry=False,
+        )
+        self.action_guard_confirmation_ids.update(
+            confirmation_ids
+        )
+        self.action_guard_display_ids.update(
+            resolved_display_ids
         )
 
+        if not rejected_action_ids:
+            return
+
+        self.action_guard_rejected_aborted = True
         for action in actions:
-            guard_name = get_action_guard_name_for_runtime_action(
-                action.name
-            )
-
-            if not guard_name:
-                continue
-
-            if self.accept_action_guard_retry(
-                action,
-                guard_name,
-            ):
-                self.append_action_guard_missing_trigger_message(
-                    guard_name,
-                    ACTION_ACCEPTED_MISSING_TRIGGER_WORDS_MESSAGE,
-                )
-                continue
-
-            if (
-                guard_name in self.confirmed_action_guard_names
-                or guard_name in self.rejected_action_guard_names
-            ):
-                continue
-
-            if not should_pause_action_guard_for_confirmation(
-                guard_name,
-                user_message,
-                context=self.context,
-            ):
-                continue
-
-            decision = await self.wait_for_action_guard_confirmation(
-                action,
-                guard_name,
-            )
-
-            if decision == "reject":
-                self.rejected_action_guard_names.add(
-                    guard_name
-                )
-                self.action_guard_rejected_aborted = True
+            if id(action) in rejected_action_ids:
                 self.mark_started_runtime_action_guard_rejected(
                     action,
                 )
-                if guard_name != "save_delayed_memory":
-                    self.append_action_guard_missing_trigger_message(
-                        guard_name,
-                        ACTION_REJECTED_MISSING_TRIGGER_WORDS_MESSAGE,
-                    )
-                continue
-
-            self.confirmed_action_guard_names.add(
-                guard_name
-            )
-            self.append_action_guard_missing_trigger_message(
-                guard_name,
-                ACTION_ACCEPTED_MISSING_TRIGGER_WORDS_MESSAGE,
-            )
 
     def mark_started_runtime_action_guard_rejected(
         self,
@@ -2292,197 +2248,10 @@ class RuntimeStream:
                 "",
             )
         )
-        self.append_action_guard_missing_trigger_message(
-            guard_name,
-            ACTION_REJECTED_MISSING_TRIGGER_WORDS_MESSAGE,
-        )
-
         self.delayed_memory_action_payload = (
             rejected_payload
             or self.delayed_memory_action_payload
             or "<SAVE_DELAYED_MEMORY>"
-        )
-
-    def append_action_guard_missing_trigger_message(
-        self,
-        guard_name: str,
-        template: str,
-    ) -> None:
-        from utils.actions.common_action_utils import (
-            format_runtime_trigger_words_message,
-        )
-
-        failure_messages = getattr(
-            self.context,
-            "runtime_action_failure_followup_messages",
-            None,
-        )
-        if not isinstance(
-            failure_messages,
-            list,
-        ):
-            failure_messages = []
-            self.context.runtime_action_failure_followup_messages = (
-                failure_messages
-            )
-
-        message = format_runtime_trigger_words_message(
-            template,
-            get_action_guard_triggers(
-                guard_name
-            ),
-        )
-        if message:
-            failure_messages.append(
-                message
-            )
-
-    async def wait_for_action_guard_confirmation(
-        self,
-        action,
-        guard_name: str,
-    ) -> str:
-
-        emitter = getattr(
-            self.context,
-            "emitter",
-            None,
-        )
-        emit = getattr(
-            emitter,
-            "emit",
-            None,
-        )
-
-        if emit is None:
-            return "reject"
-
-        pending = getattr(
-            self.context,
-            "runtime_action_guard_confirmations",
-            None,
-        )
-
-        if not isinstance(
-            pending,
-            dict,
-        ):
-            pending = {}
-            self.context.runtime_action_guard_confirmations = pending
-
-        loop = asyncio.get_running_loop()
-        confirmation_id = (
-            f"{getattr(self.context, 'runtime_current_turn_id', '')}:"
-            f"{action.name.lower()}:{uuid.uuid4().hex[:12]}"
-        )
-        self.action_guard_confirmation_ids[
-            id(action)
-        ] = confirmation_id
-        future = loop.create_future()
-        pending[confirmation_id] = future
-
-        action_id = self.get_runtime_action_display_id(
-            action
-        )
-        action_name = action.name.lower()
-        triggers = list(
-            get_action_guard_triggers(
-                guard_name
-            )
-        )
-
-        action_context_snapshot = (
-            dict(self.context_snapshot)
-            if isinstance(
-                self.context_snapshot,
-                dict,
-            )
-            else None
-        )
-        payload = {
-            "type": "runtime_action_guard_confirmation",
-            "runtime_message_id": self.stream.message_id,
-            "action": action_name,
-            "id": action_id,
-            "confirmation_id": confirmation_id,
-            "guard": guard_name,
-            "status": "pending",
-            "text": self.build_action_guard_confirmation_text(
-                action_name,
-                action.payload,
-            ),
-            "display_name": get_runtime_action_display_name(
-                action.name
-            ),
-            "close_tag": runtime_action_has_close_tag(
-                action.name
-            ),
-            "detail": (
-                "Runtime action marker emitted without matching "
-                "behavior-contract trigger words in the user message."
-            ),
-            "missing_triggers": triggers,
-            "timeout_ms": 0,
-            "retry_user_message": str(
-                getattr(
-                    self.context,
-                    "runtime_turn_user_message",
-                    "",
-                )
-                or ""
-            ),
-            "retry_attempt": 1,
-        }
-
-        if action.name == RUNTIME_ACTION_JIN_COLOR:
-            color = normalize_jin_color_payload(
-                action.payload
-            )
-            if color:
-                payload["color"] = color
-                payload["payload"] = color
-
-        if action.name == RUNTIME_ACTION_JIN_SIZE:
-            size = normalize_jin_size_dict(
-                action.payload
-            )
-            size_payload = format_jin_size_payload(
-                size
-            )
-            if size and size_payload:
-                payload["size"] = size_payload
-                payload["width"] = size["width"]
-                payload["height"] = size["height"]
-                payload["payload"] = size_payload
-
-        if action_context_snapshot:
-            payload["context"] = action_context_snapshot
-
-        try:
-            await emit(
-                payload
-            )
-
-            return str(
-                await future
-                or "reject"
-            ).strip().casefold()
-
-        finally:
-            pending.pop(
-                confirmation_id,
-                None,
-            )
-
-    @staticmethod
-    def build_action_guard_confirmation_text(
-        action_name: str,
-        payload: str = "",
-    ) -> str:
-
-        return build_runtime_action_display_text(
-            action_name,
-            payload,
         )
 
     async def emit_started_runtime_actions(
@@ -2572,8 +2341,9 @@ class RuntimeStream:
                     )
 
                 action_id = (
-                    self.get_action_guard_retry_display_id(
-                        action
+                    get_action_guard_retry_display_id(
+                        self.context,
+                        action,
                     )
                     or build_runtime_action_id(
                         RUNTIME_ACTION_ASSET_ACTION,
@@ -2604,8 +2374,9 @@ class RuntimeStream:
                     "close_tag": has_close_tag,
                 }
             elif action.name == RUNTIME_ACTION_SAVE_ACTIVE_MEMORY:
-                action_id = self.get_action_guard_retry_display_id(
-                    action
+                action_id = get_action_guard_retry_display_id(
+                    self.context,
+                    action,
                 )
                 if not action_id:
                     current_sequence = int(
@@ -2657,8 +2428,9 @@ class RuntimeStream:
                         pending_ids
                     )
 
-                action_id = self.get_action_guard_retry_display_id(
-                    action
+                action_id = get_action_guard_retry_display_id(
+                    self.context,
+                    action,
                 )
                 if not action_id:
                     current_sequence = max(
@@ -2793,8 +2565,9 @@ class RuntimeStream:
                     payload["payload"] = action.payload
 
             retry_confirmation_id = (
-                self.get_action_guard_retry_confirmation_id(
-                    action
+                get_action_guard_retry_confirmation_id(
+                    self.context,
+                    action,
                 )
             )
             if retry_confirmation_id:
@@ -3209,9 +2982,8 @@ class RuntimeStream:
             generator,
     ):
 
-        # The inner brain filter and the outer runtime filter can strip
-        # different markers from the same model message. Keep one history
-        # boundary for the whole runtime message and compact it at the end.
+        # RuntimeStream owns the complete runtime-action lifecycle for this
+        # model message, including parsing, execution and history compaction.
         prune_session_action_history_to_current_session(
             self.context
         )
@@ -3732,6 +3504,17 @@ class RuntimeStream:
 
         finally:
             await self.action_queue.close()
+
+            # DELETE_ACTIVE_MEMORY failures are queued by the action executor.
+            # RuntimeStream now owns final action-history cleanup as well.
+            with contextlib.suppress(Exception):
+                from utils.brain_client_utils import (
+                    flush_pending_active_memory_delete_failure_history,
+                )
+
+                flush_pending_active_memory_delete_failure_history(
+                    self.context
+                )
 
             with contextlib.suppress(
                 Exception

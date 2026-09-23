@@ -19,6 +19,7 @@ from utils.actions.jin_speed_utils import (
 from utils.actions.update_lt_facts_utils import (
     parse_update_lt_facts_payload,
 )
+# Legacy session-history reader only. Live writes use SAVE_ACTIVE_MEMORY.
 from utils.actions.update_active_memory_utils import (
     parse_update_active_memory_payload_fields,
 )
@@ -2829,7 +2830,6 @@ def _apply_session_action_runtime_outcomes(
             event_name not in {
                 "chat_log_search",
                 "list_files",
-                "update_active_memory",
                 "recall_fact_context",
                 "clean_tool_results",
                 "posting_board",

@@ -1,7 +1,6 @@
 from contracts.rules_assembler import (
     RUNTIME_ACTION_SAVE_ACTIVE_MEMORY,
     RUNTIME_ACTION_DELETE_ACTIVE_MEMORY,
-    RUNTIME_ACTION_UPDATE_ACTIVE_MEMORY,
     build_runtime_action_display_text,
     get_runtime_action_display_name,
     runtime_action_has_close_tag,
@@ -24,13 +23,12 @@ from .save_active_memory_utils import (
 )
 
 
-def _update_active_memory_action_event_outcome(
+def _set_save_active_memory_update_event_outcome(
     context,
     action,
     result: dict,
     *,
     failure_reason: str = "",
-    event_action_name: str = "update_active_memory",
 ) -> None:
 
     events = getattr(
@@ -75,9 +73,7 @@ def _update_active_memory_action_event_outcome(
                 "",
             )
             or ""
-        ).strip().casefold() != str(
-            event_action_name or "update_active_memory"
-        ).strip().casefold():
+        ).strip().casefold() != "save_active_memory":
             continue
 
         event_turn_id = str(
@@ -248,10 +244,6 @@ async def apply_save_active_memory_actions(
                 action.payload,
             )
             result = dict(result)
-            result["action"] = "save_active_memory"
-            result["mode"] = "update"
-            if result.get("error") == "invalid_update_active_memory_payload":
-                result["error"] = "invalid_active_memory_payload"
             failure_reason = (
                 ""
                 if result.get("ok")
@@ -260,12 +252,11 @@ async def apply_save_active_memory_actions(
             if failure_reason:
                 result["detail"] = failure_reason
 
-            _update_active_memory_action_event_outcome(
+            _set_save_active_memory_update_event_outcome(
                 context,
                 action,
                 result,
                 failure_reason=failure_reason,
-                event_action_name="save_active_memory",
             )
 
             record_runtime_tool_result(
@@ -538,130 +529,6 @@ async def apply_save_active_memory_actions(
             ))
 
     return saved_active_memory_texts
-
-
-async def apply_update_active_memory_actions(
-    context,
-    update_active_memory_actions,
-    *,
-    log_runtime,
-    with_action_context,
-):
-    from utils.brain_client_utils import update_active_memory_runtime_record
-
-    applied_count = 0
-
-    if not update_active_memory_actions:
-        return applied_count
-
-    if log_runtime is not None:
-        await log_runtime(
-            "[RUNTIME ACTION] update_active_memory requested"
-        )
-
-    emitter = getattr(
-        context,
-        "emitter",
-        None,
-    )
-    emit = getattr(
-        emitter,
-        "emit",
-        None,
-    )
-
-    for action in update_active_memory_actions:
-        result = await update_active_memory_runtime_record(
-            context,
-            action.payload,
-        )
-        failure_reason = (
-            ""
-            if result.get("ok")
-            else format_update_active_memory_failure_reason(
-                result
-            )
-        )
-        if failure_reason:
-            result["detail"] = failure_reason
-        _update_active_memory_action_event_outcome(
-            context,
-            action,
-            result,
-            failure_reason=failure_reason,
-        )
-        record_runtime_tool_result(
-            context,
-            TOOL_RESULT_KIND_ACTIVE_MEMORY,
-            result,
-        )
-
-        if result.get("ok"):
-            applied_count += 1
-            context.runtime_active_memory_saved_this_turn = True
-
-            if log_runtime is not None:
-                await log_runtime(
-                    "[RUNTIME ACTION] active_memory record updated"
-                )
-
-        if emit is None:
-            continue
-
-        display_name = get_runtime_action_display_name(
-            RUNTIME_ACTION_UPDATE_ACTIVE_MEMORY
-        )
-        event = {
-            "type": "runtime_action",
-            "action": "update_active_memory",
-            "id": result.get("id", ""),
-            "status": "completed" if result.get("ok") else "failed",
-            "display_name": display_name,
-            "close_tag": runtime_action_has_close_tag(
-                RUNTIME_ACTION_UPDATE_ACTIVE_MEMORY
-            ),
-            "text": (
-                (
-                    f"{display_name}: "
-                    f"{result.get('key', '') or 'success'}"
-                )
-                if result.get("ok")
-                else (
-                    f"{display_name}: failed"
-                    + (
-                        f" : {failure_reason}"
-                        if failure_reason
-                        else ""
-                    )
-                )
-            ),
-            "active_memory_result": result,
-            "active_memory_id": result.get("id", ""),
-            "active_memory_key": result.get("key", ""),
-            "active_memory_title": result.get("title", ""),
-            "active_memory_changes": result.get("changes", []),
-            "active_memory_requested_changes": result.get(
-                "requested_changes",
-                [],
-            ),
-        }
-
-        if not result.get("ok"):
-            event["error"] = result.get(
-                "error",
-                "",
-            )
-            event["detail"] = failure_reason
-            event["failure_reason"] = failure_reason
-
-        if result.get("record"):
-            event["active_memory"] = result["record"]
-
-        await emit(with_action_context(event))
-
-    return applied_count
-
-
 async def apply_delete_active_memory_actions(
     context,
     delete_active_memory_actions,

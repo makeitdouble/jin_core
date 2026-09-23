@@ -59,6 +59,7 @@ from runtime.LT_memory_utils import (
     infer_lt_jin_note_action,
     inspect_lt_merge_shard_scan,
     lt_jin_note_requests_new_fact,
+    lt_fact_semantic_signature,
     mark_facts_memory_fields_analyzed,
     merge_lt_store_snapshots,
     normalize_facts_memory_records,
@@ -2142,94 +2143,6 @@ async def log_lt_skip_event(
     return result
 
 
-def build_lt_merge_budget_skip_details(
-    *,
-    service_client,
-    system_prompt: str,
-    batch_plan: dict,
-    pending_queue: list[dict],
-    provider_context_window_recovered: bool = False,
-) -> dict:
-    context_window = _positive_int(
-        batch_plan.get("runtime_context_window_tokens")
-    )
-    estimated_total = _positive_int(
-        batch_plan.get("estimated_total_tokens")
-    )
-    first_pending = (
-        dict(pending_queue[0])
-        if pending_queue
-        and isinstance(pending_queue[0], dict)
-        else {}
-    )
-    first_pending_id = str(
-        first_pending.get("id") or ""
-    ).strip()
-    user_prompt = str(
-        batch_plan.get("user_prompt") or ""
-    )
-    request_payload = build_runtime_summarizer_payload(
-        service_client=service_client,
-        system_prompt=system_prompt,
-        user_prompt=user_prompt,
-        temperature=getattr(
-            config,
-            "SERVICE_TEMPERATURE",
-            0.1,
-        ),
-        max_tokens=batch_plan.get(
-            "requested_max_output_tokens"
-        ),
-    )
-
-    return {
-        "kind": "lt_skip",
-        "summary": (
-            "The next FIFO L-T merge candidate could not fit inside the "
-            "service context budget even after batching was reduced to one "
-            "pending fact. No L-T data was changed."
-        ),
-        "retry_behavior": (
-            "The pending candidate remains queued. A later idle merge can "
-            "retry after the context budget changes."
-        ),
-        "pending_count": len(pending_queue),
-        "first_pending_id": first_pending_id,
-        "runtime_context_window_tokens": context_window,
-        "estimated_prompt_tokens": batch_plan[
-            "estimated_prompt_tokens"
-        ],
-        "estimated_response_tokens": batch_plan[
-            "estimated_response_tokens"
-        ],
-        "runtime_output_reserve_tokens": batch_plan[
-            "runtime_output_reserve_tokens"
-        ],
-        "response_headroom_tokens": batch_plan[
-            "response_headroom_tokens"
-        ],
-        "default_response_headroom_tokens": batch_plan.get(
-            "default_response_headroom_tokens",
-            batch_plan["response_headroom_tokens"],
-        ),
-        "response_headroom_squeezed": bool(
-            batch_plan.get("response_headroom_squeezed")
-        ),
-        "estimated_total_tokens": estimated_total,
-        "overflow_tokens": max(
-            0,
-            estimated_total - context_window,
-        ),
-        "provider_context_window_recovered": bool(
-            provider_context_window_recovered
-        ),
-        # Keep the candidate separately for a readable first view, then expose
-        # the exact would-be service request below it in the logger modal.
-        "merge_candidate": first_pending,
-        "request_payload": request_payload,
-    }
-
-
 async def run_lt_extraction_phase(
     *,
     context,
@@ -2457,17 +2370,6 @@ def protect_explicit_lt_edits_from_merge(
     return next_operations, protected_pending_ids
 
 
-def _lt_fact_semantic_signature(fact) -> tuple[str, str, str]:
-    if not isinstance(fact, dict):
-        return ("", "", "")
-
-    return (
-        normalize_lt_key(fact.get("key")),
-        normalize_lt_text(fact.get("value")),
-        normalize_lt_key(fact.get("category")),
-    )
-
-
 def rebase_lt_merge_operations(
     *,
     base_store,
@@ -2561,8 +2463,8 @@ def rebase_lt_merge_operations(
     for operation in rebased_operations:
         pending_id = str(operation.get("pending_id") or "").strip()
         if (
-            _lt_fact_semantic_signature(base_pending.get(pending_id))
-            != _lt_fact_semantic_signature(current_pending.get(pending_id))
+            lt_fact_semantic_signature(base_pending.get(pending_id))
+            != lt_fact_semantic_signature(current_pending.get(pending_id))
         ):
             conflict_pending_ids.append(pending_id)
             continue
@@ -2582,8 +2484,8 @@ def rebase_lt_merge_operations(
 
         for fact_id in touched_fact_ids:
             if (
-                _lt_fact_semantic_signature(base_facts.get(fact_id))
-                != _lt_fact_semantic_signature(current_facts.get(fact_id))
+                lt_fact_semantic_signature(base_facts.get(fact_id))
+                != lt_fact_semantic_signature(current_facts.get(fact_id))
             ):
                 conflict_fact_ids.append(fact_id)
 
@@ -2591,11 +2493,11 @@ def rebase_lt_merge_operations(
         # planned to create. Fold the pending provenance into that fact rather
         # than rejecting the stale create and generating another request.
         if action == "create":
-            desired_signature = (
-                normalize_lt_key(operation.get("key")),
-                normalize_lt_text(operation.get("value")),
-                normalize_lt_key(operation.get("category")),
-            )
+            desired_signature = lt_fact_semantic_signature({
+                "key": operation.get("key"),
+                "value": operation.get("value"),
+                "category": operation.get("category"),
+            })
             same_key = [
                 fact
                 for fact in current_facts.values()
@@ -2605,7 +2507,7 @@ def rebase_lt_merge_operations(
                 exact_matches = [
                     fact
                     for fact in same_key
-                    if _lt_fact_semantic_signature(fact) == desired_signature
+                    if lt_fact_semantic_signature(fact) == desired_signature
                 ]
                 if len(exact_matches) == 1:
                     operation["action"] = "update"

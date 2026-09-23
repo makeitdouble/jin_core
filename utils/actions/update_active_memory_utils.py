@@ -1,7 +1,6 @@
 import json
 import re
 
-from .action_payload_utils import _build_internal_action_payload
 from .active_memory_utils import (
     ACTIVE_MEMORY_RESERVED_CUSTOM_FIELD_NAMES,
     normalize_active_memory_custom_field_name,
@@ -10,21 +9,21 @@ from .active_memory_utils import (
 )
 
 
-UPDATE_ACTIVE_MEMORY_FAILURE_REASONS = {
-    "invalid_update_active_memory_payload": "invalid payload",
+ACTIVE_MEMORY_UPDATE_FAILURE_REASONS = {
+    "invalid_active_memory_payload": "invalid payload",
     "active_memory_not_found": "incorrect id",
     "active_memory_update_no_changes": "no changes",
     "active_memory_update_failed": "update failed",
 }
 
-UPDATE_ACTIVE_MEMORY_CONDITIONS_FIELD = "conditions"
+ACTIVE_MEMORY_UPDATE_CONDITIONS_FIELD = "conditions"
 
 
 def _normalize_update_active_memory_field_value(
     field_name: str,
     value,
 ) -> str:
-    """Normalize UPDATE_ACTIVE_MEMORY values without treating conditions
+    """Normalize Active Memory update values without treating conditions
     like a bounded custom metadata field.
 
     `conditions` is the active-memory record's primary text field. It may be
@@ -34,7 +33,7 @@ def _normalize_update_active_memory_field_value(
     """
 
     if str(field_name or "").strip().casefold() == (
-        UPDATE_ACTIVE_MEMORY_CONDITIONS_FIELD
+        ACTIVE_MEMORY_UPDATE_CONDITIONS_FIELD
     ):
         return re.sub(
             r"\s+",
@@ -45,20 +44,6 @@ def _normalize_update_active_memory_field_value(
     return normalize_active_memory_custom_field_value(
         value
     )
-
-
-def build_update_active_memory_payload(
-    query: str,
-    placeholder_payloads=(),
-) -> str | None:
-
-    return _build_internal_action_payload(
-        query,
-        placeholder_payloads,
-        reject_placeholders=False,
-    )
-
-
 def _read_update_active_memory_json_payload(
     payload: str,
 ) -> tuple[str, dict | None]:
@@ -124,13 +109,13 @@ def _parse_update_active_memory_json_payload(
         else:
             if (
                 raw_field_name in ACTIVE_MEMORY_RESERVED_CUSTOM_FIELD_NAMES
-                and raw_field_name != UPDATE_ACTIVE_MEMORY_CONDITIONS_FIELD
+                and raw_field_name != ACTIVE_MEMORY_UPDATE_CONDITIONS_FIELD
             ):
                 return "", ()
 
             field_name = (
-                UPDATE_ACTIVE_MEMORY_CONDITIONS_FIELD
-                if raw_field_name == UPDATE_ACTIVE_MEMORY_CONDITIONS_FIELD
+                ACTIVE_MEMORY_UPDATE_CONDITIONS_FIELD
+                if raw_field_name == ACTIVE_MEMORY_UPDATE_CONDITIONS_FIELD
                 else normalize_active_memory_custom_field_name(raw_name)
             )
 
@@ -211,7 +196,7 @@ def format_update_active_memory_failure_reason(
 
         return "unknown field"
 
-    reason = UPDATE_ACTIVE_MEMORY_FAILURE_REASONS.get(
+    reason = ACTIVE_MEMORY_UPDATE_FAILURE_REASONS.get(
         error,
         "",
     )

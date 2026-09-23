@@ -9,12 +9,29 @@ from utils.actions import (
 
 class BarePrefixActionFallbackTests(unittest.TestCase):
 
-    def test_plain_extractor_stays_strict_without_explicit_fallback(self):
+    def test_plain_extractor_enables_bare_fallback_by_default(self):
+        result = extract_runtime_actions(
+            "JIN_REACTION: 🔥\nhello",
+            enabled_actions=("JIN_REACTION",),
+        )
+
+        self.assertEqual(result.text, "hello")
+        self.assertEqual(
+            result.actions,
+            (RuntimeActionCall(name="JIN_REACTION", payload="🔥"),),
+        )
+        self.assertEqual(
+            result.removed_markers,
+            ("JIN_REACTION: 🔥",),
+        )
+
+    def test_plain_extractor_can_disable_bare_fallback_explicitly(self):
         text = "JIN_REACTION: 🔥\nhello"
 
         result = extract_runtime_actions(
             text,
             enabled_actions=("JIN_REACTION",),
+            allow_bare_prefix_fallback=False,
         )
 
         self.assertEqual(result.text, text)
@@ -166,6 +183,20 @@ class BarePrefixActionFallbackTests(unittest.TestCase):
                 )
                 self.assertEqual(result.text, text)
                 self.assertEqual(result.actions, ())
+
+    def test_stream_can_disable_bare_fallback_explicitly(self):
+        stream_filter = RuntimeActionStreamFilter(
+            enabled_actions=("JIN_REACTION",),
+            allow_bare_prefix_fallback=False,
+        )
+
+        result = stream_filter.filter(
+            "JIN_REACTION: 🔥\nhello"
+        )
+
+        self.assertEqual(result.text, "JIN_REACTION: 🔥\nhello")
+        self.assertEqual(result.actions, ())
+        self.assertEqual(stream_filter.flush(), "")
 
     def test_stream_holds_split_bare_line_until_newline(self):
         stream_filter = RuntimeActionStreamFilter(

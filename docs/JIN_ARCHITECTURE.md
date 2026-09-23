@@ -272,7 +272,7 @@ Tool results are deliberately human-readable rather than raw JSON. On failure, `
 
 ### 6.5 JIN visual action state
 
-`utils/actions/jin_visual_sequence_actions.py` emits each contiguous color/size/position/speed run in original marker order with a shared sequence ID. The browser buffers the run and plays it as one ordered visual sequence instead of regrouping actions by type.
+`utils/actions/jin_visual_actions.py` executes each accepted color/size/position/speed marker independently in dispatcher order. The browser applies each completed marker immediately; there is no visual-sequence collector or client-side sequence buffer.
 
 JIN_COLOR has additional persistence semantics:
 

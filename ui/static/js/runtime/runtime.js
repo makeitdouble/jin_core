@@ -91,15 +91,9 @@ function getActiveMemoryRecordIds(records) {
   return Array.from(
     new Set(
       (Array.isArray(records) ? records : [])
-        .map((record) => {
-          const match = String(record || "").match(
-            /\[\s*id\s*:\s*(AM-[a-z0-9]{6})\s*\]/
-          );
-
-          return match
-            ? String(match[1] || "").trim()
-            : "";
-        })
+        .map((record) => (
+          window.JinUiUtils.extractActiveMemoryId(record)
+        ))
         .filter(Boolean)
     )
   );
@@ -2477,7 +2471,6 @@ function replaceDelayedMemoryReportsAndRender(
 
 const ACTIVE_MEMORY_RUNTIME_ACTIONS_TO_SILENCE_ON_FRAME = [
   "save_active_memory",
-  "update_active_memory",
   "delete_active_memory",
 ];
 
