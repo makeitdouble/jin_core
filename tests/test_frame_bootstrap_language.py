@@ -17,7 +17,6 @@ class FrameBootstrapLanguageTests(unittest.IsolatedAsyncioTestCase):
             "resolve_frame_language_user_message",
             "build_runtime_memory_system_prompt_for_turn",
             "build_runtime_memory_system_prompt_for_turns",
-            "ask_runtime_memory_model",
             "ask_runtime_memory_batch_model",
         }
         tree = ast.parse((ROOT / "runtime/frame_memory.py").read_text(encoding="utf-8"))
@@ -28,28 +27,20 @@ class FrameBootstrapLanguageTests(unittest.IsolatedAsyncioTestCase):
             "refresh_service_runtime_usage": AsyncMock(),
             "ask_frame_summarizer": AsyncMock(return_value={"choices": []}),
             "build_runtime_memory_batch_user_prompt": Mock(return_value="Original bootstrap input"),
-            "build_runtime_memory_user_prompt": Mock(return_value="Original single-turn input"),
-            "latest_turn_context_is_overloaded": lambda context: False,
-            "runtime_prompt_is_context_overloaded": lambda **kwargs: False,
         }
         functions = [node for node in tree.body
                      if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
                      and node.name in names]
         exec(compile(ast.Module(body=functions, type_ignores=[]), "frame_language", "exec"), self.env)
 
-    async def request(self, history, user="", single=False, overloaded=False):
+    async def request(self, history, user=""):
         # Round-trip the inherited dialogue like a browser checkpoint, including
         # the JIN-only greeting appended before the background FRAME request.
         context = SimpleNamespace(runtime_recent_turns=json.loads(json.dumps(history)))
-        self.env["latest_turn_context_is_overloaded"] = lambda context: overloaded
         kwargs = dict(context=context, service_client=SimpleNamespace(), current_memory="topic: old")
-        if single:
-            await self.env["ask_runtime_memory_model"](
-                **kwargs, user_message=user, assistant_message="Bootstrap greeting")
-        else:
-            turns = [{"user_message": user, "assistant_message": "Bootstrap greeting"}]
-            await self.env["ask_runtime_memory_batch_model"](**kwargs, turns=turns)
-            self.assertEqual(self.env["build_runtime_memory_batch_user_prompt"].call_args.kwargs["turns"], turns)
+        turns = [{"user_message": user, "assistant_message": "Bootstrap greeting"}]
+        await self.env["ask_runtime_memory_batch_model"](**kwargs, turns=turns)
+        self.assertEqual(self.env["build_runtime_memory_batch_user_prompt"].call_args.kwargs["turns"], turns)
         return self.env["ask_frame_summarizer"].call_args.kwargs["system_prompt"]
 
     async def test_bootstrap_uses_latest_real_user_and_skips_jin_greeting(self):
@@ -58,11 +49,9 @@ class FrameBootstrapLanguageTests(unittest.IsolatedAsyncioTestCase):
             {"user": "сохрани отчёт, заголовок — написание статьи", "jin": ""},
             {"user": "", "jin": "English bootstrap greeting"},
         ]
-        for single, overloaded in [(False, False), (True, False), (True, True)]:
-            with self.subTest(single=single, overloaded=overloaded):
-                prompt = await self.request(history, single=single, overloaded=overloaded)
-                self.assertEqual(prompt.count("MANDATORY OUTPUT VALUE LANGUAGE: Russian"), 3)
-                self.assertIn("Keep memory keys in English lowercase_snake_case.", prompt)
+        prompt = await self.request(history)
+        self.assertEqual(prompt.count("MANDATORY OUTPUT VALUE LANGUAGE: Russian"), 3)
+        self.assertIn("Keep memory keys in English lowercase_snake_case.", prompt)
 
     async def test_current_user_language_wins_over_restored_russian(self):
         prompt = await self.request([{"user": "сохрани отчёт"}], user="Continue in English")

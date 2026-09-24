@@ -27,66 +27,46 @@ class RuntimeToolResultTextTests(TestCase):
                     msg=name,
                 )
 
-    def test_update_active_memory_contract_has_one_canonical_schema(self):
+    def test_save_active_memory_contract_has_one_canonical_update_schema(self):
         path = (
             Path(__file__).resolve().parents[1]
             / "contracts"
-            / "update_active_memory.json"
+            / "save_active_memory.json"
         )
         contract = json.loads(path.read_text(encoding="utf-8"))[
-            "update_active_memory"
+            "save_active_memory"
         ]
 
-        self.assertEqual(
-            contract["schema"],
-            [
-                "<UPDATE_ACTIVE_MEMORY>",
-                (
-                    '{"active_memory_id":"abcdef",'
-                    '"fields_to_update":{"field_name":"new_value",'
-                    '"another_field":"new_value"}}'
-                ),
-                "</UPDATE_ACTIVE_MEMORY>",
-            ],
-        )
-        self.assertIn("fields_to_update", contract["description"])
-        self.assertNotIn("field_to_update", "\n".join(contract["schema"]))
+        schema = "\n".join(contract["schema"])
+        self.assertIn('<SAVE_ACTIVE_MEMORY>', schema)
+        self.assertIn('"id":"AM-abcdef"', schema)
+        self.assertIn('"conditions":"new conditions value"', schema)
+        self.assertNotIn("UPDATE_ACTIVE_MEMORY", schema)
 
 
-    def test_failed_update_is_readable_and_includes_schema(self):
-        payload = (
-            '{"active_memory_id":"zgctxy",'
-            '"field_to_update":"current_photos=5"}'
-        )
+    def test_failed_save_active_memory_is_readable_and_includes_schema(self):
+        payload = '{"id":"AM-zgctxy","conditions":"updated"}'
         rendered = format_runtime_action_result(
             {
                 "ok": False,
-                "action": "update_active_memory",
-                "error": "active_memory_field_not_declared",
-                "detail": "unknown field: field_to_update",
-                "id": "zgctxy",
+                "action": "save_active_memory",
+                "error": "active_memory_not_found",
+                "detail": "active memory record not found",
+                "id": "AM-zgctxy",
                 "payload": payload,
-                "available_fields": [
-                    "last_update",
-                    "current_photos",
-                    "last_photo_id",
-                ],
             },
-            runtime_action="UPDATE_ACTIVE_MEMORY",
+            runtime_action="SAVE_ACTIVE_MEMORY",
         )
 
-        self.assertIn("Active memory id: zgctxy", rendered)
         self.assertIn("Status: failed", rendered)
-        self.assertIn("Reason: unknown field: field_to_update", rendered)
+        self.assertIn("Reason: active memory record not found", rendered)
         self.assertIn("Provided payload:", rendered)
         self.assertIn(payload, rendered)
         self.assertIn("Correct action schema:", rendered)
-        schema = rendered.split("Correct action schema:", 1)[1].split(
-            "Available fields:", 1
-        )[0]
-        self.assertIn('"fields_to_update"', schema)
-        self.assertNotIn('"field_to_update"', schema)
-        self.assertNotIn('\nor\n', schema)
+        schema = rendered.split("Correct action schema:", 1)[1]
+        self.assertIn('<SAVE_ACTIVE_MEMORY>', schema)
+        self.assertIn('"id":"AM-abcdef"', schema)
+        self.assertNotIn("UPDATE_ACTIVE_MEMORY", schema)
         self.assertNotIn('"ok": false', rendered)
 
 

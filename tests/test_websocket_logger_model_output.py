@@ -101,7 +101,7 @@ class WebSocketLoggerModelOutputTests(unittest.IsolatedAsyncioTestCase):
         )
         self.assertNotIn("details", payload)
 
-    async def test_stream_model_output_contains_answer_without_reasoning(self):
+    async def test_provider_stream_keeps_reasoning_and_answer_as_separate_chunks(self):
 
         class FakeBrainClient:
 
@@ -118,7 +118,6 @@ class WebSocketLoggerModelOutputTests(unittest.IsolatedAsyncioTestCase):
         class Context:
             pass
 
-
         chunks = [
             chunk
             async for chunk in ask_brain_stream(
@@ -129,25 +128,14 @@ class WebSocketLoggerModelOutputTests(unittest.IsolatedAsyncioTestCase):
             )
         ]
 
-        raw_output = [
-            chunk
-            for chunk in chunks
-            if chunk.get("type") == "raw_model_output"
-        ]
-
         self.assertEqual(
-            raw_output,
+            chunks,
             [
-                {
-                    "type": "raw_model_output",
-                    "content": "\n\n<ASSET_ACTION></ASSET_ACTION>\n",
-                },
+                {"type": "thinking", "content": "hidden reasoning\n"},
+                {"type": "content", "content": "\n\n<ASSET_ACTION></ASSET_ACTION>\n"},
             ],
         )
-        self.assertNotIn(
-            "hidden reasoning",
-            raw_output[0]["content"],
-        )
+        self.assertFalse(any(chunk.get("type") == "raw_model_output" for chunk in chunks))
 
 
 

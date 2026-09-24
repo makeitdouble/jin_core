@@ -253,7 +253,7 @@ class PostingBoardTests(unittest.IsolatedAsyncioTestCase):
         ]
         self.assertEqual([event["status"] for event in events], ["running", "completed"])
         self.assertEqual(events[0]["id"], events[1]["id"])
-        self.assertEqual(events[0]["text"], "POSTING_BOARD: action:feed | limit: 5")
+        self.assertEqual(events[0]["text"], "POSTING_BOARD")
         self.assertEqual(events[1]["text"], "POSTING_BOARD: action:feed | limit: 5")
         self.assertNotIn("posting_board_result", events[0])
         self.assertEqual(events[1]["posting_board_result"]["response"], board_result["response"])

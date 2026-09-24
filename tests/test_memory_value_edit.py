@@ -77,7 +77,7 @@ class MemoryValueEditTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(self.context.emitter.events, [])
 
     async def test_active_edit_is_independent_of_foreground_and_frame_busy_state(self):
-        record = "active_memory_1: old value [ active_memory_id: abc123 ] [ conditions: old value ] [ status: pending ]"
+        record = "active_memory_1: old value [ id: AM-abc123 ] [ conditions: old value ] [ status: pending ]"
         self.context.active_memory_records = [record]
         self.context.runtime_memory += "\n" + record
         self.context.runtime_memory_stable = self.context.runtime_memory
@@ -89,7 +89,7 @@ class MemoryValueEditTests(unittest.IsolatedAsyncioTestCase):
                 self.context,
                 self.payload(
                     "active",
-                    target="abc123",
+                    target="AM-abc123",
                     value="updated while frame runs",
                 ),
                 foreground_busy=True,
@@ -106,11 +106,11 @@ class MemoryValueEditTests(unittest.IsolatedAsyncioTestCase):
         ))
 
     async def test_active_conditions_preserve_custom_fields_status_and_long_text(self):
-        record = "active_memory_1: old value [ active_memory_id: abc123 ] [ conditions: old value ] [ photos: 5 ] [ creation_time: 2026-08-01 ] [ status: paused ]"
-        self.context.active_memory_records = [record, "active_memory_2: untouched [ active_memory_id: def456 ]"]
+        record = "active_memory_1: old value [ id: AM-abc123 ] [ conditions: old value ] [ photos: 5 ] [ creation_time: 2026-08-01 ] [ status: paused ]"
+        self.context.active_memory_records = [record, "active_memory_2: untouched [ id: AM-def456 ]"]
         self.context.runtime_memory += "\n" + record
         value = "New conditions [with brackets]: " + "long text " * 60
-        result = await apply_memory_value_edit(self.context, self.payload("active", target="abc123", value=value))
+        result = await apply_memory_value_edit(self.context, self.payload("active", target="AM-abc123", value=value))
         self.assertTrue(result["ok"])
         updated = self.context.active_memory_records[0]
         body, tags = split_editable_memory_value(updated.split(":", 1)[1])
@@ -118,13 +118,13 @@ class MemoryValueEditTests(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn("[ conditions:", updated)
         for suffix in ["[ photos: 5 ]", "[ creation_time: 2026-08-01 ]", "[ status: paused ]"]:
             self.assertIn(suffix, updated)
-        self.assertEqual(self.context.active_memory_records[1], "active_memory_2: untouched [ active_memory_id: def456 ]")
+        self.assertEqual(self.context.active_memory_records[1], "active_memory_2: untouched [ id: AM-def456 ]")
         self.assertIn(updated, self.context.runtime_memory)
         self.assertTrue(any(e["type"] == "active_memory_records_update" for e in self.context.emitter.events))
 
     async def test_active_legacy_without_conditions_suffix_and_idempotent_retry(self):
-        self.context.active_memory_records = ["active_memory_1: old value [ active_memory_id: abc123 ] [ status: pending ]"]
-        payload = self.payload("active", target="abc123")
+        self.context.active_memory_records = ["active_memory_1: old value [ id: AM-abc123 ] [ status: pending ]"]
+        payload = self.payload("active", target="AM-abc123")
         first = await apply_memory_value_edit(self.context, payload)
         saved = self.context.active_memory_records[0]
         second = await apply_memory_value_edit(self.context, payload)

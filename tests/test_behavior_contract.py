@@ -13,7 +13,7 @@ from contracts.rules_assembler import (
     build_runtime_action_instructions,
 )
 from runtime.behavior_contract import (
-    action_guard_has_exact_trigger_match,
+    action_guard_has_trigger_match,
     get_action_guard,
     get_action_guard_blockers,
     get_action_guard_name_for_runtime_action,
@@ -305,7 +305,7 @@ class BehaviorContractTests(unittest.TestCase):
             instructions,
         )
         self.assertIn(
-            '{"conditions":"Descriptive conditions text","custom_field":"Custom field value"}',
+            '{"conditions":"Descriptive conditions text", "additional_conditions":"additional value",}',
             instructions,
         )
 
@@ -338,7 +338,7 @@ class BehaviorContractTests(unittest.TestCase):
             )
         )
         self.assertIn(
-            "Use to set single color for the JIN Live Avatar",
+            "Use to set the JIN Live Avatar color.",
             instructions,
         )
 
@@ -353,7 +353,7 @@ class BehaviorContractTests(unittest.TestCase):
                 "WEB_SEARCH\n"
                 "Follow-up: true\n"
                 "Schema:\n"
-                "<WEB_SEARCH: plain text query >\n"
+                "<WEB_SEARCH> query </WEB_SEARCH>\n"
             )
         )
 
@@ -366,7 +366,7 @@ class BehaviorContractTests(unittest.TestCase):
 
         self.assertEqual(
             instructions,
-            "\n\n".join(build_runtime_action_contract_instructions(action)
+            "\n\n".join(build_runtime_action_contract_instructions(action).rstrip()
                          for action in ("CLEAN_TOOL_RESULTS", "JIN_COLOR")),
         )
 
@@ -394,28 +394,34 @@ class BehaviorContractTests(unittest.TestCase):
             )
         )
 
-    def test_exact_trigger_match_requires_bare_contract_trigger(self):
+    def test_trigger_match_uses_contract_trigger_with_token_boundaries(self):
 
         trigger = get_action_guard_triggers(
             "save_delayed_memory"
         )[0]
 
         self.assertTrue(
-            action_guard_has_exact_trigger_match(
+            action_guard_has_trigger_match(
                 "save_delayed_memory",
                 f"  {trigger}  ",
             )
         )
-        self.assertFalse(
-            action_guard_has_exact_trigger_match(
+        self.assertTrue(
+            action_guard_has_trigger_match(
                 "save_delayed_memory",
                 f"{trigger}!",
             )
         )
-        self.assertFalse(
-            action_guard_has_exact_trigger_match(
+        self.assertTrue(
+            action_guard_has_trigger_match(
                 "save_delayed_memory",
                 f"пожалуйста, {trigger}",
+            )
+        )
+        self.assertFalse(
+            action_guard_has_trigger_match(
+                "save_delayed_memory",
+                f"x{trigger}y",
             )
         )
 

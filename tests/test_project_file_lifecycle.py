@@ -7,7 +7,7 @@ from unittest.mock import patch
 from tests import test_project_review as fixture
 from agent.nodes.brain import BrainNode, build_followup_attachment_payload
 from agent.state import AgentState
-from clients.brain_client import apply_runtime_action_calls
+from clients.brain_client import apply_runtime_action_calls, get_response_enabled_runtime_actions
 from contracts.rules_assembler import get_runtime_action_schema
 from rules.brain_context_builder import build_brain_context, BRAIN_RUNTIME_ACTIONS
 from utils import attached_files_store as files
@@ -41,9 +41,14 @@ class ProjectFileLifecycleTests(unittest.TestCase):
         self.context.logger = stream_fixture.FakeLogger()
         self.context.websocket = stream_fixture.FakeWebSocket()
         async def run():
+            enabled_runtime_actions = get_response_enabled_runtime_actions(
+                BRAIN_RUNTIME_ACTIONS,
+                "inspect project",
+                context=self.context,
+            )
             stream = RuntimeStream(context=self.context, runtime_id="file-lifecycle-test", role="brain",
                 context_window=32768, log_method=self.context.logger.log_service,
-                runtime_actions=BRAIN_RUNTIME_ACTIONS, enable_validator=False)
+                runtime_actions=enabled_runtime_actions, enable_validator=False)
             async def chunks(**_kwargs):
                 for marker in ('<ATTACH_FILE_CONTENT: src/main.py >', '<ATTACH_FILE_CONTENT: README.md >'):
                     for part in (marker[:13], marker[13:]):

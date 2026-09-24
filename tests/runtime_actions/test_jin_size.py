@@ -282,7 +282,7 @@ class RuntimeJinSizeActionTests(RuntimeActionTestCase):
         )
 
         self.assertIn(
-            "<CURRENT_JIN_SIZE>width: 220px height: 440px</CURRENT_JIN_SIZE>",
+            "<JIN_SIZE>width: 220px height: 440px</JIN_SIZE>",
             build_runtime_xml(
                 context,
                 runtime_actions={
@@ -297,7 +297,7 @@ class RuntimeJinSizeActionTests(RuntimeActionTestCase):
         }
 
         self.assertIn(
-            "<CURRENT_JIN_SIZE>width: 25vw height: 40%</CURRENT_JIN_SIZE>",
+            "<JIN_SIZE>width: 25vw height: 40%</JIN_SIZE>",
             build_runtime_xml(
                 context,
                 runtime_actions={

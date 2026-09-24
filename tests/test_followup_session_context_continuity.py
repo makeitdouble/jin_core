@@ -59,8 +59,8 @@ def test_followup_uses_only_current_sequence_without_quoting_request():
     assert "old JIN text must stay hidden" not in prompt
     assert "stale JIN text must stay hidden" not in prompt
 
-    block = prompt.split("<CURRENT_REQUEST_ACTIONS_HISTORY>", 1)[1].split(
-        "</CURRENT_REQUEST_ACTIONS_HISTORY>", 1
+    block = prompt.split("<REQUEST_ACTIONS_HISTORY>", 1)[1].split(
+        "</REQUEST_ACTIONS_HISTORY>", 1
     )[0]
     current_sequence = block
     assert "1. ATTACH_FILE_CONTENT:" in block
@@ -114,10 +114,10 @@ def test_sequence_completion_restores_global_numbering_and_next_sequence_resets(
         "created_at": time.time(), "jin_message_content": "Next step",
     })
     next_prompt = BrainNode.build_followup_system_prompt(first, "next request", context=ctx)
-    assert next_prompt.count("<CURRENT_REQUEST_ACTIONS_HISTORY>") == 1
+    assert next_prompt.count("<REQUEST_ACTIONS_HISTORY>") == 1
     assert "1. LIST_SKILLS" in next_prompt
     assert "ATTACH_FILE_CONTENT:" not in next_prompt
-    assert "next request" not in next_prompt
+    assert "next request" in next_prompt
     final = build_session_actions_history_context(ctx)
     assert "4. LIST_SKILLS" in final
     assert final.count("--- start of sequence ---") == 3

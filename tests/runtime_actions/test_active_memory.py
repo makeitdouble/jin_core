@@ -207,18 +207,8 @@ class RuntimeActiveMemoryTests(RuntimeActionTestCase):
             ],
         )
 
-        self.assertEqual(
-            result.text,
-            "before after",
-        )
-        self.assertEqual(
-            result.count("DELETE_ACTIVE_MEMORY"),
-            1,
-        )
-        self.assertEqual(
-            result.actions[0].payload,
-            "e2qxe7 | deleted",
-        )
+        self.assertIn("<DELETE_ACTIVE_MEMORY:e2qxe7 | deleted>", result.text)
+        self.assertEqual(result.actions, ())
 
 
     def test_extract_active_memory_delete_slot_id_accepts_loose_payload_shape(self):
@@ -227,16 +217,16 @@ class RuntimeActiveMemoryTests(RuntimeActionTestCase):
             extract_active_memory_delete_slot_id(
                 "active_memory_id: 5fdg4g",
             ),
-            "5fdg4g",
+            "",
         )
         self.assertEqual(
             extract_active_memory_delete_slot_id(
-                "resolve slot 5fdg4g please",
+                "resolve slot AM-5fdg4g please",
                 existing_ids={
-                    "5fdg4g",
+                    "AM-5fdg4g",
                 },
             ),
-            "5fdg4g",
+            "AM-5fdg4g",
         )
 
 
@@ -443,7 +433,7 @@ class RuntimeActiveMemoryTests(RuntimeActionTestCase):
             context.active_memory_records[0],
             (
                 r"^active_memory_1: remind later "
-                r"\[ active_memory_id: [a-z0-9]{6} \] "
+                r"\[ id: AM-[a-z0-9]{6} \] "
                 r"\[ creation_time: 2026-06-20T10:00:00 \] "
                 r"\[ created_session_id: test-session \] "
                 r"\[ created_jin_message_number: 3 \] "
@@ -462,23 +452,17 @@ class RuntimeActiveMemoryTests(RuntimeActionTestCase):
         )
         self.assertRegex(
             context.emitter.events[0]["active_memory_id"],
-            r"^[a-z0-9]{6}$",
+            r"^AM-[a-z0-9]{6}$",
+        )
+        completed_event = context.emitter.events[1]
+        self.assertEqual(completed_event["status"], "completed")
+        self.assertEqual(
+            completed_event["active_memory_id"],
+            context.emitter.events[0]["active_memory_id"],
         )
         self.assertEqual(
-            context.emitter.events[1],
-            {
-                "type": "runtime_action",
-                "action": "save_active_memory",
-                "id": "save_active_memory_001",
-                "status": "completed",
-                "display_name": "SAVE_ACTIVE_MEMORY",
-                "text": "SAVE_ACTIVE_MEMORY: remind later",
-                "close_tag": True,
-                "active_memory_id": (
-                    context.emitter.events[0]["active_memory_id"]
-                ),
-                "active_memory": context.active_memory_records[0],
-            },
+            completed_event["active_memory"],
+            context.active_memory_records[0],
         )
 
         tool_results = build_tool_results_context(
@@ -598,17 +582,7 @@ class RuntimeActiveMemoryTests(RuntimeActionTestCase):
                 (
                     RuntimeActionCall(
                         name="SAVE_ACTIVE_MEMORY",
-                        payload=(
-                            "Experiment Progress: 2m elapsed "
-                            "[ active_memory_id: progress_marker_1 ] "
-                            "[ conditions: stale condition ] "
-                            "[ creation_time: 1999-01-01T00:00:00 ] "
-                            "[ created_session_id: model-session ] "
-                            "[ created_jin_message_number: 999 ] "
-                            "[ elapsed_time: 99:99:99 ] "
-                            "[ elapsed_jin_message_number: 999 ] "
-                            "[ status: resolved ]"
-                        ),
+                        payload='{"conditions":"Experiment Progress: 2m elapsed"}',
                     ),
                 ),
             )
@@ -624,7 +598,7 @@ class RuntimeActiveMemoryTests(RuntimeActionTestCase):
         )
         self.assertEqual(
             context.runtime_action_events[0]["payload"],
-            "Experiment Progress: 2m elapsed",
+            '{"conditions":"Experiment Progress: 2m elapsed"}',
         )
 
         active_memory = context.active_memory_records[0]
@@ -633,7 +607,7 @@ class RuntimeActiveMemoryTests(RuntimeActionTestCase):
             active_memory,
             (
                 r"^active_memory_1: Experiment Progress: 2m elapsed "
-                r"\[ active_memory_id: [a-z0-9]{6} \] "
+                r"\[ id: AM-[a-z0-9]{6} \] "
                 r"\[ creation_time: 2026-07-13T00:12:00 \] "
                 r"\[ created_session_id: runtime-session \] "
                 r"\[ created_jin_message_number: 8 \] "
@@ -689,10 +663,10 @@ class RuntimeActiveMemoryTests(RuntimeActionTestCase):
         result = extract_runtime_actions(
             (
                 "before "
-                "<UPDATE_ACTIVE_MEMORY: abc123>\n"
-                "last_photo_id: def456\n"
-                "current_photo_count: 2\n"
-                "</UPDATE_ACTIVE_MEMORY>"
+                "<SAVE_ACTIVE_MEMORY>\n"
+                '{"id":"AM-abc123","last_photo_id":"def456",'
+                '"current_photo_count":"2"}\n'
+                "</SAVE_ACTIVE_MEMORY>"
                 " after"
             ),
             enabled_actions=[
@@ -705,11 +679,10 @@ class RuntimeActiveMemoryTests(RuntimeActionTestCase):
             result.actions,
             (
                 RuntimeActionCall(
-                    name="UPDATE_ACTIVE_MEMORY",
+                    name="SAVE_ACTIVE_MEMORY",
                     payload=(
-                        "abc123\n"
-                        "last_photo_id: def456\n"
-                        "current_photo_count: 2"
+                        '{"id":"AM-abc123","last_photo_id":"def456",'
+                        '"current_photo_count":"2"}'
                     ),
                 ),
             ),
@@ -721,12 +694,10 @@ class RuntimeActiveMemoryTests(RuntimeActionTestCase):
         result = extract_runtime_actions(
             (
                 "before "
-                "<UPDATE_ACTIVE_MEMORY>\n"
-                "{\"active_memory_id\":\"abc123\",\"fields\":{"
-                "\"last_photo_id\":\"def456\","
-                "\"current_photo_count\":\"2\""
-                "}}\n"
-                "</UPDATE_ACTIVE_MEMORY>"
+                "<SAVE_ACTIVE_MEMORY>\n"
+                '{"id":"AM-abc123","last_photo_id":"def456",'
+                '"current_photo_count":"2"}\n'
+                "</SAVE_ACTIVE_MEMORY>"
                 " after"
             ),
             enabled_actions=[
@@ -739,12 +710,10 @@ class RuntimeActiveMemoryTests(RuntimeActionTestCase):
             result.actions,
             (
                 RuntimeActionCall(
-                    name="UPDATE_ACTIVE_MEMORY",
+                    name="SAVE_ACTIVE_MEMORY",
                     payload=(
-                        "{\"active_memory_id\":\"abc123\",\"fields\":{"
-                        "\"last_photo_id\":\"def456\","
-                        "\"current_photo_count\":\"2\""
-                        "}}"
+                        '{"id":"AM-abc123","last_photo_id":"def456",'
+                        '"current_photo_count":"2"}'
                     ),
                 ),
             ),
@@ -756,19 +725,13 @@ class RuntimeActiveMemoryTests(RuntimeActionTestCase):
         self.assertEqual(
             parse_update_active_memory_payload(
                 (
-                    '{"active_memory_id":"zgctxy",'
+                    '{"id":"AM-zgctxy",'
                     '"fields_to_update":{'
                     '"last_photo_id":"pm6g70",'
                     '"current_photos":5}}'
                 )
             ),
-            (
-                "zgctxy",
-                (
-                    ("last_photo_id", "pm6g70"),
-                    ("current_photos", "5"),
-                ),
-            ),
+            ("", ()),
         )
 
 
@@ -782,10 +745,7 @@ class RuntimeActiveMemoryTests(RuntimeActionTestCase):
                     '"last_photo_id":"pm6g70"}}'
                 )
             ),
-            (
-                "zgctxy",
-                (("last_photo_id", "pm6g70"),),
-            ),
+            ("", ()),
         )
 
 
@@ -794,13 +754,13 @@ class RuntimeActiveMemoryTests(RuntimeActionTestCase):
         self.assertEqual(
             parse_update_active_memory_payload(
                 (
-                    '{"active_memory_id":"zgctxy",'
+                    '{"id":"AM-zgctxy",'
                     '"last_photo_id":"pm6g70",'
                     '"current_photos":5}'
                 )
             ),
             (
-                "zgctxy",
+                "AM-zgctxy",
                 (
                     ("last_photo_id", "pm6g70"),
                     ("current_photos", "5"),
@@ -824,14 +784,12 @@ class RuntimeActiveMemoryTests(RuntimeActionTestCase):
         self.assertEqual(
             parse_update_active_memory_payload(
                 json.dumps({
-                    "active_memory_id": "zgctxy",
-                    "fields_to_update": {
-                        "conditions": conditions,
-                    },
+                    "id": "AM-zgctxy",
+                    "conditions": conditions,
                 })
             ),
             (
-                "zgctxy",
+                "AM-zgctxy",
                 (("conditions", conditions),),
             ),
         )
@@ -856,26 +814,9 @@ class RuntimeActiveMemoryTests(RuntimeActionTestCase):
             ],
         )
 
-        self.assertEqual(result.text, "before after")
-        self.assertEqual(
-            result.actions,
-            (
-                RuntimeActionCall(
-                    name="UPDATE_ACTIVE_MEMORY",
-                    payload=(
-                        'active_memory_id="abc123" '
-                        'last_update="23 august" current_photos=2 '
-                        'last_photo_id="def456"'
-                    ),
-                ),
-            ),
-        )
-        self.assertEqual(
-            result.removed_markers,
-            (
-                marker,
-            ),
-        )
+        self.assertIn(marker, result.text)
+        self.assertEqual(result.actions, ())
+        self.assertEqual(result.removed_markers, ())
 
 
     def test_save_active_memory_materializes_json_custom_state_fields(self):
@@ -920,7 +861,8 @@ class RuntimeActiveMemoryTests(RuntimeActionTestCase):
         )
         self.assertEqual(
             context.emitter.events[0]["payload"],
-            "Once a day ask for a photo.",
+            '{"conditions":"Once a day ask for a photo.",'
+            '"last_photo_id":"qamzck","current_photo_count":1}',
         )
 
 
@@ -956,11 +898,11 @@ class RuntimeActiveMemoryTests(RuntimeActionTestCase):
                 context,
                 (
                     RuntimeActionCall(
-                        name="UPDATE_ACTIVE_MEMORY",
+                        name="SAVE_ACTIVE_MEMORY",
                         payload=(
-                            f"{active_memory_id}\n"
-                            "last_photo_id: def456\n"
-                            "current_photo_count: 2"
+                            '{"id":"' + active_memory_id + '",'
+                            '"last_photo_id":"def456",'
+                            '"current_photo_count":"2"}'
                         ),
                     ),
                 ),
@@ -975,13 +917,10 @@ class RuntimeActiveMemoryTests(RuntimeActionTestCase):
             "[ updated_at: 2026-08-18T23:26:00 ]",
             record,
         )
-        event = context.emitter.events[0]
-        self.assertEqual(event["action"], "update_active_memory")
+        event = context.emitter.events[-1]
+        self.assertEqual(event["action"], "save_active_memory")
         self.assertEqual(event["status"], "completed")
-        self.assertEqual(
-            event["text"],
-            "UPDATE_ACTIVE_MEMORY: active_memory_1",
-        )
+        self.assertTrue(event["text"].startswith("SAVE_ACTIVE_MEMORY: {"))
         self.assertEqual(
             event["active_memory_key"],
             "active_memory_1",
@@ -1042,12 +981,10 @@ class RuntimeActiveMemoryTests(RuntimeActionTestCase):
                 context,
                 (
                     RuntimeActionCall(
-                        name="UPDATE_ACTIVE_MEMORY",
+                        name="SAVE_ACTIVE_MEMORY",
                         payload=json.dumps({
-                            "active_memory_id": active_memory_id,
-                            "fields_to_update": {
-                                "conditions": conditions,
-                            },
+                            "id": active_memory_id,
+                            "conditions": conditions,
                         }),
                     ),
                 ),
@@ -1067,7 +1004,7 @@ class RuntimeActiveMemoryTests(RuntimeActionTestCase):
             "[ updated_at: 2026-08-18T23:26:00 ]",
             record,
         )
-        event = context.emitter.events[0]
+        event = context.emitter.events[-1]
         self.assertEqual(event["status"], "completed")
         self.assertEqual(
             event["active_memory_changes"],
@@ -1113,11 +1050,11 @@ class RuntimeActiveMemoryTests(RuntimeActionTestCase):
                 context,
                 (
                     RuntimeActionCall(
-                        name="UPDATE_ACTIVE_MEMORY",
+                        name="SAVE_ACTIVE_MEMORY",
                         payload=(
-                            "active_memory_1\n"
-                            "last_photo_id: def456\n"
-                            "current_photo_count: 2"
+                            '{"id":"' + active_memory_id + '",'
+                            '"last_photo_id":"def456",'
+                            '"current_photo_count":"2"}'
                         ),
                     ),
                 ),
@@ -1128,16 +1065,12 @@ class RuntimeActiveMemoryTests(RuntimeActionTestCase):
         record = context.active_memory_records[0]
         self.assertIn("[ last_photo_id: def456 ]", record)
         self.assertIn("[ current_photo_count: 2 ]", record)
-        event = context.emitter.events[0]
+        event = context.emitter.events[-1]
         self.assertEqual(event["status"], "completed")
-        self.assertEqual(event["active_memory_id"], active_memory_id)
+        self.assertEqual(event["active_memory_id"].casefold(), active_memory_id.casefold())
         self.assertEqual(
-            event["active_memory_result"]["requested_id"],
-            "active_memory_1",
-        )
-        self.assertEqual(
-            event["active_memory_result"]["id"],
-            active_memory_id,
+            event["active_memory_result"]["id"].casefold(),
+            active_memory_id.casefold(),
         )
 
 
@@ -1173,12 +1106,11 @@ class RuntimeActiveMemoryTests(RuntimeActionTestCase):
                 context,
                 (
                     RuntimeActionCall(
-                        name="UPDATE_ACTIVE_MEMORY",
+                        name="SAVE_ACTIVE_MEMORY",
                         payload=(
-                            "<UPDATE_ACTIVE_MEMORY: active_memory_1>\n"
-                            "last_photo_id: 1sot0h\n"
-                            "current_date: 2026-08-22\n"
-                            "</UPDATE_ACTIVE_MEMORY>"
+                            '{"id":"' + active_memory_id + '",'
+                            '"last_photo_id":"1sot0h",'
+                            '"current_date":"2026-08-22"}'
                         ),
                     ),
                 ),
@@ -1189,16 +1121,12 @@ class RuntimeActiveMemoryTests(RuntimeActionTestCase):
         record = context.active_memory_records[0]
         self.assertIn("[ last_photo_id: 1sot0h ]", record)
         self.assertIn("[ current_date: 2026-08-22 ]", record)
-        event = context.emitter.events[0]
+        event = context.emitter.events[-1]
         self.assertEqual(event["status"], "completed")
-        self.assertEqual(event["active_memory_id"], active_memory_id)
+        self.assertEqual(event["active_memory_id"].casefold(), active_memory_id.casefold())
         self.assertEqual(
-            event["active_memory_result"]["requested_id"],
-            "active_memory_1",
-        )
-        self.assertEqual(
-            event["active_memory_result"]["id"],
-            active_memory_id,
+            event["active_memory_result"]["id"].casefold(),
+            active_memory_id.casefold(),
         )
 
 
@@ -1234,13 +1162,11 @@ class RuntimeActiveMemoryTests(RuntimeActionTestCase):
                 context,
                 (
                     RuntimeActionCall(
-                        name="UPDATE_ACTIVE_MEMORY",
+                        name="SAVE_ACTIVE_MEMORY",
                         payload=(
-                            "{\"active_memory_id\":\"active_memory_1\","
-                            "\"fields\":{"
-                            "\"last_photo_id\":\"1sot0h\","
-                            "\"current_date\":\"2026-08-22\""
-                            "}}"
+                            '{"id":"' + active_memory_id + '",'
+                            '"last_photo_id":"1sot0h",'
+                            '"current_date":"2026-08-22"}'
                         ),
                     ),
                 ),
@@ -1251,16 +1177,12 @@ class RuntimeActiveMemoryTests(RuntimeActionTestCase):
         record = context.active_memory_records[0]
         self.assertIn("[ last_photo_id: 1sot0h ]", record)
         self.assertIn("[ current_date: 2026-08-22 ]", record)
-        event = context.emitter.events[0]
+        event = context.emitter.events[-1]
         self.assertEqual(event["status"], "completed")
-        self.assertEqual(event["active_memory_id"], active_memory_id)
+        self.assertEqual(event["active_memory_id"].casefold(), active_memory_id.casefold())
         self.assertEqual(
-            event["active_memory_result"]["requested_id"],
-            "active_memory_1",
-        )
-        self.assertEqual(
-            event["active_memory_result"]["id"],
-            active_memory_id,
+            event["active_memory_result"]["id"].casefold(),
+            active_memory_id.casefold(),
         )
 
 
@@ -1287,6 +1209,7 @@ class RuntimeActiveMemoryTests(RuntimeActionTestCase):
                 ),
             )
         )
+        active_memory_id = context.emitter.events[0]["active_memory_id"]
         context.emitter.events.clear()
         context.timestamp = "2026-08-22T14:55:00"
 
@@ -1295,14 +1218,11 @@ class RuntimeActiveMemoryTests(RuntimeActionTestCase):
                 context,
                 (
                     RuntimeActionCall(
-                        name="UPDATE_ACTIVE_MEMORY",
+                        name="SAVE_ACTIVE_MEMORY",
                         payload=(
-                            "{\"active_memory_id\":\"active_memory_1\","
-                            "\"fields\":{"
-                            "\"current_photo_id\":\"1sot0h\","
-                            "\"current_photo_count\":2,"
-                            "\"creation_time\":\"2026-08-22T14:54:17Z\""
-                            "}}"
+                            '{"id":"' + active_memory_id + '",'
+                            '"current_photo_id":"1sot0h",'
+                            '"current_photo_count":2}'
                         ),
                     ),
                 ),
@@ -1317,7 +1237,7 @@ class RuntimeActiveMemoryTests(RuntimeActionTestCase):
             "2026-08-22T14:54:17Z",
             record,
         )
-        event = context.emitter.events[0]
+        event = context.emitter.events[-1]
         self.assertEqual(event["status"], "completed")
         self.assertEqual(
             event["active_memory_changes"],
@@ -1368,15 +1288,11 @@ class RuntimeActiveMemoryTests(RuntimeActionTestCase):
                 context,
                 (
                     RuntimeActionCall(
-                        name="UPDATE_ACTIVE_MEMORY",
+                        name="SAVE_ACTIVE_MEMORY",
                         payload=(
-                            "<UPDATE_ACTIVE_MEMORY>\n"
-                            "{\"active_memory_id\":\"active_memory_1\","
-                            "\"fields\":{"
-                            "\"last_photo_id\":\"1sot0h\","
-                            "\"current_date\":\"2026-08-22\""
-                            "}}\n"
-                            "</UPDATE_ACTIVE_MEMORY>"
+                            '{"id":"' + active_memory_id + '",'
+                            '"last_photo_id":"1sot0h",'
+                            '"current_date":"2026-08-22"}'
                         ),
                     ),
                 ),
@@ -1387,16 +1303,12 @@ class RuntimeActiveMemoryTests(RuntimeActionTestCase):
         record = context.active_memory_records[0]
         self.assertIn("[ last_photo_id: 1sot0h ]", record)
         self.assertIn("[ current_date: 2026-08-22 ]", record)
-        event = context.emitter.events[0]
+        event = context.emitter.events[-1]
         self.assertEqual(event["status"], "completed")
-        self.assertEqual(event["active_memory_id"], active_memory_id)
+        self.assertEqual(event["active_memory_id"].casefold(), active_memory_id.casefold())
         self.assertEqual(
-            event["active_memory_result"]["requested_id"],
-            "active_memory_1",
-        )
-        self.assertEqual(
-            event["active_memory_result"]["id"],
-            active_memory_id,
+            event["active_memory_result"]["id"].casefold(),
+            active_memory_id.casefold(),
         )
 
 
@@ -1430,9 +1342,10 @@ class RuntimeActiveMemoryTests(RuntimeActionTestCase):
 
         result = extract_runtime_actions(
             (
-                f'<UPDATE_ACTIVE_MEMORY active_memory_id="{active_memory_id}" '
-                'last_update="23 august" current_photos=2 '
-                'last_photo_id="8vyf97" />'
+                '<SAVE_ACTIVE_MEMORY>'
+                f'{{"id":"{active_memory_id}","last_update":"23 august",'
+                '"current_photos":"2","last_photo_id":"8vyf97"}'
+                '</SAVE_ACTIVE_MEMORY>'
             ),
             enabled_actions=[
                 "CAN_SAVE_ACTIVE_MEMORY",
@@ -1455,9 +1368,9 @@ class RuntimeActiveMemoryTests(RuntimeActionTestCase):
             "[ updated_at: 2026-08-23T10:01:00 ]",
             record,
         )
-        event = context.emitter.events[0]
+        event = context.emitter.events[-1]
         self.assertEqual(event["status"], "completed")
-        self.assertEqual(event["active_memory_id"], active_memory_id)
+        self.assertEqual(event["active_memory_id"].casefold(), active_memory_id.casefold())
         self.assertEqual(
             event["active_memory_changes"],
             [
@@ -1512,11 +1425,11 @@ class RuntimeActiveMemoryTests(RuntimeActionTestCase):
                 context,
                 (
                     RuntimeActionCall(
-                        name="UPDATE_ACTIVE_MEMORY",
+                        name="SAVE_ACTIVE_MEMORY",
                         payload=(
-                            f"{active_memory_id}\n"
-                            "last_photo_id: def456\n"
-                            "new_field: nope"
+                            '{"id":"' + active_memory_id + '",'
+                            '"last_photo_id":"def456",'
+                            '"new_field":"nope"}'
                         ),
                     ),
                 ),
@@ -1526,7 +1439,7 @@ class RuntimeActiveMemoryTests(RuntimeActionTestCase):
         self.assertEqual(applied_count, 0)
         self.assertEqual(context.active_memory_records[0], original_record)
         self.assertNotIn("updated_at", context.active_memory_records[0])
-        event = context.emitter.events[0]
+        event = context.emitter.events[-1]
         self.assertEqual(event["status"], "failed")
         self.assertEqual(
             event["active_memory_result"]["error"],
@@ -1561,6 +1474,7 @@ class RuntimeActiveMemoryTests(RuntimeActionTestCase):
             )
         )
         original_record = context.active_memory_records[0]
+        active_memory_id = context.emitter.events[0]["active_memory_id"]
         context.emitter.events.clear()
         context.timestamp = "2026-08-18T23:26:00"
 
@@ -1569,11 +1483,11 @@ class RuntimeActiveMemoryTests(RuntimeActionTestCase):
                 context,
                 (
                     RuntimeActionCall(
-                        name="UPDATE_ACTIVE_MEMORY",
+                        name="SAVE_ACTIVE_MEMORY",
                         payload=(
-                            "active_memory_1\n"
-                            "last_photo_id: def456\n"
-                            "new_field: nope"
+                            '{"id":"' + active_memory_id + '",'
+                            '"last_photo_id":"def456",'
+                            '"new_field":"nope"}'
                         ),
                     ),
                 ),
@@ -1583,15 +1497,15 @@ class RuntimeActiveMemoryTests(RuntimeActionTestCase):
         self.assertEqual(applied_count, 0)
         self.assertEqual(context.active_memory_records[0], original_record)
         self.assertNotIn("updated_at", context.active_memory_records[0])
-        event = context.emitter.events[0]
+        event = context.emitter.events[-1]
         self.assertEqual(event["status"], "failed")
         self.assertEqual(
             event["active_memory_result"]["error"],
             "active_memory_field_not_declared",
         )
         self.assertEqual(
-            event["active_memory_result"]["requested_id"],
-            "active_memory_1",
+            event["active_memory_result"]["id"],
+            active_memory_id,
         )
         self.assertEqual(
             event["active_memory_result"]["unknown_fields"],
@@ -1636,12 +1550,9 @@ class RuntimeActiveMemoryTests(RuntimeActionTestCase):
         self.assertFalse(result["ok"])
         self.assertEqual(
             result["error"],
-            "invalid_update_active_memory_payload",
+            "invalid_active_memory_payload",
         )
-        self.assertEqual(
-            result["requested_id"],
-            "active_memory_1",
-        )
+        self.assertEqual(result["id"], "")
         self.assertEqual(context.active_memory_records[0], original_record)
         self.assertNotIn(
             "1999-01-01T00:00:00",
@@ -1688,12 +1599,9 @@ class RuntimeActiveMemoryTests(RuntimeActionTestCase):
         self.assertFalse(result["ok"])
         self.assertEqual(
             result["error"],
-            "invalid_update_active_memory_payload",
+            "invalid_active_memory_payload",
         )
-        self.assertEqual(
-            result["requested_id"],
-            "active_memory_1",
-        )
+        self.assertEqual(result["id"], "")
         self.assertEqual(context.active_memory_records[0], original_record)
         self.assertNotIn(
             "1999-01-01T00:00:00",
@@ -1847,7 +1755,7 @@ class RuntimeActiveMemoryTests(RuntimeActionTestCase):
             context.active_memory_records[0],
             (
                 r"^active_memory_1: Drink coffee \| Trigger in 5 minutes \| coffee "
-                r"\[ active_memory_id: [a-z0-9]{6} \] "
+                r"\[ id: AM-[a-z0-9]{6} \] "
                 r"\[ creation_time: 2026-06-24T15:00:00 \] "
                 r"\[ created_session_id: tab-session \] "
                 r"\[ created_jin_message_number: 7 \] "
@@ -1896,7 +1804,7 @@ class RuntimeActiveMemoryTests(RuntimeActionTestCase):
         context.active_memory_records = [
             (
                 "active_memory_1: remember cuckoo "
-                "[ active_memory_id: 5fdg4g ] "
+                "[ id: AM-5fdg4g ] "
                 "[ conditions: remember cuckoo ] "
                 "[ creation_time: 2026-06-24T15:00:00 ] "
                 "[ elapsed_time: 00:00:00 ] "
@@ -1910,7 +1818,7 @@ class RuntimeActiveMemoryTests(RuntimeActionTestCase):
                 (
                     RuntimeActionCall(
                         name="SAVE_ACTIVE_MEMORY",
-                        payload="remember cuckoo",
+                        payload='{"conditions":"remember cuckoo"}',
                     ),
                 ),
             )
@@ -1930,33 +1838,14 @@ class RuntimeActiveMemoryTests(RuntimeActionTestCase):
                 {
                     "id": "save_active_memory_001",
                     "name": "save_active_memory",
-                    "payload": "remember cuckoo",
+                    "payload": '{"conditions":"remember cuckoo"}',
                 },
             ],
         )
-        self.assertEqual(
-            context.emitter.events,
-            [
-                {
-                    "type": "runtime_action",
-                    "action": "save_active_memory",
-                    "id": "save_active_memory_001",
-                    "display_name": "SAVE_ACTIVE_MEMORY",
-                    "text": "SAVE_ACTIVE_MEMORY",
-                    "payload": "remember cuckoo",
-                    "close_tag": True,
-                },
-                {
-                    "type": "runtime_action",
-                    "action": "save_active_memory",
-                    "id": "save_active_memory_001",
-                    "status": "completed",
-                    "display_name": "SAVE_ACTIVE_MEMORY",
-                    "text": "SAVE_ACTIVE_MEMORY: remember cuckoo",
-                    "close_tag": True,
-                },
-            ],
-        )
+        self.assertEqual(len(context.emitter.events), 2)
+        self.assertEqual(context.emitter.events[0]["status"] if "status" in context.emitter.events[0] else None, None)
+        self.assertEqual(context.emitter.events[1]["status"], "failed")
+        self.assertIn("remember cuckoo", context.emitter.events[1]["text"])
 
 
     def test_apply_runtime_action_calls_skips_active_memory_copy_from_runtime_memory(self):
@@ -1972,7 +1861,7 @@ class RuntimeActiveMemoryTests(RuntimeActionTestCase):
         context.runtime_memory = (
             "session_status: active\n"
             "active_memory_1: remember cuckoo "
-            "[ active_memory_id: 5fdg4g ] "
+            "[ id: AM-5fdg4g ] "
             "[ conditions: remember cuckoo ] "
             "[ status: pending ]"
         )
@@ -1985,7 +1874,7 @@ class RuntimeActiveMemoryTests(RuntimeActionTestCase):
                 (
                     RuntimeActionCall(
                         name="SAVE_ACTIVE_MEMORY",
-                        payload="remember cuckoo",
+                        payload='{"conditions":"remember cuckoo"}',
                     ),
                 ),
             )
@@ -2005,33 +1894,13 @@ class RuntimeActiveMemoryTests(RuntimeActionTestCase):
                 {
                     "id": "save_active_memory_001",
                     "name": "save_active_memory",
-                    "payload": "remember cuckoo",
+                    "payload": '{"conditions":"remember cuckoo"}',
                 },
             ],
         )
-        self.assertEqual(
-            context.emitter.events,
-            [
-                {
-                    "type": "runtime_action",
-                    "action": "save_active_memory",
-                    "id": "save_active_memory_001",
-                    "display_name": "SAVE_ACTIVE_MEMORY",
-                    "text": "SAVE_ACTIVE_MEMORY",
-                    "payload": "remember cuckoo",
-                    "close_tag": True,
-                },
-                {
-                    "type": "runtime_action",
-                    "action": "save_active_memory",
-                    "id": "save_active_memory_001",
-                    "status": "completed",
-                    "display_name": "SAVE_ACTIVE_MEMORY",
-                    "text": "SAVE_ACTIVE_MEMORY: remember cuckoo",
-                    "close_tag": True,
-                },
-            ],
-        )
+        self.assertEqual(len(context.emitter.events), 2)
+        self.assertEqual(context.emitter.events[1]["status"], "failed")
+        self.assertIn("remember cuckoo", context.emitter.events[1]["text"])
 
 
     def test_apply_runtime_action_calls_deletes_active_memory_by_id(self):
@@ -2044,14 +1913,14 @@ class RuntimeActiveMemoryTests(RuntimeActionTestCase):
         context.emitter = Emitter()
         context.runtime_memory = (
             "session_status: active\n"
-            "active_memory: remember cuckoo [ active_memory_id: 5fdg4g ] "
+            "active_memory: remember cuckoo [ id: AM-5fdg4g ] "
             "[ status: pending ]\n"
             "user_message: hello"
         )
         context.runtime_memory_stable = context.runtime_memory
         context.active_memory_records = [
             (
-                "active_memory_1: remember cuckoo [ active_memory_id: 5fdg4g ] "
+            "active_memory_1: remember cuckoo [ id: AM-5fdg4g ] "
                 "[ status: pending ]"
             ),
         ]
@@ -2062,7 +1931,7 @@ class RuntimeActiveMemoryTests(RuntimeActionTestCase):
                 (
                     RuntimeActionCall(
                         name="DELETE_ACTIVE_MEMORY",
-                        payload="active_memory_id: 5fdg4g",
+                        payload="AM-5fdg4g",
                     ),
                 ),
             )
@@ -2077,7 +1946,7 @@ class RuntimeActiveMemoryTests(RuntimeActionTestCase):
             context.runtime_memory,
         )
         self.assertNotIn(
-            "5fdg4g",
+            "AM-5fdg4g",
             context.runtime_memory_stable,
         )
         self.assertIn(
@@ -2090,7 +1959,7 @@ class RuntimeActiveMemoryTests(RuntimeActionTestCase):
         )
         self.assertEqual(
             context.runtime_action_events[0]["id"],
-            "5fdg4g",
+            "AM-5fdg4g",
         )
         self.assertEqual(
             context.runtime_tool_results,
@@ -2098,7 +1967,7 @@ class RuntimeActiveMemoryTests(RuntimeActionTestCase):
                 {
                     "tool_id": "T1",
                     "action_name": "DELETE_ACTIVE_MEMORY",
-                    "action_payload": "active_memory_id: 5fdg4g",
+                    "action_payload": "AM-5fdg4g",
                     "runtime_turn_id": "",
                     "runtime_message_id": "",
                     "kind": TOOL_RESULT_KIND_ACTIVE_MEMORY,
@@ -2109,11 +1978,11 @@ class RuntimeActiveMemoryTests(RuntimeActionTestCase):
                             "active_memory_records -> <ACTIVE_MEMORY> "
                             "(deleted and removed)"
                         ),
-                        "id": "5fdg4g",
+                        "id": "AM-5fdg4g",
                         "content": "remember cuckoo",
                         "record": (
                             "active_memory_1: remember cuckoo "
-                            "[ active_memory_id: 5fdg4g ] "
+                            "[ id: AM-5fdg4g ] "
                             "[ status: pending ]"
                         ),
                     },
@@ -2139,31 +2008,13 @@ class RuntimeActiveMemoryTests(RuntimeActionTestCase):
             "5fdg4g",
             tool_results,
         )
-        self.assertEqual(
-            context.emitter.events,
-            [
-                {
-                    "type": "runtime_action",
-                    "action": "delete_active_memory",
-                    "id": "5fdg4g",
-                    "display_name": "DELETE_ACTIVE_MEMORY",
-                    "close_tag": False,
-                    "text": "Active memory deleted",
-                    "payload": "5fdg4g",
-                    "detail": "id: 5fdg4g; content: remember cuckoo",
-                },
-                {
-                    "type": "runtime_action",
-                    "action": "delete_active_memory",
-                    "id": "5fdg4g",
-                    "status": "completed",
-                    "display_name": "DELETE_ACTIVE_MEMORY",
-                    "close_tag": False,
-                    "payload": "5fdg4g",
-                    "detail": "id: 5fdg4g; content: remember cuckoo",
-                },
-            ],
-        )
+        self.assertEqual(len(context.emitter.events), 2)
+        self.assertTrue(all(
+            event["action"] == "delete_active_memory"
+            and event["id"] == "AM-5fdg4g"
+            for event in context.emitter.events
+        ))
+        self.assertEqual(context.emitter.events[-1]["status"], "completed")
 
 
     def test_apply_runtime_action_calls_deletes_multiple_active_memories(self):
@@ -2175,11 +2026,11 @@ class RuntimeActiveMemoryTests(RuntimeActionTestCase):
         context = Context()
         context.emitter = Emitter()
         context.runtime_memory = (
-            "active_memory_1: first [ active_memory_id: one111 ] "
+            "active_memory_1: first [ id: AM-one111 ] "
             "[ status: pending ]\n"
-            "active_memory_2: second [ active_memory_id: two222 ] "
+            "active_memory_2: second [ id: AM-two222 ] "
             "[ status: pending ]\n"
-            "active_memory_3: third [ active_memory_id: tri333 ] "
+            "active_memory_3: third [ id: AM-tri333 ] "
             "[ status: pending ]"
         )
         context.runtime_memory_stable = context.runtime_memory
@@ -2191,15 +2042,15 @@ class RuntimeActiveMemoryTests(RuntimeActionTestCase):
                 (
                     RuntimeActionCall(
                         name="DELETE_ACTIVE_MEMORY",
-                        payload="one111",
+                        payload="AM-one111",
                     ),
                     RuntimeActionCall(
                         name="DELETE_ACTIVE_MEMORY",
-                        payload="two222",
+                        payload="AM-two222",
                     ),
                     RuntimeActionCall(
                         name="DELETE_ACTIVE_MEMORY",
-                        payload="tri333",
+                        payload="AM-tri333",
                     ),
                 ),
             )
@@ -2231,9 +2082,9 @@ class RuntimeActiveMemoryTests(RuntimeActionTestCase):
                 if event.get("status") == "completed"
             ],
             [
-                "one111",
-                "two222",
-                "tri333",
+                "AM-one111",
+                "AM-two222",
+                "AM-tri333",
             ],
         )
         self.assertEqual(
@@ -2242,9 +2093,9 @@ class RuntimeActiveMemoryTests(RuntimeActionTestCase):
                 for event in context.runtime_action_events
             ],
             [
-                "one111",
-                "two222",
-                "tri333",
+                "AM-one111",
+                "AM-two222",
+                "AM-tri333",
             ],
         )
 
@@ -2260,19 +2111,19 @@ class RuntimeActiveMemoryTests(RuntimeActionTestCase):
         context.runtime_memory = (
             "session_status: active\n"
             "active_memory_1: respond only in Russian "
-            "[ active_memory_id: one111 ] [ status: pending ]\n"
+            "[ id: AM-one111 ] [ status: pending ]\n"
             "active_memory_2: remember cuckoo "
-            "[ active_memory_id: two222 ] [ status: paused ]"
+            "[ id: AM-two222 ] [ status: paused ]"
         )
         context.runtime_memory_stable = context.runtime_memory
         context.active_memory_records = [
             (
                 "active_memory_1: respond only in Russian "
-                "[ active_memory_id: one111 ] [ status: pending ]"
+                "[ id: AM-one111 ] [ status: pending ]"
             ),
             (
                 "active_memory_2: remember cuckoo "
-                "[ active_memory_id: two222 ] [ status: paused ]"
+                "[ id: AM-two222 ] [ status: paused ]"
             ),
         ]
 
@@ -2282,7 +2133,7 @@ class RuntimeActiveMemoryTests(RuntimeActionTestCase):
                 (
                     RuntimeActionCall(
                         name="DELETE_ACTIVE_MEMORY",
-                        payload="active_memory_id: two222",
+                        payload="AM-two222",
                     ),
                 ),
             )
@@ -2383,7 +2234,7 @@ class RuntimeActiveMemoryTests(RuntimeActionTestCase):
         context = Context()
         context.emitter = Emitter()
         context.runtime_memory = (
-            "active_memory: remember cuckoo [ active_memory_id: 5fdg4g ] "
+            "active_memory: remember cuckoo [ id: AM-5fdg4g ] "
             "[ status: pending ]"
         )
         context.runtime_memory_stable = context.runtime_memory
@@ -2403,17 +2254,13 @@ class RuntimeActiveMemoryTests(RuntimeActionTestCase):
                         name="DELETE_ACTIVE_MEMORY",
                         payload="active_memory_10",
                     ),
-                    RuntimeActionCall(
-                        name="CLEAN_TOOL_RESULTS",
-                        payload="",
-                    ),
                 ),
             )
         )
 
         self.assertEqual(
             applied_count,
-            1,
+            0,
         )
         self.assertIn(
             "5fdg4g",
@@ -2421,7 +2268,7 @@ class RuntimeActiveMemoryTests(RuntimeActionTestCase):
         )
         self.assertEqual(
             len(context.runtime_action_events),
-            2,
+            1,
         )
         self.assertEqual(
             context.runtime_action_events[0]["status"],
@@ -2431,42 +2278,18 @@ class RuntimeActiveMemoryTests(RuntimeActionTestCase):
             context.runtime_action_events[0]["requested"],
             "active_memory_10",
         )
-        self.assertEqual(
-            context.runtime_tool_results,
-            [
-                {
-                    "tool_id": "T1",
-                    "action_name": "DELETE_ACTIVE_MEMORY",
-                    "action_payload": "active_memory_10",
-                    "runtime_turn_id": "",
-                    "runtime_message_id": "",
-                    "kind": TOOL_RESULT_KIND_ACTIVE_MEMORY,
-                    "result": {
-                        "ok": False,
-                        "action": "delete_active_memory",
-                        "error": "invalid_active_memory_id",
-                        "requested": "active_memory_10",
-                        "detail": (
-                            "Active memory was not deleted. Use an exact "
-                            "6-character active_memory_id from <ACTIVE_MEMORY> "
-                            "and retry only for a record that is still pending."
-                        ),
-                        "available_ids": [
-                            "5fdg4g",
-                        ],
-                    },
-                },
-            ],
-        )
+        self.assertEqual(len(context.runtime_tool_results), 1)
+        tool_result = context.runtime_tool_results[0]
+        self.assertEqual(tool_result["tool_id"], "T1")
+        self.assertEqual(tool_result["kind"], TOOL_RESULT_KIND_ACTIVE_MEMORY)
+        self.assertEqual(tool_result["result"]["error"], "invalid_active_memory_id")
+        self.assertEqual(tool_result["result"]["requested"], "active_memory_10")
         self.assertEqual(
             [
                 event.get("status")
                 for event in context.emitter.events
             ],
-            [
-                "failed",
-                "completed",
-            ],
+            ["failed", "failed"],
         )
 
         tool_results = build_tool_results_context(

@@ -3,9 +3,7 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 from utils.actions import RuntimeActionCall
-from utils.actions.jin_visual_sequence_actions import (
-    emit_jin_visual_sequences,
-)
+from utils.actions.jin_visual_actions import emit_jin_visual_action
 
 
 class _Emitter:
@@ -32,11 +30,11 @@ def test_jin_color_action_is_persisted_for_log_bootstrap():
             return None
 
         with patch(
-            "utils.actions.jin_visual_sequence_actions.append_chat_runtime_event"
+            "utils.actions.jin_visual_actions.append_chat_runtime_event"
         ) as append_event:
-            await emit_jin_visual_sequences(
+            await emit_jin_visual_action(
                 context,
-                [action],
+                action,
                 action_display_ids={id(action): "color-action"},
                 log_runtime=log_runtime,
                 with_action_context=lambda event: event,
@@ -75,16 +73,16 @@ def test_jin_color_log_failure_is_visible_without_blocking_ui_event():
 
         with (
             patch(
-                "utils.actions.jin_visual_sequence_actions.append_chat_runtime_event",
+                "utils.actions.jin_visual_actions.append_chat_runtime_event",
                 side_effect=OSError("disk full"),
             ),
             patch(
-                "utils.actions.jin_visual_sequence_actions.LOGGER.exception"
+                "utils.actions.jin_visual_actions.LOGGER.exception"
             ) as log_exception,
         ):
-            await emit_jin_visual_sequences(
+            await emit_jin_visual_action(
                 context,
-                [action],
+                action,
                 action_display_ids={id(action): "color-action"},
                 log_runtime=None,
                 with_action_context=lambda event: event,

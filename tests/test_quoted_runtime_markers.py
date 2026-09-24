@@ -8,6 +8,7 @@ from utils.actions import RuntimeActionStreamFilter, extract_runtime_actions
 
 
 ROOT = Path(__file__).resolve().parents[1]
+JIN_UI_UTILS_JS = ROOT / "ui/static/js/jin-ui-utils.js"
 WRAPPERS = (
     ('"', '"'), ("'", "'"), ("`", "`"), ("«", "»"), ("‹", "›"),
     ("“", "”"), ("‘", "’"), ("„", "“"), ("‚", "‘"),
@@ -153,10 +154,11 @@ class QuotedRuntimeMarkerTests(unittest.TestCase):
 const fs = require("fs");
 global.window = {};
 eval(fs.readFileSync(process.argv[1], "utf8"));
-const source = fs.readFileSync(process.argv[2], "utf8");
-eval(source.slice(source.indexOf("function escapeHtml("), source.indexOf("function isJinMemoryReferenceRole(")));
+eval(fs.readFileSync(process.argv[2], "utf8"));
+const source = fs.readFileSync(process.argv[3], "utf8");
+eval(source.slice(source.indexOf("const escapeChatHtml"), source.indexOf("function isJinMemoryReferenceRole(")));
 eval(source.slice(source.indexOf("function stripInternalActionMarkers("), source.indexOf("function collapseAnswerMarkerGap(")));
-const wrappers = JSON.parse(process.argv[3]);
+const wrappers = JSON.parse(process.argv[4]);
 for (const [open, close] of wrappers) {
   for (const tag of ["<UPDATE_LT_FACTS>", "<JIN_COLOR>#00f2ff</JIN_COLOR>", "<JIN_SIZE>120px</JIN_SIZE>"]) {
     const text = `before ${open}${tag}${close} after`;
@@ -174,6 +176,7 @@ if (!window.JinResponseFormatter.render("<JIN_COLOR>#00f2ff</JIN_COLOR>").includ
 """
         completed = subprocess.run([
             shutil.which("node"), "-e", script,
+            str(JIN_UI_UTILS_JS),
             str(ROOT / "ui/static/js/chat-response-formatter.js"),
             str(ROOT / "ui/static/js/chat.js"), json.dumps(WRAPPERS),
         ], capture_output=True, text=True)

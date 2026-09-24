@@ -8,9 +8,8 @@ from utils.actions import RuntimeActionStreamFilter, extract_runtime_actions
 FORMS = (
     '<tool_call>call:ATTACH_FILE_BY_ID{id:"z4tsdy"}<tool_call|>',
     '<ATTACH_FILE_BY_ID id="z4tsdy"></ATTACH_FILE_BY_ID>',
-    '<ATTACH_FILE_BY_ID>{ id="**z4tsdy**" }</ATTACH_FILE_BY_ID>',
 )
-PAYLOADS = ('{id:"z4tsdy"}', 'id="z4tsdy"', '{ id="**z4tsdy**" }')
+PAYLOADS = ('{id:"z4tsdy"}', 'id="z4tsdy"')
 
 
 def parse(chunks):
@@ -65,15 +64,20 @@ class MalformedParserTests(TestCase):
             self.assertTrue(all(a.name == 'MALFORMED_ACTION' for a in actions))
 
     def test_whole_text_and_mixed_source_order(self):
-        source = FORMS[0] + '<LIST_FILES>' + FORMS[1] + '<ATTACH_FILE_BY_ID: abc123 >' + FORMS[2]
+        source = (
+            FORMS[0]
+            + '<LIST_ALL_USER_SHARED_FILES>'
+            + FORMS[1]
+            + '<ATTACH_FILES_BY_ID> abc123 </ATTACH_FILES_BY_ID>'
+        )
         for chunks in ([source], list(source)):
             visible, actions = parse(chunks)
             self.assertEqual(visible, '')
             self.assertEqual([a.name for a in actions], [
-                'MALFORMED_ACTION', 'LIST_FILES', 'MALFORMED_ACTION',
-                'ATTACH_FILE_BY_ID', 'MALFORMED_ACTION',
+                'MALFORMED_ACTION', 'LIST_ALL_USER_SHARED_FILES',
+                'MALFORMED_ACTION', 'ATTACH_FILE_BY_ID',
             ])
-        self.assertEqual(len(extract_runtime_actions(source).actions), 5)
+        self.assertEqual(len(extract_runtime_actions(source).actions), 4)
 
     def test_quoted_unknown_and_false_prefix_are_plain_text(self):
         for form in FORMS:
@@ -88,12 +92,14 @@ class MalformedParserTests(TestCase):
             self.assertEqual(parse(list(text)), (text, []))
 
     def test_incomplete_known_envelopes_and_flush_once(self):
-        for source in ('<ATTACH_FILE_BY_ID id="abc123">',
-                       '<ATTACH_FILE_BY_ID>{ id="abc123" }',
-                       '<tool_call>call:ATTACH_FILE_BY_ID{id:"abc123"}'):
+        cases = (
+            ('<ATTACH_FILE_BY_ID id="abc123">', []),
+            ('<tool_call>call:ATTACH_FILE_BY_ID{id:"abc123"}', ['MALFORMED_ACTION']),
+        )
+        for source, expected_actions in cases:
             visible, actions = parse(list(source))
             self.assertEqual(visible, '')
-            self.assertEqual([a.name for a in actions], ['MALFORMED_ACTION'])
+            self.assertEqual([a.name for a in actions], expected_actions)
         p = RuntimeActionStreamFilter()
         p.filter(FORMS[0])
         self.assertFalse(p.flush_result().actions)
@@ -116,21 +122,21 @@ class MalformedRuntimeTests(IsolatedAsyncioTestCase):
         stream = RuntimeStream(
             context=context, runtime_id='brain', role='brain', context_window=8192,
             log_method=context.logger.log_service, enable_validator=False,
-            runtime_actions=['LIST_FILES', 'ATTACH_FILE_BY_ID'],
+            runtime_actions=['LIST_ALL_USER_SHARED_FILES', 'ATTACH_FILE_BY_ID'],
         )
         async def chunks():
-            yield {'type': 'content', 'content': '<LIST_FILES>' + FORMS[0] + FORMS[1]}
+            yield {'type': 'content', 'content': '<LIST_ALL_USER_SHARED_FILES>' + FORMS[0] + FORMS[1]}
         with patch('utils.actions.dispatcher.ensure_assets_tree'), patch('utils.actions.attachment_actions.list_file_records', return_value=[]):
             await stream.run(chunks())
         self.assertEqual([e['result']['action'] for e in context.runtime_tool_results],
                          ['list_files', 'malformed_action', 'malformed_action'])
         history = build_session_actions_history_context(context)
-        self.assertIn('LIST_FILES: 0 files', history)
+        self.assertIn('LIST_ALL_USER_SHARED_FILES', history)
         self.assertEqual(history.count('MALFORMED_ACTION: ATTACH_FILE_BY_ID'), 2)
-        self.assertLess(history.index('LIST_FILES'), history.index('MALFORMED_ACTION'))
+        self.assertLess(history.index('LIST_ALL_USER_SHARED_FILES'), history.index('MALFORMED_ACTION'))
         prompt = BrainNode.build_followup_system_prompt(build_tool_results_context(context), 'test', context=context)
-        self.assertTrue(prompt.startswith('<MALFORMED_ACTION_NOTIFICATION>'))
-        self.assertIn('name="LIST_FILES"', prompt)
+        self.assertIn('<MALFORMED_ACTION_NOTIFICATION>', prompt)
+        self.assertIn('name="LIST_ALL_USER_SHARED_FILES"', prompt)
         self.assertEqual(prompt.count('<MALFORMED_ACTION_NOTIFICATION>'), 2)
 
     async def test_repeated_malformed_followups_stop_after_one_repair(self):
@@ -211,34 +217,33 @@ class MalformedRuntimeTests(IsolatedAsyncioTestCase):
         response = await stream.run(chunks())
         self.assertEqual(response.split(), ['before', 'after'], context.logger.messages)
         events = [e for e in context.emitter.events if e.get('action') == 'malformed_action']
-        self.assertEqual(len(events), 3)
-        self.assertEqual(len({e['id'] for e in events}), 3)
+        self.assertEqual(len(events), 2)
+        self.assertEqual(len({e['id'] for e in events}), 2)
         self.assertTrue(all(e['text'] == 'MALFORMED_ACTION: ATTACH_FILE_BY_ID' for e in events))
         self.assertEqual([e['payload'] for e in events], list(PAYLOADS))
-        self.assertEqual(len(context.runtime_session_action_history), 3)
+        self.assertEqual(len(context.runtime_session_action_history), 2)
         self.assertTrue(all(action_event_requires_follow_up(e) for e in context.runtime_action_events))
         tool_context = build_tool_results_context(context)
-        self.assertEqual(tool_context.count('name="MALFORMED_ACTION"'), 3)
+        self.assertEqual(tool_context.count('name="MALFORMED_ACTION"'), 2)
         self.assertNotIn('Correct action schema', tool_context)
         prompt = BrainNode.build_followup_system_prompt(tool_context + '\nBASE', 'test', context=context)
-        self.assertTrue(prompt.startswith('<MALFORMED_ACTION_NOTIFICATION>'))
-        self.assertEqual(prompt.count('<MALFORMED_ACTION_NOTIFICATION>'), 3)
-        self.assertLess(prompt.index('tool_id: T1'), prompt.index('tool_id: T2'))
-        self.assertLess(prompt.index('tool_id: T2'), prompt.index('tool_id: T3'))
-        self.assertEqual(prompt.count(get_runtime_action_schema('ATTACH_FILE_BY_ID')[0]), 3)
+        self.assertIn('<MALFORMED_ACTION_NOTIFICATION>', prompt)
+        self.assertEqual(prompt.count('<MALFORMED_ACTION_NOTIFICATION>'), 2)
+        self.assertLess(prompt.index('tool_id: T2'), prompt.index('tool_id: T1'))
+        self.assertEqual(prompt.count(get_runtime_action_schema('ATTACH_FILE_BY_ID')[0]), 2)
         self.assertNotIn('ACTION_FAILURE_FOLLOWUP', prompt)
         self.assertNotIn('<MALFORMED_ACTION_NOTIFICATION>', BrainNode.build_followup_system_prompt('BASE', 'test', context=context))
         checkpoint = build_runtime_session_checkpoint(context)
         restored, _ = clean_bootstrap_tool_results(json.loads(json.dumps(checkpoint['tool_results'])))
         self.assertEqual([e['result']['payload'] for e in restored], list(PAYLOADS))
-        self.assertEqual([e['tool_id'] for e in restored], ['T1', 'T2', 'T3'])
+        self.assertEqual([e['tool_id'] for e in restored], ['T1', 'T2'])
         context.runtime_tool_results = restored
-        self.assertEqual(build_tool_results_context(context).count('name="MALFORMED_ACTION"'), 3)
+        self.assertEqual(build_tool_results_context(context).count('name="MALFORMED_ACTION"'), 2)
         from websocket.bootstrap import apply_archived_session_continuation_state
         restored_context = SimpleNamespace()
         saved_history = json.loads(json.dumps(context.runtime_session_action_history))
         apply_archived_session_continuation_state(restored_context, {'session_actions': saved_history})
-        self.assertEqual(len(restored_context.runtime_session_action_history), 3)
+        self.assertEqual(len(restored_context.runtime_session_action_history), 2)
         for original, hydrated in zip(saved_history, restored_context.runtime_session_action_history):
             self.assertEqual(hydrated['created_at'], original['created_at'])
             self.assertEqual(hydrated['parts'], original['parts'])

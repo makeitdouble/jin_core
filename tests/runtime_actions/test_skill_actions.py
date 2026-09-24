@@ -727,7 +727,17 @@ class RuntimeSkillActionTests(RuntimeActionTestCase):
                     ],
                     [
                         "load_skill",
+                        "asset_action",
                     ],
+                )
+                blocked_event = context.runtime_action_events[-1]
+                self.assertEqual(
+                    blocked_event["status"],
+                    "failed",
+                )
+                self.assertEqual(
+                    blocked_event["error"],
+                    "skill_context_changed",
                 )
                 self.assertFalse(
                     hasattr(

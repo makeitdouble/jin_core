@@ -428,7 +428,7 @@ if (classes.has("scene-searching")) {
         shutil.which("node"),
         "node is required for the update-active-memory UI test",
     )
-    def test_update_active_memory_success_bubble_and_payload_hover(self):
+    def test_save_active_memory_update_success_bubble_and_payload_hover(self):
         script = r'''
 const fs = require("fs");
 global.window = {};
@@ -443,10 +443,11 @@ const source = fs.readFileSync(process.argv[1], "utf8");
 eval(source);
 
 handleRuntimeAction({
-  action: "update_active_memory",
+  action: "save_active_memory",
+  active_memory_mode: "update",
   status: "completed",
-  text: "UPDATE_ACTIVE_MEMORY: old conditions",
-  display_name: "UPDATE_ACTIVE_MEMORY",
+  text: "SAVE_ACTIVE_MEMORY: old conditions",
+  display_name: "SAVE_ACTIVE_MEMORY",
   id: "su5vfx",
   active_memory_id: "su5vfx",
   active_memory_key: "active_memory_1",
@@ -457,11 +458,9 @@ handleRuntimeAction({
     key: "active_memory_1",
     title: "new conditions",
     payload: JSON.stringify({
-      active_memory_id: "su5vfx",
-      fields_to_update: {
-        type: "updated_test",
-        conditions: "new conditions",
-      },
+      id: "su5vfx",
+      type: "updated_test",
+      conditions: "new conditions",
     }),
   },
   active_memory_requested_changes: [
@@ -472,16 +471,15 @@ handleRuntimeAction({
 });
 
 if (!global.captured) {
-  throw new Error("UPDATE_ACTIVE_MEMORY was not rendered");
+  throw new Error("SAVE_ACTIVE_MEMORY update was not rendered");
 }
-if (global.captured.text !== "UPDATE_ACTIVE_MEMORY: active_memory_1") {
+if (global.captured.text !== "SAVE_ACTIVE_MEMORY: active_memory_1") {
   throw new Error(`unexpected text: ${global.captured.text}`);
 }
 const expectedDetail = [
-  "active_memory_id: su5vfx",
-  "fields_to_update:",
-  "\ttype: updated_test",
-  "\tconditions: new conditions",
+  "id: su5vfx",
+  "type: updated_test",
+  "conditions: new conditions",
 ].join("\n");
 if (global.captured.options.detail !== expectedDetail) {
   throw new Error(

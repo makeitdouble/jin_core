@@ -1,6 +1,6 @@
 # JIN Core Engine — Durable Decisions
 
-**Decision baseline:** reconciled on 2026-09-17 against `jin_core(20260917-184157).zip`. Existing decisions are retained where current source still implements their product meaning; compatibility syntax is documented separately from the canonical model boundary.
+**Decision baseline:** reconciled on 2026-09-24 against `jin_core(20260924-072111).zip`. Existing decisions are retained where current source still implements their product meaning; compatibility syntax is documented separately from the canonical model boundary.
 
 This file records product/architecture intent that should survive refactors. It is not a changelog and not a dump of historical experiments.
 
@@ -263,19 +263,20 @@ Memory/file items use a shared interaction language where applicable: long press
 
 ---
 
-## D019 — Consecutive JIN visual actions should read as one sequence
+## D019 — JIN visual actions use ordinary source-order execution
 
 **Status:** Accepted / implemented
 
-Consecutive color/size/position/speed actions should be visually sequenced rather than looking like unrelated mechanical phases. Position movement should ease in/out while respecting semantic speed.
+Color/reaction/size/position/speed markers are normal runtime actions. The dispatcher fully prepares and runs each emitted call before touching the next one, so visual state changes in exact model source order. There is no visual-sequence collector, action-stage priority, or client sequence buffer.
 
-Only adjacent/no-op repetitions in the same runtime-message scope are removed. Alternation such as red -> blue -> red must remain ordered, and a later message may intentionally request the same color again.
+Only a true no-op repetition in the same runtime-message scope may be filtered where that action supports it. Alternation such as red -> blue -> red must remain ordered, and a later message may intentionally request the same value again.
 
-**Why:** the Live Avatar is a runtime expression channel, not four disconnected CSS toggles.
+**Why:** visual actions should share the same predictable action semantics as the rest of the runtime while preserving the model's expressive order.
 
-**Rejected alternative:** adding a second parallel animation engine when the existing sequence runner can be extended.
+**Rejected alternatives:** restoring the removed visual-sequence collector; adding a second parallel animation scheduler; using contract `runtime_order` or registry stages to reorder emitted calls.
 
 ---
+
 
 ## D020 — Do not invent a second source of truth to fix restore/UI bugs
 
@@ -670,35 +671,36 @@ L-T facts are projected to Live Avatar in lanes of at most 100 records. Addition
 
 **Status:** Accepted / implemented
 
-Whole-file recall uses `ATTACH_FILE_BY_ID` with an existing persistent system
-ID (text or image). Paths and source line ranges belong to `ATTACH_FILE_CONTENT`.
-Unknown IDs must fail, never become project paths. Success is displayed as
-`ATTACH_FILE_BY_ID: full_filename.ext`; a missing file is displayed as
-`ATTACH_FILE_BY_ID: id : failed - file not exists`.
+Whole-file recall uses `ATTACH_FILE_BY_ID` with an existing persistent system ID (text or image). Paths and source line ranges belong to `ATTACH_FILE_CONTENT`. Unknown IDs must fail, never become project paths. Success is displayed as `ATTACH_FILE_BY_ID: full_filename.ext`; a missing file is displayed as `ATTACH_FILE_BY_ID: id : failed - file not exists`.
 
-`CHAT_LOG_SEARCH` searches saved USER/JIN messages with literal case-insensitive
-substrings, OR queries, inclusive date/daily-time bounds and newest-first results.
+`CHAT_LOG_SEARCH` searches saved USER/JIN messages with literal case-insensitive substrings, OR queries, inclusive date/daily-time bounds and newest-first results. The default limit is 10 turns, hard maximum 50. Including JIN permits bounded reasoning excerpts only alongside a matching USER in that same turn; USER-only search excludes reasoning. Matched messages retain their attachment metadata. The full request and historical identities accompany results. Contract, errors, follow-up, bubbles and persistence reuse the existing runtime-action path.
 
-### D055 — Paired list actions and delayed-memory ownership
+**Rejected alternatives:** embedding/index infrastructure for this first version; reasoning-only evidence without a matching USER; restoring historical resources as a side effect of search. See [CHAT_LOG_SEARCH.md](CHAT_LOG_SEARCH.md).
+
+---
+
+## D055 — Paired list actions and delayed-memory ownership
 
 **Status:** Accepted / implemented
 
-`WEB_SEARCH` uses `<WEB_SEARCH> query </WEB_SEARCH>`. Delayed report loading,
-Active Memory deletion, and whole-file attachment accept comma-separated IDs in
-paired markers. Each ID becomes one ordered internal action. Model-issued
-`LOAD_DELAYED_MEMORY` results are ordinary tool results with tool IDs and can be
-removed through `CLEAN_TOOL_RESULTS`; they never populate
-`<LOADED_DELAYED_MEMORY>`. That block is exclusively owned by explicit user pin
-state. Consequently there is no model-facing `UNLOAD_DELAYED_MEMORY` contract.
-The default limit is 10 turns, hard maximum 50. Including JIN permits bounded
-reasoning excerpts only alongside a matching USER in that same turn; USER-only
-search excludes reasoning. Matched messages retain their attachment metadata.
-The full request and historical identities accompany results. Contract, errors,
-follow-up, bubbles and persistence reuse the existing runtime-action path.
+`WEB_SEARCH` uses `<WEB_SEARCH> query </WEB_SEARCH>`. Delayed report loading, Active Memory deletion, and whole-file attachment accept comma-separated IDs in paired markers. Each ID becomes one ordered internal action. Model-issued `LOAD_DELAYED_MEMORY` results are ordinary tool results with tool IDs and can be removed through `CLEAN_TOOL_RESULTS`; they never populate `<LOADED_DELAYED_MEMORY>`. That block is exclusively owned by explicit user pin state. Consequently there is no model-facing `UNLOAD_DELAYED_MEMORY` contract.
 
-**Rejected alternatives:** embedding/index infrastructure for this first version;
-reasoning-only evidence without a matching USER; restoring historical resources
-as a side effect of search. See [CHAT_LOG_SEARCH.md](CHAT_LOG_SEARCH.md).
+---
+
+## D056 — MCP integrations use one generic loaded-skill action
+
+**Status:** Accepted / implemented
+
+An MCP integration is a normal skill with one canonical `<MCP_SERVER>...</MCP_SERVER>` declaration. Loading the skill discovers the live server/tool catalog and appends it only to the in-memory skill context as `<MCP_RUNTIME>`. Core runtime exposes one generic `CALL_MCP` action rather than generating a Python action per external tool. `CALL_MCP` is model-visible only while a valid MCP skill is loaded.
+
+Each loaded MCP skill owns one persistent connection across automatic follow-ups; unload/runtime retirement closes it and a changed server config creates a new one. MCP calls are excluded from generic result reuse because external tools may mutate state. Returned MCP images join the ordinary pinned-file/attachment path so the next Brain follow-up can inspect them.
+
+**Why:** tool servers can extend JIN without expanding the core action registry per tool, while skill text retains semantic guidance and the server remains authoritative for live technical schemas.
+
+**Rejected alternatives:** one core runtime action per MCP tool; reconnecting a stateful stdio server for every follow-up; duplicating static MCP server identity/instructions in every tool result; keeping screenshot base64 in model context.
+
+---
+
 
 ## Background-tab continuity — 2026-09-08
 
@@ -720,18 +722,14 @@ it is not a ten-minute generation limit or a timeout on a connected action guard
 
 ## Malformed-action recovery — 2026-09-10
 
-**Status:** Accepted / implemented
+**Status:** Accepted / implemented; repair-loop semantics reconciled 2026-09-24
 
-Recognize the three owner-provided malformed envelopes without repairing or
-executing their payload. Every occurrence gets an independent `MALFORMED_ACTION`
-bubble, history item and T-id. The next shared follow-up starts with one ordered
-notification per occurrence: target action, original extracted payload, and the
-correct contract `schema`. Do not quote the malformed envelope in that notice.
-Valid action results and normal sequence history remain available together.
+Recognize the three owner-provided malformed envelopes without repairing or executing their payload. Every occurrence gets an independent `MALFORMED_ACTION` bubble, history item and T-id. The next shared follow-up starts with one ordered notification per occurrence: target action, original extracted payload, and the correct contract `schema`. Do not quote the malformed envelope in that notice. Valid action results and normal sequence history remain available together.
 
-**Rejected:** the attachment's one-repair-attempt/hard-fail proposal, a separate
-repair-only conversation, inferred action execution, or collapsing repeated
-malformed attempts into one bubble. Repeat the follow-up when needed.
+The current loop grants one malformed repair tick outside the ordinary workflow follow-up budget. If that repair response is malformed again, stop the repair loop and run one final non-executable Brain response tick with runtime actions disabled. This supersedes the earlier "repeat repair indefinitely" wording.
+
+**Rejected:** a separate repair-only conversation, inferred action execution, collapsing repeated malformed attempts into one bubble, or an unbounded malformed-repair loop.
+
 
 
 ## D049 — Bootstrap lifecycle is fixed by the owner (2026-09-11)

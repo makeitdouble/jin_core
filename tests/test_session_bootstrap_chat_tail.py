@@ -186,7 +186,7 @@ class SessionBootstrapChatTailTests(unittest.TestCase):
                 turns,
             )
             self.assertIn(
-                f'<OLD_SESSION_RESTORED_STATE session_id="{child_id}">',
+                f'<PREVIOUS_CHAT_MESSAGES session_id="{child_id}">',
                 payload["bootstrap_lineage_dialog_context"],
             )
             self.assertIn(

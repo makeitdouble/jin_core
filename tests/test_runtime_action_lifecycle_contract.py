@@ -52,7 +52,7 @@ class RuntimeActionLifecycleContractTests(unittest.TestCase):
             if index + 1 < len(names):
                 end = source.index(f"function {names[index + 1]}(", start)
             else:
-                end = source.index("function normalizeRuntimeActionColor(", start)
+                end = source.index("const normalizeRuntimeActionColor =", start)
             chunks.append(source[start:end])
 
         script = "\n".join(chunks) + r'''

@@ -23,10 +23,8 @@ from runtime.runtime_context import (
     RuntimeContext,
     RuntimeEmitter,
 )
-from runtime.frame_memory import (
-    build_runtime_memory_snapshot,
-    schedule_runtime_memory_update,
-)
+from runtime.frame_memory import schedule_runtime_memory_update
+from runtime.frame_memory_utils import build_runtime_memory_snapshot
 from websocket import (
     refresh_pending_brain_usage,
     wait_for_runtime_memory_update,

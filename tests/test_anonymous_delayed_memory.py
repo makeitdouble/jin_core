@@ -11,6 +11,7 @@ from starlette.websockets import WebSocketDisconnect
 
 import websocket as ws_runtime
 from rules.brain_context_builder import build_loaded_delayed_memory_context
+from utils.context.tool_results import build_tool_results_context
 from runtime.anonymous_mode import (
     configure_runtime_anonymous_mode,
     runtime_action_write_is_restricted,
@@ -96,7 +97,8 @@ class AnonymousDelayedMemoryTests(unittest.IsolatedAsyncioTestCase):
                 RuntimeActionCall(name="LOAD_DELAYED_MEMORY", payload=report_id),
             ))
             self.assertEqual(applied, 1)
-            self.assertIn("Full anonymous report body.", build_loaded_delayed_memory_context(restored))
+            self.assertEqual(build_loaded_delayed_memory_context(restored), "")
+            self.assertIn("Full anonymous report body.", build_tool_results_context(restored))
             disk.assert_not_called()
         self.assertEqual(other.delayed_memory_reports, {})
         self.assertEqual(normal.delayed_memory_reports, {})

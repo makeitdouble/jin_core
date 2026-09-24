@@ -183,8 +183,8 @@ assert.deepEqual(snapshot(traceModalContent), modernDOM);
 
 const empty = emit("merge_applied", "No changes", {trace: {kind: "lt_merge_applied", operation_details: []}});
 openBoth(empty);
-assert.equal(traceModalContent.textContent, "No changes");
-assert.equal(traceModal.classList.contains("jin-lt-merge-trace-modal"), false);
+assert.equal(traceModalContent.textContent, "0 OPERATIONS");
+assert.equal(traceModal.classList.contains("jin-lt-merge-trace-modal"), true);
 openBoth(emit("merge_applied", "No changes"));
 assert.equal(traceModalContent.textContent, "No changes");
 

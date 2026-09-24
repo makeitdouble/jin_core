@@ -87,7 +87,8 @@ def _assert_latest_request_payload(
         test_case.assertIn(latest_action_fragment, system_prompt)
     test_case.assertNotIn("<SEQUENCE_ORIGIN_REQUEST>", system_prompt)
     test_case.assertNotIn("MANDATORY: THIS IS NOT CURRENT COMMAND", system_prompt)
-    test_case.assertNotIn("<PREVIOUS_CHAT_MESSAGES>", system_prompt)
+    test_case.assertIn("<PREVIOUS_CHAT_MESSAGES>", system_prompt)
+    test_case.assertIn(escape(user_input), system_prompt)
 
 
 class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
@@ -184,8 +185,9 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
             latest_action="SAVE_DELAYED_MEMORY",
         )
 
-        self.assertTrue(
-            prompt.startswith(POTENTIAL_LOOP_FOLLOWUP_MESSAGE)
+        self.assertIn(
+            POTENTIAL_LOOP_FOLLOWUP_MESSAGE,
+            prompt,
         )
         self.assertFalse(
             context.runtime_potential_loop_detected_pending
@@ -230,10 +232,9 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
             latest_action="ASSET_ACTION",
         )
 
-        self.assertTrue(
-            prompt.startswith(
-                "<ACTION_FAILURE_FOLLOWUP>"
-            )
+        self.assertIn(
+            "<ACTION_FAILURE_FOLLOWUP>",
+            prompt,
         )
         self.assertIn(
             ACTION_FAILURE_FOLLOWUP_MESSAGE,
@@ -269,7 +270,7 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
         )
         self.assertLess(
             prompt.index(instruction),
-            prompt.index("<CURRENT_CONCERNS>"),
+            prompt.index("<TOOLS_RESULTS>"),
         )
 
     async def test_followup_places_confirm_result_inside_tool_results(self):
@@ -331,12 +332,12 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
                 context=context,
             )
 
-        self.assertIn("<CURRENT_REQUEST_ACTIONS_HISTORY>", prompt)
+        self.assertIn("<REQUEST_ACTIONS_HISTORY>", prompt)
         self.assertNotIn("ORIGINAL_USER_REQUEST", prompt)
-        self.assertNotIn("keep &lt;this&gt; in delayed memory", prompt)
+        self.assertIn("keep &lt;this&gt; in delayed memory", prompt)
         self.assertIn("1. LIST_SKILLS ( 5s ago )", prompt)
         self.assertLess(
-            prompt.index("</CURRENT_REQUEST_ACTIONS_HISTORY>"),
+            prompt.index("</REQUEST_ACTIONS_HISTORY>"),
             prompt.index("<TOOLS_RESULTS>"),
         )
         self.assertNotIn("SEQUENCE_ORIGIN_REQUEST", prompt)
@@ -366,7 +367,7 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
             "<FOLLOWUP_TICK>",
             prompt,
         )
-        self.assertNotIn("<CURRENT_REQUEST_ACTIONS_HISTORY>", prompt)
+        self.assertNotIn("<REQUEST_ACTIONS_HISTORY>", prompt)
         self.assertEqual(
             prompt.count(
                 "<TOOLS_RESULTS>"
@@ -464,8 +465,8 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
             prompt,
         )
         self.assertLess(
-            prompt.index("<TOOLS_RESULTS>"),
             prompt.index("<PREVIOUS_REASONING_EVIDENCE_TRAIL_AFTER_EXECUTED_ACTIONS>"),
+            prompt.index("<TOOLS_RESULTS>"),
         )
         self.assertLess(
             prompt.index("</PREVIOUS_REASONING_EVIDENCE_TRAIL_AFTER_EXECUTED_ACTIONS>"),
@@ -616,14 +617,14 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
                 sequence_started_at=1000.0,
                 now=1150.0,
             ),
-            "<PREVIOUS_RUNTIME_STATE ( 2m 30s ago ) >",
+            "<PREVIOUS_FRAME_MEMORY_SNAPSHOT ( 2m 30s ago ) >",
         )
         self.assertEqual(
             format_previous_runtime_memory_tag(
                 sequence_started_at=1000.0,
                 now=1185.0,
             ),
-            "<PREVIOUS_RUNTIME_STATE ( 3m 5s ago ) >",
+            "<PREVIOUS_FRAME_MEMORY_SNAPSHOT ( 3m 5s ago ) >",
         )
 
     async def test_followup_runtime_memory_tag_uses_sequence_started_at(self):
@@ -649,8 +650,8 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertIn(
             (
-                "<PREVIOUS_RUNTIME_STATE ( 2m 30s ago ) >"
-                "state</PREVIOUS_RUNTIME_STATE>"
+                "<PREVIOUS_FRAME_MEMORY_SNAPSHOT ( 2m 30s ago ) >"
+                "state</PREVIOUS_FRAME_MEMORY_SNAPSHOT>"
             ),
             prompt,
         )
@@ -667,8 +668,8 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
         )
 
         self.assertIn(
-            "<PREVIOUS_RUNTIME_STATE>\nactive_topic: test\n"
-            "</PREVIOUS_RUNTIME_STATE>",
+            "<PREVIOUS_FRAME_MEMORY_SNAPSHOT>\nactive_topic: test\n"
+            "</PREVIOUS_FRAME_MEMORY_SNAPSHOT>",
             prompt,
         )
         self.assertNotIn(
@@ -711,14 +712,14 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
             "<FOLLOWUP_TICK>",
             prompt,
         )
-        self.assertNotIn("<CURRENT_REQUEST_ACTIONS_HISTORY>", prompt)
+        self.assertNotIn("<REQUEST_ACTIONS_HISTORY>", prompt)
         self.assertNotIn("<ORIGINAL_USER_REQUEST", prompt)
-        self.assertNotIn("append the delayed memory", prompt)
+        self.assertIn("append the delayed memory", prompt)
         self.assertIn(
             loaded_delayed_memory,
             prompt,
         )
-        self.assertNotIn(
+        self.assertIn(
             "<PREVIOUS_CHAT_MESSAGES>",
             prompt,
         )
@@ -849,15 +850,15 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
             )
 
         self.assertIn("turn_000002", context.runtime_action_sequence_turn_ids)
-        self.assertIn("<CURRENT_REQUEST_ACTIONS_HISTORY>", prompt)
-        self.assertNotIn("first list skills, then append one", prompt)
+        self.assertIn("<REQUEST_ACTIONS_HISTORY>", prompt)
+        self.assertIn("first list skills, then append one", prompt)
         self.assertIn("1. LIST_SKILLS ( 55s ago )", prompt)
         self.assertIn("2. LOAD_SKILL ( 2s ago )", prompt)
         self.assertLess(
-            prompt.index("</CURRENT_REQUEST_ACTIONS_HISTORY>"),
+            prompt.index("</REQUEST_ACTIONS_HISTORY>"),
             prompt.index("<TOOLS_RESULTS>"),
         )
-        self.assertNotIn("<PREVIOUS_CHAT_MESSAGES>", prompt)
+        self.assertIn("<PREVIOUS_CHAT_MESSAGES>", prompt)
 
 
     async def test_restore_replay_does_not_consume_model_action_followup(self):
@@ -1046,6 +1047,7 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
             BrainNode,
             "emit_brain_text",
             staticmethod(fake_emit_brain_text),
+            create=True,
         ):
             await BrainNode().run(
                 state,
@@ -1160,8 +1162,8 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
                 "",
             )
             self.assertNotIn("<ORIGINAL_USER_REQUEST", kwargs["system_prompt"])
-            self.assertNotIn("что на скриншоте?", kwargs["system_prompt"])
-            self.assertNotIn("Attached context:", kwargs["system_prompt"])
+            self.assertIn("что на скриншоте?", kwargs["system_prompt"])
+            self.assertIn("Attached context:", kwargs["system_prompt"])
             self.assertNotIn(
                 "runtime_attachment",
                 kwargs["system_prompt"],
@@ -1355,9 +1357,9 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
             observed["brain_payload"],
             "",
         )
-        self.assertEqual(
-            observed["action_user_message"],
-            "создай новый lt факт",
+        self.assertNotIn(
+            "action_user_message",
+            observed,
         )
 
     async def test_failed_delayed_memory_save_triggers_followup_with_payload(self):
@@ -2147,6 +2149,7 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
             BrainNode,
             "emit_brain_text",
             staticmethod(fake_emit_brain_text),
+            create=True,
         ):
             await BrainNode().run(
                 state,
@@ -2675,6 +2678,7 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
             BrainNode,
             "emit_brain_text",
             staticmethod(fake_emit_brain_text),
+            create=True,
         ):
             await BrainNode().run(
                 state,
@@ -2808,6 +2812,7 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
             BrainNode,
             "emit_brain_text",
             staticmethod(fake_emit_brain_text),
+            create=True,
         ):
             await BrainNode().run(
                 state,

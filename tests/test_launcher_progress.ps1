@@ -39,9 +39,15 @@ foreach ($control in @($true, $false)) {
         [void]$ps.Invoke()
         if ($ps.HadErrors) { throw ($ps.Streams.Error | Out-String) }
         $count = $ps.Streams.Progress.Count
+        $preference = [string]$ps.Runspace.SessionStateProxy.GetVariable('ProgressPreference')
         if ($control -and $count -eq 0) { throw 'Control failed to emit progress' }
-        if (-not $control -and $count -ne 0) { throw "Launcher leaked $count progress records to the host" }
-        Write-Output "control=$control progress_records=$count"
+        # Windows PowerShell 5.1 may retain progress records in the runspace
+        # stream even when SilentlyContinue prevents host rendering. Validate
+        # the launcher preference instead of treating the diagnostic stream as UI.
+        if (-not $control -and $preference -ne 'SilentlyContinue') {
+            throw "Launcher progress preference changed to '$preference'"
+        }
+        Write-Output "control=$control progress_records=$count preference=$preference"
     }
     finally { $ps.Dispose() }
 }

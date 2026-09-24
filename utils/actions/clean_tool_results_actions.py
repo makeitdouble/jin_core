@@ -6,7 +6,7 @@ from contracts.rules_assembler import (
 from utils.tool_results import (
     TOOL_RESULT_KIND_RUNTIME_ACTION,
     clean_runtime_tool_results_by_ids,
-    clear_runtime_tool_results_before_current_turn,
+    clear_runtime_tool_results,
     record_runtime_tool_result,
 )
 
@@ -36,9 +36,9 @@ async def apply_clean_tool_results_actions(
         if target_payload:
             ok = not malformed_id_list and clean_runtime_tool_results_by_ids(context, target_ids)
         else:
-            # Empty CLEAN drops only results from earlier turns. Results emitted
-            # earlier in this model turn stay alive regardless of stream chunks.
-            clear_runtime_tool_results_before_current_turn(context)
+            # An explicitly empty block is the contract's clear-all form,
+            # including modern current-turn and legacy ID-less results.
+            clear_runtime_tool_results(context)
             ok = True
         reason = "" if ok else f"Unknown or invalid tool_id list: {target_payload}"
         event = next(

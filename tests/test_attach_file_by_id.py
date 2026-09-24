@@ -23,13 +23,17 @@ from agent.nodes.brain import consume_action_failure_followup_context
 
 
 ACTION = 'ATTACH_FILE_BY_ID'
+PUBLIC_MARKER = 'ATTACH_FILES_BY_ID'
 
 
 class AttachFileByIdTests(unittest.TestCase):
     setUp = fixture.ProjectReviewTests.setUp
 
     def attach(self, payload):
-        actions = extract_runtime_actions(f'<{ACTION}: {payload} >', enabled_actions=[ACTION]).actions
+        actions = extract_runtime_actions(
+            f'<{PUBLIC_MARKER}> {payload} </{PUBLIC_MARKER}>',
+            enabled_actions=[ACTION],
+        ).actions
         self.assertEqual(len(actions), 1)
         start = len(self.context.runtime_session_action_history)
         with patch('utils.actions.dispatcher.ensure_assets_tree'), patch('utils.chat_log.append_chat_runtime_event'):
@@ -79,9 +83,12 @@ class AttachFileByIdTests(unittest.TestCase):
             with patch('utils.actions.attachment_actions.parse_project_file_target', side_effect=AssertionError('must not read a path')):
                 result = self.attach(value)
             self.assertFalse(result['ok'])
-            label = f'{ACTION}: {value} : failed - file not exists'
-            self.assertEqual(file_result_summary(result), label)
-            self.assertIn(label, build_session_actions_history_context(self.context))
+            result_label = f'{ACTION}: {value.casefold()} : failed - file not exists'
+            self.assertEqual(file_result_summary(result), result_label)
+            self.assertIn(
+                f'{ACTION}: {value}',
+                build_session_actions_history_context(self.context),
+            )
             self.assertEqual(self.context.runtime_attached_file_ids, before)
         tools = build_tool_results_context(self.context)
         self.assertIn('Correct action schema:', tools)
@@ -95,7 +102,7 @@ class AttachFileByIdTests(unittest.TestCase):
         self.assertIn(record['id'], self.context.runtime_attached_file_ids)
 
     def test_stream_boundaries_literals_false_prefix_repeat_and_flush(self):
-        marker = f'<{ACTION}: abc123 >'
+        marker = f'<{PUBLIC_MARKER}> abc123 </{PUBLIC_MARKER}>'
         for split in range(1, len(marker)):
             parser = RuntimeActionStreamFilter(enabled_actions=[ACTION])
             parts = [parser.filter(marker[:split]), parser.filter(marker[split:]), parser.flush_result()]
@@ -107,7 +114,12 @@ class AttachFileByIdTests(unittest.TestCase):
                 self.assertFalse(any(p.actions for p in parts))
                 self.assertEqual(''.join(p.text for p in parts), quote + marker)
         self.assertEqual(len(extract_runtime_actions(marker * 2, enabled_actions=[ACTION]).actions), 1)
-        self.assertFalse(extract_runtime_actions('<ATTACH_FILE_BY_IDISH: abc123>', enabled_actions=[ACTION]).actions)
+        self.assertFalse(
+            extract_runtime_actions(
+                '<ATTACH_FILES_BY_IDISH> abc123 </ATTACH_FILES_BY_IDISH>',
+                enabled_actions=[ACTION],
+            ).actions
+        )
         parser = RuntimeActionStreamFilter(enabled_actions=[ACTION])
         parser.filter(marker[:-2])
         self.assertFalse(parser.flush_result().actions)
@@ -119,7 +131,7 @@ class AttachFileByIdTests(unittest.TestCase):
         enabled = get_enabled_runtime_actions({'CAN_USE_ASSETS': True})
         self.assertIn(ACTION, enabled)
         rules = build_runtime_action_instructions(enabled, self.context)
-        self.assertIn(f'<{ACTION}: file_id >', rules)
+        self.assertIn(f'<{PUBLIC_MARKER}> id1, id2 </{PUBLIC_MARKER}>', rules)
         self.assertIn('whole file', rules)
         self.assertIn('photo/image', rules)
 

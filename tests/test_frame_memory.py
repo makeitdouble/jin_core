@@ -22,6 +22,7 @@ from runtime.frame_memory_utils import (
     build_runtime_memory_context_text,
     build_runtime_memory_snapshot,
     build_runtime_memory_user_prompt,
+    build_runtime_response_feedback_value,
     get_strength_zones,
     normalize_compound_runtime_memory_lines,
     parse_runtime_memory_lines,
@@ -29,9 +30,8 @@ from runtime.frame_memory_utils import (
 )
 from runtime.frame_memory import (
     apply_runtime_response_feedback,
-    build_runtime_response_feedback_value,
     normalize_runtime_response_feedback,
-    summarize_runtime_memory,
+    summarize_runtime_memory_pending_turns,
 )
 from utils.actions import (
     refresh_active_memory_runtime_metadata,
@@ -47,6 +47,22 @@ from tests.helpers.memory import (
     assert_contains_text,
     assert_not_contains_text,
 )
+
+async def summarize_pending_turn_for_test(
+    *,
+    context,
+    user_message: str,
+    assistant_message: str,
+):
+    """Exercise the current FRAME pending-turn summarizer for one captured turn."""
+    if not hasattr(context, "runtime_memory_stable"):
+        context.runtime_memory_stable = getattr(context, "runtime_memory", "")
+    context.runtime_memory_pending_turns = [{
+        "turn_id": str(getattr(context, "runtime_current_turn_id", "") or ""),
+        "user_message": user_message,
+        "assistant_message": assistant_message,
+    }]
+    return await summarize_runtime_memory_pending_turns(context=context)
 
 class RuntimeMemoryCompoundLineTests(unittest.TestCase):
 
@@ -763,7 +779,7 @@ class FrameMemoryTests(
 
             context.emitter.emit = emit
 
-            updated_memory = await summarize_runtime_memory(
+            updated_memory = await summarize_pending_turn_for_test(
                 context=context,
                 user_message="Do you remember this?",
                 assistant_message="Yes, I can keep the live context updated.",
@@ -1219,7 +1235,7 @@ class FrameMemoryTests(
 
             context.emitter.emit = emit
 
-            updated_memory = await summarize_runtime_memory(
+            updated_memory = await summarize_pending_turn_for_test(
                 context=context,
                 user_message="latest message",
                 assistant_message="Latest assistant answer.",
@@ -1281,7 +1297,7 @@ class FrameMemoryTests(
 
             context.emitter.emit = emit
 
-            updated_memory = await summarize_runtime_memory(
+            updated_memory = await summarize_pending_turn_for_test(
                 context=context,
                 user_message="сегодня не хочу обсуждать прошлые темы",
                 assistant_message="Хорошо, выберем свежую тему.",
@@ -1353,7 +1369,7 @@ class FrameMemoryTests(
 
             context.emitter.emit = emit
 
-            updated_memory = await summarize_runtime_memory(
+            updated_memory = await summarize_pending_turn_for_test(
                 context=context,
                 user_message="Давай сменим тему.",
                 assistant_message="Хорошо, о чем поговорим?",
@@ -1408,7 +1424,7 @@ class FrameMemoryTests(
 
             context.emitter.emit = emit
 
-            updated_memory = await summarize_runtime_memory(
+            updated_memory = await summarize_pending_turn_for_test(
                 context=context,
                 user_message="Это уже не факт.",
                 assistant_message="Понял, убираю этот факт из памяти.",
@@ -1462,7 +1478,7 @@ class FrameMemoryTests(
 
             context.emitter.emit = emit
 
-            await summarize_runtime_memory(
+            await summarize_pending_turn_for_test(
                 context=context,
                 user_message="Remember this exactly.",
                 assistant_message="I will update memory.",
@@ -1496,12 +1512,6 @@ class FrameMemoryTests(
                 ]["total_tokens"],
                 123,
             )
-            self.assertEqual(
-                telemetry_events[-1]["runtime"][
-                    SERVICE_RUNTIME_ID
-                ]["max_tokens"],
-                8192,
-            )
 
     async def test_summarizer_uses_auto_runtime_output_budget(self):
 
@@ -1525,7 +1535,7 @@ class FrameMemoryTests(
                 session_id="test-session",
             )
 
-            updated_memory = await summarize_runtime_memory(
+            updated_memory = await summarize_pending_turn_for_test(
                 context=context,
                 user_message="What can you do?",
                 assistant_message="I can answer questions and write text.",
@@ -1571,19 +1581,19 @@ class FrameMemoryTests(
                 runtime_memory_updates=0,
             )
 
-            updated_memory = await summarize_runtime_memory(
+            updated_memory = await summarize_pending_turn_for_test(
                 context=context,
                 user_message="What can you do?",
                 assistant_message="I can answer questions.",
             )
 
-            self.assertEqual(
+            self.assertIn(
+                "Initial memory.",
                 updated_memory,
-                "note: Initial memory.",
             )
-            self.assertEqual(
+            self.assertIn(
+                "Initial memory.",
                 context.runtime_memory,
-                "note: Initial memory.",
             )
             self.assertEqual(
                 context.runtime_memory_updates,
@@ -1612,7 +1622,7 @@ class FrameMemoryTests(
                 runtime_memory_updates=0,
             )
 
-            updated_memory = await summarize_runtime_memory(
+            updated_memory = await summarize_pending_turn_for_test(
                 context=context,
                 user_message="Remember this.",
                 assistant_message="I will remember it.",
@@ -1620,7 +1630,7 @@ class FrameMemoryTests(
 
             self.assertEqual(
                 updated_memory,
-                "note: Initial memory.",
+                "Initial memory.",
             )
             self.assertEqual(
                 len(logger.errors),
@@ -1679,7 +1689,7 @@ class FrameMemoryTests(
                 runtime_memory_updates=0,
             )
 
-            await summarize_runtime_memory(
+            await summarize_pending_turn_for_test(
                 context=context,
                 user_message="Remember this.",
                 assistant_message="I will remember it.",

@@ -14,10 +14,8 @@ sys.path.insert(0, str(ROOT))
 
 from agent import AgentRuntime, AgentState  # noqa: E402
 from clients.registry import build_clients  # noqa: E402
-from runtime.frame_memory import (  # noqa: E402
-    build_runtime_memory_snapshot,
-    schedule_runtime_memory_update,
-)
+from runtime.frame_memory import schedule_runtime_memory_update  # noqa: E402
+from runtime.frame_memory_utils import build_runtime_memory_snapshot  # noqa: E402
 from runtime.runtime_context import RuntimeContext, RuntimeEmitter  # noqa: E402
 from utils.brain_client_utils import save_active_memory_runtime_record  # noqa: E402
 from websocket import refresh_pending_brain_usage, wait_for_runtime_memory_update  # noqa: E402

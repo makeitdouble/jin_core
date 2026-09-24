@@ -21,7 +21,7 @@ from utils.brain_client_utils import save_active_memory_runtime_record, delete_a
 from runtime.memory_edit import apply_memory_value_edit
 
 
-ROW = "active_memory_1: Example [ active_memory_id: abc123 ] [ status: paused ]"
+ROW = "active_memory_1: Example [ id: AM-abc123 ] [ status: paused ]"
 
 
 class MemoryProfileTests(unittest.IsolatedAsyncioTestCase):
@@ -57,7 +57,7 @@ class MemoryProfileTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(anon.active_memory_records, [])
         self.assertEqual(load_active_records(root=self.root / "active"), [ROW])
         result = await apply_memory_value_edit(a, {
-            "kind": "active", "target": "abc123", "request_id": "edit",
+            "kind": "active", "target": "AM-abc123", "request_id": "edit",
             "expected_value": "Example", "value": "Changed",
         })
         self.assertTrue(result["ok"])
@@ -67,7 +67,7 @@ class MemoryProfileTests(unittest.IsolatedAsyncioTestCase):
         handle_store_sync(a, {"type": "active_memory_store_sync", "mutation": True,
             "memory_revision": a.memory_profile_revisions["active"],
             "active_memory_records": [a.active_memory_records[0].replace("status: paused", "status: pending")]})
-        removed, _, _ = await delete_active_memory_runtime_record(a, "abc123")
+        removed, _, _ = await delete_active_memory_runtime_record(a, "AM-abc123")
         self.assertTrue(removed)
         self.assertEqual(read_profile(b)["active"], [])
         self.assertEqual(b.active_memory_records, [])
@@ -79,12 +79,12 @@ class MemoryProfileTests(unittest.IsolatedAsyncioTestCase):
         a = self.context()
         commit_active(a, [ROW])
         token = a.memory_profile_revisions["active"]
-        (self.root / "active" / "abc123.json").unlink()
+        (self.root / "active" / "AM-abc123.json").unlink()
         handled = handle_store_sync(a, {"type": "active_memory_store_sync", "mutation": True,
             "memory_revision": token, "active_memory_records": [ROW]})
         self.assertTrue(handled)
         self.assertEqual(a.active_memory_records, [])
-        self.assertFalse((self.root / "active" / "abc123.json").exists())
+        self.assertFalse((self.root / "active" / "AM-abc123.json").exists())
         handle_store_sync(a, {"type": "lt_memory_store_sync", "store": {"facts": [{"id":"F1", "key":"test.fact", "value":"stale"}]}})
         self.assertEqual(ensure_runtime_lt_state(a)["facts"], [])
 
@@ -102,7 +102,7 @@ class MemoryProfileTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse((self.root / "facts/long_term_facts.json").exists())
         self.state.websocket_runtime_contexts.pop("one_anon")
         release_profile(a, self.state)
-        self.assertTrue((self.root / "active/abc123_anon.json").exists())
+        self.assertTrue((self.root / "active/AM-abc123_anon.json").exists())
         self.state.websocket_runtime_contexts.pop("two_anon")
         with patch("runtime.memory_profile.ANONYMOUS_CLOSE_GRACE_SECONDS", 0.01):
             release_profile(b, self.state)
@@ -115,14 +115,14 @@ class MemoryProfileTests(unittest.IsolatedAsyncioTestCase):
             anon = self.context("reconnected_anon", True)
             await asyncio.sleep(0.03)
         self.assertEqual(anon.active_memory_records, [ROW])
-        self.assertTrue((self.root / "active/abc123_anon.json").exists())
+        self.assertTrue((self.root / "active/AM-abc123_anon.json").exists())
 
     async def test_backend_restart_cleans_orphaned_anon_files_after_grace(self):
         persist_active_records([ROW], root=self.root / "active", anonymous=True)
         with patch("runtime.memory_profile.ANONYMOUS_STARTUP_GRACE_SECONDS", 0.01):
             self.context("normal_after_restart")
             await asyncio.sleep(0.03)
-        self.assertFalse((self.root / "active/abc123_anon.json").exists())
+        self.assertFalse((self.root / "active/AM-abc123_anon.json").exists())
 
     async def test_reload_cancels_last_close_cleanup(self):
         a = self.context("one_anon", True)

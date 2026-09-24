@@ -1020,7 +1020,7 @@ def extract_prompt_context_block(
         return "", prompt
 
     pattern = (
-        rf"(?:^|\n)(<{re.escape(normalized_tag_name)}(?:\s+[^>]*)?>"
+        rf"(?:(?<=\n)|^)(<{re.escape(normalized_tag_name)}(?:\s+[^>]*)?>"
         rf"[\s\S]*?</{re.escape(normalized_tag_name)}>)\n*"
     )
     match = re.search(

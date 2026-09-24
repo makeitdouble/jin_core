@@ -35,7 +35,7 @@ class BootstrapColorActionRegressionTests(unittest.TestCase):
 
         self.assertEqual(context.jin_color, "#ff3366")
         self.assertIn(
-            "<CURRENT_JIN_COLOR>#ff3366</CURRENT_JIN_COLOR>",
+            "<JIN_COLOR>#ff3366</JIN_COLOR>",
             runtime_xml,
         )
 

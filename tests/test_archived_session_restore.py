@@ -295,11 +295,11 @@ class ArchivedSessionRestoreTests(unittest.TestCase):
             },
         )
         self.assertIn(
-            'session_id="archived-session"',
+            "<SESSION_ID>fresh-session</SESSION_ID>",
             prompt,
         )
         self.assertNotIn(
-            'session_id="fresh-session"',
+            "<SESSION_ID>archived-session</SESSION_ID>",
             prompt,
         )
 
@@ -572,7 +572,7 @@ session_snapshot_last_turn: 1
 
         self.assertEqual(payload["current_jin_color"], "#ff0000")
         color_action = payload["session_actions"][-1]
-        self.assertEqual(color_action["text"], "JIN_COLOR")
+        self.assertEqual(color_action["text"], "JIN_COLOR: #ff0000")
         self.assertEqual(
             color_action["parts"][0]["colors"],
             ["#ff0000"],
@@ -1366,13 +1366,13 @@ open_question: continue
             )
 
         self.assertTrue(
-            prompt.startswith("<MANDATORY_SYSTEM_NOTIFICATION>\n")
+            prompt.startswith("<PREVIOUS_CHAT_MESSAGES>")
         )
-        mandatory_end = prompt.index("</MANDATORY_SYSTEM_NOTIFICATION>")
-        old_session_pos = prompt.index("<OLD_SESSION_RESTORED_STATE")
-        concerns_pos = prompt.index("<CURRENT_CONCERNS>")
-        self.assertLess(mandatory_end, old_session_pos)
-        self.assertLess(old_session_pos, concerns_pos)
+        old_session_pos = prompt.index("<PREVIOUS_CHAT_MESSAGES>")
+        mandatory_pos = prompt.index("<MANDATORY_SYSTEM_NOTIFICATION>")
+        concerns_pos = prompt.index("<CONCERNS>")
+        self.assertLess(old_session_pos, mandatory_pos)
+        self.assertLess(mandatory_pos, concerns_pos)
         self.assertIn("EXACT OLD FLOW", prompt)
         self.assertNotIn("RAW REASONING", prompt)
         self.assertNotIn("RESTORED_SESSION_REASONING_DUMP", prompt)

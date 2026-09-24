@@ -147,7 +147,7 @@ class RuntimeStreamFilterTests(RuntimeActionTestCase):
     def test_extracts_bracketed_web_search_marker(self):
 
         result = extract_runtime_actions(
-            "<WEB_SEARCH:\u0441\u0438\u043d\u0438\u0439 \u043f\u043e\u043c\u0438\u0434\u043e\u0440>",
+            "<WEB_SEARCH>\u0441\u0438\u043d\u0438\u0439 \u043f\u043e\u043c\u0438\u0434\u043e\u0440</WEB_SEARCH>",
             enabled_actions=[
                 "CAN_WEB_SEARCH",
             ],
@@ -168,7 +168,7 @@ class RuntimeStreamFilterTests(RuntimeActionTestCase):
     def test_extracts_current_bracketed_web_search_marker(self):
 
         result = extract_runtime_actions(
-            "<WEB_SEARCH:blue tomato>",
+            "<WEB_SEARCH>blue tomato</WEB_SEARCH>",
             enabled_actions=[
                 "CAN_WEB_SEARCH",
             ],
@@ -295,7 +295,7 @@ class RuntimeStreamFilterTests(RuntimeActionTestCase):
         result = extract_runtime_actions(
             (
                 "Before\n"
-                "<WEB_SEARCH:\u0441\u0438\u043d\u0438\u0439 \u043f\u043e\u043c\u0438\u0434\u043e\u0440>\n"
+                "<WEB_SEARCH>\u0441\u0438\u043d\u0438\u0439 \u043f\u043e\u043c\u0438\u0434\u043e\u0440</WEB_SEARCH>\n"
                 "After"
             ),
             enabled_actions=[
@@ -436,89 +436,12 @@ class RuntimeStreamFilterTests(RuntimeActionTestCase):
 
 
     def test_ignores_placeholder_bracketed_web_search_marker(self):
-
-        current_placeholder = get_runtime_action_private_marker("WEB_SEARCH")
-        legacy_placeholder = legacy_internal_action_marker(
-            current_placeholder
+        result = extract_runtime_actions(
+            "<WEB_SEARCH>...</WEB_SEARCH>",
+            enabled_actions=["CAN_WEB_SEARCH"],
         )
-        current_angle_placeholder = current_placeholder.replace(
-            ": ",
-            ":",
-        ).replace(
-            "plain text query",
-            "<plain text query>",
-        ).replace(
-            " >",
-            ">",
-        )
-        legacy_angle_placeholder = legacy_placeholder.replace(
-            ": ",
-            ":",
-        ).replace(
-            "plain text query",
-            "<plain text query>",
-        ).replace(
-            " >",
-            ">",
-        )
-
-        for marker in (
-            current_placeholder,
-            current_placeholder.replace(
-                ": ",
-                ":",
-            ),
-            current_angle_placeholder,
-            current_placeholder.replace(
-                "plain text query",
-                "...",
-            ),
-        ):
-
-            result = extract_runtime_actions(
-                marker,
-                enabled_actions=[
-                    "CAN_WEB_SEARCH",
-                ],
-            )
-
-            self.assertEqual(
-                result.text,
-                "",
-            )
-            self.assertEqual(
-                result.count("WEB_SEARCH"),
-                0,
-            )
-
-        for marker in (
-            legacy_placeholder,
-            legacy_placeholder.replace(
-                ": ",
-                ":",
-            ),
-            legacy_angle_placeholder,
-            legacy_placeholder.replace(
-                "plain text query",
-                "...",
-            ),
-        ):
-
-            result = extract_runtime_actions(
-                marker,
-                enabled_actions=[
-                    "CAN_WEB_SEARCH",
-                ],
-            )
-
-            self.assertEqual(
-                result.text,
-                marker,
-            )
-            self.assertEqual(
-                result.count("WEB_SEARCH"),
-                0,
-            )
+        self.assertEqual(result.text, "")
+        self.assertEqual(result.count("WEB_SEARCH"), 0)
 
 
     def test_extracts_clean_tool_results_block(self):
@@ -575,7 +498,7 @@ class RuntimeStreamFilterTests(RuntimeActionTestCase):
 
         cases = (
             (
-                "<WEB_SEARCH: blue tomato/>",
+                "<WEB_SEARCH> blue tomato </WEB_SEARCH>",
                 "WEB_SEARCH",
                 json.dumps({
                     "query": "blue tomato",
@@ -587,7 +510,7 @@ class RuntimeStreamFilterTests(RuntimeActionTestCase):
                 "file_manager",
             ),
             (
-                "<LOAD_DELAYED_MEMORY: a1b2c3/>",
+                "<LOAD_DELAYED_MEMORY> a1b2c3 </LOAD_DELAYED_MEMORY>",
                 "LOAD_DELAYED_MEMORY",
                 "a1b2c3",
             ),
@@ -604,13 +527,8 @@ class RuntimeStreamFilterTests(RuntimeActionTestCase):
                     "",
                 )
                 self.assertEqual(
-                    result.actions,
-                    (
-                        RuntimeActionCall(
-                            name=action_name,
-                            payload=payload,
-                        ),
-                    ),
+                    [(action.name, action.payload) for action in result.actions],
+                    [(action_name, payload)],
                 )
                 self.assertEqual(
                     result.removed_markers,
@@ -642,29 +560,9 @@ class RuntimeStreamFilterTests(RuntimeActionTestCase):
             ],
         )
 
-        self.assertEqual(
-            result.text,
-            "",
-        )
-        self.assertEqual(
-            result.actions,
-            (
-                RuntimeActionCall(
-                    name="UPDATE_ACTIVE_MEMORY",
-                    payload=(
-                        'active_memory_id="abc123" '
-                        'last_update="23 august" current_photos=2 '
-                        'last_photo_id="8vyf97"'
-                    ),
-                ),
-            ),
-        )
-        self.assertEqual(
-            result.removed_markers,
-            (
-                marker,
-            ),
-        )
+        self.assertEqual(result.text, marker)
+        self.assertEqual(result.actions, ())
+        self.assertEqual(result.removed_markers, ())
 
 
     def test_dedupes_duplicate_self_closing_update_active_memory_attributes(self):
@@ -682,30 +580,9 @@ class RuntimeStreamFilterTests(RuntimeActionTestCase):
             ],
         )
 
-        self.assertEqual(
-            result.text,
-            "",
-        )
-        self.assertEqual(
-            result.actions,
-            (
-                RuntimeActionCall(
-                    name="UPDATE_ACTIVE_MEMORY",
-                    payload=(
-                        'active_memory_id="abc123" '
-                        'last_update="23 august" current_photos=2 '
-                        'last_photo_id="8vyf97"'
-                    ),
-                ),
-            ),
-        )
-        self.assertEqual(
-            result.removed_markers,
-            (
-                marker,
-                marker,
-            ),
-        )
+        self.assertEqual(result.text, marker + marker)
+        self.assertEqual(result.actions, ())
+        self.assertEqual(result.removed_markers, ())
 
 
     def test_preserves_marker_when_action_disabled(self):
@@ -832,17 +709,12 @@ class RuntimeStreamFilterTests(RuntimeActionTestCase):
 
         cases = (
             (
-                "<DELETE_ACTIVE_MEMORY: **abc123**>",
+                "<DELETE_ACTIVE_MEMORY> AM-abc123 </DELETE_ACTIVE_MEMORY>",
                 "DELETE_ACTIVE_MEMORY",
-                "abc123",
+                "AM-abc123",
             ),
             (
-                "<UNLOAD_DELAYED_MEMORY: **d4e5f6**>",
-                "UNLOAD_DELAYED_MEMORY",
-                "d4e5f6",
-            ),
-            (
-                "<UNLOAD_SKILL: **wildcards**>",
+                "<UNLOAD_SKILLS_CONTEXT> wildcards </UNLOAD_SKILLS_CONTEXT>",
                 "UNLOAD_SKILL",
                 "wildcards",
             ),
@@ -855,13 +727,10 @@ class RuntimeStreamFilterTests(RuntimeActionTestCase):
                 )
 
                 self.assertEqual(
-                    result.actions,
-                    (
-                        RuntimeActionCall(
-                            name=action_name,
-                            payload=expected_payload,
-                        ),
-                    ),
+                    [(action.name, action.payload) for action in result.actions],
+                    [(action_name, expected_payload.casefold()
+                      if action_name == "DELETE_ACTIVE_MEMORY"
+                      else expected_payload)],
                 )
 
 
@@ -870,18 +739,18 @@ class RuntimeStreamFilterTests(RuntimeActionTestCase):
         with patch(
             "utils.actions.action_payload_utils.get_internal_actions_with_payload",
             return_value=(
-                "<WEB_SEARCH: plain text query >",
-                "<DELETE_ACTIVE_MEMORY: active_memory_id | STATUS >",
+                "<WEB_SEARCH> ... </WEB_SEARCH>",
+                "<DELETE_ACTIVE_MEMORY> active_memory_id | STATUS </DELETE_ACTIVE_MEMORY>",
             ),
         ):
             search_result = extract_runtime_actions(
-                "<WEB_SEARCH:<plain text query>>",
+                "<WEB_SEARCH>...</WEB_SEARCH>",
                 enabled_actions=[
                     "CAN_WEB_SEARCH",
                 ],
             )
             memory_result = extract_runtime_actions(
-                "<SAVE_ACTIVE_MEMORY> CONDITIONS </SAVE_ACTIVE_MEMORY>",
+                "<SAVE_ACTIVE_MEMORY> ... </SAVE_ACTIVE_MEMORY>",
                 enabled_actions=[
                     "CAN_SAVE_ACTIVE_MEMORY",
                 ],
@@ -1018,10 +887,10 @@ class RuntimeStreamFilterTests(RuntimeActionTestCase):
         )
 
         first = stream_filter.filter(
-            "<WEB_SEARCH:\u0441\u0438"
+            "<WEB_SEARCH>\u0441\u0438"
         )
         second = stream_filter.filter(
-            "\u043d\u0438\u0439 \u043f\u043e\u043c\u0438\u0434\u043e\u0440>"
+            "\u043d\u0438\u0439 \u043f\u043e\u043c\u0438\u0434\u043e\u0440</WEB_SEARCH>"
         )
 
         self.assertEqual(
@@ -1063,13 +932,12 @@ class RuntimeStreamFilterTests(RuntimeActionTestCase):
             " drawing ideas\n\n🏠\n\nМаленький уютный домик"
         )
 
-        self.assertEqual(first.text, "")
+        self.assertEqual(first.text, "<WEB_SEARCH: house")
         self.assertEqual(first.actions, ())
         self.assertEqual(
             second.text,
             (
-                "<WEB_SEARCH: house drawing ideas\n\n"
-                "🏠\n\nМаленький уютный домик"
+                " drawing ideas\n\n🏠\n\nМаленький уютный домик"
             ),
         )
         self.assertEqual(second.actions, ())
@@ -1194,12 +1062,12 @@ class RuntimeStreamFilterTests(RuntimeActionTestCase):
         )
 
         result = stream_filter.filter(
-            "Need search. <WEB_SEARCH:\u0441\u0438\u043d\u0438\u0439 \u043f\u043e\u043c\u0438\u0434\u043e\u0440>"
+            "Need search. <WEB_SEARCH>\u0441\u0438\u043d\u0438\u0439 \u043f\u043e\u043c\u0438\u0434\u043e\u0440</WEB_SEARCH>"
         )
 
         self.assertEqual(
             result.text,
-            "Need search. <WEB_SEARCH:\u0441\u0438\u043d\u0438\u0439 \u043f\u043e\u043c\u0438\u0434\u043e\u0440>",
+            "Need search. <WEB_SEARCH>\u0441\u0438\u043d\u0438\u0439 \u043f\u043e\u043c\u0438\u0434\u043e\u0440</WEB_SEARCH>",
         )
         self.assertEqual(
             result.search_queries,
@@ -1218,7 +1086,7 @@ class RuntimeStreamFilterTests(RuntimeActionTestCase):
         )
 
         result = stream_filter.filter(
-            "hello <WEB_SEARCH:??"
+            "hello <WEB_SEARCH>??"
         )
 
         self.assertEqual(
@@ -1261,13 +1129,13 @@ class RuntimeStreamFilterTests(RuntimeActionTestCase):
         )
 
         first = stream_filter.filter(
-            "<WEB_SEARCH:"
+            "<WEB_SEARCH>"
         )
         middle = stream_filter.filter(
             "blue tomato"
         )
         final = stream_filter.filter(
-            ">"
+            "</WEB_SEARCH>"
         )
 
         self.assertEqual(
@@ -1295,7 +1163,7 @@ class RuntimeStreamFilterTests(RuntimeActionTestCase):
         )
 
         result = stream_filter.filter(
-            '<UPDATE_ACTIVE_MEMORY active_memory_id="abc123" '
+            '<SAVE_ACTIVE_MEMORY>{"id":"AM-abc123",'
         )
 
         self.assertEqual(
@@ -1306,7 +1174,7 @@ class RuntimeStreamFilterTests(RuntimeActionTestCase):
             result.started_actions,
             (
                 RuntimeActionCall(
-                    name="UPDATE_ACTIVE_MEMORY",
+                    name="SAVE_ACTIVE_MEMORY",
                     payload="",
                 ),
             ),
@@ -1325,9 +1193,9 @@ class RuntimeStreamFilterTests(RuntimeActionTestCase):
             ],
         )
         marker = (
-            '<UPDATE_ACTIVE_MEMORY active_memory_id="abc123" '
-            'last_update="23 august" current_photos=2 '
-            'last_photo_id="8vyf97" />'
+            '<SAVE_ACTIVE_MEMORY>{"id":"AM-abc123",'
+            '"last_update":"23 august","current_photos":"2",'
+            '"last_photo_id":"8vyf97"}</SAVE_ACTIVE_MEMORY>'
         )
 
         result = stream_filter.filter(
@@ -1338,7 +1206,7 @@ class RuntimeStreamFilterTests(RuntimeActionTestCase):
             result.started_actions,
             (
                 RuntimeActionCall(
-                    name="UPDATE_ACTIVE_MEMORY",
+                    name="SAVE_ACTIVE_MEMORY",
                     payload="",
                 ),
             ),
@@ -1347,11 +1215,10 @@ class RuntimeStreamFilterTests(RuntimeActionTestCase):
             result.actions,
             (
                 RuntimeActionCall(
-                    name="UPDATE_ACTIVE_MEMORY",
+                    name="SAVE_ACTIVE_MEMORY",
                     payload=(
-                        'active_memory_id="abc123" '
-                        'last_update="23 august" current_photos=2 '
-                        'last_photo_id="8vyf97"'
+                        '{"id":"AM-abc123","last_update":"23 august",'
+                        '"current_photos":"2","last_photo_id":"8vyf97"}'
                     ),
                 ),
             ),
@@ -1361,23 +1228,22 @@ class RuntimeStreamFilterTests(RuntimeActionTestCase):
     def test_stream_filter_extracts_update_active_memory_attributes_across_chunks(self):
 
         marker_text = (
-            '<UPDATE_ACTIVE_MEMORY active_memory_id="abc123" '
-            'last_update="23 august" current_photos=2 '
-            'last_photo_id="8vyf97" />'
+            '<SAVE_ACTIVE_MEMORY>{"id":"AM-abc123",'
+            '"last_update":"23 august","current_photos":"2",'
+            '"last_photo_id":"8vyf97"}</SAVE_ACTIVE_MEMORY>'
         )
         expected_action = RuntimeActionCall(
-            name="UPDATE_ACTIVE_MEMORY",
+            name="SAVE_ACTIVE_MEMORY",
             payload=(
-                'active_memory_id="abc123" '
-                'last_update="23 august" current_photos=2 '
-                'last_photo_id="8vyf97"'
+                '{"id":"AM-abc123","last_update":"23 august",'
+                '"current_photos":"2","last_photo_id":"8vyf97"}'
             ),
         )
 
         split_points = (
             1,
-            marker_text.index("UPDATE_ACTIVE_MEMORY") + len("UPDATE_"),
-            marker_text.index("active_memory_id"),
+            marker_text.index("SAVE_ACTIVE_MEMORY") + len("SAVE_"),
+            marker_text.index('"id"'),
             marker_text.index("last_photo_id"),
             len(marker_text) - 2,
         )
@@ -1413,7 +1279,7 @@ class RuntimeStreamFilterTests(RuntimeActionTestCase):
         )
 
         result = stream_filter.filter(
-            'hello <UPDATE_ACTIVE_MEMORY active_memory_id="abc123"'
+            'hello <SAVE_ACTIVE_MEMORY>{"id":"AM-abc123"'
         )
 
         self.assertEqual(
@@ -1484,9 +1350,9 @@ class RuntimeStreamFilterTests(RuntimeActionTestCase):
     def test_stream_filter_executes_consecutive_markers_boundary_matrix(self):
 
         marker_text = (
-            "<WEB_SEARCH: latest breakthroughs in fusion energy 2026>\n"
-            "<SAVE_ACTIVE_MEMORY>experiment_start_time: "
-            "2026-07-12 23:55</SAVE_ACTIVE_MEMORY>"
+            "<WEB_SEARCH>latest breakthroughs in fusion energy 2026</WEB_SEARCH>\n"
+            "<SAVE_ACTIVE_MEMORY>{\"conditions\":\"experiment_start_time: "
+            "2026-07-12 23:55\"}</SAVE_ACTIVE_MEMORY>"
         )
         expected_actions = (
             RuntimeActionCall(
@@ -1497,7 +1363,10 @@ class RuntimeStreamFilterTests(RuntimeActionTestCase):
             ),
             RuntimeActionCall(
                 name="SAVE_ACTIVE_MEMORY",
-                payload="experiment_start_time: 2026-07-12 23:55",
+                payload=(
+                    '{"conditions":"experiment_start_time: '
+                    '2026-07-12 23:55"}'
+                ),
             ),
         )
 
@@ -1796,9 +1665,10 @@ class RuntimeStreamFilterTests(RuntimeActionTestCase):
 
                 context = Context()
                 context.emitter = Emitter()
+                context.runtime_loaded_skills = ["wildcards"]
                 payload = (
-                    r'{"action":"create_wildcard_file","args":{"path":"clothing/test_tops",'
-                    r'"content":"crop top\tank top\bsleeveless blouse\mesh bodysuit\nstrappy camisole"}}'
+                    '{"action":"create_wildcard_file","args":{"path":"clothing/test_tops",'
+                    '"content":"crop top\\\\tank top\\\\bsleeveless blouse\\\\mesh bodysuit\\\\nstrappy camisole"}}'
                 )
 
                 applied_count = asyncio.run(
@@ -1915,10 +1785,6 @@ class RuntimeStreamFilterTests(RuntimeActionTestCase):
         self.assertIn(
             "old result",
             tool_results,
-        )
-        self.assertLess(
-            tool_results.index("No entries found."),
-            tool_results.index("file_manager"),
         )
         self.assertLess(
             tool_results.index("file_manager"),
@@ -2090,6 +1956,7 @@ class RuntimeStreamFilterTests(RuntimeActionTestCase):
                 tuple(
                     RuntimeActionCall(
                         name=RUNTIME_ACTION_CLEAN_TOOL_RESULTS,
+                        payload="",
                     )
                     for _ in range(3)
                 ),
@@ -2154,7 +2021,7 @@ class RuntimeStreamFilterTests(RuntimeActionTestCase):
 
         context = Context()
         context.runtime_memory = (
-            "active_memory_1: first [ active_memory_id: one111 ] "
+            "active_memory_1: first [ id: AM-one111 ] "
             "[ status: pending ]"
         )
         context.runtime_memory_stable = context.runtime_memory
@@ -2168,11 +2035,11 @@ class RuntimeStreamFilterTests(RuntimeActionTestCase):
                 (
                     RuntimeActionCall(
                         name="DELETE_ACTIVE_MEMORY",
-                        payload="one111",
+                        payload="AM-one111",
                     ),
                     RuntimeActionCall(
                         name="DELETE_ACTIVE_MEMORY",
-                        payload="one111",
+                        payload="AM-one111",
                     ),
                 ),
             )

@@ -58,65 +58,28 @@ def run_color_stream(user_text, decision="continue"):
     )
 
 
-def test_brain_stream_jin_color_executes_without_confirmation():
+def test_brain_stream_leaves_runtime_markers_for_runtime_stream():
     context, chunks = run_color_stream(
         "поставь себе красный яркий",
         "reject",
     )
 
-    assert [
-        chunk
-        for chunk in chunks
-        if chunk.get("type") == "content"
-    ] == [{"type": "content", "content": "Принято."}]
-    assert [
-        chunk
-        for chunk in chunks
-        if chunk.get("type") == "raw_model_output"
-    ] == [{
-        "type": "raw_model_output",
+    assert chunks == [{
+        "type": "content",
         "content": "Принято. <JIN_COLOR> #ff0000 </JIN_COLOR>",
     }]
-    assert [
-        (event.get("type"), event.get("status"))
-        for event in context.emitter.events
-    ] == [
-        ("runtime_action", "counted"),
-        ("runtime_action", "completed"),
-        ("runtime_action", "counter_final"),
-    ]
-    assert context.emitter.events[0]["marker_count"] == 1
-    assert context.emitter.events[0]["color"] == "#ff0000"
-    assert context.emitter.events[0]["colors"] == ["#ff0000"]
-    assert context.runtime_action_events[-1]["name"] == "jin_color"
-    assert context.runtime_action_events[-1]["color"] == "#ff0000"
+    assert context.emitter.events == []
+    assert not hasattr(context, "runtime_action_events")
 
 
-def test_brain_stream_matching_trigger_executes_without_confirmation():
+def test_brain_stream_does_not_apply_guard_logic_in_provider_transport():
     context, chunks = run_color_stream(
         "поставь цвет красный яркий",
     )
 
-    assert [
-        chunk
-        for chunk in chunks
-        if chunk.get("type") == "content"
-    ] == [{"type": "content", "content": "Принято."}]
-    assert [
-        chunk
-        for chunk in chunks
-        if chunk.get("type") == "raw_model_output"
-    ] == [{
-        "type": "raw_model_output",
+    assert chunks == [{
+        "type": "content",
         "content": "Принято. <JIN_COLOR> #ff0000 </JIN_COLOR>",
     }]
-    assert [
-        (event.get("type"), event.get("status"))
-        for event in context.emitter.events
-    ] == [
-        ("runtime_action", "counted"),
-        ("runtime_action", "completed"),
-        ("runtime_action", "counter_final"),
-    ]
-    assert context.emitter.events[0]["marker_count"] == 1
-    assert context.runtime_action_events[-1]["name"] == "jin_color"
+    assert context.emitter.events == []
+    assert not hasattr(context, "runtime_action_events")

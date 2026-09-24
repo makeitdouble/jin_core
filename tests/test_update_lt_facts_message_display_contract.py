@@ -78,7 +78,9 @@ class UpdateLTFactsMessageDisplayContractTests(unittest.TestCase):
             source,
         )
         self.assertIn('part.message && !isUpdateLTFactsAction', source)
-        self.assertIn('part.message\n      || part.detail', source)
+        self.assertIn('const hoverText =', source)
+        self.assertIn('part.message', source)
+        self.assertIn('|| part.detail', source)
         self.assertIn('"cursor-help"', source)
         self.assertIn('message: part.message,', source)
 

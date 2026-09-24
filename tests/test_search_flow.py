@@ -362,8 +362,14 @@ class SearchFlowTests(
         )
         BRAIN_RUNTIME_ACTIONS["CAN_WEB_SEARCH"] = True
         BRAIN_RUNTIME_ACTIONS["CAN_DEEP_WEB_SEARCH"] = True
+        self._search_settings_patch = patch(
+            "rules.brain_context_builder.settings",
+            SimpleNamespace(CAN_SEARCH=True),
+        )
+        self._search_settings_patch.start()
 
     def tearDown(self):
+        self._search_settings_patch.stop()
         BRAIN_RUNTIME_ACTIONS["CAN_WEB_SEARCH"] = (
             self._original_service_web_search
         )
@@ -425,7 +431,7 @@ class SearchFlowTests(
             )
 
         self.assertIn(
-            "<WEB_SEARCH: plain text query >",
+            "<WEB_SEARCH> query </WEB_SEARCH>",
             prompt,
         )
         self.assertIn(
@@ -456,7 +462,7 @@ class SearchFlowTests(
             )
 
         self.assertNotIn(
-            "<WEB_SEARCH: plain text query >",
+            "<WEB_SEARCH> query </WEB_SEARCH>",
             prompt,
         )
         self.assertNotIn(
@@ -637,7 +643,7 @@ class SearchFlowTests(
                         "type": "content",
                         "content": (
                             "Needs current pricing. "
-                            "<WEB_SEARCH:tesla car price>"
+                            "<WEB_SEARCH>tesla car price</WEB_SEARCH>"
                         ),
                     },
                 ],
@@ -703,7 +709,7 @@ class SearchFlowTests(
         )
         self.assertEqual(
             runtime_events[0]["text"],
-            "WEB_SEARCH: tesla car price",
+            "WEB_SEARCH",
         )
         self.assertNotIn(
             "Searching for",
@@ -717,7 +723,9 @@ class SearchFlowTests(
                 "display_name": "WEB_SEARCH",
                 "id": "web_search_001",
                 "status": "completed",
+                "query": "tesla car price",
                 "scene_effect": "search",
+                "text": 'WEB_SEARCH: {"query": "tesla car price"}',
             },
         )
         self.assertIn(
@@ -781,7 +789,7 @@ class SearchFlowTests(
             brain_client.prompts[1]["system_prompt"],
         )
         self.assertIn(
-            "<CURRENT_TRUSTED_RUNTIME_VARIABLES>",
+            "<TRUSTED_RUNTIME_VARIABLES>",
             brain_client.prompts[1]["system_prompt"],
         )
         self.assertIn(
@@ -817,7 +825,7 @@ class SearchFlowTests(
                         "type": "content",
                         "content": (
                             "I will check. "
-                            "<WEB_SEARCH:tesla car price>"
+                            "<WEB_SEARCH>tesla car price</WEB_SEARCH>"
                         ),
                     },
                 ],
@@ -885,7 +893,7 @@ class SearchFlowTests(
                         "type": "content",
                         "content": (
                             "Needs current pricing. "
-                            "<WEB_SEARCH:apple price>"
+                            "<WEB_SEARCH>apple price</WEB_SEARCH>"
                         ),
                     },
                     {
@@ -941,7 +949,7 @@ class SearchFlowTests(
             visible_text,
         )
         self.assertNotIn(
-            "<WEB_SEARCH:",
+            "<WEB_SEARCH",
             visible_text,
         )
         self.assertEqual(
@@ -1093,7 +1101,7 @@ class SearchFlowTests(
         )
         self.assertEqual(
             deep_search_lifecycle_events[1].get("text"),
-            "DEEP_WEB_SEARCH: Research blue tomato varieties.",
+            'DEEP_WEB_SEARCH: {"query": "Research blue tomato varieties."}',
         )
         self.assertEqual(
             deep_search_lifecycle_events[0].get("id"),
@@ -1155,7 +1163,7 @@ class SearchFlowTests(
                     {
                         "type": "content",
                         "content": (
-                            "<WEB_SEARCH:jupiter cost>"
+                            "<WEB_SEARCH>jupiter cost</WEB_SEARCH>"
                         ),
                     },
                 ],
@@ -1206,7 +1214,7 @@ class SearchFlowTests(
                     {
                         "type": "content",
                         "content": (
-                            "<WEB_SEARCH:latest Python version>"
+                            "<WEB_SEARCH>latest Python version</WEB_SEARCH>"
                         ),
                     },
                 ],

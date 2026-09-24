@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import time
 from pathlib import Path
 from tempfile import NamedTemporaryFile
 
@@ -14,6 +15,37 @@ from runtime.LT_memory_utils import (
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 LONG_TERM_FACTS_ROOT = PROJECT_ROOT / "memory" / "facts"
 LONG_TERM_FACTS_FILENAME = "long_term_facts.json"
+
+
+def _replace_with_retry(source, target):
+    """Replace a JSON file, tolerating short Windows sharing locks."""
+    attempts = 8 if os.name == "nt" else 1
+    delay = 0.005
+    for attempt in range(attempts):
+        try:
+            os.replace(source, target)
+            return
+        except PermissionError:
+            if attempt + 1 >= attempts:
+                raise
+            time.sleep(delay)
+            delay = min(delay * 2, 0.08)
+
+
+def _unlink_temp_with_retry(path):
+    attempts = 8 if os.name == "nt" else 1
+    delay = 0.005
+    for attempt in range(attempts):
+        try:
+            Path(path).unlink()
+            return
+        except FileNotFoundError:
+            return
+        except PermissionError:
+            if attempt + 1 >= attempts:
+                raise
+            time.sleep(delay)
+            delay = min(delay * 2, 0.08)
 
 
 def atomic_write_json(path, payload):
@@ -29,10 +61,10 @@ def atomic_write_json(path, payload):
             stream.write("\n")
             stream.flush()
             os.fsync(stream.fileno())
-        os.replace(name, path)
+        _replace_with_retry(name, path)
     finally:
         if name and Path(name).exists():
-            Path(name).unlink()
+            _unlink_temp_with_retry(name)
     return path
 
 

@@ -4,6 +4,7 @@ import argparse
 import asyncio
 import importlib
 import inspect
+import logging
 import pkgutil
 import tempfile
 import unittest
@@ -12,6 +13,10 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 TESTS_DIR = ROOT / "tests"
+
+# IsolatedAsyncioTestCase enables asyncio debug internally. Hide its slow-task
+# diagnostics in the normal full-suite runner; real test errors still surface.
+logging.getLogger("asyncio").setLevel(logging.ERROR)
 
 
 class _MonkeyPatch:

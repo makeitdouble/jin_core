@@ -1237,6 +1237,7 @@ class RuntimeStreamTokenTests(unittest.IsolatedAsyncioTestCase):
                     runtime_usage_events=[],
                     runtime_asset_results=[],
                     active_memory_records=[],
+                    runtime_loaded_skills=[{"name": "wildcards"}],
                 )
 
                 stream = RuntimeStream(
@@ -1354,6 +1355,7 @@ class RuntimeStreamTokenTests(unittest.IsolatedAsyncioTestCase):
                     runtime_usage_events=[],
                     runtime_asset_results=[],
                     active_memory_records=[],
+                    runtime_loaded_skills=[{"name": "file_manager"}],
                 )
 
                 stream = RuntimeStream(
@@ -1418,10 +1420,7 @@ class RuntimeStreamTokenTests(unittest.IsolatedAsyncioTestCase):
                 )
                 self.assertEqual(
                     lifecycle_events[1]["text"],
-                    (
-                        "ASSET_ACTION: create_asset_file - "
-                        "assets/outputs/rain_simulator.py"
-                    ),
+                    "ASSET_ACTION",
                 )
                 self.assertEqual(
                     lifecycle_events[2]["text"],
@@ -1542,7 +1541,7 @@ class RuntimeStreamTokenTests(unittest.IsolatedAsyncioTestCase):
         latest_items = session_updates[-1]["items"]
 
         self.assertIn(
-            "Read document iteratively - plain-mode.md - README.md - failed: HTTP 400 Bad Request",
+            "ASSET_ACTION - run_document_reader - README.md, plain-mode.md - failed: BadRequestError",
             latest_items[-1]["text"],
         )
         self.assertNotEqual(

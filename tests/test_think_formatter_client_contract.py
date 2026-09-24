@@ -6,6 +6,7 @@ import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
 FORMATTER_JS = ROOT / "ui" / "static" / "js" / "think-formatter.js"
+JIN_UI_UTILS_JS = ROOT / "ui" / "static" / "js" / "jin-ui-utils.js"
 THINK_CITATIONS_JS = ROOT / "ui" / "static" / "js" / "think-citations.js"
 CHAT_JS = ROOT / "ui" / "static" / "js" / "chat.js"
 CHAT_CSS = ROOT / "ui" / "static" / "css" / "chat.css"
@@ -90,6 +91,7 @@ global.document = {
 global.window = {};
 
 eval(fs.readFileSync(process.argv[1], "utf8"));
+eval(fs.readFileSync(process.argv[2], "utf8"));
 
 const input = [
   "The user wants a direct answer.",
@@ -195,6 +197,7 @@ if (streamingRoot.textContent.includes("*Structure:*")) {
                 shutil.which("node"),
                 "-e",
                 script,
+                str(JIN_UI_UTILS_JS),
                 str(FORMATTER_JS),
             ],
             capture_output=True,
@@ -225,8 +228,13 @@ if (streamingRoot.textContent.includes("*Structure:*")) {
         self.assertIn("done: true,", citations)
         self.assertIn(".jin-think-content.is-structured", css)
         self.assertIn("katex.renderToString", FORMATTER_JS.read_text(encoding="utf-8"))
-        self.assertIn("MATRIX_START_PATTERN", FORMATTER_JS.read_text(encoding="utf-8"))
+        self.assertIn("window.JinUiUtils.parseMatrixMathBlock", FORMATTER_JS.read_text(encoding="utf-8"))
+        self.assertIn("MATRIX_START_PATTERN", JIN_UI_UTILS_JS.read_text(encoding="utf-8"))
         self.assertIn("/static/js/think-formatter.js", index)
+        self.assertLess(
+            index.index("/static/js/jin-ui-utils.js"),
+            index.index("/static/js/think-formatter.js"),
+        )
         self.assertLess(
             index.index("/static/js/think-formatter.js"),
             index.index("/static/js/think-citations.js"),

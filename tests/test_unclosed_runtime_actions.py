@@ -9,6 +9,7 @@ from utils.actions import RuntimeActionStreamFilter
 PAYLOADS = {
     'CHAT_LOG_SEARCH': '{"query":"pizza"}',
     'CLEAN_TOOL_RESULTS': 'T1, T2',
+    'WEB_SEARCH': '{"query":"pizza"}',
     'ASSET_ACTION': '{"action":"list_files"}',
     'DEEP_WEB_SEARCH': 'research this topic',
     'JIN_COLOR': '#112233',
@@ -17,10 +18,9 @@ PAYLOADS = {
     'JIN_SIZE': 'w:120 h:120',
     'JIN_SPEED': '600px/s',
     'POSTING_BOARD': '{"action":"feed"}',
-    'CALL_MCP': '{"skill":"demo_mcp","tool":"ping","arguments":{}}',
     'SAVE_ACTIVE_MEMORY': '{"conditions":"remember to test"}',
+    'DELETE_ACTIVE_MEMORY': 'AM-abc123',
     'SAVE_DELAYED_MEMORY': '{"title":"test","summary":"summary","body":"body"}',
-    'UPDATE_ACTIVE_MEMORY': '{"active_memory_id":"abc123","conditions":"test"}',
     'UPDATE_LT_FACTS': 'remember this fact',
 }
 
@@ -34,10 +34,10 @@ def parse_chunks(chunks):
 
 class UnclosedParserTests(TestCase):
     def test_covers_every_paired_contract(self):
-        # LOAD_SKILL uses the public LOAD_SKILL_CONTEXT marker and has its own tests.
-        self.assertEqual(
-            set(PAYLOADS),
-            set(get_close_tag_runtime_actions()) - {'LOAD_SKILL'},
+        # LOAD_SKILL uses its plural public marker and CALL_MCP is dynamically
+        # exposed only by a loaded MCP skill; both have dedicated parser tests.
+        self.assertTrue(
+            set(PAYLOADS).issubset(set(get_close_tag_runtime_actions()))
         )
 
     def assert_unclosed_failure(self, name, body, chunks):
@@ -60,7 +60,7 @@ class UnclosedParserTests(TestCase):
         # Exhaustive provider split coverage belongs to one representative paired
         # action. The contract loop above checks that every paired action enters
         # the same unclosed-action path.
-        name = 'UPDATE_ACTIVE_MEMORY'
+        name = 'SAVE_ACTIVE_MEMORY'
         payload = PAYLOADS[name]
         for body in ('', payload, payload + f'</{name[:-2]}'):
             text = f'before\n<{name}>{body}'

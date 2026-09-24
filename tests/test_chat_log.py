@@ -49,13 +49,13 @@ class ChatLogTests(unittest.TestCase):
             extract_active_memory_ids([
                 (
                     "active_memory_1: remember "
-                    "[ active_memory_id: 5FDG4G ]"
+                    "[ id: AM-5fdg4g ]"
                 ),
                 "active_memory_2: fallback id",
                 "session_status: ignored",
             ]),
             [
-                "5fdg4g",
+                "am-5fdg4g",
                 "active_memory_2",
             ],
         )
@@ -163,7 +163,7 @@ class ChatLogTests(unittest.TestCase):
             active_memory_records=[
                 (
                     "active_memory_1: remember "
-                    "[ active_memory_id: 5fdg4g ]"
+                    "[ id: AM-5fdg4g ]"
                 ),
             ],
             runtime_loaded_delayed_memory_ids=[
@@ -247,7 +247,7 @@ class ChatLogTests(unittest.TestCase):
         self.assertEqual(
             entries[0]["active_memory_ids"],
             [
-                "5fdg4g",
+                "am-5fdg4g",
             ],
         )
         self.assertEqual(

@@ -70,8 +70,10 @@ class RuntimeUpdateLTFactsTests(unittest.IsolatedAsyncioTestCase):
             RUNTIME_ACTION_UPDATE_LT_FACTS
         )
         self.assertIn("Write concise English instruction", instructions)
-        self.assertIn("update, merge, or create", instructions)
-        self.assertNotIn("delete", instructions.casefold())
+        normalized_instructions = instructions.casefold()
+        self.assertIn("update or merge", normalized_instructions)
+        self.assertIn("create", normalized_instructions)
+        self.assertNotIn("delete", normalized_instructions)
 
     def test_marker_accepts_create_note_without_fact_ids(self):
         result = extract_runtime_actions(

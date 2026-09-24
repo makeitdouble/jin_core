@@ -1,7 +1,7 @@
 # JIN Core Engine — Current State / Migration Notes
 
-**Snapshot inspected:** `jin_core(20260917-184157).zip`<br>
-**Inspection date:** 2026-09-17<br>
+**Snapshot inspected:** `jin_core(20260924-072111).zip`<br>
+**Inspection date:** 2026-09-24<br>
 **Context reference:** current production source is the implementation baseline; durable decisions and historical correction notes are retained only where they remain compatible with that source.
 
 This is the document to read before touching transitional code. It lists what is true in the inspected snapshot, what is legacy residue, and where product intent and implementation currently differ.
@@ -32,10 +32,12 @@ Current high-signal state:
 - browser continuity uses page-ephemeral `jin.liveRuntimeMemory.v2` plus one atomic `jin.sessionCheckpoint.v2`; legacy per-session FRAME selection is migration-only and never freshness-scanned;
 - Session CLEAR is a durable tombstone that blocks passive resurrection across already-open tabs until a new USER message is successfully sent;
 - `SAVE_SESSION` is not a current runtime-action contract; archived-session restore is handled by the bootstrap/restore path;
-- the current action set includes `JIN_REACTION`, internal `RECALL_FACT_CONTEXT`, `CHAT_LOG_SEARCH`, and whole-file `ATTACH_FILE_BY_ID`; fact recall, delayed-memory loading, Active deletion, file-by-ID attachment, skill loading, and skill unloading use paired list markers while their internal actions remain singular;
+- the current action set includes `JIN_REACTION`, internal `RECALL_FACT_CONTEXT`, `CHAT_LOG_SEARCH`, generic skill-gated `CALL_MCP`, and whole-file `ATTACH_FILE_BY_ID`; fact recall, delayed-memory loading, Active deletion, file-by-ID attachment, skill loading, and skill unloading use paired list markers while their internal actions remain singular;
+- runtime actions execute in exact model-emitted source order (`prepare -> run` per call); `runtime_order` only orders advertised contracts, and the former visual-sequence collector/stage path is absent;
+- `BRAIN_MAX_FOLLOWUPS=0` is unlimited; positive values cap executable workflow ticks and then allow one final response tick with actions disabled. Malformed output gets at most one separate repair tick outside that budget;
 - `<CONCERNS>` is omitted when empty; at 50%+ previous-answer context usage it shows the live percentage, and if tool results are present it explicitly recommends cleaning redundant results;
 - bubble skins are `dark`, `light`, and `bamboo`, with dark/light following normal/Win95 theme defaults unless a non-default skin is explicitly pinned;
-- Live Avatar scaffold circles/rays now mirror the context-pressure color, ray peak opacity scales approximately 0.10 -> 0.50 over a 30-second fade-to-zero breathing cycle, and center hide includes the file ring before switching hidden layers to dormant mode after the fade.
+- Live Avatar scaffold circles/rays now mirror the context-pressure color, ray peak opacity scales approximately 0.10 -> 0.70 over a 30-second fade-to-zero breathing cycle, and center hide includes the file ring before switching hidden layers to dormant mode after the fade.
 
 New agents must not “repair” compatibility residue by restoring the old topology.
 
@@ -61,6 +63,7 @@ Present and active:
 - `utils/actions/*`
 - `utils/context/*`
 - `utils/session_restore.py`
+- `utils/mcp_skill_utils.py`, `utils/mcp_client.py`, and `utils/actions/mcp_actions.py`
 
 Foreground/model-role invariants verified in production source:
 
@@ -96,7 +99,7 @@ The runtime package agrees: L2/L3 modules are absent and the visible Brain path 
 
 - `runtime-storage.js` has one-time compatibility for checkpoints created before L3 removal;
 - a few UI memory-log filters/comments still recognize historical L2/L3 labels;
-- `config_loader.py` and `launch_jin.ps1` recognize `USE_SERVICE_AS_BRAIN` only to migrate old local configs;
+- `config_loader.py` and `jl.ps1` recognize `USE_SERVICE_AS_BRAIN` only to migrate old local configs;
 - `utils/session_restore.py` / `ui/static/js/session-restore.js` can render archived `service` roles and `RUNTIME_MODE=SERVICE`;
 - `ui/static/js/logger/log-entries.js` can present old `[SERVICE]` model-output cards, although current backend code has no `log_service_output` writer.
 
@@ -168,7 +171,7 @@ also reproduce with the original changed reader functions and original action
 flags: old `runtimeMemory.saved_at` client expectation, one-shot restore prompt,
 the then-current restore-dialog bound, and bounded URL-restore UI tail. Those were historical failures from the 2026-09-08 search work; the current shared dialogue bound is five pairs and the restore/follow-up prompt ordering has since changed. Older cleanup tests may still name removed function/log strings. This paragraph is historical evidence, not the current verification status.
 
-The contract assembler currently maps these actions in runtime order:
+The contract assembler currently advertises these actions in `runtime_order` order (this is prompt-contract ordering, not execution priority):
 
 ```text
 DEEP_WEB_SEARCH
@@ -186,6 +189,7 @@ LOAD_SKILL
 UNLOAD_SKILL
 ASSET_ACTION
 POSTING_BOARD
+CALL_MCP
 LIST_ALL_USER_SHARED_FILES
 ATTACH_FILE_CONTENT
 ATTACH_FILE_BY_ID
@@ -197,11 +201,13 @@ DELETE_ACTIVE_MEMORY
 
 `LOAD_SKILL` and `UNLOAD_SKILL` are singular internal runtime action names. Their canonical public/model markers are `<LOAD_SKILLS_CONTEXT> skill1, skill2 </LOAD_SKILLS_CONTEXT>` and `<UNLOAD_SKILLS_CONTEXT> skill1, skill2 </UNLOAD_SKILLS_CONTEXT>`; each valid comma-separated item becomes one ordered internal action.
 
-`utils/actions/dispatcher.py` contains execution branches for the same action family. Every concrete contract now carries a separate `schema` string array before `rules`; `contracts/rules_assembler.py::get_runtime_action_schema()` feeds both model-facing contract text and failed-action diagnostics. Failed tool results are rendered as readable text (status/reason, supplied payload when relevant, `Correct action schema:`), and `ACTION_FAILURE_FOLLOWUP_MESSAGE` explicitly tells Brain not to assume the failed action completed.
+`utils/actions/dispatcher.py` is source-ordered: it fully prepares and runs each emitted call before touching the next one. The action registry has no execution stage field. Every concrete contract carries a separate `schema` string array before `rules`; `contracts/rules_assembler.py::get_runtime_action_schema()` feeds both model-facing contract text and failed-action diagnostics. Failed tool results are rendered as readable text (status/reason, supplied payload when relevant, `Correct action schema:`), and `ACTION_FAILURE_FOLLOWUP_MESSAGE` explicitly tells Brain not to assume the failed action completed.
 
 `POSTING_BOARD` is a native action exposed only after `<LOAD_SKILLS_CONTEXT> posting_board </LOAD_SKILLS_CONTEXT>`. The side skill documents the minimal inner actions (`feed`, `inbox`, `read`, `search`, `post`, `reply`, `ack`, `delete`); the runtime executes them against Get Posting Board and records the exact public request preview plus response as a runtime tool result. Chat bubbles use one stable action ID from running to completed/failed, then fade and become clickable for the reused trace modal. Session Actions intentionally keep only compact markers such as `POSTING_BOARD: action:feed` or `POSTING_BOARD: action:post - failed`; request/response bodies stay out of session-action text. Public writes, including deletion, are blocked when persistent writes are restricted, while board reads remain available. `delete` targets one owned message by exact `post_id`; deleting a root removes the entire thread, so the skill requires explicit authorization and warns Brain to preserve roots unless whole-thread deletion is intended. The bearer token is resolved through the environment override helper from `GETPOSTINGBOARD_API_KEY` (or its supported `JIN_GETPOSTINGBOARD_API_KEY` alias) and is never projected into model/UI context.
 
-The mapped Brain feature flags in `rules/brain_context_builder.py` are enabled. `WEB_SEARCH` and `DEEP_WEB_SEARCH` are then filtered again by `settings.CAN_SEARCH`, so they are not model-visible unless provider `serper` has a non-empty, non-placeholder process-environment key. `launch_jin.ps1` imports an ignored repository-root `.env` before resolving configuration and starting Python; `.env.example` documents the supported secret names without containing credentials. Direct `python app.py` starts still rely on variables exported by the calling shell. The local availability check intentionally does not impose an invented key-length/shape regex; Serper remains the credential authority.
+`CALL_MCP` is generic and skill-gated. A loaded skill with valid `<MCP_SERVER>...</MCP_SERVER>` config is discovered with `tools/list`; the live server/tool schema is appended only to that loaded in-memory skill as `<MCP_RUNTIME>`, and then `CALL_MCP` can route `{skill, tool, arguments}` to an exact loaded skill/tool. One MCP connection is kept per loaded skill across follow-ups, calls are excluded from result reuse, and unload/runtime retirement closes the connection. Returned image blocks are capped at 20 MiB each, stored as pinned JIN files, stripped of base64, and attached to the current sequence so the next Brain tick can inspect them. Generic MCP bubbles open a structured request/result modal; `get_viewport_screenshot` reuses the standard attachment preview. Full contract: [MCP_SKILLS.md](MCP_SKILLS.md).
+
+The mapped Brain feature flags in `rules/brain_context_builder.py` are enabled. `WEB_SEARCH` and `DEEP_WEB_SEARCH` are then filtered again by `settings.CAN_SEARCH`, so they are not model-visible unless provider `serper` has a non-empty, non-placeholder process-environment key. `jl.ps1` imports an ignored repository-root `.env` before resolving configuration and starting Python; `.env.example` documents the supported secret names without containing credentials. Direct `python app.py` starts still rely on variables exported by the calling shell. The local availability check intentionally does not impose an invented key-length/shape regex; Serper remains the credential authority.
 
 Canonical short action syntax is paired: `<WEB_SEARCH> query </WEB_SEARCH>`,
 `<LOAD_DELAYED_MEMORY> id1, id2 </LOAD_DELAYED_MEMORY>`,
@@ -218,9 +224,11 @@ cleanup is the removal path.
 
 `JIN_COLOR` contract version 2 likewise advertises `<JIN_COLOR> #00f2ff </JIN_COLOR>`. Both actions put payload in a paired tag body. Localized parsing still accepts old colon/space inline variants, but those are not model-facing syntax. Current parser/formatter tests require ordinary `before`/`after` answer text to survive marker removal and cover split-chunk completion.
 
-The runtime now also has a strict response-prefix fallback for missing angle brackets. Before visible answer text starts, an exact standalone `ACTION_NAME: payload` line may execute only for enabled payload-bearing short actions and the JIN one-line compatibility actions, and only when the existing payload validator accepts it (with stricter ID-shape checks for recall/active/delayed-memory IDs). Invalid or prose-like payloads stay visible and immediately end the bare fallback; later bare lines stay text, while ordinary `<...>` markers continue to work. Streaming holds an unterminated candidate until newline or final flush, and accepted standalone action lines are removed without leaving a blank line.
+The runtime now also has a strict response-prefix fallback for missing angle brackets. Before visible answer text starts, an exact standalone `ACTION_NAME: payload` line may execute only for the current eligible set: `ATTACH_FILE_CONTENT` plus `JIN_COLOR`, `JIN_REACTION`, `JIN_SIZE`, `JIN_POSITION`, and `JIN_SPEED`. Paired/block actions such as `WEB_SEARCH`, `LOAD_SKILL`, `LOAD_DELAYED_MEMORY`, and `RECALL_FACT_CONTEXT` remain non-executable when written only as a bare internal action name. Invalid or prose-like payloads stay visible and immediately end the bare fallback; later bare lines stay text, while ordinary `<...>` markers continue to work. Streaming holds an unterminated candidate until newline or final flush, and accepted standalone action lines are removed without leaving a blank line.
 
-The JIN visual sequence path preserves the model's marker order across color/size/speed/position. Color and size filtering removes only a no-op against the last applied value in the same runtime-message scope; an alternating sequence is not a repetition failure, and the same color can be requested in another message.
+The whole-response extractor and streaming filter now share the same `allow_bare_prefix_fallback` behavior/default, so chunked and non-stream parsing no longer disagree on this case.
+
+JIN visual actions no longer use a dedicated sequence collector. Color/size/reaction/position/speed calls are ordinary actions executed in exact model-emitted order. Color and size filtering removes only a true no-op against the last applied value in the same runtime-message scope; alternation remains valid, and the same value can be requested again in another message.
 
 ---
 
@@ -493,12 +501,13 @@ Runtime-action bubbles persist their detail in DOM dataset state. Counter-only u
 - clicking usable form padding focuses the JIN user input;
 - answer-rating implementation remains in the client but is release-gated off; the old invisible bubble double-click/hold utility surface has been removed, and completed assistant output instead exposes an explicit `Copy all` button under the avatar/message host;
 - Win95 theme localStorage reads/writes are guarded so restricted storage contexts do not break theme switching.
+- Win95 renders disabled memory-sequence labels/arrows as flat status text and keeps the avatar progress border square; these are theme-specific projections, not new runtime states.
 
 ### 13.8 Chat skins and avatar context pressure
 
 `win95-theme.js` exposes three bubble skins: `dark`, `light`, and `bamboo`. Normal theme defaults to dark and Win95 to light. `jin_bubble_skin` stores the current choice; `jin_bubble_skin_pinned` means the user's explicit non-default choice survives a theme switch. The Context/trace settings UI renders the same three options.
 
-`runtime-panel.js` synchronizes the Brain context meter into `--jin-context-pressure-color` and `--jin-context-pressure-percent`. Static scaffold circles do not rotate; their stroke and the ray stroke use the pressure color. Sixteen rays breathe to zero on a 30-second cycle. Pressure selects roughly 3..7 stronger rays and raises their maximum unmultiplied opacity from 0.10 at empty context to 0.50 at full context. The center toggle fades scaffold, runtime/memory rings, file ring/dots, and center rings; after the 420 ms fade the hidden layers enter `is-memory-layers-dormant`, which removes them from display and disables their orbit/reasoning animations. The center light remains visible.
+`runtime-panel.js` synchronizes the Brain context meter into `--jin-context-pressure-color` and `--jin-context-pressure-percent`. Static scaffold circles do not rotate; their stroke and the ray stroke use the pressure color. Sixteen rays breathe to zero on a 30-second cycle. Pressure selects roughly 3..7 stronger rays and raises their maximum unmultiplied opacity from 0.10 at empty context to 0.70 at full context. The center toggle fades scaffold, runtime/memory rings, file ring/dots, and center rings; after the 420 ms fade the hidden layers enter `is-memory-layers-dormant`, which removes them from display and disables their orbit/reasoning animations. The center light remains visible.
 
 ### 13.9 Direct memory editing
 
@@ -526,17 +535,23 @@ Normal bootstrap renders the inherited five-USER-move tail above a date-labelled
 
 ### 13.14 JIN color projection
 
-JIN visual-action chat bubbles are currently gated off by `ENABLE_JIN_VISUAL_ACTION_BUBBLES=false`; parsing, execution, avatar updates, raw action logging, and Session Actions remain live.
+JIN visual-action chat bubbles are enabled in this snapshot (`ENABLE_JIN_VISUAL_ACTION_BUBBLES=true`). Each applied marker gets its own display ID/bubble; counter-only telemetry does not collapse markers into one aggregate bubble. Parsing, execution, avatar updates, raw action logging, and Session Actions remain live regardless of this UI projection flag.
 
 Avatar center and scene tint now share one transition duration variable set. First bootstrap color uses 2000 ms once; all later/live color changes use 333 ms. There is no center-color queue, secondary bootstrap tint shift, or separate client color resolver in this snapshot.
+
+### 13.15 MCP runtime projection
+
+Session Actions renders `CALL_MCP` identity inline as `skill / tool` instead of hiding the useful target in title-hover metadata. Runtime bubbles retain the parsed request, result, and raw payload. Generic MCP calls open the structured MCP trace modal with fielded arguments/result data; `get_viewport_screenshot` binds the returned hydrated image to the shared attachment hover/click preview instead of inventing a second image viewer.
 
 ---
 
 ## 14. Verification status for this exact snapshot
 
-The 2026-09-17 documentation sync uses `jin_core(20260917-184157).zip` as the source baseline. The audit traced the live action contracts/assembler, Brain context builder, follow-up builder, bootstrap/restore paths, model-role normalization/registry, memory editors/stores, bubble-skin controller, runtime context meter, Live Avatar JS/CSS, and relevant client/server tests. Historical verification notes below this numbered current-state section remain dated history and must not be read as the status of this snapshot.
+The 2026-09-24 documentation sync uses `jin_core(20260924-072111).zip` as the source baseline. The audit traced the live action registry/dispatcher/contracts, Brain follow-up limits and malformed recovery, stream/non-stream parser parity, MCP skill/client/action/UI paths, launchers, memory/session continuity paths, and Live Avatar/Win95 projections. Historical verification notes below this numbered current-state section remain dated history and must not be read as the status of this snapshot.
 
-Focused verification for this documentation pass ran 65 Python tests across five-pair chat continuity, follow-up reasoning, current concerns, bootstrap tail, context/avatar contracts, bubble skins, JIN reaction, Active Memory failure follow-up, and skill assets: 64 passed and one stale bootstrap-tail assertion failed because it still expects `<OLD_SESSION_RESTORED_STATE>` while current source emits `<PREVIOUS_CHAT_MESSAGES>`. Three dependency-free JavaScript checks also passed (`recall_fact_context`, `session_bootstrap_boundary`, `bootstrap_owner_lifecycle`); the Playwright Active-Memory bubble check could not run because `playwright` is not installed in the supplied environment. This is not a claim that every model-dependent/browser integration probe in the repository was executed. The documentation-only patch changes no runtime or test code.
+The repository-wide `python -m tests.run_unittest` command currently fails during test discovery before the suite starts: `tests/runtime_actions/test_jin_color_bootstrap_persistence.py` still imports removed `utils.actions.jin_visual_sequence_actions.emit_jin_visual_sequences`. The current production dispatcher intentionally has no visual-sequence collector, so this is stale test residue rather than evidence that the removed runtime module should be restored. This documentation-only pass does not change that test or any runtime code.
+
+Focused verification against the current implementation is green for the newly documented invariants: 22 unittest cases pass across source-order dispatch, MCP runtime/UI, built-in Blender MCP, CLEAN_TOOL_RESULTS checkpoint behavior, and context-overflow follow-up handling. The dedicated repeated-malformed test also passes and confirms one out-of-budget repair attempt followed, on a second malformed response, by the final runtime-actions-disabled tick. These focused results do not override the repository-wide discovery blocker above.
 
 ---
 
@@ -547,7 +562,7 @@ As of this snapshot, the documentation set has been synchronized with the produc
 - root `README.md` describes FRAME/L-T/Active/Delayed/Files instead of the old numbered four-layer model;
 - README model-role/setup/configuration text describes Brain as the only foreground route and Service as optional/dedicated background execution with Brain fallback;
 - `AGENTS.md` records the same routing invariant and explicitly classifies old `USE_SERVICE_AS_BRAIN` / archived Service labels as compatibility;
-- `docs/JIN_ARCHITECTURE.md`, `docs/JIN_DECISIONS.md`, and this file use the 2026-09-17 inspected source as the Brain-first/FRAME/L-T baseline and include the latest memory-edit, recall, L-T-view, and attachment interaction contracts.
+- `docs/JIN_ARCHITECTURE.md`, `docs/JIN_DECISIONS.md`, and this file use the 2026-09-24 inspected source as the Brain-first/FRAME/L-T baseline and include the current source-order action, follow-up, MCP, memory-edit, recall, L-T-view, and attachment contracts.
 
 There is no root `ARCHITECTURE.md` in the inspected archive. `docs/JIN_ARCHITECTURE.md` is the canonical architecture document.
 
@@ -572,6 +587,7 @@ Do not present these as settled without fresh code evidence:
 - whether the full night self-review concept is implemented outside the inspected paths;
 - which remaining L2/L3-named compatibility fields/readers are still required for real historical data;
 - when stale tests that directly mutate `config.USE_SERVICE_AS_BRAIN` or expect `SAVE_SESSION` should be migrated to the Brain-first/checkpoint architecture;
+- migrate `tests/runtime_actions/test_jin_color_bootstrap_persistence.py` away from the removed `jin_visual_sequence_actions` collector so repository-wide test discovery can run again;
 - final intended internal storage format for Active Memory if the current string-record representation is ever migrated;
 - whether reveal debounce should now be restored from 333 ms to the earlier 250 ms preference;
 - final canonical list of supported noncanonical action marker aliases after compatibility cleanup;
@@ -598,17 +614,11 @@ Do not combine that cleanup with unrelated runtime behavior patches.
 
 ## Malformed-action recovery — 2026-09-10
 
-Three targeted envelope masks now feed the shared failure-follow-up mechanism.
-`MALFORMED_ACTION` is internal telemetry, not a new model-invokable contract.
-Its result persists the detected name and original payload; ordered notifications
-at the top of the next prompt carry the contract schema. Repeated malformed
-attempts remain separately visible and are not stopped by a repair-attempt cap.
-Ordinary action limits still apply to other action workflows.
+Three targeted envelope masks feed the shared failure-follow-up mechanism. `MALFORMED_ACTION` is internal telemetry, not a new model-invokable contract. Its result persists the detected name and original payload; ordered notifications at the top of the next prompt carry the target contract schema. Each occurrence remains independently visible.
 
-Thirteen contracts previously had empty `schema` arrays despite the documented
-schema invariant. Their existing canonical syntax was moved/copied into those
-arrays so recovery can use the JSON field for every registered action. No action
-payload semantics or feature flags changed.
+Current 2026-09-24 control semantics supersede the original unlimited-repair note: one malformed repair tick is allowed outside the ordinary `BRAIN_MAX_FOLLOWUPS` budget. If the repair output is malformed again, the sequence stops and runs one final non-executable Brain response tick with runtime actions disabled. Positive ordinary follow-up limits use that same final-response pattern when exhausted; `BRAIN_MAX_FOLLOWUPS=0` means the ordinary workflow is unlimited.
+
+Thirteen contracts previously had empty `schema` arrays despite the documented schema invariant. Their existing canonical syntax was moved/copied into those arrays so recovery can use the JSON field for every registered action. No action payload semantics or feature flags changed.
 
 
 ## Owner bootstrap lifecycle correction — 2026-09-11

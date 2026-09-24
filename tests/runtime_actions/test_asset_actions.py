@@ -541,6 +541,7 @@ class RuntimeAssetActionTests(RuntimeActionTestCase):
 
                 context = Context()
                 context.emitter = Emitter()
+                context.runtime_loaded_skills = [{"name": "file_manager"}]
                 payload = json.dumps(
                     {
                         "action": "create_wildcard_file",
@@ -593,10 +594,7 @@ class RuntimeAssetActionTests(RuntimeActionTestCase):
                 )
                 self.assertEqual(
                     context.emitter.events[0]["text"],
-                    (
-                        "ASSET_ACTION: create_wildcard_file - "
-                        "assets/wildcards/clothing/test_tops.txt"
-                    ),
+                    "ASSET_ACTION",
                 )
                 self.assertTrue(
                     context.emitter.events[0]["close_tag"],
@@ -664,6 +662,7 @@ class RuntimeAssetActionTests(RuntimeActionTestCase):
 
                 context = Context()
                 context.emitter = Emitter()
+                context.runtime_loaded_skills = [{"name": "file_manager"}]
                 context.runtime_current_turn_id = "turn_000001"
                 payload_data = {
                     "action": "create_asset_file",
@@ -730,6 +729,7 @@ class RuntimeAssetActionTests(RuntimeActionTestCase):
 
                 context = Context()
                 context.emitter = Emitter()
+                context.runtime_loaded_skills = [{"name": "file_manager"}]
                 payload = json.dumps(
                     {
                         "action": "create_asset_file",
@@ -760,10 +760,7 @@ class RuntimeAssetActionTests(RuntimeActionTestCase):
                 )
                 self.assertEqual(
                     context.emitter.events[0]["text"],
-                    (
-                        "ASSET_ACTION: create_asset_file - "
-                        "assets/outputs/rain_script.py"
-                    ),
+                    "ASSET_ACTION",
                 )
                 self.assertTrue(
                     context.emitter.events[0]["close_tag"],
@@ -796,6 +793,7 @@ class RuntimeAssetActionTests(RuntimeActionTestCase):
 
                 context = Context()
                 context.emitter = Emitter()
+                context.runtime_loaded_skills = [{"name": "file_manager"}]
                 payload = json.dumps(
                     {
                         "action": "create_wildcard_file",
@@ -1207,6 +1205,7 @@ class RuntimeAssetActionTests(RuntimeActionTestCase):
 
                 context = Context()
                 context.emitter = Emitter()
+                context.runtime_loaded_skills = [{"name": "file_manager"}]
                 payload = json.dumps({
                     "action": "generate_prompt_batch",
                     "count": 2,
@@ -1232,10 +1231,7 @@ class RuntimeAssetActionTests(RuntimeActionTestCase):
                 )
                 self.assertEqual(
                     context.emitter.events[0]["text"],
-                    (
-                        "ASSET_ACTION: generate_prompt_batch - "
-                        "assets/prompts/test_prompts.txt"
-                    ),
+                    "ASSET_ACTION",
                 )
                 self.assertTrue(
                     context.emitter.events[0]["close_tag"],
@@ -1343,6 +1339,7 @@ class RuntimeAssetActionTests(RuntimeActionTestCase):
 
                 context = Context()
                 context.emitter = Emitter()
+                context.runtime_loaded_skills = [{"name": "file_manager"}]
                 payload = json.dumps(
                     {
                         "action": "analyze_image",

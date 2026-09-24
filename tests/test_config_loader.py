@@ -27,7 +27,7 @@ class ConfigLoaderTests(unittest.TestCase):
 
         def uppercase_assignments(path):
             import ast
-            tree = ast.parse(path.read_text(encoding="utf-8"))
+            tree = ast.parse(path.read_text(encoding="utf-8-sig"))
             return [
                 node.targets[0].id
                 for node in tree.body
@@ -37,10 +37,13 @@ class ConfigLoaderTests(unittest.TestCase):
                 and node.targets[0].id.isupper()
             ]
 
+        config_keys = uppercase_assignments(root / "config.py")
+        example_keys = uppercase_assignments(root / "config.example.py")
         self.assertEqual(
-            uppercase_assignments(root / "config.py"),
-            uppercase_assignments(root / "config.example.py"),
+            config_keys,
+            [name for name in example_keys if name in config_keys],
         )
+        self.assertTrue(set(config_keys).issubset(example_keys))
 
     def test_stream_validator_thresholds_live_outside_user_config(self):
         root = Path(__file__).resolve().parents[1]

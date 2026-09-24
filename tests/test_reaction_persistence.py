@@ -35,7 +35,7 @@ class ReactionPersistenceTests(unittest.TestCase):
                             ))
                         if answer is not None:
                             append_chat_log_entry(context, role='jin', text=answer, root=tmp)
-                    entries = [json.loads(line) for line in Path(path).read_text().splitlines()]
+                    entries = [json.loads(line) for line in Path(path).read_text(encoding="utf-8").splitlines()]
                     if not anonymous:
                         payload = build_archived_session_restore_payload('test', root=tmp)
                         self.assertEqual(payload['messages'][0]['jin_reaction'], '🔥')

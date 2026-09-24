@@ -119,56 +119,58 @@ class BarePrefixActionFallbackTests(unittest.TestCase):
             (RuntimeActionCall(name="ATTACH_FILE_CONTENT", payload="src/main.py"),),
         )
 
-    def test_other_payload_short_actions_use_same_exact_line_fallback(self):
+    def test_paired_and_block_actions_do_not_use_bare_prefix_fallback(self):
         cases = (
-            ("WEB_SEARCH", "blue tomato", '{"query": "blue tomato"}'),
-            ("LOAD_DELAYED_MEMORY", "abc123", "abc123"),
-            ("UNLOAD_DELAYED_MEMORY", "abc123", "abc123"),
-            ("LOAD_SKILL", "python", "python"),
-            ("UNLOAD_SKILL", "python", "python"),
-            ("DELETE_ACTIVE_MEMORY", "abc123", "abc123"),
-            ("RECALL_FACT_CONTEXT", "F12", "F12"),
+            ("WEB_SEARCH", "blue tomato"),
+            ("LOAD_DELAYED_MEMORY", "abc123"),
+            ("UNLOAD_DELAYED_MEMORY", "abc123"),
+            ("LOAD_SKILL", "python"),
+            ("UNLOAD_SKILL", "python"),
+            ("DELETE_ACTIVE_MEMORY", "AM-abc123"),
+            ("RECALL_FACT_CONTEXT", "F12"),
         )
 
-        for action_name, raw_payload, expected_payload in cases:
+        for action_name, raw_payload in cases:
             with self.subTest(action=action_name):
+                text = f"{action_name}: {raw_payload}\nhello"
                 result = extract_runtime_actions(
-                    f"{action_name}: {raw_payload}\nhello",
+                    text,
                     enabled_actions=(action_name,),
                     allow_bare_prefix_fallback=True,
                 )
 
-                self.assertEqual(result.text, "hello")
-                self.assertEqual(len(result.actions), 1)
-                self.assertEqual(result.actions[0].name, action_name)
-                self.assertEqual(result.actions[0].payload, expected_payload)
+                self.assertEqual(result.text, text)
+                self.assertEqual(result.actions, ())
+                self.assertEqual(result.removed_markers, ())
 
-    def test_id_actions_require_strict_id_shape_in_bare_fallback(self):
-        invalid = extract_runtime_actions(
-            "DELETE_ACTIVE_MEMORY: active_memory_id=e2qxe7 STATUS=deleted\nhello",
-            enabled_actions=("DELETE_ACTIVE_MEMORY",),
-            allow_bare_prefix_fallback=True,
-        )
-        self.assertEqual(
-            invalid.text,
-            "DELETE_ACTIVE_MEMORY: active_memory_id=e2qxe7 STATUS=deleted\nhello",
-        )
-        self.assertEqual(invalid.actions, ())
-
-        recall_invalid = extract_runtime_actions(
-            "RECALL_FACT_CONTEXT: this should be F123\nhello",
-            enabled_actions=("RECALL_FACT_CONTEXT",),
-            allow_bare_prefix_fallback=True,
-        )
-        self.assertEqual(recall_invalid.actions, ())
-
-        recall_valid = extract_runtime_actions(
-            "RECALL_FACT_CONTEXT: F123\nhello",
-            enabled_actions=("RECALL_FACT_CONTEXT",),
-            allow_bare_prefix_fallback=True,
-        )
-        self.assertEqual(recall_valid.text, "hello")
-        self.assertEqual(recall_valid.actions[0].payload, "F123")
+    def test_paired_id_actions_are_never_guessed_from_bare_internal_names(self):
+        for text, action_name in (
+            (
+                "DELETE_ACTIVE_MEMORY: active_memory_id=e2qxe7 STATUS=deleted\nhello",
+                "DELETE_ACTIVE_MEMORY",
+            ),
+            (
+                "DELETE_ACTIVE_MEMORY: AM-abc123\nhello",
+                "DELETE_ACTIVE_MEMORY",
+            ),
+            (
+                "RECALL_FACT_CONTEXT: this should be F123\nhello",
+                "RECALL_FACT_CONTEXT",
+            ),
+            (
+                "RECALL_FACT_CONTEXT: F123\nhello",
+                "RECALL_FACT_CONTEXT",
+            ),
+        ):
+            with self.subTest(action=action_name, text=text):
+                result = extract_runtime_actions(
+                    text,
+                    enabled_actions=(action_name,),
+                    allow_bare_prefix_fallback=True,
+                )
+                self.assertEqual(result.text, text)
+                self.assertEqual(result.actions, ())
+                self.assertEqual(result.removed_markers, ())
 
     def test_block_and_unknown_action_names_are_not_guessed(self):
         for text, action_name in (

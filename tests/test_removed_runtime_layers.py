@@ -11,10 +11,7 @@ from unittest.mock import AsyncMock, patch
 from clients.brain_client import build_brain_context_snapshot
 from contracts.rules_assembler import get_action_contracts, get_enabled_runtime_actions
 from rules.brain_context_builder import BRAIN_RUNTIME_ACTIONS, build_brain_context
-from runtime.frame_memory import (
-    summarize_runtime_memory,
-    summarize_runtime_memory_pending_turns,
-)
+from runtime.frame_memory import summarize_runtime_memory_pending_turns
 from tests.helpers.runtime_actions import FakeContext, FakeEmitter, patch_asset_roots
 from utils.actions import RuntimeActionCall, RuntimeActionStreamFilter, extract_runtime_actions
 from utils.actions.dispatcher import apply_runtime_action_calls
@@ -86,7 +83,7 @@ vm.runInNewContext(fs.readFileSync(process.argv[1], "utf8"), {
   clearTimeout: id => timers.delete(id), appendLog() {},
   registerSocketMessageHandler: (name, fn) => { handlers[name] = fn; },
 });
-assert.deepStrictEqual(Object.keys(handlers).sort(), ["active_memory_records_update", "log"]);
+assert.deepStrictEqual(Object.keys(handlers).sort(), ["active_memory_records_update", "log", "memory_profile_snapshot"]);
 handlers.active_memory_records_update({active_memory_records: ["keep active"]});
 assert.deepStrictEqual(activeRecords, ["keep active"]);
 handlers.log({tag: "[MEMORY:FRAME]", memory_level: "FRAME", memory_event: "summarizer_request"});
@@ -103,34 +100,37 @@ assert.strictEqual(timers.size, 0);
 
 
 class RemovedRuntimeLayerAsyncTests(unittest.IsolatedAsyncioTestCase):
-    async def test_single_and_batch_frame_updates_preserve_values_without_confirmation_injection(self):
+    async def test_pending_frame_update_preserves_values_without_confirmation_injection(self):
         memory = "user_fact: Prefers quiet places.\nactive_topic: Current discussion."
         response = {"choices": [{"message": {"content": memory}, "finish_reason": "stop"}]}
-        for batch in (False, True):
-            with self.subTest(batch=batch):
-                context = SimpleNamespace(
-                    clients={"service": object()}, runtime_memory="", runtime_memory_stable="",
-                    runtime_memory_updates=0,
-                    runtime_memory_pending_turns=[{"user_message": "это факт", "assistant_message": "OK"}],
-                )
-                target = "ask_runtime_memory_batch_model" if batch else "ask_runtime_memory_model"
-                with patch(f"runtime.frame_memory.{target}", new=AsyncMock(return_value=response)), \
-                     patch("runtime.frame_memory.emit_runtime_memory_update", new=AsyncMock()) as emit, \
-                     patch("runtime.frame_memory.record_runtime_frame_diff", new=AsyncMock()):
-                    if batch:
-                        result = await summarize_runtime_memory_pending_turns(context=context)
-                        self.assertEqual(context.runtime_memory_pending_turns, [])
-                    else:
-                        result = await summarize_runtime_memory(
-                            context=context, user_message="это факт", assistant_message="OK")
-                self.assertEqual(result, memory)
-                self.assertEqual(context.runtime_memory_stable, memory)
-                self.assertEqual(context.runtime_memory_updates, 1)
-                emit.assert_awaited_once()
-                self.assertIs(emit.await_args.args[0], context)
-                self.assertEqual(emit.await_args.kwargs["source_turns"],
-                                 [{"user_message": "это факт", "assistant_message": "OK"}]
-                                 if batch else [{"turn_id": ""}])
+        turns = [{
+            "turn_id": "turn-current",
+            "user_message": "это факт",
+            "assistant_message": "OK",
+        }]
+        context = SimpleNamespace(
+            clients={"service": object()}, runtime_memory="", runtime_memory_stable="",
+            runtime_memory_updates=0, runtime_memory_pending_turns=list(turns),
+        )
+        with patch(
+            "runtime.frame_memory.ask_runtime_memory_batch_model",
+            new=AsyncMock(return_value=response),
+        ), patch(
+            "runtime.frame_memory.emit_runtime_memory_update",
+            new=AsyncMock(),
+        ) as emit, patch(
+            "runtime.frame_memory.record_runtime_frame_diff",
+            new=AsyncMock(),
+        ):
+            result = await summarize_runtime_memory_pending_turns(context=context)
+
+        self.assertEqual(context.runtime_memory_pending_turns, [])
+        self.assertEqual(result, memory)
+        self.assertEqual(context.runtime_memory_stable, memory)
+        self.assertEqual(context.runtime_memory_updates, 1)
+        emit.assert_awaited_once()
+        self.assertIs(emit.await_args.args[0], context)
+        self.assertEqual(emit.await_args.kwargs["source_turns"], turns)
 
     async def test_existing_file_error_is_preserved_even_with_obsolete_task_state(self):
         with tempfile.TemporaryDirectory() as directory, contextlib.ExitStack() as stack:
@@ -143,6 +143,7 @@ class RemovedRuntimeLayerAsyncTests(unittest.IsolatedAsyncioTestCase):
             context = FakeContext()
             context.emitter = FakeEmitter()
             context.runtime_todo = [{"id": 1, "text": "Create file", "status": "pending"}]
+            context.runtime_loaded_skills = [{"name": "file_manager"}]
             await apply_runtime_action_calls(context, (RuntimeActionCall(
                 name="ASSET_ACTION", payload=json.dumps({"action": "create_asset_file",
                     "path": "assets/outputs/existing.txt", "content": "replacement"}),

@@ -139,8 +139,8 @@ class BrainPromptMemoryTests(
             )
             self.assertIn(
                 (
-                    "</PREVIOUS_CHAT_MESSAGES>\n"
-                    '<FRAME_MEMORY_5>'
+                    "</FRAME_MEMORY_5>\n"
+                    '<PREVIOUS_CHAT_MESSAGES>'
                 ),
                 prompt,
             )
@@ -401,15 +401,11 @@ class BrainPromptMemoryTests(
 
             self.assertTrue(
                 prompt.startswith(
-                    "<CURRENT_CONCERNS>"
+                    "<TRUSTED_RUNTIME_VARIABLES>"
                 ),
             )
             self.assertLess(
-                prompt.index("</CURRENT_CONCERNS>"),
-                prompt.index("<CURRENT_TRUSTED_RUNTIME_VARIABLES>"),
-            )
-            self.assertLess(
-                prompt.index("</CURRENT_TRUSTED_RUNTIME_VARIABLES>"),
+                prompt.index("</TRUSTED_RUNTIME_VARIABLES>"),
                 prompt.index("<TOOLS_RESULTS>"),
             )
             self.assertLess(
@@ -418,10 +414,10 @@ class BrainPromptMemoryTests(
             )
             self.assertLess(
                 prompt.index("</SESSION_ACTIONS_HISTORY>"),
-                prompt.index("<LOADED_SKILLS_CONTENT>"),
+                prompt.index("<SKILLS_LIST>"),
             )
             self.assertLess(
-                prompt.index("<LOADED_SKILLS_CONTENT>"),
+                prompt.index("</SKILLS_LIST>"),
                 prompt.index("<FRAME_MEMORY_"),
             )
             self.assertNotIn("<SESSION_STATE>", prompt)
@@ -429,7 +425,7 @@ class BrainPromptMemoryTests(
             self.assertNotIn("User messages count:", prompt)
             self.assertNotIn("JIN messages count:", prompt)
             self.assertIn(
-                "<LOADED_SKILLS_CONTENT>\n        [\n          {\n            \"name\": \"wildcards\"\n          }\n        ]\n</LOADED_SKILLS_CONTENT>",
+                '<TOOL_RESULT name="LOAD_SKILL" skill="wildcards">',
                 prompt,
             )
             self.assertIn(
@@ -975,7 +971,7 @@ class BrainPromptMemoryTests(
                 )
 
             self.assertIn(
-                "<CURRENT_REQUEST_ACTIONS_HISTORY>",
+                "<REQUEST_ACTIONS_HISTORY>",
                 history,
             )
             self.assertIn(
@@ -1272,15 +1268,11 @@ class BrainPromptMemoryTests(
             )
             self.assertTrue(
                 prompt.startswith(
-                    "<CURRENT_CONCERNS>"
+                    "<TRUSTED_RUNTIME_VARIABLES>"
                 ),
             )
             self.assertLess(
-                prompt.index("</CURRENT_CONCERNS>"),
-                prompt.index("<CURRENT_TRUSTED_RUNTIME_VARIABLES>"),
-            )
-            self.assertLess(
-                prompt.index("</CURRENT_TRUSTED_RUNTIME_VARIABLES>"),
+                prompt.index("</TRUSTED_RUNTIME_VARIABLES>"),
                 prompt.index("<TOOLS_RESULTS>"),
             )
             self.assertLess(
@@ -1401,7 +1393,7 @@ class BrainPromptMemoryTests(
             )
             self.assertLess(
                 prompt.index(
-                    "<CURRENT_USER_DATETIME>"
+                    "<USER_DATETIME>"
                 ),
                 prompt.index(
                     "<CONVERSATION_ACTIVITY>"
@@ -1412,7 +1404,7 @@ class BrainPromptMemoryTests(
                     "<CONVERSATION_ACTIVITY>"
                 ),
                 prompt.index(
-                    "</CURRENT_TRUSTED_RUNTIME_VARIABLES>"
+                    "</TRUSTED_RUNTIME_VARIABLES>"
                 ),
             )
             self.assertNotIn(
@@ -1428,7 +1420,7 @@ class BrainPromptMemoryTests(
                 prompt,
             )
             self.assertIn(
-                "LOW activity. The conversation is fading",
+                "LOW activity.",
                 prompt,
             )
             self.assertIn(

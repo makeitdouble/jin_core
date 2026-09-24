@@ -8,6 +8,7 @@ class Element {
   appendChild(child) { this.children.push(child); }
 }
 const context = vm.createContext({window: {}, document: {createElement: () => new Element(), createTextNode: text => ({textContent: text})}, Date});
+vm.runInContext(read('ui/static/js/jin-ui-utils.js'), context);
 vm.runInContext(read('ui/static/js/logger/session-actions.js'), context);
 context.item = {parts: [{text: 'ATTACH_FILE_CONTENT', detail: 'agent/nodes/base.py', tool_ids: ['T1']}], createdAt: Date.now()/1000 - 1};
 const row = vm.runInContext('buildSessionActionRow(item, 5)', context);

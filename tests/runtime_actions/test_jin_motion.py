@@ -140,15 +140,15 @@ class RuntimeJinMotionActionTests(RuntimeActionTestCase):
         )
 
         self.assertIn(
-            "<CURRENT_JIN_POSITION>x: 1500px y: 40px</CURRENT_JIN_POSITION>",
+            "<JIN_POSITION>x: 1500px y: 40px</JIN_POSITION>",
             xml,
         )
         self.assertIn(
-            "<CURRENT_JIN_SPEED>55px/s</CURRENT_JIN_SPEED>",
+            "<JIN_SPEED>55px/s</JIN_SPEED>",
             xml,
         )
         self.assertIn(
-            "<CURRENT_WINDOW_SIZE>width: 1920px height: 1080px</CURRENT_WINDOW_SIZE>",
+            "<WINDOW_SIZE>width: 1920px height: 1080px</WINDOW_SIZE>",
             xml,
         )
 
@@ -167,9 +167,9 @@ class RuntimeJinMotionActionTests(RuntimeActionTestCase):
         self.assertNotIn("<JIN_SPEED>", instructions)
         self.assertNotIn("<JIN_POSITION>", instructions)
         expanded_xml = build_runtime_xml(context)
-        self.assertNotIn("CURRENT_JIN_POSITION", expanded_xml)
-        self.assertNotIn("CURRENT_JIN_SPEED", expanded_xml)
-        self.assertNotIn("CURRENT_WINDOW_SIZE", expanded_xml)
+        self.assertNotIn("<JIN_POSITION>", expanded_xml)
+        self.assertNotIn("<JIN_SPEED>", expanded_xml)
+        self.assertNotIn("<WINDOW_SIZE>", expanded_xml)
 
 
 if __name__ == "__main__":

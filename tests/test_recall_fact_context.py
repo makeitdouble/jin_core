@@ -30,7 +30,9 @@ class RecallFactContextTests(unittest.TestCase):
         self.assertEqual(restored["facts"][0]["sources"], [S1, S2])
 
     def test_old_fact_no_guess_and_invalid_source_paths(self):
-        self.assertEqual(recall_fact_context(SimpleNamespace(), {"id": "F1", "value": "test"})["error"], "source_not_saved")
+        with tempfile.TemporaryDirectory() as tmp:
+            result = recall_fact_context(SimpleNamespace(), {"id": "F1", "value": "test"}, root=Path(tmp))
+        self.assertEqual(result["error"], "source_not_saved")
         self.assertEqual(normalize_sources([{**S1, "session_id": "../escape"}]), [])
 
     def test_legacy_explicit_update_recovers_exact_turn_from_runtime_result(self):
@@ -401,32 +403,28 @@ class RecallArchiveTests(unittest.IsolatedAsyncioTestCase):
 
 
 class RecallSummarizerTests(unittest.IsolatedAsyncioTestCase):
-    async def test_single_and_batch_summarizers_forward_captured_turns(self):
+    async def test_pending_summarizer_forwards_captured_turns(self):
         from unittest.mock import patch
         from tests.helpers.memory import FakeLogger, FakeServiceClient
-        from runtime.frame_memory import summarize_runtime_memory, summarize_runtime_memory_pending_turns
+        from runtime.frame_memory import summarize_runtime_memory_pending_turns
         from runtime.runtime_context import RuntimeContext
-        for batch in (False, True):
-            c=RuntimeContext(websocket=None, emitter=None, logger=FakeLogger(),
-                clients={"service":FakeServiceClient("city: Kyiv")})
-            c.session_id='recall-summary-test'
-            c.runtime_current_turn_id='current'
-            c.runtime_memory='city: Lviv'
-            c.runtime_memory_stable=c.runtime_memory
-            c.runtime_memory_pending_turns=[
-                {'turn_id':'first','user_message':'Kyiv','assistant_message':'ok'},
-                {'turn_id':'second','user_message':'yes','assistant_message':'ok'},
-            ]
-            with patch('utils.chat_log.chat_logging_enabled',return_value=False):
-                if batch:
-                    await summarize_runtime_memory_pending_turns(context=c)
-                else:
-                    await summarize_runtime_memory(context=c,user_message='Kyiv',assistant_message='ok')
-            self.assertTrue(c.runtime_memory_snapshots)
-            snapshot=c.runtime_memory_snapshots[-1]
-            self.assertEqual(snapshot['source_turn_ids'],['first','second'] if batch else ['current'])
-            self.assertTrue(snapshot['source_turns_complete'])
 
+        c=RuntimeContext(websocket=None, emitter=None, logger=FakeLogger(),
+            clients={"service":FakeServiceClient("city: Kyiv")})
+        c.session_id='recall-summary-test'
+        c.runtime_current_turn_id='current'
+        c.runtime_memory='city: Lviv'
+        c.runtime_memory_stable=c.runtime_memory
+        c.runtime_memory_pending_turns=[
+            {'turn_id':'first','user_message':'Kyiv','assistant_message':'ok'},
+            {'turn_id':'second','user_message':'yes','assistant_message':'ok'},
+        ]
+        with patch('utils.chat_log.chat_logging_enabled',return_value=False):
+            await summarize_runtime_memory_pending_turns(context=c)
+        self.assertTrue(c.runtime_memory_snapshots)
+        snapshot=c.runtime_memory_snapshots[-1]
+        self.assertEqual(snapshot['source_turn_ids'],['first','second'])
+        self.assertTrue(snapshot['source_turns_complete'])
 
 if __name__ == '__main__':
     unittest.main()

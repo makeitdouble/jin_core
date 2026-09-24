@@ -62,7 +62,7 @@ class StreamActionLatencyTests(unittest.IsolatedAsyncioTestCase):
         from tests.test_unclosed_runtime_actions import PAYLOADS
         from contracts.rules_assembler import get_close_tag_runtime_actions, get_runtime_action_private_marker
 
-        payloads = dict(PAYLOADS, WEB_SEARCH="test query", LOAD_SKILL="blender_mcp",
+        payloads = dict(PAYLOADS, WEB_SEARCH="test query", CALL_MCP='{"server":"blender","tool":"get_scene_info","arguments":{}}', LOAD_SKILL="blender_mcp",
                         UNLOAD_SKILL="blender_mcp", RECALL_FACT_CONTEXT="F1",
                         ATTACH_FILE_BY_ID="file1", LOAD_DELAYED_MEMORY="D1",
                         DELETE_ACTIVE_MEMORY="abc123")
@@ -77,66 +77,30 @@ class StreamActionLatencyTests(unittest.IsolatedAsyncioTestCase):
                     self.assertIn("Hello", parser.filter("Hello").text)
                     self.assertEqual(parser.filter(" world!").text, " world!")
 
-    async def test_text_reaches_websocket_while_action_is_waiting(self):
-        for marker, flags in (
-            ("<LOAD_SKILLS_CONTEXT> blender_mcp </LOAD_SKILLS_CONTEXT>",
-             {"CAN_USE_ASSETS": True}),
-            ('<SAVE_ACTIVE_MEMORY>{"conditions":"test"}</SAVE_ACTIVE_MEMORY>',
-             {"CAN_SAVE_ACTIVE_MEMORY": True}),
-            ("<JIN_COLOR> #ff00ff </JIN_COLOR>", {"CAN_JIN_COLOR": True}),
-        ):
-            with self.subTest(marker=marker):
-                started = asyncio.Event()
-                release = asyncio.Event()
-                visible = asyncio.Event()
-                events = []
+    async def test_provider_transport_passes_runtime_markers_without_executing_them(self):
+        marker = "<LOAD_SKILLS_CONTEXT> blender_mcp </LOAD_SKILLS_CONTEXT>"
 
-                async def apply(*args, **kwargs):
-                    started.set()
-                    await release.wait()
+        class Client:
+            async def stream(self, **kwargs):
+                yield {"type": "content", "content": marker}
+                yield {"type": "content", "content": "Hello"}
 
-                async def send(event):
-                    events.append(event)
-                    if event.get("type") == "message_chunk":
-                        visible.set()
-
-                class Client:
-                    async def stream(self, **kwargs):
-                        for char in marker:
-                            yield {"type": "content", "content": char}
-                        await started.wait()
-                        for text in ("\n\n", "Hello", " world", "!"):
-                            yield {"type": "content", "content": text}
-
-                handler = StreamHandler(
-                    SimpleNamespace(send_json=send), SimpleNamespace(),
-                    role="brain", enable_validator=True,
+        with patch("clients.brain_client.apply_runtime_action_calls", new=AsyncMock()) as apply:
+            chunks = [
+                chunk
+                async for chunk in ask_brain_stream(
+                    client=Client(), text="test", context=SimpleNamespace(),
+                    system_prompt="test", brain_payload="test",
+                    context_window_prepared=True,
+                    runtime_actions={"CAN_USE_ASSETS": True},
                 )
+            ]
 
-                async def consume():
-                    async for chunk in ask_brain_stream(
-                        client=Client(), text="test", context=SimpleNamespace(),
-                        system_prompt="test", brain_payload="test",
-                        context_window_prepared=True, runtime_actions=flags,
-                    ):
-                        if chunk["type"] == "content":
-                            await handler.send_content(chunk["content"])
-
-                with patch("clients.brain_client.apply_runtime_action_calls", apply):
-                    task = asyncio.create_task(consume())
-                    try:
-                        await asyncio.wait_for(visible.wait(), 2)
-                        self.assertFalse(task.done(), "completion must wait for actions")
-                        self.assertIn("Hello", handler.response)
-                        self.assertNotIn("<", handler.response)
-                        release.set()
-                        await asyncio.wait_for(task, 2)
-                        self.assertEqual(handler.response.strip(), "Hello world!")
-                    finally:
-                        release.set()
-                        if not task.done():
-                            task.cancel()
-                        await asyncio.gather(task, return_exceptions=True)
+        self.assertEqual(
+            [chunk["content"] for chunk in chunks if chunk["type"] == "content"],
+            [marker, "Hello"],
+        )
+        apply.assert_not_awaited()
 
     async def test_queue_preserves_order_and_drains(self):
         queue = StreamActionQueue()
@@ -160,21 +124,15 @@ class StreamActionLatencyTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(order, ["first start", "first end", "second"])
         await queue.close()
 
-    async def test_closing_brain_generator_cancels_its_pending_action(self):
-        cancelled = asyncio.Event()
-
-        async def apply(*args, **kwargs):
-            try:
-                await asyncio.Event().wait()
-            finally:
-                cancelled.set()
+    async def test_closing_provider_generator_does_not_start_runtime_action(self):
+        marker = "<LOAD_SKILLS_CONTEXT> blender_mcp </LOAD_SKILLS_CONTEXT>"
 
         class Client:
             async def stream(self, **kwargs):
-                yield {"type": "content", "content": "<LOAD_SKILLS_CONTEXT> blender_mcp </LOAD_SKILLS_CONTEXT>"}
+                yield {"type": "content", "content": marker}
                 yield {"type": "content", "content": "Hello"}
 
-        with patch("clients.brain_client.apply_runtime_action_calls", apply):
+        with patch("clients.brain_client.apply_runtime_action_calls", new=AsyncMock()) as apply:
             generator = ask_brain_stream(
                 client=Client(), text="test", context=SimpleNamespace(),
                 system_prompt="test", brain_payload="test", context_window_prepared=True,
@@ -182,10 +140,10 @@ class StreamActionLatencyTests(unittest.IsolatedAsyncioTestCase):
             )
             try:
                 chunk = await asyncio.wait_for(anext(generator), 2)
-                self.assertEqual(chunk["content"], "Hello")
+                self.assertEqual(chunk["content"], marker)
             finally:
                 await generator.aclose()
-            self.assertTrue(cancelled.is_set())
+            apply.assert_not_awaited()
 
     async def test_close_cancels_running_and_queued_actions(self):
         queue = StreamActionQueue()

@@ -26,12 +26,12 @@ class JinColorTransitionClientContractTests(unittest.TestCase):
         avatar_source = AVATAR_JS.read_text(encoding="utf-8")
         avatar_css = AVATAR_CSS.read_text(encoding="utf-8")
 
-        self.assertIn("const JIN_VISUAL_SEQUENCE_COLOR_MS = 333;", actions_source)
+        self.assertIn("const JIN_COLOR_TRANSITION_MS = 333;", actions_source)
         self.assertEqual(
             actions_source.count(
-                "transitionDurationMs: JIN_VISUAL_SEQUENCE_COLOR_MS"
+                "transitionDurationMs: JIN_COLOR_TRANSITION_MS"
             ),
-            2,
+            1,
         )
         self.assertIn(
             '"--scene-jin-tint-transition-duration",\n      durationValue',

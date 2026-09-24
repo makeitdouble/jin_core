@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import shutil
 import subprocess
 import unittest
@@ -19,8 +20,14 @@ NODE_TESTS = (
 @unittest.skipUnless(shutil.which("node"), "Node.js is required for client tests")
 class NodeClientTests(unittest.TestCase):
     def _run_node_test(self, filename: str) -> None:
+        test_path = ROOT / "tests" / filename
+        source = test_path.read_text(encoding="utf-8")
+        source = (
+            f"const __testDir = {json.dumps(str(test_path.parent))};\n"
+            + source.replace("__dirname", "__testDir")
+        )
         completed = subprocess.run(
-            ["node", str(ROOT / "tests" / filename)],
+            ["node", "-e", source],
             cwd=ROOT,
             capture_output=True,
             text=True,

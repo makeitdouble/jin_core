@@ -246,7 +246,7 @@ class ChatLogSearchPipelineTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(
             [event['text'] for event in search_events],
             [
-                'CHAT_LOG_SEARCH: пицца',
+                'CHAT_LOG_SEARCH',
                 'CHAT_LOG_SEARCH: пицца : 2 results',
             ],
         )

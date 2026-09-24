@@ -76,7 +76,7 @@ JIN no longer uses the old numbered four-layer hierarchy. The current user-facin
 
 ### Runtime Actions
 
-JIN can request an action while answering. The runtime validates and executes it, then returns any required result to the model before the workflow continues. Concrete contracts carry their own readable schema; a failed action is returned as a human-readable tool result with the reason, supplied payload when relevant, and the correct schema, followed by an explicit continuation instruction so the Brain does not treat the failed mutation as completed.
+JIN can request an action while answering. The runtime validates and executes it, then returns any required result to the model before the workflow continues. Concrete contracts carry their own readable schema; a failed action is returned as a human-readable tool result with the reason, supplied payload when relevant, and the correct schema, followed by an explicit continuation instruction so the Brain does not treat the failed mutation as completed. Runtime execution preserves the model's emitted source order: each action is prepared and run before the next one; contract `runtime_order` controls how action instructions are advertised, not execution priority.
 
 Current contract families include:
 
@@ -106,7 +106,7 @@ A normal turn follows this path:
 2. `AgentRuntime` passes the request directly to the Brain.
 3. The Brain streams reasoning and visible answer content through separate runtime channels.
 4. Stream validation guards repetition and malformed generation while private runtime-action markers are extracted.
-5. Runtime Actions can mutate state or return trusted results; actions that need another model step continue inside the same user sequence.
+5. Runtime Actions execute in model-emitted source order, can mutate state or return trusted results, and actions that need another model step continue inside the same user sequence.
 6. After the visible turn completes, the logical Service route performs background FRAME integration; if no dedicated Service endpoint is configured, this route reuses the Brain client.
 7. A later user turn waits for any pending FRAME update, then receives current Active Memory, `<FRAME_MEMORY_N>` followed by up to five recent USER/JIN pairs, loaded Delayed Memory, L-T facts, files/skills, action history, context-usage/concern signals, and trusted tool results.
 
@@ -166,7 +166,7 @@ JIN can inspect `<SKILLS_LIST>`, load required skills with one comma-separated `
 
 JIN is an MCP client for tool servers. A skill can declare one MCP server in its `JIN_SKILL.md` with a machine-readable `<MCP_SERVER>...</MCP_SERVER>` JSON block. Loading that skill opens/discovers the server, appends the live `tools/list` catalog to the in-memory skill context, and enables the single generic `<CALL_MCP>...</CALL_MCP>` runtime action. Tool-specific names and argument schemas stay in the skill/server; adding another MCP integration does not require another Python runtime action.
 
-Supported transports are `stdio`, Streamable HTTP, and legacy SSE. Stdio connections remain alive across automatic JIN follow-ups and are closed when the skill/runtime is unloaded. MCP image results are stored in the normal JIN file store and injected as image attachments into the next Brain follow-up, so visual tools can return screenshots/renders without embedding base64 into `<TOOL_RESULT>`. See `docs/MCP_SKILLS.md` for the skill contract.
+Supported transports are `stdio`, Streamable HTTP, and legacy SSE (`http` / `streamable-http` normalize to Streamable HTTP). Stdio connections remain alive across automatic JIN follow-ups and are closed when the skill/runtime is unloaded; an optional positive `read_timeout_seconds` applies to all supported transports. MCP image results are stored in the normal JIN file store and injected as image attachments into the next Brain follow-up, so visual tools can return screenshots/renders without embedding base64 into `<TOOL_RESULT>`. Generic MCP bubbles open the structured request/result trace, while `get_viewport_screenshot` reuses the normal attachment preview. See `docs/MCP_SKILLS.md` for the skill contract.
 
 ## Project Layout
 
@@ -187,8 +187,8 @@ Supported transports are `stdio`, Streamable HTTP, and legacy SSE. Stdio connect
 |-- config.example.py          # Configuration template
 |-- config_loader.py           # Local configuration loader
 |-- app_settings.py            # Typed settings wrapper
-|-- launch_jin.bat             # Windows one-click launcher
-|-- launch_jin.ps1             # LM Studio readiness and startup script
+|-- JIN_LAUNCHER.bat           # Windows one-click launcher
+|-- jl.ps1                     # LM Studio readiness and startup script
 |-- Dockerfile                 # Container image
 |-- compose.yml                # Docker Compose local runtime
 |-- requirements.txt           # Python dependencies
@@ -222,7 +222,7 @@ For LM Studio, JIN also probes the provider-native `/api/v1/models` metadata end
 3. Run:
 
 ```cmd
-launch_jin.bat
+JIN_LAUNCHER.bat
 ```
 
 The launcher checks the local model server, creates `config.py` from the template when needed, prepares `.venv`, installs dependencies, starts JIN, and opens:
@@ -313,7 +313,7 @@ Copy `config.example.py` to `config.py`, then set the provider URLs and model ID
 | --- | --- |
 | `ENABLE_RUNTIME_LOGS` | Enable local runtime/chat logs. |
 | `BRAIN_API_BASE`, `BRAIN_MODEL_UID`, `BRAIN_TEMPERATURE` | Configure the required foreground Brain runtime. |
-| `BRAIN_MAX_FOLLOWUPS` | Limit internal action/follow-up continuation ticks per user turn. Set to `0` for unlimited follow-ups. |
+| `BRAIN_MAX_FOLLOWUPS` | Limit executable internal action/follow-up ticks per user turn. Positive values cap the workflow and then allow one final non-executable response tick; `0` means unlimited follow-ups. |
 | `SERVICE_API_BASE`, `SERVICE_MODEL_UID`, `SERVICE_TEMPERATURE` | Optionally configure a dedicated background Service runtime. Leave `SERVICE_API_BASE` empty to reuse Brain. |
 | `LT_IDLE_SECONDS` | Set the L-T background consolidation idle delay. L-T memory itself is always enabled. |
 | `SEARCH_PROVIDER`, `SEARCH_MAX_RESULTS` | Configure the built-in web-search provider and result count. |
@@ -321,7 +321,7 @@ Copy `config.example.py` to `config.py`, then set the provider URLs and model ID
 
 User-facing config values can also be supplied through environment variables. Plain names and `JIN_`-prefixed names are supported; plain names take priority.
 
-For the Windows one-click launcher, copy `.env.example` to `.env` in the repository root and replace the placeholders. `launch_jin.bat` delegates to `launch_jin.ps1`, which loads that file into the JIN process before configuration is resolved. Variables already present in the process environment are not overwritten. The local `.env` is ignored by Git; `.env.example` contains names and placeholders only and is safe to commit.
+For the Windows one-click launcher, copy `.env.example` to `.env` in the repository root and replace the placeholders. `JIN_LAUNCHER.bat` delegates to `jl.ps1`, which loads that file into the JIN process before configuration is resolved. Variables already present in the process environment are not overwritten. The local `.env` is ignored by Git; `.env.example` contains names and placeholders only and is safe to commit.
 
 ```dotenv
 SEARCH_SERPER_API_KEY=your-serper-api-key

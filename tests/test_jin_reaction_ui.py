@@ -5,7 +5,7 @@ import unittest
 
 
 ROOT = Path(__file__).resolve().parents[1]
-FORMATTER_JS = ROOT / "ui" / "static" / "js" / "chat-response-formatter.js"
+FORMATTER_JS = ROOT / "tests" / "helpers" / "jin_response_formatter_bundle.js"
 REACTIONS_JS = ROOT / "ui" / "static" / "js" / "chat-reactions.js"
 CHAT_JS = ROOT / "ui" / "static" / "js" / "chat.js"
 SOCKET_ACTIONS_JS = ROOT / "ui" / "static" / "js" / "socket" / "runtime-actions.js"
@@ -126,11 +126,11 @@ if ((leading.match(/jin-chat-jin-reaction-anchor/g) || []).length !== 2) {
 const fs = require("fs");
 global.window = {};
 eval(fs.readFileSync(process.argv[1], "utf8"));
-const chatSource = fs.readFileSync(process.argv[2], "utf8");
-eval(chatSource.slice(
-  chatSource.indexOf("function escapeHtml("),
-  chatSource.indexOf("function isStreamDebugEnabled(")
-));
+    const chatSource = fs.readFileSync(process.argv[2], "utf8");
+        eval(chatSource.slice(
+              chatSource.indexOf("const escapeChatHtml ="),
+          chatSource.indexOf("function isStreamDebugEnabled(")
+        ));
 
 const makeElement = () => ({
   classList: { toggle() {} },

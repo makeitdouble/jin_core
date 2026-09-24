@@ -5,7 +5,7 @@ import unittest
 
 
 ROOT = Path(__file__).resolve().parents[1]
-FORMATTER_JS = ROOT / "ui" / "static" / "js" / "chat-response-formatter.js"
+FORMATTER_JS = ROOT / "tests" / "helpers" / "jin_response_formatter_bundle.js"
 
 class ChatResponseFormatterTests(unittest.TestCase):
 

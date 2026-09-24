@@ -49,8 +49,9 @@ class ActiveMemoryFailureFollowupTests(IsolatedAsyncioTestCase):
                     true_actions.add(contract["runtime_action"])
 
         self.assertTrue(
-            {"SAVE_ACTIVE_MEMORY", "UPDATE_ACTIVE_MEMORY"}.issubset(true_actions),
+            {"SAVE_ACTIVE_MEMORY"}.issubset(true_actions),
         )
+        self.assertNotIn("UPDATE_ACTIVE_MEMORY", true_actions)
 
     def test_closed_invalid_update_marker_is_fully_hidden(self):
         failed_payload = (
@@ -59,9 +60,9 @@ class ActiveMemoryFailureFollowupTests(IsolatedAsyncioTestCase):
         )
         source = (
             "before\n"
-            "<UPDATE_ACTIVE_MEMORY>\n"
+            "<SAVE_ACTIVE_MEMORY>\n"
             f"{failed_payload}\n"
-            "</UPDATE_ACTIVE_MEMORY>\n"
+            "</SAVE_ACTIVE_MEMORY>\n"
             "after"
         )
 
@@ -72,9 +73,9 @@ class ActiveMemoryFailureFollowupTests(IsolatedAsyncioTestCase):
 
         self.assertEqual(result.text, "before\nafter")
         self.assertEqual(len(result.actions), 1)
-        self.assertEqual(result.actions[0].name, "UPDATE_ACTIVE_MEMORY")
+        self.assertEqual(result.actions[0].name, "SAVE_ACTIVE_MEMORY")
         self.assertEqual(result.actions[0].payload, failed_payload)
-        self.assertNotIn("UPDATE_ACTIVE_MEMORY", result.text)
+        self.assertNotIn("SAVE_ACTIVE_MEMORY", result.text)
         self.assertNotIn("active_memory_id", result.text)
 
     def test_failure_followup_is_contract_controlled(self):
@@ -82,7 +83,7 @@ class ActiveMemoryFailureFollowupTests(IsolatedAsyncioTestCase):
             "name": "save_active_memory",
             "status": "failed",
         }))
-        self.assertTrue(action_event_requires_follow_up({
+        self.assertFalse(action_event_requires_follow_up({
             "name": "update_active_memory",
             "status": "failed",
         }))
@@ -110,7 +111,7 @@ class ActiveMemoryFailureFollowupTests(IsolatedAsyncioTestCase):
         await apply_runtime_action_calls(
             context,
             [RuntimeActionCall(
-                name="UPDATE_ACTIVE_MEMORY",
+                name="SAVE_ACTIVE_MEMORY",
                 payload=failed_payload,
             )],
             assistant_message="",
@@ -118,7 +119,7 @@ class ActiveMemoryFailureFollowupTests(IsolatedAsyncioTestCase):
 
         event = context.runtime_action_events[-1]
         self.assertEqual(event["status"], "failed")
-        self.assertEqual(event["error"], "invalid_update_active_memory_payload")
+        self.assertEqual(event["error"], "invalid_active_memory_payload")
         self.assertEqual(event["failure_reason"], "invalid payload")
         self.assertEqual(event["failed_marker_payload"], failed_payload)
         self.assertTrue(action_event_requires_follow_up(event))
@@ -126,8 +127,8 @@ class ActiveMemoryFailureFollowupTests(IsolatedAsyncioTestCase):
         self.assertNotIn("payload", emitter.items[-1])
 
         tool_results_context = build_tool_results_context(context)
-        self.assertIn('name="UPDATE_ACTIVE_MEMORY"', tool_results_context)
-        self.assertIn("invalid_update_active_memory_payload", tool_results_context)
+        self.assertIn('name="SAVE_ACTIVE_MEMORY"', tool_results_context)
+        self.assertIn("invalid_active_memory_payload", tool_results_context)
         self.assertIn("Status: failed", tool_results_context)
         self.assertIn("Provided payload:", tool_results_context)
         self.assertIn("Correct action schema:", tool_results_context)
@@ -137,7 +138,7 @@ class ActiveMemoryFailureFollowupTests(IsolatedAsyncioTestCase):
             base_prompt,
             "update photo state",
             context=context,
-            latest_action="UPDATE_ACTIVE_MEMORY",
+            latest_action="SAVE_ACTIVE_MEMORY",
         )
 
         self.assertNotIn("<FOLLOWUP_TICK>", prompt)
@@ -146,18 +147,18 @@ class ActiveMemoryFailureFollowupTests(IsolatedAsyncioTestCase):
         tools = prompt.index("<TOOLS_RESULTS>")
         self.assertLess(mandatory, failed)
         self.assertLess(failed, tools)
-        self.assertIn("Use `fields_to_update` for every update, including a single field.", prompt)
+        self.assertIn("Update: include `id` of an existing record.", prompt)
         self.assertIn(
             "<FAILED_MARKER_CONTENT>\n"
-            "<UPDATE_ACTIVE_MEMORY>\n"
+            "<SAVE_ACTIVE_MEMORY>\n"
             f"{failed_payload}\n"
-            "</UPDATE_ACTIVE_MEMORY>\n"
+            "</SAVE_ACTIVE_MEMORY>\n"
             "</FAILED_MARKER_CONTENT>",
             prompt,
         )
 
         context.runtime_action_events.append({
-            "name": "update_active_memory",
+            "name": "save_active_memory",
             "status": "completed",
             "runtime_turn_id": "turn-1",
         })
@@ -165,26 +166,26 @@ class ActiveMemoryFailureFollowupTests(IsolatedAsyncioTestCase):
             base_prompt,
             "update photo state",
             context=context,
-            latest_action="UPDATE_ACTIVE_MEMORY",
+            latest_action="SAVE_ACTIVE_MEMORY",
         )
         self.assertNotIn("<FAILED_MARKER_CONTENT>", second_prompt)
 
     async def test_update_wrong_id_and_field_use_existing_failures(self):
         active_record = (
             "active_memory_1: test "
-            "[ active_memory_id: abc123 ] "
+            "[ id: AM-abc123 ] "
             "[ conditions: test ] "
             "[ current_photos: 2 ] "
             "[ status: pending ]"
         )
         cases = (
             (
-                '{"active_memory_id":"zzzzzz","current_photos":"3"}',
+                '{"id":"AM-zzzzzz","current_photos":"3"}',
                 "active_memory_not_found",
                 "incorrect id",
             ),
             (
-                '{"active_memory_id":"abc123","wrong_field":"3"}',
+                '{"id":"AM-abc123","wrong_field":"3"}',
                 "active_memory_field_not_declared",
                 "unknown field: wrong_field",
             ),
@@ -205,7 +206,7 @@ class ActiveMemoryFailureFollowupTests(IsolatedAsyncioTestCase):
                 await apply_runtime_action_calls(
                     context,
                     [RuntimeActionCall(
-                        name="UPDATE_ACTIVE_MEMORY",
+                        name="SAVE_ACTIVE_MEMORY",
                         payload=payload,
                     )],
                     assistant_message="",
