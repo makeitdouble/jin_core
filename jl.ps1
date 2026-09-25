@@ -1,5 +1,4 @@
 ﻿param(
-    [string]$LmStudioBaseUrl = "http://localhost:1234",
     [string]$AppUrl = "http://127.0.0.1:8000"
 )
 
@@ -12,12 +11,62 @@ $Root = Split-Path -Parent $MyInvocation.MyCommand.Path
 $ConfigPath = Join-Path $Root "config.py"
 $ConfigExamplePath = Join-Path $Root "config.example.py"
 $LauncherDir = Join-Path $Root ".jin_launcher"
+$RuntimeDir = Join-Path $Root ".jin_runtime"
+$UvDir = Join-Path $RuntimeDir "uv"
+$UvExe = Join-Path $UvDir "uv.exe"
+$ManagedPythonDir = Join-Path $RuntimeDir "python"
+$UvCacheDir = Join-Path $RuntimeDir "uv-cache"
+$ManagedPythonVersion = "3.12"
+$UvVersion = "0.12.19"
+$LlamaBuild = "b11112"
+$LlamaCudaVersion = "12.4"
+$LlamaDir = Join-Path $RuntimeDir "llama"
+$LlamaServerExe = Join-Path $LlamaDir "llama-server.exe"
+$LlamaRuntimeMarker = Join-Path $LlamaDir ".jin_llama_runtime"
+$LlamaMainAsset = "llama-$LlamaBuild-bin-win-cuda-$LlamaCudaVersion-x64.zip"
+$LlamaCudaAsset = "cudart-llama-bin-win-cuda-$LlamaCudaVersion-x64.zip"
+$LlamaMainSha256 = "f43f62912ef90878f4a1612066c6390fb0bd3d39c4060749e959ca2fdd316316"
+$LlamaCudaSha256 = "8c79a9b226de4b3cacfd1f83d24f962d0773be79f1e7b75c6af4ded7e32ae1d6"
+$EmbeddedModelsDir = Join-Path $RuntimeDir "models"
+$DefaultEmbeddedModelRepo = "Open4bits/gemma-4-E4B-it-GGUF"
+$DefaultEmbeddedModelFile = "gemma-4-e4b-it-q4_k_m.gguf"
+$DefaultEmbeddedModelPath = Join-Path $EmbeddedModelsDir $DefaultEmbeddedModelFile
+$DefaultEmbeddedModelMarker = Join-Path $EmbeddedModelsDir ".jin_default_model"
+$DefaultEmbeddedModelUrl = "https://huggingface.co/Open4bits/gemma-4-E4B-it-GGUF/resolve/main/gemma-4-e4b-it-q4_k_m.gguf?download=true"
+$DefaultEmbeddedModelSha256 = "41a1a73fdbe350283d4b8a9984e4efa56a4d2ec5a585c7151aa02eff6e7d5da4"
+$DefaultEmbeddedModelLabel = "Gemma 4 E4B Instruct Q4_K_M"
+$EmbeddedBrainHost = "127.0.0.1"
+$EmbeddedBrainPort = 12345
+$EmbeddedBrainBaseUrl = "http://$EmbeddedBrainHost`:$EmbeddedBrainPort"
+$EmbeddedBrainModelId = "gemma-4-e4b-it"
+$EmbeddedBrainContext = 16384
+$LlamaStdOutPath = Join-Path $LauncherDir "brain.stdout.log"
+$LlamaStdErrPath = Join-Path $LauncherDir "brain.stderr.log"
 $StdOutPath = Join-Path $LauncherDir "backend.stdout.log"
 $StdErrPath = Join-Path $LauncherDir "backend.stderr.log"
 $LauncherMutex = $null
-$LauncherMutexName = "Global\JINCoreLauncher"
+
+# Lock only this JIN installation. A single global mutex made a launcher from
+# another folder silently kill clean-room / first-run tests.
+$rootMutexBytes = [System.Text.Encoding]::UTF8.GetBytes(
+    ([System.IO.Path]::GetFullPath($Root)).TrimEnd('\').ToLowerInvariant()
+)
+$rootMutexHasher = [System.Security.Cryptography.SHA256]::Create()
+try {
+    $rootMutexHash = [System.BitConverter]::ToString(
+        $rootMutexHasher.ComputeHash($rootMutexBytes)
+    ).Replace("-", "").Substring(0, 16)
+}
+finally {
+    $rootMutexHasher.Dispose()
+}
+$LauncherMutexName = "Global\JINCoreLauncher_$rootMutexHash"
+
 $script:BackendProcess = $null
 $script:BackendOwned = $false
+$script:LlamaProcess = $null
+$script:LlamaOwned = $false
+$script:BrainIsEmbedded = $true
 $script:BrowserOpened = $false
 $script:SwitchJob = $null
 $script:SwitchRole = ""
@@ -45,6 +94,13 @@ $script:ServiceTemperature = "?"
 $script:RuntimeLogsEnabled = "?"
 $script:BootMode = $true
 $script:BootStarted = $false
+$script:BootTasks = [ordered]@{}
+$script:BootDownload = $null
+$script:ConfigExistedAtLaunch = $false
+$script:BootTopPadding = 2
+$script:BootPrevText = @()
+$script:BootPrevColor = @()
+$script:BootPrevWidth = 0
 
 [Console]::OutputEncoding = New-Object System.Text.UTF8Encoding($false)
 try { [Console]::InputEncoding = New-Object System.Text.UTF8Encoding($false) } catch {}
@@ -67,6 +123,33 @@ public static class JinConsoleVT {
     public static extern IntPtr GetForegroundWindow();
     [DllImport("user32.dll")]
     public static extern short GetAsyncKeyState(int vKey);
+    [DllImport("user32.dll", SetLastError=true)]
+    private static extern int GetWindowLong(IntPtr hWnd, int nIndex);
+    [DllImport("user32.dll", SetLastError=true)]
+    private static extern int SetWindowLong(IntPtr hWnd, int nIndex, int dwNewLong);
+    [DllImport("user32.dll", SetLastError=true)]
+    private static extern bool SetWindowPos(
+        IntPtr hWnd, IntPtr hWndInsertAfter, int X, int Y, int cx, int cy, uint uFlags);
+
+    public static void DisableResize() {
+        IntPtr hWnd = GetConsoleWindow();
+        if (hWnd == IntPtr.Zero) return;
+
+        const int GWL_STYLE = -16;
+        const int WS_SIZEBOX = 0x00040000;
+        const int WS_MAXIMIZEBOX = 0x00010000;
+        const uint SWP_NOSIZE = 0x0001;
+        const uint SWP_NOMOVE = 0x0002;
+        const uint SWP_NOZORDER = 0x0004;
+        const uint SWP_FRAMECHANGED = 0x0020;
+
+        int style = GetWindowLong(hWnd, GWL_STYLE);
+        style &= ~WS_SIZEBOX;
+        style &= ~WS_MAXIMIZEBOX;
+        SetWindowLong(hWnd, GWL_STYLE, style);
+        SetWindowPos(hWnd, IntPtr.Zero, 0, 0, 0, 0,
+            SWP_NOSIZE | SWP_NOMOVE | SWP_NOZORDER | SWP_FRAMECHANGED);
+    }
 }
 "@
 
@@ -89,6 +172,11 @@ if ([JinConsoleVT]::GetConsoleMode($inputHandle, [ref]$inputMode)) {
 # doing so makes held/navigation keys feel sticky in Windows PowerShell 5.1.
 try { [void][JinConsoleVT]::FlushConsoleInputBuffer($inputHandle) } catch {}
 
+# The launcher UI is designed around a fixed 92x55 canvas. Remove the sizing
+# frame and maximize button after the BAT has applied that console geometry so
+# accidental drags cannot corrupt the dashboard layout.
+try { [JinConsoleVT]::DisableResize() } catch {}
+
 $esc = [char]27
 $ansi = @(
     "$esc[38;2;8;15;18m",      # 0 almost black teal
@@ -108,15 +196,193 @@ $hideCursor = "$esc[?25l"
 $showCursor = "$esc[?25h"
 $clear = "$esc[2J$esc[H"
 
+function Initialize-BootTasks {
+    if ($script:BootTasks.Count -gt 0) { return }
+
+    foreach ($spec in @(
+        [pscustomobject]@{ Key = "CONFIG"; Group = "1. CONFIG"; Title = "Load JIN configuration"; State = "PENDING"; Text = "waiting" }
+        [pscustomobject]@{ Key = "PYTHON"; Group = "1. CONFIG"; Title = "Prepare private Python runtime"; State = "PENDING"; Text = "waiting" }
+        [pscustomobject]@{ Key = "LLAMA"; Group = "2. SETUP"; Title = "Install llama.cpp runtime"; State = "PENDING"; Text = "waiting" }
+        [pscustomobject]@{ Key = "MODEL"; Group = "2. SETUP"; Title = "Install Gemma 4 E4B model"; State = "PENDING"; Text = "waiting" }
+        [pscustomobject]@{ Key = "BRAIN"; Group = "3. BRAIN"; Title = "Start local Gemma brain"; State = "PENDING"; Text = "waiting" }
+        [pscustomobject]@{ Key = "SERVICE"; Group = "3. BRAIN"; Title = "Check optional Service"; State = "PENDING"; Text = "waiting" }
+        [pscustomobject]@{ Key = "APP"; Group = "4. APP"; Title = "Start JIN backend"; State = "PENDING"; Text = "waiting" }
+    )) {
+        $script:BootTasks[$spec.Key] = [pscustomobject]@{
+            Key = $spec.Key
+            Group = $spec.Group
+            Title = $spec.Title
+            State = $spec.State
+            Text = $spec.Text
+        }
+    }
+}
+
+function Get-BootTaskVisual {
+    param([string]$State)
+
+    switch ($State) {
+        "OK"    { return [pscustomobject]@{ Marker = "[x]"; Color = 10 } }
+        "WARN"  { return [pscustomobject]@{ Marker = "[!]"; Color = 6 } }
+        "ERROR" { return [pscustomobject]@{ Marker = "[x]"; Color = 9 } }
+        "WORK"  { return [pscustomobject]@{ Marker = "[>]"; Color = 4 } }
+        default  { return [pscustomobject]@{ Marker = "[ ]"; Color = 7 } }
+    }
+}
+
+function Get-BootSectionDoneCount {
+    param([string]$Group)
+
+    $items = @($script:BootTasks.Values | Where-Object { $_.Group -eq $Group -and ($_.Key -ne 'SERVICE' -or $script:ServiceConfigured) })
+    if ($items.Count -eq 0) { return "0/0" }
+    $done = @($items | Where-Object { $_.State -eq "OK" }).Count
+    return "$done/$($items.Count)"
+}
+
+function Format-BootDownloadText {
+    param(
+        [string]$DisplayName,
+        [long]$Downloaded,
+        [long]$Total,
+        [double]$BytesPerSecond = 0,
+        [int]$BarWidth = 22
+    )
+
+    $downloadedText = Format-DownloadBytes $Downloaded
+    $rateText = Format-DownloadRate $BytesPerSecond
+
+    if ($Total -gt 0) {
+        $percent = [Math]::Max(0, [Math]::Min(100, [Math]::Floor(($Downloaded * 100.0) / $Total)))
+        $filled = [int][Math]::Floor(($percent * $BarWidth) / 100.0)
+        $bar = ("#" * $filled) + ("-" * ($BarWidth - $filled))
+        $sizeText = "$downloadedText / $(Format-DownloadBytes $Total)"
+        return [pscustomobject]@{
+            Title = $DisplayName
+            Progress = ("[{0}] {1,3}%  {2,-11}  {3}" -f $bar, $percent, $rateText, $sizeText)
+        }
+    }
+
+    $bar = ("-" * $BarWidth)
+    return [pscustomobject]@{
+        Title = $DisplayName
+        Progress = ("[{0}]  --%  {1,-11}  {2}" -f $bar, $rateText, $downloadedText)
+    }
+}
+
+function Get-BootHintLines {
+    $lines = New-Object System.Collections.Generic.List[string]
+
+    if ($script:BootDownload -ne $null) {
+        [void]$lines.Add('Please wait. JIN is downloading and verifying the required local runtime.')
+    }
+    elseif ($script:BootTasks.Contains('BRAIN') -and $script:BootTasks['BRAIN'].State -eq 'WORK') {
+        [void]$lines.Add('Starting the downloaded Gemma model locally. No external model app is required.')
+    }
+
+    return ,$lines.ToArray()
+}
+
+function Render-BootScreen {
+    if (-not $script:BootMode) { return }
+    Start-BootScreen
+    Initialize-BootTasks
+
+    $width = [Math]::Max(92, [Console]::WindowWidth)
+    $usable = $width - 2
+    $lines = New-Object System.Collections.Generic.List[object]
+    $groups = @('1. CONFIG', '2. SETUP', '3. BRAIN', '4. APP')
+
+    for ($i = 0; $i -lt $script:BootTopPadding; $i++) {
+        [void]$lines.Add([pscustomobject]@{ Text = ''; Color = 8 })
+    }
+    [void]$lines.Add([pscustomobject]@{ Text = '  [ JIN CORE ENGINE // LAUNCHER ]'; Color = 8 })
+    [void]$lines.Add([pscustomobject]@{ Text = ''; Color = 8 })
+    [void]$lines.Add([pscustomobject]@{ Text = '  FIRST-RUN CHECKLIST'; Color = 4 })
+    [void]$lines.Add([pscustomobject]@{ Text = ''; Color = 8 })
+
+    foreach ($group in $groups) {
+        $countText = Get-BootSectionDoneCount $group
+        [void]$lines.Add([pscustomobject]@{ Text = ('  ' + $group + '   [' + $countText + ']'); Color = 3 })
+        foreach ($task in @($script:BootTasks.Values | Where-Object { $_.Group -eq $group })) {
+            if ($task.Key -eq 'SERVICE' -and -not $script:ServiceConfigured) { continue }
+            $visual = Get-BootTaskVisual $task.State
+            $title = $task.Title
+            $text = $task.Text
+            $maxText = [Math]::Max(12, $usable - 8 - $title.Length - 3)
+            if ($text.Length -gt $maxText) {
+                $text = $text.Substring(0, [Math]::Max(1, $maxText - 1)) + '…'
+            }
+            $dots = '.' * [Math]::Max(2, $usable - 8 - $title.Length - $text.Length)
+            $line = ('  {0} {1} {2} {3}' -f $visual.Marker, $title, $dots, $text)
+            [void]$lines.Add([pscustomobject]@{ Text = $line; Color = $visual.Color })
+        }
+        [void]$lines.Add([pscustomobject]@{ Text = ''; Color = 8 })
+    }
+
+    if ($script:BootDownload -ne $null) {
+        $dl = Format-BootDownloadText -DisplayName $script:BootDownload.DisplayName -Downloaded $script:BootDownload.Downloaded -Total $script:BootDownload.Total -BytesPerSecond $script:BootDownload.BytesPerSecond
+        [void]$lines.Add([pscustomobject]@{ Text = '  ACTIVE DOWNLOAD'; Color = 6 })
+        [void]$lines.Add([pscustomobject]@{ Text = ('    ' + $dl.Title); Color = 8 })
+        [void]$lines.Add([pscustomobject]@{ Text = ('    ' + $dl.Progress); Color = 6 })
+        [void]$lines.Add([pscustomobject]@{ Text = ''; Color = 8 })
+    }
+
+    foreach ($hint in @(Get-BootHintLines)) {
+        [void]$lines.Add([pscustomobject]@{ Text = ('  ' + $hint); Color = 7 })
+    }
+
+    # Boot progress can update several times per second. Never clear/repaint the
+    # whole console here: on Windows that produces a very visible flash. Build
+    # the desired frame, compare it with the previous one and write only rows
+    # that actually changed. During a download this normally updates one row.
+    $currentText = New-Object System.Collections.Generic.List[string]
+    $currentColor = New-Object System.Collections.Generic.List[int]
+    foreach ($entry in $lines) {
+        $lineText = [string]$entry.Text
+        if ($lineText.Length -gt $usable) { $lineText = $lineText.Substring(0, $usable) }
+        [void]$currentText.Add($lineText.PadRight($usable))
+        [void]$currentColor.Add([int]$entry.Color)
+    }
+
+    $previousCount = @($script:BootPrevText).Count
+    $renderCount = [Math]::Max($currentText.Count, $previousCount)
+    $frame = New-Object System.Text.StringBuilder
+    [void]$frame.Append($hideCursor)
+
+    for ($i = 0; $i -lt $renderCount; $i++) {
+        $newText = if ($i -lt $currentText.Count) { $currentText[$i] } else { ''.PadRight($usable) }
+        $newColor = if ($i -lt $currentColor.Count) { $currentColor[$i] } else { 8 }
+        $oldText = if ($i -lt $previousCount) { [string]$script:BootPrevText[$i] } else { $null }
+        $oldColor = if ($i -lt @($script:BootPrevColor).Count) { [int]$script:BootPrevColor[$i] } else { -1 }
+
+        if ($script:BootPrevWidth -ne $usable -or $newText -ne $oldText -or $newColor -ne $oldColor) {
+            $row = $i + 1
+            [void]$frame.Append("$esc[$row;1H")
+            [void]$frame.Append("$esc[2K")
+            [void]$frame.Append($ansi[$newColor])
+            [void]$frame.Append($newText)
+            [void]$frame.Append($reset)
+        }
+    }
+
+    if ($frame.Length -gt $hideCursor.Length) {
+        [Console]::Write($frame.ToString())
+    }
+
+    $script:BootPrevText = @($currentText.ToArray())
+    $script:BootPrevColor = @($currentColor.ToArray())
+    $script:BootPrevWidth = $usable
+}
+
 function Start-BootScreen {
     if ($script:BootStarted) { return }
     $script:BootStarted = $true
-    try { Clear-Host } catch {}
-    Write-Host ""
-    Write-Host "  [ JIN CORE ENGINE // LAUNCHER ]" -ForegroundColor Gray
-    Write-Host ""
-    Write-Host "  starting JIN..." -ForegroundColor DarkCyan
-    Write-Host ""
+    try { [Console]::CursorVisible = $false } catch {}
+    try { [Console]::Clear() } catch { try { Clear-Host } catch {} }
+    $script:BootPrevText = @()
+    $script:BootPrevColor = @()
+    $script:BootPrevWidth = 0
+    [Console]::Write($hideCursor)
 }
 
 function Write-BootLine {
@@ -129,23 +395,22 @@ function Write-BootLine {
 
     if (-not $script:BootMode) { return }
     Start-BootScreen
+    Initialize-BootTasks
 
-    $color = switch ($State) {
-        "OK"    { "Green" }
-        "WARN"  { "DarkYellow" }
-        "ERROR" { "Red" }
-        default { "Cyan" }
-    }
-    $glyph = switch ($State) {
-        "OK"    { "+" }
-        "WARN"  { "!" }
-        "ERROR" { "x" }
-        default { ">" }
+    if (-not $script:BootTasks.Contains($Label)) {
+        $script:BootTasks[$Label] = [pscustomobject]@{
+            Key = $Label
+            Group = '4. APP'
+            Title = $Label
+            State = 'PENDING'
+            Text = 'waiting'
+        }
     }
 
-    Write-Host -NoNewline ("  {0,-8}" -f $Label) -ForegroundColor DarkCyan
-    Write-Host -NoNewline (" $glyph ") -ForegroundColor $color
-    Write-Host $Text -ForegroundColor $color
+    $task = $script:BootTasks[$Label]
+    $task.State = $State
+    $task.Text = $Text
+    Render-BootScreen
 }
 
 function Add-Event {
@@ -373,6 +638,25 @@ function Test-AutoBaseValue {
     return $false
 }
 
+function Test-ExplicitBrainConfiguration {
+    if (-not $script:ConfigExistedAtLaunch) { return $false }
+
+    $brainBase = [string](Get-PythonConfigValue "BRAIN_API_BASE")
+
+    # An explicit Brain URL is enough to opt out of the embedded bootstrap.
+    # BRAIN_MODEL_UID may be empty: in that case the launcher discovers the
+    # catalog from this endpoint and lets the user choose a model.
+    if ([string]::IsNullOrWhiteSpace($brainBase)) { return $false }
+    if (Test-AutoBaseValue "BRAIN_API_BASE" $brainBase) { return $false }
+
+    # A config written by JIN's own embedded bootstrap is still embedded mode.
+    if ((Normalize-BaseUrl $brainBase).ToLowerInvariant() -eq $EmbeddedBrainBaseUrl.ToLowerInvariant()) {
+        return $false
+    }
+
+    return $true
+}
+
 function Get-ModelRecords {
     param($Payload)
 
@@ -485,55 +769,47 @@ function Get-EndpointState {
     }
 
     $errors = New-Object System.Collections.ArrayList
-    $nativeCandidates = New-Object System.Collections.ArrayList
+    $candidates = New-Object System.Collections.ArrayList
 
-    # LM Studio 0.4+ exposes the rich catalog at /api/v1/models. Older 0.3.x
-    # installations use /api/v0/models. Both list downloaded models and expose
-    # max context metadata. Probe both before falling back to OpenAI /v1/models,
-    # which may only expose currently visible/loaded models depending on JIT.
-    foreach ($suffix in @("/api/v1/models", "/api/v0/models")) {
-        $url = "$base$suffix"
+    # Prefer rich provider-native catalogs when available. LM Studio's
+    # /api/v1/models contains all downloaded models plus their type, load state
+    # and context metadata. /v1/models may expose only the currently visible
+    # models and can therefore accidentally surface an embedding model alone.
+    foreach ($suffix in @("/api/v1/models", "/api/v0/models", "/v1/models")) {
         try {
-            $payload = Invoke-RestMethod -Method Get -Uri $url -TimeoutSec 1 -ErrorAction Stop
+            $payload = Invoke-RestMethod -Method Get -Uri "$base$suffix" -TimeoutSec 2 -ErrorAction Stop
             $records = @(Get-ModelRecords $payload)
             if ($records.Count -gt 0) {
-                [void]$nativeCandidates.Add([pscustomobject]@{
-                    Role = $Role
-                    BaseUrl = $base
-                    Online = $true
-                    Models = $records
-                    Selected = $SelectedModel
-                    Source = $suffix
-                    Error = ""
+                [void]$candidates.Add([pscustomobject]@{
+                    Suffix = $suffix
+                    Records = $records
+                    Priority = if ($suffix -eq "/api/v1/models") { 3 } elseif ($suffix -eq "/api/v0/models") { 2 } else { 1 }
                 })
             }
         }
         catch {
-            [void]$errors.Add($_.Exception.Message)
+            [void]$errors.Add(("$suffix // " + $_.Exception.Message))
         }
     }
 
-    if ($nativeCandidates.Count -gt 0) {
-        # Prefer the richest native catalog. This also fixes mixed LM Studio
-        # versions where one native generation returns only the loaded model.
-        return @($nativeCandidates | Sort-Object @{ Expression = { @($_.Models).Count }; Descending = $true }, @{ Expression = { if ($_.Source -eq "/api/v1/models") { 1 } else { 0 } }; Descending = $true })[0]
-    }
+    if ($candidates.Count -gt 0) {
+        # Richest catalog wins; native API wins ties.
+        $best = @(
+            $candidates |
+                Sort-Object `
+                    @{ Expression = { @($_.Records).Count }; Descending = $true }, `
+                    @{ Expression = { [int]$_.Priority }; Descending = $true }
+        )[0]
 
-    $fallbackSuffix = "/v1/models"
-    try {
-        $payload = Invoke-RestMethod -Method Get -Uri "$base$fallbackSuffix" -TimeoutSec 1 -ErrorAction Stop
         return [pscustomobject]@{
             Role = $Role
             BaseUrl = $base
             Online = $true
-            Models = @(Get-ModelRecords $payload)
+            Models = @($best.Records)
             Selected = $SelectedModel
-            Source = $fallbackSuffix
+            Source = [string]$best.Suffix
             Error = ""
         }
-    }
-    catch {
-        [void]$errors.Add($_.Exception.Message)
     }
 
     return [pscustomobject]@{
@@ -555,50 +831,69 @@ function Refresh-Runtimes {
     $script:RuntimeLogsEnabled = [string](Get-PythonConfigValue "ENABLE_RUNTIME_LOGS")
     if ([string]::IsNullOrWhiteSpace($script:RuntimeLogsEnabled)) { $script:RuntimeLogsEnabled = "?" }
 
-    $brainBase = [string](Get-PythonConfigValue "BRAIN_API_BASE")
-    if (Test-AutoBaseValue "BRAIN_API_BASE" $brainBase) {
-        $candidate = Normalize-BaseUrl $LmStudioBaseUrl
-        $probe = Get-EndpointState "brain" $candidate ""
-        if ($probe.Online) {
-            $brainBase = $candidate
-            Set-PythonConfigValue "BRAIN_API_BASE" $brainBase
-        }
-        elseif ([string]::IsNullOrWhiteSpace($brainBase) -or $brainBase -eq "http://brain-host:1234") {
-            $brainBase = $candidate
-        }
+    if ($script:BrainIsEmbedded) {
+        # Fresh/default install: JIN owns the local Brain runtime.
+        $brainBase = $EmbeddedBrainBaseUrl
+        $brainSelected = $EmbeddedBrainModelId
+        Set-PythonConfigValue "BRAIN_API_BASE" $brainBase
+        Set-PythonConfigValue "BRAIN_MODEL_UID" $brainSelected
     }
-
-    $brainSelected = [string](Get-PythonConfigValue "BRAIN_MODEL_UID")
-    if (Test-AutoModelValue $brainSelected) { $brainSelected = "" }
+    else {
+        # Existing explicit config is authoritative. Never replace it with the
+        # embedded bootstrap endpoint/model.
+        $brainBase = [string](Get-PythonConfigValue "BRAIN_API_BASE")
+        $brainSelected = [string](Get-PythonConfigValue "BRAIN_MODEL_UID")
+    }
 
     $serviceBase = [string](Get-PythonConfigValue "SERVICE_API_BASE")
     if (Test-AutoBaseValue "SERVICE_API_BASE" $serviceBase) { $serviceBase = "" }
     $serviceSelected = [string](Get-PythonConfigValue "SERVICE_MODEL_UID")
     if (Test-AutoModelValue $serviceSelected) { $serviceSelected = "" }
 
-    if ($script:BootMode) { Write-BootLine "BRAIN" ("probing " + (Normalize-BaseUrl $brainBase)) "WORK" }
+    if ($script:BootMode) {
+        $probeText = if ($script:BrainIsEmbedded) { "checking local Gemma brain" } else { "checking configured Brain" }
+        Write-BootLine "BRAIN" $probeText "WORK"
+    }
+
     $script:BrainRuntime = Get-EndpointState "brain" $brainBase $brainSelected
+    if ($script:BrainIsEmbedded -and $script:BrainRuntime.Online) {
+        # llama-server already has the single embedded model loaded. Expose a
+        # stable model record so the dashboard shows Brain, not endpoint plumbing.
+        $script:BrainRuntime.Models = @(
+            [pscustomobject]@{
+                Id = $EmbeddedBrainModelId
+                Loaded = $true
+                MaxContext = [int]$EmbeddedBrainContext
+                LoadedContext = [int]$EmbeddedBrainContext
+            }
+        )
+        $script:BrainRuntime.Selected = $EmbeddedBrainModelId
+        $script:BrainRuntime.Source = "embedded llama.cpp"
+    }
+
     if ($script:BootMode) {
         if ($script:BrainRuntime.Online) {
-            Write-BootLine "BRAIN" ((@($script:BrainRuntime.Models).Count).ToString() + " model(s) available") "OK"
+            if ($script:BrainIsEmbedded) {
+                Write-BootLine "BRAIN" ("Gemma 4 E4B ready @ " + (Format-ContextTokens $EmbeddedBrainContext)) "OK"
+            }
+            else {
+                if ([string]::IsNullOrWhiteSpace($brainSelected)) {
+                    Write-BootLine "BRAIN" ((@($script:BrainRuntime.Models).Count).ToString() + " model(s) loaded from configured URL") "OK"
+                }
+                else {
+                    Write-BootLine "BRAIN" ("configured Brain ready // " + $brainSelected) "OK"
+                }
+            }
         }
         else {
-            Write-BootLine "BRAIN" "endpoint unavailable" "WARN"
+            $errorText = if ($script:BrainIsEmbedded) { "local Gemma brain unavailable" } else { "configured Brain endpoint unavailable" }
+            Write-BootLine "BRAIN" $errorText "ERROR"
         }
     }
 
     if (-not [string]::IsNullOrWhiteSpace($serviceBase)) {
-        if ($script:BootMode) { Write-BootLine "SERVICE" ("probing " + (Normalize-BaseUrl $serviceBase)) "WORK" }
         $script:ServiceRuntime = Get-EndpointState "service" $serviceBase $serviceSelected
         $script:ServiceConfigured = $true
-        if ($script:BootMode) {
-            if ($script:ServiceRuntime.Online) {
-                Write-BootLine "SERVICE" ((@($script:ServiceRuntime.Models).Count).ToString() + " model(s) available") "OK"
-            }
-            else {
-                Write-BootLine "SERVICE" "endpoint unavailable" "WARN"
-            }
-        }
     }
     else {
         $script:ServiceRuntime = [pscustomobject]@{
@@ -611,33 +906,715 @@ function Refresh-Runtimes {
             Error = ""
         }
         $script:ServiceConfigured = $false
-        if ($script:BootMode) { Write-BootLine "SERVICE" "using Brain fallback" "OK" }
     }
 }
 
 function Test-PythonCommand {
-    param(
-        [string]$Executable,
-        [string[]]$Arguments = @()
-    )
+    param([string]$Executable)
+    if ([string]::IsNullOrWhiteSpace($Executable) -or -not (Test-Path -LiteralPath $Executable)) {
+        return $false
+    }
     try {
-        $versionOutput = & $Executable @Arguments --version 2>&1
+        $versionOutput = & $Executable --version 2>&1
         $versionText = (@($versionOutput) -join " ").Trim()
         return ($LASTEXITCODE -eq 0 -and $versionText -match '^Python 3(?:\.|\s|$)')
     }
     catch { return $false }
 }
 
-function Get-PythonCommand {
-    $py = Get-Command py -ErrorAction SilentlyContinue
-    if ($py -and (Test-PythonCommand -Executable $py.Source -Arguments @("-3"))) {
-        return @($py.Source, "-3")
+function Get-UvWindowsAsset {
+    $arch = [string]$env:PROCESSOR_ARCHITEW6432
+    if ([string]::IsNullOrWhiteSpace($arch)) {
+        $arch = [string]$env:PROCESSOR_ARCHITECTURE
     }
-    $python = Get-Command python -ErrorAction SilentlyContinue
-    if ($python -and (Test-PythonCommand -Executable $python.Source)) {
-        return @($python.Source)
+
+    switch ($arch.ToUpperInvariant()) {
+        "AMD64" { return "uv-x86_64-pc-windows-msvc.zip" }
+        "ARM64" { return "uv-aarch64-pc-windows-msvc.zip" }
+        "X86" { return "uv-i686-pc-windows-msvc.zip" }
+        default { Fail-WithMessage "Unsupported Windows architecture for JIN bootstrap: $arch" }
     }
-    Fail-WithMessage "A working Python 3 installation was not found."
+}
+
+function Set-UvRuntimeEnvironment {
+    # Keep the complete Python toolchain private to the JIN folder. Nothing is
+    # registered in Windows and no user/system Python is consulted.
+    $env:UV_PYTHON_INSTALL_DIR = $ManagedPythonDir
+    $env:UV_PYTHON_BIN_DIR = (Join-Path $RuntimeDir "python-bin")
+    $env:UV_CACHE_DIR = $UvCacheDir
+    $env:UV_PYTHON_NO_REGISTRY = "1"
+    $env:UV_NO_CONFIG = "1"
+    $env:UV_MANAGED_PYTHON = "1"
+}
+
+function Test-UvExecutable {
+    if (-not (Test-Path -LiteralPath $UvExe)) { return $false }
+    try {
+        $versionOutput = & $UvExe --version 2>&1
+        $versionText = (@($versionOutput) -join " ").Trim()
+        return ($LASTEXITCODE -eq 0 -and $versionText -match '^uv\s+')
+    }
+    catch { return $false }
+}
+
+function Ensure-UvBootstrap {
+    Set-UvRuntimeEnvironment
+    if (Test-UvExecutable) { return $UvExe }
+
+    $script:RuntimeMessage = "PREPARING PYTHON BOOTSTRAP"
+    Write-BootLine "PYTHON" "preparing private runtime bootstrap" "WORK"
+
+    if (-not (Test-Path -LiteralPath $UvDir)) {
+        [void](New-Item -ItemType Directory -Path $UvDir -Force)
+    }
+    if (-not (Test-Path -LiteralPath $LauncherDir)) {
+        [void](New-Item -ItemType Directory -Path $LauncherDir -Force)
+    }
+
+    $asset = Get-UvWindowsAsset
+    $baseUrl = "https://releases.astral.sh/github/uv/releases/download/$UvVersion"
+    $archiveUrl = "$baseUrl/$asset"
+    $checksumUrl = "$archiveUrl.sha256"
+    $archivePath = Join-Path $LauncherDir "uv-bootstrap.zip"
+    $checksumPath = Join-Path $LauncherDir "uv-bootstrap.sha256"
+    $extractDir = Join-Path $LauncherDir "uv-bootstrap-extract"
+
+    try {
+        if (Test-Path -LiteralPath $archivePath) { Remove-Item -LiteralPath $archivePath -Force }
+        if (Test-Path -LiteralPath $checksumPath) { Remove-Item -LiteralPath $checksumPath -Force }
+        if (Test-Path -LiteralPath $extractDir) { Remove-Item -LiteralPath $extractDir -Recurse -Force }
+
+        $oldProtocol = [Net.ServicePointManager]::SecurityProtocol
+        try {
+            [Net.ServicePointManager]::SecurityProtocol = $oldProtocol -bor [Net.SecurityProtocolType]::Tls12
+            Download-FileWithProgress -Url $archiveUrl -Destination $archivePath -DisplayName "uv bootstrap"
+            Download-FileWithProgress -Url $checksumUrl -Destination $checksumPath -DisplayName "uv checksum"
+        }
+        finally {
+            [Net.ServicePointManager]::SecurityProtocol = $oldProtocol
+        }
+
+        $checksumText = (Get-Content -Raw -LiteralPath $checksumPath).Trim()
+        if ($checksumText -notmatch '(?i)^([0-9a-f]{64})\s+') {
+            throw "Invalid uv checksum response."
+        }
+        $expectedHash = $Matches[1].ToLowerInvariant()
+        $actualHash = (Get-FileHash -LiteralPath $archivePath -Algorithm SHA256).Hash.ToLowerInvariant()
+        if ($actualHash -ne $expectedHash) {
+            throw "uv bootstrap checksum mismatch."
+        }
+
+        Expand-Archive -LiteralPath $archivePath -DestinationPath $extractDir -Force
+        $downloadedUv = Get-ChildItem -LiteralPath $extractDir -Filter "uv.exe" -File -Recurse | Select-Object -First 1
+        if ($null -eq $downloadedUv) {
+            throw "uv.exe was not found in the downloaded archive."
+        }
+
+        Copy-Item -LiteralPath $downloadedUv.FullName -Destination $UvExe -Force
+        if (-not (Test-UvExecutable)) {
+            throw "Downloaded uv.exe failed to start."
+        }
+    }
+    catch {
+        Fail-WithMessage ("Unable to prepare the private JIN Python runtime.`r`n" + $_.Exception.Message)
+    }
+    finally {
+        if (Test-Path -LiteralPath $archivePath) { Remove-Item -LiteralPath $archivePath -Force -ErrorAction SilentlyContinue }
+        if (Test-Path -LiteralPath $checksumPath) { Remove-Item -LiteralPath $checksumPath -Force -ErrorAction SilentlyContinue }
+        if (Test-Path -LiteralPath $extractDir) { Remove-Item -LiteralPath $extractDir -Recurse -Force -ErrorAction SilentlyContinue }
+    }
+
+    Write-BootLine "PYTHON" "runtime bootstrap ready" "OK"
+    return $UvExe
+}
+
+function Get-WindowsArchitecture {
+    $arch = [string]$env:PROCESSOR_ARCHITEW6432
+    if ([string]::IsNullOrWhiteSpace($arch)) {
+        $arch = [string]$env:PROCESSOR_ARCHITECTURE
+    }
+    return $arch.ToUpperInvariant()
+}
+
+function Test-LlamaServerExecutable {
+    if (-not (Test-Path -LiteralPath $LlamaServerExe)) { return $false }
+    if (-not (Test-Path -LiteralPath $LauncherDir)) {
+        [void](New-Item -ItemType Directory -Path $LauncherDir -Force)
+    }
+
+    $stdoutPath = Join-Path $LauncherDir "llama-runtime-check.stdout"
+    $stderrPath = Join-Path $LauncherDir "llama-runtime-check.stderr"
+    Remove-Item -LiteralPath $stdoutPath, $stderrPath -Force -ErrorAction SilentlyContinue
+
+    try {
+        $process = Start-Process -FilePath $LlamaServerExe -ArgumentList @("--version") `
+            -WorkingDirectory $LlamaDir -NoNewWindow -Wait -PassThru `
+            -RedirectStandardOutput $stdoutPath -RedirectStandardError $stderrPath
+        if ($process.ExitCode -ne 0) { return $false }
+
+        $output = @()
+        if (Test-Path -LiteralPath $stdoutPath) { $output += @(Get-Content -LiteralPath $stdoutPath) }
+        if (Test-Path -LiteralPath $stderrPath) { $output += @(Get-Content -LiteralPath $stderrPath) }
+        $text = ($output -join "`n").Trim()
+        return (-not [string]::IsNullOrWhiteSpace($text))
+    }
+    catch {
+        return $false
+    }
+    finally {
+        Remove-Item -LiteralPath $stdoutPath, $stderrPath -Force -ErrorAction SilentlyContinue
+    }
+}
+
+function Test-LlamaRuntime {
+    if (-not (Test-LlamaServerExecutable)) { return $false }
+    if (-not (Test-Path -LiteralPath $LlamaRuntimeMarker)) { return $false }
+
+    try {
+        $marker = (Get-Content -Raw -LiteralPath $LlamaRuntimeMarker).Trim()
+        return ($marker -eq $LlamaBuild)
+    }
+    catch {
+        return $false
+    }
+}
+
+function Copy-DirectoryContents {
+    param(
+        [string]$Source,
+        [string]$Destination
+    )
+
+    if (-not (Test-Path -LiteralPath $Destination)) {
+        [void](New-Item -ItemType Directory -Path $Destination -Force)
+    }
+    Get-ChildItem -LiteralPath $Source -Force | ForEach-Object {
+        Copy-Item -LiteralPath $_.FullName -Destination $Destination -Recurse -Force
+    }
+}
+
+function Download-VerifiedArchive {
+    param(
+        [string]$Url,
+        [string]$Destination,
+        [string]$ExpectedSha256,
+        [string]$DisplayName
+    )
+
+    Download-FileWithProgress -Url $Url -Destination $Destination -DisplayName $DisplayName
+    $actualHash = (Get-FileHash -LiteralPath $Destination -Algorithm SHA256).Hash.ToLowerInvariant()
+    if ($actualHash -ne $ExpectedSha256.ToLowerInvariant()) {
+        throw "SHA-256 mismatch for $(Split-Path -Leaf $Destination)."
+    }
+}
+
+function Ensure-LlamaRuntime {
+    if (Test-LlamaRuntime) {
+        return [pscustomobject]@{
+            Server = $LlamaServerExe
+            Build = $LlamaBuild
+            State = "CACHED"
+        }
+    }
+
+    if ((Get-WindowsArchitecture) -ne "AMD64") {
+        Fail-WithMessage "Embedded llama.cpp bootstrap currently supports Windows x64 only."
+    }
+
+    $script:RuntimeMessage = "PREPARING EMBEDDED LLAMA RUNTIME"
+    Write-BootLine "LLAMA" "preparing embedded runtime" "WORK"
+
+    if (-not (Test-Path -LiteralPath $LauncherDir)) {
+        [void](New-Item -ItemType Directory -Path $LauncherDir -Force)
+    }
+
+    $baseUrl = "https://github.com/ggml-org/llama.cpp/releases/download/$LlamaBuild"
+    $mainUrl = "$baseUrl/$LlamaMainAsset"
+    $cudaUrl = "$baseUrl/$LlamaCudaAsset"
+    $mainArchive = Join-Path $LauncherDir "llama-runtime.zip"
+    $cudaArchive = Join-Path $LauncherDir "llama-cudart.zip"
+    $mainExtract = Join-Path $LauncherDir "llama-runtime-extract"
+    $cudaExtract = Join-Path $LauncherDir "llama-cudart-extract"
+
+    try {
+        foreach ($path in @($mainArchive, $cudaArchive)) {
+            if (Test-Path -LiteralPath $path) {
+                Remove-Item -LiteralPath $path -Force
+            }
+        }
+        foreach ($path in @($mainExtract, $cudaExtract)) {
+            if (Test-Path -LiteralPath $path) {
+                Remove-Item -LiteralPath $path -Recurse -Force
+            }
+        }
+
+        $oldProtocol = [Net.ServicePointManager]::SecurityProtocol
+        try {
+            [Net.ServicePointManager]::SecurityProtocol = $oldProtocol -bor [Net.SecurityProtocolType]::Tls12
+            Download-VerifiedArchive -Url $mainUrl -Destination $mainArchive -ExpectedSha256 $LlamaMainSha256 -DisplayName "llama.cpp $LlamaBuild CUDA $LlamaCudaVersion"
+            Download-VerifiedArchive -Url $cudaUrl -Destination $cudaArchive -ExpectedSha256 $LlamaCudaSha256 -DisplayName "CUDA $LlamaCudaVersion runtime DLLs"
+        }
+        finally {
+            [Net.ServicePointManager]::SecurityProtocol = $oldProtocol
+        }
+
+        Expand-Archive -LiteralPath $mainArchive -DestinationPath $mainExtract -Force
+        Expand-Archive -LiteralPath $cudaArchive -DestinationPath $cudaExtract -Force
+
+        $downloadedServer = Get-ChildItem -LiteralPath $mainExtract -Filter "llama-server.exe" -File -Recurse | Select-Object -First 1
+        if ($null -eq $downloadedServer) {
+            throw "llama-server.exe was not found in the llama.cpp archive."
+        }
+
+        $cudaDll = Get-ChildItem -LiteralPath $cudaExtract -Filter "*.dll" -File -Recurse | Select-Object -First 1
+        if ($null -eq $cudaDll) {
+            throw "CUDA runtime DLLs were not found in the llama.cpp CUDA archive."
+        }
+
+        if (Test-Path -LiteralPath $LlamaDir) {
+            Remove-Item -LiteralPath $LlamaDir -Recurse -Force
+        }
+        [void](New-Item -ItemType Directory -Path $LlamaDir -Force)
+
+        Copy-DirectoryContents -Source $downloadedServer.Directory.FullName -Destination $LlamaDir
+        Copy-DirectoryContents -Source $cudaDll.Directory.FullName -Destination $LlamaDir
+
+        Set-Content -LiteralPath $LlamaRuntimeMarker -Value $LlamaBuild -Encoding ASCII
+        if (-not (Test-LlamaServerExecutable)) {
+            throw "Downloaded llama-server.exe failed to start."
+        }
+    }
+    catch {
+        if (Test-Path -LiteralPath $LlamaDir) {
+            Remove-Item -LiteralPath $LlamaDir -Recurse -Force -ErrorAction SilentlyContinue
+        }
+        Fail-WithMessage ("Unable to prepare the embedded llama.cpp runtime.`r`n" + $_.Exception.Message)
+    }
+    finally {
+        foreach ($path in @($mainArchive, $cudaArchive)) {
+            if (Test-Path -LiteralPath $path) {
+                Remove-Item -LiteralPath $path -Force -ErrorAction SilentlyContinue
+            }
+        }
+        foreach ($path in @($mainExtract, $cudaExtract)) {
+            if (Test-Path -LiteralPath $path) {
+                Remove-Item -LiteralPath $path -Recurse -Force -ErrorAction SilentlyContinue
+            }
+        }
+    }
+
+    return [pscustomobject]@{
+        Server = $LlamaServerExe
+        Build = $LlamaBuild
+        State = "INSTALLED"
+    }
+}
+
+function Format-DownloadBytes {
+    param([long]$Bytes)
+
+    if ($Bytes -lt 0) { return "?" }
+    if ($Bytes -ge 1GB) { return ("{0:0.00} GB" -f ($Bytes / 1GB)) }
+    if ($Bytes -ge 1MB) { return ("{0:0.0} MB" -f ($Bytes / 1MB)) }
+    if ($Bytes -ge 1KB) { return ("{0:0.0} KB" -f ($Bytes / 1KB)) }
+    return ("$Bytes B")
+}
+
+function Format-DownloadRate {
+    param([double]$BytesPerSecond)
+
+    if ($BytesPerSecond -le 0) { return "--" }
+    return ((Format-DownloadBytes ([long]$BytesPerSecond)) + "/s")
+}
+
+function Write-DownloadProgress {
+    param(
+        [string]$DisplayName,
+        [long]$Downloaded,
+        [long]$Total,
+        [double]$BytesPerSecond = 0
+    )
+
+    if (-not $script:BootMode) { return }
+    $script:BootDownload = [pscustomobject]@{
+        DisplayName = $DisplayName
+        Downloaded = $Downloaded
+        Total = $Total
+        BytesPerSecond = $BytesPerSecond
+    }
+    Render-BootScreen
+}
+
+function Download-FileWithProgress {
+    param(
+        [string]$Url,
+        [string]$Destination,
+        [string]$DisplayName
+    )
+
+    $partPath = "$Destination.part"
+    $existingLength = 0L
+    if (Test-Path -LiteralPath $partPath) {
+        $existingLength = [long](Get-Item -LiteralPath $partPath).Length
+    }
+
+    $request = [System.Net.HttpWebRequest]::Create($Url)
+    $request.Method = "GET"
+    $request.AllowAutoRedirect = $true
+    $request.UserAgent = "JIN-Core-Launcher/1.0"
+    $request.Timeout = 300000
+    $request.ReadWriteTimeout = 300000
+    if ($existingLength -gt 0) {
+        $request.AddRange($existingLength)
+    }
+
+    $response = $null
+    $inputStream = $null
+    $outputStream = $null
+    $progressStarted = $false
+    try {
+        try {
+            $response = [System.Net.HttpWebResponse]$request.GetResponse()
+        }
+        catch [System.Net.WebException] {
+            $webResponse = $_.Exception.Response
+            if ($null -ne $webResponse) {
+                try {
+                    $statusCode = [int]$webResponse.StatusCode
+                    $statusText = [string]$webResponse.StatusDescription
+                    throw "$DisplayName download failed: HTTP $statusCode $statusText"
+                }
+                finally {
+                    $webResponse.Dispose()
+                }
+            }
+            throw "$DisplayName download failed: $($_.Exception.Message)"
+        }
+
+        $append = ($existingLength -gt 0 -and [int]$response.StatusCode -eq 206)
+        if (-not $append) {
+            $existingLength = 0L
+        }
+
+        $remainingLength = [long]$response.ContentLength
+        $totalLength = if ($remainingLength -gt 0) {
+            $existingLength + $remainingLength
+        }
+        else {
+            0L
+        }
+
+        $fileMode = if ($append) {
+            [System.IO.FileMode]::Append
+        }
+        else {
+            [System.IO.FileMode]::Create
+        }
+
+        $destinationDir = Split-Path -Parent $Destination
+        if (-not [string]::IsNullOrWhiteSpace($destinationDir) -and -not (Test-Path -LiteralPath $destinationDir)) {
+            [void](New-Item -ItemType Directory -Path $destinationDir -Force)
+        }
+
+        $outputStream = New-Object System.IO.FileStream(
+            $partPath,
+            $fileMode,
+            [System.IO.FileAccess]::Write,
+            [System.IO.FileShare]::None,
+            1048576,
+            [System.IO.FileOptions]::SequentialScan
+        )
+        $inputStream = $response.GetResponseStream()
+        $buffer = New-Object byte[] 1048576
+        $downloaded = $existingLength
+        $sampleBytes = $downloaded
+        $sampleWatch = [System.Diagnostics.Stopwatch]::StartNew()
+        $lastRate = 0.0
+        $progressStarted = $true
+        Write-DownloadProgress -DisplayName $DisplayName -Downloaded $downloaded -Total $totalLength -BytesPerSecond 0
+
+        while (($read = $inputStream.Read($buffer, 0, $buffer.Length)) -gt 0) {
+            $outputStream.Write($buffer, 0, $read)
+            $downloaded += $read
+
+            if ($sampleWatch.ElapsedMilliseconds -ge 300) {
+                $seconds = $sampleWatch.Elapsed.TotalSeconds
+                if ($seconds -gt 0) {
+                    $lastRate = ($downloaded - $sampleBytes) / $seconds
+                }
+                Write-DownloadProgress -DisplayName $DisplayName -Downloaded $downloaded -Total $totalLength -BytesPerSecond $lastRate
+                $sampleBytes = $downloaded
+                $sampleWatch.Restart()
+            }
+        }
+
+        $outputStream.Flush()
+        if ($sampleWatch.Elapsed.TotalSeconds -gt 0 -and $downloaded -gt $sampleBytes) {
+            $lastRate = ($downloaded - $sampleBytes) / $sampleWatch.Elapsed.TotalSeconds
+        }
+        Write-DownloadProgress -DisplayName $DisplayName -Downloaded $downloaded -Total $totalLength -BytesPerSecond $lastRate
+        $script:BootDownload = $null
+        Render-BootScreen
+        $progressStarted = $false
+    }
+    finally {
+        if ($null -ne $inputStream) { $inputStream.Dispose() }
+        if ($null -ne $outputStream) { $outputStream.Dispose() }
+        if ($null -ne $response) { $response.Dispose() }
+        if ($progressStarted) {
+            $script:BootDownload = $null
+            Render-BootScreen
+        }
+    }
+
+    Move-Item -LiteralPath $partPath -Destination $Destination -Force
+}
+
+function Write-DefaultModelMarker {
+    param([long]$Size)
+
+    $marker = @(
+        $DefaultEmbeddedModelFile,
+        $DefaultEmbeddedModelSha256.ToLowerInvariant(),
+        [string]$Size
+    ) -join "`n"
+    Set-Content -LiteralPath $DefaultEmbeddedModelMarker -Value $marker -Encoding ASCII
+}
+
+function Test-DefaultEmbeddedModel {
+    if (-not (Test-Path -LiteralPath $DefaultEmbeddedModelPath)) { return $false }
+
+    if (Test-Path -LiteralPath $DefaultEmbeddedModelMarker) {
+        try {
+            $lines = @(Get-Content -LiteralPath $DefaultEmbeddedModelMarker)
+            if ($lines.Count -ge 3) {
+                $expectedSize = 0L
+                $sizeOk = [long]::TryParse([string]$lines[2], [ref]$expectedSize)
+                $actualSize = [long](Get-Item -LiteralPath $DefaultEmbeddedModelPath).Length
+                if (
+                    [string]$lines[0] -eq $DefaultEmbeddedModelFile -and
+                    ([string]$lines[1]).Trim().ToLowerInvariant() -eq $DefaultEmbeddedModelSha256.ToLowerInvariant() -and
+                    $sizeOk -and $expectedSize -gt 0 -and $actualSize -eq $expectedSize
+                ) {
+                    return $true
+                }
+            }
+        }
+        catch {}
+    }
+
+    # A model copied in by the user, or left after an older bootstrap, is
+    # accepted only after a one-time integrity check. Future launches use the
+    # marker + file size and do not hash a multi-gigabyte file every time.
+    try {
+        $actualHash = (Get-FileHash -LiteralPath $DefaultEmbeddedModelPath -Algorithm SHA256).Hash.ToLowerInvariant()
+        if ($actualHash -eq $DefaultEmbeddedModelSha256.ToLowerInvariant()) {
+            $size = [long](Get-Item -LiteralPath $DefaultEmbeddedModelPath).Length
+            Write-DefaultModelMarker -Size $size
+            return $true
+        }
+    }
+    catch {}
+
+    return $false
+}
+
+function Ensure-DefaultEmbeddedModel {
+    if (Test-DefaultEmbeddedModel) {
+        return [pscustomobject]@{
+            Path = $DefaultEmbeddedModelPath
+            Repo = $DefaultEmbeddedModelRepo
+            File = $DefaultEmbeddedModelFile
+            State = "CACHED"
+        }
+    }
+
+    $script:RuntimeMessage = "DOWNLOADING EMBEDDED DEFAULT MODEL"
+    if (-not (Test-Path -LiteralPath $EmbeddedModelsDir)) {
+        [void](New-Item -ItemType Directory -Path $EmbeddedModelsDir -Force)
+    }
+
+    if (Test-Path -LiteralPath $DefaultEmbeddedModelPath) {
+        Remove-Item -LiteralPath $DefaultEmbeddedModelPath -Force
+    }
+    if (Test-Path -LiteralPath $DefaultEmbeddedModelMarker) {
+        Remove-Item -LiteralPath $DefaultEmbeddedModelMarker -Force
+    }
+
+    try {
+        $oldProtocol = [Net.ServicePointManager]::SecurityProtocol
+        try {
+            [Net.ServicePointManager]::SecurityProtocol = $oldProtocol -bor [Net.SecurityProtocolType]::Tls12
+            Download-FileWithProgress `
+                -Url $DefaultEmbeddedModelUrl `
+                -Destination $DefaultEmbeddedModelPath `
+                -DisplayName $DefaultEmbeddedModelLabel
+        }
+        finally {
+            [Net.ServicePointManager]::SecurityProtocol = $oldProtocol
+        }
+
+        Write-BootLine "MODEL" "verifying embedded default model" "WORK"
+        $actualHash = (Get-FileHash -LiteralPath $DefaultEmbeddedModelPath -Algorithm SHA256).Hash.ToLowerInvariant()
+        if ($actualHash -ne $DefaultEmbeddedModelSha256.ToLowerInvariant()) {
+            throw "Default model SHA-256 mismatch."
+        }
+
+        $size = [long](Get-Item -LiteralPath $DefaultEmbeddedModelPath).Length
+        Write-DefaultModelMarker -Size $size
+    }
+    catch {
+        if (Test-Path -LiteralPath $DefaultEmbeddedModelPath) {
+            Remove-Item -LiteralPath $DefaultEmbeddedModelPath -Force -ErrorAction SilentlyContinue
+        }
+        if (Test-Path -LiteralPath $DefaultEmbeddedModelMarker) {
+            Remove-Item -LiteralPath $DefaultEmbeddedModelMarker -Force -ErrorAction SilentlyContinue
+        }
+        Fail-WithMessage ("Unable to prepare the embedded default model.`r`n" + $_.Exception.Message)
+    }
+
+    return [pscustomobject]@{
+        Path = $DefaultEmbeddedModelPath
+        Repo = $DefaultEmbeddedModelRepo
+        File = $DefaultEmbeddedModelFile
+        State = "DOWNLOADED"
+    }
+}
+
+function Test-EmbeddedBrainReady {
+    try {
+        $response = Invoke-WebRequest -Uri "$EmbeddedBrainBaseUrl/health" -UseBasicParsing -TimeoutSec 1 -ErrorAction Stop
+        return ([int]$response.StatusCode -eq 200)
+    }
+    catch {
+        return $false
+    }
+}
+
+function Test-TcpPort {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$HostName,
+        [Parameter(Mandatory = $true)]
+        [int]$Port,
+        [int]$TimeoutMs = 80
+    )
+
+    $client = $null
+    try {
+        $client = New-Object System.Net.Sockets.TcpClient
+        $task = $client.ConnectAsync($HostName, $Port)
+        if (-not $task.Wait($TimeoutMs)) {
+            return $false
+        }
+        return [bool]$client.Connected
+    }
+    catch {
+        return $false
+    }
+    finally {
+        if ($null -ne $client) {
+            try { $client.Close() } catch {}
+            try { $client.Dispose() } catch {}
+        }
+    }
+}
+
+function Get-EmbeddedBrainErrorTail {
+    if (-not (Test-Path -LiteralPath $LlamaStdErrPath)) { return "" }
+    try {
+        $lines = @(Get-Content -LiteralPath $LlamaStdErrPath -Tail 10 -ErrorAction Stop)
+        return (($lines -join " // ").Trim())
+    }
+    catch {
+        return ""
+    }
+}
+
+function Start-EmbeddedBrain {
+    if (-not (Test-Path -LiteralPath $LlamaServerExe)) {
+        Fail-WithMessage "Embedded llama-server.exe is missing."
+    }
+    if (-not (Test-Path -LiteralPath $DefaultEmbeddedModelPath)) {
+        Fail-WithMessage "Embedded Gemma model is missing."
+    }
+
+    Set-PythonConfigValue "BRAIN_API_BASE" $EmbeddedBrainBaseUrl
+    Set-PythonConfigValue "BRAIN_MODEL_UID" $EmbeddedBrainModelId
+
+    if (Test-EmbeddedBrainReady) {
+        $script:LlamaOwned = $false
+        return [pscustomobject]@{ State = "EXISTING"; BaseUrl = $EmbeddedBrainBaseUrl; Model = $EmbeddedBrainModelId }
+    }
+
+    if ($script:LlamaProcess -and -not $script:LlamaProcess.HasExited) {
+        # A process is already loading. Continue into the readiness wait below.
+    }
+    else {
+        # Do not silently attach to an unrelated service that happens to own the
+        # embedded Brain port.
+        if (Test-TcpPort -HostName $EmbeddedBrainHost -Port $EmbeddedBrainPort) {
+            Fail-WithMessage "JIN embedded Brain port $EmbeddedBrainPort is already in use."
+        }
+
+        Remove-Item -LiteralPath $LlamaStdOutPath, $LlamaStdErrPath -Force -ErrorAction SilentlyContinue
+
+        $brainArgs = @(
+            "--model", ('"{0}"' -f $DefaultEmbeddedModelPath),
+            "--alias", $EmbeddedBrainModelId,
+            "--host", $EmbeddedBrainHost,
+            "--port", [string]$EmbeddedBrainPort,
+            "--ctx-size", [string]$EmbeddedBrainContext,
+            "--n-gpu-layers", "999"
+        )
+
+        $startParams = @{
+            FilePath = $LlamaServerExe
+            ArgumentList = $brainArgs
+            WorkingDirectory = $LlamaDir
+            NoNewWindow = $true
+            RedirectStandardOutput = $LlamaStdOutPath
+            RedirectStandardError = $LlamaStdErrPath
+            PassThru = $true
+        }
+
+        Write-BootLine "BRAIN" "starting Gemma 4 E4B locally" "WORK"
+        $script:LlamaProcess = Start-Process @startParams
+        $script:LlamaOwned = $true
+    }
+
+    $watch = [System.Diagnostics.Stopwatch]::StartNew()
+    $lastShownSecond = -1
+    while ($watch.Elapsed.TotalSeconds -lt 180) {
+        if (Test-EmbeddedBrainReady) {
+            return [pscustomobject]@{ State = "STARTED"; BaseUrl = $EmbeddedBrainBaseUrl; Model = $EmbeddedBrainModelId }
+        }
+
+        if ($script:LlamaProcess -and $script:LlamaProcess.HasExited) {
+            $tail = Get-EmbeddedBrainErrorTail
+            $suffix = if ([string]::IsNullOrWhiteSpace($tail)) { "" } else { "`r`n$tail" }
+            Fail-WithMessage ("Embedded Gemma Brain failed to start. Exit code $($script:LlamaProcess.ExitCode)." + $suffix)
+        }
+
+        $second = [int][Math]::Floor($watch.Elapsed.TotalSeconds)
+        if ($second -ne $lastShownSecond) {
+            $lastShownSecond = $second
+            Write-BootLine "BRAIN" ("loading Gemma 4 E4B // " + $second + "s") "WORK"
+        }
+        Start-Sleep -Milliseconds 400
+    }
+
+    $tail = Get-EmbeddedBrainErrorTail
+    $suffix = if ([string]::IsNullOrWhiteSpace($tail)) { "" } else { "`r`n$tail" }
+    Fail-WithMessage ("Embedded Gemma Brain did not become ready within 180 seconds." + $suffix)
+}
+
+function Stop-EmbeddedBrain {
+    if (-not $script:LlamaOwned) { return }
+    if ($script:LlamaProcess -and -not $script:LlamaProcess.HasExited) {
+        try { Stop-Process -Id $script:LlamaProcess.Id -Force -ErrorAction SilentlyContinue } catch {}
+    }
+    $script:LlamaOwned = $false
 }
 
 function Ensure-Dependencies {
@@ -647,24 +1624,56 @@ function Ensure-Dependencies {
     $markerPath = Join-Path $venvPath ".jin_requirements.sha256"
     $created = $false
 
-    if (-not (Test-Path -LiteralPath $venvPython)) {
-        $script:RuntimeMessage = "CREATING PYTHON RUNTIME"
-        Write-BootLine "PYTHON" "creating local .venv" "WORK"
-        $pythonCommand = @(Get-PythonCommand)
-        $pythonExe = $pythonCommand[0]
-        $pythonArgs = @()
-        if ($pythonCommand.Length -gt 1) {
-            $pythonArgs += $pythonCommand[1..($pythonCommand.Length - 1)]
-        }
-        & $pythonExe @pythonArgs -m venv $venvPath
-        if ($LASTEXITCODE -ne 0 -or -not (Test-Path -LiteralPath $venvPython)) {
-            Fail-WithMessage "Python failed to create .venv."
-        }
-        $created = $true
-    }
-
     if (-not (Test-Path -LiteralPath $requirementsPath)) {
         Fail-WithMessage "requirements.txt is missing."
+    }
+
+    # Keep a valid existing environment to avoid needless migration work for
+    # current users. Broken/partial environments are replaced automatically.
+    if ((Test-Path -LiteralPath $venvPython) -and -not (Test-PythonCommand -Executable $venvPython)) {
+        Write-BootLine "PYTHON" "existing runtime is broken; rebuilding" "WARN"
+        Remove-Item -LiteralPath $venvPath -Recurse -Force
+    }
+
+    if (-not (Test-Path -LiteralPath $venvPython)) {
+        if (Test-Path -LiteralPath $venvPath) {
+            Remove-Item -LiteralPath $venvPath -Recurse -Force
+        }
+        $script:RuntimeMessage = "CREATING PRIVATE PYTHON RUNTIME"
+        Write-BootLine "PYTHON" "creating private Python $ManagedPythonVersion runtime" "WORK"
+        $uv = Ensure-UvBootstrap
+        Set-UvRuntimeEnvironment
+
+        # uv writes normal venv/bootstrap status directly to the console. Keep
+        # the launcher UI authoritative: capture native output to a log and
+        # decide success only from the process exit code.
+        $venvLog = Join-Path $LauncherDir "python-runtime.log"
+        $venvStdOut = "$venvLog.stdout"
+        $venvStdErr = "$venvLog.stderr"
+        Remove-Item -LiteralPath $venvStdOut, $venvStdErr -Force -ErrorAction SilentlyContinue
+        $venvArgs = @(
+            "venv",
+            "--python", $ManagedPythonVersion,
+            "--managed-python",
+            ('"{0}"' -f $venvPath)
+        )
+        $venvProcess = Start-Process -FilePath $uv -ArgumentList $venvArgs -NoNewWindow -Wait -PassThru `
+            -RedirectStandardOutput $venvStdOut -RedirectStandardError $venvStdErr
+        $venvExitCode = $venvProcess.ExitCode
+        $venvLines = @()
+        if (Test-Path -LiteralPath $venvStdOut) { $venvLines += @(Get-Content -LiteralPath $venvStdOut) }
+        if (Test-Path -LiteralPath $venvStdErr) { $venvLines += @(Get-Content -LiteralPath $venvStdErr) }
+        Set-Content -LiteralPath $venvLog -Value $venvLines -Encoding UTF8
+        Remove-Item -LiteralPath $venvStdOut, $venvStdErr -Force -ErrorAction SilentlyContinue
+
+        if ($venvExitCode -ne 0 -or -not (Test-PythonCommand -Executable $venvPython)) {
+            if (Test-Path -LiteralPath $venvPath) {
+                Remove-Item -LiteralPath $venvPath -Recurse -Force -ErrorAction SilentlyContinue
+            }
+            Fail-WithMessage "JIN failed to create its private Python runtime. See .jin_launcher\python-runtime.log."
+        }
+        Render-BootScreen
+        $created = $true
     }
 
     $hash = (Get-FileHash -LiteralPath $requirementsPath -Algorithm SHA256).Hash.ToLowerInvariant()
@@ -673,20 +1682,33 @@ function Ensure-Dependencies {
         $cachedHash = (Get-Content -Raw -LiteralPath $markerPath).Trim().ToLowerInvariant()
     }
 
-    # Existing JIN installs already have a populated .venv. The launcher hash marker
-    # is launcher metadata, not proof that dependencies are missing. On the first
-    # launcher run, adopt the current requirements hash silently instead of doing
-    # a needless pip reinstall. Future requirements.txt changes still trigger sync.
-    if (-not $created -and [string]::IsNullOrWhiteSpace($cachedHash)) {
-        Set-Content -LiteralPath $markerPath -Value $hash -Encoding ASCII
-        return [pscustomobject]@{ Python = $venvPython; State = "CACHED" }
-    }
-
     if ($created -or $cachedHash -ne $hash) {
         $script:RuntimeMessage = "SYNCING PYTHON DEPENDENCIES"
-        $installLog = Join-Path $LauncherDir "pip-install.log"
-        & $venvPython -m pip install --disable-pip-version-check --no-input -r $requirementsPath *> $installLog
-        if ($LASTEXITCODE -ne 0) {
+        $installLog = Join-Path $LauncherDir "python-dependencies.log"
+        $uv = Ensure-UvBootstrap
+        Set-UvRuntimeEnvironment
+
+        # Windows PowerShell 5.1 can promote redirected native stderr to a
+        # PowerShell error record. uv writes normal progress to stderr, so run it
+        # as a native process and decide success strictly from its exit code.
+        $installStdOut = "$installLog.stdout"
+        $installStdErr = "$installLog.stderr"
+        Remove-Item -LiteralPath $installStdOut, $installStdErr -Force -ErrorAction SilentlyContinue
+        $syncArgs = @(
+            "pip", "sync", "--python",
+            ('"{0}"' -f $venvPython),
+            ('"{0}"' -f $requirementsPath)
+        )
+        $syncProcess = Start-Process -FilePath $uv -ArgumentList $syncArgs -NoNewWindow -Wait -PassThru `
+            -RedirectStandardOutput $installStdOut -RedirectStandardError $installStdErr
+        $syncExitCode = $syncProcess.ExitCode
+        $installLines = @()
+        if (Test-Path -LiteralPath $installStdOut) { $installLines += @(Get-Content -LiteralPath $installStdOut) }
+        if (Test-Path -LiteralPath $installStdErr) { $installLines += @(Get-Content -LiteralPath $installStdErr) }
+        Set-Content -LiteralPath $installLog -Value $installLines -Encoding UTF8
+        Remove-Item -LiteralPath $installStdOut, $installStdErr -Force -ErrorAction SilentlyContinue
+
+        if ($syncExitCode -ne 0) {
             $tail = ""
             if (Test-Path -LiteralPath $installLog) {
                 $tail = (@(Get-Content -LiteralPath $installLog -Tail 30) -join "`r`n")
@@ -1036,6 +2058,11 @@ function Get-NearestContextIndex {
 }
 
 function Open-ContextPicker {
+    if ($script:ActiveRole -eq "brain" -and $script:BrainIsEmbedded) {
+        Add-Event ("CONTEXT embedded Brain is fixed at " + (Format-ContextTokens $EmbeddedBrainContext)) 7
+        return
+    }
+
     if ($script:SwitchJob) {
         Add-Event "CONTEXT model switch already in progress" 6
         return
@@ -1202,6 +2229,9 @@ function Read-LauncherKeyName {
 }
 
 function Test-LauncherConfigReady {
+    if (-not $script:BrainRuntime.Online) {
+        return $false
+    }
     if ([string]::IsNullOrWhiteSpace([string]$script:BrainRuntime.Selected)) {
         return $false
     }
@@ -1221,6 +2251,11 @@ function Start-ModelSwitch {
         $Runtime,
         [int]$ContextLength = 0
     )
+
+    if ($Role -eq "brain" -and $script:BrainIsEmbedded) {
+        Add-Event ("BRAIN   " + $EmbeddedBrainModelId + " is already active") 7
+        return
+    }
 
     if ($script:SwitchJob) {
         Add-Event "MODEL   switch already in progress" 6
@@ -1449,7 +2484,7 @@ function Draw-RolePanel {
     if (-not $Configured -and $Role -eq "service") {
         Put-Text $Chars $Cols $W $H 4 ($Y + 1) "BRAIN FALLBACK" 1 20
         Put-Text $Chars $Cols $W $H 22 ($Y + 1) ("TEMP " + [string]$temperature) 1 12
-        Put-Text $Chars $Cols $W $H 4 ($Y + 2) "uses Brain endpoint, model and context" 1 52
+        Put-Text $Chars $Cols $W $H 4 ($Y + 2) "uses Brain model and context" 1 52
         return
     }
 
@@ -1506,13 +2541,19 @@ function Draw-RolePanel {
         Draw-ContextPickerLine $Chars $Cols $W $H ($Y + 2)
     }
     else {
-        $base = [string]$Runtime.BaseUrl
-        Put-Text $Chars $Cols $W $H 4 ($Y + 2) "URL" 1 4
-        Put-Text $Chars $Cols $W $H 9 ($Y + 2) $base 2 46
+        if ($Role -eq "brain" -and $script:BrainIsEmbedded) {
+            Put-Text $Chars $Cols $W $H 4 ($Y + 2) "LOCAL" 1 6
+            Put-Text $Chars $Cols $W $H 11 ($Y + 2) "embedded llama.cpp" 2 44
+        }
+        else {
+            $base = [string]$Runtime.BaseUrl
+            Put-Text $Chars $Cols $W $H 4 ($Y + 2) "URL" 1 4
+            Put-Text $Chars $Cols $W $H 9 ($Y + 2) $base 2 46
+        }
     }
 
     if ($models.Count -eq 0) {
-        $emptyText = if ($Runtime.Online) { "no chat models returned" } else { "endpoint unavailable" }
+        $emptyText = if ($Runtime.Online) { "no chat models returned" } elseif ($Role -eq "brain" -and $script:BrainIsEmbedded) { "local brain unavailable" } else { "endpoint unavailable" }
         $emptyColor = if ($Runtime.Online) { [byte]1 } else { [byte]9 }
         Put-Text $Chars $Cols $W $H 6 ($Y + 4) $emptyText $emptyColor 48
         return
@@ -1771,12 +2812,24 @@ try {
     $createdNew = $false
     $LauncherMutex = New-Object System.Threading.Mutex($true, $LauncherMutexName, [ref]$createdNew)
     if (-not $createdNew) {
-        Write-Host "JIN launcher is already running."
+        Write-Host ""
+        Write-Host "JIN launcher for this installation is already running." -ForegroundColor DarkYellow
+        Write-Host ""
+        Read-Host "Press Enter to close"
         exit 0
     }
 
     Set-Location $Root
-    Start-BootScreen
+
+    # FIRST RUN exists only when config.py is genuinely absent.
+    # An existing config means this is an established installation: skip the
+    # bootstrap/checklist screen completely and go straight to the normal UI.
+    $script:ConfigExistedAtLaunch = Test-Path -LiteralPath $ConfigPath
+    $script:BootMode = -not $script:ConfigExistedAtLaunch
+    if ($script:BootMode) {
+        Start-BootScreen
+    }
+
     if (-not (Test-Path -LiteralPath $LauncherDir)) {
         [void](New-Item -ItemType Directory -Path $LauncherDir -Force)
     }
@@ -1784,7 +2837,13 @@ try {
     Write-BootLine "CONFIG" "reading config.py" "WORK"
     Import-DotEnv (Join-Path $Root ".env")
     Ensure-JinConfig
-    Write-BootLine "CONFIG" "runtime configuration loaded" "OK"
+    $script:BrainIsEmbedded = -not (Test-ExplicitBrainConfiguration)
+    if ($script:BrainIsEmbedded) {
+        Write-BootLine "CONFIG" "runtime configuration loaded // embedded Brain" "OK"
+    }
+    else {
+        Write-BootLine "CONFIG" "existing Brain configuration detected" "OK"
+    }
 
     Write-BootLine "PYTHON" "checking local runtime" "WORK"
     $dependency = Ensure-Dependencies
@@ -1795,6 +2854,43 @@ try {
     }
     else {
         Write-BootLine "PYTHON" "runtime ready" "OK"
+    }
+
+    if ($script:BrainIsEmbedded) {
+        Write-BootLine "LLAMA" "checking embedded runtime" "WORK"
+        $llamaRuntime = Ensure-LlamaRuntime
+        $script:LlamaServerExe = [string]$llamaRuntime.Server
+        $script:LlamaRuntimeBuild = [string]$llamaRuntime.Build
+        if ([string]$llamaRuntime.State -eq "INSTALLED") {
+            Write-BootLine "LLAMA" ("embedded runtime " + $script:LlamaRuntimeBuild + " installed") "OK"
+        }
+        else {
+            Write-BootLine "LLAMA" ("embedded runtime " + $script:LlamaRuntimeBuild + " ready") "OK"
+        }
+
+        Write-BootLine "MODEL" "checking embedded default model" "WORK"
+        $embeddedModel = Ensure-DefaultEmbeddedModel
+        $script:EmbeddedModelPath = [string]$embeddedModel.Path
+        $script:EmbeddedModelRepo = [string]$embeddedModel.Repo
+        if ([string]$embeddedModel.State -eq "DOWNLOADED") {
+            Write-BootLine "MODEL" ("embedded default ready // " + $DefaultEmbeddedModelLabel) "OK"
+        }
+        else {
+            Write-BootLine "MODEL" ("embedded default cached // " + $DefaultEmbeddedModelLabel) "OK"
+        }
+
+        Write-BootLine "BRAIN" "starting downloaded Gemma model" "WORK"
+        $embeddedBrain = Start-EmbeddedBrain
+        Write-BootLine "BRAIN" ("Gemma 4 E4B ready @ " + (Format-ContextTokens $EmbeddedBrainContext)) "OK"
+
+        Add-Event "CONFIG  local runtime configuration ready" 10
+        Add-Event "SETUP   embedded llama.cpp runtime ready" 10
+        Add-Event ("BRAIN   " + $EmbeddedBrainModelId + " ready @ " + (Format-ContextTokens $EmbeddedBrainContext)) 10
+    }
+    else {
+        Write-BootLine "LLAMA" "skipped // existing Brain config" "OK"
+        Write-BootLine "MODEL" "skipped // existing Brain config" "OK"
+        Add-Event "CONFIG  existing Brain configuration preserved" 10
     }
 
     Refresh-Runtimes
@@ -1824,16 +2920,22 @@ try {
         }
     }
     elseif ([string]::IsNullOrWhiteSpace([string]$script:BrainRuntime.Selected)) {
-        Add-Event "BRAIN   choose a model and press ENTER" 6
+        Add-Event "BRAIN   local Gemma model is not ready" 9
     }
     elseif ($script:ServiceConfigured -and $script:ServiceRuntime.Online -and [string]::IsNullOrWhiteSpace([string]$script:ServiceRuntime.Selected)) {
         $script:ActiveRole = "service"
         Add-Event "SERVICE choose a model and press ENTER" 6
     }
 
+    $hadBootScreen = $script:BootMode
     $script:BootMode = $false
     try { [Console]::CursorVisible = $false } catch {}
-    [Console]::Write($clear + $hideCursor)
+    if ($hadBootScreen) {
+        [Console]::Write($clear + $hideCursor)
+    }
+    else {
+        [Console]::Write($hideCursor)
+    }
 
     $sw = [Diagnostics.Stopwatch]::StartNew()
     $lastReadyCheck = 0.0
@@ -2000,6 +3102,7 @@ finally {
         Remove-Job $script:SwitchJob -Force -ErrorAction SilentlyContinue
     }
     Stop-JinBackend
+    Stop-EmbeddedBrain
     [Console]::Write($reset + $showCursor + $clear)
     try { [Console]::CursorVisible = $true } catch {}
 

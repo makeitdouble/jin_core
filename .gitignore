@@ -48,5 +48,6 @@ memory/**/*.tmp
 assets/files/*
 !assets/files/.gitkeep
 
-# Windows launcher runtime cache/logs
+# Windows launcher runtime/cache data
 .jin_launcher/
+.jin_runtime/
