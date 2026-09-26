@@ -2,7 +2,6 @@
 import asyncio
 import time
 
-from utils.chat_log import append_chat_runtime_event
 from utils.chat_log_search import (
     extract_chat_log_search_query,
     normalize_chat_log_search,
@@ -59,14 +58,6 @@ async def apply_chat_log_search_actions(context, actions, *, log_runtime, with_a
         created_at = time.time()
         record_runtime_tool_result(context, TOOL_RESULT_KIND_RUNTIME_ACTION, result, result_id=action_id, created_at=created_at)
         tool_id = context.runtime_tool_results[-1]["tool_id"]
-        # Persist through the same raw event consumed by bootstrap enrichment.
-        try:
-            append_chat_runtime_event(context, event="runtime_tool_result", payload={
-                "kind": TOOL_RESULT_KIND_RUNTIME_ACTION, "id": action_id, "tool_id": tool_id,
-                "result": result, "created_at": created_at,
-            })
-        except OSError:
-            pass
         status = "completed" if result["ok"] else "failed"
         for recorded in reversed(context.runtime_action_events):
             if recorded.get("name") == "chat_log_search" and recorded.get("payload") == action.payload:

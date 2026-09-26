@@ -8,7 +8,9 @@ $ErrorActionPreference = "Stop"
 # API, losing their ANSI RGB colors. Disable it before any cmdlet can draw it.
 $ProgressPreference = "SilentlyContinue"
 $Root = Split-Path -Parent $MyInvocation.MyCommand.Path
-$ConfigPath = Join-Path $Root "config.py"
+$FinalConfigPath = Join-Path $Root "config.py"
+$FirstRunConfigPath = Join-Path $Root ".config.py.first-run"
+$ConfigPath = $FinalConfigPath
 $ConfigExamplePath = Join-Path $Root "config.example.py"
 $LauncherDir = Join-Path $Root ".jin_launcher"
 $RuntimeDir = Join-Path $Root ".jin_runtime"
@@ -39,7 +41,19 @@ $EmbeddedBrainHost = "127.0.0.1"
 $EmbeddedBrainPort = 12345
 $EmbeddedBrainBaseUrl = "http://$EmbeddedBrainHost`:$EmbeddedBrainPort"
 $EmbeddedBrainModelId = "gemma-4-e4b-it"
-$EmbeddedBrainContext = 16384
+$EmbeddedBrainDefaultContext = 16384
+$EmbeddedBrainMaxContext = 32768
+$EmbeddedBrainContextPath = Join-Path $LauncherDir "brain_context.txt"
+$script:EmbeddedBrainContext = $EmbeddedBrainDefaultContext
+if (Test-Path -LiteralPath $EmbeddedBrainContextPath) {
+    try {
+        $savedEmbeddedContext = [int](Get-Content -Raw -LiteralPath $EmbeddedBrainContextPath)
+        if ($savedEmbeddedContext -in @(4096, 8192, 16384, 32768)) {
+            $script:EmbeddedBrainContext = $savedEmbeddedContext
+        }
+    }
+    catch {}
+}
 $LlamaStdOutPath = Join-Path $LauncherDir "brain.stdout.log"
 $LlamaStdErrPath = Join-Path $LauncherDir "brain.stderr.log"
 $StdOutPath = Join-Path $LauncherDir "backend.stdout.log"
@@ -97,6 +111,7 @@ $script:BootStarted = $false
 $script:BootTasks = [ordered]@{}
 $script:BootDownload = $null
 $script:ConfigExistedAtLaunch = $false
+$script:LauncherInitializing = $false
 $script:BootTopPadding = 2
 $script:BootPrevText = @()
 $script:BootPrevColor = @()
@@ -479,7 +494,7 @@ function Ensure-JinConfig {
         Fail-WithMessage "Cannot find config.py or config.example.py."
     }
     Copy-Item -LiteralPath $ConfigExamplePath -Destination $ConfigPath
-    Add-Event "CONFIG  created config.py from template" 3
+    Add-Event "CONFIG  prepared configuration from template" 3
 }
 
 function Get-PythonConfigValue {
@@ -863,8 +878,8 @@ function Refresh-Runtimes {
             [pscustomobject]@{
                 Id = $EmbeddedBrainModelId
                 Loaded = $true
-                MaxContext = [int]$EmbeddedBrainContext
-                LoadedContext = [int]$EmbeddedBrainContext
+                MaxContext = [int]$EmbeddedBrainMaxContext
+                LoadedContext = [int]$script:EmbeddedBrainContext
             }
         )
         $script:BrainRuntime.Selected = $EmbeddedBrainModelId
@@ -874,7 +889,7 @@ function Refresh-Runtimes {
     if ($script:BootMode) {
         if ($script:BrainRuntime.Online) {
             if ($script:BrainIsEmbedded) {
-                Write-BootLine "BRAIN" ("Gemma 4 E4B ready @ " + (Format-ContextTokens $EmbeddedBrainContext)) "OK"
+                Write-BootLine "BRAIN" ("Gemma 4 E4B ready @ " + (Format-ContextTokens $script:EmbeddedBrainContext)) "OK"
             }
             else {
                 if ([string]::IsNullOrWhiteSpace($brainSelected)) {
@@ -1564,7 +1579,7 @@ function Start-EmbeddedBrain {
             "--alias", $EmbeddedBrainModelId,
             "--host", $EmbeddedBrainHost,
             "--port", [string]$EmbeddedBrainPort,
-            "--ctx-size", [string]$EmbeddedBrainContext,
+            "--ctx-size", [string]$script:EmbeddedBrainContext,
             "--n-gpu-layers", "999"
         )
 
@@ -1610,10 +1625,52 @@ function Start-EmbeddedBrain {
 }
 
 function Stop-EmbeddedBrain {
-    if (-not $script:LlamaOwned) { return }
+    param([switch]$IncludeAttached)
+
+    $processId = 0
     if ($script:LlamaProcess -and -not $script:LlamaProcess.HasExited) {
-        try { Stop-Process -Id $script:LlamaProcess.Id -Force -ErrorAction SilentlyContinue } catch {}
+        $processId = [int]$script:LlamaProcess.Id
     }
+    elseif ($IncludeAttached) {
+        # Recover a stale launcher-owned llama-server after a launcher restart/crash.
+        # Match both our dedicated port and our embedded model so we do not kill an
+        # unrelated llama-server instance.
+        try {
+            $expectedModel = [System.IO.Path]::GetFullPath($DefaultEmbeddedModelPath).ToLowerInvariant()
+            foreach ($proc in @(Get-CimInstance Win32_Process -Filter "Name='llama-server.exe'" -ErrorAction Stop)) {
+                $cmd = [string]$proc.CommandLine
+                if ([string]::IsNullOrWhiteSpace($cmd)) { continue }
+                $cmdLower = $cmd.ToLowerInvariant()
+                if (
+                    $cmdLower.Contains("--port $EmbeddedBrainPort") -and
+                    $cmdLower.Contains($expectedModel)
+                ) {
+                    $processId = [int]$proc.ProcessId
+                    break
+                }
+            }
+        }
+        catch {}
+    }
+
+    if ($IncludeAttached -and $processId -le 0 -and (Test-EmbeddedBrainReady)) {
+        throw "Unable to identify the embedded llama-server process for context reload."
+    }
+
+    if ($processId -gt 0) {
+        try { Stop-Process -Id $processId -Force -ErrorAction Stop } catch {
+            throw ("Unable to stop embedded llama-server // " + $_.Exception.Message)
+        }
+        $watch = [System.Diagnostics.Stopwatch]::StartNew()
+        while ($watch.Elapsed.TotalSeconds -lt 10 -and (Test-TcpPort -HostName $EmbeddedBrainHost -Port $EmbeddedBrainPort)) {
+            Start-Sleep -Milliseconds 100
+        }
+        if (Test-TcpPort -HostName $EmbeddedBrainHost -Port $EmbeddedBrainPort) {
+            throw "Embedded llama-server did not release its port for context reload."
+        }
+    }
+
+    $script:LlamaProcess = $null
     $script:LlamaOwned = $false
 }
 
@@ -2058,11 +2115,6 @@ function Get-NearestContextIndex {
 }
 
 function Open-ContextPicker {
-    if ($script:ActiveRole -eq "brain" -and $script:BrainIsEmbedded) {
-        Add-Event ("CONTEXT embedded Brain is fixed at " + (Format-ContextTokens $EmbeddedBrainContext)) 7
-        return
-    }
-
     if ($script:SwitchJob) {
         Add-Event "CONTEXT model switch already in progress" 6
         return
@@ -2253,7 +2305,46 @@ function Start-ModelSwitch {
     )
 
     if ($Role -eq "brain" -and $script:BrainIsEmbedded) {
-        Add-Event ("BRAIN   " + $EmbeddedBrainModelId + " is already active") 7
+        if ($ContextLength -le 0) {
+            Add-Event ("BRAIN   " + $EmbeddedBrainModelId + " is already active @ " + (Format-ContextTokens $script:EmbeddedBrainContext)) 7
+            return
+        }
+
+        if ($ContextLength -notin @(4096, 8192, 16384, 32768)) {
+            Add-Event ("CONTEXT unsupported embedded Brain window // " + (Format-ContextTokens $ContextLength)) 9
+            return
+        }
+
+        if ($ContextLength -eq [int]$script:EmbeddedBrainContext) {
+            Add-Event ("CONTEXT embedded Brain already uses " + (Format-ContextTokens $ContextLength)) 7
+            return
+        }
+
+        $previousContext = [int]$script:EmbeddedBrainContext
+        Add-Event ("CONTEXT restarting embedded Brain // " + (Format-ContextTokens $previousContext) + " -> " + (Format-ContextTokens $ContextLength)) 4
+        try {
+            Stop-EmbeddedBrain -IncludeAttached
+            $script:EmbeddedBrainContext = $ContextLength
+            [void](Start-EmbeddedBrain)
+            [System.IO.Directory]::CreateDirectory($LauncherDir) | Out-Null
+            [System.IO.File]::WriteAllText($EmbeddedBrainContextPath, [string]$ContextLength, (New-Object System.Text.UTF8Encoding($false)))
+            Refresh-Runtimes
+            Sync-CursorsToSelected
+            Add-Event ("CONTEXT embedded Brain active @ " + (Format-ContextTokens $ContextLength)) 10
+        }
+        catch {
+            $errorText = $_.Exception.Message
+            $script:EmbeddedBrainContext = $previousContext
+            try {
+                [void](Start-EmbeddedBrain)
+                [System.IO.Directory]::CreateDirectory($LauncherDir) | Out-Null
+                [System.IO.File]::WriteAllText($EmbeddedBrainContextPath, [string]$previousContext, (New-Object System.Text.UTF8Encoding($false)))
+                Refresh-Runtimes
+                Sync-CursorsToSelected
+            }
+            catch {}
+            Add-Event ("CONTEXT embedded Brain restart failed // " + $errorText) 9
+        }
         return
     }
 
@@ -2509,8 +2600,9 @@ function Draw-RolePanel {
     }
     if ($null -eq $contextModel) { $contextModel = $focusModel }
 
-    $status = if ($Runtime.Online) { "ONLINE" } else { "OFFLINE" }
-    $statusColor = if ($Runtime.Online) { [byte]10 } else { [byte]9 }
+    $runtimeStarting = ([string]$Runtime.Source -eq "starting")
+    $status = if ($Runtime.Online) { "ONLINE" } elseif ($runtimeStarting) { "STARTING" } else { "OFFLINE" }
+    $statusColor = if ($Runtime.Online) { [byte]10 } elseif ($runtimeStarting) { [byte]6 } else { [byte]9 }
 
     # Keep status text ASCII-only here. Some Windows console/font combinations
     # render the old bullet glyph as a literal question mark.
@@ -2553,8 +2645,14 @@ function Draw-RolePanel {
     }
 
     if ($models.Count -eq 0) {
-        $emptyText = if ($Runtime.Online) { "no chat models returned" } elseif ($Role -eq "brain" -and $script:BrainIsEmbedded) { "local brain unavailable" } else { "endpoint unavailable" }
-        $emptyColor = if ($Runtime.Online) { [byte]1 } else { [byte]9 }
+        if ($runtimeStarting) {
+            $emptyText = if ($Role -eq "brain" -and $script:BrainIsEmbedded) { "loading embedded brain..." } else { "checking configured endpoint..." }
+            $emptyColor = [byte]6
+        }
+        else {
+            $emptyText = if ($Runtime.Online) { "no chat models returned" } elseif ($Role -eq "brain" -and $script:BrainIsEmbedded) { "local brain unavailable" } else { "endpoint unavailable" }
+            $emptyColor = if ($Runtime.Online) { [byte]1 } else { [byte]9 }
+        }
         Put-Text $Chars $Cols $W $H 6 ($Y + 4) $emptyText $emptyColor 48
         return
     }
@@ -2694,7 +2792,7 @@ function Render-Dashboard {
         $appStatus = "ONLINE"
         $appStatusColor = [byte]10
     }
-    elseif ($script:BackendProcess -and -not $script:BackendProcess.HasExited) {
+    elseif ($script:LauncherInitializing -or ($script:BackendProcess -and -not $script:BackendProcess.HasExited)) {
         $appStatus = "STARTING"
         $appStatusColor = [byte]6
     }
@@ -2821,20 +2919,28 @@ try {
 
     Set-Location $Root
 
-    # FIRST RUN exists only when config.py is genuinely absent.
-    # An existing config means this is an established installation: skip the
-    # bootstrap/checklist screen completely and go straight to the normal UI.
-    $script:ConfigExistedAtLaunch = Test-Path -LiteralPath $ConfigPath
+    # There are exactly two startup modes and config.py is the only switch:
+    #   1) config.py exists at process start -> NEVER show first-run; render the
+    #      normal dashboard immediately.
+    #   2) config.py is absent -> run the complete first-run setup. Build its
+    #      config in a temporary file and publish config.py only after setup has
+    #      succeeded, so an interrupted first run can never masquerade as done.
+    $script:ConfigExistedAtLaunch = Test-Path -LiteralPath $FinalConfigPath
     $script:BootMode = -not $script:ConfigExistedAtLaunch
     if ($script:BootMode) {
+        $ConfigPath = $FirstRunConfigPath
+        Remove-Item -LiteralPath $FirstRunConfigPath -Force -ErrorAction SilentlyContinue
         Start-BootScreen
+    }
+    else {
+        $ConfigPath = $FinalConfigPath
     }
 
     if (-not (Test-Path -LiteralPath $LauncherDir)) {
         [void](New-Item -ItemType Directory -Path $LauncherDir -Force)
     }
 
-    Write-BootLine "CONFIG" "reading config.py" "WORK"
+    Write-BootLine "CONFIG" "reading configuration" "WORK"
     Import-DotEnv (Join-Path $Root ".env")
     Ensure-JinConfig
     $script:BrainIsEmbedded = -not (Test-ExplicitBrainConfiguration)
@@ -2843,6 +2949,46 @@ try {
     }
     else {
         Write-BootLine "CONFIG" "existing Brain configuration detected" "OK"
+    }
+
+    # Existing installation: paint the real dashboard before any potentially
+    # slow runtime/model/backend checks. This is intentionally NOT a first-run
+    # screen; config.py existing means the user sees the main UI immediately.
+    if ($script:ConfigExistedAtLaunch) {
+        # The main dashboard is shown immediately for an existing installation,
+        # but runtime probes/model startup have not happened yet. Keep this
+        # transient state visually distinct from a real endpoint failure.
+        $script:LauncherInitializing = $true
+        $initialBrainBase = Normalize-BaseUrl ([string](Get-PythonConfigValue "BRAIN_API_BASE"))
+        $initialBrainSelected = [string](Get-PythonConfigValue "BRAIN_MODEL_UID")
+        $initialServiceBase = Normalize-BaseUrl ([string](Get-PythonConfigValue "SERVICE_API_BASE"))
+        $initialServiceSelected = [string](Get-PythonConfigValue "SERVICE_MODEL_UID")
+
+        $script:BrainRuntime = [pscustomobject]@{
+            Role = "brain"
+            BaseUrl = $initialBrainBase
+            Online = $false
+            Models = @()
+            Selected = $initialBrainSelected
+            Source = "starting"
+            Error = ""
+        }
+        $script:ServiceConfigured = -not [string]::IsNullOrWhiteSpace($initialServiceBase)
+        $initialServiceSource = if ($script:ServiceConfigured) { "starting" } else { "brain fallback" }
+        $script:ServiceRuntime = [pscustomobject]@{
+            Role = "service"
+            BaseUrl = $initialServiceBase
+            Online = $false
+            Models = @()
+            Selected = $initialServiceSelected
+            Source = $initialServiceSource
+            Error = ""
+        }
+        $script:CursorByRole = @{ brain = 0; service = 0 }
+        $script:ActiveRole = "brain"
+        $script:BackendReady = $false
+        Add-Event "RUNTIME starting configured installation" 1
+        Render-Dashboard 0.0
     }
 
     Write-BootLine "PYTHON" "checking local runtime" "WORK"
@@ -2881,16 +3027,28 @@ try {
 
         Write-BootLine "BRAIN" "starting downloaded Gemma model" "WORK"
         $embeddedBrain = Start-EmbeddedBrain
-        Write-BootLine "BRAIN" ("Gemma 4 E4B ready @ " + (Format-ContextTokens $EmbeddedBrainContext)) "OK"
+        Write-BootLine "BRAIN" ("Gemma 4 E4B ready @ " + (Format-ContextTokens $script:EmbeddedBrainContext)) "OK"
 
         Add-Event "CONFIG  local runtime configuration ready" 10
         Add-Event "SETUP   embedded llama.cpp runtime ready" 10
-        Add-Event ("BRAIN   " + $EmbeddedBrainModelId + " ready @ " + (Format-ContextTokens $EmbeddedBrainContext)) 10
+        Add-Event ("BRAIN   " + $EmbeddedBrainModelId + " ready @ " + (Format-ContextTokens $script:EmbeddedBrainContext)) 10
     }
     else {
         Write-BootLine "LLAMA" "skipped // existing Brain config" "OK"
         Write-BootLine "MODEL" "skipped // existing Brain config" "OK"
         Add-Event "CONFIG  existing Brain configuration preserved" 10
+    }
+
+    # First-run is considered complete only now: Python/runtime/model/Brain
+    # preparation above has succeeded. Publish config.py atomically at the end,
+    # never at the beginning of setup.
+    if (-not $script:ConfigExistedAtLaunch) {
+        if (-not (Test-Path -LiteralPath $FirstRunConfigPath)) {
+            Fail-WithMessage "First-run configuration was not prepared."
+        }
+        Move-Item -LiteralPath $FirstRunConfigPath -Destination $FinalConfigPath -Force
+        $ConfigPath = $FinalConfigPath
+        Write-BootLine "CONFIG" "config.py created // first-run complete" "OK"
     }
 
     Refresh-Runtimes
@@ -2926,6 +3084,11 @@ try {
         $script:ActiveRole = "service"
         Add-Event "SERVICE choose a model and press ENTER" 6
     }
+
+    # Initial dependency/runtime probes are complete. From here on the normal
+    # ONLINE/OFFLINE logic is authoritative; a launched backend process still
+    # renders as STARTING until its health check succeeds.
+    $script:LauncherInitializing = $false
 
     $hadBootScreen = $script:BootMode
     $script:BootMode = $false
@@ -3086,6 +3249,9 @@ try {
 
 }
 catch {
+    if (-not $script:ConfigExistedAtLaunch -and (Test-Path -LiteralPath $FirstRunConfigPath)) {
+        Remove-Item -LiteralPath $FirstRunConfigPath -Force -ErrorAction SilentlyContinue
+    }
     [Console]::Write($reset + $showCursor + $clear)
     try { [Console]::CursorVisible = $true } catch {}
     Write-Host "JIN LAUNCHER ERROR" -ForegroundColor Red

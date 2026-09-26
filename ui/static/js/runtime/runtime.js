@@ -186,9 +186,6 @@ const runtimeMemoryCount =
 const defaultRuntimeMemoryText =
   "This session has just begun.";
 
-const sessionStartedRuntimeMemoryText =
-  "session_status: Session started";
-
 const runtimeMemoryHistory = {
   snapshots: [],
   index: -1,
@@ -646,7 +643,6 @@ session.init({
   feedback,
   runtimeMemoryCount,
   defaultRuntimeMemoryText,
-  sessionStartedRuntimeMemoryText,
   setRuntimeMemoryDisplayMode: (value) => {
     runtimeMemoryDisplayMode = value;
   },

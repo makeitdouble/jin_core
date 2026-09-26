@@ -111,7 +111,7 @@ def test_anonymous_bootstrap_never_enriches_from_archive():
         anonymous_mode=True,
     )
 
-    assert enriched is incoming
+    assert enriched == {"type": "session_bootstrap"}
 
 
 def test_bootstrap_replaces_stale_source_with_newer_user_move():
@@ -157,7 +157,7 @@ def test_bootstrap_replaces_stale_source_with_newer_user_move():
     assert enriched["dialog_context"] == fresh["dialog_context"]
 
 
-def test_bootstrap_does_not_override_browser_dialogue_that_is_newer_than_raw_log():
+def test_future_browser_dialogue_cannot_override_disk():
     requested = {
         "source_session_id": "requested-session",
         "recent_turns": [{
@@ -200,8 +200,8 @@ def test_bootstrap_does_not_override_browser_dialogue_that_is_newer_than_raw_log
             "runtime_memory": "browser runtime",
         })
 
-    assert enriched["source_session_id"] == "requested-session"
-    assert enriched["recent_turns"] == browser_turns
+    assert enriched["source_session_id"] == "other-session"
+    assert enriched["recent_turns"] == latest_raw["recent_turns"]
 
 
 def test_latest_selector_accepts_committed_user_only_action_turn(tmp_path):

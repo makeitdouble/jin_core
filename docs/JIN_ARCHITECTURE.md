@@ -538,8 +538,8 @@ JIN deliberately splits persistence by owner/lifetime.
 
 | State | Current storage/owner |
 | --- | --- |
-| live runtime FRAME for soft reconnect | `sessionStorage`: `jin.liveRuntimeMemory.v2` |
-| atomic browser session checkpoint | `localStorage`: `jin.sessionCheckpoint.v2` |
+| live runtime FRAME for soft reconnect | server `RuntimeContext`; page cache is a projection |
+| continuation state | raw session JSONL checkpoints/actions + latest saved FRAME |
 | Active Memory | `memory/active/<id>.json`; anonymous uses `<id>_anon.json`; ids use `AM-xxxxxx` |
 | Facts Memory candidates / pending extraction | `memory/facts/pending_facts.json`; anonymous uses `pending_facts_anon.json` |
 | Delayed Memory | `memory/delayed/*.json`; anonymous reports use the `_anon.json` suffix |
@@ -551,65 +551,25 @@ JIN deliberately splits persistence by owner/lifetime.
 
 Chat-log paths are reserved without creating directories. Prepared context and inherited FRAME snapshots wait in the live context until a dialogue row, runtime action, or non-empty reasoning is actually written; a stopped blank bootstrap leaves no session directory. Interrupted reasoning is retained without manufacturing a completed JIN row. JSONL rows omit the redundant `dialog_path`; reasoning files retain their useful backlink.
 
-FRAME audit files live beside `reasoning/` in `frames/<HHMMSS>_frame_<N>.txt`, sharing the session log prefix and visible FRAME number (including the reconnect offset). Creation, bootstrap projection, and in-place refresh use the same writer; a refresh replaces its own frame file, including an emptied frame, while older frames remain intact. These files are inspectable logs, not a new memory/restore owner.
+FRAME audit files live beside `reasoning/` in `frames/<HHMMSS>_frame_<N>.txt`, sharing the session log prefix and visible FRAME number (including the reconnect offset). Creation, bootstrap projection, and in-place refresh use the same writer; a refresh replaces its own frame file, including an emptied frame, while older frames remain intact. These inspectable files also supply the latest FRAME during disk bootstrap; new files preserve the full snapshot metadata.
 
-### 9.1 Soft runtime resume
+### 9.1 Server-owned bootstrap and reconnect (D057, 2026-09-26)
 
-`runtime_resume` reconnects browser runtime state to a live/new backend context without being an archived-session checkout.
+Normal connection sends an empty `session_bootstrap` request. The server selects the newest surviving real USER archive, ignoring every browser snapshot field, timestamp and owner ID. An explicit archive checkout sends only `archived_session_restore` and `source_session_id`; the server rereads that archive. Read errors are surfaced, never used as permission to import browser state.
 
-### 9.2 Session bootstrap / live checkpoint
+The existing archive builder combines USER/JIN rows and reasoning, structured action history, server `session_checkpoint` events and later cleanup/tool-result events. Latest `frames/<prefix>_frame_<N>.txt` wins over the earlier prompt's FRAME. New frame files embed the complete snapshot metadata beside the readable FRAME; legacy files retain their text fallback. Explicit empty FRAME and tool inventories stay empty. A single server `bootstrap_state` response feeds the existing UI projection, followed by the established FRAME/actions/chat-tail events and hidden continuation tick.
 
-The owner-locked lifecycle is D049 in `JIN_DECISIONS.md`: greeting-only tabs
-never become saved continuation sessions; any real USER send does, including
-an interrupted USER-only turn. Completed real turns restore as USER then JIN
-with reasoning, before the source session divider. Stop invalidates a queued
-startup tick even across a FRAME wait; accepting a real USER cancels unfinished
-startup before queueing that USER. An aborted pending USER batch commits through
-the ordinary USER-only cancellation path without making a model request.
+`RuntimeContext` remains the live owner. Soft reconnect with a surviving transport sends no browser state. After server restart, the same page requests disk bootstrap again. `runtime_resume` snapshots are ignored. Active/Delayed/Facts/L-T remain disk-profile-owned; automatic legacy browser Facts imports are disabled.
 
-`ui/static/js/runtime/runtime-session.js` persists live checkpoints and sends `session_bootstrap` data when appropriate. The backend normalizes and hydrates the browser-provided snapshot in `websocket/bootstrap.py`.
+Normal cognitive caches use page RAM, with the existing ephemeral FRAME record cleared on every page load. The `jin.sessionCheckpoint.v2` and older durable cognitive records are retired and removed on startup, without migrating their contents. UI preferences remain in localStorage. An in-page checkpoint API remains for existing projection callers; it cannot become a reload source.
 
-For normal bootstrap, a missing source archive invalidates its whole browser
-replica before hydration. The newest surviving real USER archive wins even if
-older than that replica; with no surviving archive the bootstrap is empty.
-Startup-only log rows/reasoning are deferred in RuntimeContext until the first
-real USER, alongside the existing deferred prompt/FRAME snapshots. A live
-worker cannot recreate its previously materialized directory after deletion.
+### 9.2 Lifecycle, clear and disk persistence
 
-Browser runtime continuity has two intentionally different lifetimes. `jin.liveRuntimeMemory.v2` exists only in the current page's `sessionStorage` and supports soft WebSocket reconnect. The module clears that key on page execution, so reload and new-tab bootstrap cannot inherit a copied live FRAME. `jin.sessionCheckpoint.v2` is the single durable, atomic `localStorage` record containing lineage, runtime memory and update count, runtime snapshot, and `session_snapshot`.
+D049 remains unchanged: greeting-only tabs are not saved continuation sessions; a real USER send qualifies immediately, including interrupted USER-only/action-only turns. Latest-source selection and explicit archive restore retain their existing separate semantics. Dialogue/reasoning keep original timestamps and the five-USER-move bound.
 
-The atomic checkpoint names the last runtime session that actually moved. Merely opening/reloading a tab hydrates inherited FRAME into the fresh page's ephemeral live record and records its source lineage, but it does not promote the fresh runtime ID. A successfully emitted real USER message marks session activity immediately; a later server `completed_turn_commit` is the fallback commit signal. Retry, bootstrap, reconnect, and passive UI/runtime events do not mark activity. `conversation_committed_at` advances only for a completed turn, so it remains distinct from USER-only session movement. Nested runtime snapshots preserve their own origin session ID.
+The transport archives the same server `session_snapshot` projection it emits, only after a session log exists. New tool results are recorded at the canonical tool-result writer; cleanup events preserve the exact remaining inventory and monotonic tool ID sequence. FRAME keeps its existing deferred writer. None of these writers can recreate a physically deleted materialized archive.
 
-Session CLEAR replaces the durable record with a version-2 `state: "cleared"` tombstone and clears the current page's live FRAME plus all legacy runtime keys. Other already-open tabs cannot passively resurrect state. The first later checkpoint is allowed only after a successful new USER send; it carries the clear boundary forward so a still-older tab cannot overwrite the new owner after the tombstone has been replaced.
-
-One-time normal-profile checkpoint migration follows ownership rather than freshness. Anonymous rooms never read or migrate that normal-profile checkpoint; they use a fresh tab-scoped `jin.anonymousSession.v1` snapshot instead.
-
-The server sends a normalized `session_snapshot` at visible `message_end` and again at `agent_runtime_end`. The client merges the current room state into that snapshot and persists it before finishing the visible bubble. Completed state and room/avatar state therefore land as one checkpoint rather than racing through separate full writers.
-
-For a predecessor/browser checkpoint, `websocket/bootstrap.py::enrich_session_bootstrap_from_archive()` may enrich dialogue, reasoning, action history, files, counters, and selected runtime state from raw logs. Anonymous rooms never archive-bootstrap. Their chat/reasoning still goes to `logs/`, but the session directory ends in `_anon`; normal restore selectors and L-T mention backfill skip those directories.
-
-The latest raw-log selector chooses the session containing the newest real USER move. A blank bootstrap-only session with no USER row cannot win. A stopped USER-only move and a completed action-only move with an empty visible JIN row can win and remain distinguishable by whether a durable JIN row/timestamp exists. The legacy function name `find_latest_completed_session_restore_payload()` is therefore narrower than its current semantics.
-
-Bootstrap uses two freshness clocks:
-
-- dialogue/reasoning/counters compare the browser recent-turn tail to the archive recent-turn tail;
-- runtime/resource fields still use checkpoint `saved_at` against archive tail time.
-
-This separation prevents a harmless fresh-page hydration or room-state write from pinning dialogue to an older turn. `saved_at` must still represent a whole-checkpoint refresh, not an incidental field mutation.
-
-Session actions are merged by stable ID when available, otherwise by structured identity, sorted by real `created_at`, and bounded. For an unchanged source session the common checkpoint owns actions at or before `saved_at`; raw logs may append only a newer tail. If raw dialogue proves that another source session has a strictly newer USER move, the stale browser source, its actions, and its color are discarded together.
-
-`CLEAN_TOOL_RESULTS` has an explicit field-local persistence rule. On successful cleanup, the browser writes the remaining `session_snapshot.tool_results` and monotonic `tool_result_sequence` inside the existing checkpoint and preserves checkpoint timestamp/lineage verbatim. `<CLEAN_TOOL_RESULTS> T1, T2, T3 </CLEAN_TOOL_RESULTS>` removes the listed modern blocks atomically, while an empty `<CLEAN_TOOL_RESULTS></CLEAN_TOOL_RESULTS>` block removes all old results. Legacy blocks keep no ID and therefore require the empty full-clean block. Invalid or missing IDs produce a failed bubble, session action, and readable failure tool result without removing any listed data. During enrichment, the mere presence of `tool_results` (including `[]`) is authoritative, so old archived search/tool output cannot resurrect in a new tab. This exact-empty rule is intentionally **not** shared by `loaded_memory_ids` or `active_memory_records`; their empty browser collections still use the established archive fallback behavior.
-
-Late append-only L-T tool results are the one post-checkpoint tool-result enrichment: a newer raw `runtime_tool_result` of kind `lt` may be merged after the greater of checkpoint time and `tool_results_cleared_at`. Other old tool results remain blocked by the browser checkpoint/tombstone.
-
-Session-action parts are structured continuity data. Bootstrap normalization currently preserves `text/detail/message/id` plus recognized `colors`; color metadata is normalized to lowercase `#rrggbb` (including expansion from `#rgb`) so restored JIN_COLOR actions keep the same swatch and hex hover metadata as live actions.
-
-Current JIN color is part of the same checkpoint. For the same source session, explicit browser `current_jin_color` wins over action history and archived trusted state. If that field is absent, the newest structured JIN_COLOR session action is the first fallback, followed by the raw archive/trusted color. Applied colors are also recorded as raw runtime events so a direct-predecessor chain can recover both final color and ordered history.
-
-Room-state persistence is field-local. It normally refuses to write across a session-ID mismatch and never changes checkpoint `session_id`, lineage, or `saved_at`. JIN_COLOR uses one synchronous reconciliation exception: after the UI applies a live color it may merge that color into the existing common checkpoint even before the new runtime session is promoted, while preserving checkpoint ownership and freshness metadata.
-
-Old L3-era fields can still appear in tests/compatibility paths, but there is no active L3 memory module.
+Session CLEAR writes an atomic `logs/.continuation-cleared.json` barrier of USER row counts, without deleting archives. Later passive output, room updates or other tabs cannot lift the barrier. A newly logged USER row can. This avoids timestamp precision races and keeps explicit archive checkout available.
 
 ### 9.3 Normal bootstrap chat tail
 
@@ -622,7 +582,7 @@ The client rebuilds the tail through the existing chat primitives. It keeps a re
 Archived restore is a distinct path:
 
 1. HTTP endpoint `/api/sessions/{session_id}/restore` builds payload from logs via `utils/session_restore.py`.
-2. Browser renders the same bounded five-USER-move tail carried by the restore payload and sends a `session_bootstrap`/restore payload. Saved reasoning is attached to its owning JIN turn after archive-file metadata is removed; later visible JIN-only restore rows remain in order.
+2. Browser renders the bounded five-USER-move tail from the RESTORE endpoint and sends only the explicit archive selector; the WebSocket resolves it from disk again. Saved reasoning is attached to its owning JIN turn after archive-file metadata is removed; later visible JIN-only restore rows remain in order.
 3. Backend sets `runtime_session_restore_priming` and stages historical resource IDs/metadata.
 4. A hidden `archived_session_resume` Brain tick receives restore-specific context.
 5. The hidden restore prompt projects the newest complete visible USER/JIN dialogue in `<PREVIOUS_CHAT_MESSAGES>`, with compact relative ages derived from archived timestamps, then carries the previous reasoning evidence in `<PREVIOUS_REASONING_EVIDENCE_TRAIL_AFTER_EXECUTED_ACTIONS>` when available, and only then emits the mandatory automatic-restore notification. There is no separate raw reasoning dump or replay of old action markers as executable intent.
@@ -634,7 +594,7 @@ At prompt-build time the restore instruction prepends the fresh runtime session 
 
 The legacy restore-reasoning dump is retired. Saved reasoning remains available to archive/UI continuity and restore-derived metadata such as the latest reasoning/fact references, but it is not serialized into a separate bootstrap dump. Restored visible dialogue uses the normal five-pair limit and, like ordinary recent-message context, does not impose a per-message character cap.
 
-The RESTORE endpoint owns archived dialogue, reasoning, and FRAME for explicit URL checkout. A same-session browser checkpoint may contribute a newer room/avatar and Session Actions projection, but it cannot overwrite only `recent_turns`, reasoning, or runtime memory and thereby create a mixed conversation source. Legacy `<OLD_SESSION_RESTORED_STATE>` wrappers are normalized to the canonical `<PREVIOUS_CHAT_MESSAGES>` block. On the one-shot priming turn, that inherited dialogue and its carried reasoning evidence are projected before the mandatory automatic-restore notification; FRAME remains background state and may legitimately predate the final archived turn.
+The RESTORE endpoint owns archived dialogue, reasoning, FRAME and presentation state for explicit URL checkout. Browser caches never override that bundle. Historical wrappers remain reader compatibility, and the inherited dialogue/reasoning is projected before the mandatory automatic-restore notification.
 
 `utils/session_restore.py` still understands historical `SAVE_SESSION` labels in archived logs. That is restore compatibility, not proof of a current `SAVE_SESSION` runtime action.
 

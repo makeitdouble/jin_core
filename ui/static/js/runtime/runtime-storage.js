@@ -45,14 +45,17 @@
   window.jinMemoryProfileRevisions = null;
   window.jinMemoryProfileApplying = false;
 
-  // Upgrade bridge only: snapshot browser-only Facts Memory before the disk
-  // profile clears its old projection. The backend accepts this inventory only
-  // while pending_facts.json carries its one-time migration flag.
-  let legacyFactsMemoryRecords = [];
+  // Cognitive projections live only in this page. Reload always asks disk.
+  const browserProjection = new Map();
 
   function clearMemoryProjection() {
-    const store = shouldIsolateAnonymousStorage() ? window.sessionStorage : window.localStorage;
+    for (const key of browserProjection.keys()) {
+      if (/^jin\.(?:activeMemory|delayedMemoryReports|longTermFacts|factsMemory)(?:\.|$)/.test(key)) {
+        browserProjection.delete(key);
+      }
+    }
     try {
+      const store = shouldIsolateAnonymousStorage() ? window.sessionStorage : window.localStorage;
       const keys = Array.from({ length: store.length }, (_, index) => store.key(index));
       keys.forEach((key) => {
         if (/^jin\.(?:activeMemory|delayedMemoryReports|longTermFacts|factsMemory)(?:\.|$)/.test(key)) {
@@ -68,7 +71,6 @@
   }
 
   let bootSourceRuntimeSessionId = null;
-  let sessionCheckpointMigrationAttempted = false;
   let sessionCheckpointUserActivityAt = 0;
 
   function normalizeFactsMemoryStatus(
@@ -477,56 +479,20 @@
   }
 
 
-  function readBrowserMemory(
-    key
-  ) {
-
-    try {
-      return JSON.parse(
-        window.localStorage.getItem(
-          key
-        ) || "null"
-      );
-    } catch (error) {
-      return null;
-    }
-
+  function readBrowserMemory(key) {
+    const value = browserProjection.get(key);
+    return value === undefined ? null : JSON.parse(value);
   }
 
-
-  function writeBrowserMemory(
-    key,
-    value
-  ) {
-
-    try {
-      window.localStorage.setItem(
-        key,
-        JSON.stringify(value)
-      );
-      return true;
-    } catch (error) {
-      console.warn("Failed to persist browser checkpoint", key, error);
-      return false;
-    }
-
+  function writeBrowserMemory(key, value) {
+    browserProjection.set(key, JSON.stringify(value));
+    return true;
   }
 
-
-  function removeBrowserMemory(
-    key
-  ) {
-
-    try {
-      window.localStorage.removeItem(
-        key
-      );
-    } catch (error) {
-      // Browser memory is helpful, not required for chat.
-    }
-
+  function removeBrowserMemory(key) {
+    browserProjection.delete(key);
+    try { window.localStorage.removeItem(key); } catch (_error) {}
   }
-
 
   function readSessionMemory(
     key
@@ -782,43 +748,6 @@
   }
 
 
-  function normalizeLegacySavedSessionSnapshot(
-    value
-  ) {
-
-    if (
-        !value
-        || typeof value !== "object"
-        || Array.isArray(value)
-    ) {
-      return null;
-    }
-
-    return {
-      version: Number(value.version || 1),
-      session_id:
-        String(value.session_id || "").trim(),
-      previous_session_id:
-        String(value.previous_session_id || "").trim() || null,
-      saved_at:
-        String(value.saved_at || "").trim(),
-      conversation_committed_at:
-        String(value.conversation_committed_at || "").trim(),
-      session_snapshot:
-        (
-          value.session_snapshot
-          && typeof value.session_snapshot === "object"
-          && !Array.isArray(value.session_snapshot)
-        )
-          ? {
-              ...value.session_snapshot,
-            }
-          : {},
-    };
-
-  }
-
-
   function normalizeSessionCheckpointRecord(
     value
   ) {
@@ -939,236 +868,9 @@
   }
 
 
-  function readLegacyRuntimeForSession(
-    sessionId
-  ) {
-
-    const normalizedSessionId =
-      String(sessionId || "").trim();
-
-    if (!normalizedSessionId) {
-      return null;
-    }
-
-    return sanitizeRuntimeMemoryRecord(
-      readBrowserMemory(
-        getLegacyLatestRuntimeMemoryStorageKey(
-          normalizedSessionId
-        )
-      )
-    );
-
-  }
-
-
-  function buildMigratedSessionCheckpoint() {
-
-    const legacyCheckpoint =
-      normalizeLegacySavedSessionSnapshot(
-        readBrowserMemory(
-          legacyLatestSavedSessionSnapshotStorageKey
-        )
-      )
-      || normalizeLegacySavedSessionSnapshot(
-        readBrowserMemory(
-          legacyL3SavedSessionSnapshotStorageKey
-        )
-      );
-    const latestSavedRuntime =
-      sanitizeRuntimeMemoryRecord(
-        readBrowserMemory(
-          latestSavedRuntimeMemoryStorageKey
-        )
-      );
-    const checkpointSessionId =
-      String(
-        legacyCheckpoint
-        && legacyCheckpoint.session_id
-        || ""
-      ).trim();
-    const latestSavedRuntimeSessionId =
-      String(
-        latestSavedRuntime
-        && latestSavedRuntime.session_id
-        || ""
-      ).trim();
-    const sourceSessionId =
-      checkpointSessionId
-      || latestSavedRuntimeSessionId;
-
-    if (!sourceSessionId) {
-      return null;
-    }
-
-    let runtimeRecord = null;
-
-    if (
-        latestSavedRuntime
-        && latestSavedRuntimeSessionId === sourceSessionId
-    ) {
-      runtimeRecord = latestSavedRuntime;
-    } else if (checkpointSessionId) {
-      // This is the only legacy per-session lookup allowed. The common SAVE
-      // remains the owner; orphan records never choose a session by freshness.
-      runtimeRecord =
-        readLegacyRuntimeForSession(
-          checkpointSessionId
-        );
-    }
-
-    const runtimeSessionSnapshot =
-      (
-        runtimeRecord
-        && runtimeRecord.session_snapshot
-        && typeof runtimeRecord.session_snapshot === "object"
-        && !Array.isArray(runtimeRecord.session_snapshot)
-      )
-        ? runtimeRecord.session_snapshot
-        : {};
-    const checkpointSessionSnapshot =
-      (
-        legacyCheckpoint
-        && legacyCheckpoint.session_snapshot
-        && typeof legacyCheckpoint.session_snapshot === "object"
-        && !Array.isArray(legacyCheckpoint.session_snapshot)
-      )
-        ? legacyCheckpoint.session_snapshot
-        : {};
-
-    return normalizeSessionCheckpointRecord({
-      version: 2,
-      state: "checkpoint",
-      session_id: sourceSessionId,
-      previous_session_id:
-        String(
-          legacyCheckpoint
-          && legacyCheckpoint.previous_session_id
-          || runtimeRecord
-          && (
-            runtimeRecord.previous_session_id
-            || runtimeRecord.booted_from_session_id
-          )
-          || ""
-        ).trim() || null,
-      saved_at:
-        String(
-          legacyCheckpoint
-          && legacyCheckpoint.saved_at
-          || runtimeRecord
-          && runtimeRecord.saved_at
-          || ""
-        ).trim(),
-      conversation_committed_at:
-        String(
-          legacyCheckpoint
-          && legacyCheckpoint.conversation_committed_at
-          || runtimeRecord
-          && runtimeRecord.conversation_committed_at
-          || ""
-        ).trim(),
-      runtime_memory:
-        String(
-          runtimeRecord
-          && runtimeRecord.runtime_memory
-          || ""
-        ).trim(),
-      runtime_memory_updates:
-        Number(
-          runtimeRecord
-          && runtimeRecord.runtime_memory_updates
-          || 0
-        ),
-      runtime_snapshot:
-        runtimeRecord
-        && runtimeRecord.runtime_snapshot
-        || null,
-      session_snapshot: {
-        ...runtimeSessionSnapshot,
-        ...checkpointSessionSnapshot,
-      },
-    });
-
-  }
-
-
   function ensureSessionCheckpointMigration() {
-
-    if (shouldIsolateAnonymousStorage()) {
-      return null;
-    }
-
-    const current =
-      normalizeSessionCheckpointRecord(
-        readBrowserMemory(
-          sessionCheckpointStorageKey
-        )
-      );
-
-    if (current) {
-      if (!sessionCheckpointMigrationAttempted) {
-        clearLegacyRuntimeStorage();
-      }
-      sessionCheckpointMigrationAttempted = true;
-      return current;
-    }
-
-    if (sessionCheckpointMigrationAttempted) {
-      return null;
-    }
-
-    sessionCheckpointMigrationAttempted = true;
-
-    const migrated =
-      buildMigratedSessionCheckpoint();
-
-    if (migrated) {
-      if (
-          writeBrowserMemory(
-            sessionCheckpointStorageKey,
-            migrated
-          )
-      ) {
-        clearLegacyRuntimeStorage();
-        return migrated;
-      }
-
-      sessionCheckpointMigrationAttempted = false;
-      return null;
-    }
-
-    const orphanLegacyKeys = [
-      ...collectLegacyLatestRuntimeMemoryKeys(
-        window.localStorage
-      ),
-      ...collectLegacyLatestRuntimeMemoryKeys(
-        window.sessionStorage
-      ),
-    ];
-
-    if (orphanLegacyKeys.length) {
-      const cleared = {
-        version: 2,
-        state: "cleared",
-        cleared_at: new Date().toISOString(),
-      };
-
-      if (
-          writeBrowserMemory(
-            sessionCheckpointStorageKey,
-            cleared
-          )
-      ) {
-        clearLegacyRuntimeStorage();
-        return cleared;
-      }
-
-      sessionCheckpointMigrationAttempted = false;
-    }
-
-    return null;
-
+    return normalizeSessionCheckpointRecord(readBrowserMemory(sessionCheckpointStorageKey));
   }
-
 
   function readSessionCheckpointRecord() {
 
@@ -1778,7 +1480,7 @@
       const factsStorage =
         shouldIsolateAnonymousStorage()
           ? window.sessionStorage
-          : window.localStorage;
+          : { length: browserProjection.size, key: index => Array.from(browserProjection.keys())[index] };
 
       for (let index = 0; index < factsStorage.length; index += 1) {
         const storageKey =
@@ -2708,17 +2410,9 @@
   }
 
 
-  legacyFactsMemoryRecords = collectFactsMemoryRecords();
+  removeBrowserMemory(sessionCheckpointStorageKey);
+  clearLegacyRuntimeStorage();
   clearMemoryProjection();
-
-  function getLegacyFactsMemoryRecords() {
-    return legacyFactsMemoryRecords.map(function (record) {
-      return {
-        ...record,
-        signals: { ...(record.signals || {}) },
-      };
-    });
-  }
 
   const storage = {
     clearMemoryProjection,
@@ -2767,7 +2461,6 @@
     isFactsMemoryStorageKey,
     getSessionIdFromFactsMemoryStorageKey,
     collectFactsMemoryRecords,
-    getLegacyFactsMemoryRecords,
     hasFactsMemoryForSession,
     canAppendFactsMemoryByStorageKey,
     appendFactsMemoryByStorageKey,

@@ -181,16 +181,6 @@ def handle_store_sync(context, message):
         persist_delayed(context, reports)
         apply_loaded_delayed_memory_ids(context, message)
         apply_suppressed_delayed_memory_auto_load_ids(context, message)
-    elif kind == "pending" and "legacy_records" in message:
-        # One-time upgrade path for Facts Memory that existed only in browser
-        # localStorage before pending_facts.json became authoritative. The file
-        # itself carries the migration flag, so deleting disk state later can
-        # never resurrect stale browser records.
-        from utils.long_term_facts_file_store import import_legacy_pending_records
-        import_legacy_pending_records(
-            message.get("legacy_records", []),
-            **file_options(context, "facts"),
-        )
     # L-T has explicit edit/delete/restore messages. FRAME produces pending
     # candidates on the server. Ordinary browser inventories cannot revive them.
     publish_profile(context)

@@ -69,8 +69,9 @@ class DeletedArchiveTests(unittest.TestCase):
 
     def test_reader_error_is_not_mistaken_for_deletion(self):
         checkpoint = {'source_session_id': 'unreadable', 'runtime_memory': 'keep'}
-        with patch.object(session_restore, 'build_archived_session_restore_payload', side_effect=OSError):
-            self.assertEqual(enrich_session_bootstrap_from_archive(checkpoint), checkpoint)
+        with patch.object(session_restore, 'find_latest_completed_session_restore_payload', side_effect=OSError):
+            with self.assertRaises(OSError):
+                enrich_session_bootstrap_from_archive(checkpoint)
 
     def test_deleted_live_archive_is_not_recreated_by_any_writer(self):
         for anonymous in (False, True):

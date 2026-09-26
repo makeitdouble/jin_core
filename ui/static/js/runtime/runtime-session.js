@@ -36,7 +36,6 @@
       feedback,
       runtimeMemoryCount,
       defaultRuntimeMemoryText,
-      sessionStartedRuntimeMemoryText,
       setRuntimeMemoryDisplayMode,
       renderRuntimeMemorySnapshot,
       persistRuntimeMemorySnapshot,
@@ -686,60 +685,7 @@
     }
 
     function getSoftReconnectRuntimeResume() {
-      const runtimeMemory =
-        getRuntimeMemoryForSoftReconnect();
-
-      const runtimeText =
-        String(
-          runtimeMemory
-          && runtimeMemory.runtime_memory
-          || ""
-        ).trim();
-
-      if (!runtimeText) {
-        return null;
-      }
-
-      const persistedRuntime =
-        readLatestRuntimeMemory();
-      const sourceSessionId =
-        String(
-          persistedRuntime
-          && persistedRuntime.session_id
-          || ""
-        ).trim();
-      const previousSessionId =
-        String(
-          persistedRuntime
-          && (
-            persistedRuntime.previous_session_id
-            || persistedRuntime.booted_from_session_id
-          )
-          || ""
-        ).trim();
-
-      return {
-        type: "runtime_resume",
-        frame_memory_index: Math.max(
-          0,
-          Number(history.index || 0)
-            + Number(history.displayIndexOffset || 0)
-        ),
-        source_session_id: sourceSessionId || null,
-        previous_session_id: previousSessionId || null,
-        runtime_memory: runtimeText,
-        runtime_memory_updates:
-          Number(
-            runtimeMemory.runtime_memory_updates
-            || 0
-          ),
-        runtime_snapshot:
-          runtimeMemory.runtime_snapshot || null,
-        loaded_memory_ids:
-          typeof getLoadedDelayedMemoryReportIds === "function"
-            ? getLoadedDelayedMemoryReportIds()
-            : [],
-      };
+      return null; // Reconnect authority stays in the server RuntimeContext.
     }
 
     function getInitialRuntimeMemoryBootstrap() {
@@ -1122,11 +1068,11 @@
         session_id: "browser_restore",
         index: 0,
         display_source: "default_runtime_memory",
-        raw_memory: sessionStartedRuntimeMemoryText,
+        raw_memory: `note: ${defaultRuntimeMemoryText}`,
         lines: [
           {
-            key: "session_status",
-            value: "Session started",
+            key: "note",
+            value: defaultRuntimeMemoryText,
             status: "same",
             key_status: "same",
             value_status: "same",
@@ -1281,82 +1227,7 @@
         };
       }
 
-      const checkpoint =
-        readSessionCheckpoint();
-
-      if (!checkpoint) {
-        return null;
-      }
-
-      const sourceSessionId =
-        String(checkpoint.session_id || "").trim();
-
-      const previousSessionId =
-        String(
-          checkpoint.previous_session_id
-          || ""
-        ).trim();
-      const sessionSnapshot =
-        (
-          checkpoint.session_snapshot
-          && typeof checkpoint.session_snapshot === "object"
-          && !Array.isArray(checkpoint.session_snapshot)
-        )
-          ? {
-              ...checkpoint.session_snapshot,
-            }
-          : {};
-
-      if (
-          sourceSessionId
-          && setBootSourceRuntimeSessionId
-      ) {
-        setBootSourceRuntimeSessionId(
-          sourceSessionId
-        );
-      }
-
-      const runtimeText =
-        String(checkpoint.runtime_memory || "").trim();
-      const runtimeDisplaySnapshot = runtimeText
-        ? buildRuntimeMemoryDisplaySnapshot({
-            runtime_memory: runtimeText,
-            runtime_memory_updates:
-              Number(checkpoint.runtime_memory_updates || 0),
-            runtime_snapshot:
-              checkpoint.runtime_snapshot || null,
-            source_session_id: sourceSessionId || null,
-            previous_session_id: previousSessionId || null,
-          })
-        : null;
-
-      return {
-        ...sessionSnapshot,
-        type: "session_bootstrap",
-        source_session_id: sourceSessionId || null,
-        previous_session_id: previousSessionId || null,
-        conversation_committed_at:
-          String(
-            checkpoint.conversation_committed_at || ""
-          ).trim(),
-        saved_at:
-          String(checkpoint.saved_at || "").trim(),
-        loaded_memory_ids:
-          Array.from(new Set(
-            Array.isArray(sessionSnapshot.loaded_memory_ids)
-              ? sessionSnapshot.loaded_memory_ids
-              : []
-          ))
-            .map(item => String(item || "").trim())
-            .filter(Boolean),
-        runtime_memory: runtimeText,
-        runtime_memory_updates:
-          Number(checkpoint.runtime_memory_updates || 0),
-        frame_memory_index: runtimeText ? 1 : 0,
-        runtime_snapshot:
-          checkpoint.runtime_snapshot || null,
-        runtime_display_snapshot: runtimeDisplaySnapshot,
-      };
+      return { type: "session_bootstrap" };
     }
 
     function clearPersistedSessionBootstrap() {
@@ -1371,6 +1242,9 @@
         return;
       }
 
+      if (typeof window.sendSocketMessage === "function") {
+        window.sendSocketMessage({ type: "session_continuation_clear" });
+      }
       clearSessionCheckpoint();
     }
 

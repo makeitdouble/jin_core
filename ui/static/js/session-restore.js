@@ -11,6 +11,8 @@
       || ""
     ).trim();
 
+  window.restoreJinServerVisualState = restoreVisualState;
+
   if (!sourceSessionId) {
     window.jinArchivedSessionRestoreReady =
       Promise.resolve(null);
@@ -383,94 +385,6 @@
   }
 
 
-  function mergeLatestVisualCheckpoint(
-    payload
-  ) {
-    const merged = {
-      ...(payload || {}),
-    };
-    const storage =
-      window.JinRuntime
-      && window.JinRuntime.storage;
-
-    if (
-      !storage
-      || typeof storage.readSessionCheckpoint
-        !== "function"
-    ) {
-      return merged;
-    }
-
-    const restoreSourceSessionId =
-      String(
-        merged.source_session_id
-        || sourceSessionId
-        || ""
-      ).trim();
-    const checkpoint =
-      storage.readSessionCheckpoint();
-
-    const timestamp = value => {
-      const parsed = Date.parse(String(value || "").trim());
-      return Number.isFinite(parsed) ? parsed : 0;
-    };
-    const snapshot =
-      checkpoint
-      && checkpoint.session_snapshot;
-    const checkpointMatchesRestore = Boolean(
-      checkpoint
-      && String(checkpoint.session_id || "").trim()
-        === restoreSourceSessionId
-      && snapshot
-      && typeof snapshot === "object"
-      && !Array.isArray(snapshot)
-    );
-    const checkpointSavedAt = checkpointMatchesRestore
-      ? Math.max(
-          timestamp(checkpoint.conversation_committed_at),
-          timestamp(checkpoint.saved_at),
-          timestamp(
-            snapshot.room_state
-            && snapshot.room_state.saved_at
-          )
-        )
-      : 0;
-    const archiveTailAt = timestamp(merged.archive_tail_at);
-    if (
-      !checkpointMatchesRestore
-      || (archiveTailAt && checkpointSavedAt < archiveTailAt)
-    ) {
-      return merged;
-    }
-
-    // The RESTORE endpoint owns archived dialogue, reasoning and FRAME. A local
-    // checkpoint for the same session may contain a newer room/logger
-    // projection, but it must never replace only one side of the archived
-    // conversation and create a mixed bootstrap prompt.
-    [
-      "session_actions",
-      "current_jin_color",
-      "current_jin_size",
-      "current_jin_position",
-      "current_jin_speed",
-      "current_jin_collapsed",
-      "current_window_size",
-      "room_state",
-    ].forEach(fieldName => {
-      if (
-        Object.prototype.hasOwnProperty.call(
-          snapshot,
-          fieldName
-        )
-      ) {
-        merged[fieldName] = snapshot[fieldName];
-      }
-    });
-
-    return merged;
-  }
-
-
   function restoreVisualState(
     payload
   ) {
@@ -804,10 +718,7 @@
       throw error;
     }
 
-    const payload =
-      mergeLatestVisualCheckpoint(
-        await response.json()
-      );
+    const payload = await response.json();
 
     const bootstrap =
       buildBootstrap(payload);

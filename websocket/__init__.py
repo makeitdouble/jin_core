@@ -64,6 +64,7 @@ from .bootstrap import (
     apply_runtime_memory_slot_delete,
     apply_runtime_resume,
     apply_session_bootstrap,
+    enrich_session_bootstrap_from_archive,
     build_session_bootstrap_chat_tail,
     discard_session_restore_continuation_state,
     emit_current_runtime_memory,
@@ -944,6 +945,13 @@ async def run_runtime_session(websocket, context, resumed_context):
                     )
                 continue
 
+            if message_type == "session_continuation_clear":
+                if not persistent_writes_restricted(context):
+                    from utils.session_restore import clear_normal_session_continuation
+                    clear_normal_session_continuation()
+                    await context.emitter.emit({"type": "session_continuation_cleared"})
+                continue
+
             if message_type == "session_bootstrap":
 
                 if persistent_writes_restricted(context):
@@ -952,24 +960,24 @@ async def run_runtime_session(websocket, context, resumed_context):
                     )
                     continue
 
-                await logger.log(
-                    "[SESSION]",
-                    "[BOOTSTRAP] browser session restore request",
-                    details=json.dumps(
-                        message_data,
-                        ensure_ascii=False,
-                        indent=2,
-                    ),
-                )
-
-                restored = apply_session_bootstrap(
-                    context,
-                    message_data,
-                )
+                # Once initialized, late/stale clients cannot overwrite a live
+                # context by sending another browser snapshot.
+                if (getattr(context, "runtime_disk_bootstrap_applied", False)
+                        or getattr(context, "runtime_turn_user_message", "")):
+                    continue
+                try:
+                    bootstrap = enrich_session_bootstrap_from_archive(message_data)
+                except (OSError, ValueError) as error:
+                    await logger.log_system("[BOOTSTRAP] disk restore failed: " + str(error))
+                    await context.emitter.emit({"type": "bootstrap_state", "error": "disk_restore_failed"})
+                    continue
+                restored = apply_session_bootstrap(context, bootstrap, resolved_from_disk=True)
+                context.runtime_disk_bootstrap_applied = True
+                await context.emitter.emit({"type": "bootstrap_state", "bootstrap": bootstrap})
 
                 if restored:
                     await logger.log_system(
-                        "[WS] browser session snapshot restored"
+                        "[WS] session restored from disk"
                     )
 
                     try:

@@ -181,18 +181,6 @@ def _record_update_lt_tool_result(
                 item["text"] = format_session_action_display_parts(item["parts"])
                 break
 
-    with contextlib.suppress(Exception):
-        append_chat_runtime_event(
-            context,
-            event="runtime_tool_result",
-            payload={
-                "kind": TOOL_RESULT_KIND_LT,
-                "tool_id": tool_id,
-                "id": action_id,
-                "result": summary,
-                "created_at": created_at,
-            },
-        )
 
 
 def _resolve_update_lt_fact_sources(context) -> list[dict]:

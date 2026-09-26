@@ -376,6 +376,11 @@ def record_runtime_tool_result(
         "runtime_tool_results_turn_count",
         turn_count + 1,
     )
+    from utils.chat_log import append_chat_runtime_event
+    append_chat_runtime_event(
+        context, event="runtime_tool_result",
+        payload={**entry, "created_at": created_ats[-1]},
+    )
     return True
 
 

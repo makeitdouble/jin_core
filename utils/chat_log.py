@@ -587,6 +587,7 @@ def save_frame_snapshot(
         f"turn: {snapshot.get('runtime_turn_counter', 0)}",
         "source_turn_ids: " + json.dumps(snapshot.get("source_turn_ids", [])),
         "source_turns_complete: " + json.dumps(snapshot.get("source_turns_complete", False)),
+        "snapshot_json: " + json.dumps(snapshot, ensure_ascii=False),
         "",
         "--- FRAME ---",
         memory,

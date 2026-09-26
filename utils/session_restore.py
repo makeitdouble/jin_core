@@ -1586,11 +1586,7 @@ def _build_runtime_event_tool_results(entries: list[dict]) -> list[dict]:
             continue
         kind = str(payload.get("kind", "") or "").strip().casefold()
         result = payload.get("result")
-        if not isinstance(result, dict):
-            continue
-        if kind != "lt" and not (
-            kind == "runtime_action" and result.get("action") == "CHAT_LOG_SEARCH"
-        ):
+        if not kind or result is None:
             continue
 
         item = {
@@ -1661,7 +1657,8 @@ def _merge_restore_tool_results(
             continue
         kind = str(item.get("kind", "") or "").strip().casefold()
         result_id = str(item.get("id", "") or "").strip()
-        key = (kind, result_id) if kind and result_id else None
+        tool_id = str(item.get("tool_id", "") or "")
+        key = ("tool_id", tool_id) if tool_id else ((kind, result_id) if kind and result_id else None)
         if key is not None and key in keyed_indexes:
             merged[keyed_indexes[key]] = item
             continue
@@ -1810,6 +1807,27 @@ def _parse_jin_size(value: str):
     }
 
 
+def clear_normal_session_continuation(*, root: Path | str | None = None) -> None:
+    """Disk tombstone: only another real USER row can authorize continuation.
+
+    Counts avoid clock precision races and late completion in another open tab.
+    Archives remain available for an explicit user-requested restore.
+    """
+    root_path = Path(root if root is not None else chat_log_root_for_mode(False))
+    blocked = {}
+    for path in root_path.glob("*/*/*.jsonl"):
+        if is_anonymous_session_id(path.parent.name):
+            continue
+        blocked[str(path.relative_to(root_path))] = sum(
+            str(row.get("role", "")).lower() == "user" for row in _load_dialog(path)
+        )
+    root_path.mkdir(parents=True, exist_ok=True)
+    target = root_path / ".continuation-cleared.json"
+    temporary = target.with_suffix(".tmp")
+    temporary.write_text(json.dumps({"version": 1, "blocked_user_counts": blocked}), encoding="utf-8")
+    temporary.replace(target)
+
+
 def find_latest_completed_session_restore_payload(
     *,
     root: Path | str | None = None,
@@ -1831,6 +1849,10 @@ def find_latest_completed_session_restore_payload(
     )
     if not root_path.is_dir():
         return None
+
+    barrier_path = root_path / ".continuation-cleared.json"
+    blocked = (json.loads(barrier_path.read_text(encoding="utf-8")).get("blocked_user_counts", {})
+               if barrier_path.is_file() else {})
 
     date_directories = sorted(
         (
@@ -1870,6 +1892,9 @@ def find_latest_completed_session_restore_payload(
             # Match build_archived_session_restore_payload: the last JSONL is
             # the authoritative dialogue file for this runtime session.
             entries = _load_dialog(dialog_paths[-1])
+            key = str(dialog_paths[-1].relative_to(root_path))
+            if key in blocked and sum(str(row.get("role", "")).lower() == "user" for row in entries) <= blocked[key]:
+                continue
             recent_turns = _build_recent_turns(entries)
             if not recent_turns:
                 continue
@@ -1907,6 +1932,57 @@ def find_latest_completed_session_restore_payload(
             return payload
 
     return None
+
+
+def _read_latest_frame_snapshot(session_directory: Path, prefix: str) -> dict | None:
+    candidates = []
+    for path in (session_directory / "frames").glob(f"{prefix}_frame_*.txt"):
+        match = re.search(r"_frame_(\d+)\.txt$", path.name)
+        if match:
+            candidates.append((int(match.group(1)), path))
+    for number, path in sorted(candidates, reverse=True):
+        text = path.read_text(encoding="utf-8")
+        header, separator, memory = text.partition("\n--- FRAME ---\n")
+        if not separator:
+            continue
+        for line in header.splitlines():
+            if line.startswith("snapshot_json: "):
+                snapshot = json.loads(line[len("snapshot_json: "):])
+                if isinstance(snapshot, dict):
+                    return snapshot
+        # Legacy inspectable FRAME files still outrank the earlier prompt.
+        return {"raw_memory": memory.strip(), "index": number,
+                "runtime_memory_updates": number}
+    return None
+
+
+def _restore_disk_checkpoint(entries: list[dict]) -> dict:
+    """Replay exact server checkpoints and later cleanup/results in source order."""
+    state = {}
+    for entry in entries:
+        event, payload = entry.get("event"), entry.get("payload")
+        if not isinstance(payload, dict):
+            continue
+        if event == "session_checkpoint":
+            # Dialogue still comes from USER/JIN rows and their reasoning files.
+            for key in ("tool_results", "tool_result_sequence", "loaded_memory_ids",
+                        "attached_file_ids", "current_jin_color",
+                        "current_jin_size", "current_jin_position", "current_jin_speed",
+                        "current_jin_collapsed", "current_window_size"):
+                if key in payload:
+                    state[key] = payload[key]
+        elif event == "runtime_action" and payload.get("action") == "clean_tool_results" and payload.get("status") == "completed":
+            if isinstance(payload.get("tool_results"), list):
+                state["tool_results"] = payload["tool_results"]
+                state["tool_result_sequence"] = payload.get("tool_result_sequence", 0)
+        elif event == "runtime_tool_result" and "tool_results" in state:
+            additions = _build_runtime_event_tool_results([entry])
+            state["tool_results"] = _merge_restore_tool_results(state["tool_results"], additions)
+        elif event == "runtime_action_request" and str(payload.get("action", "")).upper() == "JIN_COLOR":
+            color = _latest_runtime_jin_color([entry])
+            if color:
+                state["current_jin_color"] = color
+    return state
 
 
 def build_archived_session_restore_payload(
@@ -2151,6 +2227,9 @@ def build_archived_session_restore_payload(
         else ""
     )
 
+    frame_snapshot = _read_latest_frame_snapshot(session_directory, dialog_path.stem)
+    disk_checkpoint = _restore_disk_checkpoint(entries)
+
     return {
         "ok": True,
         "source_session_id": _clean_session_id(session_id),
@@ -2176,8 +2255,9 @@ def build_archived_session_restore_payload(
         "restore_lt_fact_ids": restore_lt_fact_ids,
         "restore_delayed_memory_metadata": restore_delayed_memory_metadata,
         "restore_attached_file_metadata": restore_attached_file_metadata,
-        "runtime_memory": previous_runtime_state,
-        "runtime_memory_updates": len(jin_entries),
+        "runtime_memory": (frame_snapshot["raw_memory"] if frame_snapshot is not None else previous_runtime_state),
+        "runtime_snapshot": frame_snapshot,
+        "runtime_memory_updates": (frame_snapshot.get("runtime_memory_updates", frame_snapshot.get("index", 0)) if frame_snapshot is not None else len(jin_entries)),
         "loaded_memory_ids": loaded_memory_ids,
         "delayed_memory_reports": _parse_loaded_delayed_reports(context_text),
         "active_memory_records": _parse_active_memory_records(previous_runtime_state),
@@ -2222,4 +2302,5 @@ def build_archived_session_restore_payload(
         ),
         "runtime_mode": runtime_mode,
         "archived_context": context_text,
+        **disk_checkpoint,
     }

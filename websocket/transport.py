@@ -137,6 +137,17 @@ class RuntimeTransport:
     def publish(self, payload):
         if self.stopping:
             return
+        checkpoint = payload.get("session_snapshot")
+        if (self.context is not None and isinstance(checkpoint, dict)
+                and getattr(self.context, "runtime_chat_log_path", "")):
+            # Persist the same server projection sent to the browser. The raw
+            # archive owns recovery, including explicit empty tool inventories.
+            from pathlib import Path
+            from utils.chat_log import append_chat_runtime_event
+            if Path(self.context.runtime_chat_log_path).is_file():
+                append_chat_runtime_event(
+                    self.context, event="session_checkpoint", payload=checkpoint,
+                )
         self.sequence += 1
         # Serialize now: callers may mutate nested state after emitting it.
         self.pending[self.sequence] = json.dumps({

@@ -502,9 +502,6 @@
       records: storage.collectFactsMemoryRecords
         ? storage.collectFactsMemoryRecords()
         : [],
-      legacy_records: storage.getLegacyFactsMemoryRecords
-        ? storage.getLegacyFactsMemoryRecords()
-        : [],
     };
   }
 

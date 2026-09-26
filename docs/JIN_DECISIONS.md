@@ -784,3 +784,16 @@ archive directory was removed must not recreate that directory with late writes.
 **Status:** Owner requested / implemented
 
 Context overflow uses a separate `FOLLOW_UP_CONTEXT_OVERFLOW_MESSAGE`, asking Brain to skip deep reasoning and immediately emit `CLEAN_TOOL_RESULTS` with a redundant tool-result ID. Do not prepend the ordinary follow-up message or its last-executed-action/result suffix. Output-only limits keep their existing continuation. Preserve the current request sequence and record/emit the interruption before recovery, as a separate Session Actions row. Provider overflow errors and native completion at the provider-reported context boundary must not silently bypass this flow.
+
+
+## D057 — Disk is the only reload/bootstrap authority (2026-09-26)
+
+**Status:** Owner-approved / implemented. Supersedes browser-authority and browser migration clauses of D020, D027, D033, D034 and D039; preserves D049 lifecycle and explicit archive restore.
+
+A clean installation/folder must not inherit dialogue, FRAME, facts, actions or tool results from the same browser origin. Logs and existing memory files own recovery. Browser storage is only an operational projection; startup sends no cognitive payload. A live reconnect uses server RAM, and a restarted backend resolves disk again. Explicit checkout is a disk archive selector, not an uploaded snapshot.
+
+Use the latest saved FRAME with its original metadata, raw dialogue/reasoning/actions and server-emitted checkpoint/tool-result events. Empty disk values remain authoritative. Remove automatic browser Facts migration. Read errors never fall back to browser data.
+
+Session CLEAR keeps its semantics with an atomic disk USER-count barrier (`logs/.continuation-cleared.json`), not a localStorage tombstone. New USER activity can pass the barrier; passive completion cannot. Archives remain available for explicit restore.
+
+**Rejected:** merely adding a folder ID to localStorage, timestamp-based browser/disk arbitration, restoring browser state after a reader error, or trusting a browser-supplied archived payload.

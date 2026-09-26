@@ -58,7 +58,7 @@ def test_archive_dialogue_freshness_is_not_blocked_by_newer_runtime_saved_at():
     }
 
     with patch(
-        "utils.session_restore.build_archived_session_restore_payload",
+        "utils.session_restore.find_latest_completed_session_restore_payload",
         return_value=archived,
     ):
         enriched = enrich_session_bootstrap_from_archive(
@@ -83,9 +83,8 @@ def test_archive_dialogue_freshness_is_not_blocked_by_newer_runtime_saved_at():
 
     assert enriched["recent_turns"] == archived["recent_turns"]
     assert enriched["previous_reasoning"] == "new reasoning"
-    # The atomic checkpoint owns actions committed before saved_at. Only a raw
-    # action with a strictly newer created_at may extend this list.
-    assert enriched["session_actions"] == [{"id": "browser-action"}]
+    # Browser timestamps and actions cannot override the disk history.
+    assert enriched["session_actions"] == [{"id": "archive-action"}]
 
 
 def test_agent_runtime_end_commits_user_only_completed_turn_checkpoint():

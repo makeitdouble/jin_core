@@ -626,6 +626,18 @@ function handleSocketMessage(event) {
     return;
   }
 
+  if (data.type === "bootstrap_state" && !data.error) {
+    const bootstrap = data.bootstrap || {};
+    if (window.applyPersistedSessionBootstrap) window.applyPersistedSessionBootstrap(bootstrap);
+    if (window.restoreJinServerVisualState && !window.jinArchivedSessionRestorePayload) {
+      // Color has one final writer: session_actions_update below. Reuse the
+      // existing visual projection here only for server geometry.
+      window.restoreJinServerVisualState({...bootstrap, current_jin_color: ""});
+    }
+    logArchivedRestoreFallbackSession(bootstrap);
+    requestArchivedSessionResume(bootstrap);
+  }
+
   if (window.handleTelemetryMessage) {
     window.handleTelemetryMessage(
       data
@@ -683,6 +695,13 @@ async function handleSocketOpen(liveResume = false) {
   }
 
   if (isSoftReconnect) {
+    // The transport was lost: this page is now a projection of a new backend.
+    // A stale DOM tail must not suppress the disk-owned chat-tail renderer.
+    const historyElement = document.getElementById("chat-history");
+    if (historyElement) historyElement.replaceChildren();
+    if (typeof streamMessages !== "undefined") streamMessages.clear();
+    window.jinArchivedSessionRestorePayload = null;
+    window.jinArchivedSessionBootstrap = null;
     if (window.clearPendingUserBatch) window.clearPendingUserBatch();
     clearInterruptedRuntimeGlow();
     if (window.releaseActiveStreamAvatar) window.releaseActiveStreamAvatar();
@@ -693,182 +712,20 @@ async function handleSocketOpen(liveResume = false) {
     window.JinFiles.syncContext();
   }
 
-  if (isSoftReconnect) {
-    if (window.getSoftReconnectRuntimeResume) {
-      const runtimeResume =
-        window.getSoftReconnectRuntimeResume();
-
-      if (runtimeResume) {
-        if (
-            window.JinRuntime
-            && window.JinRuntime.runtime
-            && window.JinRuntime.runtime.getActiveMemoryRecords
-        ) {
-          runtimeResume.active_memory_records =
-            window.JinRuntime.runtime.getActiveMemoryRecords();
-        }
-
-        sendSocketMessage(
-          runtimeResume
-        );
-      }
-    }
-
-    syncDelayedMemoryReportsToRuntime();
-    if (typeof window.syncFactsMemoryToRuntime === "function") {
-      window.syncFactsMemoryToRuntime();
-    }
-    if (typeof window.syncLongTermMemoryToRuntime === "function") {
-      window.syncLongTermMemoryToRuntime();
-    }
-
-    return;
-  }
-
-  if (
-      persistedSessionBootstrapSent
-      || !window.getPersistedSessionBootstrap
-  ) {
-    syncDelayedMemoryReportsToRuntime();
-    if (typeof window.syncFactsMemoryToRuntime === "function") {
-      window.syncFactsMemoryToRuntime();
-    }
-    if (typeof window.syncLongTermMemoryToRuntime === "function") {
-      window.syncLongTermMemoryToRuntime();
-    }
-    return;
-  }
-
   if (window.jinArchivedSessionRestoreReady) {
-    try {
-      await window.jinArchivedSessionRestoreReady;
-    } catch (error) {
-      // Archived restore is optional. A failed restore falls back to normal boot.
-    }
+    try { await window.jinArchivedSessionRestoreReady; } catch (_error) {}
   }
-
-  if (
-      !ws
-      || ws.readyState !== WebSocket.OPEN
-  ) {
-    return;
-  }
-
-  const bootstrap =
-    window.getPersistedSessionBootstrap();
-
-  if (bootstrap) {
-    logArchivedRestoreFallbackSession(
-      bootstrap
-    );
-
-    if (
-        window.JinRuntime
-        && window.JinRuntime.runtime
-        && window.JinRuntime.runtime.getActiveMemoryRecords
-    ) {
-      bootstrap.active_memory_records =
-        window.JinRuntime.runtime.getActiveMemoryRecords();
-    }
-
-    sendSocketMessage(
-      bootstrap
-    );
-
-    if (window.applyPersistedSessionBootstrap) {
-      window.applyPersistedSessionBootstrap(
-        bootstrap
-      );
-    }
-
-    persistedSessionBootstrapSent = true;
-
-    appendLog(
-      "[SYSTEM]",
-      "Browser session snapshot sent."
-    );
-
-    if (
-        bootstrap.archived_session_restore === true
-        && window.JinRuntime
-        && window.JinRuntime.runtime
-        && typeof window.JinRuntime.runtime.replaceLoadedDelayedMemoryReportIds
-          === "function"
-    ) {
-      // A fresh websocket can publish its default delayed-memory load state
-      // before the archived bootstrap is sent. Clear that transient state so
-      // the following store sync cannot accidentally feed a report body into
-      // the hidden restore turn. The backend keeps the archived ids staged.
-      window.JinRuntime.runtime.replaceLoadedDelayedMemoryReportIds(
-        [],
-        { render: false }
-      );
-    }
-
-    syncDelayedMemoryReportsToRuntime();
-    if (typeof window.syncFactsMemoryToRuntime === "function") {
-      window.syncFactsMemoryToRuntime();
-    }
-    if (typeof window.syncLongTermMemoryToRuntime === "function") {
-      window.syncLongTermMemoryToRuntime();
-    }
-
-    // WebSocket messages are ordered: bootstrap -> memory/L-T sync -> hidden
-    // restore tick. The first model turn therefore sees restored stores but the
-    // context builder can intentionally suppress their heavy contents.
-    requestArchivedSessionResume(
-      bootstrap
-    );
-
-    return;
-  }
-
-  if (window.getInitialRuntimeMemoryBootstrap) {
-    const runtimeBootstrap =
-      window.getInitialRuntimeMemoryBootstrap();
-
-    if (runtimeBootstrap) {
-      if (
-          window.JinRuntime
-          && window.JinRuntime.runtime
-          && window.JinRuntime.runtime.getActiveMemoryRecords
-      ) {
-        runtimeBootstrap.active_memory_records =
-          window.JinRuntime.runtime.getActiveMemoryRecords();
-      }
-
-      sendSocketMessage(
-        runtimeBootstrap
-      );
-
-      appendLog(
-        "[SYSTEM]",
-        "Latest runtime memory sent."
-      );
-    }
-  }
-
-  if (
-      window.JinRuntime
-      && window.JinRuntime.runtime
-      && window.JinRuntime.runtime.getActiveMemoryRecords
-  ) {
-    sendSocketMessage({
-      type: "active_memory_store_sync",
-      active_memory_records:
-        window.JinRuntime.runtime.getActiveMemoryRecords(),
-    });
-  }
-
-  syncDelayedMemoryReportsToRuntime();
-  if (typeof window.syncFactsMemoryToRuntime === "function") {
-    window.syncFactsMemoryToRuntime();
-  }
-  if (typeof window.syncLongTermMemoryToRuntime === "function") {
-    window.syncLongTermMemoryToRuntime();
-  }
-
+  if (!ws || ws.readyState !== WebSocket.OPEN) return;
+  archivedSessionResumeSent = false;
+  const archived = window.jinArchivedSessionBootstrap;
+  // Only an explicit archive selector crosses the boundary, never its content.
+  sendSocketMessage(archived && !isSoftReconnect ? {
+    type: "session_bootstrap",
+    archived_session_restore: true,
+    source_session_id: archived.source_session_id,
+  } : { type: "session_bootstrap" });
 }
+
 
 function handleSocketClose(event = null) {
 

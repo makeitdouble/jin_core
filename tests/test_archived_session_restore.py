@@ -262,6 +262,7 @@ class ArchivedSessionRestoreTests(unittest.TestCase):
                     ],
                 },
             },
+            resolved_from_disk=True,
         )
 
         self.assertTrue(restored)
@@ -895,7 +896,7 @@ open_question: continue
         }
 
         with patch(
-            "utils.session_restore.build_archived_session_restore_payload",
+            "utils.session_restore.find_latest_completed_session_restore_payload",
             return_value=archived,
         ):
             restored = apply_session_bootstrap(
@@ -915,7 +916,7 @@ open_question: continue
         self.assertIn("old flow", context.runtime_restored_session_dialog)
         self.assertIn("raw", context.runtime_session_restore_reasoning_dump)
         self.assertEqual(context.runtime_session_restore_lt_fact_ids, ["F7"])
-        self.assertIn("browser FRAME checkpoint", context.runtime_memory)
+        self.assertIn("archive runtime", context.runtime_memory)
         self.assertEqual(
             context.runtime_session_restore_pending_loaded_memory_ids,
             ["abc123"],
@@ -952,7 +953,7 @@ open_question: continue
         }
 
         with patch(
-            "utils.session_restore.build_archived_session_restore_payload",
+            "utils.session_restore.find_latest_completed_session_restore_payload",
             return_value=archived,
         ):
             enriched = enrich_session_bootstrap_from_archive(
@@ -971,7 +972,7 @@ open_question: continue
 
         self.assertEqual(
             enriched["runtime_memory"],
-            "active_topic: Cooking instructions for macaroni and sausages",
+            "active_topic: stale archive topic",
         )
         # Runtime saved_at is newer than the raw log, but it contains no
         # dialogue tail. The archive must still supply the source session's
@@ -1001,12 +1002,8 @@ open_question: continue
 
         with (
             patch(
-                "utils.session_restore.build_archived_session_restore_payload",
-                return_value=archived,
-            ),
-            patch(
                 "utils.session_restore.find_latest_completed_session_restore_payload",
-                return_value=None,
+                return_value=archived,
             ),
         ):
             enriched = enrich_session_bootstrap_from_archive({
@@ -1027,7 +1024,7 @@ open_question: continue
         self.assertEqual(enriched["restore_reasoning_dump"], "")
         self.assertEqual(enriched["restore_lt_fact_ids"], [])
 
-    def test_browser_checkpoint_explicit_empty_tool_results_stays_empty(self):
+    def test_browser_empty_tool_results_cannot_override_disk(self):
         archived = {
             "source_session_id": "archive-session",
             "messages": [
@@ -1047,7 +1044,7 @@ open_question: continue
         }
 
         with patch(
-            "utils.session_restore.build_archived_session_restore_payload",
+            "utils.session_restore.find_latest_completed_session_restore_payload",
             return_value=archived,
         ):
             enriched = enrich_session_bootstrap_from_archive(
@@ -1061,9 +1058,9 @@ open_question: continue
             )
 
         self.assertIn("tool_results", enriched)
-        self.assertEqual(enriched["tool_results"], [])
+        self.assertEqual(enriched["tool_results"], archived["tool_results"])
 
-    def test_common_browser_checkpoint_color_wins_over_action_history(self):
+    def test_disk_color_wins_over_browser_checkpoint(self):
         archived = {
             "source_session_id": "archive-session",
             "archive_tail_at": "2026-08-23T10:30:00+03:00",
@@ -1089,12 +1086,8 @@ open_question: continue
 
         with (
             patch(
-                "utils.session_restore.build_archived_session_restore_payload",
-                return_value=archived,
-            ),
-            patch(
                 "utils.session_restore.find_latest_completed_session_restore_payload",
-                return_value=None,
+                return_value=archived,
             ),
         ):
             enriched = enrich_session_bootstrap_from_archive({
@@ -1105,13 +1098,13 @@ open_question: continue
                 "current_jin_color": "#00ff00",
             })
 
-        self.assertEqual(enriched["current_jin_color"], "#00ff00")
+        self.assertEqual(enriched["current_jin_color"], "#1f4f8f")
         self.assertEqual(
             enriched["session_actions"][-1]["parts"][0]["colors"],
-            ["#ff0000"],
+            ["#1f4f8f"],
         )
 
-    def test_action_history_recovers_color_when_checkpoint_has_none(self):
+    def test_disk_color_is_not_replaced_by_browser_history(self):
         archived = {
             "source_session_id": "archive-session",
             "archive_tail_at": "2026-08-23T10:30:00+03:00",
@@ -1128,12 +1121,8 @@ open_question: continue
 
         with (
             patch(
-                "utils.session_restore.build_archived_session_restore_payload",
-                return_value=archived,
-            ),
-            patch(
                 "utils.session_restore.find_latest_completed_session_restore_payload",
-                return_value=None,
+                return_value=archived,
             ),
         ):
             enriched = enrich_session_bootstrap_from_archive({
@@ -1142,7 +1131,7 @@ open_question: continue
                 "saved_at": "2026-08-23T10:29:00+03:00",
             })
 
-        self.assertEqual(enriched["current_jin_color"], "#ff0000")
+        self.assertEqual(enriched["current_jin_color"], "#1f4f8f")
 
     def test_empty_memory_collections_keep_archive_fallback_semantics(self):
         archived = {
@@ -1161,7 +1150,7 @@ open_question: continue
         }
 
         with patch(
-            "utils.session_restore.build_archived_session_restore_payload",
+            "utils.session_restore.find_latest_completed_session_restore_payload",
             return_value=archived,
         ):
             enriched = enrich_session_bootstrap_from_archive(
@@ -1443,6 +1432,7 @@ open_question: continue
                 ],
                 "runtime_turn_counter": 6,
             },
+            resolved_from_disk=True,
         )
 
         self.assertTrue(restored)
