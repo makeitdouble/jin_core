@@ -13,6 +13,29 @@ JIN is designed for long-running interaction. It carries model state forward, ex
 
 The main chat stays visually simple while memory layers, reasoning, context pressure, runtime actions, persistent files, and action history remain accessible in collapsible panels.
 
+At a glance, JIN provides inspectable FRAME/Active/Delayed/L-T memory, persistent files, session restore, visible provider reasoning, model-driven runtime actions, MCP skills, context telemetry, and an interactive Live Avatar.
+
+## First Run
+
+The default Windows setup is one-click. You do **not** need to install Python, LM Studio, llama.cpp, or a model manually.
+
+1. Download or clone the repository and extract it to a normal writable folder.
+2. Double-click:
+
+```cmd
+JIN_LAUNCHER.bat
+```
+
+3. On the first run, the launcher first checks `http://127.0.0.1:1234` for an already running LM Studio server:
+   * **If LM Studio is available and exposes models**, JIN immediately creates `config.py` for that endpoint, skips the bundled `llama.cpp` and Gemma downloads, and opens the normal launcher dashboard with the detected models ready to choose. Select the Brain model and press `Enter`.
+   * **If LM Studio is not available**, JIN falls back to the fully self-contained setup: it prepares a private Python 3.12 runtime, downloads and verifies the bundled `llama.cpp` CUDA runtime and default **Gemma 4 E4B Instruct Q4_K_M** model, then creates `config.py`, starts the local Brain/backend, and opens `http://127.0.0.1:8000`.
+
+The launcher shows setup progress directly in its window when the embedded fallback is needed. Internet access is required only for components that are not already available locally. The bundled embedded-Brain path currently targets **Windows x64** and uses the CUDA 12.4 `llama.cpp` build. Other platforms or external OpenAI-compatible model servers can use the manual/custom setup described below.
+
+After the first successful run, start JIN with the same `JIN_LAUNCHER.bat`. If `config.py` already exists when the launcher starts, the first-run detection/bootstrap is skipped entirely: the normal dashboard appears immediately while the configured runtime is brought online.
+
+> `config.py` remains the persistent startup-mode switch. Delete it only when you intentionally want JIN to run first-start detection again: it will reuse LM Studio at `127.0.0.1:1234` when available, otherwise it will start the embedded bootstrap.
+
 ## Interface
 
 ![JIN Core Engine runtime workspace](ui/static/images/jin-core-default-theme.jpg)
@@ -188,7 +211,7 @@ Supported transports are `stdio`, Streamable HTTP, and legacy SSE (`http` / `str
 |-- config_loader.py           # Local configuration loader
 |-- app_settings.py            # Typed settings wrapper
 |-- JIN_LAUNCHER.bat           # Windows one-click launcher
-|-- jl.ps1                     # LM Studio readiness and startup script
+|-- jl.ps1                     # Windows bootstrap, runtime, and launcher UI
 |-- Dockerfile                 # Container image
 |-- compose.yml                # Docker Compose local runtime
 |-- requirements.txt           # Python dependencies
@@ -197,16 +220,18 @@ Supported transports are `stdio`, Streamable HTTP, and legacy SSE (`http` / `str
 `-- LIVE_AVATAR.md             # Avatar visual-state contract
 ```
 
-## Setup and Quick Start
+## Advanced Setup
 
-### Requirements
+The one-click Windows launcher above is the recommended path. The options below are for custom providers, non-default environments, manual startup, or containers.
 
-* Python 3.10+
-* One or more OpenAI-compatible model servers
-* Node.js 20+ for local tests and behavior probes
-* A Serper API key when built-in web search is enabled
+### Custom / Manual Requirements
 
-The model server must expose:
+* Python 3.10+ when starting JIN manually
+* One or more OpenAI-compatible model servers when not using the embedded Windows Brain
+* Node.js 20+ only for local tests and behavior probes
+* A Serper API key only when built-in web search is enabled
+
+An external model server must expose:
 
 ```text
 /v1/chat/completions
@@ -215,23 +240,17 @@ The model server must expose:
 
 For LM Studio, JIN also probes the provider-native `/api/v1/models` metadata endpoint and falls back to legacy `/api/v0/models` when needed, allowing the runtime to read the context length of the model that is actually loaded.
 
-### Windows + LM Studio
+### Using an Existing OpenAI-Compatible Brain
 
-1. Install LM Studio and load the Brain model you want JIN to use. A single model is enough by default: with `SERVICE_API_BASE` left empty, background Service work reuses Brain. Configure a second endpoint only if you want a dedicated Service model.
-2. Start the LM Studio Local Server.
-3. Run:
+If you want to use LM Studio or another compatible server instead of the bundled local Gemma runtime, create `config.py` from `config.example.py` **before** launching JIN and set `BRAIN_API_BASE` to that server. An explicit Brain URL makes the Windows launcher preserve that configuration and skip the embedded `llama.cpp`/model bootstrap. `BRAIN_MODEL_UID` may be left empty so the launcher can discover the endpoint's model catalog.
+
+A single model is enough by default: with `SERVICE_API_BASE` left empty, background Service work reuses Brain. Configure a second endpoint only if you want a dedicated Service model.
+
+Then run:
 
 ```cmd
 JIN_LAUNCHER.bat
 ```
-
-The launcher checks the local model server, creates `config.py` from the template when needed, prepares `.venv`, installs dependencies, starts JIN, and opens:
-
-```text
-http://127.0.0.1:8000
-```
-
-Models are loaded and managed in LM Studio. The launcher fills missing or template provider URLs and model ids while preserving values you configured explicitly.
 
 ### Manual Start
 
@@ -307,7 +326,7 @@ docker compose down
 
 ## Configuration
 
-Copy `config.example.py` to `config.py`, then set the provider URLs and model IDs. `config.py` is ignored by Git.
+The Windows one-click launcher creates `config.py` automatically after a successful first run. For manual or external-provider setups, copy `config.example.py` to `config.py` yourself and set the provider URLs and model IDs. `config.py` is ignored by Git.
 
 | Option | Purpose |
 | --- | --- |
@@ -321,7 +340,7 @@ Copy `config.example.py` to `config.py`, then set the provider URLs and model ID
 
 User-facing config values can also be supplied through environment variables. Plain names and `JIN_`-prefixed names are supported; plain names take priority.
 
-For the Windows one-click launcher, copy `.env.example` to `.env` in the repository root and replace the placeholders. `JIN_LAUNCHER.bat` delegates to `jl.ps1`, which loads that file into the JIN process before configuration is resolved. Variables already present in the process environment are not overwritten. The local `.env` is ignored by Git; `.env.example` contains names and placeholders only and is safe to commit.
+For optional credentials used by the Windows one-click launcher, copy `.env.example` to `.env` in the repository root and replace only the placeholders you need. `JIN_LAUNCHER.bat` delegates to `jl.ps1`, which loads that file into the JIN process before configuration is resolved. Variables already present in the process environment are not overwritten. The local `.env` is ignored by Git; `.env.example` contains names and placeholders only and is safe to commit.
 
 ```dotenv
 SEARCH_SERPER_API_KEY=your-serper-api-key

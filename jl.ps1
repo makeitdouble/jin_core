@@ -40,6 +40,7 @@ $DefaultEmbeddedModelLabel = "Gemma 4 E4B Instruct Q4_K_M"
 $EmbeddedBrainHost = "127.0.0.1"
 $EmbeddedBrainPort = 12345
 $EmbeddedBrainBaseUrl = "http://$EmbeddedBrainHost`:$EmbeddedBrainPort"
+$LmStudioBaseUrl = "http://127.0.0.1:1234"
 $EmbeddedBrainModelId = "gemma-4-e4b-it"
 $EmbeddedBrainDefaultContext = 16384
 $EmbeddedBrainMaxContext = 32768
@@ -76,6 +77,7 @@ finally {
 }
 $LauncherMutexName = "Global\JINCoreLauncher_$rootMutexHash"
 
+$script:PythonExe = ""
 $script:BackendProcess = $null
 $script:BackendOwned = $false
 $script:LlamaProcess = $null
@@ -111,6 +113,8 @@ $script:BootStarted = $false
 $script:BootTasks = [ordered]@{}
 $script:BootDownload = $null
 $script:ConfigExistedAtLaunch = $false
+$script:FirstRunLmStudio = $false
+$script:FirstRunLmStudioRuntime = $null
 $script:LauncherInitializing = $false
 $script:BootTopPadding = 2
 $script:BootPrevText = @()
@@ -839,6 +843,8 @@ function Get-EndpointState {
 }
 
 function Refresh-Runtimes {
+    param([switch]$UseInitialBrainProbe)
+
     $script:BrainTemperature = [string](Get-PythonConfigValue "BRAIN_TEMPERATURE")
     if ([string]::IsNullOrWhiteSpace($script:BrainTemperature)) { $script:BrainTemperature = "?" }
     $script:ServiceTemperature = [string](Get-PythonConfigValue "SERVICE_TEMPERATURE")
@@ -870,7 +876,13 @@ function Refresh-Runtimes {
         Write-BootLine "BRAIN" $probeText "WORK"
     }
 
-    $script:BrainRuntime = Get-EndpointState "brain" $brainBase $brainSelected
+    if ($UseInitialBrainProbe -and $null -ne $script:FirstRunLmStudioRuntime) {
+        $script:BrainRuntime = $script:FirstRunLmStudioRuntime
+        $script:BrainRuntime.Selected = $brainSelected
+    }
+    else {
+        $script:BrainRuntime = Get-EndpointState "brain" $brainBase $brainSelected
+    }
     if ($script:BrainIsEmbedded -and $script:BrainRuntime.Online) {
         # llama-server already has the single embedded model loaded. Expose a
         # stable model record so the dashboard shows Brain, not endpoint plumbing.
@@ -1779,6 +1791,21 @@ function Ensure-Dependencies {
     return [pscustomobject]@{ Python = $venvPython; State = "CACHED" }
 }
 
+function Initialize-PythonRuntime {
+    if (-not [string]::IsNullOrWhiteSpace($script:PythonExe)) { return }
+
+    Write-BootLine "PYTHON" "checking local runtime" "WORK"
+    $dependency = Ensure-Dependencies
+    $script:PythonExe = [string]$dependency.Python
+    $script:DependencyState = [string]$dependency.State
+    if ($script:DependencyState -eq "SYNCED") {
+        Write-BootLine "PYTHON" "dependencies synchronized" "OK"
+    }
+    else {
+        Write-BootLine "PYTHON" "runtime ready" "OK"
+    }
+}
+
 function Test-AppReady {
     try {
         $response = Invoke-WebRequest -Uri "$($AppUrl.TrimEnd('/'))/api/status" -UseBasicParsing -TimeoutSec 1 -ErrorAction Stop
@@ -1825,6 +1852,17 @@ function Start-JinBackend {
     }
 
     if ($script:BackendProcess -and -not $script:BackendProcess.HasExited) { return }
+
+    if ([string]::IsNullOrWhiteSpace($PythonExe)) {
+        Add-Event "PYTHON  preparing runtime for selected model" 3
+        $script:LauncherInitializing = $true
+        Render-Dashboard 0.0
+        try {
+            Initialize-PythonRuntime
+            $PythonExe = $script:PythonExe
+        }
+        finally { $script:LauncherInitializing = $false }
+    }
 
     Remove-Item -LiteralPath $StdOutPath -Force -ErrorAction SilentlyContinue
     Remove-Item -LiteralPath $StdErrPath -Force -ErrorAction SilentlyContinue
@@ -2919,18 +2957,41 @@ try {
 
     Set-Location $Root
 
-    # There are exactly two startup modes and config.py is the only switch:
-    #   1) config.py exists at process start -> NEVER show first-run; render the
-    #      normal dashboard immediately.
-    #   2) config.py is absent -> run the complete first-run setup. Build its
-    #      config in a temporary file and publish config.py only after setup has
-    #      succeeded, so an interrupted first run can never masquerade as done.
+    # Startup modes:
+    #   1) config.py already exists -> NEVER show first-run; render the normal
+    #      dashboard immediately.
+    #   2) config.py is absent, but LM Studio is already serving chat models on
+    #      127.0.0.1:1234 -> create config.py for that endpoint immediately,
+    #      skip the embedded llama/model bootstrap, and render the model picker.
+    #   3) config.py is absent and LM Studio is unavailable -> run the complete
+    #      embedded first-run setup. Its config stays temporary until setup has
+    #      succeeded, so an interrupted bootstrap cannot masquerade as complete.
     $script:ConfigExistedAtLaunch = Test-Path -LiteralPath $FinalConfigPath
     $script:BootMode = -not $script:ConfigExistedAtLaunch
-    if ($script:BootMode) {
-        $ConfigPath = $FirstRunConfigPath
-        Remove-Item -LiteralPath $FirstRunConfigPath -Force -ErrorAction SilentlyContinue
-        Start-BootScreen
+
+    if (-not $script:ConfigExistedAtLaunch) {
+        $lmStudioProbe = Get-EndpointState "brain" $LmStudioBaseUrl ""
+        if ($lmStudioProbe.Online -and @($lmStudioProbe.Models).Count -gt 0) {
+            $ConfigPath = $FinalConfigPath
+            Ensure-JinConfig
+            Set-PythonConfigValue "BRAIN_API_BASE" $LmStudioBaseUrl
+            Set-PythonConfigValue "BRAIN_MODEL_UID" ""
+
+            # From this point the fresh install behaves like a configured
+            # external-Brain install: no embedded runtime/model downloads and
+            # the normal dashboard can be shown immediately with the catalog
+            # discovered during this probe.
+            $script:FirstRunLmStudio = $true
+            $script:FirstRunLmStudioRuntime = $lmStudioProbe
+            $script:ConfigExistedAtLaunch = $true
+            $script:BootMode = $false
+            Add-Event ("CONFIG  LM Studio detected @ " + $LmStudioBaseUrl) 10
+        }
+        else {
+            $ConfigPath = $FirstRunConfigPath
+            Remove-Item -LiteralPath $FirstRunConfigPath -Force -ErrorAction SilentlyContinue
+            Start-BootScreen
+        }
     }
     else {
         $ConfigPath = $FinalConfigPath
@@ -2964,14 +3025,27 @@ try {
         $initialServiceBase = Normalize-BaseUrl ([string](Get-PythonConfigValue "SERVICE_API_BASE"))
         $initialServiceSelected = [string](Get-PythonConfigValue "SERVICE_MODEL_UID")
 
-        $script:BrainRuntime = [pscustomobject]@{
-            Role = "brain"
-            BaseUrl = $initialBrainBase
-            Online = $false
-            Models = @()
-            Selected = $initialBrainSelected
-            Source = "starting"
-            Error = ""
+        if ($script:FirstRunLmStudio -and $null -ne $script:FirstRunLmStudioRuntime) {
+            $script:BrainRuntime = [pscustomobject]@{
+                Role = "brain"
+                BaseUrl = $initialBrainBase
+                Online = $true
+                Models = @($script:FirstRunLmStudioRuntime.Models)
+                Selected = $initialBrainSelected
+                Source = [string]$script:FirstRunLmStudioRuntime.Source
+                Error = ""
+            }
+        }
+        else {
+            $script:BrainRuntime = [pscustomobject]@{
+                Role = "brain"
+                BaseUrl = $initialBrainBase
+                Online = $false
+                Models = @()
+                Selected = $initialBrainSelected
+                Source = "starting"
+                Error = ""
+            }
         }
         $script:ServiceConfigured = -not [string]::IsNullOrWhiteSpace($initialServiceBase)
         $initialServiceSource = if ($script:ServiceConfigured) { "starting" } else { "brain fallback" }
@@ -2991,16 +3065,8 @@ try {
         Render-Dashboard 0.0
     }
 
-    Write-BootLine "PYTHON" "checking local runtime" "WORK"
-    $dependency = Ensure-Dependencies
-    $script:PythonExe = [string]$dependency.Python
-    $script:DependencyState = [string]$dependency.State
-    if ($script:DependencyState -eq "SYNCED") {
-        Write-BootLine "PYTHON" "dependencies synchronized" "OK"
-    }
-    else {
-        Write-BootLine "PYTHON" "runtime ready" "OK"
-    }
+    # External model selection must be interactive before Python setup.
+    if ($script:BrainIsEmbedded) { Initialize-PythonRuntime }
 
     if ($script:BrainIsEmbedded) {
         Write-BootLine "LLAMA" "checking embedded runtime" "WORK"
@@ -3051,7 +3117,7 @@ try {
         Write-BootLine "CONFIG" "config.py created // first-run complete" "OK"
     }
 
-    Refresh-Runtimes
+    Refresh-Runtimes -UseInitialBrainProbe:$script:FirstRunLmStudio
     $script:CursorByRole = @{ brain = 0; service = 0 }
     Sync-CursorsToSelected
 
@@ -3078,7 +3144,7 @@ try {
         }
     }
     elseif ([string]::IsNullOrWhiteSpace([string]$script:BrainRuntime.Selected)) {
-        Add-Event "BRAIN   local Gemma model is not ready" 9
+        Add-Event "BRAIN   choose a model and press ENTER" 6
     }
     elseif ($script:ServiceConfigured -and $script:ServiceRuntime.Online -and [string]::IsNullOrWhiteSpace([string]$script:ServiceRuntime.Selected)) {
         $script:ActiveRole = "service"

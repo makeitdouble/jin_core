@@ -1,7 +1,8 @@
 import tempfile
 import unittest
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
+from types import SimpleNamespace
 
 import app as app_module
 
@@ -91,6 +92,39 @@ class RuntimeStatusConfigTests(unittest.IsolatedAsyncioTestCase):
             "BRAIN_MODEL_UID = 'old-brain'",
             text,
         )
+
+    async def test_switch_persists_launcher_utf8_bom_config(self):
+        # Windows PowerShell Set-Content -Encoding UTF8 writes this BOM.
+        with tempfile.TemporaryDirectory() as tmpdir:
+            root = Path(tmpdir)
+            config_path = root / "config.py"
+            config_path.write_text(
+                "# Launcher config\nBRAIN_MODEL_UID = 'old-brain'\n",
+                encoding="utf-8-sig",
+            )
+            request = SimpleNamespace(json=AsyncMock(return_value={
+                "role": "brain",
+                "model": "new-brain",
+            }))
+            with (
+                patch.object(app_module, "CONFIG_ROOT", root),
+                patch.object(app_module.app.state, "http_client", object(), create=True),
+                patch.object(app_module, "initialize_runtime_model", AsyncMock(
+                    return_value={"model": "new-brain"},
+                )),
+                patch.object(app_module, "apply_runtime_config_values") as apply,
+                patch.object(app_module, "build_status_snapshot", AsyncMock(
+                    return_value={"brain": True},
+                )),
+            ):
+                result = await app_module.api_switch_runtime_model(request)
+            self.assertEqual(result["model_switch"]["model"], "new-brain")
+            apply.assert_called_once_with(
+                {"BRAIN_MODEL_UID": "new-brain"}, app_module.app,
+            )
+            restored = {}
+            exec(compile(config_path.read_bytes(), str(config_path), "exec"), restored)
+            self.assertEqual(restored["BRAIN_MODEL_UID"], "new-brain")
 
     async def test_fetch_runtime_model_status_returns_url_and_model_options(self):
         client = FakeStatusClient({

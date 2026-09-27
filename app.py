@@ -409,8 +409,9 @@ def write_runtime_config_values(updates: dict[str, object]) -> None:
             f"config.py not found at {config_path}"
         )
 
+    # Windows PowerShell launchers write UTF-8 with BOM; strip it before AST parsing.
     text = config_path.read_text(
-        encoding="utf-8"
+        encoding="utf-8-sig"
     )
     tree = ast.parse(
         text
