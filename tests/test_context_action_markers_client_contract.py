@@ -7,7 +7,7 @@ ROOT = Path(__file__).resolve().parents[1]
 
 class ContextActionMarkersClientContractTests(unittest.TestCase):
 
-    def test_action_markers_are_grouped_and_collapsed_by_default(self):
+    def test_action_markers_are_direct_cards_in_the_actions_panel(self):
         source = (
             ROOT
             / "ui"
@@ -22,23 +22,19 @@ class ContextActionMarkersClientContractTests(unittest.TestCase):
             source,
         )
         self.assertIn(
-            'title: "ACTIONS",',
+            "const actionBlocks = blocks.filter(",
             source,
         )
         self.assertIn(
-            'metaLabel: `${markerBlocks.length} actions`,',
+            'const actionsStack = panelStack("actions");',
             source,
         )
         self.assertIn(
-            '"jin-context-card-action-markers"',
+            "actionBlocks.forEach((block) => appendContextCard(",
             source,
         )
-        self.assertIn(
-            "setContextCardCollapsed(\n    groupCard,\n    true",
-            source,
-        )
-        self.assertIn(
-            "block.runtimeActionMarker === true",
+        self.assertNotIn(
+            "function appendContextActionMarkersCard(",
             source,
         )
 
@@ -65,7 +61,7 @@ class ContextActionMarkersClientContractTests(unittest.TestCase):
             source,
         )
 
-    def test_expanding_action_markers_expands_each_nested_marker(self):
+    def test_global_collapse_collects_direct_cards_from_all_snapshot_sections(self):
         source = (
             ROOT
             / "ui"
@@ -76,11 +72,19 @@ class ContextActionMarkersClientContractTests(unittest.TestCase):
         ).read_text(encoding="utf-8")
 
         self.assertIn(
-            '".jin-context-action-markers-stack"',
+            "const getAllCards = () => [",
             source,
         )
         self.assertIn(
-            "setContextCardCollapsed(\n          markerCard,\n          false",
+            "...getCardsInStack(userStack)",
+            source,
+        )
+        self.assertIn(
+            'tabPanels.get(definition.key)\n          .querySelector(".jin-context-tab-stack")',
+            source,
+        )
+        self.assertIn(
+            "...getCardsInStack(commonStack)",
             source,
         )
 

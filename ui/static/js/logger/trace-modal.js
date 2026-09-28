@@ -4,6 +4,7 @@ let traceModalReason;
 let traceModalTitle;
 let traceModalCopyButton;
 let traceModalContextCopyText = "";
+let contextSnapshotTabInstance = 0;
 
 const CONTEXT_DELAYED_MEMORY_STORE_CHANGED_EVENT =
   "jin:delayed-memory-store-changed";
@@ -4461,7 +4462,12 @@ function renderContextChatLogSearchBody(parent, content) {
   return true;
 }
 
-function renderContextToolResultBody(parent, content, toolName = "") {
+function renderContextToolResultBody(
+  parent,
+  content,
+  toolName = "",
+  onToggle = null,
+) {
   if (String(toolName).trim().toUpperCase() === "CHAT_LOG_SEARCH"
       && renderContextChatLogSearchBody(parent, content)) return;
   const blocks = parseContextBlocks(content);
@@ -4485,7 +4491,7 @@ function renderContextToolResultBody(parent, content, toolName = "") {
 
   blocks.forEach((block) => {
     if (block.xml) {
-      appendContextCard(stack, block);
+      appendContextCard(stack, block, onToggle);
       return;
     }
 
@@ -4583,6 +4589,47 @@ function renderContextToolResultsBody(parent, content) {
   parent.appendChild(stack);
 }
 
+function appendContextToolResultCard(
+  parent,
+  block,
+  onToggle = null,
+) {
+  const toolId =
+    getContextAttributeValue(block.attributes, "tool_id");
+  const toolName =
+    getContextAttributeValue(block.attributes, "name");
+  const attributes = block.attributes.filter((attribute) => (
+    !String(attribute || "").startsWith("tool_id=")
+    && !String(attribute || "").startsWith("name=")
+  ));
+  const fileSuffix = contextToolResultFileTitleSuffix(
+    block.content,
+    toolName
+  );
+  const displayToolName = fileSuffix
+    ? `${toolName || "TOOL_RESULT"}: ${fileSuffix}`
+    : (toolName || "TOOL_RESULT");
+  const title = [toolId, displayToolName]
+    .filter(Boolean)
+    .join(" · ");
+
+  return appendContextCard(
+    parent,
+    {
+      ...block,
+      title,
+      attributes,
+      renderBody: (body) => renderContextToolResultBody(
+        body,
+        block.content,
+        toolName,
+        onToggle
+      ),
+    },
+    onToggle
+  );
+}
+
 function setContextCardCollapsed(
   card,
   collapsed,
@@ -4604,32 +4651,6 @@ function setContextCardCollapsed(
     );
   }
 
-  if (
-      !collapsed
-      && card.classList.contains(
-        "jin-context-card-action-markers"
-      )
-  ) {
-    const markerStack =
-      card.querySelector(
-        ".jin-context-action-markers-stack"
-      );
-
-    Array.from(
-      markerStack ? markerStack.children : []
-    ).forEach((markerCard) => {
-      if (
-          markerCard.classList.contains(
-            "jin-context-card"
-          )
-      ) {
-        setContextCardCollapsed(
-          markerCard,
-          false
-        );
-      }
-    });
-  }
 }
 
 function appendContextCard(
@@ -4786,52 +4807,6 @@ function appendContextCard(
   return card;
 }
 
-function appendContextActionMarkersCard(
-  parent,
-  markerBlocks,
-  onToggle = null,
-) {
-  const markerStack =
-    contextElement(
-      "div",
-      "jin-context-stack jin-context-action-markers-stack"
-    );
-
-  const groupCard =
-    appendContextCard(
-      parent,
-      {
-        title: "ACTIONS",
-        content: markerBlocks
-          .map((block) => block.content || "")
-          .join("\n"),
-        attributes: [],
-        xml: false,
-        metaLabel: `${markerBlocks.length} actions`,
-        renderBody: (body) => {
-          markerBlocks.forEach((block) => {
-            appendContextCard(
-              markerStack,
-              block
-            );
-          });
-          body.appendChild(markerStack);
-        },
-      },
-      onToggle
-    );
-
-  groupCard.classList.add(
-    "jin-context-card-action-markers"
-  );
-  setContextCardCollapsed(
-    groupCard,
-    true
-  );
-
-  return groupCard;
-}
-
 function renderContextSnapshotTrace(snapshot) {
   const blocks =
     parseContextBlocks(
@@ -4850,57 +4825,78 @@ function renderContextSnapshotTrace(snapshot) {
 
   const collapseAllToggle =
     contextElement(
-      "div",
-      "jin-context-overview-title",
+      "button",
+      "jin-context-overview-title jin-context-collapse-all",
       "COLLAPSE ALL"
     );
 
-  collapseAllToggle.tabIndex = 0;
-  collapseAllToggle.setAttribute(
-    "role",
-    "button"
-  );
-  collapseAllToggle.style.cursor =
-    "pointer";
-  collapseAllToggle.style.userSelect =
-    "none";
+  collapseAllToggle.type = "button";
 
   overview.appendChild(
     collapseAllToggle
-  );
-  badges.appendChild(
-    contextBadge(`${blocks.length} blocks`)
-  );
-  badges.appendChild(
-    contextBadge(
-      `${snapshot.systemPrompt.length.toLocaleString()} system chars`
-    )
   );
   if (snapshot.hiddenInternalActionRules) {
     badges.appendChild(
       contextBadge("internal rules hidden")
     );
   }
-  overview.appendChild(badges);
+  if (badges.children.length) {
+    overview.appendChild(badges);
+  }
   traceModalContent.appendChild(overview);
 
-  const stack =
+  const commonStack =
     contextElement(
       "div",
-      "jin-context-stack"
+      "jin-context-stack jin-context-common-stack"
     );
+  const userStack = contextElement(
+    "div",
+    "jin-context-stack jin-context-user-stack"
+  );
+  const tabs = contextElement(
+    "div",
+    "jin-context-tabs"
+  );
+  const tabList = contextElement(
+    "div",
+    "jin-context-tab-list"
+  );
+  const panels = contextElement(
+    "div",
+    "jin-context-tab-panels"
+  );
+  const instanceId = ++contextSnapshotTabInstance;
+  const panelDefinitions = [
+    {key: "memory", label: "MEMORY"},
+    {key: "system", label: "SYSTEM"},
+    {key: "tools", label: "TOOL RESULTS"},
+    {key: "actions", label: "ACTIONS"},
+  ];
+  const tabButtons = new Map();
+  const tabPanels = new Map();
 
-  const getCards = () =>
-    Array.from(stack.children).filter(
-      (element) =>
-        element.classList.contains(
-          "jin-context-card"
-        )
-    );
+  tabList.setAttribute("role", "tablist");
+  tabList.setAttribute("aria-label", "Context snapshot sections");
+
+  const getCardsInStack = (stack) => stack
+    ? Array.from(stack.querySelectorAll(".jin-context-card"))
+    : [];
+
+  const getAllCards = () => [
+    ...getCardsInStack(userStack),
+    ...panelDefinitions.flatMap((definition) =>
+      getCardsInStack(
+        tabPanels.get(definition.key)
+          .querySelector(".jin-context-tab-stack")
+      )
+    ),
+    ...getCardsInStack(commonStack),
+  ];
 
   const syncCollapseAllToggle = () => {
     const cards =
-      getCards();
+      getAllCards();
     const allCollapsed =
       cards.length > 0
       && cards.every((card) =>
@@ -4927,7 +4923,7 @@ function renderContextSnapshotTrace(snapshot) {
 
   const toggleAllCards = () => {
     const cards =
-      getCards();
+      getAllCards();
     const allCollapsed =
       cards.length > 0
       && cards.every((card) =>
@@ -4950,23 +4946,183 @@ function renderContextSnapshotTrace(snapshot) {
     "click",
     toggleAllCards
   );
-  collapseAllToggle.addEventListener(
-    "keydown",
-    function (event) {
-      if (
-          event.key !== "Enter"
-          && event.key !== " "
-      ) {
+  const activateTab = (key, focus = false) => {
+    if (!tabButtons.has(key)) {
+      return;
+    }
+
+    panelDefinitions.forEach((definition) => {
+      const selected = definition.key === key;
+      const button = tabButtons.get(definition.key);
+      const panel = tabPanels.get(definition.key);
+
+      button.setAttribute(
+        "aria-selected",
+        selected ? "true" : "false"
+      );
+      button.tabIndex = selected ? 0 : -1;
+      button.classList.toggle("is-active", selected);
+      panel.hidden = !selected;
+      panel.classList.toggle("is-active", selected);
+    });
+
+    syncCollapseAllToggle();
+
+    if (focus) {
+      tabButtons.get(key).focus();
+    }
+  };
+
+  panelDefinitions.forEach((definition, index) => {
+    const tabId = `jin-context-tab-${instanceId}-${definition.key}`;
+    const panelId = `jin-context-panel-${instanceId}-${definition.key}`;
+    const button = contextElement(
+      "button",
+      "jin-context-tab",
+      definition.label
+    );
+    const panel = contextElement(
+      "section",
+      "jin-context-tab-panel"
+    );
+    const panelStack = contextElement(
+      "div",
+      "jin-context-stack jin-context-tab-stack"
+    );
+
+    button.type = "button";
+    button.id = tabId;
+    button.setAttribute("role", "tab");
+    button.setAttribute("aria-controls", panelId);
+    button.setAttribute("aria-selected", "false");
+    button.tabIndex = -1;
+    button.addEventListener("click", () => {
+      activateTab(definition.key);
+    });
+    button.addEventListener("keydown", (event) => {
+      let nextIndex = index;
+
+      if (event.key === "ArrowRight") {
+        nextIndex = (index + 1) % panelDefinitions.length;
+      } else if (event.key === "ArrowLeft") {
+        nextIndex = (
+          index + panelDefinitions.length - 1
+        ) % panelDefinitions.length;
+      } else if (event.key === "Home") {
+        nextIndex = 0;
+      } else if (event.key === "End") {
+        nextIndex = panelDefinitions.length - 1;
+      } else {
         return;
       }
 
       event.preventDefault();
-      toggleAllCards();
+      activateTab(panelDefinitions[nextIndex].key, true);
+    });
+
+    panel.id = panelId;
+    panel.setAttribute("role", "tabpanel");
+    panel.setAttribute("aria-labelledby", tabId);
+    panel.hidden = true;
+    panel.appendChild(panelStack);
+    tabButtons.set(definition.key, button);
+    tabPanels.set(definition.key, panel);
+    tabList.appendChild(button);
+    panels.appendChild(panel);
+  });
+
+  const panelStack = (key) =>
+    tabPanels.get(key).querySelector(".jin-context-tab-stack");
+  const appendEmptyCard = (parent, title) => appendContextCard(
+    parent,
+    {
+      title,
+      content: "",
+      attributes: [],
+      xml: true,
+      metaLabel: "EMPTY",
+      renderBody: (body) => {
+        body.appendChild(contextElement("div", "jin-context-empty", "EMPTY"));
+      },
+    },
+    syncCollapseAllToggle
+  );
+  const normalizedTitle = (block) =>
+    String(block && block.title || "").trim().toUpperCase();
+  const actionBlocks = blocks.filter(
+    (block) => block.runtimeActionMarker === true
+  );
+  const ruleBlocks = blocks.filter((block) => (
+    block.runtimeActionMarker !== true
+    && normalizedTitle(block) === "SYSTEM RULES"
+  ));
+  const toolContainers = blocks.filter((block) => (
+    block.runtimeActionMarker !== true
+    && normalizedTitle(block) === "TOOLS_RESULTS"
+  ));
+  const memoryBlocks = blocks.filter((block) => {
+    const title = normalizedTitle(block);
+    return block.runtimeActionMarker !== true && (
+      /^FRAME_MEMORY(?:_.*)?$/.test(title)
+      || title === "ACTIVE_MEMORY"
+      || title === "DELAYED_MEMORY"
+      || title === "LOADED_DELAYED_MEMORY"
+      || title === "LONG_TERM_MEMORY"
+    );
+  });
+  const claimedBlocks = new Set([
+    ...actionBlocks,
+    ...ruleBlocks,
+    ...toolContainers,
+    ...memoryBlocks,
+  ]);
+  const otherSystemBlocks = blocks.filter(
+    (block) => !claimedBlocks.has(block)
+  );
+  const memoryStack = panelStack("memory");
+  const systemStack = panelStack("system");
+  const toolsStack = panelStack("tools");
+  const actionsStack = panelStack("actions");
+
+  const appendMemoryGroup = (predicate, emptyTitle) => {
+    const matches = memoryBlocks.filter(predicate);
+    if (!matches.length) {
+      appendEmptyCard(memoryStack, emptyTitle);
+      return;
     }
+    matches.forEach((block) => appendContextCard(
+      memoryStack,
+      block,
+      syncCollapseAllToggle
+    ));
+  };
+
+  appendMemoryGroup(
+    (block) => /^FRAME_MEMORY(?:_.*)?$/.test(normalizedTitle(block)),
+    "FRAME_MEMORY_*"
+  );
+  appendMemoryGroup(
+    (block) => normalizedTitle(block) === "ACTIVE_MEMORY",
+    "ACTIVE_MEMORY"
+  );
+  appendMemoryGroup(
+    (block) => normalizedTitle(block) === "DELAYED_MEMORY",
+    "DELAYED_MEMORY"
+  );
+  memoryBlocks
+    .filter((block) => normalizedTitle(block) === "LOADED_DELAYED_MEMORY")
+    .forEach((block) => appendContextCard(
+      memoryStack,
+      block,
+      syncCollapseAllToggle
+    ));
+  appendMemoryGroup(
+    (block) => normalizedTitle(block) === "LONG_TERM_MEMORY",
+    "LONG_TERM_MEMORY"
   );
 
   appendContextCard(
-    stack,
+    systemStack,
     {
       title: "SETTINGS",
       content: "jin_bubble_skin",
@@ -4977,36 +5133,75 @@ function renderContextSnapshotTrace(snapshot) {
     },
     syncCollapseAllToggle
   );
-
-  const actionMarkerBlocks =
-    blocks.filter((block) =>
-      block.runtimeActionMarker === true
+  ["TRUSTED_RUNTIME_VARIABLES", "SKILLS_LIST"].forEach((title) => {
+    const matches = otherSystemBlocks.filter(
+      (block) => normalizedTitle(block) === title
     );
-  let actionMarkersInserted = false;
-
-  blocks.forEach((block) => {
-    if (block.runtimeActionMarker === true) {
-      if (!actionMarkersInserted) {
-        appendContextActionMarkersCard(
-          stack,
-          actionMarkerBlocks,
-          syncCollapseAllToggle
-        );
-        actionMarkersInserted = true;
-      }
+    if (!matches.length) {
+      appendEmptyCard(systemStack, title);
       return;
     }
-
-    appendContextCard(
-      stack,
+    matches.forEach((block) => appendContextCard(
+      systemStack,
       block,
       syncCollapseAllToggle
-    );
+    ));
   });
+  const knownSystemTitles = new Set([
+    "TRUSTED_RUNTIME_VARIABLES",
+    "SKILLS_LIST",
+  ]);
+  otherSystemBlocks
+    .filter((block) => !knownSystemTitles.has(normalizedTitle(block)))
+    .forEach((block) => appendContextCard(
+      systemStack,
+      block,
+      syncCollapseAllToggle
+    ));
+
+  const parsedToolContent = toolContainers.flatMap((container) =>
+    parseContextBlocks(container.content)
+  );
+  const toolResultBlocks = parsedToolContent.filter(
+    (block) => normalizedTitle(block) === "TOOL_RESULT"
+  );
+  const otherToolBlocks = parsedToolContent.filter(
+    (block) => normalizedTitle(block) !== "TOOL_RESULT"
+  );
+
+  tabButtons.get("tools").textContent =
+    `TOOL RESULTS (${toolResultBlocks.length})`;
+  toolResultBlocks.forEach((block) => appendContextToolResultCard(
+    toolsStack,
+    block,
+    syncCollapseAllToggle
+  ));
+  otherToolBlocks.forEach((block) => appendContextCard(
+    toolsStack,
+    {
+      ...block,
+      title: normalizedTitle(block) === "SYSTEM RULES"
+        ? "OTHER TOOL RESULTS CONTENT"
+        : block.title,
+    },
+    syncCollapseAllToggle
+  ));
+  if (!toolResultBlocks.length && !otherToolBlocks.length) {
+    toolsStack.appendChild(contextElement("div", "jin-context-empty", "EMPTY"));
+  }
+
+  actionBlocks.forEach((block) => appendContextCard(
+    actionsStack,
+    block,
+    syncCollapseAllToggle
+  ));
+  if (!actionBlocks.length) {
+    actionsStack.appendChild(contextElement("div", "jin-context-empty", "EMPTY"));
+  }
 
   const userCard =
     appendContextCard(
-      stack,
+      userStack,
       {
         title: "USER PROMPT / CONTEXT PAYLOAD",
         content:
@@ -5027,8 +5222,26 @@ function renderContextSnapshotTrace(snapshot) {
     "jin-context-card-user"
   );
 
-  syncCollapseAllToggle();
-  traceModalContent.appendChild(stack);
+  ruleBlocks.forEach((block) => {
+    const ruleCard = appendContextCard(
+      commonStack,
+      block,
+      syncCollapseAllToggle
+    );
+    setContextCardCollapsed(ruleCard, true);
+  });
+  if (!ruleBlocks.length) {
+    const emptyRuleCard =
+      appendEmptyCard(commonStack, "SYSTEM RULES");
+    setContextCardCollapsed(emptyRuleCard, true);
+  }
+
+  tabs.appendChild(tabList);
+  tabs.appendChild(panels);
+  traceModalContent.appendChild(userStack);
+  traceModalContent.appendChild(tabs);
+  traceModalContent.appendChild(commonStack);
+  activateTab("memory");
 }
 
 

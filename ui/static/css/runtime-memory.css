@@ -1417,10 +1417,14 @@
 /* Structured context-window viewer inside the shared trace modal. */
 .jin-context-trace-modal .delayed-memory-modal-panel {
     width: min(1320px, calc(100vw - 32px));
+    height: 86vh;
     max-width: 1320px;
 }
 
 .jin-context-trace-modal .delayed-memory-modal-content {
+    display: flex;
+    overflow: hidden;
+    flex-direction: column;
     padding: 14px;
     background:
             linear-gradient(180deg, rgba(24, 24, 27, 0.30), rgba(9, 9, 11, 0.04));
@@ -1428,6 +1432,7 @@
 
 .jin-context-overview {
     display: flex;
+    flex: 0 0 auto;
     align-items: center;
     justify-content: space-between;
     gap: 12px;
@@ -1440,6 +1445,22 @@
     font-size: 11px;
     font-weight: 700;
     letter-spacing: 0.12em;
+}
+
+.jin-context-collapse-all {
+    appearance: none;
+    border: 0;
+    background: transparent;
+    padding: 0;
+    font-family: inherit;
+    cursor: pointer;
+    user-select: none;
+}
+
+.jin-context-collapse-all:hover,
+.jin-context-collapse-all:focus-visible {
+    outline: none;
+    color: rgba(244, 244, 245, 1);
 }
 
 .jin-context-overview-badges,
@@ -1481,6 +1502,92 @@
     display: grid;
     min-width: 0;
     gap: 10px;
+}
+
+.jin-context-user-stack {
+    max-height: 30%;
+    flex: 0 0 auto;
+    overflow: auto;
+    margin-bottom: 14px;
+}
+
+.jin-context-tabs {
+    display: flex;
+    min-width: 0;
+    min-height: 0;
+    flex: 1 1 0;
+    flex-direction: column;
+    overflow: hidden;
+}
+
+.jin-context-tab-list {
+    display: flex;
+    min-width: 0;
+    flex: 0 0 auto;
+    overflow-x: auto;
+    align-items: flex-end;
+    gap: 18px;
+    border-bottom: 1px solid rgba(63, 63, 70, 0.78);
+    scrollbar-width: thin;
+}
+
+.jin-context-tab {
+    appearance: none;
+    flex: 0 0 auto;
+    border: 0;
+    border-bottom: 2px solid transparent;
+    background: transparent;
+    padding: 7px 1px 6px;
+    color: rgba(161, 161, 170, 0.68);
+    font-family: inherit;
+    font-size: 10px;
+    font-weight: 700;
+    line-height: 1.35;
+    letter-spacing: 0.09em;
+    white-space: nowrap;
+    cursor: pointer;
+    transition:
+            border-color 0.14s ease,
+            color 0.14s ease;
+}
+
+.jin-context-tab:hover,
+.jin-context-tab:focus-visible {
+    outline: none;
+    color: rgba(212, 212, 216, 0.92);
+}
+
+.jin-context-tab.is-active {
+    border-bottom-color: rgba(186, 230, 253, 0.72);
+    color: rgba(244, 244, 245, 0.96);
+}
+
+.jin-context-tab-panels {
+    min-height: 0;
+    flex: 1 1 0;
+    overflow: auto;
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+    padding: 12px 0 14px;
+}
+
+.jin-context-tab-panels::-webkit-scrollbar {
+    display: none;
+    width: 0;
+    height: 0;
+}
+
+.jin-context-tab-panel[hidden] {
+    display: none;
+}
+
+.jin-context-common-stack {
+    max-height: 30%;
+    flex: 0 0 auto;
+    overflow: auto;
+    border-top: 1px solid rgba(63, 63, 70, 0.58);
+    background: rgba(9, 9, 11, 0.96);
+    padding-top: 14px;
 }
 
 .jin-context-card {

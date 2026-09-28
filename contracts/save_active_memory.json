@@ -14,7 +14,7 @@
     },
     "schema": [
       "<SAVE_ACTIVE_MEMORY>",
-      "{\"conditions\":\"Descriptive conditions text\", \"additional_conditions\":\"additional value\",}",
+      "{\"conditions\":\"Descriptive conditions text\", \"additional_conditions\":\"additional value\"}",
       "OR for update:",
       "{\"id\":\"AM-abcdef\",\"conditions\":\"new conditions value\"}",
       "</SAVE_ACTIVE_MEMORY>"

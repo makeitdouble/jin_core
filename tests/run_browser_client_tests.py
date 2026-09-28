@@ -10,6 +10,7 @@ BROWSER_TESTS = (
     "test_attach_file_by_id_client.js",
     "test_chat_log_search_client.js",
     "test_chat_log_search_modal.js",
+    "test_context_snapshot_tabs.js",
     "test_malformed_actions_client.js",
     "test_runtime_transport_client.js",
     "test_runtime_transport_navigation.js",
