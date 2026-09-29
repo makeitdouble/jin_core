@@ -1,5 +1,7 @@
 import json
+import errno
 import re
+import shutil
 import time
 from datetime import datetime
 from html import unescape
@@ -7,6 +9,7 @@ from pathlib import Path
 from xml.sax.saxutils import escape
 
 from runtime.runtime_context import RECENT_MESSAGES_MAX_PAIRS
+from runtime.frame_memory_utils import get_session_title
 from runtime.anonymous_mode import is_anonymous_session_id
 from utils.chat_log import (
     CHAT_LOG_ROOT,
@@ -100,6 +103,18 @@ def _extract_block(text: str, name: str) -> str:
     return "\n".join(lines).strip()
 
 
+def _extract_latest_frame_memory_block(text: str) -> str:
+    matches = list(re.finditer(
+        r"<FRAME_MEMORY_(?P<number>\d+)(?:\s+[^>]*)?>\s*"
+        r"(?P<body>[\s\S]*?)\s*</FRAME_MEMORY_(?P=number)>",
+        str(text or ""),
+        re.IGNORECASE,
+    ))
+    if not matches:
+        return ""
+    return matches[-1].group("body").strip()
+
+
 def _parse_iso_timestamp(value) -> float:
     text = str(value or "").strip()
     if not text:
@@ -172,6 +187,41 @@ def _load_dialog(path: Path) -> list[dict]:
             offset = end
 
     return entries
+
+
+def _first_meaningful_user_entry(path: Path) -> dict | None:
+    """Find USER ownership without materializing the archive dialogue."""
+    decoder = json.JSONDecoder()
+    try:
+        source_lines = path.open(encoding="utf-8", errors="replace")
+    except OSError:
+        return None
+    with source_lines:
+        for raw_line in source_lines:
+            source = str(raw_line or "").lstrip("\ufeff")
+            offset = 0
+            while offset < len(source):
+                while offset < len(source) and source[offset].isspace():
+                    offset += 1
+                if offset >= len(source):
+                    break
+                try:
+                    entry, end = decoder.raw_decode(source, offset)
+                except (TypeError, ValueError, json.JSONDecodeError):
+                    break
+                if (
+                    isinstance(entry, dict)
+                    and str(entry.get("role", "") or "").strip().lower() == "user"
+                    and (
+                        str(entry.get("text", "") or "").strip()
+                        or bool(entry.get("attachments", []) or [])
+                    )
+                ):
+                    return entry
+                if end <= offset:
+                    break
+                offset = end
+    return None
 
 
 def _dialog_turn_key(entry: dict, index: int) -> object:
@@ -1941,19 +1991,253 @@ def _read_latest_frame_snapshot(session_directory: Path, prefix: str) -> dict | 
         if match:
             candidates.append((int(match.group(1)), path))
     for number, path in sorted(candidates, reverse=True):
-        text = path.read_text(encoding="utf-8")
-        header, separator, memory = text.partition("\n--- FRAME ---\n")
-        if not separator:
+        try:
+            text = path.read_text(encoding="utf-8")
+            header, separator, memory = text.partition("\n--- FRAME ---\n")
+            if not separator:
+                continue
+            for line in header.splitlines():
+                if line.startswith("snapshot_json: "):
+                    snapshot = json.loads(line[len("snapshot_json: "):])
+                    if isinstance(snapshot, dict):
+                        return snapshot
+            # Legacy inspectable FRAME files still outrank the earlier prompt.
+            return {"raw_memory": memory.strip(), "index": number,
+                    "runtime_memory_updates": number}
+        except (OSError, ValueError, json.JSONDecodeError):
+            # An interrupted FRAME write must not conceal earlier valid titles.
             continue
-        for line in header.splitlines():
-            if line.startswith("snapshot_json: "):
-                snapshot = json.loads(line[len("snapshot_json: "):])
-                if isinstance(snapshot, dict):
-                    return snapshot
-        # Legacy inspectable FRAME files still outrank the earlier prompt.
-        return {"raw_memory": memory.strip(), "index": number,
-                "runtime_memory_updates": number}
     return None
+
+
+def list_archived_sessions(
+    *,
+    root: Path | str | None = None,
+) -> list[dict]:
+    """Return compact restore choices without loading archived message bodies."""
+    root_path = Path(root if root is not None else CHAT_LOG_ROOT)
+    if not root_path.is_dir():
+        return []
+
+    sessions = []
+    for date_directory in root_path.iterdir():
+        if (
+            not date_directory.is_dir()
+            or not re.fullmatch(r"\d{4}-\d{2}-\d{2}", date_directory.name)
+        ):
+            continue
+
+        for session_directory in date_directory.iterdir():
+            session_id = _clean_session_id(session_directory.name)
+            if (
+                not session_directory.is_dir()
+                or not session_id
+                or is_anonymous_session_id(session_id)
+            ):
+                continue
+
+            dialog_paths = sorted(
+                path for path in session_directory.glob("*.jsonl")
+                if path.is_file()
+            )
+            if not dialog_paths:
+                continue
+            dialog_path = dialog_paths[-1]
+
+            summary = read_archived_session_summary(dialog_path)
+            if summary is not None:
+                sessions.append(summary)
+
+    return sorted(
+        sessions,
+        key=lambda item: (
+            item["date"],
+            _parse_iso_timestamp(item["created_at"]),
+            item["session_id"],
+        ),
+        reverse=True,
+    )
+
+
+def read_archived_session_summary(dialog_path: Path) -> dict | None:
+    """Read one persisted session for both the index and live updates."""
+    session_directory = dialog_path.parent
+    session_id = session_directory.name
+    if is_anonymous_session_id(session_id):
+        return None
+    # Technical/greeting-only sessions are not restore choices. Stop
+    # at the first real USER row; title extraction never reads chat.
+    first_user_entry = _first_meaningful_user_entry(dialog_path)
+    if first_user_entry is None:
+        return None
+
+    try:
+        frame_snapshot = _read_latest_frame_snapshot(
+            session_directory,
+            dialog_path.stem,
+        )
+    except (OSError, ValueError, json.JSONDecodeError):
+        frame_snapshot = None
+
+    # Reading the often-large prompt/context file for every LOGS row is wasted
+    # work once an authoritative FRAME has actually been committed to disk.
+    if isinstance(frame_snapshot, dict):
+        frame_memory = str(frame_snapshot.get("raw_memory", "") or "")
+    else:
+        context_path = dialog_path.with_suffix(".txt")
+        try:
+            context_text = (
+                context_path.read_text(encoding="utf-8", errors="replace")
+                if context_path.is_file() else ""
+            )
+        except OSError:
+            context_text = ""
+        frame_memory = (
+            _extract_block(context_text, "PREVIOUS_FRAME_MEMORY_SNAPSHOT")
+            or _extract_block(context_text, "PREVIOUS_RUNTIME_STATE")
+            or _extract_latest_frame_memory_block(context_text)
+        )
+    title = get_session_title(frame_memory) or session_id
+    created_at = str(first_user_entry.get("ts", "") or "").strip()
+    if not created_at:
+        try:
+            created_at = datetime.fromtimestamp(
+                dialog_path.stat().st_mtime
+            ).astimezone().isoformat()
+        except OSError:
+            created_at = ""
+
+    return {
+        "session_id": session_id,
+        "date": session_directory.parent.name,
+        "created_at": created_at,
+        "title": title,
+    }
+
+
+def get_archived_session_summary(
+    session_id: str,
+    *,
+    root: Path | str | None = None,
+) -> dict | None:
+    """Resolve only one disk-owned LOGS row, without reloading the full index."""
+    if is_anonymous_session_id(session_id):
+        return None
+    root_path = Path(root if root is not None else CHAT_LOG_ROOT)
+    session_directory = _find_session_directory(session_id, root_path)
+    if session_directory is None:
+        return None
+    dialog_paths = sorted(
+        path for path in session_directory.glob("*.jsonl") if path.is_file()
+    )
+    return read_archived_session_summary(dialog_paths[-1]) if dialog_paths else None
+
+
+def delete_archived_session(
+    session_id: str,
+    *,
+    root: Path | str | None = None,
+) -> bool:
+    """Delete one saved LOGS session, then remove its date folder if empty.
+
+    The existing chat logger notices when its materialized directory vanishes
+    and will not resurrect a deleted archive from a still-open runtime tab.
+    """
+    session_id = str(session_id or "").strip()
+    if (
+        not session_id
+        or session_id != _clean_session_id(session_id)
+        or is_anonymous_session_id(session_id)
+    ):
+        return False
+
+    root_path = Path(root if root is not None else CHAT_LOG_ROOT)
+    directory = _find_session_directory(session_id, root_path)
+    if directory is None:
+        return False
+    date_directory = directory.parent
+    # Never follow a symlink outside the logs tree, even if the index happens
+    # to expose such a directory. Only persisted USER-owned LOGS rows qualify.
+    if (
+        date_directory.is_symlink()
+        or directory.is_symlink()
+        or date_directory.resolve().parent != root_path.resolve()
+        or directory.resolve().parent != date_directory.resolve()
+    ):
+        return False
+    dialog_paths = sorted(path for path in directory.glob("*.jsonl") if path.is_file())
+    if not dialog_paths or read_archived_session_summary(dialog_paths[-1]) is None:
+        return False
+
+    shutil.rmtree(directory)
+    try:
+        # rmdir (not rmtree): keep the date if another session or any other
+        # file still exists. The logs root itself is never removed.
+        date_directory.rmdir()
+    except OSError as error:
+        if error.errno not in (errno.ENOTEMPTY, errno.EEXIST, errno.ENOENT):
+            raise
+    return True
+
+
+def build_archived_session_preview(
+    session_id: str,
+    *,
+    root: Path | str | None = None,
+) -> dict | None:
+    """Build a preview of the latest USER turns, including unanswered ones.
+
+    A logged JIN row can legitimately have no visible text (action-only turns,
+    interrupted responses, stripped markers). Unlike bootstrap's complete-pair
+    projection, the LOGS preview must not discard the USER message in that case.
+    """
+    if is_anonymous_session_id(session_id):
+        return None
+    root_path = Path(root if root is not None else CHAT_LOG_ROOT)
+    session_directory = _find_session_directory(session_id, root_path)
+    if session_directory is None:
+        return None
+    dialog_paths = sorted(
+        path for path in session_directory.glob("*.jsonl") if path.is_file()
+    )
+    if not dialog_paths:
+        return None
+    turns = {}
+    ordered_keys = []
+    pending_user_key = None
+    for index, entry in enumerate(_load_dialog(dialog_paths[-1])):
+        role = str(entry.get("role", "") or "").strip().lower()
+        if role not in {"user", "jin", "assistant", "brain", "service"}:
+            continue
+
+        text = str(entry.get("text", "") or "").strip()
+        key = _dialog_turn_key(entry, index)
+        if role == "user":
+            if not text:
+                attachments = summarize_attachments(entry.get("attachments", []))
+                if attachments:
+                    text = "📎 " + ", ".join(item["name"] for item in attachments)
+            if not text:
+                continue
+            if key not in turns:
+                turns[key] = {"user": "", "jin": ""}
+                ordered_keys.append(key)
+            turns[key]["user"] = text
+            pending_user_key = key
+        elif text:
+            # Legacy rows without turn/turn_id belong to the preceding USER.
+            if key[0] == "row":
+                key = pending_user_key
+            if key in turns:
+                turns[key]["jin"] = text
+
+    pairs = [turns[key] for key in ordered_keys if turns[key]["user"]]
+    if not pairs:
+        return None
+    return {
+        "session_id": _clean_session_id(session_id),
+        "pairs": pairs[-RECENT_MESSAGES_MAX_PAIRS:],
+    }
 
 
 def _restore_disk_checkpoint(entries: list[dict]) -> dict:

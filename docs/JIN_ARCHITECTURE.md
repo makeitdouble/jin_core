@@ -335,6 +335,8 @@ The old numbered four-layer architecture is not the current implementation.
 
 FRAME is the compact live runtime state exposed in the memory panel and as `<FRAME_MEMORY_N>` in Brain context. It is integrated through the logical Service route after foreground turns, has snapshots/diffs, and has a distinct interrupted-turn update path. With no dedicated Service endpoint, that background route deliberately reuses the Brain client. The FRAME integration prompt detects the current user-message language for values while keeping structural keys as English `snake_case`; localization is a value-format rule, not a schema rename.
 
+FRAME includes the reserved `session_title` line. The existing FRAME summarizer emits it as part of every replacement snapshot, including the normal hidden-bootstrap lifecycle; Python restores the previous value only when a model response omits it. The field is excluded from L-T candidates and cannot be removed through FRAME row deletion.
+
 FRAME is not a durable long-term tier. Its implementation modules, state fields, events, pending journal, UI identifiers, and tests use FRAME naming consistently.
 
 ### 7.2 L2 and L3
@@ -595,6 +597,10 @@ At prompt-build time the restore instruction prepends the fresh runtime session 
 The legacy restore-reasoning dump is retired. Saved reasoning remains available to archive/UI continuity and restore-derived metadata such as the latest reasoning/fact references, but it is not serialized into a separate bootstrap dump. Restored visible dialogue uses the normal five-pair limit and, like ordinary recent-message context, does not impose a per-message character cap.
 
 The RESTORE endpoint owns archived dialogue, reasoning, FRAME and presentation state for explicit URL checkout. Browser caches never override that bundle. Historical wrappers remain reader compatibility, and the inherited dialogue/reasoning is projected before the mandatory automatic-restore notification.
+
+`GET /api/sessions` is the compact read-only archive index used by the memory panel LOGS tab. It returns only session identity/date/creation time/title, excludes anonymous and non-USER technical sessions, and resolves titles from the same committed FRAME precedence used by restore. Legacy untitled rows display their session ID.
+
+LOGS materializes archive rows in the shared scroll-driven lazy batches and keeps the initial list/count for the page lifetime. A row hover uses the common memory hover-card shell and fetches at most the five newest complete USER/JIN pairs from `GET /api/sessions/{session_id}/preview`; leaving the row aborts the request and removes the preview DOM.
 
 `utils/session_restore.py` still understands historical `SAVE_SESSION` labels in archived logs. That is restore compatibility, not proof of a current `SAVE_SESSION` runtime action.
 

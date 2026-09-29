@@ -4,7 +4,7 @@ from typing import TYPE_CHECKING
 from xml.sax.saxutils import escape
 
 from runtime.frame_memory_rules import (
-    DEFAULT_RUNTIME_MEMORY,
+    INITIAL_RUNTIME_MEMORY,
 )
 
 
@@ -275,9 +275,9 @@ class RuntimeContext:
         default_factory=dict
     )
 
-    runtime_memory: str = DEFAULT_RUNTIME_MEMORY
+    runtime_memory: str = INITIAL_RUNTIME_MEMORY
 
-    runtime_memory_stable: str = DEFAULT_RUNTIME_MEMORY
+    runtime_memory_stable: str = INITIAL_RUNTIME_MEMORY
 
     runtime_memory_updates: int = 0
 

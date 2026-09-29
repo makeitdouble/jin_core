@@ -147,6 +147,7 @@
   const LONG_TERM_MEMORY_LAZY_BATCH_SIZE = 20;
   const LONG_TERM_MEMORY_VALUE_DISPLAY_MAX_CHARS = 78;
   const FILES_MEMORY_LAZY_BATCH_SIZE = 50;
+  const LOGS_MEMORY_LAZY_BATCH_SIZE = 20;
   const RUNTIME_MEMORY_LAZY_BOTTOM_THRESHOLD_PX = 160;
   const RUNTIME_MEMORY_DISPLAY_MODES = [
     "runtime",
@@ -154,7 +155,20 @@
     "delayed",
     "long_term",
     "files",
+    "logs",
   ];
+
+  let archivedSessions = [];
+  let archivedSessionRows = [];
+  let archivedSessionCount = 0;
+  let archivedSessionsState = "idle";
+  let archivedSessionsError = "";
+  // Replay disk-committed updates over a possibly older initial HTTP response.
+  const archivedSessionUpdates = new Map();
+  // Prevent a concurrent initial HTTP index or late WS title update from
+  // bringing a successfully deleted session back into this tab's LOGS view.
+  const archivedSessionDeletedIds = new Set();
+  let archivedSessionCurrentSync = null;
 
   let runtimeMemoryLazyMode = "";
   let runtimeMemoryLazyTotalCount = 0;
@@ -219,7 +233,11 @@
       return FILES_MEMORY_LAZY_BATCH_SIZE;
     }
 
-    // Runtime snapshots are not one of the five alternate memory panels.
+    if (mode === "logs") {
+      return LOGS_MEMORY_LAZY_BATCH_SIZE;
+    }
+
+    // Runtime snapshots are not one of the alternate memory panels.
     // Keep their materialization at the common default.
     return 50;
   }
@@ -893,6 +911,7 @@
     hideFrameMemoryHoverCard();
     hideDelayedMemoryHoverCard();
     hidePersistentFileHoverCard();
+    hideArchivedSessionHoverCard();
 
     if (runtimeMemoryText) {
       runtimeMemoryText.replaceChildren();
@@ -2586,6 +2605,11 @@
   let persistentFileHoverCard = null;
   let persistentFileHoverCardAnchor = null;
   let persistentFileHoverRequestSerial = 0;
+  const archivedSessionHoverRows = new WeakMap();
+  let archivedSessionHoverCard = null;
+  let archivedSessionHoverCardAnchor = null;
+  let archivedSessionHoverAbortController = null;
+  let archivedSessionHoverRequestSerial = 0;
 
   function createMemoryHoverCardScrollScheduler({
       selector,
@@ -2688,6 +2712,15 @@
         showCard: showDelayedMemoryHoverCard,
         getCard: () => delayedMemoryHoverCard,
         getAnchor: () => delayedMemoryHoverCardAnchor,
+      });
+  const scheduleArchivedSessionHoverCardScrollSync =
+      createMemoryHoverCardScrollScheduler({
+        selector: ".runtime-memory-log-row:hover",
+        rows: archivedSessionHoverRows,
+        hideCard: hideArchivedSessionHoverCard,
+        showCard: showArchivedSessionHoverCard,
+        getCard: () => archivedSessionHoverCard,
+        getAnchor: () => archivedSessionHoverCardAnchor,
       });
 
   const MEMORY_TIMESTAMP_METADATA_KEYS = new Set([
@@ -3140,6 +3173,122 @@
     });
   }
 
+  function truncateArchivedSessionPreviewText(value, limit = 50) {
+    const normalized = String(value || "").replace(/\s+/gu, " ").trim();
+    const characters = Array.from(normalized);
+    return characters.length <= limit
+      ? normalized
+      : `${characters.slice(0, Math.max(0, limit - 1)).join("")}…`;
+  }
+
+  function hideArchivedSessionHoverCard(anchor = null) {
+    if (
+        anchor
+        && archivedSessionHoverCardAnchor
+        && anchor !== archivedSessionHoverCardAnchor
+    ) {
+      return;
+    }
+    archivedSessionHoverRequestSerial += 1;
+    if (archivedSessionHoverAbortController) {
+      archivedSessionHoverAbortController.abort();
+    }
+    archivedSessionHoverAbortController = null;
+    if (archivedSessionHoverCard && archivedSessionHoverCard.isConnected) {
+      archivedSessionHoverCard.remove();
+    }
+    archivedSessionHoverCard = null;
+    archivedSessionHoverCardAnchor = null;
+  }
+
+  function appendArchivedSessionPreviewPair(container, pair) {
+    [["юзер", pair && pair.user], ["джин", pair && pair.jin]].forEach(([label, value]) => {
+      if (!String(value || "").trim()) return;
+      const row = document.createElement("div");
+      const key = document.createElement("span");
+      const text = document.createElement("span");
+      row.className = "runtime-memory-log-hover-message";
+      row.classList.add(
+        label === "джин"
+          ? "runtime-memory-log-hover-message-jin"
+          : "runtime-memory-log-hover-message-user"
+      );
+      key.className = "runtime-memory-log-hover-role";
+      text.className = "runtime-memory-log-hover-text";
+      key.textContent = `${label}:`;
+      text.textContent = truncateArchivedSessionPreviewText(value);
+      row.append(key, text);
+      container.appendChild(row);
+    });
+  }
+
+  function showArchivedSessionHoverCard(anchor, session) {
+    if (!anchor || !session || memoryValueEditor) return;
+    hideArchivedSessionHoverCard();
+    const sessionId = String(session.session_id || "").trim();
+    if (!sessionId) return;
+    const requestSerial = ++archivedSessionHoverRequestSerial;
+    const controller = new AbortController();
+    const displayTitle = String(session.title || sessionId);
+    const card = buildMemoryDetailsHoverCard(
+      { key: "", value: "" },
+      {
+        fallbackTitle: displayTitle,
+        includeTags: false,
+      }
+    );
+    const messages = document.createElement("div");
+    messages.className = "runtime-memory-log-hover-messages";
+    messages.textContent = "loading…";
+    card.classList.add("runtime-memory-log-hover-card");
+    card.appendChild(messages);
+    archivedSessionHoverCard = card;
+    archivedSessionHoverCardAnchor = anchor;
+    archivedSessionHoverAbortController = controller;
+    document.body.appendChild(card);
+    positionLongTermMemoryHoverCard(card, anchor);
+
+    void fetch(`/api/sessions/${encodeURIComponent(sessionId)}/preview`, {
+      headers: { "Accept": "application/json" },
+      cache: "no-store",
+      signal: controller.signal,
+    }).then((response) => {
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      return response.json();
+    }).then((payload) => {
+      if (
+          requestSerial !== archivedSessionHoverRequestSerial
+          || archivedSessionHoverCard !== card
+          || archivedSessionHoverCardAnchor !== anchor
+          || !anchor.matches(":hover")
+      ) return;
+      messages.replaceChildren();
+      const pairs = Array.isArray(payload.pairs) ? payload.pairs.slice(-5) : [];
+      if (!pairs.length) {
+        messages.textContent = "no saved messages";
+      } else {
+        pairs.forEach(pair => appendArchivedSessionPreviewPair(messages, pair));
+      }
+      positionLongTermMemoryHoverCard(card, anchor);
+    }).catch((error) => {
+      if (error && error.name === "AbortError") return;
+      if (
+          requestSerial === archivedSessionHoverRequestSerial
+          && archivedSessionHoverCard === card
+      ) {
+        messages.textContent = "preview unavailable";
+      }
+    });
+  }
+
+  function bindArchivedSessionHoverCard(row, session) {
+    archivedSessionHoverRows.set(row, session);
+    row.removeAttribute("title");
+    row.addEventListener("mouseenter", () => showArchivedSessionHoverCard(row, session));
+    row.addEventListener("mouseleave", () => hideArchivedSessionHoverCard(row));
+    row.addEventListener("pointerdown", () => hideArchivedSessionHoverCard(row));
+  }
+
   function buildMemoryDetailsHoverCard(
       line,
       options = {}
@@ -3388,6 +3537,7 @@
     hideFrameMemoryHoverCard();
     hideDelayedMemoryHoverCard();
     hidePersistentFileHoverCard();
+    hideArchivedSessionHoverCard();
     const draftKey = JSON.stringify([kind, frame?.runtime_memory_id || "", target]);
     let draft = memoryValueDrafts.get(draftKey);
     if (!draft) {
@@ -3858,6 +4008,7 @@
     hideFrameMemoryHoverCard();
     hideDelayedMemoryHoverCard();
     hidePersistentFileHoverCard();
+    hideArchivedSessionHoverCard();
     syncRuntimeMemoryNavigationGeometry();
   });
 
@@ -3868,6 +4019,7 @@
       scheduleFrameMemoryHoverCardScrollSync();
       scheduleDelayedMemoryHoverCardScrollSync();
       schedulePersistentFileHoverCardScrollSync();
+      scheduleArchivedSessionHoverCardScrollSync();
     }, { passive: true });
   }
 
@@ -4381,6 +4533,18 @@
     if (displayMode === "files") {
       renderPersistentFiles();
       applyMemoryReferenceHighlights(renderHighlightOptions);
+      applyRuntimeMemoryLazyVisibility();
+      return;
+    }
+
+    if (displayMode === "logs") {
+      renderArchivedSessions();
+      if (archivedSessionsState === "idle" || archivedSessionsState === "error") {
+        void loadArchivedSessions();
+      } else if (archivedSessionsState === "ready") {
+        // A small current-session check also repairs a missed WS notification.
+        void reconcileCurrentArchivedSession();
+      }
       applyRuntimeMemoryLazyVisibility();
       return;
     }
@@ -5593,6 +5757,7 @@
         !row
         || !line
         || memoryModel.isUserIdleRuntimeMemoryLine(line)
+        || String(line.key || "").trim().toLowerCase() === "session_title"
         || memoryModel.isActiveMemoryRuntimeMemoryLine(line)
     ) {
       return;
@@ -6065,6 +6230,197 @@
     sortHighlightedMemoryRows({
       animateSort: false,
     });
+  }
+
+  async function loadArchivedSessions() {
+    archivedSessionsState = "loading";
+    archivedSessionsError = "";
+    renderArchivedSessions();
+    try {
+      const response = await fetch("/api/sessions", {
+        headers: { "Accept": "application/json" },
+        cache: "no-store",
+      });
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      const payload = await response.json();
+      archivedSessions = (Array.isArray(payload.sessions) ? payload.sessions : [])
+        .filter(session => !archivedSessionDeletedIds.has(session.session_id));
+      for (const session of archivedSessionUpdates.values()) {
+        if (archivedSessionDeletedIds.has(session.session_id)) continue;
+        const existing = archivedSessions.find(item => item.session_id === session.session_id);
+        if (existing) Object.assign(existing, session);
+        else archivedSessions.push({ ...session });
+      }
+      archivedSessionCount = archivedSessions.length;
+      rebuildArchivedSessionRows();
+      archivedSessionsState = "ready";
+      void reconcileCurrentArchivedSession();
+    } catch (error) {
+      archivedSessions = [];
+      archivedSessionsState = "error";
+      archivedSessionsError = String(error && error.message || error || "request failed");
+    }
+    if (getRuntimeMemoryDisplayMode() === "logs") renderArchivedSessions();
+  }
+
+  function reconcileCurrentArchivedSession() {
+    // Only the active tab's own disk summary is queried. The 287+ historical
+    // rows are fetched once; switching tabs never reloads the full index.
+    if (archivedSessionsState !== "ready") return;
+    const sessionId = String(window.jinRuntimeSessionId || "").trim();
+    if (!sessionId || sessionId.endsWith("_anon")) return;
+    if (archivedSessionCurrentSync?.sessionId === sessionId) {
+      return archivedSessionCurrentSync.promise;
+    }
+    // A WS title emitted during an HTTP request is newer than its response.
+    const beforeUpdate = archivedSessionUpdates.get(sessionId);
+    const request = fetch(`/api/sessions/${encodeURIComponent(sessionId)}/summary`, {
+      headers: { "Accept": "application/json" },
+      cache: "no-store",
+    }).then((response) => {
+      if (response.status === 404) return null; // No saved USER turn yet.
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      return response.json();
+    }).then((summary) => {
+      if (!summary || summary.session_id !== sessionId
+          || archivedSessionUpdates.get(sessionId) !== beforeUpdate) return;
+      applyArchivedSessionUpdate(summary);
+    }).catch(() => {
+      // This is a best-effort reconciliation; WS remains the primary path.
+    }).finally(() => {
+      if (archivedSessionCurrentSync?.promise === request) {
+        archivedSessionCurrentSync = null;
+      }
+    });
+    archivedSessionCurrentSync = { sessionId, promise: request };
+    return request;
+  }
+
+  function rebuildArchivedSessionRows() {
+    archivedSessions.sort((a, b) =>
+      String(b.date).localeCompare(String(a.date))
+      || (Date.parse(b.created_at) || 0) - (Date.parse(a.created_at) || 0)
+      || String(b.session_id).localeCompare(String(a.session_id))
+    );
+    archivedSessionRows = [];
+    let currentDate = "";
+    for (const session of archivedSessions) {
+      if (session.date !== currentDate) {
+        currentDate = session.date;
+        archivedSessionRows.push({ kind: "date", date: currentDate });
+      }
+      archivedSessionRows.push({ kind: "session", session });
+    }
+  }
+
+  function applyArchivedSessionUpdate(session) {
+    if (!session || !session.session_id || !session.date) return;
+    if (archivedSessionDeletedIds.has(session.session_id)) return;
+    archivedSessionUpdates.set(session.session_id, { ...session });
+    if (archivedSessionsState !== "ready") return;
+    const existing = archivedSessions.find(item => item.session_id === session.session_id);
+    if (existing) {
+      Object.assign(existing, session);
+      // Update only this visible row; keep scroll, lazy depth and hover intact.
+      for (const row of runtimeMemoryText.querySelectorAll(".runtime-memory-log-row")) {
+        if (row.dataset.sessionId !== session.session_id) continue;
+        row.textContent = String(session.title || session.session_id);
+        row.setAttribute("aria-label", `${row.textContent}; session ${session.session_id}`);
+        if (archivedSessionHoverCardAnchor === row && archivedSessionHoverCard) {
+          archivedSessionHoverCard.querySelector(".runtime-memory-lt-hover-title").textContent = row.textContent;
+        }
+      }
+      return;
+    }
+    archivedSessions.push({ ...session });
+    archivedSessionCount += 1;
+    const visibleRows = runtimeMemoryLazyRenderedCount;
+    rebuildArchivedSessionRows();
+    if (getRuntimeMemoryDisplayMode() === "logs") {
+      const scrollTop = memoryScroll ? memoryScroll.scrollTop : 0;
+      renderArchivedSessions({ initialBatchSize: Math.max(LOGS_MEMORY_LAZY_BATCH_SIZE, visibleRows + 2) });
+      if (memoryScroll) memoryScroll.scrollTop = scrollTop;
+    }
+  }
+
+  async function deleteArchivedSession(sessionId) {
+    try {
+      const response = await fetch(`/api/sessions/${encodeURIComponent(sessionId)}`, {
+        method: "DELETE",
+        headers: { "Accept": "application/json" },
+        cache: "no-store",
+      });
+      // Another tab may have removed this archive already.
+      if (!response.ok && response.status !== 404) {
+        throw new Error(`HTTP ${response.status}`);
+      }
+      archivedSessionDeletedIds.add(sessionId);
+      archivedSessionUpdates.delete(sessionId);
+      hideArchivedSessionHoverCard();
+      archivedSessions = archivedSessions.filter(session => session.session_id !== sessionId);
+      archivedSessionCount = archivedSessions.length;
+      const visibleRows = runtimeMemoryLazyRenderedCount;
+      rebuildArchivedSessionRows(); // Also drops an empty date separator.
+      if (getRuntimeMemoryDisplayMode() === "logs") {
+        const scrollTop = memoryScroll ? memoryScroll.scrollTop : 0;
+        renderArchivedSessions({
+          initialBatchSize: Math.max(LOGS_MEMORY_LAZY_BATCH_SIZE, visibleRows),
+        });
+        if (memoryScroll) memoryScroll.scrollTop = scrollTop;
+      }
+      return true;
+    } catch (error) {
+      console.warn("Could not delete archived session:", error);
+      return false; // Shared hold helper restores the row's opacity.
+    }
+  }
+
+  function renderArchivedSessions(options = {}) {
+    if (!runtimeMemoryText) return;
+    runtimeMemoryText.innerHTML = "";
+    runtimeMemoryText.classList.remove("runtime-memory-text-pinned");
+    runtimeMemoryText.removeAttribute("title");
+    if (runtimeMemoryPosition) {
+      runtimeMemoryPosition.textContent =
+          archivedSessionsState === "ready" ? String(archivedSessionCount) : "0";
+    }
+
+    if (archivedSessionsState !== "ready" || !archivedSessions.length) {
+      const state = document.createElement("div");
+      state.className = "runtime-memory-line runtime-memory-logs-state";
+      state.textContent = archivedSessionsState === "loading"
+        ? "loading sessions…"
+        : archivedSessionsState === "error"
+          ? `sessions unavailable: ${archivedSessionsError}`
+          : "no sessions";
+      runtimeMemoryText.appendChild(state);
+      return;
+    }
+
+    beginRuntimeMemoryLazyCollection(archivedSessionRows, (item) => {
+      if (item.kind === "date") {
+        const separator = document.createElement("div");
+        separator.className = "runtime-memory-logs-date";
+        separator.textContent = item.date;
+        runtimeMemoryText.appendChild(separator);
+        return;
+      }
+      const session = item.session;
+      const sessionId = String(session.session_id || "").trim();
+      const row = document.createElement("button");
+      row.type = "button";
+      row.className = "runtime-memory-line runtime-memory-log-row";
+      row.dataset.sessionId = sessionId;
+      row.textContent = String(session.title || sessionId);
+      row.setAttribute("aria-label", `${row.textContent}; session ${sessionId}`);
+      bindArchivedSessionHoverCard(row, session);
+      configureOpenableMemoryRowHoldDelete(
+        row,
+        () => window.open(`/?restore_session=${encodeURIComponent(sessionId)}`, "_blank", "noopener"),
+        () => deleteArchivedSession(sessionId)
+      );
+      runtimeMemoryText.appendChild(row);
+    }, options);
   }
 
   function renderDelayedMemoryReports() {
@@ -10272,6 +10628,8 @@
 
   window.JinRuntime.memoryView = {
     init,
+    applyArchivedSessionUpdate,
+    reconcileCurrentArchivedSession,
     configureDeleteHold: configureRuntimeMemoryDeleteHold,
     handleMemoryValueEditResult,
     openDelayedMemoryReportModal,

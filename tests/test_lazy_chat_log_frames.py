@@ -16,6 +16,43 @@ NOW = datetime(2026, 9, 3, 11, 16, 29, tzinfo=timezone.utc)
 
 
 class LazyChatLogTests(unittest.TestCase):
+    def test_logs_updates_follow_user_ownership_and_disk_frame_commit(self):
+        from utils.session_restore import list_archived_sessions, get_archived_session_summary
+        events = []
+        context = self.context()
+        context.runtime_transport = SimpleNamespace(publish=events.append)
+        context.runtime_session_restore_priming = True
+        self.stage_bootstrap(context)
+        chat_log.append_chat_log_entry(context, role="jin", text="bootstrap greeting")
+        chat_log.save_frame_snapshot(context, {"index": 1, "raw_memory": "session_title: Bootstrap"})
+        self.assertEqual(events, [])
+        self.assertIsNone(get_archived_session_summary("test", root=self.root))
+        context.runtime_session_restore_priming = False
+        path = chat_log.append_chat_log_entry(context, role="user", text="continue")
+        self.assertEqual(events[-1]["session"]["session_id"], "test")
+        self.assertEqual(get_archived_session_summary("test", root=self.root), events[-1]["session"])
+        self.assertEqual(events[-1]["session"]["date"], "2026-09-03")
+        self.assertEqual(events[-1]["session"]["title"], "Bootstrap")
+        chat_log.save_frame_snapshot(context, {"index": 2, "raw_memory": "session_title: Continued topic"})
+        self.assertEqual(events[-1]["session"]["title"], "Continued topic")
+        self.assertEqual(events[-1]["session"], list_archived_sessions(root=self.root)[0])
+        self.assertEqual(get_archived_session_summary("test", root=self.root), events[-1]["session"])
+        self.assertEqual(len(list_archived_sessions(root=self.root)), 1)  # FRAME never increments count.
+        count = len(events)
+        with patch.object(chat_log, "_write_context_snapshot", side_effect=OSError("disk full")):
+            with self.assertRaises(OSError):
+                chat_log.save_frame_snapshot(context, {"index": 3, "raw_memory": "session_title: Unsaved"})
+        self.assertEqual(len(events), count)
+        self.assertTrue(path.is_file())
+
+    def test_anonymous_logs_do_not_publish_archive_rows(self):
+        events = []
+        context = self.context(anonymous=True)
+        context.runtime_transport = SimpleNamespace(publish=events.append)
+        chat_log.append_chat_log_entry(context, role="user", text="private")
+        chat_log.save_frame_snapshot(context, {"index": 1, "raw_memory": "session_title: Private"})
+        self.assertEqual(events, [])
+
     def setUp(self):
         self.stack = ExitStack()
         self.addCleanup(self.stack.close)

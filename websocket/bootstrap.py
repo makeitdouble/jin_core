@@ -1167,7 +1167,7 @@ def remove_runtime_memory_slot_by_key(
         str(key or "")
     )
 
-    if not normalized_key:
+    if not normalized_key or normalized_key.casefold() == "session_title":
         return str(memory or "").strip(), False
 
     kept_lines = []
@@ -1218,7 +1218,7 @@ async def apply_runtime_memory_slot_delete(
 
     if (
             not normalized_key
-            or normalized_key == "user_idle"
+            or normalized_key.casefold() in {"user_idle", "session_title"}
             or is_active_memory_key(normalized_key)
     ):
         return False

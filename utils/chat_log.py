@@ -592,7 +592,25 @@ def save_frame_snapshot(
         "--- FRAME ---",
         memory,
     ])
-    return _save_or_defer_chat_snapshot(context, path, text)
+    saved_path = _save_or_defer_chat_snapshot(context, path, text)
+    if saved_path is not None:
+        publish_archived_session_update(context, log_path)
+    return saved_path
+
+
+def publish_archived_session_update(context, dialog_path: Path) -> None:
+    """Publish only a disk-backed, USER-owned LOGS row after a successful write."""
+    transport = getattr(context, "runtime_transport", None)
+    if transport is None or getattr(context, "runtime_anonymous_mode", False):
+        return
+    from utils.session_restore import read_archived_session_summary
+    try:
+        summary = read_archived_session_summary(dialog_path)
+    except (OSError, ValueError):
+        # A projection failure must not turn a successful chat write into failure.
+        return
+    if summary is not None:
+        transport.publish({"type": "archived_session_update", "session": summary})
 
 
 def save_chat_context_snapshot(
@@ -1615,4 +1633,5 @@ def append_chat_log_entry(
         return None
     _append_chat_log_json_entry(path, entry)
     _flush_chat_snapshots(context, path)
+    publish_archived_session_update(context, path)
     return path

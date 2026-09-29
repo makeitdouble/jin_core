@@ -1250,6 +1250,7 @@ function deleteRuntimeMemoryLineAndRender(
       || !line
       || !line.key
       || isUserIdleRuntimeMemoryLine(line)
+      || String(line.key).trim().toLowerCase() === "session_title"
       || isActiveMemoryRuntimeMemoryLine(line)
   ) {
     return false;
@@ -2507,6 +2508,11 @@ function handleRuntimeMemoryMessage(data) {
     return;
   }
 
+  if (data.type === "archived_session_update") {
+    memoryView.applyArchivedSessionUpdate(data.session);
+    return;
+  }
+
   if (data.type === "runtime_frame_diff_update") {
     silenceActiveMemoryRuntimeActionsAfterFrame(
       data
@@ -2522,6 +2528,10 @@ function handleRuntimeMemoryMessage(data) {
   if (data.type !== "runtime_memory_update") {
     return;
   }
+
+  // The disk FRAME commit precedes this event. Recover the current LOGS row
+  // even if its dedicated archived_session_update event was missed in transit.
+  void memoryView.reconcileCurrentArchivedSession();
 
   if (session.isReconnectInitialRuntimeMemoryUpdate(data)) {
     return;

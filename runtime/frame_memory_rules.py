@@ -8,6 +8,21 @@ DEFAULT_RUNTIME_MEMORY = (
     "This session has just begun. "
 )
 
+SESSION_TITLE_KEY = "session_title"
+DEFAULT_SESSION_TITLE = "Untitled session"
+INITIAL_RUNTIME_MEMORY = f"{SESSION_TITLE_KEY}: {DEFAULT_SESSION_TITLE}"
+
+SESSION_TITLE_RULE = (
+    "\n<session_title_rules>\n"
+    "session_title is a mandatory reserved key. Emit it exactly once in every full FRAME replacement. "
+    "Write a concise, human-readable description of the conversation's meaningful trajectory, considering both USER and JIN. "
+    "For a resumed conversation, reflect its continuation and inherited topic. Preserve the current wording while the main subject remains unchanged. "
+    "When the dominant subject changes substantially, make the NEW subject the title; mention the old one only if essential. "
+    "Ignore trivial detours, incidental remarks, and temporary subtopics. Use the conversation's language: "
+    "a short topic label of 3-8 words, preferably under 80 characters, ONE line; no timeline, explanations or generic labels.\n"
+    "</session_title_rules>\n"
+)
+
 # Decays existing memory strength between scoring passes.
 STRENGTH_DECAY = 0.82
 
@@ -172,6 +187,7 @@ def build_runtime_memory_system_prompt(
         ROLE
         + KEY_SEMANTICS
         + LIVE_INTERACTION_SIGNALS
+        + SESSION_TITLE_RULE
         + OUTPUT_FORMAT
         + output_language_rule
     )

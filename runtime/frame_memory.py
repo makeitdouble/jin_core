@@ -40,6 +40,7 @@ from runtime.frame_memory_utils import (
     build_runtime_memory_batch_user_prompt,
     get_strength_zones,
     normalize_compound_runtime_memory_lines,
+    preserve_session_title,
     remove_runtime_response_feedback_text,
     remove_runtime_user_idle_lines,
 )
@@ -424,6 +425,10 @@ async def summarize_runtime_memory_pending_turns(
         )
 
         if updated_memory or updates_counter == 0:
+            updated_memory = preserve_session_title(
+                updated_memory,
+                initial_memory,
+            )
             context.runtime_memory = updated_memory
             context.runtime_memory_stable = updated_memory
             context.runtime_memory_updates = updates_counter + 1

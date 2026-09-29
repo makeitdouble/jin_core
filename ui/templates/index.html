@@ -16,7 +16,7 @@
     <link rel="stylesheet" href="/static/css/chat-reactions.css?v=jin-reaction-2">
     <link rel="stylesheet" href="/static/css/chat-rating.css">
     <link rel="stylesheet" href="/static/css/chat-runtime-action.css">
-    <link rel="stylesheet" href="/static/css/runtime-memory.css?v=context-tabs-1">
+    <link rel="stylesheet" href="/static/css/runtime-memory.css?v=logs-full-hover-title-1">
     <link rel="stylesheet" href="/static/css/interface-overrides.css">
     <link rel="stylesheet" href="/static/css/theme-win95.css?v=think-format-1&citation-color=1">
     <link rel="stylesheet" href="/static/css/runtime-avatar.css">
@@ -431,7 +431,7 @@
                     id="runtime-memory-panel"
                     class="rounded border bg-zinc-900 border-zinc-800">
 
-                <div class="p-3 space-y-3 font-mono">
+                <div id="runtime-memory-panel-inner" class="space-y-3 font-mono">
 
                     <div
                             class="runtime-memory-header text-[11px] uppercase tracking-widest text-slate-100">
@@ -446,6 +446,7 @@
                             <button class="runtime-memory-tab" type="button" role="tab" data-runtime-memory-mode="delayed" aria-selected="false" tabindex="-1">DELAYED</button>
                             <button class="runtime-memory-tab" type="button" role="tab" data-runtime-memory-mode="long_term" aria-selected="false" tabindex="-1">L-T</button>
                             <button class="runtime-memory-tab" type="button" role="tab" data-runtime-memory-mode="files" aria-selected="false" tabindex="-1">FILES</button>
+                            <button class="runtime-memory-tab" type="button" role="tab" data-runtime-memory-mode="logs" aria-selected="false" tabindex="-1">LOGS</button>
                         </div>
 
                         <div
@@ -509,8 +510,8 @@
 <script src="/static/js/runtime/runtime-feedback.js"></script>
 <script src="/static/js/runtime/runtime-session.js"></script>
 <script src="/static/js/runtime/runtime-panel.js"></script>
-<script src="/static/js/runtime/runtime-memory-view.js?memory-value-edit=2&active-conditions=1"></script>
-<script src="/static/js/runtime/runtime.js?active-memory-pause-sync=1"></script>
+<script src="/static/js/runtime/runtime-memory-view.js?memory-value-edit=2&active-conditions=1&logs-sync=2&logs-delete=1&logs-hover=2"></script>
+<script src="/static/js/runtime/runtime.js?active-memory-pause-sync=1&logs-sync=2"></script>
 <script src="/static/js/runtime/runtime-avatar.js"></script>
 <script src="/static/js/status.js"></script>
 <script src="/static/js/dragdrop.js"></script>

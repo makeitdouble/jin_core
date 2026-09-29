@@ -11,12 +11,14 @@ from utils.time_utils import (
 
 from runtime.frame_memory_rules import (
     DEFAULT_RUNTIME_MEMORY,
+    DEFAULT_SESSION_TITLE,
     EMPTY_ASSISTANT_REPLY_MEMORY_TEMPLATE,
     HOT_THRESHOLD,
     HOT_MEMORY_KEY_EXCLUDED_KEYS,
     INTERRUPTED_ASSISTANT_MEMORY_TEMPLATE,
     RUNTIME_RESPONSE_FEEDBACK_KEY,
     RUNTIME_USER_IDLE_KEY,
+    SESSION_TITLE_KEY,
     STRENGTH_BOOST,
     STRENGTH_DECAY,
     STRENGTH_NEW_KEY,
@@ -332,7 +334,7 @@ def remove_runtime_memory_entry_text(
 ) -> str:
 
     target_key = str(key or "").strip()
-    if not target_key:
+    if not target_key or target_key.casefold() == SESSION_TITLE_KEY:
         return memory or ""
 
     target_key_normalized = target_key.casefold()
@@ -1408,6 +1410,33 @@ def parse_runtime_memory_lines(memory: str) -> list[dict]:
         })
 
     return lines
+
+def get_session_title(memory: str) -> str:
+    values = [
+        str(line.get("value", "") or "").strip()
+        for line in parse_runtime_memory_lines(memory)
+        if str(line.get("key", "") or "").casefold() == SESSION_TITLE_KEY
+    ]
+    # The LOGS row is visually ellipsized by CSS. Never discard title text here:
+    # the hover card needs the complete value from the committed FRAME.
+    return " ".join(values[-1].split()) if values and values[-1] else ""
+
+
+def preserve_session_title(memory: str, previous_memory: str = "") -> str:
+    """Keep one reserved title, preferring the newest summarizer value."""
+    title = (
+        get_session_title(memory)
+        or get_session_title(previous_memory)
+        or DEFAULT_SESSION_TITLE
+    )
+    lines = []
+    for raw_line in str(memory or "").splitlines():
+        stripped = raw_line.strip().lstrip("-").strip()
+        key = stripped.split(":", 1)[0].strip().casefold()
+        if key != SESSION_TITLE_KEY:
+            lines.append(raw_line)
+    return "\n".join([f"{SESSION_TITLE_KEY}: {title}", *lines]).strip()
+
 
 def normalize_memory_key(
         key: str,

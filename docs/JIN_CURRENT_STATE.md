@@ -690,3 +690,9 @@ event loop; multiple processes sharing the profile would need separate locking.
 D057 supersedes the older browser-authority notes above. Cognitive browser persistence is now page-local and startup selectors are resolved from disk. The latest saved FRAME retains full metadata; server snapshots/tool results are archived through existing JSONL writers. Session CLEAR uses a disk USER-count barrier. Existing unrelated dirty action-dispatch files were not changed by this refactor.
 
 During implementation, 85 targeted unittest cases, 20 targeted pytest cases and the migrated browser-storage unit test passed. Python compilation, JavaScript syntax and diff whitespace checks also passed before the final small cleanup. The Edge harness exercised poisoned storage, empty bootstrap requests and disk chat rendering, but its complete final run was stopped at the owner's request to skip further checks. No full-suite or final-browser green claim is made. Restart the backend and reload the page to activate the new protocol.
+
+## FRAME session titles and LOGS archive projection — 2026-09-29
+
+FRAME now owns one protected `session_title`, refreshed through the existing summarizer on every FRAME cycle, including hidden bootstrap. The LOGS memory tab lists USER-owned non-anonymous archives by date and reuses explicit archived restore in a new tab. Latest committed FRAME wins for list titles; legacy untitled sessions display their session ID, which is also the hover text for every title row.
+
+LOGS uses the common memory lazy-render pipeline with 20-row batches. Its list and count load once per page; session dialogue is fetched only while a row is hovered, shown in the existing memory hover-card as up to five one-line USER/JIN pairs, and discarded on mouse leave.

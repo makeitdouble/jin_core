@@ -51,6 +51,10 @@ from utils.chat_log import (
 )
 from utils.session_restore import (
     build_archived_session_restore_payload,
+    build_archived_session_preview,
+    list_archived_sessions,
+    get_archived_session_summary,
+    delete_archived_session,
 )
 
 from websocket import (
@@ -198,6 +202,38 @@ async def api_restore_archived_session(session_id: str):
         )
 
     return payload
+
+
+@app.get("/api/sessions")
+async def api_list_archived_sessions():
+    return {"sessions": list_archived_sessions()}
+
+
+@app.get("/api/sessions/{session_id}/summary")
+async def api_archived_session_summary(session_id: str):
+    summary = get_archived_session_summary(session_id)
+    if summary is None:
+        raise HTTPException(status_code=404, detail="Session not saved yet")
+    return summary
+
+
+@app.get("/api/sessions/{session_id}/preview")
+async def api_preview_archived_session(session_id: str):
+    payload = build_archived_session_preview(session_id)
+    if payload is None:
+        raise HTTPException(status_code=404, detail="Session preview not found")
+    return payload
+
+
+@app.delete("/api/sessions/{session_id}")
+async def api_delete_archived_session(session_id: str):
+    try:
+        deleted = await asyncio.to_thread(delete_archived_session, session_id)
+    except OSError as error:
+        raise HTTPException(status_code=500, detail="Could not delete session logs") from error
+    if not deleted:
+        raise HTTPException(status_code=404, detail="Saved session not found")
+    return {"deleted": True, "session_id": session_id}
 
 
 @app.get("/api/files")

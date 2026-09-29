@@ -202,7 +202,7 @@ def collect_frame_candidates(context, snapshot):
         records.append(record)
     for line in snapshot.get("lines", []):
         key = str(line.get("key", "")).strip()
-        if key in {"user_message", "user_idle"} or re.match(r"(?:active_memory|jin_response|l-?t_fact)", key, re.I):
+        if key.casefold() in {"user_message", "user_idle", "session_title"} or re.match(r"(?:active_memory|jin_response|l-?t_fact)", key, re.I):
             continue
         content = strip_runtime_memory_line_metadata(str(line.get("value", ""))).strip()
         if not key or not content:

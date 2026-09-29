@@ -8,6 +8,11 @@
     user-select: none;
 }
 
+#runtime-memory-panel-inner{
+    padding: 0.55rem;
+    padding-top:0.75rem;
+}
+
 .runtime-memory-tabs {
     display: flex;
     min-height: 22px;
@@ -22,6 +27,7 @@
 }
 
 .runtime-memory-tab {
+    font-size: 9px;
     display: inline-flex;
     flex: 0 0 auto;
     min-width: max-content;
@@ -221,6 +227,83 @@
 .runtime-memory-file-row:hover,
 .runtime-memory-file-row:focus-visible {
     outline: none;
+}
+
+.runtime-memory-logs-date {
+    margin: 12px 0 6px;
+    color: rgba(148, 163, 184, 0.78);
+    font-size: 10px;
+    letter-spacing: 0.08em;
+}
+
+.runtime-memory-logs-date:first-child { margin-top: 0; }
+
+.runtime-memory-log-row {
+    display: block;
+    width: 100%;
+    overflow: hidden;
+    padding: 3px 0;
+    border: 0;
+    color: rgba(244, 244, 245, 0.62);
+    background: transparent;
+    cursor: pointer;
+    text-align: left;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-weight: 600;
+}
+
+.runtime-memory-log-row:hover,
+.runtime-memory-log-row:focus-visible {
+    outline: none;
+    color: rgba(244, 244, 245, 0.86);
+}
+
+.runtime-memory-logs-state { color: rgba(148, 163, 184, 0.78); }
+
+.runtime-memory-log-hover-card {
+    width: min(520px, calc(100vw - 24px));
+}
+
+/* Keep the LOGS row compact; show the entire session title on hover. */
+.runtime-memory-log-hover-card .runtime-memory-lt-hover-title {
+    overflow: visible;
+    text-overflow: clip;
+    white-space: normal;
+    overflow-wrap: anywhere;
+}
+
+.runtime-memory-log-hover-messages {
+    display: grid;
+    gap: 3px;
+    margin-top: 10px;
+    padding-top: 9px;
+    border-top: 1px solid rgba(82, 82, 91, 0.52);
+    color: rgba(212, 212, 216, 0.78);
+}
+
+.runtime-memory-log-hover-message {
+    display: grid;
+    grid-template-columns: 42px minmax(0, 1fr);
+    gap: 7px;
+    min-width: 0;
+    white-space: nowrap;
+}
+
+.runtime-memory-log-hover-role {
+    color: rgba(161, 161, 170, 0.86);
+}
+
+.runtime-memory-log-hover-text {
+    overflow: hidden;
+    min-width: 0;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.runtime-memory-log-hover-message-jin .runtime-memory-log-hover-role,
+.runtime-memory-log-hover-message-jin .runtime-memory-log-hover-text {
+    color: rgba(244, 244, 245, 0.92);
 }
 
 #runtime-memory-text .runtime-memory-file-row:last-child {

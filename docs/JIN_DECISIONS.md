@@ -797,3 +797,11 @@ Use the latest saved FRAME with its original metadata, raw dialogue/reasoning/ac
 Session CLEAR keeps its semantics with an atomic disk USER-count barrier (`logs/.continuation-cleared.json`), not a localStorage tombstone. New USER activity can pass the barrier; passive completion cannot. Archives remain available for explicit restore.
 
 **Rejected:** merely adding a folder ID to localStorage, timestamp-based browser/disk arbitration, restoring browser state after a reader error, or trusting a browser-supplied archived payload.
+
+## D058 — Session titles belong to FRAME and LOGS is an archive projection (2026-09-29)
+
+**Status:** Owner-approved / implemented.
+
+`session_title` is one reserved FRAME field, emitted on every full FRAME replacement and protected against omission, duplication, and manual deletion. The ordinary FRAME lifecycle is unchanged: a hidden bootstrap response may run FRAME and update the title. Titles have no separate store and require no extra model request.
+
+The memory panel's LOGS tab indexes restorable, USER-owned non-anonymous archives. It uses the latest committed `frames/` snapshot when present, otherwise the matching primary context snapshot, and shows the session ID for legacy archives without a title. Selecting a row opens the existing `restore_session` flow in a new tab; current global durable memory remains governed by the existing restore contract.
