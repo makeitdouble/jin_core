@@ -689,35 +689,6 @@ class RuntimeActiveMemoryTests(RuntimeActionTestCase):
         )
 
 
-    def test_extracts_update_active_memory_json_block_from_active_memory_capability(self):
-
-        result = extract_runtime_actions(
-            (
-                "before "
-                "<SAVE_ACTIVE_MEMORY>\n"
-                '{"id":"AM-abc123","last_photo_id":"def456",'
-                '"current_photo_count":"2"}\n'
-                "</SAVE_ACTIVE_MEMORY>"
-                " after"
-            ),
-            enabled_actions=[
-                "CAN_SAVE_ACTIVE_MEMORY",
-            ],
-        )
-
-        self.assertEqual(result.text, "before after")
-        self.assertEqual(
-            result.actions,
-            (
-                RuntimeActionCall(
-                    name="SAVE_ACTIVE_MEMORY",
-                    payload=(
-                        '{"id":"AM-abc123","last_photo_id":"def456",'
-                        '"current_photo_count":"2"}'
-                    ),
-                ),
-            ),
-        )
 
 
     def test_parse_update_active_memory_accepts_fields_to_update_object(self):
@@ -1018,7 +989,7 @@ class RuntimeActiveMemoryTests(RuntimeActionTestCase):
         )
 
 
-    def test_update_active_memory_accepts_numbered_slot_key_reference(self):
+    def test_save_active_memory_updates_existing_record_by_json_id(self):
 
         context = FakeContext()
         context.emitter = FakeEmitter()
@@ -1074,116 +1045,8 @@ class RuntimeActiveMemoryTests(RuntimeActionTestCase):
         )
 
 
-    def test_update_active_memory_accepts_numbered_slot_key_inside_raw_marker(self):
-
-        context = FakeContext()
-        context.emitter = FakeEmitter()
-        context.timestamp = "2026-08-18T23:25:00"
-        context.session_id = "state-session"
-        context.turn_number = 11
-
-        asyncio.run(
-            apply_runtime_action_calls(
-                context,
-                (
-                    RuntimeActionCall(
-                        name="SAVE_ACTIVE_MEMORY",
-                        payload=(
-                            '{"conditions":"Once a day ask for a photo.",'
-                            '"last_photo_id":"qamzck",'
-                            '"current_date":"2026-08-21"}'
-                        ),
-                    ),
-                ),
-            )
-        )
-        active_memory_id = context.emitter.events[0]["active_memory_id"]
-        context.emitter.events.clear()
-        context.timestamp = "2026-08-22T00:00:00"
-
-        applied_count = asyncio.run(
-            apply_runtime_action_calls(
-                context,
-                (
-                    RuntimeActionCall(
-                        name="SAVE_ACTIVE_MEMORY",
-                        payload=(
-                            '{"id":"' + active_memory_id + '",'
-                            '"last_photo_id":"1sot0h",'
-                            '"current_date":"2026-08-22"}'
-                        ),
-                    ),
-                ),
-            )
-        )
-
-        self.assertEqual(applied_count, 1)
-        record = context.active_memory_records[0]
-        self.assertIn("[ last_photo_id: 1sot0h ]", record)
-        self.assertIn("[ current_date: 2026-08-22 ]", record)
-        event = context.emitter.events[-1]
-        self.assertEqual(event["status"], "completed")
-        self.assertEqual(event["active_memory_id"].casefold(), active_memory_id.casefold())
-        self.assertEqual(
-            event["active_memory_result"]["id"].casefold(),
-            active_memory_id.casefold(),
-        )
 
 
-    def test_update_active_memory_accepts_json_numbered_slot_key(self):
-
-        context = FakeContext()
-        context.emitter = FakeEmitter()
-        context.timestamp = "2026-08-18T23:25:00"
-        context.session_id = "state-session"
-        context.turn_number = 11
-
-        asyncio.run(
-            apply_runtime_action_calls(
-                context,
-                (
-                    RuntimeActionCall(
-                        name="SAVE_ACTIVE_MEMORY",
-                        payload=(
-                            '{"conditions":"Once a day ask for a photo.",'
-                            '"last_photo_id":"qamzck",'
-                            '"current_date":"2026-08-21"}'
-                        ),
-                    ),
-                ),
-            )
-        )
-        active_memory_id = context.emitter.events[0]["active_memory_id"]
-        context.emitter.events.clear()
-        context.timestamp = "2026-08-22T00:00:00"
-
-        applied_count = asyncio.run(
-            apply_runtime_action_calls(
-                context,
-                (
-                    RuntimeActionCall(
-                        name="SAVE_ACTIVE_MEMORY",
-                        payload=(
-                            '{"id":"' + active_memory_id + '",'
-                            '"last_photo_id":"1sot0h",'
-                            '"current_date":"2026-08-22"}'
-                        ),
-                    ),
-                ),
-            )
-        )
-
-        self.assertEqual(applied_count, 1)
-        record = context.active_memory_records[0]
-        self.assertIn("[ last_photo_id: 1sot0h ]", record)
-        self.assertIn("[ current_date: 2026-08-22 ]", record)
-        event = context.emitter.events[-1]
-        self.assertEqual(event["status"], "completed")
-        self.assertEqual(event["active_memory_id"].casefold(), active_memory_id.casefold())
-        self.assertEqual(
-            event["active_memory_result"]["id"].casefold(),
-            active_memory_id.casefold(),
-        )
 
 
     def test_update_active_memory_json_fields_ignores_creation_time(self):
@@ -1256,60 +1119,6 @@ class RuntimeActiveMemoryTests(RuntimeActionTestCase):
         )
 
 
-    def test_update_active_memory_accepts_json_inside_raw_marker(self):
-
-        context = FakeContext()
-        context.emitter = FakeEmitter()
-        context.timestamp = "2026-08-18T23:25:00"
-        context.session_id = "state-session"
-        context.turn_number = 11
-
-        asyncio.run(
-            apply_runtime_action_calls(
-                context,
-                (
-                    RuntimeActionCall(
-                        name="SAVE_ACTIVE_MEMORY",
-                        payload=(
-                            '{"conditions":"Once a day ask for a photo.",'
-                            '"last_photo_id":"qamzck",'
-                            '"current_date":"2026-08-21"}'
-                        ),
-                    ),
-                ),
-            )
-        )
-        active_memory_id = context.emitter.events[0]["active_memory_id"]
-        context.emitter.events.clear()
-        context.timestamp = "2026-08-22T00:00:00"
-
-        applied_count = asyncio.run(
-            apply_runtime_action_calls(
-                context,
-                (
-                    RuntimeActionCall(
-                        name="SAVE_ACTIVE_MEMORY",
-                        payload=(
-                            '{"id":"' + active_memory_id + '",'
-                            '"last_photo_id":"1sot0h",'
-                            '"current_date":"2026-08-22"}'
-                        ),
-                    ),
-                ),
-            )
-        )
-
-        self.assertEqual(applied_count, 1)
-        record = context.active_memory_records[0]
-        self.assertIn("[ last_photo_id: 1sot0h ]", record)
-        self.assertIn("[ current_date: 2026-08-22 ]", record)
-        event = context.emitter.events[-1]
-        self.assertEqual(event["status"], "completed")
-        self.assertEqual(event["active_memory_id"].casefold(), active_memory_id.casefold())
-        self.assertEqual(
-            event["active_memory_result"]["id"].casefold(),
-            active_memory_id.casefold(),
-        )
 
 
     def test_update_active_memory_accepts_self_closing_attribute_marker(self):

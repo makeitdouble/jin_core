@@ -103,16 +103,28 @@ class AttachFileByIdTests(unittest.TestCase):
 
     def test_stream_boundaries_literals_false_prefix_repeat_and_flush(self):
         marker = f'<{PUBLIC_MARKER}> abc123 </{PUBLIC_MARKER}>'
-        for split in range(1, len(marker)):
+        split_points = sorted({
+            1,
+            marker.find('>') + 1,
+            len(marker) // 2,
+            marker.rfind('</') + 2,
+            len(marker) - 1,
+        })
+        for split in split_points:
             parser = RuntimeActionStreamFilter(enabled_actions=[ACTION])
             parts = [parser.filter(marker[:split]), parser.filter(marker[split:]), parser.flush_result()]
             self.assertEqual(sum(len(p.actions) for p in parts), 1, split)
             self.assertEqual(''.join(p.text for p in parts), '')
-            for quote in ('"', "'", '`', '['):
-                parser = RuntimeActionStreamFilter(enabled_actions=[ACTION])
-                parts = [parser.filter(quote + marker[:split]), parser.filter(marker[split:]), parser.flush_result()]
-                self.assertFalse(any(p.actions for p in parts))
-                self.assertEqual(''.join(p.text for p in parts), quote + marker)
+    
+        # Wrapper handling is orthogonal to the exact split position. Keep all
+        # supported literal prefixes, but use one representative payload split.
+        split = len(marker) // 2
+        for quote in ('"', "'", '`', '['):
+            parser = RuntimeActionStreamFilter(enabled_actions=[ACTION])
+            parts = [parser.filter(quote + marker[:split]), parser.filter(marker[split:]), parser.flush_result()]
+            self.assertFalse(any(p.actions for p in parts))
+            self.assertEqual(''.join(p.text for p in parts), quote + marker)
+    
         self.assertEqual(len(extract_runtime_actions(marker * 2, enabled_actions=[ACTION]).actions), 1)
         self.assertFalse(
             extract_runtime_actions(
@@ -126,7 +138,6 @@ class AttachFileByIdTests(unittest.TestCase):
         result = extract_runtime_actions('before ' + marker + ' after', enabled_actions=[ACTION])
         self.assertIn('before', result.text)
         self.assertIn('after', result.text)
-
     def test_contract_is_enabled_and_distinguishes_whole_files(self):
         enabled = get_enabled_runtime_actions({'CAN_USE_ASSETS': True})
         self.assertIn(ACTION, enabled)

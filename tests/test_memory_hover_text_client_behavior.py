@@ -41,6 +41,7 @@ for (const [input, expected] of cases) {
             capture_output=True,
             text=True,
             check=False,
+            timeout=20,
         )
         self.assertEqual(
             completed.returncode,

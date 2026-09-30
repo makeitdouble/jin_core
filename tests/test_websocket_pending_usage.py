@@ -487,6 +487,7 @@ class WebSocketPendingUsageTests(unittest.IsolatedAsyncioTestCase):
                 "runtime_memory": "topic: restored runtime state",
                 "runtime_memory_updates": 7,
             },
+            resolved_from_disk=True
         )
 
         self.assertTrue(
@@ -547,6 +548,7 @@ class WebSocketPendingUsageTests(unittest.IsolatedAsyncioTestCase):
                     "raw_memory": "topic: restored runtime state",
                 },
             },
+            resolved_from_disk=True
         )
 
         self.assertTrue(restored)
@@ -564,7 +566,7 @@ class WebSocketPendingUsageTests(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn("current_session_assistant_message_count", context.runtime_memory_snapshots[0])
         self.assertEqual(len(context.runtime_memory_snapshots), 1)
 
-    async def test_runtime_resume_restores_persisted_session_and_turn_counter(self):
+    async def test_runtime_resume_does_not_restore_browser_checkpoint(self):
 
         context = SimpleNamespace(
             runtime_memory="session status: New session",
@@ -607,15 +609,12 @@ class WebSocketPendingUsageTests(unittest.IsolatedAsyncioTestCase):
             },
         )
 
-        self.assertTrue(restored)
-        self.assertEqual(context.runtime_turn_counter, 17)
-        self.assertEqual(context.turn_number, 11)
-        self.assertNotIn("user_message_count", context.runtime_memory_snapshots[0])
-        self.assertNotIn("assistant_message_count", context.runtime_memory_snapshots[0])
-        self.assertEqual(
-            context.runtime_loaded_delayed_memory_ids,
-            ["48ggds"],
-        )
+        self.assertFalse(restored)
+        self.assertEqual(context.runtime_turn_counter, 3)
+        self.assertEqual(context.turn_number, 3)
+        self.assertEqual(context.runtime_memory_snapshots, [])
+        self.assertEqual(context.runtime_memory, "session status: New session")
+        self.assertFalse(hasattr(context, "runtime_loaded_delayed_memory_ids"))
 
     async def test_runtime_resume_ignores_removed_l3_only_payload_without_live_frame(self):
 
@@ -647,7 +646,7 @@ class WebSocketPendingUsageTests(unittest.IsolatedAsyncioTestCase):
             "session status: New session",
         )
 
-    async def test_runtime_resume_hydrates_active_memory_lifecycle_turn_floor(self):
+    async def test_runtime_resume_does_not_hydrate_active_memory_lifecycle(self):
 
         context = SimpleNamespace(
             runtime_memory="session status: New session",
@@ -678,16 +677,10 @@ class WebSocketPendingUsageTests(unittest.IsolatedAsyncioTestCase):
             },
         )
 
-        self.assertTrue(restored)
-        self.assertEqual(context.turn_number, 2)
-        self.assertIn(
-            "[ elapsed_time: 00:00:00 ]",
-            context.active_memory_records[0],
-        )
-        self.assertIn(
-            "[ elapsed_jin_message_number: 0 ]",
-            context.active_memory_records[0],
-        )
+        self.assertFalse(restored)
+        self.assertEqual(context.turn_number, 0)
+        self.assertEqual(context.runtime_memory, "session status: New session")
+        self.assertFalse(hasattr(context, "active_memory_records"))
 
     async def test_session_bootstrap_hydrates_active_memory_elapsed_turn_floor(self):
 
@@ -722,6 +715,7 @@ class WebSocketPendingUsageTests(unittest.IsolatedAsyncioTestCase):
                 ],
                 "runtime_memory_updates": 1,
             },
+            resolved_from_disk=True
         )
 
         self.assertTrue(restored)

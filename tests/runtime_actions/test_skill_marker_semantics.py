@@ -41,6 +41,8 @@ class SkillMarkerSemanticsTests(RuntimeActionTestCase):
             )
 
     def test_plural_context_markers_expand_multiple_skill_payloads(self):
+        from utils.actions import RuntimeActionStreamFilter
+
         for marker_name, internal_name in (
             ("LOAD_SKILLS_CONTEXT", "LOAD_SKILL"),
             ("UNLOAD_SKILLS_CONTEXT", "UNLOAD_SKILL"),
@@ -49,8 +51,15 @@ class SkillMarkerSemanticsTests(RuntimeActionTestCase):
                 f"<{marker_name}> file_manager, wildcards "
                 f"</{marker_name}>"
             )
-            for split in range(len(marker) + 1):
-                from utils.actions import RuntimeActionStreamFilter
+            split_points = (
+                0,
+                2,
+                marker.index(">") + 1,
+                len(marker) // 2,
+                marker.rindex("</") + 2,
+                len(marker),
+            )
+            for split in split_points:
                 stream = RuntimeActionStreamFilter(
                     enabled_actions=["CAN_USE_ASSETS"],
                 )

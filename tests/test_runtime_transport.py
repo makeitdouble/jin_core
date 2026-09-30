@@ -202,11 +202,11 @@ class TransportTests(unittest.IsolatedAsyncioTestCase):
         frame_release = asyncio.Event()
         if frame_wait:
             context.runtime_memory_update_task = asyncio.create_task(frame_release.wait())
-
+    
         async def wait_frame(_):
             if frame_wait:
                 await asyncio.shield(context.runtime_memory_update_task)
-
+    
         async def process(context, message):
             if message.get("_interrupt_before_brain"):
                 interrupted.append(message["text"])
@@ -222,10 +222,10 @@ class TransportTests(unittest.IsolatedAsyncioTestCase):
             completed.append(message["text"])
             await context.websocket.send_json({"type": "chunk", "text": message["text"]})
             await context.websocket.send_json({"type": "agent_runtime_end"})
-
+    
         async def initialize(context, **kwargs):
             await context.websocket.accept()
-
+    
         with contextlib.ExitStack() as stack:
             stack.enter_context(patch.object(ws, "get_or_create_connection_context", return_value=(context, False)))
             for name in ("ensure_initial_runtime_snapshot", "note_lt_foreground_state", "note_lt_user_activity",
@@ -271,6 +271,19 @@ class TransportTests(unittest.IsolatedAsyncioTestCase):
                 self.assertIsNotNone(expiry)
                 release.set()
                 frame_release.set()
+                if frame_wait:
+                    async def acknowledge_pending_batch_commit():
+                        while True:
+                            for payload in context.runtime_transport.pending.values():
+                                event = json.loads(payload)
+                                if event.get("type") == "pending_user_batch_commit":
+                                    await context.runtime_transport.incoming.put(json.dumps({
+                                        "type": "pending_user_batch_commit_ack",
+                                        "batch_id": event["batch_id"],
+                                    }))
+                                    return
+                            await asyncio.sleep(0)
+                    await acknowledge_pending_batch_commit()
                 expected_count = 1 if frame_wait else 2
                 await until(lambda: len(completed) == expected_count)
                 if frame_wait:

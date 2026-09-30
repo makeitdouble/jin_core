@@ -1459,6 +1459,7 @@ print(json.dumps({"name": path.name, "text": path.read_text(encoding="utf-8")}))
                                 "$ATTACHMENT",
                             ],
                             "attachment": "sample.txt",
+                            "timeout_seconds": 5,
                         },
                     )
                 )

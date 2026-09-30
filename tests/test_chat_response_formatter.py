@@ -37,6 +37,7 @@ if (actual !== expected) {
             capture_output=True,
             text=True,
             check=False,
+            timeout=20,
         )
 
         self.assertEqual(
@@ -80,6 +81,7 @@ for (const [input, expected] of cases) {
             capture_output=True,
             text=True,
             check=False,
+            timeout=20,
         )
 
         self.assertEqual(
@@ -137,6 +139,7 @@ for (const [input, expected] of cases) {
             capture_output=True,
             text=True,
             check=False,
+            timeout=20,
         )
 
         self.assertEqual(
@@ -190,6 +193,7 @@ for (const [input, expected] of cases) {
             capture_output=True,
             text=True,
             check=False,
+            timeout=20,
         )
 
         self.assertEqual(
@@ -228,6 +232,7 @@ if (!html.includes("w:220px h:440px")) {
             capture_output=True,
             text=True,
             check=False,
+            timeout=20,
         )
 
         self.assertEqual(
@@ -276,6 +281,7 @@ if (normalize("120em") !== "") {
             capture_output=True,
             text=True,
             check=False,
+            timeout=20,
         )
 
         self.assertEqual(
@@ -332,6 +338,7 @@ if (calls.length !== 3 || calls.some(([, options]) => options.displayMode !== fa
             capture_output=True,
             text=True,
             check=False,
+            timeout=20,
         )
 
         self.assertEqual(
@@ -415,6 +422,7 @@ if (calls.length !== 2 || calls.some(([, display]) => display !== true)) {
             capture_output=True,
             text=True,
             check=False,
+            timeout=20,
         )
 
         self.assertEqual(
@@ -451,6 +459,7 @@ if (html !== "<p>formula $a_b^2$ and price $5 and $10</p>") {
             capture_output=True,
             text=True,
             check=False,
+            timeout=20,
         )
 
         self.assertEqual(

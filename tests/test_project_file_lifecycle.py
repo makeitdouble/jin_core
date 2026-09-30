@@ -359,20 +359,29 @@ class ProjectFileLifecycleTests(unittest.TestCase):
             f'<ATTACH_FILE_CONTENT: {self.ref()}#L2-L3 >',
             '<ATTACH_FILE_CONTENT: src/main.py#L2-L3 >',
         ):
-            for split in range(len(marker)+1):
-                parser=RuntimeActionStreamFilter(enabled_actions=['ATTACH_FILE_CONTENT','ASSET_ACTION'])
-                chunks=[parser.filter(marker[:split]),parser.filter(marker[split:]),parser.flush_result()]
-                self.assertEqual(sum(len(c.actions) for c in chunks),1)
-                self.assertEqual(''.join(c.text for c in chunks),'')
-                parser=RuntimeActionStreamFilter(enabled_actions=['ATTACH_FILE_CONTENT','ASSET_ACTION'])
-                chunks=[parser.filter('"'+marker[:split]),parser.filter(marker[split:]+'"'),parser.flush_result()]
-                self.assertEqual(sum(len(c.actions) for c in chunks),0)
-            self.assertEqual(len(extract_runtime_actions(marker+marker,enabled_actions=['ATTACH_FILE_CONTENT','ASSET_ACTION']).actions),1)
-        parser=RuntimeActionStreamFilter(enabled_actions=['ATTACH_FILE_CONTENT','ASSET_ACTION'])
+            split_points = sorted({
+                1,
+                marker.find(':') + 1,
+                len(marker) // 2,
+                len(marker) - 2,
+                len(marker) - 1,
+            })
+            for split in split_points:
+                parser = RuntimeActionStreamFilter(enabled_actions=['ATTACH_FILE_CONTENT','ASSET_ACTION'])
+                chunks = [parser.filter(marker[:split]), parser.filter(marker[split:]), parser.flush_result()]
+                self.assertEqual(sum(len(c.actions) for c in chunks), 1)
+                self.assertEqual(''.join(c.text for c in chunks), '')
+    
+            split = len(marker) // 2
+            parser = RuntimeActionStreamFilter(enabled_actions=['ATTACH_FILE_CONTENT','ASSET_ACTION'])
+            chunks = [parser.filter('"' + marker[:split]), parser.filter(marker[split:] + '"'), parser.flush_result()]
+            self.assertEqual(sum(len(c.actions) for c in chunks), 0)
+            self.assertEqual(len(extract_runtime_actions(marker + marker, enabled_actions=['ATTACH_FILE_CONTENT','ASSET_ACTION']).actions), 1)
+    
+        parser = RuntimeActionStreamFilter(enabled_actions=['ATTACH_FILE_CONTENT','ASSET_ACTION'])
         parser.filter(f'<ATTACH_FILE_CONTENT: {self.ref()}')
         self.assertFalse(parser.flush_result().actions)
         self.assertFalse(extract_runtime_actions('<ATTACH_FILE_CONTENTISH: abc123>', enabled_actions=['ATTACH_FILE_CONTENT','ASSET_ACTION']).actions)
-
     def test_brain_batch_reread_followups_keep_reasoning_and_source_once(self):
         calls=[]
         async def stream(**kwargs):

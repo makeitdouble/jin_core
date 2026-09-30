@@ -14,8 +14,8 @@ from utils.session_actions_history import (
     compact_session_action_history_since,
     record_session_action_history,
 )
-from tests.test_brain_asset_flow import _brain_runtime, _context
-from tests.test_runtime_stream_tokens import FakeEmitter, FakeLogger, FakeWebSocket
+from tests.helpers.brain import brain_runtime_config as _brain_runtime, brain_context_stub as _context
+from tests.helpers.runtime_stream import FakeEmitter, FakeLogger, FakeWebSocket
 
 
 class ContextOverflowFollowupTests(unittest.IsolatedAsyncioTestCase):

@@ -27,6 +27,7 @@ def main() -> int:
         cwd=ROOT,
         capture_output=True,
         text=True,
+        timeout=30,
     )
     if playwright.returncode != 0:
         print(
@@ -37,7 +38,7 @@ def main() -> int:
 
     for filename in BROWSER_TESTS:
         print(f"\n=== {filename} ===", flush=True)
-        completed = subprocess.run(["node", str(ROOT / "tests" / filename)], cwd=ROOT)
+        completed = subprocess.run(["node", str(ROOT / "tests" / filename)], cwd=ROOT, timeout=30)
         if completed.returncode:
             return completed.returncode
     return 0

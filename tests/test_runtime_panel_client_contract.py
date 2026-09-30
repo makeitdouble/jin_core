@@ -64,6 +64,7 @@ if (helpers.normalizeJinSizePayload("120em") !== null) {
             capture_output=True,
             text=True,
             check=False,
+            timeout=20,
         )
 
         self.assertEqual(

@@ -87,7 +87,7 @@ class AnonymousModeClientContractTests(unittest.TestCase):
         self.assertIn('"anonymous_mode",', source)
         self.assertIn('"1"', source)
         self.assertIn("anonymousMode.ready", source)
-        self.assertIn('type: "active_memory_store_sync"', source)
+        self.assertIn('active_memory_store_sync: "active"', source)
 
     def test_long_press_avatar_opens_anonymous_room_only_after_full_fade(self):
         source = (

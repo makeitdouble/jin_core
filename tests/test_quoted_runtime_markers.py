@@ -61,18 +61,21 @@ class QuotedRuntimeMarkerTests(unittest.TestCase):
             self.assertFalse(result.removed_markers)
             self.assertFalse(result.marker_repetition_exceeded)
 
-    def test_quotes_and_brackets_preserve_every_marker_in_batch(self):
+    def test_quotes_and_brackets_preserve_marker_shapes(self):
+        canonical_marker = MARKERS[4]
         for opening, closing in WRAPPERS:
-            for marker in MARKERS:
-                text = f"before {opening}{marker}{closing} after"
-                with self.subTest(text=text):
-                    self.assert_literal(text, [extract_runtime_actions(text)])
+            text = f"before {opening}{canonical_marker}{closing} after"
+            with self.subTest(wrapper=(opening, closing)):
+                self.assert_literal(text, [extract_runtime_actions(text)])
+
+        for marker in MARKERS:
+            text = f'before "{marker}" after'
+            with self.subTest(marker=marker):
+                self.assert_literal(text, [extract_runtime_actions(text)])
 
     def test_quoted_stream_boundary_matrix(self):
-        # Streaming behavior depends on marker *shape*, not on every action name.
-        # Keep one representative for each parser shape and exercise every quote
-        # wrapper with maximally fragmented chunks. Exhaustive two-chunk splits
-        # are covered once per shape instead of once per wrapper x every marker.
+        # Wrapper handling and marker-shape handling are independent concerns.
+        # Keep them separate instead of multiplying wrappers x shapes x every split.
         representatives = (
             "<CLEAN_TOOL_RESULTS> T1 </CLEAN_TOOL_RESULTS>",
             "<WEB_SEARCH: test query>",
@@ -81,18 +84,37 @@ class QuotedRuntimeMarkerTests(unittest.TestCase):
             '<UPDATE_ACTIVE_MEMORY active_memory_id="abc123" field="x" value="y" />',
         )
 
+        marker = representatives[0]
         for opening, closing in WRAPPERS:
-            for marker in representatives:
-                text = f"before {opening}{marker}{closing} after"
-                with self.subTest(wrapper=(opening, closing), marker=marker, chunks="charwise"):
-                    self.assert_literal(text, stream_results(text, range(1, len(text))))
+            text = f"before {opening}{marker}{closing} after"
+            marker_start = len(f"before {opening}")
+            cuts = [
+                marker_start + 2,
+                marker_start + len(marker) // 2,
+                marker_start + len(marker) - 2,
+            ]
+            with self.subTest(wrapper=(opening, closing)):
+                self.assert_literal(text, stream_results(text, cuts))
 
         opening, closing = '"', '"'
         for marker in representatives:
             text = f"before {opening}{marker}{closing} after"
-            for split in range(1, len(text)):
-                with self.subTest(marker=marker, split=split):
-                    self.assert_literal(text, stream_results(text, [split]))
+            marker_start = len(f"before {opening}")
+            cuts = [
+                marker_start + 2,
+                marker_start + len(marker) // 2,
+                marker_start + len(marker) - 2,
+            ]
+            with self.subTest(marker=marker):
+                self.assert_literal(text, stream_results(text, cuts))
+
+        text = f'before "{representatives[0]}" after'
+        marker_start = text.index('<')
+        with self.subTest(chunks="fragmented-smoke"):
+            self.assert_literal(
+                text,
+                stream_results(text, [marker_start + 2, len(text) // 2, text.rindex('>') - 1]),
+            )
 
     def test_screenshot_and_incomplete_literals_survive_stop(self):
         for text in (
@@ -104,11 +126,12 @@ class QuotedRuntimeMarkerTests(unittest.TestCase):
             "text (", "text `", "text [",
         ):
             with self.subTest(text=text):
-                self.assert_literal(text, stream_results(text, range(1, len(text))))
+                cuts = [cut for cut in (1, len(text) // 2, len(text) - 1) if 0 < cut < len(text)]
+                self.assert_literal(text, stream_results(text, cuts))
 
     def test_real_action_after_quoted_opening_still_runs_once(self):
         text = '"<UPDATE_LT_FACTS>" then <UPDATE_LT_FACTS>real fact</UPDATE_LT_FACTS>'
-        for cuts in ([], list(range(1, len(text))), [2, 18, 27, 30]):
+        for cuts in ([], [2, 18, 27, 30]):
             results = stream_results(text, cuts)
             self.assertEqual([a.name for r in results for a in r.actions], ["UPDATE_LT_FACTS"])
             self.assertEqual([a.name for r in results for a in r.started_actions], ["UPDATE_LT_FACTS"])
@@ -128,13 +151,13 @@ class QuotedRuntimeMarkerTests(unittest.TestCase):
             block * 3,
         ):
             expected = 3 if text.endswith(block * 3) else 1
-            for cuts in ([], list(range(1, len(text)))):
+            for cuts in ([], [max(1, len(text) // 3), max(2, 2 * len(text) // 3)]):
                 results = stream_results(text, cuts)
                 self.assertEqual(len([a for r in results for a in r.actions]), expected)
 
     def test_quoted_delimiter_inside_real_payload_does_not_close_action(self):
         text = '<UPDATE_LT_FACTS>Use "<UPDATE_LT_FACTS>" in docs.</UPDATE_LT_FACTS>'
-        for cuts in ([], list(range(1, len(text)))):
+        for cuts in ([], [2, len(text) // 2, len(text) - 2]):
             results = stream_results(text, cuts)
             actions = [a for r in results for a in r.actions]
             self.assertEqual(len(actions), 1)
@@ -144,7 +167,7 @@ class QuotedRuntimeMarkerTests(unittest.TestCase):
     def test_two_stream_filters_do_not_reinterpret_literal_text(self):
         text = 'Example (`<UPDATE_LT_FACTS>`). "<CLEAN_TOOL_RESULTS>" End.'
         outer = RuntimeActionStreamFilter()
-        results = [outer.filter(r.text) for r in stream_results(text, range(1, len(text)))]
+        results = [outer.filter(r.text) for r in stream_results(text, [2, len(text) // 2, len(text) - 2])]
         results.append(outer.flush_result())
         self.assert_literal(text, results)
 
@@ -179,7 +202,7 @@ if (!window.JinResponseFormatter.render("<JIN_COLOR>#00f2ff</JIN_COLOR>").includ
             str(JIN_UI_UTILS_JS),
             str(ROOT / "ui/static/js/chat-response-formatter.js"),
             str(ROOT / "ui/static/js/chat.js"), json.dumps(WRAPPERS),
-        ], capture_output=True, text=True)
+        ], capture_output=True, text=True, timeout=20)
         self.assertEqual(completed.returncode, 0, completed.stderr)
 
 

@@ -5,7 +5,7 @@ import json
 import tempfile
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 from runtime.stream import RuntimeStream
 from runtime.client import LMStudioAPIError
@@ -30,97 +30,13 @@ from utils.runtime_action_abort import (
     mark_runtime_action_started,
 )
 from tests.helpers.runtime_actions import patch_asset_roots
+from tests.helpers.runtime_stream import FakeEmitter, FakeLogger, FakeWebSocket
 
 
-class FakeEmitter:
-
-    def __init__(self):
-
-        self.events = []
-
-    async def emit(
-        self,
-        event,
-    ):
-
-        self.events.append(
-            event
-        )
 
 
-class FakeLogger:
-
-    def __init__(self):
-
-        self.messages = []
-
-    async def log_runtime(
-        self,
-        message,
-    ):
-
-        self.messages.append(
-            (
-                "runtime",
-                message,
-            )
-        )
-
-    async def log_service(
-        self,
-        message,
-    ):
-
-        self.messages.append(
-            (
-                "service",
-                message,
-            )
-        )
-
-    async def log_validator(
-        self,
-        message,
-        **kwargs,
-    ):
-
-        self.messages.append(
-            (
-                "validator",
-                message,
-                kwargs,
-            )
-        )
-
-    async def log_error(
-        self,
-        message,
-        **kwargs,
-    ):
-
-        self.messages.append(
-            (
-                "error",
-                message,
-                kwargs,
-            )
-        )
 
 
-class FakeWebSocket:
-
-    def __init__(self):
-
-        self.messages = []
-
-    async def send_json(
-        self,
-        message,
-    ):
-
-        self.messages.append(
-            message
-        )
 
 
 class FakeActiveStream:
@@ -1434,39 +1350,17 @@ class RuntimeStreamTokenTests(unittest.IsolatedAsyncioTestCase):
                 )
 
     async def test_failed_asset_action_replaces_marker_session_update(self):
-
         runtime_id = "brain"
-
-        class Response:
-            status_code = 400
-            reason_phrase = "Bad Request"
-            text = '{"error":{"message":"max_tokens exceeds limit"}}'
-
-        class BadRequestError(Exception):
-            response = Response()
-
-        class FailingServiceClient:
-            configured_context_window = 2048
-            configured_max_tokens = 1024
-            detected_max_tokens = 1024
-
-            async def resolve_request_context_window(
-                self,
-                *,
-                force_refresh=False,
-            ):
-                return self.configured_context_window
-
-            async def detect_max_tokens(self):
-                return self.detected_max_tokens
-
-            async def ask(
-                self,
-                **_kwargs,
-            ):
-                raise BadRequestError(
-                    "Client error '400 Bad Request'"
-                )
+        failed_result = {
+            "ok": False,
+            "action": "run_document_reader",
+            "error": "BadRequestError",
+            "detail": "HTTP 400 Bad Request: max_tokens exceeds limit",
+            "skill": "chunk_reader",
+            "attachment": "README.md",
+            "path": "README.md",
+            "mode": "plain-mode.md",
+        }
 
         async def asset_action_generator():
             yield {
@@ -1488,27 +1382,14 @@ class RuntimeStreamTokenTests(unittest.IsolatedAsyncioTestCase):
             websocket=FakeWebSocket(),
             logger=FakeLogger(),
             emitter=FakeEmitter(),
-            clients={
-                "service": FailingServiceClient(),
-            },
+            clients={},
             active_streams={},
             runtime_action_events=[],
             runtime_usage_events=[],
             runtime_asset_results=[],
             runtime_session_action_history=[],
-            runtime_loaded_skills=[
-                {
-                    "name": "chunk_reader",
-                },
-            ],
-            runtime_turn_attachments=[
-                {
-                    "name": "README.md",
-                    "kind": "text",
-                    "type": "text/markdown",
-                    "text_content": "word " * 120,
-                },
-            ],
+            runtime_loaded_skills=[{"name": "chunk_reader"}],
+            runtime_turn_attachments=[],
             active_memory_records=[],
             runtime_current_turn_id="turn_failed_asset",
             runtime_turn_started_at=0,
@@ -1518,21 +1399,18 @@ class RuntimeStreamTokenTests(unittest.IsolatedAsyncioTestCase):
             context=context,
             runtime_id=runtime_id,
             role="brain",
-            context_window=(
-                8192
-            ),
-            log_method=(
-                context.logger.log_service
-            ),
-            runtime_actions={
-                "CAN_USE_ASSETS": True,
-            },
+            context_window=8192,
+            log_method=context.logger.log_service,
+            runtime_actions={"CAN_USE_ASSETS": True},
         )
 
-        await stream.run(
-            asset_action_generator()
-        )
+        with patch(
+            "utils.actions.asset_actions.run_context_asset_action",
+            new=AsyncMock(return_value=failed_result),
+        ) as run_asset:
+            await stream.run(asset_action_generator())
 
+        run_asset.assert_awaited_once()
         session_updates = [
             event
             for event in context.emitter.events
@@ -1544,10 +1422,7 @@ class RuntimeStreamTokenTests(unittest.IsolatedAsyncioTestCase):
             "ASSET_ACTION - run_document_reader - README.md, plain-mode.md - failed: BadRequestError",
             latest_items[-1]["text"],
         )
-        self.assertNotEqual(
-            latest_items[-1]["text"],
-            "ASSET_ACTION",
-        )
+        self.assertNotEqual(latest_items[-1]["text"], "ASSET_ACTION")
         self.assertTrue(
             any(
                 message[0] == "runtime"

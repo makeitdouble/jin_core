@@ -1,14 +1,16 @@
 from pathlib import Path
 from types import SimpleNamespace
 import unittest
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 from rules.brain_context_builder import _append_user_retry_context
 from runtime.frame_memory import discard_latest_runtime_memory_pending_turn
+from runtime.runtime_context import RuntimeContext
 from websocket.messages import (
     build_user_retry_request,
     discard_latest_visible_turn_for_user_retry,
     format_runtime_memory_user_message,
+    process_message,
 )
 
 
@@ -51,22 +53,6 @@ class UserRetryContractTests(unittest.TestCase):
         self.assertIn("data && data.retryable_response === true", runtime_end_source)
         self.assertIn("commitJinCompletedAnswerRetryCandidate", runtime_end_source)
         self.assertIn("clearJinCompletedAnswerRetryCandidate", runtime_end_source)
-
-    def test_server_promotes_retry_source_only_after_completed_noninterrupted_response(self):
-        source = (ROOT / "websocket" / "messages.py").read_text(encoding="utf-8")
-
-        process_start = source.index("async def process_message(")
-        process_source = source[process_start:]
-        clear_index = process_source.index("context.runtime_last_retryable_request = {}")
-        interrupted_index = process_source.index('"runtime_turn_interrupted"')
-        promote_index = process_source.index(
-            "context.runtime_last_retryable_request = deepcopy(\n                retry_source_candidate"
-        )
-        terminal_index = process_source.index('"type": "agent_runtime_end"')
-
-        self.assertLess(clear_index, interrupted_index)
-        self.assertLess(interrupted_index, promote_index)
-        self.assertLess(promote_index, terminal_index)
 
     def test_retry_socket_request_has_no_new_visible_user_message(self):
         source = SOCKET_JS.read_text(encoding="utf-8")
@@ -145,6 +131,54 @@ class UserRetryContractTests(unittest.TestCase):
 
 
 class UserRetryAsyncContractTests(unittest.IsolatedAsyncioTestCase):
+
+    async def test_retry_source_is_promoted_only_after_successful_response(self):
+        async def run_case(*, interrupted):
+            logger = SimpleNamespace(**{
+                name: AsyncMock()
+                for name in ("log", "log_system", "log_runtime", "log_user", "log_error")
+            })
+            websocket = SimpleNamespace(send_json=AsyncMock(), query_params={})
+            context = RuntimeContext(
+                websocket=websocket,
+                emitter=SimpleNamespace(emit=AsyncMock()),
+                logger=logger,
+                clients={},
+                session_id="retry-test",
+            )
+            context.runtime_last_retryable_request = {"text": "previous", "attachments": []}
+
+            async def model(state, runtime):
+                state.brain_response = "replacement answer"
+                runtime.runtime_turn_interrupted = interrupted
+
+            with (
+                patch("websocket.messages.AgentRuntime", return_value=SimpleNamespace(run=model)),
+                patch("websocket.messages.load_delayed_memory_by_tags", new=AsyncMock()),
+                patch("websocket.messages.schedule_runtime_memory_update"),
+                patch("websocket.messages.schedule_pending_update_lt_facts_actions"),
+                patch("websocket.messages.emit_session_actions_update", new=AsyncMock()),
+            ):
+                await process_message(context, {"text": "same request"})
+
+            terminal = [
+                call.args[0]
+                for call in websocket.send_json.await_args_list
+                if call.args[0].get("type") == "agent_runtime_end"
+            ][-1]
+            return context, terminal
+
+        completed_context, completed_terminal = await run_case(interrupted=False)
+        self.assertEqual(
+            completed_context.runtime_last_retryable_request,
+            {"text": "same request", "attachments": []},
+        )
+        self.assertTrue(completed_terminal["retryable_response"])
+
+        interrupted_context, interrupted_terminal = await run_case(interrupted=True)
+        self.assertEqual(interrupted_context.runtime_last_retryable_request, {})
+        self.assertFalse(interrupted_terminal["retryable_response"])
+
 
     async def test_frame_retry_discards_latest_pending_turn_before_replacement(self):
         context = SimpleNamespace(

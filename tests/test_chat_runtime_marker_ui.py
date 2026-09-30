@@ -89,6 +89,7 @@ for (const item of captured) {
             capture_output=True,
             text=True,
             check=False,
+            timeout=20,
         )
 
         self.assertEqual(
@@ -165,6 +166,7 @@ for (const [input, expected] of cases) {
             capture_output=True,
             text=True,
             check=False,
+            timeout=20,
         )
 
         self.assertEqual(
@@ -309,6 +311,7 @@ if (stateChanges.length !== 2 || stateChanges[1][1] !== false) {
             capture_output=True,
             text=True,
             check=False,
+            timeout=20,
         )
 
         self.assertEqual(
@@ -415,6 +418,7 @@ if (classes.has("scene-searching")) {
             capture_output=True,
             text=True,
             check=False,
+            timeout=20,
         )
 
         self.assertEqual(
@@ -497,6 +501,7 @@ if (global.captured.options.detail !== expectedDetail) {
             capture_output=True,
             text=True,
             check=False,
+            timeout=20,
         )
 
         self.assertEqual(

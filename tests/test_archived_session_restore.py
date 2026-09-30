@@ -1196,6 +1196,7 @@ open_question: continue
             enriched = enrich_session_bootstrap_from_archive(
                 {
                     "type": "session_bootstrap",
+                    "archived_session_restore": True,
                     "source_session_id": "archive-session",
                     "saved_at": "2026-08-19T17:11:06.900000Z",
                     "runtime_memory": "active_topic: macaroni",

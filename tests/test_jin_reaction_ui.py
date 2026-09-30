@@ -55,6 +55,7 @@ if (!legacy.includes('data-jin-reaction-emoji="😎"') || legacy.includes("JIN_R
             capture_output=True,
             text=True,
             check=False,
+            timeout=20,
         )
 
         self.assertEqual(
@@ -109,6 +110,7 @@ if ((leading.match(/jin-chat-jin-reaction-anchor/g) || []).length !== 2) {
             capture_output=True,
             text=True,
             check=False,
+            timeout=20,
         )
 
         self.assertEqual(
@@ -177,6 +179,7 @@ if (!brainElement.innerHTML.includes("jin-chat-jin-reaction-anchor")) {
             capture_output=True,
             text=True,
             check=False,
+            timeout=20,
         )
 
         self.assertEqual(

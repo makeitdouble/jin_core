@@ -59,7 +59,7 @@ assert.equal(page.collectFactsMemoryRecords().length,0);
 assert.equal(boot(true).readSessionCheckpoint(),null,'restricted storage is optional');
 console.log('PASS: disk-only bootstrap cache contract');
 '''
-        result = subprocess.run(['node', '-e', script], cwd=ROOT, text=True, capture_output=True)
+        result = subprocess.run(['node', '-e', script], cwd=ROOT, text=True, capture_output=True, timeout=20)
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
 

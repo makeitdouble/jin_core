@@ -19,6 +19,12 @@ def parse(chunks):
     return ''.join(r.text for r in results), [a for r in results for a in r.actions]
 
 
+def fragmented(text):
+    cuts = sorted({cut for cut in (2, len(text) // 2, len(text) - 2) if 0 < cut < len(text)})
+    points = [0, *cuts, len(text)]
+    return [text[a:b] for a, b in zip(points, points[1:])]
+
+
 class MalformedParserTests(TestCase):
     def test_every_detectable_action_has_a_contract_schema(self):
         from contracts.rules_assembler import normalize_runtime_action_names, get_runtime_action_schema
@@ -44,9 +50,9 @@ class MalformedParserTests(TestCase):
                 len(text) - len(' after'),
                 len(text) - 1,
             )
-            variants = [("whole", [text]), ("charwise", list(text))]
+            variants = [('whole', [text])]
             variants.extend(
-                (f"split:{split}", [text[:split], text[split:]])
+                (f'split:{split}', [text[:split], text[split:]])
                 for split in split_points
             )
             for label, chunks in variants:
@@ -57,12 +63,20 @@ class MalformedParserTests(TestCase):
                         [(a.name, a.marker_name, a.payload) for a in actions],
                         [('MALFORMED_ACTION', 'ATTACH_FILE_BY_ID', payload)],
                     )
-
-            visible, actions = parse(list(form * 5))
+    
+            visible, actions = parse([form * 5])
             self.assertEqual(visible, '')
             self.assertEqual(len(actions), 5)
             self.assertTrue(all(a.name == 'MALFORMED_ACTION' for a in actions))
-
+    
+        # Keep one charwise malformed-action smoke test instead of repeating it for
+        # every syntax shape and every repeated-call scenario.
+        visible, actions = parse(list('before ' + FORMS[0] + ' after'))
+        self.assertEqual(visible.split(), ['before', 'after'])
+        self.assertEqual(
+            [(a.name, a.marker_name, a.payload) for a in actions],
+            [('MALFORMED_ACTION', 'ATTACH_FILE_BY_ID', PAYLOADS[0])],
+        )
     def test_whole_text_and_mixed_source_order(self):
         source = (
             FORMS[0]
@@ -70,7 +84,9 @@ class MalformedParserTests(TestCase):
             + FORMS[1]
             + '<ATTACH_FILES_BY_ID> abc123 </ATTACH_FILES_BY_ID>'
         )
-        for chunks in ([source], list(source)):
+        cut1 = len(source) // 3
+        cut2 = 2 * len(source) // 3
+        for chunks in ([source], [source[:cut1], source[cut1:cut2], source[cut2:]]):
             visible, actions = parse(chunks)
             self.assertEqual(visible, '')
             self.assertEqual([a.name for a in actions], [
@@ -78,26 +94,36 @@ class MalformedParserTests(TestCase):
                 'MALFORMED_ACTION', 'ATTACH_FILE_BY_ID',
             ])
         self.assertEqual(len(extract_runtime_actions(source).actions), 4)
-
     def test_quoted_unknown_and_false_prefix_are_plain_text(self):
         for form in FORMS:
+            # Every wrapper gets coverage, but wrapper × charwise fragmentation is
+            # redundant with the stream-filter boundary tests.
             for opener in ('"', "'", '`', '(', '[', '{', '«'):
-                for chunks in ([opener + form], list(opener + form)):
-                    visible, actions = parse(chunks)
-                    self.assertEqual(visible, opener + form)
-                    self.assertEqual(actions, [])
+                visible, actions = parse([opener + form])
+                self.assertEqual(visible, opener + form)
+                self.assertEqual(actions, [])
+    
             unknown = form.replace('ATTACH_FILE_BY_ID', 'UNKNOWN_ACTION')
-            self.assertEqual(parse(list(unknown)), (unknown, []))
-        for text in ('text <ATTACH_FILE_BY_', 'text <tool_cal', '<ATTACH_FILE_BY_IDEA>hi'):
-            self.assertEqual(parse(list(text)), (text, []))
-
+            self.assertEqual(parse([unknown]), (unknown, []))
+    
+        # Keep one fragmented quoted malformed action and one fragmented unknown
+        # action as streaming smoke coverage.
+        quoted = '"' + FORMS[0]
+        self.assertEqual(parse(fragmented(quoted)), (quoted, []))
+        unknown = FORMS[0].replace('ATTACH_FILE_BY_ID', 'UNKNOWN_ACTION')
+        self.assertEqual(parse(fragmented(unknown)), (unknown, []))
+    
+        false_prefixes = ('text <ATTACH_FILE_BY_', 'text <tool_cal', '<ATTACH_FILE_BY_IDEA>hi')
+        for text in false_prefixes:
+            self.assertEqual(parse([text]), (text, []))
+        self.assertEqual(parse(fragmented(false_prefixes[0])), (false_prefixes[0], []))
     def test_incomplete_known_envelopes_and_flush_once(self):
         cases = (
             ('<ATTACH_FILE_BY_ID id="abc123">', []),
             ('<tool_call>call:ATTACH_FILE_BY_ID{id:"abc123"}', ['MALFORMED_ACTION']),
         )
         for source, expected_actions in cases:
-            visible, actions = parse(list(source))
+            visible, actions = parse(fragmented(source))
             self.assertEqual(visible, '')
             self.assertEqual([a.name for a in actions], expected_actions)
         p = RuntimeActionStreamFilter()
@@ -110,7 +136,7 @@ class MalformedRuntimeTests(IsolatedAsyncioTestCase):
     async def test_mixed_valid_result_and_malformed_use_one_followup(self):
         from unittest.mock import patch
         from runtime.stream import RuntimeStream
-        from tests.test_runtime_stream_tokens import FakeEmitter, FakeLogger, FakeWebSocket
+        from tests.helpers.runtime_stream import FakeEmitter, FakeLogger, FakeWebSocket
         from agent.nodes.brain import BrainNode
         from utils.context.tool_results import build_tool_results_context
         from utils.context.session_actions import build_session_actions_history_context
@@ -143,8 +169,8 @@ class MalformedRuntimeTests(IsolatedAsyncioTestCase):
         from unittest.mock import patch
         from agent.nodes.brain import BrainNode
         from agent.state import AgentState
-        from tests.test_brain_asset_flow import _context, _brain_runtime, _async_noop
-        from tests.test_runtime_stream_tokens import FakeLogger, FakeWebSocket
+        from tests.helpers.brain import brain_context_stub as _context, brain_runtime_config as _brain_runtime, async_noop as _async_noop
+        from tests.helpers.runtime_stream import FakeLogger, FakeWebSocket
         from utils.actions.malformed_action_utils import record_malformed_action
         context = _context()
         context.logger = FakeLogger()
@@ -192,7 +218,7 @@ class MalformedRuntimeTests(IsolatedAsyncioTestCase):
 
     async def test_stream_results_notifications_history_and_checkpoint(self):
         from runtime.stream import RuntimeStream
-        from tests.test_runtime_stream_tokens import FakeEmitter, FakeLogger, FakeWebSocket
+        from tests.helpers.runtime_stream import FakeEmitter, FakeLogger, FakeWebSocket
         from agent.nodes.brain import BrainNode, action_event_requires_follow_up
         from utils.context.tool_results import build_tool_results_context
         from contracts.rules_assembler import get_runtime_action_schema

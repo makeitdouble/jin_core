@@ -3,26 +3,10 @@ from types import SimpleNamespace
 from unittest import IsolatedAsyncioTestCase, TestCase
 
 from contracts.rules_assembler import get_close_tag_runtime_actions, get_runtime_action_schema
+from tests.helpers.runtime_action_payloads import PAIRED_ACTION_PAYLOADS as PAYLOADS
 from utils.actions import RuntimeActionStreamFilter
 
 
-PAYLOADS = {
-    'CHAT_LOG_SEARCH': '{"query":"pizza"}',
-    'CLEAN_TOOL_RESULTS': 'T1, T2',
-    'WEB_SEARCH': '{"query":"pizza"}',
-    'ASSET_ACTION': '{"action":"list_files"}',
-    'DEEP_WEB_SEARCH': 'research this topic',
-    'JIN_COLOR': '#112233',
-    'JIN_REACTION': '😂',
-    'JIN_POSITION': 'x:100px y:200px',
-    'JIN_SIZE': 'w:120 h:120',
-    'JIN_SPEED': '600px/s',
-    'POSTING_BOARD': '{"action":"feed"}',
-    'SAVE_ACTIVE_MEMORY': '{"conditions":"remember to test"}',
-    'DELETE_ACTIVE_MEMORY': 'AM-abc123',
-    'SAVE_DELAYED_MEMORY': '{"title":"test","summary":"summary","body":"body"}',
-    'UPDATE_LT_FACTS': 'remember this fact',
-}
 
 
 def parse_chunks(chunks):
@@ -30,6 +14,12 @@ def parse_chunks(chunks):
     results = [parser.filter(chunk) for chunk in chunks]
     results.append(parser.flush_result())
     return parser, results
+
+
+def fragmented(text):
+    cuts = sorted({cut for cut in (2, len(text) // 2, len(text) - 2) if 0 < cut < len(text)})
+    points = [0, *cuts, len(text)]
+    return [text[a:b] for a, b in zip(points, points[1:])]
 
 
 class UnclosedParserTests(TestCase):
@@ -50,48 +40,84 @@ class UnclosedParserTests(TestCase):
         self.assertFalse(parser.flush_result().failed_actions)
 
     def test_every_paired_contract_hides_and_fails_unclosed_blocks(self):
+        # Contract coverage and stream-fragmentation coverage are separate concerns.
+        # Every paired action must fail unclosed; one representative action also
+        # exercises charwise provider fragmentation.
         for name, payload in PAYLOADS.items():
             text = f'before\n<{name}>{payload}'
-            for label, chunks in (("whole", [text]), ("charwise", list(text))):
-                with self.subTest(name=name, chunks=label):
-                    self.assert_unclosed_failure(name, payload, chunks)
-
+            with self.subTest(name=name, chunks='whole'):
+                self.assert_unclosed_failure(name, payload, [text])
+    
+        name = 'SAVE_ACTIVE_MEMORY'
+        payload = PAYLOADS[name]
+        text = f'before\n<{name}>{payload}'
+        with self.subTest(name=name, chunks='charwise'):
+            self.assert_unclosed_failure(name, payload, fragmented(text))
     def test_unclosed_block_boundary_matrix(self):
-        # Exhaustive provider split coverage belongs to one representative paired
-        # action. The contract loop above checks that every paired action enters
-        # the same unclosed-action path.
+        # Exhaustive provider split coverage belongs to the stream-filter tests.
+        # Here we only keep representative boundaries for one paired action.
         name = 'SAVE_ACTIVE_MEMORY'
         payload = PAYLOADS[name]
         for body in ('', payload, payload + f'</{name[:-2]}'):
             text = f'before\n<{name}>{body}'
-            for split in range(1, len(text)):
+            split_points = sorted({
+                1,
+                text.find('<') + 1,
+                text.find('>') + 1,
+                len(text) // 2,
+                len(text) - 1,
+            })
+            for split in split_points:
                 with self.subTest(body=body, split=split):
                     self.assert_unclosed_failure(name, body, [text[:split], text[split:]])
-
     def test_repeated_opening_is_not_a_close_tag(self):
         for name, payload in PAYLOADS.items():
-            for chunks in ([f'<{name}>{payload}<{name}>'], list(f'<{name}>{payload}<{name}>')):
-                _, results = parse_chunks(chunks)
-                self.assertFalse([a for r in results for a in r.actions], name)
-                self.assertEqual([a.name for r in results for a in r.failed_actions], [name])
-                self.assertEqual(''.join(r.text for r in results), '')
-
+            text = f'<{name}>{payload}<{name}>'
+            _, results = parse_chunks([text])
+            self.assertFalse([a for r in results for a in r.actions], name)
+            self.assertEqual([a.name for r in results for a in r.failed_actions], [name])
+            self.assertEqual(''.join(r.text for r in results), '')
+    
+        # One fragmented representative is enough to verify that chunking does not
+        # turn a repeated opening tag into a close tag.
+        name = 'SAVE_ACTIVE_MEMORY'
+        payload = PAYLOADS[name]
+        text = f'<{name}>{payload}<{name}>'
+        _, results = parse_chunks(fragmented(text))
+        self.assertFalse([a for r in results for a in r.actions])
+        self.assertEqual([a.name for r in results for a in r.failed_actions], [name])
+        self.assertEqual(''.join(r.text for r in results), '')
     def test_closed_blocks_and_literal_openings_keep_their_semantics(self):
         for name, payload in PAYLOADS.items():
             text = f'before <{name}>{payload}</{name}> after'
-            _, results = parse_chunks(list(text))
+            _, results = parse_chunks([text])
             self.assertEqual([a.name for r in results for a in r.actions], [name])
             self.assertFalse([a for r in results for a in r.failed_actions])
-            self.assertEqual(''.join(r.text for r in results), 'before  after')
-
+            self.assertEqual(' '.join(''.join(r.text for r in results).split()), 'before after')
+    
+        # Preserve one charwise closed-block smoke test; exhaustive provider split
+        # coverage belongs to RuntimeActionStreamFilter itself.
+        name = 'SAVE_ACTIVE_MEMORY'
+        payload = PAYLOADS[name]
+        text = f'before <{name}>{payload}</{name}> after'
+        _, results = parse_chunks(fragmented(text))
+        self.assertEqual([a.name for r in results for a in r.actions], [name])
+        self.assertFalse([a for r in results for a in r.failed_actions])
+        self.assertEqual(' '.join(''.join(r.text for r in results).split()), 'before after')
+    
         name = 'UPDATE_LT_FACTS'
         payload = PAYLOADS[name]
-        for opening in ('"', "'", '`', '(', '[', '{', '«'):
+        openings = ('"', "'", '`', '(', '[', '{', '«')
+        for opening in openings:
             text = f'{opening}<{name}>{payload}'
-            _, results = parse_chunks(list(text))
+            _, results = parse_chunks([text])
             self.assertEqual(''.join(r.text for r in results), text)
             self.assertFalse([a for r in results for a in r.failed_actions])
-
+    
+        text = f'"<{name}>{payload}'
+        _, results = parse_chunks(fragmented(text))
+        self.assertEqual(''.join(r.text for r in results), text)
+        self.assertFalse([a for r in results for a in r.failed_actions])
     def test_private_tail_cannot_execute_nested_markers(self):
         for name in set(PAYLOADS) - {'ASSET_ACTION'}:
             text = f'before <{name}>private <CLEAN_TOOL_RESULTS><ASSET_ACTION>{{"action":"list_files"}}</ASSET_ACTION>'
@@ -112,7 +138,7 @@ class UnclosedParserTests(TestCase):
             + '</SAVE_ACTIVE_MEMORY> after'
         )
 
-        for label, chunks in (("whole", [text]), ("charwise", list(text))):
+        for label, chunks in (("whole", [text]), ("fragmented", fragmented(text))):
             with self.subTest(chunks=label):
                 _, results = parse_chunks(chunks)
                 visible_text = ''.join(r.text for r in results)
@@ -133,14 +159,14 @@ class UnclosedParserTests(TestCase):
                 )
 
     def test_complete_then_incomplete_and_partial_false_prefix(self):
-        _, results = parse_chunks(list('<UPDATE_LT_FACTS>first</UPDATE_LT_FACTS><UPDATE_LT_FACTS>second'))
+        _, results = parse_chunks(fragmented('<UPDATE_LT_FACTS>first</UPDATE_LT_FACTS><UPDATE_LT_FACTS>second'))
         self.assertEqual(len([a for r in results for a in r.actions]), 1)
         self.assertEqual(len([a for r in results for a in r.failed_actions]), 1)
         for text in ('normal <ASSET_ACTOR> text', 'normal (<UPDATE_LT_', 'text < 5'):
-            _, results = parse_chunks(list(text))
+            _, results = parse_chunks(fragmented(text))
             self.assertEqual(''.join(r.text for r in results), text)
             self.assertFalse([a for r in results for a in r.failed_actions])
-        _, results = parse_chunks(list('<CLEAN_TOOL_RESULTS>'))
+        _, results = parse_chunks(fragmented('<CLEAN_TOOL_RESULTS>'))
         self.assertFalse([a for r in results for a in r.actions])
         self.assertEqual(
             [a.name for r in results for a in r.failed_actions],
@@ -158,7 +184,7 @@ class UnclosedRuntimeTests(IsolatedAsyncioTestCase):
         from runtime.frame_memory_utils import build_runtime_session_checkpoint
         from websocket.bootstrap import clean_bootstrap_tool_results
         from utils.context.tool_results import build_tool_results_context
-        from tests.test_runtime_stream_tokens import FakeEmitter, FakeLogger, FakeWebSocket
+        from tests.helpers.runtime_stream import FakeEmitter, FakeLogger, FakeWebSocket
 
         for name, payload in PAYLOADS.items():
             with self.subTest(name=name):

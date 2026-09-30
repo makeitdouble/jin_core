@@ -1676,7 +1676,7 @@ class BrainRuntimeActionTests(unittest.TestCase):
         assert_contains_text(
             self,
             prompt,
-            '{"conditions":"Descriptive conditions text", "additional_conditions":"additional value",}',
+            '{"conditions":"Descriptive conditions text", "additional_conditions":"additional value"}',
         )
         assert_contains_text(
             self,
@@ -1903,7 +1903,7 @@ class BrainRuntimeActionTests(unittest.TestCase):
         assert_contains_text(
             self,
             prompt,
-            '{"conditions":"Descriptive conditions text", "additional_conditions":"additional value",}',
+            '{"conditions":"Descriptive conditions text", "additional_conditions":"additional value"}',
         )
         assert_not_contains_text(
             self,

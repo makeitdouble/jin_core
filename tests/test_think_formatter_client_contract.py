@@ -203,6 +203,7 @@ if (streamingRoot.textContent.includes("*Structure:*")) {
             capture_output=True,
             text=True,
             check=False,
+            timeout=20,
         )
 
         self.assertEqual(

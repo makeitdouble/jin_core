@@ -17,7 +17,7 @@ from runtime.anonymous_mode import (
     runtime_action_write_is_restricted,
 )
 from runtime.runtime_context import RuntimeContext
-from tests.test_anonymous_mode import FakeEmitter
+from tests.helpers.runtime_actions import FakeEmitter
 from tests.helpers.memory import FakeLogger
 from utils.actions import RuntimeActionCall, extract_runtime_actions
 from utils.actions.dispatcher import apply_runtime_action_calls
@@ -222,5 +222,6 @@ assert.strictEqual(JSON.stringify(closedAndReopened.readDelayedMemoryReports()),
         result = subprocess.run(
             ["node", "-e", script], cwd=Path(__file__).resolve().parents[1],
             capture_output=True, text=True, check=False,
+            timeout=20,
         )
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)

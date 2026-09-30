@@ -177,22 +177,51 @@ class RecallFactContextTests(unittest.TestCase):
                 result=recall_fact_context(SimpleNamespace(),{'id':'F1','sources':[S1]},root=root)
                 self.assertEqual(len(result['sources'][0]['messages']),expected)
 
-    def test_all_stream_boundaries_repeated_quoted_incomplete(self):
-        text='before <RECALL_FACTS_CONTEXT> F1, F2, F1 </RECALL_FACTS_CONTEXT> after'
-        for split in range(len(text)+1):
-            stream=RuntimeActionStreamFilter(enabled_actions=('RECALL_FACT_CONTEXT',))
-            results=[stream.filter(text[:split]), stream.filter(text[split:]), stream.flush_result()]
-            self.assertEqual([a.payload for r in results for a in r.actions], ['F1','F2'], split)
-            self.assertNotIn('RECALL_FACTS_CONTEXT',''.join(r.text for r in results))
-        for text in ['"<RECALL_FACTS_CONTEXT> F1, F2 </RECALL_FACTS_CONTEXT>', '`<RECALL_FACTS_CONTEXT> F1 </RECALL_FACTS_CONTEXT>', '[<RECALL_FACTS_CONTEXT> F1 </RECALL_FACTS_CONTEXT>', '<RECALL_FACTORY> F1 </RECALL_FACTORY>']:
-            stream=RuntimeActionStreamFilter(enabled_actions=('RECALL_FACT_CONTEXT',))
-            results=[stream.filter(c) for c in text]+[stream.flush_result()]
+    def test_streaming_repeated_quoted_incomplete(self):
+        text = 'before <RECALL_FACTS_CONTEXT> F1, F2, F1 </RECALL_FACTS_CONTEXT> after'
+        marker_start = text.index('<RECALL_FACTS_CONTEXT>')
+        marker_end = text.index('</RECALL_FACTS_CONTEXT>')
+        split_points = (
+            0,
+            marker_start + 2,
+            text.index('F1'),
+            (marker_start + marker_end) // 2,
+            marker_end + 3,
+            len(text),
+        )
+        for split in split_points:
+            stream = RuntimeActionStreamFilter(enabled_actions=('RECALL_FACT_CONTEXT',))
+            results = [
+                stream.filter(text[:split]),
+                stream.filter(text[split:]),
+                stream.flush_result(),
+            ]
+            self.assertEqual([a.payload for r in results for a in r.actions], ['F1', 'F2'], split)
+            self.assertNotIn('RECALL_FACTS_CONTEXT', ''.join(r.text for r in results))
+
+        literals = (
+            '"<RECALL_FACTS_CONTEXT> F1, F2 </RECALL_FACTS_CONTEXT>',
+            '`<RECALL_FACTS_CONTEXT> F1 </RECALL_FACTS_CONTEXT>',
+            '[<RECALL_FACTS_CONTEXT> F1 </RECALL_FACTS_CONTEXT>',
+            '<RECALL_FACTORY> F1 </RECALL_FACTORY>',
+        )
+        for literal in literals:
+            stream = RuntimeActionStreamFilter(enabled_actions=('RECALL_FACT_CONTEXT',))
+            results = [stream.filter(literal), stream.flush_result()]
             self.assertFalse([a for r in results for a in r.actions])
-            self.assertEqual(''.join(r.text for r in results),text)
-        stream=RuntimeActionStreamFilter(enabled_actions=('RECALL_FACT_CONTEXT',))
-        results=[stream.filter('<RECALL_FACTS_CONTEXT> F1, F2'),stream.flush_result()]
+            self.assertEqual(''.join(r.text for r in results), literal)
+
+        literal = literals[0]
+        stream = RuntimeActionStreamFilter(enabled_actions=('RECALL_FACT_CONTEXT',))
+        cut = literal.index('F1')
+        results = [stream.filter(literal[:cut]), stream.filter(literal[cut:]), stream.flush_result()]
         self.assertFalse([a for r in results for a in r.actions])
-        self.assertEqual(''.join(r.text for r in results),'')
+        self.assertEqual(''.join(r.text for r in results), literal)
+
+        stream = RuntimeActionStreamFilter(enabled_actions=('RECALL_FACT_CONTEXT',))
+        results = [stream.filter('<RECALL_FACTS_CONTEXT> F1, F2'), stream.flush_result()]
+        self.assertFalse([a for r in results for a in r.actions])
+        self.assertEqual(''.join(r.text for r in results), '')
 
     def test_recall_fact_list_rejects_the_whole_invalid_payload(self):
         result = extract_runtime_actions(
@@ -240,7 +269,10 @@ class RecallPipelineTests(unittest.IsolatedAsyncioTestCase):
         rendered=build_tool_results_context(c)
         self.assertIn('&lt;DELETE_ACTIVE_MEMORY',rendered)
         self.assertTrue(any(e.get('action')=='recall_fact_context' for e in events))
-        with patch('utils.actions.recall_fact_context_actions.append_chat_runtime_event'):
+        with patch(
+            'utils.actions.recall_fact_context_actions.recall_fact_context',
+            return_value={'ok': False, 'fact_id': 'F2', 'error': 'source_not_saved'},
+        ), patch('utils.actions.recall_fact_context_actions.append_chat_runtime_event'):
             await apply_runtime_action_calls(c,[RuntimeActionCall(name='RECALL_FACT_CONTEXT',payload='F2')])
 
         failed_event = [

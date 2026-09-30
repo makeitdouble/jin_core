@@ -21,6 +21,7 @@ from runtime.anonymous_mode import (
 from runtime.LT_memory import apply_lt_memory_store_sync
 from runtime.runtime_context import RuntimeContext
 from tests.helpers.memory import FakeLogger
+from tests.helpers.runtime_actions import FakeEmitter
 from utils.actions import RuntimeActionCall
 from utils.actions.dispatcher import apply_runtime_action_calls
 from utils.context.session_actions import build_session_actions_history_context
@@ -29,13 +30,6 @@ from utils.session_actions_history import (
 )
 
 
-class FakeEmitter:
-
-    def __init__(self):
-        self.events = []
-
-    async def emit(self, payload):
-        self.events.append(payload)
 
 
 class AnonymousModeTests(unittest.IsolatedAsyncioTestCase):

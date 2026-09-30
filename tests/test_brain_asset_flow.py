@@ -38,34 +38,15 @@ from utils.tool_results import (
 from tests.helpers.runtime_actions import (
     patch_asset_roots,
 )
+from tests.helpers.brain import (
+    brain_runtime_config as _brain_runtime,
+    brain_context_stub as _context,
+    async_noop as _async_noop,
+)
 
 
-def _brain_runtime():
-    return {
-        "runtime_id": "brain",
-        "label": "brain",
-        "context_window": 8192,
-        "log_method": "log_brain",
-        "runtime_actions": {
-            "CAN_WEB_SEARCH": True,
-            "CAN_USE_ASSETS": True,
-            "CAN_SAVE_DELAYED_MEMORY": True,
-            "CAN_SAVE_ACTIVE_MEMORY": True,
-        },
-    }
 
 
-def _context():
-    return SimpleNamespace(
-        logger=SimpleNamespace(),
-        clients={"brain": object()},
-        runtime_search_queries=[],
-        runtime_search_calls=[],
-        runtime_asset_results=[],
-        runtime_delayed_memory_results=[],
-        runtime_loaded_skills=[],
-        runtime_action_events=[],
-    )
 
 
 def _assert_latest_request_payload(
@@ -1702,8 +1683,7 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
             "I am JIN.",
         )
 
-    async def test_previous_turn_list_skills_uses_followup_system_prompt(self):
-
+    async def test_previous_turn_list_skills_does_not_trigger_followup(self):
         calls = []
 
         async def fake_run_brain_stream(**kwargs):
@@ -1722,32 +1702,13 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
                         },
                     ],
                 })
-                return "", ""
+                return "Current answer.", ""
 
-            if len(calls) == 2:
-                self.assertEqual(
-                    kwargs["brain_payload"],
-                    "",
-                )
-                self.assertTrue(
-                    kwargs.get("followup_tick"),
-                    kwargs,
-                )
-                self.assertNotIn(
-                    "<FOLLOWUP_TICK>",
-                    kwargs["system_prompt"],
-                )
-                return (
-                    "I am JIN.",
-                    "",
-                )
-
-            self.fail(
-                "Brain model kept running after list_skills answer"
-            )
+            self.fail("A previous-turn list_skills result triggered a follow-up")
 
         context = _context()
-        context.runtime_current_turn_id = "turn_000002"
+        context.runtime_current_turn_id = "turn_000003"
+        context.runtime_current_sequence_turn_id = "turn_000003"
         state = AgentState(
             user_input="tell me about yourself",
         )
@@ -1772,14 +1733,8 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
                 context,
             )
 
-        self.assertEqual(
-            len(calls),
-            2,
-        )
-        self.assertEqual(
-            state.brain_response,
-            "I am JIN.",
-        )
+        self.assertEqual(len(calls), 1)
+        self.assertEqual(state.brain_response, "Current answer.")
 
     async def test_regular_brain_run_includes_previous_reasoning_in_initial_prompt(self):
 
@@ -3450,8 +3405,6 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
         )
 
 
-async def _async_noop():
-    return None
 
 
 if __name__ == "__main__":

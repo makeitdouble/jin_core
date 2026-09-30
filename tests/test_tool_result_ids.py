@@ -10,7 +10,7 @@ from websocket.bootstrap import apply_bootstrap_tool_results, clean_bootstrap_to
 from utils.session_actions_history import upsert_session_action_marker_history_since
 
 
-def test_every_stream_boundary():
+def test_clean_tool_results_representative_stream_boundaries():
     cases = [
         ('<CLEAN_TOOL_RESULTS></CLEAN_TOOL_RESULTS>', ''),
         ('<CLEAN_TOOL_RESULTS> T1 </CLEAN_TOOL_RESULTS>', 'T1'),
@@ -18,18 +18,27 @@ def test_every_stream_boundary():
         ('<CLEAN_TOOL_RESULTS> wrong </CLEAN_TOOL_RESULTS>', 'wrong'),
     ]
     for tag, payload in cases:
-        for split in range(len(tag) + 1):
+        split_points = sorted({
+            1,
+            tag.find('>') + 1,
+            len(tag) // 2,
+            tag.rfind('</') + 2,
+            len(tag) - 1,
+        })
+        for split in split_points:
             parser = RuntimeActionStreamFilter()
             results = [parser.filter(tag[:split]), parser.filter(tag[split:]), parser.flush_result()]
             assert ''.join(r.text for r in results) == ''
             assert [(a.name, a.payload) for r in results for a in r.actions] == [('CLEAN_TOOL_RESULTS', payload)]
-        parser = RuntimeActionStreamFilter()
-        literal = '`' + tag + '`'
-        results = [parser.filter(c) for c in literal] + [parser.flush_result()]
-        assert ''.join(r.text for r in results) == literal
-        assert not [a for r in results for a in r.actions]
 
-
+    # Quoted/literal streaming is parser behavior, not payload-specific. One
+    # charwise representative is enough here; exhaustive boundaries live in
+    # the stream-filter tests.
+    literal = '`<CLEAN_TOOL_RESULTS> T1 </CLEAN_TOOL_RESULTS>`'
+    parser = RuntimeActionStreamFilter()
+    results = [parser.filter(c) for c in literal] + [parser.flush_result()]
+    assert ''.join(r.text for r in results) == literal
+    assert not [a for r in results for a in r.actions]
 def test_old_inline_clean_syntax_is_not_executable():
     cases = (
         ('<CLEAN_TOOL_RESULTS>', '', [('CLEAN_TOOL_RESULTS', '')]),

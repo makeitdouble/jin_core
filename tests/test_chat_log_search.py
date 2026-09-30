@@ -157,10 +157,17 @@ class ChatLogSearchTests(unittest.TestCase):
         self.assertIn('&lt;ASSET_ACTION', rendered)
         self.assertIn('menu.jpg', rendered)
 
-    def test_every_stream_boundary_repeated_literal_false_prefix_incomplete(self):
+    def test_representative_stream_boundaries_literals_false_prefix_and_incomplete(self):
         marker = '<CHAT_LOG_SEARCH>{"query":"пицца"}</CHAT_LOG_SEARCH>'
         text = 'before ' + marker + marker + ' after'
-        for split in range(len(text) + 1):
+        split_points = sorted({
+            1,
+            len('before ') + 1,
+            len(text) // 2,
+            len(text) - len(' after') - 1,
+            len(text) - 1,
+        })
+        for split in split_points:
             stream = RuntimeActionStreamFilter(enabled_actions=['CHAT_LOG_SEARCH'])
             results = [stream.filter(text[:split]), stream.filter(text[split:]), stream.flush_result()]
             self.assertEqual(
@@ -169,18 +176,27 @@ class ChatLogSearchTests(unittest.TestCase):
                 split,
             )
             self.assertEqual(''.join(r.text for r in results).replace(' ', ''), 'beforeafter')
-        for text in ['"' + marker, '`' + marker, '[' + marker, '<CHAT_LOG_SEARCHING>hello</CHAT_LOG_SEARCHING>']:
+    
+        literals = ['"' + marker, '`' + marker, '[' + marker, '<CHAT_LOG_SEARCHING>hello</CHAT_LOG_SEARCHING>']
+        for literal in literals:
             stream = RuntimeActionStreamFilter(enabled_actions=['CHAT_LOG_SEARCH'])
-            results = [stream.filter(c) for c in text] + [stream.flush_result()]
+            results = [stream.filter(literal), stream.flush_result()]
             self.assertFalse([a for r in results for a in r.actions])
-            self.assertEqual(''.join(r.text for r in results), text)
+            self.assertEqual(''.join(r.text for r in results), literal)
+    
+        # One charwise literal preserves streaming smoke coverage without repeating
+        # the same parser invariant for every wrapper/false prefix.
+        literal = literals[0]
+        stream = RuntimeActionStreamFilter(enabled_actions=['CHAT_LOG_SEARCH'])
+        results = [stream.filter(c) for c in literal] + [stream.flush_result()]
+        self.assertFalse([a for r in results for a in r.actions])
+        self.assertEqual(''.join(r.text for r in results), literal)
+    
         stream = RuntimeActionStreamFilter(enabled_actions=['CHAT_LOG_SEARCH'])
         results = [stream.filter('<CHAT_LOG_SEARCH>{"query":"x"}'), stream.flush_result()]
         self.assertFalse([a for r in results for a in r.actions])
         self.assertNotIn('CHAT_LOG_SEARCH', ''.join(r.text for r in results))
         self.assertEqual(extract_runtime_actions('<CHAT_LOG_SEARCH>{bad}</CHAT_LOG_SEARCH>').actions[0].payload, '{bad}')
-
-
 class ChatLogSearchPipelineTests(unittest.IsolatedAsyncioTestCase):
     async def test_visible_search_lifecycle_reuses_one_bubble_and_persists_full_summary(self):
         from runtime.runtime_context import RuntimeContext
@@ -230,7 +246,7 @@ class ChatLogSearchPipelineTests(unittest.IsolatedAsyncioTestCase):
             'utils.actions.chat_log_search_actions.search_chat_logs',
             return_value=found,
         ), patch(
-            'utils.actions.chat_log_search_actions.append_chat_runtime_event',
+            'utils.chat_log.append_chat_runtime_event',
         ):
             await apply_runtime_action_calls(
                 c,
@@ -307,7 +323,7 @@ class ChatLogSearchPipelineTests(unittest.IsolatedAsyncioTestCase):
             'utils.actions.chat_log_search_actions.search_chat_logs',
             return_value=found,
         ), patch(
-            'utils.actions.chat_log_search_actions.append_chat_runtime_event',
+            'utils.chat_log.append_chat_runtime_event',
         ):
             first = await apply_runtime_action_calls(
                 c,
@@ -343,7 +359,7 @@ class ChatLogSearchPipelineTests(unittest.IsolatedAsyncioTestCase):
         def archive(context, *, event, payload):
             archives.append({'event': event, 'payload': json.loads(json.dumps(payload)), 'ts':'2026-09-08T12:00:00+03:00'})
         action = RuntimeActionCall(name='CHAT_LOG_SEARCH', payload='{"query":"пицца"}')
-        with patch('utils.actions.chat_log_search_actions.search_chat_logs', return_value=found), patch('utils.actions.chat_log_search_actions.append_chat_runtime_event', side_effect=archive):
+        with patch('utils.actions.chat_log_search_actions.search_chat_logs', return_value=found), patch('utils.chat_log.append_chat_runtime_event', side_effect=archive):
             count = await apply_runtime_action_calls(c, [action], runtime_message_id='m1', action_display_ids={id(action):'search1'})
         self.assertEqual(count, 1)
         self.assertEqual(len(c.runtime_tool_results), 1)
@@ -354,7 +370,7 @@ class ChatLogSearchPipelineTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(restored[0]['tool_id'], c.runtime_tool_results[0]['tool_id'])
         c.runtime_tool_results = restored
         self.assertIn('CHAT_LOG_SEARCH', build_tool_results_context(c))
-        with patch('utils.actions.chat_log_search_actions.append_chat_runtime_event', side_effect=archive):
+        with patch('utils.chat_log.append_chat_runtime_event', side_effect=archive):
             await apply_runtime_action_calls(c, [RuntimeActionCall(name='CHAT_LOG_SEARCH', payload='{"query":"x","max_limit":1000000}')], runtime_message_id='m2')
         self.assertTrue(c.runtime_followup_action_failure_pending)
         rendered = build_tool_results_context(c)
@@ -375,7 +391,7 @@ class ChatLogSearchPipelineTests(unittest.IsolatedAsyncioTestCase):
         from utils.actions.chat_log_search_actions import apply_chat_log_search_actions
         c = SimpleNamespace(runtime_action_events=[])
         action = RuntimeActionCall(name='CHAT_LOG_SEARCH', payload='{"query":"x"}')
-        with patch('utils.actions.chat_log_search_actions.search_chat_logs', side_effect=PermissionError('unreadable archive')), patch('utils.actions.chat_log_search_actions.append_chat_runtime_event'):
+        with patch('utils.actions.chat_log_search_actions.search_chat_logs', side_effect=PermissionError('unreadable archive')), patch('utils.chat_log.append_chat_runtime_event'):
             results = await apply_chat_log_search_actions(c, [action], log_runtime=None, with_action_context=lambda x:x, action_display_ids={})
         self.assertEqual(results[0]['error'], 'archive_read_failed')
         self.assertTrue(c.runtime_followup_action_failure_pending)

@@ -102,6 +102,7 @@ if (terminal !== rows[0]) throw new Error("terminal recovery could not retire a 
             capture_output=True,
             text=True,
             check=False,
+            timeout=20,
         )
         self.assertEqual(completed.returncode, 0, completed.stderr or completed.stdout)
 

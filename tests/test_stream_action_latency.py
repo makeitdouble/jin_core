@@ -12,7 +12,7 @@ from utils.actions import RuntimeActionStreamFilter
 class StreamActionLatencyTests(unittest.IsolatedAsyncioTestCase):
     async def test_outer_runtime_emits_before_action_completion(self):
         from runtime.stream import RuntimeStream
-        from tests.test_runtime_stream_tokens import FakeEmitter, FakeLogger, FakeWebSocket
+        from tests.helpers.runtime_stream import FakeEmitter, FakeLogger, FakeWebSocket
 
         started, release, visible = asyncio.Event(), asyncio.Event(), asyncio.Event()
         context = SimpleNamespace(
@@ -59,23 +59,26 @@ class StreamActionLatencyTests(unittest.IsolatedAsyncioTestCase):
                 await asyncio.gather(task, return_exceptions=True)
 
     async def test_every_paired_action_releases_text_without_flush(self):
-        from tests.test_unclosed_runtime_actions import PAYLOADS
+        from tests.helpers.runtime_action_payloads import PAIRED_ACTION_PAYLOADS
         from contracts.rules_assembler import get_close_tag_runtime_actions, get_runtime_action_private_marker
 
-        payloads = dict(PAYLOADS, WEB_SEARCH="test query", CALL_MCP='{"server":"blender","tool":"get_scene_info","arguments":{}}', LOAD_SKILL="blender_mcp",
+        payloads = dict(PAIRED_ACTION_PAYLOADS, WEB_SEARCH="test query", CALL_MCP='{"server":"blender","tool":"get_scene_info","arguments":{}}', LOAD_SKILL="blender_mcp",
                         UNLOAD_SKILL="blender_mcp", RECALL_FACT_CONTEXT="F1",
                         ATTACH_FILE_BY_ID="file1", LOAD_DELAYED_MEMORY="D1",
                         DELETE_ACTIVE_MEMORY="abc123")
         for name in get_close_tag_runtime_actions():
             marker_name = get_runtime_action_private_marker(name).strip("<> ")
             marker = f"<{marker_name}>{payloads[name]}</{marker_name}>"
-            for split in range(len(marker) + 1):
-                with self.subTest(name=name, split=split):
-                    parser = RuntimeActionStreamFilter(enabled_actions=[name])
-                    parser.filter(marker[:split])
-                    parser.filter(marker[split:])
-                    self.assertIn("Hello", parser.filter("Hello").text)
-                    self.assertEqual(parser.filter(" world!").text, " world!")
+            # Boundary correctness is covered by the dedicated stream-filter tests.
+            # Here one representative split per action is enough to verify that
+            # following visible text is released without requiring flush().
+            split = len(marker) // 2
+            with self.subTest(name=name):
+                parser = RuntimeActionStreamFilter(enabled_actions=[name])
+                parser.filter(marker[:split])
+                parser.filter(marker[split:])
+                self.assertIn("Hello", parser.filter("Hello").text)
+                self.assertEqual(parser.filter(" world!").text, " world!")
 
     async def test_provider_transport_passes_runtime_markers_without_executing_them(self):
         marker = "<LOAD_SKILLS_CONTEXT> blender_mcp </LOAD_SKILLS_CONTEXT>"

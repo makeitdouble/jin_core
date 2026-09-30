@@ -4,7 +4,7 @@ from types import SimpleNamespace
 
 from app_settings import settings
 from runtime.client import LMStudioAPIError, RuntimeClient
-from tests.test_runtime_client import FakeHttpClient, FakeStreamContextObject
+from tests.helpers.runtime_client import FakeHttpClient, FakeStreamContextObject
 from utils.current_context_window import estimate_current_context_tokens
 from utils.tokens import estimate_prompt_tokens
 

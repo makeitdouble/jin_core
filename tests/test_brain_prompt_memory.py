@@ -24,7 +24,7 @@ from utils.session_actions_history import (
     upsert_session_action_marker_history_since,
 )
 from runtime.frame_memory_rules import (
-    DEFAULT_RUNTIME_MEMORY,
+    INITIAL_RUNTIME_MEMORY,
 )
 from runtime.runtime_context import (
     RuntimeContext,
@@ -58,7 +58,7 @@ class BrainPromptMemoryTests(
                 prompt,
             )
             self.assertIn(
-                DEFAULT_RUNTIME_MEMORY.strip(),
+                INITIAL_RUNTIME_MEMORY.strip(),
                 prompt,
             )
 
@@ -175,7 +175,7 @@ class BrainPromptMemoryTests(
                 prompt,
             )
             self.assertIn(
-                f"note: {DEFAULT_RUNTIME_MEMORY.strip()}",
+                INITIAL_RUNTIME_MEMORY.strip(),
                 prompt,
             )
             self.assertIn(
@@ -195,7 +195,7 @@ class BrainPromptMemoryTests(
             self.assertNotIn("user_message_count", snapshot)
             self.assertNotIn("assistant_message_count", snapshot)
             self.assertIn(
-                DEFAULT_RUNTIME_MEMORY.strip(),
+                INITIAL_RUNTIME_MEMORY.strip(),
                 snapshot["raw_memory"],
             )
             self.assertIn(

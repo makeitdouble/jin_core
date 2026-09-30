@@ -310,7 +310,15 @@ class ProjectReviewTests(unittest.TestCase):
 
     def test_marker_splits_quotes_incomplete_and_repeated(self):
         marker = '<ASSET_ACTION>{"action":"project_tree"}</ASSET_ACTION>'
-        for split in range(len(marker) + 1):
+        split_points = (
+            0,
+            2,
+            marker.index('>') + 1,
+            marker.index('project_tree'),
+            marker.rindex('</') + 2,
+            len(marker),
+        )
+        for split in split_points:
             parser = RuntimeActionStreamFilter(enabled_actions=["CAN_USE_ASSETS"])
             chunks = [parser.filter(marker[:split]), parser.filter(marker[split:]), parser.flush_result()]
             self.assertEqual(sum(len(chunk.actions) for chunk in chunks), 1)

@@ -116,17 +116,18 @@ class JinColorTransitionClientContractTests(unittest.TestCase):
         self.assertNotIn("latestJinColor", storage_source)
 
         bootstrap_start = bootstrap_source.index(
-            "browser_color = ("
+            "restored_jin_color = normalize_jin_color_payload("
         )
         bootstrap_end = bootstrap_source.index(
-            "# Browser persistence is the exact checkpoint when available.",
+            "    if bool(",
             bootstrap_start,
         )
         bootstrap_block = bootstrap_source[bootstrap_start:bootstrap_end]
 
-        self.assertIn("if source_changed", bootstrap_block)
-        self.assertIn("if browser_color:", bootstrap_block)
-        self.assertIn("_bootstrap_latest_session_action_color", bootstrap_block)
+        self.assertIn('message_data.get("current_jin_color", "")', bootstrap_block)
+        self.assertIn("context.jin_color = restored_jin_color", bootstrap_block)
+        self.assertNotIn("browser_color", bootstrap_source)
+        self.assertNotIn("_bootstrap_latest_session_action_color", bootstrap_source)
 
         apply_start = session_source.index(
             "function applyPersistedSessionBootstrap(bootstrap)"

@@ -305,7 +305,7 @@ class BehaviorContractTests(unittest.TestCase):
             instructions,
         )
         self.assertIn(
-            '{"conditions":"Descriptive conditions text", "additional_conditions":"additional value",}',
+            '{"conditions":"Descriptive conditions text", "additional_conditions":"additional value"}',
             instructions,
         )
 
@@ -425,28 +425,26 @@ class BehaviorContractTests(unittest.TestCase):
             )
         )
 
-    def test_matching_blocker_skips_without_confirmation(self):
-
-        blockers = get_action_guard_blockers(
-            "save_delayed_memory"
-        )
-        if not blockers:
-            self.skipTest(
-                "save_delayed_memory contract has no blockers configured"
+    def test_matching_blocker_blocks_execution_without_confirmation(self):
+        with patch(
+            "runtime.behavior_contract.get_action_guard_triggers",
+            return_value=("remember this",),
+        ), patch(
+            "runtime.behavior_contract.get_action_guard_blockers",
+            return_value=("do not save",),
+        ):
+            self.assertFalse(
+                should_pause_action_guard_for_confirmation(
+                    "save_delayed_memory",
+                    "please do not save this",
+                )
             )
-
-        self.assertFalse(
-            should_pause_action_guard_for_confirmation(
-                "save_delayed_memory",
-                blockers[0],
+            self.assertFalse(
+                should_execute_action_guard(
+                    "save_delayed_memory",
+                    "please do not save this",
+                )
             )
-        )
-        self.assertFalse(
-            should_execute_action_guard(
-                "save_delayed_memory",
-                blockers[0],
-            )
-        )
 
     def test_behavior_contract_api_returns_contract(self):
 

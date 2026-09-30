@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import json
+import os
 import re
 import sys
+import unittest
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -33,6 +35,41 @@ ANSI = {
     "blue": "\033[34m",
     "gray": "\033[90m",
 }
+
+
+def install_behavior_probe(
+    module_globals: dict[str, Any],
+    *,
+    memory_fields: list[str],
+    print_active_memory_debug: bool = False,
+    context_active_memory_debug_fields: list[str] | None = None,
+) -> "BehaviorProbeHelpers":
+    defaults = {
+        "RUN_MEMORY_UPDATE_AFTER_EACH_TURN": True,
+        "WAIT_FOR_MEMORY_UPDATE_AFTER_EACH_TURN": True,
+        "STRICT_TEXT_ASSERTIONS": False,
+        "PRINT_PRETTY_REPORT": sys.stdout.isatty(),
+        "PRINT_JSON_REPORT": False,
+        "PRINT_WEBSOCKET_MESSAGES": False,
+        "LIVE_STREAM_MODEL_OUTPUT": sys.stdout.isatty(),
+        "LIVE_PRINT_TURN_RESULTS": sys.stdout.isatty(),
+        "USE_ANSI_COLORS": True,
+        "MAX_ANSWER_PREVIEW_CHARS": 1400,
+        "MAX_MEMORY_PREVIEW_CHARS": 2200,
+        "PRINT_ACTIVE_MEMORY_DEBUG": print_active_memory_debug,
+    }
+    for name, value in defaults.items():
+        module_globals.setdefault(name, value)
+
+    module_globals["MEMORY_TEXT_FIELDS_TO_INSPECT"] = list(memory_fields)
+    if context_active_memory_debug_fields is not None:
+        module_globals["CONTEXT_ACTIVE_MEMORY_DEBUG_FIELDS_TO_SCAN"] = list(
+            context_active_memory_debug_fields
+        )
+
+    probe = BehaviorProbeHelpers(module_globals)
+    probe.install()
+    return probe
 
 
 @dataclass
@@ -285,9 +322,6 @@ class BehaviorProbeHelpers:
         context.runtime_memory_snapshot_index = 0
 
         return http_client, websocket, context
-
-    async def async_set_up(self, test_case: Any) -> None:
-        test_case.http_client, test_case.websocket, test_case.context = self.create_test_context()
 
     async def async_tear_down(self, test_case: Any) -> None:
         await wait_for_runtime_memory_update(test_case.context)
@@ -695,6 +729,125 @@ class BehaviorProbeHelpers:
         }
         score.update({key: value for key, value in recall_score.items() if key != "checks"})
         return score
+
+
+    async def run_live_probe(self, test_case: Any) -> dict[str, Any]:
+        turns: list[TurnResult] = []
+        context = test_case.context
+        websocket = test_case.websocket
+
+        for step in self.collect_dialogue_steps():
+            context_event_offset = len(getattr(context, "runtime_action_events", []))
+            websocket_message_offset = len(websocket.messages)
+            state = await self.run_standard_turn(context, step["user_text"])
+            answer = (
+                state.brain_response
+                or getattr(context, "runtime_turn_assistant_response", "")
+                or ""
+            )
+            runtime_actions = self.collect_runtime_actions_after_offsets(
+                context,
+                context_event_offset=context_event_offset,
+                websocket_message_offset=websocket_message_offset,
+                websocket_messages=websocket.messages,
+            )
+            await self.hydrate_active_memory_records_from_runtime_actions(
+                context,
+                runtime_actions,
+            )
+            memory_after_turn = self.build_memory_blob(context)
+            context_active_memory_before_turn = getattr(
+                context,
+                "behavior_probe_context_active_memory_before_turn",
+                "",
+            )
+            snapshot_active_memory_after_turn = self.format_active_memory_debug(
+                "MEMORY CONTRACTS IN SNAPSHOT AFTER TURN",
+                self.collect_snapshot_active_memory_entries(memory_after_turn),
+            )
+            turn = TurnResult(
+                index=step["index"],
+                user_text=step["user_text"],
+                answer=answer,
+                memory_after_turn=memory_after_turn,
+                expected_answer=step["expected_answer"],
+                expected_memory=step["expected_memory"],
+                unexpected_answer=step["unexpected_answer"],
+                unexpected_memory=step["unexpected_memory"],
+                expected_runtime_actions=step.get("expected_runtime_actions", []),
+                unexpected_runtime_actions=step.get("unexpected_runtime_actions", []),
+                expected_runtime_action_payload=step.get("expected_runtime_action_payload", []),
+                context_active_memory_before_turn=context_active_memory_before_turn,
+                snapshot_active_memory_after_turn=snapshot_active_memory_after_turn,
+                runtime_actions=runtime_actions,
+            )
+            turns.append(turn)
+            self.print_live_turn_result(turn)
+
+        score = self.evaluate_expected_text(turns)
+        report = {
+            "scenario_id": self.setting("SCENARIO_ID", "behavior_probe"),
+            "scenario_title": self.setting("SCENARIO_TITLE", "Behavior probe"),
+            "scenario_notes": self.setting("SCENARIO_NOTES", ""),
+            "score": score,
+            "turns": [
+                {
+                    "index": turn.index,
+                    "user_text": turn.user_text,
+                    "answer": turn.answer,
+                    "memory_after_turn": turn.memory_after_turn,
+                    "expected_answer": turn.expected_answer,
+                    "expected_memory": turn.expected_memory,
+                    "unexpected_answer": turn.unexpected_answer,
+                    "unexpected_memory": turn.unexpected_memory,
+                    "expected_runtime_actions": turn.expected_runtime_actions,
+                    "unexpected_runtime_actions": turn.unexpected_runtime_actions,
+                    "expected_runtime_action_payload": turn.expected_runtime_action_payload,
+                    "context_active_memory_before_turn": turn.context_active_memory_before_turn,
+                    "snapshot_active_memory_after_turn": turn.snapshot_active_memory_after_turn,
+                    "runtime_actions": turn.runtime_actions,
+                }
+                for turn in turns
+            ],
+            "final_memory": self.build_memory_blob(context),
+            "turn_number": context.turn_number,
+            "websocket_message_count": len(websocket.messages),
+        }
+
+        if self.setting("PRINT_WEBSOCKET_MESSAGES", False):
+            report["websocket_messages"] = websocket.messages
+        if self.setting("PRINT_PRETTY_REPORT", False):
+            self.print_behavior_probe_report(report)
+        if self.setting("PRINT_JSON_REPORT", False):
+            print(json.dumps(report, ensure_ascii=False, indent=2))
+        if self.setting("STRICT_TEXT_ASSERTIONS", False):
+            failed = [check for check in score["checks"] if not check["passed"]]
+            test_case.assertEqual(failed, [], f"Expected text checks failed: {failed}")
+
+        return report
+
+    def make_live_probe_test_case(
+        self,
+        method_name: str = "test_simple_behavior_probe",
+    ) -> type[unittest.IsolatedAsyncioTestCase]:
+        helpers = self
+
+        class LiveBehaviorProbe(unittest.IsolatedAsyncioTestCase):
+            async def asyncSetUp(self):
+                self.http_client, self.websocket, self.context = helpers.create_test_context()
+
+            async def asyncTearDown(self):
+                await helpers.async_tear_down(self)
+
+        async def run_probe(test_case):
+            await helpers.run_live_probe(test_case)
+
+        setattr(LiveBehaviorProbe, method_name, run_probe)
+        LiveBehaviorProbe.__module__ = str(self.module_globals.get("__name__", __name__))
+        return unittest.skipUnless(
+            os.getenv("JIN_RUN_BEHAVIOR_PROBE", "") == "1",
+            "Set JIN_RUN_BEHAVIOR_PROBE=1 to run the live behavior probe.",
+        )(LiveBehaviorProbe)
 
     def print_behavior_probe_report(self, report: dict[str, Any]) -> None:
         score = report["score"]

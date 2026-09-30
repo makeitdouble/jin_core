@@ -25,6 +25,7 @@ assert.equal(getAttachmentChipEmoji({name:"notes.txt",kind:"text"}), "📄");
             [shutil.which("node"), "-e", script,
              str(Path(__file__).resolve().parents[1] / "ui/static/js/chat-attachments.js")],
             capture_output=True, text=True,
+            timeout=20,
         )
         self.assertEqual(result.returncode, 0, result.stderr or result.stdout)
 
@@ -95,5 +96,6 @@ const paste = text => {
             [shutil.which("node"), "-e", script,
              str(Path(__file__).resolve().parents[1] / "ui/static/js/dragdrop.js")],
             capture_output=True, text=True,
+            timeout=20,
         )
         self.assertEqual(result.returncode, 0, result.stderr or result.stdout)
