@@ -24,6 +24,10 @@ class ConfigLoaderTests(unittest.TestCase):
 
     def test_config_and_example_expose_same_keys_in_same_order(self):
         root = Path(__file__).resolve().parents[1]
+        config_path = root / "config.py"
+
+        if not config_path.is_file():
+            self.skipTest("config.py is an optional local configuration file")
 
         def uppercase_assignments(path):
             import ast
@@ -37,7 +41,7 @@ class ConfigLoaderTests(unittest.TestCase):
                 and node.targets[0].id.isupper()
             ]
 
-        config_keys = uppercase_assignments(root / "config.py")
+        config_keys = uppercase_assignments(config_path)
         example_keys = uppercase_assignments(root / "config.example.py")
         self.assertEqual(
             config_keys,
