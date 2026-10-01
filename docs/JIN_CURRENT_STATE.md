@@ -1,7 +1,7 @@
 # JIN Core Engine — Current State / Migration Notes
 
-**Snapshot inspected:** `jin_core(20260924-072111).zip`<br>
-**Inspection date:** 2026-09-24<br>
+**Snapshot inspected:** `jin_core(20261001-090403).zip`<br>
+**Inspection date:** 2026-10-01<br>
 **Context reference:** current production source is the implementation baseline; durable decisions and historical correction notes are retained only where they remain compatible with that source.
 
 This is the document to read before touching transitional code. It lists what is true in the inspected snapshot, what is legacy residue, and where product intent and implementation currently differ.
@@ -21,7 +21,7 @@ Current high-signal state:
 - `USE_SERVICE_AS_BRAIN` survives only as a localized old-config migration input in `config_loader.py` plus launcher detection. Normalization promotes old Service settings to Brain, clears the dedicated Service URL, then deletes the legacy flag;
 - archived `role=service` / `RUNTIME_MODE=SERVICE` handling and the logger's old `[SERVICE]` output-card presentation are historical reader compatibility only; there is no current writer/foreground route for that mode;
 - L2/L3 remain removed architectural layers. Remaining production references are compatibility comments/log filters/storage migration residue, not active modules;
-- the memory UI exposes exactly `FRAME`, `ACTIVE`, `DELAYED`, `L-T`, and `FILES`; the internal Facts Memory candidate buffer is not a sixth tab;
+- the panel exposes five memory views (`FRAME`, `ACTIVE`, `DELAYED`, `L-T`, `FILES`) plus the `LOGS` session-archive projection; the internal Facts Memory candidate buffer is not a user-facing tab;
 - FRAME is the canonical name for live runtime memory across documentation, implementation modules, state fields, events, the pending journal, UI identifiers, and tests.
 - direct value editing is live for the latest FRAME, Active conditions/value, and L-T fact values; keys/IDs remain read-only, drafts are page-local until acknowledged, and Active/L-T edits surface `updated_at`.
 - the L-T panel defaults to active facts, can toggle `show all` to reveal report-absorbed facts in normal sort order, and keeps report-linked fact IDs clickable.
@@ -29,7 +29,7 @@ Current high-signal state:
 - pinned outgoing files appear as composer attachment chips; click previews, hold detaches from context without deleting the persistent file.
 - Brain recent-message context is adjacent to `<FRAME_MEMORY_N>` and keeps the newest five pairs in full, with newline/XML normalization but no per-message character crop;
 - ordinary Brain turns include the previous successful reasoning block with explicit middle-crop semantics, while follow-ups keep their dedicated reasoning context;
-- browser continuity uses page-ephemeral `jin.liveRuntimeMemory.v2` plus one atomic `jin.sessionCheckpoint.v2`; legacy per-session FRAME selection is migration-only and never freshness-scanned;
+- reload/new-tab continuity is disk-owned (JSONL/runtime events plus saved `frames/` snapshots). Browser cognitive records are page-local projections only: `jin.liveRuntimeMemory.v2` is cleared at page load and the retired durable `jin.sessionCheckpoint.v2` browser value is removed before bootstrap;
 - Session CLEAR is a durable tombstone that blocks passive resurrection across already-open tabs until a new USER message is successfully sent;
 - `SAVE_SESSION` is not a current runtime-action contract; archived-session restore is handled by the bootstrap/restore path;
 - the current action set includes `JIN_REACTION`, internal `RECALL_FACT_CONTEXT`, `CHAT_LOG_SEARCH`, generic skill-gated `CALL_MCP`, and whole-file `ATTACH_FILE_BY_ID`; fact recall, delayed-memory loading, Active deletion, file-by-ID attachment, skill loading, and skill unloading use paired list markers while their internal actions remain singular;
@@ -128,10 +128,10 @@ Only category 4 is a production runtime bug. Do not turn categories 1–3 back i
 
 Current session continuity is split across:
 
-- browser live checkpoint persistence (`runtime-session.js` / `runtime-storage.js`);
-- `runtime_resume` soft resume;
-- `session_bootstrap` state hydration;
-- archived session payload built from logs (`utils/session_restore.py`);
+- live in-process `RuntimeContext.runtime_transport` soft reconnect/resume;
+- disk-owned normal `session_bootstrap` selection from saved USER archives plus the latest committed FRAME;
+- page-local browser projection (`runtime-session.js` / `runtime-storage.js`) that never selects or uploads reload state;
+- explicit archived-session payloads built from logs (`utils/session_restore.py`);
 - hidden `archived_session_resume` priming tick;
 - staged resource replay through the normal runtime-action dispatcher.
 
@@ -160,8 +160,8 @@ Treat `SAVE_SESSION` as historical/restore compatibility in this snapshot. Do no
 source/date/time filters, attachment metadata and anchored reasoning excerpts.
 It uses the existing action/result/error/bubble pipeline and does not require
 web-search credentials. Raw archive restore accepts this structured runtime
-result and its T ID; checkpoint hydration preserves full matched messages
-without slicing the result JSON at 32K. Details: [CHAT_LOG_SEARCH.md](CHAT_LOG_SEARCH.md).
+result and its T ID; disk bootstrap preserves full matched messages without
+slicing the result JSON at 32K. Details: [CHAT_LOG_SEARCH.md](CHAT_LOG_SEARCH.md).
 
 Search verification (2026-09-08): 20 focused search, unclosed-action and readable
 tool-result tests pass; the headless Edge socket-to-DOM test and existing tool-ID
@@ -520,11 +520,11 @@ Session Actions renders `CALL_MCP` identity inline as `skill / tool` instead of 
 
 ## 14. Verification status for this exact snapshot
 
-The 2026-09-24 documentation sync uses `jin_core(20260924-072111).zip` as the source baseline. The audit traced the live action registry/dispatcher/contracts, Brain follow-up limits and malformed recovery, stream/non-stream parser parity, MCP skill/client/action/UI paths, launchers, memory/session continuity paths, and Live Avatar/Win95 projections. Historical verification notes below this numbered current-state section remain dated history and must not be read as the status of this snapshot.
+The 2026-10-01 documentation sync uses `jin_core(20261001-090403).zip` as the source baseline. The audit traced the live action registry/dispatcher/contracts, launcher modes, disk bootstrap/restore ownership, FRAME session titles, LOGS list/preview/live-update/delete behavior, and current browser projection boundaries. Historical verification notes below this numbered current-state section remain dated history and must not be read as the status of this snapshot.
 
-The repository-wide `python -m tests.run_unittest` command currently fails during test discovery before the suite starts: `tests/runtime_actions/test_jin_color_bootstrap_persistence.py` still imports removed `utils.actions.jin_visual_sequence_actions.emit_jin_visual_sequences`. The current production dispatcher intentionally has no visual-sequence collector, so this is stale test residue rather than evidence that the removed runtime module should be restored. This documentation-only pass does not change that test or any runtime code.
+Repository-wide verification for this exact snapshot is green: `python -m tests.run_unittest` ran **1386 tests in 19.467s**, with **OK (skipped=9)**. The earlier discovery blocker around the removed visual-sequence collector is no longer present; `tests/runtime_actions/test_jin_color_bootstrap_persistence.py` now targets `utils.actions.jin_visual_actions`.
 
-Focused verification against the current implementation is green for the newly documented invariants: 22 unittest cases pass across source-order dispatch, MCP runtime/UI, built-in Blender MCP, CLEAN_TOOL_RESULTS checkpoint behavior, and context-overflow follow-up handling. The dedicated repeated-malformed test also passes and confirms one out-of-budget repair attempt followed, on a second malformed response, by the final runtime-actions-disabled tick. These focused results do not override the repository-wide discovery blocker above.
+The browser-client aggregate command was also attempted in the documentation environment, but Node Playwright/Edge integration is unavailable there, so `python -m tests.run_browser_client_tests` exits with the harness dependency message rather than exercising browser tests. Do not treat that as a browser green or a product failure.
 
 ---
 
@@ -532,10 +532,10 @@ Focused verification against the current implementation is green for the newly d
 
 As of this snapshot, the documentation set has been synchronized with the production architecture:
 
-- root `README.md` describes FRAME/L-T/Active/Delayed/Files instead of the old numbered four-layer model;
+- root `README.md` describes FRAME/L-T/Active/Delayed/Files plus the LOGS archive projection instead of the old numbered four-layer model;
 - README model-role/setup/configuration text describes Brain as the only foreground route and Service as optional/dedicated background execution with Brain fallback;
 - `AGENTS.md` records the same routing invariant and explicitly classifies old `USE_SERVICE_AS_BRAIN` / archived Service labels as compatibility;
-- `docs/JIN_ARCHITECTURE.md`, `docs/JIN_DECISIONS.md`, and this file use the 2026-09-24 inspected source as the Brain-first/FRAME/L-T baseline and include the current source-order action, follow-up, MCP, memory-edit, recall, L-T-view, and attachment contracts.
+- `docs/JIN_ARCHITECTURE.md`, `docs/JIN_DECISIONS.md`, and this file use the 2026-10-01 inspected source as the Brain-first/disk-bootstrap/FRAME/L-T baseline and include current LOGS/session-title behavior alongside the action, follow-up, MCP, memory-edit, recall, L-T-view, and attachment contracts.
 
 There is no root `ARCHITECTURE.md` in the inspected archive. `docs/JIN_ARCHITECTURE.md` is the canonical architecture document.
 
@@ -693,6 +693,8 @@ During implementation, 85 targeted unittest cases, 20 targeted pytest cases and 
 
 ## FRAME session titles and LOGS archive projection — 2026-09-29
 
-FRAME now owns one protected `session_title`, refreshed through the existing summarizer on every FRAME cycle, including hidden bootstrap. The LOGS memory tab lists USER-owned non-anonymous archives by date and reuses explicit archived restore in a new tab. Latest committed FRAME wins for list titles; legacy untitled sessions display their session ID, which is also the hover text for every title row.
+FRAME now owns one protected `session_title`, refreshed through the existing summarizer on every FRAME cycle, including hidden bootstrap. The LOGS tab lists USER-owned non-anonymous archives by date and reuses explicit archived restore in a new tab. Latest committed FRAME wins for list titles; legacy untitled sessions display their session ID, which is also the hover text for every title row.
 
-LOGS uses the common memory lazy-render pipeline with 20-row batches. Its list and count load once per page; session dialogue is fetched only while a row is hovered, shown in the existing memory hover-card as up to five one-line USER/JIN pairs, and discarded on mouse leave.
+LOGS uses the common memory lazy-render pipeline with 20-row batches. The full index is fetched once per page, while successful disk commits publish `archived_session_update` so the current session can be inserted or retitled live; a per-session summary request reconciles a missed update without reloading the historical list. Session dialogue is fetched only while a row is hovered, shown in the existing memory hover-card as up to five newest USER-owned turns, and discarded on mouse leave.
+
+Short-click restores the session in a new tab. A 1500 ms hold reuses the shared fade/delete interaction and calls the disk DELETE endpoint. Only indexed USER-owned, non-anonymous archive directories are eligible; symlink escapes are rejected, an empty date directory is removed only when truly empty, and the live writer will not recreate a physically deleted session from a still-open runtime.

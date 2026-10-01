@@ -33,10 +33,10 @@ A current implementation can still violate a product decision. Do not hide that.
 - `RuntimeContext` is the in-process live state hub for a runtime session. Do not create parallel sources of truth for state it already owns.
 - L2 and L3 are **removed architectural layers**. Do not restore them from old README/tests/indexes. Any surviving L2/L3 names must be classified as compatibility, stale tests/docs, UI residue, or dead legacy before touching them.
 - Durable facts belong in L-T. FRAME is live operational memory; do not reintroduce a durable FRAME/L2/L3 hierarchy.
-- Active Memory, Delayed Memory, L-T facts, persistent Files, live FRAME memory, and session checkpoints are different systems with different lifetimes. Do not collapse them into one generic memory store.
+- Active Memory, Delayed Memory, L-T facts, persistent Files, live FRAME memory, and session/bootstrap state are different systems with different lifetimes. LOGS is a disk archive projection, not another memory layer. Do not collapse them into one generic memory store.
 - Session continuity must distinguish a real USER move, a completed turn, an interrupted USER-only turn, an action-only completion, and a blank bootstrap tab. A real USER row can become the newest conversation move without a visible JIN row; a blank tab cannot.
 - Bootstrap lifecycle is owner-locked: greeting only + close is not a saved session; any real USER send makes it saveable, including Stop before/after that send. A completed USER turn restores USER then its own JIN/reasoning, with one divider after the source session, never inside the pair. See D049 in `docs/JIN_DECISIONS.md`; do not change this flow or re-pair unrelated turns to hide corrupt logs.
-- Normal continuation is disk-owned: JSONL dialogue/actions/tool checkpoints plus the latest saved `logs/.../frames` snapshot; Active/Delayed/L-T/Facts retain their existing disk owners. Browser cognitive storage is a page-local projection and must never hydrate the server or choose a source session (D057).
+- Normal continuation is disk-owned: JSONL dialogue/actions/tool checkpoints plus the latest saved `logs/.../frames` snapshot; Active/Delayed/L-T/Facts retain their existing disk owners. Browser cognitive storage is a page-local projection and must never hydrate the server or choose a source session (D057). The retired durable `jin.sessionCheckpoint.v2` browser value is cleared at page startup rather than used for reload continuity.
 - Soft reconnect reuses the live server `RuntimeContext`. After backend restart, restore from disk again; never import `runtime_resume` contents. Explicit archive checkout sends only a source ID, which the server resolves again.
 - A missing/deleted archive cannot be replaced by browser contents. Blank/greeting-only tabs cannot become continuation owners; the newest surviving real USER move owns normal bootstrap.
 - Session CLEAR persists `logs/.continuation-cleared.json`, a disk barrier recording USER row counts. Passive completions/actions cannot lift it; a new real USER row can. Explicit archived restore remains available.
@@ -92,6 +92,7 @@ Before introducing any visual state, find and reuse the closest existing JIN UI 
 - Active and L-T explicit edits must surface the server `updated_at` immediately. Active pause/resume writes must synchronize the canonical Active store before later edits so a UI status change cannot be overwritten by stale backend state.
 - FRAME values follow the detected language of the current user message while FRAME keys remain structural English `snake_case`; do not turn localized values into localized keys.
 - Composer attachment chips are projections of already-pinned persistent files: click opens the existing preview, hold detaches from the message/context, and detach must not delete the persistent file or auto-expand Console.
+- The panel has six navigation tabs: the five memory views `FRAME`, `ACTIVE`, `DELAYED`, `L-T`, `FILES`, plus `LOGS`. `session_title` is a protected FRAME field and is the archive title source. LOGS short-click opens restore in a new tab; the shared 1500 ms hold/delete interaction removes only that saved disk archive and may remove its now-empty date directory. Never let a still-open writer resurrect a deleted archive.
 - Completed assistant output uses the explicit `Copy all` control under the avatar/message shell. Do not restore invisible bubble double-click/long-hold copy-or-retry gesture zones; answer rating remains release-gated off.
 - Live Avatar L-T facts fan out in batches of 100 over additional outer lanes. Keep Active Memory between the outermost L-T lane and the file ring, and reuse the existing memory-row hover zoom/reference highlighting rather than adding a competing ring effect.
 - Hover/detail metadata must survive non-semantic refreshes: counter-only runtime-action updates and bootstrap normalization must not silently erase tooltip/swatch data.
@@ -126,11 +127,11 @@ At minimum, run the checks that apply to the change:
 - targeted search for the removed/renamed format;
 - duplicate writer/listener/timer search;
 - serialize -> reload -> hydrate round trip for restore/state changes;
-- explicit-empty-vs-missing tests for bootstrap fields, plus checkpoint timestamp/lineage invariance for field-only cleanup;
+- explicit-empty-vs-missing tests for disk bootstrap fields, plus page-local projection timestamp/lineage invariance for field-only cleanup;
 - blank-tab vs completed vs interrupted USER-only vs action-only latest-session selection, separately for normal and anonymous log roots;
-- dialogue-tail freshness independent of runtime `saved_at`, plus v1-to-v2 exact-owner migration, orphan rejection, write-failure preservation, and cleared-tombstone multi-tab protection;
+- dialogue-tail freshness independent of runtime `saved_at`, disk-source selection after physical deletion, write-failure preservation, and the disk USER-count clear barrier across multiple tabs;
 - structured session-action metadata round trip (including JIN_COLOR swatch/hex hover);
-- JIN_COLOR server-context -> raw runtime log -> common checkpoint -> local early apply -> one server reconciliation round trip, including stale-source replacement and repeated reload;
+- JIN_COLOR server-context -> raw runtime log/checkpoint event -> disk bootstrap -> one `session_actions_update` reconciliation round trip, including physical-reload and stale-source replacement;
 - full-text recent-message context tests beyond the former character cap, including physical-newline escaping and the five-pair limit;
 - ordinary-turn previous-reasoning inclusion and middle-crop tests, plus absence of duplicate ordinary reasoning in action/recovery follow-ups;
 - chunk-boundary tests for stream/action parsing;

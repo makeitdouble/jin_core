@@ -1,6 +1,6 @@
 # JIN Core Engine — Durable Decisions
 
-**Decision baseline:** reconciled on 2026-09-24 against `jin_core(20260924-072111).zip`. Existing decisions are retained where current source still implements their product meaning; compatibility syntax is documented separately from the canonical model boundary.
+**Decision baseline:** reconciled on 2026-10-01 against `jin_core(20261001-090403).zip`. Existing decisions are retained where current source still implements their product meaning; superseded browser-authority decisions are labelled as historical rather than silently presented as current behavior.
 
 This file records product/architecture intent that should survive refactors. It is not a changelog and not a dump of historical experiments.
 
@@ -338,7 +338,7 @@ The first memory-panel tab is labelled `FRAME`, Brain context exposes it as `<FR
 
 Implementation modules, state fields, events, pending journals, UI identifiers, and tests use FRAME naming. The previous internal name has no compatibility reader or fallback path; old pending journals and wire events are intentionally unsupported.
 
-The memory panel always exposes exactly five tabs: `FRAME`, `ACTIVE`, `DELAYED`, `L-T`, and `FILES`. The temporary unprocessed-facts view is not part of this tab bar. The shared count/paging control sits below the active tab; arrows are visible only for `FRAME`.
+The memory panel exposes five memory views — `FRAME`, `ACTIVE`, `DELAYED`, `L-T`, and `FILES` — plus a sixth `LOGS` archive projection. `LOGS` is not a memory layer: it indexes restorable disk sessions. The temporary unprocessed-facts view is not part of this tab bar. The shared count/paging control sits below the active tab; arrows are visible only for `FRAME`.
 
 ---
 
@@ -370,15 +370,15 @@ Current code uses 333 ms reveal and 1000 ms hide. This mismatch is documented, n
 
 ## D027 — `CLEAN_TOOL_RESULTS` is an authoritative field-local tombstone, not a checkpoint refresh
 
-**Status:** Accepted / implemented
+**Status:** Cleanup semantics retained; browser-checkpoint persistence superseded by D057
 
-Full cleanup persists `session_snapshot.tool_results = []` in the existing browser checkpoint and is requested with an empty `<CLEAN_TOOL_RESULTS></CLEAN_TOOL_RESULTS>` block. Targeted `<CLEAN_TOOL_RESULTS> T1, T2, T3 </CLEAN_TOOL_RESULTS>` persists only the survivors; IDs are comma-separated and validated as one atomic set before mutation. New results have increasing temporary `tool_id` values, also retained in action history; the counter survives cleanup/bootstrap. Legacy results remain ID-less and require full cleanup. Any invalid or missing target fails visibly without clearing any listed result. That explicit empty value is authoritative during predecessor bootstrap and must not be repopulated from older archived tool results.
+Full cleanup is requested with an empty `<CLEAN_TOOL_RESULTS></CLEAN_TOOL_RESULTS>` block. Targeted `<CLEAN_TOOL_RESULTS> T1, T2, T3 </CLEAN_TOOL_RESULTS>` persists only the survivors; IDs are comma-separated and validated as one atomic set before mutation. New results have increasing temporary `tool_id` values, also retained in action history; the counter survives cleanup/bootstrap. Legacy results remain ID-less and require full cleanup. Any invalid or missing target fails visibly without clearing any listed result. The resulting empty/survivor set is authoritative and must not be repopulated from older archived tool results.
 
-The cleanup must preserve the checkpoint's `saved_at`, lineage, and unrelated fields. `saved_at` is the freshness boundary used to decide whether archived dialogue/reasoning/session-actions/files are safe to mix into browser state; touching it for one cleared field can suppress the rest of bootstrap.
+D057 moved reload authority from the former browser checkpoint to disk-owned checkpoint/tool-result events. Page-local browser projections may mirror the cleaned result set, but they do not choose reload state or freshness.
 
-This exact-empty rule is intentionally scoped to `tool_results`. Empty `loaded_memory_ids` and `active_memory_records` retain their existing archive-fallback behavior.
+This exact-empty rule is intentionally scoped to `tool_results`; other empty collections keep their own restore semantics.
 
-**Rejected alternatives:** calling the full live-checkpoint persistence path after CLEAN; treating every empty collection as either universally authoritative or universally missing.
+**Rejected alternatives:** treating browser state as reload authority after CLEAN; treating every empty collection as either universally authoritative or universally missing.
 
 ---
 
@@ -441,45 +441,45 @@ Inline/colon/space forms may still be recognized by compatibility parsing, but c
 
 ## D032 — The newest real USER move owns normal continuation
 
-**Status:** Accepted / implemented
+**Status:** Accepted / implemented; source-selection wording updated by D057
 
-The common browser checkpoint identifies the last runtime session that actually moved. Opening a tab may clone inherited FRAME but does not promote the new runtime ID. A real USER send may promote the session before a visible answer finishes; a server completed-turn commit is the fallback signal. A blank bootstrap-only tab never outranks its predecessor.
+Disk archive selection identifies the last runtime session that actually moved. Opening a blank/bootstrap-only tab does not create a stronger continuation owner. A real USER send can make its session the newest continuation candidate even when the turn is interrupted before a JIN row is written; `conversation_committed_at` remains a separate completed-turn timestamp.
 
-Raw-log selection follows the same rule: the newest real USER move wins even when it is interrupted and has no JIN row. `conversation_committed_at` remains a separate completed-turn timestamp.
+Browser/page-local projections do not participate in source selection. Within the disk archive, the newest real USER move wins, including USER-only interrupted turns.
 
-**Why:** continuity follows the conversation the user actually touched, not whichever tab most recently initialized or flushed background state.
+**Why:** continuity follows the conversation the user actually touched, not whichever tab most recently initialized or flushed presentation state.
 
-**Rejected alternatives:** newest runtime ID wins; newest `saved_at` wins regardless of USER activity; dropping interrupted USER-only moves.
-
----
-
-## D033 — Bootstrap has separate dialogue and runtime freshness clocks
-
-**Status:** Accepted / implemented
-
-Dialogue/reasoning freshness is decided by comparing browser and archive recent-turn tails. Runtime/resource archive enrichment continues to use checkpoint `saved_at`. Field-local room/color/tool-result writes preserve checkpoint freshness metadata.
-
-Session actions use stable identity plus timestamp ordering: the common checkpoint owns actions at or before its save boundary, and raw logs contribute only a newer tail unless the authoritative source session itself changes.
-
-**Why:** a fresh runtime clone or room write must not block a newer raw dialogue tail, while an old archive must not overwrite newer browser runtime/resource state.
-
-**Rejected alternative:** one global timestamp deciding every bootstrap field.
+**Rejected alternatives:** newest runtime ID wins; newest presentation/checkpoint timestamp wins regardless of USER activity; dropping interrupted USER-only moves.
 
 ---
 
-## D034 — JIN color has one checkpoint and one bootstrap reconciliation path
+## D033 — Bootstrap freshness is resolved inside the disk-owned source
 
-**Status:** Accepted / implemented
+**Status:** Browser-authority design superseded by D057; disk freshness semantics implemented
 
-Accepted JIN_COLOR updates `RuntimeContext.jin_color`, emits the live visual event, records an ordered raw runtime event, and is folded into the common session snapshot/room state. There is no separate latest-color storage key.
+Reload/new-tab bootstrap no longer arbitrates browser state against the archive. Disk-owned session material is the only reload authority: recent dialogue/reasoning comes from raw logs, FRAME comes from committed frame snapshots/context fallback, and session actions/tool results come from ordered server-emitted events/checkpoints. Empty disk values remain authoritative.
 
-On normal boot, the common local checkpoint color is applied during early room restore. The server then sends one authoritative color on `session_actions_update` with `bootstrap_restore=true`. Same-source browser color wins; structured action/raw archive color is fallback. A source change discards the stale browser color with the rest of that source.
+A live WebSocket reconnect is a separate case and may reuse the in-process `RuntimeContext`; page-local browser projections do not become a competing freshness clock.
 
-The first bootstrap color uses the one 2-second avatar-and-scene transition. Later/live colors use 333 ms. Field-local color reconciliation may write across the fresh-tab/common-checkpoint ID mismatch only while preserving checkpoint ID, lineage, and `saved_at`.
+**Why:** one reload owner removes browser/archive races while preserving field-appropriate ordering inside the archive.
 
-**Why:** this removes the pink/gray/red flash-and-revert class caused by multiple color owners and late writers.
+**Rejected alternative:** one global timestamp or browser-vs-disk newest-record contest deciding every bootstrap field.
 
-**Rejected alternatives:** `latestJinColor`, `colorOnly` checkpoints, a client source-scanning resolver, a second tint-shift helper, or a delayed color queue.
+---
+
+## D034 — JIN color has one server/disk bootstrap reconciliation path
+
+**Status:** Accepted / implemented; browser-authority clauses superseded by D057
+
+Accepted JIN_COLOR updates `RuntimeContext.jin_color`, emits the live visual event, records an ordered raw runtime event, and is folded into the server session snapshot/action trail. There is no separate latest-color storage key.
+
+On normal reload/bootstrap, disk-owned session state restores the color into `RuntimeContext`. The browser then receives one authoritative color through `session_actions_update` with `bootstrap_restore=true`; page-local room/checkpoint projections may mirror live state but never outrank disk or choose the reload source.
+
+The first bootstrap color uses the one 2-second avatar-and-scene transition. Later/live colors use 333 ms. Projection-only updates must not mutate disk/bootstrap freshness metadata.
+
+**Why:** this removes the pink/gray/red flash-and-revert class caused by multiple color owners and late writers while keeping a single reload authority.
+
+**Rejected alternatives:** `latestJinColor`, `colorOnly` durable browser checkpoints, a client source-scanning resolver, a second tint-shift helper, or a delayed color queue.
 
 ---
 
@@ -491,7 +491,7 @@ Normal bootstrap renders the five newest real USER moves with JIN/reasoning wher
 
 The hidden bootstrap Brain prompt projects continuity before the synthetic instruction: inherited `<PREVIOUS_CHAT_MESSAGES>` first, then carried `<PREVIOUS_REASONING_EVIDENCE_TRAIL_AFTER_EXECUTED_ACTIONS>` when available, then `<MANDATORY_SYSTEM_NOTIFICATION>` with the fresh current session ID/time and `!!! USER DIDN'T SEND NEW MESSAGE! !!!`. Legacy `<OLD_SESSION_RESTORED_STATE>` wrappers are reader compatibility and normalize into `<PREVIOUS_CHAT_MESSAGES>`; they are not the current model-facing block name.
 
-For explicit URL restore, the server archive owns dialogue, reasoning, and FRAME as one causal bundle. A same-session browser checkpoint can recover presentation state (room/avatar and Session Actions), but cannot replace individual conversation fields inside that bundle. The inherited dialogue/reasoning continuity is the newest conversational authority during the one-shot priming turn; restored FRAME is background and may be one update behind the final visible turn.
+For explicit URL restore, the server archive owns dialogue, reasoning, FRAME, Session Actions, and archived visual/runtime state as one causal restore payload. The page may mirror restored room/avatar state into its local projection after application, but browser storage cannot replace individual archive fields or become a restore source. The inherited dialogue/reasoning continuity is the newest conversational authority during the one-shot priming turn; restored FRAME is background and may be one update behind the final visible turn.
 
 **Why:** the user can scroll slightly upward for immediate continuity while the current response begins from a clean, stable boundary.
 
@@ -541,19 +541,17 @@ Memory Attention is deterministic and stateless: it does not call SERVICE, chang
 
 ## D039 — Browser runtime continuity has one atomic checkpoint
 
-**Status:** Accepted / implemented
+**Status:** Superseded by D057 on 2026-09-26; retained only as migration history
 
-Normal browser continuity uses exactly `jin.liveRuntimeMemory.v2` in `sessionStorage` and `jin.sessionCheckpoint.v2` in `localStorage`. The live record is page-ephemeral and survives only soft WebSocket reconnect. Page execution clears it before bootstrap. Reload and new tabs read the one durable checkpoint, then hydrate only an ephemeral live record; there are no durable per-session FRAME records and no freshness scan.
+This decision records the former v2 browser-owned reload design. It is not current bootstrap authority: D057 clears/ignores durable browser cognitive state and resolves reload/new-tab continuity from disk. `jin.liveRuntimeMemory.v2` remains page-ephemeral transport/projection state, while the retired durable `jin.sessionCheckpoint.v2` value is removed during startup rather than trusted for recovery.
 
-The durable checkpoint atomically stores session lineage, save/commit times, runtime memory and update count, runtime snapshot, and session snapshot. Session CLEAR writes a version-2 cleared tombstone. Passive writers cannot replace it; only a successfully emitted new USER move authorizes a later checkpoint, and the clear boundary continues to reject a late pre-clear tab.
+The historical design atomically stored session lineage, save/commit times, runtime memory/update count, runtime snapshot, and session snapshot in the browser, including a cleared tombstone and legacy migration rules. Those browser ownership/migration clauses are intentionally obsolete.
 
-Legacy migration follows ownership rather than freshness: the common snapshot selects the session and may join only a matching saved runtime or its exact per-session record. A self-contained saved runtime is the only fallback without a common snapshot. Orphan per-session records are cleared. Legacy data is deleted only after a successful v2 write, and anonymous mode does not inspect normal-profile state.
+Explicit archived restore remains server/disk-owned, and soft reconnect may still reuse live in-process runtime state; neither behavior revives the old durable browser checkpoint as a source of truth.
 
-Explicit archived restore keeps dialogue, reasoning, and FRAME under server-archive ownership. A same-ID, fresh local v2 checkpoint may contribute only presentation state.
+**Why retained:** it documents the migration path and explains compatibility cleanup code without presenting that code as the current continuity model.
 
-**Why:** one atomic owner eliminates torn SAVE pairs, stale-key resurrection, ambiguous newest-record selection, and hidden bootstrap sources while preserving soft reconnect.
-
-**Rejected alternatives:** split saved-runtime/saved-session keys; durable per-session FRAME keys; newest-timestamp scans; physical deletion without a multi-tab tombstone; automatic `saved_runtime.txt` fallback.
+**Rejected current alternatives:** split durable browser state, newest-timestamp browser scans, or any automatic browser-to-disk cognitive migration.
 
 ---
 
@@ -804,4 +802,6 @@ Session CLEAR keeps its semantics with an atomic disk USER-count barrier (`logs/
 
 `session_title` is one reserved FRAME field, emitted on every full FRAME replacement and protected against omission, duplication, and manual deletion. The ordinary FRAME lifecycle is unchanged: a hidden bootstrap response may run FRAME and update the title. Titles have no separate store and require no extra model request.
 
-The memory panel's LOGS tab indexes restorable, USER-owned non-anonymous archives. It uses the latest committed `frames/` snapshot when present, otherwise the matching primary context snapshot, and shows the session ID for legacy archives without a title. Selecting a row opens the existing `restore_session` flow in a new tab; current global durable memory remains governed by the existing restore contract.
+The memory panel's LOGS tab indexes restorable, USER-owned non-anonymous archives. It uses the latest committed `frames/` snapshot when present, otherwise the matching primary context snapshot, and shows the session ID for legacy archives without a title. The complete HTTP index is fetched once per page; live `archived_session_update` events insert/retitle the current row, and a focused per-session summary request repairs missed events without reloading the full archive list. Hover preview shows the newest USER-owned turns, including unanswered/action-only USER turns.
+
+Short click opens the existing `restore_session` flow in a new tab. A 1500 ms hold uses the same fade/hold interaction as the other memory rows and deletes the indexed archive through the server endpoint. Deletion rejects anonymous, unsafe, non-indexed, or symlinked targets, removes an empty date directory, and a still-live writer must not recreate a materialized archive the user deleted. Current global durable memory remains governed by the existing restore contract.

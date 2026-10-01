@@ -1,7 +1,7 @@
 # JIN Core Engine — Current Architecture
 
-**Verified snapshot:** `jin_core(20260924-072111).zip`<br>
-**Inspection date:** 2026-09-24<br>
+**Verified snapshot:** `jin_core(20261001-090403).zip`<br>
+**Inspection date:** 2026-10-01<br>
 **Reconciliation basis:** current production source is the implementation source of truth; durable decisions are retained where they still match it, and legacy tests/comments are treated as compatibility evidence only.<br>
 
 **Purpose:** describe the architecture that is actually visible in the current source tree, while explicitly separating legacy compatibility from active design.
@@ -62,7 +62,7 @@ Main ownership by package:
 
 | Area | Current responsibility |
 | --- | --- |
-| `app.py` | FastAPI app, HTTP APIs, static files, session-restore endpoint, WebSocket router registration |
+| `app.py` | FastAPI app, HTTP APIs, static files, session archive list/summary/preview/delete/restore endpoints, WebSocket router registration |
 | `websocket/` | connection lifecycle, queueing, bootstrap/resume, foreground turn orchestration, server->browser events |
 | `runtime/runtime_context.py` | live in-process state hub for one logical runtime |
 | `agent/` | direct foreground Brain execution and per-turn state |
@@ -75,7 +75,7 @@ Main ownership by package:
 | `runtime/LT_memory*` | Facts Memory ingestion, durable L-T extraction/merge, reconciliation, delete/restore |
 | `runtime/memory_attention.py` | prompt-only Active/Delayed/L-T relevance ranking |
 | `utils/*_store.py` | durable file/report/fact stores |
-| `ui/static/js/runtime/` | browser-side runtime state, persistence, session checkpointing, memory UI, avatar |
+| `ui/static/js/runtime/` | browser-side page-local runtime projections, session UI, memory UI, avatar |
 | `ui/static/js/logger/` | inspectable logger/action/memory projections |
 
 ---
@@ -106,7 +106,7 @@ Do not create a parallel state container for a concept already owned here unless
 
 The websocket endpoint uses a normal `asyncio.Queue` to serialize queued requests in FIFO order. Foreground work still has explicit guards around background L-T processing.
 
-The queue worker now belongs to the live `RuntimeContext` session through `runtime_transport`, rather than to a physical WebSocket. `websocket/transport.py` buffers serialized output until browser acknowledgement; reconnect attaches a new sender/receiver and replays unacknowledged events in order. Brain, FRAME waits, and pending USER batches keep running while the page is frozen/disconnected. A live transport reconnect does not apply a stale browser runtime/store snapshot. Process restart still uses the existing browser bootstrap fallback. This delivery buffer is in-process transport state, not a new browser checkpoint or durable memory system.
+The queue worker now belongs to the live `RuntimeContext` session through `runtime_transport`, rather than to a physical WebSocket. `websocket/transport.py` buffers serialized output until browser acknowledgement; reconnect attaches a new sender/receiver and replays unacknowledged events in order. Brain, FRAME waits, and pending USER batches keep running while the page is frozen/disconnected. A live transport reconnect does not apply a stale browser runtime/store snapshot. Process restart uses the disk-owned bootstrap path described in section 9; browser cognitive state is not a fallback authority. This delivery buffer is in-process transport state, not a new browser checkpoint or durable memory system.
 
 Page departure (`pagehide`, excluding back/forward cache) retires its transport
 through a same-origin, exact-epoch close beacon, with WebSocket code 4001 as a
@@ -191,7 +191,7 @@ On ordinary turns, `<PREVIOUS_CHAT_MESSAGES>` takes the newest five recent USER/
 
 The ordinary initial Brain prompt also includes the previous successfully completed reasoning in `<PREVIOUS_REASONING_EVIDENCE_TRAIL_AFTER_EXECUTED_ACTIONS>`. Up to 2000 characters are kept whole; above that threshold the projection keeps the first and last 25% and replaces the middle with `CUTTED N chars`. Action/recovery follow-ups project visible dialogue first, then carried reasoning evidence, then `<FOLLOW_UP_RESPONSE_MESSAGE>` and the current failure/recovery/tool state, rather than duplicating the ordinary previous-reasoning slot.
 
-Prompt text is a transient projection. Canonical state remains in `RuntimeContext`, browser persistence, and filesystem stores.
+Prompt text is a transient projection. Canonical state remains in `RuntimeContext` and filesystem stores; browser cognitive data is only a page-local projection.
 
 ---
 
@@ -499,9 +499,9 @@ ranges may be read again; the newest result owns the visible FILE_CONTENT for
 that range, while a bare project path advances to the next unread window.
 CLEAN_TOOL_RESULTS clears project snapshots along with tool results. Removing
 a folder from the user attachment set unloads its source bodies. The normal
-persistent file store and source project remain unchanged. Browser reload
-restores exact loaded ranges through the existing checkpoint; unpinning a
-folder does not resurrect old source bodies.
+persistent file store and source project remain unchanged. Browser/backend reload restores exact loaded ranges from the archived disk
+checkpoint/tool-result events; unpinning a folder does not resurrect old source
+bodies from browser state.
 
 The ordinary dispatcher, bubbles, session actions and Brain follow-up loop
 remain in use. Independent file markers can share one response; Brain is
@@ -600,7 +600,9 @@ The RESTORE endpoint owns archived dialogue, reasoning, FRAME and presentation s
 
 `GET /api/sessions` is the compact read-only archive index used by the memory panel LOGS tab. It returns only session identity/date/creation time/title, excludes anonymous and non-USER technical sessions, and resolves titles from the same committed FRAME precedence used by restore. Legacy untitled rows display their session ID.
 
-LOGS materializes archive rows in the shared scroll-driven lazy batches and keeps the initial list/count for the page lifetime. A row hover uses the common memory hover-card shell and fetches at most the five newest complete USER/JIN pairs from `GET /api/sessions/{session_id}/preview`; leaving the row aborts the request and removes the preview DOM.
+LOGS materializes archive rows in the shared scroll-driven lazy batches. The full HTTP index is fetched once per page, then disk-backed `archived_session_update` events insert/update the active session row live; a focused `GET /api/sessions/{session_id}/summary` reconciliation repairs a missed event without reloading the archive. A row hover uses the common memory hover-card shell and fetches at most the five newest USER-owned turns from `GET /api/sessions/{session_id}/preview`; unanswered/action-only USER turns remain eligible, and leaving the row aborts the request and removes the preview DOM.
+
+A short row click opens `/?restore_session=<id>` in a new tab. The shared 1500 ms hold/delete interaction calls `DELETE /api/sessions/{session_id}`. Deletion is restricted to indexed USER-owned, non-anonymous, non-symlinked archive directories; the date directory is removed only if it becomes empty. The live chat logger refuses to recreate a physically deleted materialized session, so a still-open runtime cannot resurrect a deleted LOGS row.
 
 `utils/session_restore.py` still understands historical `SAVE_SESSION` labels in archived logs. That is restore compatibility, not proof of a current `SAVE_SESSION` runtime action.
 
@@ -676,7 +678,7 @@ Do not collapse these into a generic highlight state.
 
 The L-T panel deliberately separates compact browsing from surfaced evidence: ordinary fact rows use a 50-character value preview, while a row bubbled by runtime reference, explicit reasoning citation, or context-loaded state renders its full value. The storage value is never truncated; this is projection-only behavior.
 
-The memory panel exposes five persistent navigation tabs: `FRAME` (live runtime-memory snapshots), `ACTIVE`, `DELAYED`, `L-T`, and `FILES`. Their shared count control is projected below the active tab; only FRAME exposes previous/next snapshot controls. The temporary unprocessed-facts projection is intentionally omitted from the tab bar. Delayed rows use the same floating detail-card primitive for a bounded report preview (title/summary, creation time, tags, report ID, anchor/fact IDs, and up to 200 body characters). Unpinning a Delayed report emits the shared `memory_unpinned` logger event instead of becoming an invisible panel-only mutation.
+The panel exposes six navigation tabs: five memory views — `FRAME` (live runtime-memory snapshots), `ACTIVE`, `DELAYED`, `L-T`, and `FILES` — plus `LOGS`, which is a projection of the disk session archive rather than a memory store. Their shared count control is projected below the active tab; only FRAME exposes previous/next snapshot controls. The temporary unprocessed-facts projection is intentionally omitted from the tab bar. Delayed rows use the same floating detail-card primitive for a bounded report preview (title/summary, creation time, tags, report ID, anchor/fact IDs, and up to 200 body characters). Unpinning a Delayed report emits the shared `memory_unpinned` logger event instead of becoming an invisible panel-only mutation. LOGS titles come from protected FRAME `session_title`; list rows update from successful disk commits, hover previews are fetched lazily, short-click restores, and the shared hold-delete gesture removes the archive.
 
 L-T facts are partitioned into Live Avatar lanes of at most 100 records; additional facts create additional outer L-T rings with a small radius step. The Active ring is laid out relative to the resulting outermost L-T radius so it remains between L-T and persistent files. Memory-row hover reuses the existing avatar hover-zoom/reference path rather than rebuilding ring state.
 
@@ -692,7 +694,7 @@ JIN visual-action chat bubbles are enabled in this snapshot (`ENABLE_JIN_VISUAL_
 
 Color has one visual transition owner in the avatar API. The initial bootstrap application consumes the one 2000 ms transition; later/live JIN_COLOR applications use 333 ms. The API writes the same temporary duration to avatar-center and scene-tint CSS variables before applying the color, so both projections move together. The old color queue and separate bootstrap tint-shift helper are absent.
 
-Normal session bootstrap applies the color from the common local checkpoint during early room restoration, then accepts one server `session_actions_update` reconciliation with `bootstrap_restore=true`. There is no client-side color resolver scanning competing sources.
+Normal session bootstrap resolves color from the disk-owned session snapshot/raw action trail into server `RuntimeContext`, then applies it once through `session_actions_update` with `bootstrap_restore=true`. The earlier browser-checkpoint color is not a reload authority, and there is no client-side resolver scanning competing sources.
 
 ### Chat bubble skins and context-pressure scaffold
 
@@ -748,7 +750,7 @@ Do not infer current architecture from compatibility/history alone:
 - stale repository indexes or historical test assumptions;
 - historical field names like `runtime_l3_session_memory`;
 - the name `find_latest_completed_session_restore_payload()`; current selection is newest real USER move, including USER-only interruption;
-- treating any write to a browser checkpoint as permission to advance `saved_at`;
+- treating the page-local checkpoint/projection API as reload authority, or any projection write as permission to advance disk `saved_at`;
 - using runtime `saved_at` to decide whether copied dialogue is current;
 - treating a newly opened runtime ID as the newest conversation before a real USER move;
 - assuming an empty collection always means "missing" during archive enrichment;

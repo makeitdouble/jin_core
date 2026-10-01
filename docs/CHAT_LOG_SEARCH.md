@@ -55,9 +55,9 @@ Distinct requests retain separate action identities; counter telemetry preserves
 the final label and details.
 
 Results use the existing `runtime_action` tool-result kind and temporary T IDs.
-Raw archive restore and browser checkpoint hydration preserve structured results,
-including full messages larger than the generic 32K JSON-slicing boundary.
-Normal tool-result cleanup and cleared-checkpoint rules still apply. A result
+Raw archive restore and disk bootstrap preserve structured results, including full
+messages larger than the generic 32K JSON-slicing boundary. Normal tool-result
+cleanup and the disk continuation-clear barrier still apply. A result
 can be large when the matched messages are large; use a smaller `max_limit` or
 `CLEAN_TOOL_RESULTS` after consuming the evidence.
 

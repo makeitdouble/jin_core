@@ -13,7 +13,7 @@ JIN is designed for long-running interaction. It carries model state forward, ex
 
 The main chat stays visually simple while memory layers, reasoning, context pressure, runtime actions, persistent files, and action history remain accessible in collapsible panels.
 
-At a glance, JIN provides inspectable FRAME/Active/Delayed/L-T memory, persistent files, session restore, visible provider reasoning, model-driven runtime actions, MCP skills, context telemetry, and an interactive Live Avatar.
+At a glance, JIN provides inspectable FRAME/Active/Delayed/L-T memory, persistent files, a browsable session archive, session restore, visible provider reasoning, model-driven runtime actions, MCP skills, context telemetry, and an interactive Live Avatar.
 
 ## First Run
 
@@ -60,7 +60,7 @@ The JIN workspace combines the chat stream, draggable/collapsible runtime panels
 
 ## Memory Architecture
 
-JIN no longer uses the old numbered four-layer hierarchy. The current user-facing memory panel has five stable views: **FRAME**, **ACTIVE**, **DELAYED**, **L-T**, and **FILES**.
+JIN no longer uses the old numbered four-layer hierarchy. The current panel has five memory views — **FRAME**, **ACTIVE**, **DELAYED**, **L-T**, and **FILES** — plus a sixth **LOGS** archive view. LOGS is a projection of saved sessions, not another memory layer.
 
 ### FRAME / Live Runtime Memory
 
@@ -84,12 +84,16 @@ JIN no longer uses the old numbered four-layer hierarchy. The current user-facin
 
 **FILES** exposes the persistent uploaded-file library. Stored files keep stable IDs and can be attached/detached across turns or linked from Delayed Memory. Files attached to the next message also appear as compact composer chips: click to preview, hold to detach from context without deleting the stored file.
 
+### Logs / Session Archive
+
+**LOGS** is the disk-backed archive browser for restorable sessions. Session titles come from the protected `session_title` field inside FRAME and update in the list when a newly committed FRAME changes the title; older archives without a title fall back to their session ID. Hovering a row loads a bounded preview of the newest USER/JIN turns, while a normal click opens that archived session through the existing restore flow in a new tab. Holding a row for 1.5 seconds uses the shared fade/delete interaction to remove that saved session from disk; an empty date directory is removed only when nothing else remains inside it. Anonymous and greeting-only/technical sessions are not exposed in this archive view.
+
 ## Core Capabilities
 
 * **Visible Reasoning:** Displays provider/model reasoning separately from the final answer when the backend exposes a reasoning stream.
 * **Reasoning References:** Maps direct references back to runtime rules, memory records, restored context, and linked runtime objects.
-* **Inspectable Memory:** Keeps FRAME/live state, long-term facts, delayed reports, active commitments, persistent files, and continuity checkpoints as separate systems.
-* **Session Continuity:** Supports soft WebSocket resume, atomic browser checkpoints for reload/new-tab continuity, and explicit archived-session restore from persisted logs.
+* **Inspectable Memory:** Keeps FRAME/live state, long-term facts, delayed reports, active commitments, persistent files, and the LOGS session archive as distinct systems.
+* **Session Continuity:** Supports in-process soft WebSocket resume plus disk-owned reload/new-tab/bootstrap continuity and explicit archived-session restore from persisted logs.
 * **Persistent Files:** Stores uploaded text, images, PDFs, and other files under stable ids; the same stored files can be attached to or detached from context across turns.
 * **Runtime Telemetry:** Shows model status, token usage, live context pressure, memory updates, action state, and runtime logs; at 50%+ previous-answer context usage the Brain also receives a live `<CONCERNS>` warning, with an explicit cleanup reminder when tool results are present. Empty concerns are omitted. The status modal can switch the configured LM Studio model for an available runtime role.
 * **Explicit Response Copy:** Completed assistant output exposes a small `Copy all` control under the avatar/message shell instead of hidden bubble gestures.
@@ -158,16 +162,18 @@ On Windows, the LM Studio launcher can fill unset/default Brain model settings f
 
 ### Runtime Storage
 
-JIN stores persistent runtime state locally through:
+Reload/bootstrap authority is disk-owned. Browser cognitive state is only a page-local projection: the live `jin.liveRuntimeMemory.v2` record is cleared whenever the page module starts, and the retired durable `jin.sessionCheckpoint.v2` value is removed instead of being trusted as a reload source. A soft WebSocket reconnect can reuse the surviving server `RuntimeContext`; after a backend/page restart JIN rebuilds continuity from disk.
 
-* `jin.liveRuntimeMemory.v2` in `sessionStorage` for the current page's soft-reconnect FRAME;
-* one atomic `jin.sessionCheckpoint.v2` in `localStorage` for new-tab/reload continuity;
+Persistent state is stored through:
+
+* `logs/YYYY-MM-DD/<session>/` for USER/JIN dialogue, reasoning, runtime events, server checkpoint/tool-result events, and saved `frames/` snapshots used by normal bootstrap and archived restore;
+* `logs/.continuation-cleared.json` for the USER-count barrier created by Session CLEAR;
+* `memory/active/*.json` for Active Memory;
 * `memory/delayed/*.json` for Delayed Memory reports;
-* `memory/facts/long_term_facts.json` for the canonical L-T store;
-* `assets/files/` plus its local index for persistent uploaded files;
-* `logs/` for chat and per-turn reasoning logs.
+* `memory/facts/long_term_facts.json` plus `pending_facts.json` for durable L-T and its candidate queue;
+* `assets/files/` plus its local index for persistent uploaded files.
 
-Model and search traffic goes to the endpoints and providers configured for the runtime.
+UI preferences may still use browser storage, but browser cognitive caches do not select or hydrate the next session. Model and search traffic goes to the endpoints and providers configured for the runtime.
 
 ## Assets and Skills
 
@@ -201,7 +207,7 @@ Supported transports are `stdio`, Streamable HTTP, and legacy SSE (`http` / `str
 |-- agent/                     # Direct Brain runtime, state, and Brain node
 |-- clients/                   # OpenAI-compatible client builders
 |-- runtime/                   # Context, memory, streams, telemetry, registry
-|-- memory/                    # Delayed/L-T runtime stores and placeholders
+|-- memory/                    # Runtime-created Active/Delayed/L-T stores (gitignored data)
 |-- assets/                    # Skills, persistent files, prompts, and generators
 |-- rules/                     # Brain and runtime rule blocks
 |-- utils/                     # Actions, assets, validation, and storage helpers
