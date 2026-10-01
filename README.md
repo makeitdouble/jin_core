@@ -9,13 +9,15 @@
 
 **JIN Core Engine** is an experimental cognitive runtime for OpenAI-compatible models with **visible memory, session continuity, and model-driven actions.**
 
-JIN is designed for long-running interaction. It carries model state forward, exposes the context shaping the current response, lets the model act on that state, and can restore archived sessions through the dedicated bootstrap/restore path.
+Built for long-running interaction, JIN keeps the context shaping each response inspectable while exposing memory, reasoning, runtime actions, persistent files, session restore, MCP skills, telemetry, and the Live Avatar without turning the main chat into a control panel.
 
-The main chat stays visually simple while memory layers, reasoning, context pressure, runtime actions, persistent files, and action history remain accessible in collapsible panels.
+## Interface
 
-At a glance, JIN provides inspectable FRAME/Active/Delayed/L-T memory, persistent files, a browsable session archive, session restore, visible provider reasoning, model-driven runtime actions, MCP skills, context telemetry, and an interactive Live Avatar.
+![JIN Core Engine runtime workspace](ui/static/images/jin-core-default-theme.jpg)
 
-## First Run
+The JIN workspace combines the chat stream, draggable/collapsible runtime panels, runtime actions, persistent files, and the Live Avatar.
+
+## First Run / Install
 
 The default Windows setup is one-click. You do **not** need to install Python, LM Studio, llama.cpp, or a model manually.
 
@@ -36,13 +38,7 @@ After the first successful run, start JIN with the same `JIN_LAUNCHER.bat`. If `
 
 > `config.py` remains the persistent startup-mode switch. Delete it only when you intentionally want JIN to run first-start detection again: it will reuse LM Studio at `127.0.0.1:1234` when available, otherwise it will start the embedded bootstrap.
 
-## Interface
-
-![JIN Core Engine runtime workspace](ui/static/images/jin-core-default-theme.jpg)
-
-The JIN workspace combines the chat stream, draggable/collapsible runtime panels, model telemetry, inspectable memory layers, runtime actions, persistent files, and the Live Avatar. Chat bubbles have three current skins: `dark`, `light`, and `bamboo`. Normal theme defaults to `dark`, Win95 defaults to `light`, and an explicit non-default skin is pinned across theme switches (`jin_bubble_skin` / `jin_bubble_skin_pinned`).
-
-### Live Avatar
+## Live Avatar
 <table>
 <tr>
 <td width="66%" valign="top">
@@ -60,13 +56,13 @@ The JIN workspace combines the chat stream, draggable/collapsible runtime panels
 
 ## Memory Architecture
 
-JIN no longer uses the old numbered four-layer hierarchy. The current panel has five memory views — **FRAME**, **ACTIVE**, **DELAYED**, **L-T**, and **FILES** — plus a sixth **LOGS** archive view. LOGS is a projection of saved sessions, not another memory layer.
+The memory panel has five views — **FRAME**, **ACTIVE**, **DELAYED**, **L-T**, and **FILES** — plus a **LOGS** archive view that projects saved sessions.
 
-### FRAME / Live Runtime Memory
+![Memory panel](ui/static/images/memory_panel.jpg)
 
-**FRAME** is the canonical product name for the current live runtime-memory snapshot. It keeps the current topic, request/task state, decisions, feedback, and unresolved points needed by upcoming turns. Accepted updates are versioned as snapshots so the UI can step through diffs and inspect what changed. The latest FRAME value can also be edited directly from its memory tooltip; historical frames remain read-only. FRAME values follow the detected language of the current user message while structural keys remain English `snake_case`.
+### FRAME
 
-![Runtime memory snapshot timeline](ui/static/images/runtime-highlight.png)
+**FRAME** is the live runtime-memory snapshot. It keeps the current topic, request/task state, decisions, feedback, and unresolved points needed by upcoming turns. Accepted updates are versioned as snapshots so the UI can step through diffs and inspect what changed. The latest FRAME value can also be edited directly from its memory tooltip; historical frames remain read-only. FRAME values follow the detected language of the current user message while structural keys remain English `snake_case`.
 
 ### Active Memory
 
@@ -76,48 +72,45 @@ JIN no longer uses the old numbered four-layer hierarchy. The current panel has 
 
 **Delayed Memory** stores larger structured context that should be available without living in every prompt. Reports can link L-T facts and persistent files, can be loaded/unloaded by runtime actions, pinned from the UI, or surfaced from matching user-text tags. Panel rows expose a compact hover preview with summary, tags, IDs, linked facts, creation time, and a bounded body preview; unpinning is also represented in the shared memory logger flow.
 
-### L-T Long-Term Facts
+### Long-Term Facts
 
-**L-T** is the UI view of canonical durable facts: stable user/project facts, preferences, constraints, decisions, and environment details that should survive sessions. An internal Facts Memory candidate buffer feeds idle extraction/merge; it is not a sixth user-facing memory tab or a revived L2/L3 layer. Facts absorbed into Delayed reports stay hidden from the default active view but can be revealed with the count toggle; report-linked fact IDs open the owning report. Explicit fact values are editable, and fact mentions refresh recall so recently used facts stay fully expanded in Brain context while older facts fall back to compact sentence previews.
+**L-T** is the UI view of durable facts: stable user/project facts, preferences, constraints, decisions, and environment details that should survive sessions. An internal candidate buffer feeds idle extraction and merge. Facts absorbed into Delayed reports stay hidden from the default active view but can be revealed with the count toggle; report-linked fact IDs open the owning report. Explicit fact values are editable, and fact mentions refresh recall so recently used facts stay fully expanded in Brain context while older facts fall back to compact sentence previews.
 
 ### Files
 
 **FILES** exposes the persistent uploaded-file library. Stored files keep stable IDs and can be attached/detached across turns or linked from Delayed Memory. Files attached to the next message also appear as compact composer chips: click to preview, hold to detach from context without deleting the stored file.
 
-### Logs / Session Archive
+### Logs
 
-**LOGS** is the disk-backed archive browser for restorable sessions. Session titles come from the protected `session_title` field inside FRAME and update in the list when a newly committed FRAME changes the title; older archives without a title fall back to their session ID. Hovering a row loads a bounded preview of the newest USER/JIN turns, while a normal click opens that archived session through the existing restore flow in a new tab. Holding a row for 1.5 seconds uses the shared fade/delete interaction to remove that saved session from disk; an empty date directory is removed only when nothing else remains inside it. Anonymous and greeting-only/technical sessions are not exposed in this archive view.
+**LOGS** is the disk-backed archive browser for restorable sessions. Session titles come from the protected `session_title` field inside FRAME and update in the list when a newly committed FRAME changes the title; older archives without a title fall back to their session ID. Hovering a row loads a bounded preview of the newest USER/JIN turns, while a normal click opens that archived session through the existing restore flow in a new tab. Holding a row for 1.5 seconds uses the shared fade/delete interaction to remove that saved session from disk; an empty date directory is removed only when nothing else remains inside it. Anonymous and greeting-only/technical sessions are hidden from the archive.
 
 ## Core Capabilities
 
-* **Visible Reasoning:** Displays provider/model reasoning separately from the final answer when the backend exposes a reasoning stream.
-* **Reasoning References:** Maps direct references back to runtime rules, memory records, restored context, and linked runtime objects.
 * **Inspectable Memory:** Keeps FRAME/live state, long-term facts, delayed reports, active commitments, persistent files, and the LOGS session archive as distinct systems.
 * **Session Continuity:** Supports in-process soft WebSocket resume plus disk-owned reload/new-tab/bootstrap continuity and explicit archived-session restore from persisted logs.
 * **Persistent Files:** Stores uploaded text, images, PDFs, and other files under stable ids; the same stored files can be attached to or detached from context across turns.
 * **Runtime Telemetry:** Shows model status, token usage, live context pressure, memory updates, action state, and runtime logs; at 50%+ previous-answer context usage the Brain also receives a live `<CONCERNS>` warning, with an explicit cleanup reminder when tool results are present. Empty concerns are omitted. The status modal can switch the configured LM Studio model for an available runtime role.
-* **Explicit Response Copy:** Completed assistant output exposes a small `Copy all` control under the avatar/message shell instead of hidden bubble gestures.
-* **Interruptible Generation:** Stops an active response while preserving the logical session and a dedicated interrupted-memory path.
+* **Reasoning highlighting:** Displays provider/model reasoning separately from the final answer when the backend exposes a reasoning stream. Maps direct references back to runtime rules, memory records, restored context, and linked runtime objects.
 
 ![Reasoning citation highlighting](ui/static/images/think-highlight.jpg)
 
 ### Runtime Actions
 
-JIN can request an action while answering. The runtime validates and executes it, then returns any required result to the model before the workflow continues. Concrete contracts carry their own readable schema; a failed action is returned as a human-readable tool result with the reason, supplied payload when relevant, and the correct schema, followed by an explicit continuation instruction so the Brain does not treat the failed mutation as completed. Runtime execution preserves the model's emitted source order: each action is prepared and run before the next one; contract `runtime_order` controls how action instructions are advertised, not execution priority.
+JIN can request an action while answering. The runtime validates and executes it, then returns any required result to the model before the workflow continues. Concrete contracts carry their own readable schema; a failed action is returned as a human-readable tool result with the reason, supplied payload when relevant, and the correct schema, followed by an explicit continuation instruction so the Brain does not treat the failed mutation as completed. Runtime execution preserves the model's emitted source order: each action is prepared and run before the next one; contract `runtime_order` only affects how action instructions are listed to the model.
 
 Current contract families include:
 
-* `WEB_SEARCH`, `DEEP_WEB_SEARCH`, and local `CHAT_LOG_SEARCH` when their capability gates allow them;
-* `CLEAN_TOOL_RESULTS`, `UPDATE_LT_FACTS`, and model-facing `<RECALL_FACTS_CONTEXT> F1, F2 </RECALL_FACTS_CONTEXT>`;
-* unified `SAVE_ACTIVE_MEMORY` for both create/update, plus paired multi-ID `DELETE_ACTIVE_MEMORY`;
+* `SAVE_ACTIVE_MEMORY` for both create/update, plus paired multi-ID `DELETE_ACTIVE_MEMORY`;
 * `SAVE_DELAYED_MEMORY` and paired multi-ID `LOAD_DELAYED_MEMORY`; loaded reports are removable tool results, while only user-pinned reports enter the dedicated loaded-memory block;
 * `LIST_ALL_USER_SHARED_FILES`, plus skill-gated `ATTACH_FILE_CONTENT` and paired multi-ID `ATTACH_FILES_BY_ID` (internally `ATTACH_FILE_BY_ID` per file);
-* skill/assets actions. Model-facing `<LOAD_SKILLS_CONTEXT>` and `<UNLOAD_SKILLS_CONTEXT>` accept comma-separated skill lists; the internal actions remain singular;
+* `LOAD_SKILLS_CONTEXT` and `UNLOAD_SKILLS_CONTEXT` accept comma-separated skill lists; the internal actions remain singular;
 * `POSTING_BOARD` after the `posting_board` skill is loaded;
 * `CALL_MCP` after any skill containing a valid `<MCP_SERVER>...</MCP_SERVER>` declaration is loaded;
 * `JIN_COLOR`, `JIN_REACTION`, `JIN_SIZE`, `JIN_POSITION`, and `JIN_SPEED`.
+* `WEB_SEARCH`, `DEEP_WEB_SEARCH`, and local `CHAT_LOG_SEARCH` when their capability gates allow them;
+* `CLEAN_TOOL_RESULTS`, `UPDATE_LT_FACTS`, and model-facing `<RECALL_FACTS_CONTEXT> F1, F2 </RECALL_FACTS_CONTEXT>`;
 
-Concrete schemas in `contracts/*.json` are authoritative; compatibility parser aliases are not the preferred model-facing syntax.
+Concrete schemas in `contracts/*.json` are authoritative.
 
 ## Architecture
 
@@ -143,7 +136,7 @@ The model path is intentionally direct:
 user -> brain
 ```
 
-There is no pre-Brain routing layer. Planning decisions, runtime actions, and follow-up decisions stay inside the Brain/runtime loop.
+Planning decisions, runtime actions, and follow-up decisions all happen inside the Brain/runtime loop.
 
 ### Model Roles
 
@@ -156,13 +149,11 @@ The runtime separates model work into roles:
 
 JIN is model-agnostic at the API boundary. **Brain is the only foreground response route.** Service is background-only. `SERVICE_API_BASE` is optional: when it is empty, the Service client aliases the Brain client, so one physical model can handle both logical roles without changing foreground routing. Set `SERVICE_API_BASE` only when a dedicated background Service node exists.
 
-Older local configs that still contain `USE_SERVICE_AS_BRAIN = True` are accepted only by a localized migration adapter: their old Service endpoint is promoted to the canonical Brain settings, the legacy flag is removed during normalization, and no runtime code branches on it. Archived `SERVICE` response labels are likewise reader compatibility, not a current response mode.
-
 On Windows, the LM Studio launcher can fill unset/default Brain model settings from a loaded Gemma-family model and can separately initialize a dedicated Service endpoint when one is configured. Explicit provider URLs and model ids remain unchanged.
 
 ### Runtime Storage
 
-Reload/bootstrap authority is disk-owned. Browser cognitive state is only a page-local projection: the live `jin.liveRuntimeMemory.v2` record is cleared whenever the page module starts, and the retired durable `jin.sessionCheckpoint.v2` value is removed instead of being trusted as a reload source. A soft WebSocket reconnect can reuse the surviving server `RuntimeContext`; after a backend/page restart JIN rebuilds continuity from disk.
+Reload/bootstrap authority is disk-owned. Browser cognitive state is a page-local projection: the live `jin.liveRuntimeMemory.v2` record is cleared whenever the page module starts. A soft WebSocket reconnect can reuse the surviving server `RuntimeContext`; after a backend/page restart JIN rebuilds continuity from disk.
 
 Persistent state is stored through:
 
@@ -173,7 +164,7 @@ Persistent state is stored through:
 * `memory/facts/long_term_facts.json` plus `pending_facts.json` for durable L-T and its candidate queue;
 * `assets/files/` plus its local index for persistent uploaded files.
 
-UI preferences may still use browser storage, but browser cognitive caches do not select or hydrate the next session. Model and search traffic goes to the endpoints and providers configured for the runtime.
+UI preferences may use browser storage. Model and search traffic goes to the endpoints and providers configured for the runtime.
 
 ## Assets and Skills
 
@@ -195,7 +186,7 @@ JIN can inspect `<SKILLS_LIST>`, load required skills with one comma-separated `
 
 JIN is an MCP client for tool servers. A skill can declare one MCP server in its `JIN_SKILL.md` with a machine-readable `<MCP_SERVER>...</MCP_SERVER>` JSON block. Loading that skill opens/discovers the server, appends the live `tools/list` catalog to the in-memory skill context, and enables the single generic `<CALL_MCP>...</CALL_MCP>` runtime action. Tool-specific names and argument schemas stay in the skill/server; adding another MCP integration does not require another Python runtime action.
 
-Supported transports are `stdio`, Streamable HTTP, and legacy SSE (`http` / `streamable-http` normalize to Streamable HTTP). Stdio connections remain alive across automatic JIN follow-ups and are closed when the skill/runtime is unloaded; an optional positive `read_timeout_seconds` applies to all supported transports. MCP image results are stored in the normal JIN file store and injected as image attachments into the next Brain follow-up, so visual tools can return screenshots/renders without embedding base64 into `<TOOL_RESULT>`. Generic MCP bubbles open the structured request/result trace, while `get_viewport_screenshot` reuses the normal attachment preview. See `docs/MCP_SKILLS.md` for the skill contract.
+Supported transports are `stdio`, Streamable HTTP, and SSE (`http` / `streamable-http` normalize to Streamable HTTP). Stdio connections remain alive across automatic JIN follow-ups and are closed when the skill/runtime is unloaded; an optional positive `read_timeout_seconds` applies to all supported transports. MCP image results are stored in the normal JIN file store and injected as image attachments into the next Brain follow-up, so visual tools can return screenshots/renders without embedding base64 into `<TOOL_RESULT>`. Generic MCP bubbles open the structured request/result trace, while `get_viewport_screenshot` reuses the normal attachment preview. See `docs/MCP_SKILLS.md` for the skill contract.
 
 ## Project Layout
 

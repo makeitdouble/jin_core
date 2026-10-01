@@ -30,18 +30,24 @@ $LlamaCudaAsset = "cudart-llama-bin-win-cuda-$LlamaCudaVersion-x64.zip"
 $LlamaMainSha256 = "f43f62912ef90878f4a1612066c6390fb0bd3d39c4060749e959ca2fdd316316"
 $LlamaCudaSha256 = "8c79a9b226de4b3cacfd1f83d24f962d0773be79f1e7b75c6af4ded7e32ae1d6"
 $EmbeddedModelsDir = Join-Path $RuntimeDir "models"
-$DefaultEmbeddedModelRepo = "Open4bits/gemma-4-E4B-it-GGUF"
-$DefaultEmbeddedModelFile = "gemma-4-e4b-it-q4_k_m.gguf"
+$DefaultEmbeddedModelRepo = "lmstudio-community/gemma-4-E4B-it-GGUF"
+$DefaultEmbeddedModelFile = "gemma-4-E4B-it-Q4_K_M.gguf"
 $DefaultEmbeddedModelPath = Join-Path $EmbeddedModelsDir $DefaultEmbeddedModelFile
 $DefaultEmbeddedModelMarker = Join-Path $EmbeddedModelsDir ".jin_default_model"
-$DefaultEmbeddedModelUrl = "https://huggingface.co/Open4bits/gemma-4-E4B-it-GGUF/resolve/main/gemma-4-e4b-it-q4_k_m.gguf?download=true"
-$DefaultEmbeddedModelSha256 = "41a1a73fdbe350283d4b8a9984e4efa56a4d2ec5a585c7151aa02eff6e7d5da4"
-$DefaultEmbeddedModelLabel = "Gemma 4 E4B Instruct Q4_K_M"
+$DefaultEmbeddedModelUrl = "https://huggingface.co/lmstudio-community/gemma-4-E4B-it-GGUF/resolve/main/gemma-4-E4B-it-Q4_K_M.gguf?download=true"
+$DefaultEmbeddedModelSha256 = "0ffb122c8b6921f13cbc34186e052524d0b5803b17f4867b7197a561400b3770"
+$DefaultEmbeddedModelLabel = "Gemma 4 E4B Q4_K_M"
+$DefaultEmbeddedMmprojFile = "mmproj-gemma-4-E4B-it-BF16.gguf"
+$DefaultEmbeddedMmprojPath = Join-Path $EmbeddedModelsDir $DefaultEmbeddedMmprojFile
+$DefaultEmbeddedMmprojMarker = Join-Path $EmbeddedModelsDir ".jin_default_mmproj"
+$DefaultEmbeddedMmprojUrl = "https://huggingface.co/lmstudio-community/gemma-4-E4B-it-GGUF/resolve/main/mmproj-gemma-4-E4B-it-BF16.gguf?download=true"
+$DefaultEmbeddedMmprojSha256 = "bdfc4935857658dfdc8d1adebfa3897c2fec8b3323410f4f73ade36d6efa02be"
+$DefaultEmbeddedMmprojLabel = "Gemma 4 E4B vision projector"
 $EmbeddedBrainHost = "127.0.0.1"
 $EmbeddedBrainPort = 12345
 $EmbeddedBrainBaseUrl = "http://$EmbeddedBrainHost`:$EmbeddedBrainPort"
 $LmStudioBaseUrl = "http://127.0.0.1:1234"
-$EmbeddedBrainModelId = "gemma-4-e4b-it"
+$EmbeddedBrainModelId = "google/gemma-4-e4b"
 $EmbeddedBrainDefaultContext = 16384
 $EmbeddedBrainMaxContext = 32768
 $EmbeddedBrainContextPath = Join-Path $LauncherDir "brain_context.txt"
@@ -1508,6 +1514,112 @@ function Ensure-DefaultEmbeddedModel {
     }
 }
 
+function Write-DefaultMmprojMarker {
+    param([long]$Size)
+
+    $marker = @(
+        $DefaultEmbeddedMmprojFile,
+        $DefaultEmbeddedMmprojSha256.ToLowerInvariant(),
+        [string]$Size
+    ) -join "`n"
+    Set-Content -LiteralPath $DefaultEmbeddedMmprojMarker -Value $marker -Encoding ASCII
+}
+
+function Test-DefaultEmbeddedMmproj {
+    if (-not (Test-Path -LiteralPath $DefaultEmbeddedMmprojPath)) { return $false }
+
+    if (Test-Path -LiteralPath $DefaultEmbeddedMmprojMarker) {
+        try {
+            $lines = @(Get-Content -LiteralPath $DefaultEmbeddedMmprojMarker)
+            if ($lines.Count -ge 3) {
+                $expectedSize = 0L
+                $sizeOk = [long]::TryParse([string]$lines[2], [ref]$expectedSize)
+                $actualSize = [long](Get-Item -LiteralPath $DefaultEmbeddedMmprojPath).Length
+                if (
+                    [string]$lines[0] -eq $DefaultEmbeddedMmprojFile -and
+                    ([string]$lines[1]).Trim().ToLowerInvariant() -eq $DefaultEmbeddedMmprojSha256.ToLowerInvariant() -and
+                    $sizeOk -and $expectedSize -gt 0 -and $actualSize -eq $expectedSize
+                ) {
+                    return $true
+                }
+            }
+        }
+        catch {}
+    }
+
+    try {
+        $actualHash = (Get-FileHash -LiteralPath $DefaultEmbeddedMmprojPath -Algorithm SHA256).Hash.ToLowerInvariant()
+        if ($actualHash -eq $DefaultEmbeddedMmprojSha256.ToLowerInvariant()) {
+            $size = [long](Get-Item -LiteralPath $DefaultEmbeddedMmprojPath).Length
+            Write-DefaultMmprojMarker -Size $size
+            return $true
+        }
+    }
+    catch {}
+
+    return $false
+}
+
+function Ensure-DefaultEmbeddedMmproj {
+    if (Test-DefaultEmbeddedMmproj) {
+        return [pscustomobject]@{
+            Path = $DefaultEmbeddedMmprojPath
+            File = $DefaultEmbeddedMmprojFile
+            State = "CACHED"
+        }
+    }
+
+    $script:RuntimeMessage = "DOWNLOADING EMBEDDED VISION PROJECTOR"
+    if (-not (Test-Path -LiteralPath $EmbeddedModelsDir)) {
+        [void](New-Item -ItemType Directory -Path $EmbeddedModelsDir -Force)
+    }
+
+    if (Test-Path -LiteralPath $DefaultEmbeddedMmprojPath) {
+        Remove-Item -LiteralPath $DefaultEmbeddedMmprojPath -Force
+    }
+    if (Test-Path -LiteralPath $DefaultEmbeddedMmprojMarker) {
+        Remove-Item -LiteralPath $DefaultEmbeddedMmprojMarker -Force
+    }
+
+    try {
+        $oldProtocol = [Net.ServicePointManager]::SecurityProtocol
+        try {
+            [Net.ServicePointManager]::SecurityProtocol = $oldProtocol -bor [Net.SecurityProtocolType]::Tls12
+            Download-FileWithProgress `
+                -Url $DefaultEmbeddedMmprojUrl `
+                -Destination $DefaultEmbeddedMmprojPath `
+                -DisplayName $DefaultEmbeddedMmprojLabel
+        }
+        finally {
+            [Net.ServicePointManager]::SecurityProtocol = $oldProtocol
+        }
+
+        Write-BootLine "VISION" "verifying embedded vision projector" "WORK"
+        $actualHash = (Get-FileHash -LiteralPath $DefaultEmbeddedMmprojPath -Algorithm SHA256).Hash.ToLowerInvariant()
+        if ($actualHash -ne $DefaultEmbeddedMmprojSha256.ToLowerInvariant()) {
+            throw "Vision projector SHA-256 mismatch."
+        }
+
+        $size = [long](Get-Item -LiteralPath $DefaultEmbeddedMmprojPath).Length
+        Write-DefaultMmprojMarker -Size $size
+    }
+    catch {
+        if (Test-Path -LiteralPath $DefaultEmbeddedMmprojPath) {
+            Remove-Item -LiteralPath $DefaultEmbeddedMmprojPath -Force -ErrorAction SilentlyContinue
+        }
+        if (Test-Path -LiteralPath $DefaultEmbeddedMmprojMarker) {
+            Remove-Item -LiteralPath $DefaultEmbeddedMmprojMarker -Force -ErrorAction SilentlyContinue
+        }
+        Fail-WithMessage ("Unable to prepare the embedded vision projector.`r`n" + $_.Exception.Message)
+    }
+
+    return [pscustomobject]@{
+        Path = $DefaultEmbeddedMmprojPath
+        File = $DefaultEmbeddedMmprojFile
+        State = "DOWNLOADED"
+    }
+}
+
 function Test-EmbeddedBrainReady {
     try {
         $response = Invoke-WebRequest -Uri "$EmbeddedBrainBaseUrl/health" -UseBasicParsing -TimeoutSec 1 -ErrorAction Stop
@@ -1565,6 +1677,9 @@ function Start-EmbeddedBrain {
     if (-not (Test-Path -LiteralPath $DefaultEmbeddedModelPath)) {
         Fail-WithMessage "Embedded Gemma model is missing."
     }
+    if (-not (Test-Path -LiteralPath $DefaultEmbeddedMmprojPath)) {
+        Fail-WithMessage "Embedded Gemma vision projector is missing."
+    }
 
     Set-PythonConfigValue "BRAIN_API_BASE" $EmbeddedBrainBaseUrl
     Set-PythonConfigValue "BRAIN_MODEL_UID" $EmbeddedBrainModelId
@@ -1588,6 +1703,7 @@ function Start-EmbeddedBrain {
 
         $brainArgs = @(
             "--model", ('"{0}"' -f $DefaultEmbeddedModelPath),
+            "--mmproj", ('"{0}"' -f $DefaultEmbeddedMmprojPath),
             "--alias", $EmbeddedBrainModelId,
             "--host", $EmbeddedBrainHost,
             "--port", [string]$EmbeddedBrainPort,
@@ -3089,6 +3205,15 @@ try {
         }
         else {
             Write-BootLine "MODEL" ("embedded default cached // " + $DefaultEmbeddedModelLabel) "OK"
+        }
+
+        Write-BootLine "VISION" "checking embedded vision projector" "WORK"
+        $embeddedMmproj = Ensure-DefaultEmbeddedMmproj
+        if ([string]$embeddedMmproj.State -eq "DOWNLOADED") {
+            Write-BootLine "VISION" "embedded vision projector ready" "OK"
+        }
+        else {
+            Write-BootLine "VISION" "embedded vision projector cached" "OK"
         }
 
         Write-BootLine "BRAIN" "starting downloaded Gemma model" "WORK"

@@ -43,6 +43,7 @@ function Get-EndpointState {
 }
 function Ensure-LlamaRuntime { return [pscustomobject]@{Server='test'; Build='test'; State='CACHED'} }
 function Ensure-DefaultEmbeddedModel { return [pscustomobject]@{Path='test'; Repo='test'; State='CACHED'} }
+function Ensure-DefaultEmbeddedMmproj { return [pscustomobject]@{Path='test'; State='CACHED'} }
 function Start-EmbeddedBrain { [void]$script:Calls.Add('embedded') }
 function Format-ContextTokens { param($Value) return "$Value" }
 function Remove-Item {} # Backend log cleanup must not touch the real installation.

@@ -5,6 +5,9 @@
 
   const TELEMETRY_FRAME_WARNING_MS = 12;
   const CONTEXT_PANEL_RENDER_THROTTLE_MS = 300;
+  // Keep the Service meter implementation available, but do not render or
+  // calculate it unless this single switch is enabled.
+  const ENABLE_SERVICE_CONTEXT_METER = false;
 
   const SCENE_CONTEXT_PRESSURE_MIDDLE_THRESHOLD = 50;
   const SCENE_CONTEXT_PRESSURE_CLUTTERED_THRESHOLD = 100;
@@ -906,10 +909,19 @@
       brainRuntime,
       getContextBarCells(brainBarElement)
     );
-    const serviceLine = buildContextLine(
-      serviceRuntime,
-      getContextBarCells(serviceBarElement)
-    );
+    const serviceLine = ENABLE_SERVICE_CONTEXT_METER
+      ? buildContextLine(
+          serviceRuntime,
+          getContextBarCells(serviceBarElement)
+        )
+      : null;
+
+    if (serviceLineElement) {
+      serviceLineElement.style.display =
+        ENABLE_SERVICE_CONTEXT_METER
+          ? ""
+          : "none";
+    }
 
     if (summaryElement) {
       summaryElement.setAttribute(
@@ -989,19 +1001,25 @@
       brainBarElement,
       brainPercentElement
     );
-    renderRuntimeLine(
-      "service",
-      serviceRuntime,
-      serviceLine,
-      serviceLineElement,
-      serviceBarElement,
-      servicePercentElement
-    );
+    if (ENABLE_SERVICE_CONTEXT_METER) {
+      renderRuntimeLine(
+        "service",
+        serviceRuntime,
+        serviceLine,
+        serviceLineElement,
+        serviceBarElement,
+        servicePercentElement
+      );
+    }
 
     const avatarPressureLine =
-      brainRuntime
-        ? brainLine
-        : serviceLine;
+      ENABLE_SERVICE_CONTEXT_METER
+        ? (
+            brainRuntime
+              ? brainLine
+              : serviceLine
+          )
+        : brainLine;
     const avatarPressurePercent =
       Math.max(
         Number(avatarPressureLine.percent || 0),
@@ -1015,7 +1033,9 @@
 
     updateSceneContextPressureFromLines(
       brainLine,
-      serviceLine
+      ENABLE_SERVICE_CONTEXT_METER
+        ? serviceLine
+        : null
     );
 
   }
