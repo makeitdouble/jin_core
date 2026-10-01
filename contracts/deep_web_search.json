@@ -1,0 +1,26 @@
+{
+  "deep_web_search": {
+    "version": 1,
+    "description": "Starts a bounded multi-step web research sequence using the service model as research workers.",
+    "runtime_action": "DEEP_WEB_SEARCH",
+    "enable_flag": "CAN_DEEP_WEB_SEARCH",
+    "runtime_order": 10,
+    "private_marker": "<DEEP_WEB_SEARCH>",
+    "triggers": [],
+    "blockers": [],
+    "effects": {
+      "emit_followup": true,
+      "follow_up_on_fail": false
+    },
+    "schema": [
+      "<DEEP_WEB_SEARCH>",
+      "deep research objective",
+      "</DEEP_WEB_SEARCH>"
+    ],
+    "rules": [
+      "DO NOT USE for casual search.",
+      "Use only when user explicitly asks for deep searching."
+    ],
+    "close_tag": true
+  }
+}

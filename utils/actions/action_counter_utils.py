@@ -1,6 +1,7 @@
 from collections import OrderedDict
 from dataclasses import dataclass
 import hashlib
+import time
 
 from contracts.rules_assembler import (
     build_runtime_action_display_text,
@@ -14,12 +15,16 @@ from .common_action_utils import (
 from .jin_color_utils import (
     normalize_jin_color_payload,
 )
+from .jin_size_utils import (
+    normalize_jin_size_payload,
+)
 @dataclass(frozen=True)
 class RuntimeActionCount:
     name: str
     count: int
     payloads: tuple[str, ...] = ()
     identity: str = ""
+    created_ats: tuple[float, ...] = ()
 
     @property
     def payload(self) -> str:
@@ -34,15 +39,17 @@ class RuntimeActionCounter:
     """Count identical parsed markers once, before execution dedupe."""
 
     _EXCLUDED_ACTIONS = frozenset({
-        "APPEND_SKILL",
-        "APPEND_SKILLS",
-        "REMOVE_SKILL",
-        "REMOVE_SKILLS",
+        "LOAD_SKILL",
+        "LOAD_SKILLS",
+        "UNLOAD_SKILL",
+        "UNLOAD_SKILLS",
+        "DEEP_WEB_SEARCH",
     })
 
     def __init__(self):
         self._counts = OrderedDict()
         self._payloads = {}
+        self._created_ats = {}
 
     @staticmethod
     def _identity_key(
@@ -50,8 +57,11 @@ class RuntimeActionCounter:
         payload: str,
     ) -> tuple[str, str]:
 
-        # JIN_COLOR intentionally remains one ordered aggregate sequence.
-        if name == "JIN_COLOR":
+        # Visual JIN markers intentionally remain ordered aggregate sequences.
+        if name in {
+            "JIN_COLOR",
+            "JIN_SIZE",
+        }:
             return (
                 name,
                 "",
@@ -96,8 +106,12 @@ class RuntimeActionCounter:
             if identity_key not in self._counts:
                 self._counts[identity_key] = 0
                 self._payloads[identity_key] = []
+                self._created_ats[identity_key] = []
 
             self._counts[identity_key] += 1
+            self._created_ats[identity_key].append(
+                time.time()
+            )
 
             if payload:
                 self._payloads[identity_key].append(
@@ -136,6 +150,12 @@ class RuntimeActionCounter:
                 )
             ),
             identity=identity,
+            created_ats=tuple(
+                self._created_ats.get(
+                    identity_key,
+                    (),
+                )
+            ),
         )
 
     def get(
@@ -197,11 +217,17 @@ class RuntimeActionCounter:
                 continue
 
             payloads = resolved_display_payloads.get(
-                entry.name,
-                entry.payloads,
+                (
+                    entry.name,
+                    entry.identity,
+                ),
+                resolved_display_payloads.get(
+                    entry.name,
+                    entry.payloads,
+                ),
             )
 
-            normalized_payloads = normalize_runtime_action_counter_payloads(
+            normalized_payloads = resolve_runtime_action_counter_display_payloads(
                 entry,
                 payloads,
             )
@@ -216,6 +242,10 @@ class RuntimeActionCounter:
                 "payloads": normalized_payloads,
             }
 
+            if entry.created_ats:
+                marker_action["created_at"] = entry.created_ats[0]
+                marker_action["created_ats"] = list(entry.created_ats)
+
             if raw_payloads:
                 marker_action["raw_payloads"] = raw_payloads
 
@@ -229,6 +259,43 @@ class RuntimeActionCounter:
             )
 
         return marker_actions
+
+
+def resolve_runtime_action_counter_display_payloads(
+    entry: RuntimeActionCount,
+    payloads,
+) -> list[str]:
+
+    normalized_payloads = normalize_runtime_action_counter_payloads(
+        entry,
+        payloads,
+    )
+
+    if entry.name not in {
+        "ATTACH_FILE_CONTENT",
+        "ATTACH_FILE_BY_ID",
+    }:
+        return normalized_payloads
+
+    from utils.attached_files_store import get_file_record
+
+    display_payloads = []
+
+    for payload in normalized_payloads:
+        record = get_file_record(
+            payload
+        )
+        display_payloads.append(
+            str(
+                (record or {}).get(
+                    "name",
+                    "",
+                )
+                or payload
+            ).strip()
+        )
+
+    return display_payloads
 
 
 def normalize_runtime_action_counter_payloads(
@@ -255,13 +322,19 @@ def normalize_runtime_action_counter_payloads(
         if str(payload or "").strip()
     ]
 
-    if entry.name != "JIN_COLOR":
+    if entry.name not in {
+        "JIN_COLOR",
+        "JIN_SIZE",
+    }:
         return normalized_payloads
 
-    color_payloads = [
-        normalize_jin_color_payload(
-            payload
-        )
+    normalizer = (
+        normalize_jin_color_payload
+        if entry.name == "JIN_COLOR"
+        else normalize_jin_size_payload
+    )
+    visual_payloads = [
+        normalizer(payload)
         for payload in (
             normalized_payloads
             or list(entry.payloads)
@@ -269,9 +342,9 @@ def normalize_runtime_action_counter_payloads(
     ]
 
     return [
-        color
-        for color in color_payloads
-        if color
+        payload
+        for payload in visual_payloads
+        if payload
     ]
 
 
@@ -288,25 +361,16 @@ def format_runtime_action_count(
         return ""
 
     try:
-        normalized_count = max(
-            0,
-            int(
-                count
-                or 0
-            ),
-        )
-    except (
-        TypeError,
-        ValueError,
-    ):
-        normalized_count = 0
+        normalized_count = max(1, int(count or 0))
+    except (TypeError, ValueError):
+        normalized_count = 1
 
-    if normalized_count <= 1:
-        return normalized_text
-
-    return (
-        f"{normalized_text} "
-        f"(count: {normalized_count})"
+    # A count represents real repeated markers compressed into one structured
+    # part. Project those markers individually instead of displaying lossy
+    # bookkeeping such as ``(count: N)``.
+    return ", ".join(
+        normalized_text
+        for _ in range(normalized_count)
     )
 
 
@@ -363,11 +427,17 @@ async def emit_runtime_action_counter_updates(
             continue
 
         payloads = resolved_display_payloads.get(
-            entry.name,
-            entry.payloads,
+            (
+                entry.name,
+                entry.identity,
+            ),
+            resolved_display_payloads.get(
+                entry.name,
+                entry.payloads,
+            ),
         )
 
-        normalized_payloads = normalize_runtime_action_counter_payloads(
+        normalized_payloads = resolve_runtime_action_counter_display_payloads(
             entry,
             payloads,
         )
@@ -419,6 +489,12 @@ async def emit_runtime_action_counter_updates(
             if normalized_payloads:
                 event["color"] = normalized_payloads[-1]
 
+        if entry.name == "JIN_SIZE":
+            event["sizes"] = normalized_payloads
+
+            if normalized_payloads:
+                event["size"] = normalized_payloads[-1]
+
         if payload:
             event["payload"] = payload
 
@@ -444,6 +520,7 @@ async def emit_runtime_action_counter_updates(
 
             event["counter_id"] = (
                 f"{runtime_turn_id}:"
+                f"{resolved_runtime_message_id}:"
                 f"{entry.name.lower()}"
                 f"{counter_suffix}"
             )

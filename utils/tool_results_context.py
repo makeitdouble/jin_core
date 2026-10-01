@@ -13,10 +13,6 @@ TOOL_RESULT_BLOCK_RE = re.compile(
     r"<TOOL_RESULT(?:\s[^>]*)?>.*?</TOOL_RESULT>",
     re.IGNORECASE | re.DOTALL,
 )
-IDLE_TOOL_RESULTS_RE = re.compile(
-    r"<TOOL_RESULTS\b[^>]*\btype\s*=\s*['\"]idle['\"][^>]*>",
-    re.IGNORECASE,
-)
 TOOLS_RESULTS_CONTEXT_RE = re.compile(
     r"<TOOLS_RESULTS(?:\s[^>]*)?>.*?</TOOLS_RESULTS>"
     r"|<TOOL_RESULTS(?:\s[^>]*)?>.*?</TOOL_RESULTS>",
@@ -35,6 +31,24 @@ def _normalize_spacing(text: str) -> str:
         text,
     )
 
+
+def has_nonempty_tools_results_context(
+    text: str,
+) -> bool:
+    source = str(text or "")
+    match = TOOLS_RESULTS_BLOCK_RE.search(
+        source
+    )
+
+    if match is None:
+        return False
+
+    return bool(
+        str(
+            match.group(1)
+            or ""
+        ).strip()
+    )
 
 def split_tools_results_context(
     text: str,
@@ -116,13 +130,3 @@ def strip_tools_results_context(
         text
     )
     return remainder
-
-
-def is_idle_tool_results_block(
-    block: str,
-) -> bool:
-    return bool(
-        IDLE_TOOL_RESULTS_RE.search(
-            str(block or "")
-        )
-    )

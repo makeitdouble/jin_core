@@ -8,14 +8,12 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 from clients.brain_client import apply_runtime_action_calls
-from clients.brain_client import should_execute_save_session
 from contracts.rules_assembler import (
     RUNTIME_ACTION_CLEAN_TOOL_RESULTS,
-    RUNTIME_ACTION_IDLE,
     RUNTIME_ACTION_JIN_COLOR,
     get_runtime_action_private_marker,
 )
-from rules.brain_context_builder import build_appended_delayed_memory_context
+from rules.brain_context_builder import build_loaded_delayed_memory_context
 from tests.helpers.runtime_actions import (
     FakeContext,
     FakeEmitter,
@@ -26,22 +24,24 @@ from utils.actions import (
     RuntimeActionCall,
     RuntimeActionRepetitionGuard,
     RuntimeActionStreamFilter,
-    extract_active_memory_resolve_slot_id,
+    extract_active_memory_delete_slot_id,
     extract_search_query,
     extract_runtime_actions,
     get_save_active_memory_marker_fields,
     get_save_active_memory_placeholder_payload,
     normalize_jin_color_payload,
-    parse_delayed_memory_content_payload,
+    parse_delayed_memory_payload,
 )
 from utils.assets_utils import run_asset_action
 from utils.brain_client_utils import (
-    append_delayed_memory_runtime_result,
-    flush_pending_active_memory_resolve_failure_history,
+    record_delayed_memory_runtime_result,
+    flush_pending_active_memory_delete_failure_history,
 )
-from utils.context.context_exports import build_tool_results_context
+from utils.context.context_exports import (
+    build_session_actions_history_context,
+    build_tool_results_context,
+)
 from utils.file_manager_asset_utils import read_asset_text_preview
-from utils.runtime_todo import create_runtime_todo
 from utils.skills_asset_utils import (
     list_skills,
     normalize_skill_name,
@@ -88,6 +88,126 @@ class RuntimeAssetActionTests(RuntimeActionTestCase):
         )
 
 
+    def test_extracts_compact_project_search_asset_action(self):
+
+        result = extract_runtime_actions(
+            (
+                "<ASSET_ACTION: project_search | . | "
+                "query: build_context_limit_recovery_context >"
+            ),
+            enabled_actions=[
+                "CAN_USE_ASSETS",
+            ],
+        )
+
+        self.assertEqual(result.text, "")
+        self.assertEqual(len(result.actions), 1)
+        self.assertEqual(result.actions[0].name, "ASSET_ACTION")
+        self.assertEqual(
+            json.loads(result.actions[0].payload),
+            {
+                "action": "project_search",
+                "path": ".",
+                "query": "build_context_limit_recovery_context",
+            },
+        )
+
+
+    def test_extracts_compact_project_tree_asset_action_with_numeric_fields(self):
+
+        result = extract_runtime_actions(
+            (
+                "<ASSET_ACTION: project_tree | jin_core/agent | "
+                "depth: 4 | offset: 100 | limit: 50 >"
+            ),
+            enabled_actions=[
+                "CAN_USE_ASSETS",
+            ],
+        )
+
+        self.assertEqual(result.text, "")
+        self.assertEqual(
+            json.loads(result.actions[0].payload),
+            {
+                "action": "project_tree",
+                "path": "jin_core/agent",
+                "depth": 4,
+                "offset": 100,
+                "limit": 50,
+            },
+        )
+
+
+    def test_compact_project_asset_action_streams_across_chunks(self):
+
+        stream_filter = RuntimeActionStreamFilter(
+            enabled_actions=[
+                "ASSET_ACTION",
+            ]
+        )
+
+        first = stream_filter.filter(
+            "<ASSET_ACTION: project_search | . | query: build_context_"
+        )
+        second = stream_filter.filter(
+            "limit_recovery_context >"
+        )
+        tail = stream_filter.flush_result()
+
+        self.assertEqual(first.text, "")
+        self.assertEqual(first.actions, ())
+        self.assertEqual(second.text, "")
+        self.assertEqual(len(second.actions), 1)
+        self.assertEqual(
+            json.loads(second.actions[0].payload),
+            {
+                "action": "project_search",
+                "path": ".",
+                "query": "build_context_limit_recovery_context",
+            },
+        )
+        self.assertEqual(tail.failed_actions, ())
+
+
+    def test_compact_project_action_does_not_block_following_bare_attach(self):
+
+        result = extract_runtime_actions(
+            (
+                "<ASSET_ACTION: project_search | . | query: needle >\n"
+                "ATTACH_FILE_CONTENT: jin_core/agent/nodes/brain.py\n"
+            ),
+            enabled_actions=[
+                "ASSET_ACTION",
+                "ATTACH_FILE_CONTENT",
+            ],
+            allow_bare_prefix_fallback=True,
+        )
+
+        self.assertEqual(result.text, "")
+        self.assertEqual(
+            [action.name for action in result.actions],
+            ["ASSET_ACTION", "ATTACH_FILE_CONTENT"],
+        )
+        self.assertEqual(
+            result.actions[1].payload,
+            "jin_core/agent/nodes/brain.py",
+        )
+
+
+    def test_compact_asset_action_does_not_enable_other_asset_operations(self):
+
+        marker = "<ASSET_ACTION: create_asset_file | output.txt >"
+        result = extract_runtime_actions(
+            marker,
+            enabled_actions=[
+                "CAN_USE_ASSETS",
+            ],
+        )
+
+        self.assertEqual(result.actions, ())
+        self.assertEqual(result.text, marker)
+
+
     def test_extracts_asset_action_block_with_args_payload(self):
 
         result = extract_runtime_actions(
@@ -116,34 +236,15 @@ class RuntimeAssetActionTests(RuntimeActionTestCase):
         )
 
 
-    def test_extracts_asset_action_block_closed_by_repeated_open_tag(self):
-
-        result = extract_runtime_actions(
-            (
-                "<ASSET_ACTION>\n"
-                '{"action":"append_asset_file","path":"assets/outputs/posing_woman_prompts.txt","content":"\\nBatch 1 complete."}\n'
-                "<ASSET_ACTION>\n"
-                "Done."
-            ),
-            enabled_actions=[
-                "CAN_USE_ASSETS",
-            ],
-        )
-
-        self.assertEqual(
-            result.text,
-            "Done.",
-        )
-        self.assertEqual(
-            result.actions,
-            (
-                RuntimeActionCall(
-                    name="ASSET_ACTION",
-                    payload='{"action":"append_asset_file","path":"assets/outputs/posing_woman_prompts.txt","content":"\\nBatch 1 complete."}',
-                ),
-            ),
-        )
-
+    def test_repeated_open_tag_does_not_execute_asset_action(self):
+        text = '<ASSET_ACTION>{"action":"list_files"}<ASSET_ACTION>Done.'
+        result = extract_runtime_actions(text, enabled_actions=["CAN_USE_ASSETS"])
+        self.assertEqual(result.actions, ())
+        stream_filter = RuntimeActionStreamFilter(enabled_actions=["CAN_USE_ASSETS"])
+        self.assertEqual(stream_filter.filter(text).text, "")
+        tail = stream_filter.flush_result()
+        self.assertEqual(tail.text, "")
+        self.assertEqual([action.name for action in tail.failed_actions], ["ASSET_ACTION"])
 
     def test_extracts_asset_action_block_with_spaced_closing_tag(self):
 
@@ -210,7 +311,6 @@ class RuntimeAssetActionTests(RuntimeActionTestCase):
     def test_stream_filter_keeps_empty_asset_action_markers_as_text(self):
 
         variants = (
-            ("<ASSET_ACTION>",),
             ("<ASSET_ACTION/>",),
             ("<ASSET_ACTION></ASSET_ACTION>",),
             ("</ASSET_ACTION>",),
@@ -260,7 +360,7 @@ class RuntimeAssetActionTests(RuntimeActionTestCase):
         )
         result = stream_filter.filter(
             (
-                "<CLEAN_TOOL_RESULTS>\n"
+                "<CLEAN_TOOL_RESULTS></CLEAN_TOOL_RESULTS>\n"
                 "<ASSET_ACTION>\n"
                 "Продолжаем тест. Следующий маркер – ASSET_ACTION."
             )
@@ -278,20 +378,15 @@ class RuntimeAssetActionTests(RuntimeActionTestCase):
         )
         self.assertEqual(
             result.started_actions,
-            (),
+            (RuntimeActionCall(name="CLEAN_TOOL_RESULTS", payload=""),),
         )
         self.assertEqual(
             tail.actions,
             (),
         )
-        self.assertIn(
-            "<ASSET_ACTION>",
-            tail.text,
-        )
-        self.assertIn(
-            "Продолжаем тест.",
-            tail.text,
-        )
+        self.assertEqual(tail.text, "")
+        self.assertEqual([action.name for action in tail.failed_actions], ["ASSET_ACTION"])
+        self.assertIn("Продолжаем тест.", tail.failed_actions[0].payload)
 
 
     def test_stream_filter_strips_asset_action_block(self):
@@ -367,7 +462,7 @@ class RuntimeAssetActionTests(RuntimeActionTestCase):
             [
                 "<ASSET_ACTION>\n",
                 '{"action":"create_wildcard_file","args":{"path":"clothing/shoes","content":"sneakers\\nboots"}}\n',
-                "<ASSET_ACTION>\n",
+                "</ASSET_ACTION>\n",
             ],
             [
                 "< ASSET_ACTION >\n",
@@ -446,6 +541,7 @@ class RuntimeAssetActionTests(RuntimeActionTestCase):
 
                 context = Context()
                 context.emitter = Emitter()
+                context.runtime_loaded_skills = [{"name": "file_manager"}]
                 payload = json.dumps(
                     {
                         "action": "create_wildcard_file",
@@ -498,10 +594,7 @@ class RuntimeAssetActionTests(RuntimeActionTestCase):
                 )
                 self.assertEqual(
                     context.emitter.events[0]["text"],
-                    (
-                        "ASSET_ACTION: create_wildcard_file - "
-                        "assets/wildcards/clothing/test_tops.txt"
-                    ),
+                    "ASSET_ACTION",
                 )
                 self.assertTrue(
                     context.emitter.events[0]["close_tag"],
@@ -532,7 +625,7 @@ class RuntimeAssetActionTests(RuntimeActionTestCase):
                 )
                 self.assertEqual(
                     context.runtime_session_action_history[0]["text"],
-                    "Created wildcard file - assets/wildcards/clothing/test_tops.txt",
+                    "Created wildcard file - assets/wildcards/clothing/test_tops.txt [ tool_id: T1 ]",
                 )
                 self.assertIsInstance(
                     context.runtime_session_action_history[0]["created_at"],
@@ -569,6 +662,7 @@ class RuntimeAssetActionTests(RuntimeActionTestCase):
 
                 context = Context()
                 context.emitter = Emitter()
+                context.runtime_loaded_skills = [{"name": "file_manager"}]
                 context.runtime_current_turn_id = "turn_000001"
                 payload_data = {
                     "action": "create_asset_file",
@@ -635,6 +729,7 @@ class RuntimeAssetActionTests(RuntimeActionTestCase):
 
                 context = Context()
                 context.emitter = Emitter()
+                context.runtime_loaded_skills = [{"name": "file_manager"}]
                 payload = json.dumps(
                     {
                         "action": "create_asset_file",
@@ -665,10 +760,7 @@ class RuntimeAssetActionTests(RuntimeActionTestCase):
                 )
                 self.assertEqual(
                     context.emitter.events[0]["text"],
-                    (
-                        "ASSET_ACTION: create_asset_file - "
-                        "assets/outputs/rain_script.py"
-                    ),
+                    "ASSET_ACTION",
                 )
                 self.assertTrue(
                     context.emitter.events[0]["close_tag"],
@@ -701,6 +793,7 @@ class RuntimeAssetActionTests(RuntimeActionTestCase):
 
                 context = Context()
                 context.emitter = Emitter()
+                context.runtime_loaded_skills = [{"name": "file_manager"}]
                 payload = json.dumps(
                     {
                         "action": "create_wildcard_file",
@@ -1112,6 +1205,7 @@ class RuntimeAssetActionTests(RuntimeActionTestCase):
 
                 context = Context()
                 context.emitter = Emitter()
+                context.runtime_loaded_skills = [{"name": "file_manager"}]
                 payload = json.dumps({
                     "action": "generate_prompt_batch",
                     "count": 2,
@@ -1137,10 +1231,7 @@ class RuntimeAssetActionTests(RuntimeActionTestCase):
                 )
                 self.assertEqual(
                     context.emitter.events[0]["text"],
-                    (
-                        "ASSET_ACTION: generate_prompt_batch - "
-                        "assets/prompts/test_prompts.txt"
-                    ),
+                    "ASSET_ACTION",
                 )
                 self.assertTrue(
                     context.emitter.events[0]["close_tag"],
@@ -1212,7 +1303,7 @@ class RuntimeAssetActionTests(RuntimeActionTestCase):
                 )
                 self.assertEqual(
                     context.emitter.events[0]["text"],
-                    "ASSET_ACTION: invalid payload",
+                    "ASSET_ACTION",
                 )
                 self.assertEqual(
                     context.emitter.events[0]["status"],
@@ -1225,6 +1316,12 @@ class RuntimeAssetActionTests(RuntimeActionTestCase):
                 self.assertEqual(
                     context.emitter.events[1]["status"],
                     "failed",
+                )
+                self.assertIn(
+                    "ASSET_ACTION: invalid payload - failed: invalid_json",
+                    build_session_actions_history_context(
+                        context
+                    ),
                 )
 
 
@@ -1242,6 +1339,7 @@ class RuntimeAssetActionTests(RuntimeActionTestCase):
 
                 context = Context()
                 context.emitter = Emitter()
+                context.runtime_loaded_skills = [{"name": "file_manager"}]
                 payload = json.dumps(
                     {
                         "action": "analyze_image",
@@ -1267,7 +1365,7 @@ class RuntimeAssetActionTests(RuntimeActionTestCase):
                 )
                 self.assertEqual(
                     context.emitter.events[0]["text"],
-                    "ASSET_ACTION: analyze_image",
+                    "ASSET_ACTION",
                 )
                 self.assertEqual(
                     context.emitter.events[1]["text"],
@@ -1328,7 +1426,7 @@ class RuntimeAssetActionTests(RuntimeActionTestCase):
                 )
                 self.assertEqual(
                     context.emitter.events[0]["text"],
-                    "ASSET_ACTION: analyze_image",
+                    "ASSET_ACTION",
                 )
                 self.assertEqual(
                     context.emitter.events[0]["status"],

@@ -1,4 +1,3 @@
-let latestRuntimeSnapshotsLogged = false;
 let activeMemoryRecordsLogged = false;
 let factsMemoryRecordsLogged = false;
 
@@ -12,10 +11,15 @@ const MEMORY_GLOW_CLASSES = [
   "memory-l3-updating",
   "memory-l3-pulse",
   "memory-l3-fading",
+  "memory-lt-updating",
+  "memory-lt-pulse",
+  "memory-lt-fading",
+  "memory-lt-success",
+  "memory-lt-failed",
 ];
 
 const MEMORY_GLOW_STAGES = {
-  l1: {
+  frame: {
     active: "memory-updating",
     pulse: "memory-pulse",
     fading: "memory-fading",
@@ -30,101 +34,12 @@ const MEMORY_GLOW_STAGES = {
     pulse: "memory-l3-pulse",
     fading: "memory-l3-fading",
   },
+  lt: {
+    active: "memory-lt-updating",
+    pulse: "memory-lt-pulse",
+    fading: "memory-lt-fading",
+  },
 };
-
-function buildLatestRuntimeSnapshotsDetails(
-  snapshots
-) {
-
-  const lines = [
-    "current_runtime_session_id: "
-      + String(window.jinRuntimeSessionId || websocketClientId),
-    "",
-    "current_key: "
-      + String(
-        window.getCurrentLatestRuntimeMemoryStorageKey
-          ? window.getCurrentLatestRuntimeMemoryStorageKey()
-          : ""
-      ),
-  ];
-
-  snapshots.forEach(
-    function (
-      snapshot,
-      index,
-    ) {
-      const runtimeMemory =
-        String(snapshot.runtime_memory || "")
-          .replace(/\\n/g, "\n")
-          .replace(
-            /;\s+(?=[a-z][a-z0-9_]*\s*:)/g,
-            "\n"
-          )
-          .split(/\r?\n+/)
-          .map(function (line) {
-            return line.trim();
-          })
-          .filter(Boolean);
-
-      lines.push(
-        "",
-        `[ snapshot ${index + 1} ]`,
-        "",
-        `key: ${snapshot.key || ""}`,
-        "",
-        `key_session_id: ${snapshot.key_session_id || ""}`,
-        "",
-        `session_id: ${snapshot.session_id || ""}`,
-        "",
-        `saved_at: ${snapshot.saved_at || ""}`,
-        "",
-        `runtime_memory_updates: ${snapshot.runtime_memory_updates || 0}`
-      );
-
-      if (runtimeMemory.length) {
-        lines.push(
-          "",
-          "runtime_memory:",
-          "",
-          runtimeMemory.join("\n\n")
-        );
-      }
-    }
-  );
-
-  return lines.join("\n");
-
-}
-
-function logOtherLatestRuntimeMemorySnapshots() {
-
-  if (
-      latestRuntimeSnapshotsLogged
-      || !window.getOtherLatestRuntimeMemorySnapshots
-  ) {
-    return;
-  }
-
-  const snapshots =
-    window.getOtherLatestRuntimeMemorySnapshots();
-
-  if (!snapshots.length) {
-    return;
-  }
-
-  latestRuntimeSnapshotsLogged = true;
-
-  appendLog(
-    "[LATEST SNAPSHOTS]",
-    `${snapshots.length} stale latest runtime snapshot`
-      + `${snapshots.length === 1 ? "" : "s"} found.`,
-    buildLatestRuntimeSnapshotsDetails(
-      snapshots
-    )
-  );
-
-}
-
 
 function getFactsMemoryRecordsForStartupLog() {
 
@@ -367,7 +282,7 @@ function getActiveMemoryRecordTitle(
 }
 
 
-function buildResolveActiveMemoryRuntimeActionText(
+function buildDeleteActiveMemoryRuntimeActionText(
   data,
   fallbackText
 ) {
@@ -431,6 +346,7 @@ function isMemoryLog(data) {
     && (
         String(data.tag || "").includes("MEMORY:")
         || String(data.message || "").includes("[MEMORY]")
+        || String(data.message || "").includes("[MEMORY:")
     )
   );
 }
@@ -441,7 +357,6 @@ function memoryLogIncludes(data, text) {
     && (
         String(data.message || "").includes(text)
         || String(data.message || "").includes(`[MEMORY] ${text}`)
-        || String(data.message || "").includes(`[MEMORY:L1] ${text}`)
         || String(data.message || "").includes(`[MEMORY:L2] ${text}`)
         || String(data.message || "").includes(`[MEMORY:L3] ${text}`)
     )
@@ -449,12 +364,13 @@ function memoryLogIncludes(data, text) {
 }
 
 function memoryLogLevelIs(data, level) {
-  const normalizedLevel = String(level || "").toUpperCase();
+  const normalizeLevel = value => String(value || "").toUpperCase();
+  const normalizedLevel = normalizeLevel(level);
 
   return Boolean(
     data
     && (
-      String(data.memory_level || "").toUpperCase() === normalizedLevel
+      normalizeLevel(data.memory_level) === normalizedLevel
       || String(data.tag || "").includes(`[MEMORY:${normalizedLevel}]`)
       || String(data.message || "").includes(`[MEMORY:${normalizedLevel}]`)
     )
@@ -482,90 +398,8 @@ let activeMemoryGlowStage = "";
 let memoryGlowPulseTimer = null;
 let memoryGlowFadeTimer = null;
 
-let factCheckGlowActive = false;
-let factCheckGlowPulseTimer = null;
-let factCheckGlowFadeTimer = null;
-
 function getMemoryPanel() {
-  return document.getElementById("settings-panel");
-}
-
-function clearFactCheckGlowTimers() {
-  if (factCheckGlowPulseTimer) {
-    clearTimeout(factCheckGlowPulseTimer);
-    factCheckGlowPulseTimer = null;
-  }
-
-  if (factCheckGlowFadeTimer) {
-    clearTimeout(factCheckGlowFadeTimer);
-    factCheckGlowFadeTimer = null;
-  }
-}
-
-function startFactCheckGlow() {
-  const panel = getMemoryPanel();
-
-  if (!panel) {
-    return;
-  }
-
-  clearFactCheckGlowTimers();
-  factCheckGlowActive = true;
-
-  panel.classList.remove(
-    "fact-check-fading"
-  );
-
-  panel.classList.add(
-    "fact-check-running"
-  );
-
-  factCheckGlowPulseTimer = setTimeout(() => {
-    if (
-      !factCheckGlowActive
-      || !panel.classList.contains("fact-check-running")
-    ) {
-      return;
-    }
-
-    panel.classList.add(
-      "fact-check-pulse"
-    );
-  }, 900);
-}
-
-function stopFactCheckGlow() {
-  const panel = getMemoryPanel();
-
-  if (!panel) {
-    return;
-  }
-
-  clearFactCheckGlowTimers();
-  factCheckGlowActive = false;
-
-  panel.classList.remove(
-    "fact-check-pulse"
-  );
-
-  if (!panel.classList.contains("fact-check-running")) {
-    return;
-  }
-
-  panel.classList.add(
-    "fact-check-fading"
-  );
-
-  factCheckGlowFadeTimer = setTimeout(() => {
-    if (factCheckGlowActive) {
-      return;
-    }
-
-    panel.classList.remove(
-      "fact-check-running",
-      "fact-check-fading"
-    );
-  }, 1200);
+  return document.getElementById("memory-panel");
 }
 
 function clearMemoryGlowTimers() {
@@ -586,29 +420,18 @@ function clearMemoryGlowClasses(panel) {
   );
 }
 
-function clearFactCheckGlowClasses(panel) {
-  panel.classList.remove(
-    "fact-check-running",
-    "fact-check-pulse",
-    "fact-check-fading"
-  );
-}
-
 function cancelPanelGlows() {
   const panel = getMemoryPanel();
 
   clearMemoryGlowTimers();
-  clearFactCheckGlowTimers();
 
   activeMemoryGlowStage = "";
-  factCheckGlowActive = false;
 
   if (!panel) {
     return;
   }
 
   clearMemoryGlowClasses(panel);
-  clearFactCheckGlowClasses(panel);
 }
 
 function setMemoryGlowStage(stage) {
@@ -682,11 +505,11 @@ function stopMemoryGlowStage(stage) {
 }
 
 function startMemoryGlow() {
-  setMemoryGlowStage("l1");
+  setMemoryGlowStage("frame");
 }
 
 function stopMemoryGlow() {
-  stopMemoryGlowStage("l1");
+  stopMemoryGlowStage("frame");
 }
 
 function startL2MemoryGlow() {
@@ -705,15 +528,104 @@ function stopL3MemoryGlow() {
   stopMemoryGlowStage("l3");
 }
 
+function startLTMemoryGlow() {
+  if (activeMemoryGlowStage === "lt") {
+    return;
+  }
+
+  setMemoryGlowStage("lt");
+}
+
+function finishLTMemoryGlow(
+  outcome = "none"
+) {
+  const panel = getMemoryPanel();
+  const config = MEMORY_GLOW_STAGES.lt;
+
+  if (
+    !panel
+    || activeMemoryGlowStage !== "lt"
+  ) {
+    return;
+  }
+
+  clearMemoryGlowTimers();
+  activeMemoryGlowStage = "";
+
+  panel.classList.remove(
+    config.pulse,
+    config.fading,
+    "memory-lt-success",
+    "memory-lt-failed",
+  );
+
+  let terminalClass =
+    config.fading;
+  let fadeDuration = 1400;
+
+  if (outcome === "success") {
+    terminalClass =
+      "memory-lt-success";
+    fadeDuration = 1800;
+  } else if (outcome === "failed") {
+    terminalClass =
+      "memory-lt-failed";
+    fadeDuration = 1800;
+  }
+
+  panel.classList.add(
+    terminalClass
+  );
+
+  memoryGlowFadeTimer = setTimeout(() => {
+    if (activeMemoryGlowStage) {
+      return;
+    }
+
+    panel.classList.remove(
+      config.active,
+      config.fading,
+      "memory-lt-success",
+      "memory-lt-failed",
+    );
+  }, fadeDuration);
+}
+
 window.startMemoryGlow = startMemoryGlow;
 window.stopMemoryGlow = stopMemoryGlow;
 window.startL2MemoryGlow = startL2MemoryGlow;
 window.stopL2MemoryGlow = stopL2MemoryGlow;
 window.startL3MemoryGlow = startL3MemoryGlow;
 window.stopL3MemoryGlow = stopL3MemoryGlow;
+window.startLTMemoryGlow = startLTMemoryGlow;
+window.finishLTMemoryGlow = finishLTMemoryGlow;
 window.cancelPanelGlows = cancelPanelGlows;
-window.startFactCheckGlow = startFactCheckGlow;
-window.stopFactCheckGlow = stopFactCheckGlow;
+
+function isLTMemoryTerminalFailure(
+  data
+) {
+  const event =
+    String(
+      data && data.memory_event
+      || ""
+    ).toLowerCase();
+
+  if (event === "update_failed") {
+    return true;
+  }
+
+  return (
+    (
+      event.startsWith("extract_")
+      || event.startsWith("merge_")
+      || event.startsWith("deduplication_")
+    )
+    && (
+      event.endsWith("_failed")
+      || event.endsWith("_skipped")
+    )
+  );
+}
 
 function handleActiveMemoryRecordsUpdate(
   data
@@ -729,22 +641,6 @@ function handleActiveMemoryRecordsUpdate(
     );
   }
 
-}
-
-function handleFactCheckState(
-  data
-) {
-
-  if (data.active) {
-    startFactCheckGlow();
-  } else {
-    stopFactCheckGlow();
-  }
-
-}
-
-function handleFactCheckUpdate() {
-  stopFactCheckGlow();
 }
 
 function handleSocketLog(
@@ -771,7 +667,8 @@ function handleSocketLog(
     }
 
     window.log_user(
-      payload
+      payload,
+      data.message || ""
     );
 
     return;
@@ -786,10 +683,10 @@ function handleSocketLog(
 
   if (
       isMemoryLog(data)
-      && memoryLogLevelIs(data, "L1")
+      && memoryLogLevelIs(data, "FRAME")
       && (
           memoryLogEventIs(data, "summarizer_request")
-          || memoryLogIncludes(data, "L1 summarizer request")
+          || memoryLogIncludes(data, "FRAME summarizer request")
       )
   ) {
     startMemoryGlow();
@@ -808,26 +705,11 @@ function handleSocketLog(
 
   if (
       isMemoryLog(data)
-      && memoryLogLevelIs(data, "L3")
+      && memoryLogLevelIs(data, "FRAME")
       && (
-          memoryLogEventIs(data, "summarizer_request")
-          || memoryLogIncludes(data, "L3 session summarizer request")
-      )
-  ) {
-    startL3MemoryGlow();
-
-    if (window.activateRuntimeActionPendingUntilL3) {
-      window.activateRuntimeActionPendingUntilL3(
-        "save_session"
-      );
-    }
-  }
-
-  if (
-      isMemoryLog(data)
-      && memoryLogLevelIs(data, "L1")
-      && (
-          memoryLogEventIs(data, "summarizer_result")
+          memoryLogEventIs(data, "summarizer_response")
+          || memoryLogEventIs(data, "summarizer_cancelled")
+          || memoryLogEventIs(data, "summarizer_result")
           || memoryLogMessageHasOutcome(data)
       )
   ) {
@@ -847,21 +729,55 @@ function handleSocketLog(
 
   if (
       isMemoryLog(data)
-      && memoryLogLevelIs(data, "L3")
-      && (
-          memoryLogEventIs(data, "summarizer_result")
-          || memoryLogMessageHasOutcome(data)
-      )
+      && memoryLogLevelIs(data, "L-T")
   ) {
-    stopL3MemoryGlow();
+    const event =
+      String(
+        data.memory_event || ""
+      ).toLowerCase();
 
-    if (window.fadeRuntimeAction) {
-      window.fadeRuntimeAction(
-        "save_session",
-        {
-          forceCompletePendingL3: true,
-        }
+    if (event === "summarizer_request") {
+      startLTMemoryGlow();
+    } else if (
+      event === "extract_applied"
+      && data.continues_to_merge === false
+    ) {
+      finishLTMemoryGlow("none");
+    } else if (
+      event === "merge_applied"
+      || event === "deduplication_applied"
+    ) {
+      finishLTMemoryGlow(
+        data.facts_changed === true
+          ? "success"
+          : "none"
       );
+    } else if (event === "jin_note_applied") {
+      finishLTMemoryGlow(
+        data.facts_changed === true
+          ? "success"
+          : "none"
+      );
+    } else if (
+      event === "jin_note_no_change"
+      || event === "jin_note_preempted"
+      || event === "lt_preempted"
+      || event === "merge_paused"
+      || event === "merge_deferred"
+    ) {
+      finishLTMemoryGlow("none");
+    } else if (
+      event === "jin_note_failed"
+      || event === "jin_note_skipped"
+      || isLTMemoryTerminalFailure(data)
+    ) {
+      finishLTMemoryGlow("failed");
+    } else if (
+      String(data.message || "")
+        .toLowerCase()
+        .includes("idle work preempted")
+    ) {
+      finishLTMemoryGlow("none");
     }
   }
 
@@ -873,16 +789,25 @@ registerSocketMessageHandler(
 );
 
 registerSocketMessageHandler(
-  "fact_check_state",
-  handleFactCheckState
-);
-
-registerSocketMessageHandler(
-  "fact_check_update",
-  handleFactCheckUpdate
-);
-
-registerSocketMessageHandler(
   "log",
   handleSocketLog
 );
+
+// One authoritative publication for both profiles. Rendering this snapshot
+// never sends a browser inventory back as a mutation.
+registerSocketMessageHandler("memory_profile_snapshot", function (data) {
+  const profile = data.profile || {};
+  const runtime = window.JinRuntime.runtime;
+  const storage = window.JinRuntime.storage;
+  window.jinMemoryProfileApplying = true;
+  try {
+    storage.clearMemoryProjection();
+    runtime.replaceActiveMemoryRecords(profile.active || []);
+    runtime.replaceDelayedMemoryReports(profile.delayed || {});
+    window.JinRuntime.ltMemory.applyFactsMemoryRecordsUpdate({ records: profile.pending || [] });
+    window.JinRuntime.ltMemory.applyServerUpdate({ store: profile.lt || {}, authoritative: true });
+    window.jinMemoryProfileRevisions = data.revisions || {};
+  } finally {
+    window.jinMemoryProfileApplying = false;
+  }
+});

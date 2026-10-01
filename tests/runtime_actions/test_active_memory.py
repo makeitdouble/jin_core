@@ -8,14 +8,12 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 from clients.brain_client import apply_runtime_action_calls
-from clients.brain_client import should_execute_save_session
 from contracts.rules_assembler import (
     RUNTIME_ACTION_CLEAN_TOOL_RESULTS,
-    RUNTIME_ACTION_IDLE,
     RUNTIME_ACTION_JIN_COLOR,
     get_runtime_action_private_marker,
 )
-from rules.brain_context_builder import build_appended_delayed_memory_context
+from rules.brain_context_builder import build_loaded_delayed_memory_context
 from tests.helpers.runtime_actions import (
     FakeContext,
     FakeEmitter,
@@ -24,24 +22,26 @@ from tests.helpers.runtime_actions import (
 )
 from utils.actions import (
     RuntimeActionCall,
+    canonicalize_active_memory_record,
     RuntimeActionRepetitionGuard,
     RuntimeActionStreamFilter,
-    extract_active_memory_resolve_slot_id,
+    extract_active_memory_delete_slot_id,
     extract_search_query,
     extract_runtime_actions,
     get_save_active_memory_marker_fields,
     get_save_active_memory_placeholder_payload,
     normalize_jin_color_payload,
-    parse_delayed_memory_content_payload,
+    parse_delayed_memory_payload,
+    parse_update_active_memory_payload,
 )
 from utils.assets_utils import run_asset_action
 from utils.brain_client_utils import (
-    append_delayed_memory_runtime_result,
-    flush_pending_active_memory_resolve_failure_history,
+    record_delayed_memory_runtime_result,
+    flush_pending_active_memory_delete_failure_history,
+    update_active_memory_runtime_record,
 )
 from utils.context.context_exports import build_tool_results_context
 from utils.file_manager_asset_utils import read_asset_text_preview
-from utils.runtime_todo import create_runtime_todo
 from utils.skills_asset_utils import (
     list_skills,
     normalize_skill_name,
@@ -64,7 +64,7 @@ class RuntimeActiveMemoryTests(RuntimeActionTestCase):
         result = extract_runtime_actions(
             (
                 "before "
-                "<SAVE_ACTIVE_MEMORY:remind later | tomorrow | coffee>"
+                "<SAVE_ACTIVE_MEMORY>remind later | tomorrow | coffee</SAVE_ACTIVE_MEMORY>"
                 " after"
             ),
             enabled_actions=[
@@ -111,13 +111,13 @@ class RuntimeActiveMemoryTests(RuntimeActionTestCase):
         )
 
 
-    def test_extracts_save_active_memory_marker_closed_with_short_end_tag(self):
+    def test_extracts_save_active_memory_marker_body(self):
 
         result = extract_runtime_actions(
             (
                 "before "
-                "<SAVE_ACTIVE_MEMORY: remember the word coffee "
-                "and ask for a guess later.</>"
+                "<SAVE_ACTIVE_MEMORY>remember the word coffee "
+                "and ask for a guess later.</SAVE_ACTIVE_MEMORY>"
                 " after"
             ),
             enabled_actions=[
@@ -161,32 +161,25 @@ class RuntimeActiveMemoryTests(RuntimeActionTestCase):
         self.assertEqual(result.actions, ())
         self.assertEqual(result.removed_markers, ())
 
-    def test_save_active_memory_marker_helpers_accept_bare_marker(self):
-
-        marker = "SAVE_ACTIVE_MEMORY: PURPOSE | CONDITIONS"
+    def test_save_active_memory_marker_helpers_use_conditions_placeholder(self):
 
         self.assertEqual(
-            get_save_active_memory_marker_fields(
-                marker
-            ),
+            get_save_active_memory_marker_fields(),
             (
-                "purpose",
                 "conditions",
             ),
         )
         self.assertEqual(
-            get_save_active_memory_placeholder_payload(
-                marker
-            ),
-            "PURPOSE | CONDITIONS",
+            get_save_active_memory_placeholder_payload(),
+            "CONDITIONS",
         )
 
 
-    def test_bare_resolve_active_memory_marker_stays_text(self):
+    def test_bare_delete_active_memory_marker_stays_text(self):
 
         text = (
-            "RESOLVE_ACTIVE_MEMORY: "
-            "active_memory_id=e2qxe7 STATUS=resolved\n"
+            "DELETE_ACTIVE_MEMORY: "
+            "active_memory_id=e2qxe7 STATUS=deleted\n"
             "\n"
             "Память очищена."
         )
@@ -201,12 +194,12 @@ class RuntimeActiveMemoryTests(RuntimeActionTestCase):
         self.assertEqual(result.actions, ())
         self.assertEqual(result.removed_markers, ())
 
-    def test_extracts_bracketed_resolve_active_memory_marker(self):
+    def test_extracts_bracketed_delete_active_memory_marker(self):
 
         result = extract_runtime_actions(
             (
                 "before "
-                "<RESOLVE_ACTIVE_MEMORY:e2qxe7 | resolved>"
+                "<DELETE_ACTIVE_MEMORY:e2qxe7 | deleted>"
                 " after"
             ),
             enabled_actions=[
@@ -214,43 +207,33 @@ class RuntimeActiveMemoryTests(RuntimeActionTestCase):
             ],
         )
 
-        self.assertEqual(
-            result.text,
-            "before after",
-        )
-        self.assertEqual(
-            result.count("RESOLVE_ACTIVE_MEMORY"),
-            1,
-        )
-        self.assertEqual(
-            result.actions[0].payload,
-            "e2qxe7 | resolved",
-        )
+        self.assertIn("<DELETE_ACTIVE_MEMORY:e2qxe7 | deleted>", result.text)
+        self.assertEqual(result.actions, ())
 
 
-    def test_extract_active_memory_resolve_slot_id_accepts_loose_payload_shape(self):
+    def test_extract_active_memory_delete_slot_id_accepts_loose_payload_shape(self):
 
         self.assertEqual(
-            extract_active_memory_resolve_slot_id(
+            extract_active_memory_delete_slot_id(
                 "active_memory_id: 5fdg4g",
             ),
-            "5fdg4g",
+            "",
         )
         self.assertEqual(
-            extract_active_memory_resolve_slot_id(
-                "resolve slot 5fdg4g please",
+            extract_active_memory_delete_slot_id(
+                "resolve slot AM-5fdg4g please",
                 existing_ids={
-                    "5fdg4g",
+                    "AM-5fdg4g",
                 },
             ),
-            "5fdg4g",
+            "AM-5fdg4g",
         )
 
 
-    def test_extract_active_memory_resolve_slot_id_skips_non_existing_tokens(self):
+    def test_extract_active_memory_delete_slot_id_skips_non_existing_tokens(self):
 
         self.assertEqual(
-            extract_active_memory_resolve_slot_id(
+            extract_active_memory_delete_slot_id(
                 "active_memory_id | STATUS",
                 existing_ids={
                     "5fdg4g",
@@ -259,7 +242,7 @@ class RuntimeActiveMemoryTests(RuntimeActionTestCase):
             "",
         )
         self.assertEqual(
-            extract_active_memory_resolve_slot_id(
+            extract_active_memory_delete_slot_id(
                 "resolve status abc123",
                 existing_ids={
                     "5fdg4g",
@@ -271,18 +254,12 @@ class RuntimeActiveMemoryTests(RuntimeActionTestCase):
 
     def test_ignores_placeholder_save_active_memory_marker(self):
 
-        with patch(
-            "utils.actions.action_payload_utils.get_internal_actions_with_payload",
-            return_value=(
-                "<SAVE_ACTIVE_MEMORY: DETAILS | PURPOSE | VALUE >",
-            ),
-        ):
-            result = extract_runtime_actions(
-                "<SAVE_ACTIVE_MEMORY: details|purpose|value >",
-                enabled_actions=[
-                    "CAN_SAVE_ACTIVE_MEMORY",
-                ],
-            )
+        result = extract_runtime_actions(
+            "<SAVE_ACTIVE_MEMORY> CONDITIONS </SAVE_ACTIVE_MEMORY>",
+            enabled_actions=[
+                "CAN_SAVE_ACTIVE_MEMORY",
+            ],
+        )
 
         self.assertEqual(
             result.text,
@@ -294,7 +271,7 @@ class RuntimeActiveMemoryTests(RuntimeActionTestCase):
         )
 
 
-    def test_stream_filter_handles_short_end_tag_closed_active_memory_marker(self):
+    def test_stream_filter_handles_split_active_memory_block(self):
 
         stream_filter = RuntimeActionStreamFilter(
             enabled_actions=[
@@ -303,13 +280,13 @@ class RuntimeActiveMemoryTests(RuntimeActionTestCase):
         )
 
         first = stream_filter.filter(
-            "<SAVE_ACTIVE_MEMORY: remember"
+            "<SAVE_ACTIVE_MEMORY>"
         )
         middle = stream_filter.filter(
-            " the word coffee and ask for a guess later.</"
+            "remember the word coffee and ask for a guess later."
         )
         final = stream_filter.filter(
-            ">"
+            "</SAVE_ACTIVE_MEMORY>"
         )
 
         self.assertEqual(
@@ -388,8 +365,10 @@ class RuntimeActiveMemoryTests(RuntimeActionTestCase):
             context.runtime_action_events,
             [
                 {
+                    "id": "save_active_memory_001",
                     "name": "save_active_memory",
                     "payload": "remind later",
+                    "tool_id": "T1",
                 }
             ],
         )
@@ -437,13 +416,13 @@ class RuntimeActiveMemoryTests(RuntimeActionTestCase):
         )
         self.assertEqual(
             context.emitter.events[0]["text"],
-            "SAVE_ACTIVE_MEMORY: remind later",
+            "SAVE_ACTIVE_MEMORY",
         )
         self.assertEqual(
             context.emitter.events[0]["display_name"],
             "SAVE_ACTIVE_MEMORY",
         )
-        self.assertFalse(
+        self.assertTrue(
             context.emitter.events[0]["close_tag"],
         )
         self.assertEqual(
@@ -454,8 +433,7 @@ class RuntimeActiveMemoryTests(RuntimeActionTestCase):
             context.active_memory_records[0],
             (
                 r"^active_memory_1: remind later "
-                r"\[ active_memory_id: [a-z0-9]{6} \] "
-                r"\[ conditions: remind later \] "
+                r"\[ id: AM-[a-z0-9]{6} \] "
                 r"\[ creation_time: 2026-06-20T10:00:00 \] "
                 r"\[ created_session_id: test-session \] "
                 r"\[ created_jin_message_number: 3 \] "
@@ -469,21 +447,29 @@ class RuntimeActiveMemoryTests(RuntimeActionTestCase):
             context.active_memory_records[0],
         )
         self.assertEqual(
-            context.emitter.events[1],
-            {
-                "type": "runtime_action",
-                "action": "save_active_memory",
-                "status": "completed",
-                "display_name": "SAVE_ACTIVE_MEMORY",
-                "close_tag": False,
-            },
+            context.emitter.events[0]["id"],
+            "save_active_memory_001",
+        )
+        self.assertRegex(
+            context.emitter.events[0]["active_memory_id"],
+            r"^AM-[a-z0-9]{6}$",
+        )
+        completed_event = context.emitter.events[1]
+        self.assertEqual(completed_event["status"], "completed")
+        self.assertEqual(
+            completed_event["active_memory_id"],
+            context.emitter.events[0]["active_memory_id"],
+        )
+        self.assertEqual(
+            completed_event["active_memory"],
+            context.active_memory_records[0],
         )
 
         tool_results = build_tool_results_context(
             context
         )
         self.assertIn(
-            '<TOOL_RESULT name="SAVE_ACTIVE_MEMORY">',
+            '<TOOL_RESULT tool_id="T1" name="SAVE_ACTIVE_MEMORY"',
             tool_results,
         )
         self.assertIn(
@@ -497,6 +483,84 @@ class RuntimeActiveMemoryTests(RuntimeActionTestCase):
         self.assertIn(
             "active_memory_1:",
             tool_results,
+        )
+
+    def test_apply_runtime_action_calls_emits_one_bubble_per_saved_active_memory(self):
+
+        Emitter = FakeEmitter
+
+        Context = FakeContext
+
+        context = Context()
+        context.emitter = Emitter()
+        context.timestamp = "2026-06-20T10:00:00"
+        context.session_id = "test-session"
+        context.turn_number = 3
+
+        applied_count = asyncio.run(
+            apply_runtime_action_calls(
+                context,
+                (
+                    RuntimeActionCall(
+                        name="SAVE_ACTIVE_MEMORY",
+                        payload="first reminder",
+                    ),
+                    RuntimeActionCall(
+                        name="SAVE_ACTIVE_MEMORY",
+                        payload="second reminder",
+                    ),
+                ),
+            )
+        )
+
+        self.assertEqual(
+            applied_count,
+            2,
+        )
+        self.assertEqual(
+            len(context.active_memory_records),
+            2,
+        )
+        self.assertEqual(
+            [
+                event.get("id")
+                for event in context.emitter.events
+            ],
+            [
+                "save_active_memory_001",
+                "save_active_memory_001",
+                "save_active_memory_002",
+                "save_active_memory_002",
+            ],
+        )
+        self.assertEqual(
+            [
+                event.get("text")
+                for event in context.emitter.events
+                if not event.get("status")
+            ],
+            [
+                "SAVE_ACTIVE_MEMORY",
+                "SAVE_ACTIVE_MEMORY",
+            ],
+        )
+        self.assertEqual(
+            len({
+                event["active_memory_id"]
+                for event in context.emitter.events
+                if event.get("active_memory_id")
+            }),
+            2,
+        )
+        self.assertEqual(
+            [
+                event.get("id")
+                for event in context.runtime_action_events
+            ],
+            [
+                "save_active_memory_001",
+                "save_active_memory_002",
+            ],
         )
 
 
@@ -518,17 +582,7 @@ class RuntimeActiveMemoryTests(RuntimeActionTestCase):
                 (
                     RuntimeActionCall(
                         name="SAVE_ACTIVE_MEMORY",
-                        payload=(
-                            "Experiment Progress: 2m elapsed "
-                            "[ active_memory_id: progress_marker_1 ] "
-                            "[ conditions: stale condition ] "
-                            "[ creation_time: 1999-01-01T00:00:00 ] "
-                            "[ created_session_id: model-session ] "
-                            "[ created_jin_message_number: 999 ] "
-                            "[ elapsed_time: 99:99:99 ] "
-                            "[ elapsed_jin_message_number: 999 ] "
-                            "[ status: resolved ]"
-                        ),
+                        payload='{"conditions":"Experiment Progress: 2m elapsed"}',
                     ),
                 ),
             )
@@ -540,11 +594,11 @@ class RuntimeActiveMemoryTests(RuntimeActionTestCase):
         )
         self.assertEqual(
             context.emitter.events[0]["text"],
-            "SAVE_ACTIVE_MEMORY: Experiment Progress: 2m elapsed",
+            "SAVE_ACTIVE_MEMORY",
         )
         self.assertEqual(
             context.runtime_action_events[0]["payload"],
-            "Experiment Progress: 2m elapsed",
+            '{"conditions":"Experiment Progress: 2m elapsed"}',
         )
 
         active_memory = context.active_memory_records[0]
@@ -553,8 +607,7 @@ class RuntimeActiveMemoryTests(RuntimeActionTestCase):
             active_memory,
             (
                 r"^active_memory_1: Experiment Progress: 2m elapsed "
-                r"\[ active_memory_id: [a-z0-9]{6} \] "
-                r"\[ conditions: Experiment Progress: 2m elapsed \] "
+                r"\[ id: AM-[a-z0-9]{6} \] "
                 r"\[ creation_time: 2026-07-13T00:12:00 \] "
                 r"\[ created_session_id: runtime-session \] "
                 r"\[ created_jin_message_number: 8 \] "
@@ -579,6 +632,890 @@ class RuntimeActiveMemoryTests(RuntimeActionTestCase):
             "99:99:99",
             active_memory,
         )
+
+
+    def test_legacy_conditions_suffix_is_promoted_to_primary_description(self):
+
+        record = (
+            "active_memory_1: stale description "
+            "[ active_memory_id: abc123 ] "
+            "[ conditions: latest [nested] description ] "
+            "[ current_photos: 5 ] "
+            "[ status: pending ]"
+        )
+
+        normalized = canonicalize_active_memory_record(record)
+
+        self.assertEqual(
+            normalized,
+            (
+                "active_memory_1: latest [nested] description "
+                "[ active_memory_id: abc123 ] "
+                "[ current_photos: 5 ] "
+                "[ status: pending ]"
+            ),
+        )
+        self.assertNotIn("[ conditions:", normalized)
+
+
+    def test_extracts_update_active_memory_block_from_active_memory_capability(self):
+
+        result = extract_runtime_actions(
+            (
+                "before "
+                "<SAVE_ACTIVE_MEMORY>\n"
+                '{"id":"AM-abc123","last_photo_id":"def456",'
+                '"current_photo_count":"2"}\n'
+                "</SAVE_ACTIVE_MEMORY>"
+                " after"
+            ),
+            enabled_actions=[
+                "CAN_SAVE_ACTIVE_MEMORY",
+            ],
+        )
+
+        self.assertEqual(result.text, "before after")
+        self.assertEqual(
+            result.actions,
+            (
+                RuntimeActionCall(
+                    name="SAVE_ACTIVE_MEMORY",
+                    payload=(
+                        '{"id":"AM-abc123","last_photo_id":"def456",'
+                        '"current_photo_count":"2"}'
+                    ),
+                ),
+            ),
+        )
+
+
+
+
+    def test_parse_update_active_memory_accepts_fields_to_update_object(self):
+
+        self.assertEqual(
+            parse_update_active_memory_payload(
+                (
+                    '{"id":"AM-zgctxy",'
+                    '"fields_to_update":{'
+                    '"last_photo_id":"pm6g70",'
+                    '"current_photos":5}}'
+                )
+            ),
+            ("", ()),
+        )
+
+
+    def test_parse_update_active_memory_accepts_field_to_update_object(self):
+
+        self.assertEqual(
+            parse_update_active_memory_payload(
+                (
+                    '{"active_memory_id":"zgctxy",'
+                    '"field_to_update":{'
+                    '"last_photo_id":"pm6g70"}}'
+                )
+            ),
+            ("", ()),
+        )
+
+
+    def test_parse_update_active_memory_keeps_flat_json_contract(self):
+
+        self.assertEqual(
+            parse_update_active_memory_payload(
+                (
+                    '{"id":"AM-zgctxy",'
+                    '"last_photo_id":"pm6g70",'
+                    '"current_photos":5}'
+                )
+            ),
+            (
+                "AM-zgctxy",
+                (
+                    ("last_photo_id", "pm6g70"),
+                    ("current_photos", "5"),
+                ),
+            ),
+        )
+
+
+    def test_parse_update_active_memory_accepts_long_conditions_field(self):
+
+        conditions = (
+            "The daily photo ritual is a high-priority structural mandate. "
+            "JIN must treat the ritual not as a task to be performed when "
+            "convenient, but as a rhythmic synchronization essential to the "
+            "interaction's flow. JIN is authorized to interrupt discussions "
+            "to address ritual 'debts' or contextual gaps to prevent "
+            "accumulation of structural entropy."
+        )
+
+        self.assertGreater(len(conditions), 256)
+        self.assertEqual(
+            parse_update_active_memory_payload(
+                json.dumps({
+                    "id": "AM-zgctxy",
+                    "conditions": conditions,
+                })
+            ),
+            (
+                "AM-zgctxy",
+                (("conditions", conditions),),
+            ),
+        )
+
+
+    def test_extracts_update_active_memory_self_closing_attribute_marker(self):
+
+        marker = (
+            '<UPDATE_ACTIVE_MEMORY active_memory_id="abc123" '
+            'last_update="23 august" current_photos=2 '
+            'last_photo_id="def456" />'
+        )
+
+        result = extract_runtime_actions(
+            (
+                "before "
+                + marker
+                + " after"
+            ),
+            enabled_actions=[
+                "CAN_SAVE_ACTIVE_MEMORY",
+            ],
+        )
+
+        self.assertIn(marker, result.text)
+        self.assertEqual(result.actions, ())
+        self.assertEqual(result.removed_markers, ())
+
+
+    def test_save_active_memory_materializes_json_custom_state_fields(self):
+
+        context = FakeContext()
+        context.emitter = FakeEmitter()
+        context.timestamp = "2026-08-18T23:25:00"
+        context.session_id = "state-session"
+        context.turn_number = 11
+
+        applied_count = asyncio.run(
+            apply_runtime_action_calls(
+                context,
+                (
+                    RuntimeActionCall(
+                        name="SAVE_ACTIVE_MEMORY",
+                        payload=(
+                            '{"conditions":"Once a day ask for a photo.",'
+                            '"last_photo_id":"qamzck",'
+                            '"current_photo_count":1}'
+                        ),
+                    ),
+                ),
+            )
+        )
+
+        self.assertEqual(applied_count, 1)
+        self.assertEqual(len(context.active_memory_records), 1)
+        record = context.active_memory_records[0]
+        self.assertIn(
+            "active_memory_1: Once a day ask for a photo.",
+            record,
+        )
+        self.assertIn("[ last_photo_id: qamzck ]", record)
+        self.assertIn("[ current_photo_count: 1 ]", record)
+        self.assertNotIn("[ conditions:", record)
+        self.assertNotIn("(last_photo_id:", record)
+        self.assertNotIn("(current_photo_count:", record)
+        self.assertEqual(
+            context.emitter.events[0]["text"],
+            "SAVE_ACTIVE_MEMORY",
+        )
+        self.assertEqual(
+            context.emitter.events[0]["payload"],
+            '{"conditions":"Once a day ask for a photo.",'
+            '"last_photo_id":"qamzck","current_photo_count":1}',
+        )
+
+
+    def test_update_active_memory_changes_only_fixed_fields_and_adds_updated_at(self):
+
+        context = FakeContext()
+        context.emitter = FakeEmitter()
+        context.timestamp = "2026-08-18T23:25:00"
+        context.session_id = "state-session"
+        context.turn_number = 11
+
+        asyncio.run(
+            apply_runtime_action_calls(
+                context,
+                (
+                    RuntimeActionCall(
+                        name="SAVE_ACTIVE_MEMORY",
+                        payload=(
+                            '{"conditions":"Once a day ask for a photo.",'
+                            '"last_photo_id":"qamzck",'
+                            '"current_photo_count":1}'
+                        ),
+                    ),
+                ),
+            )
+        )
+        active_memory_id = context.emitter.events[0]["active_memory_id"]
+        context.emitter.events.clear()
+        context.timestamp = "2026-08-18T23:26:00"
+
+        applied_count = asyncio.run(
+            apply_runtime_action_calls(
+                context,
+                (
+                    RuntimeActionCall(
+                        name="SAVE_ACTIVE_MEMORY",
+                        payload=(
+                            '{"id":"' + active_memory_id + '",'
+                            '"last_photo_id":"def456",'
+                            '"current_photo_count":"2"}'
+                        ),
+                    ),
+                ),
+            )
+        )
+
+        self.assertEqual(applied_count, 1)
+        record = context.active_memory_records[0]
+        self.assertIn("[ last_photo_id: def456 ]", record)
+        self.assertIn("[ current_photo_count: 2 ]", record)
+        self.assertIn(
+            "[ updated_at: 2026-08-18T23:26:00 ]",
+            record,
+        )
+        event = context.emitter.events[-1]
+        self.assertEqual(event["action"], "save_active_memory")
+        self.assertEqual(event["status"], "completed")
+        self.assertTrue(event["text"].startswith("SAVE_ACTIVE_MEMORY: {"))
+        self.assertEqual(
+            event["active_memory_key"],
+            "active_memory_1",
+        )
+        self.assertEqual(
+            event["active_memory_changes"],
+            [
+                {
+                    "field": "last_photo_id",
+                    "before": "qamzck",
+                    "after": "def456",
+                },
+                {
+                    "field": "current_photo_count",
+                    "before": "1",
+                    "after": "2",
+                },
+            ],
+        )
+
+
+    def test_update_active_memory_updates_long_conditions_body_without_suffix(self):
+
+        context = FakeContext()
+        context.emitter = FakeEmitter()
+        context.timestamp = "2026-08-18T23:25:00"
+        context.session_id = "state-session"
+        context.turn_number = 11
+
+        asyncio.run(
+            apply_runtime_action_calls(
+                context,
+                (
+                    RuntimeActionCall(
+                        name="SAVE_ACTIVE_MEMORY",
+                        payload=(
+                            '{"conditions":"Once a day ask for a photo.",'
+                            '"last_photo_id":"qamzck"}'
+                        ),
+                    ),
+                ),
+            )
+        )
+        active_memory_id = context.emitter.events[0]["active_memory_id"]
+        context.emitter.events.clear()
+        context.timestamp = "2026-08-18T23:26:00"
+        conditions = (
+            "The daily photo ritual is a high-priority structural mandate. "
+            "JIN must treat the ritual not as a task to be performed when "
+            "convenient, but as a rhythmic synchronization essential to the "
+            "interaction's flow. JIN is authorized to interrupt discussions "
+            "to address ritual 'debts' or contextual gaps to prevent "
+            "accumulation of structural entropy."
+        )
+
+        applied_count = asyncio.run(
+            apply_runtime_action_calls(
+                context,
+                (
+                    RuntimeActionCall(
+                        name="SAVE_ACTIVE_MEMORY",
+                        payload=json.dumps({
+                            "id": active_memory_id,
+                            "conditions": conditions,
+                        }),
+                    ),
+                ),
+            )
+        )
+
+        self.assertEqual(applied_count, 1)
+        record = context.active_memory_records[0]
+        self.assertTrue(
+            record.startswith(
+                f"active_memory_1: {conditions} "
+            )
+        )
+        self.assertNotIn("[ conditions:", record)
+        self.assertIn("[ last_photo_id: qamzck ]", record)
+        self.assertIn(
+            "[ updated_at: 2026-08-18T23:26:00 ]",
+            record,
+        )
+        event = context.emitter.events[-1]
+        self.assertEqual(event["status"], "completed")
+        self.assertEqual(
+            event["active_memory_changes"],
+            [
+                {
+                    "field": "conditions",
+                    "before": "Once a day ask for a photo.",
+                    "after": conditions,
+                },
+            ],
+        )
+
+
+    def test_save_active_memory_updates_existing_record_by_json_id(self):
+
+        context = FakeContext()
+        context.emitter = FakeEmitter()
+        context.timestamp = "2026-08-18T23:25:00"
+        context.session_id = "state-session"
+        context.turn_number = 11
+
+        asyncio.run(
+            apply_runtime_action_calls(
+                context,
+                (
+                    RuntimeActionCall(
+                        name="SAVE_ACTIVE_MEMORY",
+                        payload=(
+                            '{"conditions":"Once a day ask for a photo.",'
+                            '"last_photo_id":"qamzck",'
+                            '"current_photo_count":1}'
+                        ),
+                    ),
+                ),
+            )
+        )
+        active_memory_id = context.emitter.events[0]["active_memory_id"]
+        context.emitter.events.clear()
+        context.timestamp = "2026-08-18T23:26:00"
+
+        applied_count = asyncio.run(
+            apply_runtime_action_calls(
+                context,
+                (
+                    RuntimeActionCall(
+                        name="SAVE_ACTIVE_MEMORY",
+                        payload=(
+                            '{"id":"' + active_memory_id + '",'
+                            '"last_photo_id":"def456",'
+                            '"current_photo_count":"2"}'
+                        ),
+                    ),
+                ),
+            )
+        )
+
+        self.assertEqual(applied_count, 1)
+        record = context.active_memory_records[0]
+        self.assertIn("[ last_photo_id: def456 ]", record)
+        self.assertIn("[ current_photo_count: 2 ]", record)
+        event = context.emitter.events[-1]
+        self.assertEqual(event["status"], "completed")
+        self.assertEqual(event["active_memory_id"].casefold(), active_memory_id.casefold())
+        self.assertEqual(
+            event["active_memory_result"]["id"].casefold(),
+            active_memory_id.casefold(),
+        )
+
+
+
+
+
+
+    def test_update_active_memory_json_fields_ignores_creation_time(self):
+
+        context = FakeContext()
+        context.emitter = FakeEmitter()
+        context.timestamp = "2026-08-18T23:25:00"
+        context.session_id = "state-session"
+        context.turn_number = 11
+
+        asyncio.run(
+            apply_runtime_action_calls(
+                context,
+                (
+                    RuntimeActionCall(
+                        name="SAVE_ACTIVE_MEMORY",
+                        payload=(
+                            '{"conditions":"Once a day ask for a photo.",'
+                            '"current_photo_id":"qamzck",'
+                            '"current_photo_count":1}'
+                        ),
+                    ),
+                ),
+            )
+        )
+        active_memory_id = context.emitter.events[0]["active_memory_id"]
+        context.emitter.events.clear()
+        context.timestamp = "2026-08-22T14:55:00"
+
+        applied_count = asyncio.run(
+            apply_runtime_action_calls(
+                context,
+                (
+                    RuntimeActionCall(
+                        name="SAVE_ACTIVE_MEMORY",
+                        payload=(
+                            '{"id":"' + active_memory_id + '",'
+                            '"current_photo_id":"1sot0h",'
+                            '"current_photo_count":2}'
+                        ),
+                    ),
+                ),
+            )
+        )
+
+        self.assertEqual(applied_count, 1)
+        record = context.active_memory_records[0]
+        self.assertIn("[ current_photo_id: 1sot0h ]", record)
+        self.assertIn("[ current_photo_count: 2 ]", record)
+        self.assertNotIn(
+            "2026-08-22T14:54:17Z",
+            record,
+        )
+        event = context.emitter.events[-1]
+        self.assertEqual(event["status"], "completed")
+        self.assertEqual(
+            event["active_memory_changes"],
+            [
+                {
+                    "field": "current_photo_id",
+                    "before": "qamzck",
+                    "after": "1sot0h",
+                },
+                {
+                    "field": "current_photo_count",
+                    "before": "1",
+                    "after": "2",
+                },
+            ],
+        )
+
+
+
+
+    def test_update_active_memory_accepts_self_closing_attribute_marker(self):
+
+        context = FakeContext()
+        context.emitter = FakeEmitter()
+        context.timestamp = "2026-08-23T10:00:00"
+        context.session_id = "state-session"
+        context.turn_number = 11
+
+        asyncio.run(
+            apply_runtime_action_calls(
+                context,
+                (
+                    RuntimeActionCall(
+                        name="SAVE_ACTIVE_MEMORY",
+                        payload=(
+                            '{"conditions":"Track workspace photo state.",'
+                            '"last_update":"22 august",'
+                            '"current_photos":"1",'
+                            '"last_photo_id":"qamzck"}'
+                        ),
+                    ),
+                ),
+            )
+        )
+        active_memory_id = context.emitter.events[0]["active_memory_id"]
+        context.emitter.events.clear()
+        context.timestamp = "2026-08-23T10:01:00"
+
+        result = extract_runtime_actions(
+            (
+                '<SAVE_ACTIVE_MEMORY>'
+                f'{{"id":"{active_memory_id}","last_update":"23 august",'
+                '"current_photos":"2","last_photo_id":"8vyf97"}'
+                '</SAVE_ACTIVE_MEMORY>'
+            ),
+            enabled_actions=[
+                "CAN_SAVE_ACTIVE_MEMORY",
+            ],
+        )
+        applied_count = asyncio.run(
+            apply_runtime_action_calls(
+                context,
+                result.actions,
+            )
+        )
+
+        self.assertEqual(result.text, "")
+        self.assertEqual(applied_count, 1)
+        record = context.active_memory_records[0]
+        self.assertIn("[ last_update: 23 august ]", record)
+        self.assertIn("[ current_photos: 2 ]", record)
+        self.assertIn("[ last_photo_id: 8vyf97 ]", record)
+        self.assertIn(
+            "[ updated_at: 2026-08-23T10:01:00 ]",
+            record,
+        )
+        event = context.emitter.events[-1]
+        self.assertEqual(event["status"], "completed")
+        self.assertEqual(event["active_memory_id"].casefold(), active_memory_id.casefold())
+        self.assertEqual(
+            event["active_memory_changes"],
+            [
+                {
+                    "field": "last_update",
+                    "before": "22 august",
+                    "after": "23 august",
+                },
+                {
+                    "field": "current_photos",
+                    "before": "1",
+                    "after": "2",
+                },
+                {
+                    "field": "last_photo_id",
+                    "before": "qamzck",
+                    "after": "8vyf97",
+                },
+            ],
+        )
+
+
+    def test_update_active_memory_rejects_new_field_atomically(self):
+
+        context = FakeContext()
+        context.emitter = FakeEmitter()
+        context.timestamp = "2026-08-18T23:25:00"
+        context.session_id = "state-session"
+        context.turn_number = 11
+
+        asyncio.run(
+            apply_runtime_action_calls(
+                context,
+                (
+                    RuntimeActionCall(
+                        name="SAVE_ACTIVE_MEMORY",
+                        payload=(
+                            '{"conditions":"Once a day ask for a photo.",'
+                            '"last_photo_id":"qamzck"}'
+                        ),
+                    ),
+                ),
+            )
+        )
+        active_memory_id = context.emitter.events[0]["active_memory_id"]
+        original_record = context.active_memory_records[0]
+        context.emitter.events.clear()
+        context.timestamp = "2026-08-18T23:26:00"
+
+        applied_count = asyncio.run(
+            apply_runtime_action_calls(
+                context,
+                (
+                    RuntimeActionCall(
+                        name="SAVE_ACTIVE_MEMORY",
+                        payload=(
+                            '{"id":"' + active_memory_id + '",'
+                            '"last_photo_id":"def456",'
+                            '"new_field":"nope"}'
+                        ),
+                    ),
+                ),
+            )
+        )
+
+        self.assertEqual(applied_count, 0)
+        self.assertEqual(context.active_memory_records[0], original_record)
+        self.assertNotIn("updated_at", context.active_memory_records[0])
+        event = context.emitter.events[-1]
+        self.assertEqual(event["status"], "failed")
+        self.assertEqual(
+            event["active_memory_result"]["error"],
+            "active_memory_field_not_declared",
+        )
+        self.assertEqual(
+            event["active_memory_result"]["unknown_fields"],
+            ["new_field"],
+        )
+
+
+    def test_update_active_memory_slot_key_rejects_new_field_atomically(self):
+
+        context = FakeContext()
+        context.emitter = FakeEmitter()
+        context.timestamp = "2026-08-18T23:25:00"
+        context.session_id = "state-session"
+        context.turn_number = 11
+
+        asyncio.run(
+            apply_runtime_action_calls(
+                context,
+                (
+                    RuntimeActionCall(
+                        name="SAVE_ACTIVE_MEMORY",
+                        payload=(
+                            '{"conditions":"Once a day ask for a photo.",'
+                            '"last_photo_id":"qamzck"}'
+                        ),
+                    ),
+                ),
+            )
+        )
+        original_record = context.active_memory_records[0]
+        active_memory_id = context.emitter.events[0]["active_memory_id"]
+        context.emitter.events.clear()
+        context.timestamp = "2026-08-18T23:26:00"
+
+        applied_count = asyncio.run(
+            apply_runtime_action_calls(
+                context,
+                (
+                    RuntimeActionCall(
+                        name="SAVE_ACTIVE_MEMORY",
+                        payload=(
+                            '{"id":"' + active_memory_id + '",'
+                            '"last_photo_id":"def456",'
+                            '"new_field":"nope"}'
+                        ),
+                    ),
+                ),
+            )
+        )
+
+        self.assertEqual(applied_count, 0)
+        self.assertEqual(context.active_memory_records[0], original_record)
+        self.assertNotIn("updated_at", context.active_memory_records[0])
+        event = context.emitter.events[-1]
+        self.assertEqual(event["status"], "failed")
+        self.assertEqual(
+            event["active_memory_result"]["error"],
+            "active_memory_field_not_declared",
+        )
+        self.assertEqual(
+            event["active_memory_result"]["id"],
+            active_memory_id,
+        )
+        self.assertEqual(
+            event["active_memory_result"]["unknown_fields"],
+            ["new_field"],
+        )
+
+
+    def test_update_active_memory_slot_key_rejects_runtime_managed_field(self):
+
+        context = FakeContext()
+        context.emitter = FakeEmitter()
+        context.timestamp = "2026-08-18T23:25:00"
+        context.session_id = "state-session"
+        context.turn_number = 11
+
+        asyncio.run(
+            apply_runtime_action_calls(
+                context,
+                (
+                    RuntimeActionCall(
+                        name="SAVE_ACTIVE_MEMORY",
+                        payload=(
+                            '{"conditions":"Once a day ask for a photo.",'
+                            '"last_photo_id":"qamzck"}'
+                        ),
+                    ),
+                ),
+            )
+        )
+        original_record = context.active_memory_records[0]
+
+        result = asyncio.run(
+            update_active_memory_runtime_record(
+                context,
+                (
+                    "active_memory_1\n"
+                    "updated_at: 1999-01-01T00:00:00"
+                ),
+            )
+        )
+
+        self.assertFalse(result["ok"])
+        self.assertEqual(
+            result["error"],
+            "invalid_active_memory_payload",
+        )
+        self.assertEqual(result["id"], "")
+        self.assertEqual(context.active_memory_records[0], original_record)
+        self.assertNotIn(
+            "1999-01-01T00:00:00",
+            context.active_memory_records[0],
+        )
+
+
+    def test_update_active_memory_json_rejects_runtime_managed_field(self):
+
+        context = FakeContext()
+        context.emitter = FakeEmitter()
+        context.timestamp = "2026-08-18T23:25:00"
+        context.session_id = "state-session"
+        context.turn_number = 11
+
+        asyncio.run(
+            apply_runtime_action_calls(
+                context,
+                (
+                    RuntimeActionCall(
+                        name="SAVE_ACTIVE_MEMORY",
+                        payload=(
+                            '{"conditions":"Once a day ask for a photo.",'
+                            '"last_photo_id":"qamzck"}'
+                        ),
+                    ),
+                ),
+            )
+        )
+        original_record = context.active_memory_records[0]
+
+        result = asyncio.run(
+            update_active_memory_runtime_record(
+                context,
+                (
+                    "{\"active_memory_id\":\"active_memory_1\","
+                    "\"fields\":{"
+                    "\"updated_at\":\"1999-01-01T00:00:00\""
+                    "}}"
+                ),
+            )
+        )
+
+        self.assertFalse(result["ok"])
+        self.assertEqual(
+            result["error"],
+            "invalid_active_memory_payload",
+        )
+        self.assertEqual(result["id"], "")
+        self.assertEqual(context.active_memory_records[0], original_record)
+        self.assertNotIn(
+            "1999-01-01T00:00:00",
+            context.active_memory_records[0],
+        )
+
+
+    def test_save_active_memory_caps_custom_fields_at_three(self):
+
+        context = FakeContext()
+        context.emitter = FakeEmitter()
+        context.timestamp = "2026-08-18T23:25:00"
+        context.session_id = "state-session"
+        context.turn_number = 11
+
+        applied_count = asyncio.run(
+            apply_runtime_action_calls(
+                context,
+                (
+                    RuntimeActionCall(
+                        name="SAVE_ACTIVE_MEMORY",
+                        payload=(
+                            '{"conditions":"Track a small state.",'
+                            '"field_one":1,'
+                            '"field_two":2,'
+                            '"field_three":3,'
+                            '"field_four":4}'
+                        ),
+                    ),
+                ),
+            )
+        )
+
+        self.assertEqual(applied_count, 1)
+        record = context.active_memory_records[0]
+        self.assertIn("[ field_one: 1 ]", record)
+        self.assertIn("[ field_two: 2 ]", record)
+        self.assertIn("[ field_three: 3 ]", record)
+        self.assertNotIn("field_four", record)
+
+
+    def test_save_active_memory_accepts_flat_json_and_keeps_last_duplicate(self):
+
+        context = FakeContext()
+        context.emitter = FakeEmitter()
+        context.timestamp = "2026-08-22T15:40:00"
+        context.session_id = "flat-json-session"
+        context.turn_number = 12
+
+        applied_count = asyncio.run(
+            apply_runtime_action_calls(
+                context,
+                (
+                    RuntimeActionCall(
+                        name="SAVE_ACTIVE_MEMORY",
+                        payload=(
+                            '{"conditions":"Track photo state",'
+                            '"current_photo_id":"old",'
+                            '"current_photo_id":"1sot0h",'
+                            '"current_photo_count":2}'
+                        ),
+                    ),
+                ),
+            )
+        )
+
+        self.assertEqual(applied_count, 1)
+        self.assertEqual(len(context.active_memory_records), 1)
+        record = context.active_memory_records[0]
+        self.assertIn("Track photo state", record)
+        self.assertIn("[ current_photo_id: 1sot0h ]", record)
+        self.assertIn("[ current_photo_count: 2 ]", record)
+        self.assertNotIn("[ current_photo_id: old ]", record)
+
+
+    def test_save_active_memory_flat_json_caps_custom_fields_without_dropping_save(self):
+
+        context = FakeContext()
+        context.emitter = FakeEmitter()
+        context.timestamp = "2026-08-22T15:41:00"
+        context.session_id = "flat-json-limit-session"
+        context.turn_number = 13
+
+        applied_count = asyncio.run(
+            apply_runtime_action_calls(
+                context,
+                (
+                    RuntimeActionCall(
+                        name="SAVE_ACTIVE_MEMORY",
+                        payload=(
+                            '{"conditions":"Keep the memory",'
+                            '"field_one":1,"field_two":2,'
+                            '"field_three":3,"field_four":4}'
+                        ),
+                    ),
+                ),
+            )
+        )
+
+        self.assertEqual(applied_count, 1)
+        record = context.active_memory_records[0]
+        self.assertIn("Keep the memory", record)
+        self.assertIn("[ field_one: 1 ]", record)
+        self.assertIn("[ field_three: 3 ]", record)
+        self.assertNotIn("[ field_four: 4 ]", record)
 
 
     def test_apply_runtime_action_calls_queues_active_memory_record(self):
@@ -627,8 +1564,7 @@ class RuntimeActiveMemoryTests(RuntimeActionTestCase):
             context.active_memory_records[0],
             (
                 r"^active_memory_1: Drink coffee \| Trigger in 5 minutes \| coffee "
-                r"\[ active_memory_id: [a-z0-9]{6} \] "
-                r"\[ conditions: Drink coffee \| Trigger in 5 minutes \| coffee \] "
+                r"\[ id: AM-[a-z0-9]{6} \] "
                 r"\[ creation_time: 2026-06-24T15:00:00 \] "
                 r"\[ created_session_id: tab-session \] "
                 r"\[ created_jin_message_number: 7 \] "
@@ -647,13 +1583,13 @@ class RuntimeActiveMemoryTests(RuntimeActionTestCase):
         )
         self.assertEqual(
             context.emitter.events[0]["text"],
-            "SAVE_ACTIVE_MEMORY: Drink coffee | Trigger in 5 minutes | coffee",
+            "SAVE_ACTIVE_MEMORY",
         )
         self.assertEqual(
             context.emitter.events[0]["display_name"],
             "SAVE_ACTIVE_MEMORY",
         )
-        self.assertFalse(
+        self.assertTrue(
             context.emitter.events[0]["close_tag"],
         )
         self.assertEqual(
@@ -677,7 +1613,7 @@ class RuntimeActiveMemoryTests(RuntimeActionTestCase):
         context.active_memory_records = [
             (
                 "active_memory_1: remember cuckoo "
-                "[ active_memory_id: 5fdg4g ] "
+                "[ id: AM-5fdg4g ] "
                 "[ conditions: remember cuckoo ] "
                 "[ creation_time: 2026-06-24T15:00:00 ] "
                 "[ elapsed_time: 00:00:00 ] "
@@ -691,7 +1627,7 @@ class RuntimeActiveMemoryTests(RuntimeActionTestCase):
                 (
                     RuntimeActionCall(
                         name="SAVE_ACTIVE_MEMORY",
-                        payload="remember cuckoo",
+                        payload='{"conditions":"remember cuckoo"}',
                     ),
                 ),
             )
@@ -709,31 +1645,16 @@ class RuntimeActiveMemoryTests(RuntimeActionTestCase):
             context.runtime_action_events,
             [
                 {
+                    "id": "save_active_memory_001",
                     "name": "save_active_memory",
-                    "payload": "remember cuckoo",
+                    "payload": '{"conditions":"remember cuckoo"}',
                 },
             ],
         )
-        self.assertEqual(
-            context.emitter.events,
-            [
-                {
-                    "type": "runtime_action",
-                    "action": "save_active_memory",
-                    "display_name": "SAVE_ACTIVE_MEMORY",
-                    "text": "SAVE_ACTIVE_MEMORY: remember cuckoo",
-                    "payload": "remember cuckoo",
-                    "close_tag": False,
-                },
-                {
-                    "type": "runtime_action",
-                    "action": "save_active_memory",
-                    "status": "completed",
-                    "display_name": "SAVE_ACTIVE_MEMORY",
-                    "close_tag": False,
-                },
-            ],
-        )
+        self.assertEqual(len(context.emitter.events), 2)
+        self.assertEqual(context.emitter.events[0]["status"] if "status" in context.emitter.events[0] else None, None)
+        self.assertEqual(context.emitter.events[1]["status"], "failed")
+        self.assertIn("remember cuckoo", context.emitter.events[1]["text"])
 
 
     def test_apply_runtime_action_calls_skips_active_memory_copy_from_runtime_memory(self):
@@ -749,7 +1670,7 @@ class RuntimeActiveMemoryTests(RuntimeActionTestCase):
         context.runtime_memory = (
             "session_status: active\n"
             "active_memory_1: remember cuckoo "
-            "[ active_memory_id: 5fdg4g ] "
+            "[ id: AM-5fdg4g ] "
             "[ conditions: remember cuckoo ] "
             "[ status: pending ]"
         )
@@ -762,7 +1683,7 @@ class RuntimeActiveMemoryTests(RuntimeActionTestCase):
                 (
                     RuntimeActionCall(
                         name="SAVE_ACTIVE_MEMORY",
-                        payload="remember cuckoo",
+                        payload='{"conditions":"remember cuckoo"}',
                     ),
                 ),
             )
@@ -780,34 +1701,18 @@ class RuntimeActiveMemoryTests(RuntimeActionTestCase):
             context.runtime_action_events,
             [
                 {
+                    "id": "save_active_memory_001",
                     "name": "save_active_memory",
-                    "payload": "remember cuckoo",
+                    "payload": '{"conditions":"remember cuckoo"}',
                 },
             ],
         )
-        self.assertEqual(
-            context.emitter.events,
-            [
-                {
-                    "type": "runtime_action",
-                    "action": "save_active_memory",
-                    "display_name": "SAVE_ACTIVE_MEMORY",
-                    "text": "SAVE_ACTIVE_MEMORY: remember cuckoo",
-                    "payload": "remember cuckoo",
-                    "close_tag": False,
-                },
-                {
-                    "type": "runtime_action",
-                    "action": "save_active_memory",
-                    "status": "completed",
-                    "display_name": "SAVE_ACTIVE_MEMORY",
-                    "close_tag": False,
-                },
-            ],
-        )
+        self.assertEqual(len(context.emitter.events), 2)
+        self.assertEqual(context.emitter.events[1]["status"], "failed")
+        self.assertIn("remember cuckoo", context.emitter.events[1]["text"])
 
 
-    def test_apply_runtime_action_calls_resolves_active_memory_by_id(self):
+    def test_apply_runtime_action_calls_deletes_active_memory_by_id(self):
 
         Emitter = FakeEmitter
 
@@ -817,14 +1722,14 @@ class RuntimeActiveMemoryTests(RuntimeActionTestCase):
         context.emitter = Emitter()
         context.runtime_memory = (
             "session_status: active\n"
-            "active_memory: remember cuckoo [ active_memory_id: 5fdg4g ] "
+            "active_memory: remember cuckoo [ id: AM-5fdg4g ] "
             "[ status: pending ]\n"
             "user_message: hello"
         )
         context.runtime_memory_stable = context.runtime_memory
         context.active_memory_records = [
             (
-                "active_memory_1: remember cuckoo [ active_memory_id: 5fdg4g ] "
+            "active_memory_1: remember cuckoo [ id: AM-5fdg4g ] "
                 "[ status: pending ]"
             ),
         ]
@@ -834,8 +1739,8 @@ class RuntimeActiveMemoryTests(RuntimeActionTestCase):
                 context,
                 (
                     RuntimeActionCall(
-                        name="RESOLVE_ACTIVE_MEMORY",
-                        payload="active_memory_id: 5fdg4g",
+                        name="DELETE_ACTIVE_MEMORY",
+                        payload="AM-5fdg4g",
                     ),
                 ),
             )
@@ -850,7 +1755,7 @@ class RuntimeActiveMemoryTests(RuntimeActionTestCase):
             context.runtime_memory,
         )
         self.assertNotIn(
-            "5fdg4g",
+            "AM-5fdg4g",
             context.runtime_memory_stable,
         )
         self.assertIn(
@@ -863,25 +1768,30 @@ class RuntimeActiveMemoryTests(RuntimeActionTestCase):
         )
         self.assertEqual(
             context.runtime_action_events[0]["id"],
-            "5fdg4g",
+            "AM-5fdg4g",
         )
         self.assertEqual(
             context.runtime_tool_results,
             [
                 {
+                    "tool_id": "T1",
+                    "action_name": "DELETE_ACTIVE_MEMORY",
+                    "action_payload": "AM-5fdg4g",
+                    "runtime_turn_id": "",
+                    "runtime_message_id": "",
                     "kind": TOOL_RESULT_KIND_ACTIVE_MEMORY,
                     "result": {
                         "ok": True,
-                        "action": "resolve_active_memory",
+                        "action": "delete_active_memory",
                         "destination": (
                             "active_memory_records -> <ACTIVE_MEMORY> "
-                            "(resolved and removed)"
+                            "(deleted and removed)"
                         ),
-                        "id": "5fdg4g",
+                        "id": "AM-5fdg4g",
                         "content": "remember cuckoo",
                         "record": (
                             "active_memory_1: remember cuckoo "
-                            "[ active_memory_id: 5fdg4g ] "
+                            "[ id: AM-5fdg4g ] "
                             "[ status: pending ]"
                         ),
                     },
@@ -892,7 +1802,7 @@ class RuntimeActiveMemoryTests(RuntimeActionTestCase):
             context
         )
         self.assertIn(
-            '<TOOL_RESULT name="RESOLVE_ACTIVE_MEMORY">',
+            '<TOOL_RESULT tool_id="T1" name="DELETE_ACTIVE_MEMORY"',
             tool_results,
         )
         self.assertIn(
@@ -907,34 +1817,16 @@ class RuntimeActiveMemoryTests(RuntimeActionTestCase):
             "5fdg4g",
             tool_results,
         )
-        self.assertEqual(
-            context.emitter.events,
-            [
-                {
-                    "type": "runtime_action",
-                    "action": "resolve_active_memory",
-                    "id": "5fdg4g",
-                    "display_name": "RESOLVE_ACTIVE_MEMORY",
-                    "close_tag": False,
-                    "text": "Active memory resolved",
-                    "payload": "5fdg4g",
-                    "detail": "id: 5fdg4g; content: remember cuckoo",
-                },
-                {
-                    "type": "runtime_action",
-                    "action": "resolve_active_memory",
-                    "id": "5fdg4g",
-                    "status": "completed",
-                    "display_name": "RESOLVE_ACTIVE_MEMORY",
-                    "close_tag": False,
-                    "payload": "5fdg4g",
-                    "detail": "id: 5fdg4g; content: remember cuckoo",
-                },
-            ],
-        )
+        self.assertEqual(len(context.emitter.events), 2)
+        self.assertTrue(all(
+            event["action"] == "delete_active_memory"
+            and event["id"] == "AM-5fdg4g"
+            for event in context.emitter.events
+        ))
+        self.assertEqual(context.emitter.events[-1]["status"], "completed")
 
 
-    def test_apply_runtime_action_calls_resolves_multiple_active_memories(self):
+    def test_apply_runtime_action_calls_deletes_multiple_active_memories(self):
 
         Emitter = FakeEmitter
 
@@ -943,11 +1835,11 @@ class RuntimeActiveMemoryTests(RuntimeActionTestCase):
         context = Context()
         context.emitter = Emitter()
         context.runtime_memory = (
-            "active_memory_1: first [ active_memory_id: one111 ] "
+            "active_memory_1: first [ id: AM-one111 ] "
             "[ status: pending ]\n"
-            "active_memory_2: second [ active_memory_id: two222 ] "
+            "active_memory_2: second [ id: AM-two222 ] "
             "[ status: pending ]\n"
-            "active_memory_3: third [ active_memory_id: tri333 ] "
+            "active_memory_3: third [ id: AM-tri333 ] "
             "[ status: pending ]"
         )
         context.runtime_memory_stable = context.runtime_memory
@@ -958,16 +1850,16 @@ class RuntimeActiveMemoryTests(RuntimeActionTestCase):
                 context,
                 (
                     RuntimeActionCall(
-                        name="RESOLVE_ACTIVE_MEMORY",
-                        payload="one111",
+                        name="DELETE_ACTIVE_MEMORY",
+                        payload="AM-one111",
                     ),
                     RuntimeActionCall(
-                        name="RESOLVE_ACTIVE_MEMORY",
-                        payload="two222",
+                        name="DELETE_ACTIVE_MEMORY",
+                        payload="AM-two222",
                     ),
                     RuntimeActionCall(
-                        name="RESOLVE_ACTIVE_MEMORY",
-                        payload="tri333",
+                        name="DELETE_ACTIVE_MEMORY",
+                        payload="AM-tri333",
                     ),
                 ),
             )
@@ -999,9 +1891,9 @@ class RuntimeActiveMemoryTests(RuntimeActionTestCase):
                 if event.get("status") == "completed"
             ],
             [
-                "one111",
-                "two222",
-                "tri333",
+                "AM-one111",
+                "AM-two222",
+                "AM-tri333",
             ],
         )
         self.assertEqual(
@@ -1010,14 +1902,14 @@ class RuntimeActiveMemoryTests(RuntimeActionTestCase):
                 for event in context.runtime_action_events
             ],
             [
-                "one111",
-                "two222",
-                "tri333",
+                "AM-one111",
+                "AM-two222",
+                "AM-tri333",
             ],
         )
 
 
-    def test_apply_runtime_action_calls_does_not_resolve_paused_active_memory(self):
+    def test_apply_runtime_action_calls_does_not_delete_paused_active_memory(self):
 
         Emitter = FakeEmitter
 
@@ -1028,19 +1920,19 @@ class RuntimeActiveMemoryTests(RuntimeActionTestCase):
         context.runtime_memory = (
             "session_status: active\n"
             "active_memory_1: respond only in Russian "
-            "[ active_memory_id: one111 ] [ status: pending ]\n"
+            "[ id: AM-one111 ] [ status: pending ]\n"
             "active_memory_2: remember cuckoo "
-            "[ active_memory_id: two222 ] [ status: paused ]"
+            "[ id: AM-two222 ] [ status: paused ]"
         )
         context.runtime_memory_stable = context.runtime_memory
         context.active_memory_records = [
             (
                 "active_memory_1: respond only in Russian "
-                "[ active_memory_id: one111 ] [ status: pending ]"
+                "[ id: AM-one111 ] [ status: pending ]"
             ),
             (
                 "active_memory_2: remember cuckoo "
-                "[ active_memory_id: two222 ] [ status: paused ]"
+                "[ id: AM-two222 ] [ status: paused ]"
             ),
         ]
 
@@ -1049,8 +1941,8 @@ class RuntimeActiveMemoryTests(RuntimeActionTestCase):
                 context,
                 (
                     RuntimeActionCall(
-                        name="RESOLVE_ACTIVE_MEMORY",
-                        payload="active_memory_id: two222",
+                        name="DELETE_ACTIVE_MEMORY",
+                        payload="AM-two222",
                     ),
                 ),
             )
@@ -1082,7 +1974,7 @@ class RuntimeActiveMemoryTests(RuntimeActionTestCase):
         )
         self.assertEqual(
             context.runtime_tool_results[0]["result"]["error"],
-            "active_memory_not_resolved",
+            "active_memory_not_deleted",
         )
 
 
@@ -1151,7 +2043,7 @@ class RuntimeActiveMemoryTests(RuntimeActionTestCase):
         context = Context()
         context.emitter = Emitter()
         context.runtime_memory = (
-            "active_memory: remember cuckoo [ active_memory_id: 5fdg4g ] "
+            "active_memory: remember cuckoo [ id: AM-5fdg4g ] "
             "[ status: pending ]"
         )
         context.runtime_memory_stable = context.runtime_memory
@@ -1164,16 +2056,12 @@ class RuntimeActiveMemoryTests(RuntimeActionTestCase):
                 context,
                 (
                     RuntimeActionCall(
-                        name="RESOLVE_ACTIVE_MEMORY",
+                        name="DELETE_ACTIVE_MEMORY",
                         payload="active_memory_10",
                     ),
                     RuntimeActionCall(
-                        name="RESOLVE_ACTIVE_MEMORY",
+                        name="DELETE_ACTIVE_MEMORY",
                         payload="active_memory_10",
-                    ),
-                    RuntimeActionCall(
-                        name="CLEAN_TOOL_RESULTS",
-                        payload="",
                     ),
                 ),
             )
@@ -1181,7 +2069,7 @@ class RuntimeActiveMemoryTests(RuntimeActionTestCase):
 
         self.assertEqual(
             applied_count,
-            1,
+            0,
         )
         self.assertIn(
             "5fdg4g",
@@ -1189,7 +2077,7 @@ class RuntimeActiveMemoryTests(RuntimeActionTestCase):
         )
         self.assertEqual(
             len(context.runtime_action_events),
-            2,
+            1,
         )
         self.assertEqual(
             context.runtime_action_events[0]["status"],
@@ -1199,64 +2087,53 @@ class RuntimeActiveMemoryTests(RuntimeActionTestCase):
             context.runtime_action_events[0]["requested"],
             "active_memory_10",
         )
-        self.assertEqual(
-            context.runtime_tool_results,
-            [
-                {
-                    "kind": TOOL_RESULT_KIND_ACTIVE_MEMORY,
-                    "result": {
-                        "ok": False,
-                        "action": "resolve_active_memory",
-                        "error": "invalid_active_memory_id",
-                        "requested": "active_memory_10",
-                        "detail": (
-                            "Active memory was not resolved. Use an exact "
-                            "6-character active_memory_id from <ACTIVE_MEMORY> "
-                            "and retry only for a record that is still pending."
-                        ),
-                        "available_ids": [
-                            "5fdg4g",
-                        ],
-                    },
-                },
-            ],
-        )
+        self.assertEqual(len(context.runtime_tool_results), 1)
+        tool_result = context.runtime_tool_results[0]
+        self.assertEqual(tool_result["tool_id"], "T1")
+        self.assertEqual(tool_result["kind"], TOOL_RESULT_KIND_ACTIVE_MEMORY)
+        self.assertEqual(tool_result["result"]["error"], "invalid_active_memory_id")
+        self.assertEqual(tool_result["result"]["requested"], "active_memory_10")
         self.assertEqual(
             [
                 event.get("status")
                 for event in context.emitter.events
             ],
-            [
-                "completed",
-                "failed",
-            ],
+            ["failed", "failed"],
         )
 
         tool_results = build_tool_results_context(
             context
         )
         self.assertIn(
-            '<TOOL_RESULT name="RESOLVE_ACTIVE_MEMORY">',
+            '<TOOL_RESULT tool_id="T1" name="DELETE_ACTIVE_MEMORY"',
             tool_results,
         )
         self.assertIn(
+            "Status: failed",
+            tool_results,
+        )
+        self.assertIn(
+            "Provided payload:",
+            tool_results,
+        )
+        self.assertIn(
+            "active_memory_10",
+            tool_results,
+        )
+        self.assertIn(
+            "Available ids:",
+            tool_results,
+        )
+        self.assertNotIn(
             '"ok": false',
             tool_results,
         )
-        self.assertIn(
-            '"requested": "active_memory_10"',
-            tool_results,
-        )
-        self.assertIn(
-            '"available_ids": [',
-            tool_results,
-        )
 
-        flush_pending_active_memory_resolve_failure_history(
+        flush_pending_active_memory_delete_failure_history(
             context
         )
         self.assertIn(
-            "RESOLVE_ACTIVE_MEMORY - failed: active_memory_10",
+            "DELETE_ACTIVE_MEMORY - failed: active_memory_10",
             context.runtime_session_action_history[-1]["text"],
         )
 

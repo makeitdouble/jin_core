@@ -4,11 +4,10 @@ from contracts.rules_assembler import (
     runtime_action_has_close_tag,
 )
 from utils.actions import build_runtime_action_id
-from utils.actions.todo_actions import attach_todo_result
 from utils.python_skill_asset_utils import run_context_asset_action
-from utils.runtime_todo import normalize_file_exists_for_runtime_todo
 from utils.session_actions_history import (
     build_asset_action_marker_text,
+    build_asset_action_context_detail,
     build_asset_action_history_text,
     record_session_action_history,
 )
@@ -18,7 +17,6 @@ async def apply_asset_actions(
     context,
     asset_actions,
     *,
-    runtime_todo_action_items,
     log_runtime,
     with_action_context,
 ):
@@ -143,16 +141,6 @@ async def apply_asset_actions(
             context.runtime_active_asset_action_message_id = (
                 previous_active_asset_action_message_id
             )
-        result = normalize_file_exists_for_runtime_todo(
-            result,
-            context,
-        )
-        result = attach_todo_result(
-            context,
-            runtime_todo_action_items,
-            action,
-            result,
-        )
         result["runtime_action_id"] = pending_action_id
         append_asset_runtime_result(
             context,
@@ -196,11 +184,50 @@ async def emit_saved_asset_results(
         for result in saved_asset_results
     ]
 
-    for _result, text in saved_asset_result_texts:
+    for result, text in saved_asset_result_texts:
+        tool_ids = [entry["tool_id"] for entry in getattr(context, "runtime_tool_results", [])
+                    if entry.get("tool_id") and entry.get("result") == result]
+        context_detail = build_asset_action_context_detail(
+            result
+        )
+        display_parts = (
+            [
+                {
+                    "text": "ASSET_ACTION",
+                    "tool_ids": tool_ids[-1:],
+                    "detail": context_detail,
+                    "context_detail": context_detail,
+                },
+            ]
+            if context_detail
+            else None
+        )
+        history_before = len(
+            getattr(
+                context,
+                "runtime_session_action_history",
+                [],
+            )
+            or []
+        )
         record_session_action_history(
             context,
             text,
+            display_parts=display_parts,
         )
+        history = getattr(
+            context,
+            "runtime_session_action_history",
+            None,
+        )
+        if (
+            isinstance(history, list)
+            and len(history) > history_before
+            and isinstance(history[-1], dict)
+        ):
+            # Keep the existing human-readable history text for UI/backward
+            # compatibility; context rendering uses the structured parts above.
+            history[-1]["text"] = text + (" [ tool_id: " + tool_ids[-1] + " ]" if tool_ids else "")
 
     if not saved_asset_result_texts:
         return
@@ -244,11 +271,7 @@ async def emit_saved_asset_results(
             )
             or "assets"
         )
-        action_name = (
-            "list_skills"
-            if result_action == "list_skills"
-            else "asset_action"
-        )
+        action_name = "asset_action"
         text = (
             saved_asset_result_texts[
                 result_index - 1
@@ -266,6 +289,8 @@ async def emit_saved_asset_results(
                 + result_index,
             )
         )
+        from utils.project_reader import PROJECT_ACTIONS, format_project_result
+        project_detail = format_project_result(result, include_content=True) if result_action in PROJECT_ACTIONS else ""
         await emit(with_action_context({
             "type": "runtime_action",
             "action": action_name,
@@ -282,7 +307,7 @@ async def emit_saved_asset_results(
                 action_name
             ),
             "text": text,
-            "detail": str(
+            "detail": project_detail or str(
                 result.get(
                     "detail",
                     "",

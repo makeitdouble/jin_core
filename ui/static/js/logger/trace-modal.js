@@ -2,11 +2,41 @@ let traceModal;
 let traceModalContent;
 let traceModalReason;
 let traceModalTitle;
-let traceModalL1StreamId = null;
-let traceModalL1StreamStatus = null;
-let traceModalL1StreamReasoning = null;
-let traceModalL1StreamAnswer = null;
-let traceModalL1StreamFrame = null;
+let traceModalCopyButton;
+let traceModalContextCopyText = "";
+let contextSnapshotTabInstance = 0;
+
+const CONTEXT_DELAYED_MEMORY_STORE_CHANGED_EVENT =
+  "jin:delayed-memory-store-changed";
+const CONTEXT_FILES_STORE_CHANGED_EVENT =
+  "jin:files-store-changed";
+const CONTEXT_ATTACHMENT_HOVER_BOUND_DATASET_KEY =
+  "jinContextAttachmentHoverBound";
+const CONTEXT_BUBBLE_SKINS = [
+  "dark",
+  "light",
+  "bamboo",
+];
+
+function clearContextAttachedFileHoverPreview() {
+  if (traceModalContent) {
+    traceModalContent
+      .querySelectorAll(
+        '[data-jin-context-attachment-hover-bound="1"]'
+      )
+      .forEach((row) => {
+        row.dispatchEvent(
+          new Event("mouseleave")
+        );
+      });
+  }
+
+  if (
+      typeof window.hideJinAttachmentHoverPreview === "function"
+  ) {
+    window.hideJinAttachmentHoverPreview();
+  }
+}
 
 function ensureTraceModal() {
   if (traceModal) {
@@ -40,6 +70,32 @@ function ensureTraceModal() {
   traceModalTitle.textContent =
     "Trace";
 
+  const headerActions =
+    document.createElement("div");
+
+  headerActions.className =
+    "delayed-memory-modal-actions";
+
+  traceModalCopyButton =
+    document.createElement("button");
+
+  traceModalCopyButton.type =
+    "button";
+
+  traceModalCopyButton.className =
+    "delayed-memory-modal-icon-button jin-context-copy-button hidden";
+
+  traceModalCopyButton.setAttribute(
+    "aria-label",
+    "Copy context"
+  );
+
+  traceModalCopyButton.title =
+    "Copy raw context";
+
+  traceModalCopyButton.innerHTML =
+    '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="8" y="8" width="11" height="12" rx="1.5"></rect><path d="M15 8V5.5A1.5 1.5 0 0 0 13.5 4h-9A1.5 1.5 0 0 0 3 5.5v10A1.5 1.5 0 0 0 4.5 17H8"></path></svg>';
+
   const closeButton =
     document.createElement("button");
 
@@ -47,10 +103,15 @@ function ensureTraceModal() {
     "button";
 
   closeButton.className =
-    "text-xs text-zinc-400 hover:text-zinc-100 transition";
+    "delayed-memory-modal-icon-button delayed-memory-modal-close";
+
+  closeButton.setAttribute(
+    "aria-label",
+    "Close"
+  );
 
   closeButton.textContent =
-    "close";
+    "\u00d7";
 
   traceModalReason =
     document.createElement("div");
@@ -74,8 +135,16 @@ function ensureTraceModal() {
     traceModalTitle
   );
 
-  header.appendChild(
+  headerActions.appendChild(
+    traceModalCopyButton
+  );
+
+  headerActions.appendChild(
     closeButton
+  );
+
+  header.appendChild(
+    headerActions
   );
 
   panel.appendChild(
@@ -99,6 +168,12 @@ function ensureTraceModal() {
   );
 
   function closeTraceModal() {
+    setContextDelayedMemoryHover(
+      "",
+      false
+    );
+    clearContextAttachedFileHoverPreview();
+
     traceModal.classList.add(
       "hidden"
     );
@@ -107,37 +182,157 @@ function ensureTraceModal() {
       "flex"
     );
 
-    traceModalL1StreamId =
-      null;
-
-    traceModalL1StreamStatus =
-      null;
-
-    traceModalL1StreamReasoning =
-      null;
-
-    traceModalL1StreamAnswer =
-      null;
-
-    if (traceModalL1StreamFrame !== null) {
-      cancelAnimationFrame(
-        traceModalL1StreamFrame
-      );
-
-      traceModalL1StreamFrame =
-        null;
+    // Keep only the tiny reusable modal shell. Context snapshots can be
+    // thousands of DOM nodes; once hidden they must not stay in live DOM.
+    if (traceModalContent) {
+      traceModalContent.replaceChildren();
     }
+    traceModalContextCopyText = "";
+
+    if (traceModalCopyButton) {
+      traceModalCopyButton.classList.add(
+        "hidden"
+      );
+      traceModalCopyButton.classList.remove(
+        "is-copied"
+      );
+    }
+
+    if (traceModalReason) {
+      traceModalReason.textContent = "";
+      traceModalReason.classList.add(
+        "hidden"
+      );
+    }
+
+    traceModal.classList.remove(
+      "jin-context-trace-modal",
+      "jin-lt-merge-trace-modal",
+      "jin-lt-request-trace-modal"
+    );
   }
+
+  async function copyTraceModalContext() {
+    const text = String(
+      traceModalContextCopyText || ""
+    );
+
+    if (!text) {
+      return;
+    }
+
+    let copied = false;
+
+    if (
+        navigator.clipboard
+        && typeof navigator.clipboard.writeText === "function"
+    ) {
+      try {
+        await navigator.clipboard.writeText(
+          text
+        );
+        copied = true;
+      } catch (_) {
+        copied = false;
+      }
+    }
+
+    if (!copied) {
+      const textarea =
+        document.createElement("textarea");
+
+      textarea.value = text;
+      textarea.setAttribute(
+        "readonly",
+        ""
+      );
+      textarea.style.position =
+        "fixed";
+      textarea.style.opacity =
+        "0";
+      textarea.style.pointerEvents =
+        "none";
+
+      document.body.appendChild(
+        textarea
+      );
+      textarea.select();
+
+      try {
+        copied = document.execCommand(
+          "copy"
+        );
+      } catch (_) {
+        copied = false;
+      }
+
+      textarea.remove();
+    }
+
+    if (!copied) {
+      return;
+    }
+
+    traceModalCopyButton.classList.add(
+      "is-copied"
+    );
+    traceModalCopyButton.setAttribute(
+      "aria-label",
+      "Context copied"
+    );
+    traceModalCopyButton.title =
+      "Copied";
+
+    window.setTimeout(
+      function () {
+        if (!traceModalCopyButton) {
+          return;
+        }
+
+        traceModalCopyButton.classList.remove(
+          "is-copied"
+        );
+        traceModalCopyButton.setAttribute(
+          "aria-label",
+          "Copy context"
+        );
+        traceModalCopyButton.title =
+          "Copy raw context";
+      },
+      900
+    );
+  }
+
+  traceModalCopyButton.addEventListener(
+    "click",
+    copyTraceModalContext
+  );
 
   closeButton.addEventListener(
     "click",
     closeTraceModal
   );
 
+  let traceModalBackdropPointerDown = false;
+
+  traceModal.addEventListener(
+    "pointerdown",
+    function (event) {
+      traceModalBackdropPointerDown =
+        event.target === traceModal;
+    }
+  );
+
   traceModal.addEventListener(
     "click",
     function (event) {
-      if (event.target === traceModal) {
+      const shouldClose =
+        event.target === traceModal
+        && traceModalBackdropPointerDown;
+
+      traceModalBackdropPointerDown = false;
+
+      if (shouldClose) {
         closeTraceModal();
       }
     }
@@ -147,8 +342,44 @@ function ensureTraceModal() {
     "keydown",
     function (event) {
       if (event.key === "Escape") {
+        const delayedMemoryReportModal =
+          document.querySelector(
+            ".delayed-memory-report-modal.flex:not(.hidden)"
+          );
+
+        if (delayedMemoryReportModal) {
+          return;
+        }
+
         closeTraceModal();
       }
+    }
+  );
+
+  window.addEventListener(
+    CONTEXT_DELAYED_MEMORY_STORE_CHANGED_EVENT,
+    function (event) {
+      const detail = event && event.detail || {};
+
+      syncContextDelayedMemoryRows(
+        detail.reportId || ""
+      );
+    }
+  );
+
+  window.addEventListener(
+    CONTEXT_FILES_STORE_CHANGED_EVENT,
+    function () {
+      syncContextAttachedFileRows();
+    }
+  );
+
+  window.addEventListener(
+    "jin:bubble-skin-changed",
+    function () {
+      syncContextBubbleSkinControls(
+        traceModalContent
+      );
     }
   );
 }
@@ -333,6 +564,1052 @@ function appendTraceModalBody(
   );
 }
 
+function appendTraceModalCard(
+  parent,
+  titleText,
+  renderContent,
+  options = {},
+) {
+  const card =
+    document.createElement("div");
+
+  card.className =
+    "jin-context-card jin-context-card-plain delayed-memory-modal-card";
+
+  if (options.className) {
+    card.className += ` ${options.className}`;
+  }
+
+  const header =
+    document.createElement("div");
+
+  header.className =
+    "jin-context-card-header delayed-memory-modal-card-header";
+  header.title =
+    "Click to collapse / expand";
+  header.tabIndex = 0;
+  header.setAttribute(
+    "role",
+    "button"
+  );
+  header.setAttribute(
+    "aria-expanded",
+    options.collapsed ? "false" : "true"
+  );
+
+  const heading =
+    document.createElement("div");
+
+  heading.className =
+    "jin-context-card-heading";
+
+  const chevron =
+    document.createElement("span");
+
+  chevron.className =
+    "jin-context-card-chevron";
+  chevron.textContent = "▼";
+  chevron.setAttribute(
+    "aria-hidden",
+    "true"
+  );
+
+  const title =
+    document.createElement("div");
+
+  title.className =
+    "jin-context-card-title delayed-memory-modal-card-title";
+  title.textContent =
+    `[ ${String(titleText || "").trim()} ]`;
+
+  heading.append(chevron, title);
+  header.appendChild(heading);
+
+  if (options.metaText) {
+    const meta =
+      document.createElement("div");
+
+    meta.className =
+      "jin-context-card-meta";
+    meta.appendChild(
+      contextBadge(options.metaText)
+    );
+    header.appendChild(meta);
+  }
+
+  const toggle = () => {
+    const collapsed =
+      !card.classList.contains(
+        "is-collapsed"
+      );
+
+    card.classList.toggle(
+      "is-collapsed",
+      collapsed
+    );
+    header.setAttribute(
+      "aria-expanded",
+      collapsed ? "false" : "true"
+    );
+  };
+
+  header.addEventListener(
+    "click",
+    toggle
+  );
+  header.addEventListener(
+    "keydown",
+    (event) => {
+      if (
+        event.target !== header
+        || !["Enter", " "].includes(event.key)
+      ) {
+        return;
+      }
+
+      event.preventDefault();
+      toggle();
+    }
+  );
+
+  const body =
+    document.createElement("div");
+
+  body.className =
+    "jin-context-card-body delayed-memory-modal-card-body";
+
+  if (typeof renderContent === "function") {
+    renderContent(body);
+  }
+
+  card.append(header, body);
+
+  if (options.collapsed) {
+    card.classList.add(
+      "is-collapsed"
+    );
+  }
+
+  parent.appendChild(card);
+
+  return card;
+}
+
+function prettifyTraceFieldName(value) {
+  return String(value || "")
+    .replace(/_/g, " ")
+    .replace(/\b\w/g, function (letter) {
+      return letter.toUpperCase();
+    });
+}
+
+function isLTMergeAppliedTraceTitle(value) {
+  return String(value || "")
+    .trim()
+    .toLowerCase() === "l-t merge applied";
+}
+
+function parseLegacyLTMergeAppliedTrace(details) {
+  const lines = String(details || "")
+    .replace(/\r\n?/g, "\n")
+    .split("\n");
+  const operations = [];
+  let current = null;
+
+  const flush = () => {
+    if (!current) {
+      return;
+    }
+    operations.push(current);
+    current = null;
+  };
+
+  lines.forEach((line) => {
+    const header = line.match(
+      /^\s*(\d+)\.\s+([A-Z]+)(?:\s+(\S+)(?:\s+->\s+(\S+))?)?\s*$/i
+    );
+
+    if (header) {
+      flush();
+      current = {
+        index: Number(header[1]) || operations.length + 1,
+        action: String(header[2] || "").toLowerCase(),
+        pending_id: String(header[3] || ""),
+        target_id: String(header[4] || ""),
+        rows: [],
+      };
+      return;
+    }
+
+    if (!current) {
+      return;
+    }
+
+    const detail = line.match(
+      /^\s+(incoming|before|after|source|created|ignored|comment):\s*(.*)$/i
+    );
+
+    if (detail) {
+      current.rows.push({
+        type: String(detail[1] || "").toLowerCase(),
+        text: String(detail[2] || "").trim(),
+      });
+      return;
+    }
+
+    const continuation = String(line || "").trim();
+    if (continuation && current.rows.length) {
+      const row = current.rows[current.rows.length - 1];
+      row.text = `${row.text} ${continuation}`.trim();
+    }
+  });
+
+  flush();
+
+  if (!operations.length) {
+    return null;
+  }
+
+  return {
+    kind: "lt_merge_applied",
+    operations,
+  };
+}
+
+function normalizeStructuredLTMergeOperation(detail, index) {
+  if (!detail || typeof detail !== "object") {
+    return null;
+  }
+
+  const rows = [];
+  const pushFact = (type, fact) => {
+    if (!fact || typeof fact !== "object") {
+      return;
+    }
+    const key = String(fact.key || "").trim();
+    const value = String(fact.value || "").trim();
+    const id = String(fact.id || "").trim();
+    const text = key && value
+      ? `${key}: ${value}${id ? ` [ id: ${id} ]` : ""}`
+      : value || key || id;
+    if (text) {
+      rows.push({ type, text });
+    }
+  };
+
+  const action = String(detail.action || "").toLowerCase();
+  const mergedFacts = Array.isArray(detail.merged_facts)
+    ? detail.merged_facts
+    : [];
+
+  mergedFacts.forEach((fact) => pushFact("source", fact));
+  pushFact(action === "ignore" ? "ignored" : "incoming", detail.pending_fact);
+  pushFact("before", detail.target_before);
+  pushFact("after", detail.target_after);
+  pushFact("created", detail.created_fact);
+
+  const comment = String(detail.comment || "").trim();
+  if (comment) {
+    rows.push({ type: "comment", text: comment });
+  }
+
+  return {
+    index: index + 1,
+    action,
+    pending_id: String(detail.pending_id || ""),
+    target_id: String(detail.target_id || detail.created_id || ""),
+    rows,
+  };
+}
+
+function parseLTMergeAppliedTrace(details, title, parsed = null) {
+  if (
+      parsed
+      && typeof parsed === "object"
+      && parsed.kind === "lt_merge_applied"
+  ) {
+    const rawOperations = Array.isArray(parsed.operation_details)
+      ? parsed.operation_details
+      : Array.isArray(parsed.operations)
+        ? parsed.operations
+        : [];
+    const operations = rawOperations
+      .map(normalizeStructuredLTMergeOperation)
+      .filter(Boolean);
+    return {
+      kind: "lt_merge_applied",
+      operations,
+      before_count: parsed.before_count,
+      after_count: parsed.after_count,
+      deduplication: /deduplication/i.test(String(title || "")),
+    };
+  }
+
+  if (!isLTMergeAppliedTraceTitle(title)) {
+    return null;
+  }
+
+  return parseLegacyLTMergeAppliedTrace(details);
+}
+
+function splitLTMergeFactText(value) {
+  const text = String(value || "").trim();
+  const idMatch = text.match(
+    /^(.*?)(?:\s+\[\s*id:\s*([^\]]+)\s*\])\s*$/i
+  );
+  const body = idMatch
+    ? String(idMatch[1] || "").trim()
+    : text;
+  const id = idMatch
+    ? String(idMatch[2] || "").trim()
+    : "";
+
+  return { body, id };
+}
+
+function tokenizeLTMergeDiff(value) {
+  return String(value || "").match(/\s+|[^\s]+/g) || [];
+}
+
+function buildLTMergeAddedTokenDiff(beforeText, afterText) {
+  const before = tokenizeLTMergeDiff(beforeText);
+  const after = tokenizeLTMergeDiff(afterText);
+  const rows = before.length + 1;
+  const cols = after.length + 1;
+  const table = Array.from(
+    { length: rows },
+    () => new Uint16Array(cols)
+  );
+
+  for (let i = before.length - 1; i >= 0; i -= 1) {
+    for (let j = after.length - 1; j >= 0; j -= 1) {
+      table[i][j] = before[i] === after[j]
+        ? table[i + 1][j + 1] + 1
+        : Math.max(table[i + 1][j], table[i][j + 1]);
+    }
+  }
+
+  const matchedAfter = new Set();
+  const matchedBefore = new Set();
+  let i = 0;
+  let j = 0;
+
+  while (i < before.length && j < after.length) {
+    if (before[i] === after[j]) {
+      matchedBefore.add(i);
+      matchedAfter.add(j);
+      i += 1;
+      j += 1;
+      continue;
+    }
+
+    if (table[i + 1][j] >= table[i][j + 1]) {
+      i += 1;
+    } else {
+      j += 1;
+    }
+  }
+
+  const meaningfulBefore = before
+    .map((token, index) => ({ token, index }))
+    .filter(({ token }) => token.trim());
+  const meaningfulAfter = after
+    .map((token, index) => ({ token, index }))
+    .filter(({ token }) => token.trim());
+  const removedCount = meaningfulBefore
+    .filter(({ index }) => !matchedBefore.has(index))
+    .length;
+  const addedCount = meaningfulAfter
+    .filter(({ index }) => !matchedAfter.has(index))
+    .length;
+  const denominator = Math.max(
+    meaningfulBefore.length + meaningfulAfter.length,
+    1
+  );
+  const changeRatio = Math.min(
+    1,
+    ((removedCount + addedCount) * 2) / denominator
+  );
+
+  let level = 1;
+  if (changeRatio >= 0.6) level = 5;
+  else if (changeRatio >= 0.36) level = 4;
+  else if (changeRatio >= 0.2) level = 3;
+  else if (changeRatio >= 0.08) level = 2;
+
+  return {
+    tokens: after.map((token, index) => ({
+      token,
+      added: token.trim() !== "" && !matchedAfter.has(index),
+    })),
+    level,
+  };
+}
+
+function appendLTMergeDiffText(parent, beforeText, afterText) {
+  const diff = buildLTMergeAddedTokenDiff(
+    beforeText,
+    afterText
+  );
+
+  diff.tokens.forEach(({ token, added }) => {
+    if (!added) {
+      parent.appendChild(
+        document.createTextNode(token)
+      );
+      return;
+    }
+
+    const mark = document.createElement("span");
+    mark.className = `jin-lt-merge-diff-token jin-lt-diff-level-${diff.level}`;
+    mark.textContent = token;
+    parent.appendChild(mark);
+  });
+
+  return diff.level;
+}
+
+function appendLTMergeFactRow(
+  parent,
+  row,
+  compareText = "",
+) {
+  const parsed = splitLTMergeFactText(row.text);
+  const element = document.createElement("div");
+  element.className = `jin-lt-merge-row jin-lt-merge-row-${row.type}`;
+
+  const label = document.createElement("div");
+  label.className = "jin-lt-merge-row-label";
+  label.textContent = String(row.type || "").toUpperCase();
+
+  const content = document.createElement("div");
+  content.className = "jin-lt-merge-row-content";
+
+  const text = document.createElement("div");
+  text.className = "jin-lt-merge-row-text";
+
+  if (row.type === "after" && compareText) {
+    const compare = splitLTMergeFactText(compareText);
+    const level = appendLTMergeDiffText(
+      text,
+      compare.body,
+      parsed.body
+    );
+    element.classList.add(`jin-lt-diff-level-${level}`);
+  } else {
+    text.textContent = parsed.body;
+  }
+
+  content.appendChild(text);
+
+  if (parsed.id) {
+    const factId = document.createElement("span");
+    factId.className = "jin-lt-merge-fact-id";
+    factId.textContent = parsed.id;
+    content.appendChild(factId);
+  }
+
+  if (row.type === "created") {
+    element.classList.add(
+      "jin-lt-merge-created",
+      "jin-lt-diff-level-4"
+    );
+  }
+
+  element.append(label, content);
+  parent.appendChild(element);
+}
+
+function renderLTMergeAppliedTrace(trace) {
+  const operations = Array.isArray(trace.operations)
+    ? trace.operations
+    : [];
+  const counts = operations.reduce((acc, operation) => {
+    const action = String(operation.action || "unknown").toLowerCase();
+    acc[action] = (acc[action] || 0) + 1;
+    return acc;
+  }, {});
+
+  const overview = document.createElement("div");
+  overview.className = "jin-lt-merge-overview";
+
+  const title = document.createElement("div");
+  title.className = "jin-lt-merge-overview-title";
+  title.textContent = `${operations.length} ${operations.length === 1 ? "OPERATION" : "OPERATIONS"}`;
+
+  const stats = document.createElement("div");
+  stats.className = "jin-lt-merge-overview-stats";
+  if (Number.isInteger(trace.before_count) && Number.isInteger(trace.after_count)) {
+    if (trace.deduplication) {
+      const removed = Math.max(
+        0,
+        trace.before_count - trace.after_count
+      );
+      const checkedLabel =
+        trace.before_count === 1 ? "FACT CHECKED" : "FACTS CHECKED";
+      const duplicateLabel =
+        removed === 1 ? "DUPLICATE REMOVED" : "DUPLICATES REMOVED";
+      const remainingLabel =
+        trace.after_count === 1 ? "REMAINS" : "REMAIN";
+
+      title.textContent =
+        `${trace.before_count} ${checkedLabel} · ${removed} ${duplicateLabel} · ${trace.after_count} ${remainingLabel}`;
+    } else {
+      title.textContent = `${trace.before_count} → ${trace.after_count} FACTS`;
+    }
+  }
+  ["update", "merge", "create", "ignore", "delete"].forEach((action) => {
+    if (!counts[action]) {
+      return;
+    }
+    const badge = document.createElement("span");
+    badge.className = "jin-lt-merge-stat";
+    badge.textContent = `${counts[action]} ${action}`;
+    stats.appendChild(badge);
+  });
+
+  overview.append(title, stats);
+  traceModalContent.appendChild(overview);
+
+  const stack = document.createElement("div");
+  stack.className = "jin-lt-merge-stack";
+
+  operations.forEach((operation, operationIndex) => {
+    const card = document.createElement("section");
+    card.className = `jin-lt-merge-operation jin-lt-merge-operation-${operation.action || "unknown"}`;
+
+    const header = document.createElement("div");
+    header.className = "jin-lt-merge-operation-header";
+
+    const identity = document.createElement("div");
+    identity.className = "jin-lt-merge-operation-identity";
+
+    const index = document.createElement("span");
+    index.className = "jin-lt-merge-operation-index";
+    index.textContent = String(
+      operation.index || operationIndex + 1
+    ).padStart(2, "0");
+
+    const action = document.createElement("span");
+    action.className = "jin-lt-merge-operation-action";
+    action.textContent = String(operation.action || "operation").toUpperCase();
+
+    identity.append(index, action);
+    header.appendChild(identity);
+
+    const pendingId = String(operation.pending_id || "").trim();
+    const targetId = String(operation.target_id || "").trim();
+    if (pendingId || targetId) {
+      const route = document.createElement("div");
+      route.className = "jin-lt-merge-operation-route";
+
+      if (pendingId) {
+        const pending = document.createElement("span");
+        pending.textContent = pendingId;
+        route.appendChild(pending);
+      }
+
+      if (pendingId && targetId) {
+        const arrow = document.createElement("span");
+        arrow.className = "jin-lt-merge-operation-arrow";
+        arrow.textContent = "→";
+        route.appendChild(arrow);
+      }
+
+      if (targetId) {
+        const target = document.createElement("span");
+        target.textContent = operation.action === "delete"
+          ? `KEEP ${targetId}`
+          : targetId;
+        route.appendChild(target);
+      }
+
+      header.appendChild(route);
+    }
+
+    const body = document.createElement("div");
+    body.className = "jin-lt-merge-operation-body";
+    const rows = Array.isArray(operation.rows)
+      ? operation.rows
+      : [];
+    const before = rows.find((row) => row.type === "before");
+
+    rows.forEach((row) => {
+      appendLTMergeFactRow(
+        body,
+        row,
+        row.type === "after" && before
+          ? before.text
+          : ""
+      );
+    });
+
+    card.append(header, body);
+    stack.appendChild(card);
+  });
+
+  traceModalContent.appendChild(stack);
+}
+
+function formatStructuredTraceValue(value) {
+  if (value === null || typeof value === "undefined") {
+    return "<empty>";
+  }
+
+  if (Array.isArray(value) || typeof value === "object") {
+    try {
+      return JSON.stringify(
+        value,
+        null,
+        2
+      );
+    } catch (_error) {
+      return String(value);
+    }
+  }
+
+  if (typeof value === "boolean") {
+    return value ? "true" : "false";
+  }
+
+  const text = String(value);
+  return text || "<empty>";
+}
+
+function appendStructuredTraceFields(
+  parent,
+  data,
+  orderedKeys = [],
+) {
+  const source =
+    data && typeof data === "object" && !Array.isArray(data)
+      ? data
+      : {};
+
+  const fields =
+    document.createElement("section");
+
+  fields.className =
+    "delayed-memory-modal-fields";
+
+  const keys = [];
+  const seen = new Set();
+
+  orderedKeys.concat(Object.keys(source)).forEach((key) => {
+    if (seen.has(key) || !Object.prototype.hasOwnProperty.call(source, key)) {
+      return;
+    }
+    seen.add(key);
+    keys.push(key);
+  });
+
+  keys.forEach((key) => {
+    const row =
+      document.createElement("div");
+
+    row.className =
+      "delayed-memory-modal-field";
+
+    const label =
+      document.createElement("div");
+
+    label.className =
+      "delayed-memory-modal-label";
+
+    label.textContent =
+      prettifyTraceFieldName(key);
+
+    const value =
+      document.createElement("div");
+
+    value.className =
+      "delayed-memory-modal-value";
+
+    value.textContent =
+      formatStructuredTraceValue(source[key]);
+
+    row.appendChild(label);
+    row.appendChild(value);
+    fields.appendChild(row);
+  });
+
+  parent.appendChild(fields);
+}
+
+function renderLTFactTrace(parsed) {
+  const fact =
+    parsed && parsed.fact && typeof parsed.fact === "object"
+      ? parsed.fact
+      : {};
+
+  appendStructuredTraceFields(
+    traceModalContent,
+    fact,
+    [
+      "id",
+      "key",
+      "value",
+      "category",
+      "mention_count",
+      "created_at",
+      "updated_at",
+      "source_fact_ids",
+    ]
+  );
+}
+
+function appendLTResponseGroup(
+  title,
+  value,
+) {
+  const section =
+    document.createElement("section");
+
+  section.className =
+    "delayed-memory-modal-section";
+
+  const heading =
+    document.createElement("div");
+
+  heading.className =
+    "delayed-memory-modal-section-title";
+
+  heading.textContent =
+    title;
+
+  section.appendChild(heading);
+  traceModalContent.appendChild(section);
+
+  if (value && typeof value === "object" && !Array.isArray(value)) {
+    appendStructuredTraceFields(
+      section,
+      value
+    );
+    return;
+  }
+
+  appendTraceModalBody(
+    section,
+    "Value",
+    value
+  );
+}
+
+function renderLTSummarizerResponseTrace(parsed) {
+  if (parsed.no_changes) {
+    const empty =
+      document.createElement("div");
+
+    empty.className =
+      "lt-trace-no-changes";
+
+    empty.textContent =
+      "No changes";
+
+    traceModalContent.appendChild(empty);
+    return;
+  }
+
+  const payload = parsed.payload;
+  const phase = String(parsed.phase || "").toLowerCase();
+
+  if (phase === "extraction" && payload && Array.isArray(payload.facts)) {
+    payload.facts.forEach((fact, index) => {
+      appendLTResponseGroup(
+        `Fact ${index + 1}`,
+        fact
+      );
+    });
+    return;
+  }
+
+  if (phase === "merge" && payload && Array.isArray(payload.operations)) {
+    payload.operations.forEach((operation, index) => {
+      const action =
+        operation && operation.action
+          ? ` · ${String(operation.action).toUpperCase()}`
+          : "";
+
+      appendLTResponseGroup(
+        `Operation ${index + 1}${action}`,
+        operation
+      );
+    });
+    return;
+  }
+
+  if (payload && typeof payload === "object" && !Array.isArray(payload)) {
+    appendStructuredTraceFields(
+      traceModalContent,
+      payload
+    );
+    return;
+  }
+
+  appendTraceModalBody(
+    traceModalContent,
+    "Response",
+    parsed.raw || payload || ""
+  );
+}
+
+function renderLTSkipTrace(parsed) {
+  if (
+    String(parsed.reason || "").toLowerCase()
+      === "runtime_context_budget_exhausted"
+  ) {
+    appendTraceModalCard(
+      traceModalContent,
+      "L-T MERGE BUDGET",
+      (body) => {
+        const fields =
+          document.createElement("section");
+
+        fields.className =
+          "delayed-memory-modal-fields";
+
+        appendTraceModalField(
+          fields,
+          "Reason",
+          parsed.reason
+        );
+        appendTraceModalField(
+          fields,
+          "Pending queue",
+          parsed.pending_count
+        );
+        appendTraceModalField(
+          fields,
+          "First pending ID",
+          parsed.first_pending_id
+        );
+        appendTraceModalField(
+          fields,
+          "Context window",
+          parsed.runtime_context_window_tokens
+            ? `${parsed.runtime_context_window_tokens} tokens`
+            : ""
+        );
+        appendTraceModalField(
+          fields,
+          "Prompt estimate",
+          parsed.estimated_prompt_tokens
+            ? `${parsed.estimated_prompt_tokens} tokens`
+            : ""
+        );
+        appendTraceModalField(
+          fields,
+          "Response estimate",
+          parsed.estimated_response_tokens
+            ? `${parsed.estimated_response_tokens} tokens`
+            : ""
+        );
+        appendTraceModalField(
+          fields,
+          "Provider reserve",
+          parsed.runtime_output_reserve_tokens
+            ? `${parsed.runtime_output_reserve_tokens} tokens`
+            : ""
+        );
+        appendTraceModalField(
+          fields,
+          "Reasoning headroom target",
+          parsed.default_response_headroom_tokens
+            ? `${parsed.default_response_headroom_tokens} tokens`
+            : ""
+        );
+        appendTraceModalField(
+          fields,
+          "Reasoning headroom used",
+          parsed.response_headroom_tokens
+            ? `${parsed.response_headroom_tokens} tokens`
+            : ""
+        );
+        appendTraceModalField(
+          fields,
+          "Estimated total",
+          parsed.estimated_total_tokens
+            ? `${parsed.estimated_total_tokens} tokens`
+            : ""
+        );
+        appendTraceModalField(
+          fields,
+          "Overflow",
+          Number(parsed.overflow_tokens || 0)
+            ? `${parsed.overflow_tokens} tokens`
+            : "0 tokens"
+        );
+
+        body.appendChild(fields);
+
+        appendTraceModalBody(
+          body,
+          "What happened",
+          parsed.summary
+        );
+        appendTraceModalBody(
+          body,
+          "Retry behavior",
+          parsed.retry_behavior
+        );
+      }
+    );
+
+    appendTraceModalCard(
+      traceModalContent,
+      "MERGE PAYLOAD",
+      (body) => {
+        appendTraceModalBody(
+          body,
+          "Pending candidate",
+          parsed.merge_candidate || {}
+        );
+        appendTraceModalBody(
+          body,
+          "Full service request payload",
+          parsed.request_payload || {}
+        );
+      }
+    );
+
+    return;
+  }
+
+  appendTraceModalBody(
+    traceModalContent,
+    "What happened",
+    parsed.summary || "The L-T model response was not usable."
+  );
+
+  const fields =
+    document.createElement("section");
+
+  fields.className =
+    "delayed-memory-modal-fields";
+
+  appendTraceModalField(
+    fields,
+    "Phase",
+    parsed.phase
+  );
+
+  appendTraceModalField(
+    fields,
+    "Finish reason",
+    parsed.finish_reason
+  );
+
+  appendTraceModalField(
+    fields,
+    "Limit reached",
+    parsed.limit_type
+  );
+
+  appendTraceModalField(
+    fields,
+    "Model",
+    parsed.model
+  );
+
+  appendTraceModalField(
+    fields,
+    "Context window",
+    parsed.context_window_tokens
+      ? `${parsed.context_window_tokens} tokens`
+      : ""
+  );
+
+  appendTraceModalField(
+    fields,
+    "Requested max output",
+    parsed.requested_max_output_tokens
+      ? `${parsed.requested_max_output_tokens} tokens`
+      : ""
+  );
+
+  appendTraceModalField(
+    fields,
+    "Effective max output",
+    parsed.effective_max_output_tokens
+      ? `${parsed.effective_max_output_tokens} tokens`
+      : ""
+  );
+
+  appendTraceModalField(
+    fields,
+    "Prompt tokens",
+    parsed.prompt_tokens
+  );
+
+  appendTraceModalField(
+    fields,
+    "Generated tokens",
+    parsed.completion_tokens
+  );
+
+  appendTraceModalField(
+    fields,
+    "Total tokens",
+    parsed.total_tokens
+  );
+
+  appendTraceModalField(
+    fields,
+    "Assistant response",
+    parsed.assistant_content
+  );
+
+  appendTraceModalField(
+    fields,
+    "Reasoning generated",
+    parsed.reasoning_generated
+  );
+
+  if (fields.childElementCount) {
+    traceModalContent.appendChild(
+      fields
+    );
+  }
+
+  appendTraceModalBody(
+    traceModalContent,
+    "What JIN did",
+    "The incomplete response was discarded. No L-T facts were merged or removed."
+  );
+
+  appendTraceModalBody(
+    traceModalContent,
+    "Retry behavior",
+    parsed.retry_behavior
+  );
+
+  const pendingCount =
+    Number(
+      parsed.pending_count
+      || parsed.selected_fields_count
+      || 0
+    );
+
+  if (pendingCount) {
+    appendTraceModalBody(
+      traceModalContent,
+      "Pending batch kept",
+      `${pendingCount} item${pendingCount === 1 ? "" : "s"} remain pending.`
+    );
+  }
+
+  if (
+      Array.isArray(parsed.pending_ids)
+      && parsed.pending_ids.length
+  ) {
+    appendTraceModalBody(
+      traceModalContent,
+      "Pending IDs",
+      parsed.pending_ids.join("\n")
+    );
+  }
+}
+
 function isSummarizerRequestPayload(parsed) {
   return Boolean(
     parsed
@@ -352,10 +1629,696 @@ function isSummarizerRequestPayload(parsed) {
   );
 }
 
+function getLTSummarizerRequestPhase(title) {
+  const normalized = String(title || "")
+    .trim()
+    .toLowerCase();
+
+  if (normalized === "l-t extraction request") {
+    return "extraction";
+  }
+
+  if (normalized === "l-t merge request") {
+    return "merge";
+  }
+
+  return "";
+}
+
+function appendLTRequestOverview(
+  parsed,
+  phase,
+) {
+  const overview =
+    document.createElement("div");
+
+  overview.className =
+    "jin-context-overview jin-lt-request-overview";
+
+  const overviewTitle =
+    document.createElement("div");
+
+  overviewTitle.className =
+    "jin-context-overview-title";
+  overviewTitle.textContent =
+    `${String(phase || "request").toUpperCase()} REQUEST`;
+
+  const badges =
+    document.createElement("div");
+
+  badges.className =
+    "jin-context-overview-badges";
+
+  if (parsed.model) {
+    badges.appendChild(
+      contextBadge(String(parsed.model))
+    );
+  }
+
+  if (Object.prototype.hasOwnProperty.call(parsed, "temperature")) {
+    badges.appendChild(
+      contextBadge(`temp ${parsed.temperature}`)
+    );
+  }
+
+  if (Object.prototype.hasOwnProperty.call(parsed, "max_tokens")) {
+    badges.appendChild(
+      contextBadge(`max ${Number(parsed.max_tokens || 0).toLocaleString()} tok`)
+    );
+  }
+
+  badges.appendChild(
+    contextBadge(`${parsed.messages.length} messages`)
+  );
+
+  if (Object.prototype.hasOwnProperty.call(parsed, "stream")) {
+    badges.appendChild(
+      contextBadge(`stream ${parsed.stream ? "on" : "off"}`)
+    );
+  }
+
+  overview.append(overviewTitle, badges);
+  traceModalContent.appendChild(overview);
+}
+
+function appendLTRequestTextCard(
+  parent,
+  title,
+  text,
+  options = {},
+) {
+  const source = String(text || "");
+
+  return appendTraceModalCard(
+    parent,
+    title,
+    (body) => {
+      const pre =
+        document.createElement("pre");
+
+      pre.className =
+        "jin-context-raw";
+      pre.textContent =
+        source.trim() || "<empty>";
+      body.appendChild(pre);
+    },
+    {
+      collapsed: Boolean(options.collapsed),
+      metaText:
+        options.metaText
+        || `${source.length.toLocaleString()} chars`,
+      className: options.className || "",
+    }
+  );
+}
+
+function appendLTRequestFieldValue(
+  fields,
+  label,
+  value,
+) {
+  if (
+    value
+    && typeof value === "object"
+    && !Array.isArray(value)
+  ) {
+    const entries = Object.entries(value);
+
+    if (!entries.length) {
+      appendTraceModalField(
+        fields,
+        label,
+        "<empty>"
+      );
+      return;
+    }
+
+    entries.forEach(([nestedKey, nestedValue]) => {
+      appendLTRequestFieldValue(
+        fields,
+        `${label} · ${prettifyTraceFieldName(nestedKey)}`,
+        nestedValue
+      );
+    });
+    return;
+  }
+
+  if (Array.isArray(value)) {
+    if (!value.length) {
+      appendTraceModalField(
+        fields,
+        label,
+        "<empty>"
+      );
+      return;
+    }
+
+    const hasStructuredItems = value.some((item) => (
+      item
+      && typeof item === "object"
+    ));
+
+    if (!hasStructuredItems) {
+      appendTraceModalField(
+        fields,
+        label,
+        value
+      );
+      return;
+    }
+
+    value.forEach((item, index) => {
+      appendLTRequestFieldValue(
+        fields,
+        `${label} · ${index + 1}`,
+        item
+      );
+    });
+    return;
+  }
+
+  appendTraceModalField(
+    fields,
+    label,
+    value
+  );
+}
+
+function appendLTRequestFieldRows(
+  parent,
+  record,
+  orderedKeys = [],
+) {
+  const source =
+    record && typeof record === "object" && !Array.isArray(record)
+      ? record
+      : {};
+  const fields =
+    document.createElement("section");
+
+  fields.className =
+    "delayed-memory-modal-fields";
+
+  const keys = [];
+  const seen = new Set();
+
+  orderedKeys.concat(Object.keys(source)).forEach((key) => {
+    if (
+      seen.has(key)
+      || !Object.prototype.hasOwnProperty.call(source, key)
+    ) {
+      return;
+    }
+
+    seen.add(key);
+    keys.push(key);
+  });
+
+  keys.forEach((key) => {
+    appendLTRequestFieldValue(
+      fields,
+      prettifyTraceFieldName(key),
+      source[key]
+    );
+  });
+
+  if (!fields.children.length) {
+    const empty =
+      document.createElement("div");
+
+    empty.className =
+      "jin-context-empty";
+    empty.textContent = "EMPTY";
+    parent.appendChild(empty);
+    return;
+  }
+
+  parent.appendChild(fields);
+}
+
+function ltRequestRecordTitle(
+  record,
+  index,
+  fallback,
+) {
+  const id = String(
+    record && (record.id || record.pending_id) || ""
+  ).trim();
+  const key = String(
+    record && record.key || ""
+  ).trim();
+
+  if (id && key) {
+    return `${id} · ${key}`;
+  }
+
+  return id || key || `${fallback} ${index + 1}`;
+}
+
+function appendLTRequestRecordCards(
+  parent,
+  title,
+  records,
+  options = {},
+) {
+  const list = Array.isArray(records)
+    ? records
+    : [];
+
+  if (!list.length && options.hideWhenEmpty !== false) {
+    return;
+  }
+
+  appendTraceModalCard(
+    parent,
+    title,
+    (body) => {
+      if (!list.length) {
+        const empty =
+          document.createElement("div");
+
+        empty.className =
+          "jin-context-empty jin-lt-request-empty";
+        empty.textContent = "EMPTY";
+        body.appendChild(empty);
+        return;
+      }
+
+      const stack =
+        document.createElement("div");
+
+      stack.className =
+        "jin-context-stack jin-lt-request-record-stack";
+
+      list.forEach((record, index) => {
+        const normalized =
+          record && typeof record === "object" && !Array.isArray(record)
+            ? record
+            : { value: record };
+
+        appendTraceModalCard(
+          stack,
+          ltRequestRecordTitle(
+            normalized,
+            index,
+            options.fallbackTitle || "ITEM"
+          ),
+          (recordBody) => {
+            appendLTRequestFieldRows(
+              recordBody,
+              normalized,
+              options.orderedKeys || []
+            );
+          },
+          {
+            collapsed:
+              typeof options.recordCollapsed === "function"
+                ? Boolean(options.recordCollapsed(normalized, index))
+                : Boolean(options.recordCollapsed),
+            metaText: options.metaText
+              ? options.metaText(normalized, index)
+              : "",
+            className: "jin-lt-request-record-card",
+          }
+        );
+      });
+
+      body.appendChild(stack);
+    },
+    {
+      collapsed: Boolean(options.groupCollapsed),
+      metaText: `${list.length} ${list.length === 1 ? "item" : "items"}`,
+      className: "jin-lt-request-group-card",
+    }
+  );
+}
+
+function appendLTRequestScalarListCard(
+  parent,
+  title,
+  values,
+  options = {},
+) {
+  const list = Array.isArray(values)
+    ? values.filter((value) => String(value || "").trim())
+    : [];
+
+  if (!list.length && options.hideWhenEmpty !== false) {
+    return;
+  }
+
+  appendTraceModalCard(
+    parent,
+    title,
+    (body) => {
+      const listNode =
+        document.createElement("div");
+
+      listNode.className =
+        "jin-context-line-list";
+
+      if (!list.length) {
+        const empty =
+          document.createElement("div");
+
+        empty.className =
+          "jin-context-empty";
+        empty.textContent = "EMPTY";
+        body.appendChild(empty);
+        return;
+      }
+
+      list.forEach((value) => {
+        const row =
+          document.createElement("div");
+
+        row.className =
+          "jin-context-line-item";
+        row.textContent = String(value);
+        listNode.appendChild(row);
+      });
+
+      body.appendChild(listNode);
+    },
+    {
+      collapsed: Boolean(options.collapsed),
+      metaText: `${list.length} ${list.length === 1 ? "item" : "items"}`,
+    }
+  );
+}
+
+function renderLTExtractionRequestPayload(
+  parent,
+  payload,
+) {
+  appendLTRequestRecordCards(
+    parent,
+    "CURRENT INTERACTION FIELDS",
+    payload.current_interaction_fields,
+    {
+      fallbackTitle: "FIELD",
+      orderedKeys: [
+        "field_key",
+        "content",
+      ],
+      groupCollapsed: false,
+      recordCollapsed: false,
+      hideWhenEmpty: false,
+    }
+  );
+
+  const extra = {};
+  Object.entries(payload).forEach(([key, value]) => {
+    if (key !== "current_interaction_fields") {
+      extra[key] = value;
+    }
+  });
+
+  if (Object.keys(extra).length) {
+    appendTraceModalCard(
+      parent,
+      "PAYLOAD OPTIONS",
+      (body) => appendLTRequestFieldRows(body, extra),
+      { collapsed: true }
+    );
+  }
+}
+
+function renderLTMergeRequestPayload(
+  parent,
+  payload,
+) {
+  appendLTRequestRecordCards(
+    parent,
+    "PENDING CANDIDATES",
+    payload.pending_candidates,
+    {
+      fallbackTitle: "PENDING",
+      orderedKeys: [
+        "id",
+        "key",
+        "value",
+        "category",
+      ],
+      groupCollapsed: false,
+      recordCollapsed: false,
+      hideWhenEmpty: false,
+    }
+  );
+
+  appendLTRequestRecordCards(
+    parent,
+    "REFERENCE EXISTING FACTS",
+    payload.reference_existing_facts,
+    {
+      fallbackTitle: "FACT",
+      orderedKeys: [
+        "id",
+        "key",
+        "value",
+        "category",
+      ],
+      groupCollapsed: true,
+      recordCollapsed: false,
+      hideWhenEmpty: false,
+    }
+  );
+
+  appendLTRequestRecordCards(
+    parent,
+    "REFERENCE EXACT KEY CONFLICTS",
+    payload.reference_exact_key_conflicts,
+    {
+      fallbackTitle: "CONFLICT",
+      orderedKeys: [
+        "pending_id",
+        "key",
+        "reference_fact_ids",
+      ],
+      groupCollapsed: false,
+      recordCollapsed: false,
+    }
+  );
+
+  appendLTRequestScalarListCard(
+    parent,
+    "REFERENCE PROTECTED FACT IDS",
+    payload.reference_protected_fact_ids,
+    { collapsed: true }
+  );
+
+  appendLTRequestRecordCards(
+    parent,
+    "REFERENCE PREVIOUS SHARD FACTS",
+    payload.reference_previous_shard_facts,
+    {
+      fallbackTitle: "FACT",
+      orderedKeys: [
+        "id",
+        "key",
+        "value",
+        "category",
+      ],
+      groupCollapsed: true,
+      recordCollapsed: false,
+    }
+  );
+
+  appendLTRequestRecordCards(
+    parent,
+    "REFERENCE PREVIOUS SHARD SCAN",
+    payload.reference_previous_shard_scan,
+    {
+      fallbackTitle: "SCAN",
+      orderedKeys: [
+        "pending_id",
+        "decision",
+        "fact_ids",
+        "comment",
+      ],
+      groupCollapsed: true,
+      recordCollapsed: false,
+    }
+  );
+
+  if (
+    payload.repair
+    && typeof payload.repair === "object"
+    && !Array.isArray(payload.repair)
+  ) {
+    appendTraceModalCard(
+      parent,
+      "REPAIR CONTEXT",
+      (body) => appendLTRequestFieldRows(body, payload.repair),
+      { collapsed: false }
+    );
+  }
+
+  const extra = {};
+  Object.entries(payload).forEach(([key, value]) => {
+    if (
+      ![
+        "pending_candidates",
+        "reference_existing_facts",
+        "reference_exact_key_conflicts",
+        "reference_protected_fact_ids",
+        "reference_previous_shard_scan",
+        "reference_previous_shard_facts",
+        "repair",
+      ].includes(key)
+    ) {
+      extra[key] = value;
+    }
+  });
+
+  if (Object.keys(extra).length) {
+    appendTraceModalCard(
+      parent,
+      "PAYLOAD OPTIONS",
+      (body) => appendLTRequestFieldRows(body, extra),
+      { collapsed: true }
+    );
+  }
+}
+
+function renderLTSummarizerRequestTrace(
+  parsed,
+  title,
+  phase,
+) {
+  traceModal.classList.add(
+    "jin-lt-request-trace-modal"
+  );
+
+  appendLTRequestOverview(
+    parsed,
+    phase
+  );
+
+  const stack =
+    document.createElement("div");
+
+  stack.className =
+    "jin-context-stack jin-lt-request-stack";
+
+  const systemMessages = [];
+  const userMessages = [];
+  const otherMessages = [];
+
+  parsed.messages.forEach((message, index) => {
+    const role = String(message && message.role || "").toLowerCase();
+    const item = { message, index };
+
+    if (role === "system") {
+      systemMessages.push(item);
+    } else if (role === "user") {
+      userMessages.push(item);
+    } else {
+      otherMessages.push(item);
+    }
+  });
+
+  systemMessages.forEach(({ message, index }) => {
+    appendLTRequestTextCard(
+      stack,
+      systemMessages.length === 1
+        ? "SYSTEM MESSAGE"
+        : `SYSTEM MESSAGE ${index + 1}`,
+      message.content,
+      { collapsed: true }
+    );
+  });
+
+  userMessages.forEach(({ message, index }) => {
+    const payload =
+      parseTraceJson(message.content);
+
+    if (
+      payload
+      && typeof payload === "object"
+      && !Array.isArray(payload)
+    ) {
+      if (phase === "extraction") {
+        renderLTExtractionRequestPayload(
+          stack,
+          payload
+        );
+      } else if (phase === "merge") {
+        renderLTMergeRequestPayload(
+          stack,
+          payload
+        );
+      }
+      return;
+    }
+
+    appendLTRequestTextCard(
+      stack,
+      userMessages.length === 1
+        ? "USER MESSAGE"
+        : `USER MESSAGE ${index + 1}`,
+      message.content,
+      { collapsed: false }
+    );
+  });
+
+  otherMessages.forEach(({ message, index }) => {
+    const role = String(message && message.role || "message").toUpperCase();
+    appendLTRequestTextCard(
+      stack,
+      `${role} MESSAGE ${index + 1}`,
+      message.content,
+      { collapsed: true }
+    );
+  });
+
+  const extra = {};
+  Object.entries(parsed).forEach(([key, value]) => {
+    if (
+      [
+        "model",
+        "messages",
+        "temperature",
+        "max_tokens",
+        "stream",
+      ].includes(key)
+    ) {
+      return;
+    }
+
+    extra[key] = value;
+  });
+
+  if (Object.keys(extra).length) {
+    appendTraceModalCard(
+      stack,
+      "EXTRA REQUEST OPTIONS",
+      (body) => appendLTRequestFieldRows(body, extra),
+      { collapsed: true }
+    );
+  }
+
+  traceModalContent.appendChild(stack);
+}
+
 function renderSummarizerRequestTrace(
   parsed,
   title,
 ) {
+  const ltPhase =
+    getLTSummarizerRequestPhase(
+      title
+    );
+
+  if (ltPhase) {
+    renderLTSummarizerRequestTrace(
+      parsed,
+      title,
+      ltPhase
+    );
+    return;
+  }
+
   const fields =
     document.createElement("section");
 
@@ -537,14 +2500,3066 @@ function formatEmbeddedSummarizerReasoning(details) {
   );
 }
 
+
+function contextElement(
+  tag,
+  className,
+  text = null,
+) {
+  const element =
+    document.createElement(tag);
+
+  if (className) {
+    element.className = className;
+  }
+
+  if (text !== null) {
+    element.textContent = text;
+  }
+
+  return element;
+}
+
+function getContextBubbleSkin() {
+  const appearance =
+    window.JinAppearance;
+
+  if (
+      appearance
+      && typeof appearance.getBubbleSkin === "function"
+  ) {
+    return String(
+      appearance.getBubbleSkin() || ""
+    ).trim().toLowerCase();
+  }
+
+  const datasetSkin =
+    String(
+      document.body.dataset.jinBubbleSkin || ""
+    ).trim().toLowerCase();
+
+  return CONTEXT_BUBBLE_SKINS.includes(datasetSkin)
+    ? datasetSkin
+    : "dark";
+}
+
+function syncContextBubbleSkinControls(root) {
+  if (!root) {
+    return;
+  }
+
+  const activeSkin =
+    getContextBubbleSkin();
+
+  root.querySelectorAll(
+    "[data-jin-bubble-skin-option]"
+  ).forEach((button) => {
+    const selected =
+      button.dataset.jinBubbleSkinOption
+      === activeSkin;
+
+    button.classList.toggle(
+      "is-active",
+      selected
+    );
+    button.setAttribute(
+      "aria-pressed",
+      selected ? "true" : "false"
+    );
+  });
+}
+
+function setContextBubbleSkin(skin) {
+  const normalized =
+    String(skin || "")
+      .trim()
+      .toLowerCase();
+
+  if (!CONTEXT_BUBBLE_SKINS.includes(normalized)) {
+    return;
+  }
+
+  const appearance =
+    window.JinAppearance;
+
+  if (
+      appearance
+      && typeof appearance.setBubbleSkin === "function"
+  ) {
+    appearance.setBubbleSkin(normalized);
+  } else {
+    CONTEXT_BUBBLE_SKINS.forEach((name) => {
+      document.body.classList.remove(
+        `jin-bubble-skin-${name}`
+      );
+    });
+    document.body.classList.add(
+      `jin-bubble-skin-${normalized}`
+    );
+    document.body.dataset.jinBubbleSkin =
+      normalized;
+    const customBubble = normalized !== "dark" && normalized !== "light";
+    document.body.classList.toggle("default-theme-bubble", !customBubble);
+    document.body.classList.toggle("custom-theme-bubble", customBubble);
+
+    try {
+      window.localStorage.setItem(
+        "jin_bubble_skin",
+        normalized
+      );
+    } catch (_) {
+      // The live visual switch still works without persistent storage.
+    }
+  }
+
+  syncContextBubbleSkinControls(
+    traceModalContent
+  );
+}
+
+function renderContextSettingsBody(parent) {
+  const list =
+    contextElement(
+      "div",
+      "jin-context-kv-list jin-context-settings-list"
+    );
+  const row =
+    contextElement(
+      "div",
+      "jin-context-kv-row jin-context-setting-row"
+    );
+  const key =
+    contextElement(
+      "div",
+      "jin-context-kv-key",
+      "jin_bubble_skin"
+    );
+  const tags =
+    contextElement(
+      "div",
+      "jin-context-kv-value delayed-memory-modal-tags jin-context-setting-tags"
+    );
+
+  CONTEXT_BUBBLE_SKINS.forEach((skin) => {
+    const button =
+      contextElement(
+        "button",
+        "delayed-memory-modal-tag jin-context-setting-tag",
+        skin
+      );
+
+    button.type = "button";
+    button.dataset.jinBubbleSkinOption =
+      skin;
+    button.setAttribute(
+      "aria-pressed",
+      "false"
+    );
+    button.addEventListener(
+      "click",
+      function () {
+        setContextBubbleSkin(skin);
+      }
+    );
+
+    tags.appendChild(button);
+  });
+
+  row.appendChild(key);
+  row.appendChild(tags);
+  list.appendChild(row);
+  parent.appendChild(list);
+
+  syncContextBubbleSkinControls(parent);
+}
+
+function parseContextTraceSnapshot(details) {
+  const text =
+    String(details || "").replace(
+      /\r\n?/g,
+      "\n"
+    );
+
+  const header =
+    text.match(
+      /^SYSTEM PROMPT(?: \(INTERNAL ACTION RULES HIDDEN\))?\n-+\n/
+    );
+  const userMarker =
+    /\nUSER PROMPT \/ CONTEXT PAYLOAD\n-+\n/;
+  const user =
+    userMarker.exec(text);
+
+  if (!header || !user) {
+    return null;
+  }
+
+  return {
+    hiddenInternalActionRules:
+      header[0].includes(
+        "INTERNAL ACTION RULES HIDDEN"
+      ),
+    systemPrompt:
+      text.slice(
+        header[0].length,
+        user.index
+      ).trim(),
+    userPrompt:
+      text.slice(
+        user.index + user[0].length
+      ).trim(),
+  };
+}
+
+function parseContextAttributes(raw) {
+  const attributes = [];
+  const pattern =
+    /([A-Za-z_][\w.-]*)\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s]+))/g;
+  let match;
+
+  while ((match = pattern.exec(String(raw || "")))) {
+    attributes.push(
+      `${match[1]}=${match[2] ?? match[3] ?? match[4] ?? ""}`
+    );
+  }
+
+  return attributes;
+}
+
+function getContextAttributeValue(attributes, name) {
+  const prefix = `${String(name || "").trim()}=`;
+  const attribute = (Array.isArray(attributes) ? attributes : [])
+    .find((value) => String(value || "").startsWith(prefix));
+
+  return attribute
+    ? String(attribute).slice(prefix.length)
+    : "";
+}
+
+function parseContextToolResultAge(raw) {
+  const match = String(raw || "")
+    .match(/\(\s*([^()]*(?:ago))\s*\)\s*$/i);
+
+  return match
+    ? String(match[1] || "").trim()
+    : "";
+}
+
+function parseContextRuntimeActionMarkerTitle(
+  line,
+  nextLine,
+) {
+  if (
+      !/^Follow-up:\s*(?:true|false)\s*$/i.test(
+        String(nextLine || "").trim()
+      )
+  ) {
+    return "";
+  }
+
+  const marker =
+    String(line || "").trim();
+  const tagMatch =
+    marker.match(
+      /^<([A-Z][A-Z0-9_]*)(?::[^>\n]*)?>(?:<\/\1>)?$/
+    );
+
+  if (tagMatch) {
+    return tagMatch[1];
+  }
+
+  // Runtime contracts are rendered as a plain action name followed by
+  // `Follow-up: ...`. Keep supporting the older marker-form heading too.
+  const titleMatch =
+    marker.match(
+      /^([A-Z][A-Z0-9_]*)$/
+    );
+
+  return titleMatch
+    ? titleMatch[1]
+    : "";
+}
+
+function splitContextPlainText(text) {
+  const blocks = [];
+  let title = "SYSTEM RULES";
+  let lines = [];
+
+  const flush = (runtimeActionMarker = false) => {
+    const content =
+      lines.join("\n").trim();
+
+    if (content) {
+      blocks.push({
+        title,
+        content,
+        attributes: [],
+        xml: false,
+        runtimeActionMarker,
+      });
+    }
+
+    lines = [];
+  };
+
+  const sourceLines =
+    String(text || "").split("\n");
+
+  for (let i = 0; i < sourceLines.length; i += 1) {
+    const line = sourceLines[i];
+    const heading = line.trim();
+    const markerTitle =
+      parseContextRuntimeActionMarkerTitle(
+        line,
+        sourceLines[i + 1]
+      );
+
+    if (markerTitle) {
+      flush();
+      title = markerTitle;
+      lines.push(line);
+
+      for (i += 1; i < sourceLines.length; i += 1) {
+        const actionLine = sourceLines[i];
+
+        if (!actionLine.trim()) {
+          break;
+        }
+
+        if (actionLine.trim() === `${markerTitle}:`) {
+          continue;
+        }
+
+        lines.push(actionLine);
+      }
+
+      flush(true);
+      title = "SYSTEM RULES";
+      continue;
+    }
+
+    if (
+        /^[A-Z][A-Z0-9 _/&()\-]{3,}:$/.test(heading)
+    ) {
+      flush();
+      title = heading.slice(0, -1);
+      continue;
+    }
+
+    lines.push(line);
+  }
+
+  flush();
+  return blocks;
+}
+
+function parseContextBlocks(text) {
+  const source =
+    String(text || "").replace(
+      /\r\n?/g,
+      "\n"
+    );
+  const lines = source.split("\n");
+  const blocks = [];
+  let plain = [];
+
+  const flushPlain = () => {
+    const content =
+      plain.join("\n").trim();
+
+    if (content) {
+      blocks.push(
+        ...splitContextPlainText(content)
+      );
+    }
+
+    plain = [];
+  };
+
+  for (let i = 0; i < lines.length; i += 1) {
+    const markerTitle =
+      parseContextRuntimeActionMarkerTitle(
+        lines[i],
+        lines[i + 1]
+      );
+
+    if (markerTitle) {
+      plain.push(lines[i]);
+
+      for (i += 1; i < lines.length; i += 1) {
+        plain.push(lines[i]);
+
+        if (!lines[i].trim()) {
+          break;
+        }
+      }
+
+      continue;
+    }
+
+    const fileOpen = lines[i].match(/^\s*<FILE_CONTENT:\s*(.*?)\s*>\s*$/);
+    const open = fileOpen
+      ? [fileOpen[0], "FILE_CONTENT", ""]
+      : lines[i].match(/^\s*<([A-Za-z][\w.-]*)(\s+[^>]*)?>\s*$/);
+
+    if (!open) {
+      plain.push(lines[i]);
+      continue;
+    }
+
+    const closeText =
+      `</${open[1]}>`;
+    let close = -1;
+
+    for (let j = i + 1; j < lines.length; j += 1) {
+      if (lines[j].trim() === closeText) {
+        close = j;
+        break;
+      }
+    }
+
+    if (close < 0) {
+      plain.push(lines[i]);
+      continue;
+    }
+
+    flushPlain();
+    const attributes =
+      parseContextAttributes(open[2]);
+    const toolResultAge =
+      String(open[1] || "").toUpperCase() === "TOOL_RESULT"
+        ? parseContextToolResultAge(open[2])
+        : "";
+    blocks.push({
+      title: fileOpen ? `FILE_CONTENT: ${fileOpen[1]}` : open[1],
+      attributes,
+      content:
+        fileOpen ? lines.slice(i + 1, close).join("\n")
+          : lines.slice(i + 1, close).join("\n").trim(),
+      xml: true,
+      metaLabel: toolResultAge,
+    });
+    i = close;
+  }
+
+  flushPlain();
+  return blocks;
+}
+
+function contextBadge(text, attribute = false) {
+  return contextElement(
+    "span",
+    attribute
+      ? "jin-context-badge jin-context-badge-attribute"
+      : "jin-context-badge",
+    text
+  );
+}
+
+function parseContextRows(content, minimumFields = 2) {
+  const lines =
+    String(content || "")
+      .split("\n")
+      .filter((line) => line.trim());
+
+  const chat = lines.map((line) => {
+    const match =
+      line.match(
+        /^\s*<(USER|JIN|SERVICE|BRAIN)>([\s\S]*?)(?:<\/\1>)?\s*$/
+      );
+
+    return match
+      ? {
+          kind: "chat",
+          key: match[1],
+          value: match[2].trim(),
+        }
+      : null;
+  });
+
+  if (chat.length && chat.every(Boolean)) {
+    return chat;
+  }
+
+  const tags = lines.map((line) => {
+    const match =
+      line.match(
+        /^\s*<([A-Za-z][\w.-]*)>([\s\S]*?)<\/\1>\s*$/
+      );
+
+    return match
+      ? {
+          kind: "kv",
+          key: match[1],
+          value: match[2].trim(),
+        }
+      : null;
+  });
+
+  if (tags.length && tags.every(Boolean)) {
+    return tags;
+  }
+
+  const fields = lines
+    .map((line) => {
+      const match =
+        line.match(
+          /^\s*([^:]{1,90}):\s*(.*)$/
+        );
+
+      return match
+        ? {
+            kind: "kv",
+            key: match[1].trim(),
+            value: match[2].trim(),
+          }
+        : null;
+    })
+    .filter(Boolean);
+
+  if (
+      fields.length >= minimumFields
+      && fields.length / Math.max(lines.length, 1) >= 0.7
+  ) {
+    return fields;
+  }
+
+  return [];
+}
+
+function normalizeContextDelayedMemoryReportId(value) {
+  const match =
+    String(value || "")
+      .trim()
+      .match(/^([a-z0-9]{6})(?:_|$)/i);
+
+  return match
+    ? String(match[1] || "").toLowerCase()
+    : "";
+}
+
+function getContextDelayedMemoryReports() {
+  const runtime =
+    window.JinRuntime
+    && window.JinRuntime.runtime;
+
+  if (
+      !runtime
+      || typeof runtime.getDelayedMemoryReports !== "function"
+  ) {
+    return {};
+  }
+
+  const reports =
+    runtime.getDelayedMemoryReports();
+
+  return (
+      reports
+      && typeof reports === "object"
+      && !Array.isArray(reports)
+    )
+      ? reports
+      : {};
+}
+
+function getContextDelayedMemoryReport(reportId) {
+  const normalizedReportId =
+    normalizeContextDelayedMemoryReportId(reportId);
+  const reports =
+    getContextDelayedMemoryReports();
+  const report =
+    normalizedReportId
+    && reports[normalizedReportId];
+
+  if (
+      !report
+      || typeof report !== "object"
+      || Array.isArray(report)
+  ) {
+    return null;
+  }
+
+  return {
+    ...report,
+    _storage_key: normalizedReportId,
+  };
+}
+
+function normalizeContextLongTermFactId(value) {
+  const match = String(value || "")
+    .trim()
+    .toUpperCase()
+    .match(/^F([1-9]\d*)$/);
+
+  return match
+    ? `F${Number(match[1])}`
+    : "";
+}
+
+function getContextLongTermFacts() {
+  const ltMemory =
+    window.JinRuntime
+    && window.JinRuntime.ltMemory;
+  const runtime =
+    window.JinRuntime
+    && window.JinRuntime.runtime;
+  let facts = [];
+
+  if (
+      ltMemory
+      && typeof ltMemory.getFacts === "function"
+  ) {
+    facts = ltMemory.getFacts();
+  } else if (
+      runtime
+      && typeof runtime.getLongTermMemoryFacts === "function"
+  ) {
+    facts = runtime.getLongTermMemoryFacts();
+  }
+
+  return Array.isArray(facts)
+    ? facts
+    : [];
+}
+
+function getContextLongTermFact(factId) {
+  const normalizedFactId =
+    normalizeContextLongTermFactId(factId);
+
+  if (!normalizedFactId) {
+    return null;
+  }
+
+  return getContextLongTermFacts().find((fact) => (
+    fact
+    && typeof fact === "object"
+    && !Array.isArray(fact)
+    && normalizeContextLongTermFactId(fact.id) === normalizedFactId
+  )) || null;
+}
+
+function getContextLongTermFactTitle(factId) {
+  const fact = getContextLongTermFact(factId);
+
+  if (!fact) {
+    return "";
+  }
+
+  const key = String(fact.key || "").trim();
+  const value = String(fact.value || fact.content || "").trim();
+
+  return [key, value]
+    .filter(Boolean)
+    .join(": ");
+}
+
+function renderContextDelayedMemoryLabel(label, line) {
+  const source = String(line || "");
+  const anchorBlock = source.match(
+    /\[\s*anchor_facts\s*:\s*([^\]]*?)\s*\]/i
+  );
+
+  if (
+      !anchorBlock
+      || typeof anchorBlock.index !== "number"
+      || !anchorBlock[1]
+  ) {
+    label.textContent = source;
+    return;
+  }
+
+  const anchorText = anchorBlock[1];
+  const anchorTextOffset = anchorBlock[0].indexOf(anchorText);
+  const anchorTextStart = anchorBlock.index + anchorTextOffset;
+  const factPattern = /\bF[1-9]\d*\b/gi;
+  let cursor = 0;
+  let factMatch = null;
+
+  label.appendChild(
+    document.createTextNode(
+      source.slice(0, anchorTextStart)
+    )
+  );
+
+  while ((factMatch = factPattern.exec(anchorText)) !== null) {
+    label.appendChild(
+      document.createTextNode(
+        anchorText.slice(cursor, factMatch.index)
+      )
+    );
+
+    const factId = normalizeContextLongTermFactId(
+      factMatch[0]
+    );
+    const factNode = contextElement(
+      "span",
+      "jin-context-lt-fact-id jin-context-delayed-anchor-fact-id",
+      factId
+    );
+    const factTitle = getContextLongTermFactTitle(factId);
+
+    if (factTitle) {
+      factNode.title = factTitle;
+      factNode.setAttribute(
+        "aria-label",
+        factTitle
+      );
+    }
+
+    label.appendChild(factNode);
+    cursor = factPattern.lastIndex;
+  }
+
+  label.appendChild(
+    document.createTextNode(
+      anchorText.slice(cursor)
+      + source.slice(anchorTextStart + anchorText.length)
+    )
+  );
+}
+
+function setContextDelayedMemoryHover(
+  reportId,
+  active
+) {
+  const memoryView =
+    window.JinRuntime
+    && window.JinRuntime.memoryView;
+
+  if (
+      memoryView
+      && typeof memoryView.setDelayedMemoryReportHover === "function"
+  ) {
+    memoryView.setDelayedMemoryReportHover(
+      reportId,
+      active
+    );
+    return;
+  }
+
+  const buildAvatarMemoryHoverId =
+    window.JinRuntime
+    && window.JinRuntime.buildAvatarMemoryHoverId;
+  const avatarMemoryHoverId =
+    active
+    && typeof buildAvatarMemoryHoverId === "function"
+      ? buildAvatarMemoryHoverId(
+          "delayed",
+          reportId
+        )
+      : "";
+
+  window.dispatchEvent(
+    new CustomEvent(
+      "jin:memory-row-avatar-hover",
+      {
+        detail: avatarMemoryHoverId
+          ? {
+              active: true,
+              avatarMemoryHoverId,
+            }
+          : {
+              active: false,
+            },
+      }
+    )
+  );
+}
+
+function openContextDelayedMemoryReport(reportId) {
+  const report =
+    getContextDelayedMemoryReport(reportId);
+  const memoryView =
+    window.JinRuntime
+    && window.JinRuntime.memoryView;
+
+  if (
+      !report
+      || !memoryView
+      || typeof memoryView.openDelayedMemoryReportModal !== "function"
+  ) {
+    return false;
+  }
+
+  setContextDelayedMemoryHover(
+    reportId,
+    false
+  );
+  memoryView.openDelayedMemoryReportModal(
+    report
+  );
+  return true;
+}
+
+function parseContextLongTermMemoryLine(line) {
+  const source = String(line || "").trim();
+  const separatorIndex = source.indexOf(":");
+  const idMatch = source.match(
+    /\[\s*id\s*:\s*(F\d+)\s*\]/i
+  );
+
+  if (
+    separatorIndex <= 0
+    || !idMatch
+    || typeof idMatch.index !== "number"
+    || idMatch.index <= separatorIndex
+  ) {
+    return null;
+  }
+
+  const delayedMemoryIds = [];
+  const seenDelayedMemoryIds = new Set();
+  const delayedPattern =
+    /\[\s*delayed_memory_id\s*:\s*([^\]]+?)\s*\]/gi;
+  let delayedMatch = null;
+
+  while ((delayedMatch = delayedPattern.exec(source)) !== null) {
+    const reportId = normalizeContextDelayedMemoryReportId(
+      delayedMatch[1]
+    );
+
+    if (!reportId || seenDelayedMemoryIds.has(reportId)) {
+      continue;
+    }
+
+    seenDelayedMemoryIds.add(reportId);
+    delayedMemoryIds.push(reportId);
+  }
+
+  const ageMatch = source.match(
+    /\(\s*([0-9]+(?:s|m|h|d))\s+ago\s*\)\s*$/i
+  );
+
+  return {
+    id: String(idMatch[1] || "").toUpperCase(),
+    key: source.slice(0, separatorIndex).trim(),
+    value: source.slice(separatorIndex + 1, idMatch.index).trim(),
+    age: ageMatch
+      ? `${String(ageMatch[1] || "").toLowerCase()} ago`
+      : "",
+    delayedMemoryIds,
+  };
+}
+
+function resolveContextLongTermFactReport(delayedMemoryIds) {
+  for (const rawReportId of Array.isArray(delayedMemoryIds) ? delayedMemoryIds : []) {
+    const reportId = normalizeContextDelayedMemoryReportId(rawReportId);
+    const report = getContextDelayedMemoryReport(reportId);
+
+    if (reportId && report) {
+      return {
+        reportId,
+        report,
+      };
+    }
+  }
+
+  return null;
+}
+
+function getContextLongTermFactReportTitle(linked) {
+  if (!linked || !linked.report) {
+    return "";
+  }
+
+  return String(
+    linked.report.title
+    || linked.report.summary
+    || linked.report._storage_key
+    || linked.reportId
+    || ""
+  ).trim();
+}
+
+function syncContextLongTermFactIdLink(node, delayedMemoryIds) {
+  if (!node) {
+    return null;
+  }
+
+  const linked = resolveContextLongTermFactReport(
+    delayedMemoryIds
+  );
+  const linkedTitle = getContextLongTermFactReportTitle(linked);
+
+  node.classList.toggle(
+    "is-linked",
+    Boolean(linked)
+  );
+  node.title = linkedTitle;
+  node.setAttribute(
+    "aria-disabled",
+    linked ? "false" : "true"
+  );
+
+  return linked;
+}
+
+function renderContextLongTermMemoryBody(parent, content) {
+  const records = String(content || "")
+    .split("\n")
+    .map(parseContextLongTermMemoryLine)
+    .filter(Boolean);
+
+  if (!records.length) {
+    renderContextBody(parent, content);
+    return;
+  }
+
+  const list = contextElement(
+    "div",
+    "jin-context-kv-list jin-context-lt-list"
+  );
+
+  records.forEach((record) => {
+    const row = contextElement(
+      "div",
+      "jin-context-kv-row jin-context-lt-row"
+    );
+    const keyCell = contextElement(
+      "div",
+      "jin-context-kv-key jin-context-lt-key"
+    );
+    const factId = record.delayedMemoryIds.length
+      ? document.createElement("button")
+      : document.createElement("span");
+
+    factId.className = "jin-context-lt-fact-id";
+    factId.textContent = record.id;
+
+    if (record.delayedMemoryIds.length) {
+      factId.type = "button";
+      syncContextLongTermFactIdLink(
+        factId,
+        record.delayedMemoryIds
+      );
+
+      factId.addEventListener("mouseenter", () => {
+        syncContextLongTermFactIdLink(
+          factId,
+          record.delayedMemoryIds
+        );
+      });
+      factId.addEventListener("focus", () => {
+        syncContextLongTermFactIdLink(
+          factId,
+          record.delayedMemoryIds
+        );
+      });
+      factId.addEventListener("click", (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+
+        const linked = syncContextLongTermFactIdLink(
+          factId,
+          record.delayedMemoryIds
+        );
+
+        if (linked) {
+          openContextDelayedMemoryReport(
+            linked.reportId
+          );
+        }
+      });
+    }
+
+    keyCell.appendChild(factId);
+    keyCell.appendChild(
+      contextElement(
+        "span",
+        "jin-context-lt-separator",
+        "·"
+      )
+    );
+    keyCell.appendChild(
+      contextElement(
+        "span",
+        "jin-context-lt-fact-key",
+        record.key
+      )
+    );
+
+    if (record.age) {
+      keyCell.appendChild(
+        contextElement(
+          "span",
+          "jin-context-lt-separator",
+          "·"
+        )
+      );
+      keyCell.appendChild(
+        contextElement(
+          "span",
+          "jin-context-lt-age",
+          record.age
+        )
+      );
+    }
+
+    row.appendChild(keyCell);
+    row.appendChild(
+      contextElement(
+        "div",
+        "jin-context-kv-value jin-context-lt-value",
+        record.value || "<empty>"
+      )
+    );
+    list.appendChild(row);
+  });
+
+  parent.appendChild(list);
+}
+
+function syncContextDelayedMemoryRow(row) {
+  if (!row || !row.dataset) {
+    return;
+  }
+
+  const reportId =
+    normalizeContextDelayedMemoryReportId(
+      row.dataset.delayedMemoryId
+    );
+  const report =
+    getContextDelayedMemoryReport(reportId);
+  const pinButton =
+    row.querySelector(
+      ".jin-context-delayed-pin"
+    );
+  const missing = !report;
+
+  row.classList.toggle(
+    "is-missing",
+    missing
+  );
+  row.dataset.delayedMemoryMissing =
+    missing ? "true" : "false";
+  row.setAttribute(
+    "aria-disabled",
+    missing ? "true" : "false"
+  );
+
+  if (missing) {
+    row.removeAttribute("role");
+    row.removeAttribute("tabindex");
+    row.classList.remove("is-pinned");
+
+    if (pinButton) {
+      pinButton.disabled = true;
+      pinButton.classList.remove(
+        "delayed-memory-modal-pin-active",
+        "delayed-memory-modal-pin-loaded"
+      );
+      pinButton.title =
+        "Delayed memory report deleted";
+    }
+
+    return;
+  }
+
+  row.setAttribute(
+    "role",
+    "button"
+  );
+  row.setAttribute(
+    "tabindex",
+    "0"
+  );
+
+  if (!pinButton) {
+    return;
+  }
+
+  const runtime =
+    window.JinRuntime
+    && window.JinRuntime.runtime;
+  const pinned =
+    Boolean(report.pinned);
+  const loaded =
+    !pinned
+    && runtime
+    && typeof runtime.isDelayedMemoryReportLoaded === "function"
+    && runtime.isDelayedMemoryReportLoaded(reportId);
+
+  pinButton.disabled = false;
+  row.classList.toggle(
+    "is-pinned",
+    pinned
+  );
+  pinButton.classList.toggle(
+    "delayed-memory-modal-pin-active",
+    pinned
+  );
+  pinButton.classList.toggle(
+    "delayed-memory-modal-pin-loaded",
+    Boolean(loaded)
+  );
+  pinButton.setAttribute(
+    "aria-pressed",
+    pinned ? "true" : "false"
+  );
+  pinButton.setAttribute(
+    "aria-label",
+    loaded
+      ? "Unload delayed memory"
+      : (
+          pinned
+            ? "Unpin delayed memory"
+            : "Pin delayed memory"
+        )
+  );
+  pinButton.title =
+    loaded
+      ? "Unload delayed memory from context"
+      : (
+          pinned
+            ? "Unpin delayed memory"
+            : "Pin delayed memory"
+        );
+}
+
+function syncContextDelayedMemoryRows(reportId = "") {
+  if (!traceModalContent) {
+    return;
+  }
+
+  const normalizedReportId =
+    normalizeContextDelayedMemoryReportId(
+      reportId
+    );
+  const rows =
+    Array.from(
+      traceModalContent.querySelectorAll(
+        ".jin-context-delayed-row"
+      )
+    );
+
+  rows.forEach((row) => {
+    if (
+        normalizedReportId
+        && normalizeContextDelayedMemoryReportId(
+          row.dataset.delayedMemoryId
+        ) !== normalizedReportId
+    ) {
+      return;
+    }
+
+    syncContextDelayedMemoryRow(
+      row
+    );
+  });
+}
+
+function parseContextLoadedDelayedMemory(content) {
+  const text = decodeContextEntities(content).trim();
+
+  if (!text) {
+    return null;
+  }
+
+  try {
+    const parsed = JSON.parse(text);
+
+    return (
+      parsed
+      && typeof parsed === "object"
+      && !Array.isArray(parsed)
+    )
+      ? parsed
+      : null;
+  } catch (_) {
+    return null;
+  }
+}
+
+function renderContextLoadedDelayedMemoryBody(
+  parent,
+  content
+) {
+  const report =
+    parseContextLoadedDelayedMemory(content);
+
+  if (!report) {
+    parent.appendChild(
+      contextElement(
+        "pre",
+        "jin-context-raw",
+        decodeContextEntities(content)
+      )
+    );
+    return;
+  }
+
+  const layout =
+    contextElement(
+      "div",
+      "jin-context-loaded-memory"
+    );
+
+  const appendRow = (
+    key,
+    value,
+    valueClass = ""
+  ) => {
+    const text = String(value ?? "").trim();
+
+    if (!text) {
+      return;
+    }
+
+    const row =
+      contextElement(
+        "div",
+        "jin-context-loaded-memory-row"
+      );
+    const valueNode =
+      contextElement(
+        "div",
+        `jin-context-loaded-memory-value ${valueClass}`.trim(),
+        text
+      );
+
+    row.appendChild(
+      contextElement(
+        "div",
+        "jin-context-loaded-memory-key",
+        key
+      )
+    );
+    row.appendChild(valueNode);
+    layout.appendChild(row);
+  };
+
+  const titleRow =
+    contextElement(
+      "div",
+      "jin-context-loaded-memory-row jin-context-loaded-memory-title-row"
+    );
+  const titleValue =
+    contextElement(
+      "div",
+      "jin-context-loaded-memory-value jin-context-loaded-memory-title"
+    );
+  const titleText =
+    String(report.title || "").trim();
+  const reportId =
+    String(report.id || "").trim();
+
+  titleRow.appendChild(
+    contextElement(
+      "div",
+      "jin-context-loaded-memory-key",
+      "title"
+    )
+  );
+
+  if (titleText) {
+    titleValue.appendChild(
+      document.createTextNode(titleText)
+    );
+  } else {
+    titleValue.appendChild(
+      contextElement(
+        "span",
+        "jin-context-loaded-memory-empty-value",
+        "<empty>"
+      )
+    );
+  }
+
+  if (reportId) {
+    titleValue.appendChild(
+      contextElement(
+        "span",
+        "jin-context-loaded-memory-id",
+        `id ${reportId}`
+      )
+    );
+  }
+
+  titleRow.appendChild(titleValue);
+  layout.appendChild(titleRow);
+
+  appendRow(
+    "summary",
+    report.summary
+  );
+
+  const tags = Array.isArray(report.tags)
+    ? report.tags
+        .map(tag => String(tag ?? "").trim())
+        .filter(Boolean)
+    : [];
+
+  if (tags.length) {
+    const row =
+      contextElement(
+        "div",
+        "jin-context-loaded-memory-row"
+      );
+    const tagList =
+      contextElement(
+        "div",
+        "jin-context-loaded-memory-tags"
+      );
+
+    row.appendChild(
+      contextElement(
+        "div",
+        "jin-context-loaded-memory-key",
+        "tags"
+      )
+    );
+    tags.forEach((tag) => {
+      tagList.appendChild(
+        contextElement(
+          "span",
+          "jin-context-loaded-memory-tag",
+          tag
+        )
+      );
+    });
+    row.appendChild(tagList);
+    layout.appendChild(row);
+  }
+
+  const attachmentIds = Array.isArray(report.attachments_ids)
+    ? report.attachments_ids
+        .map(id => String(id ?? "").trim())
+        .filter(Boolean)
+    : [];
+
+  if (attachmentIds.length) {
+    appendRow(
+      "attachments",
+      attachmentIds.join(", "),
+      "jin-context-loaded-memory-attachments"
+    );
+  }
+
+  const bodyText =
+    String(report.body ?? "").trim();
+
+  if (bodyText) {
+    const bodySection =
+      contextElement(
+        "div",
+        "jin-context-loaded-memory-body"
+      );
+
+    bodySection.appendChild(
+      contextElement(
+        "div",
+        "jin-context-loaded-memory-body-label",
+        "body"
+      )
+    );
+    bodySection.appendChild(
+      contextElement(
+        "div",
+        "jin-context-loaded-memory-body-text",
+        bodyText
+      )
+    );
+    layout.appendChild(bodySection);
+  }
+
+  parent.appendChild(layout);
+}
+
+function renderContextDelayedMemoryBody(
+  parent,
+  content
+) {
+  const lines =
+    String(content || "")
+      .split("\n")
+      .map(line => line.trim())
+      .filter(Boolean);
+
+  if (!lines.length) {
+    parent.appendChild(
+      contextElement(
+        "div",
+        "jin-context-empty",
+        "EMPTY"
+      )
+    );
+    return;
+  }
+
+  const list =
+    contextElement(
+      "div",
+      "jin-context-delayed-list"
+    );
+
+  lines.forEach((line) => {
+    const reportId =
+      normalizeContextDelayedMemoryReportId(
+        line
+      );
+    const row =
+      contextElement(
+        "div",
+        "jin-context-delayed-row"
+      );
+    const pinButton =
+      contextElement(
+        "button",
+        "delayed-memory-modal-icon-button delayed-memory-modal-pin jin-context-delayed-pin"
+      );
+    const label =
+      contextElement(
+        "span",
+        "jin-context-delayed-label"
+      );
+
+    renderContextDelayedMemoryLabel(
+      label,
+      line
+    );
+
+    row.dataset.delayedMemoryId =
+      reportId;
+    pinButton.type = "button";
+    pinButton.setAttribute(
+      "aria-pressed",
+      "false"
+    );
+    pinButton.innerHTML =
+      '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14.7 3.3 20.7 9.3 18.6 11.4 16.9 9.7 13.7 12.9 14.4 15.7 12.9 17.2 9.4 13.7 5.3 17.8 4.2 16.7 8.3 12.6 4.8 9.1 6.3 7.6 9.1 8.3 12.3 5.1 10.6 3.4 12.7 1.3Z"/></svg>';
+
+    row.appendChild(pinButton);
+    row.appendChild(label);
+
+    row.addEventListener(
+      "click",
+      function (event) {
+        if (
+            event.target
+            && event.target.closest(
+              ".jin-context-delayed-pin"
+            )
+        ) {
+          return;
+        }
+
+        if (
+            row.dataset.delayedMemoryMissing === "true"
+        ) {
+          return;
+        }
+
+        if (!openContextDelayedMemoryReport(reportId)) {
+          syncContextDelayedMemoryRow(row);
+        }
+      }
+    );
+
+    row.addEventListener(
+      "keydown",
+      function (event) {
+        if (
+            event.target !== row
+            || (
+              event.key !== "Enter"
+              && event.key !== " "
+            )
+            || row.dataset.delayedMemoryMissing === "true"
+        ) {
+          return;
+        }
+
+        event.preventDefault();
+
+        if (!openContextDelayedMemoryReport(reportId)) {
+          syncContextDelayedMemoryRow(row);
+        }
+      }
+    );
+
+    row.addEventListener(
+      "mouseenter",
+      function () {
+        if (
+            row.dataset.delayedMemoryMissing === "true"
+        ) {
+          return;
+        }
+
+        setContextDelayedMemoryHover(
+          reportId,
+          true
+        );
+      }
+    );
+
+    row.addEventListener(
+      "mouseleave",
+      function () {
+        setContextDelayedMemoryHover(
+          reportId,
+          false
+        );
+      }
+    );
+
+    pinButton.addEventListener(
+      "click",
+      function (event) {
+        event.preventDefault();
+        event.stopPropagation();
+
+        const report =
+          getContextDelayedMemoryReport(
+            reportId
+          );
+        const runtime =
+          window.JinRuntime
+          && window.JinRuntime.runtime;
+
+        if (
+            !report
+            || !runtime
+            || (
+              typeof runtime.handleDelayedMemoryReportPinClick !== "function"
+              && typeof runtime.setDelayedMemoryReportPinned !== "function"
+            )
+        ) {
+          syncContextDelayedMemoryRow(row);
+          return;
+        }
+
+        if (typeof runtime.handleDelayedMemoryReportPinClick === "function") {
+          runtime.handleDelayedMemoryReportPinClick(
+            reportId
+          );
+        } else {
+          runtime.setDelayedMemoryReportPinned(
+            reportId,
+            !Boolean(report.pinned)
+          );
+        }
+        syncContextDelayedMemoryRow(row);
+      }
+    );
+
+    list.appendChild(row);
+    syncContextDelayedMemoryRow(row);
+  });
+
+  parent.appendChild(list);
+}
+
+function parseContextAttachedFileLine(line) {
+  const text = String(line || "").trim();
+  const match = text.match(/^(.*?)\s*\[\s*id\s*:\s*([a-z0-9]{6})\s*\]\s*$/i);
+  if (!match) return null;
+  return {
+    name: String(match[1] || "").trim(),
+    id: String(match[2] || "").toLowerCase(),
+  };
+}
+
+function syncContextAttachedFileRows() {
+  if (!traceModalContent) return;
+  traceModalContent.querySelectorAll(".jin-context-attached-file-row").forEach((row) => {
+    const fileId = String(row.dataset.attachedFileId || "").toLowerCase();
+    const record = window.JinFiles && typeof window.JinFiles.getFile === "function"
+      ? window.JinFiles.getFile(fileId)
+      : null;
+    const pin = row.querySelector(".jin-context-attached-file-pin");
+    const pinned = Boolean(record && record.pinned);
+    row.classList.toggle("is-pinned", pinned);
+    row.classList.toggle("opacity-50", !record);
+    if (pin) {
+      pin.disabled = !record;
+      pin.classList.toggle("delayed-memory-modal-pin-active", pinned);
+      pin.setAttribute("aria-pressed", pinned ? "true" : "false");
+      pin.title = pinned ? "Remove file from JIN context" : "Attach file to JIN context";
+    }
+  });
+}
+
+function renderContextAttachedFilesBody(parent, content) {
+  const projectLines = String(content || "").split("\n")
+    .filter((line) => /\[\s*id\s*:\s*[a-z0-9]{6}\//i.test(line));
+  if (projectLines.length) {
+    parent.appendChild(contextElement("pre", "jin-context-raw", projectLines.join("\n")));
+  }
+  const records = String(content || "")
+    .split("\n")
+    .map(parseContextAttachedFileLine)
+    .filter(Boolean);
+
+  if (!records.length) return;
+
+  const list = contextElement("div", "jin-context-delayed-list");
+  records.forEach((item) => {
+    const row = contextElement("div", "jin-context-delayed-row jin-context-attached-file-row");
+    row.dataset.attachedFileId = item.id;
+    row.setAttribute("role", "button");
+    row.setAttribute("tabindex", "0");
+
+    const pin = contextElement(
+      "button",
+      "delayed-memory-modal-icon-button delayed-memory-modal-pin jin-context-delayed-pin jin-context-attached-file-pin"
+    );
+    pin.type = "button";
+    pin.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14.7 3.3 20.7 9.3 18.6 11.4 16.9 9.7 13.7 12.9 14.4 15.7 12.9 17.2 9.4 13.7 5.3 17.8 4.2 16.7 8.3 12.6 4.8 9.1 6.3 7.6 9.1 8.3 12.3 5.1 10.6 3.4 12.7 1.3Z"/></svg>';
+    const label = contextElement(
+      "span",
+      "jin-context-delayed-label",
+      `${item.name} [ id: ${item.id} ]`
+    );
+
+    pin.addEventListener("click", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      const record = window.JinFiles && window.JinFiles.getFile(item.id);
+      if (!record || !window.JinFiles) return;
+      void window.JinFiles.setPinned(item.id, !Boolean(record.pinned));
+    });
+
+    const open = () => {
+      const record = window.JinFiles && window.JinFiles.getFile(item.id);
+      if (record && typeof window.openJinAttachmentModal === "function") {
+        window.openJinAttachmentModal(record);
+      }
+    };
+    row.addEventListener("click", (event) => {
+      if (event.target && event.target.closest(".jin-context-attached-file-pin")) return;
+      open();
+    });
+    row.addEventListener("keydown", (event) => {
+      if (event.key !== "Enter" && event.key !== " ") return;
+      event.preventDefault();
+      open();
+    });
+
+    row.append(pin, label);
+    list.appendChild(row);
+  });
+  parent.appendChild(list);
+  syncContextAttachedFileRows();
+}
+
+function parseContextUserPromptAttachedFileRow(row) {
+  if (!row) {
+    return null;
+  }
+
+  const keyElement =
+    row.querySelector(
+      ".jin-context-kv-key"
+    );
+  const valueElement =
+    row.querySelector(
+      ".jin-context-kv-value"
+    );
+  const key =
+    String(
+      keyElement && keyElement.textContent || ""
+    ).trim();
+  const value =
+    String(
+      valueElement && valueElement.textContent || ""
+    ).trim();
+  const pathMatch =
+    key.match(
+      /(?:^|\s)(\/assets\/files\/[^\s:]+)\s*$/i
+    );
+  const idMatch =
+    value.match(
+      /\[\s*id\s*:\s*([a-z0-9]{6})\s*\]/i
+    );
+
+  if (
+      !pathMatch
+      || !idMatch
+      || !/^image(?:\s*,|$)/i.test(value)
+  ) {
+    return null;
+  }
+
+  const id =
+    String(idMatch[1] || "")
+      .trim()
+      .toLowerCase();
+  const path =
+    String(pathMatch[1] || "").trim();
+  const mimeMatch =
+    value.match(
+      /^image\s*,\s*([^,\s]+)/i
+    );
+  const storedRecord =
+    window.JinFiles
+    && typeof window.JinFiles.getFile === "function"
+      ? window.JinFiles.getFile(id)
+      : null;
+
+  return {
+    id,
+    kind: "image",
+    type:
+      mimeMatch
+        ? String(mimeMatch[1] || "")
+        : "image",
+    url: path,
+    ...(storedRecord || {}),
+  };
+}
+
+function bindContextUserPromptAttachedFilePreviews(parent) {
+  if (!parent) {
+    return;
+  }
+
+  parent
+    .querySelectorAll(
+      ".jin-context-kv-row"
+    )
+    .forEach((row) => {
+      const attachment =
+        parseContextUserPromptAttachedFileRow(
+          row
+        );
+
+      if (!attachment) {
+        return;
+      }
+
+      row.classList.add(
+        "jin-context-user-attached-file-row"
+      );
+
+      const bind = () => {
+        if (
+            !row.isConnected
+            || row.dataset[
+              CONTEXT_ATTACHMENT_HOVER_BOUND_DATASET_KEY
+            ] === "1"
+        ) {
+          return true;
+        }
+
+        if (
+            typeof window.bindJinAttachmentHoverPreview !== "function"
+        ) {
+          return false;
+        }
+
+        window.bindJinAttachmentHoverPreview(
+          row,
+          attachment,
+          {
+            hoverPreviewMaxPx: 100,
+          }
+        );
+        row.dataset[
+          CONTEXT_ATTACHMENT_HOVER_BOUND_DATASET_KEY
+        ] = "1";
+        return true;
+      };
+
+      if (!bind()) {
+        window.addEventListener(
+          "jin:attachment-ui-ready",
+          bind,
+          {once: true}
+        );
+      }
+    });
+}
+
+function renderContextUserPromptBody(parent, content) {
+  renderContextBody(
+    parent,
+    content
+  );
+  bindContextUserPromptAttachedFilePreviews(
+    parent
+  );
+}
+
+function renderContextBody(parent, content, minimumFields = 2) {
+  const text =
+    String(content || "").trim();
+
+  if (!text) {
+    parent.appendChild(
+      contextElement(
+        "div",
+        "jin-context-empty",
+        "EMPTY"
+      )
+    );
+    return;
+  }
+
+  const rows =
+    parseContextRows(text, minimumFields);
+
+  if (rows.length) {
+    const list =
+      contextElement(
+        "div",
+        "jin-context-kv-list"
+      );
+
+    rows.forEach((row) => {
+      const item =
+        contextElement(
+          "div",
+          row.kind === "chat"
+            ? `jin-context-chat-row jin-context-chat-${row.key.toLowerCase()}`
+            : "jin-context-kv-row"
+        );
+
+      item.appendChild(
+        contextElement(
+          "div",
+          row.kind === "chat"
+            ? "jin-context-chat-role"
+            : "jin-context-kv-key",
+          row.key
+        )
+      );
+      item.appendChild(
+        contextElement(
+          "div",
+          row.kind === "chat"
+            ? "jin-context-chat-content"
+            : "jin-context-kv-value",
+          row.value || "<empty>"
+        )
+      );
+      list.appendChild(item);
+    });
+
+    parent.appendChild(list);
+    return;
+  }
+
+  const lines =
+    text.split("\n")
+      .map((line) => line.trim())
+      .filter(Boolean);
+  const simpleList =
+    lines.length > 1
+    && lines.length <= 40
+    && lines.every((line) => (
+      /^\d+[.)]\s+/.test(line)
+      || /^[A-Za-z0-9_#.-]+(?:\s+.*)?$/.test(line)
+    ));
+
+  if (simpleList) {
+    const list =
+      contextElement(
+        "div",
+        "jin-context-line-list"
+      );
+
+    lines.forEach((line) => {
+      list.appendChild(
+        contextElement(
+          "div",
+          "jin-context-line-item",
+          line
+        )
+      );
+    });
+
+    parent.appendChild(list);
+    return;
+  }
+
+  parent.appendChild(
+    contextElement(
+      "pre",
+      "jin-context-raw",
+      text
+    )
+  );
+}
+
+function decodeContextEntities(value) {
+  return String(value || "")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&amp;/g, "&");
+}
+
+function renderContextChatLogSearchBody(parent, content) {
+  // Archive formatter indents message bodies two spaces beyond structural
+  // headers. Keep that distinction so quoted headers remain message text.
+  const lines = decodeContextEntities(content).replace(/\r\n?/g, "\n").split("\n");
+  // parseContextBlocks trims the first line, while subsequent lines retain
+  // the TOOL_RESULT envelope indentation. Anchor to a real result header.
+  const firstHit = lines.find(line => /^ *\[\d+\] Session: .*? \| Turn: .*? \| Archive: /.test(line));
+  if (!firstHit) return false;
+  const indent = firstHit.match(/^ */)[0].length;
+  const normalized = lines.map(line => line.slice(Math.min(indent, line.match(/^ */)[0].length)));
+  const hits = [];
+  const summary = [];
+  let hit = null;
+  let section = null;
+  for (const line of normalized) {
+    const heading = line.match(/^\[(\d+)\] Session: (.*?) \| Turn: (.*?) \| Archive: (.*)$/);
+    if (heading) {
+      hit = {number: heading[1], session: heading[2], turn: heading[3], archive: heading[4], sections: []};
+      hits.push(hit);
+      section = null;
+      continue;
+    }
+    if (!hit) { summary.push(line); continue; }
+    const message = line.match(/^(USER|JIN) \[(.*?)\]:$/);
+    const reasoning = line.match(/^JIN reasoning excerpts \[(.*?)\] \(matching USER above\):$/);
+    const attachments = line.match(/^Attachments: (.*)$/);
+    if (message || reasoning || attachments) {
+      section = {
+        role: message ? message[1] : reasoning ? "JIN REASONING" : "Attachments",
+        timestamp: message ? message[2] : reasoning ? reasoning[1] : "",
+        lines: attachments ? [attachments[1]] : [],
+      };
+      hit.sections.push(section);
+    } else if (section) {
+      section.lines.push(line.startsWith("  ") ? line.slice(2) : line);
+    } else if (line.trim()) {
+      // Preserve unexpected legacy content instead of silently losing it.
+      section = {role: "", timestamp: "", lines: [line]};
+      hit.sections.push(section);
+    }
+  }
+  if (!hits.length) return false;
+  const stack = contextElement("div", "jin-context-stack");
+  stack.appendChild(contextElement("pre", "jin-context-raw", summary.join("\n").trim()));
+  for (const item of hits) {
+    appendContextCard(stack, {
+      title: `#${item.number} · ${item.turn}`,
+      attributes: [],
+      metaLabel: item.sections.find(part => part.timestamp)?.timestamp || "",
+      content: "",
+      renderBody(body) {
+        const messages = contextElement("div", "jin-context-chat-list");
+        const metadata = contextElement("div", "jin-context-kv-list");
+        for (const [key, value] of [["Session", item.session], ["Archive", item.archive]]) {
+          const row = contextElement("div", "jin-context-kv-row");
+          row.appendChild(contextElement("div", "jin-context-kv-key", key));
+          row.appendChild(contextElement("div", "jin-context-kv-value", value));
+          metadata.appendChild(row);
+        }
+        messages.appendChild(metadata);
+        for (const part of item.sections) {
+          const row = contextElement("div", "jin-context-chat-row jin-context-search-message");
+          row.appendChild(contextElement("div", "jin-context-chat-role", [part.role, part.timestamp].filter(Boolean).join(" · ")));
+          row.appendChild(contextElement("div", "jin-context-chat-content", part.lines.join("\n").trim()));
+          messages.appendChild(row);
+        }
+        body.appendChild(messages);
+      },
+    });
+  }
+  parent.appendChild(stack);
+  return true;
+}
+
+function renderContextToolResultBody(
+  parent,
+  content,
+  toolName = "",
+  onToggle = null,
+) {
+  if (String(toolName).trim().toUpperCase() === "CHAT_LOG_SEARCH"
+      && renderContextChatLogSearchBody(parent, content)) return;
+  const blocks = parseContextBlocks(content);
+  const hasNestedXml = blocks.some((block) => Boolean(block.xml));
+
+  if (!hasNestedXml) {
+    parent.appendChild(
+      contextElement(
+        "pre",
+        "jin-context-raw",
+        decodeContextEntities(content)
+      )
+    );
+    return;
+  }
+
+  const stack = contextElement(
+    "div",
+    "jin-context-stack jin-context-tool-result-content-stack"
+  );
+
+  blocks.forEach((block) => {
+    if (block.xml) {
+      appendContextCard(stack, block, onToggle);
+      return;
+    }
+
+    const text = decodeContextEntities(block.content).trim();
+    if (!text) return;
+
+    stack.appendChild(
+      contextElement(
+        "pre",
+        "jin-context-raw",
+        text
+      )
+    );
+  });
+
+  parent.appendChild(stack);
+}
+
+function contextToolResultFileTitleSuffix(content, toolName) {
+  if (!["ATTACH_FILE_CONTENT", "ATTACH_FILE_BY_ID"].includes(String(toolName || "").trim().toUpperCase())) {
+    return "";
+  }
+
+  const decoded = decodeContextEntities(content);
+  const fileMatch = decoded.match(/^\s*File:\s*(.+?)\s*$/m);
+  if (!fileMatch) return "";
+
+  const filePath = String(fileMatch[1] || "").trim();
+  const failed = /^\s*Status:\s*failed\s*$/m.test(decoded);
+  const reason = decoded.match(/^\s*Reason:\s*(.+?)\s*$/m);
+  if (failed) {
+    const failure = reason ? reason[1] : "action failed";
+    return String(toolName).toUpperCase() === "ATTACH_FILE_BY_ID"
+      ? `${filePath} : failed - ${failure}`
+      : `${filePath} - failed: ${failure}`;
+  }
+  if (/#\d+-\d+$/.test(filePath)) return filePath;
+
+  const rangeMatch = decoded.match(/^\s*File lines:\s*(\d+)-(\d+)\s+of\b.*$/m);
+  if (!rangeMatch) return filePath;
+
+  return `${filePath}#${rangeMatch[1]}-${rangeMatch[2]}`;
+}
+
+
+function renderContextToolResultsBody(parent, content) {
+  const resultBlocks = parseContextBlocks(content)
+    .filter((block) => String(block.title || "").trim().toUpperCase() === "TOOL_RESULT");
+
+  if (!resultBlocks.length) {
+    parent.appendChild(
+      contextElement(
+        "pre",
+        "jin-context-raw",
+        decodeContextEntities(content)
+      )
+    );
+    return;
+  }
+
+  const stack = contextElement(
+    "div",
+    "jin-context-stack jin-context-tool-results-stack"
+  );
+
+  resultBlocks.forEach((block) => {
+    const toolId = getContextAttributeValue(block.attributes, "tool_id");
+    const toolName = getContextAttributeValue(block.attributes, "name");
+    const attributes = block.attributes.filter((attribute) => (
+      !String(attribute || "").startsWith("tool_id=")
+      && !String(attribute || "").startsWith("name=")
+    ));
+    const fileSuffix = contextToolResultFileTitleSuffix(
+      block.content,
+      toolName
+    );
+    const displayToolName = fileSuffix
+      ? `${toolName || "TOOL_RESULT"}: ${fileSuffix}`
+      : (toolName || "TOOL_RESULT");
+    const title = [toolId, displayToolName]
+      .filter(Boolean)
+      .join(" · ");
+
+    appendContextCard(
+      stack,
+      {
+        ...block,
+        title,
+        attributes,
+        renderBody: (body) => renderContextToolResultBody(body, block.content, toolName),
+      }
+    );
+  });
+
+  parent.appendChild(stack);
+}
+
+function appendContextToolResultCard(
+  parent,
+  block,
+  onToggle = null,
+) {
+  const toolId =
+    getContextAttributeValue(block.attributes, "tool_id");
+  const toolName =
+    getContextAttributeValue(block.attributes, "name");
+  const attributes = block.attributes.filter((attribute) => (
+    !String(attribute || "").startsWith("tool_id=")
+    && !String(attribute || "").startsWith("name=")
+  ));
+  const fileSuffix = contextToolResultFileTitleSuffix(
+    block.content,
+    toolName
+  );
+  const displayToolName = fileSuffix
+    ? `${toolName || "TOOL_RESULT"}: ${fileSuffix}`
+    : (toolName || "TOOL_RESULT");
+  const title = [toolId, displayToolName]
+    .filter(Boolean)
+    .join(" · ");
+
+  return appendContextCard(
+    parent,
+    {
+      ...block,
+      title,
+      attributes,
+      renderBody: (body) => renderContextToolResultBody(
+        body,
+        block.content,
+        toolName,
+        onToggle
+      ),
+    },
+    onToggle
+  );
+}
+
+function setContextCardCollapsed(
+  card,
+  collapsed,
+) {
+  card.classList.toggle(
+    "is-collapsed",
+    collapsed
+  );
+
+  const header =
+    card.querySelector(
+      ".jin-context-card-header"
+    );
+
+  if (header) {
+    header.setAttribute(
+      "aria-expanded",
+      collapsed ? "false" : "true"
+    );
+  }
+
+}
+
+function appendContextCard(
+  parent,
+  block,
+  onToggle = null,
+) {
+  const card =
+    contextElement(
+      "section",
+      `jin-context-card ${block.xml ? "jin-context-card-xml" : "jin-context-card-plain"}`
+    );
+  const header =
+    contextElement(
+      "div",
+      "jin-context-card-header"
+    );
+  const heading =
+    contextElement(
+      "div",
+      "jin-context-card-heading"
+    );
+  const meta =
+    contextElement(
+      "div",
+      "jin-context-card-meta"
+    );
+  const body =
+    contextElement(
+      "div",
+      "jin-context-card-body"
+    );
+
+  header.title =
+    "Click to collapse / expand";
+  header.style.cursor =
+    "pointer";
+  header.tabIndex = 0;
+  header.setAttribute("role", "button");
+  header.setAttribute("aria-expanded", "true");
+
+  const displayTitle =
+    String(block.title || "")
+      .trim()
+      .toUpperCase() === "SESSION_ACTIONS_HISTORY"
+      ? "SESSION_ACTIONS"
+      : block.title;
+
+  heading.appendChild(
+    contextElement(
+      "div",
+      "jin-context-card-title",
+      displayTitle
+    )
+  );
+
+  block.attributes.forEach((attribute) => {
+    meta.appendChild(
+      contextBadge(attribute, true)
+    );
+  });
+  meta.appendChild(
+    contextBadge(
+      block.metaLabel
+      || `${String(block.content || "").split("\n").filter((line) => line.trim()).length} lines`
+    )
+  );
+
+  const toggle = () => {
+    const collapsed =
+      !card.classList.contains(
+        "is-collapsed"
+      );
+
+    setContextCardCollapsed(
+      card,
+      collapsed
+    );
+
+    if (typeof onToggle === "function") {
+      onToggle(card, collapsed);
+    }
+  };
+
+  header.addEventListener(
+    "click",
+    toggle
+  );
+  header.addEventListener(
+    "keydown",
+    function (event) {
+      if (
+          event.key !== "Enter"
+          && event.key !== " "
+      ) {
+        return;
+      }
+
+      event.preventDefault();
+      toggle();
+    }
+  );
+
+  header.appendChild(heading);
+  header.appendChild(meta);
+  card.appendChild(header);
+  card.appendChild(body);
+  const normalizedBlockTitle = String(block.title || "")
+    .trim()
+    .toUpperCase();
+
+  if (typeof block.renderBody === "function") {
+    block.renderBody(body);
+  } else if (normalizedBlockTitle === "TOOLS_RESULTS") {
+    renderContextToolResultsBody(
+      body,
+      block.content
+    );
+  } else if (normalizedBlockTitle.startsWith("FILE_CONTENT:")) {
+    body.appendChild(
+      contextElement(
+        "pre",
+        "jin-context-raw",
+        decodeContextEntities(block.content)
+      )
+    );
+  } else if (normalizedBlockTitle === "LONG_TERM_MEMORY") {
+    renderContextLongTermMemoryBody(
+      body,
+      block.content
+    );
+  } else if (normalizedBlockTitle === "DELAYED_MEMORY") {
+    renderContextDelayedMemoryBody(
+      body,
+      block.content
+    );
+  } else if (normalizedBlockTitle === "LOADED_DELAYED_MEMORY") {
+    renderContextLoadedDelayedMemoryBody(
+      body,
+      block.content
+    );
+  } else if (normalizedBlockTitle === "ATTACHED_FILES") {
+    renderContextAttachedFilesBody(
+      body,
+      block.content
+    );
+  } else {
+    renderContextBody(
+      body,
+      block.content
+    );
+  }
+  parent.appendChild(card);
+  return card;
+}
+
+function renderContextSnapshotTrace(snapshot) {
+  const blocks =
+    parseContextBlocks(
+      snapshot.systemPrompt
+    );
+  const overview =
+    contextElement(
+      "div",
+      "jin-context-overview"
+    );
+  const badges =
+    contextElement(
+      "div",
+      "jin-context-overview-badges"
+    );
+
+  const collapseAllToggle =
+    contextElement(
+      "button",
+      "jin-context-overview-title jin-context-collapse-all",
+      "COLLAPSE ALL"
+    );
+
+  collapseAllToggle.type = "button";
+
+  overview.appendChild(
+    collapseAllToggle
+  );
+  if (snapshot.hiddenInternalActionRules) {
+    badges.appendChild(
+      contextBadge("internal rules hidden")
+    );
+  }
+  if (badges.children.length) {
+    overview.appendChild(badges);
+  }
+  traceModalContent.appendChild(overview);
+
+  const commonStack =
+    contextElement(
+      "div",
+      "jin-context-stack jin-context-common-stack"
+    );
+  const userStack = contextElement(
+    "div",
+    "jin-context-stack jin-context-user-stack"
+  );
+  const tabs = contextElement(
+    "div",
+    "jin-context-tabs"
+  );
+  const tabList = contextElement(
+    "div",
+    "jin-context-tab-list"
+  );
+  const panels = contextElement(
+    "div",
+    "jin-context-tab-panels"
+  );
+  const instanceId = ++contextSnapshotTabInstance;
+  const panelDefinitions = [
+    {key: "memory", label: "MEMORY"},
+    {key: "system", label: "SYSTEM"},
+    {key: "tools", label: "TOOL RESULTS"},
+    {key: "actions", label: "ACTIONS"},
+  ];
+  const tabButtons = new Map();
+  const tabPanels = new Map();
+
+  tabList.setAttribute("role", "tablist");
+  tabList.setAttribute("aria-label", "Context snapshot sections");
+
+  const getCardsInStack = (stack) => stack
+    ? Array.from(stack.querySelectorAll(".jin-context-card"))
+    : [];
+
+  const getAllCards = () => [
+    ...getCardsInStack(userStack),
+    ...panelDefinitions.flatMap((definition) =>
+      getCardsInStack(
+        tabPanels.get(definition.key)
+          .querySelector(".jin-context-tab-stack")
+      )
+    ),
+    ...getCardsInStack(commonStack),
+  ];
+
+  const syncCollapseAllToggle = () => {
+    const cards =
+      getAllCards();
+    const allCollapsed =
+      cards.length > 0
+      && cards.every((card) =>
+        card.classList.contains(
+          "is-collapsed"
+        )
+      );
+    const label =
+      allCollapsed
+        ? "EXPAND ALL"
+        : "COLLAPSE ALL";
+
+    collapseAllToggle.textContent =
+      label;
+    collapseAllToggle.title =
+      allCollapsed
+        ? "Expand all context blocks"
+        : "Collapse all context blocks";
+    collapseAllToggle.setAttribute(
+      "aria-label",
+      collapseAllToggle.title
+    );
+  };
+
+  const toggleAllCards = () => {
+    const cards =
+      getAllCards();
+    const allCollapsed =
+      cards.length > 0
+      && cards.every((card) =>
+        card.classList.contains(
+          "is-collapsed"
+        )
+      );
+
+    cards.forEach((card) => {
+      setContextCardCollapsed(
+        card,
+        !allCollapsed
+      );
+    });
+
+    syncCollapseAllToggle();
+  };
+
+  collapseAllToggle.addEventListener(
+    "click",
+    toggleAllCards
+  );
+  const activateTab = (key, focus = false) => {
+    if (!tabButtons.has(key)) {
+      return;
+    }
+
+    panelDefinitions.forEach((definition) => {
+      const selected = definition.key === key;
+      const button = tabButtons.get(definition.key);
+      const panel = tabPanels.get(definition.key);
+
+      button.setAttribute(
+        "aria-selected",
+        selected ? "true" : "false"
+      );
+      button.tabIndex = selected ? 0 : -1;
+      button.classList.toggle("is-active", selected);
+      panel.hidden = !selected;
+      panel.classList.toggle("is-active", selected);
+    });
+
+    syncCollapseAllToggle();
+
+    if (focus) {
+      tabButtons.get(key).focus();
+    }
+  };
+
+  panelDefinitions.forEach((definition, index) => {
+    const tabId = `jin-context-tab-${instanceId}-${definition.key}`;
+    const panelId = `jin-context-panel-${instanceId}-${definition.key}`;
+    const button = contextElement(
+      "button",
+      "jin-context-tab",
+      definition.label
+    );
+    const panel = contextElement(
+      "section",
+      "jin-context-tab-panel"
+    );
+    const panelStack = contextElement(
+      "div",
+      "jin-context-stack jin-context-tab-stack"
+    );
+
+    button.type = "button";
+    button.id = tabId;
+    button.setAttribute("role", "tab");
+    button.setAttribute("aria-controls", panelId);
+    button.setAttribute("aria-selected", "false");
+    button.tabIndex = -1;
+    button.addEventListener("click", () => {
+      activateTab(definition.key);
+    });
+    button.addEventListener("keydown", (event) => {
+      let nextIndex = index;
+
+      if (event.key === "ArrowRight") {
+        nextIndex = (index + 1) % panelDefinitions.length;
+      } else if (event.key === "ArrowLeft") {
+        nextIndex = (
+          index + panelDefinitions.length - 1
+        ) % panelDefinitions.length;
+      } else if (event.key === "Home") {
+        nextIndex = 0;
+      } else if (event.key === "End") {
+        nextIndex = panelDefinitions.length - 1;
+      } else {
+        return;
+      }
+
+      event.preventDefault();
+      activateTab(panelDefinitions[nextIndex].key, true);
+    });
+
+    panel.id = panelId;
+    panel.setAttribute("role", "tabpanel");
+    panel.setAttribute("aria-labelledby", tabId);
+    panel.hidden = true;
+    panel.appendChild(panelStack);
+    tabButtons.set(definition.key, button);
+    tabPanels.set(definition.key, panel);
+    tabList.appendChild(button);
+    panels.appendChild(panel);
+  });
+
+  const panelStack = (key) =>
+    tabPanels.get(key).querySelector(".jin-context-tab-stack");
+  const appendEmptyCard = (parent, title) => appendContextCard(
+    parent,
+    {
+      title,
+      content: "",
+      attributes: [],
+      xml: true,
+      metaLabel: "EMPTY",
+      renderBody: (body) => {
+        body.appendChild(contextElement("div", "jin-context-empty", "EMPTY"));
+      },
+    },
+    syncCollapseAllToggle
+  );
+  const normalizedTitle = (block) =>
+    String(block && block.title || "").trim().toUpperCase();
+  const actionBlocks = blocks.filter(
+    (block) => block.runtimeActionMarker === true
+  );
+  const ruleBlocks = blocks.filter((block) => (
+    block.runtimeActionMarker !== true
+    && normalizedTitle(block) === "SYSTEM RULES"
+  ));
+  const toolContainers = blocks.filter((block) => (
+    block.runtimeActionMarker !== true
+    && normalizedTitle(block) === "TOOLS_RESULTS"
+  ));
+  const memoryBlocks = blocks.filter((block) => {
+    const title = normalizedTitle(block);
+    return block.runtimeActionMarker !== true && (
+      /^FRAME_MEMORY(?:_.*)?$/.test(title)
+      || title === "ACTIVE_MEMORY"
+      || title === "DELAYED_MEMORY"
+      || title === "LOADED_DELAYED_MEMORY"
+      || title === "LONG_TERM_MEMORY"
+    );
+  });
+  const claimedBlocks = new Set([
+    ...actionBlocks,
+    ...ruleBlocks,
+    ...toolContainers,
+    ...memoryBlocks,
+  ]);
+  const otherSystemBlocks = blocks.filter(
+    (block) => !claimedBlocks.has(block)
+  );
+  const memoryStack = panelStack("memory");
+  const systemStack = panelStack("system");
+  const toolsStack = panelStack("tools");
+  const actionsStack = panelStack("actions");
+
+  const appendMemoryGroup = (predicate, emptyTitle) => {
+    const matches = memoryBlocks.filter(predicate);
+    if (!matches.length) {
+      appendEmptyCard(memoryStack, emptyTitle);
+      return;
+    }
+    matches.forEach((block) => appendContextCard(
+      memoryStack,
+      block,
+      syncCollapseAllToggle
+    ));
+  };
+
+  appendMemoryGroup(
+    (block) => /^FRAME_MEMORY(?:_.*)?$/.test(normalizedTitle(block)),
+    "FRAME_MEMORY_*"
+  );
+  appendMemoryGroup(
+    (block) => normalizedTitle(block) === "ACTIVE_MEMORY",
+    "ACTIVE_MEMORY"
+  );
+  appendMemoryGroup(
+    (block) => normalizedTitle(block) === "DELAYED_MEMORY",
+    "DELAYED_MEMORY"
+  );
+  memoryBlocks
+    .filter((block) => normalizedTitle(block) === "LOADED_DELAYED_MEMORY")
+    .forEach((block) => appendContextCard(
+      memoryStack,
+      block,
+      syncCollapseAllToggle
+    ));
+  appendMemoryGroup(
+    (block) => normalizedTitle(block) === "LONG_TERM_MEMORY",
+    "LONG_TERM_MEMORY"
+  );
+
+  appendContextCard(
+    systemStack,
+    {
+      title: "SETTINGS",
+      content: "jin_bubble_skin",
+      attributes: [],
+      xml: false,
+      metaLabel: "1 setting",
+      renderBody: renderContextSettingsBody,
+    },
+    syncCollapseAllToggle
+  );
+  ["TRUSTED_RUNTIME_VARIABLES", "SKILLS_LIST"].forEach((title) => {
+    const matches = otherSystemBlocks.filter(
+      (block) => normalizedTitle(block) === title
+    );
+    if (!matches.length) {
+      appendEmptyCard(systemStack, title);
+      return;
+    }
+    matches.forEach((block) => appendContextCard(
+      systemStack,
+      block,
+      syncCollapseAllToggle
+    ));
+  });
+  const knownSystemTitles = new Set([
+    "TRUSTED_RUNTIME_VARIABLES",
+    "SKILLS_LIST",
+  ]);
+  otherSystemBlocks
+    .filter((block) => !knownSystemTitles.has(normalizedTitle(block)))
+    .forEach((block) => appendContextCard(
+      systemStack,
+      block,
+      syncCollapseAllToggle
+    ));
+
+  const parsedToolContent = toolContainers.flatMap((container) =>
+    parseContextBlocks(container.content)
+  );
+  const toolResultBlocks = parsedToolContent.filter(
+    (block) => normalizedTitle(block) === "TOOL_RESULT"
+  );
+  const otherToolBlocks = parsedToolContent.filter(
+    (block) => normalizedTitle(block) !== "TOOL_RESULT"
+  );
+
+  tabButtons.get("tools").textContent =
+    `TOOL RESULTS (${toolResultBlocks.length})`;
+  toolResultBlocks.forEach((block) => appendContextToolResultCard(
+    toolsStack,
+    block,
+    syncCollapseAllToggle
+  ));
+  otherToolBlocks.forEach((block) => appendContextCard(
+    toolsStack,
+    {
+      ...block,
+      title: normalizedTitle(block) === "SYSTEM RULES"
+        ? "OTHER TOOL RESULTS CONTENT"
+        : block.title,
+    },
+    syncCollapseAllToggle
+  ));
+  if (!toolResultBlocks.length && !otherToolBlocks.length) {
+    toolsStack.appendChild(contextElement("div", "jin-context-empty", "EMPTY"));
+  }
+
+  actionBlocks.forEach((block) => appendContextCard(
+    actionsStack,
+    block,
+    syncCollapseAllToggle
+  ));
+  if (!actionBlocks.length) {
+    actionsStack.appendChild(contextElement("div", "jin-context-empty", "EMPTY"));
+  }
+
+  const userCard =
+    appendContextCard(
+      userStack,
+      {
+        title: "USER PROMPT / CONTEXT PAYLOAD",
+        content:
+          snapshot.userPrompt || "<empty>",
+        attributes: [],
+        xml: false,
+        renderBody: (body) => {
+          renderContextUserPromptBody(
+            body,
+            snapshot.userPrompt || "<empty>"
+          );
+        },
+      },
+      syncCollapseAllToggle
+    );
+
+  userCard.classList.add(
+    "jin-context-card-user"
+  );
+
+  ruleBlocks.forEach((block) => {
+    const ruleCard = appendContextCard(
+      commonStack,
+      block,
+      syncCollapseAllToggle
+    );
+    setContextCardCollapsed(ruleCard, true);
+  });
+  if (!ruleBlocks.length) {
+    const emptyRuleCard =
+      appendEmptyCard(commonStack, "SYSTEM RULES");
+    setContextCardCollapsed(emptyRuleCard, true);
+  }
+
+  tabs.appendChild(tabList);
+  tabs.appendChild(panels);
+  traceModalContent.appendChild(userStack);
+  traceModalContent.appendChild(tabs);
+  traceModalContent.appendChild(commonStack);
+  activateTab("memory");
+}
+
+
+function renderMcpPayloadTrace(request) {
+  const payload =
+    request && typeof request === "object"
+      ? request
+      : {};
+  const skill = String(payload.skill || "").trim();
+  const tool = String(payload.tool || "").trim();
+  const argumentsPayload =
+    payload.arguments
+    && typeof payload.arguments === "object"
+    && !Array.isArray(payload.arguments)
+      ? payload.arguments
+      : {};
+  const stack = contextElement(
+    "div",
+    "jin-context-stack"
+  );
+
+  appendContextCard(stack, {
+    title: "MCP TARGET",
+    content: "",
+    attributes: ["CALL_MCP"],
+    xml: false,
+    metaLabel: tool || "tool",
+    renderBody: (body) => {
+      appendLTRequestFieldRows(
+        body,
+        {skill, tool},
+        ["skill", "tool"]
+      );
+    },
+  });
+
+  appendContextCard(stack, {
+    title: "ARGUMENTS",
+    content: "",
+    attributes: [],
+    xml: false,
+    metaLabel: `${Object.keys(argumentsPayload).length} fields`,
+    renderBody: (body) => {
+      appendLTRequestFieldRows(
+        body,
+        argumentsPayload
+      );
+    },
+  });
+
+  traceModalContent.appendChild(stack);
+}
+
+function renderPostingBoardTrace(result) {
+  const trace =
+    result && typeof result === "object"
+      ? result
+      : {};
+  const request =
+    trace.request && typeof trace.request === "object"
+      ? trace.request
+      : {};
+  const response =
+    trace.response;
+  const requestLines = [];
+
+  if (request.method || request.path) {
+    requestLines.push(
+      `${String(request.method || "REQUEST").toUpperCase()} ${String(request.path || "")}`.trim()
+    );
+  }
+  if (request.headers && Object.keys(request.headers).length) {
+    requestLines.push(
+      "",
+      "headers:",
+      JSON.stringify(request.headers, null, 2)
+    );
+  }
+  if (request.query && Object.keys(request.query).length) {
+    requestLines.push(
+      "",
+      "query:",
+      JSON.stringify(request.query, null, 2)
+    );
+  }
+  if (request.body !== undefined) {
+    requestLines.push(
+      "",
+      "body:",
+      JSON.stringify(request.body, null, 2)
+    );
+  }
+
+  const responseText =
+    typeof response === "string"
+      ? response
+      : JSON.stringify(
+          response === undefined ? null : response,
+          null,
+          2
+        );
+  const stack = contextElement(
+    "div",
+    "jin-context-stack"
+  );
+  const action = String(
+    trace.action || "unknown"
+  ).trim().toUpperCase();
+  const requestMeta = [
+    `ACTION ${action}`,
+  ];
+  const responseMeta = [];
+
+  if (trace.status_code !== undefined && trace.status_code !== null) {
+    responseMeta.push(
+      `HTTP ${trace.status_code}`
+    );
+  }
+  responseMeta.push(
+    trace.ok === false ? "FAILED" : "SUCCESS"
+  );
+
+  appendContextCard(stack, {
+    title: "REQUEST",
+    content: requestLines.join("\n") || "<no request was sent>",
+    attributes: requestMeta,
+    xml: false,
+    metaLabel: request.method
+      ? String(request.method).toUpperCase()
+      : "local validation",
+    renderBody: (body) => {
+      body.appendChild(
+        contextElement(
+          "pre",
+          "jin-context-raw",
+          requestLines.join("\n") || "<no request was sent>"
+        )
+      );
+    },
+  });
+
+  appendContextCard(stack, {
+    title: "RESPONSE",
+    content: responseText || "<empty>",
+    attributes: responseMeta,
+    xml: false,
+    metaLabel:
+      trace.status_code !== undefined && trace.status_code !== null
+        ? `HTTP ${trace.status_code}`
+        : (trace.ok === false ? "failed before HTTP" : "result"),
+    renderBody: (body) => {
+      body.appendChild(
+        contextElement(
+          "pre",
+          "jin-context-raw",
+          responseText || "<empty>"
+        )
+      );
+    },
+  });
+
+  if (trace.ok === false && (trace.detail || trace.error)) {
+    appendContextCard(stack, {
+      title: "ERROR",
+      content: String(trace.detail || trace.error || "failed"),
+      attributes: [String(trace.error || "failed").toUpperCase()],
+      xml: false,
+      metaLabel: "runtime",
+    });
+  }
+
+  traceModalContent.appendChild(stack);
+}
+
 function renderTraceDetails(
   details,
   title = "Trace",
+  structuredTrace = null,
 ) {
+  clearContextAttachedFileHoverPreview();
   traceModalContent.replaceChildren();
+  traceModalContextCopyText = "";
+  traceModal.classList.remove(
+    "jin-lt-merge-trace-modal",
+    "jin-lt-request-trace-modal"
+  );
 
+  if (traceModalCopyButton) {
+    traceModalCopyButton.classList.add(
+      "hidden"
+    );
+    traceModalCopyButton.classList.remove(
+      "is-copied"
+    );
+    traceModalCopyButton.setAttribute(
+      "aria-label",
+      "Copy context"
+    );
+    traceModalCopyButton.title =
+      "Copy raw context";
+  }
+
+  if (
+    structuredTrace
+    && structuredTrace.kind === "mcp_payload"
+  ) {
+    traceModal.classList.add(
+      "jin-context-trace-modal"
+    );
+    renderMcpPayloadTrace(
+      structuredTrace.request || {}
+    );
+    return;
+  }
+
+  if (
+    structuredTrace
+    && structuredTrace.kind === "posting_board"
+  ) {
+    traceModal.classList.remove(
+      "jin-context-trace-modal"
+    );
+    renderPostingBoardTrace(
+      structuredTrace.result || {}
+    );
+    return;
+  }
+
+  const contextSnapshot =
+    parseContextTraceSnapshot(details);
+
+  traceModal.classList.toggle(
+    "jin-context-trace-modal",
+    Boolean(contextSnapshot)
+  );
+
+  if (contextSnapshot) {
+    traceModalContextCopyText = [
+      contextSnapshot.systemPrompt,
+      contextSnapshot.userPrompt,
+    ]
+      .filter((part) => String(part || "").trim())
+      .join("\n\n");
+
+    if (traceModalCopyButton) {
+      traceModalCopyButton.classList.remove(
+        "hidden"
+      );
+    }
+
+    renderContextSnapshotTrace(
+      contextSnapshot
+    );
+
+    return;
+  }
+
+  // New L-T events carry the canonical object alongside the readable log.
+  // Keep JSON/text readers for older events and every other trace type.
   const parsed =
-    parseTraceJson(details);
+    structuredTrace
+    && structuredTrace.kind === "lt_merge_applied"
+    && Array.isArray(structuredTrace.operation_details)
+      ? structuredTrace
+      : parseTraceJson(details);
+
+  const ltMergeTrace =
+    parseLTMergeAppliedTrace(
+      details,
+      title,
+      parsed
+    );
+
+  traceModal.classList.toggle(
+    "jin-lt-merge-trace-modal",
+    Boolean(ltMergeTrace)
+  );
+
+  if (ltMergeTrace) {
+    renderLTMergeAppliedTrace(
+      ltMergeTrace
+    );
+
+    return;
+  }
+
+  if (
+      parsed
+      && parsed.kind === "lt_fact"
+  ) {
+    renderLTFactTrace(
+      parsed
+    );
+
+    return;
+  }
+
+  if (
+      parsed
+      && parsed.kind === "lt_summarizer_response"
+  ) {
+    renderLTSummarizerResponseTrace(
+      parsed
+    );
+
+    return;
+  }
+
+  if (
+      parsed
+      && parsed.kind === "lt_skip"
+  ) {
+    renderLTSkipTrace(
+      parsed
+    );
+
+    return;
+  }
 
   if (
       parsed
@@ -570,51 +5585,13 @@ function renderTraceDetails(
       parsed
       && parsed.kind === "summarizer_response"
   ) {
-    const meta = {
-      model: parsed.model || "",
-      finish_reason: parsed.finish_reason || "",
-      allow_reasoning_fallback: Boolean(parsed.allow_reasoning_fallback),
-      used_reasoning_fallback: Boolean(parsed.used_reasoning_fallback),
-      usage: parsed.usage || {},
-    };
-
-    appendTraceSection(
-      traceModalContent,
-      "Meta",
-      JSON.stringify(
-        meta,
-        null,
-        2
-      )
-    );
-
-    appendTraceSection(
-      traceModalContent,
-      "Assistant content",
-      parsed.content || ""
-    );
-
-    appendTraceSection(
-      traceModalContent,
-      "Reasoning content",
-      parsed.reasoning_content || ""
-    );
-
-    appendTraceSection(
-      traceModalContent,
-      "Extracted L1 memory text",
-      parsed.extracted_memory || ""
-    );
-
-    appendTraceSection(
-      traceModalContent,
-      "Raw message",
-      JSON.stringify(
-        parsed.message || {},
-        null,
-        2
-      )
-    );
+    appendContextCard(traceModalContent, {
+      title: "EXTRACTED FRAME",
+      xml: true,
+      attributes: [],
+      content: parsed.extracted_memory || "",
+      renderBody: body => renderContextBody(body, parsed.extracted_memory || "", 1),
+    });
 
     return;
   }
@@ -649,7 +5626,7 @@ function getTraceTitle(
       parsed
       && parsed.kind === "summarizer_response"
   ) {
-    return "Summarizer response";
+    return "FRAME SUMMARIZER RESPONSE";
   }
 
   if (isSummarizerRequestPayload(parsed)) {
@@ -663,29 +5640,9 @@ function showTrace(
   details,
   title = "Trace",
   reason = null,
+  structuredTrace = null,
 ) {
   ensureTraceModal();
-
-  traceModalL1StreamId =
-    null;
-
-  traceModalL1StreamStatus =
-    null;
-
-  traceModalL1StreamReasoning =
-    null;
-
-  traceModalL1StreamAnswer =
-    null;
-
-  if (traceModalL1StreamFrame !== null) {
-    cancelAnimationFrame(
-      traceModalL1StreamFrame
-    );
-
-    traceModalL1StreamFrame =
-      null;
-  }
 
   traceModalTitle.textContent =
     title;
@@ -708,7 +5665,8 @@ function showTrace(
 
   renderTraceDetails(
     details,
-    title
+    title,
+    structuredTrace
   );
 
   traceModal.classList.remove(
@@ -720,7 +5678,53 @@ function showTrace(
   );
 }
 
+function showPostingBoardTrace(result) {
+  const trace =
+    result && typeof result === "object"
+      ? result
+      : {};
+  const action = String(
+    trace.action || "unknown"
+  ).trim().toUpperCase();
+  const reason =
+    trace.ok === false
+      ? String(trace.detail || trace.error || "failed")
+      : null;
 
+  showTrace(
+    "",
+    `POSTING BOARD · ${action}`,
+    reason,
+    {
+      kind: "posting_board",
+      result: trace,
+    }
+  );
+}
+
+function showMcpPayloadTrace(request) {
+  const payload =
+    request && typeof request === "object"
+      ? request
+      : {};
+  const skill = String(payload.skill || "").trim();
+  const tool = String(payload.tool || "").trim();
+  const target = [skill, tool].filter(Boolean).join(" / ");
+
+  showTrace(
+    "",
+    target ? `CALL_MCP · ${target}` : "CALL_MCP",
+    null,
+    {
+      kind: "mcp_payload",
+      request: payload,
+    }
+  );
+}
 
 window.showTrace =
   showTrace;
+window.showPostingBoardTrace =
+  showPostingBoardTrace;
+window.showMcpPayloadTrace =
+  showMcpPayloadTrace;

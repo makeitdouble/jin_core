@@ -1,0 +1,24 @@
+{
+  "load_skill": {
+    "version": 1,
+    "description": "Allows the model to load skills.",
+    "runtime_action": "LOAD_SKILL",
+    "enable_flag": "CAN_USE_ASSETS",
+    "runtime_order": 90,
+    "private_marker": "<LOAD_SKILLS_CONTEXT>",
+    "triggers": [],
+    "blockers": [],
+    "effects": {
+      "emit_followup": true,
+      "follow_up_on_fail": false
+    },
+    "schema": [
+      "<LOAD_SKILLS_CONTEXT> skill1, skill2 </LOAD_SKILLS_CONTEXT>"
+    ],
+    "rules": [
+      "MUST LOAD correct skill BEFORE use asset actions."
+    ],
+    "close_tag": true,
+    "display_payload": true
+  }
+}

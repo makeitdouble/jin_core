@@ -1,5 +1,113 @@
 /* Runtime-memory, delayed memory и превью вложений. */
 
+/* Panel headers/counters are controls, not selectable text. Keep clicks on
+   titles and numeric counters from leaving the browser text-selection blue. */
+.runtime-memory-header,
+.runtime-memory-header * {
+    -webkit-user-select: none;
+    user-select: none;
+}
+
+#runtime-memory-panel-inner{
+    padding: 0.55rem;
+    padding-top:0.75rem;
+}
+
+.runtime-memory-tabs {
+    display: flex;
+    min-height: 22px;
+    align-items: center;
+    overflow: hidden;
+
+    width: auto;
+    margin-left: -8px;
+    margin-right: -8px;
+
+    max-width: none;
+}
+
+.runtime-memory-tab {
+    font-size: 9px;
+    display: inline-flex;
+    flex: 0 0 auto;
+    min-width: max-content;
+    min-height: 20px;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+    padding: 4px 9px 4px;
+    border-right: 1px solid rgba(100,116,139,0.7);
+    opacity: 0.58;
+    text-align: center;
+    text-overflow: clip;
+    white-space: nowrap;
+    transition:
+            opacity 0.18s ease,
+            color 0.18s ease;
+}
+
+.runtime-memory-tab:last-child {
+    flex: 1 0 auto;
+    border-right: 0;
+}
+
+.runtime-memory-tab[aria-selected="true"] {
+    opacity: 1;
+    font-weight: 600;
+}
+
+.runtime-memory-navigation {
+    --runtime-memory-active-tab-left: 0px;
+    --runtime-memory-active-tab-width: 0px;
+    position: relative;
+    height: 18px;
+}
+
+.runtime-memory-navigation::before {
+    content: "";
+    position: absolute;
+    top: 50%;
+    right: 0;
+    left: 0;
+    border-top: 1px solid rgba(100,116,139,0.7);
+}
+
+.runtime-memory-navigation-slot {
+    position: absolute;
+    top: 0;
+    left: 0;
+    display: flex;
+    width: var(--runtime-memory-active-tab-width);
+    height: 18px;
+    align-items: center;
+    justify-content: center;
+    transform: translateX(var(--runtime-memory-active-tab-left));
+    transition:
+            width 0.18s cubic-bezier(0.22, 0.61, 0.36, 1),
+            transform 0.18s cubic-bezier(0.22, 0.61, 0.36, 1);
+    will-change: transform;
+}
+
+.runtime-memory-navigation[data-active-mode="runtime"] .runtime-memory-navigation-slot {
+    justify-content: flex-start;
+}
+
+.runtime-memory-navigation[data-active-mode="runtime"] .runtime-memory-navigation-controls {
+    padding-left: 0;
+    transform: translateX(-2px);
+}
+
+.runtime-memory-navigation-controls {
+    position: relative;
+    padding: 0 5px;
+    background: rgb(24,24,27);
+}
+
+.runtime-memory-navigation:not([data-active-mode="runtime"]) #runtime-memory-prev,
+.runtime-memory-navigation:not([data-active-mode="runtime"]) #runtime-memory-next {
+    display: none !important;
+}
+
 .runtime-memory-line {
     margin: 0 0 10px 0;
     line-height: 1.5;
@@ -7,6 +115,12 @@
 
 #runtime-memory-text .runtime-memory-line:last-child {
     margin-bottom: 0;
+}
+
+#runtime-memory-text .runtime-memory-line.runtime-memory-sort-transition {
+    transition:
+            transform 0.15s cubic-bezier(0.22, 0.61, 0.36, 1);
+    will-change: transform;
 }
 
 .runtime-memory-active-row,
@@ -19,11 +133,42 @@
     border-radius: 4px;
 }
 
+.runtime-memory-reference-hit .runtime-memory-key,
+.runtime-memory-citation-hit .runtime-memory-key,
+.runtime-memory-context-loaded-hit .runtime-memory-key,
+.runtime-memory-reference-hit .runtime-memory-fact-number,
+.runtime-memory-citation-hit .runtime-memory-fact-number,
+.runtime-memory-context-loaded-hit .runtime-memory-fact-number {
+    color: rgba(250, 250, 252, 0.96);
+}
+
+.runtime-memory-reference-hit:not(.runtime-memory-kv-row) .runtime-memory-value,
+.runtime-memory-citation-hit:not(.runtime-memory-kv-row) .runtime-memory-value,
+.runtime-memory-context-loaded-hit:not(.runtime-memory-kv-row) .runtime-memory-value,
+.runtime-memory-reference-hit.runtime-memory-kv-row .runtime-memory-value,
+.runtime-memory-citation-hit.runtime-memory-kv-row .runtime-memory-value,
+.runtime-memory-context-loaded-hit.runtime-memory-kv-row .runtime-memory-value {
+    color: rgba(232, 232, 236, 0.68);
+}
+
+.runtime-memory-reference-hit .runtime-memory-fact-separator,
+.runtime-memory-citation-hit .runtime-memory-fact-separator,
+.runtime-memory-context-loaded-hit .runtime-memory-fact-separator {
+    color: rgba(250, 250, 252, 0.72);
+}
+
 .runtime-memory-delayed-row {
     cursor: pointer;
     border-radius: 4px;
-    padding: 2px 3px;
+    padding: 0;
     transition:
+            background-color 0.18s ease,
+            color 0.18s ease;
+}
+
+#runtime-memory-text .runtime-memory-delayed-row.runtime-memory-sort-transition {
+    transition:
+            transform 0.15s cubic-bezier(0.22, 0.61, 0.36, 1),
             background-color 0.18s ease,
             color 0.18s ease;
 }
@@ -33,24 +178,409 @@
     outline: none;
 }
 
-.runtime-memory-delayed-row:hover .runtime-memory-key,
-.runtime-memory-delayed-row:hover .runtime-memory-value,
-.runtime-memory-delayed-row:focus-visible .runtime-memory-key,
-.runtime-memory-delayed-row:focus-visible .runtime-memory-value {
+.runtime-memory-file-row {
+    display: flex;
+    width: 100%;
+    min-width: 0;
+    box-sizing: border-box;
+    align-items: center;
+    overflow: hidden;
+    cursor: pointer;
+    border-radius: 4px;
+    padding: 5px 0;
+    margin: -5px 0 5px;
+    transition:
+            background-color 0.18s ease,
+            color 0.18s ease;
+}
+
+.runtime-memory-file-row .runtime-memory-delayed-pin,
+.runtime-memory-file-row .runtime-memory-delayed-separator {
+    flex: 0 0 auto;
+}
+
+.runtime-memory-file-row .runtime-memory-delayed-pin {
+    display: inline-flex;
+    width: 15px;
+    height: 16px;
+    align-items: center;
+    justify-content: center;
+    margin: 0 -4px 0 0;
+    vertical-align: baseline;
+}
+
+.runtime-memory-file-row .runtime-memory-key {
+    min-width: 0;
+    overflow: hidden;
+    flex: 1 1 auto;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+#runtime-memory-text .runtime-memory-file-row.runtime-memory-sort-transition {
+    transition:
+            transform 0.15s cubic-bezier(0.22, 0.61, 0.36, 1),
+            background-color 0.18s ease,
+            color 0.18s ease;
+}
+
+.runtime-memory-file-row:hover,
+.runtime-memory-file-row:focus-visible {
+    outline: none;
+}
+
+.runtime-memory-logs-date {
+    margin: 12px 0 6px;
+    color: rgba(148, 163, 184, 0.78);
+    font-size: 10px;
+    letter-spacing: 0.08em;
+}
+
+.runtime-memory-logs-date:first-child { margin-top: 0; }
+
+.runtime-memory-log-row {
+    display: block;
+    width: 100%;
+    overflow: hidden;
+    padding: 3px 0;
+    border: 0;
+    color: rgba(244, 244, 245, 0.62);
+    background: transparent;
+    cursor: pointer;
+    text-align: left;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-weight: 600;
+}
+
+.runtime-memory-log-row:hover,
+.runtime-memory-log-row:focus-visible {
+    outline: none;
     color: rgba(244, 244, 245, 0.86);
+}
+
+.runtime-memory-logs-state { color: rgba(148, 163, 184, 0.78); }
+
+.runtime-memory-log-hover-card {
+    width: min(520px, calc(100vw - 24px));
+}
+
+/* Keep the LOGS row compact; show the entire session title on hover. */
+.runtime-memory-log-hover-card .runtime-memory-lt-hover-title {
+    overflow: visible;
+    text-overflow: clip;
+    white-space: normal;
+    overflow-wrap: anywhere;
+}
+
+.runtime-memory-log-hover-messages {
+    display: grid;
+    gap: 3px;
+    margin-top: 10px;
+    padding-top: 9px;
+    border-top: 1px solid rgba(82, 82, 91, 0.52);
+    color: rgba(212, 212, 216, 0.78);
+}
+
+.runtime-memory-log-hover-message {
+    display: grid;
+    grid-template-columns: 42px minmax(0, 1fr);
+    gap: 7px;
+    min-width: 0;
+    white-space: nowrap;
+}
+
+.runtime-memory-log-hover-role {
+    color: rgba(161, 161, 170, 0.86);
+}
+
+.runtime-memory-log-hover-text {
+    overflow: hidden;
+    min-width: 0;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.runtime-memory-log-hover-message-jin .runtime-memory-log-hover-role,
+.runtime-memory-log-hover-message-jin .runtime-memory-log-hover-text {
+    color: rgba(244, 244, 245, 0.92);
+}
+
+#runtime-memory-text .runtime-memory-file-row:last-child {
+    margin-bottom: -5px;
+}
+
+.runtime-memory-delayed-row-secondary-linked .runtime-memory-key,
+.runtime-memory-delayed-row-secondary-linked:not(.runtime-memory-kv-row) .runtime-memory-value,
+.runtime-memory-delayed-row-secondary-linked.runtime-memory-kv-row .runtime-memory-value {
+    color: rgba(226, 226, 231, 0.72);
+}
+
+.runtime-memory-delayed-row-active {
+    position: relative;
+    z-index: 60;
+    pointer-events: none;
+}
+
+.runtime-memory-delayed-row-active .runtime-memory-key,
+.runtime-memory-delayed-row-active:not(.runtime-memory-kv-row) .runtime-memory-value {
+    color: rgba(244, 244, 245, 0.94);
+    text-shadow:
+        0 0 5px rgba(240, 253, 250, 0.32),
+        0 0 18px rgba(45, 212, 191, 0.18);
+}
+
+.runtime-memory-line:not(.runtime-memory-user-idle):hover .runtime-memory-key,
+.runtime-memory-line:not(.runtime-memory-user-idle):not(.runtime-memory-kv-row):hover .runtime-memory-value,
+.runtime-memory-line:not(.runtime-memory-user-idle):focus-visible .runtime-memory-key,
+.runtime-memory-line:not(.runtime-memory-user-idle):not(.runtime-memory-kv-row):focus-visible .runtime-memory-value {
+    color: rgba(244, 244, 245, 0.86);
+}
+
+.runtime-memory-external-hover-hit .runtime-memory-key,
+.runtime-memory-external-hover-hit:not(.runtime-memory-kv-row) .runtime-memory-value,
+.runtime-memory-external-hover-hit:not(.runtime-memory-kv-row) .runtime-memory-fact-number,
+.runtime-memory-external-hover-hit:not(.runtime-memory-kv-row) .runtime-memory-fact-separator {
+    color: rgba(244, 244, 245, 0.96) !important;
 }
 
 .runtime-memory-active-row[data-active-memory-status="paused"] {
     opacity: 0.5;
 }
 
+/* Keep highlight colors, but remove expensive text glow from every memory record. */
+#runtime-memory-text .runtime-memory-line .runtime-memory-key,
+#runtime-memory-text .runtime-memory-line .runtime-memory-value {
+    text-shadow: none !important;
+}
+
+.runtime-memory-lt-row .runtime-memory-lt-header {
+    display: flex;
+    align-items: baseline;
+    width: 100%;
+    min-width: 0;
+    white-space: nowrap;
+}
+
+.runtime-memory-lt-row .runtime-memory-fact-number {
+    display: inline-block;
+    flex: 0 0 auto;
+    min-width: 3ch;
+    color: rgba(161, 161, 170, 0.68);
+    font-variant-numeric: tabular-nums;
+    text-align: right;
+}
+
+.runtime-memory-lt-row .runtime-memory-fact-report-link {
+    appearance: none;
+    background: transparent;
+    border: 0;
+    color: rgba(244, 244, 245, 0.96);
+    cursor: pointer;
+    font: inherit;
+    padding: 0;
+    text-decoration: none;
+}
+
+.runtime-memory-lt-row .runtime-memory-fact-report-link:hover,
+.runtime-memory-lt-row .runtime-memory-fact-report-link:focus-visible {
+    color: rgba(191, 219, 254, 0.95);
+    outline: none;
+}
+
+.runtime-memory-lt-row .runtime-memory-fact-separator {
+    display: inline-block;
+    flex: 0 0 1.4em;
+    width: 1.4em;
+    color: rgba(161, 161, 170, 0.48);
+    text-align: center;
+}
+
+.runtime-memory-lt-row .runtime-memory-key {
+    display: block;
+    flex: 1 1 auto;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.runtime-memory-lt-row .runtime-memory-lt-age {
+    display: block;
+    flex: 0 0 auto;
+    color: rgba(161, 161, 170, 0.58);
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+}
+
+.runtime-memory-lt-row .runtime-memory-value {
+    display: block;
+    width: 100%;
+}
+
+.runtime-memory-lt-row:not(.runtime-memory-reference-hit):not(.runtime-memory-citation-hit):not(.runtime-memory-context-loaded-hit) .runtime-memory-value {
+    display: -webkit-box;
+    overflow: hidden;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 2;
+}
+
+.runtime-memory-lt-hover-card {
+    --runtime-memory-lt-hover-arrow-y: 50%;
+    position: fixed;
+    z-index: 90;
+    width: min(430px, calc(100vw - 24px));
+    box-sizing: border-box;
+    pointer-events: none;
+    border: 1px solid rgba(148, 163, 184, 0.52);
+    border-radius: 8px;
+    background: rgba(17, 20, 25, 0.97);
+    box-shadow:
+            0 18px 42px rgba(0, 0, 0, 0.44),
+            inset 0 1px 0 rgba(255, 255, 255, 0.035);
+    padding: 12px 14px 13px;
+    color: rgba(228, 228, 231, 0.92);
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+    font-size: 11px;
+    line-height: 1.45;
+}
+
+.runtime-memory-lt-hover-card::before,
+.runtime-memory-lt-hover-card::after {
+    position: absolute;
+    top: var(--runtime-memory-lt-hover-arrow-y);
+    width: 0;
+    height: 0;
+    content: "";
+    transform: translateY(-50%);
+}
+
+.runtime-memory-lt-hover-card::before {
+    right: -10px;
+    border-top: 10px solid transparent;
+    border-bottom: 10px solid transparent;
+    border-left: 10px solid rgba(148, 163, 184, 0.52);
+}
+
+.runtime-memory-lt-hover-card::after {
+    right: -8px;
+    border-top: 8px solid transparent;
+    border-bottom: 8px solid transparent;
+    border-left: 8px solid rgba(17, 20, 25, 0.97);
+}
+
+.runtime-memory-lt-hover-card[data-placement="right"]::before {
+    right: auto;
+    left: -10px;
+    border-right: 10px solid rgba(148, 163, 184, 0.52);
+    border-left: 0;
+}
+
+.runtime-memory-lt-hover-card[data-placement="right"]::after {
+    right: auto;
+    left: -8px;
+    border-right: 8px solid rgba(17, 20, 25, 0.97);
+    border-left: 0;
+}
+
+.runtime-memory-lt-hover-header {
+    display: flex;
+    align-items: center;
+    min-width: 0;
+    gap: 9px;
+    margin-bottom: 9px;
+}
+
+
+.runtime-memory-lt-hover-title {
+    min-width: 0;
+    overflow: hidden;
+    flex: 1 1 auto;
+    color: rgba(244, 244, 245, 0.97);
+    font-size: 12px;
+    font-weight: 600;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.runtime-memory-lt-hover-age {
+    flex: 0 0 auto;
+    color: rgba(161, 161, 170, 0.78);
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+}
+
+.runtime-memory-lt-hover-summary {
+    margin: 0 0 10px;
+    padding: 0 0 10px;
+    border-bottom: 1px solid rgba(82, 82, 91, 0.52);
+    color: rgba(212, 212, 216, 0.78);
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+}
+
+.runtime-memory-lt-hover-metadata {
+    display: grid;
+    gap: 4px;
+}
+
+.runtime-memory-lt-hover-metadata-row {
+    display: grid;
+    grid-template-columns: minmax(118px, 0.9fr) minmax(0, 1.8fr);
+    align-items: baseline;
+    gap: 10px;
+}
+
+.runtime-memory-lt-hover-metadata-key {
+    min-width: 0;
+    color: rgba(161, 161, 170, 0.86);
+    overflow-wrap: anywhere;
+}
+
+.runtime-memory-lt-hover-metadata-value {
+    min-width: 0;
+    color: rgba(226, 232, 240, 0.90);
+    font-variant-numeric: tabular-nums;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+}
+
+
+.runtime-memory-file-hover-card {
+    --runtime-memory-file-hover-size: min(280px, calc(100vw - 24px), calc(100vh - 24px));
+    width: var(--runtime-memory-file-hover-size);
+    height: var(--runtime-memory-file-hover-size);
+    padding: 8px;
+}
+
+.runtime-memory-file-hover-image {
+    display: block;
+    width: 100%;
+    height: 100%;
+    border-radius: 4px;
+    object-fit: contain;
+    background: rgba(9, 9, 11, 0.38);
+}
+
+.runtime-memory-file-hover-text {
+    width: 100%;
+    height: 100%;
+    box-sizing: border-box;
+    margin: 0;
+    overflow: hidden;
+    color: rgba(226, 232, 240, 0.86);
+    font: inherit;
+    line-height: 1.45;
+    overflow-wrap: anywhere;
+    white-space: pre-wrap;
+}
+
 .runtime-memory-key,
 .runtime-memory-value {
     color: rgba(244,244,245,0.62);
     transition:
-            color 1.3s ease,
-            font-weight 1.3s ease,
-            text-shadow 1.3s ease;
+            color 0.62s cubic-bezier(0.22, 0.61, 0.36, 1),
+            font-weight 0.62s cubic-bezier(0.22, 0.61, 0.36, 1);
 }
 
 .runtime-memory-value {
@@ -61,7 +591,7 @@
 }
 
 #runtime-memory-position {
-    cursor: pointer;
+    cursor: default;
     border-radius: 9999px;
     padding: 0 3px;
     transition:
@@ -70,21 +600,34 @@
             background-color 0.25s ease;
 }
 
-#runtime-memory-position:hover {
+.runtime-memory-navigation[data-active-mode="runtime"] #runtime-memory-position,
+.runtime-memory-navigation[data-active-mode="long_term"] #runtime-memory-position {
+    cursor: pointer;
+}
+
+.runtime-memory-navigation[data-active-mode="runtime"] #runtime-memory-position:hover,
+.runtime-memory-navigation[data-active-mode="long_term"] #runtime-memory-position:hover {
     color: rgba(167,243,208,0.98);
     text-shadow:
             0 0 8px rgba(16,185,129,0.35);
 }
 
-#runtime-memory-position.runtime-memory-position-pinned {
+.runtime-memory-navigation:not([data-active-mode="runtime"]):not([data-active-mode="long_term"]) #runtime-memory-position {
+    pointer-events: none;
+    color: rgba(244,244,245,0.96);
+    background: transparent;
+    text-shadow: none;
+}
+
+.runtime-memory-navigation[data-active-mode="runtime"] #runtime-memory-position.runtime-memory-position-pinned,
+.runtime-memory-navigation[data-active-mode="long_term"] #runtime-memory-position.runtime-memory-position-pinned {
     color: rgba(134,239,172,0.98);
-    background-color: rgba(16,185,129,0.15);
+    background-color: rgba(16,185,129,0.12);
     text-shadow:
-            0 0 6px rgba(187,247,208,0.95),
-            0 0 14px rgba(34,197,94,0.85),
-            0 0 20px rgba(24,190,114,0.75),
-            0 0 28px rgba(16,185,129,0.55),
-            0 0 42px rgba(5,150,105,0.35);
+            0 0 4px rgba(187,247,208,0.72),
+            0 0 10px rgba(34,197,94,0.52),
+            0 0 18px rgba(24,190,114,0.34),
+            0 0 28px rgba(16,185,129,0.20);
 }
 
 #runtime-memory-text.runtime-memory-text-pinned {
@@ -101,21 +644,14 @@
     font-weight: 600!important;
 }
 
-#runtime-memory-title.runtime-memory-title-clickable {
-    cursor: pointer;
-    transition:
-            color 0.2s ease,
-            text-shadow 0.2s ease;
-}
-
-#runtime-memory-title.runtime-memory-title-clickable:hover {
-    color: rgba(167,243,208,0.98);
-    text-shadow:
-            0 0 8px rgba(16,185,129,0.35);
-}
-
 .delayed-memory-modal-panel {
     font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+}
+
+.delayed-memory-report-modal .delayed-memory-modal-panel {
+    height: 86vh;
+    min-height: 86vh;
+    max-height: 86vh;
 }
 
 .delayed-memory-modal-content {
@@ -149,8 +685,305 @@
     color: rgba(244, 244, 245, 0.86);
 }
 
+.delayed-memory-modal-session-id {
+    cursor: pointer;
+    text-decoration: none;
+    transition: color 140ms ease;
+}
+
+.delayed-memory-modal-session-id:hover,
+.delayed-memory-modal-session-id:focus-visible {
+    color: rgba(186, 230, 253, 0.96);
+    text-decoration: none;
+    outline: none;
+}
+
+.delayed-memory-modal-editable {
+    cursor: text;
+    outline: none;
+}
+
+.delayed-memory-modal-editable:focus {
+    outline: none;
+}
+
+.delayed-memory-modal-fact-ids {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 5px 8px;
+    white-space: normal;
+    position: relative;
+}
+
+.delayed-memory-modal-tags {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 5px 0;
+    min-height: 18px;
+    white-space: normal;
+    cursor: text;
+}
+
+.delayed-memory-modal-tag {
+    display: inline-flex;
+    align-items: center;
+    max-width: 100%;
+    color: rgba(244, 244, 245, 0.78);
+    cursor: pointer;
+    transition:
+            opacity 0.18s ease,
+            color 0.18s ease,
+            text-shadow 0.18s ease;
+}
+
+.delayed-memory-modal-tag:not(:last-of-type)::after {
+    content: ",";
+    margin-right: 0.55em;
+    color: rgba(244, 244, 245, 0.46);
+    pointer-events: none;
+}
+
+.delayed-memory-modal-tags-editing .delayed-memory-modal-tag:last-of-type::after {
+    content: ",";
+    margin-right: 0.55em;
+    color: rgba(244, 244, 245, 0.46);
+    pointer-events: none;
+}
+
+.delayed-memory-modal-tag:hover,
+.delayed-memory-modal-tag:focus-visible {
+    color: rgba(255, 255, 255, 0.96);
+    outline: none;
+}
+
+.delayed-memory-modal-tag-input {
+    min-width: 4ch;
+    max-width: 32ch;
+    border: 0;
+    padding: 0;
+    margin: 0;
+    outline: none;
+    background: transparent;
+    color: rgba(244, 244, 245, 0.86);
+    font: inherit;
+    line-height: inherit;
+}
+
+.delayed-memory-modal-tag-input::placeholder {
+    color: rgba(244, 244, 245, 0.30);
+}
+
+.delayed-memory-modal-fact-ids-active {
+    z-index: 2;
+}
+
+.delayed-memory-modal-fact-id {
+    display: inline-flex;
+    align-items: center;
+    max-width: 100%;
+    color: rgba(244, 244, 245, 0.46);
+    cursor: pointer;
+    transition:
+            opacity 0.18s ease,
+            color 0.18s ease,
+            text-shadow 0.18s ease;
+    text-decoration: none;
+}
+
+.delayed-memory-modal-fact-id:not(:last-of-type)::after {
+    content: ",";
+    margin-right: 0.1em;
+    color: rgba(244, 244, 245, 0.34);
+    text-shadow: none;
+    pointer-events: none;
+}
+
+.delayed-memory-modal-fact-id:hover,
+.delayed-memory-modal-fact-id:focus-visible {
+    color: rgba(244, 244, 245, 0.64);
+    outline: none;
+    text-decoration: none;
+}
+
+.delayed-memory-modal-fact-id-anchored-elsewhere {
+    color: rgba(244, 244, 245, 0.64);
+}
+
+.delayed-memory-modal-fact-id-anchor {
+    color: rgba(255, 255, 255, 0.86);
+    text-shadow:
+            0 0 2px rgba(255, 255, 255, 0.64),
+            0 0 5px rgba(255, 255, 255, 0.42),
+            0 0 9px rgba(241, 245, 249, 0.26);
+}
+
+.delayed-memory-modal-fact-id-anchor:hover,
+.delayed-memory-modal-fact-id-anchor:focus-visible {
+    color: rgba(255, 255, 255, 0.94);
+    text-shadow:
+            0 0 2px rgba(255, 255, 255, 0.74),
+            0 0 6px rgba(255, 255, 255, 0.50),
+            0 0 10px rgba(241, 245, 249, 0.30);
+}
+
+.delayed-memory-modal-fact-empty-inline {
+    color: rgba(244, 244, 245, 0.38);
+}
+
+.delayed-memory-modal-attachments {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 5px 10px;
+    white-space: normal;
+}
+
+.delayed-memory-modal-attachment {
+    display: inline-flex;
+    min-width: 0;
+    max-width: 100%;
+    color: rgba(244, 244, 245, 0.62);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    transition:
+            color 0.16s ease,
+            text-shadow 0.16s ease;
+}
+
+.delayed-memory-modal-attachment:hover,
+.delayed-memory-modal-attachment:focus-visible {
+    color: rgba(244, 244, 245, 0.9);
+    text-shadow: 0 0 8px rgba(244, 244, 245, 0.12);
+    outline: none;
+}
+
+.delayed-memory-modal-fact-picker {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    width: auto;
+    min-width: 8px;
+    max-width: min(220px, 40vw);
+    height: 16px;
+    flex: 0 1 auto;
+    overflow: visible;
+}
+
+.delayed-memory-modal-fact-picker.hidden {
+    display: none;
+}
+
+.delayed-memory-modal-fact-input {
+    width: 8px;
+    min-width: 8px;
+    max-width: min(220px, 40vw);
+    height: 16px;
+    border: 0;
+    background: transparent;
+    color: rgba(244, 244, 245, 0.86);
+    caret-color: rgba(244, 244, 245, 0.92);
+    padding: 0;
+    font: inherit;
+    outline: none;
+    overflow: hidden;
+}
+
+.delayed-memory-modal-fact-input:focus {
+    outline: none;
+}
+
+.delayed-memory-modal-fact-dropdown {
+    position: fixed;
+    z-index: 70;
+    box-sizing: border-box;
+    max-width: calc(100vw - 16px);
+    font-size: 12px;
+    width: clamp(260px, 32vw, 360px);
+    max-height: min(132px, calc(100vh - 16px));
+    overflow-y: auto;
+    border: 1px solid rgba(63, 63, 70, 0.74);
+    background: rgba(9, 9, 11, 0.96);
+    box-shadow: 0 12px 28px rgba(0, 0, 0, 0.34);
+}
+
+.delayed-memory-modal-fact-option {
+    width: 100%;
+    display: grid;
+    grid-template-columns: auto 14px minmax(0, 1fr);
+    align-items: center;
+    border: 0;
+    background: transparent;
+    color: rgba(244, 244, 245, 0.64);
+    padding: 4px 7px;
+    font: inherit;
+    font-size: 11px;
+    line-height: 1.25;
+    text-align: left;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    cursor: pointer;
+}
+
+.delayed-memory-modal-fact-option:hover,
+.delayed-memory-modal-fact-option:focus-visible {
+    background: rgba(63, 63, 70, 0.44);
+    color: rgba(244, 244, 245, 0.9);
+    outline: none;
+}
+
+.delayed-memory-modal-fact-option-id,
+.delayed-memory-modal-fact-option-text {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.delayed-memory-modal-fact-option-separator {
+    text-align: center;
+    color: rgba(161, 161, 170, 0.52);
+}
+
+.delayed-memory-modal-fact-empty {
+    padding: 5px 7px;
+    color: rgba(244, 244, 245, 0.38);
+    font-size: 11px;
+}
+
 .delayed-memory-modal-section {
     margin-top: 18px;
+}
+
+.delayed-memory-modal-card + .delayed-memory-modal-card {
+    margin-top: 10px;
+}
+
+.delayed-memory-modal-card .delayed-memory-modal-fields {
+    gap: 0;
+}
+
+.delayed-memory-modal-card .delayed-memory-modal-field {
+    padding: 8px 3px;
+}
+
+.delayed-memory-modal-card .delayed-memory-modal-field:first-child {
+    padding-top: 3px;
+}
+
+.delayed-memory-modal-card .delayed-memory-modal-field:last-child {
+    border-bottom: 0;
+    padding-bottom: 3px;
+}
+
+.delayed-memory-modal-card-header {
+    cursor: pointer;
+}
+
+.delayed-memory-modal-card .jin-context-card-title {
+    color: rgba(186, 230, 253, 0.90);
 }
 
 .delayed-memory-modal-body {
@@ -162,6 +995,13 @@
     background: rgba(9, 9, 11, 0.55);
     padding: 14px;
     color: rgba(244, 244, 245, 0.88);
+}
+
+.delayed-memory-modal-card .delayed-memory-modal-body {
+    margin: 0;
+    border: 0;
+    background: transparent;
+    padding: 0;
 }
 
 .jin-attachment-bubble {
@@ -178,8 +1018,8 @@
     position: fixed;
     z-index: 80;
     pointer-events: none;
-    max-width: 200px;
-    max-height: 200px;
+    max-width: var(--jin-attachment-preview-max-px, 200px);
+    max-height: var(--jin-attachment-preview-max-px, 200px);
     overflow: hidden;
     border: 1px solid rgba(125, 211, 252, 0.46);
     border-radius: 4px;
@@ -193,8 +1033,8 @@
     display: block;
     width: auto;
     height: auto;
-    max-width: 200px;
-    max-height: 200px;
+    max-width: var(--jin-attachment-preview-max-px, 200px);
+    max-height: var(--jin-attachment-preview-max-px, 200px);
     object-fit: contain;
 }
 
@@ -236,6 +1076,14 @@
     background: rgba(9, 9, 11, 0.55);
     padding: 14px;
     color: rgba(244, 244, 245, 0.88);
+}
+
+.jin-runtime-action-delayed-memory-pinned {
+    color: rgba(244, 244, 245, 0.92) !important;
+    text-shadow:
+            0 0 7px rgba(236, 253, 245, 0.28),
+            0 0 15px rgba(74, 222, 128, 0.18),
+            0 0 24px rgba(16, 185, 129, 0.12);
 }
 
 
@@ -281,4 +1129,1518 @@
                     94,
                     var(--memory-change-glow, 0.22)
             );
+}
+
+.runtime-memory-reference-hit .runtime-memory-key.flash-new,
+.runtime-memory-reference-hit .runtime-memory-value.flash-new,
+.runtime-memory-citation-hit .runtime-memory-key.flash-new,
+.runtime-memory-citation-hit .runtime-memory-value.flash-new,
+.runtime-memory-context-loaded-hit .runtime-memory-key.flash-new,
+.runtime-memory-context-loaded-hit .runtime-memory-value.flash-new {
+    color: rgba(134,239,172,0.96);
+    text-shadow:
+            0 0 10px rgba(34,197,94,0.35),
+            0 0 18px rgba(248,250,252,0.20);
+}
+
+.runtime-memory-reference-hit .runtime-memory-key.flash-changed,
+.runtime-memory-citation-hit .runtime-memory-key.flash-changed,
+.runtime-memory-context-loaded-hit .runtime-memory-key.flash-changed {
+    color: rgba(216,180,254,0.96);
+    text-shadow:
+            0 0 10px rgba(168,85,247,0.35),
+            0 0 18px rgba(248,250,252,0.20);
+}
+
+.runtime-memory-reference-hit .runtime-memory-value.flash-changed,
+.runtime-memory-citation-hit .runtime-memory-value.flash-changed,
+.runtime-memory-context-loaded-hit .runtime-memory-value.flash-changed {
+    color: rgba(
+            134,
+            239,
+            172,
+            var(--memory-change-alpha, 0.80)
+    );
+    text-shadow:
+            0 0 10px rgba(
+                    34,
+                    197,
+                    94,
+                    var(--memory-change-glow, 0.22)
+            ),
+            0 0 18px rgba(248,250,252,0.20);
+}
+
+.runtime-memory-delayed-row-pinned .runtime-memory-key,
+.runtime-memory-delayed-row-pinned .runtime-memory-value,
+.runtime-memory-file-row-pinned .runtime-memory-key,
+.runtime-memory-file-row-pinned .runtime-memory-value {
+    color: rgba(244, 244, 245, 0.92);
+    text-shadow:
+            0 0 7px rgba(236, 253, 245, 0.28),
+            0 0 15px rgba(74, 222, 128, 0.18),
+            0 0 24px rgba(16, 185, 129, 0.12);
+}
+
+
+.delayed-memory-modal-actions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.delayed-memory-modal-icon-button {
+    display: inline-flex;
+    width: 31px;
+    height: 31px;
+    align-items: center;
+    justify-content: center;
+    border: 1px solid transparent;
+    border-radius: 4px;
+    color: rgba(161, 161, 170, 0.9);
+    transition:
+            color 0.18s ease,
+            text-shadow 0.18s ease;
+}
+
+.delayed-memory-modal-icon-button:hover,
+.delayed-memory-modal-icon-button:focus-visible {
+    outline: none;
+    color: rgba(244, 244, 245, 0.98);
+}
+.delayed-memory-modal-pin{
+    margin-top: 4px;
+}
+.delayed-memory-modal-pin:hover,
+.delayed-memory-modal-pin:focus-visible {
+    color: rgba(196, 196, 198, 0.96);
+}
+
+.delayed-memory-modal-pin svg {
+    width: 18px;
+    height: 18px;
+    fill: currentColor;
+    transition: filter 0.18s ease;
+}
+
+.delayed-memory-modal-delete svg {
+    width: 17px;
+    height: 17px;
+    fill: currentColor;
+}
+
+.delayed-memory-modal-delete:hover,
+.delayed-memory-modal-delete:focus-visible {
+    color: rgba(248, 113, 113, 0.98);
+}
+
+.delayed-memory-modal-pin-active {
+    color: rgba(240, 253, 250, 0.98);
+}
+
+.delayed-memory-modal-pin-active:hover,
+.delayed-memory-modal-pin-active:focus-visible {
+    color: rgba(240, 253, 250, 0.98);
+}
+
+.delayed-memory-modal-pin-loaded {
+    color: rgba(196, 196, 198, 0.96);
+}
+
+.delayed-memory-modal-pin-loaded:hover,
+.delayed-memory-modal-pin-loaded:focus-visible {
+    color: rgba(196, 196, 198, 0.96);
+}
+
+.delayed-memory-modal-pin-active svg {
+    filter:
+            drop-shadow(0 0 7px rgba(240, 253, 250, 0.64))
+            drop-shadow(0 0 16px rgba(153, 246, 228, 0.34))
+            drop-shadow(0 0 24px rgba(45, 212, 191, 0.18));
+}
+
+.jin-context-copy-button svg {
+    width: 17px;
+    height: 17px;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.7;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+}
+
+.jin-context-copy-button.is-copied {
+    color: rgba(153, 246, 228, 0.98);
+}
+
+.delayed-memory-modal-close {
+    font-size: 23px;
+    line-height: 1;
+}
+
+.delayed-memory-report-modal {
+    z-index: 60 !important;
+}
+
+.delayed-memory-modal-section > .delayed-memory-modal-fields {
+    margin-top: 8px;
+}
+
+.lt-trace-no-changes {
+    display: flex;
+    min-height: 180px;
+    align-items: center;
+    justify-content: center;
+    color: rgba(161, 161, 170, 0.82);
+    font-size: 12px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+}
+
+.jin-lt-sequence-card {
+    overflow: hidden;
+}
+
+.jin-lt-sequence-track {
+    align-items: center;
+    column-gap: 10px;
+    display: grid;
+    grid-template-columns: max-content minmax(30px, 1fr) max-content minmax(30px, 1fr) max-content;
+    margin-top: 8px;
+    min-width: 0;
+    box-sizing: border-box;
+    padding-inline: 12px;
+    width: 100%;
+    white-space: nowrap;
+}
+
+.jin-frame-sequence-track {
+    grid-template-columns: max-content minmax(30px, 1fr) max-content;
+}
+
+.jin-lt-sequence-step,
+.jin-lt-sequence-arrow {
+    appearance: none;
+    background: transparent;
+    border: 0;
+    color: rgba(161, 161, 170, 0.58);
+    font: inherit;
+    margin: 0;
+    outline: none;
+    padding: 0;
+    transition: color 180ms ease, opacity 180ms ease;
+}
+
+.jin-lt-sequence-step {
+    font-size: 11px;
+    letter-spacing: 0.025em;
+}
+
+.jin-lt-sequence-arrow {
+    align-items: center;
+    display: flex;
+    height: 12px;
+    justify-content: center;
+    min-width: 0;
+    width: 100%;
+}
+
+.jin-lt-sequence-arrow::before {
+    background: currentColor;
+    content: "";
+    flex: 1 1 auto;
+    height: 1px;
+    min-width: 0;
+}
+
+.jin-lt-sequence-arrow::after {
+    border-right: 1px solid currentColor;
+    border-top: 1px solid currentColor;
+    content: "";
+    flex: 0 0 auto;
+    height: 5px;
+    margin-left: -5px;
+    transform: rotate(45deg);
+    width: 5px;
+}
+
+.jin-lt-sequence-step[data-status="pending"] {
+    animation: jin-lt-sequence-pulse 1.15s ease-in-out infinite alternate;
+    color: rgba(191, 219, 254, 0.96);
+}
+
+.jin-lt-sequence-step[data-status="success"],
+.jin-lt-sequence-arrow[data-status="success"] {
+    color: rgba(105, 178, 137, 0.88);
+}
+
+.jin-lt-sequence-step[data-status="failed"],
+.jin-lt-sequence-arrow[data-status="failed"] {
+    color: rgba(210, 103, 111, 0.92);
+}
+
+.jin-lt-sequence-step[data-inspectable="true"]:not(:disabled),
+.jin-lt-sequence-arrow[data-inspectable="true"]:not(:disabled) {
+    cursor: pointer;
+}
+
+.jin-lt-sequence-step[data-inspectable="true"]:focus-visible,
+.jin-lt-sequence-arrow[data-inspectable="true"]:focus-visible {
+    outline: 1px solid rgba(96, 165, 250, 0.48);
+    outline-offset: 3px;
+}
+
+.jin-lt-sequence-show {
+    align-items: center;
+    background: transparent;
+    border: 1px solid rgba(59, 130, 246, 0.20);
+    border-radius: 4px;
+    color: rgba(147, 197, 253, 0.92);
+    cursor: pointer;
+    display: inline-flex;
+    font-size: 10px;
+    justify-content: center;
+    letter-spacing: 0.08em;
+    margin-top: 9px;
+    padding: 4px 8px;
+    text-transform: uppercase;
+    transition: background-color 160ms ease, border-color 160ms ease, color 160ms ease, opacity 160ms ease;
+}
+
+.jin-lt-sequence-show:not(:disabled):hover {
+    background: rgba(59, 130, 246, 0.08);
+}
+
+.jin-lt-sequence-show:disabled {
+    border-color: rgba(113, 113, 122, 0.28);
+    color: rgba(161, 161, 170, 0.55);
+    cursor: default;
+    opacity: 0.46;
+}
+
+@keyframes jin-lt-sequence-pulse {
+    from {
+        opacity: 0.5;
+    }
+
+    to {
+        opacity: 1;
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .jin-lt-sequence-step[data-status="pending"] {
+        animation: none;
+        opacity: 0.78;
+    }
+}
+
+
+.runtime-memory-delayed-row:hover .runtime-memory-key,
+.runtime-memory-delayed-row:hover .runtime-memory-value,
+.runtime-memory-delayed-row:focus-visible .runtime-memory-key,
+.runtime-memory-delayed-row:focus-visible .runtime-memory-value,
+.runtime-memory-delayed-row:hover .runtime-memory-delayed-pin,
+.runtime-memory-delayed-row:focus-visible .runtime-memory-delayed-pin,
+.runtime-memory-file-row:hover .runtime-memory-key,
+.runtime-memory-file-row:hover .runtime-memory-value,
+.runtime-memory-file-row:focus-visible .runtime-memory-key,
+.runtime-memory-file-row:focus-visible .runtime-memory-value,
+.runtime-memory-file-row:hover .runtime-memory-delayed-pin,
+.runtime-memory-file-row:focus-visible .runtime-memory-delayed-pin {
+    color: rgba(196, 196, 198, 0.96);
+}
+
+.runtime-memory-delayed-row-pinned:hover .runtime-memory-key,
+.runtime-memory-delayed-row-pinned:hover .runtime-memory-value,
+.runtime-memory-delayed-row-pinned:focus-visible .runtime-memory-key,
+.runtime-memory-delayed-row-pinned:focus-visible .runtime-memory-value,
+.runtime-memory-file-row-pinned:hover .runtime-memory-key,
+.runtime-memory-file-row-pinned:hover .runtime-memory-value,
+.runtime-memory-file-row-pinned:focus-visible .runtime-memory-key,
+.runtime-memory-file-row-pinned:focus-visible .runtime-memory-value {
+    color: rgba(244, 244, 245, 0.92);
+}
+
+.runtime-memory-delayed-row-pinned .runtime-memory-delayed-pin,
+.runtime-memory-delayed-row-pinned:hover .runtime-memory-delayed-pin,
+.runtime-memory-delayed-row-pinned:focus-visible .runtime-memory-delayed-pin,
+.runtime-memory-file-row-pinned .runtime-memory-delayed-pin,
+.runtime-memory-file-row-pinned:hover .runtime-memory-delayed-pin,
+.runtime-memory-file-row-pinned:focus-visible .runtime-memory-delayed-pin {
+    color: rgba(240, 253, 250, 0.98);
+}
+
+.runtime-memory-delayed-pin {
+    width: 15px;
+    height: 0;
+    margin: 0 -4px -0 0;
+    padding: 0;
+    border: 0;
+    background: transparent;
+    vertical-align: -4px;
+}
+
+.runtime-memory-delayed-pin svg {
+    width: 16px;
+    height: 16px;
+}
+
+.runtime-memory-delayed-separator {
+    display: inline-block;
+    width: 1.25em;
+    color: rgba(161, 161, 170, 0.48);
+    text-align: center;
+    cursor: pointer;
+}
+
+
+
+
+/* Structured context-window viewer inside the shared trace modal. */
+.jin-context-trace-modal .delayed-memory-modal-panel {
+    width: min(1320px, calc(100vw - 32px));
+    height: 86vh;
+    max-width: 1320px;
+}
+
+.jin-context-trace-modal .delayed-memory-modal-content {
+    display: flex;
+    overflow: hidden;
+    flex-direction: column;
+    padding: 14px;
+    background:
+            linear-gradient(180deg, rgba(24, 24, 27, 0.30), rgba(9, 9, 11, 0.04));
+}
+
+.jin-context-overview {
+    display: flex;
+    flex: 0 0 auto;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    margin-bottom: 12px;
+    padding: 2px 2px 8px;
+}
+
+.jin-context-overview-title {
+    color: rgba(228, 228, 231, 0.92);
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.12em;
+}
+
+.jin-context-collapse-all {
+    appearance: none;
+    border: 0;
+    background: transparent;
+    padding: 0;
+    font-family: inherit;
+    cursor: pointer;
+    user-select: none;
+}
+
+.jin-context-collapse-all:hover,
+.jin-context-collapse-all:focus-visible {
+    outline: none;
+    color: rgba(244, 244, 245, 1);
+}
+
+.jin-context-overview-badges,
+.jin-context-card-meta {
+    display: flex;
+    min-width: 0;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 6px;
+}
+
+.jin-context-badge {
+    display: inline-flex;
+    min-width: 0;
+    align-items: center;
+    border: 1px solid rgba(63, 63, 70, 0.82);
+    border-radius: 999px;
+    background: rgba(24, 24, 27, 0.62);
+    padding: 2px 7px;
+    color: rgba(212, 212, 216, 0.74);
+    font-size: 9px;
+    line-height: 1.45;
+    letter-spacing: 0.04em;
+    white-space: nowrap;
+}
+
+.jin-context-badge-attribute {
+    border-color: rgba(56, 189, 248, 0.20);
+    background: rgba(8, 47, 73, 0.18);
+    color: rgba(186, 230, 253, 0.72);
+}
+
+.jin-context-badge-muted {
+    opacity: 0.68;
+}
+
+.jin-context-stack {
+    display: grid;
+    min-width: 0;
+    gap: 10px;
+}
+
+.jin-context-user-stack {
+    max-height: 30%;
+    flex: 0 0 auto;
+    overflow: auto;
+    margin-bottom: 14px;
+}
+
+.jin-context-tabs {
+    display: flex;
+    min-width: 0;
+    min-height: 0;
+    flex: 1 1 0;
+    flex-direction: column;
+    overflow: hidden;
+}
+
+.jin-context-tab-list {
+    display: flex;
+    min-width: 0;
+    flex: 0 0 auto;
+    overflow-x: auto;
+    align-items: flex-end;
+    gap: 18px;
+    border-bottom: 1px solid rgba(63, 63, 70, 0.78);
+    scrollbar-width: thin;
+}
+
+.jin-context-tab {
+    appearance: none;
+    flex: 0 0 auto;
+    border: 0;
+    border-bottom: 2px solid transparent;
+    background: transparent;
+    padding: 7px 1px 6px;
+    color: rgba(161, 161, 170, 0.68);
+    font-family: inherit;
+    font-size: 10px;
+    font-weight: 700;
+    line-height: 1.35;
+    letter-spacing: 0.09em;
+    white-space: nowrap;
+    cursor: pointer;
+    transition:
+            border-color 0.14s ease,
+            color 0.14s ease;
+}
+
+.jin-context-tab:hover,
+.jin-context-tab:focus-visible {
+    outline: none;
+    color: rgba(212, 212, 216, 0.92);
+}
+
+.jin-context-tab.is-active {
+    border-bottom-color: rgba(186, 230, 253, 0.72);
+    color: rgba(244, 244, 245, 0.96);
+}
+
+.jin-context-tab-panels {
+    min-height: 0;
+    flex: 1 1 0;
+    overflow: auto;
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+    padding: 12px 0 14px;
+}
+
+.jin-context-tab-panels::-webkit-scrollbar {
+    display: none;
+    width: 0;
+    height: 0;
+}
+
+.jin-context-tab-panel[hidden] {
+    display: none;
+}
+
+.jin-context-common-stack {
+    max-height: 30%;
+    flex: 0 0 auto;
+    overflow: auto;
+    border-top: 1px solid rgba(63, 63, 70, 0.58);
+    background: rgba(9, 9, 11, 0.96);
+    padding-top: 14px;
+}
+
+.jin-context-card {
+    min-width: 0;
+    overflow: hidden;
+    border: 1px solid rgba(63, 63, 70, 0.78);
+    border-radius: 7px;
+    background: rgba(9, 9, 11, 0.48);
+    box-shadow: inset 0 1px rgba(255, 255, 255, 0.018);
+}
+
+.jin-context-card-xml {
+    border-color: rgba(82, 82, 91, 0.92);
+}
+
+.jin-context-card-user {
+    border-color: rgba(56, 189, 248, 0.34);
+    background: rgba(8, 47, 73, 0.12);
+}
+
+.jin-context-card-header {
+    display: flex;
+    min-height: 38px;
+    align-items: center;
+    justify-content: space-between;
+    gap: 14px;
+    border-bottom: 1px solid rgba(63, 63, 70, 0.70);
+    background: rgba(24, 24, 27, 0.62);
+    padding: 7px 10px;
+    cursor: row-resize;
+    user-select: none;
+    transition:
+            background-color 0.16s ease,
+            border-color 0.16s ease;
+}
+
+.jin-context-card-header:hover,
+.jin-context-card-header:focus-visible {
+    outline: none;
+    background: rgba(39, 39, 42, 0.70);
+    border-color: rgba(82, 82, 91, 0.90);
+}
+
+.jin-context-card-heading {
+    display: flex;
+    min-width: 0;
+    align-items: center;
+    gap: 8px;
+}
+
+.jin-context-card-chevron {
+    width: 12px;
+    flex: 0 0 12px;
+    color: rgba(161, 161, 170, 0.62);
+    font-size: 10px;
+    line-height: 1;
+    transition: transform 0.16s ease;
+}
+
+.jin-context-card-title {
+    overflow: hidden;
+    color: rgba(244, 244, 245, 0.90);
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.09em;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.jin-context-card-xml .jin-context-card-title {
+    color: rgba(186, 230, 253, 0.90);
+}
+
+.jin-context-card-user .jin-context-card-title {
+    color: rgba(224, 242, 254, 0.96);
+}
+
+.jin-context-card-body {
+    min-width: 0;
+    height: auto;
+    overflow: hidden;
+    padding: 10px;
+    opacity: 1;
+    interpolate-size: allow-keywords;
+    transition:
+            height 0.18s ease,
+            padding-top 0.18s ease,
+            padding-bottom 0.18s ease,
+            opacity 0.14s ease;
+    will-change: height, padding, opacity;
+}
+
+#jin-runtime-status-modal .jin-context-card,
+#jin-runtime-status-modal .jin-context-card-body {
+    overflow: visible;
+}
+
+.jin-context-card.is-collapsed .jin-context-card-header {
+    border-bottom-color: transparent;
+}
+
+.jin-context-card.is-collapsed .jin-context-card-body {
+    height: 0;
+    padding-top: 0;
+    padding-bottom: 0;
+    opacity: 0;
+    pointer-events: none;
+}
+
+.jin-context-card.is-collapsed .jin-context-card-chevron {
+    transform: rotate(-90deg);
+}
+
+.jin-context-kv-list {
+    display: grid;
+    gap: 0;
+}
+
+.jin-context-kv-row {
+    display: grid;
+    grid-template-columns: minmax(150px, 0.23fr) minmax(0, 1fr);
+    gap: 14px;
+    padding: 8px 3px;
+    border-bottom: 1px solid rgba(39, 39, 42, 0.74);
+}
+
+.jin-context-kv-row:last-child {
+    border-bottom: 0;
+}
+
+.jin-context-user-attached-file-row {
+    cursor: default;
+    transition: background-color 0.12s ease;
+}
+
+.jin-context-user-attached-file-row:hover {
+    background: rgba(56, 189, 248, 0.055);
+}
+
+.jin-context-kv-key {
+    min-width: 0;
+    overflow-wrap: anywhere;
+    color: rgba(125, 211, 252, 0.72);
+    font-size: 10px;
+    line-height: 1.55;
+}
+
+.jin-context-kv-value {
+    min-width: 0;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    color: rgba(228, 228, 231, 0.84);
+    font-size: 11px;
+    line-height: 1.62;
+}
+
+.jin-context-lt-row {
+    grid-template-columns: minmax(300px, 0.34fr) minmax(0, 1fr);
+}
+
+.jin-context-lt-key {
+    display: flex;
+    min-width: 0;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 6px;
+}
+
+.jin-context-lt-fact-id {
+    appearance: none;
+    border: 0;
+    background: transparent;
+    padding: 0;
+    color: rgba(212, 212, 216, 0.76);
+    font: inherit;
+    line-height: inherit;
+    cursor: default;
+    transition:
+            color 0.14s ease,
+            text-shadow 0.14s ease,
+            opacity 0.14s ease;
+}
+
+button.jin-context-lt-fact-id.is-linked {
+    color: rgba(244, 244, 245, 0.96);
+    cursor: pointer;
+}
+
+button.jin-context-lt-fact-id.is-linked:hover,
+button.jin-context-lt-fact-id.is-linked:focus-visible {
+    outline: none;
+    color: rgba(255, 255, 255, 1);
+    text-shadow: 0 0 8px rgba(244, 244, 245, 0.18);
+}
+
+.jin-context-lt-separator {
+    color: rgba(113, 113, 122, 0.56);
+}
+
+.jin-context-lt-fact-key {
+    min-width: 0;
+    overflow-wrap: anywhere;
+    color: rgba(125, 211, 252, 0.72);
+}
+
+.jin-context-lt-age {
+    color: rgba(161, 161, 170, 0.56);
+    white-space: nowrap;
+}
+
+.jin-context-lt-value {
+    color: rgba(228, 228, 231, 0.84);
+}
+
+.jin-context-chat-list {
+    display: grid;
+    gap: 7px;
+}
+
+.jin-context-chat-row {
+    display: grid;
+    grid-template-columns: 54px minmax(0, 1fr);
+    gap: 10px;
+    border-left: 2px solid rgba(113, 113, 122, 0.46);
+    background: rgba(24, 24, 27, 0.32);
+    padding: 8px 10px;
+}
+
+.jin-context-chat-user {
+    border-left-color: rgba(56, 189, 248, 0.58);
+}
+
+.jin-context-chat-jin,
+.jin-context-chat-brain {
+    border-left-color: rgba(45, 212, 191, 0.52);
+}
+
+.jin-context-chat-role {
+    color: rgba(161, 161, 170, 0.76);
+    font-size: 9px;
+    letter-spacing: 0.08em;
+}
+
+.jin-context-search-message {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 7px;
+}
+
+.jin-context-chat-content {
+    min-width: 0;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    color: rgba(228, 228, 231, 0.84);
+    font-size: 11px;
+    line-height: 1.58;
+}
+
+.jin-context-line-list {
+    display: grid;
+    gap: 5px;
+}
+
+.jin-context-line-item {
+    min-width: 0;
+    border-left: 1px solid rgba(82, 82, 91, 0.72);
+    padding: 3px 9px;
+    overflow-wrap: anywhere;
+    color: rgba(212, 212, 216, 0.82);
+    font-size: 11px;
+    line-height: 1.52;
+}
+
+.jin-context-delayed-list {
+    display: grid;
+    gap: 2px;
+}
+
+.jin-context-delayed-row {
+    position: relative;
+    display: flex;
+    min-width: 0;
+    align-items: center;
+    gap: 6px;
+    border-radius: 4px;
+    padding: 2px 5px 2px 2px;
+    color: rgba(212, 212, 216, 0.82);
+    cursor: pointer;
+    transition:
+            background-color 0.14s ease,
+            color 0.14s ease,
+            opacity 0.14s ease;
+}
+
+.jin-context-delayed-row:hover,
+.jin-context-delayed-row:focus-visible {
+    outline: none;
+    background: rgba(39, 39, 42, 0.46);
+    color: rgba(196, 196, 198, 0.96);
+}
+
+.jin-context-delayed-row:hover .jin-context-delayed-pin,
+.jin-context-delayed-row:focus-visible .jin-context-delayed-pin {
+    color: rgba(196, 196, 198, 0.96);
+}
+
+.jin-context-delayed-row.is-pinned,
+.jin-context-delayed-row.is-pinned:hover,
+.jin-context-delayed-row.is-pinned:focus-visible {
+    color: rgba(240, 253, 250, 0.98);
+    text-shadow:
+            0 0 7px rgba(240, 253, 250, 0.26),
+            0 0 15px rgba(153, 246, 228, 0.16);
+}
+
+.jin-context-delayed-row.is-pinned .jin-context-delayed-pin,
+.jin-context-delayed-row.is-pinned:hover .jin-context-delayed-pin,
+.jin-context-delayed-row.is-pinned:focus-visible .jin-context-delayed-pin {
+    color: rgba(240, 253, 250, 0.98);
+}
+
+.jin-context-delayed-pin {
+    width: 20px;
+    height: 20px;
+    flex: 0 0 20px;
+    border: 0;
+    background: transparent;
+    padding: 0;
+}
+
+.jin-context-delayed-pin svg {
+    width: 13px;
+    height: 13px;
+}
+
+.jin-context-delayed-label {
+    min-width: 0;
+    overflow-wrap: anywhere;
+    font-size: 11px;
+    line-height: 1.52;
+}
+
+.jin-context-delayed-row.is-missing {
+    color: rgba(161, 161, 170, 0.58);
+    cursor: default;
+    opacity: 0.62;
+}
+
+.jin-context-delayed-row.is-missing:hover,
+.jin-context-delayed-row.is-missing:focus-visible {
+    background: transparent;
+    color: rgba(161, 161, 170, 0.58);
+}
+
+.jin-context-delayed-row.is-missing::after {
+    content: "";
+    position: absolute;
+    left: 3px;
+    right: 3px;
+    top: 50%;
+    height: 1px;
+    background: currentColor;
+    opacity: 0.72;
+    pointer-events: none;
+}
+
+.jin-context-delayed-row.is-missing .jin-context-delayed-pin {
+    color: inherit;
+    filter: none;
+    cursor: default;
+}
+
+.jin-context-raw {
+    margin: 0;
+    width: 100%;
+    min-width: 0;
+    max-width: 100%;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    word-break: break-word;
+    color: rgba(212, 212, 216, 0.82);
+    font-size: 11px;
+    line-height: 1.62;
+    tab-size: 4;
+}
+
+.jin-context-empty {
+    padding: 8px 2px;
+    color: rgba(113, 113, 122, 0.70);
+    font-size: 10px;
+    letter-spacing: 0.12em;
+}
+
+@media (max-width: 760px) {
+    .jin-context-overview,
+    .jin-context-card-header {
+        align-items: flex-start;
+        flex-direction: column;
+    }
+
+    .jin-context-overview-badges,
+    .jin-context-card-meta {
+        justify-content: flex-start;
+    }
+
+    .jin-context-kv-row {
+        grid-template-columns: 1fr;
+        gap: 4px;
+    }
+
+    .jin-context-lt-row {
+        grid-template-columns: 1fr;
+        gap: 4px;
+    }
+}
+
+/* L-T model requests: same collapsible card language as the context viewer,
+   with request payloads split into readable records instead of raw JSON. */
+.jin-lt-request-trace-modal .delayed-memory-modal-panel {
+    width: min(1260px, calc(100vw - 40px));
+    max-width: 1260px;
+}
+
+.jin-lt-request-trace-modal .delayed-memory-modal-content {
+    padding: 14px;
+    background:
+            radial-gradient(circle at 18% 0%, rgba(56, 189, 248, 0.028), transparent 32%),
+            linear-gradient(180deg, rgba(24, 24, 27, 0.22), rgba(9, 9, 11, 0.02));
+}
+
+.jin-lt-request-overview {
+    margin-bottom: 8px;
+}
+
+.jin-lt-request-stack {
+    gap: 10px;
+}
+
+.jin-lt-request-record-stack {
+    gap: 7px;
+}
+
+.jin-lt-request-group-card > .jin-context-card-body {
+    padding: 8px;
+}
+
+.jin-lt-request-record-card .jin-context-card-header {
+    min-height: 35px;
+    padding-top: 6px;
+    padding-bottom: 6px;
+}
+
+.jin-lt-request-record-card .jin-context-card-body {
+    padding-top: 7px;
+    padding-bottom: 7px;
+}
+
+.jin-lt-request-record-card .delayed-memory-modal-field {
+    grid-template-columns: minmax(118px, 0.18fr) minmax(0, 1fr);
+    gap: 12px;
+    padding-top: 7px;
+    padding-bottom: 7px;
+}
+
+.jin-lt-request-record-card .delayed-memory-modal-value {
+    line-height: 1.55;
+}
+
+.jin-lt-request-empty {
+    border: 1px dashed rgba(63, 63, 70, 0.56);
+    border-radius: 6px;
+    background: rgba(9, 9, 11, 0.28);
+    padding: 14px 10px;
+}
+
+@media (max-width: 760px) {
+    .jin-lt-request-record-card .delayed-memory-modal-field {
+        grid-template-columns: 1fr;
+        gap: 4px;
+    }
+}
+
+/* L-T merge result: compact operation cards with intensity-scaled green diffs. */
+.jin-lt-merge-trace-modal .delayed-memory-modal-panel {
+    width: min(1260px, calc(100vw - 40px));
+    max-width: 1260px;
+}
+
+.jin-lt-merge-trace-modal .delayed-memory-modal-content {
+    padding: 14px;
+    background:
+            radial-gradient(circle at 82% 0%, rgba(34, 197, 94, 0.035), transparent 30%),
+            linear-gradient(180deg, rgba(24, 24, 27, 0.22), rgba(9, 9, 11, 0.02));
+}
+
+.jin-lt-merge-overview {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 1px 2px 10px;
+}
+
+.jin-lt-merge-overview-title {
+    color: rgba(228, 228, 231, 0.82);
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.14em;
+}
+
+.jin-lt-merge-overview-stats {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    gap: 6px;
+}
+
+.jin-lt-merge-stat {
+    border: 1px solid rgba(63, 63, 70, 0.66);
+    border-radius: 999px;
+    background: rgba(24, 24, 27, 0.46);
+    padding: 2px 7px;
+    color: rgba(161, 161, 170, 0.72);
+    font-size: 9px;
+    line-height: 1.45;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+}
+
+.jin-lt-merge-stack {
+    display: grid;
+    gap: 10px;
+}
+
+.jin-lt-merge-operation {
+    overflow: hidden;
+    border: 1px solid rgba(63, 63, 70, 0.72);
+    border-radius: 7px;
+    background: rgba(9, 9, 11, 0.56);
+    box-shadow:
+            inset 0 1px rgba(255, 255, 255, 0.018),
+            0 8px 26px rgba(0, 0, 0, 0.08);
+}
+
+.jin-lt-merge-operation-header {
+    min-height: 39px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    border-bottom: 1px solid rgba(39, 39, 42, 0.82);
+    padding: 8px 11px;
+    background: rgba(24, 24, 27, 0.38);
+}
+
+.jin-lt-merge-operation-identity,
+.jin-lt-merge-operation-route {
+    display: flex;
+    align-items: center;
+    min-width: 0;
+}
+
+.jin-lt-merge-operation-identity {
+    gap: 9px;
+}
+
+.jin-lt-merge-operation-index {
+    width: 22px;
+    color: rgba(113, 113, 122, 0.66);
+    font-size: 9px;
+    letter-spacing: 0.08em;
+}
+
+.jin-lt-merge-operation-action {
+    color: rgba(228, 228, 231, 0.90);
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.10em;
+}
+
+.jin-lt-merge-operation-route {
+    gap: 7px;
+    color: rgba(161, 161, 170, 0.72);
+    font-size: 10px;
+}
+
+.jin-lt-merge-operation-route > span:not(.jin-lt-merge-operation-arrow) {
+    border: 1px solid rgba(63, 63, 70, 0.68);
+    border-radius: 4px;
+    background: rgba(9, 9, 11, 0.44);
+    padding: 2px 6px;
+    color: rgba(212, 212, 216, 0.82);
+}
+
+.jin-lt-merge-operation-arrow {
+    color: rgba(113, 113, 122, 0.68);
+}
+
+.jin-lt-merge-operation-body {
+    display: grid;
+}
+
+.jin-lt-merge-row {
+    display: grid;
+    grid-template-columns: 82px minmax(0, 1fr);
+    align-items: start;
+    gap: 11px;
+    min-width: 0;
+    border-bottom: 1px solid rgba(39, 39, 42, 0.58);
+    padding: 9px 11px;
+    transition: background 120ms ease, border-color 120ms ease;
+}
+
+.jin-lt-merge-row:last-child {
+    border-bottom: 0;
+}
+
+.jin-lt-merge-row-label {
+    padding-top: 2px;
+    color: rgba(113, 113, 122, 0.74);
+    font-size: 9px;
+    font-weight: 700;
+    letter-spacing: 0.10em;
+}
+
+.jin-lt-merge-row-content {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    min-width: 0;
+}
+
+.jin-lt-merge-row-text {
+    min-width: 0;
+    flex: 1 1 auto;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    color: rgba(228, 228, 231, 0.86);
+    font-size: 11px;
+    line-height: 1.58;
+}
+
+.jin-lt-merge-fact-id {
+    flex: 0 0 auto;
+    margin-top: 1px;
+    border: 1px solid rgba(63, 63, 70, 0.62);
+    border-radius: 4px;
+    background: rgba(24, 24, 27, 0.48);
+    padding: 1px 5px;
+    color: rgba(161, 161, 170, 0.66);
+    font-size: 9px;
+    line-height: 1.45;
+}
+
+.jin-lt-merge-row-incoming,
+.jin-lt-merge-row-source {
+    background: rgba(24, 24, 27, 0.16);
+}
+
+.jin-lt-merge-row-incoming .jin-lt-merge-row-text,
+.jin-lt-merge-row-source .jin-lt-merge-row-text {
+    color: rgba(212, 212, 216, 0.72);
+}
+
+.jin-lt-merge-row-before .jin-lt-merge-row-text {
+    color: rgba(161, 161, 170, 0.68);
+}
+
+.jin-lt-merge-row-before .jin-lt-merge-row-label {
+    color: rgba(113, 113, 122, 0.62);
+}
+
+.jin-lt-merge-row-after {
+    border-left: 2px solid rgba(34, 197, 94, 0.16);
+    padding-left: 9px;
+}
+
+.jin-lt-merge-row-after.jin-lt-diff-level-1 {
+    border-left-color: rgba(34, 197, 94, 0.16);
+    background: rgba(34, 197, 94, 0.018);
+}
+
+.jin-lt-merge-row-after.jin-lt-diff-level-2 {
+    border-left-color: rgba(34, 197, 94, 0.23);
+    background: rgba(34, 197, 94, 0.028);
+}
+
+.jin-lt-merge-row-after.jin-lt-diff-level-3 {
+    border-left-color: rgba(34, 197, 94, 0.31);
+    background: rgba(34, 197, 94, 0.042);
+}
+
+.jin-lt-merge-row-after.jin-lt-diff-level-4 {
+    border-left-color: rgba(34, 197, 94, 0.40);
+    background: rgba(34, 197, 94, 0.060);
+}
+
+.jin-lt-merge-row-after.jin-lt-diff-level-5 {
+    border-left-color: rgba(34, 197, 94, 0.52);
+    background: rgba(34, 197, 94, 0.084);
+}
+
+.jin-lt-merge-diff-token {
+    border-radius: 3px;
+    padding: 1px 2px;
+    margin: -1px -2px;
+    color: rgba(220, 252, 231, 0.94);
+    box-decoration-break: clone;
+    -webkit-box-decoration-break: clone;
+}
+
+.jin-lt-merge-diff-token.jin-lt-diff-level-1 {
+    background: rgba(34, 197, 94, 0.085);
+}
+
+.jin-lt-merge-diff-token.jin-lt-diff-level-2 {
+    background: rgba(34, 197, 94, 0.12);
+}
+
+.jin-lt-merge-diff-token.jin-lt-diff-level-3 {
+    background: rgba(34, 197, 94, 0.17);
+}
+
+.jin-lt-merge-diff-token.jin-lt-diff-level-4 {
+    background: rgba(34, 197, 94, 0.23);
+}
+
+.jin-lt-merge-diff-token.jin-lt-diff-level-5 {
+    background: rgba(34, 197, 94, 0.30);
+}
+
+.jin-lt-merge-created {
+    border-left: 2px solid rgba(34, 197, 94, 0.38);
+    padding-left: 9px;
+    background: rgba(34, 197, 94, 0.052);
+}
+
+.jin-lt-merge-row-ignored,
+.jin-lt-merge-row-comment {
+    background: rgba(24, 24, 27, 0.12);
+}
+
+.jin-lt-merge-row-comment .jin-lt-merge-row-text,
+.jin-lt-merge-row-ignored .jin-lt-merge-row-text {
+    color: rgba(161, 161, 170, 0.70);
+}
+
+@media (max-width: 760px) {
+    .jin-lt-merge-overview,
+    .jin-lt-merge-operation-header {
+        align-items: flex-start;
+        flex-direction: column;
+    }
+
+    .jin-lt-merge-row {
+        grid-template-columns: 64px minmax(0, 1fr);
+        gap: 8px;
+    }
+
+    .jin-lt-merge-row-content {
+        flex-direction: column;
+        gap: 5px;
+    }
+}
+
+/* The pinned inspector reuses the existing hover card and its header. */
+.runtime-memory-lt-hover-card.memory-value-editor {
+    pointer-events: auto;
+    max-height: calc(100vh - 24px);
+}
+
+.memory-value-editor .runtime-memory-lt-hover-metadata {
+    max-height: max(60px, calc(45vh - 70px));
+    overflow-y: auto;
+}
+
+.memory-value-input {
+    display: block;
+    width: 100%;
+    box-sizing: border-box;
+    background: transparent;
+    border: 0;
+    border-bottom: 1px solid rgba(82, 82, 91, 0.52);
+    border-radius: 0;
+    font: inherit;
+    resize: none;
+    outline: none;
+    white-space: pre-wrap;
+}
+
+.memory-value-input:focus {
+    border-bottom-color: rgba(125, 211, 252, 0.46);
+}
+
+.memory-value-actions {
+    display: flex;
+    flex: 0 0 auto;
+    align-items: center;
+    gap: 7px;
+    height:0;
+}
+
+.memory-value-actions[hidden],
+.memory-value-error[hidden],
+.memory-value-dirty .runtime-memory-lt-hover-age {
+    display: none;
+}
+
+.memory-value-button {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 22px;
+    height: 22px;
+    padding: 2px;
+    border: 0;
+    background: transparent;
+    cursor: pointer;
+    border-radius: 4px;
+    transition: opacity 160ms ease;
+}
+
+.memory-value-button svg {
+    width: 18px;
+    height: 18px;
+    fill: none;
+    stroke: currentColor;
+    stroke-width: 1.7;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+}
+
+.memory-value-approve { color: rgba(134, 239, 172, 0.92); }
+.memory-value-rollback { color: rgba(147, 197, 253, 0.92); }
+.memory-value-button:hover { opacity: 0.8; }
+.memory-value-button:focus-visible { outline: 1px solid currentColor; }
+.memory-value-button:disabled { opacity: 0.35; cursor: default; }
+.memory-value-error { margin-top: 8px; color: rgba(248, 113, 113, 0.98); }
+
+/* Loaded delayed-memory payloads in the context trace: keep the JSON structure,
+   but present it as one compact record instead of a raw object dump. */
+.jin-context-loaded-memory {
+    display: grid;
+    gap: 0;
+}
+
+.jin-context-loaded-memory-row {
+    display: grid;
+    grid-template-columns: 88px minmax(0, 1fr);
+    gap: 10px;
+    align-items: start;
+    padding: 5px 2px;
+    border-bottom: 1px solid rgba(39, 39, 42, 0.62);
+}
+
+.jin-context-loaded-memory-key,
+.jin-context-loaded-memory-body-label {
+    color: rgba(125, 211, 252, 0.66);
+    font-size: 9px;
+    line-height: 1.6;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+}
+
+.jin-context-loaded-memory-value {
+    min-width: 0;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    color: rgba(228, 228, 231, 0.84);
+    font-size: 11px;
+    line-height: 1.55;
+}
+
+.jin-context-loaded-memory-title {
+    display: flex;
+    min-width: 0;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 7px;
+    color: rgba(244, 244, 245, 0.92);
+    font-weight: 600;
+}
+
+.jin-context-loaded-memory-id,
+.jin-context-loaded-memory-tag {
+    display: inline-flex;
+    align-items: center;
+    border: 1px solid rgba(63, 63, 70, 0.76);
+    border-radius: 999px;
+    background: rgba(24, 24, 27, 0.54);
+    padding: 1px 6px;
+    color: rgba(161, 161, 170, 0.78);
+    font-size: 9px;
+    font-weight: 500;
+    line-height: 1.45;
+    white-space: nowrap;
+}
+
+.jin-context-loaded-memory-id {
+    border-color: rgba(56, 189, 248, 0.18);
+    background: rgba(8, 47, 73, 0.14);
+    color: rgba(186, 230, 253, 0.66);
+}
+
+.jin-context-loaded-memory-tags {
+    display: flex;
+    min-width: 0;
+    flex-wrap: wrap;
+    gap: 4px;
+}
+
+.jin-context-loaded-memory-body {
+    display: grid;
+    grid-template-columns: 88px minmax(0, 1fr);
+    gap: 10px;
+    margin-top: 2px;
+    padding: 7px 2px 2px;
+}
+
+.jin-context-loaded-memory-body-text {
+    min-width: 0;
+    border-left: 2px solid rgba(82, 82, 91, 0.64);
+    padding: 1px 0 1px 9px;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    color: rgba(228, 228, 231, 0.88);
+    font-size: 11px;
+    line-height: 1.56;
+}
+
+.jin-context-loaded-memory-empty-value {
+    color: rgba(113, 113, 122, 0.72);
+    font-weight: 400;
+}
+
+@media (max-width: 760px) {
+    .jin-context-loaded-memory-row,
+    .jin-context-loaded-memory-body {
+        grid-template-columns: 1fr;
+        gap: 3px;
+    }
+}
+
+/* Context SETTINGS: intentionally reuses the comma-separated tag language
+   from delayed-memory tags, with a persistent active-state glow. */
+.jin-context-setting-row {
+    align-items: center;
+}
+
+.jin-context-setting-tags {
+    display: flex;
+    min-height: 18px;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 5px 0;
+    white-space: normal;
+}
+
+.jin-context-setting-tag {
+    appearance: none;
+    border: 0;
+    background: transparent;
+    padding: 0;
+    margin: 0;
+    font: inherit;
+    line-height: inherit;
+}
+
+.jin-context-setting-tag.is-active {
+    color: rgba(240, 253, 250, 0.98);
+    text-shadow:
+            0 0 7px rgba(240, 253, 250, 0.24),
+            0 0 15px rgba(153, 246, 228, 0.14);
 }

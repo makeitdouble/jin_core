@@ -2,6 +2,8 @@
 
 from fastapi import WebSocket
 
+from utils.posting_board_display import compact_posting_board_model_output
+
 
 class WebSocketLogger:
     MODEL_OUTPUT_PREVIEW_LIMIT = 100
@@ -53,10 +55,12 @@ class WebSocketLogger:
             tag: str,
             message: str,
     ):
-        full_text = str(
-            message
-            or ""
-        ).strip()
+        full_text = compact_posting_board_model_output(
+            str(
+                message
+                or ""
+            ).strip()
+        )
 
         if not full_text:
             return
@@ -112,9 +116,23 @@ class WebSocketLogger:
             message: str,
             details: str | None = None,
     ):
+        full_text = str(
+            message
+            or ""
+        ).strip()
+        preview = (
+            full_text[
+                :self.MODEL_OUTPUT_PREVIEW_LIMIT
+            ]
+            + "..."
+            if len(full_text)
+            > self.MODEL_OUTPUT_PAYLOAD_THRESHOLD
+            else full_text
+        )
+
         await self.log(
             "[USER]",
-            message,
+            preview,
             details=details,
         )
 
@@ -124,10 +142,15 @@ class WebSocketLogger:
             message: str,
             details: str | None = None,
             event: str | None = None,
+            tag_suffix: str | None = None,
             **extra,
     ):
+        display_level = str(level)
+        if tag_suffix:
+            display_level += f":{str(tag_suffix).strip().upper()}"
+
         await self.log(
-            f"[MEMORY:{level}]",
+            f"[MEMORY:{display_level}]",
             message,
             details=details,
             channel="memory",
@@ -150,44 +173,22 @@ class WebSocketLogger:
             active_memory_event=event,
         )
 
-    async def log_service_as_brain(self, message: str):
-        return None
-
-    async def log_service_as_brain_output(self, message: str):
-        await self._log_model_output(
-            "[SERVICE]",
-            message,
-        )
-
     async def log_error(
             self,
             message: str,
             details: str | None = None,
+            **extra,
     ):
         await self.log(
             "[ERROR]",
             message,
             details=details,
+            **extra,
         )
 
-    async def log_translation(self, message: str):
-        await self.log("[TRANSLATION]", message)
 
     async def log_runtime(self, message: str):
         await self.log("[RUNTIME]", message)
-
-    async def log_flow(
-            self,
-            message: str,
-            flow_id: str = "agent-runtime",
-    ):
-        await self.log(
-            "[FLOW]",
-            message,
-            channel="flow",
-            flow_id=flow_id,
-            flow_event="agent_route",
-        )
 
     async def log_validator(
             self,
@@ -198,4 +199,13 @@ class WebSocketLogger:
             "[VALIDATOR]",
             message,
             details=details,
+        )
+
+    async def log_validator_loop(
+            self,
+            message: str,
+    ):
+        await self.log(
+            "[VALIDATOR:LOOP]",
+            message,
         )

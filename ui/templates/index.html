@@ -7,23 +7,27 @@
     <title>JIN Core Engine</title>
 
     <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css">
 
     <!-- CSS layers: theme vars -> base -> chat -> runtime -> overrides -> theme -> avatar. -->
-    <link rel="stylesheet" href="/static/css/themes_font_size.css?v=theme-font-size-1">
-    <link rel="stylesheet" href="/static/css/base.css?v=logger-role-theme-1">
-    <link rel="stylesheet" href="/static/css/chat.css?v=markdown-code-clean-2">
-    <link rel="stylesheet" href="/static/css/chat-rating.css?v=css-split-1">
-    <link rel="stylesheet" href="/static/css/chat-runtime-action.css?v=session-l3-glow-9">
-    <link rel="stylesheet" href="/static/css/runtime-memory.css?v=memory-line-avatar-hover-1">
-    <link rel="stylesheet" href="/static/css/interface-overrides.css?v=css-split-1">
-    <link rel="stylesheet" href="/static/css/theme-win95.css?v=logger-role-theme-2">
-    <link rel="stylesheet" href="/static/css/runtime-avatar.css?v=runtime-avatar-10">
+    <link rel="stylesheet" href="/static/css/themes_font_size.css">
+    <link rel="stylesheet" href="/static/css/base.css">
+    <link rel="stylesheet" href="/static/css/chat.css?v=think-format-2&math=2&citation-color=1">
+    <link rel="stylesheet" href="/static/css/chat-reactions.css?v=jin-reaction-2">
+    <link rel="stylesheet" href="/static/css/chat-rating.css">
+    <link rel="stylesheet" href="/static/css/chat-runtime-action.css">
+    <link rel="stylesheet" href="/static/css/runtime-memory.css?v=logs-full-hover-title-1">
+    <link rel="stylesheet" href="/static/css/interface-overrides.css">
+    <link rel="stylesheet" href="/static/css/theme-win95.css?v=think-format-1&citation-color=1">
+    <link rel="stylesheet" href="/static/css/runtime-avatar.css">
+    <link rel="stylesheet" href="/static/css/chat-bamboo.css?v=skins-3">
 </head>
 <body class="h-screen overflow-hidden flex flex-col font-mono antialiased bg-zinc-950 text-zinc-100">
 
 <!-- TOP BAR -->
 
 <header
+        id="app-header"
         class="h-10 border-b border-zinc-800 bg-zinc-900 flex items-center justify-between px-4 text-xs tracking-wider text-zinc-400 shrink-0">
 
     <button
@@ -37,11 +41,13 @@
 
         <!-- SERVICE -->
 
-        <div id="service-status"
-             class="flex items-center justify-center gap-1.5 text-zinc-400">
+        <button id="service-status"
+                type="button"
+                {% if not runtime_status.service_configured or not runtime_status.service %}disabled aria-disabled="true"{% endif %}
+                class="flex items-center justify-center gap-1.5 text-zinc-400 transition-colors {% if runtime_status.service %}hover:text-zinc-200 cursor-pointer{% else %}cursor-default{% endif %} focus:outline-none">
 
         <span id="service-dot"
-              class="h-2 w-2 rounded-full {{ 'bg-emerald-400 animate-pulse' if runtime_status.service else 'bg-red-500' }} transition-all duration-300">
+              class="h-2 w-2 rounded-full {% if runtime_status.service %}bg-emerald-400 animate-pulse{% elif runtime_status.service_configured %}bg-red-500{% else %}bg-slate-600{% endif %} transition-all duration-300">
         </span>
 
             <span id="service-label"
@@ -49,12 +55,14 @@
             SERVICE
         </span>
 
-        </div>
+        </button>
 
         <!-- BRAIN -->
 
-        <div id="brain-status"
-             class="flex items-center justify-center gap-1.5 text-zinc-400">
+        <button id="brain-status"
+                type="button"
+                {% if not runtime_status.brain %}disabled aria-disabled="true"{% endif %}
+                class="flex items-center justify-center gap-1.5 text-zinc-400 transition-colors {% if runtime_status.brain %}hover:text-zinc-200 cursor-pointer{% else %}cursor-default{% endif %} focus:outline-none">
 
         <span id="brain-dot"
               class="h-2 w-2 rounded-full {{ 'bg-emerald-400 animate-pulse' if runtime_status.brain else 'bg-red-500' }} transition-all duration-300">
@@ -65,7 +73,7 @@
             BRAIN
         </span>
 
-        </div>
+        </button>
 
     </div>
 
@@ -77,25 +85,30 @@
     <div id="scene-bg"
          class="absolute inset-0 bg-cover bg-center opacity-80 pointer-events-none">
     </div>
-    <div id="scene-clutter-overlay"
-         class="absolute inset-0 pointer-events-none"
+<!--    <div id="scene-clutter-overlay"
+         class="absolute inset-0 opacity-60 pointer-events-none"
          aria-hidden="true">
     </div>
     <div id="scene-cluttered-overlay"
-         class="absolute inset-0 pointer-events-none"
+         class="absolute inset-0 opacity-60 pointer-events-none"
          aria-hidden="true">
-    </div>
+    </div>-->
     <div id="scene-search-overlay"
-         class="absolute inset-0 pointer-events-none"
+         class="absolute inset-0 opacity-80 pointer-events-none"
          aria-hidden="true">
     </div>
+    <div id="scene-shade"
+         class="absolute inset-0 pointer-events-none">
+    </div>
+
     <div id="scene-jin-tint"
          class="absolute inset-0 pointer-events-none"
          aria-hidden="true">
     </div>
 
-    <div id="scene-shade"
-         class="absolute inset-0 pointer-events-none">
+    <div id="scene-anonymous-tint"
+         class="absolute inset-0 pointer-events-none"
+         aria-hidden="true">
     </div>
 
     <!-- LEFT CONSOLE -->
@@ -103,7 +116,7 @@
     <section id="console-panel"
              class="absolute z-30
                         rounded-xl border border-zinc-700/70
-                        bg-zinc-950/80 backdrop-blur-md
+                        bg-zinc-950/80
                         shadow-[0_18px_60px_rgba(0,0,0,0.55)]
                         flex flex-col overflow-hidden">
 
@@ -127,6 +140,9 @@
         <div id="console-stream"
              class="flex-1 overflow-y-auto p-4 space-y-4 text-[11px] leading-relaxed text-zinc-400">
         </div>
+
+        <div id="attached-delayed-memory" class="hidden" aria-live="polite"></div>
+        <div id="attached-files" class="hidden" aria-live="polite"></div>
 
     </section>
 
@@ -173,6 +189,10 @@
         <!-- INPUT -->
 
         <div id="chat-input-shell" class="bg-transparent py-4 shrink-0">
+
+            <div id="chat-composer">
+                <div id="composer-attachments" class="hidden" role="group"
+                     aria-label="Attached files" aria-live="polite"></div>
 
             <form id="chat-form"
                   class="relative w-full max-w-none flex items-center bg-black/30
@@ -242,11 +262,6 @@
                 </button>
 
             </form>
-
-            <!-- ATTACHED FILES -->
-
-            <div id="attached-files"
-                 class="max-w-4xl mx-auto mt-3 flex flex-wrap gap-2">
             </div>
 
             <!--  <div
@@ -292,12 +307,12 @@
 
     </section>
 
-    <!-- RIGHT SETTINGS -->
+    <!-- RIGHT MEMORY -->
 
-    <section id="settings-panel"
+    <section id="memory-panel"
              class="absolute z-30
                         rounded-xl border border-zinc-700/70
-                        bg-zinc-950/80 backdrop-blur-md
+                        bg-zinc-950/80
                         shadow-[0_18px_60px_rgba(0,0,0,0.55)]
                         flex flex-col overflow-hidden">
 
@@ -316,10 +331,11 @@
                 </div>
 
                 <button
-                        id="fact-check-trigger"
+                        id="memory-layers-toggle"
                         type="button"
-                        title="Refresh avatar"
-                        aria-label="Refresh avatar"
+                        title="hide"
+                        aria-label="hide"
+                        alt="hide"
                         class="jin-runtime-avatar-core-button">
                 </button>
             </div>
@@ -333,34 +349,7 @@
         </div>
 
         <div
-                class="settings-scroll flex-1 overflow-y-auto p-4 space-y-4 text-xs text-zinc-300 leading-relaxed">
-
-            <div
-                    class="grid grid-cols-2 overflow-hidden rounded border bg-zinc-900 border-zinc-800">
-
-                <button
-                        type="button"
-                        id="service-context-tab"
-                        data-context-tab="service"
-                        disabled
-                        aria-disabled="true"
-                        aria-selected="false"
-                        class="h-8 border-r border-slate-500/70 text-[11px] font-bold uppercase tracking-widest text-slate-500 cursor-not-allowed">
-                    Service
-                </button>
-
-                <button
-                        type="button"
-                        id="brain-context-tab"
-                        data-context-tab="brain"
-                        disabled
-                        aria-disabled="true"
-                        aria-selected="false"
-                        class="h-8 text-[11px] font-bold uppercase tracking-widest text-slate-500 cursor-not-allowed">
-                    Brain
-                </button>
-
-            </div>
+                class="memory-scroll flex flex-1 flex-col overflow-y-auto p-4 space-y-4 text-xs text-zinc-300 leading-relaxed">
 
             <div
                     id="context-runtime-panel"
@@ -368,26 +357,26 @@
 
                 <div class="p-3 space-y-3 font-mono">
 
-                    <div
+                    <span
                             id="context-panel-model"
-                            class="truncate text-[11px] font-bold text-zinc-100">
-                        {{ runtime_config.service.model }}
-                    </div>
+                            class="block truncate text-[11px] font-bold text-zinc-100">
+                        {{ runtime_config.brain.model }}
+                    </span>
 
                     <div id="context-accordion">
 
                         <div
-                                class="flex items-center justify-between gap-2 border-y border-slate-500/70 py-2 text-[11px] uppercase tracking-widest text-slate-100">
+                                class="flex items-center justify-between gap-2 border-t border-slate-500/70 pt-2 text-[11px] uppercase tracking-widest text-slate-100">
 
                                 <span class="min-w-0 truncate">
                                     [ context ]
                                 </span>
 
-                            <span
-                                    id="context-summary-tokens"
-                                    class="flex w-[8ch] shrink-0 flex-col items-end text-right leading-tight tabular-nums text-zinc-100">
+                                <span
+                                        id="context-summary-tokens"
+                                        class="flex w-[8ch] shrink-0 flex-col items-end text-right leading-tight tabular-nums text-zinc-100">
                                     <span id="context-summary-used" class="whitespace-nowrap">0&nbsp;/</span>
-                                    <span id="context-summary-max" class="whitespace-nowrap">{{ runtime_config.service.max_tokens }}</span>
+                                    <span id="context-summary-max" class="whitespace-nowrap">{{ runtime_config.brain.max_tokens }}</span>
                                 </span>
 
                         </div>
@@ -395,17 +384,17 @@
                         <div class="pt-3">
 
                             <div
-                                    id="context-window-line"
+                                    id="brain-context-window-line"
                                     class="flex w-full items-center gap-2 text-[11px] text-emerald-300">
 
                                     <span
-                                            id="context-window-bar"
+                                            id="brain-context-window-bar"
                                             class="block min-w-0 flex-1 overflow-hidden whitespace-pre">
                                         [................]
                                     </span>
 
                                 <span
-                                        id="context-window-percent"
+                                        id="brain-context-window-percent"
                                         class="w-[4ch] shrink-0 text-right tabular-nums">
                                         0%
                                     </span>
@@ -413,17 +402,18 @@
                             </div>
 
                             <div
-                                    id="summarizer-window-line"
+                                    id="service-context-window-line"
+                                    style="display: none;"
                                     class="mt-2 flex w-full items-center gap-2 text-[11px] text-emerald-300">
 
                                     <span
-                                            id="summarizer-window-bar"
+                                            id="service-context-window-bar"
                                             class="block min-w-0 flex-1 overflow-hidden whitespace-pre">
                                         [................]
                                     </span>
 
                                 <span
-                                        id="summarizer-window-percent"
+                                        id="service-context-window-percent"
                                         class="w-[4ch] shrink-0 text-right tabular-nums">
                                         0%
                                     </span>
@@ -442,37 +432,57 @@
                     id="runtime-memory-panel"
                     class="rounded border bg-zinc-900 border-zinc-800">
 
-                <div class="p-3 space-y-3 font-mono">
+                <div id="runtime-memory-panel-inner" class="space-y-3 font-mono">
 
                     <div
-                            class="runtime-memory-header flex items-center justify-between gap-2 border-b border-slate-500/70 text-[11px] uppercase tracking-widest text-slate-100">
+                            class="runtime-memory-header text-[11px] uppercase tracking-widest text-slate-100">
 
-                            <span
-                                    id="runtime-memory-title"
-                                    class="min-w-0 truncate">
-                                [ runtime memory ]
+                        <div
+                                id="runtime-memory-tabs"
+                                class="runtime-memory-tabs"
+                                role="tablist"
+                                aria-label="Memory panels">
+                            <button id="runtime-memory-title" class="runtime-memory-tab" type="button" role="tab" data-runtime-memory-mode="runtime" aria-selected="true">FRAME</button>
+                            <button class="runtime-memory-tab" type="button" role="tab" data-runtime-memory-mode="active" aria-selected="false" tabindex="-1">ACTIVE</button>
+                            <button class="runtime-memory-tab" type="button" role="tab" data-runtime-memory-mode="delayed" aria-selected="false" tabindex="-1">DELAYED</button>
+                            <button class="runtime-memory-tab" type="button" role="tab" data-runtime-memory-mode="long_term" aria-selected="false" tabindex="-1">L-T</button>
+                            <button class="runtime-memory-tab" type="button" role="tab" data-runtime-memory-mode="files" aria-selected="false" tabindex="-1">FILES</button>
+                            <button class="runtime-memory-tab" type="button" role="tab" data-runtime-memory-mode="logs" aria-selected="false" tabindex="-1">LOGS</button>
+                        </div>
+
+                        <div
+                                id="runtime-memory-navigation"
+                                class="runtime-memory-navigation"
+                                data-active-index="0"
+                                data-active-mode="runtime">
+                            <span class="runtime-memory-navigation-slot">
+                                <span class="runtime-memory-navigation-controls flex items-center gap-2 text-emerald-300">
+                                    <button id="runtime-memory-prev" type="button">&lt;</button>
+                                    <span
+                                            id="runtime-memory-position"
+                                            role="button"
+                                            tabindex="0"
+                                            title="Toggle persistent runtime memory highlight"
+                                    >0</span>
+                                    <button id="runtime-memory-next" type="button">&gt;</button>
+                                </span>
                             </span>
-
-                        <span class="shrink-0 flex items-center gap-2 text-emerald-300">
-                            <button id="runtime-memory-prev" type="button">&lt;</button>
-                            <span
-                                    id="runtime-memory-position"
-                                    role="button"
-                                    tabindex="0"
-                                    title="Toggle persistent runtime memory highlight"
-                            >0</span>
-                            <button id="runtime-memory-next" type="button">&gt;</button>
-                        </span>
+                        </div>
 
                     </div>
 
                     <pre
                             id="runtime-memory-text"
-                            class="min-h-28 whitespace-pre-wrap break-words text-[11px] leading-relaxed text-zinc-100">This session has just begun. You have no history with the user yet.</pre>
+                            class="min-h-28 whitespace-pre-wrap break-words text-[11px] leading-relaxed text-zinc-100">This session has just begun.</pre>
 
                 </div>
 
             </div>
+
+            <div
+                    id="memory-panel-drag-spacer"
+                    class="flex-1 min-h-0 cursor-grab active:cursor-grabbing"
+                    aria-hidden="true"></div>
 
         </div>
 
@@ -481,52 +491,54 @@
 </main>
 
 
-<script src="/static/js/win95-theme.js?v=win95-theme-1"></script>
-<script src="/static/js/panel-inactivity.js?v=panel-inactivity-1"></script>
+<script src="/static/js/win95-theme.js?v=bubble-skins-1"></script>
+<script src="/static/js/panel-inactivity.js"></script>
+<script src="/static/js/panel-scroll-top.js"></script>
 
 
-<script src="/static/js/answer-rating.js?v=answer-rating-1"></script>
+<script src="/static/js/answer-rating.js"></script>
 
 <!-- AUTO HEIGHT -->
 
-<script src="/static/js/textarea-auto-height.js?v=textarea-auto-height-1"></script>
-<template id="jin-runtime-config">
-    {{ {
-    "useServiceAsBrain": use_service_as_brain,
-    "formatResponse": format_response,
-    "runtimeStatus": runtime_status,
-    "runtimeConfig": runtime_config,
-    } | tojson }}
-</template>
-<script src="/static/js/runtime/runtime-core.js?v=runtime-core-2"></script>
-<script src="/static/js/runtime/runtime-storage.js?v=runtime-storage-9"></script>
-<script src="/static/js/runtime/runtime-memory-model.js?v=runtime-memory-model-1"></script>
-<script src="/static/js/runtime/runtime-idle.js?v=runtime-idle-1"></script>
-<script src="/static/js/runtime/runtime-feedback.js?v=runtime-feedback-1"></script>
-<script src="/static/js/runtime/runtime-session.js?v=runtime-session-5"></script>
-<script src="/static/js/runtime/runtime-panel.js?v=runtime-panel-1"></script>
-<script src="/static/js/runtime/runtime-memory-view.js?v=runtime-memory-view-8"></script>
-<script src="/static/js/runtime/runtime.js?v=runtime-facade-11"></script>
-<script src="/static/js/runtime/runtime-avatar.js?v=jin-default-dark-blue-2"></script>
-<script src="/static/js/status.js?v=status-check-4"></script>
-<script src="/static/js/dragdrop.js?v=attachments-5"></script>
-<script src="/static/js/runtime-action-counter.js?v=runtime-action-counter-2"></script>
-<script src="/static/js/logger/logger.js?v=logger-common-1"></script>
-<script src="/static/js/logger/trace-modal.js?v=logger-trace-1"></script>
-<script src="/static/js/logger/l1-summarizer.js?v=logger-l1-summarizer-1"></script>
-<script src="/static/js/logger/session-actions.js?v=logger-session-actions-5"></script>
-<script src="/static/js/logger/log-entries.js?v=logger-log-entries-8"></script>
-<script src="/static/js/think-citations.js?v=think-citations-1"></script>
-<script src="/static/js/chat-response-formatter.js?v=response-format-4"></script>
-<script src="/static/js/chat.js?v=chat-core-5"></script>
-<script src="/static/js/chat-attachments.js?v=chat-attachments-2"></script>
-<script src="/static/js/chat-runtime-actions.js?v=chat-runtime-actions-23"></script>
-<script src="/static/js/socket.js?v=socket-core-1"></script>
-<script src="/static/js/socket/memory.js?v=socket-memory-4"></script>
-<script src="/static/js/socket/delayed-memory.js?v=socket-delayed-memory-1"></script>
-<script src="/static/js/socket/runtime-actions.js?v=socket-runtime-actions-15"></script>
-<script src="/static/js/socket/event-handlers.js?v=socket-event-handlers-1"></script>
-<script src="/static/js/socket/input.js?v=socket-input-2"></script>
+<script src="/static/js/textarea-auto-height.js"></script>
+<script src="/static/js/jin-ui-utils.js?v=dedupe-1"></script>
+<script src="/static/js/runtime/runtime-core.js"></script>
+<script src="/static/js/runtime/runtime-anonymous-mode.js?explicit-room=1"></script>
+<script src="/static/js/runtime/runtime-storage.js?active-conditions=1"></script>
+<script src="/static/js/runtime/runtime-memory-model.js"></script>
+<script src="/static/js/runtime/runtime-idle.js"></script>
+<script src="/static/js/runtime/runtime-lt-memory.js"></script>
+<script src="/static/js/runtime/runtime-feedback.js"></script>
+<script src="/static/js/runtime/runtime-session.js"></script>
+<script src="/static/js/runtime/runtime-panel.js"></script>
+<script src="/static/js/runtime/runtime-memory-view.js?memory-value-edit=2&active-conditions=1&logs-sync=2&logs-delete=1&logs-hover=2"></script>
+<script src="/static/js/runtime/runtime.js?active-memory-pause-sync=1&logs-sync=2"></script>
+<script src="/static/js/runtime/runtime-avatar.js"></script>
+<script src="/static/js/status.js"></script>
+<script src="/static/js/dragdrop.js"></script>
+<script src="/static/js/runtime-action-counter.js"></script>
+<script src="/static/js/logger/logger.js"></script>
+<script src="/static/js/header-autohide.js"></script>
+<script src="/static/js/logger/trace-modal.js?v=context-tabs-1"></script>
+<script src="/static/js/logger/frame-summarizer.js"></script>
+<script src="/static/js/logger/session-actions.js"></script>
+<script src="/static/js/logger/log-entries.js?v=lt-flow-lane-2"></script>
+<script src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"></script>
+<script src="/static/js/think-formatter.js?v=think-format-2"></script>
+<script src="/static/js/think-citations.js?v=think-format-1"></script>
+<script src="/static/js/chat-response-formatter.js?v=jin-size-1&jin-reaction=1&marker-spacing=2&math=2"></script>
+<script src="/static/js/chat-reactions.js?v=jin-reaction-2"></script>
+<script src="/static/js/chat-reference-ids.js"></script>
+<script src="/static/js/chat.js?v=think-format-1&bamboo-bubble=1"></script>
+<script src="/static/js/chat-attachments.js"></script>
+<script src="/static/js/chat-runtime-actions.js"></script>
+<script src="/static/js/session-restore.js"></script>
+<script src="/static/js/socket.js"></script>
+<script src="/static/js/socket/memory.js"></script>
+<script src="/static/js/socket/delayed-memory.js"></script>
+<script src="/static/js/socket/runtime-actions.js"></script>
+<script src="/static/js/socket/event-handlers.js"></script>
+<script src="/static/js/socket/input.js"></script>
 </body>
 
 </html>

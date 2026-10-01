@@ -116,6 +116,196 @@ class ResponseExtractor:
         return message
 
     # ---------------------------------------------------------
+    # PROVIDER TYPE
+    # ---------------------------------------------------------
+
+    @staticmethod
+    def response_type(
+        response: dict,
+    ) -> str:
+
+        value = str(
+            response.get(
+                "type",
+                "",
+            )
+            or response.get(
+                "object",
+                "",
+            )
+            or ""
+        ).strip()
+
+        return value
+
+    @staticmethod
+    def _clamp_progress(
+        value,
+    ) -> float | None:
+
+        try:
+            progress = float(value)
+        except (
+            TypeError,
+            ValueError,
+        ):
+            return None
+
+        if progress < 0.0:
+            return 0.0
+        if progress > 1.0:
+            return 1.0
+        return progress
+
+    @staticmethod
+    def _llama_prompt_progress_ratio(
+        progress_payload,
+    ) -> float | None:
+
+        if not isinstance(
+            progress_payload,
+            dict,
+        ):
+            return None
+
+        try:
+            total = int(
+                progress_payload.get(
+                    "total",
+                    0,
+                )
+            )
+        except (
+            TypeError,
+            ValueError,
+        ):
+            total = 0
+
+        try:
+            cache = int(
+                progress_payload.get(
+                    "cache",
+                    0,
+                )
+            )
+        except (
+            TypeError,
+            ValueError,
+        ):
+            cache = 0
+
+        try:
+            processed = int(
+                progress_payload.get(
+                    "processed",
+                    0,
+                )
+            )
+        except (
+            TypeError,
+            ValueError,
+        ):
+            processed = 0
+
+        effective_total = total - cache
+        effective_processed = processed - cache
+
+        if effective_total > 0:
+            return ResponseExtractor._clamp_progress(
+                effective_processed / effective_total
+            )
+
+        if total > 0:
+            return ResponseExtractor._clamp_progress(
+                processed / total
+            )
+
+        return None
+
+    # ---------------------------------------------------------
+    # PROGRESS
+    # ---------------------------------------------------------
+
+    @staticmethod
+    def extract_progress_event(
+        response: dict,
+    ):
+
+        response_type = (
+            ResponseExtractor
+            .response_type(
+                response
+            )
+            .casefold()
+        )
+
+        if response_type.startswith(
+            "model_load."
+        ):
+            phase = "model_load"
+            provider = "lm_studio"
+        elif response_type.startswith(
+            "prompt_processing."
+        ):
+            phase = "prompt_processing"
+            provider = "lm_studio"
+        else:
+            phase = ""
+            provider = ""
+
+        if phase:
+            state = response_type.split(
+                ".",
+                1,
+            )[1].strip() or "progress"
+            progress = (
+                ResponseExtractor
+                ._clamp_progress(
+                    response.get(
+                        "progress",
+                    )
+                )
+            )
+
+            if state == "start":
+                progress = 0.0
+            elif state == "end":
+                progress = 1.0
+
+            event = {
+                "type": "progress",
+                "phase": phase,
+                "state": state,
+                "provider": provider,
+            }
+
+            if progress is not None:
+                event["progress"] = progress
+
+            return event
+
+        prompt_progress = response.get(
+            "prompt_progress"
+        )
+        progress = (
+            ResponseExtractor
+            ._llama_prompt_progress_ratio(
+                prompt_progress
+            )
+        )
+
+        if progress is None:
+            return None
+
+        return {
+            "type": "progress",
+            "phase": "prompt_processing",
+            "state": "progress",
+            "provider": "llama_cpp",
+            "progress": progress,
+        }
+
+    # ---------------------------------------------------------
     # USAGE
     # ---------------------------------------------------------
 
@@ -128,32 +318,84 @@ class ResponseExtractor:
             "usage"
         )
 
-        if not isinstance(
+        if isinstance(
             usage,
             dict,
         ):
+            return {
+                "type": "usage",
+                "prompt_tokens": (
+                    usage.get(
+                        "prompt_tokens",
+                        0,
+                    )
+                ),
+                "completion_tokens": (
+                    usage.get(
+                        "completion_tokens",
+                        0,
+                    )
+                ),
+                "total_tokens": (
+                    usage.get(
+                        "total_tokens",
+                        0,
+                    )
+                ),
+            }
+
+        response_type = (
+            ResponseExtractor
+            .response_type(response)
+            .casefold()
+        )
+
+        if response_type != "chat.end":
             return None
+
+        result = response.get(
+            "result"
+        ) or {}
+        if not isinstance(result, dict):
+            return None
+
+        stats = result.get(
+            "stats"
+        ) or {}
+        if not isinstance(stats, dict):
+            return None
+
+        try:
+            prompt_tokens = int(
+                stats.get(
+                    "input_tokens",
+                    0,
+                )
+            )
+        except (
+            TypeError,
+            ValueError,
+        ):
+            prompt_tokens = 0
+
+        try:
+            completion_tokens = int(
+                stats.get(
+                    "total_output_tokens",
+                    0,
+                )
+            )
+        except (
+            TypeError,
+            ValueError,
+        ):
+            completion_tokens = 0
 
         return {
             "type": "usage",
-            "prompt_tokens": (
-                usage.get(
-                    "prompt_tokens",
-                    0,
-                )
-            ),
-            "completion_tokens": (
-                usage.get(
-                    "completion_tokens",
-                    0,
-                )
-            ),
-            "total_tokens": (
-                usage.get(
-                    "total_tokens",
-                    0,
-                )
-            ),
+            "prompt_tokens": prompt_tokens,
+            "completion_tokens": completion_tokens,
+            "total_tokens": prompt_tokens + completion_tokens,
         }
 
     # ---------------------------------------------------------
@@ -164,6 +406,19 @@ class ResponseExtractor:
     def extract_reasoning_text(
         response: dict,
     ):
+
+        response_type = (
+            ResponseExtractor
+            .response_type(response)
+            .casefold()
+        )
+
+        if response_type == "reasoning.delta":
+            content = response.get(
+                "content",
+                "",
+            )
+            return content if isinstance(content, str) else ""
 
         delta = (
             ResponseExtractor
@@ -217,6 +472,19 @@ class ResponseExtractor:
         response: dict,
     ):
 
+        response_type = (
+            ResponseExtractor
+            .response_type(response)
+            .casefold()
+        )
+
+        if response_type == "message.delta":
+            content = response.get(
+                "content",
+                "",
+            )
+            return content if isinstance(content, str) else ""
+
         delta = (
             ResponseExtractor
             .extract_delta(
@@ -264,8 +532,13 @@ class ResponseExtractor:
                 ):
                     continue
 
-                text = item.get(
-                    "text"
+                text = (
+                    item.get(
+                        "text"
+                    )
+                    or item.get(
+                        "content"
+                    )
                 )
 
                 if text:
@@ -294,9 +567,15 @@ class ResponseExtractor:
         response: dict,
     ):
 
-        model = response.get(
-            "model",
-            "",
+        model = (
+            response.get(
+                "model",
+                "",
+            )
+            or response.get(
+                "model_instance_id",
+                "",
+            )
         )
 
         if not isinstance(
@@ -330,13 +609,22 @@ class ResponseExtractor:
             or ""
         )
 
-        if not isinstance(
+        if isinstance(
             finish_reason,
             str,
-        ):
-            return ""
+        ) and finish_reason.strip():
+            return finish_reason.strip()
 
-        return finish_reason.strip()
+        response_type = (
+            ResponseExtractor
+            .response_type(response)
+            .casefold()
+        )
+
+        if response_type == "chat.end":
+            return "stop"
+
+        return ""
 
     # ---------------------------------------------------------
     # NORMALIZED THINKING CHUNK

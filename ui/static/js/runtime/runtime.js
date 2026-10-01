@@ -38,6 +38,14 @@ const feedback =
   window.JinRuntime
   && window.JinRuntime.feedback;
 
+const ltMemory =
+  window.JINRuntimeLTMemory
+  || (
+    window.JinRuntime
+    && window.JinRuntime.ltMemory
+  )
+  || null;
+
 if (!feedback) {
   throw new Error(
     "JinRuntime.feedback must be loaded before runtime.js"
@@ -74,6 +82,62 @@ if (!memoryView) {
   );
 }
 
+const DELAYED_MEMORY_STORE_CHANGED_EVENT =
+  "jin:delayed-memory-store-changed";
+const ACTIVE_MEMORY_RECORDS_CHANGED_EVENT =
+  "jin:active-memory-records-changed";
+
+function getActiveMemoryRecordIds(records) {
+  return Array.from(
+    new Set(
+      (Array.isArray(records) ? records : [])
+        .map((record) => (
+          window.JinUiUtils.extractActiveMemoryId(record)
+        ))
+        .filter(Boolean)
+    )
+  );
+}
+
+function dispatchActiveMemoryRecordsChanged(reason = "") {
+  const records = readActiveMemoryRecords();
+
+  window.dispatchEvent(
+    new CustomEvent(
+      ACTIVE_MEMORY_RECORDS_CHANGED_EVENT,
+      {
+        detail: {
+          reason: String(reason || ""),
+          records: [...records],
+          ids: getActiveMemoryRecordIds(records),
+        },
+      }
+    )
+  );
+
+  return records;
+}
+
+function dispatchDelayedMemoryStoreChanged(
+  reason = "",
+  reportId = ""
+) {
+  window.dispatchEvent(
+    new CustomEvent(
+      DELAYED_MEMORY_STORE_CHANGED_EVENT,
+      {
+        detail: {
+          reason: String(reason || ""),
+          reportId:
+            normalizeRuntimeDelayedMemoryReportId(
+              reportId
+            ),
+        },
+      }
+    )
+  );
+}
+
 const {
   splitMemoryTextLines,
   stripMemoryTextMetaForDisplay,
@@ -94,27 +158,19 @@ const {
 } = memoryModel;
 
 const {
-  keys: runtimeStorageKeys,
-  removeBrowserMemory,
   readLatestRuntimeMemory,
   writeLatestRuntimeMemory,
-  readLatestSavedSessionMemory,
-  writeLatestSavedSessionMemory,
-  readLatestSavedRuntimeMemory,
-  writeLatestSavedRuntimeMemory,
   buildPersistedRuntimeSnapshot,
-  cloneBootRuntimeMemoryIfNeeded,
-  collectOtherLatestRuntimeMemorySnapshots,
-  clearOtherLatestRuntimeMemorySnapshots,
-  getSavedRuntimeMemoryFallback,
   readActiveMemoryRecords,
   writeActiveMemoryRecords,
   clearActiveMemoryRecords,
   appendActiveMemoryRecords: appendStoredActiveMemoryRecords,
+  replaceActiveMemoryRecordById: replaceStoredActiveMemoryRecordById,
   removeActiveMemoryRecordById: removeStoredActiveMemoryRecordById,
+  normalizeDelayedMemoryReports,
   readDelayedMemoryReports,
   writeDelayedMemoryReports,
-  appendDelayedMemoryReports: appendStoredDelayedMemoryReports,
+  mergeDelayedMemoryReports: mergeStoredDelayedMemoryReports,
   readFactsMemory,
   writeFactsMemory,
   removeFactsMemoryField,
@@ -128,11 +184,7 @@ const runtimeMemoryCount =
   );
 
 const defaultRuntimeMemoryText =
-  "This session has just begun. "
-  + "You have no history with the user yet.";
-
-const sessionStartedRuntimeMemoryText =
-  "session_status: Session started";
+  "This session has just begun.";
 
 const runtimeMemoryHistory = {
   snapshots: [],
@@ -141,7 +193,7 @@ const runtimeMemoryHistory = {
 };
 
 let runtimeMemoryDisplayMode = "runtime";
-let restoredSessionMemorySnapshot = null;
+const loadedDelayedMemoryReportIds = new Set();
 
 feedback.init({
   memoryModel,
@@ -226,6 +278,30 @@ const FACTS_MEMORY_EXCLUDED_KEYS = new Set([
   "user_idle",
 ]);
 
+const FACTS_MEMORY_EXCLUDED_KEY_PATTERNS = [
+  /^l-?t_fact_?#?f?[1-9]\d*$/i,
+];
+
+function isFactsMemoryExcludedKey(
+  key
+) {
+
+  const normalizedKey =
+    normalizeRuntimeMemoryKey(
+      key
+    );
+
+  return (
+      FACTS_MEMORY_EXCLUDED_KEYS.has(
+        normalizedKey
+      )
+      || FACTS_MEMORY_EXCLUDED_KEY_PATTERNS.some(
+        pattern => pattern.test(normalizedKey)
+      )
+  );
+
+}
+
 const deletedFactsMemoryKeys =
   new Set();
 
@@ -258,12 +334,27 @@ function persistRuntimeFactsMemory(
       snapshot.runtime_memory_id || ""
     ).trim();
 
+  const sessionId =
+    String(
+      storage.getCurrentFactsMemorySessionId
+        ? storage.getCurrentFactsMemorySessionId()
+        : ""
+    ).trim();
+
   snapshot.lines.forEach(
     function (line) {
       const key =
         normalizeRuntimeMemoryKey(
           line && line.key
         );
+
+      if (
+          key
+          && isFactsMemoryExcludedKey(key)
+      ) {
+        delete fields[key];
+        return;
+      }
 
       const content =
         String(
@@ -278,7 +369,6 @@ function persistRuntimeFactsMemory(
           || deletedFactsMemoryKeys.has(
             getFactsMemoryIdentity(key)
           )
-          || FACTS_MEMORY_EXCLUDED_KEYS.has(key)
           || isJinResponseRuntimeMemoryKey(key)
           || isActiveMemoryRuntimeMemoryLine(line)
       ) {
@@ -287,21 +377,55 @@ function persistRuntimeFactsMemory(
 
       const existing =
         fields[key];
-
+      const contentHash =
+        storage.buildFactsMemoryContentHash
+          ? storage.buildFactsMemoryContentHash(
+              content
+            )
+          : content;
       if (!existing) {
         fields[key] = {
           content,
           runtime_snapshot_id: runtimeSnapshotId,
+          session_id: sessionId,
+          lt_status: "pending",
+          lt_content_hash: contentHash,
+          lt_analyzed_at: "",
         };
 
         return;
       }
 
+      const previousHash =
+        String(
+          existing.lt_content_hash || ""
+        ).trim();
+      const contentChanged =
+        previousHash !== contentHash
+        || String(existing.content || "").trim() !== content;
+
       fields[key] = {
         ...existing,
         content,
-        runtime_snapshot_id: runtimeSnapshotId,
+        runtime_snapshot_id: contentChanged
+          ? runtimeSnapshotId
+          : String(existing.runtime_snapshot_id || ""),
+        session_id: contentChanged ? sessionId : existing.session_id,
+        lt_status: contentChanged
+          ? "pending"
+          : (
+              existing.lt_status === "analyzed"
+                ? "analyzed"
+                : "pending"
+            ),
+        lt_content_hash: contentHash,
+        lt_analyzed_at: contentChanged
+          ? ""
+          : String(existing.lt_analyzed_at || "").trim(),
       };
+      delete fields[key].significance;
+      delete fields[key].metabolic_significance;
+      delete fields[key].significance_updated_at;
     }
   );
 
@@ -360,6 +484,15 @@ function persistRuntimeMemorySnapshot(
   }
 
   if (Number(data.updates || 0) <= 0) {
+    if (
+        session
+        && typeof session.persistLiveSessionCheckpoint === "function"
+    ) {
+      session.persistLiveSessionCheckpoint(
+        data
+      );
+    }
+
     return;
   }
 
@@ -385,9 +518,14 @@ function persistRuntimeMemorySnapshot(
   // Facts memory is a companion index for the persisted live runtime.
   // Keep them behind the exact same updates > 0 gate so bootstrap/reload
   // snapshots never create empty one-off factsMemory records.
-  persistRuntimeFactsMemory(
-    persistedSnapshot
-  );
+  // Pending candidates are committed by the server with FRAME.
+
+  // Facts Memory is disk-owned and produced by FRAME on the server. This sync
+  // normally carries only the browser projection; during the storage upgrade it
+  // also carries the one-time pre-file-store candidate snapshot.
+  if (typeof window.syncFactsMemoryToRuntime === "function") {
+    window.syncFactsMemoryToRuntime();
+  }
 
   writeLatestRuntimeMemory({
     version: 1,
@@ -400,6 +538,15 @@ function persistRuntimeMemorySnapshot(
       persistedSnapshot
     ),
   });
+
+  if (
+      session
+      && typeof session.persistLiveSessionCheckpoint === "function"
+  ) {
+    session.persistLiveSessionCheckpoint(
+      data
+    );
+  }
 
 }
 
@@ -496,18 +643,13 @@ session.init({
   feedback,
   runtimeMemoryCount,
   defaultRuntimeMemoryText,
-  sessionStartedRuntimeMemoryText,
-  getRuntimeMemoryDisplayMode: () => runtimeMemoryDisplayMode,
   setRuntimeMemoryDisplayMode: (value) => {
     runtimeMemoryDisplayMode = value;
-  },
-  getRestoredSessionMemorySnapshot: () => restoredSessionMemorySnapshot,
-  setRestoredSessionMemorySnapshot: (value) => {
-    restoredSessionMemorySnapshot = value;
   },
   renderRuntimeMemorySnapshot,
   persistRuntimeMemorySnapshot,
   attachFirstUserIdleToInitialRuntimeSnapshot,
+  getLoadedDelayedMemoryReportIds,
 });
 
 panel.init();
@@ -518,11 +660,24 @@ memoryView.init({
   memoryModel,
   buildDisplaySnapshot: buildRuntimeMemoryDisplaySnapshot,
   getActiveMemoryRecords: readActiveMemoryRecords,
-  setActiveMemoryRecords: writeActiveMemoryRecords,
+  setActiveMemoryRecords: writeActiveMemoryRecordsAndRefresh,
   deleteRuntimeMemoryLine: deleteRuntimeMemoryLineAndRender,
   getDelayedMemoryReports: readDelayedMemoryReports,
+  isDelayedMemoryReportLoaded,
+  handleDelayedMemoryReportPinClick,
+  setDelayedMemoryReportPinned,
+  updateDelayedMemoryReportFields,
+  setDelayedMemoryReportAnchorFactIds,
+  linkDelayedMemoryReportFactId,
+  linkDelayedMemoryReportFactIds,
+  unlinkDelayedMemoryReportFactId,
+  deleteDelayedMemoryReport: deleteDelayedMemoryReportAndRender,
+  removeLongTermFactIdFromDelayedMemoryReports,
   getFactsMemoryFields,
   deleteFactsMemoryField: deleteFactsMemoryFieldAndRender,
+  getLongTermMemoryFacts: getVisibleLongTermMemoryFacts,
+  getAllLongTermMemoryFacts,
+  deleteLongTermMemoryFact: deleteLongTermMemoryFactAndRender,
   getDisplayMode: () => runtimeMemoryDisplayMode,
   setDisplayMode: (value) => {
     runtimeMemoryDisplayMode = value;
@@ -531,6 +686,486 @@ memoryView.init({
 
 function renderRuntimeMemorySnapshot() {
   memoryView.renderRuntimeMemorySnapshot();
+}
+
+function refreshRuntimeAvatar() {
+  const avatar =
+      window.JinRuntime
+      && window.JinRuntime.avatar;
+
+  if (
+      avatar
+      && typeof avatar.refresh === "function"
+  ) {
+    avatar.refresh();
+  }
+}
+
+function getContextLoadedLongTermFactIds() {
+  const factIds = new Set();
+  const reports = readDelayedMemoryReports();
+
+  Object.entries(
+    reports && typeof reports === "object" && !Array.isArray(reports)
+      ? reports
+      : {}
+  ).forEach(([rawReportId, report]) => {
+    if (
+        !report
+        || typeof report !== "object"
+        || Array.isArray(report)
+    ) {
+      return;
+    }
+
+    const reportId =
+      normalizeRuntimeDelayedMemoryReportId(rawReportId);
+    const inContext =
+      Boolean(report.pinned)
+      || Boolean(
+        reportId
+        && loadedDelayedMemoryReportIds.has(reportId)
+      );
+
+    if (!inContext) {
+      return;
+    }
+
+    normalizeRuntimeLongTermFactIds([
+      report.anchor_lt_facts_ids,
+      report.lt_facts_ids,
+    ]).forEach(factId => factIds.add(factId));
+  });
+
+  return factIds;
+}
+
+function longTermFactMatchesIdSet(
+  fact,
+  factIds
+) {
+  if (
+      !fact
+      || typeof fact !== "object"
+      || Array.isArray(fact)
+      || !(factIds instanceof Set)
+      || !factIds.size
+  ) {
+    return false;
+  }
+
+  return normalizeRuntimeLongTermFactIds([
+    fact.id,
+    fact.source_fact_ids,
+  ]).some(factId => factIds.has(factId));
+}
+
+function stripLongTermFactArchiveState(fact) {
+  if (
+      !fact
+      || typeof fact !== "object"
+      || Array.isArray(fact)
+  ) {
+    return fact;
+  }
+
+  const visibleFact = {
+    ...fact,
+  };
+
+  delete visibleFact.archived;
+  delete visibleFact.hidden_from_context;
+
+  return visibleFact;
+}
+
+function getVisibleLongTermMemoryFacts() {
+  if (
+      ltMemory
+      && typeof ltMemory.getFactsWithArchiveState === "function"
+  ) {
+    const contextLoadedFactIds =
+      getContextLoadedLongTermFactIds();
+
+    return ltMemory.getFactsWithArchiveState()
+      .filter((fact) => (
+        !Boolean(
+          fact
+          && (fact.archived || fact.hidden_from_context)
+        )
+        || longTermFactMatchesIdSet(
+          fact,
+          contextLoadedFactIds
+        )
+      ))
+      .map(stripLongTermFactArchiveState);
+  }
+
+  if (
+      ltMemory
+      && typeof ltMemory.getVisibleFacts === "function"
+  ) {
+    return ltMemory.getVisibleFacts();
+  }
+
+  return ltMemory && typeof ltMemory.getFacts === "function"
+    ? ltMemory.getFacts()
+    : [];
+}
+
+function getAllLongTermMemoryFacts() {
+  return ltMemory && typeof ltMemory.getFacts === "function"
+    ? ltMemory.getFacts()
+    : getVisibleLongTermMemoryFacts();
+}
+
+function setDelayedMemoryPinnedOnAvatar(
+  reportId,
+  pinned
+) {
+  const avatar =
+      window.JinRuntime
+      && window.JinRuntime.avatar;
+
+  if (
+      avatar
+      && typeof avatar.setDelayedMemoryPinned === "function"
+  ) {
+    return avatar.setDelayedMemoryPinned(
+      reportId,
+      pinned
+    );
+  }
+
+  return false;
+}
+
+function syncDelayedMemoryStateToAvatar() {
+  const avatar =
+      window.JinRuntime
+      && window.JinRuntime.avatar;
+
+  if (
+      avatar
+      && typeof avatar.syncDelayedMemoryState === "function"
+  ) {
+    return avatar.syncDelayedMemoryState();
+  }
+
+  return false;
+}
+
+function normalizeRuntimeDelayedMemoryReportId(value) {
+  const reportId =
+      String(value || "").trim().toLowerCase();
+
+  return /^[a-z0-9]{6}$/.test(reportId)
+    ? reportId
+    : "";
+}
+
+function normalizeRuntimeDelayedMemoryAttachmentIds(value) {
+  const source = Array.isArray(value) ? value : [value];
+  const ids = [];
+  const seen = new Set();
+
+  source.flat(Infinity).forEach((item) => {
+    String(item || "")
+      .split(/[,;\s]+/)
+      .map((id) => id.trim().replace(/^[\[\]"']+|[\[\]"']+$/g, "").toLowerCase())
+      .filter(Boolean)
+      .forEach((id) => {
+        if (!/^[a-z0-9]{6}$/.test(id) || seen.has(id)) {
+          return;
+        }
+        seen.add(id);
+        ids.push(id);
+      });
+  });
+
+  return ids;
+}
+
+function syncDelayedMemoryReportsToServer(
+  options = {}
+) {
+  if (typeof window.syncDelayedMemoryReportsToRuntime !== "function") {
+    return false;
+  }
+
+  return window.syncDelayedMemoryReportsToRuntime(
+    options
+  );
+}
+
+function getLoadedDelayedMemoryReportIds() {
+  return Array.from(loadedDelayedMemoryReportIds)
+    .sort();
+}
+
+function replaceLoadedDelayedMemoryReportIds(
+  reportIds,
+  options = {}
+) {
+  const nextIds = new Set(
+    (Array.isArray(reportIds) ? reportIds : [])
+      .map(normalizeRuntimeDelayedMemoryReportId)
+      .filter(Boolean)
+  );
+  const changed =
+    nextIds.size !== loadedDelayedMemoryReportIds.size
+    || Array.from(nextIds).some(
+      reportId => !loadedDelayedMemoryReportIds.has(reportId)
+    );
+
+  if (!changed) {
+    return getLoadedDelayedMemoryReportIds();
+  }
+
+  loadedDelayedMemoryReportIds.clear();
+  nextIds.forEach(
+    reportId => loadedDelayedMemoryReportIds.add(reportId)
+  );
+
+  if (options.render !== false) {
+    renderRuntimeMemorySnapshot();
+
+    if (!syncDelayedMemoryStateToAvatar()) {
+      refreshRuntimeAvatar();
+    }
+  }
+
+  dispatchDelayedMemoryStoreChanged(
+    "load-state",
+    ""
+  );
+
+  return getLoadedDelayedMemoryReportIds();
+}
+
+function isDelayedMemoryReportLoaded(reportId) {
+  const normalizedId =
+      normalizeRuntimeDelayedMemoryReportId(reportId);
+
+  return Boolean(
+    normalizedId
+    && loadedDelayedMemoryReportIds.has(normalizedId)
+  );
+}
+
+function markDelayedMemoryReportLoaded(
+  reportId,
+  loaded = true,
+  options = {}
+) {
+  const normalizedId =
+      normalizeRuntimeDelayedMemoryReportId(reportId);
+
+  if (!normalizedId) {
+    return false;
+  }
+
+  const wasLoaded =
+      loadedDelayedMemoryReportIds.has(normalizedId);
+
+  if (loaded) {
+    loadedDelayedMemoryReportIds.add(normalizedId);
+  } else {
+    loadedDelayedMemoryReportIds.delete(normalizedId);
+  }
+
+  if (
+      wasLoaded === loadedDelayedMemoryReportIds.has(normalizedId)
+      && options.forceRender !== true
+  ) {
+    return true;
+  }
+
+  renderRuntimeMemorySnapshot();
+
+  if (!syncDelayedMemoryStateToAvatar()) {
+    refreshRuntimeAvatar();
+  }
+
+  dispatchDelayedMemoryStoreChanged(
+    loaded ? "load" : "unload",
+    normalizedId
+  );
+
+  if (options.sync === true) {
+    syncDelayedMemoryReportsToServer({
+      suppressedAutoLoadIds:
+        options.suppressNextTurn === true
+          ? [normalizedId]
+          : [],
+    });
+  }
+
+  return true;
+}
+
+function handleDelayedMemoryReportPinClick(reportId) {
+  const normalizedId =
+      normalizeRuntimeDelayedMemoryReportId(reportId);
+  const report =
+      normalizedId
+      ? readDelayedMemoryReports()[normalizedId]
+      : null;
+
+  if (
+      !normalizedId
+      || !report
+      || typeof report !== "object"
+      || Array.isArray(report)
+  ) {
+    return false;
+  }
+
+  const pinned = Boolean(report.pinned);
+  const loaded =
+      isDelayedMemoryReportLoaded(normalizedId);
+
+  if (!pinned && loaded) {
+    markDelayedMemoryReportLoaded(
+      normalizedId,
+      false,
+      {
+        sync: true,
+        suppressNextTurn: true,
+      }
+    );
+
+
+    return {
+      action: "unload",
+      pinned: false,
+      reportId: normalizedId,
+    };
+  }
+
+  const nextPinned = !pinned;
+  const changed = setDelayedMemoryReportPinned(
+    normalizedId,
+    nextPinned
+  );
+
+  if (!changed) {
+    return false;
+  }
+
+  return {
+    action: nextPinned ? "pin" : "unpin",
+    pinned: nextPinned,
+    reportId: normalizedId,
+  };
+}
+
+function buildDeletedDelayedMemoryReportPayload(
+  reportId,
+  report
+) {
+  const normalizedId =
+      normalizeRuntimeDelayedMemoryReportId(reportId);
+
+  if (
+      !normalizedId
+      || !report
+      || typeof report !== "object"
+      || Array.isArray(report)
+  ) {
+    return null;
+  }
+
+  return {
+    ...report,
+    id: normalizedId,
+    _storage_key: normalizedId,
+    _restore_meta: {
+      was_loaded:
+        isDelayedMemoryReportLoaded(normalizedId)
+        || Boolean(report.pinned),
+    },
+  };
+}
+
+function logDeletedDelayedMemoryReport(
+  reportId,
+  report
+) {
+  const deletedReport =
+      buildDeletedDelayedMemoryReportPayload(
+        reportId,
+        report
+      );
+
+  if (
+      !deletedReport
+      || typeof window.appendLog !== "function"
+  ) {
+    return;
+  }
+
+  window.appendLog(
+    "[MEMORY:DELAYED:DELETED]",
+    "Delayed memory deleted",
+    JSON.stringify(
+      {
+        kind: "delayed_memory_report",
+        report: deletedReport,
+      },
+      null,
+      2
+    ),
+    {
+      memory_event: "delayed_memory_deleted",
+      deleted_delayed_memory_report: deletedReport,
+    }
+  );
+}
+
+function syncActiveMemoryStateToAvatar() {
+  const avatar =
+      window.JinRuntime
+      && window.JinRuntime.avatar;
+
+  if (
+      avatar
+      && typeof avatar.syncActiveMemoryState === "function"
+  ) {
+    return avatar.syncActiveMemoryState();
+  }
+
+  return false;
+}
+
+function writeActiveMemoryRecordsAndRefresh(
+  records
+) {
+  writeActiveMemoryRecords(
+    records
+  );
+
+  const activeMemoryRecords =
+    readActiveMemoryRecords();
+
+  // Pause/resume/delete from the memory panel is a local browser write.
+  // Keep the server copy in lockstep so a following explicit value edit
+  // cannot echo an older status (for example `paused`) back over the UI.
+  if (typeof window.sendSocketMessage === "function") {
+    window.sendSocketMessage({
+      type: "active_memory_store_sync",
+      mutation: true,
+      active_memory_records: activeMemoryRecords,
+    });
+  }
+
+  if (!syncActiveMemoryStateToAvatar()) {
+    refreshRuntimeAvatar();
+  }
+
+  return dispatchActiveMemoryRecordsChanged(
+    "replace-from-memory-view"
+  );
 }
 
 function showLatestRuntimeMemorySnapshot() {
@@ -615,6 +1250,7 @@ function deleteRuntimeMemoryLineAndRender(
       || !line
       || !line.key
       || isUserIdleRuntimeMemoryLine(line)
+      || String(line.key).trim().toLowerCase() === "session_title"
       || isActiveMemoryRuntimeMemoryLine(line)
   ) {
     return false;
@@ -690,6 +1326,14 @@ function appendActiveMemoryRecordsAndRender(
   showLatestRuntimeMemorySnapshot();
   renderRuntimeMemorySnapshot();
 
+  if (!syncActiveMemoryStateToAvatar()) {
+    refreshRuntimeAvatar();
+  }
+
+  dispatchActiveMemoryRecordsChanged(
+    "append"
+  );
+
   return nextRecords;
 
 }
@@ -706,7 +1350,40 @@ function replaceActiveMemoryRecordsAndRender(
   showLatestRuntimeMemorySnapshot();
   renderRuntimeMemorySnapshot();
 
-  return readActiveMemoryRecords();
+  if (!syncActiveMemoryStateToAvatar()) {
+    refreshRuntimeAvatar();
+  }
+
+  return dispatchActiveMemoryRecordsChanged(
+    "replace"
+  );
+
+}
+
+
+function replaceActiveMemoryRecordByIdAndRender(
+  activeMemoryId,
+  record
+) {
+
+  const nextRecords =
+    replaceStoredActiveMemoryRecordById(
+      activeMemoryId,
+      record
+    );
+
+  showLatestRuntimeMemorySnapshot();
+  renderRuntimeMemorySnapshot();
+
+  if (!syncActiveMemoryStateToAvatar()) {
+    refreshRuntimeAvatar();
+  }
+
+  dispatchActiveMemoryRecordsChanged(
+    "update"
+  );
+
+  return nextRecords;
 
 }
 
@@ -723,32 +1400,1078 @@ function removeActiveMemoryRecordByIdAndRender(
   showLatestRuntimeMemorySnapshot();
   renderRuntimeMemorySnapshot();
 
+  if (!syncActiveMemoryStateToAvatar()) {
+    refreshRuntimeAvatar();
+  }
+
+  dispatchActiveMemoryRecordsChanged(
+    "remove"
+  );
+
   return nextRecords;
 
 }
 
 
-function appendDelayedMemoryReports(
+function updateDelayedMemoryReportFields(
+  reportId,
+  fields = {}
+) {
+
+  const normalizedId =
+    normalizeRuntimeDelayedMemoryReportId(
+      reportId
+    );
+  const reports =
+    readDelayedMemoryReports();
+  const report =
+    reports[normalizedId];
+
+  if (
+      !normalizedId
+      || !report
+      || typeof report !== "object"
+      || Array.isArray(report)
+  ) {
+    return false;
+  }
+
+  const nextTitle =
+    Object.prototype.hasOwnProperty.call(fields, "title")
+      ? String(fields.title || "").trim() || "undefined"
+      : String(report.title || "").trim() || "undefined";
+  const nextSummary =
+    Object.prototype.hasOwnProperty.call(fields, "summary")
+      ? String(fields.summary || "")
+      : String(report.summary || "");
+  const nextBody =
+    Object.prototype.hasOwnProperty.call(fields, "body")
+      ? String(fields.body || "")
+      : String(report.body || "");
+  const normalizeTags = (value) => {
+    const storage =
+        window.JinRuntime
+        && window.JinRuntime.storage;
+
+    if (storage && typeof storage.normalizeDelayedMemoryTags === "function") {
+      return storage.normalizeDelayedMemoryTags(value);
+    }
+
+    return (Array.isArray(value) ? value : [value])
+      .flat(Infinity)
+      .map(tag => String(tag || "").trim())
+      .filter(Boolean);
+  };
+  const currentTags =
+    normalizeTags(report.tags);
+  const nextTags =
+    Object.prototype.hasOwnProperty.call(fields, "tags")
+      ? normalizeTags(fields.tags)
+      : currentTags;
+  const currentAttachmentIds =
+    normalizeRuntimeDelayedMemoryAttachmentIds(
+      report.attachments_ids
+    );
+  const nextAttachmentIds =
+    Object.prototype.hasOwnProperty.call(fields, "attachments_ids")
+      ? normalizeRuntimeDelayedMemoryAttachmentIds(
+          fields.attachments_ids
+        )
+      : currentAttachmentIds;
+  const attachmentsChanged =
+    nextAttachmentIds.join("|") !== currentAttachmentIds.join("|");
+
+  reports[normalizedId] = {
+    ...report,
+    title: nextTitle,
+    summary: nextSummary,
+    tags: nextTags,
+    body: nextBody,
+    attachments_ids: nextAttachmentIds,
+  };
+
+  writeDelayedMemoryReports(
+    reports
+  );
+
+  if (
+      runtimeMemoryDisplayMode === "delayed"
+      || (attachmentsChanged && runtimeMemoryDisplayMode === "files")
+  ) {
+    renderRuntimeMemorySnapshot();
+  }
+
+  if (
+      attachmentsChanged
+      && !syncDelayedMemoryStateToAvatar()
+  ) {
+    refreshRuntimeAvatar();
+  }
+
+  syncDelayedMemoryReportsToServer();
+
+  dispatchDelayedMemoryStoreChanged(
+    "update",
+    normalizedId
+  );
+
+  const updatedReport =
+    readDelayedMemoryReports()[normalizedId];
+
+  return updatedReport
+    ? {
+      ...updatedReport,
+      _storage_key: normalizedId,
+    }
+    : false;
+
+}
+
+
+function logDelayedMemoryUnpinned(reportId, report) {
+
+  const normalizedId =
+    String(reportId || "").trim().toLowerCase();
+
+  if (
+      !normalizedId
+      || !report
+      || typeof report !== "object"
+      || Array.isArray(report)
+      || typeof window.appendLog !== "function"
+  ) {
+    return false;
+  }
+
+  const unpinnedMemory = {
+    kind: "delayed",
+    id: normalizedId,
+    label: String(report.title || report.id || normalizedId),
+  };
+
+  window.appendLog(
+    "[MEMORY:UNPINNED]",
+    "Delayed memory unpinned",
+    JSON.stringify(unpinnedMemory, null, 2),
+    {
+      memory_event: "memory_unpinned",
+      unpinned_memory: unpinnedMemory,
+    }
+  );
+
+  return true;
+}
+
+
+function setDelayedMemoryReportPinned(
+  reportId,
+  pinned,
+  options = {}
+) {
+
+  const normalizedId =
+    String(reportId || "").trim().toLowerCase();
+  const reports =
+    readDelayedMemoryReports();
+  const report =
+    reports[normalizedId];
+
+  if (
+      !/^[a-z0-9]{6}$/.test(normalizedId)
+      || !report
+      || typeof report !== "object"
+      || Array.isArray(report)
+  ) {
+    return false;
+  }
+
+  reports[normalizedId] = {
+    ...report,
+    pinned: Boolean(pinned),
+    last_loaded_date:
+      Boolean(pinned)
+        ? new Date().toISOString()
+        : String(report.last_loaded_date || "").trim(),
+  };
+
+  writeDelayedMemoryReports(
+    reports
+  );
+
+  // Pinning changes context visibility for linked L-T facts (and can affect
+  // other linked-memory rows), so refresh the currently open panel
+  // immediately instead of waiting for the next message/server echo.
+  renderRuntimeMemorySnapshot();
+
+  // Pin state affects more than the delayed-memory dash itself: it also
+  // controls linked L-T/attachment highlights. Re-sync the whole delayed
+  // avatar state so unpinning cannot leave stale context-loaded classes.
+  if (!syncDelayedMemoryStateToAvatar()) {
+    refreshRuntimeAvatar();
+  }
+
+  if (typeof window.syncDelayedMemoryReportsToRuntime === "function") {
+    window.syncDelayedMemoryReportsToRuntime();
+  }
+
+  if (typeof window.syncDelayedMemoryReportPreviewState === "function") {
+    window.syncDelayedMemoryReportPreviewState(
+      normalizedId,
+      pinned
+    );
+  }
+
+  dispatchDelayedMemoryStoreChanged(
+    "pin",
+    normalizedId
+  );
+
+  if (
+      Boolean(report.pinned)
+      && !Boolean(pinned)
+      && options.log !== false
+  ) {
+    logDelayedMemoryUnpinned(
+      normalizedId,
+      report
+    );
+  }
+
+  return true;
+
+}
+
+
+function setDelayedMemoryReportAnchorFactIds(
+  reportId,
+  anchorFactIds
+) {
+
+  const normalizedId =
+    String(reportId || "").trim().toLowerCase();
+  const reports =
+    readDelayedMemoryReports();
+  const report =
+    reports[normalizedId];
+
+  if (
+      !/^[a-z0-9]{6}$/.test(normalizedId)
+      || !report
+      || typeof report !== "object"
+      || Array.isArray(report)
+  ) {
+    return false;
+  }
+
+  reports[normalizedId] = {
+    ...report,
+    anchor_lt_facts_ids:
+      Array.isArray(anchorFactIds)
+        ? anchorFactIds
+        : [],
+  };
+
+  writeDelayedMemoryReports(
+    reports
+  );
+
+  const updatedReports =
+    readDelayedMemoryReports();
+  const updatedReport =
+    updatedReports[normalizedId];
+
+  renderRuntimeMemorySnapshot();
+
+  if (!syncDelayedMemoryStateToAvatar()) {
+    refreshRuntimeAvatar();
+  }
+
+  if (typeof window.syncDelayedMemoryReportsToRuntime === "function") {
+    window.syncDelayedMemoryReportsToRuntime();
+  }
+
+  return updatedReport
+    ? {
+      ...updatedReport,
+      _storage_key: normalizedId,
+    }
+    : false;
+
+}
+
+function normalizeRuntimeLongTermFactIds(
+  value
+) {
+
+  const source =
+    Array.isArray(value)
+      ? value
+      : [value];
+  const seen =
+    new Set();
+  const factIds = [];
+
+  source.forEach((item) => {
+    if (Array.isArray(item)) {
+      normalizeRuntimeLongTermFactIds(item)
+        .forEach((factId) => {
+          if (seen.has(factId)) {
+            return;
+          }
+
+          seen.add(factId);
+          factIds.push(factId);
+        });
+      return;
+    }
+
+    const text =
+      String(item || "").trim();
+
+    if (text.startsWith("[") && text.endsWith("]")) {
+      try {
+        const parsed =
+          JSON.parse(text);
+
+        if (Array.isArray(parsed)) {
+          normalizeRuntimeLongTermFactIds(parsed)
+            .forEach((factId) => {
+              if (seen.has(factId)) {
+                return;
+              }
+
+              seen.add(factId);
+              factIds.push(factId);
+            });
+          return;
+        }
+      } catch (_error) {
+        // Fall through to token parsing.
+      }
+    }
+
+    const tokens =
+      text.match(/\bF[1-9]\d*\b/gi);
+
+    if (tokens && tokens.length) {
+      tokens.forEach((token) => {
+        const normalizedFactId =
+          normalizeLongTermFactId(token);
+
+        if (
+            !normalizedFactId
+            || seen.has(normalizedFactId)
+        ) {
+          return;
+        }
+
+        seen.add(normalizedFactId);
+        factIds.push(normalizedFactId);
+      });
+      return;
+    }
+
+    const normalizedFactId =
+      normalizeLongTermFactId(item);
+
+    if (
+        !normalizedFactId
+        || seen.has(normalizedFactId)
+    ) {
+      return;
+    }
+
+    seen.add(normalizedFactId);
+    factIds.push(normalizedFactId);
+  });
+
+  return factIds;
+
+}
+
+function getRuntimeLongTermFactIdNumber(
+  factId
+) {
+
+  const match =
+    String(factId || "").match(/^F([1-9]\d*)$/);
+
+  return match
+    ? Number(match[1])
+    : Number.POSITIVE_INFINITY;
+
+}
+
+function sortRuntimeLongTermFactIds(
+  factIds
+) {
+
+  return [...factIds].sort((left, right) => {
+    const leftNumber =
+      getRuntimeLongTermFactIdNumber(left);
+    const rightNumber =
+      getRuntimeLongTermFactIdNumber(right);
+
+    if (leftNumber !== rightNumber) {
+      return leftNumber - rightNumber;
+    }
+
+    return String(left).localeCompare(
+      String(right)
+    );
+  });
+
+}
+
+function findLongTermMemoryFact(
+  factId
+) {
+
+  const normalizedFactId =
+    normalizeLongTermFactId(factId);
+  const facts =
+    ltMemory && typeof ltMemory.getFacts === "function"
+      ? ltMemory.getFacts()
+      : getVisibleLongTermMemoryFacts();
+
+  return (Array.isArray(facts) ? facts : [])
+    .find((fact) => (
+      normalizeLongTermFactId(fact && fact.id)
+      === normalizedFactId
+    )) || null;
+
+}
+
+function writeDelayedMemoryFactLinksAndRender(
+  reportId,
+  reports,
+  reason
+) {
+
+  writeDelayedMemoryReports(
+    reports
+  );
+
+  if (runtimeMemoryDisplayMode === "delayed") {
+    renderRuntimeMemorySnapshot();
+  }
+
+  if (!syncDelayedMemoryStateToAvatar()) {
+    refreshRuntimeAvatar();
+  }
+
+  syncDelayedMemoryReportsToServer();
+
+  dispatchDelayedMemoryStoreChanged(
+    reason,
+    reportId
+  );
+
+  const updatedReport =
+    readDelayedMemoryReports()[reportId];
+
+  return updatedReport
+    ? {
+      ...updatedReport,
+      _storage_key: reportId,
+    }
+    : false;
+
+}
+
+function logUnlinkedDelayedMemoryReportFact(
+  reportId,
+  report,
+  factId,
+  wasAnchor
+) {
+
+  if (typeof window.appendLog !== "function") {
+    return;
+  }
+
+  const fact =
+    findLongTermMemoryFact(
+      factId
+    );
+  const payload = {
+    kind: "delayed_memory_fact_unlink",
+    report_id: reportId,
+    fact_id: factId,
+    was_anchor: Boolean(wasAnchor),
+    report: {
+      id: reportId,
+      _storage_key: reportId,
+      title: String(report && report.title || ""),
+      summary: String(report && report.summary || ""),
+    },
+    fact: fact
+      ? {
+        ...fact,
+      }
+      : null,
+  };
+
+  window.appendLog(
+    "[MEMORY:DELAYED:FACT_UNLINKED]",
+    "Delayed memory fact unlinked",
+    JSON.stringify(
+      payload,
+      null,
+      2
+    ),
+    {
+      memory_event: "delayed_memory_fact_unlinked",
+      delayed_memory_fact_unlink: payload,
+    }
+  );
+
+}
+
+function linkDelayedMemoryReportFactId(
+  reportId,
+  factId,
+  options = {}
+) {
+
+  return linkDelayedMemoryReportFactIds(
+    reportId,
+    [factId],
+    options
+  );
+
+}
+
+function linkDelayedMemoryReportFactIds(
+  reportId,
+  requestedFactIds,
+  options = {}
+) {
+
+  const normalizedId =
+    normalizeRuntimeDelayedMemoryReportId(
+      reportId
+    );
+  const normalizedFactIds =
+    normalizeRuntimeLongTermFactIds(
+      requestedFactIds
+    ).filter((factId) => (
+      Boolean(findLongTermMemoryFact(factId))
+    ));
+  const reports =
+    readDelayedMemoryReports();
+  const report =
+    reports[normalizedId];
+
+  if (
+      !normalizedId
+      || !normalizedFactIds.length
+      || !report
+      || typeof report !== "object"
+      || Array.isArray(report)
+  ) {
+    return false;
+  }
+
+  const currentFactIds =
+    normalizeRuntimeLongTermFactIds(
+      report.lt_facts_ids
+    );
+  const anchorFactIds =
+    normalizeRuntimeLongTermFactIds(
+      report.anchor_lt_facts_ids
+    );
+  const shouldAnchor =
+    Boolean(options && options.anchor);
+  const requestedFactIdSet =
+    new Set(normalizedFactIds);
+  const nextFactIds =
+    normalizeRuntimeLongTermFactIds([
+      currentFactIds.filter(
+        factId => !requestedFactIdSet.has(factId)
+      ),
+      normalizedFactIds,
+    ]);
+  const nextAnchorFactIds =
+    shouldAnchor
+      ? sortRuntimeLongTermFactIds(
+        normalizeRuntimeLongTermFactIds([
+          ...anchorFactIds,
+          ...normalizedFactIds,
+        ])
+      )
+      : anchorFactIds;
+  const factsChanged =
+    nextFactIds.length !== currentFactIds.length
+    || nextFactIds.some(
+      (factId, index) => factId !== currentFactIds[index]
+    );
+  const anchorsChanged =
+    nextAnchorFactIds.length !== anchorFactIds.length
+    || nextAnchorFactIds.some(
+      (factId, index) => factId !== anchorFactIds[index]
+    );
+
+  if (
+      !factsChanged
+      && !anchorsChanged
+  ) {
+    return {
+      ...report,
+      _storage_key: normalizedId,
+    };
+  }
+
+  reports[normalizedId] = {
+    ...report,
+    lt_facts_ids: nextFactIds,
+    anchor_lt_facts_ids: nextAnchorFactIds,
+  };
+
+  return writeDelayedMemoryFactLinksAndRender(
+    normalizedId,
+    reports,
+    "fact_link"
+  );
+
+}
+
+function unlinkDelayedMemoryReportFactId(
+  reportId,
+  factId,
+  options = {}
+) {
+
+  const normalizedId =
+    normalizeRuntimeDelayedMemoryReportId(
+      reportId
+    );
+  const normalizedFactId =
+    normalizeLongTermFactId(
+      factId
+    );
+  const reports =
+    readDelayedMemoryReports();
+  const report =
+    reports[normalizedId];
+
+  if (
+      !normalizedId
+      || !normalizedFactId
+      || !report
+      || typeof report !== "object"
+      || Array.isArray(report)
+  ) {
+    return false;
+  }
+
+  const factIds =
+    normalizeRuntimeLongTermFactIds(
+      report.lt_facts_ids
+    );
+  const anchorFactIds =
+    normalizeRuntimeLongTermFactIds(
+      report.anchor_lt_facts_ids
+    );
+  const nextFactIds =
+    factIds.filter(item => item !== normalizedFactId);
+  const nextAnchorFactIds =
+    anchorFactIds.filter(item => item !== normalizedFactId);
+  const changed =
+    nextFactIds.length !== factIds.length
+    || nextAnchorFactIds.length !== anchorFactIds.length;
+
+  if (!changed) {
+    return {
+      ...report,
+      _storage_key: normalizedId,
+    };
+  }
+
+  const updatedReport = {
+    ...report,
+    lt_facts_ids: nextFactIds,
+    anchor_lt_facts_ids: nextAnchorFactIds,
+  };
+
+  reports[normalizedId] =
+    updatedReport;
+
+  const result =
+    writeDelayedMemoryFactLinksAndRender(
+      normalizedId,
+      reports,
+      "fact_unlink"
+    );
+
+  if (!options || options.log !== false) {
+    logUnlinkedDelayedMemoryReportFact(
+      normalizedId,
+      report,
+      normalizedFactId,
+      anchorFactIds.includes(normalizedFactId)
+    );
+  }
+
+  return result;
+
+}
+
+function deleteDelayedMemoryReportAndRender(
+  reportId
+) {
+
+  const normalizedId =
+    normalizeRuntimeDelayedMemoryReportId(
+      reportId
+    );
+  const reports =
+    readDelayedMemoryReports();
+  const report =
+    reports[normalizedId];
+
+  if (
+      !normalizedId
+      || !report
+      || typeof report !== "object"
+      || Array.isArray(report)
+  ) {
+    return false;
+  }
+
+  const deletedReport =
+    buildDeletedDelayedMemoryReportPayload(
+      normalizedId,
+      report
+    );
+
+  delete reports[normalizedId];
+
+  writeDelayedMemoryReports(
+    reports
+  );
+
+  loadedDelayedMemoryReportIds.delete(
+    normalizedId
+  );
+
+  renderRuntimeMemorySnapshot();
+
+  if (!syncDelayedMemoryStateToAvatar()) {
+    refreshRuntimeAvatar();
+  }
+
+  syncDelayedMemoryReportsToServer({
+    deletedReportIds: [
+      normalizedId,
+    ],
+  });
+
+  logDeletedDelayedMemoryReport(
+    normalizedId,
+    report
+  );
+
+  dispatchDelayedMemoryStoreChanged(
+    "delete",
+    normalizedId
+  );
+
+  return {
+    id: normalizedId,
+    report: deletedReport,
+  };
+
+}
+
+function restoreDelayedMemoryReportAndRender(
+  reportId,
+  report
+) {
+
+  const normalizedId =
+    normalizeRuntimeDelayedMemoryReportId(
+      reportId
+      || (
+        report
+        && typeof report === "object"
+        && !Array.isArray(report)
+          ? report.id || report._storage_key
+          : ""
+      )
+    );
+
+  if (
+      !normalizedId
+      || !report
+      || typeof report !== "object"
+      || Array.isArray(report)
+  ) {
+    return false;
+  }
+
+  const restoreMeta =
+    report._restore_meta
+    && typeof report._restore_meta === "object"
+    && !Array.isArray(report._restore_meta)
+      ? report._restore_meta
+      : {};
+  const cleanReport = {
+    ...report,
+  };
+
+  delete cleanReport.id;
+  delete cleanReport._storage_key;
+  delete cleanReport._restore_meta;
+
+  writeDelayedMemoryReports({
+    ...readDelayedMemoryReports(),
+    [normalizedId]: cleanReport,
+  });
+
+  if (
+      restoreMeta.was_loaded
+      || Boolean(cleanReport.pinned)
+  ) {
+    loadedDelayedMemoryReportIds.add(
+      normalizedId
+    );
+  }
+
+  renderRuntimeMemorySnapshot();
+
+  if (!syncDelayedMemoryStateToAvatar()) {
+    refreshRuntimeAvatar();
+  }
+
+  syncDelayedMemoryReportsToServer();
+
+  dispatchDelayedMemoryStoreChanged(
+    "restore",
+    normalizedId
+  );
+
+  return {
+    id: normalizedId,
+    report: readDelayedMemoryReports()[normalizedId],
+  };
+
+}
+
+
+function normalizeLongTermFactId(
+  value
+) {
+
+  const match =
+    String(value || "").trim().match(/^F([1-9]\d*)$/i);
+
+  return match
+    ? `F${Number(match[1])}`
+    : "";
+
+}
+
+
+function withoutLongTermFactId(
+  values,
+  factId
+) {
+
+  const source =
+    Array.isArray(values)
+      ? values
+      : [];
+
+  return source.filter((value) => (
+    normalizeLongTermFactId(value) !== factId
+  ));
+
+}
+
+
+function removeLongTermFactIdFromDelayedMemoryReports(
+  factId
+) {
+
+  const normalizedFactId =
+    normalizeLongTermFactId(factId);
+
+  if (!normalizedFactId) {
+    return false;
+  }
+
+  const reports =
+    readDelayedMemoryReports();
+  let changed = false;
+
+  Object.entries(reports).forEach(([reportId, report]) => {
+    if (
+        !report
+        || typeof report !== "object"
+        || Array.isArray(report)
+    ) {
+      return;
+    }
+
+    const nextAnchorFactIds =
+      withoutLongTermFactId(
+        report.anchor_lt_facts_ids,
+        normalizedFactId
+      );
+    const nextFactIds =
+      withoutLongTermFactId(
+        report.lt_facts_ids,
+        normalizedFactId
+      );
+
+    if (
+        nextAnchorFactIds.length === (report.anchor_lt_facts_ids || []).length
+        && nextFactIds.length === (report.lt_facts_ids || []).length
+    ) {
+      return;
+    }
+
+    const updatedReport = {
+      ...report,
+      anchor_lt_facts_ids: nextAnchorFactIds,
+      lt_facts_ids: nextFactIds,
+    };
+    reports[reportId] = updatedReport;
+    changed = true;
+  });
+
+  if (!changed) {
+    return false;
+  }
+
+  writeDelayedMemoryReports(
+    reports
+  );
+
+  if (runtimeMemoryDisplayMode === "delayed") {
+    renderRuntimeMemorySnapshot();
+  }
+
+  if (!syncDelayedMemoryStateToAvatar()) {
+    refreshRuntimeAvatar();
+  }
+
+  if (typeof window.syncDelayedMemoryReportsToRuntime === "function") {
+    window.syncDelayedMemoryReportsToRuntime();
+  }
+
+  return true;
+
+}
+
+
+function deleteLongTermMemoryFactAndRender(
+  factId
+) {
+
+  const deleted =
+    ltMemory && ltMemory.requestFactDelete
+      ? ltMemory.requestFactDelete(factId)
+      : false;
+
+  if (deleted !== false) {
+    removeLongTermFactIdFromDelayedMemoryReports(
+      factId
+    );
+  }
+
+  return deleted;
+
+}
+
+
+function mergeDelayedMemoryReports(
   reports
 ) {
 
   const nextReports =
-    appendStoredDelayedMemoryReports(
+    mergeStoredDelayedMemoryReports(
       reports
     );
 
   renderRuntimeMemorySnapshot();
 
+  if (!syncDelayedMemoryStateToAvatar()) {
+    refreshRuntimeAvatar();
+  }
+
+  dispatchDelayedMemoryStoreChanged(
+    "merge"
+  );
+
   return nextReports;
 
 }
 
-const ACTIVE_MEMORY_RUNTIME_ACTIONS_TO_SILENCE_ON_L1 = [
+function buildDelayedMemoryReportsSignature(
+  reports
+) {
+
+  const normalizedReports =
+    normalizeDelayedMemoryReports(
+      reports
+    );
+
+  return JSON.stringify(
+    Object.keys(normalizedReports)
+      .sort()
+      .map(
+        reportId => [
+          reportId,
+          normalizedReports[reportId],
+        ]
+      )
+  );
+
+}
+
+function replaceDelayedMemoryReportsAndRender(
+  reports
+) {
+  const currentReports =
+    readDelayedMemoryReports();
+  const nextReports =
+    normalizeDelayedMemoryReports(
+      reports
+    );
+
+  if (
+      buildDelayedMemoryReportsSignature(currentReports)
+      === buildDelayedMemoryReportsSignature(nextReports)
+  ) {
+    return currentReports;
+  }
+
+  writeDelayedMemoryReports(
+    nextReports
+  );
+  renderRuntimeMemorySnapshot();
+
+  dispatchDelayedMemoryStoreChanged(
+    "replace"
+  );
+
+  if (syncDelayedMemoryStateToAvatar()) {
+    return readDelayedMemoryReports();
+  }
+
+  refreshRuntimeAvatar();
+
+  return readDelayedMemoryReports();
+}
+
+const ACTIVE_MEMORY_RUNTIME_ACTIONS_TO_SILENCE_ON_FRAME = [
   "save_active_memory",
-  "resolve_active_memory",
+  "delete_active_memory",
 ];
 
-function silenceActiveMemoryRuntimeActionsAfterL1(
+function silenceActiveMemoryRuntimeActionsAfterFrame(
   data
 ) {
 
@@ -760,17 +2483,17 @@ function silenceActiveMemoryRuntimeActionsAfterL1(
     data.type === "runtime_memory_update"
     && Number(data.updates || 0) > 0;
 
-  const isRuntimeL1DiffUpdate =
-    data.type === "runtime_l1_diff_update";
+  const isRuntimeFrameDiffUpdate =
+    data.type === "runtime_frame_diff_update";
 
   if (
       !isRuntimeMemoryUpdate
-      && !isRuntimeL1DiffUpdate
+      && !isRuntimeFrameDiffUpdate
   ) {
     return;
   }
 
-  ACTIVE_MEMORY_RUNTIME_ACTIONS_TO_SILENCE_ON_L1
+  ACTIVE_MEMORY_RUNTIME_ACTIONS_TO_SILENCE_ON_FRAME
     .forEach((action) => {
       window.fadeRuntimeAction(
         action
@@ -785,8 +2508,13 @@ function handleRuntimeMemoryMessage(data) {
     return;
   }
 
-  if (data.type === "runtime_l1_diff_update") {
-    silenceActiveMemoryRuntimeActionsAfterL1(
+  if (data.type === "archived_session_update") {
+    memoryView.applyArchivedSessionUpdate(data.session);
+    return;
+  }
+
+  if (data.type === "runtime_frame_diff_update") {
+    silenceActiveMemoryRuntimeActionsAfterFrame(
       data
     );
 
@@ -797,23 +2525,22 @@ function handleRuntimeMemoryMessage(data) {
     return;
   }
 
-  if (data.type === "runtime_session_memory_update") {
-    session.persistSessionMemory(
-      data
-    );
-
-    return;
-  }
-
   if (data.type !== "runtime_memory_update") {
     return;
   }
+
+  // The disk FRAME commit precedes this event. Recover the current LOGS row
+  // even if its dedicated archived_session_update event was missed in transit.
+  void memoryView.reconcileCurrentArchivedSession();
 
   if (session.isReconnectInitialRuntimeMemoryUpdate(data)) {
     return;
   }
 
   if (session.isLatestRuntimeMemoryDuplicate(data)) {
+    session.persistLiveSessionCheckpoint(
+      data
+    );
     return;
   }
 
@@ -822,24 +2549,15 @@ function handleRuntimeMemoryMessage(data) {
   }
 
   if (session.isBootstrapRuntimeMemoryDuplicate(data)) {
-    return;
-  }
-
-  if (
-      session.shouldIgnoreInitialSessionModeUpdate(data)
-  ) {
-    persistRuntimeMemorySnapshot(
+    session.persistLiveSessionCheckpoint(
       data
     );
-
     return;
   }
 
-  silenceActiveMemoryRuntimeActionsAfterL1(
+  silenceActiveMemoryRuntimeActionsAfterFrame(
     data
   );
-
-  runtimeMemoryDisplayMode = "runtime";
 
   if (window.stopMemoryGlow) {
     window.stopMemoryGlow();
@@ -901,23 +2619,19 @@ function handleRuntimeMemoryMessage(data) {
         clientSnapshot
       );
 
-      feedback.markL1ReadyFromRuntimeUpdate(
+      feedback.markFrameReadyFromRuntimeUpdate(
         data,
         clientIndex
       );
     }
   } else {
-    feedback.markL1ReadyFromRuntimeUpdate(
+    feedback.markFrameReadyFromRuntimeUpdate(
       data
     );
   }
 
   persistRuntimeMemorySnapshot(
     data
-  );
-
-  session.captureSessionSaveRuntimeSnapshot(
-    clientSnapshot
   );
 
   renderRuntimeMemorySnapshot();
@@ -956,16 +2670,45 @@ window.JinRuntime.runtime = {
 
     renderRuntimeMemorySnapshot();
 
+    if (!syncActiveMemoryStateToAvatar()) {
+      refreshRuntimeAvatar();
+    }
+
+    dispatchActiveMemoryRecordsChanged(
+      "clear"
+    );
+
     return records;
   },
   replaceActiveMemoryRecords: replaceActiveMemoryRecordsAndRender,
   appendActiveMemoryRecords: appendActiveMemoryRecordsAndRender,
+  replaceActiveMemoryRecordById: replaceActiveMemoryRecordByIdAndRender,
   removeActiveMemoryRecordById: removeActiveMemoryRecordByIdAndRender,
   getDelayedMemoryReports: readDelayedMemoryReports,
+  getLoadedDelayedMemoryReportIds,
+  replaceLoadedDelayedMemoryReportIds,
+  isDelayedMemoryReportLoaded,
+  markDelayedMemoryReportLoaded,
+  handleDelayedMemoryReportPinClick,
+  logDelayedMemoryUnpinned,
+  setDelayedMemoryReportPinned,
+  updateDelayedMemoryReportFields,
+  setDelayedMemoryReportAnchorFactIds,
+  linkDelayedMemoryReportFactId,
+  linkDelayedMemoryReportFactIds,
+  unlinkDelayedMemoryReportFactId,
+  deleteDelayedMemoryReport: deleteDelayedMemoryReportAndRender,
+  restoreDelayedMemoryReport: restoreDelayedMemoryReportAndRender,
   getFactsMemoryFields,
   deleteFactsMemoryField: deleteFactsMemoryFieldAndRender,
-  replaceDelayedMemoryReports: writeDelayedMemoryReports,
-  appendDelayedMemoryReports,
+  getLongTermMemoryFacts() {
+    return getVisibleLongTermMemoryFacts();
+  },
+  deleteLongTermMemoryFact(factId) {
+    return deleteLongTermMemoryFactAndRender(factId);
+  },
+  replaceDelayedMemoryReports: replaceDelayedMemoryReportsAndRender,
+  mergeDelayedMemoryReports,
 };
 
 window.JinRuntime.init = function () {

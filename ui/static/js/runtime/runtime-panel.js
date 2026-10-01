@@ -5,6 +5,9 @@
 
   const TELEMETRY_FRAME_WARNING_MS = 12;
   const CONTEXT_PANEL_RENDER_THROTTLE_MS = 300;
+  // Keep the Service meter implementation available, but do not render or
+  // calculate it unless this single switch is enabled.
+  const ENABLE_SERVICE_CONTEXT_METER = false;
 
   const SCENE_CONTEXT_PRESSURE_MIDDLE_THRESHOLD = 50;
   const SCENE_CONTEXT_PRESSURE_CLUTTERED_THRESHOLD = 100;
@@ -16,7 +19,7 @@
 
   const sceneContextPressureState = {
     promt_context_presure: 0,
-    L1_memory_context_presure: 0,
+    frame_memory_context_presure: 0,
     middleTurns: 0,
     highTurns: 0,
     lowTurns: 0,
@@ -43,39 +46,17 @@
   let telemetryFrameScheduled = false;
   let contextPanelRenderTimer = null;
 
-  let contextTabButtons = {};
   let contextRuntimePanel = null;
+  let contextPanelResizeObserver = null;
 
   const runtimePanelState = {
-    activeTab: "service",
-    useServiceAsBrain: false,
-    runtimeStatus: {},
     fallbackRuntimes: {},
     liveRuntimes: [],
   };
 
   function readInitialRuntimeConfig() {
 
-    if (window.jinRuntimeConfig) {
-      return window.jinRuntimeConfig;
-    }
-
-    const configTemplate =
-      document.getElementById(
-        "jin-runtime-config"
-      );
-
-    if (!configTemplate) {
-      return {};
-    }
-
-    try {
-      return JSON.parse(
-        configTemplate.textContent || "{}"
-      );
-    } catch (error) {
-      return {};
-    }
+    return window.jinRuntimeConfig || {};
 
   }
 
@@ -152,86 +133,29 @@
   }
 
 
-  function getBrainRuntime() {
+  function getRuntimeUsageAmount(runtime) {
 
-    return (
-      getRuntimeByLabel("brain")
-      || (
-        runtimePanelState.useServiceAsBrain
-          ? getRuntimeByLabel("service")
-          : null
-      )
-    );
-
-  }
-
-
-  function getSummarizerRuntime() {
-
-    return getRuntimeByLabel(
-      "summarizer"
-    );
-
-  }
-
-
-  function getSelectedRuntime() {
-
-    if (runtimePanelState.activeTab === "brain") {
-      return getBrainRuntime();
+    if (!runtime) {
+      return 0;
     }
 
+    return Math.max(
+      Number(runtime.used_tokens || 0),
+      Number(runtime.context_tokens || 0),
+      Number(runtime.total_tokens || 0)
+    );
+
+  }
+
+
+  function getServiceRuntime() {
     return getRuntimeByLabel("service");
 
   }
 
 
-  function hasRuntimeStatus(role) {
-
-    return typeof (
-      runtimePanelState.runtimeStatus[role]
-    ) === "boolean";
-
-  }
-
-
-  function isRuntimeOnline(role) {
-
-    if (!hasRuntimeStatus(role)) {
-      return false;
-    }
-
-    return Boolean(
-      runtimePanelState.runtimeStatus[role]
-    );
-
-  }
-
-
-  function isContextTabDisabled(role) {
-
-    return !isRuntimeOnline(role);
-
-  }
-
-
-  function formatContextTokens(runtime) {
-
-    const runtimeInfo =
-      runtime;
-
-    if (!runtimeInfo) {
-      return {
-        used: 0,
-        max: 0,
-      };
-    }
-
-    return {
-      used: runtimeInfo.used_tokens || 0,
-      max: runtimeInfo.max_tokens || 0,
-    };
-
+  function getBrainRuntime() {
+    return getRuntimeByLabel("brain");
   }
 
 
@@ -273,6 +197,35 @@
     const lightness = 64;
 
     return `hsl(${hue}, ${saturation}%, ${lightness}%)`;
+
+  }
+
+
+  function syncAvatarContextPressure(percent, pressureColor) {
+
+    const root = document.documentElement;
+
+    if (!root) {
+      return;
+    }
+
+    const clamped =
+      Math.max(
+        0,
+        Math.min(
+          100,
+          Number(percent || 0)
+        )
+      );
+
+    root.style.setProperty(
+      "--jin-context-pressure-color",
+      String(pressureColor || getContextPressureColor(clamped))
+    );
+    root.style.setProperty(
+      "--jin-context-pressure-percent",
+      String(clamped)
+    );
 
   }
 
@@ -495,8 +448,8 @@
     window.jinSceneContextPressure = {
       promt_context_presure:
         sceneContextPressureState.promt_context_presure,
-      L1_memory_context_presure:
-        sceneContextPressureState.L1_memory_context_presure,
+      frame_memory_context_presure:
+        sceneContextPressureState.frame_memory_context_presure,
       middleTurns:
         sceneContextPressureState.middleTurns,
       highTurns:
@@ -517,7 +470,7 @@
     }
 
     const key =
-      `${sample.promptPressure}:${sample.l1Pressure}`;
+      `${sample.promptPressure}:${sample.framePressure}`;
 
     const turnKey =
       sample.turnKey || "turn:0";
@@ -539,20 +492,20 @@
     sceneContextPressureState.promt_context_presure =
       sample.promptPressure;
 
-    sceneContextPressureState.L1_memory_context_presure =
-      sample.l1Pressure;
+    sceneContextPressureState.frame_memory_context_presure =
+      sample.framePressure;
 
     const bothMiddleHigh =
       sample.promptPressure > SCENE_CONTEXT_PRESSURE_MIDDLE_THRESHOLD
-      && sample.l1Pressure > SCENE_CONTEXT_PRESSURE_MIDDLE_THRESHOLD;
+      && sample.framePressure > SCENE_CONTEXT_PRESSURE_MIDDLE_THRESHOLD;
 
     const bothClutteredHigh =
       sample.promptPressure > SCENE_CONTEXT_PRESSURE_CLUTTERED_THRESHOLD
-      && sample.l1Pressure > SCENE_CONTEXT_PRESSURE_CLUTTERED_THRESHOLD;
+      && sample.framePressure > SCENE_CONTEXT_PRESSURE_CLUTTERED_THRESHOLD;
 
     const bothClearLow =
       sample.promptPressure < SCENE_CONTEXT_PRESSURE_CLEAR_THRESHOLD
-      && sample.l1Pressure < SCENE_CONTEXT_PRESSURE_CLEAR_THRESHOLD;
+      && sample.framePressure < SCENE_CONTEXT_PRESSURE_CLEAR_THRESHOLD;
 
     if (bothMiddleHigh) {
       sceneContextPressureState.middleTurns += 1;
@@ -601,27 +554,27 @@
 
   function scheduleSceneContextPressureSample(
     promptPressure,
-    l1Pressure
+    framePressure
   ) {
 
     const sample = {
       promptPressure:
         clampContextPressure(promptPressure),
-      l1Pressure:
-        clampContextPressure(l1Pressure),
+      framePressure:
+        clampContextPressure(framePressure),
       turnKey:
         getSceneContextPressureTurnKey(),
     };
 
     if (
       sample.promptPressure <= 0
-      && sample.l1Pressure <= 0
+      && sample.framePressure <= 0
     ) {
       return;
     }
 
     const key =
-      `${sample.promptPressure}:${sample.l1Pressure}`;
+      `${sample.promptPressure}:${sample.framePressure}`;
 
     const turnKey =
       sample.turnKey || "turn:0";
@@ -668,7 +621,7 @@
 
   function updateSceneContextPressureFromLines(
     promptContextLine,
-    l1ContextLine
+    frameContextLine
   ) {
 
     scheduleSceneContextPressureSample(
@@ -676,7 +629,7 @@
         promptContextLine
       ),
       getContextLinePressure(
-        l1ContextLine
+        frameContextLine
       )
     );
 
@@ -691,11 +644,6 @@
     const runtimeInfo =
       runtime;
 
-    const used =
-      runtimeInfo
-        ? Number(runtimeInfo.used_tokens || 0)
-        : 0;
-
     const contextUsed =
       runtimeInfo
         ? Number(
@@ -707,23 +655,25 @@
 
     const totalUsed =
       runtimeInfo
-        ? Math.max(
-            contextUsed,
-            Number(
-              runtimeInfo.total_tokens
-              || runtimeInfo.used_tokens
-              || 0
-            )
+        ? getRuntimeUsageAmount(
+            runtimeInfo
           )
         : 0;
+
+    // Drive the visible counter/percentage from the live total. During
+    // reasoning the prompt baseline stays fixed, but total usage keeps
+    // increasing chunk by chunk.
+    const used = totalUsed;
 
     const max =
       runtimeInfo
         ? Number(runtimeInfo.max_tokens || 0)
         : 0;
 
+    const hasKnownWindow = max > 0;
+
     const rawPercent =
-      max > 0
+      hasKnownWindow
         ? (used / max) * 100
         : 0;
 
@@ -737,8 +687,7 @@
       Math.round(rawPercent);
 
     const percentLabel =
-      used > 0
-      && rawPercent < 1
+      used > 0 && hasKnownWindow && rawPercent < 1
         ? "<1%"
         : `${percent}%`;
 
@@ -907,257 +856,187 @@
   }
 
 
-  function setTabClasses(role) {
-
-    const button =
-      contextTabButtons[role];
-
-    if (!button) {
-      return;
-    }
-
-    const isActive =
-      runtimePanelState.activeTab === role;
-
-    const isDisabled =
-      isContextTabDisabled(role);
-
-    button.disabled =
-      isDisabled;
-
-    button.setAttribute(
-      "aria-selected",
-      String(isActive)
-    );
-
-    button.setAttribute(
-      "aria-disabled",
-      String(isDisabled)
-    );
-
-    if (isDisabled) {
-      const borderClass =
-        role === "service"
-          ? "border-r border-slate-500/70 "
-          : "";
-
-      button.className =
-        "h-8 "
-        + borderClass
-        + "text-[11px] font-bold uppercase tracking-widest text-slate-500 cursor-not-allowed";
-
-      return;
-    }
-
-    if (isActive && role === "service") {
-      button.className =
-        "h-8 border-r border-slate-500/70 bg-slate-600/70 text-[11px] font-bold uppercase tracking-widest text-zinc-50 transition";
-
-      return;
-    }
-
-    if (isActive) {
-      button.className =
-        "h-8 bg-slate-600/70 text-[11px] font-bold uppercase tracking-widest text-zinc-50 transition";
-
-      return;
-    }
-
-    if (role === "service") {
-      button.className =
-        "h-8 border-r border-slate-500/70 text-[11px] font-bold uppercase tracking-widest text-slate-300 transition hover:bg-slate-600/50 hover:text-zinc-50";
-
-      return;
-    }
-
-    button.className =
-      "h-8 text-[11px] font-bold uppercase tracking-widest text-slate-300 transition hover:bg-slate-600/50 hover:text-zinc-50";
-
-  }
-
-
-  function setContextPanelRuntime(runtime) {
+  function setContextPanelRuntimes(
+    brainRuntime,
+    serviceRuntime
+  ) {
 
     if (contextRuntimePanel) {
       contextRuntimePanel.classList.toggle(
         "hidden",
-        !runtime
+        !brainRuntime && !serviceRuntime
       );
     }
 
-    const titleElement =
+    const brainLineElement =
       document.getElementById(
-        "context-panel-title"
+        "brain-context-window-line"
       );
-
-    const modelElement =
+    const brainBarElement =
       document.getElementById(
-        "context-panel-model"
+        "brain-context-window-bar"
       );
-
+    const brainPercentElement =
+      document.getElementById(
+        "brain-context-window-percent"
+      );
+    const serviceLineElement =
+      document.getElementById(
+        "service-context-window-line"
+      );
+    const serviceBarElement =
+      document.getElementById(
+        "service-context-window-bar"
+      );
+    const servicePercentElement =
+      document.getElementById(
+        "service-context-window-percent"
+      );
     const summaryElement =
       document.getElementById(
         "context-summary-tokens"
       );
-
     const summaryUsedElement =
       document.getElementById(
         "context-summary-used"
       );
-
     const summaryMaxElement =
       document.getElementById(
         "context-summary-max"
       );
 
-    const lineElement =
-      document.getElementById(
-        "context-window-line"
-      );
-
-    const barElement =
-      document.getElementById(
-        "context-window-bar"
-      );
-
-    const percentElement =
-      document.getElementById(
-        "context-window-percent"
-      );
-
-    const summarizerLineElement =
-      document.getElementById(
-        "summarizer-window-line"
-      );
-
-    const summarizerBarElement =
-      document.getElementById(
-        "summarizer-window-bar"
-      );
-
-    const summarizerPercentElement =
-      document.getElementById(
-        "summarizer-window-percent"
-      );
-
-    const tokenText =
-      formatContextTokens(runtime);
-
-    const contextLine =
-      buildContextLine(
-        runtime,
-        getContextBarCells(
-          barElement
+    const brainLine = buildContextLine(
+      brainRuntime,
+      getContextBarCells(brainBarElement)
+    );
+    const serviceLine = ENABLE_SERVICE_CONTEXT_METER
+      ? buildContextLine(
+          serviceRuntime,
+          getContextBarCells(serviceBarElement)
         )
-      );
+      : null;
 
-    const pressureColor =
-        getContextPressureColor(
-            Math.max(
-              contextLine.percent,
-              contextLine.totalPercent
-            )
-        );
-
-    const summarizerRuntime =
-      getSummarizerRuntime();
-
-    const summarizerTokenText =
-      formatContextTokens(
-        summarizerRuntime
-      );
-
-    const summarizerLine =
-      buildContextLine(
-        summarizerRuntime,
-        getContextBarCells(
-          summarizerBarElement
-        )
-      );
-
-    const summarizerPressureColor =
-        getContextPressureColor(
-            Math.max(
-              summarizerLine.percent,
-              summarizerLine.totalPercent
-            )
-        );
-
-    if (titleElement) {
-      titleElement.textContent =
-        `STATUS`;
-    }
-
-    if (modelElement) {
-      modelElement.textContent =
-        `${runtime ? runtime.model : "unknown"}`;
+    if (serviceLineElement) {
+      serviceLineElement.style.display =
+        ENABLE_SERVICE_CONTEXT_METER
+          ? ""
+          : "none";
     }
 
     if (summaryElement) {
       summaryElement.setAttribute(
         "aria-label",
-        `${tokenText.used} / ${tokenText.max}`
+        `${brainLine.totalUsed} / ${brainLine.max || "unknown"}`
       );
     }
 
     if (summaryUsedElement) {
       summaryUsedElement.textContent =
-        `${tokenText.used}\u00a0/`;
+        `${brainLine.totalUsed}\u00a0/`;
     }
 
     if (summaryMaxElement) {
       summaryMaxElement.textContent =
-        `${tokenText.max}`;
+        `${brainLine.max}`;
     }
 
-    if (lineElement) {
-      lineElement.title =
-        `context: ${contextLine.contextUsed} / ${contextLine.max} `
-        + `(${contextLine.contextPercent}%), total: `
-        + `${contextLine.totalUsed} / ${contextLine.max} `
-        + `(${contextLine.totalPercent}%)`;
-    }
-
-    renderContextBar(
+    function renderRuntimeLine(
+      role,
+      runtime,
+      line,
+      lineElement,
       barElement,
-      contextLine,
-      pressureColor
-    );
+      percentElement
+    ) {
+      const pressureColor = getContextPressureColor(
+        Math.max(
+          line.percent,
+          line.totalPercent
+        )
+      );
 
-    if (percentElement) {
-      percentElement.textContent =
-        contextLine.percentLabel;
-      percentElement.style.color =
+      if (lineElement) {
+        lineElement.title =
+          role.toUpperCase()
+          + " · "
+          + (runtime ? runtime.model : "unknown")
+          + " · context: "
+          + line.contextUsed
+          + " / "
+          + line.max
+          + " ("
+          + line.contextPercent
+          + "%), total: "
+          + line.totalUsed
+          + " / "
+          + line.max
+          + " ("
+          + line.totalPercent
+          + "%)";
+        lineElement.setAttribute(
+          "aria-label",
+          lineElement.title
+        );
+      }
+
+      renderContextBar(
+        barElement,
+        line,
+        pressureColor
+      );
+
+      if (percentElement) {
+        percentElement.textContent =
+          line.percentLabel;
+        percentElement.style.color =
           pressureColor;
+      }
     }
 
-    if (summarizerLineElement) {
-      summarizerLineElement.title =
-        `context: ${summarizerLine.contextUsed} / ${summarizerLine.max} `
-        + `(${summarizerLine.contextPercent}%), total: `
-        + `${summarizerLine.totalUsed} / ${summarizerLine.max} `
-        + `(${summarizerLine.totalPercent}%)`;
-    }
-
-    renderContextBar(
-      summarizerBarElement,
-      summarizerLine,
-      summarizerPressureColor
+    renderRuntimeLine(
+      "brain",
+      brainRuntime,
+      brainLine,
+      brainLineElement,
+      brainBarElement,
+      brainPercentElement
     );
-
-    if (summarizerPercentElement) {
-      summarizerPercentElement.textContent =
-        summarizerLine.percentLabel;
-      summarizerPercentElement.style.color =
-          summarizerPressureColor;
+    if (ENABLE_SERVICE_CONTEXT_METER) {
+      renderRuntimeLine(
+        "service",
+        serviceRuntime,
+        serviceLine,
+        serviceLineElement,
+        serviceBarElement,
+        servicePercentElement
+      );
     }
+
+    const avatarPressureLine =
+      ENABLE_SERVICE_CONTEXT_METER
+        ? (
+            brainRuntime
+              ? brainLine
+              : serviceLine
+          )
+        : brainLine;
+    const avatarPressurePercent =
+      Math.max(
+        Number(avatarPressureLine.percent || 0),
+        Number(avatarPressureLine.totalPercent || 0)
+      );
+
+    syncAvatarContextPressure(
+      avatarPressurePercent,
+      getContextPressureColor(avatarPressurePercent)
+    );
 
     updateSceneContextPressureFromLines(
-      contextLine,
-      summarizerLine
+      brainLine,
+      ENABLE_SERVICE_CONTEXT_METER
+        ? serviceLine
+        : null
     );
-
-    void summarizerTokenText;
 
   }
 
@@ -1203,9 +1082,7 @@
   function renderLiveRuntimeTelemetry() {
 
     const serviceRuntime =
-      getRuntimeByLabel(
-        "service"
-      );
+      getServiceRuntime();
 
     const brainRuntime =
       getBrainRuntime();
@@ -1215,15 +1092,9 @@
       brainRuntime
     );
 
-    const selectedRuntime =
-      isContextTabDisabled(
-        runtimePanelState.activeTab
-      )
-        ? null
-        : getSelectedRuntime();
-
-    setContextPanelRuntime(
-      selectedRuntime
+    setContextPanelRuntimes(
+      brainRuntime,
+      serviceRuntime
     );
 
   }
@@ -1327,68 +1198,10 @@
 
 
   function renderContextPanel() {
-
-    if (isContextTabDisabled(
-      runtimePanelState.activeTab
-    )) {
-
-      const fallbackTab =
-        ["brain", "service"].find(
-          role => !isContextTabDisabled(role)
-        );
-
-      if (fallbackTab) {
-        runtimePanelState.activeTab =
-          fallbackTab;
-      }
-    }
-
-    setTabClasses("service");
-    setTabClasses("brain");
-
-    const selectedRuntime =
-      isContextTabDisabled(
-        runtimePanelState.activeTab
-      )
-        ? null
-        : getSelectedRuntime();
-
-    setContextPanelRuntime(selectedRuntime);
-
-  }
-
-
-  function selectContextTab(role) {
-
-    if (isContextTabDisabled(role)) {
-      return;
-    }
-
-    runtimePanelState.activeTab =
-      role;
-
-    renderContextPanel();
-
-  }
-
-
-  function setUseServiceAsBrain(enabled) {
-
-    runtimePanelState.useServiceAsBrain =
-      Boolean(enabled);
-
-    renderContextPanel();
-
-  }
-
-
-  function setRuntimeStatusSnapshot(runtimeStatus) {
-
-    runtimePanelState.runtimeStatus =
-      runtimeStatus || {};
-
-    renderContextPanel();
-
+    setContextPanelRuntimes(
+      getBrainRuntime(),
+      getServiceRuntime()
+    );
   }
 
 
@@ -1398,9 +1211,7 @@
       runtimeConfig || {};
 
     const serviceRuntime =
-      getRuntimeByLabel(
-        "service"
-      );
+      getServiceRuntime();
 
     const brainRuntime =
       getBrainRuntime();
@@ -1422,10 +1233,8 @@
     }
 
     window.jinRuntimeConfig = {
-      useServiceAsBrain:
-        Boolean(
-          data.use_service_as_brain
-        ),
+      serviceConfigured:
+        Boolean(data.service_configured),
       formatResponse:
         data.format_response !== false,
       runtimeStatus: {
@@ -1435,18 +1244,6 @@
       runtimeConfig:
         data.runtime_config || {},
     };
-
-    setRuntimeStatusSnapshot(
-      window
-        .jinRuntimeConfig
-        .runtimeStatus
-    );
-
-    setUseServiceAsBrain(
-      window
-        .jinRuntimeConfig
-        .useServiceAsBrain
-    );
 
     setRuntimeConfigSnapshot(
       window
@@ -1487,52 +1284,30 @@
     window.jinRuntimeConfig =
       initialRuntimeConfig;
 
-    runtimePanelState.useServiceAsBrain = Boolean(
-      initialRuntimeConfig.useServiceAsBrain
-    );
-
-    runtimePanelState.runtimeStatus = (
-      initialRuntimeConfig.runtimeStatus
-    ) || {};
-
     runtimePanelState.fallbackRuntimes = (
       initialRuntimeConfig.runtimeConfig
     ) || {};
-
-    contextTabButtons = {
-      service: document.getElementById(
-        "service-context-tab"
-      ),
-      brain: document.getElementById(
-        "brain-context-tab"
-      ),
-    };
 
     contextRuntimePanel =
       document.getElementById(
         "context-runtime-panel"
       );
 
-    Object.entries(
-      contextTabButtons
-    ).forEach(
-      ([role, button]) => {
-
-        if (!button) {
-          return;
-        }
-
-        button.addEventListener(
-          "click",
+    if (
+      contextRuntimePanel
+      && typeof window.ResizeObserver === "function"
+    ) {
+      contextPanelResizeObserver =
+        new window.ResizeObserver(
           function () {
-            selectContextTab(
-              role
-            );
+            scheduleRuntimeTelemetryFrame();
           }
         );
 
-      }
-    );
+      contextPanelResizeObserver.observe(
+        contextRuntimePanel
+      );
+    }
 
     window.addEventListener(
       "resize",
@@ -1548,14 +1323,6 @@
       );
 
     } else if (window.jinRuntimeConfig) {
-
-      setRuntimeStatusSnapshot(
-        window.jinRuntimeConfig.runtimeStatus || {}
-      );
-
-      setUseServiceAsBrain(
-        window.jinRuntimeConfig.useServiceAsBrain
-      );
 
       setRuntimeConfigSnapshot(
         window.jinRuntimeConfig.runtimeConfig || {}
@@ -1575,15 +1342,12 @@
     init,
     findRuntimeByLabel,
     getRuntimeByLabel,
+    getServiceRuntime,
     getBrainRuntime,
-    getSummarizerRuntime,
-    getSelectedRuntime,
     handleTelemetryMessage,
     updateRuntimePanelFromStatus,
     flushRuntimeTelemetryRender,
     renderContextPanel,
-    setUseServiceAsBrain,
-    setRuntimeStatusSnapshot,
     setRuntimeConfigSnapshot,
   };
 
@@ -1599,14 +1363,6 @@
 
   window.flushRuntimeTelemetryRender = function (options) {
     return api.flushRuntimeTelemetryRender(options);
-  };
-
-  window.setUseServiceAsBrain = function (enabled) {
-    return api.setUseServiceAsBrain(enabled);
-  };
-
-  window.setRuntimeStatusSnapshot = function (runtimeStatus) {
-    return api.setRuntimeStatusSnapshot(runtimeStatus);
   };
 
   window.setRuntimeConfigSnapshot = function (runtimeConfig) {

@@ -1,0 +1,506 @@
+# Renders runtime action results as readable text for <TOOL_RESULT> blocks.
+import json
+import re
+
+
+def _humanize_key(value: str) -> str:
+    text = str(value or "").strip().replace("_", " ")
+    return text[:1].upper() + text[1:] if text else "Value"
+
+
+def _format_scalar(value) -> str:
+    if value is True:
+        return "true"
+    if value is False:
+        return "false"
+    if value is None:
+        return "none"
+    return str(value)
+
+
+def _compact_turn_id(value) -> str:
+    text = str(value or "").strip()
+    match = re.fullmatch(r"turn_0*(\d+)", text)
+    if match:
+        return f"turn_{int(match.group(1))}"
+    return text or "turn_unknown"
+
+
+def _append_compact_messages(
+    lines: list[str],
+    value,
+    *,
+    indent: str,
+) -> None:
+    lines.append(f"{indent}Messages:")
+    if not value:
+        lines.append(f"{indent}  none")
+        return
+
+    for index, item in enumerate(value):
+        if index:
+            lines.append("")
+
+        if not isinstance(item, dict):
+            lines.append(f"{indent}  {_format_scalar(item)}")
+            continue
+
+        turn_id = _compact_turn_id(item.get("turn_id"))
+        timestamp = str(item.get("timestamp") or "").strip()
+        header = turn_id if not timestamp else f"{turn_id} | {timestamp}"
+        lines.append(f"{indent}  {header}")
+
+        role = str(item.get("role") or "message").strip() or "message"
+        text = str(item.get("text") or "").strip()
+        text_lines = text.splitlines() if text else []
+        if not text_lines:
+            lines.append(f"{indent}  {role}:")
+            continue
+
+        lines.append(f"{indent}  {role}: {text_lines[0]}")
+        lines.extend(f"{indent}  {line}" for line in text_lines[1:])
+
+
+def _append_value(
+    lines: list[str],
+    label: str,
+    value,
+    *,
+    indent: str = "",
+    compact_messages: bool = False,
+) -> None:
+    if compact_messages and label == "Messages" and isinstance(value, (list, tuple)):
+        _append_compact_messages(lines, value, indent=indent)
+        return
+    if isinstance(value, dict):
+        lines.append(f"{indent}{label}:")
+        if not value:
+            lines.append(f"{indent}  none")
+            return
+
+        for key, nested_value in value.items():
+            _append_value(
+                lines,
+                _humanize_key(key),
+                nested_value,
+                indent=indent + "  ",
+                compact_messages=compact_messages,
+            )
+        return
+
+    if isinstance(value, (list, tuple)):
+        lines.append(f"{indent}{label}:")
+        if not value:
+            lines.append(f"{indent}  none")
+            return
+
+        for item in value:
+            if isinstance(item, dict):
+                item_lines: list[str] = []
+                for key, nested_value in item.items():
+                    _append_value(
+                        item_lines,
+                        _humanize_key(key),
+                        nested_value,
+                        compact_messages=compact_messages,
+                    )
+                if item_lines:
+                    lines.append(f"{indent}  - {item_lines[0]}")
+                    lines.extend(
+                        f"{indent}    {line}"
+                        for line in item_lines[1:]
+                    )
+                continue
+
+            lines.append(
+                f"{indent}  - {_format_scalar(item)}"
+            )
+        return
+
+    text = _format_scalar(value)
+    if "\n" in text:
+        lines.append(f"{indent}{label}:")
+        lines.extend(
+            f"{indent}  {line}"
+            for line in text.splitlines()
+        )
+        return
+
+    lines.append(f"{indent}{label}: {text}")
+
+
+def _runtime_action_for_result(
+    result: dict,
+    runtime_action: str,
+) -> str:
+    candidate = str(
+        runtime_action
+        or result.get("runtime_action_name")
+        or result.get("action")
+        or ""
+    ).strip()
+
+    if not candidate:
+        return ""
+
+    try:
+        from contracts.rules_assembler import get_runtime_action_name
+
+        return (
+            get_runtime_action_name(candidate)
+            or candidate.upper()
+        )
+    except Exception:
+        return candidate.upper()
+
+
+def _failure_reason(result: dict) -> str:
+    for key in (
+        "detail",
+        "failure",
+        "failure_reason",
+        "failure_followup_message",
+    ):
+        value = str(
+            result.get(key, "")
+            or ""
+        ).strip()
+        if value:
+            return value
+
+    error = str(
+        result.get("error", "")
+        or ""
+    ).strip()
+    if error:
+        return error.replace("_", " ")
+
+    return "action failed"
+
+
+def _posting_board_response_for_context(value):
+    """Return a context-safe copy of a Posting Board response.
+
+    Posting Board may include ``action_templates`` for transport clients (for
+    example MCP ``request_id`` requirements). JIN already owns that transport
+    layer, so exposing those templates to the model creates a second,
+    conflicting action contract. Keep the original response untouched for UI
+    traces/debugging and remove only those transport templates from the model
+    context.
+    """
+
+    if isinstance(value, dict):
+        return {
+            key: _posting_board_response_for_context(item)
+            for key, item in value.items()
+            if str(key).casefold() != "action_templates"
+        }
+
+    if isinstance(value, list):
+        return [
+            _posting_board_response_for_context(item)
+            for item in value
+        ]
+
+    if isinstance(value, tuple):
+        return tuple(
+            _posting_board_response_for_context(item)
+            for item in value
+        )
+
+    return value
+
+
+def _format_posting_board_result(result: dict) -> str:
+    action = str(result.get("action") or "unknown").strip().casefold()
+    ok = result.get("ok") is not False
+    display_text = str(
+        result.get("display_text")
+        or f"POSTING_BOARD: action:{action}"
+    ).strip()
+    lines = [
+        display_text,
+        f"Status: {'success' if ok else 'failed'}",
+    ]
+
+    status_code = result.get("status_code")
+    if status_code not in (None, ""):
+        lines.append(f"HTTP status: {status_code}")
+
+    if not ok:
+        lines.append(f"Reason: {_failure_reason(result)}")
+        error_code = str(result.get("error") or "").strip()
+        if error_code:
+            lines.append(f"Error code: {error_code}")
+
+    request = result.get("request")
+    if request not in (None, "", {}, []):
+        lines.extend((
+            "",
+            "Request:",
+            *[
+                f"  {line}"
+                for line in json.dumps(
+                    request,
+                    ensure_ascii=False,
+                    indent=2,
+                ).splitlines()
+            ],
+        ))
+
+    response = _posting_board_response_for_context(
+        result.get("response")
+    )
+    if response not in (None, "", {}, []):
+        if isinstance(response, str):
+            response_text = response
+        else:
+            response_text = json.dumps(
+                response,
+                ensure_ascii=False,
+                indent=2,
+            )
+        lines.extend((
+            "",
+            "Response:",
+            *[f"  {line}" for line in response_text.splitlines()],
+        ))
+
+    if not ok:
+        schema = _action_schema("POSTING_BOARD")
+        if schema:
+            lines.extend(("", "Correct action schema:"))
+            lines.extend(
+                f"  {line}"
+                for line in schema
+            )
+
+    retry_after = str(result.get("retry_after") or "").strip()
+    if retry_after:
+        lines.extend(("", f"Retry after: {retry_after}"))
+
+    return "\n".join(lines).strip()
+
+def _action_schema(runtime_action: str) -> tuple[str, ...]:
+    if not runtime_action:
+        return ()
+
+    try:
+        from contracts.rules_assembler import get_runtime_action_schema
+
+        return get_runtime_action_schema(runtime_action)
+    except Exception:
+        return ()
+
+
+def _append_applied_changes(
+    lines: list[str],
+    changes,
+) -> None:
+    if not isinstance(changes, (list, tuple)):
+        return
+
+    change_lines = []
+    for change in changes:
+        if not isinstance(change, dict):
+            continue
+
+        field = str(
+            change.get("field", "")
+            or ""
+        ).strip()
+        if not field:
+            continue
+
+        before = change.get("before")
+        after = change.get("after")
+
+        if before is not None and str(before) != "":
+            change_lines.append(
+                f"  - {field}: {before} -> {after}"
+            )
+        else:
+            change_lines.append(
+                f"  - {field}: {after}"
+            )
+
+    if not change_lines:
+        return
+
+    lines.append("")
+    lines.append("Applied changes:")
+    lines.extend(change_lines)
+
+
+def format_runtime_action_result(
+    result,
+    *,
+    runtime_action: str = "",
+) -> str:
+    """Format one action result without serializing the result object as JSON."""
+
+    if not isinstance(result, dict):
+        lines: list[str] = []
+        _append_value(lines, "Result", result)
+        return "\n".join(lines).strip()
+
+    action_name = _runtime_action_for_result(
+        result,
+        runtime_action,
+    )
+    if str(result.get("error") or "").strip().casefold() == "duplicate_action_execution":
+        return "\n".join((
+            "Status: failed",
+            "Reason: DUPLICATED ACTION EXECUTION. CHECK PREVIOUS TOOL RESULTS.",
+            "Error code: duplicate_action_execution",
+        ))
+    if action_name == "MALFORMED_ACTION":
+        return f"Action: {result.get('malformed_action', '')}\nPayload: {result.get('payload', '')}"
+    if action_name == "POSTING_BOARD":
+        return _format_posting_board_result(result)
+    ok = result.get("ok") is not False
+    if ok and action_name == "CHAT_LOG_SEARCH":
+        from utils.chat_log_search import format_chat_log_search
+        return format_chat_log_search(result)
+    lines: list[str] = []
+
+    result_id = str(
+        result.get("id")
+        or result.get("requested_id")
+        or ""
+    ).strip()
+
+    if result_id:
+        if "ACTIVE_MEMORY" in action_name:
+            lines.append(
+                f"Active memory id: {result_id}"
+            )
+        else:
+            lines.append(
+                f"Result id: {result_id}"
+            )
+
+    lines.append(
+        f"Status: {'success' if ok else 'failed'}"
+    )
+
+    if not ok:
+        lines.append(
+            f"Reason: {_failure_reason(result)}"
+        )
+
+        error_code = str(
+            result.get("error", "")
+            or ""
+        ).strip()
+        if error_code:
+            lines.append(
+                f"Error code: {error_code}"
+            )
+
+        provided_payload = result.get("payload")
+        if provided_payload is None and "requested" in result:
+            provided_payload = result.get("requested")
+
+        if (
+            provided_payload is not None
+            and str(provided_payload).strip()
+        ):
+            lines.append("")
+            lines.append("Provided payload:")
+            lines.extend(
+                f"  {line}"
+                for line in str(provided_payload).splitlines()
+            )
+
+        schema = _action_schema(action_name)
+        if schema:
+            lines.append("")
+            lines.append("Correct action schema:")
+            lines.extend(
+                f"  {line}"
+                for line in schema
+            )
+
+        for key in (
+            "available_fields",
+            "available_ids",
+        ):
+            value = result.get(key)
+            if value in (None, "", [], {}):
+                continue
+
+            lines.append("")
+            _append_value(
+                lines,
+                _humanize_key(key),
+                value,
+            )
+
+        return "\n".join(lines).strip()
+
+    _append_applied_changes(
+        lines,
+        result.get("changes"),
+    )
+
+    consumed_keys = {
+        "ok",
+        "action",
+        "runtime_action_name",
+        "error",
+        "detail",
+        "failure",
+        "failure_reason",
+        "failure_followup_message",
+        "payload",
+        "id",
+        "requested_id",
+        "requested",
+        "changes",
+    }
+
+    for key, value in result.items():
+        if (
+            key in consumed_keys
+            or value in (None, "", [], {})
+        ):
+            continue
+
+        lines.append("")
+        _append_value(
+            lines,
+            _humanize_key(key),
+            value,
+            compact_messages=(action_name == "RECALL_FACT_CONTEXT"),
+        )
+
+    return "\n".join(lines).strip()
+
+
+def format_action_failure_summary(entry: dict) -> str:
+    """Readable failure payload, without duplicating the action schema."""
+    result = entry.get("result")
+    if not isinstance(result, dict) or result.get("ok") is not False:
+        return ""
+    if entry.get("kind") == "files":
+        from .files import format_file_result, file_result_summary
+        body = format_file_result(result).split("Correct action schema:", 1)[0].rstrip()
+        return file_result_summary(result) + "\n" + body
+    lines = []
+    for key, value in result.items():
+        if key in {"schema", "action_schema"}:
+            continue
+        label = "Status" if key == "ok" else _humanize_key(key)
+        if key == "ok":
+            value = "failed"
+        if key == "payload" and isinstance(value, str):
+            import json
+            try:
+                value = json.loads(value)
+            except (ValueError, TypeError):
+                pass
+        _append_value(lines, label, value)
+    if entry.get("action_payload") and "payload" not in result:
+        _append_value(lines, "Provided payload", entry["action_payload"])
+    return "\n".join(lines)

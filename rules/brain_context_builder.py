@@ -1,10 +1,16 @@
+from __future__ import annotations
+from runtime.memory_profile import commit_active
 # =============================================================================
 #  JIN BRAIN CONTEXT BUILDER
 #  Builds the complete brain system context in one place.
 # =============================================================================
 
-from __future__ import annotations
 
+from datetime import datetime
+from utils.project_context import (
+    build_project_review_context, pinned_project_reports, project_fact_ids,
+    project_review_active,
+)
 from xml.sax.saxutils import escape
 
 from .identity import IDENTITY
@@ -12,33 +18,110 @@ from .signal import LOOP_RULES, EXTREME_LOW_DIFF_RULES, ZERO_DIFF_RULES, \
     LOW_DIFF_RULES, MIDDLE_DIFF_RULES, NORMAL_DIFF_RULES
 from contracts.rules_assembler import (
     build_runtime_action_instructions,
-    get_enabled_runtime_actions,
+    get_enabled_runtime_actions as get_contract_enabled_runtime_actions,
+)
+from app_settings import (
+    settings,
 )
 
 
-SERVICE_AS_BRAIN_RUNTIME_ACTIONS = {
-    "CAN_WEB_SEARCH": True,
-    "CAN_USE_ASSETS": True,
-    "CAN_SAVE_SESSION": True,
-    "CAN_SAVE_DELAYED_MEMORY": True,
-    "CAN_SAVE_ACTIVE_MEMORY": True,
-    "CAN_RUNTIME_TODO": False,
-    "CAN_CLEAN_TOOL_RESULTS": True,
-    "CAN_IDLE": True,
-    "CAN_JIN_COLOR": True,
-}
+CURRENT_RUNTIME_SETTINGS_CONTENT = ("")
+SEARCH_RUNTIME_ACTION_FLAGS = (
+    "CAN_DEEP_WEB_SEARCH",
+    "CAN_WEB_SEARCH",
+)
 
 BRAIN_RUNTIME_ACTIONS = {
+    "CAN_CHAT_LOG_SEARCH": True,
+    "CAN_DEEP_WEB_SEARCH": True,
     "CAN_WEB_SEARCH": True,
     "CAN_USE_ASSETS": True,
-    "CAN_SAVE_SESSION": True,
     "CAN_SAVE_DELAYED_MEMORY": True,
     "CAN_SAVE_ACTIVE_MEMORY": True,
-    "CAN_RUNTIME_TODO": False,
     "CAN_CLEAN_TOOL_RESULTS": True,
-    "CAN_IDLE": True,
     "CAN_JIN_COLOR": True,
+    "CAN_JIN_REACTION": True,
+    "CAN_JIN_SIZE": True,
+    "CAN_JIN_POSITION": True,
+    "CAN_JIN_SPEED": True,
+    "CAN_UPDATE_LT_FACTS": True,
+    "CAN_RECALL_FACT_CONTEXT": True,
+    "CAN_POSTING_BOARD": True,
+    "CAN_CALL_MCP": True,
 }
+
+
+def search_actions_available() -> bool:
+
+    return bool(
+        getattr(
+            settings,
+            "CAN_SEARCH",
+            False,
+        )
+    )
+
+
+def get_effective_runtime_actions(
+    runtime_actions=None,
+) -> dict:
+
+    effective_actions = dict(
+        runtime_actions
+        or {}
+    )
+
+    if not search_actions_available():
+        for flag_name in SEARCH_RUNTIME_ACTION_FLAGS:
+            effective_actions[flag_name] = False
+
+    return effective_actions
+
+
+def get_enabled_runtime_actions(
+    runtime_actions=None,
+) -> tuple[str, ...]:
+
+    return get_contract_enabled_runtime_actions(
+        get_effective_runtime_actions(
+            runtime_actions
+        )
+    )
+
+LOADED_DELAYED_MEMORY_CONTEXT_FIELDS = (
+    "title",
+    "summary",
+    "tags",
+    "body",
+    "attachments_ids",
+)
+
+PREVIOUS_REASONING_EDGE_PERCENT = 25
+PREVIOUS_REASONING_LOOP_EDGE_PERCENT = 15
+PREVIOUS_REASONING_MIN_CROP_CHARS = 1000
+PREVIOUS_REASONING_CONTEXT_MIN_CROP_CHARS = (
+    PREVIOUS_REASONING_MIN_CROP_CHARS
+    + 1000
+)
+PREVIOUS_REASONING_SEPARATOR_TEMPLATE = (
+    "---------------------------- CUTTED {chars} chars ----------------------------"
+)
+
+
+def build_current_runtime_settings_context() -> str:
+    content = str(
+        CURRENT_RUNTIME_SETTINGS_CONTENT
+        or ""
+    ).strip()
+
+    if not content:
+        return ""
+
+    return (
+        "<RUNTIME_SETTINGS>\n"
+        f"{content}\n"
+        "</RUNTIME_SETTINGS>"
+    )
 
 
 def build_loop_rules(
@@ -68,41 +151,13 @@ def build_loop_rules(
     return ""
 
 
-def _append_visible_session_state(
-    parts: list[str],
-    context=None,
-) -> None:
-
-    from runtime.runtime_context import (
-        format_session_state,
-    )
-    from utils.context.runtime_state import (
-        get_visible_assistant_message_count,
-        get_visible_turn_count,
-    )
-
-    if context is None:
-        return
-
-    parts.append(
-        format_session_state(
-            turn_number=get_visible_turn_count(
-                context
-            ),
-            user_message_count=getattr(context, "user_message_count", 0),
-            assistant_message_count=get_visible_assistant_message_count(
-                context
-            ),
-        )
-    )
-
 
 def _append_user_feedback(
     parts: list[str],
     context=None,
 ) -> None:
 
-    from runtime.L1_memory_utils import (
+    from runtime.frame_memory_utils import (
         build_runtime_response_feedback_value,
     )
     from runtime.runtime_context import (
@@ -138,42 +193,51 @@ def _append_user_feedback(
     )
 
 
-def _append_current_runtime_todo(
+def _append_user_retry_context(
     parts: list[str],
     context=None,
 ) -> None:
 
-    from utils.runtime_todo import (
-        format_runtime_todo_xml,
-    )
-
-    if context is None:
+    if (
+        context is None
+        or not getattr(
+            context,
+            "runtime_user_retry_active",
+            False,
+        )
+    ):
         return
 
-    runtime_todo_xml = format_runtime_todo_xml(
+    attempt = int(
         getattr(
             context,
-            "runtime_todo",
-            [],
+            "runtime_user_retry_count",
+            0,
         )
+        or 0
     )
-
-    if not runtime_todo_xml:
-        return
-
     parts.append(
-        runtime_todo_xml
+        "\n".join([
+            f'<USER_RETRY attempt="{max(1, attempt)}">',
+            "The user explicitly retried JIN's immediately previous answer.",
+            "That previous JIN answer has been discarded and is not part of the dialogue.",
+            "Answer the same current user request again as a fresh replacement.",
+            "Do not describe the retry itself unless it is directly useful to the answer.",
+            "</USER_RETRY>",
+        ])
     )
 
 
-def _append_L1_runtime_memory(
+def _append_FRAME_runtime_memory(
     parts: list[str],
     context=None,
     *,
+    user_input: str = "",
     commit_active_memory_refresh: bool = False,
+    previous_chat_messages_context: str = "",
 ) -> None:
 
-    from runtime.L1_memory_utils import (
+    from runtime.frame_memory_utils import (
         build_runtime_memory_context_text,
         canonicalize_runtime_memory_text,
     )
@@ -200,6 +264,7 @@ def _append_L1_runtime_memory(
     runtime_memory = build_runtime_memory_context_text(
         raw_runtime_memory,
         context,
+        include_lifecycle_suffixes=True,
     )
 
     stored_active_memory_records = [
@@ -216,12 +281,7 @@ def _append_L1_runtime_memory(
         active_memory_refresh_base_turn = (
             getattr(
                 context,
-                "turn_number",
-                0,
-            ),
-            getattr(
-                context,
-                "user_message_count",
+                "runtime_turn_counter",
                 0,
             ),
         )
@@ -248,7 +308,7 @@ def _append_L1_runtime_memory(
                 previous_active_memory_refresh_turn,
                 tuple,
             )
-            and previous_active_memory_refresh_turn[:2]
+            and previous_active_memory_refresh_turn[:1]
             == active_memory_refresh_base_turn
         )
         previous_active_memory_text = "\n".join(
@@ -278,15 +338,32 @@ def _append_L1_runtime_memory(
             ]
 
             if refreshed_records != stored_active_memory_records:
-                context.active_memory_records = refreshed_records
+                commit_active(context, refreshed_records)
                 context.runtime_active_memory_records_dirty = True
 
-        active_memory_context_text = "\n".join(
+        active_memory_context_records = [
             line
             for line in active_memory_text.splitlines()
             if not is_active_memory_record_paused(
                 line
             )
+        ]
+
+        # Memory attention changes only the prompt projection. Storage/UI keep
+        # their canonical order and records are never rewritten while reading.
+        try:
+            from runtime.memory_attention import rank_active_memory_records
+
+            active_memory_context_records = rank_active_memory_records(
+                active_memory_context_records,
+                context=context,
+                user_input=user_input,
+            )
+        except Exception:
+            pass
+
+        active_memory_context_text = "\n".join(
+            active_memory_context_records
         ).strip()
 
         if active_memory_context_text:
@@ -297,71 +374,54 @@ def _append_L1_runtime_memory(
             )
 
     if runtime_memory.strip():
-        parts.append(
-            "<RUNTIME_MEMORY>\n"
-            f"{indent_xml(escape(canonicalize_runtime_memory_text(runtime_memory)))}\n"
-            "</RUNTIME_MEMORY>"
+        snapshots = getattr(
+            context,
+            "runtime_memory_snapshots",
+            [],
+        )
+        latest_snapshot = (
+            snapshots[-1]
+            if isinstance(snapshots, list) and snapshots
+            else None
         )
 
+        frame_memory_index = int(
+            getattr(
+                context,
+                "runtime_memory_display_index_offset",
+                0,
+            )
+            or 0
+        )
+        if isinstance(latest_snapshot, dict):
+            try:
+                frame_memory_index += int(
+                    latest_snapshot.get(
+                        "index",
+                        len(snapshots) - 1,
+                    )
+                    or 0
+                )
+            except (TypeError, ValueError):
+                frame_memory_index += max(
+                    len(snapshots) - 1,
+                    0,
+                )
 
-def _append_L3_session_memory(
-    parts: list[str],
-    context=None,
-) -> None:
+        frame_memory_tag = (
+            f"FRAME_MEMORY_{max(frame_memory_index, 0)}"
+        )
 
-    from utils.brain_client_utils import (
-        indent_xml,
-    )
+        parts.append(
+            f"<{frame_memory_tag}>\n"
+            f"{indent_xml(escape(canonicalize_runtime_memory_text(runtime_memory)))}\n"
+            f"</{frame_memory_tag}>"
+        )
 
-    if context is None:
-        return
-
-    session_memory = getattr(
-        context,
-        "runtime_l3_session_memory",
-        "",
-    ) or getattr(
-        context,
-        "session_memory",
-        "",
-    )
-
-    if not session_memory.strip():
-        return
-
-    parts.append(
-        "<PREVIOUS_SESSION_STATE priority=\"higher_than_runtime_memory\">\n"
-        f"{indent_xml(escape(session_memory))}\n"
-        "</PREVIOUS_SESSION_STATE>"
-    )
-
-
-def _append_L2_runtime_memory(
-    parts: list[str],
-    context=None,
-) -> None:
-
-    from utils.brain_client_utils import (
-        indent_xml,
-    )
-
-    if context is None:
-        return
-
-    runtime_l2_memory = getattr(
-        context,
-        "runtime_l2_memory",
-        "",
-    )
-
-    if not runtime_l2_memory.strip():
-        return
-
-    parts.append(
-        "<RUNTIME_PATTERN_MEMORY>\n"
-        f"{indent_xml(escape(runtime_l2_memory))}\n"
-        "</RUNTIME_PATTERN_MEMORY>"
-    )
+    if previous_chat_messages_context:
+        parts.append(
+            previous_chat_messages_context
+        )
 
 
 def _append_zero_diff_alert(
@@ -435,118 +495,640 @@ def _append_zero_diff_alert(
     )
 
 
-def _build_current_appended_skills_context(
+def build_delayed_memory_inventory_context(
     context=None,
+    *,
+    user_input: str = "",
 ) -> str:
 
-    from utils.brain_client_utils import (
-        indent_xml,
+    from utils.delayed_memory_file_store import (
+        delayed_memory_filename,
+        normalize_delayed_memory_reports,
     )
+
+    try:
+        from runtime.memory_attention import (
+            delayed_memory_bubble_tier,
+            score_delayed_memory_report,
+        )
+    except Exception:
+        delayed_memory_bubble_tier = None
+        score_delayed_memory_report = None
 
     if context is None:
         return ""
 
-    appended_skills = list(
+    reports = normalize_delayed_memory_reports(
         getattr(
             context,
-            "runtime_appended_skills",
-            [],
+            "delayed_memory_reports",
+            {},
         )
-        or []
     )
-    skill_labels = []
 
-    for skill in appended_skills:
-        modes = []
-
-        if isinstance(
-            skill,
-            dict,
-        ):
-            name = str(
-                skill.get(
-                    "name",
-                    "",
-                )
-                or ""
-            ).strip()
-            modes = [
-                str(mode).strip()
-                for mode in skill.get(
-                    "modes",
-                    [],
-                )
-                or []
-                if str(mode).strip()
-            ]
-        else:
-            name = str(
-                skill
-                or ""
-            ).strip()
-
-        if name:
-            mode_suffix = (
-                f" (modes: {', '.join(modes)})"
-                if modes
-                else ""
-            )
-            skill_labels.append(
-                f"{name}{mode_suffix}"
-            )
-
-    if not skill_labels:
+    if not reports:
         return ""
 
-    lines = [
-        f"{index}. {label}"
-        for index, label in enumerate(
-            skill_labels,
-            start=1,
+    if project_review_active(context):
+        allowed_ids = pinned_project_reports(context)
+        reports = {key: report for key, report in reports.items() if key.casefold() in allowed_ids}
+
+    report_names = []
+
+    for report_id, report in reports.items():
+        try:
+            filename = delayed_memory_filename(
+                report_id,
+                report.get(
+                    "title",
+                    "",
+                ),
+            )
+        except (TypeError, ValueError):
+            continue
+
+        relevance = 0.0
+        bubble_tier = 0
+        if score_delayed_memory_report is not None:
+            try:
+                relevance = float(
+                    score_delayed_memory_report(
+                        report,
+                        report_id=report_id,
+                        user_input=user_input,
+                        context=context,
+                    )
+                    or 0.0
+                )
+                if delayed_memory_bubble_tier is not None:
+                    bubble_tier = int(delayed_memory_bubble_tier(relevance))
+            except Exception:
+                relevance = 0.0
+                bubble_tier = 0
+
+        report_names.append(
+            (
+                bubble_tier,
+                _delayed_memory_last_loaded_timestamp(
+                    report,
+                ),
+                relevance,
+                _append_delayed_memory_inventory_metadata(
+                    _append_delayed_memory_context_age(
+                        filename[:-5],
+                        report,
+                    ),
+                    report,
+                ),
+            )
         )
-    ]
+
+    if not report_names:
+        return ""
+
+    # last_loaded_date remains the canonical order. A live lexical/context
+    # match only adds a temporary prompt-only bubble tier; storage/UI order is
+    # untouched. Strongly relevant reports may surface above newer unrelated
+    # ones, while weak/no-match inventories stay purely recency-sorted.
+    report_names.sort(
+        key=lambda item: (
+            -item[0],
+            -item[1],
+            -item[2],
+            item[3].casefold(),
+        )
+    )
 
     return (
-        "<CURRENT_APPENDED_SKILLS>\n"
-        f"{indent_xml(escape(chr(10).join(lines)), spaces=4)}\n"
-        "</CURRENT_APPENDED_SKILLS>"
+        "<DELAYED_MEMORY>\n"
+        + "\n".join(
+            report_name
+            for _, _, _, report_name in report_names
+        )
+        + "\n</DELAYED_MEMORY>"
     )
 
 
-def build_appended_delayed_memory_context(
+def _delayed_memory_last_loaded_timestamp(
+    report: dict,
+) -> float:
+
+    if not isinstance(
+        report,
+        dict,
+    ):
+        return 0.0
+
+    value = str(
+        report.get(
+            "last_loaded_date",
+            "",
+        )
+        or ""
+    ).strip()
+
+    if not value:
+        return 0.0
+
+    normalized = (
+        value[:-1] + "+00:00"
+        if value.endswith("Z")
+        else value
+    )
+
+    try:
+        return datetime.fromisoformat(
+            normalized
+        ).timestamp()
+    except (
+        TypeError,
+        ValueError,
+        OverflowError,
+    ):
+        return 0.0
+
+
+def _format_delayed_memory_context_age_suffix(
+    report: dict,
+    *,
+    now: float | None = None,
+) -> str:
+
+    from utils.context.messages import (
+        format_context_message_age_suffix,
+    )
+
+    if not isinstance(
+        report,
+        dict,
+    ):
+        return ""
+
+    return format_context_message_age_suffix(
+        report.get(
+            "created_time",
+        )
+        or report.get(
+            "created_date",
+        ),
+        now=now,
+    )
+
+
+def _append_delayed_memory_context_age(
+    text: str,
+    report: dict,
+    *,
+    now: float | None = None,
+) -> str:
+
+    return (
+        f"{text}{_format_delayed_memory_context_age_suffix(report, now=now)}"
+    )
+
+
+def _append_delayed_memory_inventory_metadata(
+    text: str,
+    report: dict,
+) -> str:
+
+    if not isinstance(report, dict):
+        return text
+
+    fact_ids = report.get("lt_facts_ids", [])
+
+    if not isinstance(fact_ids, list) or not fact_ids:
+        return text
+
+    suffixes = []
+    anchor_lt_facts_ids = report.get("anchor_lt_facts_ids", [])
+
+    if isinstance(anchor_lt_facts_ids, list) and anchor_lt_facts_ids:
+        suffixes.append(
+            "[ anchor_facts: "
+            + ", ".join(anchor_lt_facts_ids)
+            + " ]"
+        )
+
+    suffixes.append(
+        f"[ total_facts: {len(fact_ids)} ]"
+    )
+
+    return f"{text} {' '.join(suffixes)}"
+
+
+def build_loaded_delayed_memory_context(
     context=None,
+    *,
+    excluded_report_ids=None,
 ) -> str:
 
     from utils.context.formatting import (
         format_tool_result_payload,
     )
     from utils.brain_client_utils import (
+        include_pinned_delayed_memory_reports,
         indent_xml,
     )
 
     if context is None:
         return ""
 
-    appended_report = getattr(
-        context,
-        "runtime_appended_delayed_memory",
-        {},
+    excluded_ids = {
+        str(report_id or "").strip().casefold()
+        for report_id in (excluded_report_ids or [])
+        if str(report_id or "").strip()
+    }
+
+    loaded_reports = include_pinned_delayed_memory_reports(
+        context
     )
 
+    if project_review_active(context):
+        allowed_ids = pinned_project_reports(context)
+        loaded_reports = {key: report for key, report in loaded_reports.items() if key.casefold() in allowed_ids}
+    if not loaded_reports:
+        return ""
+
+    blocks = []
+
+    for report_id, report in loaded_reports.items():
+        normalized_report_id = str(
+            report_id or ""
+        ).strip().casefold()
+
+        if normalized_report_id in excluded_ids:
+            continue
+
+        if not isinstance(
+            report,
+            dict,
+        ):
+            continue
+
+        payload = {
+            "id": report_id,
+        }
+        for field_name in LOADED_DELAYED_MEMORY_CONTEXT_FIELDS:
+            if field_name in report:
+                field_value = report[field_name]
+                if field_name == "attachments_ids":
+                    from utils.attached_files_store import filter_existing_file_ids
+
+                    field_value = filter_existing_file_ids(
+                        field_value
+                    )
+                    if not field_value:
+                        continue
+                if field_name == "title":
+                    field_value = _append_delayed_memory_context_age(
+                        str(
+                            field_value
+                            or ""
+                        ).strip(),
+                        report,
+                    )
+                payload[field_name] = field_value
+
+        blocks.append(
+            "<LOADED_DELAYED_MEMORY>\n"
+            f"{indent_xml(escape(format_tool_result_payload(payload)))}\n"
+            "</LOADED_DELAYED_MEMORY>"
+        )
+
+    return "\n".join(
+        blocks
+    )
+
+
+def build_session_restore_resource_metadata_context(
+    context=None,
+) -> str:
+
+    if context is None:
+        return ""
+
+    delayed_items = getattr(
+        context,
+        "runtime_session_restore_delayed_memory_metadata",
+        [],
+    )
+    file_items = getattr(
+        context,
+        "runtime_session_restore_attached_file_metadata",
+        [],
+    )
+
+    lines = [
+        "<RESTORED_SESSION_RESOURCES>",
+        "The following resources were loaded in the archived session. "
+        "Their contents are intentionally omitted on this restoration turn; "
+        "only identity metadata is provided.",
+    ]
+
+    if isinstance(delayed_items, list) and delayed_items:
+        lines.append("Delayed memory reports previously loaded:")
+        for item in delayed_items:
+            if not isinstance(item, dict):
+                continue
+            report_id = str(item.get("id", "") or "").strip()
+            title = str(item.get("title", "") or report_id).strip()
+            if report_id:
+                lines.append(
+                    f'- {escape(title)} [ id: {escape(report_id)} ]'
+                )
+
+    if isinstance(file_items, list) and file_items:
+        lines.append("Files previously attached:")
+        for item in file_items:
+            if not isinstance(item, dict):
+                continue
+            file_id = str(item.get("id", "") or "").strip()
+            title = str(item.get("title", "") or file_id).strip()
+            if file_id:
+                lines.append(
+                    f'- {escape(title)} [ id: {escape(file_id)} ]'
+                )
+
+    lines.append("</RESTORED_SESSION_RESOURCES>")
+
+    if len(lines) <= 3:
+        return ""
+
+    return "\n".join(lines)
+
+
+def build_long_term_memory_context(
+    context=None,
+    user_input: str = "",
+) -> str:
+
+    if context is None:
+        return ""
+
+    from runtime.LT_memory import (
+        build_runtime_lt_memory_context,
+        get_runtime_lt_active_facts,
+    )
+    from runtime.LT_memory_utils import (
+        LT_FACT_FULL_RECALL_SECONDS,
+        lt_timestamp_sort_value,
+    )
+
+    restore_fact_ids = None
+    if getattr(
+        context,
+        "runtime_session_restore_priming",
+        False,
+    ):
+        # The hidden restore/bootstrap tick gets a deliberately narrow L-T
+        # snapshot: facts explicitly referenced by JIN in the predecessor
+        # session plus every currently active fact created/updated during the
+        # last 24 hours. runtime_session_restore_priming is consumed before any
+        # action follow-up, so this widening applies to the first bootstrap hop
+        # only.
+        restore_fact_ids = list(
+            getattr(
+                context,
+                "runtime_session_restore_lt_fact_ids",
+                [],
+            )
+            or []
+        )
+        seen_restore_fact_ids = {
+            str(fact_id or "").strip().upper()
+            for fact_id in restore_fact_ids
+            if str(fact_id or "").strip()
+        }
+        now = datetime.now().timestamp()
+        for fact in get_runtime_lt_active_facts(context):
+            if not isinstance(fact, dict):
+                continue
+            fact_id = str(fact.get("id", "") or "").strip().upper()
+            if not fact_id or fact_id in seen_restore_fact_ids:
+                continue
+            lifecycle_timestamp = (
+                lt_timestamp_sort_value(fact.get("updated_at"))
+                or lt_timestamp_sort_value(fact.get("created_at"))
+            )
+            if (
+                lifecycle_timestamp > 0
+                and now - lifecycle_timestamp <= LT_FACT_FULL_RECALL_SECONDS
+            ):
+                restore_fact_ids.append(fact_id)
+                seen_restore_fact_ids.add(fact_id)
+
+    if project_review_active(context):
+        restore_fact_ids = project_fact_ids(context)
+
+    return build_runtime_lt_memory_context(
+        context=context,
+        fact_ids=restore_fact_ids,
+        user_input=user_input,
+    )
+
+
+def crop_previous_reasoning_text(
+    reasoning: str,
+    edge_percent: float = PREVIOUS_REASONING_EDGE_PERCENT,
+    min_crop_chars: int = PREVIOUS_REASONING_MIN_CROP_CHARS,
+) -> str:
+
+    cleaned = str(
+        reasoning
+        or ""
+    ).strip()
+
+    if not cleaned:
+        return ""
+
+    if len(cleaned) <= min_crop_chars:
+        return cleaned
+
+    try:
+        percent = float(edge_percent)
+    except (
+        TypeError,
+        ValueError,
+    ):
+        percent = PREVIOUS_REASONING_EDGE_PERCENT
+
+    if percent <= 0:
+        return ""
+
+    edge_chars = int(
+        len(cleaned)
+        * percent
+        / 100
+    )
+
+    if edge_chars <= 0:
+        return ""
+
+    if len(cleaned) <= edge_chars * 2:
+        return cleaned
+
+    cut_chars = len(cleaned) - edge_chars * 2
+
+    return (
+        cleaned[:edge_chars]
+        + "\n"
+        + PREVIOUS_REASONING_SEPARATOR_TEMPLATE.format(
+            chars=cut_chars
+        )
+        + "\n"
+        + cleaned[-edge_chars:]
+    )
+
+
+def _format_previous_reasoning_context(
+    *,
+    tag_name: str,
+    reasoning: str,
+    edge_percent: float,
+    min_crop_chars: int = PREVIOUS_REASONING_MIN_CROP_CHARS,
+    crop: bool = True,
+) -> str:
+
+    cropped_reasoning = (
+        crop_previous_reasoning_text(
+            reasoning,
+            edge_percent=edge_percent,
+            min_crop_chars=min_crop_chars,
+        )
+        if crop
+        else str(
+            reasoning
+            or ""
+        ).strip()
+    )
+
+    from utils.brain_client_utils import (
+        indent_xml,
+    )
+
+    return (
+        f"<{tag_name}>\n"
+        + indent_xml(
+            escape(
+                cropped_reasoning
+            ),
+            spaces=4,
+        )
+        + f"\n</{tag_name}>"
+    )
+
+
+def build_previous_reasoning_context(
+    context=None,
+    *,
+    include_previous_reasoning: bool = True,
+    include_turn_reasoning: bool = False,
+    crop: bool = True,
+) -> str:
+
+    reasoning_parts = []
+    seen_reasoning_parts = set()
+
+    for attr_name in (
+        "runtime_previous_reasoning_content",
+        "runtime_turn_reasoning_content",
+    ):
+        if (
+            attr_name == "runtime_previous_reasoning_content"
+            and not include_previous_reasoning
+        ):
+            continue
+        if (
+            attr_name == "runtime_turn_reasoning_content"
+            and not include_turn_reasoning
+        ):
+            continue
+
+        reasoning_part = str(
+            getattr(
+                context,
+                attr_name,
+                "",
+            )
+            if context is not None
+            else ""
+            or ""
+        ).strip()
+
+        if (
+            not reasoning_part
+            or reasoning_part in seen_reasoning_parts
+        ):
+            continue
+
+        reasoning_parts.append(
+            reasoning_part
+        )
+        seen_reasoning_parts.add(
+            reasoning_part
+        )
+
+    if not reasoning_parts:
+        return ""
+
+    return _format_previous_reasoning_context(
+        tag_name="PREVIOUS_REASONING_EVIDENCE_TRAIL_AFTER_EXECUTED_ACTIONS",
+        reasoning="\n\n".join(
+            reasoning_parts
+        ),
+        edge_percent=PREVIOUS_REASONING_EDGE_PERCENT,
+        min_crop_chars=PREVIOUS_REASONING_CONTEXT_MIN_CROP_CHARS,
+        crop=crop,
+    )
+
+
+def build_previous_reasoning_loop_context(
+    context=None,
+) -> str:
+
+    if context is None:
+        return ""
+
+    loop_reasonings = getattr(
+        context,
+        "runtime_previous_reasoning_loop_contents",
+        [],
+    )
+
+    if isinstance(
+        loop_reasonings,
+        str,
+    ):
+        loop_reasonings = [
+            loop_reasonings,
+        ]
+
     if not isinstance(
-        appended_report,
-        dict,
+        loop_reasonings,
+        list,
     ):
         return ""
 
-    if not appended_report:
-        return ""
+    # Keep this defensive too: even if older/stale state contains several
+    # entries, only the latest non-empty failed reasoning belongs in the
+    # current recovery prompt.
+    for reasoning in reversed(
+        loop_reasonings
+    ):
+        if not str(
+            reasoning
+            or ""
+        ).strip():
+            continue
 
-    return (
-        "<APPENDED_DELAYED_MEMORY>\n"
-        f"{indent_xml(escape(format_tool_result_payload(appended_report)))}\n"
-        "</APPENDED_DELAYED_MEMORY>"
-    )
+        return _format_previous_reasoning_context(
+            tag_name="PREVIOUS_REASONING_LOOP_CONTENT",
+            reasoning=reasoning,
+            edge_percent=PREVIOUS_REASONING_LOOP_EDGE_PERCENT,
+        )
+
+    return ""
 
 
 # Runtime action rules are assembled from contracts/rules_assembler.py.
@@ -561,8 +1143,14 @@ def build_brain_context(
     commit_active_memory_refresh: bool = False,
     include_runtime_action_instructions: bool = True,
     include_previous_chat_messages: bool = True,
+    include_previous_reasoning: bool = True,
+    include_turn_reasoning: bool = False,
+    crop_previous_reasoning: bool = True,
 ) -> str:
 
+    from utils.context.current_concerns import (
+        build_current_concerns_context,
+    )
     from utils.context.messages import (
         build_previous_chat_messages_context,
     )
@@ -575,23 +1163,201 @@ def build_brain_context(
     from utils.context.tool_results import (
         build_tool_results_context,
     )
+    from utils.tool_results_context import (
+        has_nonempty_tools_results_context,
+    )
+    from utils.context.skills import (
+        build_skills_inventory_context,
+    )
+    from websocket.attachments import (
+        build_attached_files_inventory_context,
+    )
+
+    project_review = project_review_active(context)
+    include_current_user_in_previous_chat = bool(
+        project_review
+        and not include_previous_chat_messages
+    )
+    if project_review:
+        # Follow-ups keep the same dialogue and exact accumulated thought.
+        # Their Brain payload is empty, so also project the live sequence USER
+        # message into PREVIOUS_CHAT_MESSAGES below. The initial user tick still
+        # uses the normal payload and must not duplicate that message here.
+        include_previous_chat_messages = True
 
     prompt_parts = []
     runtime_context_parts = []
+    restore_priming = bool(
+        getattr(
+            context,
+            "runtime_session_restore_priming",
+            False,
+        )
+    )
+
+    previous_chat_messages_context = (
+        build_previous_chat_messages_context(
+            context,
+            extra_user_message=(
+                user_input
+                if include_current_user_in_previous_chat
+                else ""
+            ),
+        )
+        if include_previous_chat_messages
+        else ""
+    )
+
+    if restore_priming:
+        from .runtime import SESSION_RESTORE_MESSAGE
+        from utils.context.session_restore import (
+            build_session_restore_message,
+        )
+
+        # Bootstrap continuity follows the same ordering as action follow-ups:
+        # show the inherited visible dialogue first, then its carried reasoning
+        # evidence, then the synthetic automatic-response instruction. This
+        # makes the state Brain is continuing from visible before the notice
+        # tells it that there is no new USER move.
+        if previous_chat_messages_context:
+            prompt_parts.append(
+                previous_chat_messages_context
+            )
+
+        previous_reasoning_context = (
+            build_previous_reasoning_context(
+                context,
+                include_previous_reasoning=(
+                    include_previous_reasoning
+                ),
+                include_turn_reasoning=include_turn_reasoning,
+                crop=crop_previous_reasoning,
+            )
+        )
+        if previous_reasoning_context:
+            prompt_parts.append(
+                previous_reasoning_context
+            )
+
+        prompt_parts.append(
+            build_session_restore_message(
+                SESSION_RESTORE_MESSAGE,
+                session_id=getattr(
+                    context,
+                    "session_id",
+                    "",
+                ),
+            )
+        )
+
+    current_runtime_settings_context = (
+        build_current_runtime_settings_context()
+    )
+    if current_runtime_settings_context:
+        # Ordinary turns keep SETTINGS first. During bootstrap the inherited
+        # dialogue/reasoning + automatic bootstrap notice deliberately precede
+        # every other block, matching the follow-up continuation layout.
+        prompt_parts.append(
+            current_runtime_settings_context
+        )
 
     enabled_actions = get_enabled_runtime_actions(
         runtime_actions
     )
 
-    # Tool results block: places recent tool/action outputs at the very top.
+    # Build tool results before CONCERNS so the live warning can say
+    # whether there is actually transient tool output available to clean. The
+    # rendered ordering is unchanged: concerns still stay above tool results.
     tool_results_context = build_tool_results_context(
         context
     )
+    has_tool_results = has_nonempty_tools_results_context(
+        tool_results_context
+    )
 
+    # Omit CONCERNS entirely when there is no live concern to report.
+    concerns_context = build_current_concerns_context(
+        context,
+        has_tool_results=has_tool_results,
+    )
+    if concerns_context:
+        prompt_parts.append(concerns_context)
+
+    # Runtime XML block: exposes trusted runtime variables and enabled actions.
+    prompt_parts.append(
+        build_runtime_xml(
+            context,
+            get_effective_runtime_actions(
+                runtime_actions
+            ),
+        )
+    )
+
+    project_review_context = build_project_review_context(context)
+    if project_review_context:
+        prompt_parts.append(project_review_context)
+
+    # Tool results block: places recent tool/action outputs near the top.
     if tool_results_context:
         prompt_parts.append(
             tool_results_context
         )
+
+    # Session actions history sits directly under tool results on ordinary
+    # turns and is rebuilt for follow-ups from the same action history.
+    session_actions_history_context = (
+        build_session_actions_history_context(
+            context
+        )
+    )
+
+    if session_actions_history_context:
+        prompt_parts.append(
+            session_actions_history_context
+        )
+
+    # Persistent pinned files are a compact inventory between session actions
+    # and delayed memory. Omit the block completely when no files are attached.
+    if restore_priming:
+        restored_resource_metadata_context = (
+            build_session_restore_resource_metadata_context(
+                context
+            )
+        )
+        if restored_resource_metadata_context:
+            prompt_parts.append(
+                restored_resource_metadata_context
+            )
+    else:
+        attached_files_context = build_attached_files_inventory_context(
+            context
+        )
+        if attached_files_context:
+            prompt_parts.append(
+                attached_files_context
+            )
+
+        # Delayed memory inventory stays directly below attached files so available
+        # reports are visible before the rest of the runtime state.
+        delayed_memory_inventory_context = (
+            build_delayed_memory_inventory_context(
+                context,
+                user_input=user_input,
+            )
+        )
+
+        if delayed_memory_inventory_context:
+            prompt_parts.append(
+                delayed_memory_inventory_context
+            )
+
+    # Skill inventory is always visible near the top of the prompt.
+    # The inventory is context state, not a runtime action.
+    prompt_parts.append(
+        build_skills_inventory_context(
+            context
+        )
+    )
 
     # User feedback block: carries the latest explicit response feedback forward.
     _append_user_feedback(
@@ -599,68 +1365,78 @@ def build_brain_context(
         context,
     )
 
-    # L1 memory block: includes active memory records and live runtime memory.
-    _append_L1_runtime_memory(
+    # A user retry is a transient replacement instruction. The discarded JIN
+    # answer is removed from rolling dialogue/reasoning before this is built.
+    _append_user_retry_context(
         runtime_context_parts,
         context,
+    )
+
+    # Ordinary turns keep the canonical dialogue block immediately below the
+    # FRAME snapshot. Bootstrap dialogue was already projected at the absolute
+    # front of the prompt together with its reasoning evidence.
+    _append_FRAME_runtime_memory(
+        runtime_context_parts,
+        context,
+        user_input=user_input,
         commit_active_memory_refresh=commit_active_memory_refresh,
+        previous_chat_messages_context=(
+            ""
+            if restore_priming
+            else previous_chat_messages_context
+        ),
     )
 
-    # Runtime XML block: exposes trusted runtime variables and enabled actions.
-    runtime_context_parts.append(
-        build_runtime_xml(
+
+    # Loaded delayed memory block: pins the selected delayed memory report.
+    # During archived restore, suppress only reports staged from the old
+    # session. A report loaded/pinned after an interrupted restore is live
+    # context and must survive a page reload.
+    restore_staged_delayed_memory_ids = []
+    if restore_priming:
+        restore_staged_delayed_memory_ids.extend(
+            getattr(
+                context,
+                "runtime_session_restore_pending_loaded_memory_ids",
+                [],
+            )
+            or []
+        )
+        restore_staged_delayed_memory_ids.extend(
+            item.get("id", "")
+            for item in (
+                getattr(
+                    context,
+                    "runtime_session_restore_delayed_memory_metadata",
+                    [],
+                )
+                or []
+            )
+            if isinstance(item, dict)
+        )
+
+    loaded_delayed_memory_context = (
+        build_loaded_delayed_memory_context(
             context,
-            runtime_actions,
+            excluded_report_ids=restore_staged_delayed_memory_ids,
         )
     )
 
-    # Visible session state block: records visible turn and message counters.
-    _append_visible_session_state(
-        runtime_context_parts,
-        context,
-    )
-
-    # Current runtime todo block: keeps active task checklist state in view.
-    _append_current_runtime_todo(
-        runtime_context_parts,
-        context,
-    )
-
-    # Appended delayed memory block: pins the selected delayed memory report.
-    appended_delayed_memory_context = (
-        build_appended_delayed_memory_context(
-            context
-        )
-    )
-
-    if appended_delayed_memory_context:
+    if loaded_delayed_memory_context:
         runtime_context_parts.append(
-            appended_delayed_memory_context
+            loaded_delayed_memory_context
         )
 
-    # Current appended skills block: lists skills already loaded this turn.
-    current_appended_skills_context = (
-        _build_current_appended_skills_context(
-            context
-        )
+    # L-T memory block: always-on canonical facts that survive sessions.
+    long_term_memory_context = build_long_term_memory_context(
+        context,
+        user_input=user_input,
     )
 
-    if current_appended_skills_context:
+    if long_term_memory_context:
         runtime_context_parts.append(
-            current_appended_skills_context
+            long_term_memory_context
         )
-
-    # L3 memory block: restores previous session state from prior turns.
-    _append_L3_session_memory(
-        runtime_context_parts,
-        context,
-    )
-
-    # L2 memory block: adds slower pattern memory after session memory.
-    _append_L2_runtime_memory(
-        runtime_context_parts,
-        context,
-    )
 
     # Zero-diff alert block: warns the brain when a repeated answer stalled.
     _append_zero_diff_alert(
@@ -675,33 +1451,56 @@ def build_brain_context(
             )
         )
 
-    # Previous chat messages block: gives the brain the recent visible dialogue.
-    previous_chat_messages_context = (
-        build_previous_chat_messages_context(
-            context
-        )
-        if include_previous_chat_messages
-        else ""
-    )
-
-    if previous_chat_messages_context:
-        prompt_parts.append(
-            previous_chat_messages_context
+    # Bootstrap reasoning was already projected directly under
+    # PREVIOUS_CHAT_MESSAGES at the front of the prompt. Ordinary turns keep
+    # their existing previous-reasoning placement below the runtime context.
+    if not restore_priming:
+        previous_reasoning_loop_context = (
+            build_previous_reasoning_loop_context(
+                context
+            )
         )
 
-    # Session actions history block: keeps durable action breadcrumbs available.
-    session_actions_history_context = (
-        build_session_actions_history_context(
-            context
-        )
-    )
+        if previous_reasoning_loop_context:
+            prompt_parts.append(
+                previous_reasoning_loop_context
+            )
+        else:
+            # Previous-turn reasoning stays suppressed on follow-up ticks, but
+            # the accumulated reasoning from THIS action sequence is an
+            # independent input. Follow-up callers deliberately request only
+            # runtime_turn_reasoning_content so JIN keeps its current plan
+            # without resurrecting reasoning from the previous user turn.
+            include_previous_reasoning_content = bool(
+                include_previous_reasoning
+                and not getattr(
+                    context,
+                    "runtime_followup_tick_active",
+                    False,
+                )
+            )
+            if (
+                include_previous_reasoning_content
+                or include_turn_reasoning
+            ):
+                previous_reasoning_context = (
+                    build_previous_reasoning_context(
+                        context,
+                        include_previous_reasoning=(
+                            include_previous_reasoning_content
+                        ),
+                        include_turn_reasoning=include_turn_reasoning,
+                        crop=crop_previous_reasoning,
+                    )
+                )
+                if previous_reasoning_context:
+                    prompt_parts.append(
+                        previous_reasoning_context
+                    )
 
-    if session_actions_history_context:
-        prompt_parts.append(
-            session_actions_history_context
-        )
-
-    # Runtime action instructions block: describes the private action protocol.
+    # Keep the normal runtime action contract on the hidden restore turn too.
+    # Session restore changes which historical/resource payloads are exposed,
+    # but it must not silently remove JIN's current rules or available actions.
     if include_runtime_action_instructions:
         prompt_parts.append(
             build_runtime_action_instructions(

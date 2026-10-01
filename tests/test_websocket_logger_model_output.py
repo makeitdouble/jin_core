@@ -1,12 +1,8 @@
-from pathlib import Path
 import unittest
 
 from clients.brain_client import ask_brain_stream
-from config_loader import config
 from websocket.logger import WebSocketLogger
 
-
-ROOT = Path(__file__).resolve().parents[1]
 
 
 class FakeWebSocket:
@@ -19,6 +15,35 @@ class FakeWebSocket:
 
 
 class WebSocketLoggerModelOutputTests(unittest.IsolatedAsyncioTestCase):
+
+    async def test_memory_log_tag_suffix_preserves_lt_memory_level(self):
+        websocket = FakeWebSocket()
+        logger = WebSocketLogger(websocket)
+
+        await logger.log_memory(
+            "L-T",
+            "L-T fact deleted",
+            event="fact_deleted",
+            tag_suffix="DELETED",
+        )
+
+        self.assertEqual(websocket.events[0]["tag"], "[MEMORY:L-T:DELETED]")
+        self.assertEqual(websocket.events[0]["memory_level"], "L-T")
+        self.assertEqual(websocket.events[0]["memory_event"], "fact_deleted")
+
+    async def test_brain_posting_board_output_uses_canonical_action_form(self):
+        websocket = FakeWebSocket()
+        logger = WebSocketLogger(websocket)
+
+        await logger.log_brain_output(
+            '<POSTING_BOARD>\n{"action":"search","query":"Meatproxy"}\n</POSTING_BOARD>'
+        )
+
+        self.assertEqual(
+            websocket.events[0]["message"],
+            "POSTING_BOARD: action:search | query: Meatproxy",
+        )
+        self.assertNotIn("details", websocket.events[0])
 
     async def test_brain_output_over_150_chars_uses_100_char_preview_and_payload(self):
         websocket = FakeWebSocket()
@@ -45,6 +70,23 @@ class WebSocketLoggerModelOutputTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(payload["message"], text)
         self.assertNotIn("details", payload)
 
+    async def test_user_output_over_150_chars_uses_100_char_preview_with_full_payload(self):
+        websocket = FakeWebSocket()
+        logger = WebSocketLogger(websocket)
+        text = "u" * 151
+        details = '{"text":"full payload"}'
+
+        await logger.log_user(
+            text,
+            details=details,
+        )
+
+        self.assertEqual(len(websocket.events), 1)
+        payload = websocket.events[0]
+        self.assertEqual(payload["tag"], "[USER]")
+        self.assertEqual(payload["message"], text[:100] + "...")
+        self.assertEqual(payload["details"], details)
+
     async def test_brain_output_strips_outer_blank_lines(self):
         websocket = FakeWebSocket()
         logger = WebSocketLogger(websocket)
@@ -59,7 +101,7 @@ class WebSocketLoggerModelOutputTests(unittest.IsolatedAsyncioTestCase):
         )
         self.assertNotIn("details", payload)
 
-    async def test_stream_model_output_contains_answer_without_reasoning(self):
+    async def test_provider_stream_keeps_reasoning_and_answer_as_separate_chunks(self):
 
         class FakeBrainClient:
 
@@ -76,69 +118,25 @@ class WebSocketLoggerModelOutputTests(unittest.IsolatedAsyncioTestCase):
         class Context:
             pass
 
-        original_use_service_as_brain = config.USE_SERVICE_AS_BRAIN
-        config.USE_SERVICE_AS_BRAIN = False
-
-        try:
-            chunks = [
-                chunk
-                async for chunk in ask_brain_stream(
-                    client=FakeBrainClient(),
-                    text="test",
-                    context=Context(),
-                    runtime_actions={},
-                )
-            ]
-        finally:
-            config.USE_SERVICE_AS_BRAIN = original_use_service_as_brain
-
-        raw_output = [
+        chunks = [
             chunk
-            for chunk in chunks
-            if chunk.get("type") == "raw_model_output"
+            async for chunk in ask_brain_stream(
+                client=FakeBrainClient(),
+                text="test",
+                context=Context(),
+                runtime_actions={},
+            )
         ]
 
         self.assertEqual(
-            raw_output,
+            chunks,
             [
-                {
-                    "type": "raw_model_output",
-                    "content": "\n\n<ASSET_ACTION></ASSET_ACTION>\n",
-                },
+                {"type": "thinking", "content": "hidden reasoning\n"},
+                {"type": "content", "content": "\n\n<ASSET_ACTION></ASSET_ACTION>\n"},
             ],
         )
-        self.assertNotIn(
-            "hidden reasoning",
-            raw_output[0]["content"],
-        )
+        self.assertFalse(any(chunk.get("type") == "raw_model_output" for chunk in chunks))
 
-    async def test_service_as_brain_uses_service_tag_without_enabling_service_logs(self):
-        websocket = FakeWebSocket()
-        logger = WebSocketLogger(websocket)
-
-        await logger.log_service_as_brain_output("service answer")
-        await logger.log_service("ordinary service worker output")
-
-        self.assertEqual(len(websocket.events), 1)
-        self.assertEqual(websocket.events[0]["tag"], "[SERVICE]")
-        self.assertEqual(websocket.events[0]["message"], "service answer")
-        self.assertNotIn("details", websocket.events[0])
-
-    def test_logger_ui_has_model_output_cards_and_payload_button(self):
-        source = (
-            ROOT
-            / "ui"
-            / "static"
-            / "js"
-            / "logger"
-            / "log-entries.js"
-        ).read_text(encoding="utf-8")
-
-        self.assertIn('normalizedTag === "[BRAIN]"', source)
-        self.assertIn('normalizedTag === "[SERVICE]"', source)
-        self.assertIn('isModelOutput\n        ? "payload"', source)
-        self.assertIn('? "Brain output"', source)
-        self.assertIn('? "Service as brain output"', source)
 
 
 if __name__ == "__main__":

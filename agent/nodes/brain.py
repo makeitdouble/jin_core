@@ -1,37 +1,51 @@
 from copy import deepcopy
+import re
+import time
 from xml.sax.saxutils import escape
 
 from agent.nodes.base import BaseNode
 
-from runtime.L3_memory import (
-    maybe_summarize_runtime_session_memory,
-)
 from runtime.stream import (
     RuntimeStream,
+)
+from runtime.deep_web_search import (
+    run_deep_web_search,
 )
 
 from clients.brain_client import (
     ask_brain_stream,
     build_brain_context_snapshot,
     build_brain_payload,
+    build_brain_user_prompt_content,
     emit_active_memory_records_update_if_dirty,
+    get_response_enabled_runtime_actions,
 )
 from rules.brain_context_builder import (
     build_brain_context,
 )
 from rules.runtime import (
+    ACTION_FAILURE_FOLLOWUP_MESSAGE,
     CONTEXT_LIMIT_RECOVERY_MESSAGE,
-    IDLE_FOLLOWUP_MESSAGE,
+    FOLLOW_UP_RESPONSE_MESSAGE,
+    FOLLOW_UP_CONTEXT_OVERFLOW_MESSAGE,
     REASONING_RECOVERY_MESSAGE,
 )
 from contracts.rules_assembler import (
-    RUNTIME_ACTION_IDLE,
+    RUNTIME_ACTION_ATTACH_FILE_CONTENT,
+    RUNTIME_ACTION_DEEP_WEB_SEARCH,
+    RUNTIME_ACTION_LOAD_DELAYED_MEMORY,
     RUNTIME_ACTION_WEB_SEARCH,
 )
 from contracts.rules_assembler import (
+    extract_private_marker_name,
     get_action_contract_name_for_runtime_action,
     get_runtime_action_display_name,
+    get_runtime_action_private_marker,
+    get_runtime_action_schema,
+    get_runtime_action_rules,
     runtime_action_emits_followup,
+    runtime_action_follows_up_on_fail,
+    runtime_action_has_close_tag,
 )
 
 from clients.search_client import (
@@ -40,29 +54,42 @@ from clients.search_client import (
 )
 
 from utils.brain_client_utils import (
+    apply_runtime_action_calls,
     get_brain_runtime_config,
+)
+from utils.current_context_window import (
+    prepare_current_context_window_prompt,
+)
+from utils.chat_log import (
+    save_chat_bootstrap_context_snapshot,
+    save_chat_context_snapshot,
 )
 from utils.runtime_action_abort import (
     mark_runtime_action_completed,
+)
+
+from utils.actions import (
+    RuntimeActionCall,
+)
+from utils.actions.action_registry import (
+    apply_action_feedback,
 )
 
 from utils.actions.action_counter_utils import (
     format_runtime_action_count,
 )
 
-from utils.language import (
-    contains_cyrillic,
-)
+
 from utils.tool_results import (
     TOOL_RESULT_KIND_ASSET,
+    TOOL_RESULT_KIND_DEEP_SEARCH,
     TOOL_RESULT_KIND_SEARCH,
-    TOOL_RESULT_KIND_SESSION,
     begin_runtime_tool_results_turn,
     record_runtime_tool_result,
 )
 from utils.tool_results_context import (
     build_tools_results_context,
-    is_idle_tool_results_block,
+    has_nonempty_tools_results_context,
     split_tools_results_context,
 )
 
@@ -82,8 +109,228 @@ def action_event_requires_follow_up(event) -> bool:
 
     name = str(event.get("name", "") or "").strip().casefold()
 
+    if name == "malformed_action":
+        return True
+
+    if status == "failed":
+        if event.get("error") == "no_close_tag_provided_in_output":
+            return True
+        return runtime_action_follows_up_on_fail(
+            name
+        )
+
     return runtime_action_emits_followup(
         name
+    )
+
+
+def _build_failed_runtime_action_marker(event: dict) -> str:
+
+    runtime_action = str(
+        event.get("name", "")
+        or ""
+    ).strip()
+    marker = get_runtime_action_private_marker(
+        runtime_action
+    )
+    payload = str(
+        event.get("failed_marker_payload")
+        or event.get("payload")
+        or ""
+    ).strip()
+
+    if not marker:
+        return payload
+
+    if event.get("error") == "no_close_tag_provided_in_output":
+        return "\n".join(part for part in (marker, payload) if part)
+
+    if not runtime_action_has_close_tag(
+        runtime_action
+    ):
+        return " ".join(
+            part
+            for part in (marker, payload)
+            if part
+        ).strip()
+
+    marker_name = extract_private_marker_name(
+        marker
+    )
+    if not marker_name:
+        return "\n".join(
+            part
+            for part in (marker, payload)
+            if part
+        ).strip()
+
+    return "\n".join((
+        marker,
+        payload,
+        f"</{marker_name}>",
+    )).strip()
+
+
+def build_failed_runtime_action_followup_context(
+        event: dict,
+) -> str:
+
+    if not isinstance(event, dict):
+        return ""
+
+    runtime_action = str(
+        event.get("name", "")
+        or ""
+    ).strip()
+    if (
+        str(event.get("status", "") or "").strip().casefold() != "failed"
+        or not runtime_action_follows_up_on_fail(runtime_action)
+    ):
+        return ""
+
+    failure_reason = str(
+        event.get("failure_reason")
+        or event.get("detail")
+        or event.get("error")
+        or "action failed"
+    ).strip()
+    display_name = get_runtime_action_display_name(
+        runtime_action
+    )
+    mandatory_lines = []
+    schema = get_runtime_action_schema(
+        runtime_action
+    )
+    if schema:
+        mandatory_lines.append(
+            "Correct action schema:"
+        )
+        mandatory_lines.extend(schema)
+    mandatory_lines.extend(
+        get_runtime_action_rules(
+            runtime_action
+        )
+    )
+    mandatory_rules = "\n".join(
+        mandatory_lines
+    ).strip()
+    failed_marker = _build_failed_runtime_action_marker(
+        event
+    )
+
+    sections = [
+        (
+            "RUNTIME ACTION ERROR: "
+            f"{display_name or runtime_action.upper()} failed: "
+            f"{failure_reason}"
+        ),
+    ]
+
+    if mandatory_rules:
+        sections.append(
+            "<MANDATORY_ACTION_RULES>\n"
+            + mandatory_rules
+            + "\n</MANDATORY_ACTION_RULES>"
+        )
+
+    if failed_marker:
+        sections.append(
+            "<FAILED_MARKER_CONTENT>\n"
+            + failed_marker
+            + "\n</FAILED_MARKER_CONTENT>"
+        )
+
+    return "\n\n".join(sections)
+
+
+def build_failed_runtime_action_followup_contexts(
+        context,
+) -> str:
+
+    if context is None:
+        return ""
+
+    current_turn_ids = {
+        str(
+            getattr(
+                context,
+                attribute,
+                "",
+            )
+            or ""
+        ).strip()
+        for attribute in (
+            "runtime_current_turn_id",
+            "runtime_current_sequence_turn_id",
+        )
+    }
+    current_turn_ids.discard("")
+    latest_events = {}
+
+    for index, event in enumerate(
+        getattr(
+            context,
+            "runtime_action_events",
+            [],
+        )
+        or []
+    ):
+        if not isinstance(event, dict):
+            continue
+
+        event_turn_id = str(
+            event.get(
+                "runtime_turn_id",
+                "",
+            )
+            or ""
+        ).strip()
+        if (
+            current_turn_ids
+            and event_turn_id
+            and event_turn_id not in current_turn_ids
+        ):
+            continue
+
+        runtime_action = str(
+            event.get(
+                "name",
+                "",
+            )
+            or ""
+        ).strip().casefold()
+        if not runtime_action_follows_up_on_fail(
+            runtime_action
+        ):
+            continue
+
+        latest_events[runtime_action] = (
+            index,
+            event,
+        )
+
+    contexts = []
+
+    for _, event in sorted(
+        latest_events.values(),
+        key=lambda item: item[0],
+    ):
+        # Tool-backed failures already appear in ACTION_FAILURE_FOLLOWUP;
+        # their complete schema remains in TOOLS_RESULTS.
+        if event.get("tool_id"):
+            continue
+        failure_context = (
+            build_failed_runtime_action_followup_context(
+                event
+            )
+        )
+        if failure_context:
+            contexts.append(
+                failure_context
+            )
+
+    return "\n\n".join(
+        contexts
     )
 
 
@@ -92,12 +339,104 @@ def action_event_defers_follow_up(event) -> bool:
     if not isinstance(event, dict):
         return False
 
-    name = str(event.get("name", "") or "").strip().casefold()
+    return bool(event.get("deferred_follow_up"))
 
-    return (
-        name == RUNTIME_ACTION_IDLE.casefold()
-        or bool(event.get("deferred_follow_up"))
+
+async def replay_session_restore_resource_actions(
+        context,
+        *,
+        assistant_message: str = "",
+        context_snapshot=None,
+) -> int:
+
+    if not getattr(
+        context,
+        "runtime_session_restore_priming",
+        False,
+    ):
+        return 0
+
+    delayed_ids = []
+    delayed_seen = set()
+    for raw_id in getattr(
+        context,
+        "runtime_session_restore_pending_loaded_memory_ids",
+        [],
+    ) or []:
+        report_id = str(raw_id or "").strip().casefold()
+        if not report_id or report_id in delayed_seen:
+            continue
+        delayed_seen.add(report_id)
+        delayed_ids.append(report_id)
+
+    file_ids = []
+    file_seen = set()
+    for raw_id in getattr(
+        context,
+        "runtime_session_restore_pending_attached_file_ids",
+        [],
+    ) or []:
+        file_id = str(raw_id or "").strip().casefold()
+        if not file_id or file_id in file_seen:
+            continue
+        file_seen.add(file_id)
+        file_ids.append(file_id)
+
+    # Consume the restoration envelope before any possible contract-driven
+    # follow-up. The initial answer was generated with metadata only; from
+    # this point forward the normal runtime action pipeline owns the loaded
+    # resources and any follow-up sees their real context.
+    context.runtime_session_restore_pending_loaded_memory_ids = []
+    context.runtime_session_restore_pending_attached_file_ids = []
+    context.runtime_session_restore_priming = False
+    context.runtime_session_restore_reasoning_dump = ""
+    context.runtime_session_restore_lt_fact_ids = []
+    context.runtime_session_restore_delayed_memory_metadata = []
+    context.runtime_session_restore_attached_file_metadata = []
+
+    actions = tuple(
+        [
+            RuntimeActionCall(
+                name=RUNTIME_ACTION_LOAD_DELAYED_MEMORY,
+                payload=report_id,
+            )
+            for report_id in delayed_ids
+        ]
+        + [
+            RuntimeActionCall(
+                name=RUNTIME_ACTION_ATTACH_FILE_CONTENT,
+                payload=file_id,
+            )
+            for file_id in file_ids
+        ]
     )
+
+    if not actions:
+        return 0
+
+    previous_restore_replay = bool(
+        getattr(
+            context,
+            "runtime_session_restore_replay_in_progress",
+            False,
+        )
+    )
+    context.runtime_session_restore_replay_in_progress = True
+    try:
+        return await apply_runtime_action_calls(
+            context,
+            actions,
+            context_snapshot=(
+                context_snapshot
+                if isinstance(context_snapshot, dict)
+                else None
+            ),
+            assistant_message=assistant_message,
+        )
+    finally:
+        context.runtime_session_restore_replay_in_progress = (
+            previous_restore_replay
+        )
 
 
 def action_batch_requires_follow_up(
@@ -122,62 +461,6 @@ def action_batch_requires_follow_up(
         for event in events_requiring_follow_up
     ):
         return False
-
-    return True
-
-
-async def complete_save_session_memory_before_follow_up(
-        *,
-        context,
-        state,
-        response_text: str,
-) -> bool:
-
-    if not getattr(
-        context,
-        "runtime_save_session_requested",
-        False,
-    ):
-        return False
-
-    # SAVE_SESSION is completed directly against the already accumulated
-    # runtime snapshots. The current user request and JIN's final confirmation
-    # are deliberately not pushed through L1 before this follow-up. They are
-    # handled later by the normal post-response L1/L2 pipeline, exactly like
-    # any ordinary user -> JIN exchange.
-    context.runtime_save_session_result = {}
-
-    await maybe_summarize_runtime_session_memory(
-        context=context,
-    )
-
-    save_result = getattr(
-        context,
-        "runtime_save_session_result",
-        None,
-    )
-    if not isinstance(
-        save_result,
-        dict,
-    ) or not save_result:
-        save_result = {
-            "action": "save_session",
-            "ok": False,
-            "status": "failed",
-            "reason": "l3_save_result_missing",
-            "message": (
-                "Session snapshot was not saved because the L3 save "
-                "operation did not produce a result."
-            ),
-            "destination": "L3 session memory",
-        }
-        context.runtime_save_session_result = save_result
-
-    record_runtime_tool_result(
-        context,
-        TOOL_RESULT_KIND_SESSION,
-        save_result,
-    )
 
     return True
 
@@ -230,6 +513,64 @@ def build_reasoning_recovery_context() -> str:
         "<REASONING_RECOVERY>\n"
         f"{REASONING_RECOVERY_MESSAGE}.\n"
         "</REASONING_RECOVERY>"
+    )
+
+
+def consume_action_failure_followup_context(
+        context,
+) -> str:
+
+    if context is None or not bool(
+        getattr(
+            context,
+            "runtime_followup_action_failure_pending",
+            False,
+        )
+    ):
+        return ""
+
+    context.runtime_followup_action_failure_pending = False
+
+    from utils.context.runtime_action_result_text import format_action_failure_summary
+    from xml.sax.saxutils import escape
+    pending_ids = set(getattr(context, "runtime_failure_followup_tool_ids", []) or [])
+    context.runtime_failure_followup_tool_ids = []
+    entries = list(
+        getattr(
+            context,
+            "runtime_failure_followup_entries",
+            [],
+        )
+        or []
+    )
+    context.runtime_failure_followup_entries = []
+    if not entries:
+        entries = [
+            entry
+            for entry in getattr(
+                context,
+                "runtime_tool_results",
+                [],
+            )
+            or []
+            if entry.get("tool_id") in pending_ids
+        ]
+    from utils.actions.malformed_action_utils import build_malformed_notification
+    malformed = [entry for entry in entries
+                 if entry.get("result", {}).get("action") == "malformed_action"]
+    notifications = "\n\n".join(build_malformed_notification(entry) for entry in malformed)
+    entries = [entry for entry in entries if entry not in malformed]
+    if not entries and notifications:
+        return notifications
+    summaries = [format_action_failure_summary(entry) for entry in entries
+                 if not pending_ids or entry.get("tool_id") in pending_ids]
+    details = "\n\n".join(summary for summary in summaries if summary)
+    return (
+        (notifications + "\n\n" if notifications else "")
+        + "<ACTION_FAILURE_FOLLOWUP>\n"
+        f"{ACTION_FAILURE_FOLLOWUP_MESSAGE}\n"
+        + ("\n" + escape(details) + "\n" if details else "")
+        + "</ACTION_FAILURE_FOLLOWUP>"
     )
 
 
@@ -299,17 +640,117 @@ def build_context_limit_recovery_context(
     )
 
 
-FOLLOWUP_SYSTEM_MESSAGE = (
-    "MANDATORY: YOU MUST USE CURRENT_SEQUENCE BLOCK AS THE SOLE SOURCE OF TRUTH FOR THE ACTION ORDER AND EXECUTION STATUS!\n"
-    "MANDATORY: THIS IS NOT START OF A SEQUENCE!\n"
-    "MANDATORY: YOU ARE IN THE MIDDLE OF RUNNING SEQUENCE!\n"
-    "MANDATORY: YOU MUST FINISH CURRENT SEQUENCE AND DO NOT START NEW SEQUENCE!\n"
-    "MANDATORY: YOU MUST DERIVE REMAINING STEPS FROM <INITIAL_SEQUENCE_USER_MESSAGE> AND CONTINUE FROM CURRENT_SEQUENCE!\n"
-    "\n"
-    "\n"
-    "If the original user request is satisfied - stop execute and notify user!\n"
-    "If conditions are not met - continue without confirmation!\n"
-    "\n"
+def _normalize_previous_reasoning_content(
+        reasoning,
+) -> str:
+
+    return str(
+        reasoning
+        or ""
+    ).strip()
+
+
+def _recovery_reasoning_pending(
+        context,
+) -> bool:
+
+    if context is None:
+        return False
+
+    if getattr(
+        context,
+        "runtime_reasoning_recovery_pending",
+        False,
+    ):
+        return True
+
+    if not getattr(
+        context,
+        "runtime_context_limit_recovery_pending",
+        False,
+    ):
+        return False
+
+    return (
+        str(
+            getattr(
+                context,
+                "runtime_context_limit_stage",
+                "",
+            )
+            or ""
+        ).strip().casefold()
+        == "reasoning"
+    )
+
+
+def remember_recovery_reasoning_for_followup(
+        context,
+        reasoning,
+) -> None:
+
+    if not _recovery_reasoning_pending(
+        context
+    ):
+        return
+
+    normalized_reasoning = _normalize_previous_reasoning_content(
+        reasoning
+    )
+
+    if not normalized_reasoning:
+        return
+
+    # Recovery follow-ups only need the immediately preceding failed
+    # reasoning. Replacing the slot prevents repeated loop retries from
+    # accumulating older reasoning blocks in the next prompt.
+    context.runtime_previous_reasoning_loop_contents = [
+        normalized_reasoning
+    ]
+
+
+def remember_successful_previous_reasoning(
+        context,
+        reasoning,
+        *,
+        from_session_restore: bool = False,
+) -> None:
+
+    if context is None:
+        return
+
+    if (
+        getattr(
+            context,
+            "runtime_turn_interrupted",
+            False,
+        )
+        or getattr(
+            context,
+            "runtime_reasoning_recovery_pending",
+            False,
+        )
+        or getattr(
+            context,
+            "runtime_context_limit_recovery_pending",
+            False,
+        )
+    ):
+        return
+
+    context.runtime_previous_reasoning_content = (
+        _normalize_previous_reasoning_content(
+            reasoning
+        )
+    )
+    context.runtime_previous_reasoning_from_session_restore = bool(
+        from_session_restore
+    )
+    context.runtime_previous_reasoning_loop_contents = []
+
+
+POTENTIAL_LOOP_FOLLOWUP_MESSAGE = (
+    "!!!POTENTIAL LOOP DETECTED - STOP EXECUTING AND ANALYZE!!!"
 )
 
 
@@ -331,10 +772,11 @@ def sanitize_sequence_user_request(
 
     # Attachment payload transport hints are useful to the runtime, but they
     # are not part of the user's request and must not leak into the visible
-    # CURRENT_SEQUENCE block on follow-up ticks.
+    # session action history on follow-up ticks.
     lines = []
 
-    for line in str(value or "").splitlines():
+    from websocket.attachments import strip_attachment_source_text
+    for line in strip_attachment_source_text(value).splitlines():
         if line.strip().casefold().startswith(
             "runtime_attachment:"
         ):
@@ -345,263 +787,263 @@ def sanitize_sequence_user_request(
     return "\n".join(lines).strip()
 
 
-def format_followup_action_from_event(
-        event: dict,
+
+
+
+
+
+
+def format_previous_runtime_memory_tag(
+        *,
+        sequence_started_at=None,
+        now: float | None = None,
 ) -> str:
 
     if not isinstance(
-        event,
-        dict,
-    ):
-        return ""
+        sequence_started_at,
+        (int, float),
+    ) or sequence_started_at <= 0:
+        return "<PREVIOUS_FRAME_MEMORY_SNAPSHOT>"
 
-    runtime_action = str(
-        event.get(
-            "name",
-            "",
+    if now is None:
+        now = time.time()
+
+    try:
+        elapsed_seconds = max(
+            0,
+            float(now) - float(sequence_started_at),
         )
+    except (
+        TypeError,
+        ValueError,
+    ):
+        return "<PREVIOUS_FRAME_MEMORY_SNAPSHOT>"
+
+    from runtime.frame_memory_utils import (
+        format_user_idle_seconds,
+    )
+
+    elapsed_text = format_user_idle_seconds(
+        elapsed_seconds
+    )
+
+    if not elapsed_text:
+        return "<PREVIOUS_FRAME_MEMORY_SNAPSHOT>"
+
+    return (
+        "<PREVIOUS_FRAME_MEMORY_SNAPSHOT "
+        f"( {elapsed_text} ago ) >"
+    )
+
+
+def strip_loaded_delayed_memory_context(
+        system_prompt: str,
+) -> str:
+
+    lines = str(
+        system_prompt
         or ""
-    ).strip()
-    normalized_runtime_action = runtime_action.upper()
-    contract_name = get_action_contract_name_for_runtime_action(
-        runtime_action
-    ) or get_action_contract_name_for_runtime_action(
-        normalized_runtime_action
-    )
-    display_name = get_runtime_action_display_name(
-        contract_name
-        or normalized_runtime_action
-        or runtime_action
-    )
-    action_name = _compact_followup_value(
-        normalized_runtime_action
-        or contract_name
-        or display_name
-        or runtime_action
-    )
+    ).splitlines()
+    opening_tag = "<LOADED_DELAYED_MEMORY>"
+    closing_tag = "</LOADED_DELAYED_MEMORY>"
+    kept_lines = []
+    index = 0
 
-    if action_name.upper() == "ASSET_ACTION":
-        from utils.session_actions_history import (
-            extract_asset_action_marker_name,
-        )
-
-        asset_action_name = extract_asset_action_marker_name(
-            event.get("payload")
-            or event.get("asset_result")
-            or event.get("detail")
-            or ""
-        )
-
-        if asset_action_name:
-            return f"{action_name}: {asset_action_name}"
-
-    return action_name
-
-
-def format_followup_action_from_asset_result(
-        result: dict,
-) -> str:
-
-    if not isinstance(
-        result,
-        dict,
-    ):
-        return ""
-
-    action = _compact_followup_value(
-        result.get(
-            "action",
-            "",
-        )
-    )
-    if not action:
-        return ""
-
-    return action
-
-
-def format_followup_actions_from_events(
-        events,
-) -> str:
-
-    action_counts = {}
-
-    for event in events or []:
-        action_name = format_followup_action_from_event(
-            event
-        )
-        if not action_name:
+    while index < len(lines):
+        if lines[index].strip() != opening_tag:
+            kept_lines.append(
+                lines[index]
+            )
+            index += 1
             continue
 
-        action_counts[action_name] = (
-            action_counts.get(
-                action_name,
-                0,
+        closing_index = index + 1
+        while (
+            closing_index < len(lines)
+            and lines[closing_index].strip() != closing_tag
+        ):
+            closing_index += 1
+
+        if closing_index >= len(lines):
+            kept_lines.extend(
+                lines[index:]
             )
-            + 1
-        )
+            break
 
-    formatted_actions = []
+        index = closing_index + 1
 
-    for action_name, count in action_counts.items():
-        formatted_actions.append(
-            format_runtime_action_count(
-                action_name,
-                count,
-            )
-        )
-
-    return ", ".join(
-        formatted_actions
-    )
+    return "\n".join(kept_lines).strip()
 
 
 def rename_runtime_memory_for_followup(
         system_prompt: str,
+        *,
+        sequence_started_at=None,
+        now: float | None = None,
 ) -> str:
 
     prompt = str(
         system_prompt
         or ""
     )
-    opening_tag = "<RUNTIME_MEMORY>"
-    closing_tag = "</RUNTIME_MEMORY>"
+    opening_tag_prefix = "<FRAME_MEMORY_"
     opening_index = prompt.find(
-        opening_tag
+        opening_tag_prefix
     )
+
+    # Keep old saved/follow-up contexts readable while current prompts use
+    # the numbered FRAME_MEMORY_N contract.
+    if opening_index < 0:
+        opening_tag_prefix = "<RUNTIME_MEMORY"
+        opening_index = prompt.find(
+            opening_tag_prefix
+        )
 
     if opening_index < 0:
         return prompt
 
+    opening_end_index = prompt.find(
+        ">",
+        opening_index + len(opening_tag_prefix),
+    )
+
+    if opening_end_index < 0:
+        return prompt
+
+    opening_tag_name = (
+        prompt[opening_index + 1:opening_end_index]
+        .split(None, 1)[0]
+        .strip()
+    )
+    if not opening_tag_name:
+        return prompt
+
+    closing_tag = f"</{opening_tag_name}>"
     closing_index = prompt.find(
         closing_tag,
-        opening_index + len(opening_tag),
+        opening_end_index + 1,
     )
 
     if closing_index < 0:
         return prompt
 
+    previous_opening_tag = format_previous_runtime_memory_tag(
+        sequence_started_at=sequence_started_at,
+        now=now,
+    )
+
     return (
         prompt[:opening_index]
-        + "<PREVIOUS_RUNTIME_MEMORY>"
-        + prompt[opening_index + len(opening_tag):closing_index]
-        + "</PREVIOUS_RUNTIME_MEMORY>"
+        + previous_opening_tag
+        + prompt[opening_end_index + 1:closing_index]
+        + "</PREVIOUS_FRAME_MEMORY_SNAPSHOT>"
         + prompt[closing_index + len(closing_tag):]
     )
 
 
-def build_idle_followup_tool_results(
-        idle_followup: dict,
+def place_previous_chat_messages_after_frame_snapshot(
+        system_prompt: str,
+        previous_chat_messages_context: str,
 ) -> str:
 
-    seconds = int(
-        idle_followup.get(
-            "seconds",
-            0,
-        )
-        or 0
-    )
-    idle_id = escape(
-        str(
-            idle_followup.get(
-                "id",
-                "",
-            )
-            or ""
-        )
-    )
-
-    return (
-        '<TOOL_RESULTS type="idle">\n'
-        "  <IDLE_FOLLOWUP>\n"
-        f"    <id>{idle_id}</id>\n"
-        f"    <elapsed_seconds>{seconds}</elapsed_seconds>\n"
-        "  </IDLE_FOLLOWUP>\n"
-        "</TOOL_RESULTS>"
-    )
-
-
-def build_idle_followup_system_prompt(
-        idle_followup: dict,
-) -> str:
-
-    snapshot = idle_followup.get(
-        "context_snapshot",
-        {},
-    )
-    if not isinstance(snapshot, dict):
-        snapshot = {}
-
-    frozen_system_prompt = str(
-        snapshot.get(
-            "system_prompt",
-            "",
-        )
+    prompt = str(
+        system_prompt
         or ""
-    )
-    inherited_tool_results, frozen_system_prompt = (
-        split_tools_results_context(
-            frozen_system_prompt
-        )
-    )
-    inherited_tool_results = [
-        block
-        for block in inherited_tool_results
-        if not is_idle_tool_results_block(
-            block
-        )
-    ]
-    inherited_tool_results.append(
-        build_idle_followup_tool_results(
-            idle_followup
-        )
-    )
-
-    sections = [
-        build_tools_results_context(
-            inherited_tool_results
-        ),
-    ]
-
-    if frozen_system_prompt:
-        sections.append(
-            rename_runtime_memory_for_followup(
-                frozen_system_prompt
-            )
-        )
-
-    return "\n\n".join(
-        section
-        for section in sections
-        if str(section or "").strip()
-    )
-
-
-def build_followup_system_message(
-        latest_action: str = "",
-) -> str:
-
-    latest_action = _compact_followup_value(
-        latest_action
-    )
-    lines = [
-        FOLLOWUP_SYSTEM_MESSAGE,
-    ]
-
-    if latest_action:
-        lines.append(
-            "This is follow-up tick for JIN latest action: "
-            f"{latest_action}."
-        )
-
-    lines.append(
-        "Requested and available information provided in tool results section."
-    )
-
-    return "\n".join(
-        lines
+    ).strip()
+    block = str(
+        previous_chat_messages_context
+        or ""
     ).strip()
 
+    if not block:
+        return prompt
+
+    # Follow-ups rebuild this block from live context, so remove any stale
+    # inherited copy before placing the fresh one beside the FRAME snapshot.
+    for tag_name in (
+        "PREVIOUS_CHAT_MESSAGES",
+        "OLD_SESSION_RESTORED_STATE",
+    ):
+        prompt = re.sub(
+            rf"(?:^|\n)<{tag_name}(?:\s+[^>]*)?>.*?</{tag_name}>\n*",
+            "\n",
+            prompt,
+            flags=re.DOTALL | re.IGNORECASE,
+        ).strip()
+
+    snapshot_match = re.search(
+        r"<PREVIOUS_FRAME_MEMORY_SNAPSHOT(?:\s+[^>]*)?>[\s\S]*?"
+        r"</PREVIOUS_FRAME_MEMORY_SNAPSHOT>",
+        prompt,
+        flags=re.IGNORECASE,
+    )
+    if snapshot_match is None:
+        snapshot_match = re.search(
+            r"<FRAME_MEMORY_[^>]+>[\s\S]*?</FRAME_MEMORY_[^>]+>",
+            prompt,
+            flags=re.IGNORECASE,
+        )
+    if snapshot_match is None:
+        snapshot_match = re.search(
+            r"<RUNTIME_MEMORY(?:\s+[^>]*)?>[\s\S]*?</RUNTIME_MEMORY>",
+            prompt,
+            flags=re.IGNORECASE,
+        )
+
+    if snapshot_match is not None:
+        return (
+            prompt[:snapshot_match.end()].rstrip()
+            + "\n\n"
+            + block
+            + "\n\n"
+            + prompt[snapshot_match.end():].lstrip()
+        ).strip()
+
+    return (prompt + "\n\n" + block).strip()
+
+
+def extract_prompt_context_block(
+        system_prompt: str,
+        tag_name: str,
+) -> tuple[str, str]:
+
+    prompt = str(
+        system_prompt
+        or ""
+    ).strip()
+    normalized_tag_name = str(
+        tag_name
+        or ""
+    ).strip()
+
+    if not prompt or not normalized_tag_name:
+        return "", prompt
+
+    pattern = (
+        rf"(?:(?<=\n)|^)(<{re.escape(normalized_tag_name)}(?:\s+[^>]*)?>"
+        rf"[\s\S]*?</{re.escape(normalized_tag_name)}>)\n*"
+    )
+    match = re.search(
+        pattern,
+        prompt,
+        flags=re.IGNORECASE,
+    )
+
+    if match is None:
+        return "", prompt
+
+    block = str(
+        match.group(1)
+        or ""
+    ).strip()
+    prompt = re.sub(
+        pattern,
+        "\n",
+        prompt,
+        flags=re.IGNORECASE,
+    ).strip()
+
+    return block, prompt
 
 def restore_sequence_attachments_for_followup(
         context,
@@ -650,10 +1092,6 @@ def build_followup_attachment_payload(
         context,
 ) -> str:
 
-    from websocket.attachments import (
-        format_attachment_context,
-    )
-
     attachments = getattr(
         context,
         "runtime_turn_attachments",
@@ -663,9 +1101,331 @@ def build_followup_attachment_payload(
     if not attachments:
         return ""
 
-    return format_attachment_context({
-        "attachments": attachments,
-    })
+    return "Continue the current request using the action results; loaded FILE_CONTENT is nested inside TOOLS_RESULTS."
+
+
+def _format_followup_action_history_items(
+        items,
+) -> list[str]:
+
+    from utils.context.session_actions import (
+        format_session_action_age,
+    )
+
+    now = time.time()
+    lines = []
+
+    for item in items or []:
+        if not isinstance(item, dict):
+            continue
+
+        text = str(
+            item.get(
+                "text",
+                "",
+            )
+            or ""
+        ).strip()
+        if not text:
+            continue
+
+        try:
+            created_at = float(
+                item.get(
+                    "created_at",
+                    0,
+                )
+                or 0
+            )
+        except (
+            TypeError,
+            ValueError,
+        ):
+            created_at = 0.0
+
+        if created_at > 0:
+            text += (
+                " ( "
+                f"{format_session_action_age(now - created_at)}"
+                " ago )"
+            )
+
+        lines.append(
+            text
+        )
+
+    return lines
+
+
+def _fallback_followup_action_lines(
+        context,
+) -> list[str]:
+
+    if context is None:
+        return []
+
+    history = getattr(
+        context,
+        "runtime_session_action_history",
+        [],
+    )
+    if not isinstance(history, list):
+        return []
+
+    current_turn_id = str(
+        getattr(
+            context,
+            "runtime_current_sequence_turn_id",
+            "",
+        )
+        or getattr(
+            context,
+            "runtime_current_turn_id",
+            "",
+        )
+        or ""
+    ).strip()
+    sequence_started_at = getattr(
+        context,
+        "runtime_current_sequence_started_at",
+        None,
+    )
+    if not isinstance(sequence_started_at, (int, float)):
+        sequence_started_at = getattr(
+            context,
+            "runtime_turn_started_at",
+            None,
+        )
+
+    for item in reversed(history):
+        if not isinstance(item, dict):
+            continue
+
+        item_turn_id = str(
+            item.get(
+                "runtime_turn_id",
+                "",
+            )
+            or ""
+        ).strip()
+        if (
+            current_turn_id
+            and item_turn_id
+            and item_turn_id != current_turn_id
+        ):
+            continue
+
+        created_at = item.get(
+            "created_at"
+        )
+        if (
+            isinstance(sequence_started_at, (int, float))
+            and isinstance(created_at, (int, float))
+            and float(created_at) < float(sequence_started_at)
+        ):
+            continue
+
+        return _format_followup_action_history_items(
+            [item]
+        )
+
+    return []
+
+
+def _fallback_followup_tool_ids(
+        context,
+) -> list[str]:
+
+    if context is None:
+        return []
+
+    current_turn_id = str(
+        getattr(
+            context,
+            "runtime_current_sequence_turn_id",
+            "",
+        )
+        or getattr(
+            context,
+            "runtime_current_turn_id",
+            "",
+        )
+        or ""
+    ).strip()
+    events = getattr(
+        context,
+        "runtime_action_events",
+        [],
+    )
+    if not isinstance(events, list):
+        return []
+
+    matching_events = []
+    for event in reversed(events):
+        if not isinstance(event, dict):
+            continue
+
+        event_turn_id = str(
+            event.get(
+                "runtime_turn_id",
+                "",
+            )
+            or ""
+        ).strip()
+        if (
+            current_turn_id
+            and event_turn_id
+            and event_turn_id != current_turn_id
+        ):
+            continue
+
+        tool_id = str(
+            event.get(
+                "tool_id",
+                "",
+            )
+            or ""
+        ).strip()
+        if not tool_id:
+            continue
+
+        if not matching_events:
+            matching_events.append(
+                event
+            )
+            continue
+
+        latest_message_id = str(
+            matching_events[0].get(
+                "runtime_message_id",
+                "",
+            )
+            or ""
+        ).strip()
+        event_message_id = str(
+            event.get(
+                "runtime_message_id",
+                "",
+            )
+            or ""
+        ).strip()
+        if (
+            latest_message_id
+            and event_message_id != latest_message_id
+        ):
+            break
+
+        if not latest_message_id:
+            break
+
+        matching_events.append(
+            event
+        )
+
+    tool_ids = []
+    for event in reversed(matching_events):
+        tool_id = str(
+            event.get(
+                "tool_id",
+                "",
+            )
+            or ""
+        ).strip()
+        if tool_id and tool_id not in tool_ids:
+            tool_ids.append(
+                tool_id
+            )
+
+    return tool_ids
+
+
+def build_followup_response_message_context(
+        context=None,
+        *,
+        latest_action: str = "",
+) -> str:
+
+    action_lines = list(
+        getattr(
+            context,
+            "runtime_followup_response_action_lines",
+            [],
+        )
+        or []
+    ) if context is not None else []
+
+    if not action_lines:
+        action_lines = _fallback_followup_action_lines(
+            context
+        )
+
+    if not action_lines:
+        fallback_action = str(
+            latest_action
+            or ""
+        ).strip()
+        if fallback_action:
+            action_lines = [
+                fallback_action,
+            ]
+
+    tool_ids = []
+    if context is not None:
+        for tool_id in (
+            getattr(
+                context,
+                "runtime_followup_response_tool_ids",
+                [],
+            )
+            or []
+        ):
+            normalized_tool_id = str(
+                tool_id
+                or ""
+            ).strip()
+            if (
+                normalized_tool_id
+                and normalized_tool_id not in tool_ids
+            ):
+                tool_ids.append(
+                    normalized_tool_id
+                )
+
+    if not tool_ids:
+        tool_ids = _fallback_followup_tool_ids(
+            context
+        )
+
+    lines = [
+        FOLLOW_UP_RESPONSE_MESSAGE.rstrip(),
+    ]
+
+    if action_lines:
+        rendered_actions = ", ".join(
+            str(line or "").strip()
+            for line in action_lines
+            if str(line or "").strip()
+        )
+        lines.append(
+            "Last executed actions: "
+            + escape(rendered_actions)
+        )
+
+    if tool_ids:
+        lines.append(
+            "Tool results are available by id: "
+            + escape(", ".join(tool_ids))
+        )
+
+    return (
+        "<FOLLOW_UP_RESPONSE_MESSAGE>\n"
+        + "\n".join(
+            line
+            for line in lines
+            if line
+        )
+        + "\n</FOLLOW_UP_RESPONSE_MESSAGE>"
+    )
 
 
 class BrainNode(BaseNode):
@@ -683,6 +1443,9 @@ class BrainNode(BaseNode):
         from utils.context.context_exports import (
             build_session_actions_history_context,
             strip_actions_history_context,
+        )
+        from utils.context.current_concerns import (
+            build_current_concerns_context,
         )
         from utils.session_actions_history import (
             get_current_action_sequence_started_at,
@@ -716,27 +1479,94 @@ class BrainNode(BaseNode):
                 confirm_result_context
             )
 
-        current_actions_history_context = ""
+        reasoning_recovery_pending = (
+            context is not None
+            and getattr(
+                context,
+                "runtime_reasoning_recovery_pending",
+                False,
+            )
+        )
+        context_limit_recovery_pending = (
+            context is not None
+            and getattr(
+                context,
+                "runtime_context_limit_recovery_pending",
+                False,
+            )
+        )
+
+        session_actions_history_context = ""
 
         if context is not None:
             mark_current_action_sequence(
                 context
             )
 
-        current_actions_history_context = (
+        session_actions_history_context = (
             build_session_actions_history_context(
                 context,
                 current_sequence=True,
-                sequence_user_message=initial_user_request,
-                sequence_user_created_at=sequence_started_at,
+            )
+        )
+        potential_loop_detected = bool(
+            context is not None
+            and getattr(
+                context,
+                "runtime_potential_loop_detected_pending",
+                False,
             )
         )
 
+        context_overflow_pending = bool(
+            context_limit_recovery_pending
+            and getattr(context, "runtime_context_limit_kind", "context") != "output"
+        )
+        # Overflow needs an immediate cleanup instruction, without the ordinary
+        # deep-reasoning notice or its last-executed-action/result suffix.
         sections = [
-            build_followup_system_message(
-                latest_action
-            ),
+            (
+                "<FOLLOW_UP_CONTEXT_OVERFLOW_MESSAGE>\n"
+                + FOLLOW_UP_CONTEXT_OVERFLOW_MESSAGE
+                + "</FOLLOW_UP_CONTEXT_OVERFLOW_MESSAGE>"
+            )
+            if context_overflow_pending
+            else build_followup_response_message_context(
+                context,
+                latest_action=latest_action,
+            )
         ]
+
+        if potential_loop_detected:
+            sections.append(
+                POTENTIAL_LOOP_FOLLOWUP_MESSAGE
+            )
+            context.runtime_potential_loop_detected_pending = False
+
+        action_failure_followup_context = (
+            consume_action_failure_followup_context(
+                context
+            )
+            if context is not None
+            else ""
+        )
+        if action_failure_followup_context:
+            if action_failure_followup_context.startswith("<MALFORMED_ACTION_NOTIFICATION>"):
+                sections.insert(1, action_failure_followup_context)
+            else:
+                sections.append(action_failure_followup_context)
+
+        failed_action_context = (
+            build_failed_runtime_action_followup_contexts(
+                context
+            )
+            if context is not None
+            else ""
+        )
+        if failed_action_context:
+            sections.append(
+                failed_action_context
+            )
 
         if instruction.strip():
             sections.append(
@@ -745,15 +1575,29 @@ class BrainNode(BaseNode):
 
         if (
             context is not None
-            and getattr(
-                context,
-                "runtime_reasoning_recovery_pending",
-                False,
-            )
+            and reasoning_recovery_pending
         ):
+            interruption_reason = str(
+                getattr(
+                    context,
+                    "runtime_turn_interruption_reason",
+                    "",
+                )
+                or ""
+            ).strip()
+
             sections.append(
                 build_reasoning_recovery_context()
             )
+
+            if interruption_reason:
+                recovery_reason_tag = "REASONING_RECOVERY_REASON"
+                sections.append(
+                    f"<{recovery_reason_tag}>\n"
+                    f'{interruption_reason}\n'
+                    f"</{recovery_reason_tag}>"
+                )
+
             context.runtime_reasoning_recovery_pending = False
             context.runtime_turn_interrupted = False
             context.runtime_turn_interruption_reason = ""
@@ -761,26 +1605,15 @@ class BrainNode(BaseNode):
 
         if (
             context is not None
-            and getattr(
-                context,
-                "runtime_context_limit_recovery_pending",
-                False,
-            )
+            and context_limit_recovery_pending
         ):
-            sections.append(
-                build_context_limit_recovery_context(
-                    getattr(
-                        context,
-                        "runtime_context_limit_stage",
-                        "generation",
-                    ),
-                    getattr(
-                        context,
-                        "runtime_context_limit_kind",
-                        "context",
-                    ),
+            if not context_overflow_pending:
+                sections.append(
+                    build_context_limit_recovery_context(
+                        getattr(context, "runtime_context_limit_stage", "generation"),
+                        getattr(context, "runtime_context_limit_kind", "context"),
+                    )
                 )
-            )
             context.runtime_context_limit_recovery_pending = False
             context.runtime_context_limit_stage = ""
             context.runtime_context_limit_kind = ""
@@ -789,15 +1622,32 @@ class BrainNode(BaseNode):
             context.runtime_turn_interruption_reason = ""
             context.runtime_turn_interruption_quote = ""
 
-        if current_actions_history_context:
+        if session_actions_history_context:
             sections.append(
-                current_actions_history_context
+                session_actions_history_context
             )
 
-        sections.append(
+        followup_tool_results_context = (
             build_tools_results_context(
                 tool_result_blocks
             )
+        )
+
+        # Rebuild this live block on every internal follow-up instead of
+        # inheriting the stale snapshot from the initial prompt.
+        sections.append(
+            build_current_concerns_context(
+                context,
+                has_tool_results=(
+                    has_nonempty_tools_results_context(
+                        followup_tool_results_context
+                    )
+                ),
+            )
+        )
+
+        sections.append(
+            followup_tool_results_context
         )
 
         if (
@@ -813,26 +1663,77 @@ class BrainNode(BaseNode):
 
         if context is not None:
             from rules.brain_context_builder import (
-                build_appended_delayed_memory_context,
+                build_loaded_delayed_memory_context,
             )
 
-            appended_delayed_memory_context = (
-                build_appended_delayed_memory_context(
+            loaded_delayed_memory_context = (
+                build_loaded_delayed_memory_context(
                     context
                 )
             )
 
-            if appended_delayed_memory_context:
+            if loaded_delayed_memory_context:
                 sections.append(
-                    appended_delayed_memory_context
+                    loaded_delayed_memory_context
                 )
 
-        sections.append(
-            rename_runtime_memory_for_followup(
+        from utils.context.messages import (
+            build_previous_chat_messages_context,
+        )
+
+        base_prompt = rename_runtime_memory_for_followup(
+            strip_loaded_delayed_memory_context(
                 strip_actions_history_context(
-                    system_prompt
+                    system_prompt,
+                    keep_previous_chat_messages=False,
                 )
+            ),
+            sequence_started_at=sequence_started_at,
+        )
+        previous_chat_messages_context = (
+            build_previous_chat_messages_context(
+                context,
+                extra_user_message=initial_user_request,
             )
+            if context is not None
+            else ""
+        )
+        base_prompt = place_previous_chat_messages_after_frame_snapshot(
+            base_prompt,
+            previous_chat_messages_context,
+        )
+
+        # Follow-up continuity must be the first thing Brain sees: visible chat
+        # first, then the accumulated reasoning evidence, then the synthetic
+        # FOLLOW_UP_RESPONSE_MESSAGE. Remove these blocks from their ordinary
+        # base-prompt positions before projecting them at the front so repeated
+        # follow-ups never duplicate them.
+        previous_chat_messages_context, base_prompt = (
+            extract_prompt_context_block(
+                base_prompt,
+                "PREVIOUS_CHAT_MESSAGES",
+            )
+        )
+        previous_reasoning_evidence_context, base_prompt = (
+            extract_prompt_context_block(
+                base_prompt,
+                "PREVIOUS_REASONING_EVIDENCE_TRAIL_AFTER_EXECUTED_ACTIONS",
+            )
+        )
+
+        continuity_sections = [
+            block
+            for block in (
+                previous_chat_messages_context,
+                previous_reasoning_evidence_context,
+            )
+            if block
+        ]
+        if continuity_sections:
+            sections = continuity_sections + sections
+
+        sections.append(
+            base_prompt
         )
 
         return "\n\n".join(
@@ -854,296 +1755,6 @@ class BrainNode(BaseNode):
         return result.strip()
 
     @staticmethod
-    def build_asset_result_report(
-            result: dict,
-            *,
-            user_text: str = "",
-    ) -> str:
-
-        if not isinstance(
-            result,
-            dict,
-        ):
-            return "Asset operation completed."
-
-        use_russian = contains_cyrillic(
-            user_text
-        )
-
-        action = str(
-            result.get(
-                "action",
-                "asset_action",
-            )
-            or "asset_action"
-        )
-        ok = bool(
-            result.get(
-                "ok",
-                False,
-            )
-        )
-        path = str(
-            result.get(
-                "path",
-                "",
-            )
-            or ""
-        )
-        error = str(
-            result.get(
-                "error",
-                "",
-            )
-            or ""
-        )
-        detail = str(
-            result.get(
-                "detail",
-                "",
-            )
-            or ""
-        )
-
-        if not ok:
-            reason = " — ".join(
-                part
-                for part in (
-                    error,
-                    detail,
-                )
-                if part
-            )
-            if use_russian:
-                return (
-                    f"Не удалось выполнить asset-операцию `{action}`"
-                    f" для `{path}`: {reason or 'unknown error'}."
-                )
-            return (
-                f"Could not complete asset operation `{action}`"
-                f" for `{path}`: {reason or 'unknown error'}."
-            )
-
-        line_count = result.get(
-            "line_count",
-            None,
-        )
-        appended_count = result.get(
-            "appended_count",
-            None,
-        )
-        examples = (
-            result.get("examples")
-            or result.get("items")
-            or []
-        )
-
-        if not isinstance(
-            examples,
-            list,
-        ):
-            examples = []
-
-        def format_ru_line_count(value) -> str:
-            try:
-                count = int(value)
-            except (TypeError, ValueError):
-                return str(value)
-
-            last_two = count % 100
-            last = count % 10
-
-            if 11 <= last_two <= 14:
-                word = "строк"
-            elif last == 1:
-                word = "строку"
-            elif 2 <= last <= 4:
-                word = "строки"
-            else:
-                word = "строк"
-
-            return f"{count} {word}"
-
-        if use_russian:
-            if action == "create_wildcard_file":
-                lines = [
-                    (
-                        f"Создал файл `{path}`"
-                        + (
-                            f" на {format_ru_line_count(line_count)}."
-                            if line_count is not None
-                            else "."
-                        )
-                    )
-                ]
-            elif action == "append_wildcard_file":
-                lines = [
-                    (
-                        f"Обновил файл `{path}`"
-                        + (
-                            f": добавлено {format_ru_line_count(appended_count)}, всего {format_ru_line_count(line_count)}."
-                            if appended_count is not None and line_count is not None
-                            else "."
-                        )
-                    )
-                ]
-            elif action == "generate_prompt_batch":
-                lines = [
-                    (
-                        f"Создал prompt batch `{path}`"
-                        + (
-                            f" на {format_ru_line_count(line_count)}."
-                            if line_count is not None
-                            else "."
-                        )
-                    )
-                ]
-            elif action in {"sample_wildcard", "preview_file", "expand_template"}:
-                lines = [
-                    (
-                        f"Готово: `{action}`"
-                        + (f" для `{path}`." if path else ".")
-                    )
-                ]
-            else:
-                lines = [
-                    (
-                        f"Готово: `{action}`"
-                        + (f" для `{path}`." if path else ".")
-                    )
-                ]
-
-            if examples:
-                lines.append("")
-                lines.append("Примеры:")
-                lines.extend(
-                    f"- {item}"
-                    for item in examples[:5]
-                )
-
-            return "\n".join(lines).strip()
-
-        if action == "create_wildcard_file":
-            lines = [
-                (
-                    f"Created `{path}`"
-                    + (
-                        f" with {line_count} lines."
-                        if line_count is not None
-                        else "."
-                    )
-                )
-            ]
-        elif action == "append_wildcard_file":
-            lines = [
-                (
-                    f"Updated `{path}`"
-                    + (
-                        f": appended {appended_count} lines, {line_count} total."
-                        if appended_count is not None and line_count is not None
-                        else "."
-                    )
-                )
-            ]
-        elif action == "generate_prompt_batch":
-            lines = [
-                (
-                    f"Created prompt batch `{path}`"
-                    + (
-                        f" with {line_count} lines."
-                        if line_count is not None
-                        else "."
-                    )
-                )
-            ]
-        else:
-            lines = [
-                (
-                    f"Completed `{action}`"
-                    + (f" for `{path}`." if path else ".")
-                )
-            ]
-
-        if examples:
-            lines.append("")
-            lines.append("Examples:")
-            lines.extend(
-                f"- {item}"
-                for item in examples[:5]
-            )
-
-        return "\n".join(lines).strip()
-
-    @staticmethod
-    async def emit_brain_text(
-            *,
-            state,
-            context,
-            brain_runtime,
-            text: str,
-            emit_content_to_chat: bool = True,
-            context_snapshot: dict | None = None,
-    ) -> tuple[str, str]:
-
-        async def generator():
-            yield {
-                "type": "content",
-                "content": text,
-            }
-
-        runtime = RuntimeStream(
-            context=context,
-            runtime_id=(
-                brain_runtime[
-                    "runtime_id"
-                ]
-            ),
-            role=(
-                brain_runtime["label"]
-            ),
-            context_window=(
-                brain_runtime[
-                    "context_window"
-                ]
-            ),
-            log_method=getattr(
-                context.logger,
-                brain_runtime[
-                    "log_method"
-                ],
-            ),
-            model_output_log_method=getattr(
-                context.logger,
-                brain_runtime.get(
-                    "model_output_log_method",
-                    "",
-                ),
-                None,
-            ),
-            enable_validator=True,
-            emit_to_chat=True,
-            emit_content_to_chat=emit_content_to_chat,
-            context_snapshot=(
-                context_snapshot
-                or getattr(
-                    state,
-                    "visible_response_context",
-                    None,
-                )
-            ),
-            runtime_actions={},
-        )
-
-        response = await runtime.run(
-            generator()
-        )
-
-        return (
-            response or text,
-            runtime.stream.reasoning,
-        )
-
-    @staticmethod
     async def run_brain_stream(
             *,
             state,
@@ -1156,21 +1767,13 @@ class BrainNode(BaseNode):
             emit_content_to_chat: bool = True,
             filter_runtime_actions: bool = True,
             preserve_runtime_action_markers: bool = False,
+            followup_tick: bool = False,
     ) -> tuple[str, str]:
 
         logger = context.logger
 
-        is_followup_tick = (
-            not str(
-                brain_payload
-                or ""
-            ).strip()
-            and str(
-                system_prompt
-                or ""
-            ).lstrip().startswith(
-                FOLLOWUP_SYSTEM_MESSAGE
-            )
+        is_followup_tick = bool(
+            followup_tick
         )
         previous_followup_tick = getattr(
             context,
@@ -1192,11 +1795,27 @@ class BrainNode(BaseNode):
             )
             context.runtime_followup_tick_active = True
 
-        context_snapshot = build_brain_context_snapshot(
+        model_user_prompt = build_brain_user_prompt_content(
+            effective_brain_payload, context=context,
+        )
+        prepared_context_window = await prepare_current_context_window_prompt(
+            client=brain_client,
             context=context,
+            runtime_id=brain_runtime["runtime_id"],
+            system_prompt=system_prompt,
+            user_prompt=model_user_prompt,
+            fallback_context_window=brain_runtime["context_window"],
+            force_refresh=True,
+        )
+        system_prompt = prepared_context_window.system_prompt
+        brain_runtime["context_window"] = (
+            prepared_context_window.context_window
+        )
+
+        context_snapshot = build_brain_context_snapshot(
             system_prompt=system_prompt,
             user_prompt=effective_brain_payload,
-            runtime_actions=runtime_actions,
+            model_user_prompt=model_user_prompt,
         )
 
         if preserve_runtime_action_markers:
@@ -1205,8 +1824,36 @@ class BrainNode(BaseNode):
                 "preserve_runtime_action_markers": True,
             }
 
+        try:
+            context_snapshot_saver = (
+                save_chat_bootstrap_context_snapshot
+                if bool(
+                    getattr(
+                        context,
+                        "runtime_session_restore_priming",
+                        False,
+                    )
+                )
+                else save_chat_context_snapshot
+            )
+            context_snapshot_saver(
+                context,
+                context_snapshot=context_snapshot,
+            )
+        except Exception as error:
+            await logger.log_system(
+                "[CHAT_LOG] context snapshot save failed: "
+                + str(error)
+            )
+
         state.visible_response_context = (
             context_snapshot
+        )
+
+        enabled_runtime_actions = get_response_enabled_runtime_actions(
+            runtime_actions,
+            state.user_input,
+            context=context,
         )
 
         runtime = RuntimeStream(
@@ -1242,19 +1889,25 @@ class BrainNode(BaseNode):
             emit_to_chat=True,
             emit_content_to_chat=emit_content_to_chat,
             context_snapshot=context_snapshot,
-            runtime_actions=runtime_actions,
+            runtime_actions=enabled_runtime_actions,
             filter_runtime_actions=filter_runtime_actions,
         )
 
         try:
             generator = ask_brain_stream(
                 client=brain_client,
-                text=state.translated_input,
+                # A follow-up is a continuation of the same model turn, not a
+                # second USER move. Never forward the original request through
+                # the generic ``text`` fallback on these ticks.
+                text=("" if is_followup_tick else state.user_input),
                 context=context,
                 system_prompt=system_prompt,
                 brain_payload=effective_brain_payload,
                 runtime_actions=runtime_actions,
-                filter_runtime_actions=filter_runtime_actions,
+                # run_brain_stream already resolved/annotated the live context
+                # window above. Do not prepare it a second time in the client:
+                # L-T budgeting must run once against the full turn prompt.
+                context_window_prepared=True,
             )
 
             text = await runtime.run(
@@ -1266,35 +1919,28 @@ class BrainNode(BaseNode):
                     previous_followup_tick
                 )
 
-        if runtime.stream.reasoning:
-            context.runtime_turn_reasoning_content = "\n".join(
-                part
-                for part in (
-                    getattr(
-                        context,
-                        "runtime_turn_reasoning_content",
-                        "",
-                    ),
-                    runtime.stream.reasoning,
+            if runtime.stream.reasoning:
+                context.runtime_turn_reasoning_content = "\n".join(
+                    part
+                    for part in (
+                        getattr(
+                            context,
+                            "runtime_turn_reasoning_content",
+                            "",
+                        ),
+                        runtime.stream.reasoning,
+                    )
+                    if str(part or "").strip()
                 )
-                if str(part or "").strip()
+
+        if emit_content_to_chat and str(text or "").strip():
+            from utils.context.messages import (
+                remember_current_sequence_jin_message,
             )
 
-        # A SAVE_SESSION marker can be emitted on the initial brain response
-        # or on any internal follow-up tick. Complete L3 here, at the shared
-        # stream boundary, so the next tick cannot start before the save
-        # result exists and has been added to TOOL_RESULTS. This deliberately
-        # bypasses the ordinary post-turn L1 update. Preserve the old abort
-        # behavior: a stopped turn must not start a new L3 request.
-        if not getattr(
-            context,
-            "runtime_turn_abort_requested",
-            False,
-        ):
-            await complete_save_session_memory_before_follow_up(
-                context=context,
-                state=state,
-                response_text=text or "",
+            remember_current_sequence_jin_message(
+                context,
+                text,
             )
 
         return (
@@ -1335,8 +1981,41 @@ class BrainNode(BaseNode):
             context
         )
         context.runtime_turn_reasoning_content = ""
-        context.runtime_search_queries.clear()
-        context.runtime_search_calls.clear()
+
+        def ensure_runtime_list(
+                name: str,
+        ) -> list:
+
+            value = getattr(
+                context,
+                name,
+                None,
+            )
+
+            if not isinstance(
+                value,
+                list,
+            ):
+                value = []
+                setattr(
+                    context,
+                    name,
+                    value,
+                )
+
+            return value
+
+        ensure_runtime_list(
+            "runtime_deep_search_calls"
+        ).clear()
+        context.runtime_deep_search_result = ""
+        context.runtime_deep_search_result_id = ""
+        ensure_runtime_list(
+            "runtime_search_queries"
+        ).clear()
+        ensure_runtime_list(
+            "runtime_search_calls"
+        ).clear()
         context.runtime_search_result = ""
         context.runtime_search_result_id = ""
         prepare_asset_results_for_turn(
@@ -1356,67 +2035,72 @@ class BrainNode(BaseNode):
         # (e.g. the user explicitly asked JIN to emit only the marker).
         context.runtime_active_memory_saved_this_turn = False
         context.runtime_active_memory_refresh_tick = 0
-        context.runtime_save_session_memory_committed_this_turn = False
-        context.runtime_save_session_result = {}
-
-        idle_followup = state.metadata.get(
-            "idle_followup",
+        action_guard_retry = getattr(
+            context,
+            "runtime_action_guard_retry",
+            {},
         )
-        if not isinstance(idle_followup, dict):
-            idle_followup = {}
+        retry_context_snapshot = (
+            action_guard_retry.get(
+                "context_snapshot",
+                {},
+            )
+            if isinstance(action_guard_retry, dict)
+            else {}
+        )
+        if not isinstance(retry_context_snapshot, dict):
+            retry_context_snapshot = {}
 
-        if idle_followup:
-            idle_system_prompt = build_idle_followup_system_prompt(
-                idle_followup
+        retry_system_prompt = str(
+            retry_context_snapshot.get(
+                "system_prompt",
+                "",
             )
-            sequence_origin_request = str(
-                idle_followup.get(
-                    "origin_user_request",
-                    "",
-                )
-                or state.translated_input
-                or getattr(
-                    context,
-                    "runtime_turn_user_message",
-                    "",
-                )
-                or ""
-            ).strip()
-            system_prompt = self.build_followup_system_prompt(
-                idle_system_prompt,
-                sequence_origin_request,
-                context=context,
-                instruction=IDLE_FOLLOWUP_MESSAGE,
-                latest_action="idle",
+            or ""
+        )
+        retry_user_prompt = str(
+            retry_context_snapshot.get(
+                "user_prompt",
+                "",
             )
-            brain_payload = ""
-            sequence_user_request = sequence_origin_request
+            or ""
+        )
+
+        if retry_system_prompt:
+            system_prompt = retry_system_prompt
+            brain_payload = retry_user_prompt
         else:
             system_prompt = (
                 build_brain_context(
                     context,
                     runtime_actions=runtime_actions,
+                    user_input=state.user_input,
                     commit_active_memory_refresh=True,
+                    # Ordinary user turns must carry the previous completed
+                    # reasoning block. Follow-up builders disable it explicitly
+                    # where they need the current turn reasoning instead.
+                    include_previous_reasoning=True,
                 )
             )
             brain_payload = (
                 build_brain_payload(
-                    state.translated_input,
+                    state.user_input,
                     context=context,
                 )
             )
-            sequence_user_request = str(
-                getattr(
-                    context,
-                    "runtime_turn_user_message",
-                    "",
-                )
-                or state.translated_input
-                or ""
+
+        sequence_user_request = str(
+            getattr(
+                context,
+                "runtime_turn_user_message",
+                "",
             )
-            sequence_user_request = sanitize_sequence_user_request(
-                sequence_user_request
-            )
+            or state.user_input
+            or ""
+        )
+        sequence_user_request = sanitize_sequence_user_request(
+            sequence_user_request
+        )
 
         await emit_active_memory_records_update_if_dirty(
             context
@@ -1440,6 +2124,16 @@ class BrainNode(BaseNode):
             )
             or []
         )
+        session_action_history_followup_offset = len(
+            getattr(
+                context,
+                "runtime_session_action_history",
+                [],
+            )
+            or []
+        )
+        context.runtime_followup_response_action_lines = []
+        context.runtime_followup_response_tool_ids = []
 
         text, reasoning = await self.run_brain_stream(
             state=state,
@@ -1449,9 +2143,7 @@ class BrainNode(BaseNode):
             system_prompt=system_prompt,
             brain_payload=brain_payload,
             runtime_actions=runtime_actions,
-            emit_content_to_chat=(
-                not state.translate_response
-            ),
+            emit_content_to_chat=True,
         )
 
         if getattr(
@@ -1462,15 +2154,80 @@ class BrainNode(BaseNode):
             state.brain_response = text or ""
             return
 
+        restore_replay_action_event_ids = set()
+        restore_replay_tool_result_ids = set()
+        restore_replay_asset_result_ids = set()
+        restore_replay_delayed_memory_result_ids = set()
+
+        if state.metadata.get(
+            "session_restore_resume",
+            False,
+        ):
+            action_events_before_replay = len(
+                getattr(context, "runtime_action_events", []) or []
+            )
+            tool_results_before_replay = len(
+                getattr(context, "runtime_tool_results", []) or []
+            )
+            asset_results_before_replay = len(
+                getattr(context, "runtime_asset_results", []) or []
+            )
+            delayed_results_before_replay = len(
+                getattr(context, "runtime_delayed_memory_results", []) or []
+            )
+
+            replayed_restore_actions = await replay_session_restore_resource_actions(
+                context,
+                assistant_message=text or "",
+                context_snapshot=getattr(
+                    state,
+                    "visible_response_context",
+                    None,
+                ),
+            )
+
+            if replayed_restore_actions:
+                # Restore replay is state reconstruction, not a model decision.
+                # Exclude only records produced by the synthetic replay from
+                # follow-up scheduling. Do not advance the global offsets here:
+                # the initial restored answer may itself have emitted a real
+                # ATTACH_FILE_CONTENT/ASSET_ACTION and that result still needs its normal
+                # contract-driven follow-up.
+                restore_replay_action_event_ids = {
+                    id(item)
+                    for item in (
+                        getattr(context, "runtime_action_events", []) or []
+                    )[action_events_before_replay:]
+                }
+                restore_replay_tool_result_ids = {
+                    id(item)
+                    for item in (
+                        getattr(context, "runtime_tool_results", []) or []
+                    )[tool_results_before_replay:]
+                }
+                restore_replay_asset_result_ids = {
+                    id(item)
+                    for item in (
+                        getattr(context, "runtime_asset_results", []) or []
+                    )[asset_results_before_replay:]
+                }
+                restore_replay_delayed_memory_result_ids = {
+                    id(item)
+                    for item in (
+                        getattr(context, "runtime_delayed_memory_results", []) or []
+                    )[delayed_results_before_replay:]
+                }
+
         asset_result_offset = 0
         delayed_memory_result_offset = 0
         followup_count = 0
-        max_followups = max(
-            1,
-            int(
-                config.BRAIN_MAX_FOLLOWUPS
-            ),
-        )
+        max_followups = int(config.BRAIN_MAX_FOLLOWUPS)
+        unlimited_followups = max_followups == 0
+        if max_followups < 0:
+            max_followups = 1
+        malformed_repair_count = 0
+        max_malformed_repairs = 1
+        malformed_repair_limit_reached = False
         current_turn_id = str(
             getattr(
                 context,
@@ -1543,6 +2300,8 @@ class BrainNode(BaseNode):
             for entry in tool_results[
                 runtime_tool_result_followup_offset:
             ]:
+                if id(entry) in restore_replay_tool_result_ids:
+                    continue
                 if (
                     not isinstance(entry, dict)
                     or entry.get("kind") != TOOL_RESULT_KIND_ASSET
@@ -1575,9 +2334,9 @@ class BrainNode(BaseNode):
             runtime_action_event_offset
         )
         skill_state_followup_event_names = {
-            "append_skill",
-            "remove_skill",
-            "append_delayed_memory",
+            "load_skill",
+            "unload_skill",
+            "load_delayed_memory",
         }
 
         def collect_pending_action_events():
@@ -1592,8 +2351,9 @@ class BrainNode(BaseNode):
                 for event in runtime_action_events[
                     action_event_followup_offset:
                 ]
-                if belongs_to_current_turn(
-                    event
+                if (
+                    id(event) not in restore_replay_action_event_ids
+                    and belongs_to_current_turn(event)
                 )
             ]
 
@@ -1611,10 +2371,141 @@ class BrainNode(BaseNode):
             nonlocal asset_result_offset
             nonlocal delayed_memory_result_offset
             nonlocal runtime_tool_result_followup_offset
+            nonlocal session_action_history_followup_offset
 
             pending_action_events = (
                 collect_pending_action_events()
             )
+
+            action_history = getattr(
+                context,
+                "runtime_session_action_history",
+                [],
+            )
+            if not isinstance(action_history, list):
+                action_history = []
+            safe_history_offset = max(
+                0,
+                min(
+                    session_action_history_followup_offset,
+                    len(action_history),
+                ),
+            )
+            pending_history_items = [
+                dict(item)
+                for item in action_history[
+                    safe_history_offset:
+                ]
+                if isinstance(item, dict)
+                and str(
+                    item.get(
+                        "text",
+                        "",
+                    )
+                    or ""
+                ).strip()
+            ]
+            session_action_history_followup_offset = len(
+                action_history
+            )
+
+            pending_tool_ids = []
+            for event in pending_action_events:
+                if not isinstance(event, dict):
+                    continue
+                tool_id = str(
+                    event.get(
+                        "tool_id",
+                        "",
+                    )
+                    or ""
+                ).strip()
+                if tool_id and tool_id not in pending_tool_ids:
+                    pending_tool_ids.append(
+                        tool_id
+                    )
+
+            tool_results = getattr(
+                context,
+                "runtime_tool_results",
+                [],
+            )
+            if not isinstance(tool_results, list):
+                tool_results = []
+
+            for entry in tool_results[
+                runtime_tool_result_followup_offset:
+            ]:
+                if (
+                    id(entry) in restore_replay_tool_result_ids
+                    or not isinstance(entry, dict)
+                ):
+                    continue
+
+                entry_turn_id = str(
+                    entry.get(
+                        "runtime_turn_id",
+                        "",
+                    )
+                    or ""
+                ).strip()
+                if (
+                    current_turn_id
+                    and entry_turn_id
+                    and entry_turn_id
+                    not in {
+                        current_turn_id,
+                        current_sequence_turn_id,
+                    }
+                ):
+                    continue
+
+                tool_id = str(
+                    entry.get(
+                        "tool_id",
+                        "",
+                    )
+                    or ""
+                ).strip()
+                if tool_id and tool_id not in pending_tool_ids:
+                    pending_tool_ids.append(
+                        tool_id
+                    )
+
+            action_lines = _format_followup_action_history_items(
+                pending_history_items
+            )
+            if not action_lines and pending_action_events:
+                for event in pending_action_events:
+                    if not isinstance(event, dict):
+                        continue
+                    action_name = str(
+                        event.get(
+                            "name",
+                            "",
+                        )
+                        or ""
+                    ).strip().upper()
+                    action_payload = str(
+                        event.get(
+                            "payload",
+                            "",
+                        )
+                        or ""
+                    ).strip()
+                    if not action_name:
+                        continue
+                    action_lines.append(
+                        (
+                            f"{action_name}: {action_payload}"
+                            if action_payload
+                            else action_name
+                        )
+                    )
+
+            context.runtime_followup_response_action_lines = action_lines
+            context.runtime_followup_response_tool_ids = pending_tool_ids
+
             action_event_followup_offset = len(
                 getattr(
                     context,
@@ -1630,8 +2521,9 @@ class BrainNode(BaseNode):
                     "runtime_asset_results",
                     [],
                 )
-                if belongs_to_current_turn(
-                    result
+                if (
+                    id(result) not in restore_replay_asset_result_ids
+                    and belongs_to_current_turn(result)
                 )
             ]
             asset_result_offset = len(
@@ -1645,8 +2537,9 @@ class BrainNode(BaseNode):
                     "runtime_delayed_memory_results",
                     [],
                 )
-                if belongs_to_current_turn(
-                    result
+                if (
+                    id(result) not in restore_replay_delayed_memory_result_ids
+                    and belongs_to_current_turn(result)
                 )
             ]
             delayed_memory_result_offset = len(
@@ -1663,10 +2556,35 @@ class BrainNode(BaseNode):
 
             return pending_action_events
 
-        while followup_count < max_followups:
+        def malformed_followup_pending():
+            return any(
+                entry.get("result", {}).get("action") == "malformed_action"
+                for entry in getattr(context, "runtime_failure_followup_entries", [])
+            )
 
+        while (
+            unlimited_followups
+            or followup_count < max_followups
+            or malformed_followup_pending()
+        ):
             if abort_requested():
                 break
+
+            repairing_malformed = malformed_followup_pending()
+            if repairing_malformed:
+                if malformed_repair_count >= max_malformed_repairs:
+                    malformed_repair_limit_reached = True
+                    break
+
+                # Give malformed protocol output one repair tick outside the
+                # ordinary workflow budget. A repeated malformed action stops
+                # the sequence instead of opening an unbounded repair loop.
+                malformed_repair_count += 1
+
+            remember_recovery_reasoning_for_followup(
+                context,
+                reasoning,
+            )
 
             context.runtime_active_memory_refresh_tick = (
                 followup_count + 1
@@ -1697,27 +2615,19 @@ class BrainNode(BaseNode):
                 followup_runtime_actions = {
                     **runtime_actions,
                 }
-                latest_followup_action = (
-                    format_followup_actions_from_events(
-                        followup_action_events
-                    )
-                    or build_context_limit_history_text(
-                        limit_stage,
-                        limit_kind,
-                    )
-                )
 
                 followup_system_prompt = (
                     self.build_followup_system_prompt(
                         build_brain_context(
                             context,
                             runtime_actions=followup_runtime_actions,
+                            user_input=sequence_user_request,
                             commit_active_memory_refresh=True,
                             include_previous_chat_messages=False,
+                            include_previous_reasoning=False,
                         ),
                         sequence_user_request,
                         context=context,
-                        latest_action=latest_followup_action,
                     )
                 )
 
@@ -1732,14 +2642,143 @@ class BrainNode(BaseNode):
                     brain_client=brain_client,
                     system_prompt=followup_system_prompt,
                     brain_payload="",
+                    followup_tick=True,
                     runtime_actions=followup_runtime_actions,
-                    emit_content_to_chat=(
-                        not state.translate_response
-                    ),
+                    emit_content_to_chat=True,
                     filter_runtime_actions=True,
                 )
 
-                followup_count += 1
+                followup_count += int(not repairing_malformed)
+                continue
+
+            if context.runtime_deep_search_calls:
+
+                deep_search_call = context.runtime_deep_search_calls.pop(0)
+                objective = str(
+                    deep_search_call.get("query")
+                    or ""
+                ).strip()
+                tool_call_id = str(
+                    deep_search_call.get("id")
+                    or ""
+                ).strip()
+                context.runtime_deep_search_calls.clear()
+
+                # DEEP_WEB_SEARCH owns the web-search budget for this sequence.
+                # Ignore a stray direct WEB_SEARCH emitted alongside it.
+                context.runtime_search_queries.clear()
+                context.runtime_search_calls.clear()
+
+                await logger.log_runtime(
+                    "[RUNTIME ACTION] executing deep web search "
+                    f"id={tool_call_id!r} objective={objective!r}"
+                )
+
+                deep_search_action = RuntimeActionCall(
+                    name=RUNTIME_ACTION_DEEP_WEB_SEARCH,
+                    payload=str(deep_search_call.get("payload") or objective),
+                )
+                try:
+                    deep_search_result = await run_deep_web_search(
+                        context=context,
+                        objective=objective,
+                        context_snapshot=deep_search_call.get("context"),
+                        parent_action_id=tool_call_id,
+                    )
+                except Exception as exc:
+                    failed_event = apply_action_feedback(
+                        deep_search_action,
+                        {
+                            "type": "runtime_action",
+                            "action": RUNTIME_ACTION_DEEP_WEB_SEARCH.lower(),
+                            "display_name": get_runtime_action_display_name(
+                                RUNTIME_ACTION_DEEP_WEB_SEARCH
+                            ),
+                            "id": tool_call_id,
+                            "status": "failed",
+                            "error": type(exc).__name__,
+                            "detail": str(exc),
+                            "query": objective,
+                            "scene_effect": "search",
+                            "context": deep_search_call.get("context"),
+                            "deep_search_parent": True,
+                            "deep_search_payload_ready": True,
+                        },
+                    )
+                    await context.websocket.send_json(failed_event)
+                    raise
+
+                deep_search_display_name = (
+                    get_runtime_action_display_name(
+                        RUNTIME_ACTION_DEEP_WEB_SEARCH
+                    )
+                )
+                completed_event = apply_action_feedback(
+                    deep_search_action,
+                    {
+                        "type": "runtime_action",
+                        "action": RUNTIME_ACTION_DEEP_WEB_SEARCH.lower(),
+                        "display_name": deep_search_display_name,
+                        "id": tool_call_id,
+                        "status": "completed",
+                        "query": objective,
+                        "scene_effect": "search",
+                        "context": deep_search_call.get("context"),
+                        "deep_search_parent": True,
+                        "deep_search_payload_ready": True,
+                    },
+                )
+                await context.websocket.send_json(completed_event)
+                mark_runtime_action_completed(
+                    context,
+                    action=RUNTIME_ACTION_DEEP_WEB_SEARCH,
+                    action_id=tool_call_id,
+                )
+                context.runtime_deep_search_result = deep_search_result
+                context.runtime_deep_search_result_id = tool_call_id
+                record_runtime_tool_result(
+                    context,
+                    TOOL_RESULT_KIND_DEEP_SEARCH,
+                    deep_search_result,
+                    result_id=tool_call_id,
+                )
+
+                followup_action_events = consume_current_action_batch()
+                followup_runtime_actions = {
+                    **runtime_actions,
+                }
+
+                followup_system_prompt = self.build_followup_system_prompt(
+                    build_brain_context(
+                        context,
+                        runtime_actions=followup_runtime_actions,
+                        user_input=sequence_user_request,
+                        commit_active_memory_refresh=True,
+                        include_previous_chat_messages=False,
+                        include_previous_reasoning=False,
+                        include_turn_reasoning=True,
+                        crop_previous_reasoning=False,
+                    ),
+                    sequence_user_request,
+                    context=context,
+                )
+
+                await emit_active_memory_records_update_if_dirty(context)
+
+                text, reasoning = await self.run_brain_stream(
+                    state=state,
+                    context=context,
+                    brain_runtime=brain_runtime,
+                    brain_client=brain_client,
+                    system_prompt=followup_system_prompt,
+                    brain_payload="",
+                    followup_tick=True,
+                    runtime_actions=followup_runtime_actions,
+                    emit_content_to_chat=True,
+                    filter_runtime_actions=True,
+                )
+
+                followup_count += int(not repairing_malformed)
                 continue
 
             if context.runtime_search_queries:
@@ -1771,34 +2810,61 @@ class BrainNode(BaseNode):
                     )
                 )
 
-                await context.websocket.send_json({
-                    "type": "runtime_action",
-                    "action": RUNTIME_ACTION_WEB_SEARCH.lower(),
-                    "display_name": search_display_name,
-                    "id": tool_call_id,
-                    "text": (
-                        f"{search_display_name}: {query}"
-                    ),
-                    "query": query,
-                    "scene_effect": "search",
-                    "context": search_call.get(
-                        "context",
-                    ),
-                })
-
-                search_result = await self.run_search_action(
-                    context=context,
-                    query=query,
+                search_action = RuntimeActionCall(
+                    name=RUNTIME_ACTION_WEB_SEARCH,
+                    payload=str(search_call.get("payload") or query),
                 )
+                await context.websocket.send_json(apply_action_feedback(
+                    search_action,
+                    {
+                        "type": "runtime_action",
+                        "action": RUNTIME_ACTION_WEB_SEARCH.lower(),
+                        "display_name": search_display_name,
+                        "id": tool_call_id,
+                        "status": "running",
+                        "query": query,
+                        "scene_effect": "search",
+                        "context": search_call.get(
+                            "context",
+                        ),
+                    },
+                ))
 
-                await context.websocket.send_json({
-                    "type": "runtime_action",
-                    "action": RUNTIME_ACTION_WEB_SEARCH.lower(),
-                    "display_name": search_display_name,
-                    "id": tool_call_id,
-                    "status": "completed",
-                    "scene_effect": "search",
-                })
+                try:
+                    search_result = await self.run_search_action(
+                        context=context,
+                        query=query,
+                    )
+                except Exception as exc:
+                    await context.websocket.send_json(apply_action_feedback(
+                        search_action,
+                        {
+                            "type": "runtime_action",
+                            "action": RUNTIME_ACTION_WEB_SEARCH.lower(),
+                            "display_name": search_display_name,
+                            "id": tool_call_id,
+                            "status": "failed",
+                            "error": type(exc).__name__,
+                            "detail": str(exc),
+                            "query": query,
+                            "scene_effect": "search",
+                            "context": search_call.get("context"),
+                        },
+                    ))
+                    raise
+
+                await context.websocket.send_json(apply_action_feedback(
+                    search_action,
+                    {
+                        "type": "runtime_action",
+                        "action": RUNTIME_ACTION_WEB_SEARCH.lower(),
+                        "display_name": search_display_name,
+                        "id": tool_call_id,
+                        "status": "completed",
+                        "query": query,
+                        "scene_effect": "search",
+                    },
+                ))
                 mark_runtime_action_completed(
                     context,
                     action=RUNTIME_ACTION_WEB_SEARCH,
@@ -1821,34 +2887,21 @@ class BrainNode(BaseNode):
                     **runtime_actions,
                 }
 
-                latest_followup_action = (
-                    format_followup_actions_from_events(
-                        followup_action_events
-                    )
-                    or format_followup_action_from_event({
-                        "name": RUNTIME_ACTION_WEB_SEARCH.lower(),
-                        "query": query,
-                        "id": tool_call_id,
-                    })
-                )
 
                 followup_system_prompt = (
                     self.build_followup_system_prompt(
                         build_brain_context(
                             context,
                             runtime_actions=followup_runtime_actions,
+                            user_input=sequence_user_request,
                             commit_active_memory_refresh=True,
                             include_previous_chat_messages=False,
+                            include_previous_reasoning=False,
+                            include_turn_reasoning=True,
+                            crop_previous_reasoning=False,
                         ),
                         sequence_user_request,
                         context=context,
-                        latest_action=latest_followup_action,
-                        instruction=(
-                            "Answer the latest user request using the "
-                            "WEB_SEARCH tool result from trusted runtime "
-                            "context. Mention the quoted source data when "
-                            "it helps, then continue the workflow."
-                        ),
                     )
                 )
 
@@ -1863,10 +2916,9 @@ class BrainNode(BaseNode):
                     brain_client=brain_client,
                     system_prompt=followup_system_prompt,
                     brain_payload="",
+                    followup_tick=True,
                     runtime_actions=followup_runtime_actions,
-                    emit_content_to_chat=(
-                        not state.translate_response
-                    ),
+                    emit_content_to_chat=True,
                 )
 
                 if not text.strip():
@@ -1874,7 +2926,7 @@ class BrainNode(BaseNode):
                         search_result
                     )
 
-                followup_count += 1
+                followup_count += int(not repairing_malformed)
                 continue
 
             pending_action_events = (
@@ -1895,23 +2947,21 @@ class BrainNode(BaseNode):
                     **runtime_actions,
                 }
 
-                latest_followup_action = (
-                    format_followup_actions_from_events(
-                        followup_action_events
-                    )
-                )
 
                 followup_system_prompt = (
                     self.build_followup_system_prompt(
                         build_brain_context(
                             context,
                             runtime_actions=followup_runtime_actions,
+                            user_input=sequence_user_request,
                             commit_active_memory_refresh=True,
                             include_previous_chat_messages=False,
+                            include_previous_reasoning=False,
+                            include_turn_reasoning=True,
+                            crop_previous_reasoning=False,
                         ),
                         sequence_user_request,
                         context=context,
-                        latest_action=latest_followup_action,
                     )
                 )
 
@@ -1926,14 +2976,13 @@ class BrainNode(BaseNode):
                     brain_client=brain_client,
                     system_prompt=followup_system_prompt,
                     brain_payload="",
+                    followup_tick=True,
                     runtime_actions=followup_runtime_actions,
-                    emit_content_to_chat=(
-                        not state.translate_response
-                    ),
+                    emit_content_to_chat=True,
                     filter_runtime_actions=True,
                 )
 
-                followup_count += 1
+                followup_count += int(not repairing_malformed)
                 continue
 
             delayed_memory_results = getattr(
@@ -1944,8 +2993,9 @@ class BrainNode(BaseNode):
             current_delayed_memory_results = [
                 result
                 for result in delayed_memory_results
-                if belongs_to_current_turn(
-                    result
+                if (
+                    id(result) not in restore_replay_delayed_memory_result_ids
+                    and belongs_to_current_turn(result)
                 )
             ]
 
@@ -1960,26 +3010,21 @@ class BrainNode(BaseNode):
                     **runtime_actions,
                 }
 
-                latest_followup_action = (
-                    format_followup_actions_from_events(
-                        followup_action_events
-                    )
-                    or format_followup_action_from_asset_result(
-                        current_delayed_memory_results[-1]
-                    )
-                )
 
                 followup_system_prompt = (
                     self.build_followup_system_prompt(
                         build_brain_context(
                             context,
                             runtime_actions=followup_runtime_actions,
+                            user_input=sequence_user_request,
                             commit_active_memory_refresh=True,
                             include_previous_chat_messages=False,
+                            include_previous_reasoning=False,
+                            include_turn_reasoning=True,
+                            crop_previous_reasoning=False,
                         ),
                         sequence_user_request,
                         context=context,
-                        latest_action=latest_followup_action,
                     )
                 )
 
@@ -1994,14 +3039,13 @@ class BrainNode(BaseNode):
                     brain_client=brain_client,
                     system_prompt=followup_system_prompt,
                     brain_payload="",
+                    followup_tick=True,
                     runtime_actions=followup_runtime_actions,
-                    emit_content_to_chat=(
-                        not state.translate_response
-                    ),
+                    emit_content_to_chat=True,
                     filter_runtime_actions=True,
                 )
 
-                followup_count += 1
+                followup_count += int(not repairing_malformed)
                 continue
 
             asset_results = getattr(
@@ -2012,8 +3056,9 @@ class BrainNode(BaseNode):
             current_asset_results = [
                 result
                 for result in asset_results
-                if belongs_to_current_turn(
-                    result
+                if (
+                    id(result) not in restore_replay_asset_result_ids
+                    and belongs_to_current_turn(result)
                 )
             ]
 
@@ -2048,28 +3093,21 @@ class BrainNode(BaseNode):
                     **runtime_actions,
                 }
 
-                latest_followup_action = (
-                    format_followup_actions_from_events(
-                        followup_action_events
-                    )
-                    or format_followup_action_from_asset_result(
-                        pending_asset_tool_results[-1]
-                        if pending_asset_tool_results
-                        else {}
-                    )
-                )
 
                 followup_system_prompt = (
                     self.build_followup_system_prompt(
                         build_brain_context(
                             context,
                             runtime_actions=followup_runtime_actions,
+                            user_input=sequence_user_request,
                             commit_active_memory_refresh=True,
                             include_previous_chat_messages=False,
+                            include_previous_reasoning=False,
+                            include_turn_reasoning=True,
+                            crop_previous_reasoning=False,
                         ),
                         sequence_user_request,
                         context=context,
-                        latest_action=latest_followup_action,
                     )
                 )
 
@@ -2084,14 +3122,13 @@ class BrainNode(BaseNode):
                     brain_client=brain_client,
                     system_prompt=followup_system_prompt,
                     brain_payload="",
+                    followup_tick=True,
                     runtime_actions=followup_runtime_actions,
-                    emit_content_to_chat=(
-                        not state.translate_response
-                    ),
+                    emit_content_to_chat=True,
                     filter_runtime_actions=True,
                 )
 
-                followup_count += 1
+                followup_count += int(not repairing_malformed)
                 continue
 
             followup_action_events = (
@@ -2101,26 +3138,21 @@ class BrainNode(BaseNode):
                 **runtime_actions,
             }
 
-            latest_followup_action = (
-                format_followup_actions_from_events(
-                    followup_action_events
-                )
-                or format_followup_action_from_asset_result(
-                    current_asset_results[-1]
-                )
-            )
 
             followup_system_prompt = (
                 self.build_followup_system_prompt(
                     build_brain_context(
                         context,
                         runtime_actions=followup_runtime_actions,
+                        user_input=sequence_user_request,
                         commit_active_memory_refresh=True,
                         include_previous_chat_messages=False,
+                        include_previous_reasoning=False,
+                        include_turn_reasoning=True,
+                        crop_previous_reasoning=False,
                     ),
                     sequence_user_request,
                     context=context,
-                    latest_action=latest_followup_action,
                 )
             )
 
@@ -2135,25 +3167,59 @@ class BrainNode(BaseNode):
                 brain_client=brain_client,
                 system_prompt=followup_system_prompt,
                 brain_payload="",
+                followup_tick=True,
                 runtime_actions=followup_runtime_actions,
-                emit_content_to_chat=(
-                    not state.translate_response
-                ),
+                emit_content_to_chat=True,
                 filter_runtime_actions=True,
             )
 
-            followup_count += 1
+            followup_count += int(not repairing_malformed)
             continue
 
-        if followup_count >= max_followups:
+        remember_recovery_reasoning_for_followup(
+            context,
+            reasoning,
+        )
+
+        if (
+            (not unlimited_followups and followup_count >= max_followups)
+            or malformed_repair_limit_reached
+        ):
             context.runtime_active_memory_refresh_tick = (
                 followup_count + 1
             )
-            stop_reason = (
-                "Brain workflow stopped after reaching the configured "
-                f"follow-up limit ({max_followups}). "
-                "One final non-executable response tick will run."
-            )
+
+            if malformed_repair_limit_reached:
+                stop_reason = (
+                    "Brain workflow stopped after a repeated malformed "
+                    "runtime action. One repair tick was attempted; one "
+                    "final non-executable response tick will run."
+                )
+                stop_event_text = (
+                    "Malformed action repair failed after 1 retry. "
+                    "Running one final response tick with runtime actions "
+                    "disabled."
+                )
+                stop_instruction_reason = (
+                    "The runtime stopped this workflow because malformed "
+                    "runtime-action syntax remained malformed after one "
+                    "repair attempt."
+                )
+            else:
+                stop_reason = (
+                    "Brain workflow stopped after reaching the configured "
+                    f"follow-up limit ({max_followups}). "
+                    "One final non-executable response tick will run."
+                )
+                stop_event_text = (
+                    f"Follow-up limit reached ({max_followups}). "
+                    "Running one final response tick with runtime actions "
+                    "disabled."
+                )
+                stop_instruction_reason = (
+                    f"The runtime stopped this workflow after {max_followups} "
+                    "internal follow-up ticks."
+                )
 
             await logger.log_runtime(
                 "[BRAIN FOLLOW-UP LIMIT] "
@@ -2168,11 +3234,7 @@ class BrainNode(BaseNode):
                     or "current_turn"
                 ),
                 "status": "stopped",
-                "text": (
-                    f"Follow-up limit reached ({max_followups}). "
-                    "Running one final response tick with runtime "
-                    "actions disabled."
-                ),
+                "text": stop_event_text,
             })
 
             final_runtime_actions = {
@@ -2182,8 +3244,7 @@ class BrainNode(BaseNode):
 
             followup_limit_instruction = (
                 "<FOLLOWUP_LIMIT_REACHED>\n"
-                f"The runtime stopped this workflow after {max_followups} "
-                "internal follow-up ticks. This is the final response "
+                f"{stop_instruction_reason} This is the final response "
                 "tick. No runtime action emitted in this response will "
                 "execute, and no further follow-up tick will run. Any "
                 "runtime action marker you output will be shown to the "
@@ -2197,18 +3258,27 @@ class BrainNode(BaseNode):
                 "</FOLLOWUP_LIMIT_REACHED>"
             )
 
+            # The final executable tick may itself have produced actions/tool
+            # results. Refresh the generic follow-up header before the forced
+            # non-executable response so it describes that immediately
+            # preceding tick rather than the older batch.
+            consume_current_action_batch()
+
             final_system_prompt = (
                 self.build_followup_system_prompt(
                     build_brain_context(
                         context,
                         runtime_actions=final_runtime_actions,
+                        user_input=sequence_user_request,
                         commit_active_memory_refresh=True,
                         include_previous_chat_messages=False,
+                        include_previous_reasoning=False,
+                        include_turn_reasoning=True,
+                        crop_previous_reasoning=False,
                     ),
                     sequence_user_request,
                     context=context,
                     instruction=followup_limit_instruction,
-                    latest_action="followup_limit_reached",
                 )
             )
 
@@ -2223,15 +3293,25 @@ class BrainNode(BaseNode):
                 brain_client=brain_client,
                 system_prompt=final_system_prompt,
                 brain_payload="",
+                followup_tick=True,
                 runtime_actions=final_runtime_actions,
-                emit_content_to_chat=(
-                    not state.translate_response
-                ),
+                emit_content_to_chat=True,
                 filter_runtime_actions=False,
                 preserve_runtime_action_markers=True,
             )
 
         state.brain_response = text or ""
+        if context is not None:
+            remember_successful_previous_reasoning(
+                context,
+                reasoning,
+                from_session_restore=bool(
+                    state.metadata.get(
+                        "session_restore_resume",
+                        False,
+                    )
+                ),
+            )
 
 
 

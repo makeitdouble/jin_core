@@ -234,7 +234,6 @@ def list_skills(skill: str = "") -> dict:
 
     return {
         "ok": True,
-        "action": "list_skills",
         "requested": requested,
         "skills": items,
     }
@@ -256,7 +255,7 @@ def load_skill(
     if entry is None:
         return {
             "ok": False,
-            "action": "append_skill",
+            "action": "load_skill",
             "requested": requested,
             "error": "skill_not_found",
         }
@@ -271,7 +270,7 @@ def load_skill(
 
     return {
         "ok": True,
-        "action": "append_skill",
+        "action": "load_skill",
         "requested": requested,
         "skill": item,
     }

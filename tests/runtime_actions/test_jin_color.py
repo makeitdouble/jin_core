@@ -8,14 +8,12 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 from clients.brain_client import apply_runtime_action_calls
-from clients.brain_client import should_execute_save_session
 from contracts.rules_assembler import (
     RUNTIME_ACTION_CLEAN_TOOL_RESULTS,
-    RUNTIME_ACTION_IDLE,
     RUNTIME_ACTION_JIN_COLOR,
     get_runtime_action_private_marker,
 )
-from rules.brain_context_builder import build_appended_delayed_memory_context
+from rules.brain_context_builder import build_loaded_delayed_memory_context
 from tests.helpers.runtime_actions import (
     FakeContext,
     FakeEmitter,
@@ -26,22 +24,21 @@ from utils.actions import (
     RuntimeActionCall,
     RuntimeActionRepetitionGuard,
     RuntimeActionStreamFilter,
-    extract_active_memory_resolve_slot_id,
+    extract_active_memory_delete_slot_id,
     extract_search_query,
     extract_runtime_actions,
     get_save_active_memory_marker_fields,
     get_save_active_memory_placeholder_payload,
     normalize_jin_color_payload,
-    parse_delayed_memory_content_payload,
+    parse_delayed_memory_payload,
 )
 from utils.assets_utils import run_asset_action
 from utils.brain_client_utils import (
-    append_delayed_memory_runtime_result,
-    flush_pending_active_memory_resolve_failure_history,
+    record_delayed_memory_runtime_result,
+    flush_pending_active_memory_delete_failure_history,
 )
 from utils.context.context_exports import build_tool_results_context
 from utils.file_manager_asset_utils import read_asset_text_preview
-from utils.runtime_todo import create_runtime_todo
 from utils.skills_asset_utils import (
     list_skills,
     normalize_skill_name,
@@ -62,10 +59,10 @@ class RuntimeJinColorActionTests(RuntimeActionTestCase):
     def test_jin_color_marker_validates_and_normalizes_hex(self):
 
         for marker, expected_color in (
-            ("<JIN_COLOR: #00f2ff>", "#00f2ff"),
-            ("<JIN_COLOR: 00F2FF>", "#00f2ff"),
-            ("<JIN_COLOR: 0ff>", "#00ffff"),
-            ("<JIN_COLOR: #f0A />", "#ff00aa"),
+            ("<JIN_COLOR> #00f2ff </JIN_COLOR>", "#00f2ff"),
+            ("<JIN_COLOR> 00F2FF </JIN_COLOR>", "#00f2ff"),
+            ("<JIN_COLOR> 0ff </JIN_COLOR>", "#00ffff"),
+            ("<JIN_COLOR> #f0A </JIN_COLOR>", "#ff00aa"),
         ):
             with self.subTest(marker=marker):
                 result = extract_runtime_actions(
@@ -96,11 +93,10 @@ class RuntimeJinColorActionTests(RuntimeActionTestCase):
     def test_jin_color_invalid_payload_does_not_emit_action(self):
 
         for marker in (
-            "<JIN_COLOR:>",
-            "<JIN_COLOR: #>",
-            "<JIN_COLOR: #00f2ff00>",
-            "<JIN_COLOR: blue>",
-            "<JIN_COLOR: #00f2fg>",
+            "<JIN_COLOR> # </JIN_COLOR>",
+            "<JIN_COLOR> #00f2ff00 </JIN_COLOR>",
+            "<JIN_COLOR> blue </JIN_COLOR>",
+            "<JIN_COLOR> #00f2fg </JIN_COLOR>",
         ):
             with self.subTest(marker=marker):
                 result = extract_runtime_actions(
@@ -119,11 +115,65 @@ class RuntimeJinColorActionTests(RuntimeActionTestCase):
                     (),
                 )
 
+    def test_jin_color_empty_block_does_not_emit_action(self):
+
+        result = extract_runtime_actions(
+            "before <JIN_COLOR></JIN_COLOR> after",
+            enabled_actions=(
+                RUNTIME_ACTION_JIN_COLOR,
+            ),
+        )
+
+        self.assertEqual(
+            result.text,
+            "before after",
+        )
+        self.assertEqual(
+            result.actions,
+            (),
+        )
+
+    def test_jin_color_stream_filter_holds_until_close_tag(self):
+
+        stream_filter = RuntimeActionStreamFilter(
+            enabled_actions=(
+                RUNTIME_ACTION_JIN_COLOR,
+            ),
+        )
+
+        first = stream_filter.filter(
+            "before <JIN_COLOR> #00"
+        )
+        second = stream_filter.filter(
+            "f2ff </JIN_COLOR> after"
+        )
+        final = stream_filter.flush_result()
+
+        self.assertEqual(
+            first.text,
+            "before ",
+        )
+        self.assertEqual(
+            first.actions,
+            (),
+        )
+        self.assertEqual(
+            second.text,
+            "after",
+        )
+        self.assertEqual(
+            [action.payload for action in second.actions],
+            ["#00f2ff"],
+        )
+        self.assertEqual(
+            final.text,
+            "",
+        )
 
     def test_jin_color_multiple_markers_keep_order(self):
 
         result = extract_runtime_actions(
-            "<JIN_COLOR: #00f2ff><JIN_COLOR: f0a><JIN_COLOR: 101820><JIN_COLOR: #00f2ff>",
+            "<JIN_COLOR> #00f2ff </JIN_COLOR><JIN_COLOR> f0a </JIN_COLOR><JIN_COLOR> 101820 </JIN_COLOR><JIN_COLOR> #00f2ff </JIN_COLOR>",
             enabled_actions=(
                 RUNTIME_ACTION_JIN_COLOR,
             ),
@@ -155,11 +205,11 @@ class RuntimeJinColorActionTests(RuntimeActionTestCase):
 
         result = extract_runtime_actions(
             (
-                "<JIN_COLOR: #0000ff>"
-                "<JIN_COLOR: #ffffff>"
-                "<JIN_COLOR: #0000ff>"
-                "<JIN_COLOR: #ffffff>"
-                "<JIN_COLOR: #0000ff>"
+                "<JIN_COLOR> #0000ff </JIN_COLOR>"
+                "<JIN_COLOR> #ffffff </JIN_COLOR>"
+                "<JIN_COLOR> #0000ff </JIN_COLOR>"
+                "<JIN_COLOR> #ffffff </JIN_COLOR>"
+                "<JIN_COLOR> #0000ff </JIN_COLOR>"
             ),
             enabled_actions=(
                 RUNTIME_ACTION_JIN_COLOR,
@@ -201,7 +251,7 @@ class RuntimeJinColorActionTests(RuntimeActionTestCase):
             context = SimpleNamespace(
                 runtime_action_events=[],
                 runtime_search_calls=[],
-                runtime_appended_skills=[],
+                runtime_loaded_skills=[],
                 runtime_save_session_requested=False,
                 runtime_save_session_action_emitted=False,
                 runtime_skill_state_barrier_active=False,
@@ -253,6 +303,10 @@ class RuntimeJinColorActionTests(RuntimeActionTestCase):
                     "#ff00aa",
                 ],
             )
+            self.assertEqual(
+                context.jin_color,
+                "#ff00aa",
+            )
 
         asyncio.run(run_case())
 
@@ -272,7 +326,7 @@ class RuntimeJinColorActionTests(RuntimeActionTestCase):
                     },
                 ],
                 runtime_search_calls=[],
-                runtime_appended_skills=[],
+                runtime_loaded_skills=[],
                 runtime_save_session_requested=False,
                 runtime_save_session_action_emitted=False,
                 runtime_skill_state_barrier_active=False,
@@ -339,7 +393,7 @@ class RuntimeJinColorActionTests(RuntimeActionTestCase):
             context = SimpleNamespace(
                 runtime_action_events=[],
                 runtime_search_calls=[],
-                runtime_appended_skills=[],
+                runtime_loaded_skills=[],
                 runtime_save_session_requested=False,
                 runtime_save_session_action_emitted=False,
                 runtime_skill_state_barrier_active=False,
@@ -418,7 +472,7 @@ class RuntimeJinColorActionTests(RuntimeActionTestCase):
             context = SimpleNamespace(
                 runtime_action_events=[],
                 runtime_search_calls=[],
-                runtime_appended_skills=[],
+                runtime_loaded_skills=[],
                 runtime_save_session_requested=False,
                 runtime_save_session_action_emitted=False,
                 runtime_skill_state_barrier_active=False,

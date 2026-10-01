@@ -2,7 +2,7 @@ import unittest
 from types import (
     SimpleNamespace,
 )
-from runtime.L1_memory import (
+from runtime.frame_memory import (
     schedule_interrupted_runtime_memory_update,
     schedule_runtime_memory_update,
     summarize_runtime_memory_pending_turns,
@@ -19,13 +19,10 @@ class MemorySchedulerTests(
     unittest.IsolatedAsyncioTestCase
 ):
 
-    async def test_pending_turns_enforces_latest_turn_fields(self):
+    async def test_pending_turns_do_not_inject_latest_turn_fields(self):
 
             service_client = FakeServiceClient(
-                (
-                    'user_message: "first message"\n'
-                    "last_jin_response: Previous answer summary."
-                )
+                "active_topic: Batch update remains active."
             )
             context = SimpleNamespace(
                 clients={
@@ -36,14 +33,8 @@ class MemorySchedulerTests(
                     emit=None,
                 ),
                 logger=FakeLogger(),
-                runtime_memory=(
-                    'user_message: "first message"\n'
-                    "last_jin_response: Previous answer summary."
-                ),
-                runtime_memory_stable=(
-                    'user_message: "first message"\n'
-                    "last_jin_response: Previous answer summary."
-                ),
+                runtime_memory="active_topic: Initial topic.",
+                runtime_memory_stable="active_topic: Initial topic.",
                 runtime_memory_updates=1,
                 runtime_memory_pending_turns=[
                     {
@@ -73,11 +64,15 @@ class MemorySchedulerTests(
             )
 
             self.assertIn(
-                'user_message: "hello" [ repeated: 3 ]',
+                "active_topic: Batch update remains active.",
                 updated_memory,
             )
-            self.assertIn(
-                "last_jin_response: Latest repeated answer.",
+            self.assertNotIn(
+                "user_message:",
+                updated_memory,
+            )
+            self.assertNotIn(
+                "last_jin_response:",
                 updated_memory,
             )
 
@@ -131,21 +126,21 @@ class MemorySchedulerTests(
                 "Updated background memory.",
                 context.runtime_memory,
             )
-            self.assertIn(
-                'user_message: "First message"',
+            self.assertNotIn(
+                "user_message:",
                 context.runtime_memory,
             )
-            self.assertIn(
-                "last_jin_response: First answer",
+            self.assertNotIn(
+                "last_jin_response:",
                 context.runtime_memory,
             )
             self.assertEqual(
                 context.logger.summarizer_logs[0][0],
-                "[MEMORY:L1] L1 summarizer request",
+                "[MEMORY:FRAME] FRAME summarizer request",
             )
             self.assertEqual(
                 service_client.calls[0]["timeout"],
-                config.SERVICE_REQUEST_TIMEOUT,
+                1000.0,
             )
             self.assertEqual(
                 len(
@@ -187,11 +182,11 @@ class MemorySchedulerTests(
 
             self.assertEqual(
                 logger.summarizer_logs[0][0],
-                "[MEMORY:L1] L1 batch summarizer request",
+                "[MEMORY:FRAME] FRAME batch summarizer request",
             )
             self.assertEqual(
                 service_client.calls[0]["timeout"],
-                config.SERVICE_REQUEST_TIMEOUT,
+                1000.0,
             )
 
     async def test_interrupted_update_uses_partial_response(self):
@@ -258,13 +253,13 @@ class MemorySchedulerTests(
                 runtime_memory_updates=0,
                 runtime_memory_pending_turns=[],
                 runtime_memory_update_task=None,
-                runtime_turn_user_message="Use append_skill if needed.",
+                runtime_turn_user_message="Use load_skill if needed.",
                 runtime_turn_assistant_response="Partial answer",
                 runtime_turn_interruption_reason=(
                     "Repeated sentence loop detected."
                 ),
                 runtime_turn_interruption_quote=(
-                    "Wait, I'll check if I should use append_skill first."
+                    "Wait, I'll check if I should use load_skill first."
                 ),
             )
 
@@ -285,7 +280,7 @@ class MemorySchedulerTests(
                 user_prompt,
             )
             self.assertIn(
-                "Wait, I'll check if I should use append_skill first.",
+                "Wait, I'll check if I should use load_skill first.",
                 user_prompt,
             )
             self.assertNotIn(

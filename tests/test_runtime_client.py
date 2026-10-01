@@ -1,198 +1,88 @@
+import json
 import unittest
+from unittest.mock import patch
 
-from runtime.client import RuntimeClient
-
-
-class FakeResponse:
-
-    def __init__(
-            self,
-            payload,
-            *,
-            status_code: int = 200,
-    ):
-
-        self.payload = payload
-        self.status_code = status_code
-
-    def json(self):
-
-        return self.payload
-
-    def raise_for_status(self):
-
-        if self.status_code >= 400:
-            raise RuntimeError(
-                f"HTTP {self.status_code}"
-            )
+from runtime.client import (
+    LMStudioAPIError,
+    RuntimeClient,
+)
+from tests.helpers.runtime_client import FakeHttpClient, FakeStreamContextObject
 
 
-class FakeStreamResponse:
-
-    def __init__(
-            self,
-            lines,
-            *,
-            status_code: int = 200,
-    ):
-
-        self.lines = lines
-        self.status_code = status_code
-
-    def raise_for_status(self):
-
-        if self.status_code >= 400:
-            raise RuntimeError(
-                f"HTTP {self.status_code}"
-            )
-
-    async def aiter_lines(self):
-
-        for line in self.lines:
-            yield line
 
 
-class FakeStreamContext:
-
-    def __init__(
-            self,
-            response,
-    ):
-
-        self.response = response
-
-    async def __aenter__(self):
-
-        return self.response
-
-    async def __aexit__(
-            self,
-            exc_type,
-            exc,
-            traceback,
-    ):
-
-        return False
 
 
-class FakeHttpClient:
-
-    def __init__(
-            self,
-            *,
-            models_payload=None,
-            models_payloads_by_url=None,
-            stream_lines=None,
-            stream_status_code: int = 200,
-    ):
-
-        self.models_payload = models_payload
-        self.models_payloads_by_url = models_payloads_by_url or {}
-        self.stream_lines = stream_lines or []
-        self.stream_status_code = stream_status_code
-        self.get_calls = []
-        self.post_calls = []
-        self.stream_calls = []
-
-    async def get(
-            self,
-            url: str,
-            *,
-            timeout,
-    ):
-
-        self.get_calls.append({
-            "url": url,
-            "timeout": timeout,
-        })
-
-        return FakeResponse(
-            self.models_payloads_by_url.get(
-                url,
-                self.models_payload,
-            )
-        )
-
-    async def post(
-            self,
-            url: str,
-            *,
-            json,
-            timeout,
-    ):
-
-        self.post_calls.append({
-            "url": url,
-            "json": json,
-            "timeout": timeout,
-        })
-
-        return FakeResponse({
-            "choices": [
-                {
-                    "message": {
-                        "content": "ok",
-                    },
-                }
-            ]
-        })
-
-    def stream(
-            self,
-            method,
-            url,
-            *,
-            json,
-            timeout,
-    ):
-
-        self.stream_calls.append({
-            "method": method,
-            "url": url,
-            "json": json,
-            "timeout": timeout,
-        })
-
-        return FakeStreamContext(
-            FakeStreamResponse(
-                self.stream_lines,
-                status_code=self.stream_status_code,
-            )
-        )
 
 
-class FakeLogger:
-
-    def __init__(self):
-
-        self.errors = []
-        self.error_details = []
-
-    async def log_error(
-            self,
-            message,
-            details=None,
-    ):
-
-        self.errors.append(
-            message
-        )
-        self.error_details.append(
-            details
-        )
 
 
-class FakeStreamContextObject:
 
-    def __init__(self):
 
-        self.active_streams = {}
-        self.logger = FakeLogger()
 
 
 class RuntimeClientTests(
     unittest.IsolatedAsyncioTestCase
 ):
+
+    async def test_followup_provider_discards_stale_text_user_prompt(self):
+        context = FakeStreamContextObject()
+        context.runtime_followup_tick_active = True
+
+        self.assertEqual(
+            RuntimeClient.provider_user_prompt(
+                context,
+                "original user request",
+            ),
+            " ",
+        )
+
+    async def test_fresh_larger_loaded_context_releases_old_provider_ceiling(self):
+        http_client = FakeHttpClient(
+            models_payload={
+                "data": [
+                    {
+                        "id": "test-model",
+                        "loaded_context_length": 16384,
+                    }
+                ]
+            }
+        )
+        client = RuntimeClient(
+            api_base="http://runtime.test",
+            model_uid="test-model",
+            timeout=30.0,
+            client=http_client,
+        )
+
+        self.assertEqual(
+            await client.resolve_request_context_window(force_refresh=True),
+            16384,
+        )
+        client.remember_provider_context_window("n_ctx = 16384")
+        self.assertEqual(client.provider_context_window_ceiling, 16384)
+        self.assertEqual(
+            client.provider_context_window_ceiling_detected_context,
+            16384,
+        )
+
+        http_client.models_payload = {
+            "data": [
+                {
+                    "id": "test-model",
+                    "loaded_context_length": 32768,
+                }
+            ]
+        }
+
+        self.assertEqual(
+            await client.resolve_request_context_window(force_refresh=True),
+            32768,
+        )
+        self.assertIsNone(client.provider_context_window_ceiling)
+        self.assertIsNone(
+            client.provider_context_window_ceiling_detected_context
+        )
 
     async def test_uses_detected_context_window_for_safe_max_tokens(self):
 
@@ -210,7 +100,6 @@ class RuntimeClientTests(
             api_base="http://runtime.test",
             model_uid="test-model",
             timeout=30.0,
-            configured_context_window=4096,
             client=http_client,
         )
 
@@ -230,7 +119,7 @@ class RuntimeClientTests(
             8192,
         )
 
-    async def test_falls_back_to_configured_context_window(self):
+    async def test_omits_max_tokens_when_api_reports_no_limits(self):
 
         http_client = FakeHttpClient(
             models_payload={
@@ -245,7 +134,6 @@ class RuntimeClientTests(
             api_base="http://runtime.test",
             model_uid="test-model",
             timeout=30.0,
-            configured_context_window=4096,
             client=http_client,
         )
 
@@ -253,12 +141,12 @@ class RuntimeClientTests(
             system_prompt="system " * 1000,
             user_prompt="user " * 1000,
             temperature=0.1,
-            max_tokens=4096,
+            max_tokens=None,
         )
 
-        self.assertEqual(
-            http_client.post_calls[0]["json"]["max_tokens"],
-            1840,
+        self.assertNotIn(
+            "max_tokens",
+            http_client.post_calls[0]["json"],
         )
         self.assertIsNone(
             client.detected_context_window,
@@ -281,7 +169,6 @@ class RuntimeClientTests(
             api_base="http://runtime.test",
             model_uid="test-model",
             timeout=30.0,
-            configured_context_window=4096,
             client=http_client,
         )
 
@@ -292,33 +179,30 @@ class RuntimeClientTests(
             max_tokens=8192,
         )
 
+        self.assertEqual(
+            client.detected_context_window,
+            8192,
+        )
         self.assertGreater(
             http_client.post_calls[0]["json"]["max_tokens"],
-            3000,
+            1,
         )
 
     async def test_uses_lmstudio_native_loaded_context_when_openai_models_has_no_context(self):
 
         http_client = FakeHttpClient(
             models_payloads_by_url={
-                "http://runtime.test/v1/models": {
-                    "data": [
+                "http://runtime.test/api/v1/models": {
+                    "models": [
                         {
-                            "id": "test-model",
-                        }
-                    ]
-                },
-                "http://runtime.test/api/v0/models": {
-                    "data": [
-                        {
-                            "id": "test-model",
+                            "key": "test-model",
                             "max_context_length": 131072,
-                            "loaded_context_length": 8192,
                             "loaded_instances": [
                                 {
+                                    "id": "test-model",
                                     "config": {
                                         "context_length": 8192,
-                                    }
+                                    },
                                 }
                             ],
                         }
@@ -330,7 +214,6 @@ class RuntimeClientTests(
             api_base="http://runtime.test",
             model_uid="test-model",
             timeout=30.0,
-            configured_context_window=4096,
             client=http_client,
         )
 
@@ -351,7 +234,7 @@ class RuntimeClientTests(
         )
         self.assertEqual(
             len(http_client.get_calls),
-            2,
+            1,
         )
 
     async def test_prefers_loaded_context_over_theoretical_max_context(self):
@@ -367,7 +250,74 @@ class RuntimeClientTests(
             8192,
         )
 
-    async def test_context_window_detection_is_cached(self):
+    async def test_ignores_theoretical_max_when_no_live_context_is_reported(self):
+
+        context_window = RuntimeClient.extract_context_window_from_model({
+            "id": "test-model",
+            "max_context_length": 131072,
+            "max_context_window": 131072,
+            "max_position_embeddings": 131072,
+        })
+
+        self.assertIsNone(
+            context_window,
+        )
+
+    async def test_detection_skips_theoretical_max_and_keeps_probing_for_live_context(self):
+
+        http_client = FakeHttpClient(
+            models_payloads_by_url={
+                "http://runtime.test/api/v1/models": {
+                    "models": [
+                        {
+                            "key": "test-model",
+                            "max_context_length": 131072,
+                        }
+                    ]
+                },
+                "http://runtime.test/api/v0/models": {
+                    "models": [
+                        {
+                            "id": "test-model",
+                            "max_context_length": 131072,
+                        }
+                    ]
+                },
+                "http://runtime.test/v1/models": {
+                    "data": [
+                        {
+                            "id": "test-model",
+                            "context_length": 32768,
+                        }
+                    ]
+                },
+            }
+        )
+        client = RuntimeClient(
+            api_base="http://runtime.test",
+            model_uid="test-model",
+            timeout=30.0,
+            client=http_client,
+        )
+
+        context_window = await client.resolve_request_context_window(
+            force_refresh=True,
+        )
+
+        self.assertEqual(
+            context_window,
+            32768,
+        )
+        self.assertEqual(
+            [call["url"] for call in http_client.get_calls],
+            [
+                "http://runtime.test/api/v1/models",
+                "http://runtime.test/api/v0/models",
+                "http://runtime.test/v1/models",
+            ],
+        )
+
+    async def test_each_model_request_refreshes_live_context_metadata(self):
 
         http_client = FakeHttpClient(
             models_payload={
@@ -385,7 +335,6 @@ class RuntimeClientTests(
             api_base="http://runtime.test",
             model_uid="test-model",
             timeout=30.0,
-            configured_context_window=4096,
             client=http_client,
         )
 
@@ -404,7 +353,7 @@ class RuntimeClientTests(
 
         self.assertEqual(
             len(http_client.get_calls),
-            1,
+            2,
         )
 
     async def test_context_window_detection_skips_model_without_id(self):
@@ -426,7 +375,6 @@ class RuntimeClientTests(
             api_base="http://runtime.test",
             model_uid="test-model",
             timeout=30.0,
-            configured_context_window=4096,
             client=http_client,
         )
 
@@ -440,6 +388,41 @@ class RuntimeClientTests(
         self.assertEqual(
             client.detected_context_window,
             8192,
+        )
+
+    async def test_auto_max_tokens_uses_live_context_not_configured_indicator(self):
+
+        http_client = FakeHttpClient(
+            models_payload={
+                "data": [
+                    {
+                        "id": "test-model",
+                        "context_length": 8192,
+                    }
+                ]
+            }
+        )
+        client = RuntimeClient(
+            api_base="http://runtime.test",
+            model_uid="test-model",
+            timeout=30.0,
+            client=http_client,
+        )
+
+        await client.ask(
+            system_prompt="system",
+            user_prompt="user",
+            temperature=0.1,
+            max_tokens=None,
+        )
+
+        self.assertEqual(
+            client.detected_context_window,
+            8192,
+        )
+        self.assertGreater(
+            http_client.post_calls[0]["json"]["max_tokens"],
+            4096,
         )
 
     async def test_preserves_configured_max_tokens_when_context_window_is_detected(self):
@@ -458,7 +441,6 @@ class RuntimeClientTests(
             api_base="http://runtime.test",
             model_uid="test-model",
             timeout=30.0,
-            configured_context_window=4096,
             configured_max_tokens=4096,
             client=http_client,
         )
@@ -492,7 +474,6 @@ class RuntimeClientTests(
             api_base="http://runtime.test",
             model_uid="test-model",
             timeout=30.0,
-            configured_context_window=4096,
             configured_max_tokens=4096,
             client=http_client,
         )
@@ -525,7 +506,6 @@ class RuntimeClientTests(
             api_base="http://runtime.test",
             model_uid="test-model",
             timeout=30.0,
-            configured_context_window=4096,
             configured_max_tokens=4096,
             client=http_client,
         )
@@ -563,7 +543,6 @@ class RuntimeClientTests(
             api_base="http://runtime.test",
             model_uid="test-model",
             timeout=30.0,
-            configured_context_window=4096,
             client=http_client,
         )
         context = FakeStreamContextObject()
@@ -616,7 +595,6 @@ class RuntimeClientTests(
             api_base="http://runtime.test",
             model_uid="test-model",
             timeout=30.0,
-            configured_context_window=4096,
             client=http_client,
         )
         context = FakeStreamContextObject()
@@ -646,6 +624,72 @@ class RuntimeClientTests(
             [],
         )
 
+
+    async def test_stream_treats_lm_studio_error_chunk_as_provider_failure(self):
+
+        provider_message = (
+            "The selected model was loaded with a context length "
+            "too small for this request."
+        )
+        http_client = FakeHttpClient(
+            models_payload={
+                "data": [
+                    {
+                        "id": "test-model",
+                        "context_length": 8192,
+                    }
+                ]
+            },
+            stream_lines=[
+                'data: {"error": {"message": "'
+                + provider_message
+                + '", "type": "invalid_request_error"}}',
+                "data: [DONE]",
+            ],
+        )
+        client = RuntimeClient(
+            api_base="http://runtime.test",
+            model_uid="test-model",
+            timeout=30.0,
+            client=http_client,
+        )
+        context = FakeStreamContextObject()
+
+        with self.assertRaises(
+            LMStudioAPIError,
+        ) as raised:
+            [
+                event
+                async for event in client.stream(
+                    context=context,
+                    system_prompt="system",
+                    user_prompt="user",
+                    temperature=0.1,
+                    max_tokens=100,
+                )
+            ]
+
+        details = json.loads(
+            raised.exception.details
+        )
+
+        self.assertIn(
+            provider_message,
+            raised.exception.summary,
+        )
+        self.assertEqual(
+            details["provider"],
+            "LM Studio",
+        )
+        self.assertEqual(
+            details["lm_studio_error"]["message"],
+            provider_message,
+        )
+        self.assertEqual(
+            details["request"]["stream"],
+            True,
+        )
+
     async def test_stream_reports_when_all_sse_frames_are_invalid_json(self):
 
         http_client = FakeHttpClient(
@@ -666,12 +710,11 @@ class RuntimeClientTests(
             api_base="http://runtime.test",
             model_uid="test-model",
             timeout=30.0,
-            configured_context_window=4096,
             client=http_client,
         )
         context = FakeStreamContextObject()
 
-        with self.assertRaisesRegex(
+        with patch("runtime.client.logger.exception") as log_exception, self.assertRaisesRegex(
             RuntimeError,
             "without any valid JSON chunks",
         ):
@@ -685,6 +728,10 @@ class RuntimeClientTests(
                     max_tokens=100,
                 )
             ]
+
+        log_exception.assert_called_once_with("Runtime client error")
+
+        log_exception.assert_called_once_with("Runtime client error")
 
         self.assertTrue(
             any(
@@ -727,13 +774,12 @@ class RuntimeClientTests(
             api_base="http://runtime.test",
             model_uid="test-model",
             timeout=30.0,
-            configured_context_window=4096,
             client=http_client,
         )
         context = FakeStreamContextObject()
         context.runtime_followup_tick_active = True
 
-        with self.assertRaisesRegex(
+        with patch("runtime.client.logger.exception") as log_exception, self.assertRaisesRegex(
             RuntimeError,
             "without any valid JSON chunks",
         ):
@@ -784,12 +830,11 @@ class RuntimeClientTests(
             api_base="http://runtime.test",
             model_uid="test-model",
             timeout=30.0,
-            configured_context_window=4096,
             client=http_client,
         )
         context = FakeStreamContextObject()
 
-        with self.assertRaisesRegex(
+        with patch("runtime.client.logger.exception") as log_exception, self.assertRaisesRegex(
             RuntimeError,
             "without any JSON chunks",
         ):
@@ -804,6 +849,313 @@ class RuntimeClientTests(
                 )
             ]
 
+        log_exception.assert_called_once_with("Runtime client error")
+
+
+    async def test_lm_studio_named_sse_events_supply_missing_type(self):
+
+        http_client = FakeHttpClient(
+            models_payload={
+                "models": [
+                    {
+                        "key": "test-model",
+                        "type": "llm",
+                    }
+                ]
+            },
+            stream_lines=[
+                "event: model_load.start",
+                'data: {"model_instance_id":"test-model"}',
+                "",
+                "event: model_load.progress",
+                'data: {"model_instance_id":"test-model","progress":0.12}',
+                "",
+                "event: model_load.progress",
+                'data: {"model_instance_id":"test-model","progress":0.19}',
+                "",
+                "event: model_load.progress",
+                'data: {"model_instance_id":"test-model","progress":0.24}',
+                "",
+                "event: model_load.end",
+                'data: {"model_instance_id":"test-model"}',
+                "",
+                "event: prompt_processing.start",
+                "data: {}",
+                "",
+                "event: prompt_processing.progress",
+                'data: {"progress":0.07}',
+                "",
+                "event: prompt_processing.progress",
+                'data: {"progress":0.18}',
+                "",
+                "event: prompt_processing.end",
+                "data: {}",
+                "",
+                "event: message.delta",
+                'data: {"content":"ok"}',
+                "",
+                "event: chat.end",
+                'data: {"result":{"stats":{"input_tokens":10,"total_output_tokens":1}}}',
+                "",
+            ],
+        )
+        client = RuntimeClient(
+            api_base="http://runtime.test",
+            model_uid="test-model",
+            timeout=30.0,
+            client=http_client,
+        )
+        context = FakeStreamContextObject()
+
+        events = [
+            event
+            async for event in client.stream(
+                context=context,
+                system_prompt="system",
+                user_prompt="user",
+                temperature=0.1,
+                max_tokens=100,
+            )
+        ]
+
+        progress = [
+            event
+            for event in events
+            if event.get("type") == "progress"
+        ]
+
+        self.assertEqual(
+            progress[1]["phase"],
+            "model_load",
+        )
+        self.assertEqual(
+            progress[1]["progress"],
+            0.12,
+        )
+        self.assertEqual(
+            progress[-2]["phase"],
+            "prompt_processing",
+        )
+        self.assertEqual(
+            progress[-2]["progress"],
+            0.18,
+        )
+
+    async def test_lm_studio_native_stream_emits_progress_chunks(self):
+
+        http_client = FakeHttpClient(
+            models_payload={
+                "models": [
+                    {
+                        "key": "test-model",
+                        "context_length": 8192,
+                    }
+                ]
+            },
+            stream_lines=[
+                'data: {"type":"model_load.start","model_instance_id":"test-model"}',
+                'data: {"type":"model_load.progress","model_instance_id":"test-model","progress":0.5}',
+                'data: {"type":"model_load.end","model_instance_id":"test-model","load_time_seconds":1.23}',
+                'data: {"type":"prompt_processing.start"}',
+                'data: {"type":"prompt_processing.progress","progress":0.25}',
+                'data: {"type":"prompt_processing.end"}',
+                'data: {"type":"reasoning.delta","content":"think"}',
+                'data: {"type":"message.delta","content":"done"}',
+                'data: {"type":"chat.end","result":{"stats":{"input_tokens":10,"total_output_tokens":4}}}',
+            ],
+        )
+        client = RuntimeClient(
+            api_base="http://runtime.test",
+            model_uid="test-model",
+            timeout=30.0,
+            client=http_client,
+        )
+        context = FakeStreamContextObject()
+
+        events = [
+            event
+            async for event in client.stream(
+                context=context,
+                system_prompt="system",
+                user_prompt="user",
+                temperature=0.1,
+                max_tokens=100,
+            )
+        ]
+
+        self.assertEqual(
+            events,
+            [
+                {
+                    "type": "progress",
+                    "phase": "model_load",
+                    "state": "start",
+                    "provider": "lm_studio",
+                    "progress": 0.0,
+                },
+                {
+                    "type": "progress",
+                    "phase": "model_load",
+                    "state": "progress",
+                    "provider": "lm_studio",
+                    "progress": 0.5,
+                },
+                {
+                    "type": "progress",
+                    "phase": "model_load",
+                    "state": "end",
+                    "provider": "lm_studio",
+                    "progress": 1.0,
+                },
+                {
+                    "type": "progress",
+                    "phase": "prompt_processing",
+                    "state": "start",
+                    "provider": "lm_studio",
+                    "progress": 0.0,
+                },
+                {
+                    "type": "progress",
+                    "phase": "prompt_processing",
+                    "state": "progress",
+                    "provider": "lm_studio",
+                    "progress": 0.25,
+                },
+                {
+                    "type": "progress",
+                    "phase": "prompt_processing",
+                    "state": "end",
+                    "provider": "lm_studio",
+                    "progress": 1.0,
+                },
+                {
+                    "type": "thinking",
+                    "content": "think",
+                },
+                {
+                    "type": "content",
+                    "content": "done",
+                },
+                {
+                    "type": "usage",
+                    "prompt_tokens": 10,
+                    "completion_tokens": 4,
+                    "total_tokens": 14,
+                },
+                {
+                    "type": "finish",
+                    "finish_reason": "stop",
+                },
+            ],
+        )
+
+        self.assertEqual(
+            http_client.stream_calls[0]["url"],
+            "http://runtime.test/api/v1/chat",
+        )
+        self.assertEqual(
+            http_client.stream_calls[0]["json"]["input"],
+            "user",
+        )
+        self.assertEqual(
+            http_client.stream_calls[0]["json"]["system_prompt"],
+            "system",
+        )
+        self.assertEqual(
+            http_client.stream_calls[0]["json"]["max_output_tokens"],
+            100,
+        )
+
+    async def test_llama_cpp_stream_emits_prompt_progress_and_requests_return_progress(self):
+
+        http_client = FakeHttpClient(
+            models_payloads_by_url={
+                "http://runtime.test/props": {
+                    "build_info": {
+                        "version": "test",
+                    },
+                },
+            },
+            stream_lines_by_url={
+                "http://runtime.test/v1/chat/completions": [
+                    'data: {"prompt_progress":{"total":20,"cache":5,"processed":10}}',
+                    'data: {"choices":[{"delta":{"content":"ok"}}]}',
+                    'data: [DONE]',
+                ],
+                "http://runtime.test/models/sse": [
+                    'data: {"event":"model_status","model":"test-model","data":{"status":"loading","progress":{"value":0.4}}}',
+                    'data: {"event":"model_status","model":"test-model","data":{"status":"loaded"}}',
+                ],
+            },
+        )
+        client = RuntimeClient(
+            api_base="http://runtime.test",
+            model_uid="test-model",
+            timeout=30.0,
+            client=http_client,
+        )
+        context = FakeStreamContextObject()
+
+        events = [
+            event
+            async for event in client.stream(
+                context=context,
+                system_prompt="system",
+                user_prompt="user",
+                temperature=0.1,
+                max_tokens=100,
+            )
+        ]
+
+        self.assertEqual(
+            events,
+            [
+                {
+                    "type": "progress",
+                    "phase": "model_load",
+                    "state": "progress",
+                    "provider": "llama_cpp",
+                    "progress": 0.4,
+                },
+                {
+                    "type": "progress",
+                    "phase": "model_load",
+                    "state": "end",
+                    "provider": "llama_cpp",
+                    "progress": 1.0,
+                },
+                {
+                    "type": "progress",
+                    "phase": "prompt_processing",
+                    "state": "progress",
+                    "provider": "llama_cpp",
+                    "progress": (10 - 5) / (20 - 5),
+                },
+                {
+                    "type": "progress",
+                    "phase": "prompt_processing",
+                    "state": "end",
+                    "provider": "llama_cpp",
+                    "progress": 1.0,
+                },
+                {
+                    "type": "content",
+                    "content": "ok",
+                },
+            ],
+        )
+
+        self.assertEqual(
+            http_client.stream_calls[1]["url"],
+            "http://runtime.test/v1/chat/completions",
+        )
+        self.assertEqual(
+            http_client.stream_calls[0]["url"],
+            "http://runtime.test/models/sse",
+        )
+        self.assertTrue(
+            http_client.stream_calls[1]["json"]["return_progress"]
+        )
 
 
 if __name__ == "__main__":

@@ -23,13 +23,19 @@ function getInternalActionPayload(data) {
     return null;
   }
 
+  if (
+    data.posting_board_result
+    && typeof data.posting_board_result === "object"
+  ) {
+    return data.posting_board_result;
+  }
+
   const payloadKeys = [
     "payload",
     "action_payload",
     "runtime_action_payload",
     "asset_result",
     "skill_result",
-    "runtime_todo_result",
     "delayed_memory_report",
     "details",
   ];
@@ -44,6 +50,119 @@ function getInternalActionPayload(data) {
   }
 
   return null;
+}
+
+function getInternalActionUpdateLTMessage(data) {
+  if (!data || typeof data !== "object") {
+    return "";
+  }
+
+  const directMessage =
+    String(data.message || "").trim();
+
+  if (directMessage) {
+    return directMessage;
+  }
+
+  const payloadCandidates = [
+    data.payload,
+    data.action_payload,
+    data.runtime_action_payload,
+  ];
+
+  for (const candidate of payloadCandidates) {
+    if (
+      candidate === undefined
+      || candidate === null
+      || candidate === ""
+    ) {
+      continue;
+    }
+
+    let parsed = candidate;
+
+    if (typeof candidate === "string") {
+      const source = candidate.trim();
+
+      if (!source) {
+        continue;
+      }
+
+      if (source.startsWith("{")) {
+        try {
+          parsed = JSON.parse(source);
+        } catch (_error) {
+          parsed = source;
+        }
+      } else {
+        parsed = source;
+      }
+    }
+
+    if (
+      parsed
+      && typeof parsed === "object"
+      && !Array.isArray(parsed)
+    ) {
+      const message =
+        String(parsed.message || "").trim();
+
+      if (message) {
+        return message;
+      }
+
+      continue;
+    }
+
+    if (typeof parsed === "string") {
+      const message =
+        parsed.replace(/\s+/g, " ").trim();
+
+      if (message) {
+        return message;
+      }
+    }
+  }
+
+  return "";
+}
+
+function getInternalActionJinSizeHover(data) {
+  if (!data || typeof data !== "object") {
+    return "";
+  }
+
+  const source = String(
+    data.size
+    || data.payload
+    || (
+      Array.isArray(data.sizes)
+        ? data.sizes[data.sizes.length - 1]
+        : ""
+    )
+    || (
+      data.width
+        ? `w:${data.width} h:${data.height || data.width}`
+        : ""
+    )
+  ).trim();
+  const normalized =
+    window.JinResponseFormatter
+    && typeof window.JinResponseFormatter.normalizeJinSizeMarker === "function"
+      ? window.JinResponseFormatter.normalizeJinSizeMarker(source)
+      : "";
+
+  if (!normalized) {
+    return "";
+  }
+
+  const labeled = normalized.match(
+    /^w:([^\s]+)\s+h:([^\s]+)$/i
+  );
+  const width = labeled ? labeled[1] : normalized;
+  const height = labeled ? labeled[2] : normalized;
+
+  return `width: ${width}\nheight: ${height}`;
 }
 
 function formatInternalActionPayload(payload) {
@@ -268,13 +387,17 @@ function renderUserPayloadTrace(
 }
 
 function log_user(
-  payload = {}
+  payload = {},
+  visibleText = "",
 ) {
   const text =
     String(
-      payload && payload.text
-        ? payload.text
-        : ""
+      visibleText
+      || (
+        payload && payload.text
+          ? payload.text
+          : ""
+      )
     ).trim();
 
   const logDiv =
@@ -371,13 +494,21 @@ function getInternalActionLogKey(
     normalizeInternalActionName(
       actionName
     );
-  const keepSkillMarkerSeparate = [
-    "APPEND_SKILL",
-    "APPEND_SKILLS",
-    "REMOVE_SKILL",
-    "REMOVE_SKILLS",
+  const keepActionInstanceSeparate = [
+    "LOAD_SKILL",
+    "LOAD_SKILLS",
+    "UNLOAD_SKILL",
+    "UNLOAD_SKILLS",
+    "LOAD_DELAYED_MEMORY",
+    "UNLOAD_DELAYED_MEMORY",
+    // Attachment actions are payload-distinct too. In particular, the hidden
+    // session-restore replay may emit an ATTACH_FILE_CONTENT after a real model
+    // ATTACH_FILE_CONTENT in the same turn; sharing one logger key made the restore
+    // entry overwrite the real success/failure log.
+    "ATTACH_FILE_CONTENT",
+    "ATTACH_FILE_BY_ID",
   ].includes(normalizedActionName);
-  const instanceKey = keepSkillMarkerSeparate
+  const instanceKey = keepActionInstanceSeparate
     ? String(
       data.id
       || data.runtime_action_id
@@ -581,12 +712,58 @@ function log_internal_action(
     return;
   }
 
+  // Restore replay reconstructs browser/session state through the real action
+  // dispatcher, but it is not a model-emitted action. Keep it out of the
+  // green ACTION log so it cannot masquerade as, or overwrite, the actual
+  // action that triggered this turn. Runtime/session restore logs still show
+  // the reconstruction itself.
+  if (data.restore_replay === true) {
+    return;
+  }
+
   const title =
     `[ ACTION : ${prettifyInternalActionName(actionName)} ]`;
-  const text =
-    String(
+  const updateLTMessage =
+    actionName === "UPDATE_LT_FACTS"
+      ? getInternalActionUpdateLTMessage(
+        data
+      )
+      : "";
+  const jinSizeHover =
+    actionName === "JIN_SIZE"
+      ? getInternalActionJinSizeHover(
+        data
+      )
+      : "";
+  const baseText =
+    updateLTMessage
+    || String(
       data.text || data.query || ""
     ).trim();
+  const status =
+    String(data.status || "").toLowerCase();
+  const attachmentFailureDetail =
+    status === "failed"
+    && [
+      "ATTACH_FILE_CONTENT",
+      "ATTACH_FILE_BY_ID",
+      ].includes(actionName)
+      ? String(
+        (
+          data.attachment_result
+          && data.attachment_result.detail
+        )
+        || data.error
+        || ""
+      ).trim()
+      : "";
+  const text =
+    attachmentFailureDetail
+      ? (
+        `${baseText || actionName}\n`
+        + `FAILED: ${attachmentFailureDetail}`
+      )
+      : baseText;
   const payload =
     getInternalActionPayload(
       data
@@ -601,18 +778,18 @@ function log_internal_action(
     ) || 0
   );
   const suppressMarkerCount = [
-    "APPEND_SKILL",
-    "APPEND_SKILLS",
+    "LOAD_SKILL",
+    "LOAD_SKILLS",
   ].includes(actionName);
   const cancelledByUser =
-    String(data.status || "").toLowerCase() === "failed"
+    status === "failed"
     && Boolean(
       data.confirmation_id
       || data.guard_confirmation_id
     )
     && /\bcancelled\s*$/i.test(text);
   const abortedByUser =
-    String(data.status || "").toLowerCase() === "aborted";
+    status === "aborted";
   const actionLogKey =
     getInternalActionLogKey(
       actionName,
@@ -649,6 +826,21 @@ function log_internal_action(
 
     consoleStream.appendChild(
       logDiv
+    );
+  }
+
+  if (updateLTMessage || jinSizeHover) {
+    logDiv.title =
+      updateLTMessage || jinSizeHover;
+    logDiv.classList.add(
+      "cursor-help"
+    );
+  } else {
+    logDiv.removeAttribute(
+      "title"
+    );
+    logDiv.classList.remove(
+      "cursor-help"
     );
   }
 
@@ -715,6 +907,78 @@ function log_internal_action(
     consoleStream.scrollHeight;
 }
 
+function normalizeLatestModelOutputLogOrder(
+  modelLog
+) {
+  if (!modelLog || !consoleStream) {
+    return;
+  }
+
+  const entries = Array.from(
+    consoleStream.children
+  );
+  const modelIndex =
+    entries.indexOf(modelLog);
+
+  if (modelIndex < 0) {
+    return;
+  }
+
+  let userLog = null;
+
+  for (let index = modelIndex - 1; index >= 0; index -= 1) {
+    const candidate = entries[index];
+
+    if (candidate.dataset.logKind === "user") {
+      userLog = candidate;
+      break;
+    }
+  }
+
+  if (!userLog) {
+    return;
+  }
+
+  const turnEntries = entries.slice(
+    entries.indexOf(userLog) + 1
+  ).filter((entry) => entry !== modelLog);
+  const strippedMarkerLogs = turnEntries.filter(
+    (entry) => (
+      entry.dataset.logKind === "validator"
+      && /runtime action marker stripped/i.test(
+        entry.textContent || ""
+      )
+    )
+  );
+  const jinVisualActionLogs = turnEntries.filter(
+    (entry) => {
+      if (entry.dataset.logKind === "action") {
+        return /(?:^|:)JIN_(?:SIZE|COLOR)(?::|$)/i.test(
+          entry.dataset.actionLogKey || ""
+        );
+      }
+
+      return /\[RUNTIME ACTION\]\s+jin_(?:size|color)\b/i.test(
+        entry.textContent || ""
+      );
+    }
+  );
+
+  userLog.after(modelLog);
+
+  let anchor = modelLog;
+
+  strippedMarkerLogs.forEach((entry) => {
+    anchor.after(entry);
+    anchor = entry;
+  });
+
+  jinVisualActionLogs.forEach((entry) => {
+    anchor.after(entry);
+    anchor = entry;
+  });
+}
+
 function getFactsMemoryStorage() {
   return (
     window.JinRuntime
@@ -750,6 +1014,35 @@ function setFactsMemoryAppendButtonVisible(
     appendButton.style.display =
       "none";
   }
+}
+
+function dismissFactsMemoryLogEntry(
+  logDiv,
+) {
+
+  if (
+      !logDiv
+      || logDiv.dataset.factsMemoryDismissed === "true"
+  ) {
+    return false;
+  }
+
+  logDiv.dataset.factsMemoryDismissed =
+    "true";
+
+  logDiv.querySelectorAll("button").forEach(
+    function (button) {
+      button.disabled =
+        true;
+    }
+  );
+
+  dismissLogAfterClear(
+    logDiv
+  );
+
+  return true;
+
 }
 
 function refreshFactsMemoryAppendButtons() {
@@ -789,10 +1082,6 @@ function refreshFactsMemoryAppendButtons() {
           "[data-facts-memory-append]"
         );
 
-      if (!appendButton) {
-        return;
-      }
-
       const storageKey =
         String(
           logDiv.dataset.factsMemoryStorageKey
@@ -806,6 +1095,23 @@ function refreshFactsMemoryAppendButtons() {
           )
           || ""
         ).trim();
+
+      if (
+          storageKey
+          && sourceSessionId
+          && !storage.hasFactsMemoryForSession(
+            sourceSessionId
+          )
+      ) {
+        dismissFactsMemoryLogEntry(
+          logDiv
+        );
+        return;
+      }
+
+      if (!appendButton) {
+        return;
+      }
 
       const canAppend =
         Boolean(
@@ -829,35 +1135,2208 @@ function refreshFactsMemoryAppendButtons() {
   );
 }
 
+const ltMemorySequences = new Map();
+let legacyActiveLTMemorySequence = null;
+
+const ltDeletedFactCards =
+  new Map();
+
+const delayedDeletedReportCards =
+  new Map();
+
+const delayedUnlinkedFactCards =
+  new Map();
+
+const deletedFileCards =
+  new Map();
+
+function parseLTJsonPayload(details) {
+  const text =
+    String(details || "").trim();
+
+  if (!text) {
+    return null;
+  }
+
+  const direct =
+    parseTraceJson(text);
+
+  if (direct) {
+    return direct;
+  }
+
+  const fenced =
+    text.match(/```(?:json)?\s*([\s\S]*?)```/i);
+
+  if (fenced) {
+    const parsed =
+      parseTraceJson(fenced[1].trim());
+
+    if (parsed) {
+      return parsed;
+    }
+  }
+
+  const firstBrace =
+    text.indexOf("{");
+  const lastBrace =
+    text.lastIndexOf("}");
+
+  if (firstBrace >= 0 && lastBrace > firstBrace) {
+    return parseTraceJson(
+      text.slice(firstBrace, lastBrace + 1)
+    );
+  }
+
+  return null;
+}
+
+function createNeutralMemoryLoggerCard(tag) {
+  const logDiv =
+    document.createElement("div");
+
+  logDiv.className =
+    "mb-1 min-w-0 whitespace-pre-wrap break-words font-mono text-[12px] bg-zinc-500/5 p-2 rounded border border-zinc-500/10";
+
+  logDiv.style.overflowWrap =
+    "anywhere";
+
+  logDiv.dataset.logKind =
+    "memory";
+
+  const tagSpan =
+    document.createElement("span");
+
+  tagSpan.className =
+    "text-zinc-400 font-bold logger-tag block";
+
+  tagSpan.textContent =
+    tag;
+
+  logDiv.appendChild(tagSpan);
+  consoleStream.appendChild(logDiv);
+  consoleStream.scrollTop =
+    consoleStream.scrollHeight;
+
+  return logDiv;
+}
+
+function createLTLoggerCard(tag) {
+  const logDiv =
+    document.createElement("div");
+
+  logDiv.className =
+    "mb-1 min-w-0 whitespace-pre-wrap break-words font-mono text-[12px] bg-blue-500/5 p-2 rounded border border-blue-500/10";
+
+  logDiv.style.overflowWrap =
+    "anywhere";
+
+  logDiv.dataset.logKind =
+    "memory";
+
+  const tagSpan =
+    document.createElement("span");
+
+  tagSpan.className =
+    "text-blue-300 font-bold logger-tag block";
+
+  tagSpan.textContent =
+    tag;
+
+  logDiv.appendChild(tagSpan);
+
+  consoleStream.appendChild(logDiv);
+  consoleStream.scrollTop =
+    consoleStream.scrollHeight;
+
+  return logDiv;
+}
+
+function createLTLoggerButton(
+  label,
+  tone = "blue",
+) {
+  const button =
+    document.createElement("button");
+
+  button.type =
+    "button";
+
+  button.textContent =
+    label;
+
+  setLTLoggerButtonTone(
+    button,
+    tone
+  );
+
+  return button;
+}
+
+function setLTLoggerButtonTone(
+  button,
+  tone,
+) {
+  button.className =
+    tone === "muted"
+      ? "inline-flex items-center rounded border border-zinc-600/40 px-2 py-1 text-[10px] uppercase tracking-wider text-zinc-400 hover:bg-zinc-700/30 transition"
+      : "inline-flex items-center rounded border border-blue-500/20 px-2 py-1 text-[10px] uppercase tracking-wider text-blue-300 hover:bg-blue-500/10 transition";
+}
+
+function resolveLTMetaPhase(meta) {
+  const phase =
+    String(meta && meta.lt_phase || "")
+      .trim()
+      .toLowerCase()
+      .replace(/-/g, "_");
+
+  if (phase === "jin_note" || phase === "deduplication") {
+    return "merge";
+  }
+
+  if (phase === "extract" || phase === "extraction") {
+    return "extraction";
+  }
+
+  return phase === "merge"
+    ? "merge"
+    : "";
+}
+
+function resolveLTSummarizerPhase(
+  message,
+  meta,
+) {
+  if (String(meta && meta.memory_level || "").toUpperCase() !== "L-T") {
+    return "";
+  }
+
+  const structuredPhase =
+    resolveLTMetaPhase(meta);
+
+  if (structuredPhase) {
+    return structuredPhase;
+  }
+
+  // Compatibility for archived/legacy log records that predate lt_phase.
+  const normalized =
+    String(message || "").toLowerCase();
+
+  if (/^l-?t\s+jin\s+note\s+summarizer\s+/.test(normalized)) {
+    return "merge";
+  }
+
+  const match =
+    normalized.match(
+      /^l-?t\s+(extraction|merge)\s+summarizer\s+/
+    );
+
+  return match
+    ? match[1]
+    : "";
+}
+
+
+function resolveLTSummarizerEvent(
+  message,
+  meta,
+) {
+  const event =
+    String(meta && meta.memory_event || "").toLowerCase();
+
+  if (event === "summarizer_request" || event === "summarizer_result") {
+    return event;
+  }
+
+  const normalized =
+    String(message || "").toLowerCase();
+
+  if (normalized.endsWith("summarizer request")) {
+    return "summarizer_request";
+  }
+
+  if (normalized.endsWith("summarizer result")) {
+    return "summarizer_result";
+  }
+
+  return "";
+}
+
+function createLTMemorySequenceCard(flowId = "", flowKind = "") {
+  const logDiv =
+    createLTLoggerCard(
+      "[MEMORY:L-T]"
+    );
+
+  logDiv.classList.add(
+    "jin-lt-sequence-card"
+  );
+
+  const track =
+    document.createElement("div");
+
+  track.className =
+    "jin-lt-sequence-track";
+
+  const createStep = function (
+    label,
+    phase,
+  ) {
+    const step =
+      document.createElement("button");
+
+    step.type = "button";
+    step.className =
+      "jin-lt-sequence-step";
+    step.textContent = label;
+    step.dataset.status = "idle";
+    step.disabled = true;
+    step.addEventListener(
+      "click",
+      function () {
+        inspectLTSequenceElement(
+          state,
+          phase,
+          "label"
+        );
+      }
+    );
+
+    return step;
+  };
+
+  const createArrow = function (phase) {
+    const arrow =
+      document.createElement("button");
+
+    arrow.type = "button";
+    arrow.className =
+      "jin-lt-sequence-arrow";
+    arrow.dataset.status = "idle";
+    arrow.disabled = true;
+    arrow.setAttribute(
+      "aria-label",
+      `${phase} result`
+    );
+    arrow.addEventListener(
+      "click",
+      function () {
+        inspectLTSequenceElement(
+          state,
+          phase,
+          "arrow"
+        );
+      }
+    );
+
+    return arrow;
+  };
+
+  const extractionStep =
+    createStep(
+      "extract",
+      "extraction"
+    );
+  const extractionArrow =
+    createArrow("extraction");
+  const mergeStep =
+    createStep(
+      "merge",
+      "merge"
+    );
+  const mergeArrow =
+    createArrow("merge");
+  const applyStep =
+    createStep(
+      "apply",
+      "apply"
+    );
+
+  track.append(
+    extractionStep,
+    extractionArrow,
+    mergeStep,
+    mergeArrow,
+    applyStep,
+  );
+
+  if (flowKind === "deduplication") {
+    mergeStep.textContent = "request";
+    track.classList.add("jin-frame-sequence-track");
+    track.replaceChildren(mergeStep, mergeArrow, applyStep);
+  }
+
+  const showButton =
+    document.createElement("button");
+
+  showButton.type = "button";
+  showButton.className =
+    "jin-lt-sequence-show";
+  showButton.textContent = "show";
+  showButton.disabled = true;
+
+  const state = {
+    logDiv,
+    flowId: String(flowId || ""),
+    flowKind: String(flowKind || ""),
+    complete: false,
+    currentPhase: "",
+    diffDetails: "",
+    diffTrace: null,
+    diffTitle: "L-T merge applied",
+    elements: {
+      extraction: {
+        label: extractionStep,
+        arrow: extractionArrow,
+      },
+      merge: {
+        label: mergeStep,
+        arrow: mergeArrow,
+      },
+      apply: {
+        label: applyStep,
+      },
+    },
+    phases: {
+      extraction: {
+        requestPending: false,
+        responseReceived: false,
+        requestDetails: "",
+        responseDetails: "",
+        terminalDetails: "",
+      },
+      merge: {
+        requestPending: false,
+        responseReceived: false,
+        requestDetails: "",
+        responseDetails: "",
+        terminalDetails: "",
+      },
+    },
+    showButton,
+  };
+
+  showButton.addEventListener(
+    "click",
+    function () {
+      if (
+        state.showButton.disabled
+        || !state.diffDetails
+      ) {
+        return;
+      }
+
+      showTrace(
+        state.diffDetails,
+        state.diffTitle,
+        null,
+        state.diffTrace
+      );
+    }
+  );
+
+  logDiv.append(track, showButton);
+
+  if (state.flowId) {
+    logDiv.dataset.ltFlowId = state.flowId;
+    if (state.flowKind) {
+      logDiv.dataset.ltFlowKind = state.flowKind;
+    }
+    ltMemorySequences.set(state.flowId, state);
+  } else {
+    legacyActiveLTMemorySequence = state;
+  }
+
+  return state;
+}
+
+function getLTMemorySequence(flowId, flowKind = "") {
+  const normalizedFlowId =
+    String(flowId || "").trim();
+
+  if (normalizedFlowId) {
+    const existing =
+      ltMemorySequences.get(normalizedFlowId);
+    if (existing) {
+      return existing;
+    }
+    return createLTMemorySequenceCard(
+      normalizedFlowId,
+      flowKind
+    );
+  }
+
+  // Compatibility only: old log records had no correlation id.
+  if (
+    !legacyActiveLTMemorySequence
+    || legacyActiveLTMemorySequence.complete
+  ) {
+    return createLTMemorySequenceCard();
+  }
+
+  return legacyActiveLTMemorySequence;
+}
+
+function setLTSequenceStatus(
+  element,
+  status,
+) {
+  if (element) {
+    element.dataset.status = status;
+  }
+}
+
+function setLTSequenceInspectable(
+  element,
+  inspectable,
+) {
+  if (!element) {
+    return;
+  }
+
+  element.disabled = !inspectable;
+  element.dataset.inspectable =
+    inspectable
+      ? "true"
+      : "false";
+}
+
+function clearLTSequencePendingStatuses(state) {
+  if (!state) {
+    return;
+  }
+
+  for (const phase of ["extraction", "merge"]) {
+    const phaseState = state.phases[phase];
+    const elements = state.elements[phase];
+    phaseState.requestPending = false;
+
+    for (const element of [elements.label, elements.arrow]) {
+      if (element && element.dataset.status === "pending") {
+        setLTSequenceStatus(element, "idle");
+      }
+    }
+  }
+
+  if (
+    state.elements.apply.label
+    && state.elements.apply.label.dataset.status === "pending"
+  ) {
+    setLTSequenceStatus(
+      state.elements.apply.label,
+      "idle"
+    );
+  }
+}
+
+function finishLTSequence(state) {
+  clearLTSequencePendingStatuses(state);
+  state.complete = true;
+}
+
+function ltSequenceResponseHasChanges(
+  phase,
+  payload,
+) {
+  if (!payload || typeof payload !== "object") {
+    return true;
+  }
+
+  if (phase === "extraction" && Array.isArray(payload.facts)) {
+    return payload.facts.length > 0;
+  }
+
+  if (phase === "merge" && Array.isArray(payload.operations)) {
+    return payload.operations.length > 0;
+  }
+
+  return Object.keys(payload).length > 0;
+}
+
+function buildLTSummarizerResponseTrace(
+  phase,
+  details,
+  forceNoChanges = false,
+) {
+  const responseDetails =
+    String(details || "").trim();
+  const responsePayload =
+    parseLTJsonPayload(
+      responseDetails
+    );
+
+  return JSON.stringify({
+    kind: "lt_summarizer_response",
+    phase,
+    payload: responsePayload,
+    raw: responseDetails,
+    no_changes:
+      forceNoChanges
+      || !ltSequenceResponseHasChanges(
+        phase,
+        responsePayload
+      ),
+  });
+}
+
+function inspectLTSequenceElement(
+  state,
+  phase,
+  part,
+) {
+  if (phase === "apply") {
+    if (!state.diffDetails) {
+      return;
+    }
+
+    showTrace(
+      state.diffDetails,
+      state.diffTitle,
+      null,
+      state.diffTrace
+    );
+    return;
+  }
+
+  const phaseState =
+    state.phases[phase];
+  const elements =
+    state.elements[phase];
+  const status =
+    part === "arrow"
+      ? elements.arrow.dataset.status
+      : elements.label.dataset.status;
+  const failed =
+    status === "failed";
+  const titlePhase =
+    state.flowKind === "deduplication"
+      ? "deduplication"
+      : phase === "extraction"
+      ? "extraction"
+      : "merge";
+
+  if (failed) {
+    const failureDetails =
+      String(
+        phaseState.terminalDetails
+        || phaseState.responseDetails
+        || phaseState.requestDetails
+        || ""
+      ).trim();
+
+    if (failureDetails) {
+      showTrace(
+        failureDetails,
+        `L-T ${titlePhase} failed`
+      );
+    }
+    return;
+  }
+
+  if (part === "label") {
+    const requestDetails =
+      String(
+        phaseState.requestDetails
+        || ""
+      ).trim();
+
+    if (requestDetails) {
+      showTrace(
+        requestDetails,
+        `L-T ${titlePhase} request`
+      );
+    }
+    return;
+  }
+
+  const responseDetails =
+    String(
+      phaseState.responseDetails
+      || ""
+    ).trim();
+
+  if (!responseDetails) {
+    return;
+  }
+
+  showTrace(
+    buildLTSummarizerResponseTrace(
+      phase,
+      responseDetails
+    ),
+    `L-T ${titlePhase} response`
+  );
+}
+
+function moveLTSequenceToLatestLog(state) {
+  if (
+    !state
+    || !state.logDiv.isConnected
+  ) {
+    return;
+  }
+
+  moveLogToBottomWithFlip(
+    state.logDiv
+  );
+
+  consoleStream.scrollTop =
+    consoleStream.scrollHeight;
+}
+
+function beginLTSequenceRequest(
+  state,
+  phase,
+  details,
+) {
+  const phaseState =
+    state.phases[phase];
+  const elements =
+    state.elements[phase];
+
+  phaseState.requestPending = true;
+  phaseState.responseReceived = false;
+  phaseState.requestDetails =
+    String(details || "");
+  phaseState.responseDetails = "";
+  phaseState.terminalDetails = "";
+  state.currentPhase = phase;
+
+  setLTSequenceStatus(
+    elements.label,
+    "pending"
+  );
+  setLTSequenceStatus(
+    elements.arrow,
+    "idle"
+  );
+  setLTSequenceInspectable(
+    elements.label,
+    Boolean(phaseState.requestDetails)
+  );
+  setLTSequenceInspectable(
+    elements.arrow,
+    false
+  );
+
+  if (phase === "merge") {
+    setLTSequenceStatus(
+      state.elements.apply.label,
+      "idle"
+    );
+    setLTSequenceInspectable(
+      state.elements.apply.label,
+      false
+    );
+  }
+}
+
+function settleLTSequenceResponse(
+  state,
+  phase,
+  details,
+) {
+  const phaseState =
+    state.phases[phase];
+
+  phaseState.requestPending = false;
+  phaseState.responseReceived = true;
+  if (details !== undefined) {
+    phaseState.responseDetails =
+      String(details || "");
+  }
+
+  setLTSequenceStatus(
+    state.elements[phase].label,
+    "success"
+  );
+  setLTSequenceInspectable(
+    state.elements[phase].label,
+    Boolean(
+      phaseState.requestDetails
+    )
+  );
+}
+
+function failLTSequencePhase(
+  state,
+  phase,
+  details,
+) {
+  const phaseState =
+    state.phases[phase];
+  const elements =
+    state.elements[phase];
+
+  phaseState.terminalDetails =
+    String(details || "");
+
+  if (
+    phaseState.requestPending
+    || !phaseState.responseReceived
+  ) {
+    setLTSequenceStatus(
+      elements.label,
+      "failed"
+    );
+    setLTSequenceInspectable(
+      elements.label,
+      Boolean(
+        phaseState.terminalDetails
+        || phaseState.requestDetails
+      )
+    );
+  } else {
+    setLTSequenceStatus(
+      elements.arrow,
+      "failed"
+    );
+    setLTSequenceInspectable(
+      elements.arrow,
+      Boolean(
+        phaseState.terminalDetails
+        || phaseState.responseDetails
+      )
+    );
+  }
+
+  phaseState.requestPending = false;
+  finishLTSequence(state);
+}
+
+function resolveLTTerminalPhase(
+  event,
+  state,
+  meta,
+) {
+  const structuredPhase =
+    resolveLTMetaPhase(meta);
+
+  if (structuredPhase) {
+    return structuredPhase;
+  }
+
+  if (event.startsWith("extract_")) {
+    return "extraction";
+  }
+
+  if (event.startsWith("merge_")) {
+    return "merge";
+  }
+
+  if (
+    event === "update_failed"
+    && state.elements.extraction.arrow.dataset.status === "success"
+  ) {
+    return "merge";
+  }
+
+  if (event.startsWith("jin_note_")) {
+    return "merge";
+  }
+
+  return state.currentPhase;
+}
+
+function isLTSequenceTerminalFailure(event) {
+  if (
+    event === "update_failed"
+    || event === "jin_note_failed"
+    || event === "jin_note_skipped"
+  ) {
+    return true;
+  }
+
+  return (
+    event.startsWith("extract_")
+    || event.startsWith("merge_")
+    || event.startsWith("deduplication_")
+  ) && (
+    event.endsWith("_skipped")
+    || event.endsWith("_failed")
+  );
+}
+
+function handleLTMemorySequenceLog(
+  message,
+  details,
+  meta,
+) {
+  if (String(meta && meta.memory_level || "").toUpperCase() !== "L-T") {
+    return null;
+  }
+
+  const event =
+    String(meta && meta.memory_event || "").toLowerCase();
+  const phase =
+    resolveLTSummarizerPhase(
+      message,
+      meta
+    );
+  const summarizerEvent =
+    resolveLTSummarizerEvent(
+      message,
+      meta
+    );
+  const handled = Boolean(
+    phase && summarizerEvent
+    || event === "extract_applied"
+    || event === "merge_applied"
+    || event === "deduplication_applied"
+    || event === "jin_note_applied"
+    || event === "jin_note_no_change"
+    || event === "lt_preempted"
+    || event === "jin_note_preempted"
+    || isLTSequenceTerminalFailure(event)
+  );
+
+  if (!handled) {
+    return null;
+  }
+
+  const state =
+    getLTMemorySequence(
+      meta && meta.lt_flow_id,
+      meta && meta.lt_phase === "deduplication"
+        ? "deduplication"
+        : meta && meta.lt_flow_kind
+    );
+
+  if (summarizerEvent === "summarizer_request") {
+    beginLTSequenceRequest(
+      state,
+      phase,
+      details
+    );
+  } else if (summarizerEvent === "summarizer_result") {
+    settleLTSequenceResponse(
+      state,
+      phase,
+      details
+    );
+  } else if (event === "extract_applied") {
+    settleLTSequenceResponse(
+      state,
+      "extraction"
+    );
+    setLTSequenceStatus(
+      state.elements.extraction.arrow,
+      "success"
+    );
+    setLTSequenceInspectable(
+      state.elements.extraction.arrow,
+      Boolean(
+        state.phases.extraction.responseDetails
+      )
+    );
+
+    if (meta.continues_to_merge === false) {
+      setLTSequenceStatus(
+        state.elements.extraction.arrow,
+        "idle"
+      );
+      setLTSequenceInspectable(
+        state.elements.extraction.arrow,
+        false
+      );
+      setLTSequenceStatus(
+        state.elements.merge.label,
+        "idle"
+      );
+      setLTSequenceStatus(
+        state.elements.merge.arrow,
+        "idle"
+      );
+      setLTSequenceInspectable(
+        state.elements.merge.label,
+        false
+      );
+      setLTSequenceInspectable(
+        state.elements.merge.arrow,
+        false
+      );
+      setLTSequenceStatus(
+        state.elements.apply.label,
+        "success"
+      );
+
+      state.diffDetails =
+        buildLTSummarizerResponseTrace(
+          "extraction",
+          state.phases.extraction.responseDetails,
+          true
+        );
+      state.diffTitle =
+        "L-T extraction response";
+      setLTSequenceInspectable(
+        state.elements.apply.label,
+        true
+      );
+      state.showButton.disabled = false;
+      finishLTSequence(state);
+    }
+  } else if (event === "merge_applied" || event === "deduplication_applied") {
+    settleLTSequenceResponse(
+      state,
+      "merge"
+    );
+    setLTSequenceStatus(
+      state.elements.merge.arrow,
+      "success"
+    );
+    setLTSequenceInspectable(
+      state.elements.merge.arrow,
+      Boolean(
+        state.phases.merge.responseDetails
+      )
+    );
+    setLTSequenceStatus(
+      state.elements.apply.label,
+      "success"
+    );
+
+    state.diffDetails =
+      String(details || "No changes");
+    state.diffTrace = meta.trace || null;
+    state.diffTitle =
+      event === "deduplication_applied"
+        ? "L-T deduplication applied"
+        : "L-T merge applied";
+    setLTSequenceInspectable(
+      state.elements.apply.label,
+      Boolean(state.diffDetails)
+    );
+    state.showButton.disabled = false;
+    finishLTSequence(state);
+  } else if (
+    event === "jin_note_applied"
+    || event === "jin_note_no_change"
+  ) {
+    settleLTSequenceResponse(
+      state,
+      "merge"
+    );
+    setLTSequenceStatus(
+      state.elements.merge.arrow,
+      event === "jin_note_applied"
+        ? "success"
+        : "idle"
+    );
+    setLTSequenceInspectable(
+      state.elements.merge.arrow,
+      Boolean(
+        state.phases.merge.responseDetails
+      )
+    );
+    setLTSequenceStatus(
+      state.elements.apply.label,
+      "success"
+    );
+
+    state.diffDetails =
+      String(
+        details
+        || (
+          event === "jin_note_no_change"
+            ? "No changes"
+            : ""
+        )
+      );
+    state.diffTrace = meta.trace || null;
+    state.diffTitle =
+      event === "jin_note_applied"
+        ? "L-T JIN note applied"
+        : "L-T JIN note response";
+    setLTSequenceInspectable(
+      state.elements.apply.label,
+      Boolean(state.diffDetails)
+    );
+    state.showButton.disabled = !state.diffDetails;
+    finishLTSequence(state);
+  } else if (
+    event === "lt_preempted"
+    || event === "jin_note_preempted"
+  ) {
+    const preemptPhase =
+      resolveLTMetaPhase(meta)
+      || (event === "jin_note_preempted" ? "merge" : state.currentPhase);
+
+    if (preemptPhase && state.phases[preemptPhase]) {
+      state.phases[preemptPhase].requestPending = false;
+      setLTSequenceInspectable(
+        state.elements[preemptPhase].label,
+        Boolean(state.phases[preemptPhase].requestDetails)
+      );
+      setLTSequenceInspectable(
+        state.elements[preemptPhase].arrow,
+        false
+      );
+    }
+    setLTSequenceInspectable(
+      state.elements.apply.label,
+      false
+    );
+    state.showButton.disabled = true;
+    finishLTSequence(state);
+  } else if (isLTSequenceTerminalFailure(event)) {
+    const terminalPhase =
+      resolveLTTerminalPhase(
+        event,
+        state,
+        meta
+      );
+
+    if (terminalPhase) {
+      failLTSequencePhase(
+        state,
+        terminalPhase,
+        details
+      );
+    }
+  }
+
+  if (state.complete) {
+    clearLTSequencePendingStatuses(state);
+  }
+
+  moveLTSequenceToLatestLog(state);
+
+  return state.logDiv;
+}
+
+function resolveDeletedLTFact(
+  details,
+  meta,
+) {
+  if (
+      meta
+      && meta.deleted_fact
+      && typeof meta.deleted_fact === "object"
+  ) {
+    return meta.deleted_fact;
+  }
+
+  const payload =
+    parseLTJsonPayload(details);
+
+  if (
+      payload
+      && payload.fact
+      && typeof payload.fact === "object"
+  ) {
+    return payload.fact;
+  }
+
+  return null;
+}
+
+function resolveDeletedLTFactNumber(fact) {
+  const match =
+    String(fact && fact.id || "")
+      .trim()
+      .match(/^F(\d+)$/i);
+
+  if (!match) {
+    return null;
+  }
+
+  const number = Number(match[1]);
+
+  return Number.isSafeInteger(number)
+    ? number
+    : null;
+}
+
+function handleLTDeletedFactLog(
+  tag,
+  details,
+  meta,
+) {
+  const isDeleted =
+    String(meta && meta.memory_event || "").toLowerCase() === "fact_deleted"
+    || String(tag || "").toUpperCase() === "[MEMORY:L-T:DELETED]";
+
+  if (!isDeleted) {
+    return null;
+  }
+
+  const fact =
+    resolveDeletedLTFact(
+      details,
+      meta
+    );
+
+  if (!fact) {
+    return null;
+  }
+
+  const logDiv =
+    createLTLoggerCard(
+      "[MEMORY:L-T:DELETED]"
+    );
+
+  const key =
+    document.createElement("span");
+
+  key.className =
+    "block mt-2 text-zinc-200 font-semibold";
+
+  const factNumber =
+    resolveDeletedLTFactNumber(fact);
+  const factTitle =
+    String(fact.key || fact.id || "L-T fact");
+
+  key.textContent =
+    factNumber !== null
+      ? `${factNumber} · ${factTitle}`
+      : factTitle;
+
+  const value =
+    document.createElement("span");
+
+  value.className =
+    "block mt-1 text-zinc-400";
+
+  value.textContent =
+    String(fact.value || "");
+
+  logDiv.appendChild(key);
+
+  if (value.textContent) {
+    logDiv.appendChild(value);
+  }
+
+  const actions =
+    document.createElement("div");
+
+  actions.className =
+    "mt-2 flex flex-wrap items-center gap-2";
+
+  const payloadButton =
+    createLTLoggerButton(
+      "payload"
+    );
+
+  const restoreButton =
+    createLTLoggerButton(
+      "restore"
+    );
+
+  payloadButton.addEventListener(
+    "click",
+    function () {
+      showTrace(
+        JSON.stringify({
+          kind: "lt_fact",
+          fact,
+        }),
+        "L-T fact deleted"
+      );
+    }
+  );
+
+  restoreButton.addEventListener(
+    "click",
+    function () {
+      const api =
+        window.JINRuntimeLTMemory;
+
+      if (!api || typeof api.requestFactRestore !== "function") {
+        return;
+      }
+
+      const sent =
+        api.requestFactRestore(
+          fact
+        );
+
+      if (!sent) {
+        restoreButton.textContent =
+          "offline";
+
+        window.setTimeout(
+          function () {
+            restoreButton.textContent =
+              "restore";
+          },
+          1200
+        );
+        return;
+      }
+
+      restoreButton.disabled =
+        true;
+      restoreButton.textContent =
+        "restoring";
+      restoreButton.classList.add(
+        "opacity-50"
+      );
+
+      ltDeletedFactCards.set(
+        String(fact.id || ""),
+        {
+          logDiv,
+          restoreButton,
+        }
+      );
+    }
+  );
+
+  actions.appendChild(payloadButton);
+  actions.appendChild(restoreButton);
+  logDiv.appendChild(actions);
+
+  return logDiv;
+}
+
+function handleLTMemoryRestoreResult(
+  data
+) {
+  const factId =
+    String(data && data.fact_id || "");
+
+  const state =
+    ltDeletedFactCards.get(
+      factId
+    );
+
+  if (!state) {
+    return;
+  }
+
+  ltDeletedFactCards.delete(
+    factId
+  );
+
+  if (data && data.restored) {
+    dismissLogAfterClear(
+      state.logDiv
+    );
+    return;
+  }
+
+  state.restoreButton.disabled =
+    false;
+  state.restoreButton.textContent =
+    "restore failed";
+  state.restoreButton.classList.remove(
+    "opacity-50"
+  );
+
+  window.setTimeout(
+    function () {
+      state.restoreButton.textContent =
+        "restore";
+    },
+    1400
+  );
+}
+
+function resolveDeletedFile(
+  details,
+  meta,
+) {
+  if (
+      meta
+      && meta.deleted_file
+      && typeof meta.deleted_file === "object"
+  ) {
+    return meta.deleted_file;
+  }
+
+  const payload =
+    parseLTJsonPayload(details);
+
+  if (
+      payload
+      && payload.file
+      && typeof payload.file === "object"
+  ) {
+    return payload.file;
+  }
+
+  return null;
+}
+
+function isDeletedFileImage(file) {
+  const kind =
+    String(file && file.kind || "")
+      .trim()
+      .toLowerCase();
+
+  if (kind === "image") {
+    return true;
+  }
+
+  const mimeType =
+    String(
+      file
+      && (
+        file.type
+        || file.content_type
+      )
+      || ""
+    )
+      .trim()
+      .toLowerCase();
+
+  if (mimeType.startsWith("image/")) {
+    return true;
+  }
+
+  const source =
+    String(file && (file.url || file.context_path) || "")
+      .trim()
+      .toLowerCase();
+
+  return /\.(png|jpe?g|webp|gif|bmp|svg)(?:$|[?#])/.test(
+    source
+  );
+}
+
+function formatDeletedFileInlineLabel(file, fileId) {
+  const stableId =
+    String(file && file.id || fileId || "")
+      .trim();
+  const name =
+    String(file && file.name || "")
+      .trim();
+
+  return [
+    stableId,
+    name,
+  ].filter(Boolean).join(" · ");
+}
+
+function bindDeletedFileInlinePreview(
+  element,
+  file,
+) {
+  if (
+      !element
+      || !file
+      || !isDeletedFileImage(file)
+      || typeof window.bindJinAttachmentHoverPreview !== "function"
+  ) {
+    return;
+  }
+
+  window.bindJinAttachmentHoverPreview(
+    element,
+    file,
+    {
+      hoverPreviewMaxPx: 100,
+    }
+  );
+
+  const applyHoverState = (active) => {
+    element.style.backgroundColor = active
+      ? "rgba(59, 130, 246, 0.08)"
+      : "transparent";
+    element.style.borderColor = active
+      ? "rgba(59, 130, 246, 0.18)"
+      : "transparent";
+  };
+
+  element.style.cursor = "default";
+  element.style.transition = "background-color 150ms ease, border-color 150ms ease";
+  element.style.border = "1px solid transparent";
+  element.style.borderRadius = "4px";
+  element.style.padding = "2px 4px";
+  element.style.marginLeft = "-4px";
+  element.style.marginRight = "-4px";
+
+  element.addEventListener(
+    "mouseenter",
+    function () {
+      applyHoverState(true);
+    }
+  );
+
+  element.addEventListener(
+    "mouseleave",
+    function () {
+      applyHoverState(false);
+    }
+  );
+}
+
+function resolveUnpinnedMemory(
+  details,
+  meta,
+) {
+  if (
+      meta
+      && meta.unpinned_memory
+      && typeof meta.unpinned_memory === "object"
+  ) {
+    return meta.unpinned_memory;
+  }
+
+  const payload =
+    parseLTJsonPayload(details);
+
+  return payload
+    && typeof payload === "object"
+    && !Array.isArray(payload)
+      ? payload
+      : null;
+}
+
+function handleMemoryUnpinnedLog(
+  tag,
+  details,
+  meta,
+) {
+  const isUnpinned =
+    String(meta && meta.memory_event || "").toLowerCase()
+      === "memory_unpinned"
+    || String(tag || "").toUpperCase()
+      === "[MEMORY:UNPINNED]";
+
+  if (!isUnpinned) {
+    return null;
+  }
+
+  const payload =
+    resolveUnpinnedMemory(
+      details,
+      meta
+    );
+  const kind =
+    String(payload && payload.kind || "")
+      .trim()
+      .toLowerCase();
+  const id =
+    String(payload && payload.id || "")
+      .trim()
+      .toLowerCase();
+  const label =
+    String(payload && payload.label || id || "memory")
+      .trim();
+
+  if (!id || (kind !== "file" && kind !== "delayed")) {
+    return null;
+  }
+
+  const logDiv =
+    createNeutralMemoryLoggerCard(
+      "[MEMORY:UNPINNED]"
+    );
+  const summary =
+    document.createElement("span");
+
+  summary.className =
+    "block mt-2 text-zinc-300 font-semibold";
+  summary.textContent =
+    `unpinned · ${label}`;
+
+  const actions =
+    document.createElement("div");
+
+  actions.className =
+    "mt-2 flex flex-wrap items-center gap-2";
+
+  const pinButton =
+    createLTLoggerButton(
+      "pin",
+      "muted"
+    );
+
+  pinButton.addEventListener(
+    "click",
+    async function () {
+      pinButton.disabled = true;
+
+      let pinned = false;
+
+      if (kind === "file") {
+        const api =
+          window.JinFiles;
+
+        if (api && typeof api.setPinned === "function") {
+          pinned = await api.setPinned(
+            id,
+            true,
+            {log: false}
+          );
+        }
+      } else {
+        const api =
+          window.JinRuntime
+          && window.JinRuntime.runtime;
+
+        if (api && typeof api.setDelayedMemoryReportPinned === "function") {
+          pinned = api.setDelayedMemoryReportPinned(
+            id,
+            true,
+            {log: false}
+          );
+        }
+      }
+
+      if (!pinned) {
+        pinButton.disabled = false;
+        pinButton.textContent = "pin failed";
+        window.setTimeout(
+          function () {
+            pinButton.textContent = "pin";
+          },
+          1400
+        );
+        return;
+      }
+
+      dismissLogAfterClear(
+        logDiv
+      );
+    }
+  );
+
+  logDiv.appendChild(
+    summary
+  );
+  actions.appendChild(
+    pinButton
+  );
+  logDiv.appendChild(
+    actions
+  );
+
+  return logDiv;
+}
+
+function handleDeletedFileLog(
+  tag,
+  details,
+  meta,
+) {
+  const isDeleted =
+    String(meta && meta.memory_event || "").toLowerCase()
+      === "file_deleted"
+    || String(tag || "").toUpperCase()
+      === "[MEMORY:FILES:DELETED]";
+
+  if (!isDeleted) {
+    return null;
+  }
+
+  const file =
+    resolveDeletedFile(
+      details,
+      meta
+    );
+  const fileId =
+    String(file && file.id || "")
+      .trim()
+      .toLowerCase();
+
+  if (!file || !fileId) {
+    return null;
+  }
+
+  const logDiv =
+    createLTLoggerCard(
+      "[MEMORY:FILES:DELETED]"
+    );
+  const summary =
+    document.createElement("span");
+
+  summary.className =
+    "block mt-2 text-zinc-200 font-semibold";
+  summary.textContent =
+    formatDeletedFileInlineLabel(
+      file,
+      fileId
+    )
+    || "File";
+
+  bindDeletedFileInlinePreview(
+    summary,
+    file
+  );
+
+  logDiv.appendChild(summary);
+
+  const actions =
+    document.createElement("div");
+  actions.className =
+    "mt-2 flex flex-wrap items-center gap-2";
+
+  const payloadButton =
+    createLTLoggerButton(
+      "payload"
+    );
+  const restoreButton =
+    createLTLoggerButton(
+      "restore"
+    );
+
+  payloadButton.addEventListener(
+    "click",
+    function () {
+      showTrace(
+        JSON.stringify({
+          kind: "file",
+          file,
+        }),
+        "File deleted"
+      );
+    }
+  );
+
+  restoreButton.addEventListener(
+    "click",
+    async function () {
+      const api = window.JinFiles;
+
+      if (!api || typeof api.restoreDeletedFile !== "function") {
+        return;
+      }
+
+      restoreButton.disabled = true;
+      restoreButton.textContent = "restoring";
+      restoreButton.classList.add(
+        "opacity-50"
+      );
+
+      const restored =
+        await api.restoreDeletedFile(
+          fileId
+        );
+
+      if (!restored) {
+        restoreButton.disabled = false;
+        restoreButton.textContent = "restore failed";
+        restoreButton.classList.remove(
+          "opacity-50"
+        );
+
+        window.setTimeout(
+          function () {
+            restoreButton.textContent = "restore";
+          },
+          1400
+        );
+        return;
+      }
+
+      deletedFileCards.delete(
+        fileId
+      );
+      dismissLogAfterClear(
+        logDiv
+      );
+    }
+  );
+
+  deletedFileCards.set(
+    fileId,
+    {
+      logDiv,
+      restoreButton,
+    }
+  );
+
+  actions.appendChild(payloadButton);
+  actions.appendChild(restoreButton);
+  logDiv.appendChild(actions);
+
+  return logDiv;
+}
+
+function resolveDeletedDelayedMemoryReport(
+  details,
+  meta,
+) {
+  if (
+      meta
+      && meta.deleted_delayed_memory_report
+      && typeof meta.deleted_delayed_memory_report === "object"
+  ) {
+    return meta.deleted_delayed_memory_report;
+  }
+
+  const payload =
+    parseLTJsonPayload(details);
+
+  if (
+      payload
+      && payload.report
+      && typeof payload.report === "object"
+  ) {
+    return payload.report;
+  }
+
+  return null;
+}
+
+function getDelayedMemoryReportCardId(report) {
+  return String(
+    report
+    && (
+      report.id
+      || report._storage_key
+    )
+    || ""
+  ).trim().toLowerCase();
+}
+
+function handleDelayedMemoryDeletedReportLog(
+  tag,
+  details,
+  meta,
+) {
+  const isDeleted =
+    String(meta && meta.memory_event || "").toLowerCase()
+      === "delayed_memory_deleted"
+    || String(tag || "").toUpperCase()
+      === "[MEMORY:DELAYED:DELETED]";
+
+  if (!isDeleted) {
+    return null;
+  }
+
+  const report =
+    resolveDeletedDelayedMemoryReport(
+      details,
+      meta
+    );
+  const reportId =
+    getDelayedMemoryReportCardId(
+      report
+    );
+
+  if (!report || !reportId) {
+    return null;
+  }
+
+  const logDiv =
+    createLTLoggerCard(
+      "[MEMORY:DELAYED:DELETED]"
+    );
+
+  const title =
+    document.createElement("span");
+
+  title.className =
+    "block mt-2 text-zinc-200 font-semibold";
+
+  title.textContent =
+    String(report.title || reportId || "Delayed memory");
+
+  const summary =
+    document.createElement("span");
+
+  summary.className =
+    "block mt-1 text-zinc-400";
+
+  summary.textContent =
+    String(report.summary || "");
+
+  logDiv.appendChild(title);
+
+  if (summary.textContent) {
+    logDiv.appendChild(summary);
+  }
+
+  const actions =
+    document.createElement("div");
+
+  actions.className =
+    "mt-2 flex flex-wrap items-center gap-2";
+
+  const payloadButton =
+    createLTLoggerButton(
+      "payload"
+    );
+
+  const restoreButton =
+    createLTLoggerButton(
+      "restore"
+    );
+
+  payloadButton.addEventListener(
+    "click",
+    function () {
+      showTrace(
+        JSON.stringify({
+          kind: "delayed_memory_report",
+          report,
+        }),
+        "Delayed memory deleted"
+      );
+    }
+  );
+
+  restoreButton.addEventListener(
+    "click",
+    function () {
+      const api =
+        window.JinRuntime
+        && window.JinRuntime.runtime;
+
+      if (!api || typeof api.restoreDelayedMemoryReport !== "function") {
+        return;
+      }
+
+      const restored =
+        api.restoreDelayedMemoryReport(
+          reportId,
+          report
+        );
+
+      if (!restored) {
+        restoreButton.textContent =
+          "restore failed";
+
+        window.setTimeout(
+          function () {
+            restoreButton.textContent =
+              "restore";
+          },
+          1400
+        );
+        return;
+      }
+
+      restoreButton.disabled =
+        true;
+      restoreButton.textContent =
+        "restored";
+      restoreButton.classList.add(
+        "opacity-50"
+      );
+
+      delayedDeletedReportCards.delete(
+        reportId
+      );
+      dismissLogAfterClear(
+        logDiv
+      );
+    }
+  );
+
+  delayedDeletedReportCards.set(
+    reportId,
+    {
+      logDiv,
+      restoreButton,
+    }
+  );
+
+  actions.appendChild(payloadButton);
+  actions.appendChild(restoreButton);
+  logDiv.appendChild(actions);
+
+  return logDiv;
+}
+
+function resolveDelayedMemoryFactUnlink(
+  details,
+  meta,
+) {
+  if (
+      meta
+      && meta.delayed_memory_fact_unlink
+      && typeof meta.delayed_memory_fact_unlink === "object"
+  ) {
+    return meta.delayed_memory_fact_unlink;
+  }
+
+  const payload =
+    parseLTJsonPayload(details);
+
+  if (
+      payload
+      && payload.kind === "delayed_memory_fact_unlink"
+  ) {
+    return payload;
+  }
+
+  return null;
+}
+
+function getDelayedMemoryFactUnlinkCardId(
+  payload
+) {
+  return [
+    payload && payload.report_id,
+    payload && payload.fact_id,
+  ]
+    .map(value => String(value || "").trim())
+    .filter(Boolean)
+    .join(":");
+}
+
+function handleDelayedMemoryFactUnlinkedLog(
+  tag,
+  details,
+  meta,
+) {
+  const isUnlinked =
+    String(meta && meta.memory_event || "").toLowerCase()
+      === "delayed_memory_fact_unlinked"
+    || String(tag || "").toUpperCase()
+      === "[MEMORY:DELAYED:FACT_UNLINKED]";
+
+  if (!isUnlinked) {
+    return null;
+  }
+
+  const payload =
+    resolveDelayedMemoryFactUnlink(
+      details,
+      meta
+    );
+  const reportId =
+    String(payload && payload.report_id || "")
+      .trim()
+      .toLowerCase();
+  const factId =
+    String(payload && payload.fact_id || "")
+      .trim();
+  const cardId =
+    getDelayedMemoryFactUnlinkCardId(
+      payload
+    );
+
+  if (!payload || !reportId || !factId || !cardId) {
+    return null;
+  }
+
+  const logDiv =
+    createLTLoggerCard(
+      "[MEMORY:DELAYED:FACT_UNLINKED]"
+    );
+
+  const title =
+    document.createElement("span");
+
+  title.className =
+    "block mt-2 text-zinc-200 font-semibold";
+
+  title.textContent =
+    `${factId} . ${String(
+      payload.report
+      && (
+        payload.report.title
+        || payload.report.id
+      )
+      || reportId
+    )}`;
+
+  const summary =
+    document.createElement("span");
+
+  summary.className =
+    "block mt-1 text-zinc-400";
+
+  const fact =
+    payload.fact
+    && typeof payload.fact === "object"
+      ? payload.fact
+      : null;
+
+  summary.textContent =
+    fact
+      ? `${String(fact.key || factId)}: ${String(fact.value || "")}`
+      : "Fact unlinked from delayed memory report.";
+
+  logDiv.appendChild(
+    title
+  );
+
+  if (summary.textContent) {
+    logDiv.appendChild(
+      summary
+    );
+  }
+
+  const actions =
+    document.createElement("div");
+
+  actions.className =
+    "mt-2 flex flex-wrap items-center gap-2";
+
+  const payloadButton =
+    createLTLoggerButton(
+      "payload"
+    );
+
+  const restoreButton =
+    createLTLoggerButton(
+      "restore"
+    );
+
+  payloadButton.addEventListener(
+    "click",
+    function () {
+      showTrace(
+        JSON.stringify(
+          payload,
+          null,
+          2
+        ),
+        "Delayed memory fact unlinked"
+      );
+    }
+  );
+
+  restoreButton.addEventListener(
+    "click",
+    function () {
+      const api =
+        window.JinRuntime
+        && window.JinRuntime.runtime;
+
+      if (!api || typeof api.linkDelayedMemoryReportFactId !== "function") {
+        return;
+      }
+
+      const restored =
+        api.linkDelayedMemoryReportFactId(
+          reportId,
+          factId,
+          {
+            anchor: Boolean(payload.was_anchor),
+            log: false,
+          }
+        );
+
+      if (!restored) {
+        restoreButton.textContent =
+          "restore failed";
+
+        window.setTimeout(
+          function () {
+            restoreButton.textContent =
+              "restore";
+          },
+          1400
+        );
+        return;
+      }
+
+      restoreButton.disabled =
+        true;
+      restoreButton.textContent =
+        "restored";
+      restoreButton.classList.add(
+        "opacity-50"
+      );
+
+      delayedUnlinkedFactCards.delete(
+        cardId
+      );
+      dismissLogAfterClear(
+        logDiv
+      );
+    }
+  );
+
+  delayedUnlinkedFactCards.set(
+    cardId,
+    {
+      logDiv,
+      restoreButton,
+    }
+  );
+
+  actions.appendChild(payloadButton);
+  actions.appendChild(restoreButton);
+  logDiv.appendChild(actions);
+
+  return logDiv;
+}
+
 function appendLog(
   tag,
   message,
   details = null,
   meta = {},
 ) {
-  if (handleL1SummarizerStreamEvent(meta)) {
-    return null;
-  }
-
   const normalized =
     splitInlineTrace(
       message,
       details,
     );
 
-  const flowId =
-    meta?.flow_id;
+  const frameLog = handleFrameMemorySequenceLog(
+    tag, normalized.message, normalized.details, meta
+  );
+  if (frameLog !== undefined) {
+    return frameLog;
+  }
 
-  const existingFlowLog =
-    tag === "[FLOW]"
-      ? findLiveFlowLog(
-          flowId
-        )
-      : null;
+  const ltMemorySequenceLog =
+    handleLTMemorySequenceLog(
+      normalized.message,
+      normalized.details,
+      meta
+    );
+
+  if (ltMemorySequenceLog) {
+    return ltMemorySequenceLog;
+  }
+
+  const ltDeletedFactLog =
+    handleLTDeletedFactLog(
+      tag,
+      normalized.details,
+      meta
+    );
+
+  if (ltDeletedFactLog) {
+    return ltDeletedFactLog;
+  }
+
+  const memoryUnpinnedLog =
+    handleMemoryUnpinnedLog(
+      tag,
+      normalized.details,
+      meta
+    );
+
+  if (memoryUnpinnedLog) {
+    return memoryUnpinnedLog;
+  }
+
+  const deletedFileLog =
+    handleDeletedFileLog(
+      tag,
+      normalized.details,
+      meta
+    );
+
+  if (deletedFileLog) {
+    return deletedFileLog;
+  }
+
+  const delayedMemoryFactUnlinkedLog =
+    handleDelayedMemoryFactUnlinkedLog(
+      tag,
+      normalized.details,
+      meta
+    );
+
+  if (delayedMemoryFactUnlinkedLog) {
+    return delayedMemoryFactUnlinkedLog;
+  }
+
+  const delayedMemoryDeletedLog =
+    handleDelayedMemoryDeletedReportLog(
+      tag,
+      normalized.details,
+      meta
+    );
+
+  if (delayedMemoryDeletedLog) {
+    return delayedMemoryDeletedLog;
+  }
 
   const logDiv =
-    existingFlowLog
-    || document.createElement("div");
+    document.createElement("div");
 
   logDiv.className =
     "mb-1 min-w-0 whitespace-pre-wrap break-words";
@@ -865,17 +3344,11 @@ function appendLog(
   logDiv.style.overflowWrap =
     "anywhere";
 
-  if (flowId) {
-    logDiv.dataset.flowId =
-      flowId;
-  }
-
-  if (existingFlowLog) {
-    logDiv.replaceChildren();
-  }
-
   const normalizedTag =
     String(tag || "").toUpperCase();
+
+  const isLTPaused =
+    normalizedTag === "[MEMORY:L-T:PAUSED]";
 
   const isBrainOutput =
     normalizedTag === "[BRAIN]";
@@ -905,9 +3378,6 @@ function appendLog(
   } else if (normalizedTag.includes("SESSION")) {
     logKind =
       "session";
-  } else if (normalizedTag.includes("LATEST SNAPSHOTS")) {
-    logKind =
-      "session";
   } else if (normalizedTag.includes("ACTIVE_MEMORY")) {
     logKind =
       "active-memory";
@@ -920,9 +3390,6 @@ function appendLog(
   } else if (normalizedTag.includes("SUMMARIZER")) {
     logKind =
       "memory";
-  } else if (normalizedTag.includes("FLOW")) {
-    logKind =
-      "flow";
   } else if (normalizedTag.includes("SERVICE")) {
     logKind =
       "service";
@@ -1021,22 +3488,26 @@ function appendLog(
     );
   }
 
-  if (tag.includes("SESSION")) {
+  if (isLTPaused) {
     tagClass =
-      "text-cyan-300 font-bold";
+      "text-red-300 font-bold";
 
+    logDiv.classList.remove(
+      "bg-blue-500/5",
+      "border-blue-500/10",
+    );
     logDiv.classList.add(
       "font-mono",
       "text-[12px]",
-      "bg-cyan-500/5",
+      "bg-red-500/5",
       "p-2",
       "rounded",
       "border",
-      "border-cyan-500/10",
+      "border-red-500/15",
     );
   }
 
-  if (tag.includes("LATEST SNAPSHOTS")) {
+  if (tag.includes("SESSION")) {
     tagClass =
       "text-cyan-300 font-bold";
 
@@ -1106,34 +3577,9 @@ function appendLog(
     );
   }
 
-  if (tag.includes("FLOW TELEMETRY")) {
-    tagClass =
-      "text-purple-400";
-  }
-
-  if (tag === "[FLOW]") {
-    tagClass =
-      "text-zinc-400";
-
-    logDiv.classList.add(
-      "font-mono",
-      "text-[12px]",
-      "bg-zinc-500/5",
-      "p-2",
-      "rounded",
-      "border",
-      "border-zinc-500/10",
-    );
-  }
-
   if (tag.includes("USER")) {
     tagClass =
       "text-sky-300 font-bold";
-  }
-
-  if (tag.includes("FLOW")) {
-    tagClass =
-      "text-purple-300 font-bold";
   }
 
   if (tag.includes("USAGE")) {
@@ -1173,7 +3619,9 @@ function appendLog(
     document.createElement("span");
 
   messageSpan.className =
-    "block mt-1 text-zinc-400";
+    isLTPaused
+      ? "block mt-1 text-red-200/80"
+      : "block mt-1 text-zinc-400";
 
   messageSpan.style.overflowWrap =
     "anywhere";
@@ -1249,9 +3697,6 @@ function appendLog(
     const isSession =
       tag.includes("SESSION");
 
-    const isLatestSnapshots =
-      tag.includes("LATEST SNAPSHOTS");
-
     const isActiveMemory =
       tag.includes("ACTIVE_MEMORY");
 
@@ -1277,12 +3722,13 @@ function appendLog(
         "[JSON PARSE ERROR]"
       );
 
-    const isPatternResult =
-      isSummarizer
-      && String(
-        normalized.message
-      ).includes(
-        "L2 pattern memory"
+    const isLmStudioError =
+      tag.includes("ERROR")
+      && (
+        String(meta?.provider || "").toLowerCase()
+          === "lm_studio"
+        || String(normalized.message || "")
+          .includes("[LM STUDIO ERROR]")
       );
 
     const shouldShowReason =
@@ -1297,9 +3743,15 @@ function appendLog(
 
     const reason =
       shouldShowReason
-        ? extractTraceReason(
-            normalized.message,
-            normalized.details
+        ? (
+            String(
+              meta?.trace_reason
+              || ""
+            ).trim()
+            || extractTraceReason(
+                normalized.message,
+                normalized.details
+              )
           )
         : "";
 
@@ -1324,20 +3776,20 @@ function appendLog(
         ? "inline-flex items-center rounded border border-zinc-600/40 px-2 py-1 text-[10px] uppercase tracking-wider text-zinc-300 hover:bg-zinc-700/40 transition"
         : isSummarizer
         ? "mt-2 inline-flex items-center rounded border border-blue-500/20 px-2 py-1 text-[10px] uppercase tracking-wider text-blue-300 hover:bg-blue-500/10 transition"
-        : isSession || isLatestSnapshots
+        : isSession
         ? "inline-flex items-center rounded border border-cyan-500/20 px-2 py-1 text-[10px] uppercase tracking-wider text-cyan-300 hover:bg-cyan-500/10 transition"
         : "mt-2 inline-flex items-center rounded border border-red-500/20 px-2 py-1 text-[10px] uppercase tracking-wider text-red-300 hover:bg-red-500/10 transition";
 
     traceButton.textContent =
       isModelOutput
         ? "payload"
-        : isPatternResult
-        ? "patterns"
-        : isSession || isLatestSnapshots || isActiveMemory || isFactsMemory
+        : isSession || isActiveMemory || isFactsMemory
         ? "show"
         : isSummarizer
         ? "payload"
         : isUser
+        ? "payload"
+        : isLmStudioError
         ? "payload"
         : isJsonParseError
         ? "payload"
@@ -1357,11 +3809,7 @@ function appendLog(
             : prettifyTraceDetails(normalized.details),
           getTraceTitle(
             normalized.details,
-            isPatternResult
-              ? "L2 pattern memory"
-              : isLatestSnapshots
-              ? "Latest snapshots"
-              : isSession
+            isSession
               ? "Session bootstrap"
               : tag.includes("ACTIVE_MEMORY")
               ? "Active memory payload"
@@ -1373,6 +3821,8 @@ function appendLog(
               ? "Service as brain output"
               : isSummarizer
               ? normalized.message || "Summarizer payload"
+              : isLmStudioError
+              ? "LM Studio error payload"
               : isJsonParseError
               ? "Runtime stream payload"
               : "Trace"
@@ -1388,7 +3838,6 @@ function appendLog(
 
     if (
         isSession
-        || isLatestSnapshots
         || isActiveMemory
         || isFactsMemory
     ) {
@@ -1409,12 +3858,7 @@ function appendLog(
       clearButton.addEventListener(
         "click",
         function () {
-          if (
-              isLatestSnapshots
-              && window.clearOtherLatestRuntimeMemorySnapshots
-          ) {
-            window.clearOtherLatestRuntimeMemorySnapshots();
-          } else if (isActiveMemory) {
+          if (isActiveMemory) {
             if (
                 window.JinRuntime
                 && window.JinRuntime.runtime
@@ -1560,12 +4004,12 @@ function appendLog(
     );
   }
 
-  if (existingFlowLog) {
-    moveLogToBottomWithFlip(
-      logDiv
-    );
-  } else {
-    consoleStream.appendChild(
+  consoleStream.appendChild(
+    logDiv
+  );
+
+  if (isModelOutput) {
+    normalizeLatestModelOutputLogOrder(
       logDiv
     );
   }
@@ -1574,17 +4018,17 @@ function appendLog(
     refreshFactsMemoryAppendButtons();
   }
 
-  registerL1SummarizerRequest(
-    logDiv,
-    normalized.message,
-    meta
-  );
-
   consoleStream.scrollTop =
     consoleStream.scrollHeight;
 
   return logDiv;
 }
+
+window.handleLTLoggerMemoryRestoreResult =
+  handleLTMemoryRestoreResult;
+
+window.handleLTMemoryRestoreResult =
+  handleLTMemoryRestoreResult;
 
 window.refreshFactsMemoryAppendButtons =
   refreshFactsMemoryAppendButtons;

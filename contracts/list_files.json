@@ -1,0 +1,22 @@
+{
+  "list_files": {
+    "version": 1,
+    "description": "Lists persistent files available to JIN.",
+    "runtime_action": "LIST_ALL_USER_SHARED_FILES",
+    "enable_flag": "CAN_USE_ASSETS",
+    "runtime_order": 120,
+    "private_marker": "<LIST_ALL_USER_SHARED_FILES>",
+    "triggers": [],
+    "blockers": [],
+    "effects": {
+      "emit_followup": true,
+      "follow_up_on_fail": false
+    },
+    "schema": [
+      "<LIST_ALL_USER_SHARED_FILES>"
+    ],
+    "rules": [
+    ],
+    "close_tag": false
+  }
+}

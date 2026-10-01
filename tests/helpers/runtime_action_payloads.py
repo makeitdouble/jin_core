@@ -1,0 +1,17 @@
+PAIRED_ACTION_PAYLOADS = {
+    "CHAT_LOG_SEARCH": '{"query":"pizza"}',
+    "CLEAN_TOOL_RESULTS": "T1, T2",
+    "WEB_SEARCH": '{"query":"pizza"}',
+    "ASSET_ACTION": '{"action":"list_files"}',
+    "DEEP_WEB_SEARCH": "research this topic",
+    "JIN_COLOR": "#112233",
+    "JIN_REACTION": "😂",
+    "JIN_POSITION": "x:100px y:200px",
+    "JIN_SIZE": "w:120 h:120",
+    "JIN_SPEED": "600px/s",
+    "POSTING_BOARD": '{"action":"feed"}',
+    "SAVE_ACTIVE_MEMORY": '{"conditions":"remember to test"}',
+    "DELETE_ACTIVE_MEMORY": "AM-abc123",
+    "SAVE_DELAYED_MEMORY": '{"title":"test","summary":"summary","body":"body"}',
+    "UPDATE_LT_FACTS": "remember this fact",
+}

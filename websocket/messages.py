@@ -10,31 +10,69 @@ from agent import (
     AgentState,
 )
 from clients.brain_client import build_brain_payload
+from app_settings import settings
 from config_loader import config
 from rules.brain_context_builder import build_brain_context
 from runtime.runtime_context import RECENT_MESSAGES_MAX_PAIRS
-from runtime.L1_memory import (
+from runtime.behavior_contract import (
+    get_action_guard_name_for_runtime_action,
+)
+from contracts.rules_assembler import (
+    get_runtime_action_display_name,
+    runtime_action_has_close_tag,
+)
+from runtime.frame_memory import (
     schedule_interrupted_runtime_memory_update,
     schedule_runtime_memory_update,
 )
-from runtime.L1_memory_utils import record_runtime_memory_reasoning_quotes
+from runtime.frame_memory_utils import (
+    build_runtime_session_checkpoint,
+    record_runtime_memory_reasoning_quotes,
+)
+from runtime.LT_memory import (
+    record_lt_reasoning_fact_mentions,
+)
 from runtime.state_sync import refresh_runtime_state
 from utils.brain_client_utils import (
     get_brain_runtime_config,
-    should_prearm_save_session,
 )
-from utils.session_actions_history import emit_session_actions_update
+from utils.chat_log import (
+    append_chat_log_entry,
+    replace_latest_chat_log_entry,
+    save_turn_reasoning,
+    summarize_attachments,
+)
+from utils.delayed_memory_triggers import (
+    load_delayed_memory_by_tags,
+)
+from utils.session_actions_history import (
+    emit_session_actions_update,
+    get_current_action_sequence_turn_id,
+)
+from utils.actions import (
+    normalize_jin_position_dict,
+    normalize_jin_speed_value,
+    normalize_jin_size_dict,
+)
+from utils.actions.update_lt_facts_actions import (
+    schedule_pending_update_lt_facts_actions,
+)
 from utils.token_usage import (
-    format_token_usage_summary,
     get_runtime_token_estimate_scale,
 )
 from utils.tokens import estimate_stream_input_tokens
 from utils.urls import join_url
 from utils.ws_errors import handle_fatal_runtime_error
-from .attachments import build_user_text_with_attachments
+from .attachments import (
+    attachment_ids_from_message_data,
+    build_user_text_with_attachments,
+    get_message_user_text,
+    hydrate_message_attachments,
+)
 from .bootstrap import (
     apply_active_memory_records,
     attach_user_idle_to_initial_runtime_snapshot,
+    discard_session_restore_continuation_state,
 )
 
 
@@ -43,6 +81,114 @@ RUNTIME_STATUS_CHECK_TIMEOUT = getattr(
     "STATUS_CHECK_TIMEOUT",
     0.5,
 )
+
+
+def merge_pending_user_message_batch(
+    root_message: dict,
+    appended_messages: list[dict],
+) -> dict:
+    """Collapse composer appends into one real USER turn.
+
+    While a foreground request is waiting for the previous FRAME integration,
+    the browser may send more text into the same visible user bubble.  Those
+    packets are transport fragments of one turn, not additional turns.
+    """
+
+    merged = deepcopy(
+        root_message
+        if isinstance(root_message, dict)
+        else {}
+    )
+
+    fragments = [
+        merged,
+        *[
+            message
+            for message in appended_messages
+            if isinstance(message, dict)
+        ],
+    ]
+
+    text_parts = []
+    merged_attachments = []
+    seen_attachment_keys = set()
+
+    for fragment in fragments:
+        text = str(
+            fragment.get(
+                "text",
+                "",
+            )
+            or ""
+        ).strip()
+        if text:
+            text_parts.append(text)
+
+        for attachment in fragment.get("attachments") or []:
+            if not isinstance(attachment, dict):
+                continue
+
+            attachment_id = str(
+                attachment.get("id", "")
+                or ""
+            ).strip().lower()
+            if attachment_id:
+                attachment_key = ("id", attachment_id)
+            else:
+                attachment_key = (
+                    "payload",
+                    json.dumps(
+                        attachment,
+                        ensure_ascii=False,
+                        sort_keys=True,
+                        default=str,
+                    ),
+                )
+
+            if attachment_key in seen_attachment_keys:
+                continue
+
+            seen_attachment_keys.add(
+                attachment_key
+            )
+            merged_attachments.append(
+                deepcopy(attachment)
+            )
+
+    merged["text"] = "\n".join(
+        text_parts
+    )
+
+    if merged_attachments:
+        merged["attachments"] = (
+            merged_attachments
+        )
+    else:
+        merged.pop(
+            "attachments",
+            None,
+        )
+
+    # Runtime/avatar and Active state are snapshots.  If the user moved JIN or
+    # changed Active Memory while the FRAME request was finishing, use the
+    # newest snapshot for the one Brain turn.  Turn-start semantics such as
+    # idle time, response rating, and repeat counters intentionally stay owned
+    # by the root packet.
+    for fragment in fragments[1:]:
+        for key in (
+            "runtime_avatar",
+            "active_memory_records",
+        ):
+            if key in fragment:
+                merged[key] = deepcopy(
+                    fragment[key]
+                )
+
+    merged.pop(
+        "append_to_pending_batch",
+        None,
+    )
+    return merged
 
 
 def get_status_http_client(
@@ -77,7 +223,7 @@ async def check_model_status(
         response = await http_client.get(
             join_url(
                 base_url,
-                config.MODELS_ENDPOINT,
+                settings.MODELS_ENDPOINT,
             ),
             timeout=RUNTIME_STATUS_CHECK_TIMEOUT,
         )
@@ -102,21 +248,12 @@ async def has_available_model_runtime(
     if http_client is None:
         return True
 
-    brain_status, service_status = await asyncio.gather(
-        check_model_status(
-            http_client,
-            config.BRAIN_API_BASE,
-        ),
-        check_model_status(
-            http_client,
-            config.SERVICE_API_BASE,
-        ),
+    brain_status = await check_model_status(
+        http_client,
+        config.BRAIN_API_BASE,
     )
 
-    return (
-        brain_status
-        or service_status
-    )
+    return brain_status
 
 
 async def reject_when_all_models_offline(
@@ -135,10 +272,10 @@ async def reject_when_all_models_offline(
     await context.websocket.send_json({
         "type": "error",
         "message": (
-            "All model runtimes are offline."
+            "Brain runtime is offline."
         ),
         "details": (
-            "Start BRAIN or SERVICE before sending a request."
+            "Start BRAIN before sending a request."
         ),
         "component": "runtime_status",
     })
@@ -181,6 +318,188 @@ async def receive_message(
         )
 
         return None
+
+
+def normalize_runtime_action_guard_retry(
+    value,
+) -> dict:
+
+    if not isinstance(value, dict):
+        return {}
+
+    action = str(
+        value.get("action", "")
+        or ""
+    ).strip().lower()
+    guard = str(
+        value.get("guard", "")
+        or ""
+    ).strip()
+    confirmation_id = str(
+        value.get("confirmation_id", "")
+        or ""
+    ).strip()
+    action_id = str(
+        value.get("id", "")
+        or ""
+    ).strip()
+    context_snapshot = value.get(
+        "context_snapshot",
+        {},
+    )
+    if not isinstance(context_snapshot, dict):
+        context_snapshot = {}
+
+    try:
+        attempt = int(
+            value.get("attempt", 0)
+            or 0
+        )
+    except (TypeError, ValueError):
+        attempt = 0
+
+    if (
+        not action
+        or not guard
+        or not confirmation_id
+        or attempt != 1
+    ):
+        return {}
+
+    expected_guard = get_action_guard_name_for_runtime_action(
+        action
+    )
+
+    if not expected_guard or expected_guard != guard:
+        return {}
+
+    retry = {
+        "action": action,
+        "guard": guard,
+        "confirmation_id": confirmation_id,
+        "id": action_id,
+        "attempt": 1,
+    }
+
+    if context_snapshot:
+        retry["context_snapshot"] = dict(
+            context_snapshot
+        )
+
+    return retry
+
+
+def build_runtime_action_guard_retry_request(
+    message_data: dict,
+) -> dict | None:
+
+    if not isinstance(message_data, dict):
+        return None
+
+    decision = str(
+        message_data.get("decision", "")
+        or ""
+    ).strip().casefold()
+
+    if decision != "continue":
+        return None
+
+    retry = normalize_runtime_action_guard_retry({
+        "action": message_data.get("action", ""),
+        "guard": message_data.get("guard", ""),
+        "confirmation_id": message_data.get(
+            "confirmation_id",
+            "",
+        ),
+        "id": message_data.get("id", ""),
+        "attempt": message_data.get("retry_attempt", 0),
+        "context_snapshot": message_data.get(
+            "retry_context_snapshot",
+            {},
+        ),
+    })
+
+    user_text = str(
+        message_data.get("retry_user_message", "")
+        or ""
+    ).strip()
+
+    if not retry or not user_text:
+        return None
+
+    return {
+        "type": "runtime_action_guard_retry",
+        "text": user_text,
+        "runtime_action_guard_retry": retry,
+    }
+
+
+async def emit_runtime_action_guard_confirmation_failure(
+    context,
+    message_data: dict,
+    *,
+    error: str = "runtime_action_confirmation_expired",
+) -> None:
+
+    emitter = getattr(context, "emitter", None)
+    emit = getattr(emitter, "emit", None)
+
+    if emit is None:
+        return
+
+    action = str(
+        message_data.get("action", "")
+        or ""
+    ).strip().lower()
+    confirmation_id = str(
+        message_data.get("confirmation_id", "")
+        or ""
+    ).strip()
+    action_id = str(
+        message_data.get("id", "")
+        or ""
+    ).strip()
+
+    if not action or not confirmation_id:
+        return
+
+    display_name = get_runtime_action_display_name(
+        action
+    )
+    decision = str(
+        message_data.get("decision", "")
+        or ""
+    ).strip().casefold()
+    rejected = decision == "reject"
+
+    payload = {
+        "type": "runtime_action",
+        "action": action,
+        "status": "failed",
+        "display_name": display_name,
+        "close_tag": runtime_action_has_close_tag(action),
+        "confirmation_id": confirmation_id,
+        "error": (
+            "user_rejected_runtime_action"
+            if rejected
+            else error
+        ),
+        "text": (
+            f"{display_name} cancelled"
+            if rejected
+            else f"{display_name}: FAILED"
+        ),
+        "detail": (
+            "The original confirmation no longer exists after reconnect."
+            if not rejected
+            else "The stale confirmation was cancelled by the user."
+        ),
+    }
+
+    if action_id:
+        payload["id"] = action_id
+
+    await emit(payload)
 
 
 async def resolve_runtime_action_guard_confirmation(
@@ -250,56 +569,6 @@ async def resolve_runtime_action_guard_confirmation(
 # PROCESS MESSAGE
 # ---------------------------------------------------------
 
-async def arm_save_session_from_user_text(
-    context,
-    user_text: str,
-) -> bool:
-
-    if (
-        getattr(
-            context,
-            "runtime_save_session_armed",
-            False,
-        )
-        or getattr(
-            context,
-            "runtime_save_session_requested",
-            False,
-        )
-    ):
-        return False
-
-    if not should_prearm_save_session(
-        user_text,
-    ):
-        return False
-
-    context.runtime_save_session_armed = True
-    context.runtime_save_session_requested = False
-    # This path is only a deterministic early trigger. It lets the brain see
-    # the user's explicit save intent, but it does not confirm the save and
-    # must not show the UI banner. The save becomes real only when JIN emits
-    # the private SAVE_SESSION marker handled by apply_runtime_action_calls().
-    context.runtime_save_session_action_emitted = False
-
-    logger = getattr(
-        context,
-        "logger",
-        None,
-    )
-    log_runtime = getattr(
-        logger,
-        "log_runtime",
-        None,
-    )
-
-    if log_runtime is not None:
-        await log_runtime(
-            "[RUNTIME ACTION] save_session armed"
-        )
-
-    return True
-
 
 async def refresh_pending_brain_usage(
     context,
@@ -321,6 +590,7 @@ async def refresh_pending_brain_usage(
         build_brain_context(
             context,
             runtime_actions=runtime_actions,
+            user_input=user_text,
         )
     )
 
@@ -437,8 +707,15 @@ async def wait_for_runtime_memory_update(
             )
 
         finally:
+            # The waiter can be cancelled when its WebSocket disconnects while
+            # the FRAME task is protected by asyncio.shield(). In that case the
+            # FRAME task is still alive and must remain discoverable through the
+            # RuntimeContext so a soft reconnect reuses it instead of starting a
+            # duplicate summarizer request. Only clear a task that is actually
+            # terminal.
             if (
-                getattr(
+                task.done()
+                and getattr(
                     context,
                     "runtime_memory_update_task",
                     None,
@@ -446,6 +723,63 @@ async def wait_for_runtime_memory_update(
                 is task
             ):
                 context.runtime_memory_update_task = None
+
+
+def remember_previous_answer_context_window(
+    context,
+) -> None:
+
+    current_context_window = getattr(
+        context,
+        "runtime_current_context_window",
+        {},
+    )
+
+    if not isinstance(
+        current_context_window,
+        dict,
+    ):
+        return
+
+    try:
+        used_tokens = int(
+            current_context_window.get(
+                "used_tokens",
+                0,
+            )
+            or 0
+        )
+        context_window = int(
+            current_context_window.get(
+                "context_window",
+                0,
+            )
+            or 0
+        )
+    except (TypeError, ValueError):
+        return
+
+    if context_window <= 0 or used_tokens < 0:
+        return
+
+    context.runtime_previous_answer_context_window = {
+        "runtime_id": str(
+            current_context_window.get(
+                "runtime_id",
+                "",
+            )
+            or ""
+        ),
+        "used_tokens": used_tokens,
+        "context_window": context_window,
+        "value": str(
+            current_context_window.get(
+                "value",
+                "",
+            )
+            or ""
+        ),
+    }
 
 
 def parse_user_idle_seconds(
@@ -555,11 +889,166 @@ def apply_runtime_pattern_context(
     )
 
 
+def apply_runtime_avatar_context(
+    context,
+    message_data: dict,
+):
+
+    avatar_context = message_data.get(
+        "runtime_avatar",
+        {},
+    )
+
+    if not isinstance(
+        avatar_context,
+        dict,
+    ):
+        avatar_context = {}
+
+    collapsed = bool(
+        avatar_context.get(
+            "collapsed",
+            False,
+        )
+    )
+    size = normalize_jin_size_dict({
+        "width": avatar_context.get(
+            "width",
+        ),
+        "height": avatar_context.get(
+            "height",
+        ),
+    })
+
+    position = normalize_jin_position_dict({
+        "x": avatar_context.get("x"),
+        "y": avatar_context.get("y"),
+    })
+
+    try:
+        window_width = int(
+            avatar_context.get("window_width")
+            or avatar_context.get("windowWidth")
+            or 0
+        )
+        window_height = int(
+            avatar_context.get("window_height")
+            or avatar_context.get("windowHeight")
+            or 0
+        )
+    except (TypeError, ValueError):
+        window_width = 0
+        window_height = 0
+
+    speed = normalize_jin_speed_value(
+        avatar_context.get("speed")
+        or avatar_context.get("speed_px_per_second")
+        or avatar_context.get("speedPxPerSecond")
+        or ""
+    )
+
+    context.runtime_avatar_panel_collapsed = collapsed
+    context.runtime_avatar_current_size = (
+        size
+        if size
+        else {}
+    )
+    context.runtime_avatar_current_position = (
+        position
+        if position
+        else {}
+    )
+    context.runtime_avatar_window_size = (
+        {
+            "width": window_width,
+            "height": window_height,
+        }
+        if window_width > 0 and window_height > 0
+        else {}
+    )
+    if speed is not None:
+        context.runtime_avatar_move_speed = speed
+
+
+def build_user_retry_request(
+    context,
+    message_data: dict | None = None,
+) -> dict | None:
+    """Rebuild the latest real user request without creating a new user turn."""
+
+    source = getattr(
+        context,
+        "runtime_last_retryable_request",
+        {},
+    )
+    if not isinstance(source, dict) or not source:
+        return None
+
+    recent_turns = getattr(
+        context,
+        "runtime_recent_turns",
+        [],
+    )
+    if (
+        not isinstance(recent_turns, list)
+        or not recent_turns
+        or not str((recent_turns[-1] or {}).get("jin") or "").strip()
+    ):
+        return None
+
+    text = str(source.get("text") or "")
+    attachments = deepcopy(source.get("attachments") or [])
+    if not text.strip() and not attachments:
+        return None
+
+    retry_request = {
+        "type": "retry_last_response",
+        "text": text,
+    }
+    if attachments:
+        retry_request["attachments"] = attachments
+
+    live_request = message_data if isinstance(message_data, dict) else {}
+    # Runtime geometry and visible active-memory state are live UI state, not
+    # part of the discarded answer. Refresh only those fields on retry.
+    for field_name in (
+        "runtime_avatar",
+        "active_memory_records",
+    ):
+        if field_name in live_request:
+            retry_request[field_name] = deepcopy(live_request[field_name])
+
+    return retry_request
+
+
+def discard_latest_visible_turn_for_user_retry(
+    context,
+) -> dict:
+    """Remove the answer being replaced from rolling prompt-side history."""
+
+    previous_turn = {}
+    recent_turns = getattr(context, "runtime_recent_turns", None)
+    if isinstance(recent_turns, list) and recent_turns:
+        candidate = recent_turns.pop()
+        if isinstance(candidate, dict):
+            previous_turn = candidate
+
+    # The previous reasoning belongs to the discarded answer and must not be
+    # re-injected beside the explicit retry marker.
+    context.runtime_previous_reasoning_content = ""
+    context.runtime_previous_reasoning_from_session_restore = False
+    context.runtime_previous_reasoning_loop_contents = []
+
+    return previous_turn
+
+
 def append_runtime_recent_turn(
     context,
     *,
     user_message: str,
     assistant_message: str,
+    reasoning: str = "",
+    attachments: list[dict] | None = None,
     user_created_at: float | None = None,
     assistant_created_at: float | None = None,
 ) -> None:
@@ -581,6 +1070,10 @@ def append_runtime_recent_turn(
         assistant_message
         or ""
     ).strip()
+    reasoning = str(
+        reasoning
+        or ""
+    ).strip()
 
     if not user_message and not assistant_message:
         return
@@ -589,6 +1082,22 @@ def append_runtime_recent_turn(
         "user": user_message,
         "jin": assistant_message,
     }
+
+    runtime_turn_id = get_current_action_sequence_turn_id(context)
+    if runtime_turn_id:
+        turn["runtime_turn_id"] = runtime_turn_id
+
+    attachment_summaries = summarize_attachments(
+        attachments
+    )
+    if attachment_summaries:
+        turn["attachments"] = attachment_summaries
+
+    reaction = str(getattr(context, "runtime_turn_jin_reaction", "") or "")
+    if reaction:
+        turn["jin_reaction"] = reaction
+    if reasoning:
+        turn["reasoning"] = reasoning
 
     if isinstance(
         user_created_at,
@@ -610,110 +1119,40 @@ def append_runtime_recent_turn(
         turn
     )
 
+    # An archived session checkout uses the full restored dialogue only to
+    # prime the first continuation response. Once that response is committed,
+    # normal rolling recent-turn memory takes over.
+    if getattr(
+        context,
+        "runtime_restored_session_dialog",
+        "",
+    ):
+        context.runtime_restored_session_dialog = ""
+        context.runtime_restored_session_source_id = ""
+
     context.runtime_recent_turns = context.runtime_recent_turns[
         -RECENT_MESSAGES_MAX_PAIRS:
     ]
 
 
-def merge_runtime_idle_followup_turn(
+def append_interrupted_runtime_recent_turn(
     context,
     *,
-    origin_user_request: str,
-    assistant_message: str,
-    assistant_created_at: float | None = None,
-    idle_followup_id: str = "",
+    user_message: str,
+    reasoning: str = "",
+    attachments: list[dict] | None = None,
+    user_created_at: float | None = None,
 ) -> None:
+    """Keep a stopped real USER move in rolling chat history as USER-only."""
 
-    if context is None:
-        return
-
-    origin_user_request = str(
-        origin_user_request
-        or ""
-    ).strip()
-    assistant_message = str(
-        assistant_message
-        or ""
-    ).strip()
-
-    if not assistant_message:
-        return
-
-    recent_turns = getattr(
+    append_runtime_recent_turn(
         context,
-        "runtime_recent_turns",
-        None,
+        user_message=user_message,
+        assistant_message="",
+        reasoning=reasoning,
+        attachments=attachments,
+        user_created_at=user_created_at,
     )
-    if not isinstance(
-        recent_turns,
-        list,
-    ):
-        recent_turns = []
-        context.runtime_recent_turns = recent_turns
-
-    target_turn = None
-    for turn in reversed(
-        recent_turns
-    ):
-        if not isinstance(
-            turn,
-            dict,
-        ):
-            continue
-
-        turn_user = str(
-            turn.get(
-                "user",
-                "",
-            )
-            or ""
-        ).strip()
-        turn_origin = str(
-            turn.get(
-                "idle_origin_user_request",
-                "",
-            )
-            or ""
-        ).strip()
-
-        if origin_user_request and (
-            turn_user == origin_user_request
-            or turn_origin == origin_user_request
-        ):
-            target_turn = turn
-            break
-
-    if target_turn is None:
-        target_turn = {
-            "user": origin_user_request,
-            "jin": "",
-            "idle_origin_user_request": origin_user_request,
-        }
-        recent_turns.append(
-            target_turn
-        )
-
-    target_turn["jin"] = assistant_message
-    target_turn["idle_origin_user_request"] = origin_user_request
-
-    normalized_idle_followup_id = str(
-        idle_followup_id
-        or ""
-    ).strip()
-    if normalized_idle_followup_id:
-        target_turn["idle_followup_id"] = normalized_idle_followup_id
-
-    if isinstance(
-        assistant_created_at,
-        (int, float),
-    ):
-        target_turn["jin_created_at"] = float(
-            assistant_created_at
-        )
-
-    context.runtime_recent_turns = recent_turns[
-        -RECENT_MESSAGES_MAX_PAIRS:
-    ]
 
 
 def format_runtime_memory_user_message(
@@ -730,9 +1169,25 @@ def format_runtime_memory_user_message(
     )
 
     if repeated < 2:
-        return user_text
+        formatted = user_text
+    else:
+        formatted = (
+            f"{json.dumps(user_text, ensure_ascii=False)} "
+            f"[ repeated: {repeated} ]"
+        )
 
-    return f"{json.dumps(user_text, ensure_ascii=False)} [ repeated: {repeated} ]"
+    if getattr(
+        context,
+        "runtime_user_retry_active",
+        False,
+    ):
+        return (
+            f"{formatted} "
+            "[ user_retry: true; previous_jin_answer_discarded: true; "
+            "replace_previous_turn: true ]"
+        ).strip()
+
+    return formatted
 
 
 async def process_message(
@@ -741,31 +1196,154 @@ async def process_message(
 ):
     websocket = context.websocket
     logger = context.logger
+    action_guard_retry = {}
+    is_action_guard_retry = False
+    is_user_retry = False
+    user_retry_replaced_turn = {}
+    retry_source_candidate = {}
+    retry_terminal_emitted = False
+    reasoning_save_pending = False
+    recent_turn_committed = False
 
     try:
 
-        idle_followup = message_data.get(
-            "idle_followup",
-            {},
-        )
-        if not isinstance(idle_followup, dict):
-            idle_followup = {}
-        is_idle_followup = bool(idle_followup)
+        # D049: Stop may land after the queue's first check, while FRAME is
+        # awaited. A cancelled startup packet is never a real USER request.
+        if (
+            message_data.get("type") == "archived_session_resume"
+            and not getattr(context, "runtime_session_restore_priming", False)
+        ):
+            return
 
-        user_text = (
-            str(
-                idle_followup.get(
-                    "origin_user_request",
+        is_session_restore_resume = bool(
+            message_data.get("type") == "archived_session_resume"
+            and getattr(
+                context,
+                "runtime_session_restore_priming",
+                False,
+            )
+        )
+
+        # A real USER turn supersedes an unfinished hidden restore tick. This
+        # is the race-safe fallback for Stop -> immediate new task.
+        if (
+            message_data.get("type", "message") == "message"
+            and not is_session_restore_resume
+        ):
+            unfinished_restore = bool(
+                getattr(
+                    context,
+                    "runtime_session_restore_priming",
+                    False,
+                )
+                or getattr(
+                    context,
+                    "runtime_restored_session_dialog",
                     "",
                 )
-                or ""
             )
-            if is_idle_followup
+            discard_session_restore_continuation_state(
+                context,
+                drop_previous_actions=unfinished_restore,
+            )
+
+        is_user_retry = bool(
+            message_data.get("type") == "retry_last_response"
+        )
+        context.runtime_user_retry_active = is_user_retry
+        if is_user_retry:
+            context.runtime_user_retry_count = int(
+                getattr(context, "runtime_user_retry_count", 0)
+                or 0
+            ) + 1
+            retry_source_candidate = deepcopy(
+                getattr(
+                    context,
+                    "runtime_last_retryable_request",
+                    {},
+                )
+                or {}
+            )
+            # Retry consumes the previous completed-answer capability. It is
+            # restored only if the replacement itself completes successfully.
+            context.runtime_last_retryable_request = {}
+            user_retry_replaced_turn = (
+                discard_latest_visible_turn_for_user_retry(
+                    context
+                )
+            )
+        elif message_data.get("type", "message") == "message":
+            context.runtime_user_retry_count = 0
+            retry_source_candidate = {
+                "text": get_message_user_text(message_data),
+                "attachments": deepcopy(
+                    message_data.get("attachments") or []
+                ),
+            }
+            # The previous answer stops being retryable as soon as a new real
+            # user turn starts. The current request is promoted only after its
+            # JIN response completes successfully.
+            context.runtime_last_retryable_request = {}
+        action_guard_retry = normalize_runtime_action_guard_retry(
+            message_data.get(
+                "runtime_action_guard_retry",
+                {},
+            )
+        )
+        context.runtime_action_guard_retry = action_guard_retry
+        context.runtime_action_guard_retry_consumed = False
+        context.runtime_suppress_chat_content = bool(
+            action_guard_retry
+        )
+        is_action_guard_retry = bool(
+            action_guard_retry
+        )
+        if is_session_restore_resume:
+            # The restore tick has no user message, so take the live browser
+            # geometry from the resume request before building its context.
+            apply_runtime_avatar_context(
+                context,
+                message_data,
+            )
+            # Keep restored file IDs pinned for subsequent turns, but do not
+            # feed any file payload/image bytes into the hidden restore tick.
+            active_attachment_ids = []
+        elif is_action_guard_retry:
+            active_attachment_ids = list(
+                getattr(
+                    context,
+                    "runtime_attached_file_ids",
+                    [],
+                )
+                or []
+            )
+        else:
+            active_attachment_ids = attachment_ids_from_message_data(
+                message_data
+            )
+            from utils.context.files import (
+                unload_persistent_file_results,
+                unload_project_files,
+            )
+            for removed in set(context.runtime_attached_file_ids or []) - set(active_attachment_ids):
+                unload_project_files(context, removed)
+                unload_persistent_file_results(context, removed)
+            context.runtime_attached_file_ids = list(active_attachment_ids)
+
+        hydrated_active_attachments = hydrate_message_attachments(
+            message_data,
+            active_attachment_ids,
+        )
+
+        user_text = (
+            ""
+            if is_session_restore_resume
             else build_user_text_with_attachments(
                 message_data,
             )
         )
 
+        context.runtime_turn_jin_reaction = ""
         context.runtime_turn_user_message = user_text
         context.runtime_turn_started_at = time.time()
         context.runtime_turn_counter = (
@@ -777,95 +1355,38 @@ async def process_message(
             + 1
         )
         context.runtime_current_turn_id = (
-            f"idle_{context.runtime_turn_counter:06d}"
-            if is_idle_followup
-            else f"turn_{context.runtime_turn_counter:06d}"
+            f"retry_{context.runtime_turn_counter:06d}"
+            if is_action_guard_retry
+            else (
+                f"user_retry_{context.runtime_turn_counter:06d}"
+                if is_user_retry
+                else f"turn_{context.runtime_turn_counter:06d}"
+            )
         )
-
-        if is_idle_followup:
-            context.runtime_current_sequence_turn_id = str(
-                idle_followup.get(
-                    "sequence_turn_id",
-                    "",
-                )
-                or context.runtime_current_turn_id
-            ).strip()
-            sequence_started_at = idle_followup.get(
-                "sequence_started_at"
-            )
-            if not isinstance(
-                sequence_started_at,
-                (int, float),
-            ) or sequence_started_at <= 0:
-                sequence_started_at = context.runtime_turn_started_at
-            context.runtime_current_sequence_started_at = float(
-                sequence_started_at
+        context.runtime_current_sequence_turn_id = (
+            context.runtime_current_turn_id
+        )
+        context.runtime_current_sequence_started_at = (
+            context.runtime_turn_started_at
+        )
+        if is_action_guard_retry:
+            context.runtime_turn_attachments = deepcopy(
+                hydrated_active_attachments
             )
         else:
-            context.runtime_current_sequence_turn_id = (
-                context.runtime_current_turn_id
-            )
-            context.runtime_current_sequence_started_at = (
-                context.runtime_turn_started_at
-            )
-        if is_idle_followup:
-            idle_attachments = idle_followup.get(
-                "attachments",
-            )
-            sequence_attachment_turn_id = str(
-                getattr(
-                    context,
-                    "runtime_current_sequence_attachments_turn_id",
-                    "",
-                )
-                or ""
-            ).strip()
-            sequence_attachments = getattr(
-                context,
-                "runtime_current_sequence_attachments",
-                [],
-            )
             context.runtime_turn_attachments = deepcopy(
-                idle_attachments
-                if (
-                    isinstance(
-                        idle_attachments,
-                        list,
-                    )
-                    and idle_attachments
-                )
-                else (
-                    sequence_attachments
-                    if (
-                        sequence_attachment_turn_id
-                        == context.runtime_current_sequence_turn_id
-                        and isinstance(
-                            sequence_attachments,
-                            list,
-                        )
-                    )
-                    else []
-                )
-            )
-        else:
-            message_attachments = message_data.get(
-                "attachments",
-            )
-            context.runtime_turn_attachments = deepcopy(
-                message_attachments
-                if isinstance(
-                    message_attachments,
-                    list,
-                )
-                else []
+                hydrated_active_attachments
             )
             context.runtime_current_sequence_attachments = deepcopy(
-                context.runtime_turn_attachments
+                hydrated_active_attachments
             )
             context.runtime_current_sequence_attachments_turn_id = (
                 context.runtime_current_sequence_turn_id
             )
         context.runtime_turn_assistant_response = ""
+        context.runtime_current_sequence_jin_messages = []
+        context.runtime_turn_reasoning_log_path = ""
+        context.runtime_turn_reasoning_content = ""
         context.runtime_active_action_markers = []
         context.runtime_turn_aborted_actions = []
         context.runtime_turn_abort_requested = False
@@ -874,43 +1395,90 @@ async def process_message(
         context.runtime_turn_interrupted = False
         context.runtime_turn_interruption_reason = ""
         context.runtime_turn_interruption_quote = ""
-        context.runtime_save_session_memory_committed_this_turn = False
         context.runtime_turn_memory_user_message = ""
+        context.runtime_avatar_panel_collapsed = False
+        context.runtime_avatar_current_size = {}
+        context.runtime_avatar_current_position = {}
+        context.runtime_avatar_window_size = {}
+        context.runtime_avatar_move_speed = 900
         context.runtime_reasoning_recovery_pending = False
         context.runtime_context_limit_recovery_pending = False
         context.runtime_context_limit_stage = ""
         context.runtime_context_limit_kind = ""
         context.runtime_context_limit_finish_reason = ""
-        if not is_idle_followup:
-            await arm_save_session_from_user_text(
-                context,
-                user_text,
-            )
-            apply_user_idle_context(
-                context,
-                message_data,
-            )
+        if (
+            not is_action_guard_retry
+            and not is_session_restore_resume
+        ):
+            if not is_user_retry:
+                apply_user_idle_context(
+                    context,
+                    message_data,
+                )
+
             apply_active_memory_records(
                 context,
                 message_data,
             )
-            apply_runtime_pattern_context(
+
+            if not is_user_retry:
+                apply_runtime_pattern_context(
+                    context,
+                    message_data,
+                )
+
+            apply_runtime_avatar_context(
                 context,
                 message_data,
             )
+
             context.runtime_turn_memory_user_message = (
                 format_runtime_memory_user_message(
                     context,
                     user_text,
                 )
             )
-            context.user_message_count += 1
+
+            if not is_user_retry:
+                # Tag auto-load is driven only by the text the user typed.
+                # Attachment text still stays in ``user_text`` and reaches JIN as
+                # context, but it must never behave like a tag command.
+                await load_delayed_memory_by_tags(
+                    context,
+                    get_message_user_text(
+                        message_data
+                    ),
+                )
+
+        if (
+            not is_action_guard_retry
+            and not is_session_restore_resume
+            and not is_user_retry
+        ):
+            try:
+                append_chat_log_entry(
+                    context,
+                    role="user",
+                    text=user_text,
+                )
+            except Exception as error:
+                await logger.log_system(
+                    "[CHAT_LOG] local user message save failed: "
+                    + str(error)
+                )
+
+        if message_data.get("_interrupt_before_brain"):
+            # The accepted pending USER survives Stop even if no model request
+            # started. Reuse the same cancellation commit as an in-flight turn.
+            raise asyncio.CancelledError()
 
         state = AgentState(
             user_input=user_text
         )
-        if is_idle_followup:
-            state.metadata["idle_followup"] = idle_followup
+        if is_session_restore_resume:
+            state.metadata["session_restore_resume"] = True
+        if is_user_retry:
+            state.metadata["user_retry"] = True
 
         if hasattr(
             context,
@@ -925,12 +1493,58 @@ async def process_message(
 
         await websocket.send_json({
             "type": "agent_runtime_start",
+            # This is only candidate eligibility. The client waits for
+            # agent_runtime_end before making the bubble long-tap retryable.
+            "retryable_response": bool(
+                not is_action_guard_retry
+                and not is_session_restore_resume
+                and (
+                    is_user_retry
+                    or message_data.get("type", "message") == "message"
+                )
+            ),
         })
 
+        reasoning_save_pending = True
         await runtime.run(
             state,
             context,
         )
+        remember_previous_answer_context_window(context)
+
+        try:
+            save_turn_reasoning(
+                context,
+                getattr(
+                    context,
+                    "runtime_turn_reasoning_content",
+                    "",
+                ),
+            )
+            reasoning_save_pending = False
+        except Exception as error:
+            await logger.log_system(
+                "[CHAT_LOG] reasoning save failed: "
+                + str(error)
+            )
+
+        if (
+            action_guard_retry
+            and not getattr(
+                context,
+                "runtime_action_guard_retry_consumed",
+                False,
+            )
+        ):
+            await emit_runtime_action_guard_confirmation_failure(
+                context,
+                {
+                    **action_guard_retry,
+                    "decision": "continue",
+                },
+                error="runtime_action_confirmation_retry_not_emitted",
+            )
+            retry_terminal_emitted = True
 
         if getattr(
             context,
@@ -939,16 +1553,123 @@ async def process_message(
         ):
             return
 
+        assistant_message = (
+            state.brain_response
+            or context.runtime_turn_assistant_response
+        )
+
+        # The last visible message_end already persisted a browser-side preview
+        # of this turn. Commit the same completed turn to the raw archive and
+        # runtime history before agent_runtime_end so both bootstrap sources
+        # converge immediately.
+        if not is_action_guard_retry:
+            try:
+                if is_user_retry:
+                    replace_latest_chat_log_entry(
+                        context,
+                        role="jin",
+                        text=assistant_message,
+                    )
+                else:
+                    append_chat_log_entry(
+                        context,
+                        role="jin",
+                        text=assistant_message,
+                    )
+            except Exception as error:
+                await logger.log_system(
+                    "[CHAT_LOG] local JIN message save failed: "
+                    + str(error)
+                )
+
+        assistant_created_at = time.time()
+        if not is_action_guard_retry:
+            append_runtime_recent_turn(
+                context,
+                user_message=user_text,
+                assistant_message=assistant_message,
+                reasoning=getattr(
+                    context,
+                    "runtime_turn_reasoning_content",
+                    "",
+                ),
+                attachments=getattr(
+                    context,
+                    "runtime_turn_attachments",
+                    [],
+                ),
+                user_created_at=(
+                    user_retry_replaced_turn.get("user_created_at")
+                    if is_user_retry
+                    and isinstance(user_retry_replaced_turn, dict)
+                    else getattr(
+                        context,
+                        "runtime_turn_started_at",
+                        None,
+                    )
+                ),
+                assistant_created_at=assistant_created_at,
+            )
+            recent_turn_committed = True
+        if not is_action_guard_retry and not is_user_retry:
+            context.turn_number += 1
+
+        if not is_action_guard_retry:
+            try:
+                await record_lt_reasoning_fact_mentions(
+                    context,
+                    getattr(
+                        context,
+                        "runtime_turn_reasoning_content",
+                        "",
+                    ),
+                    assistant_message,
+                )
+            except Exception as error:
+                await logger.log_system(
+                    "[MEMORY:L-T] turn mention tracking failed: "
+                    + str(error)
+                )
+
+        completed_session_snapshot = (
+            build_runtime_session_checkpoint(context)
+        )
+
         await emit_session_actions_update(
             context,
             current_sequence=False,
         )
 
-        await logger.log(
-            "[FLOW TELEMETRY]",
-            format_token_usage_summary(
-                context
-            ),
+        retryable_response = bool(
+            not is_action_guard_retry
+            and not is_session_restore_resume
+            and not getattr(
+                context,
+                "runtime_turn_interrupted",
+                False,
+            )
+            and str(assistant_message or "").strip()
+        )
+
+        if retryable_response:
+            context.runtime_last_retryable_request = deepcopy(
+                retry_source_candidate
+            )
+
+        completed_turn_commit = bool(
+            not is_action_guard_retry
+            and not is_session_restore_resume
+            and not getattr(
+                context,
+                "runtime_turn_interrupted",
+                False,
+            )
+            and not getattr(
+                context,
+                "runtime_turn_discard_requested",
+                False,
+            )
+            and str(user_text or "").strip()
         )
 
         await logger.log_system(
@@ -957,43 +1678,27 @@ async def process_message(
 
         await websocket.send_json({
             "type": "agent_runtime_end",
+            "retryable_response": retryable_response,
+            "session_snapshot": completed_session_snapshot,
+            "completed_turn_commit": completed_turn_commit,
         })
 
-        assistant_message = (
-                state.final_answer
-                or state.brain_response
-                or context.runtime_turn_assistant_response
-        )
+        if is_session_restore_resume:
+            # The Brain node consumes restore priming immediately after the
+            # first response and replays archived resources through the real
+            # runtime-action dispatcher. Keep only a defensive cleanup here;
+            # never mutate resource state or emit a second store snapshot from
+            # the websocket tail, because that used to race the action/avatar
+            # UI and make the load visible only after FRAME completed.
+            context.runtime_session_restore_pending_loaded_memory_ids = []
+            context.runtime_session_restore_pending_attached_file_ids = []
+            context.runtime_session_restore_priming = False
+            context.runtime_session_restore_reasoning_dump = ""
+            context.runtime_session_restore_lt_fact_ids = []
+            context.runtime_session_restore_delayed_memory_metadata = []
+            context.runtime_session_restore_attached_file_metadata = []
 
-        assistant_created_at = time.time()
-        if is_idle_followup:
-            merge_runtime_idle_followup_turn(
-                context,
-                origin_user_request=user_text,
-                assistant_message=assistant_message,
-                assistant_created_at=assistant_created_at,
-                idle_followup_id=str(
-                    idle_followup.get(
-                        "id",
-                        "",
-                    )
-                    or ""
-                ),
-            )
-        else:
-            append_runtime_recent_turn(
-                context,
-                user_message=user_text,
-                assistant_message=assistant_message,
-                user_created_at=getattr(
-                    context,
-                    "runtime_turn_started_at",
-                    None,
-                ),
-                assistant_created_at=assistant_created_at,
-            )
-
-        if is_idle_followup:
+        if is_action_guard_retry:
             memory_update_task = None
         elif getattr(
             context,
@@ -1012,10 +1717,7 @@ async def process_message(
                 context=context,
             )
         else:
-            # SAVE_SESSION now completes before its follow-up using the
-            # snapshots that already existed. The user's save request and
-            # JIN's final confirmation are therefore committed here through
-            # the ordinary post-response L1/L2 path.
+            # Commit the interrupted turn through the ordinary FRAME path.
             record_runtime_memory_reasoning_quotes(
                 context,
                 getattr(
@@ -1037,23 +1739,80 @@ async def process_message(
                 assistant_message=assistant_message,
             )
 
-        if getattr(
+        # UPDATE_LT_FACTS is accepted during Brain dispatch, but its actual
+        # service-model work waits for this exact ordering point: FRAME has
+        # been scheduled first, then explicit L-T waits for FRAME completion
+        # (including state publication). No browser idle tick is involved.
+        schedule_pending_update_lt_facts_actions(
             context,
-            "runtime_save_session_requested",
-            False,
-        ):
-            await wait_for_runtime_memory_update(
-                context
-            )
-
-        context.assistant_message_count += 1
-        if not is_idle_followup:
-            context.turn_number += 1
-
-        # Background fact-checking is intentionally not armed here.
-        # Fact-checking runs only from the explicit UI request path.
+            frame_task=memory_update_task,
+        )
 
     except asyncio.CancelledError:
+
+        if (
+            action_guard_retry
+            and not retry_terminal_emitted
+            and not getattr(
+                context,
+                "runtime_action_guard_retry_consumed",
+                False,
+            )
+        ):
+            await emit_runtime_action_guard_confirmation_failure(
+                context,
+                {
+                    **action_guard_retry,
+                    "decision": "continue",
+                },
+                error="runtime_action_confirmation_retry_cancelled",
+            )
+
+        # A real USER move must survive an explicit stop even when the Brain
+        # never reached a completed JIN row. Without this commit the next turn
+        # rebuilds PREVIOUS_CHAT_MESSAGES from a history that silently skipped
+        # the interrupted project/action turn. Keep it USER-only: cancellation
+        # is not a completed exchange and must not manufacture a JIN message.
+        if (
+            not recent_turn_committed
+            and not is_action_guard_retry
+            and not is_session_restore_resume
+            and not is_user_retry
+            and not getattr(
+                context,
+                "runtime_turn_discard_requested",
+                False,
+            )
+            and str(user_text or "").strip()
+        ):
+            append_interrupted_runtime_recent_turn(
+                context,
+                user_message=user_text,
+                reasoning=getattr(
+                    context,
+                    "runtime_turn_reasoning_content",
+                    "",
+                ),
+                attachments=getattr(
+                    context,
+                    "runtime_turn_attachments",
+                    [],
+                ),
+                user_created_at=getattr(
+                    context,
+                    "runtime_turn_started_at",
+                    None,
+                ),
+            )
+            recent_turn_committed = True
+
+        if message_data.get("_interrupt_before_brain") and recent_turn_committed:
+            await websocket.send_json({
+                "type": "agent_runtime_end",
+                "retryable_response": False,
+                "session_snapshot": build_runtime_session_checkpoint(context),
+                "completed_turn_commit": False,
+            })
 
         await logger.log_runtime(
             "Agent runtime task cancelled."
@@ -1063,11 +1822,49 @@ async def process_message(
 
     except Exception as error:
 
+        if (
+            action_guard_retry
+            and not retry_terminal_emitted
+            and not getattr(
+                context,
+                "runtime_action_guard_retry_consumed",
+                False,
+            )
+        ):
+            await emit_runtime_action_guard_confirmation_failure(
+                context,
+                {
+                    **action_guard_retry,
+                    "decision": "continue",
+                },
+                error="runtime_action_confirmation_retry_failed",
+            )
+
         await handle_fatal_runtime_error(
             context,
             component="agent_runtime",
             exception=error,
         )
+
+    finally:
+
+        if reasoning_save_pending:
+            try:
+                save_turn_reasoning(
+                    context,
+                    getattr(context, "runtime_turn_reasoning_content", ""),
+                )
+            except Exception as error:
+                await logger.log_system(
+                    "[CHAT_LOG] interrupted reasoning save failed: " + str(error)
+                )
+
+        if is_user_retry:
+            context.runtime_user_retry_active = False
+
+        if is_action_guard_retry:
+            context.runtime_suppress_chat_content = False
+            context.runtime_action_guard_retry = {}
 
 
 # ---------------------------------------------------------

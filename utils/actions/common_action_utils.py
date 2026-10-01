@@ -4,50 +4,71 @@ from dataclasses import dataclass
 from functools import lru_cache
 
 from contracts.rules_assembler import (
-    RUNTIME_ACTION_APPEND_SKILL,
-    RUNTIME_ACTION_APPEND_DELAYED_MEMORY,
-    RUNTIME_ACTION_RESOLVE_ACTIVE_MEMORY,
+    RUNTIME_ACTION_CHAT_LOG_SEARCH,
+    RUNTIME_ACTION_DEEP_WEB_SEARCH,
+    RUNTIME_ACTION_LOAD_SKILL,
+    RUNTIME_ACTION_LOAD_DELAYED_MEMORY,
+    RUNTIME_ACTION_ATTACH_FILE_CONTENT,
+    RUNTIME_ACTION_ATTACH_FILE_BY_ID,
+    RUNTIME_ACTION_LIST_FILES,
+    RUNTIME_ACTION_DELETE_ACTIVE_MEMORY,
     RUNTIME_ACTION_SAVE_ACTIVE_MEMORY,
     RUNTIME_ACTION_ASSET_ACTION,
-    RUNTIME_ACTION_CHECK_TODO,
-    RUNTIME_ACTION_CREATE_TODO_LIST,
-    RUNTIME_ACTION_LIST_DELAYED_MEMORY,
-    RUNTIME_ACTION_LIST_SKILLS,
-    RUNTIME_ACTION_IDLE,
     RUNTIME_ACTION_JIN_COLOR,
+    RUNTIME_ACTION_JIN_REACTION,
+    RUNTIME_ACTION_JIN_SIZE,
+    RUNTIME_ACTION_JIN_POSITION,
+    RUNTIME_ACTION_JIN_SPEED,
+    RUNTIME_ACTION_UPDATE_LT_FACTS,
+    RUNTIME_ACTION_RECALL_FACT_CONTEXT,
     RUNTIME_ACTION_CLEAN_TOOL_RESULTS,
-    RUNTIME_ACTION_REMOVE_SKILL,
-    RUNTIME_ACTION_REMOVE_DELAYED_MEMORY,
-    RUNTIME_ACTION_RESOLVE_TODO,
-    RUNTIME_ACTION_SAVE_DELAYED_MEMORY_CONTENT,
-    RUNTIME_ACTION_SAVE_SESSION,
+    RUNTIME_ACTION_UNLOAD_SKILL,
+    RUNTIME_ACTION_SAVE_DELAYED_MEMORY,
     RUNTIME_ACTION_WEB_SEARCH,
+    RUNTIME_ACTION_POSTING_BOARD,
+    RUNTIME_ACTION_CALL_MCP,
 )
 from contracts.rules_assembler import (
     get_close_tag_runtime_actions,
     get_runtime_action_private_marker,
-    normalize_runtime_action_names as get_contract_runtime_action_names,
+    normalize_runtime_action_name,
+    normalize_runtime_action_names,
 )
 
 from .action_payload_utils import (
     _clean_internal_action_query,
     _get_internal_action_placeholder_payloads,
 )
-from .append_delayed_memory_utils import build_append_delayed_memory_payload
-from .append_skill_utils import (
-    build_append_skill_payload,
+from .active_memory_utils import ACTIVE_MEMORY_SLOT_ID_RE
+from .delayed_memory_utils import is_delayed_memory_report_id
+from .load_delayed_memory_utils import build_load_delayed_memory_payload
+from .skill_load_utils import (
+    build_load_skill_payload,
     plural_skill_marker_action_name as _plural_skill_marker_action_name,
     split_internal_skill_marker_list as _split_internal_skill_marker_list,
 )
-from .asset_action_utils import build_asset_action_payload
-from .check_todo_utils import build_check_todo_payload
+from .asset_action_utils import (
+    build_asset_action_payload,
+    build_compact_project_asset_action_payload,
+)
 from .save_active_memory_utils import build_save_active_memory_payload
-from .create_todo_list_utils import build_create_todo_list_payload
-from .idle_utils import build_idle_payload
 from .jin_color_utils import build_jin_color_payload
+from .jin_reaction_utils import build_jin_reaction_payload
+from .jin_size_utils import build_jin_size_payload
+from .jin_position_utils import build_jin_position_payload
+from .jin_speed_utils import build_jin_speed_payload
+from .update_lt_facts_utils import build_update_lt_facts_payload
+from .recall_fact_context_utils import (
+    build_recall_fact_context_payload,
+    normalize_recall_fact_context_id,
+    split_recall_fact_context_ids,
+)
 from .resolve_action_utils import build_resolve_action_payload
 from .regexp_utils import (
     RuntimeActionRegexpMatch,
+    RUNTIME_ACTION_EXECUTABLE_PREFIX,
+    RUNTIME_ACTION_QUOTE_OPENERS,
+    is_quoted_runtime_marker,
     compile_runtime_action_end_regexp,
     compile_runtime_action_start_regexp,
     compile_runtime_action_tag_regexp,
@@ -58,9 +79,7 @@ from .regexp_utils import (
     select_non_overlapping_regexp_matches,
 )
 from .save_delayed_memory_utils import (
-    DELAYED_MEMORY_FIELD_RE,
     build_save_delayed_memory_payload,
-    parse_delayed_memory_content_payload,
 )
 from .web_search_utils import (
     build_web_search_payload,
@@ -68,7 +87,13 @@ from .web_search_utils import (
 )
 
 
-KNOWN_RUNTIME_ACTIONS = get_contract_runtime_action_names(
+from .malformed_action_utils import (
+    MALFORMED_ACTION, find_malformed_action_matches,
+    find_pending_malformed_action_start,
+)
+
+
+KNOWN_RUNTIME_ACTIONS = normalize_runtime_action_names(
     None
 )
 
@@ -97,12 +122,34 @@ CLOSE_TAG_RUNTIME_ACTIONS = frozenset(
 )
 
 REPEATABLE_RUNTIME_ACTIONS = frozenset({
-    RUNTIME_ACTION_IDLE,
+    RUNTIME_ACTION_CHAT_LOG_SEARCH,
     RUNTIME_ACTION_JIN_COLOR,
+    RUNTIME_ACTION_JIN_SIZE,
+    RUNTIME_ACTION_JIN_POSITION,
+    RUNTIME_ACTION_JIN_SPEED,
+    RUNTIME_ACTION_UPDATE_LT_FACTS,
+    RUNTIME_ACTION_RECALL_FACT_CONTEXT,
     RUNTIME_ACTION_CLEAN_TOOL_RESULTS,
 })
 
+JIN_INLINE_PAYLOAD_ACTIONS = frozenset({
+    RUNTIME_ACTION_JIN_COLOR,
+    RUNTIME_ACTION_JIN_REACTION,
+    RUNTIME_ACTION_JIN_SIZE,
+    RUNTIME_ACTION_JIN_POSITION,
+    RUNTIME_ACTION_JIN_SPEED,
+})
+def _runtime_action_allows_inline_payload(
+    action_name: str,
+) -> bool:
+    return (action_name in JIN_INLINE_PAYLOAD_ACTIONS
+            or action_name in {
+                RUNTIME_ACTION_POSTING_BOARD,
+                RUNTIME_ACTION_UNLOAD_SKILL,
+            })
 
+
+@lru_cache(maxsize=None)
 def _runtime_action_marker_config(
     action_name: str,
 ) -> tuple[str, bool]:
@@ -115,16 +162,63 @@ def _runtime_action_marker_config(
     )
 
 
+def _runtime_action_allows_bare_prefix_fallback(
+    action_name: str,
+) -> bool:
+    """Return whether ``ACTION: payload`` may be accepted at response start.
+
+    This is deliberately narrower than the normal compatibility parser.  It
+    covers the JIN one-line payload actions plus current short actions whose
+    contract marker itself carries a colon payload.  Block/no-payload actions
+    are never guessed from bare text.
+    """
+
+    normalized_name = normalize_runtime_action_name(
+        action_name
+    )
+
+    if normalized_name in JIN_INLINE_PAYLOAD_ACTIONS:
+        return True
+
+    private_marker, close_tag = _runtime_action_marker_config(
+        normalized_name
+    )
+
+    if close_tag:
+        return False
+
+    _, placeholder_payload = extract_private_marker_parts(
+        private_marker
+    )
+
+    return bool(
+        placeholder_payload
+    )
+
+
+def _short_payload_action_names(names):
+    return tuple(name for name in names
+                 if name not in CLOSE_TAG_RUNTIME_ACTIONS
+                 and extract_private_marker_parts(_runtime_action_marker_config(name)[0])[1])
+
+
 def _find_all_runtime_action_matches(
     text: str,
     action_names=None,
+    *,
+    allow_bare_prefix_fallback: bool = False,
 ) -> tuple[RuntimeActionRegexpMatch, ...]:
 
     matches = []
-
-    for action_name in normalize_runtime_action_names(
+    enabled_action_names = normalize_runtime_action_names(
         action_names
-    ):
+    )
+
+    matches.extend(find_malformed_action_matches(
+        text, enabled_action_names, _short_payload_action_names(enabled_action_names),
+    ))
+
+    for action_name in enabled_action_names:
         private_marker, close_tag = _runtime_action_marker_config(
             action_name
         )
@@ -134,21 +228,246 @@ def _find_all_runtime_action_matches(
             private_marker,
             action_name,
             close_tag,
+            allow_inline_payload=(
+                _runtime_action_allows_inline_payload(
+                    action_name
+                )
+            ),
         )
 
-        if action_name == RUNTIME_ACTION_ASSET_ACTION:
-            action_matches = tuple(
-                match
-                for match in action_matches
-                if match.payload.strip()
+        if action_name == RUNTIME_ACTION_DEEP_WEB_SEARCH:
+            action_matches = (
+                *_find_deep_web_search_block_matches(
+                    text,
+                    private_marker,
+                    action_name,
+                ),
+                *find_runtime_action_matches(
+                    text,
+                    private_marker,
+                    action_name,
+                    False,
+                ),
+                *action_matches,
             )
+
+        if action_name == RUNTIME_ACTION_ASSET_ACTION:
+            action_matches = (
+                *_find_compact_project_asset_action_matches(
+                    text
+                ),
+                *(
+                    match
+                    for match in action_matches
+                    if match.payload.strip()
+                ),
+            )
+
 
         matches.extend(
             action_matches
         )
 
+    if allow_bare_prefix_fallback:
+        matches.extend(
+            _find_leading_bare_runtime_action_matches(
+                text,
+                enabled_action_names,
+            )
+        )
+
     return select_non_overlapping_regexp_matches(
         matches
+    )
+
+
+def _find_compact_project_asset_action_matches(
+    text: str,
+) -> tuple[RuntimeActionRegexpMatch, ...]:
+    """Parse the narrow ``<ASSET_ACTION: project_* | ...>`` compatibility form.
+
+    Keep this deliberately separate from the generic inline-payload parser so
+    arbitrary ASSET_ACTION operations do not silently acquire a second syntax.
+    """
+
+    private_marker, _ = _runtime_action_marker_config(
+        RUNTIME_ACTION_ASSET_ACTION
+    )
+    regexp = compile_runtime_action_tag_regexp(
+        private_marker,
+        RUNTIME_ACTION_ASSET_ACTION,
+    )
+    matches = []
+
+    for match in regexp.finditer(str(text or "")):
+        if match.group("slash"):
+            continue
+
+        raw_payload = str(
+            match.group("attribute_payload")
+            or ""
+        ).strip()
+        compact_payload = build_compact_project_asset_action_payload(
+            raw_payload
+        )
+
+        if compact_payload is None:
+            continue
+
+        matches.append(
+            RuntimeActionRegexpMatch(
+                start=match.start(),
+                end=match.end(),
+                raw=match.group(0),
+                name=RUNTIME_ACTION_ASSET_ACTION,
+                payload=compact_payload,
+                source="asset_action_compact",
+            )
+        )
+
+    return tuple(matches)
+
+
+def _unclosed_compact_asset_action_start(
+    text: str,
+) -> int | None:
+    """Return the start of an unfinished ``<ASSET_ACTION: ...`` line."""
+
+    match = re.search(
+        RUNTIME_ACTION_EXECUTABLE_PREFIX + (
+            r"<\s*ASSET_ACTION\s*:\s*[^>\r\n]*\Z"
+        ),
+        str(text or ""),
+        re.IGNORECASE,
+    )
+    return match.start() if match is not None else None
+
+
+def _mask_compact_project_asset_action_markers(
+    text: str,
+) -> str:
+    """Hide complete compact project markers from block-unclosed detection."""
+
+    matches = _find_compact_project_asset_action_matches(
+        text
+    )
+
+    if not matches:
+        return text
+
+    parts = []
+    cursor = 0
+
+    for match in matches:
+        parts.append(text[cursor:match.start])
+        parts.append(" " * (match.end - match.start))
+        cursor = match.end
+
+    parts.append(text[cursor:])
+    return "".join(parts)
+def _find_deep_web_search_block_matches(
+    text: str,
+    private_marker: str,
+    action_name: str,
+) -> tuple[RuntimeActionRegexpMatch, ...]:
+
+    marker_name, placeholder_payload = extract_private_marker_parts(
+        private_marker
+    )
+    names = [
+        name
+        for name in (
+            marker_name,
+            action_name,
+        )
+        if str(name or "").strip()
+    ]
+    name_pattern = "|".join(
+        re.escape(name)
+        for name in dict.fromkeys(names)
+    )
+
+    if not name_pattern:
+        return ()
+
+    placeholder_key = (
+        placeholder_payload
+        or "research objective"
+    ).casefold().strip(
+        "`'\"<>"
+    ).strip()
+    regexp = re.compile(
+        RUNTIME_ACTION_EXECUTABLE_PREFIX + (
+            r"<\s*(?P<name>"
+            + name_pattern
+            + r")"
+            r"(?:\s*:\s*(?P<attribute_payload>[^>\r\n]*?))?"
+            r"\s*>"
+            r"(?P<body>.*?)"
+            + RUNTIME_ACTION_EXECUTABLE_PREFIX
+            + r"<\s*/\s*(?:"
+            + name_pattern
+            + r")\s*>+"
+        ),
+        re.IGNORECASE | re.DOTALL,
+    )
+    matches = []
+
+    for match in regexp.finditer(str(text or "")):
+        attribute_payload = str(
+            match.group("attribute_payload")
+            or ""
+        ).strip()
+        body_payload = str(
+            match.group("body")
+            or ""
+        ).strip()
+        attribute_key = attribute_payload.casefold().strip(
+            "`'\"<>"
+        ).strip()
+        payload = (
+            body_payload
+            if (
+                body_payload
+                and (
+                    not attribute_payload
+                    or attribute_key == placeholder_key
+                )
+            )
+            else attribute_payload
+        )
+
+        matches.append(
+            RuntimeActionRegexpMatch(
+                start=match.start(),
+                end=match.end(),
+                raw=match.group(0),
+                name=str(
+                    match.group("name")
+                    or action_name
+                ).strip().upper(),
+                payload=payload,
+                source="regexp",
+            )
+        )
+
+    return tuple(matches)
+
+
+def _is_payloadless_jin_color_marker(
+    raw_marker: str,
+    payload: str,
+) -> bool:
+
+    if str(payload or "").strip():
+        return False
+
+    return bool(
+        re.fullmatch(
+            r"<\s*JIN_COLOR(?:\s*:\s*)?\s*/?>",
+            str(raw_marker or "").strip(),
+            re.IGNORECASE,
+        )
     )
 
 
@@ -167,6 +486,7 @@ class RuntimeActionResult:
     started_actions: tuple[RuntimeActionCall, ...] = ()
     observed_actions: tuple[RuntimeActionCall, ...] = ()
     actions: tuple[RuntimeActionCall, ...] = ()
+    failed_actions: tuple[RuntimeActionCall, ...] = ()
     removed_markers: tuple[str, ...] = ()
     marker_repetition_exceeded: bool = False
     marker_repetition_reason: str = ""
@@ -286,144 +606,43 @@ class RuntimeActionRepetitionGuard:
         return False
 
 
-def normalize_runtime_action_name(
-    action_name: str,
-) -> str:
+def build_deep_web_search_payload(
+    query: str,
+    placeholder_payloads=(),
+) -> str | None:
 
-    normalized_name = (
-        str(action_name)
-        .strip()
-        .upper()
-    )
-
-    if normalized_name.startswith(
-        "CAN_"
-    ):
-        normalized_name = normalized_name[4:]
-
-    aliases = {
-        "SAVE_SESSION": RUNTIME_ACTION_SAVE_SESSION,
-        "SAVE_DELAYED_MEMORY": RUNTIME_ACTION_SAVE_DELAYED_MEMORY_CONTENT,
-        "SAVE_DELAYED_MEMORY_CONTENT": RUNTIME_ACTION_SAVE_DELAYED_MEMORY_CONTENT,
-        "LIST_DELAYED_MEMORY": RUNTIME_ACTION_LIST_DELAYED_MEMORY,
-        "APPEND_DELAYED_MEMORY": RUNTIME_ACTION_APPEND_DELAYED_MEMORY,
-        "REMOVE_DELAYED_MEMORY": RUNTIME_ACTION_REMOVE_DELAYED_MEMORY,
-        "SAVE_ACTIVE_MEMORY": RUNTIME_ACTION_SAVE_ACTIVE_MEMORY,
-        "RESOLVE_ACTIVE_MEMORY": RUNTIME_ACTION_RESOLVE_ACTIVE_MEMORY,
-        "USE_ASSETS": RUNTIME_ACTION_ASSET_ACTION,
-        "LIST_SKILLS": RUNTIME_ACTION_LIST_SKILLS,
-        "CLEAN_TOOL_RESULTS": RUNTIME_ACTION_CLEAN_TOOL_RESULTS,
-        "APPEND_SKILL": RUNTIME_ACTION_APPEND_SKILL,
-        "REMOVE_SKILL": RUNTIME_ACTION_REMOVE_SKILL,
-        "ASSET_ACTION": RUNTIME_ACTION_ASSET_ACTION,
-        "TODO_LIST": RUNTIME_ACTION_CREATE_TODO_LIST,
-        "INTERNAL_ACTION_TODO_LIST": RUNTIME_ACTION_CREATE_TODO_LIST,
-        "CREATE_TODO_LIST": RUNTIME_ACTION_CREATE_TODO_LIST,
-        "INTERNAL_ACTION_CREATE_TODO_LIST": RUNTIME_ACTION_CREATE_TODO_LIST,
-        "RESOLVE_TODO": RUNTIME_ACTION_RESOLVE_TODO,
-        "CHECK_TODO": RUNTIME_ACTION_CHECK_TODO,
-        "IDLE": RUNTIME_ACTION_IDLE,
-    }
-
-    return aliases.get(
-        normalized_name,
-        normalized_name,
-    )
-
-
-def normalize_runtime_action_names(
-    enabled_actions=None,
-) -> tuple[str, ...]:
-
-    if enabled_actions is None:
-        return KNOWN_RUNTIME_ACTIONS
-
-    if isinstance(
-        enabled_actions,
-        dict,
-    ):
-        candidates = (
-            action_name
-            for action_name, is_enabled
-            in enabled_actions.items()
-            if is_enabled
-        )
-
-    else:
-        candidates = enabled_actions
-
-    actions = []
-    removed_markers = []
-
-    for action_name in candidates:
-
-        normalized_name = normalize_runtime_action_name(
-            action_name
-        )
-
-        normalized_names = [
-            normalized_name,
-        ]
-
-        if normalized_name == RUNTIME_ACTION_SAVE_ACTIVE_MEMORY:
-            normalized_names.append(
-                RUNTIME_ACTION_RESOLVE_ACTIVE_MEMORY
-            )
-
-        if normalized_name == RUNTIME_ACTION_SAVE_DELAYED_MEMORY_CONTENT:
-            normalized_names.append(
-                RUNTIME_ACTION_LIST_DELAYED_MEMORY
-            )
-            normalized_names.append(
-                RUNTIME_ACTION_APPEND_DELAYED_MEMORY
-            )
-            normalized_names.append(
-                RUNTIME_ACTION_REMOVE_DELAYED_MEMORY
-            )
-
-        if normalized_name == RUNTIME_ACTION_ASSET_ACTION:
-            normalized_names.append(
-                RUNTIME_ACTION_LIST_SKILLS
-            )
-            normalized_names.append(
-                RUNTIME_ACTION_APPEND_SKILL
-            )
-            normalized_names.append(
-                RUNTIME_ACTION_REMOVE_SKILL
-            )
-
-        if (
-            normalized_name
-            not in KNOWN_RUNTIME_ACTIONS
-        ):
-            continue
-
-        for normalized_name in normalized_names:
-            if normalized_name not in actions:
-                actions.append(
-                    normalized_name
-                )
-
-    return tuple(
-        actions
+    return build_web_search_payload(
+        query,
+        (
+            *placeholder_payloads,
+            "research objective",
+        ),
     )
 
 
 _ACTION_PAYLOAD_BUILDERS = {
-    RUNTIME_ACTION_IDLE: build_idle_payload,
+    RUNTIME_ACTION_CHAT_LOG_SEARCH: lambda payload, _: str(payload or "").strip(),
+    RUNTIME_ACTION_CLEAN_TOOL_RESULTS: lambda payload, _: str(payload or "").strip(),
     RUNTIME_ACTION_JIN_COLOR: build_jin_color_payload,
+    RUNTIME_ACTION_JIN_REACTION: build_jin_reaction_payload,
+    RUNTIME_ACTION_JIN_SIZE: build_jin_size_payload,
+    RUNTIME_ACTION_JIN_POSITION: build_jin_position_payload,
+    RUNTIME_ACTION_JIN_SPEED: build_jin_speed_payload,
+    RUNTIME_ACTION_UPDATE_LT_FACTS: build_update_lt_facts_payload,
+    RUNTIME_ACTION_RECALL_FACT_CONTEXT: build_recall_fact_context_payload,
+    RUNTIME_ACTION_DEEP_WEB_SEARCH: build_deep_web_search_payload,
     RUNTIME_ACTION_WEB_SEARCH: build_web_search_payload,
     RUNTIME_ACTION_SAVE_ACTIVE_MEMORY: build_save_active_memory_payload,
-    RUNTIME_ACTION_RESOLVE_ACTIVE_MEMORY: build_resolve_action_payload,
-    RUNTIME_ACTION_CREATE_TODO_LIST: build_create_todo_list_payload,
-    RUNTIME_ACTION_RESOLVE_TODO: build_resolve_action_payload,
-    RUNTIME_ACTION_CHECK_TODO: build_check_todo_payload,
-    RUNTIME_ACTION_SAVE_DELAYED_MEMORY_CONTENT: build_save_delayed_memory_payload,
-    RUNTIME_ACTION_APPEND_DELAYED_MEMORY: build_append_delayed_memory_payload,
-    RUNTIME_ACTION_REMOVE_DELAYED_MEMORY: build_resolve_action_payload,
-    RUNTIME_ACTION_APPEND_SKILL: build_append_skill_payload,
-    RUNTIME_ACTION_REMOVE_SKILL: build_resolve_action_payload,
+    RUNTIME_ACTION_DELETE_ACTIVE_MEMORY: build_resolve_action_payload,
+    RUNTIME_ACTION_SAVE_DELAYED_MEMORY: build_save_delayed_memory_payload,
+    RUNTIME_ACTION_LOAD_DELAYED_MEMORY: build_load_delayed_memory_payload,
+    RUNTIME_ACTION_ATTACH_FILE_CONTENT: build_resolve_action_payload,
+    RUNTIME_ACTION_ATTACH_FILE_BY_ID: build_resolve_action_payload,
+    RUNTIME_ACTION_LOAD_SKILL: build_load_skill_payload,
+    RUNTIME_ACTION_UNLOAD_SKILL: build_resolve_action_payload,
     RUNTIME_ACTION_ASSET_ACTION: build_asset_action_payload,
+    RUNTIME_ACTION_POSTING_BOARD: lambda payload, _: str(payload or "").strip(),
+    RUNTIME_ACTION_CALL_MCP: lambda payload, _: str(payload or "").strip(),
 }
 
 
@@ -438,22 +657,6 @@ def _build_internal_action_call(
 
     if normalized_name not in KNOWN_RUNTIME_ACTIONS:
         return None
-
-    if normalized_name in {
-        RUNTIME_ACTION_LIST_DELAYED_MEMORY,
-    }:
-        return RuntimeActionCall(
-            name=normalized_name,
-            payload="",
-        )
-
-    if normalized_name == RUNTIME_ACTION_LIST_SKILLS:
-        return RuntimeActionCall(
-            name=normalized_name,
-            payload=_clean_internal_action_query(
-                query
-            ),
-        )
 
     payload_builder = _ACTION_PAYLOAD_BUILDERS.get(
         normalized_name
@@ -474,6 +677,311 @@ def _build_internal_action_call(
         name=normalized_name,
         payload=payload,
     )
+
+
+_BARE_PREFIX_ACTION_LINE_RE = re.compile(
+    r"^[\t ]*(?P<name>[A-Z][A-Z0-9_]*)[\t ]*:[\t ]*"
+    r"(?P<payload>[^\r\n]*?)[\t ]*$",
+    re.IGNORECASE,
+)
+
+
+def _bare_prefix_payload_is_strictly_valid(
+    action_name: str,
+    raw_payload: str,
+    action: RuntimeActionCall,
+) -> bool:
+    """Apply the extra safety checks required by the bare-line fallback."""
+
+    payload = str(
+        raw_payload
+        or ""
+    ).strip()
+
+    if not payload or not str(action.payload or "").strip():
+        return False
+
+    if action_name == RUNTIME_ACTION_RECALL_FACT_CONTEXT:
+        return bool(
+            normalize_recall_fact_context_id(
+                payload
+            )
+        )
+
+    if action_name == RUNTIME_ACTION_DELETE_ACTIVE_MEMORY:
+        return bool(
+            ACTIVE_MEMORY_SLOT_ID_RE.fullmatch(
+                payload.casefold()
+            )
+        )
+
+    if action_name == RUNTIME_ACTION_LOAD_DELAYED_MEMORY:
+        return is_delayed_memory_report_id(
+            payload
+        )
+
+    return True
+
+
+def _parse_bare_prefix_action_line(
+    line: str,
+    enabled_action_names: tuple[str, ...],
+) -> RuntimeActionCall | None:
+    """Parse one exact standalone ``ACTION: payload`` compatibility line."""
+
+    match = _BARE_PREFIX_ACTION_LINE_RE.fullmatch(
+        str(
+            line
+            or ""
+        )
+    )
+
+    if match is None:
+        return None
+
+    action_name = str(
+        match.group("name")
+        or ""
+    ).strip().upper()
+
+    # The fallback never aliases or guesses an action name.  It must be the
+    # exact canonical action enabled for this response.
+    if (
+        action_name not in enabled_action_names
+        or not _runtime_action_allows_bare_prefix_fallback(
+            action_name
+        )
+    ):
+        return None
+
+    raw_payload = str(
+        match.group("payload")
+        or ""
+    ).strip()
+    action = _build_internal_action_call(
+        action_name,
+        raw_payload,
+    )
+
+    if action is None:
+        return None
+
+    if not _bare_prefix_payload_is_strictly_valid(
+        action_name,
+        raw_payload,
+        action,
+    ):
+        return None
+
+    return action
+
+
+def _find_leading_bare_runtime_action_matches(
+    text: str,
+    enabled_action_names: tuple[str, ...],
+) -> tuple[RuntimeActionRegexpMatch, ...]:
+    """Find a leading run of standalone bare payload actions.
+
+    Blank lines are ignored before/between actions.  The first ordinary or
+    malformed nonblank line permanently ends this fallback scan; later bare
+    lines are therefore ordinary response text.
+    """
+
+    value = str(
+        text
+        or ""
+    )
+
+    if not value:
+        return ()
+
+    matches = []
+    cursor = 0
+
+    while cursor < len(value):
+        line_end = value.find(
+            "\n",
+            cursor,
+        )
+        has_newline = line_end >= 0
+
+        if not has_newline:
+            line_end = len(value)
+
+        line = value[
+            cursor:line_end
+        ]
+
+        if line.endswith("\r"):
+            content_end = line_end - 1
+            line_for_parse = line[:-1]
+        else:
+            content_end = line_end
+            line_for_parse = line
+
+        if not line_for_parse.strip():
+            if not has_newline:
+                break
+            cursor = line_end + 1
+            continue
+
+        action = _parse_bare_prefix_action_line(
+            line_for_parse,
+            enabled_action_names,
+        )
+
+        if action is None:
+            # Executed angle markers at the response prefix are not visible
+            # prose and therefore must not disable the strict bare-action
+            # fallback for the next line. This matters when the provider sends
+            # a compact ASSET_ACTION and a following ATTACH_FILE_CONTENT in one chunk.
+            prefix_markers = _find_all_runtime_action_matches(
+                line_for_parse,
+                enabled_action_names,
+                allow_bare_prefix_fallback=False,
+            )
+            fully_consumed_marker = (
+                len(prefix_markers) == 1
+                and not line_for_parse[:prefix_markers[0].start].strip()
+                and not line_for_parse[prefix_markers[0].end:].strip()
+            )
+
+            if fully_consumed_marker and has_newline:
+                cursor = line_end + 1
+                continue
+
+            break
+
+        line_match = _BARE_PREFIX_ACTION_LINE_RE.fullmatch(
+            line_for_parse
+        )
+        raw_payload = str(
+            line_match.group("payload")
+            if line_match is not None
+            else ""
+        ).strip()
+
+        matches.append(
+            RuntimeActionRegexpMatch(
+                start=cursor,
+                end=content_end,
+                raw=value[cursor:content_end],
+                name=action.name,
+                payload=raw_payload,
+                source="bare_prefix_fallback",
+            )
+        )
+
+        if not has_newline:
+            break
+
+        cursor = line_end + 1
+
+    return tuple(
+        matches
+    )
+
+
+def _leading_bare_runtime_action_needs_more(
+    text: str,
+    enabled_action_names: tuple[str, ...],
+) -> bool:
+    """Hold an unterminated leading bare-action candidate until line end."""
+
+    value = str(
+        text
+        or ""
+    )
+
+    if not value:
+        return False
+
+    cursor = 0
+
+    while True:
+        line_end = value.find(
+            "\n",
+            cursor,
+        )
+
+        if line_end < 0:
+            tail = value[
+                cursor:
+            ]
+
+            if not tail.strip():
+                return True
+
+            candidate = tail.lstrip(
+                " \t"
+            )
+
+            if not candidate:
+                return True
+
+            if candidate.startswith("<"):
+                return False
+
+            eligible_names = tuple(
+                action_name
+                for action_name in enabled_action_names
+                if _runtime_action_allows_bare_prefix_fallback(
+                    action_name
+                )
+            )
+
+            stripped_candidate = candidate.upper().strip()
+
+            for action_name in eligible_names:
+                if (
+                    stripped_candidate
+                    and action_name.startswith(
+                        stripped_candidate
+                    )
+                ):
+                    return True
+
+                if re.match(
+                    r"^"
+                    + re.escape(action_name)
+                    + r"[ \t]*:",
+                    candidate,
+                    re.IGNORECASE,
+                ):
+                    # Payload validity can only be finalized at newline/flush;
+                    # otherwise trailing prose on the same line could be eaten.
+                    return True
+
+                if re.fullmatch(
+                    re.escape(action_name) + r"[ \t]*:?",
+                    candidate,
+                    re.IGNORECASE,
+                ):
+                    return True
+
+            return False
+
+        line = value[
+            cursor:line_end
+        ]
+
+        if line.endswith("\r"):
+            line = line[:-1]
+
+        if not line.strip():
+            cursor = line_end + 1
+            continue
+
+        if _parse_bare_prefix_action_line(
+            line,
+            enabled_action_names,
+        ) is None:
+            return False
+
+        cursor = line_end + 1
+
+        if cursor >= len(value):
+            return False
 
 
 def _action_match_removal_span(
@@ -692,7 +1200,7 @@ def _replace_runtime_action_matches(
         start = match.start
         end = match.end
 
-        if replacement == "":
+        if replacement == "" and match.source != "malformed":
             start, end = _action_match_removal_span(
                 text,
                 start,
@@ -736,6 +1244,7 @@ def extract_runtime_actions(
     seen_action_keys=None,
     preserve_action_marker=None,
     repetition_guard: RuntimeActionRepetitionGuard | None = None,
+    allow_bare_prefix_fallback: bool = True,
 ) -> RuntimeActionResult:
 
     if not text:
@@ -752,6 +1261,8 @@ def extract_runtime_actions(
     marker_repetition_exceeded = False
     marker_repetition_reason = ""
     plural_skill_marker_index = 0
+    plural_id_marker_index = 0
+    recall_facts_marker_index = 0
 
     if seen_action_keys is None:
         seen_action_keys = set()
@@ -760,9 +1271,24 @@ def extract_runtime_actions(
         raw_marker: str,
         action_name: str,
         query: str = "",
+        *,
+        allow_preserve_marker: bool = True,
     ) -> str:
         nonlocal marker_repetition_exceeded
         nonlocal marker_repetition_reason
+
+        if normalize_runtime_action_name(action_name) in {
+            RUNTIME_ACTION_LOAD_DELAYED_MEMORY,
+            RUNTIME_ACTION_DELETE_ACTIVE_MEMORY,
+            RUNTIME_ACTION_ATTACH_FILE_BY_ID,
+        }:
+            return handle_plural_id_marker(raw_marker, action_name, query)
+
+        if str(action_name or "").strip().upper() == "RECALL_FACTS_CONTEXT":
+            return handle_recall_facts_marker(
+                raw_marker,
+                query,
+            )
 
         if marker_repetition_exceeded:
             if not preserve_action_text:
@@ -785,6 +1311,7 @@ def extract_runtime_actions(
                 raw_marker,
                 plural_skill_action_name,
                 query,
+                marker_name=action_name,
             )
 
         normalized_action_name = normalize_runtime_action_name(
@@ -803,11 +1330,10 @@ def extract_runtime_actions(
         )
 
         if action is None:
-            # IDLE is intentionally numeric: ``IDLE: <digits>`` with an
-            # optional ``s``/``ms`` suffix is a runtime marker. The suffix is
-            # ignored and the number always means seconds. Plain prose and
-            # malformed candidates such as ``<IDLE: test>`` stay visible.
-            if normalized_action_name == RUNTIME_ACTION_IDLE:
+            if _is_payloadless_jin_color_marker(
+                raw_marker,
+                query,
+            ):
                 return raw_marker
 
             if not preserve_action_text:
@@ -835,16 +1361,25 @@ def extract_runtime_actions(
             marker_repetition_reason = repetition_guard.reason
             return ""
 
-        if (
-            preserve_action_marker is not None
+        preserve_marker = (
+            allow_preserve_marker
+            and preserve_action_marker is not None
             and preserve_action_marker(
                 raw_marker,
                 action,
             )
+        )
+
+        if (
+            preserve_marker
+            and action.name != RUNTIME_ACTION_JIN_REACTION
         ):
             return raw_marker
 
-        if not preserve_action_text:
+        if (
+            not preserve_action_text
+            and not preserve_marker
+        ):
             removed_markers.append(
                 raw_marker
             )
@@ -869,14 +1404,131 @@ def extract_runtime_actions(
 
         return (
             raw_marker
-            if preserve_action_text
+            if preserve_action_text or preserve_marker
             else ""
         )
+
+    def handle_plural_id_marker(
+        raw_marker: str,
+        action_name: str,
+        query: str = "",
+    ) -> str:
+        nonlocal plural_id_marker_index
+        nonlocal marker_repetition_exceeded
+        nonlocal marker_repetition_reason
+
+        normalized_action_name = normalize_runtime_action_name(action_name)
+        if normalized_action_name not in enabled_action_names:
+            return raw_marker
+
+        item_ids = tuple(dict.fromkeys(
+            item.strip().casefold()
+            for item in str(query or "").split(",")
+            if item.strip()
+        ))
+        plural_id_marker_index += 1
+        marker_name = extract_private_marker_parts(
+            get_runtime_action_private_marker(normalized_action_name)
+        )[0]
+        marker_payload = ", ".join(item_ids)
+        marker_group = f"{marker_name.lower()}_{plural_id_marker_index:03d}"
+        marker_action = RuntimeActionCall(
+            name=normalized_action_name,
+            payload=marker_payload,
+            marker_name=marker_name,
+            marker_payload=marker_payload,
+            marker_group=marker_group,
+        )
+        observed_actions.append(marker_action)
+
+        if repetition_guard is not None and repetition_guard.record(marker_action):
+            marker_repetition_exceeded = True
+            marker_repetition_reason = repetition_guard.reason
+            return ""
+
+        should_preserve_marker = False
+        for item_id in item_ids:
+            action = _build_internal_action_call(normalized_action_name, item_id)
+            if action is None:
+                continue
+            action = RuntimeActionCall(
+                name=action.name,
+                payload=action.payload,
+                marker_name=marker_name,
+                marker_payload=marker_payload,
+                marker_group=marker_group,
+            )
+            if preserve_action_marker is not None and preserve_action_marker(raw_marker, action):
+                should_preserve_marker = True
+                continue
+            action_key = (action.name, action.payload)
+            if action_key not in seen_action_keys:
+                seen_action_keys.add(action_key)
+                actions.append(action)
+
+        if not preserve_action_text and not should_preserve_marker:
+            removed_markers.append(raw_marker)
+        return raw_marker if preserve_action_text or should_preserve_marker else ""
+
+    def handle_recall_facts_marker(
+        raw_marker: str,
+        query: str = "",
+    ) -> str:
+        nonlocal recall_facts_marker_index
+        nonlocal marker_repetition_exceeded
+        nonlocal marker_repetition_reason
+
+        if RUNTIME_ACTION_RECALL_FACT_CONTEXT not in enabled_action_names:
+            return raw_marker
+
+        fact_ids = split_recall_fact_context_ids(query)
+        if not fact_ids:
+            if not preserve_action_text:
+                removed_markers.append(raw_marker)
+            return raw_marker if preserve_action_text else ""
+
+        recall_facts_marker_index += 1
+        marker_payload = ", ".join(fact_ids)
+        marker_group = f"recall_facts_context_{recall_facts_marker_index:03d}"
+        marker_action = RuntimeActionCall(
+            name="RECALL_FACTS_CONTEXT",
+            payload=marker_payload,
+            marker_name="RECALL_FACTS_CONTEXT",
+            marker_payload=marker_payload,
+            marker_group=marker_group,
+        )
+        observed_actions.append(marker_action)
+
+        if repetition_guard is not None and repetition_guard.record(marker_action):
+            marker_repetition_exceeded = True
+            marker_repetition_reason = repetition_guard.reason
+            return ""
+
+        should_preserve_marker = False
+        for fact_id in fact_ids:
+            action = RuntimeActionCall(
+                name=RUNTIME_ACTION_RECALL_FACT_CONTEXT,
+                payload=fact_id,
+                marker_name="RECALL_FACTS_CONTEXT",
+                marker_payload=marker_payload,
+                marker_group=marker_group,
+            )
+            if preserve_action_marker is not None and preserve_action_marker(raw_marker, action):
+                should_preserve_marker = True
+                continue
+            actions.append(action)
+
+        if not preserve_action_text and not should_preserve_marker:
+            removed_markers.append(raw_marker)
+
+        return raw_marker if preserve_action_text or should_preserve_marker else ""
 
     def handle_plural_skill_marker(
         raw_marker: str,
         action_name: str,
         query: str = "",
+        *,
+        marker_name: str = "",
     ) -> str:
         nonlocal marker_repetition_exceeded
         nonlocal marker_repetition_reason
@@ -900,11 +1552,14 @@ def extract_runtime_actions(
         skill_names = _split_internal_skill_marker_list(
             query
         )
-        plural_marker_name = (
-            "APPEND_SKILLS"
-            if action_name == RUNTIME_ACTION_APPEND_SKILL
-            else "REMOVE_SKILLS"
-        )
+        plural_marker_name = str(
+            marker_name
+            or (
+                "LOAD_SKILLS"
+                if action_name == RUNTIME_ACTION_LOAD_SKILL
+                else "UNLOAD_SKILLS"
+            )
+        ).strip().upper()
         plural_marker_payload = ", ".join(
             skill_names
         )
@@ -1012,10 +1667,33 @@ def extract_runtime_actions(
         match: RuntimeActionRegexpMatch,
     ) -> str:
 
+        if match.source == "malformed":
+            actions.append(RuntimeActionCall(
+                name=MALFORMED_ACTION, payload=match.payload, marker_name=match.name,
+            ))
+            if not preserve_action_text:
+                removed_markers.append(match.raw)
+            return match.raw if preserve_action_text else ""
+
+        if match.source == "compat_closing":
+            if not preserve_action_text:
+                removed_markers.append(
+                    match.raw
+                )
+
+            return (
+                match.raw
+                if preserve_action_text
+                else ""
+            )
+
         return handle_marker(
             match.raw,
             match.name,
             match.payload,
+            allow_preserve_marker=(
+                match.source != "bare_prefix_fallback"
+            ),
         )
 
     clean_text = _replace_runtime_action_matches(
@@ -1023,6 +1701,9 @@ def extract_runtime_actions(
         _find_all_runtime_action_matches(
             text,
             enabled_action_names,
+            allow_bare_prefix_fallback=(
+                allow_bare_prefix_fallback
+            ),
         ),
         replace_runtime_action_marker,
     )
@@ -1046,7 +1727,7 @@ def _enabled_action_start_markers(
     enabled_actions=None,
 ) -> tuple[str, ...]:
 
-    markers = []
+    markers = ["<tool_call>", "<|tool_call>"]
 
     for action_name in normalize_runtime_action_names(
         enabled_actions
@@ -1054,6 +1735,14 @@ def _enabled_action_start_markers(
         private_marker, close_tag = _runtime_action_marker_config(
             action_name
         )
+
+        # Malformed-action detection recognizes internal runtime names too.
+        # Keep their partial ``<ACTION_NAME`` prefixes private across arbitrary
+        # stream chunk boundaries even when the canonical public marker uses an
+        # alias (for example ATTACH_FILE_BY_ID -> ATTACH_FILES_BY_ID).
+        internal_marker = "<" + action_name
+        if internal_marker not in markers:
+            markers.append(internal_marker)
 
         for marker in get_runtime_action_start_markers(
             private_marker,
@@ -1122,6 +1811,57 @@ def _enabled_action_marker_prefix_index(
     )
 
 
+def _trailing_inline_jin_marker_length(
+    text: str,
+    enabled_action_names: tuple[str, ...],
+) -> int:
+    """Hold partial/inline JIN tags across streamed chunks, whitespace included."""
+    if not text:
+        return 0
+
+    marker_start = text.rfind("<")
+    if marker_start < 0 or is_quoted_runtime_marker(text, marker_start):
+        return 0
+
+    candidate = text[marker_start:]
+    if ">" in candidate or "\n" in candidate or "\r" in candidate:
+        return 0
+
+    name_match = re.match(
+        r"<\s*([A-Z0-9_]*)",
+        candidate,
+        re.IGNORECASE,
+    )
+    if name_match is None:
+        return 0
+
+    typed_name = str(name_match.group(1) or "").upper()
+    allowed_names = []
+    for action_name in enabled_action_names:
+        if not _runtime_action_allows_inline_payload(action_name):
+            continue
+        private_marker, _ = _runtime_action_marker_config(action_name)
+        marker_name, _ = extract_private_marker_parts(private_marker)
+        for name in (marker_name, action_name):
+            normalized = str(name or "").strip().upper()
+            if normalized and normalized not in allowed_names:
+                allowed_names.append(normalized)
+
+    if not allowed_names:
+        return 0
+
+    if not typed_name:
+        return len(candidate) if candidate[1:].strip() == "" else 0
+
+    if any(
+        name.startswith(typed_name)
+        for name in allowed_names
+    ):
+        return len(candidate)
+
+    return 0
+
+
 def _trailing_marker_prefix_length(
     text: str,
     enabled_actions=None,
@@ -1138,6 +1878,10 @@ def _trailing_marker_prefix_length(
 
     if not text or not max_marker_length:
         return 0
+
+    # Retain a possible literal opener even when '<' arrives in the next chunk.
+    if text[-1] in RUNTIME_ACTION_QUOTE_OPENERS:
+        return 1
 
     upper_text = text.upper()
     max_length = min(
@@ -1163,9 +1907,13 @@ def _trailing_marker_prefix_length(
             continue
 
         if marker_flags & _MARKER_PREFIX_ANGLE:
-            return length
+            if not is_quoted_runtime_marker(text, len(text) - length):
+                return length
 
-    return 0
+    return _trailing_inline_jin_marker_length(
+        text,
+        enabled_action_names,
+    )
 
 
 @lru_cache(maxsize=None)
@@ -1202,6 +1950,8 @@ def _enabled_action_stream_candidates(
 def _action_text_may_contain_marker(
     text: str,
     enabled_actions=None,
+    *,
+    allow_bare_prefix_fallback: bool = False,
 ) -> bool:
 
     if not text:
@@ -1215,9 +1965,19 @@ def _action_text_may_contain_marker(
         enabled_action_names
     )
 
+    if (
+        allow_bare_prefix_fallback
+        and _find_leading_bare_runtime_action_matches(
+            text,
+            enabled_action_names,
+        )
+    ):
+        return True
+
     # No opening angle bracket means no runtime action. Names such as
-    # ``LIST_SKILLS`` or ``SAVE_SESSION`` in prose, Markdown/code spans, or
-    # standalone lines must pass through unchanged.
+    # Runtime action names in prose, Markdown/code spans, or
+    # standalone lines must pass through unchanged unless the explicit
+    # response-prefix fallback above accepted a complete valid action line.
     if "<" not in upper_text:
         return False
 
@@ -1235,6 +1995,7 @@ def _extract_runtime_actions_if_needed(
     seen_action_keys=None,
     preserve_action_marker=None,
     repetition_guard: RuntimeActionRepetitionGuard | None = None,
+    allow_bare_prefix_fallback: bool = False,
 ) -> RuntimeActionResult:
 
     if not text:
@@ -1245,6 +2006,9 @@ def _extract_runtime_actions_if_needed(
     if not _action_text_may_contain_marker(
         text,
         enabled_actions=enabled_actions,
+        allow_bare_prefix_fallback=(
+            allow_bare_prefix_fallback
+        ),
     ):
         return RuntimeActionResult(
             text=text,
@@ -1257,7 +2021,32 @@ def _extract_runtime_actions_if_needed(
         seen_action_keys=seen_action_keys,
         preserve_action_marker=preserve_action_marker,
         repetition_guard=repetition_guard,
+        allow_bare_prefix_fallback=(
+            allow_bare_prefix_fallback
+        ),
     )
+
+
+def _complete_runtime_action_block_ranges(
+    text: str,
+    enabled_actions=None,
+) -> tuple[tuple[int, int], ...]:
+
+    ranges = []
+
+    for action_name in normalize_runtime_action_names(enabled_actions):
+        if action_name not in CLOSE_TAG_RUNTIME_ACTIONS:
+            continue
+
+        private_marker, _ = _runtime_action_marker_config(action_name)
+        ranges.extend(
+            (match.start, match.end)
+            for match in find_runtime_action_matches(
+                text, private_marker, action_name, True
+            )
+        )
+
+    return tuple(ranges)
 
 
 def _unclosed_internal_action_request_start(
@@ -1265,19 +2054,45 @@ def _unclosed_internal_action_request_start(
     enabled_actions=None,
 ) -> int | None:
 
-    marker_starts = []
+    names = normalize_runtime_action_names(enabled_actions)
+    complete_block_ranges = _complete_runtime_action_block_ranges(
+        text, names,
+    )
+    malformed_start = find_pending_malformed_action_start(
+        text, names, _short_payload_action_names(names),
+    )
+    marker_starts = [] if malformed_start is None else [malformed_start]
 
     for action_name in normalize_runtime_action_names(
         enabled_actions
     ):
+        if action_name == RUNTIME_ACTION_ASSET_ACTION:
+            compact_marker_start = _unclosed_compact_asset_action_start(
+                text
+            )
+            if compact_marker_start is not None:
+                marker_starts.append(
+                    compact_marker_start
+                )
+
         private_marker, close_tag = _runtime_action_marker_config(
             action_name
         )
+        marker_text = (
+            _mask_compact_project_asset_action_markers(text)
+            if action_name == RUNTIME_ACTION_ASSET_ACTION
+            else text
+        )
         marker_start = find_unclosed_runtime_action_start(
-            text,
+            marker_text,
             private_marker,
             action_name,
             close_tag,
+            allow_inline_payload=(
+                _runtime_action_allows_inline_payload(
+                    action_name
+                )
+            ),
         )
 
         if marker_start is not None:
@@ -1285,14 +2100,21 @@ def _unclosed_internal_action_request_start(
                 marker_start
             )
 
+    marker_starts = [
+        marker_start
+        for marker_start in marker_starts
+        if not any(
+            block_start < marker_start < block_end
+            for block_start, block_end in complete_block_ranges
+        )
+    ]
+
     if not marker_starts:
         return None
 
-    return max(
+    return min(
         marker_starts
     )
-
-
 def _asset_action_stream_payload_has_action(
     candidate: str,
 ) -> bool:
@@ -1345,27 +2167,6 @@ def _asset_action_block_has_payload(
     )
 
 
-def _unclosed_asset_action_start(
-    text: str,
-) -> int | None:
-
-    value = str(text or "")
-
-    if not value:
-        return None
-
-    private_marker, close_tag = _runtime_action_marker_config(
-        RUNTIME_ACTION_ASSET_ACTION
-    )
-
-    return find_unclosed_runtime_action_start(
-        value,
-        private_marker,
-        RUNTIME_ACTION_ASSET_ACTION,
-        close_tag,
-    )
-
-
 class RuntimeActionStreamFilter:
 
     def __init__(
@@ -1374,9 +2175,12 @@ class RuntimeActionStreamFilter:
         preserve_action_text: bool = False,
         preserve_action_marker=None,
         repetition_guard: RuntimeActionRepetitionGuard | None = None,
+        allow_bare_prefix_fallback: bool = True,
     ):
         self.pending = ""
         self.pending_is_action = False
+        self.bare_prefix_pending = ""
+        self.bare_prefix_fallback_active = allow_bare_prefix_fallback
         self.preserve_action_text = preserve_action_text
         self.preserve_action_marker = preserve_action_marker
         self.repetition_guard = repetition_guard
@@ -1444,6 +2248,9 @@ class RuntimeActionStreamFilter:
     ) -> tuple[RuntimeActionCall, ...]:
 
         marker_starts = []
+        complete_block_ranges = _complete_runtime_action_block_ranges(
+            text, self.enabled_actions,
+        )
         candidate_action_names = (
             tuple(action_names)
             if action_names is not None
@@ -1465,8 +2272,16 @@ class RuntimeActionStreamFilter:
             for match in start_pattern.finditer(
                 text
             ):
+                marker_start = match.start()
+
+                if any(
+                    block_start < marker_start < block_end
+                    for block_start, block_end in complete_block_ranges
+                ):
+                    continue
+
                 marker_starts.append(
-                    match.start()
+                    marker_start
                 )
 
         started_actions = []
@@ -1501,6 +2316,7 @@ class RuntimeActionStreamFilter:
             ),
             observed_actions=result.observed_actions,
             actions=result.actions,
+            failed_actions=result.failed_actions,
             removed_markers=result.removed_markers,
             marker_repetition_exceeded=(
                 result.marker_repetition_exceeded
@@ -1511,6 +2327,50 @@ class RuntimeActionStreamFilter:
         )
 
     def filter(
+        self,
+        chunk: str,
+    ) -> RuntimeActionResult:
+
+        if not chunk:
+            return RuntimeActionResult(
+                text="",
+            )
+
+        if (
+            self.bare_prefix_fallback_active
+            and not self.pending_is_action
+        ):
+            candidate = (
+                self.bare_prefix_pending
+                + self.pending
+                + chunk
+            )
+            self.bare_prefix_pending = ""
+            self.pending = ""
+
+            if _leading_bare_runtime_action_needs_more(
+                candidate,
+                self.enabled_actions,
+            ):
+                self.bare_prefix_pending = candidate
+
+                return RuntimeActionResult(
+                    text="",
+                )
+
+            chunk = candidate
+
+        result = self._filter_core(
+            chunk
+        )
+
+        if result.text.strip():
+            self.bare_prefix_fallback_active = False
+            self.bare_prefix_pending = ""
+
+        return result
+
+    def _filter_core(
         self,
         chunk: str,
     ) -> RuntimeActionResult:
@@ -1531,6 +2391,45 @@ class RuntimeActionStreamFilter:
         )
 
         if not self.pending:
+            # Block actions must win over a trailing ``<`` prefix. When a
+            # chunk ends at the first character of a closing tag, the generic
+            # prefix detector would otherwise emit the still-open block body
+            # as visible text and keep only ``<`` pending.
+            unclosed_start = _unclosed_internal_action_request_start(
+                combined,
+                enabled_actions=self.enabled_actions,
+            )
+
+            if unclosed_start is not None:
+                pending_start, ready_text = _split_pending_marker_prefix(
+                    combined,
+                    unclosed_start,
+                )
+                self.pending = combined[
+                    pending_start:
+                ]
+                self.pending_is_action = True
+                started_actions = (
+                    self._find_started_actions(ready_text)
+                    + self._build_started_actions(combined, unclosed_start)
+                )
+                result = _extract_runtime_actions_if_needed(
+                    ready_text,
+                    enabled_actions=self.enabled_actions,
+                    preserve_action_text=self.preserve_action_text,
+                    seen_action_keys=self.seen_action_keys,
+                    preserve_action_marker=self.preserve_action_marker,
+                    repetition_guard=self.repetition_guard,
+                    allow_bare_prefix_fallback=(
+                        self.bare_prefix_fallback_active
+                    ),
+                )
+
+                return self._attach_started_actions(
+                    result,
+                    started_actions,
+                )
+
             hold_length = _trailing_marker_prefix_length(
                 combined,
                 enabled_actions=self.enabled_actions,
@@ -1559,6 +2458,9 @@ class RuntimeActionStreamFilter:
                     seen_action_keys=self.seen_action_keys,
                     preserve_action_marker=self.preserve_action_marker,
                     repetition_guard=self.repetition_guard,
+                    allow_bare_prefix_fallback=(
+                        self.bare_prefix_fallback_active
+                    ),
                 )
 
                 self.pending_started_actions.clear()
@@ -1577,6 +2479,9 @@ class RuntimeActionStreamFilter:
                 and not _action_text_may_contain_marker(
                     combined,
                     enabled_actions=self.enabled_actions,
+                    allow_bare_prefix_fallback=(
+                        self.bare_prefix_fallback_active
+                    ),
                 )
             ):
                 self.pending = combined[
@@ -1597,6 +2502,9 @@ class RuntimeActionStreamFilter:
             and not _action_text_may_contain_marker(
                 chunk,
                 enabled_actions=self.enabled_actions,
+                allow_bare_prefix_fallback=(
+                    self.bare_prefix_fallback_active
+                ),
             )
         ):
             return RuntimeActionResult(
@@ -1626,11 +2534,13 @@ class RuntimeActionStreamFilter:
 
             if not action_may_be_complete:
                 self.pending += chunk
-                started_actions = self._find_started_actions(
-                    self.pending,
-                    action_names=(
-                        RUNTIME_ACTION_ASSET_ACTION,
-                    ),
+                # The pending buffer begins at the outer opening marker
+                # (possibly after whitespace). Don't rescan its private body
+                # for nested actions on every content chunk.
+                started_actions = (
+                    () if self.pending_started_actions else self._build_started_actions(
+                        self.pending, len(self.pending) - len(self.pending.lstrip()),
+                    )
                 )
 
                 return RuntimeActionResult(
@@ -1640,10 +2550,6 @@ class RuntimeActionStreamFilter:
 
         self.pending = ""
         self.pending_is_action = False
-        started_actions = self._find_started_actions(
-            combined
-        )
-
         unclosed_start = _unclosed_internal_action_request_start(
             combined,
             enabled_actions=self.enabled_actions,
@@ -1660,6 +2566,10 @@ class RuntimeActionStreamFilter:
                 pending_start:
             ]
             self.pending_is_action = True
+            started_actions = (
+                self._find_started_actions(ready_text)
+                + self._build_started_actions(combined, unclosed_start)
+            )
 
             result = _extract_runtime_actions_if_needed(
                 ready_text,
@@ -1668,6 +2578,9 @@ class RuntimeActionStreamFilter:
                 seen_action_keys=self.seen_action_keys,
                 preserve_action_marker=self.preserve_action_marker,
                 repetition_guard=self.repetition_guard,
+                allow_bare_prefix_fallback=(
+                    self.bare_prefix_fallback_active
+                ),
             )
 
             return self._attach_started_actions(
@@ -1675,6 +2588,7 @@ class RuntimeActionStreamFilter:
                 started_actions,
             )
 
+        started_actions = self._find_started_actions(combined)
         hold_length = _trailing_marker_prefix_length(
             combined,
             enabled_actions=self.enabled_actions,
@@ -1712,6 +2626,9 @@ class RuntimeActionStreamFilter:
                 seen_action_keys=self.seen_action_keys,
                 preserve_action_marker=self.preserve_action_marker,
                 repetition_guard=self.repetition_guard,
+                allow_bare_prefix_fallback=(
+                    self.bare_prefix_fallback_active
+                ),
             )
 
             self.pending_started_actions.clear()
@@ -1728,6 +2645,9 @@ class RuntimeActionStreamFilter:
             seen_action_keys=self.seen_action_keys,
             preserve_action_marker=self.preserve_action_marker,
             repetition_guard=self.repetition_guard,
+            allow_bare_prefix_fallback=(
+                self.bare_prefix_fallback_active
+            ),
         )
 
         self.pending_started_actions.clear()
@@ -1739,7 +2659,11 @@ class RuntimeActionStreamFilter:
 
     def flush_result(self) -> RuntimeActionResult:
 
-        pending = self.pending
+        pending = (
+            self.bare_prefix_pending
+            + self.pending
+        )
+        self.bare_prefix_pending = ""
         self.pending = ""
         self.pending_is_action = False
         self.pending_started_actions.clear()
@@ -1749,95 +2673,74 @@ class RuntimeActionStreamFilter:
                 text=pending,
             )
 
-        if _unclosed_asset_action_start(
-            pending
-        ) is not None:
-            # ASSET_ACTION is a strict block action. Without a closing tag it
-            # stays ordinary text, even when another valid marker appeared
-            # earlier in the same model response. Parse any complete markers
-            # around it, but never turn the unfinished block into an action.
-            return extract_runtime_actions(
-                pending,
-                enabled_actions=self.enabled_actions,
-                preserve_action_text=False,
-                preserve_action_marker=self.preserve_action_marker,
-                repetition_guard=self.repetition_guard,
+        if RUNTIME_ACTION_RECALL_FACT_CONTEXT in self.enabled_actions:
+            unfinished_recall = re.search(
+                RUNTIME_ACTION_EXECUTABLE_PREFIX + r"<\s*RECALL_FACT_CONTEXT\s*:\s*([^<>]*)\Z",
+                pending, re.IGNORECASE,
             )
-
-        delayed_memory_marker, _ = _runtime_action_marker_config(
-            RUNTIME_ACTION_SAVE_DELAYED_MEMORY_CONTENT
-        )
-        delayed_memory_start_re = compile_runtime_action_start_regexp(
-            delayed_memory_marker,
-            RUNTIME_ACTION_SAVE_DELAYED_MEMORY_CONTENT,
-        )
-        delayed_memory_end_re = compile_runtime_action_end_regexp(
-            delayed_memory_marker,
-            RUNTIME_ACTION_SAVE_DELAYED_MEMORY_CONTENT,
-        )
-        delayed_memory_start = delayed_memory_start_re.match(
-            pending
-        )
-
-        if (
-            delayed_memory_start is not None
-            and not delayed_memory_end_re.search(
-                pending,
-                delayed_memory_start.end(),
-            )
-        ):
-            payload = pending[
-                delayed_memory_start.end():
-            ].strip()
-
-            present_fields = {
-                str(
-                    match.group(1)
-                    or ""
-                ).strip().casefold()
-                for match in DELAYED_MEMORY_FIELD_RE.finditer(
-                    payload
-                )
-            }
-
-            if (
-                {
-                    "title",
-                    "summary",
-                    "tags",
-                    "body",
-                }.issubset(
-                    present_fields
-                )
-                and parse_delayed_memory_content_payload(
-                    payload
-                )
-            ):
-                pending = (
-                    pending.rstrip()
-                    + "\n</SAVE_DELAYED_MEMORY_CONTENT>"
+            if unfinished_recall:
+                return RuntimeActionResult(
+                    text=pending[:unfinished_recall.start()],
+                    failed_actions=(RuntimeActionCall(
+                        name=RUNTIME_ACTION_RECALL_FACT_CONTEXT,
+                        payload=unfinished_recall.group(1),
+                    ),),
+                    removed_markers=(unfinished_recall.group(0),),
                 )
 
-        if _unclosed_internal_action_request_start(
+        malformed_start = find_pending_malformed_action_start(
+            pending, self.enabled_actions, _short_payload_action_names(self.enabled_actions),
+        )
+        if malformed_start is not None:
+            tail = pending[malformed_start:]
+            match = re.match(r"<\|?tool_call>\s*call\s*:\s*([A-Z][A-Z0-9_]*)\s*(.*)", tail, re.I | re.S)
+            if match is None:
+                match = re.match(r"<([A-Z][A-Z0-9_]*)(?:\s+|>)(.*)", tail, re.I | re.S)
+            if match and match.group(1).upper() in self.enabled_actions:
+                name = match.group(1).upper()
+                # Canonical open blocks retain their existing no-close-tag path.
+                if name not in CLOSE_TAG_RUNTIME_ACTIONS or tail.lower().startswith(("<tool_call>", "<|tool_call>")):
+                    payload = re.split(r"</|<\|?tool_call", match.group(2), maxsplit=1, flags=re.I)[0].rstrip("> ").strip()
+                    return RuntimeActionResult(
+                        text=pending[:malformed_start],
+                        actions=(RuntimeActionCall(name=MALFORMED_ACTION, payload=payload, marker_name=name),),
+                        removed_markers=(tail,),
+                    )
+            # An unfinished name alone is a false prefix, not a detected action.
+            if match is None:
+                return RuntimeActionResult(text=pending)
+
+        marker_start = _unclosed_internal_action_request_start(
             pending,
             enabled_actions=self.enabled_actions,
-        ) == 0:
-            result = extract_runtime_actions(
-                pending,
-                enabled_actions=self.enabled_actions,
-                preserve_action_text=False,
-                preserve_action_marker=self.preserve_action_marker,
-                repetition_guard=self.repetition_guard,
-            )
+        )
+        if marker_start is not None:
+            failed_actions = []
+            for action_name in self.enabled_actions:
+                if action_name not in CLOSE_TAG_RUNTIME_ACTIONS:
+                    continue
+                private_marker, close_tag = _runtime_action_marker_config(action_name)
+                action_start = find_unclosed_runtime_action_start(
+                    pending, private_marker, action_name, close_tag,
+                    allow_inline_payload=_runtime_action_allows_inline_payload(action_name),
+                )
+                if action_start != marker_start:
+                    continue
+                opening = compile_runtime_action_start_regexp(
+                    private_marker, action_name,
+                ).match(pending, marker_start)
+                failed_actions.append(RuntimeActionCall(
+                    name=action_name,
+                    payload=pending[opening.end():] if opening else pending[marker_start:],
+                ))
+                break
 
-            if result.actions:
-                return result
-
+            # Never reconstruct a missing close tag or parse actions inside
+            # the unfinished private body. It stays hidden and unexecuted.
             return RuntimeActionResult(
-                text="",
-                removed_markers=(
-                    pending,
-                ) if pending else (),
+                text=pending[:marker_start] if pending[:marker_start].strip() else "",
+                failed_actions=tuple(failed_actions),
+                removed_markers=(pending[marker_start:],),
             )
 
         return extract_runtime_actions(
@@ -1846,6 +2749,9 @@ class RuntimeActionStreamFilter:
             preserve_action_text=False,
             preserve_action_marker=self.preserve_action_marker,
             repetition_guard=self.repetition_guard,
+            allow_bare_prefix_fallback=(
+                self.bare_prefix_fallback_active
+            ),
         )
 
     def flush(self) -> str:

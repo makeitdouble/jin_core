@@ -22,7 +22,7 @@
     --jin-chat-line-soft: rgba(103, 232, 249, 0.14);
 
     /* Базовое внешнее свечение обычного JIN-бабла. */
-    --jin-chat-glow: rgba(45, 212, 191, 0.12);
+    --jin-chat-glow: rgba(45, 212, 191, 0.08);
 
     /* Основной цвет текста JIN до переопределений ниже. */
     --jin-chat-text: rgba(154, 242, 251, 0.95);
@@ -31,10 +31,10 @@
     --jin-chat-muted: rgba(203, 213, 225, 0.62);
 
     /* Базовая масса обычной JIN-плашки: последнее число = плотность фона. */
-    --jin-chat-panel: rgba(8, 17, 22, 0.76);
+    --jin-chat-panel: rgba(8, 17, 22, 0.82);
 
-    /* Базовая масса USER-плашки: главный регулятор прозрачности user-бабла. */
-    --jin-chat-panel-user: rgba(14, 21, 31, 0.76);
+    /* USER остаётся холодным slate/blue: немного плотнее, чтобы текст не терялся на фоне комнаты. */
+    --jin-chat-panel-user: rgba(13, 22, 36, 0.94);
 
     /* Базовая масса think-плашки: чем меньше alpha, тем больше она "в воздухе". */
     --jin-chat-panel-think: rgba(12, 12, 14, 0.44);
@@ -44,6 +44,83 @@
 .jin-message-shell {
     /* Нужна база для внутренних абсолютных/визуальных элементов сообщения. */
     position: relative;
+}
+
+.jin-stream-wrapper.is-awaiting-model {
+    /* До первого токена держим место только под кликабельную BR/SV-аватарку. */
+    min-height: 28px;
+}
+
+.jin-stream-avatar-slot {
+    position: absolute;
+    left: 54px;
+    top: 0;
+    width: 28px;
+    height: 28px;
+    z-index: 3;
+    pointer-events: none;
+    transform: translate3d(0, 0, 0);
+    transition:
+            left 0.24s cubic-bezier(0.22, 0.72, 0.22, 1),
+            top 0.24s cubic-bezier(0.22, 0.72, 0.22, 1),
+            transform 0.26s cubic-bezier(0.22, 0.72, 0.22, 1);
+    will-change: left, top, transform;
+}
+
+.jin-stream-avatar-slot > .jin-chat-avatar {
+    pointer-events: auto;
+}
+
+.jin-stream-avatar-spacer {
+    width: 28px;
+    height: 28px;
+    flex: 0 0 28px;
+    visibility: hidden;
+    pointer-events: none;
+}
+
+.jin-stream-avatar.is-processing {
+    transform-origin: 50% 50%;
+    animation: jin-chat-avatar-processing 1.18s ease-in-out infinite;
+    will-change: opacity, transform;
+}
+
+.jin-stream-avatar.is-settled {
+    opacity: 1;
+    transform: scale(1);
+    animation: none;
+    transition:
+            opacity 0.18s ease,
+            transform 0.18s ease;
+}
+
+@keyframes jin-chat-avatar-processing {
+    0%, 100% {
+        opacity: 0.48;
+        transform: scale(0.90);
+    }
+
+    50% {
+        opacity: 0.96;
+        transform: scale(1.00);
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .jin-stream-avatar-slot {
+        transition: none;
+    }
+
+    .jin-stream-avatar.is-processing {
+        opacity: 0.82;
+        transform: none;
+        animation: none;
+    }
+}
+
+.jin-stream-wrapper > :not([hidden]):not(.jin-stream-avatar-slot)
+~ :not([hidden]):not(.jin-stream-avatar-slot) {
+    margin-top: var(--chat-inner-gap) !important;
 }
 
 #chat-history .jin-stream-wrapper + .jin-stream-wrapper,
@@ -60,19 +137,60 @@
     margin-top: var(--chat-question-gap) !important;
 }
 
+.jin-session-restore-divider {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    width: calc(100% - 96px);
+    margin: 22px 48px 18px;
+    color: rgba(148, 163, 184, 0.52);
+    font-size: 10px;
+    line-height: 1;
+    letter-spacing: 0.035em;
+    white-space: nowrap;
+    pointer-events: none;
+    user-select: none;
+}
+
+.jin-session-restore-divider::before,
+.jin-session-restore-divider::after {
+    content: "";
+    flex: 1 1 auto;
+    height: 1px;
+    background: linear-gradient(
+        90deg,
+        transparent,
+        rgba(148, 163, 184, 0.28)
+    );
+}
+
+.jin-session-restore-divider::after {
+    background: linear-gradient(
+        90deg,
+        rgba(148, 163, 184, 0.28),
+        transparent
+    );
+}
+
+.jin-session-restore-divider-label {
+    opacity: 0.82;
+}
+
 .jin-message-row {
     /* Горизонтальная строка: аватарка слева, бабл справа. */
     display: flex;
-    padding-left: 48px;
+    padding-left: 52px;
 
     /* Прижимает аватарку и бабл к верхнему краю строки. */
     align-items: flex-start;
 
-    /* Расстояние между аватаркой и баблом. */
-    gap: 12px;
+    /* Расстояние между аватаркой и баблом: ровно половина прежнего gap. */
+    gap: 16px;
 }
 
 .jin-runtime-action-row {
+    padding-left: 48px;
+    gap: 12px;
     align-items: center;
     margin-top: 0!important
 }
@@ -88,6 +206,9 @@
     align-items: center;
     justify-content: center;
 
+    position: relative;
+    overflow: visible;
+
     /* Скругление аватарки. Сейчас 4px — тот же радиус, что у баблов. */
     border-radius: 4px;
 
@@ -101,7 +222,7 @@
     color: rgba(153, 246, 228, 0.95);
 
     /* Типографика букв SV/US. */
-    font-size: 10px;
+    font-size: 14px;
     line-height: 1;
     letter-spacing: 0.04em;
 
@@ -110,6 +231,59 @@
             0 0 0 1px rgba(0, 0, 0, 0.35),
             0 0 14px rgba(20, 184, 166, 0.14),
             inset 0 0 12px rgba(103, 232, 249, 0.04);
+
+    --jin-chat-avatar-progress-angle: 0deg;
+    --jin-chat-avatar-progress-color: rgba(255, 255, 255, 0.96);
+    --jin-chat-avatar-progress-glow-strong: rgba(255, 255, 255, 0.78);
+    --jin-chat-avatar-progress-glow-soft: rgba(255, 255, 255, 0.34);
+}
+
+.jin-chat-avatar-label {
+    position: relative;
+    z-index: 2;
+}
+
+.jin-chat-avatar-progress-ring {
+    position: absolute;
+    inset: -4px;
+    z-index: 1;
+    pointer-events: none;
+    opacity: 0;
+    border-radius: 8px;
+    padding: 1px;
+    background: conic-gradient(
+            from -90deg,
+            var(--jin-chat-avatar-progress-color) 0deg,
+            var(--jin-chat-avatar-progress-color) var(--jin-chat-avatar-progress-angle),
+            transparent var(--jin-chat-avatar-progress-angle),
+            transparent 360deg
+    );
+    -webkit-mask:
+            linear-gradient(#000 0 0) content-box,
+            linear-gradient(#000 0 0);
+    -webkit-mask-composite: xor;
+    mask-composite: exclude;
+    transition: opacity 0.18s ease, background 0.12s linear, filter 0.12s linear;
+    filter:
+            drop-shadow(0 0 1px var(--jin-chat-avatar-progress-color))
+            drop-shadow(0 0 4px var(--jin-chat-avatar-progress-glow-strong))
+            drop-shadow(0 0 8px var(--jin-chat-avatar-progress-glow-soft));
+}
+
+.jin-chat-avatar.has-progress .jin-chat-avatar-progress-ring {
+    opacity: 1;
+}
+
+.jin-chat-avatar.progress-phase-model-load {
+    --jin-chat-avatar-progress-color: rgba(255, 255, 255, 0.98);
+    --jin-chat-avatar-progress-glow-strong: rgba(255, 255, 255, 0.84);
+    --jin-chat-avatar-progress-glow-soft: rgba(255, 255, 255, 0.38);
+}
+
+.jin-chat-avatar.progress-phase-prompt-processing {
+    --jin-chat-avatar-progress-color: rgba(248, 204, 92, 0.98);
+    --jin-chat-avatar-progress-glow-strong: rgba(248, 204, 92, 0.80);
+    --jin-chat-avatar-progress-glow-soft: rgba(248, 204, 92, 0.34);
 }
 
 .jin-chat-avatar-user {
@@ -129,9 +303,8 @@
             inset 0 0 12px rgba(226, 232, 240, 0.03);
 }
 
-.jin-chat-avatar-brain,
-.jin-chat-avatar-translator {
-    /* Цветовая ветка BRAIN/translator-аватарок: немного в фиолетово-синий. */
+.jin-chat-avatar-brain {
+    /* Цветовая ветка BRAIN-аватарки: немного в фиолетово-синий. */
     border-color: rgba(165, 180, 252, 0.34);
     color: rgba(199, 210, 254, 0.92);
 }
@@ -179,7 +352,7 @@
     clip-path: none;
 
     /* Общее стеклянное размытие фона под баблом. */
-    backdrop-filter: blur(12px);
+    /*backdrop-filter: blur(12px);*/
 
     /* Общая глубина: тень вниз, внешнее свечение, внутренний объём. */
     box-shadow:
@@ -207,8 +380,8 @@
 }
 
 .jin-chat-bubble-user {
-    /* Цвет текста USER. Alpha делает текст тише/ярче. */
-    color: rgba(226, 235, 246, 0.76);
+    /* USER: чуть светлее прежнего, но сохраняем отдельный холодный slate/blue характер. */
+    color: rgba(220, 230, 244, 0.80);
 
     /* Радиус USER-бабла. Сейчас как у аватарки. */
     border-radius: 4px;
@@ -216,44 +389,30 @@
     /* Серо-голубая рамка USER-бабла, в тон US-аватарке. */
     border-color: rgba(148, 163, 184, 0.26);
 
-    /* USER-фон:
-       1) верхний blue-блик,
-       2) правый мягкий blue-свет,
-       3) нижняя slate-глубина,
-       4) стеклянная вертикальная плёнка,
-       5) основная масса через --jin-chat-panel-user. */
+    /* USER: мягкий blue/slate тинт. Чуть заметнее прежнего, без превращения в яркую синюю карточку. */
     background:
-            radial-gradient(circle at 18% 0%, rgba(147, 197, 253, 0.052), transparent 44%),
-            radial-gradient(circle at 88% 20%, rgba(96, 165, 250, 0.034), transparent 42%),
-            radial-gradient(circle at 64% 100%, rgba(148, 163, 184, 0.026), transparent 48%),
-            linear-gradient(180deg, rgba(219, 234, 254, 0.034), rgba(15, 23, 42, 0.022)),
+            linear-gradient(180deg, rgba(147, 197, 253, 0.040), rgba(30, 41, 59, 0.020)),
+            linear-gradient(90deg, rgba(96, 165, 250, 0.022), rgba(148, 163, 184, 0.008)),
             var(--jin-chat-panel-user);
 
     /* Размытие USER-бабла. Уменьшай, если плашка слишком мутная. */
-    backdrop-filter: blur(9.75px);
+    /*backdrop-filter: blur(9.75px);*/
 
-    /* USER-тени:
-       1) физическая тень,
-       2) синее внешнее свечение,
-       3) широкая бледная blue-аура,
-       4-6) внутренние блики и объём. */
+    /* USER-тени остаются тихими, но blue-акцент чуть лучше отделяет бабл от фона комнаты. */
     box-shadow:
-            0 0 0 1px rgba(148, 163, 184, 0.050),
-            0 12px 32px rgba(0, 0, 0, 0.23),
-            0 0 28px rgba(96, 165, 250, 0.062),
-            0 0 42px rgba(147, 197, 253, 0.030),
-            inset 0 1px 0 rgba(219, 234, 254, 0.050),
-            inset 0 0 24px rgba(96, 165, 250, 0.018),
-            inset 0 0 28px rgba(147, 197, 253, 0.012);
+            0 0 0 1px rgba(148, 163, 184, 0.045),
+            0 12px 30px rgba(0, 0, 0, 0.23),
+            0 0 18px rgba(96, 165, 250, 0.045),
+            inset 0 1px 0 rgba(219, 234, 254, 0.045),
+            inset 0 0 18px rgba(96, 165, 250, 0.014);
 
     /* Очень слабое свечение текста USER. */
     text-shadow:
-            0 0 10px rgba(96, 165, 250, 0.030);
+            0 0 8px rgba(96, 165, 250, 0.016);
 }
 
-.jin-chat-bubble-brain,
-.jin-chat-bubble-translator {
-    /* Отдельная ветка для BRAIN/translator-баблов: мягкий indigo-оттенок. */
+.jin-chat-bubble-brain {
+    /* Отдельная ветка для BRAIN-баблов: мягкий indigo-оттенок. */
     border-color: rgba(165, 180, 252, 0.20);
     box-shadow:
             0 0 0 1px rgba(165, 180, 252, 0.045),
@@ -389,6 +548,52 @@
     white-space: pre;
 }
 
+.jin-chat-markdown .jin-chat-table-wrap {
+    margin: 0.7em 0 0.95em;
+    width: fit-content;
+    max-width: 100%;
+    overflow: hidden;
+}
+
+.jin-chat-markdown .jin-chat-table {
+    width: 100%;
+    max-width: 100%;
+    border-collapse: collapse;
+    table-layout: auto;
+    font-size: 0.96em;
+    line-height: 1.5;
+}
+
+.jin-chat-markdown .jin-chat-table th,
+.jin-chat-markdown .jin-chat-table td {
+    min-width: 0;
+    border: 1px solid rgba(148, 163, 184, 0.18);
+    padding: 0.45em 0.62em;
+    vertical-align: top;
+    text-align: left;
+    white-space: normal;
+    overflow-wrap: anywhere;
+    word-break: break-word;
+}
+
+.jin-chat-markdown .jin-chat-table th {
+    background: rgba(148, 163, 184, 0.055);
+    color: rgba(230, 247, 250, 0.94);
+    font-weight: 700;
+}
+
+.jin-chat-markdown .jin-chat-table tbody tr:nth-child(even) td {
+    background: rgba(148, 163, 184, 0.018);
+}
+
+.jin-chat-markdown .jin-chat-table .jin-chat-table-align-center {
+    text-align: center;
+}
+
+.jin-chat-markdown .jin-chat-table .jin-chat-table-align-right {
+    text-align: right;
+}
+
 .jin-chat-markdown blockquote {
     margin: 0.65em 0 0.95em;
     border-left: 2px solid rgba(165, 180, 252, 0.34);
@@ -402,6 +607,18 @@
     border-top: 1px solid rgba(148, 163, 184, 0.20);
 }
 
+.jin-chat-markdown .katex-display {
+    max-width: 100%;
+    overflow-x: auto;
+    overflow-y: hidden;
+}
+
+.jin-chat-markdown .jin-chat-matrix-block {
+    max-width: 100%;
+    overflow-x: auto;
+    overflow-y: hidden;
+}
+
 .jin-chat-markdown .jin-chat-link {
     color: rgba(125, 211, 252, 0.95);
     text-decoration: underline;
@@ -410,6 +627,8 @@
 }
 
 .jin-think-wrapper {
+    position: relative;
+
     /* Ширина think-блока совпадает с шириной длинных баблов. */
     max-width: 720px;
 
@@ -433,10 +652,10 @@
 
     /* Think чуть мельче обычного ответа. */
     font-size: var(--theme-dark-think-font-size);
-    line-height: 1.65;
+    line-height: 1.5;
 
-    /* Курсив отделяет мысль от обычного голоса. */
-    font-style: italic;
+    /* Reasoning остаётся визуально тихим без курсивного наклона. */
+    font-style: normal;
 
     /* Сохраняет переносы текста think. */
     white-space: pre-wrap;
@@ -483,15 +702,38 @@
 }
 
 .jin-think-content.is-collapsed {
-    max-height: calc(1lh + 28px);
+    position: relative;
+    max-height: calc(1lh + 32px);
     border-color: rgba(148, 163, 184, 0.11);
     box-shadow:
             0 6px 20px rgba(0, 0, 0, 0.22),
             inset 0 -18px 18px rgba(12, 12, 14, 0.42);
 }
 
+/* Keep the fade outside the scrolled content: collapsed reasoning scrolls to
+   its latest line, so a content-owned pseudo-element would move with text. */
+body:not(.theme-win95) .jin-think-wrapper:has(> .jin-think-content.is-collapsed)::after {
+    content: "";
+    position: absolute;
+    right: 1px;
+    bottom: 1px;
+    left: 1px;
+    height: 12px;
+    border-radius: 0 0 9px 9px;
+    background: linear-gradient(
+            to bottom,
+            rgba(12, 12, 14, 0),
+            rgba(12, 12, 14, 0.22)
+    );
+    pointer-events: none;
+}
+
 .think-rule-hit {
-    color: inherit;
+    /* Idle citations keep the existing subtle emphasis, but also carry a
+       quiet source hue. No glow in the idle state: the color itself is the
+       persistent signal; active/hover highlighting below owns the glow. */
+    --jin-think-citation-idle-color: var(--jin-chat-muted);
+    color: var(--jin-think-citation-idle-color);
     font-weight: inherit;
     -webkit-text-stroke: 0.18px currentColor;
     paint-order: stroke fill;
@@ -501,60 +743,155 @@
             text-shadow 1s ease;
 }
 
-.jin-think-content.is-rule-highlight-revealing .think-citation-rule.exact,
-.jin-think-content.has-rule-highlights:hover .think-citation-rule.exact {
+.think-citation-rule {
+    --jin-think-citation-idle-color: rgba(218, 204, 178, 0.72);
+}
+
+.think-citation-runtime {
+    --jin-think-citation-idle-color: rgba(178, 210, 190, 0.72);
+}
+
+.think-citation-active {
+    --jin-think-citation-idle-color: rgba(215, 191, 166, 0.72);
+}
+
+.think-citation-delayed {
+    --jin-think-citation-idle-color: rgba(178, 207, 212, 0.73);
+}
+
+.think-citation-lt {
+    --jin-think-citation-idle-color: rgba(179, 209, 203, 0.73);
+}
+
+.think-citation-session {
+    --jin-think-citation-idle-color: rgba(199, 185, 216, 0.72);
+}
+
+.jin-think-content.has-rule-highlights .think-citation-rule.exact {
     color: #fff7df;
     text-shadow:
             0 0 8px rgba(255, 245, 220, 0.55),
-            0 0 18px rgba(255, 200, 130, 0.28);
+            0 0 18px rgba(255, 200, 130, 0.28),
+            0 0 28px rgba(255, 200, 130, 0.14);
 }
 
-.jin-think-content.is-rule-highlight-revealing .think-citation-rule.near,
-.jin-think-content.has-rule-highlights:hover .think-citation-rule.near {
+.jin-think-content.has-rule-highlights .think-citation-rule.near {
     color: #efe2c8;
-    text-shadow: 0 0 8px rgba(255, 235, 200, 0.28);
+    text-shadow:
+            0 0 8px rgba(255, 235, 200, 0.28),
+            0 0 18px rgba(255, 200, 130, 0.12);
 }
 
-.jin-think-content.is-rule-highlight-revealing .think-citation-rule.compressed,
-.jin-think-content.has-rule-highlights:hover .think-citation-rule.compressed {
+.jin-think-content.has-rule-highlights .think-citation-rule.compressed {
     color: #d8cdb9;
-    text-shadow: 0 0 6px rgba(255, 235, 200, 0.16);
+    text-shadow:
+            0 0 6px rgba(255, 235, 200, 0.16),
+            0 0 16px rgba(255, 200, 130, 0.07);
 }
 
-.jin-think-content.is-rule-highlight-revealing .think-citation-runtime.exact,
-.jin-think-content.has-rule-highlights:hover .think-citation-runtime.exact {
+.jin-think-content.has-rule-highlights .think-citation-runtime.exact {
     color: rgba(134,239,172,0.96);
-    text-shadow: 0 0 10px rgba(34,197,94,0.35);
+    text-shadow:
+            0 0 10px rgba(34,197,94,0.35),
+            0 0 20px rgba(34,197,94,0.17);
 }
 
-.jin-think-content.is-rule-highlight-revealing .think-citation-runtime.near,
-.jin-think-content.has-rule-highlights:hover .think-citation-runtime.near {
+.jin-think-content.has-rule-highlights .think-citation-runtime.near {
     color: rgba(134,239,172,0.86);
-    text-shadow: 0 0 8px rgba(34,197,94,0.26);
+    text-shadow:
+            0 0 8px rgba(34,197,94,0.26),
+            0 0 18px rgba(34,197,94,0.12);
 }
 
-.jin-think-content.is-rule-highlight-revealing .think-citation-runtime.compressed,
-.jin-think-content.has-rule-highlights:hover .think-citation-runtime.compressed {
+.jin-think-content.has-rule-highlights .think-citation-runtime.compressed {
     color: rgba(134,239,172,0.76);
-    text-shadow: 0 0 6px rgba(34,197,94,0.18);
+    text-shadow:
+            0 0 6px rgba(34,197,94,0.18),
+            0 0 16px rgba(34,197,94,0.08);
 }
 
-.jin-think-content.is-rule-highlight-revealing .think-citation-session.exact,
-.jin-think-content.has-rule-highlights:hover .think-citation-session.exact {
+.jin-think-content.has-rule-highlights .think-citation-active.exact {
+    color: rgba(251, 191, 106, 0.96);
+    text-shadow:
+            0 0 10px rgba(249, 115, 22, 0.34),
+            0 0 20px rgba(249, 115, 22, 0.16);
+}
+
+.jin-think-content.has-rule-highlights .think-citation-active.near {
+    color: rgba(251, 191, 106, 0.86);
+    text-shadow:
+            0 0 8px rgba(249, 115, 22, 0.25),
+            0 0 18px rgba(249, 115, 22, 0.12);
+}
+
+.jin-think-content.has-rule-highlights .think-citation-active.compressed {
+    color: rgba(251, 191, 106, 0.76);
+    text-shadow:
+            0 0 6px rgba(249, 115, 22, 0.17),
+            0 0 16px rgba(249, 115, 22, 0.08);
+}
+
+.jin-think-content.has-rule-highlights .think-citation-delayed.exact {
+    color: rgba(103, 232, 249, 0.98);
+    text-shadow:
+            0 0 10px rgba(34, 211, 238, 0.38),
+            0 0 20px rgba(34, 211, 238, 0.19);
+}
+
+.jin-think-content.has-rule-highlights .think-citation-delayed.near {
+    color: rgba(103, 232, 249, 0.88);
+    text-shadow:
+            0 0 8px rgba(34, 211, 238, 0.28),
+            0 0 18px rgba(34, 211, 238, 0.13);
+}
+
+.jin-think-content.has-rule-highlights .think-citation-delayed.compressed {
+    color: rgba(103, 232, 249, 0.78);
+    text-shadow:
+            0 0 6px rgba(34, 211, 238, 0.19),
+            0 0 16px rgba(34, 211, 238, 0.09);
+}
+
+.jin-think-content.has-rule-highlights .think-citation-lt.exact {
+    color: rgba(129, 230, 217, 0.98);
+    text-shadow:
+            0 0 10px rgba(45, 212, 191, 0.38),
+            0 0 20px rgba(45, 212, 191, 0.19);
+}
+
+.jin-think-content.has-rule-highlights .think-citation-lt.near {
+    color: rgba(129, 230, 217, 0.88);
+    text-shadow:
+            0 0 8px rgba(45, 212, 191, 0.28),
+            0 0 18px rgba(45, 212, 191, 0.13);
+}
+
+.jin-think-content.has-rule-highlights .think-citation-lt.compressed {
+    color: rgba(129, 230, 217, 0.78);
+    text-shadow:
+            0 0 6px rgba(45, 212, 191, 0.19),
+            0 0 16px rgba(45, 212, 191, 0.09);
+}
+
+.jin-think-content.has-rule-highlights .think-citation-session.exact {
     color: rgba(216,180,254,0.94);
-    text-shadow: 0 0 10px rgba(168,85,247,0.32);
+    text-shadow:
+            0 0 10px rgba(168,85,247,0.32),
+            0 0 20px rgba(168,85,247,0.15);
 }
 
-.jin-think-content.is-rule-highlight-revealing .think-citation-session.near,
-.jin-think-content.has-rule-highlights:hover .think-citation-session.near {
+.jin-think-content.has-rule-highlights .think-citation-session.near {
     color: rgba(216,180,254,0.84);
-    text-shadow: 0 0 8px rgba(168,85,247,0.24);
+    text-shadow:
+            0 0 8px rgba(168,85,247,0.24),
+            0 0 18px rgba(168,85,247,0.11);
 }
 
-.jin-think-content.is-rule-highlight-revealing .think-citation-session.compressed,
-.jin-think-content.has-rule-highlights:hover .think-citation-session.compressed {
+.jin-think-content.has-rule-highlights .think-citation-session.compressed {
     color: rgba(216,180,254,0.74);
-    text-shadow: 0 0 6px rgba(168,85,247,0.16);
+    text-shadow:
+            0 0 6px rgba(168,85,247,0.16),
+            0 0 16px rgba(168,85,247,0.07);
 }
 
 #chat-history .border-l.border-slate-500.pl-4.text-xs.text-zinc-300.italic.leading-relaxed.whitespace-pre-wrap {
@@ -566,68 +903,62 @@
 }
 
 .jin-chat-bubble-service {
-    /* Финальный JIN-фон:
-       1) верхний cyan-блик,
-       2) правый teal-свет,
-       3) нижняя слабая indigo-глубина,
-       4) стеклянная вертикальная плёнка,
-       5) основная масса JIN-бабла. */
+    /* JIN оставляем отдельным teal/cyan: фон чуть плотнее и светлее,
+       но заметно зеленее USER-бабла. */
     background:
-            radial-gradient(circle at 18% 0%, rgba(103, 232, 249, 0.050), transparent 44%),
-            radial-gradient(circle at 86% 18%, rgba(45, 212, 191, 0.040), transparent 42%),
-            radial-gradient(circle at 64% 100%, rgba(129, 140, 248, 0.024), transparent 48%),
-            linear-gradient(180deg, rgba(204, 251, 241, 0.030), rgba(10, 18, 22, 0.022)),
-            rgba(10, 18, 22, 0.48);
+            linear-gradient(
+                    180deg,
+                    rgba(45, 212, 191, calc(var(--jin-bubble-invert-off) * 0.030)),
+                    rgba(8, 47, 73, calc(var(--jin-bubble-invert-off) * 0.010))
+            ),
+            color-mix(
+                    in srgb,
+                    rgba(8, 21, 23, 0.72) calc(var(--jin-bubble-invert-off) * 100%),
+                    rgba(246, 249, 247, 0.90) calc(var(--JIN_BUBBLE_INVERT) * 100%)
+            );
 
-    /* Финальный цвет текста JIN. */
-    color: rgba(222, 238, 235, 0.69);
+    /* JIN: подтягиваем читаемость примерно к USER, сохраняя мягкий teal-оттенок. */
+    color: rgba(207, 235, 232, 0.80);
 
-    /* Финальное JIN-свечение:
-       1) физическая тень,
-       2) teal-аура,
-       3) cyan-аура,
-       4) слабая indigo-глубина,
-       5-7) внутренний свет и объём. */
+    /* Финальное JIN-свечение приглушено, чтобы бабл выглядел одним ровным слоем. */
     box-shadow:
-            0 0 0 1px rgba(103, 232, 249, 0.060),
-            0 14px 42px rgba(0, 0, 0, 0.24),
-            0 0 32px rgba(45, 212, 191, 0.070),
-            0 0 44px rgba(103, 232, 249, 0.035),
-            0 0 34px rgba(129, 140, 248, 0.018),
-            inset 0 1px 0 rgba(204, 251, 241, 0.045),
-            inset 0 0 26px rgba(45, 212, 191, 0.020),
-            inset 0 0 30px rgba(103, 232, 249, 0.014);
+            0 0 0 1px rgba(103, 232, 249, 0.050),
+            0 14px 34px rgba(0, 0, 0, 0.22),
+            0 0 18px rgba(45, 212, 191, 0.040),
+            inset 0 1px 0 rgba(204, 251, 241, 0.034),
+            inset 0 0 16px rgba(45, 212, 191, 0.010);
 }
 
 .jin-chat-bubble-service .jin-chat-pre {
     /* Цвет текста внутри JIN-бабла дублируется здесь для надёжности. */
-    color: rgba(222, 238, 235, 0.69);
+    color: rgba(207, 235, 232, 0.80);
 
-    /* Свечение текста JIN: teal + cyan. */
+    /* Свечение текста JIN почти убрано: нужен спокойный, ровный текст без дымки. */
     text-shadow:
-            0 0 10px rgba(45, 212, 191, 0.040),
-            0 0 14px rgba(103, 232, 249, 0.024);
+            0 0 8px rgba(45, 212, 191, 0.018);
 }
 
 .jin-chat-bubble-service {
     border-color: color-mix(
             in srgb,
-            rgba(103, 232, 249, 0.20) calc(var(--jin-bubble-invert-off) * 100%),
+            rgba(94, 234, 212, 0.20) calc(var(--jin-bubble-invert-off) * 100%),
             rgba(255, 255, 255, 0.62) calc(var(--JIN_BUBBLE_INVERT) * 100%)
     );
     box-shadow:
             inset 0 0 0 9999px rgba(246, 249, 247, calc(var(--JIN_BUBBLE_INVERT) * 0.86)),
-            0 0 0 1px rgba(103, 232, 249, 0.060),
-            0 14px 42px rgba(0, 0, 0, 0.24),
-            0 0 32px rgba(45, 212, 191, calc(var(--jin-bubble-invert-off) * 0.070)),
-            0 0 44px rgba(103, 232, 249, calc(var(--jin-bubble-invert-off) * 0.035)),
-            0 0 34px rgba(129, 140, 248, calc(var(--jin-bubble-invert-off) * 0.018)),
-            inset 0 1px 0 rgba(204, 251, 241, 0.045),
-            inset 0 0 26px rgba(45, 212, 191, calc(var(--jin-bubble-invert-off) * 0.020)),
-            inset 0 0 30px rgba(103, 232, 249, calc(var(--jin-bubble-invert-off) * 0.014));
+            0 0 0 1px rgba(103, 232, 249, 0.050),
+            0 14px 34px rgba(0, 0, 0, 0.22),
+            0 0 18px rgba(45, 212, 191, calc(var(--jin-bubble-invert-off) * 0.040)),
+            inset 0 1px 0 rgba(204, 251, 241, 0.034),
+            inset 0 0 16px rgba(45, 212, 191, calc(var(--jin-bubble-invert-off) * 0.010));
 }
 
 .jin-chat-bubble-brain {
+    background: color-mix(
+            in srgb,
+            rgba(20, 36, 44, 0.95) calc(var(--jin-bubble-invert-off) * 100%),
+            rgba(246, 249, 247, 0.90) calc(var(--JIN_BUBBLE_INVERT) * 100%)
+    );
     border-color: color-mix(
             in srgb,
             rgba(165, 180, 252, 0.20) calc(var(--jin-bubble-invert-off) * 100%),
@@ -645,12 +976,11 @@
 .jin-chat-bubble-service .jin-chat-pre {
     color: color-mix(
             in srgb,
-            rgba(222, 238, 235, 0.69) calc(var(--jin-bubble-invert-off) * 100%),
+            rgba(207, 235, 232, 0.80) calc(var(--jin-bubble-invert-off) * 100%),
             rgba(39, 45, 48, 0.92) calc(var(--JIN_BUBBLE_INVERT) * 100%)
     );
     text-shadow:
-            0 0 10px rgba(45, 212, 191, calc(var(--jin-bubble-invert-off) * 0.040)),
-            0 0 14px rgba(103, 232, 249, calc(var(--jin-bubble-invert-off) * 0.024));
+            0 0 8px rgba(45, 212, 191, calc(var(--jin-bubble-invert-off) * 0.018));
 }
 
 .jin-chat-bubble-brain .jin-chat-pre {
@@ -679,4 +1009,214 @@
             rgba(226, 232, 240, 0.94) calc(var(--jin-bubble-invert-off) * 100%),
             rgba(30, 35, 39, 0.94) calc(var(--JIN_BUBBLE_INVERT) * 100%)
     );
+}
+
+/* Resolved six-character JIN ids inside answer text. The id remains part of
+   the sentence, but reads as a live system reference. */
+.jin-chat-reference-id {
+    position: relative;
+    z-index: 1;
+    pointer-events: auto;
+    font-weight: 700;
+    color: color-mix(
+            in srgb,
+            rgba(244, 250, 252, 0.98) calc(var(--jin-bubble-invert-off) * 100%),
+            rgba(20, 24, 28, 0.96) calc(var(--JIN_BUBBLE_INVERT) * 100%)
+    );
+    text-shadow:
+            0 0 8px rgba(226, 247, 250, calc(var(--jin-bubble-invert-off) * 0.28)),
+            0 0 14px rgba(103, 232, 249, calc(var(--jin-bubble-invert-off) * 0.08));
+    cursor: help;
+    transition:
+            color 0.14s ease,
+            text-shadow 0.14s ease;
+}
+
+.jin-chat-reference-id:hover {
+    color: color-mix(
+            in srgb,
+            rgba(255, 255, 255, 1) calc(var(--jin-bubble-invert-off) * 100%),
+            rgba(8, 12, 16, 0.98) calc(var(--JIN_BUBBLE_INVERT) * 100%)
+    );
+}
+
+.jin-chat-bubble-rateable.jin-rating-disabled .jin-chat-reference-id,
+.jin-chat-bubble-rateable.jin-rating-committed .jin-chat-reference-id {
+    cursor: pointer;
+}
+
+body.theme-win95 .jin-chat-reference-id {
+    color: #171717;
+    text-shadow: 0 0 1px rgba(0, 0, 0, 0.20);
+}
+
+body.theme-win95 .jin-chat-reference-id:hover {
+    color: #000;
+    text-shadow: 0 0 1px rgba(0, 0, 0, 0.28);
+}
+/* Structured reasoning ----------------------------------------------------
+   Local models already emit a small Markdown-like grammar in reasoning.
+   Render that grammar quietly instead of exposing *, ** and indentation.
+   The raw reasoning string is kept separately for citations/logging. */
+.jin-think-content.is-structured {
+    white-space: normal;
+}
+
+.jin-think-content.is-structured .jin-think-line {
+    min-width: 0;
+    overflow-wrap: anywhere;
+}
+
+.jin-think-content.is-structured .jin-think-line + .jin-think-line {
+    margin-top: 0.18em;
+}
+
+.jin-think-content.is-structured .jin-think-live-tail {
+    white-space: pre-wrap;
+}
+
+.jin-think-content.is-structured .jin-think-live-tail:empty {
+    display: none;
+}
+
+.jin-think-content.is-structured .jin-think-gap {
+    height: 0.58em;
+}
+
+.jin-think-content.is-structured .jin-think-list-item {
+    display: grid;
+    grid-template-columns: 1.16em minmax(0, 1fr);
+    column-gap: 0.34em;
+    align-items: baseline;
+    margin: 0.16em 0;
+}
+
+.jin-think-content.is-structured .jin-think-list-item.is-nested {
+    margin-left: 0.62rem;
+}
+
+.jin-think-content.is-structured .jin-think-list-marker {
+    color: rgba(148, 163, 184, 0.58);
+    font-size: 0.84em;
+    font-variant-numeric: tabular-nums;
+    text-align: right;
+    user-select: none;
+}
+
+.jin-think-content.is-structured .jin-think-list-item.is-ordered .jin-think-list-marker::after {
+    content: ".";
+}
+
+.jin-think-content.is-structured .jin-think-list-item.is-section-label {
+    margin-top: 0.38em;
+    margin-bottom: 0.08em;
+}
+
+.jin-think-content.is-structured .jin-think-list-item.is-section-label .jin-think-list-marker {
+    opacity: 0.58;
+}
+
+.jin-think-content.is-structured .jin-think-label,
+.jin-think-content.is-structured .jin-think-label-line {
+    /* Structural labels use weight only; bright color is reserved for real citations. */
+    color: inherit;
+    font-weight: 650;
+}
+
+.jin-think-content.is-structured .jin-think-strong {
+    /* Markdown emphasis must not visually compete with citation/runtime highlights. */
+    color: inherit;
+    font-weight: 680;
+}
+
+.jin-think-content.is-structured .jin-think-emphasis {
+    color: inherit;
+    font-style: normal;
+    font-weight: 600;
+}
+
+.jin-think-content.is-structured .jin-think-inline-code {
+    border: 0;
+    background: rgba(148, 163, 184, 0.055);
+    border-radius: 3px;
+    padding: 0.05em 0.24em;
+    color: rgba(218, 226, 236, 0.92);
+    font: inherit;
+    font-size: 0.96em;
+}
+
+.jin-think-content.is-structured .jin-think-math,
+.jin-think-content.is-structured .jin-think-math-block {
+    color: rgba(220, 228, 238, 0.94);
+    font-family: "Cambria Math", "STIX Two Math", "Times New Roman", serif;
+    letter-spacing: 0;
+}
+
+.jin-think-content.is-structured .jin-think-math {
+    padding: 0 0.08em;
+    white-space: nowrap;
+}
+
+.jin-think-content.is-structured .jin-think-math-block {
+    margin: 0.48em 0 0.58em;
+    border-left: 1px solid rgba(148, 163, 184, 0.20);
+    padding: 0.22em 0 0.22em 0.78em;
+    overflow-x: auto;
+    white-space: pre;
+}
+
+.jin-think-content.is-structured .jin-think-math-block.is-katex {
+    border-left: 0;
+    padding-left: 0;
+    white-space: normal;
+}
+
+.jin-think-content.is-structured .jin-think-math-block.is-katex .katex-display {
+    max-width: 100%;
+    margin: 0.15em 0 0.28em;
+    overflow-x: auto;
+    overflow-y: hidden;
+}
+
+.jin-think-content.is-structured .jin-think-heading {
+    margin-top: 0.52em;
+    /* Heading hierarchy stays typographic; citation colors remain exclusive. */
+    color: inherit;
+    font-weight: 680;
+}
+
+.jin-think-content.is-structured .jin-think-quote,
+.jin-think-content.is-structured .jin-think-line.is-section-child {
+    margin-left: 0.58rem;
+    border-left: 1px solid rgba(148, 163, 184, 0.15);
+    padding-left: 0.68rem;
+}
+
+.jin-think-content.is-structured .jin-think-quote {
+    color: rgba(190, 201, 214, 0.88);
+}
+
+.jin-think-content.is-structured .jin-think-rule {
+    height: 1px;
+    margin: 0.64em 0;
+    background: rgba(148, 163, 184, 0.15);
+}
+
+.jin-think-content.is-structured .jin-think-code-block {
+    margin: 0.5em 0 0.62em;
+    max-width: 100%;
+    overflow-x: auto;
+    border: 1px solid rgba(148, 163, 184, 0.12);
+    border-radius: 4px;
+    background: rgba(2, 6, 23, 0.22);
+    padding: 0.58em 0.72em;
+    color: rgba(203, 213, 225, 0.90);
+    font: inherit;
+    line-height: 1.42;
+    white-space: pre;
+}
+
+.jin-think-content.is-structured .jin-think-code-block code {
+    font: inherit;
+    white-space: pre;
 }

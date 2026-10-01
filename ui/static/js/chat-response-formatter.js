@@ -6,16 +6,9 @@
     || {};
 
   const markerPattern =
-    /<JIN_COLOR:\s*(#?(?:[0-9a-f]{6}|[0-9a-f]{3}))\s*\/?>/gi;
+    /(?<!["'`«‹“‘„‚(\[{])(?:<(JIN_COLOR|JIN_SIZE)\s*>([\s\S]*?)<\/\1\s*>|<JIN_REACTION\s*>([\s\S]*?)<\/JIN_REACTION\s*>|<JIN_REACTION\s*:\s*([^>\r\n]+?)\s*>)/gi;
 
-  function escapeHtml(text) {
-
-    return String(text || "")
-      .replace(/&/g, "&amp;")
-      .replace(/</g, "&lt;")
-      .replace(/>/g, "&gt;");
-
-  }
+  const escapeHtml = window.JinUiUtils.escapeHtml;
 
   function escapeAttribute(text) {
 
@@ -25,32 +18,8 @@
 
   }
 
-  function normalizeChatJinColorMarker(value) {
-
-    const match =
-      String(
-        value || ""
-      ).trim().match(
-        /^#?([0-9a-f]{6}|[0-9a-f]{3})$/i
-      );
-
-    if (!match) {
-      return "";
-    }
-
-    let hex =
-      match[1].toLowerCase();
-
-    if (hex.length === 3) {
-      hex = hex
-        .split("")
-        .map((char) => char + char)
-        .join("");
-    }
-
-    return `#${hex}`;
-
-  }
+  const normalizeChatJinColorMarker =
+    window.JinUiUtils.normalizeJinColor;
 
   function buildChatJinColorMarkerHtml(color) {
 
@@ -61,7 +30,7 @@
 
     if (!normalizedColor) {
       return escapeHtml(
-        `<JIN_COLOR: ${color}>`
+        `<JIN_COLOR> ${color} </JIN_COLOR>`
       );
     }
 
@@ -70,6 +39,21 @@
       + `<span class="jin-chat-jin-color-swatch" style="--jin-chat-marker-color: ${normalizedColor}"></span>`
       + "<span>JIN_COLOR</span>"
       + "</span>"
+    );
+
+  }
+
+  function buildChatJinReactionMarkerHtml(emoji) {
+
+    const value =
+      String(emoji || "").trim();
+
+    if (!value) {
+      return "";
+    }
+
+    return (
+      `<span class="jin-chat-jin-reaction-anchor" data-jin-reaction-emoji="${escapeAttribute(value)}" aria-hidden="true"></span>`
     );
 
   }
@@ -161,25 +145,433 @@
         "<strong><em>$1</em></strong>"
       )
       .replace(
-        /___((?:(?!___)[^\n])+?)___/g,
-        "<strong><em>$1</em></strong>"
+        /(^|[^\p{L}\p{N}_])___((?:(?!___)[^\n])+?)___(?![\p{L}\p{N}_])/gu,
+        "$1<strong><em>$2</em></strong>"
       )
       .replace(
         /\*\*((?:(?!\*\*)[^\n])+?)\*\*/g,
         "<strong>$1</strong>"
       )
       .replace(
-        /__((?:(?!__)[^\n])+?)__/g,
-        "<strong>$1</strong>"
+        /(^|[^\p{L}\p{N}_])__((?:(?!__)[^\n])+?)__(?![\p{L}\p{N}_])/gu,
+        "$1<strong>$2</strong>"
       )
       .replace(
         /(^|[^\*])\*([^*\n]+)\*/g,
         "$1<em>$2</em>"
       )
       .replace(
-        /(^|[^\w_])_([^_\n]+)_(?![\w_])/g,
+        /(^|[^\p{L}\p{N}_])_([^_\n]+)_(?![\p{L}\p{N}_])/gu,
         "$1<em>$2</em>"
       );
+
+  }
+
+  function normalizeChatJinSizeMarker(value) {
+
+    const source =
+      String(
+        value || ""
+      ).trim();
+
+    if (!source) {
+      return "";
+    }
+
+    const normalizeLength = (rawValue) => {
+      const match = String(rawValue || "").trim().match(
+        /^([+]?(?:\d+(?:\.\d+)?|\.\d+))\s*(px|vw|vh|%)?$/i
+      );
+
+      if (!match) {
+        return "";
+      }
+
+      const amount = Number.parseFloat(match[1]);
+
+      if (!Number.isFinite(amount) || amount <= 0) {
+        return "";
+      }
+
+      const normalizedAmount = Number.isInteger(amount)
+        ? String(amount)
+        : String(amount).replace(/0+$/, "").replace(/\.$/, "");
+      const unit = String(match[2] || "px").toLowerCase();
+
+      return `${normalizedAmount}${unit}`;
+    };
+    const labeledPattern =
+      /(width|height|w|h)\s*:\s*([+]?(?:\d+(?:\.\d+)?|\.\d+)\s*(?:px|vw|vh|%)?)/gi;
+    const labeled = {};
+    const spans = [];
+    let match = null;
+
+    while ((match = labeledPattern.exec(source)) !== null) {
+      const label =
+        match[1].toLowerCase().startsWith("w")
+          ? "w"
+          : "h";
+      const size =
+        normalizeLength(match[2]);
+
+      if (
+        !size
+        || labeled[label]
+      ) {
+        return "";
+      }
+
+      labeled[label] = size;
+      spans.push([
+        match.index,
+        labeledPattern.lastIndex,
+      ]);
+    }
+
+    if (spans.length) {
+      let cursor = 0;
+      const remainder = [];
+
+      spans.forEach(([start, end]) => {
+        remainder.push(
+          source.slice(cursor, start)
+        );
+        cursor = end;
+      });
+
+      remainder.push(
+        source.slice(cursor)
+      );
+
+      if (remainder.join("").trim()) {
+        return "";
+      }
+
+      const values =
+        Object.values(labeled);
+
+      if (values.length === 1) {
+        return values[0];
+      }
+
+      if (
+        labeled.w
+        && labeled.h
+      ) {
+        return labeled.w === labeled.h
+          ? labeled.w
+          : `w:${labeled.w} h:${labeled.h}`;
+      }
+
+      return "";
+    }
+
+    const parts =
+      source.split(/\s+/);
+
+    if (
+      parts.length < 1
+      || parts.length > 2
+    ) {
+      return "";
+    }
+
+    const sizes = parts.map(normalizeLength);
+
+    if (
+      sizes.some((size) => !size)
+    ) {
+      return "";
+    }
+
+    if (sizes.length === 1) {
+      return sizes[0];
+    }
+
+    return sizes[0] === sizes[1]
+      ? sizes[0]
+      : `w:${sizes[0]} h:${sizes[1]}`;
+
+  }
+
+  function buildChatJinSizeMarkerHtml(size) {
+
+    const normalizedSize =
+      normalizeChatJinSizeMarker(
+        size
+      );
+
+    if (!normalizedSize) {
+      return escapeHtml(
+        `<JIN_SIZE> ${size} </JIN_SIZE>`
+      );
+    }
+
+    return (
+      `<span class="jin-chat-runtime-marker jin-chat-jin-size-marker" title="${escapeAttribute(normalizedSize)}">`
+      + "<span>JIN_SIZE</span>"
+      + `<span class="jin-chat-jin-size-value">${escapeHtml(normalizedSize)}</span>`
+      + "</span>"
+    );
+
+  }
+
+  function isEscapedCharacter(text, index) {
+
+    let backslashCount = 0;
+
+    for (
+      let cursor = index - 1;
+      cursor >= 0 && text[cursor] === "\\";
+      cursor -= 1
+    ) {
+      backslashCount += 1;
+    }
+
+    return backslashCount % 2 === 1;
+
+  }
+
+  function renderPlainMarkdownText(text) {
+
+    return renderEmphasis(
+      renderLinks(
+        escapeHtml(
+          text
+        )
+      )
+    );
+
+  }
+
+  function renderMathFormula(
+    source,
+    displayMode,
+    fallbackText = null
+  ) {
+
+    const latex =
+      String(source || "");
+    const delimiter =
+      displayMode
+        ? "$$"
+        : "$";
+    const fallback =
+      escapeHtml(
+        fallbackText === null
+          ? `${delimiter}${latex}${delimiter}`
+          : String(fallbackText)
+      );
+    const katex =
+      window.katex;
+
+    if (
+      !katex
+      || typeof katex.renderToString !== "function"
+    ) {
+      return fallback;
+    }
+
+    try {
+      return katex.renderToString(
+        latex,
+        {
+          displayMode: Boolean(displayMode),
+          throwOnError: false,
+          strict: "ignore",
+          trust: false,
+        }
+      );
+    } catch (_error) {
+      return fallback;
+    }
+
+  }
+
+  function findMathClosingDelimiter(
+    source,
+    startIndex,
+    delimiter
+  ) {
+
+    const isInlineDollar =
+      delimiter === "$";
+
+    for (
+      let index = startIndex;
+      index <= source.length - delimiter.length;
+      index += 1
+    ) {
+      if (
+        !source.startsWith(
+          delimiter,
+          index
+        )
+        || isEscapedCharacter(
+          source,
+          index
+        )
+      ) {
+        continue;
+      }
+
+      if (isInlineDollar) {
+        if (
+          source[index + 1] === "$"
+          || /\s/.test(
+            source[index - 1] || ""
+          )
+        ) {
+          continue;
+        }
+      }
+
+      return index;
+    }
+
+    return -1;
+
+  }
+
+  function renderMathAwarePlainText(text) {
+
+    const mathHtml = [];
+    const source =
+      String(text || "").replace(
+        /\\\(([^\n]*?)\\\)|\\\[([^\n]*?)\\\]/g,
+        (whole, inlineLatex, displayLatex) => {
+          const displayMode =
+            displayLatex !== undefined;
+          const latex =
+            String(
+              displayMode
+                ? displayLatex
+                : inlineLatex
+            );
+
+          if (!latex.trim()) {
+            return whole;
+          }
+
+          const token =
+            `\uE000JINMATH${mathHtml.length}\uE001`;
+
+          mathHtml.push(
+            renderMathFormula(
+              latex,
+              displayMode,
+              whole
+            )
+          );
+          return token;
+        }
+      );
+    const protectedParts = [];
+    let plainStart = 0;
+    let index = 0;
+
+    while (index < source.length) {
+      if (
+        source[index] !== "$"
+        || isEscapedCharacter(
+          source,
+          index
+        )
+      ) {
+        index += 1;
+        continue;
+      }
+
+      const displayMode =
+        source[index + 1] === "$";
+      const delimiter =
+        displayMode
+          ? "$$"
+          : "$";
+      const contentStart =
+        index + delimiter.length;
+
+      if (
+        contentStart >= source.length
+        || (
+          !displayMode
+          && /\s/.test(
+            source[contentStart]
+          )
+        )
+      ) {
+        index += delimiter.length;
+        continue;
+      }
+
+      const closeIndex =
+        findMathClosingDelimiter(
+          source,
+          contentStart,
+          delimiter
+        );
+
+      if (closeIndex < 0) {
+        index += delimiter.length;
+        continue;
+      }
+
+      const latex =
+        source.slice(
+          contentStart,
+          closeIndex
+        );
+
+      if (!latex.trim()) {
+        index =
+          closeIndex + delimiter.length;
+        continue;
+      }
+
+      const token =
+        `\uE000JINMATH${mathHtml.length}\uE001`;
+
+      protectedParts.push(
+        source.slice(
+          plainStart,
+          index
+        ),
+        token
+      );
+      mathHtml.push(
+        renderMathFormula(
+          latex,
+          displayMode
+        )
+      );
+
+      index =
+        closeIndex + delimiter.length;
+      plainStart = index;
+    }
+
+    protectedParts.push(
+      source.slice(
+        plainStart
+      )
+    );
+
+    let rendered =
+      renderPlainMarkdownText(
+        protectedParts.join("")
+      );
+
+    mathHtml.forEach(
+      (html, mathIndex) => {
+        rendered = rendered.split(
+          `\uE000JINMATH${mathIndex}\uE001`
+        ).join(
+          html
+        );
+      }
+    );
+
+    return rendered;
 
   }
 
@@ -196,30 +588,32 @@
     markerPattern.lastIndex = 0;
 
     while ((match = markerPattern.exec(source)) !== null) {
-      rendered += renderEmphasis(
-        renderLinks(
-          escapeHtml(
-            source.slice(
-              lastIndex,
-              match.index
-            )
-          )
+      rendered += renderMathAwarePlainText(
+        source.slice(
+          lastIndex,
+          match.index
         )
       );
-      rendered += buildChatJinColorMarkerHtml(
-        match[1]
-      );
+      if (match[3] !== undefined || match[4] !== undefined) {
+        rendered += buildChatJinReactionMarkerHtml(
+          match[3] !== undefined ? match[3] : match[4]
+        );
+      } else if (String(match[1] || "").toUpperCase() === "JIN_COLOR") {
+        rendered += buildChatJinColorMarkerHtml(
+          match[2]
+        );
+      } else {
+        rendered += buildChatJinSizeMarkerHtml(
+          match[2]
+        );
+      }
       lastIndex =
         markerPattern.lastIndex;
     }
 
-    rendered += renderEmphasis(
-      renderLinks(
-        escapeHtml(
-          source.slice(
-            lastIndex
-          )
-        )
+    rendered += renderMathAwarePlainText(
+      source.slice(
+        lastIndex
       )
     );
 
@@ -229,33 +623,169 @@
 
   function renderInlineMarkdown(text) {
 
-    return String(text || "")
-      .split(/(`[^`\n]*`)/g)
-      .map((chunk) => {
+    const codeHtml = [];
+    const source =
+      String(text || "").replace(
+        /`([^`\n]*)`/g,
+        (_whole, code) => {
+          const token =
+            `\uE002JINCODE${codeHtml.length}\uE003`;
 
-        if (
-          chunk.length >= 2
-          && chunk[0] === "`"
-          && chunk[chunk.length - 1] === "`"
-        ) {
-          return (
+          codeHtml.push(
             "<code>"
             + escapeHtml(
-              chunk.slice(
-                1,
-                -1
-              )
+              code
             )
             + "</code>"
           );
-        }
 
-        return renderInlinePlain(
-          chunk
+          return token;
+        }
+      );
+
+    let rendered =
+      renderInlinePlain(
+        source
+      );
+
+    codeHtml.forEach(
+      (html, codeIndex) => {
+        rendered = rendered.split(
+          `\uE002JINCODE${codeIndex}\uE003`
+        ).join(
+          html
+        );
+      }
+    );
+
+    return rendered;
+
+  }
+
+  function isDisplayMathStart(line) {
+
+    return /^[ \t]*(?:\$\$|\\\[)/.test(
+      String(line || "")
+    );
+
+  }
+
+  function renderDisplayMath(lines, startIndex) {
+
+    const firstLine =
+      String(lines[startIndex] || "");
+    const dollarMatch =
+      firstLine.match(
+        /^[ \t]*\$\$(.*)$/
+      );
+    const bracketMatch =
+      firstLine.match(
+        /^[ \t]*\\\[(.*)$/
+      );
+    const openingMatch =
+      dollarMatch
+      || bracketMatch;
+
+    if (!openingMatch) {
+      return null;
+    }
+
+    const closing =
+      dollarMatch
+        ? "$$"
+        : "\\]";
+
+    const parts = [];
+    let current =
+      openingMatch[1];
+    let index =
+      startIndex;
+
+    while (true) {
+      const closeIndex =
+        findMathClosingDelimiter(
+          current,
+          0,
+          closing
         );
 
-      })
-      .join("");
+      if (closeIndex >= 0) {
+        if (
+          current.slice(
+            closeIndex + closing.length
+          ).trim()
+        ) {
+          return null;
+        }
+
+        parts.push(
+          current.slice(
+            0,
+            closeIndex
+          )
+        );
+
+        const latex =
+          parts.join("\n").trim();
+
+        if (!latex.trim()) {
+          return null;
+        }
+
+        return {
+          html: renderMathFormula(
+            latex,
+            true,
+            dollarMatch
+              ? `$$${latex}$$`
+              : `\\[${latex}\\]`
+          ),
+          nextIndex: index + 1,
+        };
+      }
+
+      parts.push(
+        current
+      );
+      index += 1;
+
+      if (index >= lines.length) {
+        return null;
+      }
+
+      current =
+        String(lines[index] || "");
+    }
+
+  }
+
+  const isMatrixMathStart =
+    window.JinUiUtils.isMatrixMathStart;
+
+  function renderMatrixMath(lines, startIndex) {
+
+    const matrix =
+      window.JinUiUtils.parseMatrixMathBlock(
+        lines,
+        startIndex
+      );
+
+    if (!matrix) {
+      return null;
+    }
+
+    return {
+      html: (
+        '<div class="jin-chat-matrix-block">'
+        + renderMathFormula(
+          matrix.latex,
+          true,
+          matrix.latex
+        )
+        + "</div>"
+      ),
+      nextIndex: matrix.nextIndex,
+    };
 
   }
 
@@ -313,11 +843,180 @@
 
   }
 
+  function splitMarkdownTableRow(line) {
+
+    let source =
+      String(line || "").trim();
+
+    if (!source.includes("|")) {
+      return null;
+    }
+
+    if (source.startsWith("|")) {
+      source = source.slice(1);
+    }
+
+    if (source.endsWith("|")) {
+      source = source.slice(0, -1);
+    }
+
+    const cells = [];
+    let cell = "";
+    let escaped = false;
+    let inCode = false;
+
+    for (let index = 0; index < source.length; index += 1) {
+      const char = source[index];
+
+      if (escaped) {
+        cell += char;
+        escaped = false;
+        continue;
+      }
+
+      if (char === "\\") {
+        escaped = true;
+        cell += char;
+        continue;
+      }
+
+      if (char === "`") {
+        inCode = !inCode;
+        cell += char;
+        continue;
+      }
+
+      if (char === "|" && !inCode) {
+        cells.push(cell.trim());
+        cell = "";
+        continue;
+      }
+
+      cell += char;
+    }
+
+    cells.push(cell.trim());
+    return cells;
+
+  }
+
+  function getTableStart(lines, startIndex) {
+
+    if (startIndex + 1 >= lines.length) {
+      return null;
+    }
+
+    const headerCells =
+      splitMarkdownTableRow(lines[startIndex]);
+    const delimiterCells =
+      splitMarkdownTableRow(lines[startIndex + 1]);
+
+    if (
+      !headerCells
+      || !delimiterCells
+      || headerCells.length < 2
+      || headerCells.length !== delimiterCells.length
+      || delimiterCells.some((cell) => !/^:?-{3,}:?$/.test(cell))
+    ) {
+      return null;
+    }
+
+    return {
+      headerCells,
+      delimiterCells,
+    };
+
+  }
+
+  function getTableAlignmentClass(delimiterCell) {
+
+    const source = String(delimiterCell || "");
+
+    if (source.startsWith(":") && source.endsWith(":")) {
+      return "jin-chat-table-align-center";
+    }
+
+    if (source.endsWith(":")) {
+      return "jin-chat-table-align-right";
+    }
+
+    return "";
+
+  }
+
+  function renderTableCells(cells, tag, alignmentClasses) {
+
+    return cells.map((cell, index) => {
+      const alignmentClass = alignmentClasses[index];
+      const classAttribute = alignmentClass
+        ? ` class="${alignmentClass}"`
+        : "";
+
+      return (
+        `<${tag}${classAttribute}>`
+        + renderInlineMarkdown(cell)
+        + `</${tag}>`
+      );
+    }).join("");
+
+  }
+
+  function renderTable(lines, startIndex) {
+
+    const tableStart = getTableStart(lines, startIndex);
+
+    if (!tableStart) {
+      return null;
+    }
+
+    const columnCount = tableStart.headerCells.length;
+    const alignmentClasses =
+      tableStart.delimiterCells.map(getTableAlignmentClass);
+    const rows = [];
+    let index = startIndex + 2;
+
+    while (index < lines.length) {
+      if (isBlank(lines[index])) {
+        break;
+      }
+
+      const cells = splitMarkdownTableRow(lines[index]);
+
+      if (!cells || cells.length !== columnCount) {
+        break;
+      }
+
+      rows.push(
+        "<tr>"
+        + renderTableCells(cells, "td", alignmentClasses)
+        + "</tr>"
+      );
+      index += 1;
+    }
+
+    return {
+      html: (
+        '<div class="jin-chat-table-wrap">'
+        + '<table class="jin-chat-table">'
+        + "<thead><tr>"
+        + renderTableCells(tableStart.headerCells, "th", alignmentClasses)
+        + "</tr></thead>"
+        + `<tbody>${rows.join("")}</tbody>`
+        + "</table>"
+        + "</div>"
+      ),
+      nextIndex: index,
+    };
+
+  }
+
   function isBlockStart(line) {
 
     return (
       isBlank(line)
       || isFenceStart(line)
+      || isDisplayMathStart(line)
+      || isMatrixMathStart(line)
       || isHeading(line)
       || isHorizontalRule(line)
       || Boolean(getUnorderedListMatch(line))
@@ -466,6 +1165,23 @@
 
   }
 
+  function isReactionOnlyLine(line) {
+
+    const source =
+      String(line || "");
+    const reactionPattern =
+      /(?<!["'`«‹“‘„‚(\[{])(?:<JIN_REACTION\s*>[\s\S]*?<\/JIN_REACTION\s*>|<JIN_REACTION\s*:\s*[^>\r\n]+?\s*>)/gi;
+
+    return Boolean(
+      source.trim()
+      && source.replace(
+        reactionPattern,
+        ""
+      ).trim() === ""
+    );
+
+  }
+
   function renderParagraph(lines, startIndex) {
 
     const parts = [];
@@ -475,12 +1191,42 @@
     while (index < lines.length) {
       if (
         index !== startIndex
-        && isBlockStart(lines[index])
+        && !isBlank(lines[index])
+        && (
+          isBlockStart(lines[index])
+          || getTableStart(lines, index)
+        )
       ) {
         break;
       }
 
       if (isBlank(lines[index])) {
+        const hasOnlyLeadingReactions =
+          parts.length > 0
+          && parts.every(
+            isReactionOnlyLine
+          );
+
+        if (hasOnlyLeadingReactions) {
+          let nextIndex = index;
+
+          while (
+            nextIndex < lines.length
+            && isBlank(lines[nextIndex])
+          ) {
+            nextIndex += 1;
+          }
+
+          if (
+            nextIndex < lines.length
+            && !isBlockStart(lines[nextIndex])
+            && !getTableStart(lines, nextIndex)
+          ) {
+            index = nextIndex;
+            continue;
+          }
+        }
+
         break;
       }
 
@@ -490,10 +1236,41 @@
       index += 1;
     }
 
+    let leadingReactionHtml = "";
+
+    while (
+      parts.length
+      && isReactionOnlyLine(
+        parts[0]
+      )
+    ) {
+      leadingReactionHtml +=
+        renderInlineMarkdown(
+          parts.shift()
+        );
+    }
+
+    const renderedParts =
+      parts.map(
+        renderInlineMarkdown
+      );
+
+    if (leadingReactionHtml) {
+      if (renderedParts.length) {
+        renderedParts[0] =
+          leadingReactionHtml
+          + renderedParts[0];
+      } else {
+        renderedParts.push(
+          leadingReactionHtml
+        );
+      }
+    }
+
     return {
       html: (
         "<p>"
-        + parts.map(renderInlineMarkdown).join("<br>")
+        + renderedParts.join("<br>")
         + "</p>"
       ),
       nextIndex: index,
@@ -527,6 +1304,55 @@
         );
         index =
           result.nextIndex;
+        continue;
+      }
+
+      if (isDisplayMathStart(lines[index])) {
+        const result =
+          renderDisplayMath(
+            lines,
+            index
+          );
+
+        if (result) {
+          blocks.push(
+            result.html
+          );
+          index =
+            result.nextIndex;
+          continue;
+        }
+      }
+
+      if (isMatrixMathStart(lines[index])) {
+        const result =
+          renderMatrixMath(
+            lines,
+            index
+          );
+
+        if (result) {
+          blocks.push(
+            result.html
+          );
+          index =
+            result.nextIndex;
+          continue;
+        }
+      }
+
+      const tableResult =
+        renderTable(
+          lines,
+          index
+        );
+
+      if (tableResult) {
+        blocks.push(
+          tableResult.html
+        );
+        index =
+          tableResult.nextIndex;
         continue;
       }
 
@@ -612,6 +1438,12 @@
     normalizeChatJinColorMarker;
   root.buildJinColorMarkerHtml =
     buildChatJinColorMarkerHtml;
+  root.buildJinReactionMarkerHtml =
+    buildChatJinReactionMarkerHtml;
+  root.normalizeJinSizeMarker =
+    normalizeChatJinSizeMarker;
+  root.buildJinSizeMarkerHtml =
+    buildChatJinSizeMarkerHtml;
   root.normalizeArrowTokens =
     normalizeArrowTokens;
   root.render =

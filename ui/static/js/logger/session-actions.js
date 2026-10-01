@@ -8,7 +8,6 @@ const sessionActionsLogState = {
   logDiv: null,
   tagSpan: null,
   list: null,
-  actions: null,
   fullButton: null,
   bottomMoveStreamKey: "",
 };
@@ -29,26 +28,37 @@ function normalizeSessionActionName(value) {
     .toUpperCase();
 }
 
-function normalizeSessionActionColor(value) {
-  const match = String(value || "")
-    .trim()
-    .match(/^#?([0-9a-f]{3}|[0-9a-f]{6})$/i);
+function normalizeDeepSearchSessionActionDisplay(
+  text,
+  detail = "",
+) {
+  const normalizedText =
+    String(text || "").trim();
+  const normalizedDetail =
+    String(detail || "").trim();
+  const queryMatch =
+    normalizedText.match(
+      /^DEEP_WEB_SEARCH\s*:\s*(.+)$/i
+    );
 
-  if (!match) {
-    return "";
+  if (!queryMatch) {
+    return {
+      text: normalizedText,
+      detail: normalizedDetail,
+    };
   }
 
-  let hex = match[1].toLowerCase();
+  const query =
+    String(queryMatch[1] || "").trim();
 
-  if (hex.length === 3) {
-    hex = hex
-      .split("")
-      .map((char) => char + char)
-      .join("");
-  }
-
-  return `#${hex}`;
+  return {
+    text: "DEEP_WEB_SEARCH",
+    detail: query || normalizedDetail,
+  };
 }
+
+const normalizeSessionActionColor =
+  window.JinUiUtils.normalizeJinColor;
 
 function buildSessionActionPartKey(
   item,
@@ -59,6 +69,7 @@ function buildSessionActionPartKey(
     String(item.createdAt || 0),
     String(partIndex),
     normalizeSessionActionName(part.text),
+    String(part.id || ""),
     (part.colors || []).join(","),
   ].join("|");
 }
@@ -186,15 +197,57 @@ function normalizeSessionActionParts(
             return null;
           }
 
-          const text =
+          let text =
             String(part.text || "").trim();
 
           if (!text) {
             return null;
           }
 
-          const detail =
+          let detail =
             String(part.detail || "").trim();
+
+          // Defensive compatibility for checkpoints written before CALL_MCP
+          // got structured display parts. Never render a raw arguments object
+          // in Session Actions; only the integration and tool identify a call.
+          if (text.toUpperCase().startsWith("CALL_MCP")) {
+            let rawPayload = "";
+
+            if (text.toUpperCase().startsWith("CALL_MCP:")) {
+              rawPayload = text.slice(text.indexOf(":") + 1).trim();
+              text = "CALL_MCP";
+            } else if (detail.startsWith("{")) {
+              rawPayload = detail;
+            }
+
+            if (rawPayload) {
+              try {
+                const request = JSON.parse(rawPayload);
+                const skill = String(request.skill || "").trim();
+                const tool = String(request.tool || "").trim();
+                detail = skill && tool
+                  ? `${skill} / ${tool}`
+                  : "invalid request";
+              } catch (_error) {
+                detail = "invalid request";
+              }
+            }
+          }
+
+          ({ text, detail } =
+            normalizeDeepSearchSessionActionDisplay(
+              text,
+              detail
+            ));
+
+          const message =
+            String(part.message || "").trim();
+
+          const contextDetail =
+            String(part.context_detail || "").trim();
+
+          const id =
+            String(part.id || "").trim();
 
           const colors = Array.isArray(part.colors)
             ? part.colors
@@ -217,6 +270,10 @@ function normalizeSessionActionParts(
           return {
             text,
             detail,
+            message,
+            contextDetail,
+            toolIds: Array.isArray(part.tool_ids) ? part.tool_ids.filter(id => /^T[1-9][0-9]*$/.test(id)) : [],
+            id,
             colors,
             count,
             cancelled:
@@ -237,6 +294,26 @@ function normalizeSessionActionParts(
     return [];
   }
 
+  const deepSearchDisplay =
+    normalizeDeepSearchSessionActionDisplay(
+      text
+    );
+
+  if (
+    deepSearchDisplay.text === "DEEP_WEB_SEARCH"
+    && deepSearchDisplay.detail
+  ) {
+    return [{
+      text: deepSearchDisplay.text,
+      detail: deepSearchDisplay.detail,
+      message: "",
+      id: "",
+      colors: [],
+      count: 0,
+      cancelled: false,
+    }];
+  }
+
   const detailSeparator =
     " - ";
 
@@ -249,6 +326,8 @@ function normalizeSessionActionParts(
     return [{
       text,
       detail: "",
+      message: "",
+      id: "",
       colors: [],
       count: 0,
       cancelled: false,
@@ -270,6 +349,8 @@ function normalizeSessionActionParts(
   return [{
     text: visibleText || text,
     detail: visibleText ? detail : "",
+    message: "",
+    id: "",
     colors: [],
     count: 0,
     cancelled: false,
@@ -301,9 +382,11 @@ function normalizeSessionActionItems(
 
       return {
         text,
-        parts: normalizeSessionActionParts(
-          item.parts,
-          text
+        parts: expandSessionActionDisplayParts(
+          normalizeSessionActionParts(
+            item.parts,
+            text
+          )
         ),
         createdAt:
           Number.isFinite(createdAt)
@@ -408,6 +491,44 @@ function buildSessionActionColorSwatches(
 }
 
 
+function expandSessionActionDisplayParts(
+  parts,
+) {
+  // One Session Actions row is one model message. Never turn repeated
+  // markers into separate rows: expand them only into comma-separated parts
+  // inside that message's existing row.
+  return parts.flatMap((part) => {
+    if (
+      normalizeSessionActionName(part.text)
+        !== "JIN_COLOR"
+    ) {
+      const repeatCount = Math.max(
+        1,
+        Number.parseInt(part.count || 0, 10) || 1
+      );
+      return Array.from(
+        { length: repeatCount },
+        () => ({ ...part, count: 0 })
+      );
+    }
+
+    if (!part.colors.length) {
+      return [{
+        ...part,
+        count: 0,
+      }];
+    }
+
+    return part.colors.map((color) => ({
+      ...part,
+      colors: [color],
+      count: 0,
+      detail: color,
+    }));
+  });
+}
+
+
 function buildSessionActionRow(
   item,
   index,
@@ -470,25 +591,89 @@ function buildSessionActionRow(
       actionName
     );
 
-    if (part.count > 1) {
-      const count =
+    const normalizedActionName =
+      normalizeSessionActionName(
+        part.text
+      );
+    const isAttachmentAction = (
+      ["ATTACH_FILE_CONTENT", "ATTACH_FILE_BY_ID"].includes(normalizedActionName)
+    );
+    const isCallMcpAction =
+      normalizedActionName === "CALL_MCP";
+
+    if (
+      (isAttachmentAction || isCallMcpAction)
+      && part.detail
+    ) {
+      const detail =
         document.createElement("span");
 
-      count.textContent =
-        formatRuntimeActionCountLabel(
-          part.count
-        );
-      count.className =
-        "ml-1 opacity-70";
+      detail.textContent =
+        `: ${part.detail}`;
 
       action.appendChild(
-        count
+        detail
       );
     }
 
-    if (part.detail) {
+    if (isAttachmentAction && part.id) {
+      const attachmentId =
+        document.createElement("span");
+
+      attachmentId.textContent =
+        ` [ id: ${part.id} ]`;
+      attachmentId.className =
+        "opacity-70";
+
+      action.appendChild(
+        attachmentId
+      );
+    }
+
+    if (part.toolIds && part.toolIds.length) {
+      const toolIds = document.createElement("span");
+      toolIds.textContent = ` [ tool_id: ${part.toolIds.join(", ")} ]`;
+      toolIds.className = "opacity-70";
+      action.appendChild(toolIds);
+    }
+
+    const isUpdateLTFactsAction =
+      normalizedActionName === "UPDATE_LT_FACTS";
+
+    if (part.message && !isUpdateLTFactsAction) {
+      const message =
+        document.createElement("span");
+
+      message.textContent =
+        `: ${part.message}`;
+
+      action.appendChild(
+        message
+      );
+    }
+
+    const isDeepWebSearchAction =
+      normalizedActionName === "DEEP_WEB_SEARCH"
+      || normalizedActionName.startsWith(
+        "DEEP_WEB_SEARCH "
+      );
+
+    const hoverText =
+      isCallMcpAction
+        ? ""
+        : (
+          part.message
+          || part.detail
+          || (
+            isDeepWebSearchAction
+              ? part.contextDetail
+              : ""
+          )
+        );
+
+    if (hoverText) {
       action.title =
-        part.detail;
+        hoverText;
 
       action.classList.add(
         "cursor-help"
@@ -537,7 +722,7 @@ function getSessionActionsTitle(
   mode,
 ) {
   return mode === "sequence"
-    ? "[ SEQUENCE ]"
+    ? "[ CURRENT REQUEST ]"
     : "[ SESSION ACTIONS ]";
 }
 
@@ -577,10 +762,15 @@ function ensureSessionActionsModal() {
     "button";
 
   closeButton.className =
-    "text-xs text-zinc-400 hover:text-zinc-100 transition";
+    "delayed-memory-modal-icon-button delayed-memory-modal-close";
+
+  closeButton.setAttribute(
+    "aria-label",
+    "Close"
+  );
 
   closeButton.textContent =
-    "close";
+    "\u00d7";
 
   sessionActionsModalList =
     document.createElement("div");
@@ -627,10 +817,26 @@ function ensureSessionActionsModal() {
     closeSessionActionsModal
   );
 
+  let sessionActionsModalBackdropPointerDown = false;
+
+  sessionActionsModal.addEventListener(
+    "pointerdown",
+    function (event) {
+      sessionActionsModalBackdropPointerDown =
+        event.target === sessionActionsModal;
+    }
+  );
+
   sessionActionsModal.addEventListener(
     "click",
     function (event) {
-      if (event.target === sessionActionsModal) {
+      const shouldClose =
+        event.target === sessionActionsModal
+        && sessionActionsModalBackdropPointerDown;
+
+      sessionActionsModalBackdropPointerDown = false;
+
+      if (shouldClose) {
         closeSessionActionsModal();
       }
     }
@@ -770,17 +976,17 @@ function ensureSessionActionsLog() {
   tagSpan.className =
     "text-zinc-300 font-bold logger-tag block";
 
+  const header =
+    document.createElement("div");
+
+  header.className =
+    "jin-attached-files-header";
+
   const list =
     document.createElement("div");
 
   list.className =
     "mt-1 text-zinc-400 space-y-1";
-
-  const actions =
-    document.createElement("div");
-
-  actions.className =
-    "mt-2 flex flex-wrap items-center gap-2 hidden";
 
   const fullButton =
     document.createElement("button");
@@ -789,30 +995,35 @@ function ensureSessionActionsLog() {
     "button";
 
   fullButton.className =
-    "inline-flex items-center rounded border border-zinc-600/40 px-2 py-1 text-[10px] uppercase tracking-wider text-zinc-300 hover:bg-zinc-700/40 transition";
+    "jin-attached-files-attach-button hidden";
 
   fullButton.textContent =
-    "full";
+    "FULL";
+
+  fullButton.setAttribute(
+    "aria-label",
+    "Show full session actions"
+  );
 
   fullButton.addEventListener(
     "click",
     showSessionActionsModal
   );
 
-  actions.appendChild(
+  header.appendChild(
+    tagSpan
+  );
+
+  header.appendChild(
     fullButton
   );
 
   logDiv.appendChild(
-    tagSpan
+    header
   );
 
   logDiv.appendChild(
     list
-  );
-
-  logDiv.appendChild(
-    actions
   );
 
   sessionActionsLogState.logDiv =
@@ -823,9 +1034,6 @@ function ensureSessionActionsLog() {
 
   sessionActionsLogState.list =
     list;
-
-  sessionActionsLogState.actions =
-    actions;
 
   sessionActionsLogState.fullButton =
     fullButton;
@@ -902,18 +1110,19 @@ function updateSessionActionsLog(
 
   sessionActionsLogState.list.replaceChildren(
     ...items
+      .map((item, index) => ({ item, index }))
       .slice(
         previewStartIndex
       )
-      .map(
-        (item, index) => buildSessionActionRow(
+      .map(({ item, index }) =>
+        buildSessionActionRow(
           item,
-          previewStartIndex + index
+          index
         )
       )
   );
 
-  sessionActionsLogState.actions.classList.toggle(
+  sessionActionsLogState.fullButton.classList.toggle(
     "hidden",
     items.length <= SESSION_ACTIONS_PREVIEW_LIMIT
   );
@@ -991,6 +1200,10 @@ function markSessionActionCancelled(
       parts: item.parts.map((part) => ({
         text: part.text,
         detail: part.detail,
+        message: part.message,
+        context_detail: part.contextDetail,
+        tool_ids: part.toolIds,
+        id: part.id,
         colors: part.colors,
         count: part.count,
         cancelled: part.cancelled,

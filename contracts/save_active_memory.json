@@ -1,18 +1,31 @@
 {
   "save_active_memory": {
-    "version": 1,
-    "description": "Allows the model to save active memory.",
+    "version": 5,
+    "description": "Creates a new active memory record or updates an existing one when `id` is provided.",
     "runtime_action": "SAVE_ACTIVE_MEMORY",
-    "private_marker": "<SAVE_ACTIVE_MEMORY: CONDITIONS >",
+    "enable_flag": "CAN_SAVE_ACTIVE_MEMORY",
+    "runtime_order": 210,
+    "private_marker": "<SAVE_ACTIVE_MEMORY>",
     "triggers": [],
     "blockers": [],
     "effects": {
-      "emit_followup": false
+      "emit_followup": false,
+      "follow_up_on_fail": true
     },
-    "rules": [
-      "Use when user asks to remember, remind, track, or keep a pending live-session condition.",
-      "CONDITIONS is a placeholder; replace it with description, value, or conditions."
+    "schema": [
+      "<SAVE_ACTIVE_MEMORY>",
+      "{\"conditions\":\"Descriptive conditions text\", \"additional_conditions\":\"additional value\"}",
+      "OR for update:",
+      "{\"id\":\"AM-abcdef\",\"conditions\":\"new conditions value\"}",
+      "</SAVE_ACTIVE_MEMORY>"
     ],
-    "close_tag": false
+    "rules": [
+      "Use to create or update active memory!",
+      "`conditions` is required.",
+      "Update: include `id` of an existing record.",
+      "Every JSON key other than `id` and `conditions` is a custom field; can create maximum 3 custom fields."
+    ],
+    "close_tag": true,
+    "display_payload": false
   }
 }

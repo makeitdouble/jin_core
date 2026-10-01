@@ -1,3 +1,11 @@
+// Temporary UI-only switch. Runtime parsing, execution, avatar updates and
+// logger entries stay active; flip this to true to restore the two chat bubbles.
+const ENABLE_JIN_VISUAL_ACTION_BUBBLES = true;
+const THINK_RUNTIME_CITATION_HIGHLIGHT_EVENT =
+  "jin:think-runtime-citation-highlight";
+
+const JIN_COLOR_TRANSITION_MS = 333;
+
 function getRuntimeActionMessageId(data) {
 
   return String(
@@ -12,11 +20,24 @@ function handleRuntimeActionGuardConfirmation(
   data
 ) {
 
+  const runtimeMessageId =
+    getRuntimeActionMessageId(data);
+
+  if (runtimeMessageId && window.markStreamAnswerPhase) {
+    window.markStreamAnswerPhase(
+      runtimeMessageId
+    );
+  }
+
   const action =
     String(
       data.action || ""
     ).toLowerCase();
-  const text =
+  const updateLTFactsMessage =
+    action === "update_lt_facts"
+      ? getUpdateLTFactsMessage(data)
+      : "";
+  const baseText =
     buildRuntimeActionDisplayText(
       data,
       action,
@@ -25,6 +46,13 @@ function handleRuntimeActionGuardConfirmation(
         fallbackToName: true,
       }
     );
+  const text =
+    updateLTFactsMessage
+      ? (
+        `${getRuntimeActionDisplayName(data, action)}: `
+        + updateLTFactsMessage
+      )
+      : baseText;
 
   if (
     text.trim()
@@ -40,19 +68,29 @@ function handleRuntimeActionGuardConfirmation(
           || "",
         runtimeTurnId:
           data.runtime_turn_id || "",
-        runtimeMessageId:
-          getRuntimeActionMessageId(data),
+        runtimeMessageId,
         color:
           data.color
           || data.payload
           || "",
+        size:
+          data.size
+          || data.payload
+          || "",
+        width:
+          data.width,
+        height:
+          data.height,
         reuseCompleted:
-          action === "jin_color",
+          action === "jin_color"
+          || action === "jin_size",
         aggregateMarkers: true,
         contextSnapshot:
           data.context || null,
         detail:
-          data.detail || "",
+          updateLTFactsMessage
+          || data.detail
+          || "",
         displayName:
           getRuntimeActionDisplayName(
             data,
@@ -77,6 +115,14 @@ function handleRuntimeActionGuardConfirmation(
               : [],
           timeoutMs:
             Number(data.timeout_ms || 0),
+          retryUserMessage:
+            String(
+              data.retry_user_message || ""
+            ),
+          retryAttempt:
+            Number(data.retry_attempt || 1),
+          retryContextSnapshot:
+            data.context || null,
         },
       }
     );
@@ -151,6 +197,74 @@ function tryParseRuntimeActionJson(value) {
 
 }
 
+function getUpdateLTFactsMessage(data) {
+
+  if (!data || typeof data !== "object") {
+    return "";
+  }
+
+  const directMessage =
+    String(
+      data.message || ""
+    ).trim();
+
+  if (directMessage) {
+    return directMessage;
+  }
+
+  const payloadCandidates = [
+    data.payload,
+    data.action_payload,
+    data.runtime_action_payload,
+  ];
+
+  for (const candidate of payloadCandidates) {
+    if (
+      candidate === undefined
+      || candidate === null
+      || candidate === ""
+    ) {
+      continue;
+    }
+
+    const parsed =
+      tryParseRuntimeActionJson(
+        candidate
+      );
+
+    if (
+      parsed
+      && typeof parsed === "object"
+      && !Array.isArray(parsed)
+    ) {
+      const message =
+        String(
+          parsed.message || ""
+        ).trim();
+
+      if (message) {
+        return message;
+      }
+
+      continue;
+    }
+
+    if (typeof parsed === "string") {
+      const message =
+        parsed
+          .replace(/\s+/g, " ")
+          .trim();
+
+      if (message) {
+        return message;
+      }
+    }
+  }
+
+  return "";
+
+}
+
 function extractRuntimeActionObjectTitle(value) {
 
   const normalizedValue =
@@ -198,7 +312,6 @@ function extractRuntimeActionObjectTitle(value) {
     "delayed_memory_result",
     "asset_result",
     "skill_result",
-    "runtime_todo_result",
   ]) {
     const nestedTitle =
       extractRuntimeActionObjectTitle(
@@ -259,7 +372,6 @@ function buildRuntimeActionDetail(
       || data.delayed_memory_result
       || data.asset_result
       || data.skill_result
-      || data.runtime_todo_result
     );
 
   if (objectTitle) {
@@ -269,6 +381,297 @@ function buildRuntimeActionDetail(
   return "";
 
 }
+
+function highlightUpdatedActiveMemory(activeMemoryId) {
+  const normalizedId =
+    window.JinUiUtils.normalizeActiveMemoryId(activeMemoryId);
+
+  if (!normalizedId) {
+    return;
+  }
+
+  window.dispatchEvent(
+    new CustomEvent(
+      THINK_RUNTIME_CITATION_HIGHLIGHT_EVENT,
+      {
+        detail: {
+          sourceId: `runtime-action:update-active-memory:${normalizedId}`,
+          active: true,
+          activeMemoryIds: [normalizedId],
+        },
+      }
+    )
+  );
+}
+
+function formatActiveMemoryUpdateDetail(
+  data
+) {
+
+  const rawPayload = String(
+    data && (
+      data.payload
+      || (
+        data.active_memory_result
+        && data.active_memory_result.payload
+      )
+    )
+    || ""
+  ).trim();
+  let payload = null;
+
+  if (rawPayload.startsWith("{")) {
+    try {
+      const parsed = JSON.parse(rawPayload);
+      if (
+        parsed
+        && typeof parsed === "object"
+        && !Array.isArray(parsed)
+      ) {
+        payload = parsed;
+      }
+    } catch (error) {
+      payload = null;
+    }
+  }
+
+  const activeMemoryId = String(
+    payload && payload.id
+    || data && (
+      data.active_memory_id
+      || data.id
+      || (
+        data.active_memory_result
+        && data.active_memory_result.id
+      )
+    )
+    || ""
+  ).trim();
+  const payloadFields = payload
+    ? Object.fromEntries(
+      Object.entries(payload).filter(([field]) => (
+        String(field || "").trim().toLowerCase() !== "id"
+      ))
+    )
+    : null;
+  const requestedChanges = Array.isArray(
+    data && data.active_memory_requested_changes
+  )
+    ? data.active_memory_requested_changes
+    : (
+      Array.isArray(
+        data
+        && data.active_memory_result
+        && data.active_memory_result.requested_changes
+      )
+        ? data.active_memory_result.requested_changes
+        : []
+    );
+  const appliedChanges = Array.isArray(
+    data && data.active_memory_changes
+  )
+    ? data.active_memory_changes
+    : [];
+  const changes = requestedChanges.length
+    ? requestedChanges
+    : appliedChanges;
+  const fields = payloadFields
+    ? Object.entries(payloadFields)
+    : changes
+      .map((change) => [
+        String(
+          change && change.field || ""
+        ).trim(),
+        change && change.after,
+      ])
+      .filter(([field]) => Boolean(field));
+  const lines = activeMemoryId
+    ? [`id: ${activeMemoryId}`]
+    : [];
+
+  if (fields.length) {
+    fields.forEach(([field, value]) => {
+      const fieldName = String(field || "").trim();
+      const fieldValue = value === null || value === undefined
+        ? ""
+        : String(value).trim();
+
+      if (!fieldName) {
+        return;
+      }
+
+      lines.push(`${fieldName}: ${fieldValue}`);
+    });
+  }
+
+  return lines.join("\n");
+
+}
+
+function formatActiveMemoryRecordDetail(
+  data
+) {
+
+  const activeMemoryId = String(
+    data && (
+      data.active_memory_id
+      || data.id
+      || (
+        data.active_memory_result
+        && data.active_memory_result.id
+      )
+    )
+    || ""
+  ).trim();
+  let record = String(
+    data && (
+      data.active_memory
+      || data.active_memory_record
+      || (
+        data.active_memory_result
+        && data.active_memory_result.record
+      )
+    )
+    || ""
+  ).trim();
+  const activeMemoryRecords = (
+    window.JinRuntime
+    && window.JinRuntime.runtime
+    && typeof window.JinRuntime.runtime.getActiveMemoryRecords === "function"
+  )
+    ? (
+      window.JinRuntime.runtime.getActiveMemoryRecords()
+      || []
+    )
+      .map(item => String(item || "").trim())
+      .filter(Boolean)
+    : [];
+
+  if (
+    !record
+    && activeMemoryId
+  ) {
+    record = activeMemoryRecords
+      .find(item => item.includes(
+        `[ id: ${activeMemoryId} ]`
+      ))
+      || "";
+  }
+
+  if (!record && activeMemoryRecords.length) {
+    const action = String(data && data.action || "")
+      .trim()
+      .toLowerCase();
+    let conditions = String(
+      data && (
+        data.active_memory_title
+        || (
+          data.active_memory_result
+          && data.active_memory_result.title
+        )
+      )
+      || ""
+    ).trim();
+
+    if (!conditions && action === "save_active_memory") {
+      const payload = String(data && data.payload || "").trim();
+
+      if (payload.startsWith("{")) {
+        try {
+          conditions = String(
+            JSON.parse(payload).conditions || ""
+          ).trim();
+        } catch (error) {
+          conditions = "";
+        }
+      }
+    }
+
+    if (!conditions) {
+      const text = String(data && data.text || "").trim();
+      const separatorIndex = text.indexOf(":");
+
+      conditions = separatorIndex >= 0
+        ? text.slice(separatorIndex + 1).trim()
+        : "";
+    }
+
+    if (conditions) {
+      const normalizedConditions = conditions.toLowerCase();
+
+      record = activeMemoryRecords
+        .slice()
+        .reverse()
+        .find(item => (
+          item.toLowerCase().includes(
+            `[ conditions: ${normalizedConditions} ]`
+          )
+          || item.toLowerCase().includes(
+            `: ${normalizedConditions} [`
+          )
+        ))
+        || "";
+    }
+
+    if (!record && action === "save_active_memory") {
+      record = activeMemoryRecords[activeMemoryRecords.length - 1] || "";
+    }
+
+    if (!record && activeMemoryRecords.length === 1) {
+      record = activeMemoryRecords[0];
+    }
+  }
+
+  if (!record) {
+    return "";
+  }
+
+  return record
+    .split(/\r?\n/)
+    .map((line) => {
+      const trimmed = String(line || "").trim();
+
+      if (!trimmed) {
+        return "";
+      }
+
+      const parts = [];
+      let lastIndex = 0;
+
+      trimmed.replace(
+        /\s*(\[[^\]]+\])/gi,
+        (match, suffix, offset) => {
+          if (!parts.length) {
+            const body = trimmed.slice(0, offset).trim();
+
+            if (body) {
+              parts.push(body);
+            }
+          }
+
+          parts.push(String(suffix || "").trim());
+          lastIndex = offset + match.length;
+
+          return match;
+        }
+      );
+
+      if (!parts.length) {
+        return trimmed;
+      }
+
+      const tail = trimmed.slice(lastIndex).trim();
+
+      if (tail) {
+        parts.push(tail);
+      }
+
+      return parts.join("\n");
+    })
+    .join("\n");
+
+}
+
 
 function buildRuntimeActionDisplayText(
   data,
@@ -289,6 +692,16 @@ function buildRuntimeActionDisplayText(
       || text
       || ""
     ).trim();
+
+  if (
+    normalizedAction === "asset_action"
+    && getAssetActionRuntimeField(data, "action") === "project_search"
+  ) {
+    const searchText = buildAssetActionRuntimeDisplayText(data, action);
+    if (searchText) {
+      return searchText;
+    }
+  }
 
   if (
       explicitText
@@ -341,6 +754,27 @@ function buildRuntimeActionDisplayText(
   return options.fallbackToName === true
     ? getRuntimeActionDisplayName(data, action)
     : "";
+
+}
+
+function shouldUseDeepSearchStartedDisplayNameOnly(
+  action,
+  status,
+  deepSearchParent,
+  deepSearchPayloadReady
+) {
+
+  return (
+    action === "deep_web_search"
+    && deepSearchParent
+    && [
+      "started",
+      "start",
+      "pending",
+      "running",
+    ].includes(status)
+    && !deepSearchPayloadReady
+  );
 
 }
 
@@ -444,7 +878,7 @@ function normalizeAssetActionRuntimePath(
     return "";
   }
 
-  if (assetAction === "run_document_reader") {
+  if (["run_document_reader", "project_tree", "project_search", "project_read"].includes(assetAction)) {
     return normalizedPath;
   }
 
@@ -492,6 +926,11 @@ function buildAssetActionRuntimeDisplayText(
 
   if (!assetAction) {
     return "";
+  }
+
+  if (assetAction === "project_search") {
+    const query = getAssetActionRuntimeField(data, "query");
+    return query ? `Searched project: ${query}` : "Searched project";
   }
 
   const path =
@@ -547,11 +986,13 @@ function isGenericAssetActionDisplayText(
 }
 
 const PAYLOAD_DISTINCT_RUNTIME_ACTIONS = new Set([
+  "chat_log_search",
   "save_active_memory",
-  "resolve_active_memory",
-  "save_delayed_memory_content",
-  "append_delayed_memory",
-  "remove_delayed_memory",
+  "delete_active_memory",
+  "save_delayed_memory",
+  "load_delayed_memory",
+  "unload_delayed_memory",
+  "posting_board",
 ]);
 
 function normalizeRuntimeActionPayloadIdentity(value) {
@@ -635,6 +1076,140 @@ function shouldSplitPayloadDistinctRuntimeAction(
 
 }
 
+function normalizeDelayedMemoryRuntimeActionId(
+  value
+) {
+
+  const reportId = String(
+    value || ""
+  ).trim().toLowerCase();
+
+  return /^[a-z0-9]{6}$/.test(reportId)
+    ? reportId
+    : "";
+
+}
+
+function getDelayedMemoryRuntimeActionPreview(
+  data,
+  action = ""
+) {
+
+  const delayedMemoryResult =
+    data
+    && data.delayed_memory_result
+    && typeof data.delayed_memory_result === "object"
+    && !Array.isArray(data.delayed_memory_result)
+      ? data.delayed_memory_result
+      : null;
+  const report =
+    data.delayed_memory_report
+    || (
+      delayedMemoryResult
+        ? delayedMemoryResult.report
+        : null
+    )
+    || null;
+  const reportId =
+    normalizeDelayedMemoryRuntimeActionId(
+      data.delayed_memory_report_id
+      || (
+        delayedMemoryResult
+          ? delayedMemoryResult.id
+          : ""
+      )
+      || (
+        report
+        && typeof report === "object"
+        && !Array.isArray(report)
+          ? report.id
+          : ""
+      )
+      || (
+        [
+          "load_delayed_memory",
+          "unload_delayed_memory",
+        ].includes(action)
+          ? data.payload
+          : ""
+      )
+      || ""
+    );
+  const title = String(
+    report
+    && typeof report === "object"
+    && !Array.isArray(report)
+      ? report.title || ""
+      : (
+        delayedMemoryResult
+        && typeof delayedMemoryResult === "object"
+          ? delayedMemoryResult.title || ""
+          : ""
+      )
+  ).trim();
+
+  return {
+    report,
+    reportId,
+    title,
+  };
+
+}
+
+function getDelayedMemoryTriggeredByTags(
+  data
+) {
+
+  const values = [];
+  const seen = new Set();
+  const push = function (value) {
+    const tag = String(value || "").trim();
+    const key = tag.toLocaleLowerCase();
+
+    if (!tag || seen.has(key)) {
+      return;
+    }
+
+    seen.add(key);
+    values.push(tag);
+  };
+
+  if (
+    data
+    && Array.isArray(data.triggered_by_tags)
+  ) {
+    data.triggered_by_tags.forEach(push);
+  }
+
+  if (data) {
+    push(data.triggered_by_tag);
+  }
+
+  return values;
+
+}
+
+function formatDelayedMemoryTriggeredByTags(
+  data
+) {
+
+  const tags =
+    getDelayedMemoryTriggeredByTags(data);
+
+  if (!tags.length) {
+    return "";
+  }
+
+  const rendered = tags
+    .map((tag) => `"${tag.replaceAll('"', '\\\"')}"`)
+    .join(", ");
+
+  return tags.length === 1
+    ? `triggered_by_tag: ${rendered}`
+    : `triggered_by_tags: ${rendered}`;
+
+}
+
 function handleRuntimeAction(
   data
 ) {
@@ -656,6 +1231,36 @@ function handleRuntimeAction(
 
   const runtimeMessageId =
     getRuntimeActionMessageId(data);
+
+  if (runtimeMessageId && window.markStreamAnswerPhase) {
+    window.markStreamAnswerPhase(
+      runtimeMessageId
+    );
+  }
+
+  if (
+    action === "jin_reaction"
+    && window.JinChatReactions
+    && typeof window.JinChatReactions.handleRuntimeAction === "function"
+  ) {
+    // Reactions still update the reaction badge, but they also participate in
+    // the same runtime-action bubble lifecycle as every other action.
+    window.JinChatReactions.handleRuntimeAction(data);
+  }
+
+  const delayedMemoryPreview =
+    getDelayedMemoryRuntimeActionPreview(
+      data,
+      action
+    );
+  const reportScopedDelayedAction =
+    [
+      "load_delayed_memory",
+      "unload_delayed_memory",
+    ].includes(action)
+    && Boolean(
+      delayedMemoryPreview.reportId
+    );
 
   const text =
     String(
@@ -685,23 +1290,21 @@ function handleRuntimeAction(
     );
   const abortedByUser =
     status === "aborted";
-  const terminalStatus =
-    [
-      "completed",
-      "complete",
-      "done",
-      "failed",
-      "interrupted",
-      "aborted",
-      "counter_final",
-    ].includes(status);
-  // The backend emits a terminal SAVE_SESSION event only after the L3
-  // operation has finished. Keep that event aligned with the same stop
-  // boundary used by the L3 panel glow.
-  const forceCompletePendingL3 =
-    action === "save_session"
-    && terminalStatus;
-
+  const restrictedWriteFailure =
+    status === "failed"
+    && (
+      String(data.error || "").trim().toLowerCase()
+      === "restricted_write"
+      || /restricted\s+write/i.test(text)
+    );
+  const missingCloseTagFailure =
+    status === "failed"
+    && data.error === "no_close_tag_provided_in_output";
+  const strikeThroughFailure =
+    missingCloseTagFailure
+    || cancelledByUser
+    || abortedByUser
+    || restrictedWriteFailure;
   if (
     (
       cancelledByUser
@@ -721,9 +1324,9 @@ function handleRuntimeAction(
     );
   }
 
-  const displayText =
-    action === "resolve_active_memory"
-      ? buildResolveActiveMemoryRuntimeActionText(
+  const baseDisplayText =
+    action === "delete_active_memory"
+      ? buildDeleteActiveMemoryRuntimeActionText(
         data,
         text
       )
@@ -741,16 +1344,110 @@ function handleRuntimeAction(
         }
       );
 
+  const delayedMemoryTriggerDetail =
+    action === "load_delayed_memory"
+      ? formatDelayedMemoryTriggeredByTags(
+        data
+      )
+      : "";
+
+  const updateLTFactsMessage =
+    action === "update_lt_facts"
+      ? getUpdateLTFactsMessage(data)
+      : "";
+
   const displayName =
     getRuntimeActionDisplayName(
       data,
       action
     );
 
+  const savedActiveMemoryKey = action === "save_active_memory"
+    ? (String(data.active_memory || "").match(/^\s*(active_memory_\d+)\s*:/i) || [])[1]
+    : "";
+  const activeMemorySuccessText =
+    (
+      action === "save_active_memory"
+      && (
+        String(data.active_memory_mode || "").trim().toLowerCase() === "update"
+        || savedActiveMemoryKey
+      )
+    )
+    && [
+      "completed",
+      "complete",
+      "done",
+    ].includes(status)
+      ? (
+        `${displayName}: `
+        + (
+          data.active_memory_key
+          || savedActiveMemoryKey
+          || (
+            data.active_memory_result
+            && data.active_memory_result.key
+          )
+          || "success"
+        )
+      )
+      : "";
+
   const sceneEffect =
     getRuntimeActionSceneEffect(
       data
     );
+
+  const deepSearchChild =
+    data.deep_search_child === true
+    || data.deepSearchChild === true;
+  const deepSearchParent =
+    data.deep_search_parent === true
+    || data.deepSearchParent === true;
+  const deepSearchPayloadReady =
+    data.deep_search_payload_ready === true
+    || data.deepSearchPayloadReady === true;
+
+  const displayText =
+    missingCloseTagFailure
+      ? text
+      : activeMemorySuccessText
+      ? activeMemorySuccessText
+      : shouldUseDeepSearchStartedDisplayNameOnly(
+      action,
+      status,
+      deepSearchParent,
+      deepSearchPayloadReady
+    )
+      ? displayName
+      : updateLTFactsMessage
+      ? (
+        `${displayName}: `
+        + updateLTFactsMessage
+      )
+      : reportScopedDelayedAction
+      && delayedMemoryPreview.title
+      ? (
+        `${displayName}: `
+        + delayedMemoryPreview.title
+        + (
+          delayedMemoryTriggerDetail
+            ? ` - ${delayedMemoryTriggerDetail}`
+            : ""
+        )
+      )
+      : baseDisplayText;
+  const deepSearchParentId =
+    String(
+      data.deep_search_parent_id
+      || data.deepSearchParentId
+      || ""
+    ).trim();
+  const deepSearchObjective =
+    String(
+      data.deep_search_objective
+      || data.deepSearchObjective
+      || ""
+    ).trim();
 
   const closeTag =
     isRuntimeActionCloseTag(
@@ -758,15 +1455,43 @@ function handleRuntimeAction(
     );
 
   const runtimeDetail =
-    buildRuntimeActionDetail(
-      data,
-      closeTag
-    );
+    (action === "posting_board" ? String(data.detail || "").trim() : "")
+    ||
+    (action === "chat_log_search" ? data.detail : "")
+    ||
+    (missingCloseTagFailure ? data.detail : "")
+    || (
+      action === "save_active_memory"
+      && String(data.active_memory_mode || "").trim().toLowerCase() === "update"
+        ? formatActiveMemoryUpdateDetail(data)
+        : ""
+    )
+    || (
+      action === "save_active_memory"
+        ? formatActiveMemoryRecordDetail(data)
+        : ""
+    )
+      || updateLTFactsMessage
+      || buildRuntimeActionDetail(
+        data,
+        closeTag
+      );
 
   const suppressMarkerCount = [
-    "append_skill",
-    "append_skills",
+    "load_skill",
+    "load_skills",
+    "jin_size",
   ].includes(action);
+
+  // JIN_SIZE is an ordered visual gesture. Counter-only events are legacy
+  // telemetry for the whole response and must never collapse separate size
+  // markers into one visible bubble (for example 290px -> text -> 280px).
+  if (
+    action === "jin_size"
+    && data.counter_only === true
+  ) {
+    return;
+  }
 
   const markerCount = suppressMarkerCount
     ? 0
@@ -781,6 +1506,21 @@ function handleRuntimeAction(
   const counterOnly =
     data.counter_only === true
     && !suppressMarkerCount;
+
+  // CLEAN_TOOL_RESULTS is payload-sensitive: every marker mutates a specific
+  // tool-result block (or clears all of them), so collapsing its telemetry
+  // into one aggregate row makes later completions overwrite each other.
+  // Hide the counter-only placeholder and render each semantic result event
+  // as its own terminal bubble instead.
+  const renderEachMarkerSeparately =
+    action === "clean_tool_results";
+
+  if (
+    renderEachMarkerSeparately
+    && counterOnly
+  ) {
+    return;
+  }
 
   const counterFinal =
     data.counter_final === true
@@ -799,7 +1539,10 @@ function handleRuntimeAction(
     );
 
   const aggregateMarkers =
-    !splitPayloadDistinctMarkers
+    counterOnly
+    && !renderEachMarkerSeparately
+    && !reportScopedDelayedAction
+    && !splitPayloadDistinctMarkers
     && (
       data.aggregate_markers === true
       || counterOnly
@@ -821,28 +1564,28 @@ function handleRuntimeAction(
       ? markerCount
       : 0;
 
-  const completeImmediately =
+  const terminalSuccess =
     [
       "completed",
       "complete",
       "done",
     ].includes(status)
-    && !counterOnly
-    && PAYLOAD_DISTINCT_RUNTIME_ACTIONS.has(action);
+    && !counterOnly;
 
   const actionDisplayId =
-    data.counter_id
-    || data.id
-    || "";
-
-  const pendingUntilL3 =
-    action === "save_session"
-    && ![
-      "failed",
-      "interrupted",
-      "aborted",
-    ].includes(status)
-    && forceCompletePendingL3 !== true;
+    reportScopedDelayedAction
+      ? (
+        delayedMemoryPreview.reportId
+        || data.id
+        || data.counter_id
+        || ""
+      )
+      : (
+        (counterOnly ? data.counter_id : data.id)
+        || data.id
+        || data.counter_id
+        || ""
+      );
 
   const counterPayloads =
     Array.isArray(data.payloads)
@@ -861,7 +1604,17 @@ function handleRuntimeAction(
       status
     );
 
-  if (action === "jin_color") {
+  if (
+    counterOnly
+    && (
+      reportScopedDelayedAction
+      || ["attach_file_content", "attach_file_by_id"].includes(action)
+    )
+  ) {
+    return;
+  }
+
+  if (action === "jin_color" && !missingCloseTagFailure) {
     const color =
       String(
         data.color
@@ -879,6 +1632,9 @@ function handleRuntimeAction(
       && Boolean(color);
 
     if (
+      ENABLE_JIN_VISUAL_ACTION_BUBBLES
+      && !counterOnly
+      &&
       displayText.trim()
       && window.appendRuntimeAction
     ) {
@@ -894,33 +1650,25 @@ function handleRuntimeAction(
           displayName,
           sceneEffect,
           closeTag,
-          reuseCompleted: true,
-          reviveCompleted:
-            !counterFinal,
-          // Every applied color belongs to one live sequence row.
-          // Counter events use another display id, so the shared turn/message
-          // scope keeps them attached to this same aggregate bubble.
-          aggregateMarkers: true,
-          counterOnly:
-            displayCounterOnly,
-          markerCount:
-            displayMarkerCount,
+          reuseCompleted: false,
+          reviveCompleted: false,
+          // Each applied marker owns one bubble. Counter-only telemetry stays
+          // internal and must never collapse the sequence into one bubble.
+          aggregateMarkers: false,
+          counterOnly: false,
+          markerCount: 0,
           colors:
-            Array.isArray(data.colors)
-              ? data.colors
-              : counterPayloads,
+            color ? [color] : [],
           contextSnapshot:
             data.context || null,
           guardConfirmationId,
           cancelled:
-            (
-              cancelledByUser
-              || abortedByUser
-            )
+            strikeThroughFailure
               ? true
               : undefined,
           preserveLabel:
-            cancelledByUser,
+            cancelledByUser
+            || restrictedWriteFailure,
           fallbackToLatestActive:
             abortedByUser,
         }
@@ -934,10 +1682,12 @@ function handleRuntimeAction(
       && typeof window.JinRuntime.avatar.setCenterColor === "function"
     ) {
       window.JinRuntime.avatar.setCenterColor(
-        color
+        color,
+        {
+          transitionDurationMs: JIN_COLOR_TRANSITION_MS,
+        }
       );
     }
-
     if (
       shouldLogRuntimeAction
       && window.log_internal_action
@@ -949,6 +1699,8 @@ function handleRuntimeAction(
     }
 
     if (
+      ENABLE_JIN_VISUAL_ACTION_BUBBLES
+      &&
       (
         colorApplied
         || counterFinal
@@ -984,6 +1736,195 @@ function handleRuntimeAction(
     return;
   }
 
+  if (action === "jin_size" && !missingCloseTagFailure) {
+    const size =
+      String(
+        data.size
+        || data.payload
+        || ""
+      );
+    const width =
+      Number.parseInt(
+        data.width || 0,
+        10
+      );
+    const height =
+      Number.parseInt(
+        data.height || 0,
+        10
+      );
+    const actionId =
+      actionDisplayId;
+    const sizeApplied =
+      (
+        status === "completed"
+        || status === "complete"
+        || status === "done"
+      )
+      && Boolean(
+        size
+        || width
+      );
+
+    if (
+      ENABLE_JIN_VISUAL_ACTION_BUBBLES
+      &&
+      displayText.trim()
+      && window.appendRuntimeAction
+    ) {
+      window.appendRuntimeAction(
+        action,
+        displayText,
+        {
+          id: actionId,
+          runtimeTurnId,
+          runtimeMessageId,
+          size,
+          width,
+          height,
+          payload: size,
+          detail: size,
+          displayName,
+          sceneEffect,
+          closeTag,
+          reuseCompleted: false,
+          reviveCompleted: false,
+          // Keep every emitted size marker as its own bubble.
+          // The backend gives each marker a distinct display id.
+          aggregateMarkers: false,
+          counterOnly: false,
+          markerCount: 0,
+          sizes: size ? [size] : [],
+          contextSnapshot:
+            data.context || null,
+          guardConfirmationId,
+          cancelled:
+            strikeThroughFailure
+              ? true
+              : undefined,
+          preserveLabel:
+            cancelledByUser
+            || restrictedWriteFailure,
+          fallbackToLatestActive:
+            abortedByUser,
+        }
+      );
+    }
+
+    if (
+      sizeApplied
+      && window.JinPanels
+      && typeof window.JinPanels.setPendingJinSize === "function"
+    ) {
+      window.JinPanels.setPendingJinSize({
+        size,
+        width,
+        height,
+      });
+    }
+    if (
+      shouldLogRuntimeAction
+      && window.log_internal_action
+    ) {
+      window.log_internal_action(
+        action,
+        data
+      );
+    }
+
+    if (
+      ENABLE_JIN_VISUAL_ACTION_BUBBLES
+      &&
+      (
+        sizeApplied
+        || counterFinal
+        || (
+          !aggregateMarkers
+          && (
+            status === "failed"
+            || status === "interrupted"
+            || status === "aborted"
+          )
+        )
+      )
+      && window.fadeRuntimeAction
+    ) {
+      window.setTimeout(
+        () => {
+          window.fadeRuntimeAction(
+            action,
+            {
+              id: actionId,
+              runtimeTurnId,
+              runtimeMessageId,
+              sceneEffect,
+              fallbackToLatestActive:
+                sizeApplied,
+            }
+          );
+        },
+        60
+      );
+    }
+
+    return;
+  }
+
+  if (action === "jin_speed" && !missingCloseTagFailure) {
+    const speed = Number.parseInt(
+      data.speed || data.payload || 0,
+      10
+    );
+    const speedApplied = (
+      status === "completed"
+      || status === "complete"
+      || status === "done"
+    ) && Number.isFinite(speed) && speed > 0;
+
+    if (
+      speedApplied
+      && window.JinPanels
+      && typeof window.JinPanels.setJinMoveSpeed === "function"
+    ) {
+      window.JinPanels.setJinMoveSpeed(
+        speed
+      );
+    }
+    // Continue into the generic runtime-action lifecycle so JIN_SPEED uses
+    // the same start/success/fail bubble contract as every other action.
+  }
+
+  if (action === "jin_position" && !missingCloseTagFailure) {
+    const x = Number.parseInt(
+      data.x,
+      10
+    );
+    const y = Number.parseInt(
+      data.y,
+      10
+    );
+    const positionApplied = (
+      status === "completed"
+      || status === "complete"
+      || status === "done"
+    )
+      && Number.isFinite(x)
+      && Number.isFinite(y);
+
+    if (
+      positionApplied
+      && window.JinPanels
+      && typeof window.JinPanels.setPendingJinPosition === "function"
+    ) {
+      window.JinPanels.setPendingJinPosition({
+        x,
+        y,
+      });
+    }
+    // Continue into the generic runtime-action lifecycle so JIN_POSITION uses
+    // the same start/success/fail bubble contract as every other action.
+  }
+
   if (
     action === "save_active_memory"
     && data.active_memory
@@ -991,14 +1932,35 @@ function handleRuntimeAction(
     && window.JinRuntime.runtime
     && window.JinRuntime.runtime.appendActiveMemoryRecords
   ) {
-    window.JinRuntime.runtime.appendActiveMemoryRecords([
-      data.active_memory
-    ]);
+    const saveMode = String(
+      data.active_memory_mode || "create"
+    ).trim().toLowerCase();
+    const activeMemoryId = String(
+      data.active_memory_id || ""
+    ).trim();
+
+    if (
+      saveMode === "update"
+      && activeMemoryId
+      && window.JinRuntime.runtime.replaceActiveMemoryRecordById
+    ) {
+      window.JinRuntime.runtime.replaceActiveMemoryRecordById(
+        activeMemoryId,
+        data.active_memory
+      );
+      highlightUpdatedActiveMemory(
+        activeMemoryId
+      );
+    } else {
+      window.JinRuntime.runtime.appendActiveMemoryRecords([
+        data.active_memory
+      ]);
+    }
 
   }
 
   if (
-    action === "resolve_active_memory"
+    action === "delete_active_memory"
     && data.id
     && window.JinRuntime
     && window.JinRuntime.runtime
@@ -1010,30 +1972,69 @@ function handleRuntimeAction(
   }
 
   if (
-    action === "save_delayed_memory_content"
+    action === "save_delayed_memory"
     && data.delayed_memory_report
     && window.JinRuntime
     && window.JinRuntime.runtime
-    && window.JinRuntime.runtime.appendDelayedMemoryReports
+    && window.JinRuntime.runtime.mergeDelayedMemoryReports
   ) {
-    window.JinRuntime.runtime.appendDelayedMemoryReports(
+    window.JinRuntime.runtime.mergeDelayedMemoryReports(
       data.delayed_memory_report
     );
   }
 
   if (
-    action === "append_delayed_memory"
+    action === "load_delayed_memory"
     && data.delayed_memory_result
     && data.delayed_memory_result.report
     && data.delayed_memory_result.id
     && window.JinRuntime
     && window.JinRuntime.runtime
-    && window.JinRuntime.runtime.appendDelayedMemoryReports
+    && window.JinRuntime.runtime.mergeDelayedMemoryReports
   ) {
-    window.JinRuntime.runtime.appendDelayedMemoryReports({
+    window.JinRuntime.runtime.mergeDelayedMemoryReports({
       [data.delayed_memory_result.id]:
         data.delayed_memory_result.report,
     });
+  }
+
+  if (
+    (
+      status === "completed"
+      || status === "complete"
+      || status === "done"
+    )
+    && delayedMemoryPreview.reportId
+    && window.JinRuntime
+    && window.JinRuntime.runtime
+    && (
+      typeof window.JinRuntime.runtime.markDelayedMemoryReportLoaded
+        === "function"
+    )
+  ) {
+    if (
+      action === "load_delayed_memory"
+      && typeof window.JinRuntime.runtime.markDelayedMemoryReportLoaded
+        === "function"
+    ) {
+      window.JinRuntime.runtime.markDelayedMemoryReportLoaded(
+        delayedMemoryPreview.reportId,
+        true,
+        { forceRender: true }
+      );
+    }
+
+
+    if (
+      action === "unload_delayed_memory"
+      && typeof window.JinRuntime.runtime.markDelayedMemoryReportLoaded
+        === "function"
+    ) {
+      window.JinRuntime.runtime.markDelayedMemoryReportLoaded(
+        delayedMemoryPreview.reportId,
+        false
+      );
+    }
   }
 
   if (
@@ -1041,6 +2042,16 @@ function handleRuntimeAction(
     || status === "complete"
     || status === "done"
   ) {
+    if (
+      action === "clean_tool_results"
+      && window.JinRuntime
+      && window.JinRuntime.session
+      && typeof window.JinRuntime.session.clearPersistedToolResultsCheckpoint
+        === "function"
+    ) {
+      window.JinRuntime.session.clearPersistedToolResultsCheckpoint(data.tool_results, data.tool_result_sequence);
+    }
+
     if (displayText.trim()) {
       const appended = appendRuntimeAction(
         action,
@@ -1056,24 +2067,37 @@ function handleRuntimeAction(
             displayCounterOnly,
           markerCount:
             displayMarkerCount,
-          reuseCompleted: false,
+          reuseCompleted:
+            action === "update_lt_facts",
           contextSnapshot:
             data.context || null,
           assetResult:
             data.asset_result || null,
+          postingBoardResult:
+            data.posting_board_result || null,
+          attachmentResult:
+            data.attachment_result || null,
+          mcpRequest:
+            data.mcp_request || null,
+          mcpResult:
+            data.mcp_result || null,
+          mcpPayload:
+            data.payload || "",
           delayedMemoryReportId:
-            data.delayed_memory_report_id || "",
+            delayedMemoryPreview.reportId,
           delayedMemoryReport:
-            data.delayed_memory_report || null,
+            delayedMemoryPreview.report,
           completed:
-            !aggregateMarkers
-            || completeImmediately,
+            terminalSuccess,
           detail: runtimeDetail,
           displayName,
           sceneEffect,
+          status,
+          deepSearchParent,
+          deepSearchChild,
+          deepSearchParentId,
+          deepSearchObjective,
           closeTag,
-          pendingUntilL3,
-          forceCompletePendingL3,
         }
       );
 
@@ -1089,10 +2113,7 @@ function handleRuntimeAction(
     }
 
     if (
-      (
-        !aggregateMarkers
-        || completeImmediately
-      )
+      terminalSuccess
       && window.fadeRuntimeAction
     ) {
       window.fadeRuntimeAction(
@@ -1102,7 +2123,11 @@ function handleRuntimeAction(
           runtimeTurnId,
           runtimeMessageId,
           sceneEffect,
-          forceCompletePendingL3,
+          deepSearchParent,
+          deepSearchChild,
+          deepSearchParentId,
+          deepSearchObjective,
+          status,
         }
       );
     }
@@ -1117,7 +2142,47 @@ function handleRuntimeAction(
     return;
   }
 
+  // Counter events describe how many markers were parsed; they are not
+  // action bubbles. Real lifecycle events below carry each marker's own id
+  // and payload, so rendering only those preserves one bubble per marker.
+  if (counterOnly) {
+    if (
+      shouldLogRuntimeAction
+      && window.log_internal_action
+    ) {
+      window.log_internal_action(
+        action,
+        data
+      );
+    }
+    return;
+  }
+
   if (!displayText.trim()) {
+    if (
+      (
+        counterFinal
+        || terminalFailure
+      )
+      && window.fadeRuntimeAction
+    ) {
+      window.fadeRuntimeAction(
+        action,
+        {
+          id: actionDisplayId,
+          runtimeTurnId,
+          runtimeMessageId,
+          sceneEffect,
+          deepSearchParent,
+          deepSearchChild,
+          deepSearchParentId,
+          deepSearchObjective,
+          status,
+          fallbackToLatestActive:
+            terminalFailure,
+        }
+      );
+    }
     return;
   }
 
@@ -1139,18 +2204,16 @@ function handleRuntimeAction(
       reviveCompleted:
         !counterFinal,
       cancelled:
-        (
-          cancelledByUser
-          || abortedByUser
-        )
+        strikeThroughFailure
           ? true
           : undefined,
+      // Counter-only events are telemetry. They may arrive after a richer
+      // terminal event (for example RECALL_FACT_CONTEXT failure), so they
+      // may update the count but must never replace the semantic label.
       preserveLabel:
         cancelledByUser
-        || (
-          displayCounterOnly
-          && closeTag
-        ),
+        || restrictedWriteFailure
+        || displayCounterOnly,
       fallbackToLatestActive:
         abortedByUser
         || status === "failed"
@@ -1159,12 +2222,29 @@ function handleRuntimeAction(
         data.context || null,
       assetResult:
         data.asset_result || null,
+      postingBoardResult:
+        data.posting_board_result || null,
+      attachmentResult:
+        data.attachment_result || null,
+      mcpRequest:
+        data.mcp_request || null,
+      mcpResult:
+        data.mcp_result || null,
+      mcpPayload:
+        data.payload || "",
+      delayedMemoryReportId:
+        delayedMemoryPreview.reportId,
+      delayedMemoryReport:
+        delayedMemoryPreview.report,
       detail: runtimeDetail,
       displayName,
       sceneEffect,
+      status,
+      deepSearchParent,
+      deepSearchChild,
+      deepSearchParentId,
+      deepSearchObjective,
       closeTag,
-      pendingUntilL3,
-      forceCompletePendingL3,
     }
   );
 
@@ -1193,7 +2273,11 @@ function handleRuntimeAction(
         runtimeTurnId,
         runtimeMessageId,
         sceneEffect,
-        forceCompletePendingL3,
+        deepSearchParent,
+        deepSearchChild,
+        deepSearchParentId,
+        deepSearchObjective,
+        status,
         fallbackToLatestActive:
           terminalFailure,
       }

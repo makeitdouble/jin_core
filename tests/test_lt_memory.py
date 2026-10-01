@@ -1,0 +1,4386 @@
+import asyncio
+import json
+import random
+import tempfile
+import time
+import unittest
+from datetime import datetime, timezone
+from types import SimpleNamespace
+from unittest.mock import patch
+
+from runtime.LT_memory import (
+    apply_facts_memory_store_sync,
+    apply_lt_memory_store_sync,
+    bind_lt_runtime_app_state,
+    build_runtime_lt_memory_context,
+    cancel_lt_memory_idle_update,
+    delete_lt_memory_fact,
+    ensure_runtime_lt_state,
+    get_lt_scheduler_interval_seconds,
+    maybe_update_runtime_lt_memory,
+    note_lt_user_activity,
+    record_lt_reasoning_fact_mentions,
+    remap_delayed_memory_lt_fact_ids,
+    restore_lt_memory_fact,
+    run_lt_extraction_phase,
+    run_lt_merge_phase,
+    runtime_lt_memory_update_running,
+    schedule_lt_memory_idle_update,
+)
+import runtime.LT_memory as lt_memory_module
+from runtime.LT_lane import (
+    begin_lt_attempt,
+    bind_lt_attempt_task,
+)
+from runtime.LT_memory_rules import (
+    LT_SEMANTIC_KEY_SCOPE_EXAMPLES,
+    LT_SEMANTIC_KEY_TOPIC_EXAMPLES,
+)
+from runtime.LT_memory_utils import (
+    add_lt_pending_candidates,
+    apply_lt_jin_note_result,
+    apply_lt_merge_operations,
+    build_lt_fact_id,
+    build_lt_double_batch_plan,
+    build_lt_extraction_system_prompt,
+    build_lt_extraction_user_prompt,
+    build_lt_jin_note_system_prompt,
+    build_lt_merge_batch_plan,
+    build_lt_merge_system_prompt,
+    build_lt_semantic_category_examples,
+    build_lt_semantic_key_guidance,
+    build_lt_semantic_key_shape_examples,
+    build_lt_merge_user_prompt,
+    collect_pending_facts_memory_fields,
+    deduplicate_lt_extraction_fields,
+    extract_lt_json_payload,
+    format_lt_fact_line,
+    format_lt_merge_operation_details,
+    format_long_term_memory_context,
+    inspect_lt_merge_shard_scan,
+    mark_facts_memory_fields_analyzed,
+    merge_lt_store_snapshots,
+    normalize_facts_memory_records,
+    normalize_lt_candidates,
+    normalize_lt_merge_operations,
+    normalize_lt_store,
+    restore_lt_fact_to_store,
+    select_lt_merge_existing_facts,
+)
+from runtime.anonymous_mode import configure_runtime_anonymous_mode
+from runtime.runtime_context import RuntimeContext
+from rules.brain_context_builder import build_brain_context
+from tests.helpers.memory import FakeLogger, FakeServiceClient
+from utils.actions import RuntimeActionCall
+from utils.actions.delayed_memory_actions import (
+    apply_save_delayed_memory_actions,
+)
+from utils.long_term_facts_file_store import (
+    load_long_term_facts_store,
+    persist_long_term_facts_store,
+)
+
+
+class FakeEmitter:
+
+    def __init__(self):
+        self.events = []
+
+    async def emit(self, payload):
+        self.events.append(payload)
+
+
+class CaptureMemoryLogger:
+
+    def __init__(self):
+        self.logs = []
+
+    async def log_memory(
+        self,
+        level,
+        message,
+        details=None,
+        event=None,
+        **extra,
+    ):
+        self.logs.append({
+            "level": level,
+            "message": message,
+            "details": details,
+            "event": event,
+            **extra,
+        })
+
+
+class LTMemoryTests(unittest.IsolatedAsyncioTestCase):
+
+    def test_facts_memory_normalization_adds_session_and_pending_status(self):
+        records = normalize_facts_memory_records([
+            {
+                "storage_key": "jin.factsMemory.session-a.v2",
+                "session_id": "session-a",
+                "signals": {
+                    "User preference": {
+                        "content": "Prefers concise plans.",
+                        "runtime_snapshot_id": "runtime_001",
+                    },
+                },
+            },
+        ])
+
+        field = records[0]["signals"]["user_preference"]
+        self.assertEqual(field["session_id"], "session-a")
+        self.assertEqual(field["runtime_snapshot_id"], "runtime_001")
+        self.assertEqual(field["lt_status"], "pending")
+        self.assertTrue(field["lt_content_hash"])
+
+
+    def test_facts_memory_drops_lt_fact_reference_bookkeeping_keys(self):
+        records = normalize_facts_memory_records([
+            {
+                "session_id": "session-a",
+                "signals": {
+                    "L-T fact #305": {
+                        "content": (
+                            "The description now excludes white bonfire."
+                        ),
+                    },
+                    "environment_physical_setup": {
+                        "content": "The setup includes coffee, bong, and bricks.",
+                    },
+                },
+            },
+        ])
+
+        self.assertEqual(len(records), 1)
+        self.assertEqual(
+            list(records[0]["signals"]),
+            ["environment_physical_setup"],
+        )
+        self.assertEqual(
+            [field["key"] for field in collect_pending_facts_memory_fields(records)],
+            ["environment_physical_setup"],
+        )
+        self.assertEqual(
+            normalize_lt_candidates(
+                {
+                    "facts": [{
+                        "key": "lt_fact_305",
+                        "value": "Bookkeeping about the L-T update.",
+                        "category": "other",
+                        "source_keys": ["lt_fact_305"],
+                    }],
+                },
+                source_fields=[{
+                    "key": "lt_fact_305",
+                    "content": "The description now excludes white bonfire.",
+                    "session_id": "session-a",
+                }],
+            ),
+            [],
+        )
+
+    def test_mark_analyzed_only_marks_matching_content_hash(self):
+        records = normalize_facts_memory_records([
+            {
+                "session_id": "session-a",
+                "signals": {
+                    "gpu": {"content": "RTX 3080 Ti"},
+                    "language": {"content": "Russian"},
+                },
+            },
+        ])
+        pending = collect_pending_facts_memory_fields(records)
+
+        updated, changed = mark_facts_memory_fields_analyzed(
+            records,
+            [pending[0]],
+            now="2026-08-02T12:00:00Z",
+        )
+
+        self.assertTrue(changed)
+        self.assertEqual(
+            updated[0]["signals"][pending[0]["key"]]["lt_status"],
+            "analyzed",
+        )
+        other_key = "language" if pending[0]["key"] == "gpu" else "gpu"
+        self.assertEqual(updated[0]["signals"][other_key]["lt_status"], "pending")
+
+    def test_json_extraction_accepts_fenced_json(self):
+        payload = extract_lt_json_payload(
+            "text\n```json\n{\"facts\": []}\n```"
+        )
+        self.assertEqual(payload, {"facts": []})
+
+    def test_candidates_use_evidence_field_keys_only_for_extraction_validation(self):
+        source_fields = [
+            {
+                "key": "gpu",
+                "content": "RTX 3080 Ti",
+                "session_id": "session-a",
+                "runtime_snapshot_id": "runtime_001",
+            },
+            {
+                "key": "language",
+                "content": "Russian",
+                "session_id": "session-b",
+                "runtime_snapshot_id": "runtime_002",
+            },
+        ]
+        candidates = normalize_lt_candidates(
+            {
+                "facts": [
+                    {
+                        "key": "user.hardware.main_gpu",
+                        "value": "User's main GPU is RTX 3080 Ti.",
+                        "category": "environment",
+                        "evidence_field_keys": ["gpu"],
+                    },
+                ],
+            },
+            source_fields=source_fields,
+            now="2026-08-02T12:00:00Z",
+        )
+
+        self.assertEqual(len(candidates), 1)
+        self.assertNotIn("source_session_ids", candidates[0])
+        self.assertNotIn("source_runtime_snapshot_ids", candidates[0])
+        self.assertNotIn("source_keys", candidates[0])
+        self.assertEqual(candidates[0]["source_fact_ids"], [])
+
+    def test_lt_fact_normalization_drops_removed_provenance_fields(self):
+        fact = normalize_lt_store({
+            "facts": [{
+                "id": "F1",
+                "key": "project.identity",
+                "value": "JIN is a local runtime.",
+                "source_session_ids": ["session-a"],
+                "source_runtime_snapshot_ids": ["runtime-1"],
+                "source_keys": ["project.identity"],
+                "source_fact_ids": ["F8", "PF2"],
+            }],
+        })["facts"][0]
+
+        self.assertNotIn("source_session_ids", fact)
+        self.assertNotIn("source_runtime_snapshot_ids", fact)
+        self.assertNotIn("source_keys", fact)
+        self.assertEqual(fact["source_fact_ids"], ["F8", "PF2"])
+
+    def test_lt_fact_normalization_ignores_legacy_score_field(self):
+        legacy_field = "con" + "fidence"
+        store = normalize_lt_store({
+            "facts": [
+                {
+                    "id": "F1",
+                    "key": "user.hardware.main_gpu",
+                    "value": "User's main GPU is RTX 4090.",
+                    "category": "environment",
+                    legacy_field: 0.42,
+                },
+            ],
+            "pending_facts": [
+                {
+                    "key": "user.preference.response_language",
+                    "value": "User prefers Russian replies.",
+                    legacy_field: 0.95,
+                },
+            ],
+        })
+
+        self.assertNotIn(legacy_field, store["facts"][0])
+        self.assertNotIn(legacy_field, store["pending_facts"][0])
+
+    def test_legacy_hash_ids_migrate_once_to_compact_f_and_pf_ids(self):
+        legacy = {
+            "version": 1,
+            "revision": 7,
+            "facts": [
+                {
+                    "id": "lt_alpha123",
+                    "key": "user.hardware.main_gpu",
+                    "value": "User's main GPU is RTX 3080 Ti.",
+                    "category": "environment",
+                    "source_fact_ids": ["ltp_processed123"],
+                },
+            ],
+            "pending_facts": [
+                {
+                    "id": "ltp_waiting123",
+                    "key": "user.preference.response_language",
+                    "value": "User prefers Russian replies.",
+                    "category": "user_preference",
+                },
+            ],
+            "deleted_fact_ids": ["lt_deleted123"],
+        }
+
+        migrated = normalize_lt_store(legacy, now="2026-08-08T17:00:00Z")
+
+        self.assertEqual(migrated["version"], 2)
+        self.assertEqual(migrated["revision"], 8)
+        self.assertEqual(migrated["facts"][0]["id"], "F1")
+        self.assertEqual(migrated["pending_facts"][0]["id"], "PF1")
+        self.assertEqual(migrated["deleted_fact_ids"], ["F2"])
+        self.assertEqual(migrated["facts"][0]["source_fact_ids"], ["PF2"])
+        self.assertEqual(migrated["next_fact_id"], 3)
+        self.assertEqual(migrated["next_pending_fact_id"], 3)
+
+        normalized_again = normalize_lt_store(
+            migrated,
+            now="2026-08-08T17:01:00Z",
+        )
+        self.assertEqual(normalized_again, migrated)
+
+    def test_file_store_fallback_survives_empty_browser_sync(self):
+        with tempfile.TemporaryDirectory() as directory:
+            persisted_store = normalize_lt_store({
+                "revision": 4,
+                "facts": [
+                    {
+                        "id": "F1",
+                        "key": "user.identity",
+                        "value": "Sergey",
+                        "source_session_ids": ["session-normal"],
+                    },
+                ],
+            })
+            persist_long_term_facts_store(
+                persisted_store,
+                root=directory,
+            )
+
+            context = RuntimeContext(
+                websocket=None,
+                emitter=FakeEmitter(),
+                logger=None,
+                clients={},
+            )
+            context.runtime_lt_file_store_enabled = True
+            context.runtime_lt_file_store_root = directory
+
+            loaded = ensure_runtime_lt_state(
+                context,
+            )
+            self.assertEqual(len(loaded["facts"]), 1)
+
+            changed = apply_lt_memory_store_sync(
+                context,
+                {
+                    "revision": 99,
+                    "facts": [],
+                    "pending_facts": [],
+                },
+            )
+            stored, warnings = load_long_term_facts_store(
+                root=directory,
+            )
+
+            self.assertFalse(changed)
+            self.assertEqual(warnings, [])
+            self.assertEqual(len(stored["facts"]), 1)
+            self.assertEqual(stored["facts"][0]["key"], "user.identity")
+
+    async def test_deleted_fact_survives_server_restart_and_stale_profile_sync(self):
+        with tempfile.TemporaryDirectory() as directory:
+            stale_browser_store = normalize_lt_store({
+                "revision": 154,
+                "updated_at": "2026-08-05T11:48:48Z",
+                "facts": [
+                    {
+                        "id": "F1",
+                        "key": "project.secret_number_73",
+                        "value": "The number 73 was established.",
+                    },
+                ],
+            })
+            persist_long_term_facts_store(
+                stale_browser_store,
+                root=directory,
+            )
+
+            context = RuntimeContext(
+                websocket=None,
+                emitter=FakeEmitter(),
+                logger=CaptureMemoryLogger(),
+                clients={},
+            )
+            context.runtime_lt_file_store_enabled = True
+            context.runtime_lt_file_store_root = directory
+            ensure_runtime_lt_state(context)
+
+            deleted = await delete_lt_memory_fact(
+                context,
+                "F1",
+            )
+            self.assertTrue(deleted)
+
+            persisted_after_delete, warnings = load_long_term_facts_store(
+                root=directory,
+            )
+            self.assertEqual(warnings, [])
+            self.assertEqual(persisted_after_delete["facts"], [])
+            self.assertEqual(
+                persisted_after_delete["deleted_fact_ids"],
+                ["F1"],
+            )
+
+            restarted_context = RuntimeContext(
+                websocket=None,
+                emitter=FakeEmitter(),
+                logger=CaptureMemoryLogger(),
+                clients={},
+            )
+            restarted_context.runtime_lt_file_store_enabled = True
+            restarted_context.runtime_lt_file_store_root = directory
+            ensure_runtime_lt_state(restarted_context)
+
+            changed = apply_lt_memory_store_sync(
+                restarted_context,
+                stale_browser_store,
+            )
+            persisted_after_sync, warnings = load_long_term_facts_store(
+                root=directory,
+            )
+
+            self.assertFalse(changed)
+            self.assertEqual(warnings, [])
+            self.assertEqual(persisted_after_sync["facts"], [])
+            self.assertEqual(
+                persisted_after_sync["deleted_fact_ids"],
+                ["F1"],
+            )
+
+    def test_store_snapshot_merge_preserves_distinct_committed_ids_on_key_collision(self):
+        merged, change = merge_lt_store_snapshots(
+            {
+                "revision": 4,
+                "facts": [
+                    {
+                        "id": "F1",
+                        "key": "relationship.association",
+                        "value": "Anya is associated with known cohabitation data.",
+                        "updated_at": "2026-08-03T18:15:34Z",
+                        "source_session_ids": ["session-a"],
+                    },
+                ],
+            },
+            {
+                "revision": 4,
+                "facts": [
+                    {
+                        "id": "F2",
+                        "key": "relationship.association",
+                        "value": "Anya is associated with newer relationship context.",
+                        "updated_at": "2026-08-03T18:20:00Z",
+                        "source_session_ids": ["session-b"],
+                    },
+                ],
+            },
+            now="2026-08-03T18:21:00Z",
+        )
+
+        self.assertTrue(change["changed"])
+        self.assertEqual(
+            [fact["id"] for fact in merged["facts"]],
+            ["F1", "F2"],
+        )
+        self.assertEqual(
+            [fact["value"] for fact in merged["facts"]],
+            [
+                "Anya is associated with known cohabitation data.",
+                "Anya is associated with newer relationship context.",
+            ],
+        )
+
+    def test_store_normalization_prunes_processed_pending_fact(self):
+        processed_pending_id = "PF1"
+        waiting_pending_id = "PF2"
+
+        store = normalize_lt_store(
+            {
+                "facts": [
+                    {
+                        "id": "F1",
+                        "key": "jin_structural_awareness",
+                        "value": "JIN tracks structural awareness.",
+                        "category": "other",
+                        "source_fact_ids": [processed_pending_id],
+                    },
+                ],
+                "pending_facts": [
+                    {
+                        "id": processed_pending_id,
+                        "key": "system.identity_definition",
+                        "value": "JIN defines itself through structure.",
+                        "category": "other",
+                    },
+                    {
+                        "id": waiting_pending_id,
+                        "key": "project.next_step",
+                        "value": "Keep reviewing pending facts.",
+                        "category": "other",
+                    },
+                ],
+            },
+            now="2026-08-04T17:34:05Z",
+        )
+
+        self.assertEqual(
+            [fact["id"] for fact in store["pending_facts"]],
+            [waiting_pending_id],
+        )
+
+    def test_store_merge_does_not_resurrect_processed_pending_fact(self):
+        processed_pending_id = "PF1"
+
+        merged, change = merge_lt_store_snapshots(
+            {
+                "revision": 94,
+                "updated_at": "2026-08-04T17:34:05Z",
+                "facts": [
+                    {
+                        "id": "F1",
+                        "key": "jin_structural_awareness",
+                        "value": "JIN tracks structural awareness.",
+                        "category": "other",
+                        "source_fact_ids": [processed_pending_id],
+                    },
+                ],
+                "pending_facts": [],
+            },
+            {
+                "revision": 94,
+                "updated_at": "2026-08-04T17:34:05Z",
+                "facts": [],
+                "pending_facts": [
+                    {
+                        "id": processed_pending_id,
+                        "key": "system.identity_definition",
+                        "value": "JIN defines itself through structure.",
+                        "category": "other",
+                    },
+                ],
+            },
+            now="2026-08-04T17:35:00Z",
+        )
+
+        self.assertFalse(change["changed"])
+        self.assertEqual(merged["revision"], 94)
+        self.assertEqual(merged["pending_facts"], [])
+
+    def test_pending_candidates_accumulate_without_touching_final_memory(self):
+        store = normalize_lt_store({
+            "facts": [
+                {
+                    "key": "project.identity",
+                    "value": "JIN is a local runtime.",
+                },
+            ],
+        })
+        store, change = add_lt_pending_candidates(
+            store,
+            [
+                {
+                    "key": "user.hardware.main_gpu",
+                    "value": "User's main GPU is RTX 3080 Ti.",
+                    "category": "environment",
+                    "source_keys": ["gpu"],
+                },
+                {
+                    "key": "user.hardware.main_gpu",
+                    "value": "User's main GPU is RTX 3080 Ti.",
+                    "category": "environment",
+                    "source_keys": ["hardware"],
+                },
+            ],
+            now="2026-08-02T12:00:00Z",
+        )
+
+        self.assertTrue(change["changed"])
+        self.assertEqual(len(store["facts"]), 1)
+        self.assertEqual(len(store["pending_facts"]), 1)
+        self.assertNotIn("source_keys", store["pending_facts"][0])
+        self.assertEqual(store["pending_facts"][0]["mention_count"], 2)
+
+    def test_merge_requires_one_valid_operation_for_every_pending_fact(self):
+        store, _ = add_lt_pending_candidates(
+            normalize_lt_store({}),
+            [
+                {
+                    "key": "user.hardware.main_gpu",
+                    "value": "User's main GPU is RTX 4090.",
+                },
+            ],
+            now="2026-08-02T12:00:00Z",
+        )
+        before = normalize_lt_store(store, now="2026-08-02T12:00:00Z")
+
+        after, change = apply_lt_merge_operations(
+            store,
+            [],
+            now="2026-08-02T12:01:00Z",
+        )
+
+        self.assertFalse(change["valid"])
+        self.assertEqual(change["reason"], "operation_count_mismatch")
+        self.assertEqual(after["facts"], before["facts"])
+        self.assertEqual(after["pending_facts"], before["pending_facts"])
+
+    def test_sparse_merge_update_cannot_rekey_and_destroy_target_id(self):
+        store = normalize_lt_store({
+            "facts": [
+                {"id": "F100", "key": "jin_identity", "value": "Existing identity."},
+                {"id": "F167", "key": "user.identity", "value": "JIN persists across model substrates."},
+            ],
+            "pending_facts": [
+                {"id": "PF354", "key": "jin_identity", "value": "Pending identity restatement."},
+            ],
+        })
+
+        after, change = apply_lt_merge_operations(
+            store,
+            [{"action": "update", "pending_id": "PF354", "target_id": "F167"}],
+            pending_ids=["PF354"],
+            now="2026-08-14T17:00:00Z",
+        )
+
+        self.assertFalse(change["valid"])
+        self.assertEqual(change["reason"], "update_requires_canonical_fact")
+        self.assertEqual([fact["id"] for fact in after["facts"]], ["F100", "F167"])
+
+    def test_merge_update_rejects_key_collision_with_other_committed_fact(self):
+        store = normalize_lt_store({
+            "facts": [
+                {"id": "F100", "key": "jin_identity", "value": "Existing identity."},
+                {"id": "F167", "key": "user.identity", "value": "JIN persists across model substrates."},
+            ],
+            "pending_facts": [
+                {"id": "PF354", "key": "jin_identity", "value": "Pending identity restatement."},
+            ],
+        })
+
+        after, change = apply_lt_merge_operations(
+            store,
+            [{
+                "action": "update",
+                "pending_id": "PF354",
+                "target_id": "F167",
+                "key": "jin_identity",
+                "value": "Pending identity restatement.",
+                "category": "other",
+            }],
+            pending_ids=["PF354"],
+            now="2026-08-14T17:00:00Z",
+        )
+
+        self.assertFalse(change["valid"])
+        self.assertEqual(change["reason"], "update_key_matches_other_fact")
+        self.assertEqual([fact["id"] for fact in after["facts"]], ["F100", "F167"])
+
+    def test_merge_key_retrieval_finds_model_and_interaction_clusters_without_values(self):
+        existing_facts = normalize_lt_store({
+            "facts": [
+                {
+                    "id": "F1",
+                    "key": "project_fact.model_performance_observation",
+                    "value": "VALUE MUST NOT DRIVE RETRIEVAL",
+                    "category": "project_fact",
+                },
+                {
+                    "id": "F2",
+                    "key": "comparison_models",
+                    "value": "Qwen 3.6 and Gemma comparison.",
+                    "category": "project_fact",
+                },
+                {
+                    "id": "F3",
+                    "key": "model.performance_tradeoff",
+                    "value": "Model tradeoff.",
+                    "category": "project_fact",
+                },
+                {
+                    "id": "F4",
+                    "key": "user.preference.interaction_style",
+                    "value": "Interaction style.",
+                    "category": "user_preference",
+                },
+                {
+                    "id": "F5",
+                    "key": "data_visual_context",
+                    "value": "preferred model Qwen 3.6",
+                    "category": "other",
+                },
+            ],
+        })["facts"]
+        pending_facts = normalize_lt_store({
+            "pending_facts": [
+                {
+                    "id": "PF1",
+                    "key": "model_version",
+                    "value": "Changed base model to Qwen 3.6.",
+                    "category": "other",
+                },
+                {
+                    "id": "PF2",
+                    "key": "interaction_style_preference",
+                    "value": "Prefers dynamic interaction.",
+                    "category": "user_preference",
+                },
+                {
+                    "id": "PF3",
+                    "key": "preferred_model",
+                    "value": "Qwen 3.6 performs better.",
+                    "category": "other",
+                },
+            ],
+        })["pending_facts"]
+
+        selected = select_lt_merge_existing_facts(
+            existing_facts,
+            pending_facts,
+        )
+        selected_ids = {fact["id"] for fact in selected}
+
+        self.assertTrue({"F1", "F2", "F3", "F4"}.issubset(selected_ids))
+        self.assertNotIn("F5", selected_ids)
+
+    def test_merge_key_retrieval_respects_per_pending_top_k_and_global_cap(self):
+        existing_facts = normalize_lt_store({
+            "facts": [
+                {
+                    "id": f"F{index + 1}",
+                    "key": f"model.cluster_{index}",
+                    "value": f"Fact {index}",
+                    "category": "project_fact",
+                }
+                for index in range(100)
+            ],
+        })["facts"]
+        pending_facts = normalize_lt_store({
+            "pending_facts": [
+                {
+                    "id": f"PF{index + 1}",
+                    "key": f"model.pending_{index}",
+                    "value": f"Pending {index}",
+                    "category": "project_fact",
+                }
+                for index in range(10)
+            ],
+        })["pending_facts"]
+
+        selected = select_lt_merge_existing_facts(
+            existing_facts,
+            pending_facts,
+            top_k_per_pending=10,
+            hard_cap=50,
+        )
+
+        self.assertLessEqual(len(selected), 50)
+
+    async def test_runtime_merge_retrieval_excludes_archived_facts_but_keeps_anchor(self):
+        store, _ = add_lt_pending_candidates(
+            normalize_lt_store({
+                "facts": [
+                    {
+                        "id": "F1",
+                        "key": "model.performance_tradeoff",
+                        "value": "Active model fact.",
+                        "category": "project_fact",
+                    },
+                    {
+                        "id": "F2",
+                        "key": "model.preference",
+                        "value": "Archived model fact.",
+                        "category": "user_preference",
+                    },
+                    {
+                        "id": "F3",
+                        "key": "model.anchor",
+                        "value": "Anchored model fact.",
+                        "category": "project_fact",
+                    },
+                    {
+                        "id": "F4",
+                        "key": "music.favorite",
+                        "value": "Unrelated active fact.",
+                        "category": "user_preference",
+                    },
+                ],
+            }),
+            [{
+                "key": "preferred_model",
+                "value": "Qwen 3.6 is preferred.",
+                "category": "user_preference",
+            }],
+            now="2026-09-06T12:00:00Z",
+        )
+        service_client = FakeServiceClient(
+            json.dumps({
+                "operations": [
+                    {"action": "ignore", "pending_id": "PF1"},
+                ],
+            }),
+            context_window=8192,
+        )
+        context = RuntimeContext(
+            websocket=None,
+            emitter=FakeEmitter(),
+            logger=FakeLogger(),
+            clients={"service": service_client},
+        )
+        context.runtime_long_term_memory_store = store
+        context.delayed_memory_reports = {
+            "abc123": {
+                "title": "Archived model context",
+                "anchor_lt_facts_ids": ["F3"],
+                "lt_facts_ids": ["F2", "F3"],
+            },
+        }
+
+        result = await run_lt_merge_phase(
+            context=context,
+            service_client=service_client,
+        )
+
+        self.assertEqual(result["status"], "completed")
+        payload = json.loads(
+            service_client.calls[0]["user_prompt"]
+        )
+        existing_ids = {fact["id"] for fact in payload["reference_existing_facts"]}
+        self.assertIn("F1", existing_ids)
+        self.assertIn("F3", existing_ids)
+        self.assertNotIn("F2", existing_ids)
+        self.assertNotIn("F4", existing_ids)
+        retrieval = result["merge_change"]["batching"]["retrieval"]
+        self.assertEqual(retrieval["total_committed_count"], 4)
+        self.assertEqual(retrieval["archived_excluded_count"], 1)
+
+    async def test_archived_exact_key_does_not_block_active_merge_create(self):
+        store, _ = add_lt_pending_candidates(
+            normalize_lt_store({
+                "facts": [
+                    {
+                        "id": "F1",
+                        "key": "preferred_model",
+                        "value": "Archived old preference.",
+                        "category": "user_preference",
+                    },
+                ],
+            }),
+            [{
+                "key": "preferred_model",
+                "value": "Current active preference.",
+                "category": "user_preference",
+            }],
+            now="2026-09-06T12:00:00Z",
+        )
+        service_client = FakeServiceClient(
+            json.dumps({
+                "operations": [{
+                    "action": "create",
+                    "pending_id": "PF1",
+                    "key": "preferred_model",
+                    "value": "Current active preference.",
+                    "category": "user_preference",
+                }],
+            }),
+            context_window=8192,
+        )
+        context = RuntimeContext(
+            websocket=None,
+            emitter=FakeEmitter(),
+            logger=FakeLogger(),
+            clients={"service": service_client},
+        )
+        context.runtime_long_term_memory_store = store
+        context.delayed_memory_reports = {
+            "abc123": {
+                "title": "Old model history",
+                "lt_facts_ids": ["F1"],
+            },
+        }
+
+        result = await run_lt_merge_phase(
+            context=context,
+            service_client=service_client,
+        )
+
+        self.assertEqual(result["status"], "completed")
+        payload = json.loads(
+            service_client.calls[0]["user_prompt"]
+        )
+        self.assertEqual(payload["reference_existing_facts"], [])
+        same_key_facts = [
+            fact
+            for fact in context.runtime_long_term_memory_store["facts"]
+            if fact["key"] == "preferred_model"
+        ]
+        self.assertEqual(len(same_key_facts), 2)
+
+    def test_merge_protocol_exposes_only_create_update_ignore_merge_actions(self):
+        prompt = build_lt_merge_system_prompt()
+
+        for action in ("create", "update", "ignore", "merge"):
+            self.assertIn(action, prompt)
+        self.assertNotIn("reinforce", prompt.casefold())
+        self.assertIn("atomic plan", prompt)
+        self.assertIn("non-ignore operation", prompt)
+        self.assertIn("examples, not a closed schema", prompt)
+        self.assertIn("invent the most accurate current key", prompt)
+
+    def test_extract_and_merge_share_dynamic_semantic_key_guidance(self):
+        extraction_prompt = build_lt_extraction_system_prompt()
+        merge_prompt = build_lt_merge_system_prompt()
+
+        for prompt in (extraction_prompt, merge_prompt):
+            self.assertIn("generated shapes", prompt)
+            self.assertIn("Generated category examples", prompt)
+            self.assertIn("not a closed schema", prompt)
+            self.assertIn("not classification rules", prompt)
+            self.assertIn("not a closed list", prompt)
+
+    def test_semantic_guidance_builds_dynamic_examples_from_shared_vocabulary(self):
+        rng = random.Random(17)
+        shapes = build_lt_semantic_key_shape_examples(rng=rng)
+        category_examples = build_lt_semantic_category_examples(rng=rng)
+
+        self.assertEqual(len(shapes), 10)
+        self.assertEqual(len(set(shapes)), 10)
+        for shape in shapes:
+            parts = shape.split(".")
+            self.assertIn(parts[0], LT_SEMANTIC_KEY_SCOPE_EXAMPLES)
+            self.assertTrue(2 <= len(parts) <= 4)
+            for topic in parts[1:]:
+                self.assertIn(topic, LT_SEMANTIC_KEY_TOPIC_EXAMPLES)
+
+        self.assertEqual(len(category_examples), 5)
+        self.assertEqual(len(set(category_examples)), 5)
+        semantic_vocabulary = {
+            *LT_SEMANTIC_KEY_SCOPE_EXAMPLES,
+            *LT_SEMANTIC_KEY_TOPIC_EXAMPLES,
+        }
+        for category in category_examples:
+            parts = category.split("_")
+            self.assertEqual(len(parts), 2)
+            self.assertTrue(set(parts) <= semantic_vocabulary)
+
+        expected_rng = random.Random(17)
+        expected_shapes = build_lt_semantic_key_shape_examples(rng=expected_rng)
+        expected_categories = build_lt_semantic_category_examples(rng=expected_rng)
+        guidance = build_lt_semantic_key_guidance(rng=random.Random(17))
+        for shape in expected_shapes:
+            self.assertIn(shape, guidance)
+        for category in expected_categories:
+            self.assertIn(category, guidance)
+
+    def test_open_semantic_categories_are_preserved_in_store(self):
+        store = normalize_lt_store({
+            "facts": [{
+                "id": "F1",
+                "key": "model.performance",
+                "value": "Qwen performs well.",
+                "category": "model_performance",
+            }],
+        })
+
+        self.assertEqual(store["facts"][0]["category"], "model_performance")
+
+    def test_semantic_shape_rotation_eventually_uses_full_shared_vocabulary(self):
+        rng = random.Random(7)
+        seen_segments = set()
+        for _ in range(20):
+            for shape in build_lt_semantic_key_shape_examples(rng=rng):
+                seen_segments.update(shape.split("."))
+
+        self.assertTrue(set(LT_SEMANTIC_KEY_SCOPE_EXAMPLES) <= seen_segments)
+        self.assertTrue(set(LT_SEMANTIC_KEY_TOPIC_EXAMPLES) <= seen_segments)
+
+    def test_extraction_fields_deduplicate_across_session_buckets(self):
+        fields = [
+            {
+                "key": "user_state",
+                "content": "High analytical engagement.",
+                "session_id": "session-a",
+                "runtime_snapshot_id": "runtime-1",
+            },
+            {
+                "key": "user_state",
+                "content": "High analytical engagement.",
+                "session_id": "session-b",
+                "runtime_snapshot_id": "runtime-2",
+            },
+            {
+                "key": "user_state",
+                "content": "Calm and focused.",
+                "session_id": "session-b",
+                "runtime_snapshot_id": "runtime-3",
+            },
+        ]
+
+        deduplicated = deduplicate_lt_extraction_fields(fields)
+
+        self.assertEqual(len(deduplicated), 2)
+        self.assertIs(deduplicated[0], fields[0])
+        self.assertIs(deduplicated[1], fields[2])
+
+    def test_extraction_prompt_deduplicates_same_visible_field_across_sessions(self):
+        extraction_prompt = build_lt_extraction_user_prompt(
+            pending_fields=[
+                {
+                    "key": "user_state",
+                    "content": "High analytical engagement.",
+                    "session_id": "session-a",
+                },
+                {
+                    "key": "user_state",
+                    "content": "High analytical engagement.",
+                    "session_id": "session-b",
+                },
+            ],
+        )
+
+        self.assertEqual(
+            json.loads(extraction_prompt)["current_interaction_fields"],
+            [{
+                "field_key": "user_state",
+                "content": "High analytical engagement.",
+            }],
+        )
+
+    async def test_extraction_phase_deduplicates_request_and_preserves_all_sources(self):
+        records = normalize_facts_memory_records([
+            {
+                "session_id": "session-a",
+                "signals": {
+                    "user_state": {
+                        "content": "High analytical engagement.",
+                        "runtime_snapshot_id": "runtime-1",
+                    },
+                },
+            },
+            {
+                "session_id": "session-b",
+                "signals": {
+                    "user_state": {
+                        "content": "High analytical engagement.",
+                        "runtime_snapshot_id": "runtime-2",
+                    },
+                },
+            },
+        ])
+        pending = collect_pending_facts_memory_fields(records)
+        service_client = FakeServiceClient(json.dumps({
+            "facts": [{
+                "key": "user.state.analytical_engagement",
+                "value": "The user is highly analytically engaged.",
+                "category": "user_state",
+                "evidence_field_keys": ["user_state"],
+            }],
+        }))
+        context = RuntimeContext(
+            websocket=None,
+            emitter=FakeEmitter(),
+            logger=FakeLogger(),
+            clients={"service": service_client},
+        )
+        context.runtime_facts_memory_records = records
+        context.runtime_long_term_memory_store = normalize_lt_store({})
+
+        result = await run_lt_extraction_phase(
+            context=context,
+            service_client=service_client,
+            pending_fields=pending,
+        )
+
+        request_payload = json.loads(service_client.calls[0]["user_prompt"])
+        self.assertEqual(
+            request_payload["current_interaction_fields"],
+            [{
+                "field_key": "user_state",
+                "content": "High analytical engagement.",
+            }],
+        )
+        self.assertEqual(result["selected_fields_count"], 1)
+        self.assertEqual(result["source_fields_count"], 2)
+        self.assertEqual(
+            [
+                record["signals"]["user_state"]["lt_status"]
+                for record in context.runtime_facts_memory_records
+            ],
+            ["analyzed", "analyzed"],
+        )
+        self.assertEqual(
+            context.runtime_long_term_memory_store["pending_facts"][0]["sources"],
+            [
+                {"session_id": "session-a", "runtime_snapshot_id": "runtime-1"},
+                {"session_id": "session-b", "runtime_snapshot_id": "runtime-2"},
+            ],
+        )
+
+    def test_lt_service_user_prompts_are_payload_only_json(self):
+        extraction_prompt = build_lt_extraction_user_prompt(
+            pending_fields=[{"key": "model", "content": "Qwen 3.6"}],
+        )
+        merge_prompt = build_lt_merge_user_prompt(
+            existing_facts=[],
+            pending_facts=[{
+                "id": "PF1",
+                "key": "model.preference",
+                "value": "Qwen 3.6 is preferred.",
+                "category": "user_preference",
+            }],
+        )
+
+        self.assertEqual(
+            json.loads(extraction_prompt)["current_interaction_fields"][0]["field_key"],
+            "model",
+        )
+        self.assertEqual(json.loads(merge_prompt)["pending_candidates"][0]["id"], "PF1")
+        self.assertTrue(extraction_prompt.startswith("{"))
+        self.assertTrue(merge_prompt.startswith("{"))
+        self.assertNotIn("pending_memory_fields", json.loads(extraction_prompt))
+
+    def test_extraction_prompt_defines_current_interaction_fields(self):
+        prompt = build_lt_extraction_system_prompt()
+
+        self.assertIn("`current_interaction_fields`", prompt)
+        self.assertIn("interaction material eligible", prompt)
+        self.assertIn("Committed L-T memory is not included", prompt)
+        self.assertIn("merge phase", prompt)
+
+    def test_merge_prompt_uses_slim_model_view_without_provenance_metadata(self):
+        prompt = build_lt_merge_user_prompt(
+            existing_facts=[
+                {
+                    "id": "F2",
+                    "key": "user.preference.response_language",
+                    "value": "The user prefers Russian replies.",
+                    "category": "user_preference",
+                    "source_session_ids": ["session-a"],
+                    "source_runtime_snapshot_ids": ["runtime-1"],
+                    "source_keys": ["language"],
+                    "source_fact_ids": ["F8"],
+                    "created_at": "2026-08-01T00:00:00Z",
+                    "updated_at": "2026-08-02T00:00:00Z",
+                    "mention_count": 9,
+                },
+            ],
+            pending_facts=[
+                {
+                    "id": "PF1",
+                    "key": "user.preference.response_language",
+                    "value": "The user prefers Russian replies.",
+                    "category": "user_preference",
+                    "source_session_ids": ["session-b"],
+                },
+            ],
+        )
+
+        self.assertIn('"id":"F2"', prompt)
+        self.assertIn('"id":"PF1"', prompt)
+        self.assertIn('"reference_exact_key_conflicts"', prompt)
+        self.assertIn('"reference_fact_ids":["F2"]', prompt)
+        self.assertNotIn("source_session_ids", prompt)
+        self.assertNotIn("source_runtime_snapshot_ids", prompt)
+        self.assertNotIn("source_fact_ids", prompt)
+        self.assertNotIn("mention_count", prompt)
+        self.assertNotIn("created_at", prompt)
+        self.assertNotIn("updated_at", prompt)
+
+    def test_merge_batch_plan_is_bounded_by_runtime_context_window(self):
+        existing_facts = normalize_lt_store({
+            "facts": [
+                {
+                    "id": f"F{index + 1}",
+                    "key": f"project.fact_{index}",
+                    "value": "Durable project fact " + ("detail " * 8),
+                    "category": "project_fact",
+                }
+                for index in range(20)
+            ],
+        })["facts"]
+        store, _ = add_lt_pending_candidates(
+            normalize_lt_store({"facts": existing_facts}),
+            [
+                {
+                    "key": f"project.pending_{index}",
+                    "value": "Pending durable fact " + ("detail " * 10),
+                    "category": "project_fact",
+                }
+                for index in range(30)
+            ],
+            now="2026-08-02T12:00:00Z",
+        )
+
+        plan_4k = build_lt_merge_batch_plan(
+            existing_facts=store["facts"],
+            pending_facts=store["pending_facts"],
+            system_prompt=build_lt_merge_system_prompt(),
+            runtime_context_window=4096,
+            requested_max_tokens=32768,
+            runtime_output_reserve=256,
+        )
+        plan_8k = build_lt_merge_batch_plan(
+            existing_facts=store["facts"],
+            pending_facts=store["pending_facts"],
+            system_prompt=build_lt_merge_system_prompt(),
+            runtime_context_window=8192,
+            requested_max_tokens=32768,
+            runtime_output_reserve=256,
+        )
+
+        self.assertTrue(plan_4k["fits"])
+        self.assertLess(plan_4k["batch_count"], 30)
+        self.assertLessEqual(plan_4k["estimated_total_tokens"], 4096)
+        self.assertGreater(plan_8k["batch_count"], plan_4k["batch_count"])
+        self.assertEqual(plan_4k["requested_max_output_tokens"], 32768)
+
+    def test_merge_batch_plan_squeezes_only_headroom_to_avoid_fifo_deadlock(self):
+        existing_facts = normalize_lt_store({
+            "facts": [
+                {
+                    "id": f"F{index + 1}",
+                    "key": f"project.fact_{index}",
+                    "value": "Durable project fact " + ("detail " * 20),
+                    "category": "project_fact",
+                }
+                for index in range(202)
+            ],
+        })["facts"]
+        store, _ = add_lt_pending_candidates(
+            normalize_lt_store({"facts": existing_facts}),
+            [{
+                "key": "project.pending",
+                "value": "Pending durable fact " + ("detail " * 20),
+                "category": "project_fact",
+            }],
+            now="2026-08-20T12:00:00Z",
+        )
+
+        plan = build_lt_merge_batch_plan(
+            existing_facts=store["facts"],
+            pending_facts=store["pending_facts"],
+            system_prompt=build_lt_merge_system_prompt(),
+            runtime_context_window=16384,
+            requested_max_tokens=None,
+            runtime_output_reserve=256,
+        )
+
+        self.assertTrue(plan["fits"])
+        self.assertEqual(plan["batch_count"], 1)
+        self.assertTrue(plan["response_headroom_squeezed"])
+        self.assertLess(
+            plan["response_headroom_tokens"],
+            plan["default_response_headroom_tokens"],
+        )
+        self.assertLessEqual(plan["estimated_total_tokens"], 16384)
+
+    def test_double_batch_plan_falls_back_to_two_existing_fact_halves(self):
+        existing_facts = normalize_lt_store({
+            "facts": [
+                {
+                    "id": f"F{index + 1}",
+                    "key": f"project.fact_{index}",
+                    "value": "Durable project fact " + ("detail " * 20),
+                    "category": "project_fact",
+                }
+                for index in range(50)
+            ],
+        })["facts"]
+        store, _ = add_lt_pending_candidates(
+            normalize_lt_store({"facts": existing_facts}),
+            [
+                {
+                    "key": f"project.pending_{index}",
+                    "value": "Pending durable fact " + ("detail " * 10),
+                    "category": "project_fact",
+                }
+                for index in range(5)
+            ],
+            now="2026-08-21T12:00:00Z",
+        )
+
+        plan = build_lt_double_batch_plan(
+            existing_facts=store["facts"],
+            pending_facts=store["pending_facts"],
+            system_prompt=build_lt_merge_system_prompt(),
+            runtime_context_window=4096,
+            requested_max_tokens=None,
+            runtime_output_reserve=256,
+        )
+
+        self.assertTrue(plan["fits"])
+        self.assertEqual(plan["mode"], "halves")
+        self.assertEqual(
+            [len(batch) for batch in plan["existing_fact_batches"]],
+            [25, 25],
+        )
+        self.assertGreaterEqual(plan["batch_count"], 1)
+        self.assertEqual(len(plan["plans"]), 2)
+
+    def test_double_batch_plan_pauses_when_one_pending_cannot_fit_a_half(self):
+        existing_facts = normalize_lt_store({
+            "facts": [
+                {
+                    "id": f"F{index + 1}",
+                    "key": f"project.fact_{index}",
+                    "value": "Durable project fact " + ("detail " * 20),
+                    "category": "project_fact",
+                }
+                for index in range(100)
+            ],
+        })["facts"]
+        store, _ = add_lt_pending_candidates(
+            normalize_lt_store({"facts": existing_facts}),
+            [{
+                "key": "project.pending",
+                "value": "Pending durable fact " + ("detail " * 10),
+                "category": "project_fact",
+            }],
+            now="2026-08-21T12:00:00Z",
+        )
+
+        plan = build_lt_double_batch_plan(
+            existing_facts=store["facts"],
+            pending_facts=store["pending_facts"],
+            system_prompt=build_lt_merge_system_prompt(),
+            runtime_context_window=4096,
+            requested_max_tokens=None,
+            runtime_output_reserve=256,
+        )
+
+        self.assertFalse(plan["fits"])
+        self.assertEqual(plan["mode"], "paused")
+        self.assertGreater(plan["minimum_required_tokens"], 4096)
+
+    async def test_merge_uses_two_existing_fact_shards_before_applying(self):
+        existing_facts = normalize_lt_store({
+            "facts": [
+                {
+                    "id": f"F{index + 1}",
+                    "key": f"topic{index // 10}.item_{index}",
+                    "value": "Durable project fact " + ("detail " * 120),
+                    "category": "project_fact",
+                }
+                for index in range(50)
+            ],
+        })["facts"]
+        store, _ = add_lt_pending_candidates(
+            normalize_lt_store({"facts": existing_facts}),
+            [
+                {
+                    "key": f"topic{index}.pending",
+                    "value": "Pending durable fact " + ("detail " * 10),
+                    "category": "project_fact",
+                }
+                for index in range(5)
+            ],
+            now="2026-08-21T12:00:00Z",
+        )
+        selected = store["pending_facts"][:2]
+        scan_response = json.dumps({
+            "scan": [
+                {
+                    "pending_id": fact["id"],
+                    "decision": "no_match",
+                    "fact_ids": [],
+                }
+                for fact in selected
+            ],
+        })
+        merge_response = json.dumps({
+            "operations": [
+                {
+                    "action": "create",
+                    "pending_id": fact["id"],
+                    "key": fact["key"],
+                    "value": fact["value"],
+                    "category": fact["category"],
+                }
+                for fact in selected
+            ],
+        })
+        service_client = FakeServiceClient(
+            [scan_response, merge_response],
+            context_window=4096,
+        )
+        context = RuntimeContext(
+            websocket=None,
+            emitter=FakeEmitter(),
+            logger=FakeLogger(),
+            clients={"service": service_client},
+        )
+        context.runtime_long_term_memory_store = store
+
+        result = await run_lt_merge_phase(
+            context=context,
+            service_client=service_client,
+        )
+
+        self.assertEqual(result["status"], "completed")
+        self.assertEqual(result["batch_count"], 2)
+        self.assertEqual(result["remaining_pending_count"], 3)
+        self.assertEqual(len(service_client.calls), 2)
+        self.assertEqual(context.runtime_lt_merge_existing_batch_mode, "halves")
+        self.assertEqual(context.runtime_lt_merge_batch_limit, 4)
+
+        first_payload = json.loads(
+            service_client.calls[0]["user_prompt"]
+        )
+        second_payload = json.loads(
+            service_client.calls[1]["user_prompt"]
+        )
+        self.assertEqual(len(first_payload["reference_existing_facts"]), 6)
+        self.assertEqual(len(second_payload["reference_existing_facts"]), 6)
+        self.assertEqual(len(second_payload["reference_previous_shard_scan"]), 2)
+
+    def test_shard_scan_inspection_keeps_valid_rows_when_one_row_is_bad(self):
+        inspection = inspect_lt_merge_shard_scan(
+            {
+                "scan": [
+                    {
+                        "pending_id": "PF1",
+                        "decision": "update",
+                        "fact_ids": [],
+                    },
+                    {
+                        "pending_id": "PF2",
+                        "decision": "no_match",
+                        "fact_ids": [],
+                    },
+                ],
+            },
+            pending_ids=["PF1", "PF2"],
+            visible_fact_ids=["F1", "F2"],
+        )
+
+        self.assertEqual(inspection["valid_pending_ids"], ["PF2"])
+        self.assertEqual(inspection["invalid_pending_ids"], ["PF1"])
+        self.assertEqual(
+            inspection["pending_errors"]["PF1"],
+            ["update_requires_one_fact_id"],
+        )
+
+    async def test_invalid_shard_row_gets_real_repair_before_finalize(self):
+        existing_facts = normalize_lt_store({
+            "facts": [
+                {
+                    "id": f"F{index + 1}",
+                    "key": f"topic{index // 10}.item_{index}",
+                    "value": "Durable project fact " + ("detail " * 120),
+                    "category": "project_fact",
+                }
+                for index in range(20)
+            ],
+        })["facts"]
+        store, _ = add_lt_pending_candidates(
+            normalize_lt_store({"facts": existing_facts}),
+            [
+                {
+                    "key": "topic0.pending",
+                    "value": "First pending durable fact.",
+                    "category": "project_fact",
+                },
+                {
+                    "key": "topic1.pending",
+                    "value": "Second pending durable fact.",
+                    "category": "project_fact",
+                },
+            ],
+            now="2026-08-21T12:00:00Z",
+        )
+        initial_scan = json.dumps({
+            "scan": [
+                {
+                    "pending_id": "PF1",
+                    "decision": "update",
+                    "fact_ids": [],
+                },
+                {
+                    "pending_id": "PF2",
+                    "decision": "no_match",
+                    "fact_ids": [],
+                },
+            ],
+        })
+        repaired_scan = json.dumps({
+            "scan": [
+                {
+                    "pending_id": "PF1",
+                    "decision": "no_match",
+                    "fact_ids": [],
+                },
+            ],
+        })
+        merge_response = json.dumps({
+            "operations": [
+                {"action": "ignore", "pending_id": "PF1"},
+                {"action": "ignore", "pending_id": "PF2"},
+            ],
+        })
+        service_client = FakeServiceClient(
+            [initial_scan, repaired_scan, merge_response],
+            context_window=4096,
+        )
+        context = RuntimeContext(
+            websocket=None,
+            emitter=FakeEmitter(),
+            logger=FakeLogger(),
+            clients={"service": service_client},
+        )
+        context.runtime_long_term_memory_store = store
+
+        result = await run_lt_merge_phase(
+            context=context,
+            service_client=service_client,
+        )
+
+        self.assertEqual(result["status"], "completed")
+        self.assertEqual(len(service_client.calls), 3)
+        recovery = result["merge_change"]["shard_scan_recovery"]
+        self.assertTrue(recovery["repair_attempted"])
+        self.assertEqual(recovery["initial_invalid_pending_ids"], ["PF1"])
+        self.assertEqual(recovery["repaired_pending_ids"], ["PF1"])
+        self.assertNotIn("PF1", context.runtime_lt_merge_deferred_pending_until)
+        repair_payload = json.loads(
+            service_client.calls[1]["user_prompt"]
+        )
+        self.assertEqual(
+            [fact["id"] for fact in repair_payload["pending_candidates"]],
+            ["PF1"],
+        )
+        self.assertIn("repair", repair_payload)
+
+    async def test_bad_shard_row_is_deferred_without_blocking_valid_pending(self):
+        existing_facts = normalize_lt_store({
+            "facts": [
+                {
+                    "id": f"F{index + 1}",
+                    "key": f"topic{index // 10}.item_{index}",
+                    "value": "Durable project fact " + ("detail " * 120),
+                    "category": "project_fact",
+                }
+                for index in range(20)
+            ],
+        })["facts"]
+        store, _ = add_lt_pending_candidates(
+            normalize_lt_store({"facts": existing_facts}),
+            [
+                {
+                    "key": "topic0.poison",
+                    "value": "Difficult pending durable fact.",
+                    "category": "project_fact",
+                },
+                {
+                    "key": "topic1.good",
+                    "value": "Independent pending durable fact.",
+                    "category": "project_fact",
+                },
+            ],
+            now="2026-08-21T12:00:00Z",
+        )
+        initial_scan = json.dumps({
+            "scan": [
+                {
+                    "pending_id": "PF1",
+                    "decision": "update",
+                    "fact_ids": [],
+                },
+                {
+                    "pending_id": "PF2",
+                    "decision": "no_match",
+                    "fact_ids": [],
+                },
+            ],
+        })
+        broken_repair = json.dumps({"scan": []})
+        merge_good = json.dumps({
+            "operations": [
+                {"action": "ignore", "pending_id": "PF2"},
+            ],
+        })
+        retry_scan = json.dumps({
+            "scan": [
+                {
+                    "pending_id": "PF1",
+                    "decision": "no_match",
+                    "fact_ids": [],
+                },
+            ],
+        })
+        retry_merge = json.dumps({
+            "operations": [
+                {"action": "ignore", "pending_id": "PF1"},
+            ],
+        })
+        service_client = FakeServiceClient(
+            [
+                initial_scan,
+                broken_repair,
+                merge_good,
+                retry_scan,
+                retry_merge,
+            ],
+            context_window=4096,
+        )
+        context = RuntimeContext(
+            websocket=None,
+            emitter=FakeEmitter(),
+            logger=FakeLogger(),
+            clients={"service": service_client},
+        )
+        context.runtime_long_term_memory_store = store
+
+        first = await run_lt_merge_phase(
+            context=context,
+            service_client=service_client,
+        )
+
+        self.assertEqual(first["status"], "completed")
+        self.assertEqual(first["batch_count"], 1)
+        self.assertEqual(len(service_client.calls), 3)
+        self.assertEqual(
+            [fact["id"] for fact in context.runtime_long_term_memory_store["pending_facts"]],
+            ["PF1"],
+        )
+        self.assertIn("PF1", context.runtime_lt_merge_deferred_pending_until)
+        self.assertIn("PF1", context.runtime_lt_merge_single_retry_pending_ids)
+        self.assertEqual(context.runtime_lt_merge_retry_not_before, 0.0)
+        final_payload = json.loads(
+            service_client.calls[2]["user_prompt"]
+        )
+        self.assertEqual(
+            [fact["id"] for fact in final_payload["pending_candidates"]],
+            ["PF2"],
+        )
+
+        next_store, _ = add_lt_pending_candidates(
+            context.runtime_long_term_memory_store,
+            [
+                {
+                    "key": "project.later",
+                    "value": "Later independent fact.",
+                    "category": "project_fact",
+                },
+            ],
+            now="2026-08-21T12:01:00Z",
+        )
+        context.runtime_long_term_memory_store = next_store
+        context.runtime_lt_merge_deferred_pending_until["PF1"] = 0.0
+
+        second = await run_lt_merge_phase(
+            context=context,
+            service_client=service_client,
+        )
+
+        self.assertEqual(second["status"], "completed")
+        self.assertEqual(len(service_client.calls), 5)
+        retry_payload = json.loads(
+            service_client.calls[3]["user_prompt"]
+        )
+        self.assertEqual(
+            [fact["id"] for fact in retry_payload["pending_candidates"]],
+            ["PF1"],
+        )
+        self.assertEqual(
+            [fact["id"] for fact in context.runtime_long_term_memory_store["pending_facts"]],
+            ["PF3"],
+        )
+        self.assertNotIn("PF1", context.runtime_lt_merge_single_retry_pending_ids)
+
+    async def test_lt_pause_logs_once_and_starts_no_model_request(self):
+        existing_facts = normalize_lt_store({
+            "facts": [
+                {
+                    "id": f"F{index + 1}",
+                    "key": f"memory_topic.item_{index}",
+                    "value": "Durable project fact " + ("detail " * 600),
+                    "category": "project_fact",
+                }
+                for index in range(100)
+            ],
+        })["facts"]
+        store, _ = add_lt_pending_candidates(
+            normalize_lt_store({"facts": existing_facts}),
+            [{
+                "key": "memory_topic.pending",
+                "value": "Pending durable fact " + ("detail " * 10),
+                "category": "project_fact",
+            }],
+            now="2026-08-21T12:00:00Z",
+        )
+        logger = CaptureMemoryLogger()
+        service_client = FakeServiceClient("unused", context_window=4096)
+        context = RuntimeContext(
+            websocket=None,
+            emitter=FakeEmitter(),
+            logger=logger,
+            clients={"service": service_client},
+        )
+        context.runtime_long_term_memory_store = store
+
+        first = await run_lt_merge_phase(
+            context=context,
+            service_client=service_client,
+        )
+        second = await run_lt_merge_phase(
+            context=context,
+            service_client=service_client,
+        )
+
+        self.assertEqual(first["status"], "paused")
+        self.assertEqual(second["status"], "paused")
+        self.assertEqual(service_client.calls, [])
+        self.assertEqual(len(logger.logs), 1)
+        self.assertEqual(logger.logs[0]["event"], "merge_paused")
+        self.assertEqual(logger.logs[0]["tag_suffix"], "PAUSED")
+        self.assertIn("Not enough context window size", logger.logs[0]["message"])
+        self.assertIn("Minimum required:", logger.logs[0]["message"])
+        self.assertIn("Maximum available: 4096", logger.logs[0]["message"])
+
+    async def test_successful_learned_pending_batch_expands_instead_of_sticking(self):
+        store, _ = add_lt_pending_candidates(
+            normalize_lt_store({}),
+            [
+                {
+                    "key": f"project.pending_{index}",
+                    "value": f"Pending durable fact {index}.",
+                    "category": "project_fact",
+                }
+                for index in range(6)
+            ],
+            now="2026-08-21T12:00:00Z",
+        )
+        first_fact = store["pending_facts"][0]
+        second_batch = store["pending_facts"][1:3]
+        responses = [
+            json.dumps({
+                "operations": [{
+                    "action": "create",
+                    "pending_id": first_fact["id"],
+                    "key": first_fact["key"],
+                    "value": first_fact["value"],
+                    "category": first_fact["category"],
+                }],
+            }),
+            json.dumps({
+                "operations": [
+                    {
+                        "action": "create",
+                        "pending_id": fact["id"],
+                        "key": fact["key"],
+                        "value": fact["value"],
+                        "category": fact["category"],
+                    }
+                    for fact in second_batch
+                ],
+            }),
+        ]
+        service_client = FakeServiceClient(responses, context_window=16384)
+        context = RuntimeContext(
+            websocket=None,
+            emitter=FakeEmitter(),
+            logger=FakeLogger(),
+            clients={"service": service_client},
+        )
+        context.runtime_long_term_memory_store = store
+        context.runtime_lt_merge_batch_limit = 1
+
+        first = await run_lt_merge_phase(
+            context=context,
+            service_client=service_client,
+        )
+        self.assertEqual(first["batch_count"], 1)
+        self.assertEqual(context.runtime_lt_merge_batch_limit, 2)
+
+        second = await run_lt_merge_phase(
+            context=context,
+            service_client=service_client,
+        )
+        self.assertEqual(second["batch_count"], 2)
+        self.assertEqual(context.runtime_lt_merge_batch_limit, 4)
+
+    async def test_live_context_window_change_releases_locked_lt_batch(self):
+        store, _ = add_lt_pending_candidates(
+            normalize_lt_store({}),
+            [
+                {
+                    "key": f"project.pending_{index}",
+                    "value": f"Pending durable fact {index}.",
+                    "category": "project_fact",
+                }
+                for index in range(4)
+            ],
+            now="2026-08-21T12:00:00Z",
+        )
+        response = json.dumps({
+            "operations": [
+                {
+                    "action": "create",
+                    "pending_id": fact["id"],
+                    "key": fact["key"],
+                    "value": fact["value"],
+                    "category": fact["category"],
+                }
+                for fact in store["pending_facts"]
+            ],
+        })
+        service_client = FakeServiceClient(response, context_window=8192)
+        context = RuntimeContext(
+            websocket=None,
+            emitter=FakeEmitter(),
+            logger=FakeLogger(),
+            clients={"service": service_client},
+        )
+        context.runtime_long_term_memory_store = store
+        context.runtime_lt_merge_context_window_tokens = 4096
+        context.runtime_lt_merge_batch_limit = 1
+        context.runtime_lt_merge_last_success_batch_limit = 1
+        context.runtime_lt_merge_batch_locked = True
+
+        result = await run_lt_merge_phase(
+            context=context,
+            service_client=service_client,
+        )
+
+        self.assertEqual(result["batch_count"], 4)
+        self.assertEqual(result["remaining_pending_count"], 0)
+        self.assertFalse(context.runtime_lt_merge_batch_locked)
+        self.assertEqual(context.runtime_lt_merge_batch_limit, 0)
+
+    def test_merge_can_apply_one_batch_and_leave_rest_of_pending_queue(self):
+        store, _ = add_lt_pending_candidates(
+            normalize_lt_store({}),
+            [
+                {
+                    "key": f"project.fact_{index}",
+                    "value": f"Durable project fact {index}.",
+                    "category": "project_fact",
+                }
+                for index in range(3)
+            ],
+            now="2026-08-02T12:00:00Z",
+        )
+        first_two = store["pending_facts"][:2]
+        operations = [
+            {
+                "action": "create",
+                "pending_id": fact["id"],
+                "key": fact["key"],
+                "value": fact["value"],
+                "category": fact["category"],
+            }
+            for fact in first_two
+        ]
+
+        merged, change = apply_lt_merge_operations(
+            store,
+            operations,
+            pending_ids=[fact["id"] for fact in first_two],
+            now="2026-08-02T12:01:00Z",
+        )
+
+        self.assertTrue(change["valid"])
+        self.assertEqual(len(merged["facts"]), 2)
+        self.assertEqual(len(merged["pending_facts"]), 1)
+        self.assertEqual(
+            merged["pending_facts"][0]["id"],
+            store["pending_facts"][2]["id"],
+        )
+        self.assertEqual(change["pending_count"], 1)
+
+    def test_merge_applies_complete_batch_atomically(self):
+        existing = normalize_lt_store({
+            "facts": [
+                {
+                    "id": "F1",
+                    "key": "user.hardware.main_gpu",
+                    "value": "User's main GPU is RTX 3080 Ti.",
+                    "category": "environment",
+                },
+            ],
+        })
+        store, _ = add_lt_pending_candidates(
+            existing,
+            [
+                {
+                    "key": "user.hardware.main_gpu",
+                    "value": "User's main GPU is RTX 4090.",
+                    "category": "environment",
+                    "source_keys": ["gpu"],
+                },
+                {
+                    "key": "session.current_task",
+                    "value": "User is fixing a bubble today.",
+                    "source_keys": ["current_task"],
+                },
+            ],
+            now="2026-08-02T12:00:00Z",
+        )
+        gpu_pending, task_pending = store["pending_facts"]
+        operations = normalize_lt_merge_operations({
+            "operations": [
+                {
+                    "action": "update",
+                    "pending_id": gpu_pending["id"],
+                    "target_id": "F1",
+                    "key": "user.hardware.main_gpu",
+                    "value": "User's main GPU is RTX 4090.",
+                    "category": "environment",
+                },
+                {
+                    "action": "ignore",
+                    "pending_id": task_pending["id"],
+                },
+            ],
+        })
+
+        merged, change = apply_lt_merge_operations(
+            store,
+            operations,
+            now="2026-08-02T12:01:00Z",
+        )
+
+        self.assertTrue(change["valid"])
+        self.assertEqual(merged["pending_facts"], [])
+        self.assertEqual(len(merged["facts"]), 1)
+        self.assertEqual(merged["facts"][0]["id"], "F1")
+        self.assertIn("RTX 4090", merged["facts"][0]["value"])
+        self.assertEqual(
+            merged["facts"][0]["source_fact_ids"],
+            [gpu_pending["id"]],
+        )
+        self.assertEqual(change["ignored_pending_ids"], [task_pending["id"]])
+        self.assertEqual(len(change["operation_details"]), 2)
+
+        update_detail = change["operation_details"][0]
+        self.assertEqual(update_detail["action"], "update")
+        self.assertEqual(update_detail["pending_id"], gpu_pending["id"])
+        self.assertEqual(update_detail["target_id"], "F1")
+        self.assertIn("RTX 4090", update_detail["pending_fact"]["value"])
+        self.assertIn("RTX 3080 Ti", update_detail["target_before"]["value"])
+        self.assertIn("RTX 4090", update_detail["target_after"]["value"])
+
+        ignore_detail = change["operation_details"][1]
+        self.assertEqual(ignore_detail["action"], "ignore")
+        self.assertEqual(ignore_detail["pending_id"], task_pending["id"])
+
+        detail_text = format_lt_merge_operation_details(change)
+        self.assertIn("UPDATE", detail_text)
+        self.assertIn("incoming: user.hardware.main_gpu", detail_text)
+        self.assertIn("before:   user.hardware.main_gpu", detail_text)
+        self.assertIn("after:    user.hardware.main_gpu", detail_text)
+        self.assertIn("IGNORE", detail_text)
+
+    def test_merge_ignore_consumes_redundant_pending_fact_without_mutating_committed_fact(self):
+        existing = normalize_lt_store({
+            "facts": [
+                {
+                    "id": "F2",
+                    "key": "user.preference.response_language",
+                    "value": "The user prefers Russian replies.",
+                    "category": "user_preference",
+                    "source_fact_ids": ["F9"],
+                },
+            ],
+        })
+        store, _ = add_lt_pending_candidates(
+            existing,
+            [
+                {
+                    "key": "user.preference.response_language",
+                    "value": "The user prefers Russian replies.",
+                    "category": "user_preference",
+                    "source_fact_ids": ["F10"],
+                },
+            ],
+            now="2026-08-02T12:00:00Z",
+        )
+        pending = store["pending_facts"][0]
+        operations = normalize_lt_merge_operations({
+            "operations": [
+                {
+                    "action": "ignore",
+                    "pending_id": pending["id"],
+                    "comment": "Already represented by F2.",
+                },
+            ],
+        })
+
+        merged, change = apply_lt_merge_operations(
+            store,
+            operations,
+            now="2026-08-02T12:01:00Z",
+        )
+
+        self.assertTrue(change["valid"])
+        self.assertEqual(change["ignored_pending_ids"], [pending["id"]])
+        self.assertEqual(merged["pending_facts"], [])
+        self.assertEqual(merged["facts"][0]["source_fact_ids"], ["F9"])
+        detail = change["operation_details"][0]
+        self.assertEqual(detail["action"], "ignore")
+        self.assertEqual(detail["comment"], "Already represented by F2.")
+        detail_text = format_lt_merge_operation_details(change)
+        self.assertIn("IGNORE", detail_text)
+
+    def test_merge_retires_old_facts_and_creates_new_canonical_id_with_lineage(self):
+        store = normalize_lt_store({
+            "facts": [
+                {
+                    "id": "F1",
+                    "key": "user.social_connections",
+                    "value": "Taras is a close friend.",
+                    "category": "user_fact",
+                    "source_fact_ids": ["F8"],
+                },
+                {
+                    "id": "F2",
+                    "key": "user.stakeholder_profile",
+                    "value": "Taras is a key technical stakeholder.",
+                    "category": "user_fact",
+                },
+            ],
+            "pending_facts": [
+                {
+                    "id": "PF1",
+                    "key": "user.relationship.taras",
+                    "value": "Taras is both a close friend and technical stakeholder.",
+                    "category": "user_fact",
+                },
+            ],
+        })
+        operations = normalize_lt_merge_operations({
+            "operations": [
+                {
+                    "action": "merge",
+                    "pending_id": "PF1",
+                    "fact_ids": ["F1", "F2"],
+                    "key": "user.relationship.taras",
+                    "value": "Taras is both a close friend and an active technical stakeholder.",
+                    "category": "user_fact",
+                    "comment": "Keep both relationship roles in one canonical fact.",
+                },
+            ],
+        })
+
+        merged, change = apply_lt_merge_operations(
+            store,
+            operations,
+            pending_ids=["PF1"],
+            now="2026-08-02T12:01:00Z",
+        )
+
+        self.assertTrue(change["valid"])
+        self.assertEqual(change["removed_fact_ids"], ["F1", "F2"])
+        self.assertEqual(change["replacement_fact_ids"], ["F9"])
+        self.assertEqual(change["merged_ids"], ["F9"])
+        self.assertEqual(merged["deleted_fact_ids"], ["F1", "F2"])
+        self.assertEqual([fact["id"] for fact in merged["facts"]], ["F9"])
+        self.assertEqual(merged["pending_facts"], [])
+        self.assertEqual(
+            merged["facts"][0]["source_fact_ids"],
+            ["F8", "F1", "F2", "PF1"],
+        )
+        detail = change["operation_details"][0]
+        self.assertEqual(detail["action"], "merge")
+        self.assertEqual(detail["comment"], "Keep both relationship roles in one canonical fact.")
+        self.assertEqual([fact["id"] for fact in detail["merged_facts"]], ["F1", "F2"])
+
+    async def test_merge_phase_logs_concrete_operation_details(self):
+        existing = normalize_lt_store({
+            "facts": [
+                {
+                    "id": "F1",
+                    "key": "user.hardware.main_gpu",
+                    "value": "User's main GPU is RTX 3080 Ti.",
+                    "category": "environment",
+                },
+                {
+                    "id": "F2",
+                    "key": "user.preference.response_language",
+                    "value": "The user prefers Russian replies.",
+                    "category": "user_preference",
+                },
+            ],
+        })
+        store, _ = add_lt_pending_candidates(
+            existing,
+            [
+                {
+                    "key": "user.hardware.main_gpu",
+                    "value": "User's main GPU is RTX 4090.",
+                    "category": "environment",
+                },
+                {
+                    "key": "user.preference.response_language",
+                    "value": "The user prefers Russian replies.",
+                    "category": "user_preference",
+                },
+            ],
+            now="2026-08-02T12:00:00Z",
+        )
+        gpu_pending, language_pending = store["pending_facts"]
+        service_client = FakeServiceClient(f'''{{
+          "operations": [
+            {{
+              "action": "update",
+              "pending_id": "{gpu_pending["id"]}",
+              "target_id": "F1",
+              "key": "user.hardware.main_gpu",
+              "value": "User's main GPU is RTX 4090.",
+              "category": "environment"
+            }},
+            {{
+              "action": "ignore",
+              "pending_id": "{language_pending["id"]}",
+              "comment": "Already represented by F2."
+            }}
+          ]
+        }}''')
+        logger = FakeLogger()
+        context = RuntimeContext(
+            websocket=None,
+            emitter=FakeEmitter(),
+            logger=logger,
+            clients={"service": service_client},
+        )
+        context.runtime_long_term_memory_store = store
+
+        result = await maybe_update_runtime_lt_memory(
+            context=context,
+            user_idle_seconds=61,
+        )
+
+        self.assertEqual(result["phase"], "merge")
+        self.assertEqual(result["status"], "completed")
+        merge_logs = [
+            details
+            for message, details in logger.summarizer_logs
+            if message == "[MEMORY:L-T] L-T merge applied"
+        ]
+        self.assertEqual(len(merge_logs), 1)
+        detail_text = merge_logs[0]
+        self.assertIn("UPDATE", detail_text)
+        self.assertIn("before:   user.hardware.main_gpu", detail_text)
+        self.assertIn("after:    user.hardware.main_gpu", detail_text)
+        self.assertIn("IGNORE", detail_text)
+        self.assertIn("Already represented by F2.", detail_text)
+
+    def test_delayed_memory_remap_uses_per_merge_replacement_mapping(self):
+        context = RuntimeContext(
+            websocket=None,
+            emitter=FakeEmitter(),
+            logger=FakeLogger(),
+            clients={},
+        )
+        context.delayed_memory_file_store_enabled = False
+        context.delayed_memory_reports = {
+            "left": {"lt_facts_ids": ["F1"]},
+            "right": {"lt_facts_ids": ["F3"]},
+            "both": {"lt_facts_ids": ["F2", "F4"]},
+        }
+
+        change = remap_delayed_memory_lt_fact_ids(
+            context,
+            removed_fact_ids=["F1", "F2", "F3", "F4"],
+            replacement_fact_ids=["F5", "F6"],
+            replacement_fact_id_map={
+                "F1": ["F5"],
+                "F2": ["F5"],
+                "F3": ["F6"],
+                "F4": ["F6"],
+            },
+        )
+
+        self.assertTrue(change["changed"])
+        self.assertEqual(context.delayed_memory_reports["left"]["lt_facts_ids"], ["F5"])
+        self.assertEqual(context.delayed_memory_reports["right"]["lt_facts_ids"], ["F6"])
+        self.assertEqual(
+            context.delayed_memory_reports["both"]["lt_facts_ids"],
+            ["F5", "F6"],
+        )
+
+    async def test_merge_validation_failure_gets_one_structured_repair_pass(self):
+        store = normalize_lt_store({
+            "facts": [
+                {
+                    "id": "F1",
+                    "key": "project.operational_modes",
+                    "value": "Architect / Explorer / Observer.",
+                    "category": "project_fact",
+                },
+            ],
+            "pending_facts": [
+                {
+                    "id": "PF1",
+                    "key": "project.operational_modes",
+                    "value": "Semantic Flow / Compression / Drift.",
+                    "category": "project_fact",
+                },
+            ],
+        })
+        service_client = FakeServiceClient([
+            json.dumps({
+                "operations": [
+                    {
+                        "action": "create",
+                        "pending_id": "PF1",
+                        "key": "project.operational_modes",
+                        "value": "Semantic Flow / Compression / Drift.",
+                        "category": "project_fact",
+                    },
+                ],
+            }),
+            json.dumps({
+                "operations": [
+                    {
+                        "action": "create",
+                        "pending_id": "PF1",
+                        "key": "project.cognitive_operational_states",
+                        "value": "Semantic Flow / Compression / Drift.",
+                        "category": "project_fact",
+                    },
+                ],
+            }),
+        ])
+        context = RuntimeContext(
+            websocket=None,
+            emitter=FakeEmitter(),
+            logger=FakeLogger(),
+            clients={"service": service_client},
+        )
+        context.runtime_long_term_memory_store = store
+
+        result = await maybe_update_runtime_lt_memory(
+            context=context,
+            user_idle_seconds=61,
+        )
+
+        self.assertEqual(result["status"], "completed")
+        self.assertEqual(len(service_client.calls), 2)
+        self.assertTrue(result["merge_change"]["repaired"])
+        self.assertEqual(
+            result["merge_change"]["initial_validation_error"],
+            "create_key_already_exists",
+        )
+        repair_prompt = service_client.calls[1]["user_prompt"]
+        self.assertIn('"repair"', repair_prompt)
+        self.assertIn("create_key_already_exists", repair_prompt)
+        self.assertIn("already owned by F1", repair_prompt)
+        self.assertEqual(context.runtime_long_term_memory_store["pending_facts"], [])
+        self.assertEqual(
+            {fact["key"] for fact in context.runtime_long_term_memory_store["facts"]},
+            {"project.operational_modes", "project.cognitive_operational_states"},
+        )
+
+    async def test_failed_batch_isolated_then_poison_pending_is_deferred_without_blocking_queue(self):
+        store = normalize_lt_store({
+            "pending_facts": [
+                {
+                    "id": "PF1",
+                    "key": "project.poison",
+                    "value": "Difficult pending fact.",
+                    "category": "project_fact",
+                },
+                {
+                    "id": "PF2",
+                    "key": "project.good",
+                    "value": "Independent pending fact.",
+                    "category": "project_fact",
+                },
+            ],
+        })
+        invalid = json.dumps({"operations": []})
+        valid_second = json.dumps({
+            "operations": [
+                {
+                    "action": "ignore",
+                    "pending_id": "PF2",
+                    "comment": "Test consumes the later pending fact.",
+                },
+            ],
+        })
+        service_client = FakeServiceClient([
+            invalid,
+            invalid,
+            invalid,
+            invalid,
+            valid_second,
+        ])
+        context = RuntimeContext(
+            websocket=None,
+            emitter=FakeEmitter(),
+            logger=FakeLogger(),
+            clients={"service": service_client},
+        )
+        context.runtime_long_term_memory_store = store
+
+        first = await maybe_update_runtime_lt_memory(
+            context=context,
+            user_idle_seconds=61,
+        )
+        self.assertEqual(first["status"], "skipped")
+        self.assertTrue(context.runtime_lt_merge_force_single_batch_once)
+        self.assertEqual(len(service_client.calls), 2)
+
+        # Simulate the next one-minute idle tick after the validation backoff.
+        context.runtime_lt_merge_retry_not_before = 0.0
+        second = await maybe_update_runtime_lt_memory(
+            context=context,
+            user_idle_seconds=121,
+        )
+        self.assertEqual(second["status"], "skipped")
+        self.assertEqual(len(service_client.calls), 4)
+        self.assertIn("PF1", context.runtime_lt_merge_deferred_pending_until)
+
+        # The poison PF stays pending, but it no longer owns the FIFO head.
+        third = await maybe_update_runtime_lt_memory(
+            context=context,
+            user_idle_seconds=181,
+        )
+        self.assertEqual(third["status"], "completed")
+        self.assertEqual(len(service_client.calls), 5)
+        self.assertEqual(
+            [fact["id"] for fact in context.runtime_long_term_memory_store["pending_facts"]],
+            ["PF1"],
+        )
+
+    async def test_idle_scheduler_skips_empty_ticks_and_enforces_configured_cadence(self):
+        context = RuntimeContext(
+            websocket=None,
+            emitter=FakeEmitter(),
+            logger=FakeLogger(),
+            clients={},
+        )
+
+        stale_idle_anchor = (
+            time.monotonic()
+            - float(lt_memory_module.get_lt_idle_seconds())
+            - 1.0
+        )
+        context.runtime_lt_idle_last_started_at = stale_idle_anchor
+        empty = schedule_lt_memory_idle_update(
+            context=context,
+            user_idle_seconds=61,
+        )
+        self.assertIsNone(empty)
+        self.assertEqual(
+            context.runtime_lt_idle_last_started_at,
+            stale_idle_anchor,
+        )
+
+        context.runtime_long_term_memory_store = normalize_lt_store({
+            "pending_facts": [{
+                "id": "PF1",
+                "key": "project.pending",
+                "value": "Still pending.",
+                "category": "project_fact",
+            }],
+        })
+
+        first = schedule_lt_memory_idle_update(
+            context=context,
+            user_idle_seconds=61,
+        )
+        self.assertIsNotNone(first)
+        await first
+
+        second = schedule_lt_memory_idle_update(
+            context=context,
+            user_idle_seconds=61,
+        )
+        self.assertIsNone(second)
+
+        # A foreground turn resets cadence through real user activity, not by
+        # pretending a cancelled idle task started at that moment.
+        note_lt_user_activity(context)
+        third = schedule_lt_memory_idle_update(
+            context=context,
+            user_idle_seconds=61,
+        )
+        self.assertIsNone(third)
+
+    async def test_auto_lt_waits_full_idle_window_after_priority_work_finishes(self):
+        context = RuntimeContext(
+            websocket=None,
+            emitter=FakeEmitter(),
+            logger=FakeLogger(),
+            clients={},
+        )
+        context.runtime_long_term_memory_store = normalize_lt_store({
+            "pending_facts": [{
+                "id": "PF1",
+                "key": "project.pending",
+                "value": "Still pending.",
+                "category": "project_fact",
+            }],
+        })
+        context.runtime_lt_priority_finished_at = time.monotonic()
+
+        task = schedule_lt_memory_idle_update(
+            context=context,
+            user_idle_seconds=61,
+            minimum_interval_seconds=15,
+        )
+        self.assertIsNone(task)
+
+        context.runtime_lt_priority_finished_at -= 16
+        task = schedule_lt_memory_idle_update(
+            context=context,
+            user_idle_seconds=61,
+            minimum_interval_seconds=15,
+        )
+        self.assertIsNotNone(task)
+        await task
+
+    def test_server_scheduler_uses_exact_closed_tab_third_cadence(self):
+        with patch.object(
+            lt_memory_module.config,
+            "LT_IDLE_SECONDS",
+            15,
+        ):
+            self.assertEqual(
+                get_lt_scheduler_interval_seconds(
+                    tabs_open=True,
+                ),
+                15.0,
+            )
+            self.assertEqual(
+                get_lt_scheduler_interval_seconds(
+                    tabs_open=False,
+                ),
+                5.0,
+            )
+
+    def test_anonymous_facts_sync_wakes_scheduler_without_publishing_profile_state(self):
+        persistent_context = RuntimeContext(
+            websocket=None,
+            emitter=FakeEmitter(),
+            logger=FakeLogger(),
+            clients={},
+        )
+        app_state = SimpleNamespace(
+            lt_memory_scheduler_wake_event=asyncio.Event(),
+            lt_facts_memory_records=[{"session_id": "persistent"}],
+            lt_runtime_context=persistent_context,
+        )
+        anonymous_context = RuntimeContext(
+            websocket=None,
+            emitter=FakeEmitter(),
+            logger=FakeLogger(),
+            clients={},
+        )
+        configure_runtime_anonymous_mode(
+            anonymous_context,
+            True,
+        )
+        bind_lt_runtime_app_state(
+            anonymous_context,
+            app_state,
+        )
+        app_state.lt_memory_scheduler_wake_event.clear()
+
+        stats = apply_facts_memory_store_sync(
+            anonymous_context,
+            [{
+                "session_id": anonymous_context.session_id,
+                "signals": {
+                    "project.test": {
+                        "content": "Anonymous pending fact.",
+                        "runtime_snapshot_id": "runtime-anon",
+                        "lt_status": "pending",
+                    },
+                },
+            }],
+        )
+
+        self.assertEqual(stats["pending_count"], 1)
+        self.assertTrue(app_state.lt_memory_scheduler_wake_event.is_set())
+        self.assertGreater(anonymous_context.runtime_lt_profile_sync_at, 0.0)
+        self.assertEqual(
+            app_state.lt_facts_memory_records,
+            [{"session_id": "persistent"}],
+        )
+        self.assertIs(
+            app_state.lt_runtime_context,
+            persistent_context,
+        )
+
+    def test_scheduler_targets_only_connected_anonymous_rooms(self):
+        persistent_context = RuntimeContext(
+            websocket=None,
+            emitter=FakeEmitter(),
+            logger=FakeLogger(),
+            clients={},
+        )
+        connected_anonymous = RuntimeContext(
+            websocket=None,
+            emitter=FakeEmitter(),
+            logger=FakeLogger(),
+            clients={},
+        )
+        disconnected_anonymous = RuntimeContext(
+            websocket=None,
+            emitter=FakeEmitter(),
+            logger=FakeLogger(),
+            clients={},
+        )
+        configure_runtime_anonymous_mode(connected_anonymous, True)
+        configure_runtime_anonymous_mode(disconnected_anonymous, True)
+        connected_anonymous.runtime_lt_websocket_connected = True
+        disconnected_anonymous.runtime_lt_websocket_connected = False
+        app_state = SimpleNamespace(
+            websocket_runtime_contexts={
+                "persistent": persistent_context,
+                "anon-open": connected_anonymous,
+                "anon-closed": disconnected_anonymous,
+            },
+            lt_runtime_context=persistent_context,
+        )
+
+        contexts = lt_memory_module._lt_scheduler_contexts(app_state)
+
+        self.assertEqual(
+            contexts,
+            [persistent_context, connected_anonymous],
+        )
+
+    async def test_server_scheduler_dispatches_pending_anonymous_context(self):
+        anonymous_context = RuntimeContext(
+            websocket=None,
+            emitter=FakeEmitter(),
+            logger=FakeLogger(),
+            clients={},
+        )
+        configure_runtime_anonymous_mode(
+            anonymous_context,
+            True,
+        )
+        anonymous_context.runtime_lt_websocket_connected = True
+        anonymous_context.runtime_long_term_memory_store = normalize_lt_store({
+            "pending_facts": [{
+                "id": "PF1",
+                "key": "anonymous.pending",
+                "value": "Pending anonymous fact.",
+                "category": "other",
+            }],
+        })
+        anonymous_context.runtime_lt_profile_sync_at = time.monotonic() - 5.0
+        app_state = SimpleNamespace(
+            websocket_runtime_contexts={"anon": anonymous_context},
+            lt_runtime_context=None,
+            lt_last_user_activity_at=0.0,
+            lt_memory_scheduler_wake_event=asyncio.Event(),
+        )
+        bind_lt_runtime_app_state(
+            anonymous_context,
+            app_state,
+        )
+        anonymous_context.runtime_lt_profile_sync_at = time.monotonic() - 5.0
+        dispatched = asyncio.Event()
+        dispatched_contexts = []
+
+        def fake_schedule(*, context, **_kwargs):
+            dispatched_contexts.append(context)
+            dispatched.set()
+            return asyncio.create_task(asyncio.sleep(10))
+
+        with (
+            patch.object(
+                lt_memory_module.config,
+                "LT_IDLE_SECONDS",
+                1,
+            ),
+            patch.object(
+                lt_memory_module,
+                "schedule_lt_memory_idle_update",
+                side_effect=fake_schedule,
+            ),
+        ):
+            scheduler = asyncio.create_task(
+                lt_memory_module.run_lt_memory_server_scheduler(app_state)
+            )
+            try:
+                await asyncio.wait_for(
+                    dispatched.wait(),
+                    timeout=1.0,
+                )
+            finally:
+                scheduler.cancel()
+                with self.assertRaises(asyncio.CancelledError):
+                    await scheduler
+
+        self.assertEqual(
+            dispatched_contexts,
+            [anonymous_context],
+        )
+
+    def test_server_facts_memory_reconciles_analyzed_state_after_closed_tab_work(self):
+        app_state = SimpleNamespace(
+            lt_memory_scheduler_wake_event=asyncio.Event(),
+            lt_facts_memory_records=[],
+            lt_runtime_context=None,
+        )
+        analyzed_context = RuntimeContext(
+            websocket=None,
+            emitter=FakeEmitter(),
+            logger=FakeLogger(),
+            clients={},
+        )
+        bind_lt_runtime_app_state(
+            analyzed_context,
+            app_state,
+        )
+        analyzed_sync = apply_facts_memory_store_sync(
+            analyzed_context,
+            [{
+                "session_id": "session-a",
+                "signals": {
+                    "gpu": {
+                        "content": "RTX 4090",
+                        "runtime_snapshot_id": "runtime-a",
+                        "lt_status": "analyzed",
+                        "lt_analyzed_at": "2026-08-24T09:00:00Z",
+                    },
+                },
+            }],
+        )
+        self.assertEqual(analyzed_sync["pending_count"], 0)
+
+        reopened_context = RuntimeContext(
+            websocket=None,
+            emitter=FakeEmitter(),
+            logger=FakeLogger(),
+            clients={},
+        )
+        bind_lt_runtime_app_state(
+            reopened_context,
+            app_state,
+        )
+        stale_browser_sync = apply_facts_memory_store_sync(
+            reopened_context,
+            [{
+                "session_id": "session-a",
+                "signals": {
+                    "gpu": {
+                        "content": "RTX 4090",
+                        "runtime_snapshot_id": "runtime-a",
+                        "lt_status": "pending",
+                    },
+                },
+            }],
+        )
+
+        self.assertEqual(stale_browser_sync["pending_count"], 0)
+        field = reopened_context.runtime_facts_memory_records[0]["signals"]["gpu"]
+        self.assertEqual(field["lt_status"], "analyzed")
+        self.assertEqual(
+            field["lt_analyzed_at"],
+            "2026-08-24T09:00:00Z",
+        )
+
+    async def test_user_activity_preempts_idle_lt_task_without_consuming_pending(self):
+        context = RuntimeContext(
+            websocket=None,
+            emitter=FakeEmitter(),
+            logger=FakeLogger(),
+            clients={},
+        )
+        context.runtime_long_term_memory_store = normalize_lt_store({
+            "pending_facts": [
+                {
+                    "id": "PF1",
+                    "key": "project.pending",
+                    "value": "Still pending.",
+                    "category": "project_fact",
+                },
+            ],
+        })
+
+        async def idle_work():
+            await asyncio.sleep(10)
+
+        task = asyncio.create_task(idle_work())
+        attempt = begin_lt_attempt(
+            context,
+            kind="auto",
+            phase="merge",
+        )
+        bind_lt_attempt_task(attempt, task)
+
+        cancelled = await cancel_lt_memory_idle_update(
+            context,
+            reason="user_message",
+        )
+
+        self.assertTrue(cancelled)
+        self.assertTrue(task.cancelled())
+        self.assertTrue(attempt.cancelled)
+        self.assertIsNone(context.runtime_lt_active_attempt)
+        self.assertEqual(
+            [fact["id"] for fact in context.runtime_long_term_memory_store["pending_facts"]],
+            ["PF1"],
+        )
+
+    async def test_cancelled_auto_attempt_cannot_commit_late_provider_response(self):
+        request_started = asyncio.Event()
+        release_provider = asyncio.Event()
+
+        class StubbornServiceClient(FakeServiceClient):
+            async def ask(self, **kwargs):
+                self.calls.append(kwargs)
+                request_started.set()
+                try:
+                    await release_provider.wait()
+                except asyncio.CancelledError:
+                    # Deliberately swallow cancellation like a slow provider
+                    # transport. The stale attempt must still fail the commit
+                    # guard after the response eventually arrives.
+                    await release_provider.wait()
+                return {
+                    "choices": [{
+                        "message": {
+                            "content": json.dumps({
+                                "facts": [{
+                                    "key": "user.hardware.main_gpu",
+                                    "value": "User's main GPU is RTX 4090.",
+                                    "category": "environment",
+                                    "evidence_field_keys": ["gpu"],
+                                }],
+                            }),
+                        },
+                    }],
+                }
+
+        service_client = StubbornServiceClient("")
+        logger = CaptureMemoryLogger()
+        context = RuntimeContext(
+            websocket=None,
+            emitter=FakeEmitter(),
+            logger=logger,
+            clients={"service": service_client},
+        )
+        context.runtime_lt_file_store_enabled = False
+        context.runtime_facts_memory_records = normalize_facts_memory_records([{
+            "session_id": "session-a",
+            "signals": {
+                "gpu": {
+                    "content": "RTX 4090",
+                    "runtime_snapshot_id": "runtime-a",
+                },
+            },
+        }])
+
+        task = schedule_lt_memory_idle_update(
+            context=context,
+            user_idle_seconds=61,
+            minimum_interval_seconds=0,
+        )
+        self.assertIsNotNone(task)
+        await asyncio.wait_for(request_started.wait(), timeout=0.2)
+        attempt = context.runtime_lt_active_attempt
+        self.assertIsNotNone(attempt)
+
+        self.assertTrue(await cancel_lt_memory_idle_update(
+            context,
+            reason="user_message",
+        ))
+        self.assertTrue(attempt.cancelled)
+        release_provider.set()
+        result = await asyncio.wait_for(task, timeout=0.2)
+
+        self.assertEqual(result, {"status": "cancelled", "reason": "preempted"})
+        self.assertEqual(
+            context.runtime_facts_memory_records[0]["signals"]["gpu"]["lt_status"],
+            "pending",
+        )
+        self.assertEqual(
+            context.runtime_long_term_memory_store.get("pending_facts", []),
+            [],
+        )
+        events = [item.get("event") for item in logger.logs]
+        self.assertIn("summarizer_request", events)
+        self.assertIn("lt_preempted", events)
+        self.assertNotIn("summarizer_result", events)
+        flow_ids = {
+            item.get("lt_flow_id")
+            for item in logger.logs
+            if item.get("lt_flow_id")
+        }
+        self.assertEqual(flow_ids, {attempt.id})
+
+    async def test_merge_phase_logs_skip_reason(self):
+        store, _ = add_lt_pending_candidates(
+            normalize_lt_store({}),
+            [
+                {
+                    "key": "system.identity_definition",
+                    "value": (
+                        "JIN defines its existence through structural "
+                        "awareness."
+                    ),
+                    "category": "other",
+                },
+            ],
+            now="2026-08-02T12:00:00Z",
+        )
+        service_client = FakeServiceClient(
+            '{"operations": []}'
+        )
+        logger = FakeLogger()
+        context = RuntimeContext(
+            websocket=None,
+            emitter=FakeEmitter(),
+            logger=logger,
+            clients={"service": service_client},
+        )
+        context.runtime_long_term_memory_store = store
+
+        result = await maybe_update_runtime_lt_memory(
+            context=context,
+            user_idle_seconds=61,
+        )
+
+        self.assertEqual(result["phase"], "merge")
+        self.assertEqual(result["status"], "skipped")
+        self.assertEqual(result["reason"], "operation_count_mismatch")
+        skip_logs = [
+            details
+            for message, details in logger.summarizer_logs
+            if message == "[MEMORY:L-T] L-T merge skipped: operation_count_mismatch"
+        ]
+        self.assertEqual(len(skip_logs), 1)
+        skip_details = json.loads(skip_logs[0])
+        self.assertEqual(skip_details["phase"], "merge")
+        self.assertEqual(skip_details["reason"], "operation_count_mismatch")
+        self.assertEqual(skip_details["pending_count"], 1)
+        self.assertEqual(skip_details["operations_count"], 0)
+        self.assertEqual(
+            skip_details["pending_ids"],
+            [
+                store["pending_facts"][0]["id"],
+            ],
+        )
+
+    async def test_lt_request_without_resolved_output_budget_does_not_fall_back_to_one_token(self):
+        class UnresolvedBudgetServiceClient:
+
+            model_uid = "google/gemma-4-e4b"
+            context_window = 32768
+
+            def __init__(self):
+                self.calls = []
+
+            async def resolve_request_context_window(self):
+                return 32768
+
+            async def resolve_safe_max_tokens(
+                self,
+                *,
+                system_prompt,
+                user_prompt,
+                requested_max_tokens,
+            ):
+                return None
+
+            async def ask(
+                self,
+                *,
+                system_prompt,
+                user_prompt,
+                temperature,
+                max_tokens,
+                timeout=None,
+            ):
+                self.calls.append({
+                    "system_prompt": system_prompt,
+                    "user_prompt": user_prompt,
+                    "temperature": temperature,
+                    "max_tokens": max_tokens,
+                    "timeout": timeout,
+                })
+                return {
+                    "model": self.model_uid,
+                    "choices": [
+                        {
+                            "finish_reason": "stop",
+                            "message": {
+                                "content": '{"candidates":[]}',
+                            },
+                        },
+                    ],
+                    "usage": {
+                        "prompt_tokens": 874,
+                        "completion_tokens": 4,
+                        "total_tokens": 878,
+                    },
+                }
+
+        logger = FakeLogger()
+        service_client = UnresolvedBudgetServiceClient()
+        context = RuntimeContext(
+            websocket=None,
+            emitter=FakeEmitter(),
+            logger=logger,
+            clients={"service": service_client},
+        )
+
+        await lt_memory_module.ask_lt_model(
+            context=context,
+            service_client=service_client,
+            label="L-T extraction",
+            system_prompt="system",
+            user_prompt="user",
+            max_tokens=None,
+        )
+
+        self.assertEqual(len(service_client.calls), 1)
+        self.assertIsNone(service_client.calls[0]["max_tokens"])
+
+        request_logs = [
+            json.loads(details)
+            for message, details in logger.summarizer_logs
+            if message == "[MEMORY:L-T] L-T extraction summarizer request"
+        ]
+        self.assertEqual(len(request_logs), 1)
+        self.assertIsNone(request_logs[0]["max_tokens"])
+
+    async def test_truncated_merge_logs_diagnostics_without_reasoning_response(self):
+        class TruncatedReasoningServiceClient:
+
+            model_uid = "google/gemma-4-e4b"
+            configured_context_window = 4096
+
+            def __init__(self):
+                self.calls = []
+
+            async def resolve_request_context_window(self):
+                return 4096
+
+            async def resolve_safe_max_tokens(
+                self,
+                *,
+                system_prompt,
+                user_prompt,
+                requested_max_tokens,
+            ):
+                return 3288
+
+            async def ask(
+                self,
+                *,
+                system_prompt,
+                user_prompt,
+                temperature,
+                max_tokens,
+                timeout=None,
+            ):
+                self.calls.append({
+                    "system_prompt": system_prompt,
+                    "user_prompt": user_prompt,
+                    "temperature": temperature,
+                    "max_tokens": max_tokens,
+                    "timeout": timeout,
+                })
+                return {
+                    "model": self.model_uid,
+                    "choices": [
+                        {
+                            "finish_reason": "length",
+                            "message": {
+                                "content": "",
+                                "reasoning_content": (
+                                    "Internal analysis that must not be exposed "
+                                    "as the L-T response."
+                                ),
+                            },
+                        },
+                    ],
+                    "usage": {
+                        "prompt_tokens": 808,
+                        "completion_tokens": 3288,
+                        "total_tokens": 4096,
+                    },
+                }
+
+        store, _ = add_lt_pending_candidates(
+            normalize_lt_store({}),
+            [
+                {
+                    "key": "user.profile",
+                    "value": "The user works on JIN Core.",
+                    "category": "user_fact",
+                },
+            ],
+            now="2026-08-06T12:00:00Z",
+        )
+        logger = FakeLogger()
+        service_client = TruncatedReasoningServiceClient()
+        context = RuntimeContext(
+            websocket=None,
+            emitter=FakeEmitter(),
+            logger=logger,
+            clients={"service": service_client},
+        )
+        context.runtime_long_term_memory_store = store
+
+        result = await maybe_update_runtime_lt_memory(
+            context=context,
+            user_idle_seconds=61,
+        )
+
+        self.assertEqual(result["phase"], "merge")
+        self.assertEqual(result["status"], "skipped")
+        self.assertEqual(result["reason"], "response_truncated")
+        self.assertEqual(result["assistant_content"], "empty")
+        self.assertTrue(result["reasoning_generated"])
+        self.assertEqual(result["effective_max_output_tokens"], 3288)
+        self.assertEqual(result["context_window_tokens"], 4096)
+        self.assertIn("kept the pending facts unchanged", result["summary"])
+
+        self.assertEqual(service_client.calls[0]["max_tokens"], 3288)
+
+        result_logs = [
+            details
+            for message, details in logger.summarizer_logs
+            if message == "[MEMORY:L-T] L-T merge summarizer result"
+        ]
+        self.assertEqual(result_logs, [])
+
+        request_logs = [
+            json.loads(details)
+            for message, details in logger.summarizer_logs
+            if message == "[MEMORY:L-T] L-T merge summarizer request"
+        ]
+        self.assertEqual(request_logs[0]["max_tokens"], 3288)
+
+        skip_logs = [
+            json.loads(details)
+            for message, details in logger.summarizer_logs
+            if message == (
+                "[MEMORY:L-T] L-T merge skipped: "
+                "output truncated before final response"
+            )
+        ]
+        self.assertEqual(len(skip_logs), 1)
+        self.assertEqual(skip_logs[0]["kind"], "lt_skip")
+        self.assertEqual(skip_logs[0]["finish_reason"], "length")
+        self.assertEqual(skip_logs[0]["adaptive_batch_limit"], 1)
+        self.assertEqual(skip_logs[0]["retry_after_seconds"], 60)
+        self.assertNotIn("reasoning_content", skip_logs[0])
+        self.assertNotIn("Internal analysis", json.dumps(skip_logs[0]))
+
+        repeated = await maybe_update_runtime_lt_memory(
+            context=context,
+            user_idle_seconds=61,
+        )
+        self.assertEqual(repeated["phase"], "merge")
+        self.assertEqual(repeated["status"], "skipped")
+        self.assertEqual(repeated["reason"], "retry_backoff")
+        self.assertGreaterEqual(repeated["retry_in_seconds"], 1)
+        self.assertEqual(len(service_client.calls), 1)
+
+    def test_merge_batch_plan_honors_adaptive_batch_cap_without_losing_queue_count(self):
+        store, _ = add_lt_pending_candidates(
+            normalize_lt_store({}),
+            [
+                {
+                    "key": f"project.pending_{index}",
+                    "value": f"Pending durable fact {index}.",
+                    "category": "project_fact",
+                }
+                for index in range(8)
+            ],
+            now="2026-08-06T12:00:00Z",
+        )
+
+        plan = build_lt_merge_batch_plan(
+            existing_facts=store["facts"],
+            pending_facts=store["pending_facts"],
+            system_prompt=build_lt_merge_system_prompt(),
+            runtime_context_window=16384,
+            requested_max_tokens=None,
+            runtime_output_reserve=256,
+            max_batch_count=3,
+        )
+
+        self.assertTrue(plan["fits"])
+        self.assertEqual(plan["batch_count"], 3)
+        self.assertEqual(plan["total_pending_count"], 8)
+        self.assertEqual(plan["remaining_pending_count"], 5)
+        self.assertEqual(plan["adaptive_batch_limit"], 3)
+
+    async def test_runtime_lt_memory_update_running_tracks_active_task(self):
+        context = RuntimeContext(
+            websocket=None,
+            emitter=FakeEmitter(),
+            logger=FakeLogger(),
+            clients={},
+        )
+
+        self.assertFalse(
+            runtime_lt_memory_update_running(context)
+        )
+
+        task = asyncio.create_task(
+            asyncio.sleep(0)
+        )
+        attempt = begin_lt_attempt(
+            context,
+            kind="auto",
+            phase="extraction",
+        )
+        bind_lt_attempt_task(attempt, task)
+
+        self.assertTrue(
+            runtime_lt_memory_update_running(context)
+        )
+
+        await task
+
+        self.assertFalse(
+            runtime_lt_memory_update_running(context)
+        )
+
+    def test_store_does_not_truncate_values_or_fact_count(self):
+        long_value = "fact " * 1000
+        raw_facts = [
+            {
+                "key": f"project.fact_{index}",
+                "value": long_value + str(index),
+            }
+            for index in range(350)
+        ]
+
+        store = normalize_lt_store({"facts": raw_facts})
+
+        self.assertEqual(len(store["facts"]), 350)
+        self.assertEqual(store["facts"][0]["value"], (long_value + "0").strip())
+
+    def test_context_formats_all_facts_without_metadata(self):
+        store = normalize_lt_store({
+            "facts": [
+                {
+                    "id": "F1",
+                    "key": "user.hardware.main_gpu",
+                    "value": "User's main GPU is RTX 4090.",
+                    "category": "environment",
+                    "source_session_ids": ["session-a"],
+                },
+                {
+                    "id": "F2",
+                    "key": "user.preference.response_style",
+                    "value": "User prefers direct technical analysis.",
+                },
+            ],
+        })
+
+        context_block = format_long_term_memory_context(store["facts"])
+        ui_line = format_lt_fact_line(store["facts"][0], include_metadata=True)
+
+        self.assertIn("user.hardware.main_gpu:", context_block)
+        self.assertIn("user.preference.response_style:", context_block)
+        self.assertIn("[ id: F1 ]", context_block)
+        self.assertIn("[ id: F2 ]", context_block)
+        self.assertNotIn("source_session_ids", context_block)
+        self.assertNotIn("source_session_ids", ui_line)
+
+    def test_context_includes_fact_age_suffix(self):
+        now = datetime(
+            2026,
+            8,
+            2,
+            12,
+            0,
+            tzinfo=timezone.utc,
+        ).timestamp()
+
+        context_block = format_long_term_memory_context(
+            [
+                {
+                    "id": "F9",
+                    "key": "user.current_focus",
+                    "value": "User is tuning JIN context freshness.",
+                    "created_at": "2026-08-01T12:00:00Z",
+                    "updated_at": "2026-08-02T11:55:00Z",
+                },
+            ],
+            now=now,
+        )
+
+        self.assertIn(
+            (
+                "user.current_focus: User is tuning JIN context freshness. "
+                "[ id: F9 ] ( 5m ago )"
+            ),
+            context_block,
+        )
+
+    def test_stale_lt_context_truncates_each_long_sentence_but_keeps_store_full(self):
+        now = datetime(
+            2026,
+            8,
+            31,
+            12,
+            0,
+            tzinfo=timezone.utc,
+        ).timestamp()
+        first_sentence = "A" * 130 + "."
+        second_sentence = "B" * 125 + "!"
+        full_value = f"{first_sentence} {second_sentence} Short sentence."
+        fact = {
+            "id": "F9",
+            "key": "project.long_fact",
+            "value": full_value,
+            "last_mentioned_at": "2026-08-29T12:00:00Z",
+            "created_at": "2026-08-20T12:00:00Z",
+            "updated_at": "2026-08-20T12:00:00Z",
+        }
+
+        context_block = format_long_term_memory_context(
+            [fact],
+            now=now,
+        )
+
+        self.assertIn("A" * 100 + "...", context_block)
+        self.assertIn("B" * 100 + "...", context_block)
+        self.assertIn("Short sentence.", context_block)
+        self.assertNotIn("A" * 101, context_block)
+        self.assertEqual(fact["value"], full_value)
+
+    def test_recently_mentioned_lt_context_uses_full_fact_but_lifecycle_age(self):
+        now = datetime(
+            2026,
+            8,
+            31,
+            12,
+            0,
+            tzinfo=timezone.utc,
+        ).timestamp()
+        full_value = "A" * 160 + "."
+
+        context_block = format_long_term_memory_context(
+            [{
+                "id": "F9",
+                "key": "project.long_fact",
+                "value": full_value,
+                "last_mentioned_at": "2026-08-31T11:55:00Z",
+                "created_at": "2026-08-20T12:00:00Z",
+                "updated_at": "2026-08-20T12:00:00Z",
+            }],
+            now=now,
+        )
+
+        self.assertIn(full_value, context_block)
+        self.assertIn("[ id: F9 ] ( 11d ago )", context_block)
+        self.assertNotIn("( 5m ago )", context_block)
+
+    def test_lt_context_age_falls_back_to_created_at_without_updated_at(self):
+        now = datetime(
+            2026,
+            8,
+            31,
+            12,
+            0,
+            tzinfo=timezone.utc,
+        ).timestamp()
+
+        context_block = format_long_term_memory_context(
+            [{
+                "id": "F10",
+                "key": "project.created_only",
+                "value": "Created timestamp should own the visible age.",
+                "last_mentioned_at": "2026-08-31T11:59:00Z",
+                "created_at": "2026-08-30T12:00:00Z",
+                "updated_at": "",
+            }],
+            now=now,
+        )
+
+        self.assertIn("[ id: F10 ] ( 1d ago )", context_block)
+        self.assertNotIn("( 1m ago )", context_block)
+
+    async def test_reasoning_fact_id_refreshes_last_mention_for_next_turn(self):
+        context = RuntimeContext(
+            websocket=None,
+            emitter=FakeEmitter(),
+            logger=FakeLogger(),
+            clients={},
+        )
+        context.runtime_long_term_memory_store = normalize_lt_store({
+            "facts": [{
+                "id": "F9",
+                "key": "project.long_fact",
+                "value": "A" * 160 + ".",
+                "mention_count": 3,
+                "last_mentioned_at": "2026-08-20T12:00:00Z",
+                "created_at": "2026-08-20T12:00:00Z",
+                "updated_at": "2026-08-20T12:00:00Z",
+            }],
+        }, now="2026-08-20T12:00:00Z")
+
+        change = await record_lt_reasoning_fact_mentions(
+            context,
+            "F9 matters here; F9 is the same fact. PF9 is not a committed citation. F999 is unknown.",
+            now="2026-08-31T11:55:00Z",
+        )
+
+        fact = context.runtime_long_term_memory_store["facts"][0]
+        self.assertTrue(change["changed"])
+        self.assertEqual(change["mentioned_fact_ids"], ["F9"])
+        self.assertEqual(fact["mention_count"], 4)
+        self.assertEqual(fact["last_mentioned_at"], "2026-08-31T11:55:00Z")
+
+        next_turn_context = format_long_term_memory_context(
+            [fact],
+            now=datetime(
+                2026,
+                8,
+                31,
+                12,
+                0,
+                tzinfo=timezone.utc,
+            ).timestamp(),
+        )
+        self.assertIn("A" * 160 + ".", next_turn_context)
+        self.assertEqual(
+            context.emitter.events[-1]["change"]["kind"],
+            "turn_mentions",
+        )
+
+    async def test_visible_message_fact_id_counts_as_turn_mention_once(self):
+        context = RuntimeContext(
+            websocket=None,
+            emitter=FakeEmitter(),
+            logger=FakeLogger(),
+            clients={},
+        )
+        context.runtime_long_term_memory_store = normalize_lt_store({
+            "facts": [{
+                "id": "F9",
+                "key": "project.long_fact",
+                "value": "A" * 160 + ".",
+                "mention_count": 3,
+                "last_mentioned_at": "2026-08-20T12:00:00Z",
+                "created_at": "2026-08-20T12:00:00Z",
+                "updated_at": "2026-08-20T12:00:00Z",
+            }],
+        }, now="2026-08-20T12:00:00Z")
+
+        change = await record_lt_reasoning_fact_mentions(
+            context,
+            "Reasoning already cites F9.",
+            "Visible answer cites F9 twice: F9.",
+            now="2026-08-31T11:55:00Z",
+        )
+
+        fact = context.runtime_long_term_memory_store["facts"][0]
+        self.assertTrue(change["changed"])
+        self.assertEqual(change["mentioned_fact_ids"], ["F9"])
+        self.assertEqual(fact["mention_count"], 4)
+        self.assertEqual(fact["last_mentioned_at"], "2026-08-31T11:55:00Z")
+
+        context.runtime_long_term_memory_store["facts"][0]["mention_count"] = 4
+        change = await record_lt_reasoning_fact_mentions(
+            context,
+            "No fact id in reasoning.",
+            "Visible-only citation F9.",
+            now="2026-08-31T12:00:00Z",
+        )
+
+        fact = context.runtime_long_term_memory_store["facts"][0]
+        self.assertEqual(change["mentioned_fact_ids"], ["F9"])
+        self.assertEqual(fact["mention_count"], 5)
+        self.assertEqual(fact["last_mentioned_at"], "2026-08-31T12:00:00Z")
+
+    def test_jin_note_prompt_surfaces_only_update_merge_create(self):
+        prompt = build_lt_jin_note_system_prompt().casefold()
+
+        self.assertIn("update", prompt)
+        self.assertIn("merge", prompt)
+        self.assertIn("create", prompt)
+        self.assertNotIn("delete", prompt)
+        self.assertNotIn("remove", prompt)
+
+    def test_jin_note_rejects_empty_replacement_facts(self):
+        store = normalize_lt_store({
+            "facts": [
+                {
+                    "id": "F1",
+                    "key": "user.preference.response_style",
+                    "value": "The user prefers concise replies.",
+                },
+            ],
+        })
+
+        next_store, change = apply_lt_jin_note_result(
+            store,
+            selected_fact_ids=["F1"],
+            result={
+                "action": "update",
+                "replacement_facts": [],
+                "new_facts": [],
+            },
+            now="2026-08-12T10:00:00Z",
+        )
+
+        self.assertEqual(next_store, store)
+        self.assertFalse(change["valid"])
+        self.assertFalse(change["changed"])
+
+    def test_jin_note_update_preserves_selected_fact_id(self):
+        store = normalize_lt_store({
+            "facts": [
+                {
+                    "id": "F1",
+                    "key": "user.preference.response_style",
+                    "value": "The user prefers concise replies.",
+                    "created_at": "2026-08-01T10:00:00Z",
+                },
+            ],
+        })
+
+        next_store, change = apply_lt_jin_note_result(
+            store,
+            selected_fact_ids=["F1"],
+            result={
+                "action": "update",
+                "replacement_facts": [
+                    {
+                        "key": "user.preference.response_style",
+                        "value": "The user prefers concise Russian replies.",
+                        "category": "user_preference",
+                    },
+                ],
+                "new_facts": [],
+            },
+            now="2026-08-12T10:00:00Z",
+        )
+
+        self.assertTrue(change["valid"])
+        self.assertTrue(change["changed"])
+        self.assertEqual(change["action"], "update")
+        self.assertEqual(change["replacement_fact_ids"], ["F1"])
+        self.assertEqual(change["removed_fact_ids"], [])
+        self.assertEqual(next_store["deleted_fact_ids"], [])
+        self.assertEqual(next_store["facts"][0]["id"], "F1")
+        self.assertEqual(
+            next_store["facts"][0]["value"],
+            "The user prefers concise Russian replies.",
+        )
+
+    def test_jin_note_update_cannot_turn_into_create(self):
+        store = normalize_lt_store({
+            "facts": [
+                {"id": "F167", "key": "user.identity", "value": "JIN persists across model substrates."},
+            ],
+        })
+
+        next_store, change = apply_lt_jin_note_result(
+            store,
+            selected_fact_ids=["F167"],
+            expected_action="update",
+            result={
+                "action": "create",
+                "replacement_facts": [],
+                "new_facts": [{"key": "jin_identity", "value": "Second identity fact."}],
+            },
+            now="2026-08-14T17:00:00Z",
+        )
+
+        self.assertEqual(next_store, store)
+        self.assertFalse(change["valid"])
+        self.assertEqual(change["reason"], "jin_note_action_mismatch")
+
+    def test_jin_note_create_can_run_without_selected_facts(self):
+        store = normalize_lt_store({
+            "facts": [
+                {
+                    "id": "F1",
+                    "key": "user.hardware.main_gpu",
+                    "value": "The user's main GPU is RTX 4090.",
+                },
+            ],
+        })
+
+        next_store, change = apply_lt_jin_note_result(
+            store,
+            selected_fact_ids=[],
+            result={
+                "action": "create",
+                "replacement_facts": [],
+                "new_facts": [
+                    {
+                        "key": "user.preference.response_language",
+                        "value": "The user prefers Russian replies.",
+                        "category": "user_preference",
+                    },
+                ],
+            },
+            now="2026-08-12T10:00:00Z",
+        )
+
+        self.assertTrue(change["valid"])
+        self.assertTrue(change["changed"])
+        self.assertEqual(change["added_ids"], ["F2"])
+        self.assertEqual(change["removed_fact_ids"], [])
+        self.assertEqual(
+            [fact["id"] for fact in next_store["facts"]],
+            ["F1", "F2"],
+        )
+        self.assertEqual(next_store["deleted_fact_ids"], [])
+
+    def test_jin_note_merge_allocates_new_fact_id_and_preserves_old_ids_as_sources(self):
+        store = normalize_lt_store({
+            "facts": [
+                {
+                    "id": "F1",
+                    "key": "user.social_connections",
+                    "value": "Taras is a close friend.",
+                },
+                {
+                    "id": "F2",
+                    "key": "user.stakeholder_profile",
+                    "value": "Taras is a key technical stakeholder.",
+                },
+            ],
+        })
+
+        next_store, change = apply_lt_jin_note_result(
+            store,
+            selected_fact_ids=["F1", "F2"],
+            result={
+                "action": "merge",
+                "replacement_facts": [
+                    {
+                        "key": "user.relationship.taras",
+                        "value": (
+                            "Taras is both a close friend and an active "
+                            "technical stakeholder."
+                        ),
+                        "category": "user_fact",
+                    },
+                ],
+                "new_facts": [],
+            },
+            now="2026-08-12T10:00:00Z",
+        )
+
+        self.assertTrue(change["valid"])
+        self.assertTrue(change["changed"])
+        self.assertEqual(change["action"], "merge")
+        self.assertEqual(change["replacement_fact_ids"], ["F3"])
+        self.assertEqual(change["removed_fact_ids"], ["F1", "F2"])
+        self.assertEqual(next_store["deleted_fact_ids"], ["F1", "F2"])
+        self.assertEqual(
+            [fact["id"] for fact in next_store["facts"]],
+            ["F3"],
+        )
+        self.assertEqual(
+            next_store["facts"][0]["source_fact_ids"],
+            ["F1", "F2"],
+        )
+
+    def test_delayed_report_anchor_stays_visible_with_report_suffix(self):
+        context = RuntimeContext(
+            websocket=None,
+            emitter=None,
+            logger=None,
+            clients={},
+        )
+        context.runtime_long_term_memory_store = normalize_lt_store({
+            "facts": [
+                {
+                    "id": "F1",
+                    "key": "user.name",
+                    "value": "Sergey",
+                },
+                {
+                    "id": "F2",
+                    "key": "social.friend",
+                    "value": "Taras is a personal friend.",
+                },
+            ],
+        })
+        context.delayed_memory_reports = {
+            "abc123": {
+                "title": "Social context",
+                "anchor_lt_facts_ids": ["F1"],
+                "lt_facts_ids": ["F1", "F2"],
+            },
+        }
+
+        context_block = build_runtime_lt_memory_context(
+            context=context
+        )
+
+        self.assertIn(
+            "user.name: Sergey [ id: F1 ] "
+            "[ delayed_memory_id: abc123 ]",
+            context_block,
+        )
+        self.assertNotIn("social.friend", context_block)
+        self.assertEqual(
+            context.runtime_lt_archived_fact_ids,
+            {"F2"},
+        )
+
+    def test_loaded_delayed_report_fact_ids_are_visible_with_report_suffix(self):
+        context = RuntimeContext(
+            websocket=None,
+            emitter=None,
+            logger=None,
+            clients={},
+        )
+        context.runtime_long_term_memory_store = normalize_lt_store({
+            "facts": [
+                {
+                    "id": "F1",
+                    "key": "user.name",
+                    "value": "Sergey",
+                },
+                {
+                    "id": "F2",
+                    "key": "social.friend",
+                    "value": "Taras is a personal friend.",
+                },
+            ],
+        })
+        context.delayed_memory_reports = {
+            "abc123": {
+                "title": "Social context",
+                "anchor_lt_facts_ids": [
+                    "F1",
+                ],
+                "lt_facts_ids": [
+                    "F1",
+                    "F2",
+                ],
+            },
+        }
+        context.runtime_loaded_delayed_memory = {
+            "abc123": {
+                **context.delayed_memory_reports["abc123"],
+                "id": "abc123",
+            },
+        }
+
+        context_block = build_runtime_lt_memory_context(
+            context=context
+        )
+
+        self.assertIn(
+            "user.name: Sergey [ id: F1 ] "
+            "[ delayed_memory_id: abc123 ]",
+            context_block,
+        )
+        self.assertIn(
+            "social.friend: Taras is a personal friend. [ id: F2 ] "
+            "[ delayed_memory_id: abc123 ]",
+            context_block,
+        )
+        self.assertEqual(
+            context.runtime_lt_archived_fact_ids,
+            set(),
+        )
+
+    def test_pinned_delayed_report_fact_ids_are_visible_with_report_suffix(self):
+        context = RuntimeContext(
+            websocket=None,
+            emitter=None,
+            logger=None,
+            clients={},
+        )
+        context.runtime_long_term_memory_store = normalize_lt_store({
+            "facts": [
+                {
+                    "id": "F1",
+                    "key": "user.name",
+                    "value": "Sergey",
+                },
+                {
+                    "id": "F2",
+                    "key": "social.friend",
+                    "value": "Taras is a personal friend.",
+                },
+            ],
+        })
+        context.delayed_memory_reports = {
+            "abc123": {
+                "title": "Social context",
+                "pinned": True,
+                "anchor_lt_facts_ids": [
+                    "F1",
+                ],
+                "lt_facts_ids": [
+                    "F1",
+                    "F2",
+                ],
+            },
+        }
+
+        context_block = build_runtime_lt_memory_context(
+            context=context
+        )
+
+        self.assertIn(
+            "user.name: Sergey [ id: F1 ] [ delayed_memory_id: abc123 ]",
+            context_block,
+        )
+        self.assertIn(
+            "social.friend: Taras is a personal friend. [ id: F2 ] "
+            "[ delayed_memory_id: abc123 ]",
+            context_block,
+        )
+        self.assertEqual(
+            context.runtime_lt_archived_fact_ids,
+            set(),
+        )
+
+    def test_anchor_visibility_wins_over_absorbed_reference_in_other_report(self):
+        context = RuntimeContext(
+            websocket=None,
+            emitter=None,
+            logger=None,
+            clients={},
+        )
+        context.runtime_long_term_memory_store = normalize_lt_store({
+            "facts": [
+                {
+                    "id": "F1",
+                    "key": "user.name",
+                    "value": "Sergey",
+                },
+            ],
+        })
+        context.delayed_memory_reports = {
+            "abc123": {
+                "title": "Identity",
+                "anchor_lt_facts_ids": ["F1"],
+                "lt_facts_ids": ["F1"],
+            },
+            "def456": {
+                "title": "Social",
+                "lt_facts_ids": ["F1"],
+            },
+        }
+
+        context_block = build_runtime_lt_memory_context(context=context)
+
+        self.assertIn("user.name: Sergey [ id: F1 ]", context_block)
+        self.assertIn("[ delayed_memory_id: abc123 ]", context_block)
+        self.assertEqual(context.runtime_lt_archived_fact_ids, set())
+
+    async def test_delete_lt_fact_cleans_delayed_memory_fact_arrays(self):
+        context = RuntimeContext(
+            websocket=None,
+            emitter=FakeEmitter(),
+            logger=None,
+            clients={},
+        )
+        context.runtime_long_term_memory_store = normalize_lt_store({
+            "facts": [
+                {
+                    "id": "F1",
+                    "key": "user.name",
+                    "value": "Sergey",
+                },
+                {
+                    "id": "F2",
+                    "key": "social.friend",
+                    "value": "Taras",
+                },
+            ],
+        })
+        context.delayed_memory_reports = {
+            "abc123": {
+                "title": "Social context",
+                "anchor_lt_facts_ids": ["F1"],
+                "lt_facts_ids": ["F1", "F2"],
+            },
+        }
+        context.delayed_memory_file_store_enabled = False
+
+        self.assertTrue(await delete_lt_memory_fact(context, "F1"))
+        self.assertEqual(
+            context.delayed_memory_reports["abc123"]["anchor_lt_facts_ids"],
+            [],
+        )
+        self.assertEqual(
+            context.delayed_memory_reports["abc123"]["lt_facts_ids"],
+            ["F2"],
+        )
+
+        self.assertTrue(await delete_lt_memory_fact(context, "F2"))
+        self.assertEqual(
+            context.delayed_memory_reports["abc123"]["lt_facts_ids"],
+            [],
+        )
+        self.assertGreaterEqual(
+            sum(
+                1
+                for event in context.emitter.events
+                if event.get("type") == "delayed_memory_store_snapshot"
+            ),
+            2,
+        )
+
+    async def test_delete_lt_fact_logs_report_refs_for_restore(self):
+        logger = CaptureMemoryLogger()
+        context = RuntimeContext(
+            websocket=None,
+            emitter=FakeEmitter(),
+            logger=logger,
+            clients={},
+        )
+        context.runtime_long_term_memory_store = normalize_lt_store({
+            "facts": [{
+                "id": "F1",
+                "key": "project.restore.test",
+                "value": "Restore the report links.",
+            }],
+        })
+        context.delayed_memory_reports = {
+            "abc123": {
+                "title": "Primary report",
+                "anchor_lt_facts_ids": ["F1"],
+                "lt_facts_ids": ["F1"],
+            },
+            "def456": {
+                "title": "Related report",
+                "lt_facts_ids": ["F1"],
+            },
+            "ghi789": {
+                "title": "Unrelated report",
+                "lt_facts_ids": [],
+            },
+        }
+        context.delayed_memory_file_store_enabled = False
+
+        self.assertTrue(await delete_lt_memory_fact(context, "F1"))
+
+        deleted_fact = logger.logs[0]["deleted_fact"]
+        restore_meta = deleted_fact["_restore_meta"]
+        self.assertEqual(
+            restore_meta["delayed_memory_report_refs"],
+            [
+                {
+                    "report_id": "abc123",
+                    "anchor_lt_facts_ids": ["F1"],
+                    "lt_facts_ids": ["F1"],
+                },
+                {
+                    "report_id": "def456",
+                    "anchor_lt_facts_ids": [],
+                    "lt_facts_ids": ["F1"],
+                },
+            ],
+        )
+        self.assertEqual(
+            json.loads(logger.logs[0]["details"])["fact"]["_restore_meta"],
+            restore_meta,
+        )
+
+    async def test_restore_lt_fact_restores_delayed_memory_report_refs(self):
+        logger = CaptureMemoryLogger()
+        emitter = FakeEmitter()
+        context = RuntimeContext(
+            websocket=None,
+            emitter=emitter,
+            logger=logger,
+            clients={},
+        )
+        context.runtime_long_term_memory_store = normalize_lt_store({
+            "facts": [
+                {
+                    "id": "F1",
+                    "key": "project.restore.test",
+                    "value": "Restore the report links.",
+                },
+                {
+                    "id": "F2",
+                    "key": "project.restore.keep",
+                    "value": "Keep this report link.",
+                },
+            ],
+        })
+        context.delayed_memory_reports = {
+            "abc123": {
+                "title": "Primary report",
+                "anchor_lt_facts_ids": ["F1"],
+                "lt_facts_ids": ["F1", "F2"],
+            },
+            "def456": {
+                "title": "Related report",
+                "lt_facts_ids": ["F1"],
+            },
+        }
+        context.delayed_memory_file_store_enabled = False
+
+        self.assertTrue(await delete_lt_memory_fact(context, "F1"))
+        deleted_fact = logger.logs[0]["deleted_fact"]
+        self.assertEqual(
+            context.delayed_memory_reports["abc123"]["anchor_lt_facts_ids"],
+            [],
+        )
+        self.assertEqual(
+            context.delayed_memory_reports["abc123"]["lt_facts_ids"],
+            ["F2"],
+        )
+        self.assertEqual(
+            context.delayed_memory_reports["def456"]["lt_facts_ids"],
+            [],
+        )
+
+        self.assertTrue(await restore_lt_memory_fact(context, deleted_fact))
+
+        self.assertEqual(
+            [
+                fact["id"]
+                for fact in context.runtime_long_term_memory_store["facts"]
+            ],
+            ["F2", "F1"],
+        )
+        self.assertNotIn(
+            "_restore_meta",
+            context.runtime_long_term_memory_store["facts"][-1],
+        )
+        self.assertEqual(
+            context.delayed_memory_reports["abc123"]["anchor_lt_facts_ids"],
+            ["F1"],
+        )
+        self.assertEqual(
+            context.delayed_memory_reports["abc123"]["lt_facts_ids"],
+            ["F1", "F2"],
+        )
+        self.assertEqual(
+            context.delayed_memory_reports["def456"]["lt_facts_ids"],
+            ["F1"],
+        )
+        self.assertTrue(any(
+            event.get("type") == "delayed_memory_store_snapshot"
+            for event in emitter.events
+        ))
+        self.assertTrue(any(
+            event.get("change", {}).get("restored_ids") == ["F1"]
+            and event.get("change", {}).get("delayed_memory_report_ids")
+            == ["abc123", "def456"]
+            for event in emitter.events
+            if event.get("type") == "lt_memory_update"
+        ))
+
+    def test_delayed_report_fact_ids_hide_only_from_brain_context(self):
+        context = RuntimeContext(
+            websocket=None,
+            emitter=None,
+            logger=None,
+            clients={},
+        )
+        context.runtime_long_term_memory_store = normalize_lt_store({
+            "facts": [
+                {
+                    "id": "F1",
+                    "key": "project.topic.details",
+                    "value": "Detailed topic facts moved into a report.",
+                },
+                {
+                    "id": "F2",
+                    "key": "user.name",
+                    "value": "Sergey",
+                },
+            ],
+        })
+        context.delayed_memory_reports = {
+            "abc123": {
+                "title": "Topic report",
+                "lt_facts_ids": [
+                    "F1",
+                ],
+            },
+        }
+
+        context_block = build_runtime_lt_memory_context(
+            context=context
+        )
+
+        self.assertNotIn(
+            "project.topic.details",
+            context_block,
+        )
+        self.assertIn(
+            "user.name: Sergey [ id: F2 ]",
+            context_block,
+        )
+        self.assertEqual(
+            context.runtime_lt_archived_fact_ids,
+            {
+                "F1",
+            },
+        )
+        self.assertEqual(
+            len(
+                context.runtime_long_term_memory_store[
+                    "facts"
+                ]
+            ),
+            2,
+        )
+
+    def test_delayed_report_fact_ids_hide_merged_source_fact_ids_only_from_context(self):
+        context = RuntimeContext(
+            websocket=None,
+            emitter=None,
+            logger=None,
+            clients={},
+        )
+        context.runtime_long_term_memory_store = normalize_lt_store({
+            "facts": [
+                {
+                    "id": "F1",
+                    "key": "relationship.association",
+                    "value": "Anya is associated with known cohabitation data.",
+                    "source_fact_ids": [
+                        "F9",
+                    ],
+                },
+            ],
+        })
+        context.delayed_memory_reports = {
+            "abc123": {
+                "title": "Social context",
+                "lt_facts_ids": [
+                    "F9",
+                ],
+            },
+        }
+
+        self.assertEqual(
+            build_runtime_lt_memory_context(
+                context=context,
+            ),
+            "",
+        )
+        self.assertEqual(
+            len(
+                context.runtime_long_term_memory_store[
+                    "facts"
+                ]
+            ),
+            1,
+        )
+        self.assertEqual(
+            context.runtime_long_term_memory_store[
+                "facts"
+            ][0][
+                "id"
+            ],
+            "F1",
+        )
+
+
+    async def test_saved_delayed_report_hides_linked_facts_on_next_context(self):
+        context = RuntimeContext(
+            websocket=None,
+            emitter=FakeEmitter(),
+            logger=FakeLogger(),
+            clients={},
+        )
+        # The report below is a fixture, not real Delayed Memory. Keep both
+        # persistent stores explicitly off even if RuntimeContext defaults change.
+        context.runtime_lt_file_store_enabled = False
+        context.delayed_memory_file_store_enabled = False
+        context.runtime_long_term_memory_store = normalize_lt_store({
+            "facts": [
+                {
+                    "id": "F1",
+                    "key": "project.topic.details",
+                    "value": "Detailed project context.",
+                },
+            ],
+        })
+        payload = json.dumps({
+            "abc123": {
+                "title": "Project context",
+                "summary": "Consolidated project details.",
+                "tags": [
+                    "project",
+                ],
+                "body": "Reusable project report.",
+                "lt_facts_ids": [
+                    "F1",
+                ],
+            },
+        })
+
+        await apply_save_delayed_memory_actions(
+            context,
+            [
+                RuntimeActionCall(
+                    name="SAVE_DELAYED_MEMORY",
+                    payload=payload,
+                ),
+            ],
+            log_runtime=None,
+            with_action_context=lambda event: event,
+        )
+
+        self.assertEqual(
+            context.delayed_memory_reports[
+                "abc123"
+            ][
+                "lt_facts_ids"
+            ],
+            [
+                "F1",
+            ],
+        )
+        self.assertEqual(
+            context.runtime_lt_archived_fact_ids,
+            {
+                "F1",
+            },
+        )
+        self.assertEqual(
+            build_runtime_lt_memory_context(
+                context=context
+            ),
+            "",
+        )
+        self.assertEqual(
+            len(
+                context.runtime_long_term_memory_store[
+                    "facts"
+                ]
+            ),
+            1,
+        )
+
+
+    def test_brain_context_always_injects_complete_long_term_memory(self):
+        context = RuntimeContext(
+            websocket=None,
+            emitter=None,
+            logger=None,
+            clients={},
+        )
+        context.runtime_long_term_memory_store = normalize_lt_store({
+            "facts": [
+                {
+                    "key": "user.hardware.main_gpu",
+                    "value": "User's main GPU is RTX 4090.",
+                },
+                {
+                    "key": "user.preference.response_style",
+                    "value": "User prefers direct technical analysis.",
+                },
+            ],
+        })
+
+        prompt = build_brain_context(
+            context,
+            runtime_actions={},
+            user_input="напиши хайку про дождь",
+            include_runtime_action_instructions=False,
+            include_previous_chat_messages=False,
+        )
+
+        self.assertIn("<LONG_TERM_MEMORY", prompt)
+        self.assertIn("user.hardware.main_gpu:", prompt)
+        self.assertIn("user.preference.response_style:", prompt)
+
+    async def test_idle_job_chains_extraction_into_merge_without_waiting_for_next_tick(self):
+        gpu_value = "User's main GPU is RTX 4090."
+        language_value = "User prefers Russian replies."
+        gpu_pending_id = build_lt_fact_id(sequence=1, pending=True)
+        language_pending_id = build_lt_fact_id(sequence=2, pending=True)
+        service_client = FakeServiceClient([
+            f'''{{
+              "facts": [{{
+                "key": "user.hardware.main_gpu",
+                "value": "{gpu_value}",
+                "category": "environment",
+                "evidence_field_keys": ["gpu"]
+              }}]
+            }}''',
+            f'''{{
+              "operations": [
+                {{
+                  "action": "create",
+                  "pending_id": "{gpu_pending_id}",
+                  "key": "user.hardware.main_gpu",
+                  "value": "{gpu_value}",
+                  "category": "environment"
+                }}
+              ]
+            }}''',
+            f'''{{
+              "facts": [{{
+                "key": "user.preference.response_language",
+                "value": "{language_value}",
+                "category": "user_preference",
+                "evidence_field_keys": ["language"]
+              }}]
+            }}''',
+            f'''{{
+              "operations": [
+                {{
+                  "action": "create",
+                  "pending_id": "{language_pending_id}",
+                  "key": "user.preference.response_language",
+                  "value": "{language_value}",
+                  "category": "user_preference"
+                }}
+              ]
+            }}''',
+        ])
+        context = RuntimeContext(
+            websocket=None,
+            emitter=FakeEmitter(),
+            logger=FakeLogger(),
+            clients={"service": service_client},
+        )
+        context.runtime_facts_memory_records = normalize_facts_memory_records([
+            {
+                "session_id": "session-a",
+                "signals": {
+                    "gpu": {
+                        "content": "RTX 4090",
+                        "runtime_snapshot_id": "runtime-a",
+                    },
+                },
+            },
+        ])
+
+        first = await maybe_update_runtime_lt_memory(
+            context=context,
+            user_idle_seconds=61,
+        )
+        self.assertEqual(first["phase"], "merge")
+        self.assertEqual(first["status"], "completed")
+        self.assertEqual(first["extraction_result"]["phase"], "extract")
+        self.assertEqual(context.runtime_long_term_memory_store["pending_facts"], [])
+        self.assertEqual(len(context.runtime_long_term_memory_store["facts"]), 1)
+        self.assertEqual(len(service_client.calls), 2)
+
+        context.runtime_facts_memory_records = normalize_facts_memory_records([
+            {
+                "session_id": "session-a",
+                "signals": {
+                    "gpu": {
+                        "content": "RTX 4090",
+                        "runtime_snapshot_id": "runtime-a",
+                        "lt_status": "analyzed",
+                    },
+                    "language": {
+                        "content": "Russian replies",
+                        "runtime_snapshot_id": "runtime-b",
+                    },
+                },
+            },
+        ])
+
+        second = await maybe_update_runtime_lt_memory(
+            context=context,
+            user_idle_seconds=61,
+        )
+        self.assertEqual(second["phase"], "merge")
+        self.assertEqual(second["status"], "completed")
+        self.assertEqual(second["extraction_result"]["phase"], "extract")
+        self.assertEqual(context.runtime_long_term_memory_store["pending_facts"], [])
+        self.assertEqual(len(context.runtime_long_term_memory_store["facts"]), 2)
+        self.assertEqual(len(service_client.calls), 4)
+        self.assertIn(
+            "cross-session long-term memory",
+            service_client.calls[0]["system_prompt"],
+        )
+        self.assertIn(
+            "consolidate `pending_candidates`",
+            service_client.calls[1]["system_prompt"].lower(),
+        )
+
+    def test_restore_lt_fact_preserves_deleted_fact_object(self):
+        fact = normalize_lt_store({
+            "facts": [{
+                "id": "F1",
+                "key": "project.restore.test",
+                "value": "Restore the complete fact.",
+                "category": "project",
+                "mention_count": 3,
+                "source_session_ids": ["session-a"],
+            }],
+        })["facts"][0]
+
+        restored_store, changed = restore_lt_fact_to_store(
+            {"facts": []},
+            fact,
+            now="2026-08-05T10:00:00Z",
+        )
+
+        self.assertTrue(changed)
+        self.assertEqual(restored_store["facts"], [fact])
+        self.assertEqual(restored_store["revision"], 1)
+
+    async def test_delete_logs_complete_fact_and_restore_adds_it_back(self):
+        logger = CaptureMemoryLogger()
+        emitter = FakeEmitter()
+        context = RuntimeContext(
+            websocket=None,
+            emitter=emitter,
+            logger=logger,
+            clients={},
+        )
+        context.runtime_long_term_memory_store = normalize_lt_store({
+            "facts": [{
+                "id": "F1",
+                "key": "project.restore.test",
+                "value": "Restore the complete fact.",
+                "category": "project",
+                "mention_count": 3,
+                "source_session_ids": ["session-a"],
+            }],
+        })
+        deleted_fact = dict(
+            context.runtime_long_term_memory_store["facts"][0]
+        )
+
+        deleted = await delete_lt_memory_fact(
+            context,
+            deleted_fact["id"],
+        )
+
+        self.assertTrue(deleted)
+        self.assertEqual(context.runtime_long_term_memory_store["facts"], [])
+        self.assertEqual(
+            context.runtime_long_term_memory_store["deleted_fact_ids"],
+            [deleted_fact["id"]],
+        )
+        self.assertEqual(logger.logs[0]["event"], "fact_deleted")
+        self.assertEqual(logger.logs[0]["tag_suffix"], "DELETED")
+        self.assertEqual(logger.logs[0]["deleted_fact"], deleted_fact)
+        self.assertEqual(
+            json.loads(logger.logs[0]["details"])["fact"],
+            deleted_fact,
+        )
+
+        restored = await restore_lt_memory_fact(
+            context,
+            deleted_fact,
+        )
+
+        self.assertTrue(restored)
+        self.assertEqual(
+            context.runtime_long_term_memory_store["facts"],
+            [deleted_fact],
+        )
+        self.assertEqual(
+            context.runtime_long_term_memory_store["deleted_fact_ids"],
+            [],
+        )
+        self.assertEqual(
+            emitter.events[-1]["change"]["restored_ids"],
+            [deleted_fact["id"]],
+        )
+
+
+if __name__ == "__main__":
+    unittest.main()

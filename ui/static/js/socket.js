@@ -12,16 +12,20 @@ const sendButton =
     'button[type="submit"]'
   );
 
-const factCheckTrigger =
+const memoryLayersToggle =
   document.getElementById(
-    "fact-check-trigger"
+    "memory-layers-toggle"
   );
 
 const websocketClientId =
   window.jinRuntimeSessionId
-  || ((window.crypto && window.crypto.randomUUID)
-    ? window.crypto.randomUUID()
-    : `${Date.now()}-${Math.random().toString(16).slice(2)}`);
+  || (
+    window.JinRuntime
+    && window.JinRuntime.storage
+    && typeof window.JinRuntime.storage.generateRuntimeSessionId === "function"
+      ? window.JinRuntime.storage.generateRuntimeSessionId()
+      : ""
+  );
 
 const websocketReconnectBaseDelay = 700;
 const websocketReconnectMaxDelay = 5000;
@@ -30,10 +34,15 @@ let websocketHasOpened = false;
 let ws = null;
 let websocketReconnectTimer = null;
 let websocketReconnectAttempts = 0;
+let websocketReconnectAwaitingFocus = false;
+let websocketTransportEpoch = "";
+let websocketLastEventId = 0;
 let websocketDisconnectedLogged = false;
 let persistedSessionBootstrapSent = false;
+let archivedSessionResumeSent = false;
 let generationRunning = false;
 let socketClientInitialized = false;
+let websocketPageClosed = false;
 
 window.jinGenerationRunning = false;
 window.JinSocketEventHandlers =
@@ -65,6 +74,15 @@ function registerSocketMessageHandler(
 window.registerSocketMessageHandler =
   registerSocketMessageHandler;
 
+registerSocketMessageHandler(
+  "attached_files_update",
+  function (data) {
+    if (window.JinFiles && typeof window.JinFiles.applySnapshot === "function") {
+      window.JinFiles.applySnapshot(data || {});
+    }
+  }
+);
+
 function buildWebSocketUrl() {
 
   const params =
@@ -79,6 +97,18 @@ function buildWebSocketUrl() {
     );
   }
 
+  if (
+      window.JinRuntime
+      && window.JinRuntime.anonymousMode
+      && typeof window.JinRuntime.anonymousMode.isEnabled === "function"
+      && window.JinRuntime.anonymousMode.isEnabled()
+  ) {
+    params.set(
+      "anonymous_mode",
+      "1"
+    );
+  }
+
   return `ws://${window.location.host}/ws/chat?${params.toString()}`;
 
 }
@@ -90,6 +120,33 @@ window.isJinGenerationRunning = function () {
   );
 
 };
+
+function focusJinUserInput(
+  options = {}
+) {
+
+  if (
+    !userInput
+    || generationRunning
+    || document.visibilityState === "hidden"
+  ) {
+    return false;
+  }
+
+  try {
+    userInput.focus({
+      preventScroll: options.preventScroll !== false,
+    });
+  } catch (error) {
+    userInput.focus();
+  }
+
+  return true;
+
+}
+
+window.focusJinUserInput =
+  focusJinUserInput;
 
 function isWebSocketOpen() {
   return (
@@ -106,6 +163,15 @@ function sendSocketMessage(
     return false;
   }
 
+  const memoryKind = {
+    active_memory_store_sync: "active", delayed_memory_store_sync: "delayed",
+    lt_memory_store_sync: "lt", facts_memory_store_sync: "pending",
+  }[payload.type];
+  if (memoryKind) {
+    if (window.jinMemoryProfileApplying) return false;
+    payload = { ...payload, memory_revision: window.jinMemoryProfileRevisions?.[memoryKind] };
+  }
+
   ws.send(
     JSON.stringify(
       payload
@@ -117,6 +183,62 @@ function sendSocketMessage(
 }
 
 window.sendSocketMessage = sendSocketMessage;
+
+window.requestJinLastResponseRetry = function () {
+  if (
+    generationRunning
+    || !isWebSocketOpen()
+  ) {
+    return false;
+  }
+
+  const runtimeStatus = (
+    window.jinRuntimeConfig
+    && window.jinRuntimeConfig.runtimeStatus
+  ) || {};
+  if (
+    runtimeStatus.brain === false
+  ) {
+    return false;
+  }
+
+  const payload = {
+    type: "retry_last_response",
+  };
+
+  if (
+    window.JinPanels
+    && typeof window.JinPanels.getRuntimeAvatarSnapshot === "function"
+  ) {
+    payload.runtime_avatar =
+      window.JinPanels.getRuntimeAvatarSnapshot();
+  }
+
+  if (
+    window.JinRuntime
+    && window.JinRuntime.runtime
+    && window.JinRuntime.runtime.getActiveMemoryRecords
+  ) {
+    payload.active_memory_records =
+      window.JinRuntime.runtime.getActiveMemoryRecords();
+  }
+
+  if (window.clearLatestJinMemoryReferenceText) {
+    window.clearLatestJinMemoryReferenceText();
+  }
+
+  const sent = sendSocketMessage(
+    payload
+  );
+  if (!sent) {
+    return false;
+  }
+
+  setGenerationState(
+    true
+  );
+  return true;
+};
 
 window.sendRuntimeMemoryDeleteSlot = function (payload) {
   const key = String(
@@ -142,38 +264,6 @@ window.sendRuntimeMemoryDeleteSlot = function (payload) {
   });
 };
 
-function triggerManualFactCheck() {
-
-  if (!isWebSocketOpen()) {
-    connectWebSocket();
-
-    appendLog(
-      "[SYSTEM]",
-      "WebSocket reconnecting. Fact check was not started."
-    );
-
-    return false;
-  }
-
-  appendLog(
-    "[MEMORY:FACT_CHECK]",
-    "manual fact check requested"
-  );
-
-  const sent = sendSocketMessage({
-    type: "fact_check"
-  });
-
-  if (sent) {
-    startFactCheckGlow();
-  }
-
-  return sent;
-
-}
-
-window.triggerManualFactCheck = triggerManualFactCheck;
-
 function clearWebSocketReconnectTimer() {
 
   if (!websocketReconnectTimer) {
@@ -190,10 +280,22 @@ function clearWebSocketReconnectTimer() {
 
 function scheduleWebSocketReconnect() {
 
-  if (websocketReconnectTimer) {
+  if (
+      websocketPageClosed
+      || websocketReconnectTimer
+      || isWebSocketOpen()
+      || (
+          ws
+          && ws.readyState === WebSocket.CONNECTING
+      )
+  ) {
     return;
   }
 
+  websocketReconnectAwaitingFocus = true;
+  if (document.hidden) {
+    return;
+  }
   websocketReconnectAttempts += 1;
 
   const delay =
@@ -206,6 +308,18 @@ function scheduleWebSocketReconnect() {
   websocketReconnectTimer = setTimeout(
     function () {
       websocketReconnectTimer = null;
+
+      if (
+          document.hidden
+          || isWebSocketOpen()
+          || (
+              ws
+              && ws.readyState === WebSocket.CONNECTING
+          )
+      ) {
+        return;
+      }
+
       connectWebSocket();
     },
     delay
@@ -298,6 +412,16 @@ function setGenerationState(
     );
   }
 
+  if (!active) {
+    requestAnimationFrame(
+      () => {
+        focusJinUserInput({
+          preventScroll: true,
+        });
+      }
+    );
+  }
+
   if (!sendButton) {
     return;
   }
@@ -336,12 +460,6 @@ function clearInterruptedRuntimeGlow() {
     window.cancelPanelGlows();
   }
 
-  if (window.clearPendingRuntimeActionGlow) {
-    window.clearPendingRuntimeActionGlow(
-      "save_session"
-    );
-  }
-
 }
 
 window.clearInterruptedRuntimeGlow =
@@ -363,6 +481,10 @@ function abortGeneration() {
   );
 
   clearInterruptedRuntimeGlow();
+
+  if (window.releaseActiveStreamAvatar) {
+    window.releaseActiveStreamAvatar();
+  }
 
   setGenerationState(
     false
@@ -388,6 +510,88 @@ function abortGeneration() {
  * @property {string=} details
  */
 
+function requestArchivedSessionResume(
+  bootstrap
+) {
+  if (
+      archivedSessionResumeSent
+      || !bootstrap
+  ) {
+    return false;
+  }
+
+  const sourceSessionId =
+    String(
+      bootstrap.source_session_id
+      || ""
+    ).trim();
+
+  if (!sourceSessionId) {
+    return false;
+  }
+
+  const resumePayload = {
+    type: "archived_session_resume",
+    source_session_id: sourceSessionId,
+  };
+
+  if (
+    window.JinPanels
+    && typeof window.JinPanels.getRuntimeAvatarSnapshot === "function"
+  ) {
+    resumePayload.runtime_avatar =
+      window.JinPanels.getRuntimeAvatarSnapshot();
+  }
+
+  const sent = sendSocketMessage(
+    resumePayload
+  );
+
+  if (sent) {
+    archivedSessionResumeSent = true;
+    appendLog(
+      "[SESSION]",
+      `Restoring conversation flow from ${sourceSessionId}.`
+    );
+  }
+
+  return sent;
+}
+
+
+function logArchivedRestoreFallbackSession(
+  bootstrap
+) {
+  const failure =
+    window.jinArchivedSessionRestoreFailure;
+
+  if (
+      !failure
+      || failure.fallback_logged
+      || !bootstrap
+  ) {
+    return;
+  }
+
+  const loadedSessionId =
+    String(
+      bootstrap.source_session_id
+      || ""
+    ).trim();
+
+  if (!loadedSessionId) {
+    return;
+  }
+
+  failure.fallback_logged = true;
+
+  appendLog(
+    "[SESSION]",
+    `loaded session\nsession: ${loadedSessionId}`
+  );
+}
+
+
 function handleSocketMessage(event) {
 
   /** @type {SocketMessage} */
@@ -405,6 +609,33 @@ function handleSocketMessage(event) {
     );
 
     return;
+  }
+
+  if (data.type === "runtime_transport_ready") {
+    if (websocketTransportEpoch !== data.epoch) {
+      websocketTransportEpoch = data.epoch;
+      websocketLastEventId = 0;
+    }
+    void handleSocketOpen(data.live_resume === true);
+    return;
+  }
+
+  const eventId = Number(data._jin_event_id || 0);
+  if (eventId && eventId <= websocketLastEventId) {
+    sendSocketMessage({type: "runtime_event_ack", sequence: websocketLastEventId});
+    return;
+  }
+
+  if (data.type === "bootstrap_state" && !data.error) {
+    const bootstrap = data.bootstrap || {};
+    if (window.applyPersistedSessionBootstrap) window.applyPersistedSessionBootstrap(bootstrap);
+    if (window.restoreJinServerVisualState && !window.jinArchivedSessionRestorePayload) {
+      // Color has one final writer: session_actions_update below. Reuse the
+      // existing visual projection here only for server geometry.
+      window.restoreJinServerVisualState({...bootstrap, current_jin_color: ""});
+    }
+    logArchivedRestoreFallbackSession(bootstrap);
+    requestArchivedSessionResume(bootstrap);
   }
 
   if (window.handleTelemetryMessage) {
@@ -430,15 +661,21 @@ function handleSocketMessage(event) {
     );
   }
 
+  if (eventId) {
+    websocketLastEventId = eventId;
+    sendSocketMessage({type: "runtime_event_ack", sequence: eventId});
+  }
+
 }
 
-async function handleSocketOpen() {
+async function handleSocketOpen(liveResume = false) {
 
   window.jinWebSocketConnected = true;
 
   clearWebSocketReconnectTimer();
 
   websocketReconnectAttempts = 0;
+  websocketReconnectAwaitingFocus = false;
   websocketDisconnectedLogged = false;
 
   const isSoftReconnect =
@@ -451,135 +688,68 @@ async function handleSocketOpen() {
     "WebSocket connected."
   );
 
+  // The server kept the same runtime, queue and output stream. Replaying a
+  // stale browser snapshot here would overwrite work completed while hidden.
+  if (liveResume) {
+    return;
+  }
+
   if (isSoftReconnect) {
-    if (window.getSoftReconnectRuntimeResume) {
-      const runtimeResume =
-        window.getSoftReconnectRuntimeResume();
-
-      if (runtimeResume) {
-        if (
-            window.JinRuntime
-            && window.JinRuntime.runtime
-            && window.JinRuntime.runtime.getActiveMemoryRecords
-        ) {
-          runtimeResume.active_memory_records =
-            window.JinRuntime.runtime.getActiveMemoryRecords();
-        }
-
-        sendSocketMessage(
-          runtimeResume
-        );
-      }
-    }
-
-    syncDelayedMemoryReportsToRuntime();
-
-    return;
+    // The transport was lost: this page is now a projection of a new backend.
+    // A stale DOM tail must not suppress the disk-owned chat-tail renderer.
+    const historyElement = document.getElementById("chat-history");
+    if (historyElement) historyElement.replaceChildren();
+    if (typeof streamMessages !== "undefined") streamMessages.clear();
+    window.jinArchivedSessionRestorePayload = null;
+    window.jinArchivedSessionBootstrap = null;
+    if (window.clearPendingUserBatch) window.clearPendingUserBatch();
+    clearInterruptedRuntimeGlow();
+    if (window.releaseActiveStreamAvatar) window.releaseActiveStreamAvatar();
+    setGenerationState(false);
   }
 
-  if (
-      persistedSessionBootstrapSent
-      || !window.getPersistedSessionBootstrap
-  ) {
-    syncDelayedMemoryReportsToRuntime();
-    return;
+  if (window.JinFiles && typeof window.JinFiles.syncContext === "function") {
+    window.JinFiles.syncContext();
   }
 
-  if (window.jinSavedRuntimeFallbackReady) {
-    try {
-      await window.jinSavedRuntimeFallbackReady;
-    } catch (error) {
-      // File fallback is optional. Browser memory still works.
-    }
+  if (window.jinArchivedSessionRestoreReady) {
+    try { await window.jinArchivedSessionRestoreReady; } catch (_error) {}
   }
-
-  if (
-      !ws
-      || ws.readyState !== WebSocket.OPEN
-  ) {
-    return;
-  }
-
-  const bootstrap =
-    window.getPersistedSessionBootstrap();
-
-  if (bootstrap) {
-    if (
-        window.JinRuntime
-        && window.JinRuntime.runtime
-        && window.JinRuntime.runtime.getActiveMemoryRecords
-    ) {
-      bootstrap.active_memory_records =
-        window.JinRuntime.runtime.getActiveMemoryRecords();
-    }
-
-    sendSocketMessage(
-      bootstrap
-    );
-
-    if (window.applyPersistedSessionBootstrap) {
-      window.applyPersistedSessionBootstrap(
-        bootstrap
-      );
-    }
-
-    persistedSessionBootstrapSent = true;
-
-    appendLog(
-      "[SYSTEM]",
-      "Browser session memory sent."
-    );
-
-    syncDelayedMemoryReportsToRuntime();
-
-    return;
-  }
-
-  if (window.getInitialRuntimeMemoryBootstrap) {
-    const runtimeBootstrap =
-      window.getInitialRuntimeMemoryBootstrap();
-
-    if (runtimeBootstrap) {
-      if (
-          window.JinRuntime
-          && window.JinRuntime.runtime
-          && window.JinRuntime.runtime.getActiveMemoryRecords
-      ) {
-        runtimeBootstrap.active_memory_records =
-          window.JinRuntime.runtime.getActiveMemoryRecords();
-      }
-
-      sendSocketMessage(
-        runtimeBootstrap
-      );
-
-      appendLog(
-        "[SYSTEM]",
-        "Latest runtime memory sent."
-      );
-    }
-  }
-
-  syncDelayedMemoryReportsToRuntime();
-
+  if (!ws || ws.readyState !== WebSocket.OPEN) return;
+  archivedSessionResumeSent = false;
+  const archived = window.jinArchivedSessionBootstrap;
+  // Only an explicit archive selector crosses the boundary, never its content.
+  sendSocketMessage(archived && !isSoftReconnect ? {
+    type: "session_bootstrap",
+    archived_session_restore: true,
+    source_session_id: archived.source_session_id,
+  } : { type: "session_bootstrap" });
 }
 
-function handleSocketClose() {
+
+function handleSocketClose(event = null) {
 
   window.jinWebSocketConnected = false;
-
-  clearInterruptedRuntimeGlow();
-
-  setGenerationState(
-    false
-  );
+  if (websocketPageClosed) {
+    return;
+  }
 
   if (!websocketDisconnectedLogged) {
     websocketDisconnectedLogged = true;
 
+    const closeCode = Number(
+      event && event.code || 0
+    );
+    const closeReason = String(
+      event && event.reason || ""
+    ).trim();
+    const closeMeta = closeCode
+      ? ` [code=${closeCode}, clean=${Boolean(event && event.wasClean)}${closeReason ? `, reason=${closeReason}` : ""}]`
+      : "";
+
     appendLog(
       "[SYSTEM]",
-      "WebSocket disconnected. Reconnecting..."
+      "WebSocket disconnected. Reconnecting..." + closeMeta
     );
   }
 
@@ -589,6 +759,10 @@ function handleSocketClose() {
 
 function connectWebSocket() {
 
+  if (websocketPageClosed) {
+    return false;
+  }
+
   if (
       ws
       && (
@@ -596,36 +770,122 @@ function connectWebSocket() {
           || ws.readyState === WebSocket.CONNECTING
       )
   ) {
-    return;
+    return false;
   }
 
-  ws =
+  const socket =
     new WebSocket(
       buildWebSocketUrl()
     );
 
-  ws.onmessage =
-    handleSocketMessage;
+  ws = socket;
 
-  ws.onopen =
-    handleSocketOpen;
-
-  ws.onclose =
-    handleSocketClose;
-
-  ws.onerror = function () {
-    clearInterruptedRuntimeGlow();
-
-    if (ws) {
-      ws.close();
+  socket.onmessage = function (event) {
+    if (ws === socket) {
+      handleSocketMessage(event);
     }
   };
+
+  socket.onopen = function () {
+    if (ws !== socket) {
+      return;
+    }
+
+    // Bootstrap begins on runtime_transport_ready, before replayed events.
+  };
+
+  socket.onclose = function (event) {
+    if (ws !== socket) {
+      return;
+    }
+
+    ws = null;
+    handleSocketClose(event);
+  };
+
+  socket.onerror = function () {
+    if (ws === socket) {
+      socket.close();
+    }
+  };
+
+  return true;
 
 }
 
 window.connectWebSocket = connectWebSocket;
 
-function initializeSocketClient() {
+window.addEventListener("pagehide", function (event) {
+  // Back/forward cache and background freeze keep this same loaded page alive.
+  if (event.persisted) {
+    return;
+  }
+  websocketPageClosed = true;
+  clearWebSocketReconnectTimer();
+  websocketReconnectAwaitingFocus = false;
+  if (websocketTransportEpoch && typeof navigator.sendBeacon === "function") {
+    try {
+      navigator.sendBeacon("/ws/chat/close", new Blob([JSON.stringify({
+        client_id: websocketClientId,
+        epoch: websocketTransportEpoch,
+      })], {type: "application/json"}));
+    } catch (error) {
+      // The close frame and server expiry remain fallback paths.
+    }
+  }
+  if (ws) {
+    try {
+      ws.close(4001, "page closed");
+    } catch (error) {
+      // If teardown cannot send the close frame, the server's grace expires.
+    }
+  }
+});
+
+function retryWebSocketOnFocus(event) {
+
+  if (
+      document.hidden
+      || isWebSocketOpen()
+      || (
+          ws
+          && ws.readyState === WebSocket.CONNECTING
+      )
+  ) {
+    return;
+  }
+
+  if (!websocketReconnectAwaitingFocus) {
+    return;
+  }
+
+  clearWebSocketReconnectTimer();
+  websocketReconnectAttempts = 0;
+  websocketReconnectAwaitingFocus = false;
+  connectWebSocket();
+
+}
+
+window.addEventListener(
+  "focus",
+  retryWebSocketOnFocus
+);
+
+document.addEventListener("resume", retryWebSocketOnFocus);
+window.addEventListener("online", retryWebSocketOnFocus);
+
+document.addEventListener(
+  "visibilitychange",
+  function () {
+    if (document.hidden) {
+      clearWebSocketReconnectTimer();
+    } else {
+      retryWebSocketOnFocus();
+    }
+  }
+);
+
+async function initializeSocketClient() {
 
   if (socketClientInitialized) {
     return;
@@ -633,8 +893,16 @@ function initializeSocketClient() {
 
   socketClientInitialized = true;
 
-  if (typeof logOtherLatestRuntimeMemorySnapshots === "function") {
-    logOtherLatestRuntimeMemorySnapshots();
+  if (
+      window.JinRuntime
+      && window.JinRuntime.anonymousMode
+      && window.JinRuntime.anonymousMode.ready
+  ) {
+    try {
+      await window.JinRuntime.anonymousMode.ready;
+    } catch (error) {
+      // Detection failure falls back to normal mode.
+    }
   }
 
   if (typeof logActiveMemoryRecords === "function") {
@@ -643,6 +911,20 @@ function initializeSocketClient() {
 
   if (typeof logFactsMemoryRecords === "function") {
     logFactsMemoryRecords();
+  }
+
+  // Archived restore owns the initial Runtime Memory page. Wait until the
+  // RESTORE API has painted PREVIOUS_RUNTIME_STATE before opening the socket,
+  // otherwise the server's brand-new-session FRAME can race it and briefly/
+  // permanently become page 0 or page 1. The restore promise always resolves
+  // to payload/null, so a failed archive fetch still falls through to normal
+  // websocket bootstrap instead of blocking the client.
+  if (window.jinArchivedSessionRestoreReady) {
+    try {
+      await window.jinArchivedSessionRestoreReady;
+    } catch (error) {
+      // Normal websocket boot remains the fallback.
+    }
   }
 
   connectWebSocket();

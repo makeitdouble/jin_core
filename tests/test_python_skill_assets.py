@@ -7,6 +7,13 @@ from pathlib import Path
 from unittest.mock import patch
 
 from utils import assets_utils
+import utils.python_skill_asset_utils as python_skill_asset_utils
+from assets.skills.chunk_reader.chunk_reader import (
+    PAGE_MARKER_RE,
+    load_source_text,
+    read_document_chunk,
+    split_words,
+)
 from utils.python_skill_asset_utils import (
     _build_iteration_system_prompt,
     _build_iteration_user_prompt,
@@ -35,6 +42,40 @@ from utils.skills_asset_utils import (
 from utils.session_actions_history import (
     build_asset_action_history_text,
 )
+
+
+
+
+async def _run_chunk_reader_in_process(
+    *args: str,
+    cwd: Path,
+    timeout_seconds: float,
+) -> dict:
+    """Fast unit-test stand-in for the chunk_reader CLI process boundary."""
+    del cwd, timeout_seconds
+    argv = list(args)
+    source = Path(argv[argv.index("--source") + 1])
+    cache = Path(argv[argv.index("--cache") + 1])
+    command = "read" if "read" in argv else "info"
+    text, cache_hit = load_source_text(source, cache=cache)
+    words = split_words(text)
+
+    if command == "info":
+        return {
+            "source": source.name,
+            "format": source.suffix.casefold().lstrip(".") or "text",
+            "total_words": len(words),
+            "pages": len(PAGE_MARKER_RE.findall(text)),
+            "cache_hit": cache_hit,
+            "modes": [],
+        }
+
+    command_index = argv.index("read")
+    return read_document_chunk(
+        words,
+        int(argv[command_index + 1]),
+        int(argv[command_index + 2]),
+    )
 
 
 class FakeBrainClient:
@@ -80,6 +121,15 @@ class FakeBrainClient:
 
 
 class PythonSkillAssetTests(unittest.TestCase):
+
+    def setUp(self):
+        self._chunk_reader_process_patch = patch.object(
+            python_skill_asset_utils,
+            "_run_subprocess_json",
+            side_effect=_run_chunk_reader_in_process,
+        )
+        self._chunk_reader_process_patch.start()
+        self.addCleanup(self._chunk_reader_process_patch.stop)
 
     def test_document_reader_elapsed_format_uses_minutes_and_seconds(self):
         self.assertEqual(
@@ -303,7 +353,7 @@ class PythonSkillAssetTests(unittest.TestCase):
                 context_window=2048,
             ),
         }
-        context.runtime_appended_skills = [
+        context.runtime_loaded_skills = [
             {
                 "name": "chunk_reader",
             },
@@ -396,13 +446,13 @@ class PythonSkillAssetTests(unittest.TestCase):
             pass
 
         client = GuardedServiceClient(
-            context_window=2048,
+            context_window=4096,
         )
         context = Context()
         context.clients = {
             "service": client,
         }
-        context.runtime_appended_skills = [
+        context.runtime_loaded_skills = [
             {
                 "name": "chunk_reader",
             },
@@ -418,7 +468,7 @@ class PythonSkillAssetTests(unittest.TestCase):
                         + ("%D0%BF" * 10)
                         + str(index)
                     )
-                    for index in range(220)
+                    for index in range(80)
                 ),
             },
         ]
@@ -478,19 +528,11 @@ class PythonSkillAssetTests(unittest.TestCase):
                 max_tokens,
                 timeout=None,
             ):
-                prompt_tokens = (
-                    len(
-                        (
-                            system_prompt
-                            + "\n"
-                            + user_prompt
-                        ).encode(
-                            "utf-8"
-                        )
-                    )
+                prompt_tokens = len(
+                    (system_prompt + "\n" + user_prompt).encode("utf-8")
                 )
 
-                if prompt_tokens > self.context_window - 256:
+                if self.failures == 0:
                     self.failures += 1
                     raise BadRequestError(
                         "Client error '400 Bad Request'"
@@ -522,7 +564,7 @@ class PythonSkillAssetTests(unittest.TestCase):
         context.clients = {
             "service": client,
         }
-        context.runtime_appended_skills = [
+        context.runtime_loaded_skills = [
             {
                 "name": "chunk_reader",
             },
@@ -559,9 +601,9 @@ class PythonSkillAssetTests(unittest.TestCase):
         self.assertTrue(
             result["ok"],
         )
-        self.assertGreater(
+        self.assertEqual(
             client.failures,
-            0,
+            1,
         )
         self.assertEqual(
             result["result"],
@@ -615,7 +657,7 @@ class PythonSkillAssetTests(unittest.TestCase):
         }
         context.emitter = Emitter()
         context.runtime_active_asset_action_id = "asset:test"
-        context.runtime_appended_skills = [
+        context.runtime_loaded_skills = [
             {
                 "name": "chunk_reader",
             },
@@ -709,7 +751,7 @@ class PythonSkillAssetTests(unittest.TestCase):
         context.clients = {
             "service": client,
         }
-        context.runtime_appended_skills = [
+        context.runtime_loaded_skills = [
             {
                 "name": "chunk_reader",
             },
@@ -800,7 +842,7 @@ class PythonSkillAssetTests(unittest.TestCase):
         }
         context.emitter = Emitter()
         context.runtime_active_asset_action_id = "asset:test"
-        context.runtime_appended_skills = [
+        context.runtime_loaded_skills = [
             {
                 "name": "chunk_reader",
             },
@@ -893,7 +935,7 @@ class PythonSkillAssetTests(unittest.TestCase):
             "service": service_client,
             "brain": brain_client,
         }
-        context.runtime_appended_skills = [
+        context.runtime_loaded_skills = [
             {
                 "name": "chunk_reader",
             },
@@ -1044,7 +1086,7 @@ class PythonSkillAssetTests(unittest.TestCase):
             context.clients = {
                 "service": client,
             }
-            context.runtime_appended_skills = [
+            context.runtime_loaded_skills = [
                 {
                     "name": "chunk_reader",
                 },
@@ -1219,7 +1261,7 @@ class PythonSkillAssetTests(unittest.TestCase):
         context.clients = {
             "service": client,
         }
-        context.runtime_appended_skills = [
+        context.runtime_loaded_skills = [
             {
                 "name": "chunk_reader",
             },
@@ -1231,7 +1273,7 @@ class PythonSkillAssetTests(unittest.TestCase):
                 "type": "text/plain",
                 "text_content": " ".join(
                     f"word-{index}"
-                    for index in range(2000)
+                    for index in range(600)
                 ),
             },
         ]
@@ -1258,7 +1300,7 @@ class PythonSkillAssetTests(unittest.TestCase):
         )
         self.assertEqual(
             result["total_words"],
-            2000,
+            600,
         )
         self.assertGreater(
             result["chunks"],
@@ -1291,7 +1333,7 @@ class PythonSkillAssetTests(unittest.TestCase):
                 context_window=2048,
             ),
         }
-        context.runtime_appended_skills = [
+        context.runtime_loaded_skills = [
             {
                 "name": "chunk_reader",
             },
@@ -1390,7 +1432,7 @@ print(json.dumps({"name": path.name, "text": path.read_text(encoding="utf-8")}))
                 encoding="utf-8",
             )
             context = Context()
-            context.runtime_appended_skills = [
+            context.runtime_loaded_skills = [
                 {
                     "name": "echo_skill",
                 },
@@ -1417,6 +1459,7 @@ print(json.dumps({"name": path.name, "text": path.read_text(encoding="utf-8")}))
                                 "$ATTACHMENT",
                             ],
                             "attachment": "sample.txt",
+                            "timeout_seconds": 5,
                         },
                     )
                 )

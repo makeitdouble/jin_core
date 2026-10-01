@@ -5,16 +5,13 @@
 
   const session = {
     init,
-    persistSessionMemory: notInitialized,
+    persistLiveSessionCheckpoint: notInitialized,
     getRuntimeMemoryForSoftReconnect: notInitialized,
     getInitialRuntimeMemoryBootstrap: notInitialized,
-    captureSessionSaveRuntimeSnapshot: notInitialized,
     isReconnectInitialRuntimeMemoryUpdate: notInitialized,
     isLatestRuntimeMemoryDuplicate: notInitialized,
     isBootstrapRuntimeMemoryDuplicate: notInitialized,
     applyBootstrapRuntimeMemoryUpdate: notInitialized,
-    hasRestoredSessionMemorySnapshot: notInitialized,
-    shouldIgnoreInitialSessionModeUpdate: notInitialized,
   };
 
   window.JinRuntime.session = session;
@@ -39,15 +36,13 @@
       feedback,
       runtimeMemoryCount,
       defaultRuntimeMemoryText,
-      sessionStartedRuntimeMemoryText,
-      getRuntimeMemoryDisplayMode,
       setRuntimeMemoryDisplayMode,
-      getRestoredSessionMemorySnapshot,
-      setRestoredSessionMemorySnapshot,
       renderRuntimeMemorySnapshot,
       persistRuntimeMemorySnapshot,
       attachFirstUserIdleToInitialRuntimeSnapshot,
       rememberStableRuntimeSnapshot: rememberStableRuntimeSnapshotCallback,
+      getLoadedDelayedMemoryReportIds,
+      getAppendedDelayedMemoryReportIds,
     } = deps;
 
     const {
@@ -58,44 +53,471 @@
     } = memoryModel;
 
     const {
-      keys: runtimeStorageKeys,
-      removeBrowserMemory,
       readLatestRuntimeMemory,
-      writeLatestSavedSessionMemory,
-      readLatestSavedSessionMemory,
-      writeLatestSavedRuntimeMemory,
-      readLatestSavedRuntimeMemory,
+      writeLatestRuntimeMemory,
+      writeSessionCheckpoint,
+      readSessionCheckpoint,
+      clearSessionCheckpoint,
+      markSessionCheckpointUserActivity,
       buildPersistedRuntimeSnapshot,
-      collectCurrentSessionAppendedMemoryIds,
-      collectOtherLatestRuntimeMemorySnapshots,
-      clearOtherLatestRuntimeMemorySnapshots,
-      getSavedRuntimeMemoryFallback,
-      getCurrentLatestRuntimeMemoryStorageKey,
+      setBootSourceRuntimeSessionId,
+      hydrateLiveRuntimeMemoryFromCheckpoint,
       getCurrentRuntimeSessionId,
-      getCurrentFactsMemorySessionId,
       activateFactsMemorySession,
+      shouldIsolateAnonymousStorage,
+      isAnonymousModeEnabled,
     } = storage;
 
     let pendingBootstrapRuntimeMemorySnapshot = null;
     let lastStableRuntimeMemorySnapshot = null;
-    let pendingSessionSaveRuntimeMemorySnapshot = null;
-    let waitingForSessionSaveRuntimeSnapshot = false;
-    let pendingSessionSaveSavedAt = "";
-    let persistedSessionBootstrapCleared = false;
     let hasUnsavedSessionActivity = false;
 
     function getCurrentSavedSessionId() {
       return String(
-        (
-          getCurrentFactsMemorySessionId
-          && getCurrentFactsMemorySessionId()
-        )
-        || getCurrentRuntimeSessionId()
+        getCurrentRuntimeSessionId()
         || ""
       ).trim();
     }
 
-    function buildSessionSaveRuntimeSnapshot(snapshot) {
+    function normalizeLiveSessionSnapshot(
+      data,
+      fallbackSnapshot = null
+    ) {
+      const source =
+        (
+          data
+          && data.session_snapshot
+          && typeof data.session_snapshot === "object"
+          && !Array.isArray(data.session_snapshot)
+        )
+          ? {
+              ...data.session_snapshot,
+            }
+          : (
+              fallbackSnapshot
+              && typeof fallbackSnapshot === "object"
+              && !Array.isArray(fallbackSnapshot)
+                ? {
+                    ...fallbackSnapshot,
+                  }
+                : {}
+            );
+
+      const runtimeSnapshotSource =
+        (
+          data
+          && data.snapshot
+          && typeof data.snapshot === "object"
+          && !Array.isArray(data.snapshot)
+        )
+          ? data.snapshot
+          : (
+              data
+              && data.runtime_snapshot
+              && typeof data.runtime_snapshot === "object"
+              && !Array.isArray(data.runtime_snapshot)
+                ? data.runtime_snapshot
+                : {}
+            );
+      const runtimeSnapshot = runtimeSnapshotSource;
+
+      const loadedMemoryIds =
+        typeof getLoadedDelayedMemoryReportIds === "function"
+          ? getLoadedDelayedMemoryReportIds()
+          : (
+              Array.isArray(source.loaded_memory_ids)
+                ? source.loaded_memory_ids
+                : (
+                    data
+                    && Array.isArray(data.loaded_memory_ids)
+                      ? data.loaded_memory_ids
+                      : []
+                  )
+            );
+
+      return {
+        ...source,
+        recent_turns:
+          Array.isArray(source.recent_turns)
+            ? source.recent_turns
+            : (
+                data
+                && Array.isArray(data.recent_turns)
+                  ? data.recent_turns
+                  : []
+              ),
+        previous_reasoning:
+          String(
+            Object.prototype.hasOwnProperty.call(
+              source,
+              "previous_reasoning"
+            )
+              ? (source.previous_reasoning ?? "")
+              : ((data && data.previous_reasoning) ?? "")
+          ),
+        session_actions:
+          Array.isArray(source.session_actions)
+            ? source.session_actions
+            : (
+                data
+                && Array.isArray(data.session_actions)
+                  ? data.session_actions
+                  : []
+              ),
+        tool_result_sequence: Number(source.tool_result_sequence ?? (data && data.tool_result_sequence)) || 0,
+        tool_results:
+          Array.isArray(source.tool_results)
+            ? source.tool_results
+            : (
+                data
+                && Array.isArray(data.tool_results)
+                  ? data.tool_results
+                  : []
+              ),
+        loaded_memory_ids:
+          Array.from(new Set(
+            loadedMemoryIds
+              .map(item => String(item || "").trim())
+              .filter(Boolean)
+          )),
+        attached_file_ids:
+          (
+            Array.isArray(source.attached_file_ids)
+              ? source.attached_file_ids
+              : (
+                  data
+                  && Array.isArray(data.attached_file_ids)
+                    ? data.attached_file_ids
+                    : []
+                )
+          )
+            .map(item => String(item || "").trim())
+            .filter(Boolean),
+        active_memory_records:
+          Array.isArray(source.active_memory_records)
+            ? source.active_memory_records
+            : (
+                data
+                && Array.isArray(data.active_memory_records)
+                  ? data.active_memory_records
+                  : []
+              ),
+        runtime_turn_counter:
+          Number(
+            source.runtime_turn_counter
+            || (data && data.runtime_turn_counter)
+            || runtimeSnapshot.runtime_turn_counter
+            || 0
+          ),
+        turn_number:
+          Number(
+            source.turn_number
+            || (data && data.turn_number)
+            || runtimeSnapshot.turn_number
+            || 0
+          ),
+        current_jin_color:
+          String(
+            source.current_jin_color
+            || (data && data.current_jin_color)
+            || ""
+          ).trim(),
+        current_jin_size:
+          (
+            source.current_jin_size
+            && typeof source.current_jin_size === "object"
+            && !Array.isArray(source.current_jin_size)
+          )
+            ? {
+                ...source.current_jin_size,
+              }
+            : (
+                data
+                && data.current_jin_size
+                && typeof data.current_jin_size === "object"
+                && !Array.isArray(data.current_jin_size)
+                  ? {
+                      ...data.current_jin_size,
+                    }
+                  : null
+              ),
+        current_jin_position:
+          (
+            source.current_jin_position
+            && typeof source.current_jin_position === "object"
+            && !Array.isArray(source.current_jin_position)
+          )
+            ? {
+                ...source.current_jin_position,
+              }
+            : (
+                data
+                && data.current_jin_position
+                && typeof data.current_jin_position === "object"
+                && !Array.isArray(data.current_jin_position)
+                  ? {
+                      ...data.current_jin_position,
+                    }
+                  : null
+              ),
+        current_jin_collapsed:
+          Object.prototype.hasOwnProperty.call(
+            source,
+            "current_jin_collapsed"
+          )
+            ? Boolean(source.current_jin_collapsed)
+            : Boolean(
+                data
+                && data.current_jin_collapsed
+              ),
+        current_jin_speed:
+          Number(
+            source.current_jin_speed
+            || (data && data.current_jin_speed)
+            || 900
+          ),
+        current_window_size:
+          (
+            source.current_window_size
+            && typeof source.current_window_size === "object"
+            && !Array.isArray(source.current_window_size)
+          )
+            ? {
+                ...source.current_window_size,
+              }
+            : (
+                data
+                && data.current_window_size
+                && typeof data.current_window_size === "object"
+                && !Array.isArray(data.current_window_size)
+                  ? {
+                      ...data.current_window_size,
+                    }
+                  : null
+              ),
+        room_state:
+          (
+            source.room_state
+            && typeof source.room_state === "object"
+            && !Array.isArray(source.room_state)
+          )
+            ? {
+                ...source.room_state,
+              }
+            : (
+                data
+                && data.room_state
+                && typeof data.room_state === "object"
+                && !Array.isArray(data.room_state)
+                  ? {
+                      ...data.room_state,
+                    }
+                  : (
+                      fallbackSnapshot
+                      && fallbackSnapshot.room_state
+                      && typeof fallbackSnapshot.room_state === "object"
+                      && !Array.isArray(fallbackSnapshot.room_state)
+                        ? {
+                            ...fallbackSnapshot.room_state,
+                          }
+                        : null
+                    )
+              ),
+      };
+    }
+
+    function persistLiveSessionCheckpoint(data) {
+      if (
+          (typeof shouldIsolateAnonymousStorage === "function"
+            && shouldIsolateAnonymousStorage())
+          || (typeof isAnonymousModeEnabled === "function"
+            && isAnonymousModeEnabled())
+      ) {
+        return false;
+      }
+
+      const currentRuntime =
+        readLatestRuntimeMemory();
+
+      if (
+          !currentRuntime
+          || typeof currentRuntime !== "object"
+          || Array.isArray(currentRuntime)
+          || !String(currentRuntime.runtime_memory || "").trim()
+      ) {
+        return false;
+      }
+
+      const currentSessionId =
+        getCurrentSavedSessionId();
+      const savedAt =
+        new Date().toISOString();
+      const previousCheckpoint =
+        readSessionCheckpoint();
+      const sameSession = Boolean(
+        previousCheckpoint
+        && typeof previousCheckpoint === "object"
+        && !Array.isArray(previousCheckpoint)
+        && String(previousCheckpoint.session_id || "").trim()
+          === currentSessionId
+      );
+      const completedTurnCommit = Boolean(
+        data
+        && data.completed_turn_commit === true
+      );
+      const sessionMoved = Boolean(
+        hasUnsavedSessionActivity
+        || completedTurnCommit
+      );
+
+      // Opening/reloading a tab creates a runtime id, not a new conversation.
+      // The common checkpoint switches to this session only after a real move.
+      // A user send marks activity immediately; completedTurnCommit is only a
+      // server-side fallback for paths that reached us without that UI mark.
+      // D049: greeting-only is never a saved session, even on a clean profile
+      // with no previous checkpoint. Stop does not revoke a real USER move.
+      if (
+          !sameSession
+          && !sessionMoved
+      ) {
+        return false;
+      }
+      const previousSessionId =
+        String(
+          currentRuntime.previous_session_id
+          || currentRuntime.booted_from_session_id
+          || (
+            !sameSession
+            && previousCheckpoint
+            && previousCheckpoint.session_id
+          )
+          || ""
+        ).trim() || null;
+      const previousSessionSnapshot =
+        (
+          sameSession
+          && previousCheckpoint.session_snapshot
+          && typeof previousCheckpoint.session_snapshot === "object"
+          && !Array.isArray(previousCheckpoint.session_snapshot)
+        )
+          ? previousCheckpoint.session_snapshot
+          : null;
+      const sessionSnapshot =
+        normalizeLiveSessionSnapshot(
+          data || {},
+          previousSessionSnapshot
+        );
+      const previousConversationCommittedAt =
+        String(
+          currentRuntime.conversation_committed_at
+          || (
+            sameSession
+            && previousCheckpoint
+            && previousCheckpoint.conversation_committed_at
+          )
+          || ""
+        ).trim();
+      const conversationCommittedAt =
+        completedTurnCommit
+          ? savedAt
+          : previousConversationCommittedAt;
+
+      // Keep completed-turn time separate from session movement. A USER-only
+      // interrupted session may already be the latest checkpoint, but this
+      // timestamp still advances only after a completed visible turn.
+      if (completedTurnCommit) {
+        writeLatestRuntimeMemory({
+          ...currentRuntime,
+          version: currentRuntime.version || 1,
+          session_id: currentSessionId,
+          previous_session_id: previousSessionId,
+          conversation_committed_at: conversationCommittedAt,
+          session_snapshot: sessionSnapshot,
+          runtime_snapshot:
+            buildCheckpointRuntimeSnapshot(
+              currentRuntime.runtime_snapshot
+            ),
+        });
+      }
+
+      const checkpointWritten =
+        writeSessionCheckpoint({
+          version: 2,
+          state: "checkpoint",
+          session_id: currentSessionId,
+          previous_session_id: previousSessionId,
+          saved_at: savedAt,
+          conversation_committed_at: conversationCommittedAt,
+          runtime_memory:
+            currentRuntime.runtime_memory,
+          runtime_memory_updates:
+            Number(currentRuntime.runtime_memory_updates || 0),
+          runtime_snapshot:
+            buildCheckpointRuntimeSnapshot(
+              currentRuntime.runtime_snapshot
+            ),
+          session_snapshot: sessionSnapshot,
+        });
+
+      if (checkpointWritten) {
+        // The move is now represented by a full current-session checkpoint.
+        // Clear the dirty bit so a late background echo from this tab cannot
+        // later rewind a newer session that has already moved.
+        hasUnsavedSessionActivity = false;
+      }
+
+      return Boolean(checkpointWritten);
+    }
+
+    function clearPersistedToolResultsCheckpoint(toolResults = [], toolResultSequence = 0) {
+      if (
+          (typeof shouldIsolateAnonymousStorage === "function"
+            && shouldIsolateAnonymousStorage())
+          || (typeof isAnonymousModeEnabled === "function"
+            && isAnonymousModeEnabled())
+      ) {
+        return false;
+      }
+
+      const previousCheckpoint =
+        readSessionCheckpoint();
+
+      if (
+          !previousCheckpoint
+          || typeof previousCheckpoint !== "object"
+          || Array.isArray(previousCheckpoint)
+      ) {
+        return false;
+      }
+
+      const previousSessionSnapshot =
+        (
+          previousCheckpoint.session_snapshot
+          && typeof previousCheckpoint.session_snapshot === "object"
+          && !Array.isArray(previousCheckpoint.session_snapshot)
+        )
+          ? previousCheckpoint.session_snapshot
+          : {};
+
+      // CLEAN_TOOL_RESULTS mutates only one bootstrap field. Preserve the
+      // checkpoint timestamp/lineage verbatim: advancing saved_at here makes
+      // the browser checkpoint look newer than the raw chat-log tail, which
+      // suppresses archive enrichment for dialogue/reasoning/actions/files.
+      writeSessionCheckpoint({
+        ...previousCheckpoint,
+        session_snapshot: {
+          ...previousSessionSnapshot,
+          tool_results: Array.isArray(toolResults) ? toolResults : [],
+          tool_result_sequence: Math.max(Number(previousSessionSnapshot.tool_result_sequence) || 0, Number(toolResultSequence) || 0),
+          tool_results_cleared_at: new Date().toISOString(),
+        },
+      });
+
+      return true;
+    }
+
+
+    function buildCheckpointRuntimeSnapshot(snapshot) {
       const persistedSnapshot =
         buildPersistedRuntimeSnapshot(
           snapshot
@@ -105,7 +527,11 @@
         ? {
             ...persistedSnapshot,
             session_id:
-              getCurrentSavedSessionId(),
+              String(
+                persistedSnapshot.session_id
+                || ""
+              ).trim()
+              || getCurrentSavedSessionId(),
           }
         : null;
     }
@@ -180,226 +606,6 @@
       };
     }
 
-    function getRuntimeSnapshotSearchText(snapshot) {
-      if (!snapshot || typeof snapshot !== "object") {
-        return "";
-      }
-
-      const parts = [
-        snapshot.raw_memory,
-        snapshot.memory,
-        snapshot.current_request,
-        snapshot.user_query,
-        snapshot.last_jin_response,
-        snapshot.display_source,
-      ];
-
-      if (Array.isArray(snapshot.lines)) {
-        snapshot.lines.forEach(line => {
-          if (!line || typeof line !== "object") {
-            return;
-          }
-
-          parts.push(
-            line.key,
-            line.value
-          );
-        });
-      }
-
-      return parts
-        .filter(Boolean)
-        .map(part => String(part))
-        .join("\n")
-        .toLowerCase();
-    }
-
-    function normalizeBehaviorContractSearchText(text) {
-      return String(text || "")
-        .toLowerCase()
-        .replace(/ё/g, "е");
-    }
-
-    function getBehaviorContractActionGuardPhrases(name, key) {
-      const contract = window.JIN_BEHAVIOR_CONTRACT;
-
-      const guard =
-        contract
-        && contract.action_guards
-        && contract.action_guards[name];
-
-      const phrases =
-        guard
-        && guard[key];
-
-      if (!Array.isArray(phrases)) {
-        return [];
-      }
-
-      return phrases
-        .filter(phrase => typeof phrase === "string");
-    }
-
-    function behaviorContractPhraseAppears(text, name, key) {
-      const normalizedText =
-        normalizeBehaviorContractSearchText(
-          text
-        );
-
-      return getBehaviorContractActionGuardPhrases(
-        name,
-        key
-      ).some(phrase => (
-        normalizedText.includes(
-          normalizeBehaviorContractSearchText(
-            phrase
-          )
-        )
-      ));
-    }
-
-    function runtimeTextLooksLikeOnlySessionSave(text) {
-      const runtimeMemory =
-        String(text || "").toLowerCase();
-
-      if (!runtimeMemory.trim()) {
-        return false;
-      }
-
-      const hasSessionWord =
-        runtimeMemory.includes("session")
-        || runtimeMemory.includes("сесси");
-
-      const hasSaveWord =
-        runtimeMemory.includes("save")
-        || runtimeMemory.includes("saved")
-        || runtimeMemory.includes("saving")
-        || runtimeMemory.includes("remembering")
-        || runtimeMemory.includes("save_session")
-        || runtimeMemory.includes("сохран")
-        || runtimeMemory.includes("запомн");
-
-      return hasSessionWord && hasSaveWord;
-    }
-
-    function runtimeSnapshotHasConversationContext(snapshot) {
-      if (!snapshot || typeof snapshot !== "object") {
-        return false;
-      }
-
-      const usefulKeys = new Set([
-        "active_task",
-        "current_focus",
-        "current_request",
-        "focus",
-        "last_jin_response",
-        "topic",
-        "user_inquiry",
-        "user_request",
-      ]);
-
-      if (!Array.isArray(snapshot.lines)) {
-        return false;
-      }
-
-      return snapshot.lines.some(line => {
-        if (!line || typeof line !== "object") {
-          return false;
-        }
-
-        const key =
-          String(line.key || "")
-            .trim()
-            .toLowerCase();
-
-        const value =
-          String(line.value || "")
-            .trim();
-
-        if (!value || !usefulKeys.has(key)) {
-          return false;
-        }
-
-        return !runtimeTextLooksLikeOnlySessionSave(
-          value
-        );
-      });
-    }
-
-    function runtimeSnapshotLooksLikeSessionSaveResult(snapshot) {
-      const runtimeMemory =
-        getRuntimeSnapshotSearchText(
-          snapshot
-        );
-
-      if (!runtimeMemory) {
-        return false;
-      }
-
-      if (
-          runtimeMemory.includes("session management")
-          && runtimeMemory.includes("paused")
-      ) {
-        return false;
-      }
-
-      const hasSessionWord =
-        runtimeMemory.includes("session")
-        || runtimeMemory.includes("сесси");
-
-      const hasSaveWord =
-        runtimeMemory.includes("save")
-        || runtimeMemory.includes("saved")
-        || runtimeMemory.includes("saving")
-        || runtimeMemory.includes("remembering")
-        || runtimeMemory.includes("save_session")
-        || runtimeMemory.includes("сохран");
-
-      const hasRememberSessionTrigger =
-        behaviorContractPhraseAppears(
-          runtimeMemory,
-          "save_session",
-          "triggers"
-        );
-
-      const hasSaveResultPhrase = (
-        runtimeMemory.includes("session saved")
-        || runtimeMemory.includes("session state successfully saved")
-        || runtimeMemory.includes("session state saved")
-        || runtimeMemory.includes("current state is saved")
-        || runtimeMemory.includes("state is saved")
-        || runtimeMemory.includes("state saved")
-        || runtimeMemory.includes("successfully saved")
-        || runtimeMemory.includes("confirmed saving")
-        || runtimeMemory.includes("confirmed saved")
-        || runtimeMemory.includes("remembering this session")
-        || runtimeMemory.includes("save_session")
-        || hasRememberSessionTrigger
-        || runtimeMemory.includes("сохраняю")
-        || runtimeMemory.includes("сохранено")
-        || runtimeMemory.includes("сессия сохран")
-      );
-
-      if (
-          hasSaveResultPhrase
-          || (
-            hasSessionWord
-            && hasSaveWord
-          )
-      ) {
-        // Do not throw away a real L1 runtime page just because the last
-        // turn also saved the session. The page after a save request may
-        // still contain the useful current context: previous user request,
-        // active task, and last non-save JIN response. Only pure save-status
-        // pages should be treated as save chatter.
-        return !runtimeSnapshotHasConversationContext(
-          snapshot
-        );
-      }
-
-      return false;
-    }
-
     function isUsableStableRuntimeSnapshot(snapshot) {
       if (!snapshot || typeof snapshot !== "object") {
         return false;
@@ -408,21 +614,11 @@
       const runtimeMemory =
         String(snapshot.raw_memory || "").trim();
 
-      if (
-          !runtimeMemory
-          || runtimeMemory === defaultRuntimeMemoryText
-          || snapshot.display_source === "default_runtime_memory"
-          || snapshot.display_source === "browser_l3_restore_status"
-          || snapshot.display_source === "l3_bootstrap_status"
-      ) {
-        return false;
-      }
-
-      if (runtimeSnapshotLooksLikeSessionSaveResult(snapshot)) {
-        return false;
-      }
-
-      return true;
+      return Boolean(
+        runtimeMemory
+        && runtimeMemory !== defaultRuntimeMemoryText
+        && snapshot.display_source !== "default_runtime_memory"
+      );
     }
 
     function rememberStableRuntimeSnapshot(snapshot) {
@@ -481,213 +677,38 @@
       return null;
     }
 
-    function getRuntimeMemoryForSessionSave() {
-      const pendingRuntimeMemory =
-        runtimeMemoryObjectFromSnapshot(
-          pendingSessionSaveRuntimeMemorySnapshot
-        );
-
-      if (pendingRuntimeMemory) {
-        return pendingRuntimeMemory;
-      }
-
-      const stableRuntimeMemory =
-        getLatestStableRuntimeMemoryObject();
-
-      if (stableRuntimeMemory) {
-        return stableRuntimeMemory;
-      }
-
-      return runtimeMemoryObjectFromPersistedRuntime(
-        readLatestRuntimeMemory()
-      );
-    }
-
-    function userMessageLooksLikeSessionSaveRequest(text) {
-      const normalizedText =
-        String(text || "").toLowerCase();
-
-      if (!normalizedText.trim()) {
-        return false;
-      }
-
-      const hasSessionWord =
-        normalizedText.includes("session")
-        || normalizedText.includes("сесси");
-
-      const hasSaveWord =
-        normalizedText.includes("save")
-        || normalizedText.includes("remember")
-        || normalizedText.includes("сохран")
-        || normalizedText.includes("запомн");
-
-      return hasSessionWord && hasSaveWord;
-    }
-
-    function prepareRuntimeMemoryForUserMessage(text) {
-      if (!userMessageLooksLikeSessionSaveRequest(text)) {
-        return;
-      }
-
-      pendingSessionSaveRuntimeMemorySnapshot = null;
-      waitingForSessionSaveRuntimeSnapshot = true;
-      pendingSessionSaveSavedAt = "";
-    }
-
-    function finishPendingSessionSaveRuntimeMemory() {
-      if (
-          !waitingForSessionSaveRuntimeSnapshot
-          || !pendingSessionSaveRuntimeMemorySnapshot
-          || !pendingSessionSaveSavedAt
-      ) {
-        return false;
-      }
-
-      const latestSavedRuntimeMemory =
-        getRuntimeMemoryForSessionSave();
-
-      if (!latestSavedRuntimeMemory) {
-        return false;
-      }
-
-      writeLatestSavedRuntimeMemory({
-        version: 1,
-        explicit_save: true,
-        session_id:
-          getCurrentSavedSessionId(),
-        saved_at:
-          pendingSessionSaveSavedAt,
-        runtime_memory:
-          latestSavedRuntimeMemory.runtime_memory || "",
-        runtime_memory_updates:
-          latestSavedRuntimeMemory.runtime_memory_updates || 0,
-        runtime_snapshot:
-          buildSessionSaveRuntimeSnapshot(
-            latestSavedRuntimeMemory.runtime_snapshot
-          ),
-      });
-
-      pendingSessionSaveRuntimeMemorySnapshot = null;
-      waitingForSessionSaveRuntimeSnapshot = false;
-      pendingSessionSaveSavedAt = "";
-
-      return true;
-    }
-
-    function persistSessionMemory(data) {
-      if (
-          !data
-          || data.persist !== true
-      ) {
-        return;
-      }
-
-      const sessionMemory =
-        (
-          data.memory
-          || ""
-        ).trim();
-
-      if (!sessionMemory) {
-        return;
-      }
-
-      const savedAt =
-        new Date().toISOString();
-
-      // L3 is the authoritative session save result. Persist it immediately
-      // instead of waiting for the follow-up L1 runtime snapshot.
-      persistedSessionBootstrapCleared = false;
-      hasUnsavedSessionActivity = false;
-      waitingForSessionSaveRuntimeSnapshot = true;
-      pendingSessionSaveSavedAt = savedAt;
-
-      // Do not leave the previous session's runtime half paired with the new
-      // L3 save while the follow-up L1 snapshot is still pending.
-      removeBrowserMemory(
-        runtimeStorageKeys.latestSavedRuntimeMemoryStorageKey
-      );
-
-      writeLatestSavedSessionMemory({
-        version: 1,
-        explicit_save: true,
-        session_id:
-          getCurrentSavedSessionId(),
-        saved_at: savedAt,
-        appended_memory_ids:
-          collectCurrentSessionAppendedMemoryIds(),
-        session_memory: sessionMemory,
-        session_memory_updates:
-          data.updates || 0,
-      });
-
-      // If L1 happened to arrive before L3, finish the runtime half now.
-      // In the normal flow this remains pending until the follow-up L1 update.
-      finishPendingSessionSaveRuntimeMemory();
-    }
-
     function getRuntimeMemoryForSoftReconnect() {
-      return getRuntimeMemoryForSessionSave();
-    }
-
-    function captureSessionSaveRuntimeSnapshot(snapshot) {
-      if (
-          !waitingForSessionSaveRuntimeSnapshot
-          || !snapshot
-      ) {
-        return;
-      }
-
-      pendingSessionSaveRuntimeMemorySnapshot = snapshot;
-      finishPendingSessionSaveRuntimeMemory();
+      return getLatestStableRuntimeMemoryObject()
+        || runtimeMemoryObjectFromPersistedRuntime(
+          readLatestRuntimeMemory()
+        );
     }
 
     function getSoftReconnectRuntimeResume() {
-      const runtimeMemory =
-        getRuntimeMemoryForSoftReconnect();
-
-      const runtimeText =
-        (
-          runtimeMemory
-          && runtimeMemory.runtime_memory
-          && String(runtimeMemory.runtime_memory).trim()
-        ) || "";
-
-      if (!runtimeText) {
-        return null;
-      }
-
-      return {
-        type: "runtime_resume",
-        runtime_memory: runtimeText,
-        runtime_memory_updates:
-          (
-            runtimeMemory
-            && runtimeMemory.runtime_memory_updates
-          ) || 0,
-        runtime_snapshot:
-          (
-            runtimeMemory
-            && runtimeMemory.runtime_snapshot
-          ) || null,
-      };
+      return null; // Reconnect authority stays in the server RuntimeContext.
     }
 
     function getInitialRuntimeMemoryBootstrap() {
-      // Page reload/new-tab bootstrap must only come from an explicit saved
-      // session (`getPersistedSessionBootstrap`). The per-session
-      // latestRuntimeMemory localStorage copy is a live reconnect cache, not a
-      // restore point: after Save -> more messages -> refresh, replaying it
-      // would skip the saved state and resurrect unsaved runtime facts.
+      // Full page/new-tab continuity is resolved in
+      // getPersistedSessionBootstrap(), which follows the continuously updated
+      // last-saved pair and keeps its source_session_id lineage.
       return null;
     }
 
-    function hasTabCloseSessionBootstrap() {
-      if (persistedSessionBootstrapCleared) {
-        return false;
+    function isDefaultRuntimeMemoryText(text) {
+      let normalized = String(text || "")
+        .trim()
+        .replace(/\s+/g, " ")
+        .toLowerCase();
+
+      if (normalized.startsWith("note:")) {
+        normalized = normalized.slice(5).trim();
       }
 
-      return hasUnsavedSessionActivity;
+      return normalized === String(defaultRuntimeMemoryText || "")
+        .trim()
+        .replace(/\s+/g, " ")
+        .toLowerCase();
     }
 
     function isReconnectInitialRuntimeMemoryUpdate(data) {
@@ -702,7 +723,15 @@
         return false;
       }
 
-      if (history.snapshots.length === 0) {
+      const archivedRestoreActive = Boolean(
+        window.jinArchivedSessionBootstrap
+        && window.jinArchivedSessionBootstrap.archived_session_restore === true
+      );
+
+      if (
+          history.snapshots.length === 0
+          && !archivedRestoreActive
+      ) {
         return false;
       }
 
@@ -713,13 +742,28 @@
           || ""
         ).trim();
 
-      return runtimeMemory === defaultRuntimeMemoryText;
+      return isDefaultRuntimeMemoryText(
+        runtimeMemory
+      );
+    }
+
+    function stripArchivedRuntimeLifecycleMetadata(text) {
+      return String(text || "")
+        .replace(
+          /\s*\[\s*(?:created|updated)\s*:\s*[^\]]*?\s+ago\s*\]\s*/gi,
+          " "
+        )
+        .replace(/[ \t]+\n/g, "\n")
+        .replace(/\n[ \t]+/g, "\n")
+        .trim();
     }
 
     function normalizeRuntimeMemoryText(text) {
-      return String(text || "")
-        .replace(/\\n/g, "\n")
-        .replace(/\r\n/g, "\n")
+      return stripArchivedRuntimeLifecycleMetadata(
+        String(text || "")
+          .replace(/\\n/g, "\n")
+          .replace(/\r\n/g, "\n")
+      )
         .replace(
           /(session_status\s*:\s*Active;\s*last updated at\s*)[^\n]+/gi,
           "$1<bootstrap_time>"
@@ -772,7 +816,7 @@
 
       if (
           latestSnapshot
-          && latestSnapshot.restored_from_session_save
+          && latestSnapshot.restored_from_checkpoint
           && Number(data.updates || 0) === 0
       ) {
         return true;
@@ -786,14 +830,12 @@
         return false;
       }
 
-      // If the latest snapshot was restored from a previous session its
-      // runtime_memory_updates counter belongs to that old session. The server
-      // resets its counter to 0 on every new connection, so the first real L1
-      // update (updates=1) is always <= the old session counter (e.g. 3).
-      // Without this guard every post-bootstrap L1 update is incorrectly treated
-      // as a duplicate and dropped, leaving the panel stuck on the restore placeholder.
-      if (latestSnapshot && latestSnapshot.restored_from_session_save) {
-        return false;
+      // An exact text match against the restored baseline is never a new page.
+      // The first real post-restore FRAME update is allowed naturally because its
+      // memory text changes. Treating an identical server echo as "real" was the
+      // source of the duplicated page 0/page 1 restore snapshot race.
+      if (latestSnapshot && latestSnapshot.restored_from_checkpoint) {
+        return true;
       }
 
       const latestUpdates = Number(
@@ -863,36 +905,61 @@
           !pendingBootstrapRuntimeMemorySnapshot
           || !data
           || data.type !== "runtime_memory_update"
-          || Number(data.updates || 0) !== 0
           || !data.snapshot
       ) {
         return false;
       }
 
-      const savedRuntimeSnapshot = {
-        ...pendingBootstrapRuntimeMemorySnapshot,
+      const bootstrapMemory = normalizeRuntimeMemoryText(
+        pendingBootstrapRuntimeMemorySnapshot.raw_memory
+      );
+      const incomingMemory =
+        getRuntimeMemoryTextFromUpdate(data);
+
+      if (
+          !bootstrapMemory
+          || !incomingMemory
+          || bootstrapMemory !== incomingMemory
+      ) {
+        return false;
+      }
+
+      // This is the authoritative server echo of PREVIOUS_RUNTIME_STATE. Replace
+      // the provisional browser page in-place, preserving the saved lifecycle
+      // timestamps/strengths instead of rebasing them to the restore moment.
+      const restoredRuntimeSnapshot = {
+        ...data.snapshot,
         index: 0,
+        display_source: "session_checkpoint",
+        restored_from_checkpoint: true,
+        runtime_memory_updates: Number(
+          data.updates
+          || data.snapshot.runtime_memory_updates
+          || pendingBootstrapRuntimeMemorySnapshot.runtime_memory_updates
+          || 0
+        ),
       };
 
       pendingBootstrapRuntimeMemorySnapshot = null;
       setRuntimeMemoryDisplayMode("runtime");
-      setRestoredSessionMemorySnapshot(null);
 
       if (window.stopMemoryGlow) {
         window.stopMemoryGlow();
       }
 
-      // During persisted-session restore, page 0 must stay the saved runtime from
-      // browser memory. Server updates=0 messages are bootstrap chatter/echoes.
       history.snapshots = [
-        savedRuntimeSnapshot,
+        restoredRuntimeSnapshot,
       ];
       history.index = 0;
       history.displayIndexOffset = 1;
 
+      rememberStableRuntimeSnapshot(
+        restoredRuntimeSnapshot
+      );
+
       if (runtimeMemoryCount) {
         runtimeMemoryCount.textContent =
-          String(savedRuntimeSnapshot.runtime_memory_updates || 0);
+          String(restoredRuntimeSnapshot.runtime_memory_updates || 0);
       }
 
       renderRuntimeMemorySnapshot();
@@ -900,62 +967,87 @@
       return true;
     }
 
-    function handleTabCloseSessionBootstrap(event) {
-      if (!hasTabCloseSessionBootstrap()) {
-        return undefined;
-      }
-
-      event.preventDefault();
-      event.returnValue = "Are you sure?";
-
-      return "Are you sure?";
-    }
-
     function buildRuntimeMemoryDisplaySnapshot(data) {
-      const runtimeMemory =
-        stripActiveMemoryRuntimeMemoryText(
-          (
-            data
-            && (
-              data.runtime_memory
-              || data.memory
-              || (
-                data.runtime_snapshot
-                && data.runtime_snapshot.raw_memory
-              )
-            )
-          )
-          || ""
-        ).trim();
-
-      if (!runtimeMemory) {
-        return null;
-      }
+      const isArchivedRestore = Boolean(
+        data
+        && data.archived_session_restore === true
+      );
 
       const sourceSnapshot =
         (
           data
           && data.runtime_snapshot
           && typeof data.runtime_snapshot === "object"
+          && !Array.isArray(data.runtime_snapshot)
         )
           ? data.runtime_snapshot
           : {};
+
+      const snapshotRuntimeMemory =
+        stripActiveMemoryRuntimeMemoryText(
+          sourceSnapshot.raw_memory || ""
+        ).trim();
+
+      let runtimeMemory =
+        stripActiveMemoryRuntimeMemoryText(
+          (
+            data
+            && (
+              data.runtime_memory
+              || data.memory
+              || snapshotRuntimeMemory
+            )
+          )
+          || ""
+        ).trim();
+
+      if (isArchivedRestore) {
+        if (snapshotRuntimeMemory) {
+          // The persisted snapshot is authoritative for lifecycle history.
+          // Use the exact raw memory it was built from so its timestamp and
+          // per-line created_at/updated_at values remain valid.
+          runtimeMemory = snapshotRuntimeMemory;
+        } else {
+          // Old log-only archives contain relative "created/updated ... ago"
+          // display suffixes but no absolute timestamps. Strip the suffixes;
+          // never manufacture fresh lifecycle timestamps during restore.
+          runtimeMemory =
+            stripArchivedRuntimeLifecycleMetadata(
+              runtimeMemory
+            );
+        }
+      }
+
+      if (!runtimeMemory) {
+        return null;
+      }
+
+      const parsedLines =
+        splitMemoryTextLines(runtimeMemory)
+          .map(parseRuntimeMemoryLine);
+      const sourceSnapshotMatches = Boolean(
+        Array.isArray(sourceSnapshot.lines)
+        && sourceSnapshot.lines.length
+        && stripActiveMemoryRuntimeMemoryText(
+          sourceSnapshot.raw_memory || ""
+        ).trim() === runtimeMemory
+      );
 
       return {
         ...sourceSnapshot,
         session_id:
           sourceSnapshot.session_id
+          || (data && data.source_session_id)
+          || (data && data.previous_session_id)
           || "browser_restore",
         index: 0,
-        display_source: "saved_runtime_at_session_save",
+        display_source: "session_checkpoint",
         raw_memory: runtimeMemory,
         lines:
-          Array.isArray(sourceSnapshot.lines)
-            && sourceSnapshot.raw_memory === runtimeMemory
-            ? sourceSnapshot.lines
-            : splitMemoryTextLines(runtimeMemory)
-              .map(parseRuntimeMemoryLine),
-        restored_from_session_save: true,
+          sourceSnapshotMatches
+            ? sourceSnapshot.lines.map(line => ({ ...line }))
+            : parsedLines,
+        restored_from_checkpoint: true,
         runtime_memory_updates:
           Number(
             (
@@ -965,6 +1057,7 @@
                 || data.updates
               )
             )
+            || sourceSnapshot.runtime_memory_updates
             || 0
           ),
       };
@@ -975,11 +1068,11 @@
         session_id: "browser_restore",
         index: 0,
         display_source: "default_runtime_memory",
-        raw_memory: sessionStartedRuntimeMemoryText,
+        raw_memory: `note: ${defaultRuntimeMemoryText}`,
         lines: [
           {
-            key: "session_status",
-            value: "Session started",
+            key: "note",
+            value: defaultRuntimeMemoryText,
             status: "same",
             key_status: "same",
             value_status: "same",
@@ -996,15 +1089,14 @@
         snapshot || buildDefaultRuntimeMemorySnapshot();
 
       setRuntimeMemoryDisplayMode("runtime");
-      setRestoredSessionMemorySnapshot(null);
       pendingBootstrapRuntimeMemorySnapshot =
-        displaySnapshot.restored_from_session_save
+        displaySnapshot.restored_from_checkpoint
           ? displaySnapshot
           : null;
       history.snapshots = [displaySnapshot];
       history.index = 0;
       history.displayIndexOffset =
-        displaySnapshot.restored_from_session_save
+        displaySnapshot.restored_from_checkpoint
           ? 1
           : 0;
 
@@ -1021,6 +1113,53 @@
     }
 
     function applyPersistedSessionBootstrap(bootstrap) {
+      if (
+          (typeof shouldIsolateAnonymousStorage === "function"
+            && shouldIsolateAnonymousStorage())
+          || (typeof isAnonymousModeEnabled === "function"
+            && isAnonymousModeEnabled())
+      ) {
+        return;
+      }
+
+      if (
+          bootstrap
+          && bootstrap.source_session_id
+          && setBootSourceRuntimeSessionId
+      ) {
+        setBootSourceRuntimeSessionId(
+          bootstrap.source_session_id
+        );
+      }
+
+      if (
+          bootstrap
+          && bootstrap.source_session_id
+          && String(bootstrap.runtime_memory || "").trim()
+          && hydrateLiveRuntimeMemoryFromCheckpoint
+      ) {
+        // Materialize inherited FRAME only in this page's ephemeral live cache.
+        // Opening a tab does not create another durable per-session record and
+        // does not advance the common conversation checkpoint.
+        hydrateLiveRuntimeMemoryFromCheckpoint({
+          version: 2,
+          session_id: bootstrap.source_session_id,
+          previous_session_id:
+            bootstrap.previous_session_id || null,
+          saved_at:
+            String(bootstrap.saved_at || "").trim(),
+          conversation_committed_at:
+            String(
+              bootstrap.conversation_committed_at || ""
+            ).trim(),
+          runtime_memory: bootstrap.runtime_memory,
+          runtime_memory_updates:
+            bootstrap.runtime_memory_updates || 0,
+          runtime_snapshot:
+            bootstrap.runtime_snapshot || null,
+        });
+      }
+
       if (
           bootstrap
           && bootstrap.source_session_id
@@ -1040,14 +1179,28 @@
         }
       }
 
-      const snapshot =
+      let snapshot =
         (
           bootstrap
           && bootstrap.runtime_display_snapshot
         )
         || buildRuntimeMemoryDisplaySnapshot(
           bootstrap || {}
-        )
+        );
+
+      // Archived restore must never manufacture "Session started" / "no history"
+      // pages. PREVIOUS_RUNTIME_STATE is the only valid initial FRAME baseline. If
+      // an old archive genuinely has no such block, leave the panel empty and
+      // let the next real FRAME update create its first page.
+      if (
+          !snapshot
+          && bootstrap
+          && bootstrap.archived_session_restore === true
+      ) {
+        return;
+      }
+
+      snapshot = snapshot
         || buildDefaultRuntimeMemorySnapshot();
 
       applyRuntimeMemoryDisplaySnapshot(
@@ -1056,232 +1209,65 @@
     }
 
     function getPersistedSessionBootstrap() {
-      const savedRuntimeFallback =
-        getSavedRuntimeMemoryFallback();
-
-      const shouldUseBrowserMemory =
-        !savedRuntimeFallback;
-
-      const browserLatestSavedSessionMemory =
-        shouldUseBrowserMemory
-          ? readLatestSavedSessionMemory()
-          : null;
-
-      const sessionMemory =
-        (
-          savedRuntimeFallback
-          && savedRuntimeFallback.session_memory
-        )
-        || (
-          browserLatestSavedSessionMemory
-          && browserLatestSavedSessionMemory.explicit_save === true
-            ? browserLatestSavedSessionMemory
-            : null
-        );
-
       if (
-          !sessionMemory
-          || sessionMemory.explicit_save !== true
+          (typeof shouldIsolateAnonymousStorage === "function"
+            && shouldIsolateAnonymousStorage())
+          || (typeof isAnonymousModeEnabled === "function"
+            && isAnonymousModeEnabled())
       ) {
         return null;
       }
 
-      const sessionMemorySource =
-        (
-          savedRuntimeFallback
-          && savedRuntimeFallback.session_memory
-        )
-          ? savedRuntimeFallback.source
-          : (
-              browserLatestSavedSessionMemory
-              && browserLatestSavedSessionMemory.explicit_save === true
-                ? "browser_localStorage"
-                : "unknown"
-            );
-
-      const sessionText =
-        (
-          sessionMemory
-          && sessionMemory.explicit_save === true
-          && sessionMemory.session_memory
-        )
-        || "";
-
-      const browserLatestSavedRuntimeMemory =
-        shouldUseBrowserMemory
-          ? readLatestSavedRuntimeMemory()
-          : null;
-
-      const latestSavedRuntimeMemory =
-        (
-          savedRuntimeFallback
-          && savedRuntimeFallback.latest_saved_runtime_memory
-        )
-        || (
-          browserLatestSavedRuntimeMemory
-          && browserLatestSavedRuntimeMemory.explicit_save === true
-            ? browserLatestSavedRuntimeMemory
-            : null
-        );
-
-      const runtimeMemory =
-        (
-          latestSavedRuntimeMemory
-          && latestSavedRuntimeMemory.explicit_save === true
-        )
-          ? latestSavedRuntimeMemory
-          : null;
-
-      const runtimeText =
-        (
-          runtimeMemory
-          && runtimeMemory.runtime_memory
-        )
-        || "";
-
-      if (!sessionText) {
-        return null;
+      if (
+        window.jinArchivedSessionBootstrap
+        && typeof window.jinArchivedSessionBootstrap === "object"
+      ) {
+        return {
+          ...window.jinArchivedSessionBootstrap,
+        };
       }
 
-      const runtimeDisplaySnapshot =
-        buildRuntimeMemoryDisplaySnapshot({
-          runtime_memory: runtimeText,
-          runtime_memory_updates:
-            (
-              runtimeMemory
-              && runtimeMemory.runtime_memory_updates
-            )
-            || 0,
-          runtime_snapshot:
-            (
-              runtimeMemory
-              && runtimeMemory.runtime_snapshot
-            )
-            || null,
-        }) || buildDefaultRuntimeMemorySnapshot();
-
-      const sourceSessionId =
-        String(
-          (
-            sessionMemory
-            && sessionMemory.session_id
-          )
-          || (
-            runtimeMemory
-            && runtimeMemory.session_id
-          )
-          || (
-            runtimeMemory
-            && runtimeMemory.runtime_snapshot
-            && runtimeMemory.runtime_snapshot.session_id
-          )
-          || ""
-        ).trim();
-
-      return {
-        type: "session_bootstrap",
-        source_session_id: sourceSessionId,
-        session_memory: sessionText,
-        session_memory_source: sessionMemorySource,
-        session_memory_updates:
-          (
-            sessionMemory
-            && sessionMemory.session_memory_updates
-          )
-          || 0,
-        appended_memory_ids:
-          (
-            sessionMemory
-            && Array.isArray(sessionMemory.appended_memory_ids)
-          )
-            ? sessionMemory.appended_memory_ids
-                .map(item => String(item || "").trim())
-                .filter(Boolean)
-            : [],
-        runtime_memory: runtimeText,
-        runtime_memory_updates:
-          (
-            runtimeMemory
-            && runtimeMemory.runtime_memory_updates
-          )
-          || 0,
-        runtime_snapshot:
-          (
-            runtimeMemory
-            && runtimeMemory.runtime_snapshot
-          )
-          || null,
-        runtime_display_snapshot: runtimeDisplaySnapshot,
-      };
+      return { type: "session_bootstrap" };
     }
 
     function clearPersistedSessionBootstrap() {
-      persistedSessionBootstrapCleared = true;
       hasUnsavedSessionActivity = false;
 
-      removeBrowserMemory(
-        runtimeStorageKeys.latestSavedSessionMemoryStorageKey
-      );
-      removeBrowserMemory(
-        runtimeStorageKeys.latestSavedRuntimeMemoryStorageKey
-      );
-      removeBrowserMemory(
-        getCurrentLatestRuntimeMemoryStorageKey()
-      );
+      if (
+          (typeof shouldIsolateAnonymousStorage === "function"
+            && shouldIsolateAnonymousStorage())
+          || (typeof isAnonymousModeEnabled === "function"
+            && isAnonymousModeEnabled())
+      ) {
+        return;
+      }
+
+      if (typeof window.sendSocketMessage === "function") {
+        window.sendSocketMessage({ type: "session_continuation_clear" });
+      }
+      clearSessionCheckpoint();
     }
 
     function markSessionActivityDirty() {
-      persistedSessionBootstrapCleared = false;
+      markSessionCheckpointUserActivity();
       hasUnsavedSessionActivity = true;
     }
 
-    function hasRestoredSessionMemorySnapshot() {
-      return Boolean(
-        getRestoredSessionMemorySnapshot()
-      );
-    }
-
-    function shouldIgnoreInitialSessionModeUpdate(data) {
-      return (
-        getRuntimeMemoryDisplayMode() === "session"
-        && hasRestoredSessionMemorySnapshot()
-        && Number(data && data.updates || 0) === 0
-      );
-    }
-
-    session.persistSessionMemory = persistSessionMemory;
+    session.persistLiveSessionCheckpoint = persistLiveSessionCheckpoint;
+    session.clearPersistedToolResultsCheckpoint = clearPersistedToolResultsCheckpoint;
     session.getRuntimeMemoryForSoftReconnect = getRuntimeMemoryForSoftReconnect;
     session.getInitialRuntimeMemoryBootstrap = getInitialRuntimeMemoryBootstrap;
-    session.captureSessionSaveRuntimeSnapshot = captureSessionSaveRuntimeSnapshot;
     session.isReconnectInitialRuntimeMemoryUpdate = isReconnectInitialRuntimeMemoryUpdate;
     session.isLatestRuntimeMemoryDuplicate = isLatestRuntimeMemoryDuplicate;
     session.isBootstrapRuntimeMemoryDuplicate = isBootstrapRuntimeMemoryDuplicate;
     session.applyBootstrapRuntimeMemoryUpdate = applyBootstrapRuntimeMemoryUpdate;
-    session.hasRestoredSessionMemorySnapshot = hasRestoredSessionMemorySnapshot;
-    session.shouldIgnoreInitialSessionModeUpdate = shouldIgnoreInitialSessionModeUpdate;
     session.rememberStableRuntimeSnapshot = rememberStableRuntimeSnapshot;
 
-    window.prepareRuntimeMemoryForUserMessage = prepareRuntimeMemoryForUserMessage;
     window.getSoftReconnectRuntimeResume = getSoftReconnectRuntimeResume;
     window.getInitialRuntimeMemoryBootstrap = getInitialRuntimeMemoryBootstrap;
     window.applyPersistedSessionBootstrap = applyPersistedSessionBootstrap;
     window.getPersistedSessionBootstrap = getPersistedSessionBootstrap;
     window.clearPersistedSessionBootstrap = clearPersistedSessionBootstrap;
-    window.getCurrentLatestRuntimeMemoryStorageKey = function () {
-      return getCurrentLatestRuntimeMemoryStorageKey();
-    };
-    window.getOtherLatestRuntimeMemorySnapshots = function () {
-      return collectOtherLatestRuntimeMemorySnapshots();
-    };
-    window.clearOtherLatestRuntimeMemorySnapshots = function () {
-      return clearOtherLatestRuntimeMemorySnapshots();
-    };
     window.markSessionActivityDirty = markSessionActivityDirty;
-    window.markSessionBootstrapActive = markSessionActivityDirty;
-
-    window.addEventListener(
-      "beforeunload",
-      handleTabCloseSessionBootstrap
-    );
   }
 }());

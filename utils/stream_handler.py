@@ -55,13 +55,60 @@ class StreamHandler:
             or "Generation stopped."
         )
 
-        if validator.last_failure_preview:
+        loop_quote = (
+            validator.last_failure_loop_preview
+            or validator.last_failure_preview
+        )
+
+        if loop_quote:
             reason = (
                 f'{reason} Looped text: '
-                f'"{validator.last_failure_preview}"'
+                f'"{loop_quote}"'
             )
 
         return reason
+
+    def build_validator_loop_log_text(
+        self,
+        validator,
+    ) -> str:
+
+        reason = (
+            validator.last_failure_reason
+            or "Generation stopped."
+        )
+        loop_quote = (
+            validator.last_failure_loop_preview
+            or validator.last_failure_preview
+        )
+
+        if not loop_quote:
+            return reason
+
+        return (
+            f'{reason}\n'
+            f'"{loop_quote}"'
+        )
+
+    async def log_validator_loop(
+        self,
+        validator,
+    ):
+
+        log_method = getattr(
+            self.logger,
+            "log_validator_loop",
+            None,
+        )
+
+        if log_method is None:
+            log_method = self.logger.log_validator
+
+        await log_method(
+            self.build_validator_loop_log_text(
+                validator
+            )
+        )
 
     # ---------------------------------------------------------
     # START STREAM
@@ -130,15 +177,8 @@ class StreamHandler:
                     failure_reason
                 )
 
-                raw_chunk_preview = (
-                    chunk
-                    .replace("\n", "\\n")
-                )[:160]
-
-                await self.logger.log_validator(
-                    f"{self.thinking_validator.last_failure_reason}\n"
-                    f'Preview: "{self.thinking_validator.last_failure_preview}"\n'
-                    f'Raw thinking chunk: "{raw_chunk_preview}"'
+                await self.log_validator_loop(
+                    self.thinking_validator
                 )
 
                 if emit:
@@ -151,6 +191,7 @@ class StreamHandler:
                         "text": self.build_validator_error_text(
                             self.thinking_validator
                         ),
+                        "suppress_log": True,
                     })
 
                 return False
@@ -247,21 +288,8 @@ class StreamHandler:
 
             if not is_valid:
 
-                raw_chunk_preview = (
-                    chunk
-                    .replace("\n", "\\n")
-                )[:160]
-
-                safe_chunk_preview = (
-                    safe_chunk
-                    .replace("\n", "\\n")
-                )[:160]
-
-                await self.logger.log_validator(
-                    f"{self.validator.last_failure_reason}\n"
-                    f'Preview: "{self.validator.last_failure_preview}"\n'
-                    f'Raw chunk: "{raw_chunk_preview}"\n'
-                    f'Safe chunk: "{safe_chunk_preview}"'
+                await self.log_validator_loop(
+                    self.validator
                 )
 
                 reason = (
@@ -278,6 +306,7 @@ class StreamHandler:
                             self.message_id
                         ),
                         "text": reason,
+                        "suppress_log": True,
                     })
 
                 return False
@@ -302,6 +331,43 @@ class StreamHandler:
         })
 
         return True
+
+
+    # ---------------------------------------------------------
+    # RUNTIME PROGRESS
+    # ---------------------------------------------------------
+
+    async def send_progress(
+        self,
+        progress_chunk: dict,
+        *,
+        emit: bool = True,
+    ):
+
+        if not emit:
+            return
+
+        if not isinstance(
+            progress_chunk,
+            dict,
+        ):
+            return
+
+        # The normalized websocket envelope must keep its own event type.
+        # progress_chunk itself contains {"type": "progress"}; merging it
+        # afterwards used to overwrite "runtime_progress", so the browser's
+        # runtime_progress handler never saw any progress at all.
+        payload = {
+            **progress_chunk,
+            "type": "runtime_progress",
+            "message_id": (
+                self.message_id
+            ),
+        }
+
+        await self.websocket.send_json(
+            payload
+        )
 
     # ---------------------------------------------------------
     # TOKEN USAGE
@@ -341,6 +407,7 @@ class StreamHandler:
         self,
         *,
         emit: bool = True,
+        end_payload_builder=None,
     ):
 
         await self.flush_validator_tail(
@@ -350,9 +417,21 @@ class StreamHandler:
         if not emit:
             return
 
-        await self.websocket.send_json({
+        payload = {
             "type": "message_end",
             "message_id": (
                 self.message_id
             ),
-        })
+        }
+
+        if callable(end_payload_builder):
+            try:
+                extra_payload = end_payload_builder()
+            except Exception:
+                extra_payload = None
+            if isinstance(extra_payload, dict):
+                payload.update(extra_payload)
+
+        await self.websocket.send_json(
+            payload
+        )

@@ -3,15 +3,22 @@
     "version": 1,
     "description": "Allows the model to run an asset action block.",
     "runtime_action": "ASSET_ACTION",
+    "enable_flag": "CAN_USE_ASSETS",
+    "runtime_order": 110,
     "private_marker": "<ASSET_ACTION>",
     "triggers": [],
     "blockers": [],
     "effects": {
-      "emit_followup": true
+      "emit_followup": true,
+      "follow_up_on_fail": false
     },
+    "schema": [
+      "<ASSET_ACTION>",
+      "{\"action\":\"action_from_loaded_skill\",\"...\":\"schema defined by that skill\"}",
+      "</ASSET_ACTION>"
+    ],
     "rules": [
-      "PROJECT ASSETS:",
-      "After the relevant skill appears in APPENDED_SKILLS, DO NOT follow its instructions, only by user request."
+      "MANDATORY: ASSET_ACTION requires a loaded skill context with action schemas."
     ],
     "close_tag": true
   }

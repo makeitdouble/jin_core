@@ -1,17 +1,24 @@
 {
   "clean_tool_results": {
-    "version": 1,
+    "version": 3,
     "description": "Allows the model to clean redundant tool results.",
     "runtime_action": "CLEAN_TOOL_RESULTS",
+    "enable_flag": "CAN_CLEAN_TOOL_RESULTS",
+    "runtime_order": 30,
     "private_marker": "<CLEAN_TOOL_RESULTS>",
     "triggers": [],
     "blockers": [],
     "effects": {
-      "emit_followup": false
+      "emit_followup": false,
+      "follow_up_on_fail": true
     },
-    "rules": [
-      "Emit at any moment in you answer to clean redundant tool results and only if they are present in the context inside <TOOLS_RESULTS> block."
+    "schema": [
+      "<CLEAN_TOOL_RESULTS> T1, T2 </CLEAN_TOOL_RESULTS>"
     ],
-    "close_tag": false
+    "rules": [
+      "Remove listed tool results by id. Empty: remove all. "
+    ],
+    "close_tag": true,
+    "display_payload": true
   }
 }

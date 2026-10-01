@@ -6,7 +6,10 @@ sys.path.insert(
     str(Path(__file__).resolve().parents[1]),
 )
 
+import utils.stream_validator as stream_validator_module
+
 from utils.stream_validator import (
+    MAX_REPEAT_SYMBOLIC_MOTIFS,
     MAX_REPEAT_SENTENCES,
     StreamValidator,
 )
@@ -67,7 +70,7 @@ def test_stream_validator_allows_repeated_sentences_when_sentence_check_disabled
 
     repeated = (
         "* Wait, I'll check if I should use "
-        "`append_skill` first.\n"
+        "`load_skill` first.\n"
     )
 
     for _ in range(3):
@@ -111,12 +114,110 @@ def test_stream_validator_allows_non_consecutive_repeated_sentences():
     assert validator.last_failure_reason is None
 
 
+def test_stream_validator_stops_recurrent_sentence_inside_mixed_loop():
+    validator = StreamValidator()
+
+    anchor = "Actually, I'll just do the task.\n"
+    mixed_blocks = [
+        (
+            "Wait, I'll do this:\n"
+            '"I used the wrong tag, so the tool never ran."\n'
+            "Then the task.\n"
+        ),
+        (
+            "Let's try to be very precise.\n"
+            "1. Acknowledge the error.\n"
+            "2. Perform the task.\n"
+        ),
+    ]
+
+    for repeat_index in range(
+        MAX_REPEAT_SENTENCES
+    ):
+        chunk = (
+            anchor
+            + mixed_blocks[
+                repeat_index % len(mixed_blocks)
+            ]
+        )
+
+        clean, is_valid = validator.filter_chunk(
+            chunk
+        )
+
+        if repeat_index < MAX_REPEAT_SENTENCES - 1:
+            assert clean == chunk
+            assert is_valid
+            continue
+
+        assert clean == ""
+        assert not is_valid
+
+    assert validator.last_failure_reason == (
+        "Repeated sentence loop detected."
+    )
+    assert validator.last_failure_preview.startswith(
+        "Actually, I'll just do the task."
+    )
+    assert validator.last_failure_loop_preview == (
+        "Actually, I'll just do the task."
+    )
+
+
+def test_stream_validator_sentence_repeat_threshold_can_be_raised(monkeypatch):
+    threshold = 7
+
+    monkeypatch.setattr(
+        stream_validator_module,
+        "MAX_REPEAT_SENTENCES",
+        threshold,
+    )
+
+    validator = StreamValidator()
+    repeated = "Actually, I'll just do the task.\n"
+
+    for repeat_index in range(threshold):
+        clean, is_valid = validator.filter_chunk(
+            repeated
+        )
+
+        if repeat_index < threshold - 1:
+            assert clean == repeated
+            assert is_valid
+            continue
+
+        assert clean == ""
+        assert not is_valid
+
+
+def test_stream_validator_sentence_repeat_threshold_zero_disables_check(monkeypatch):
+    monkeypatch.setattr(
+        stream_validator_module,
+        "MAX_REPEAT_SENTENCES",
+        0,
+    )
+
+    validator = StreamValidator()
+    repeated = "Actually, I'll just do the task.\n"
+
+    text = collect(
+        validator,
+        [
+            repeated
+            for _ in range(10)
+        ],
+    )
+
+    assert text == repeated * 10
+    assert validator.last_failure_reason is None
+
+
 def test_stream_validator_stops_repeated_sentence_sequence_with_markers():
     validator = StreamValidator()
 
     repeated_block = (
         "* *Actually*, I'll do:\n"
-        "- `<SAVE_ACTIVE_MEMORY: Experiment timer>`\n"
+        "- `<SAVE_ACTIVE_MEMORY> Experiment timer </SAVE_ACTIVE_MEMORY>`\n"
         "- `<WEB_SEARCH: fusion energy>`\n"
         "\n"
         "* *Wait*, I'll just do the search.\n"
@@ -146,7 +247,7 @@ def test_stream_validator_stops_repeated_sentence_sequence_with_markers():
         "* *Wait*, I'll just do the search."
     )
     assert validator.last_failure_loop_preview == (
-        validator.last_failure_preview
+        "* *Actually*, I'll do:\\n* *Wait*, I'll just do the search."
     )
 
 
@@ -180,6 +281,255 @@ def test_stream_validator_stops_repeated_short_word_sequence():
     assert validator.last_failure_loop_preview == "запиши or"
 
 
+def test_stream_validator_stops_repeated_complex_symbolic_motif_in_mixed_reasoning():
+    validator = StreamValidator()
+
+    for repeat_index in range(MAX_REPEAT_SYMBOLIC_MOTIFS):
+        block = (
+            f"alpha{repeat_index} beta{repeat_index} gamma{repeat_index}\n"
+            "```\n"
+            "  (😼) ⚡\n"
+            "```\n"
+            f"delta{repeat_index} epsilon{repeat_index} zeta{repeat_index}\n"
+        )
+        clean, is_valid = validator.filter_chunk(block)
+
+        if repeat_index < MAX_REPEAT_SYMBOLIC_MOTIFS - 1:
+            assert clean == block
+            assert is_valid
+            continue
+
+        assert clean == ""
+        assert not is_valid
+
+    assert validator.last_failure_reason == (
+        "Repeated symbolic motif loop detected."
+    )
+    assert validator.last_failure_loop_preview == "(😼) ⚡"
+
+def test_stream_validator_stops_long_inline_symbolic_motif():
+    validator = StreamValidator()
+    motif = "▙▟▛"
+
+    # The real failure from the captured MHTML was one physical line with the
+    # same three-character motif repeated for hundreds of characters. Provider
+    # chunk boundaries must not hide that, but shorter intentional art should
+    # remain valid.
+    for repeat_index, chunk in enumerate([
+        motif * 12,
+        motif * 12,
+        motif * 12,
+    ]):
+        clean, is_valid = validator.filter_chunk(chunk)
+
+        if repeat_index < 2:
+            assert clean == chunk
+            assert is_valid
+            continue
+
+        assert clean == ""
+        assert not is_valid
+
+    assert validator.last_failure_reason == (
+        "Repeated symbolic motif loop detected."
+    )
+    assert validator.last_failure_loop_preview == motif
+
+def test_stream_validator_allows_spaced_geometric_art_across_uneven_rows():
+    validator = StreamValidator()
+    art = (
+        "```\n"
+        "      ◢ ◤ ◢ ◤ ◢ ◤ ◢ ◤\n"
+        "   ◢ ◤ ◢ ◤ ◢ ◤\n"
+        "       ◢ ◤ ◢ ◤ ◢ ◤ ◢ ◤\n"
+        "  ◢ ◤ ◢ ◤ ◢ ◤ ◢ ◤ ◢ ◤\n"
+        "     ◢ ◤ ◢ ◤ ◢ ◤ ◢ ◤\n"
+        "        ◢ ◤ ◢ ◤ ◢ ◤\n"
+        "    ◢ ◤ ◢ ◤ ◢ ◤ ◢ ◤ ◢ ◤\n"
+        "```\n"
+    )
+
+    # A finite patterned drawing is allowed even though adjacent rows share a
+    # tiny visual motif. Newlines are intentional structure, not loop evidence.
+    text = collect(
+        validator,
+        [
+            art[:47],
+            art[47:103],
+            art[103:],
+        ],
+    )
+
+    assert text == art
+    assert validator.last_failure_reason is None
+    assert validator.last_failure_loop_preview == ""
+
+def test_stream_validator_allows_short_spaced_geometric_art():
+    validator = StreamValidator()
+    art = (
+        "```\n"
+        "◢ ◤ ◢ ◤ ◢ ◤\n"
+        "  ◢ ◤ ◢ ◤ ◢ ◤\n"
+    )
+
+    clean, is_valid = validator.filter_chunk(art)
+
+    assert clean == art
+    assert is_valid
+    assert validator.last_failure_reason is None
+
+
+def test_stream_validator_allows_long_single_symbol_art_row():
+    validator = StreamValidator()
+    line = "█" * 160 + "\n"
+
+    clean, is_valid = validator.filter_chunk(line)
+
+    assert clean == line
+    assert is_valid
+    assert validator.last_failure_reason is None
+
+
+def test_stream_validator_allows_repeated_ascii_art_rows():
+    validator = StreamValidator()
+    line = "| | | | | | | |\n"
+
+    text = collect(
+        validator,
+        [
+            line
+            for _ in range(
+                MAX_REPEAT_SYMBOLIC_MOTIFS + 4
+            )
+        ],
+    )
+
+    assert text == line * (
+        MAX_REPEAT_SYMBOLIC_MOTIFS + 4
+    )
+    assert validator.last_failure_reason is None
+    assert validator.last_failure_loop_preview == ""
+
+
+def test_stream_validator_stops_runaway_short_repeated_ascii_art_rows():
+    validator = StreamValidator()
+    row = "    ( ) )\n"
+
+    for line_index in range(
+        stream_validator_module.ASCII_REPEAT_LOOP_MIN_LINES
+    ):
+        clean, is_valid = validator.filter_chunk(row)
+
+        if line_index < stream_validator_module.ASCII_REPEAT_LOOP_MIN_LINES - 1:
+            assert clean == row
+            assert is_valid
+            continue
+
+        assert clean == ""
+        assert not is_valid
+
+    assert validator.last_failure_reason == (
+        "Repeated symbolic motif loop detected."
+    )
+    assert validator.last_failure_loop_preview == "( ) )"
+
+
+def test_stream_validator_stops_runaway_ascii_diagonal_drift():
+    validator = StreamValidator()
+    row = "\\                          \\"
+
+    for line_index in range(
+        stream_validator_module.ASCII_DRIFT_LOOP_MIN_LINES
+    ):
+        chunk = " " * line_index + row + "\n"
+        clean, is_valid = validator.filter_chunk(chunk)
+
+        if line_index < stream_validator_module.ASCII_DRIFT_LOOP_MIN_LINES - 1:
+            assert clean == chunk
+            assert is_valid
+            continue
+
+        assert clean == ""
+        assert not is_valid
+
+    assert validator.last_failure_reason == (
+        "Repeated symbolic motif loop detected."
+    )
+    assert validator.last_failure_loop_preview == row
+
+
+def test_stream_validator_allows_finite_ascii_diagonal_drift():
+    validator = StreamValidator()
+    row = "\\                          \\"
+    line_count = stream_validator_module.ASCII_DRIFT_LOOP_MIN_LINES - 4
+    art = "".join(
+        " " * line_index + row + "\n"
+        for line_index in range(line_count)
+    )
+
+    text = collect(
+        validator,
+        [
+            art[:73],
+            art[73:211],
+            art[211:],
+        ],
+    )
+
+    assert text == art
+    assert validator.last_failure_reason is None
+    assert validator.last_failure_loop_preview == ""
+
+
+def test_stream_validator_allows_bare_two_emoji_lines_even_when_repeated():
+    validator = StreamValidator()
+    line = "😂 ⚡\n"
+
+    text = collect(
+        validator,
+        [
+            line
+            for _ in range(
+                MAX_REPEAT_SYMBOLIC_MOTIFS + 4
+            )
+        ],
+    )
+
+    assert text == line * (
+        MAX_REPEAT_SYMBOLIC_MOTIFS + 4
+    )
+    assert validator.last_failure_reason is None
+
+
+def test_stream_validator_symbolic_motif_survives_provider_chunk_splits():
+    validator = StreamValidator()
+
+    for repeat_index in range(
+        MAX_REPEAT_SYMBOLIC_MOTIFS
+    ):
+        clean, is_valid = validator.filter_chunk(
+            "```\n  (😼"
+        )
+        assert clean == "```\n  (😼"
+        assert is_valid
+
+        clean, is_valid = validator.filter_chunk(
+            ") ⚡\n```\n"
+        )
+
+        if repeat_index < MAX_REPEAT_SYMBOLIC_MOTIFS - 1:
+            assert clean == ") ⚡\n```\n"
+            assert is_valid
+            continue
+
+        assert clean == ""
+        assert not is_valid
+
+    assert validator.last_failure_reason == (
+        "Repeated symbolic motif loop detected."
+    )
+
+
 def test_stream_validator_allows_repeated_numeric_stream_fragments():
     validator = StreamValidator()
 
@@ -192,6 +542,66 @@ def test_stream_validator_allows_repeated_numeric_stream_fragments():
     assert validator.last_failure_reason is None
     assert validator.last_failure_preview == ""
     assert validator.last_failure_loop_preview == ""
+
+
+def test_stream_validator_does_not_split_fact_ids_at_provider_chunk_edges():
+    validator = StreamValidator()
+
+    chunks = ["Cluster B contains: "]
+    for fact_id in range(5, 13):
+        chunks.extend(["F", f"{fact_id}, "])
+
+    for chunk in chunks:
+        clean, is_valid = validator.filter_chunk(chunk)
+
+        assert clean == chunk
+        assert is_valid
+
+    assert validator.last_failure_reason is None
+    assert validator.last_failure_preview == ""
+    assert validator.last_failure_loop_preview == ""
+
+
+def test_stream_validator_allows_unknown_lt_fact_ids_in_prose():
+    validator = StreamValidator()
+    chunks = [f"* F{fact_id}: referenced fact.\n" for fact_id in range(257, 263)]
+
+    assert collect(validator, chunks) == "".join(chunks)
+    assert validator.last_failure_reason is None
+
+
+def test_stream_validator_allows_unknown_lt_fact_ids_split_across_chunks():
+    validator = StreamValidator()
+    chunks = []
+    for fact_id in range(257, 263):
+        chunks.extend(["* F", f"{fact_id}: referenced fact.\n"])
+
+    assert collect(validator, chunks) == "".join(chunks)
+    assert validator.last_failure_reason is None
+
+
+def test_stream_validator_still_catches_words_split_from_whitespace_chunks():
+    validator = StreamValidator()
+
+    for repeat_index in range(8):
+        clean, is_valid = validator.filter_chunk("wait")
+        assert clean == "wait"
+        assert is_valid
+
+        clean, is_valid = validator.filter_chunk(" ")
+
+        if repeat_index < 7:
+            assert clean == " "
+            assert is_valid
+            continue
+
+        assert clean == ""
+        assert not is_valid
+
+    assert validator.last_failure_reason == (
+        "Repeated word loop detected."
+    )
+    assert validator.last_failure_loop_preview == "wait"
 
 
 def test_stream_validator_allows_short_repeated_sentences():
@@ -233,7 +643,9 @@ def test_stream_validator_stops_reasoning_loop_with_changing_quoted_checks():
         "I must skip redundant drafts and trial loops.",
         "I prefer to keep my presence unobtrusive.",
         "I respect the consistency and reliability of my context.",
-    ]
+        "I should keep the final response concise and grounded.",
+        "I must not restart the same final-check routine again.",
+    ][:MAX_REPEAT_SENTENCES]
 
     for repeat_index, prompt_check in enumerate(
         prompt_checks
@@ -257,7 +669,7 @@ def test_stream_validator_stops_reasoning_loop_with_changing_quoted_checks():
             if not is_valid:
                 break
 
-        if repeat_index < len(prompt_checks) - 1:
+        if repeat_index < MAX_REPEAT_SENTENCES - 1:
             assert is_valid
             continue
 
@@ -267,8 +679,8 @@ def test_stream_validator_stops_reasoning_loop_with_changing_quoted_checks():
         "Repeated sentence loop detected."
     )
     assert validator.last_failure_preview == (
-        '*Final check of the prompt: "I respect the consistency '
-        'and reliability of my context.*The response is good.'
+        f'*Final check of the prompt: "{prompt_checks[-1]}\\n'
+        '*The response is good.'
     )
 
 
@@ -288,3 +700,62 @@ def test_stream_validator_allows_single_changing_quoted_template_list():
         )
 
     assert validator.last_failure_reason is None
+
+
+def test_validation_exclusions_do_not_open_block_for_literal_marker_reference():
+    validator = StreamValidator()
+
+    filtered = validator.filter_validation_exclusions(
+        "I will also check `<JIN_COLOR>`. Then continue."
+    )
+
+    assert "Then continue." in filtered
+    assert validator.validation_excluded_block_name == ""
+
+
+def test_validation_exclusions_handle_backtick_marker_across_chunk_boundary():
+    validator = StreamValidator()
+
+    first = validator.filter_validation_exclusions(
+        "I will also check `"
+    )
+    second = validator.filter_validation_exclusions(
+        "<JIN_COLOR>"
+    )
+    third = validator.filter_validation_exclusions(
+        "`. Then continue."
+    )
+
+    assert "Then continue." in (first + second + third)
+    assert validator.validation_excluded_block_name == ""
+
+
+def test_literal_runtime_marker_does_not_hide_repeated_sentence_loop():
+    validator = StreamValidator()
+    repeated = "I will output the tool call.\n"
+
+    assert validator.validate_repetitions(repeated)
+    assert validator.validate_repetitions(
+        "I will also check `"
+    )
+    assert validator.validate_repetitions(
+        "<JIN_COLOR>"
+    )
+    assert validator.validate_repetitions(
+        "`. Then I will answer.\n"
+    )
+
+    detected = False
+    for _ in range(MAX_REPEAT_SENTENCES):
+        if not validator.validate_repetitions(repeated):
+            detected = True
+            break
+
+    assert detected
+    assert validator.last_failure_reason == (
+        "Repeated sentence loop detected."
+    )
+    assert validator.last_failure_loop_preview == (
+        "I will output the tool call."
+    )
+    assert validator.validation_excluded_block_name == ""

@@ -23,10 +23,8 @@ from runtime.runtime_context import (
     RuntimeContext,
     RuntimeEmitter,
 )
-from runtime.L1_memory import (
-    build_runtime_memory_snapshot,
-    schedule_runtime_memory_update,
-)
+from runtime.frame_memory import schedule_runtime_memory_update
+from runtime.frame_memory_utils import build_runtime_memory_snapshot
 from websocket import (
     refresh_pending_brain_usage,
     wait_for_runtime_memory_update,
@@ -163,7 +161,6 @@ async def run_standard_turn(
     context.runtime_turn_user_message = user_text
     context.runtime_turn_assistant_response = ""
     context.runtime_turn_interrupted = False
-    context.user_message_count += 1
 
     if hasattr(
         context,
@@ -197,7 +194,7 @@ async def run_standard_turn(
     })
 
     assistant_message = (
-        state.final_answer
+        state.brain_response
         or state.brain_response
         or context.runtime_turn_assistant_response
     )
@@ -213,8 +210,6 @@ async def run_standard_turn(
             await wait_for_runtime_memory_update(
                 context
             )
-
-    context.assistant_message_count += 1
     context.turn_number += 1
 
     return state
@@ -361,7 +356,7 @@ class TwoTurnModelFlowTests(
             question_1,
         )
         answer_1 = (
-            state_1.final_answer
+            state_1.brain_response
             or state_1.brain_response
         )
 
@@ -376,7 +371,7 @@ class TwoTurnModelFlowTests(
             question_2,
         )
         answer_2 = (
-            state_2.final_answer
+            state_2.brain_response
             or state_2.brain_response
         )
 
@@ -396,8 +391,6 @@ class TwoTurnModelFlowTests(
                     "runtime_memory": self.context.runtime_memory,
                     "runtime_l2_memory": self.context.runtime_l2_memory,
                     "turn_number": self.context.turn_number,
-                    "user_message_count": self.context.user_message_count,
-                    "assistant_message_count": self.context.assistant_message_count,
                     "websocket_message_count": len(
                         self.websocket.messages
                     ),

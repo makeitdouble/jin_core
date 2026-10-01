@@ -1,0 +1,807 @@
+# JIN Core Engine — Durable Decisions
+
+**Decision baseline:** reconciled on 2026-10-01 against `jin_core(20261001-090403).zip`. Existing decisions are retained where current source still implements their product meaning; superseded browser-authority decisions are labelled as historical rather than silently presented as current behavior.
+
+This file records product/architecture intent that should survive refactors. It is not a changelog and not a dump of historical experiments.
+
+Status vocabulary:
+
+- **Accepted / implemented** — intent and current code agree.
+- **Accepted / transitional** — decision is current, but compatibility/old representation still exists.
+- **Accepted / not fully implemented** — product decision exists, but current source does not completely realize it.
+- **Rejected** — do not reintroduce without an explicit new decision.
+
+---
+
+## D001 — The runtime is the product
+
+**Status:** Accepted / implemented
+
+JIN Core Engine is a model-agnostic cognitive runtime. The foreground BRAIN model and optional dedicated background SERVICE model are configuration choices, not product architecture.
+
+**Why:** continuity, visible memory, actions, restore, UI semantics, and runtime state must survive model replacement.
+
+**Rejected alternative:** designing the codebase around one named model or treating JIN as a thin chatbot wrapper.
+
+---
+
+## D002 — Direct foreground Brain path
+
+**Status:** Accepted / implemented
+
+The normal foreground path remains:
+
+```text
+user -> AgentRuntime -> BrainNode
+```
+
+No generic planner/router is inserted before Brain by default.
+
+**Why:** lower latency, fewer hidden decisions, easier causality, less framework overhead.
+
+**Rejected alternative:** adopting a large external agent harness/framework before v1.0 simply because it has similar abstractions.
+
+---
+
+## D003 — Inspectability and continuity are core product semantics
+
+**Status:** Accepted / implemented
+
+Memory/context/reasoning/actions/state must be inspectable enough that the user can understand what shaped a response and where continuity came from.
+
+**Why:** “Without context, there is no JIN.” JIN should re-enter a conversation as a continuing runtime, not as a fresh chatbot with a generic summary.
+
+**Rejected alternative:** opaque hidden RAG/state injection with no visible causality.
+
+---
+
+## D004 — L2 and L3 are removed architectural layers
+
+**Status:** Accepted / implemented, with heavy legacy residue
+
+L2 and L3 are no longer live architectural layers. The current conceptual set is:
+
+- live FRAME;
+- L-T durable facts;
+- Active Memory;
+- Delayed Memory;
+- Files;
+- runtime/session checkpoints.
+
+**Why:** L2/L3 created overlapping ownership and stale conceptual layers after newer continuity/memory mechanisms evolved.
+
+**Rejected alternative:** resurrecting L2/L3 because old README/tests are more complete than current docs.
+
+---
+
+## D005 — Durable FRAME is rejected; durable facts go to L-T
+
+**Status:** Accepted / implemented
+
+FRAME is live/operational state. Durable user/project facts belong in L-T rather than a persistent FRAME-like layer.
+
+**Why:** one durable fact owner is easier to reconcile, inspect, age, link, and clean.
+
+**Rejected alternative:** another long-lived “live memory” store parallel to L-T.
+
+---
+
+## D006 — Memory systems remain purpose-specific
+
+**Status:** Accepted / implemented
+
+Active Memory, Delayed Memory, L-T, FRAME, Files, and checkpoints are not interchangeable layers.
+
+**Why:** they have different lifetimes, loading rules, UI semantics, and mutation paths.
+
+**Rejected alternative:** one growing generic memory transcript/store.
+
+---
+
+## D007 — Runtime-action schemas belong in contracts
+
+**Status:** Accepted / transitional
+
+Concrete action syntax, fields, and action-specific rules belong in `contracts/*.json`. General runtime rules should describe only cross-action sequencing/invariants.
+
+**Why:** one model-facing source of truth prevents contradictory prompts and makes action evolution testable.
+
+**Rejected alternative:** duplicating the same action schema in `rules/runtime.py`, handlers, README, and prompt snippets.
+
+---
+
+## D008 — Delayed Memory save uses JSON under `<SAVE_DELAYED_MEMORY>`
+
+**Status:** Accepted / implemented with legacy parser compatibility
+
+Canonical form:
+
+```text
+<SAVE_DELAYED_MEMORY>
+{
+  "title": "",
+  "summary": "",
+  "tags": [],
+  "body": "",
+  "anchor_lt_facts_ids": [],
+  "lt_facts_ids": [],
+  "attachments_ids": []
+}
+</SAVE_DELAYED_MEMORY>
+```
+
+**Why:** explicit structured schema, safer validation, clearer ID relationships.
+
+**Rejected alternative:** advertising `<SAVE_DELAYED_MEMORY_CONTENT>` key/value body as current syntax.
+
+---
+
+## D009 — Active Memory model boundary uses explicit structured JSON
+
+**Status:** Accepted / implemented at the model boundary; internal storage remains transitional
+
+`SAVE_ACTIVE_MEMORY` is the single paired create/update block. Without `id`, its JSON root contains required `conditions` plus optional explicit custom fields and creates a record. With `id`, it updates that exact existing active-memory record and every other root field is a requested change; `conditions` may always change and custom fields must already exist.
+
+**Why:** one action owns the Active Memory write path while the presence of `id` makes create versus update explicit; update keys remain constrained to existing fields, and prose cannot be silently promoted into structure.
+
+**Strict format rule:** Active Memory updates accept only flat `SAVE_ACTIVE_MEMORY` JSON with exact `id: "AM-xxxxxx"`; old UPDATE markers/shapes, nested `fields`/`updates`, `active_memory_id`, and bare six-character IDs are rejected. SAVE custom fields come only from explicit JSON root fields; plain prose/parenthesized text remains conditions.
+
+---
+
+## D010 — Compatibility adapters stay local
+
+**Status:** Accepted / partially implemented
+
+When legacy data must still load, normalize it at a narrow boundary. Do not spread legacy conditionals through prompt assembly, UI, persistence, and action rules.
+
+**Why:** transition debt otherwise becomes permanent architecture.
+
+**Rejected alternative:** keeping multiple live formats everywhere “just in case.”
+
+---
+
+## D011 — Current session continuity does not depend on a model `SAVE_SESSION` action
+
+**Status:** Accepted / implemented in current snapshot
+
+Live/session continuity is built around browser/runtime checkpoints, reconnect/bootstrap, archived chat/reasoning logs, and restore metadata. There is no current `SAVE_SESSION` contract.
+
+Historical `SAVE_SESSION` labels/fields can still be read for old archives/tests.
+
+**Why:** session continuity is runtime infrastructure and should not depend on the model remembering to emit a special save marker.
+
+**Rejected alternative:** reintroducing `SAVE_SESSION` from old docs/tests without a new product decision.
+
+---
+
+## D012 — Archived restore uses a staged one-shot priming path
+
+**Status:** Accepted / implemented
+
+Archived restore first gives Brain bounded exact historical context, then reactivates historical resources through the normal action pipeline. Resource state is not applied independently again at the WebSocket tail.
+
+**Why:** prevents duplicate apply/races and preserves a natural continuity greeting before old resources become normal live state.
+
+**Rejected alternative:** multiple independent restore writers that all “ensure” final state.
+
+---
+
+## D013 — Interrupted turn is not a completed turn
+
+**Status:** Accepted / implemented
+
+Stop/cancel/repetition/context-limit interruption must preserve separate lifecycle semantics. A real USER move is retained in the latest-session/bootstrap tail even when no JIN row exists, but it must remain USER-only rather than being rewritten as a completed exchange. An action-only completed turn may also have no visible JIN text; its durable empty JIN row/timestamp is the completion marker.
+
+**Why:** bootstrap continuity must reflect what actually happened.
+
+---
+
+## D014 — Historical timestamps are data, not render-time defaults
+
+**Status:** Accepted / implementation must be protected
+
+Serialize/deserialize must preserve entity/snapshot timestamps. `now()` is only a fallback for a truly legacy record with no timestamp.
+
+**Why:** ordering, age, context relevance, and visible history become false if reload mutates time.
+
+**Rejected alternative:** stamping restored rows with current time for convenience.
+
+---
+
+## D015 — Anonymous mode is an explicit empty room, not browser-private detection
+
+**Status:** Accepted / implemented
+
+Long-pressing the avatar opens a fresh JIN room with a generated `_anon` session id. Active, Delayed, Facts Memory candidates, and L-T use the ordinary memory folders with `_anon.json` filenames, are shared by concurrently open anonymous rooms, and are deleted after the last anonymous room closes. The browser is only a projection of this anonymous file-backed profile; normal memory never seeds it. FRAME remains tab/runtime-local and does not create a crash journal for anonymous rooms. Global non-memory/asset writes remain restricted. Chat and reasoning remain auditable in ordinary `logs/` under the suffixed session id, while normal bootstrap and L-T freshness scanners ignore those logs.
+
+**Why:** anonymous experimentation must not inherit or contaminate the durable memory room, and browser Incognito detection is not a reliable product primitive.
+
+**Rejected alternative:** inferring browser private mode or maintaining a second `logs_anon` archive root.
+
+---
+
+## D016 — UI must reuse JIN's existing visual language
+
+**Status:** Accepted / mandatory
+
+Before adding a bubble, banner, highlight, tooltip, hover state, button, or feedback effect, find the closest existing JIN primitive and reuse it.
+
+**Why:** color/glow/geometry already encode runtime semantics. Random new visuals create false meanings and make the system look like mixed UI kits.
+
+**Explicitly rejected:** inventing a new blue/turquoise/green highlight just because a feature is new; generic SaaS success/error badges; cheerful icon sets; unnecessary blur.
+
+---
+
+## D017 — Loaded, referenced, inspected, pinned, paused, and deleted are distinct UI semantics
+
+**Status:** Accepted / implemented in parts, regression-sensitive
+
+Examples:
+
+- full object loaded into prompt -> strong/active context signal;
+- ID merely cited/referenced -> weak linked signal;
+- modal opened -> inspect only, not context load;
+- pin/unpin -> persistence/loading preference;
+- pause -> excluded from context without delete;
+- delete/restore -> lifecycle mutation.
+
+**Why:** visual causality must match runtime causality.
+
+**Rejected alternative:** calling one generic highlight routine on every UI interaction.
+
+---
+
+## D018 — UI interaction language should converge, not proliferate
+
+**Status:** Accepted / partially implemented
+
+Memory/file items use a shared interaction language where applicable: long press for delete, half-long pause, click to restore/pending/open according to the existing component semantics.
+
+**Why:** fewer special-case controls and a more coherent object language.
+
+**Rejected alternative:** adding a separate conventional delete button to every item while the gesture contract already exists.
+
+---
+
+## D019 — JIN visual actions use ordinary source-order execution
+
+**Status:** Accepted / implemented
+
+Color/reaction/size/position/speed markers are normal runtime actions. The dispatcher fully prepares and runs each emitted call before touching the next one, so visual state changes in exact model source order. There is no visual-sequence collector, action-stage priority, or client sequence buffer.
+
+Only a true no-op repetition in the same runtime-message scope may be filtered where that action supports it. Alternation such as red -> blue -> red must remain ordered, and a later message may intentionally request the same value again.
+
+**Why:** visual actions should share the same predictable action semantics as the rest of the runtime while preserving the model's expressive order.
+
+**Rejected alternatives:** restoring the removed visual-sequence collector; adding a second parallel animation scheduler; using contract `runtime_order` or registry stages to reorder emitted calls.
+
+---
+
+
+## D020 — Do not invent a second source of truth to fix restore/UI bugs
+
+**Status:** Accepted / mandatory
+
+For bootstrap, tint, timestamp, linked-highlight, and session bugs, first enumerate every writer and establish ordering.
+
+**Why:** many prior regressions were duplicate-apply problems.
+
+**Explicitly rejected:** second listeners, second tint writes, duplicate guards without identity analysis, render-time `Date.now()`, state-only hover payloads that never reach DOM.
+
+---
+
+## D021 — `RUNTIME_SETTINGS` is the first optional live-settings block
+
+**Status:** Accepted / implemented
+
+`rules/brain_context_builder.py` owns `CURRENT_RUNTIME_SETTINGS_CONTENT`. If it is empty, the `<RUNTIME_SETTINGS>` block is omitted. On ordinary turns it precedes the remaining live prompt scaffolding; restore continuity keeps its documented preamble first.
+
+**Why:** this block is an explicit runtime-level override/context injector and must have deterministic placement.
+
+---
+
+## D022 — Keep heavy/background work off the foreground critical path where possible
+
+**Status:** Accepted / implemented in principle
+
+Optimization priority:
+
+1. delete redundant calls;
+2. safely combine calls without changing ordering;
+3. cache stable results;
+4. move non-required work to idle/background;
+5. keep only causally required operations on the foreground path.
+
+**Why:** chat latency is a product concern.
+
+**Constraint:** never trade ordering, memory correctness, recoverability, or observability for fewer calls.
+
+---
+
+## D023 — No large framework rewrite before v1.0
+
+**Status:** Accepted
+
+The existing JIN skeleton already has state, named prompt sections, dynamic context, actions, continuity, pruning/tool-result handling, observability, and model roles.
+
+**Why:** a framework migration before v1.0 creates risk without proving a product gain.
+
+**Rejected alternative:** rewriting JIN around DeepSeek-style/other agent harnesses because their vocabulary looks similar.
+
+---
+
+## D024 — `FRAME` is the canonical product name for live runtime memory
+
+**Status:** Accepted / implemented
+
+The first memory-panel tab is labelled `FRAME`, Brain context exposes it as `<FRAME_MEMORY_N>`, and current documentation uses FRAME for the live runtime-memory concept everywhere. It retains snapshot/diff paging and remains distinct from Active, Delayed, L-T, Files, and durable checkpoints.
+
+Implementation modules, state fields, events, pending journals, UI identifiers, and tests use FRAME naming. The previous internal name has no compatibility reader or fallback path; old pending journals and wire events are intentionally unsupported.
+
+The memory panel exposes five memory views — `FRAME`, `ACTIVE`, `DELAYED`, `L-T`, and `FILES` — plus a sixth `LOGS` archive projection. `LOGS` is not a memory layer: it indexes restorable disk sessions. The temporary unprocessed-facts view is not part of this tab bar. The shared count/paging control sits below the active tab; arrows are visible only for `FRAME`.
+
+---
+
+## D025 — Header auto-hide behavior: delayed reveal, slower hide
+
+**Status:** Accepted / code currently differs on reveal delay
+
+Product intent recorded on 2026-08-21:
+
+- reveal only after hover dwell of roughly 250 ms;
+- hide roughly 1 s after leaving;
+- reveal catch zone must not fire merely because the pointer passes over the avatar/panels.
+
+Current code uses 333 ms reveal and 1000 ms hide. This mismatch is documented, not silently resolved here.
+
+---
+
+## D026 — Search actions require real configured provider capability
+
+**Status:** Accepted / implemented
+
+`WEB_SEARCH` and `DEEP_WEB_SEARCH` are model-visible only when both their runtime feature flags and `settings.CAN_SEARCH` allow them. For the current Serper integration, local capability means provider `serper` plus a non-empty, non-placeholder API key supplied through the process environment. Secrets do not belong in `config.py` or `config.example.py`; the Windows launcher may populate its child process from an ignored repository-root `.env`, with `.env.example` documenting names through placeholders only.
+
+**Why:** advertising an action that cannot execute creates fake affordance and failed loops. Conversely, Serper does not define a stable client-side key shape, so arbitrary length/prefix regexes can incorrectly hide valid credentials.
+
+**Rejected alternatives:** feature flags alone deciding search availability; hard-coding guessed Serper key formats instead of letting the provider validate credentials.
+
+---
+
+## D027 — `CLEAN_TOOL_RESULTS` is an authoritative field-local tombstone, not a checkpoint refresh
+
+**Status:** Cleanup semantics retained; browser-checkpoint persistence superseded by D057
+
+Full cleanup is requested with an empty `<CLEAN_TOOL_RESULTS></CLEAN_TOOL_RESULTS>` block. Targeted `<CLEAN_TOOL_RESULTS> T1, T2, T3 </CLEAN_TOOL_RESULTS>` persists only the survivors; IDs are comma-separated and validated as one atomic set before mutation. New results have increasing temporary `tool_id` values, also retained in action history; the counter survives cleanup/bootstrap. Legacy results remain ID-less and require full cleanup. Any invalid or missing target fails visibly without clearing any listed result. The resulting empty/survivor set is authoritative and must not be repopulated from older archived tool results.
+
+D057 moved reload authority from the former browser checkpoint to disk-owned checkpoint/tool-result events. Page-local browser projections may mirror the cleaned result set, but they do not choose reload state or freshness.
+
+This exact-empty rule is intentionally scoped to `tool_results`; other empty collections keep their own restore semantics.
+
+**Rejected alternatives:** treating browser state as reload authority after CLEAN; treating every empty collection as either universally authoritative or universally missing.
+
+---
+
+## D028 — Session-action interruption telemetry is emitted at cause time
+
+**Status:** Accepted / implemented
+
+Validator/reasoning loops and context/output-limit recovery must append and emit their session-action entry immediately when the interruption is detected, before automatic continuation/follow-up runs. `context_overflow` belongs to the context-limit recovery family.
+
+**Why:** Session Actions is causal runtime telemetry. If the event appears only after the final answer, the UI gives a false ordering of what the runtime was doing.
+
+**Rejected alternative:** recording the interruption only during end-of-turn/final response compaction.
+
+---
+
+## D029 — Structured Session Action metadata is continuity data
+
+**Status:** Accepted / implemented
+
+Bootstrap sanitization must preserve recognized structured action-part metadata required by the logger, not only human-readable text. For JIN_COLOR, `parts[].colors` round-trips through bootstrap and is normalized to lowercase `#rrggbb` so restored rows keep color swatches and hex hover text.
+
+**Why:** text-only restoration can look superficially correct while silently destroying UI semantics after reload.
+
+**Rejected alternative:** reducing persisted/restored action parts to `text/detail/message/id` when additional recognized metadata drives the existing projection.
+
+---
+
+## D030 — Surfaced L-T evidence expands; ordinary rows stay compact
+
+**Status:** Accepted / implemented
+
+The ordinary L-T panel uses a compact 50-character value preview. A fact bubbled by runtime reference, explicit reasoning citation, or context-loaded state displays the full value with no truncation.
+
+**Why:** the panel should remain scan-friendly by default, while evidence JIN actually surfaced must be readable in full. The expansion is a UI projection and must not mutate canonical L-T storage/order.
+
+**Rejected alternatives:** truncating surfaced citations; expanding every L-T row all the time.
+
+---
+
+## D031 — JIN color and size use paired XML at the model boundary
+
+**Status:** Accepted / implemented with localized legacy compatibility
+
+Canonical forms put payload in the body:
+
+```text
+<JIN_COLOR> #00f2ff </JIN_COLOR>
+<JIN_SIZE> w:120 h:120 </JIN_SIZE>
+```
+
+Inline/colon/space forms may still be recognized by compatibility parsing, but contracts and prompt instructions teach only the paired form. Removing a marker must preserve ordinary visible answer text on both sides and across arbitrary stream chunk boundaries.
+
+`JIN_SIZE` values preserve their declared unit across the model/parser/event boundary. Positive decimal `px`, `vw`, `vh`, and `%` values are supported; a missing unit means `px`. Relative units are resolved only in the live browser: `%` follows the corresponding width/height viewport axis, while `vw` and `vh` always follow viewport width and height. Persistence records the resulting rendered pixel geometry rather than the unresolved command.
+
+**Why:** a real closing boundary prevents an inline marker parser from swallowing the answer tail and gives streaming one deterministic completion point.
+
+**Rejected alternative:** advertising legacy `<JIN_COLOR: ...>` / `<JIN_SIZE ...>` as the preferred syntax.
+
+---
+
+## D032 — The newest real USER move owns normal continuation
+
+**Status:** Accepted / implemented; source-selection wording updated by D057
+
+Disk archive selection identifies the last runtime session that actually moved. Opening a blank/bootstrap-only tab does not create a stronger continuation owner. A real USER send can make its session the newest continuation candidate even when the turn is interrupted before a JIN row is written; `conversation_committed_at` remains a separate completed-turn timestamp.
+
+Browser/page-local projections do not participate in source selection. Within the disk archive, the newest real USER move wins, including USER-only interrupted turns.
+
+**Why:** continuity follows the conversation the user actually touched, not whichever tab most recently initialized or flushed presentation state.
+
+**Rejected alternatives:** newest runtime ID wins; newest presentation/checkpoint timestamp wins regardless of USER activity; dropping interrupted USER-only moves.
+
+---
+
+## D033 — Bootstrap freshness is resolved inside the disk-owned source
+
+**Status:** Browser-authority design superseded by D057; disk freshness semantics implemented
+
+Reload/new-tab bootstrap no longer arbitrates browser state against the archive. Disk-owned session material is the only reload authority: recent dialogue/reasoning comes from raw logs, FRAME comes from committed frame snapshots/context fallback, and session actions/tool results come from ordered server-emitted events/checkpoints. Empty disk values remain authoritative.
+
+A live WebSocket reconnect is a separate case and may reuse the in-process `RuntimeContext`; page-local browser projections do not become a competing freshness clock.
+
+**Why:** one reload owner removes browser/archive races while preserving field-appropriate ordering inside the archive.
+
+**Rejected alternative:** one global timestamp or browser-vs-disk newest-record contest deciding every bootstrap field.
+
+---
+
+## D034 — JIN color has one server/disk bootstrap reconciliation path
+
+**Status:** Accepted / implemented; browser-authority clauses superseded by D057
+
+Accepted JIN_COLOR updates `RuntimeContext.jin_color`, emits the live visual event, records an ordered raw runtime event, and is folded into the server session snapshot/action trail. There is no separate latest-color storage key.
+
+On normal reload/bootstrap, disk-owned session state restores the color into `RuntimeContext`. The browser then receives one authoritative color through `session_actions_update` with `bootstrap_restore=true`; page-local room/checkpoint projections may mirror live state but never outrank disk or choose the reload source.
+
+The first bootstrap color uses the one 2-second avatar-and-scene transition. Later/live colors use 333 ms. Projection-only updates must not mutate disk/bootstrap freshness metadata.
+
+**Why:** this removes the pink/gray/red flash-and-revert class caused by multiple color owners and late writers while keeping a single reload authority.
+
+**Rejected alternatives:** `latestJinColor`, `colorOnly` durable browser checkpoints, a client source-scanning resolver, a second tint-shift helper, or a delayed color queue.
+
+---
+
+## D035 — Normal bootstrap shows a bounded inherited chat tail
+
+**Status:** Accepted / implemented
+
+Normal bootstrap renders the five newest real USER moves with JIN/reasoning where present, then places the current-session date divider and starts the live viewport there. USER-only turns remain visible without an empty JIN bubble. Explicit archived restore uses its own history renderer but projects the same bounded USER-owned tail, keeps later visible JIN-only continuation rows, and must not duplicate the normal-bootstrap tail. Its reasoning bubbles contain the reasoning body, not archive-file headers.
+
+The hidden bootstrap Brain prompt projects continuity before the synthetic instruction: inherited `<PREVIOUS_CHAT_MESSAGES>` first, then carried `<PREVIOUS_REASONING_EVIDENCE_TRAIL_AFTER_EXECUTED_ACTIONS>` when available, then `<MANDATORY_SYSTEM_NOTIFICATION>` with the fresh current session ID/time and `!!! USER DIDN'T SEND NEW MESSAGE! !!!`. Legacy `<OLD_SESSION_RESTORED_STATE>` wrappers are reader compatibility and normalize into `<PREVIOUS_CHAT_MESSAGES>`; they are not the current model-facing block name.
+
+For explicit URL restore, the server archive owns dialogue, reasoning, FRAME, Session Actions, and archived visual/runtime state as one causal restore payload. The page may mirror restored room/avatar state into its local projection after application, but browser storage cannot replace individual archive fields or become a restore source. The inherited dialogue/reasoning continuity is the newest conversational authority during the one-shot priming turn; restored FRAME is background and may be one update behind the final visible turn.
+
+**Why:** the user can scroll slightly upward for immediate continuity while the current response begins from a clean, stable boundary.
+
+**Rejected alternatives:** starting with an empty chat; dumping the whole archive; auto-scrolling inherited history below the current-session boundary.
+
+---
+
+## D036 — Recent model dialogue is bounded by pairs, not character-cropped
+
+**Status:** Accepted / implemented
+
+`<PREVIOUS_CHAT_MESSAGES>` contains the newest five recent USER/JIN pairs. Every selected message body is preserved in full after newline normalization, literal `\\n` serialization, whitespace trimming, and XML escaping. There is no per-message character cap.
+
+**Why:** pair-count bounding already limits history breadth; silently cutting the substance of one selected message breaks exact conversational continuity.
+
+**Rejected alternative:** restoring `RECENT_MESSAGE_MAX_CHARS` or an equivalent hidden per-message slice without an explicit prompt-budget decision and regression coverage.
+
+---
+
+## D037 — Ordinary turns retain the previous completed reasoning edges
+
+**Status:** Accepted / implemented
+
+An ordinary user turn includes previous successful reasoning in `<PREVIOUS_REASONING_EVIDENCE_TRAIL_AFTER_EXECUTED_ACTIONS>`. The projection preserves the whole block through 2000 characters; for a larger block it keeps the first and last 25% and replaces only the middle with an explicit `CUTTED N chars` separator.
+
+Action/recovery follow-ups move current visible dialogue and carried reasoning evidence to the front before `<FOLLOW_UP_RESPONSE_MESSAGE>` and do not duplicate those blocks in the base prompt. Archived restore priming uses the same continuity-first ordering before its mandatory synthetic instruction.
+
+**Why:** the opening and conclusion preserve the previous line of thought without spending the entire context window on its middle, while dedicated follow-up context avoids stale or duplicated reasoning.
+
+**Rejected alternatives:** exposing previous reasoning only during session-restore priming; dropping the block from ordinary turns; duplicating it inside action/recovery follow-ups; trimming only one edge.
+
+---
+
+## D038 — Memory Attention replaces metabolism
+
+**Status:** Accepted / implemented
+
+The metabolism subsystem is removed. The retained `runtime/memory_attention.py` module performs only prompt-local Active lexical/context relevance, Delayed inventory bubble matching, and a narrow 1–3 fact L-T focus.
+
+Memory Attention is deterministic and stateless: it does not call SERVICE, change Brain temperature, generate hidden instructions, learn phrase associations, mutate memory while building context, persist significance, or drive avatar chemistry.
+
+**Why:** the useful behavior was retrieval/ranking. The causal homeostat duplicated model work, obscured sampling, and leaked event-wide significance through FRAME into durable L-T.
+
+**Rejected alternatives:** keeping observer-only chemistry; keeping significance as an independent durable score; preserving the metabolic UI without the backend.
+
+---
+
+## D039 — Browser runtime continuity has one atomic checkpoint
+
+**Status:** Superseded by D057 on 2026-09-26; retained only as migration history
+
+This decision records the former v2 browser-owned reload design. It is not current bootstrap authority: D057 clears/ignores durable browser cognitive state and resolves reload/new-tab continuity from disk. `jin.liveRuntimeMemory.v2` remains page-ephemeral transport/projection state, while the retired durable `jin.sessionCheckpoint.v2` value is removed during startup rather than trusted for recovery.
+
+The historical design atomically stored session lineage, save/commit times, runtime memory/update count, runtime snapshot, and session snapshot in the browser, including a cleared tombstone and legacy migration rules. Those browser ownership/migration clauses are intentionally obsolete.
+
+Explicit archived restore remains server/disk-owned, and soft reconnect may still reuse live in-process runtime state; neither behavior revives the old durable browser checkpoint as a source of truth.
+
+**Why retained:** it documents the migration path and explains compatibility cleanup code without presenting that code as the current continuity model.
+
+**Rejected current alternatives:** split durable browser state, newest-timestamp browser scans, or any automatic browser-to-disk cognitive migration.
+
+---
+
+## D040 — Brain is the only foreground model route
+
+**Status:** Accepted / implemented with localized legacy readers
+
+Foreground user work always follows:
+
+```text
+user -> AgentRuntime -> BrainNode -> clients["brain"]
+```
+
+SERVICE is a logical background role only. `clients/registry.py` aliases `clients["service"]` to the Brain client by default; an explicitly configured `SERVICE_API_BASE` replaces only that background client with a dedicated runtime. Foreground routing does not depend on Service availability or configuration.
+
+`USE_SERVICE_AS_BRAIN` is not a current runtime option. It is accepted only as old-config migration input: the loader promotes the legacy Service endpoint/settings into canonical Brain settings, clears the dedicated Service URL, removes the flag, and exposes normalized Brain-first configuration to the rest of the process. Launcher detection exists only to preserve this migration during startup.
+
+Archived `service` message roles, `RUNTIME_MODE=SERVICE`, and old `[SERVICE]` model-output logger cards may remain as reader compatibility until real historical data no longer needs them. They must not be used to reintroduce foreground Service execution.
+
+**Why:** the visible model path needs one canonical owner. A one-model installation should be possible without role inversion, while a second machine/model can still accelerate background memory/research work.
+
+**Rejected alternatives:** switching visible replies to Service; keeping `USE_SERVICE_AS_BRAIN` as a live runtime branch; requiring a dedicated Service endpoint; treating archived Service labels as evidence of current topology.
+
+---
+
+## D041 — Memory inspector edits values, never identity
+
+**Status:** Accepted / implemented
+
+Direct memory editing is an explicit UI/runtime write, not a model action. Double-click opens the existing details tooltip as an editor. FRAME permits edits only on the newest snapshot value; Active permits the conditions/value while preserving ID, custom fields, status and metadata; L-T permits only the canonical fact value while preserving key, ID, category, provenance and mention metadata. Keys and IDs are never editable.
+
+Drafts remain page-local until the server acknowledges the checkmark. Requests carry `expected_value` so stale concurrent edits fail rather than overwrite newer state. Manual FRAME writes (value edits and row deletions) wait while the live FRAME writer is busy; Active edits do not inherit that lock because Active Memory is an independent canonical store and remains directly editable during Brain/FRAME work. Rollback returns to the last acknowledged value. Active and L-T successful edits surface `updated_at`; L-T writes persist before publication and mark explicit-edit protection.
+
+**Why:** the inspector should allow surgical correction without turning editing into a second schema/action system or rewriting memory identity.
+
+**Rejected alternatives:** editable keys/IDs; editing historical FRAME snapshots; optimistic overwrite without expected-value conflict detection; routing manual edits through Brain.
+
+---
+
+## D042 — L-T recall decays by last real mention
+
+**Status:** Accepted / implemented
+
+Canonical L-T facts retain `mention_count` and `last_mentioned_at`. A valid `F<number>` reference in JIN reasoning or visible output increments a canonical fact at most once per turn and persists the new mention timestamp. Historical-log backfill may repair older mention dates but must never rewind a newer live mention.
+
+For Brain context, a fact remains fully expanded until 24 hours have elapsed since its latest mention/update/create fallback. After that boundary, each sentence is previewed at a maximum of 100 characters. A later JIN reference refreshes the mention timestamp so subsequent prompts can receive the full value again.
+
+**Why:** old facts remain available without permanently spending full-context cost, while actually reused facts regain detail automatically.
+
+**Rejected alternatives:** deleting old facts for context pressure; decaying canonical stored values; using render-time age without persisted mentions; model-generated importance scores.
+
+---
+
+## D043 — L-T active/all is a projection, not a second store
+
+**Status:** Accepted / implemented
+
+Facts absorbed by Delayed reports are hidden from the default active L-T view unless they are currently context-loaded. Anchor facts remain visible. Clicking the L-T count toggles `show all` / `show active`; the all view uses the same normal fact sorting and does not append archived rows as a separate block. Report-linked fact IDs remain clickable and open the existing Delayed report modal.
+
+**Why:** report absorption should reduce panel/context noise without making facts disappear or creating a parallel archive store.
+
+**Rejected alternatives:** physically moving absorbed facts to another store; appending hidden facts unsorted; losing report navigation when hidden facts are revealed.
+
+---
+
+## D044 — Composer attachment chips represent context attachment, not file ownership
+
+**Status:** Accepted / implemented
+
+Pinned persistent files attached to the outgoing message are projected as compact chips next to the composer. Click reuses the existing preview. Hold detaches/unpins the file from outgoing context. Detach does not delete the persistent file, and attachment changes do not open Console as a side effect.
+
+**Why:** attachment state is temporary message/runtime context; persistent file ownership is a separate system.
+
+**Rejected alternatives:** deleting the asset on detach; a second preview UI; automatic Console expansion merely because a file was attached.
+
+---
+
+## D045 — Failed runtime actions reuse the contract schema and remain incomplete
+
+**Status:** Accepted / implemented
+
+Each concrete runtime-action contract owns a separate human-readable `schema` list in addition to its rules. The same schema is used in model-facing instructions and in failed tool results. A failure is rendered as readable text with status/reason, supplied payload when relevant, and `Correct action schema:`; the shared failure follow-up explicitly tells Brain not to treat the action as completed.
+
+**Why:** recovery should teach the model from the exact contract that rejected the payload instead of exposing raw JSON or duplicating schema text in error handlers.
+
+**Rejected alternatives:** raw JSON failure blobs; independent error-only schemas; continuing the turn as though a failed state mutation succeeded.
+
+---
+
+## D046 — Response copy is an explicit control, not an invisible bubble gesture
+
+**Status:** Accepted / implemented
+
+Completed assistant output exposes `Copy all` under the avatar/message host. The previous invisible bubble utility gesture surface is removed. Answer-rating implementation may remain release-disabled in the codebase, but it does not own release interaction.
+
+**Why:** copying should be discoverable and deterministic, and should not compete with text selection, inspection, or other long-press/double-click semantics.
+
+**Rejected alternatives:** hidden double-click copy; long-hold replacement retry on the answer bubble; re-enabling rating merely to host utility gestures.
+
+---
+
+## D047 — Live Avatar L-T capacity expands by lanes without changing memory identity
+
+**Status:** Accepted / implemented
+
+L-T facts are projected to Live Avatar in lanes of at most 100 records. Additional facts create additional outer L-T rings; Active Memory is laid out beyond the outermost L-T lane and before the persistent-file ring. Memory-row hover reuses the existing avatar zoom/reference semantics.
+
+**Why:** large durable stores must remain inspectable without overloading one ring or changing the underlying fact store.
+
+**Rejected alternatives:** hiding facts solely because the first ring is full; creating a second L-T store per ring; overlapping Active/File rings; inventing a new hover highlight family for overflow lanes.
+
+---
+
+## D048 — Chat recall starts with literal archive search
+
+**Status:** Accepted / implemented
+
+Whole-file recall uses `ATTACH_FILE_BY_ID` with an existing persistent system ID (text or image). Paths and source line ranges belong to `ATTACH_FILE_CONTENT`. Unknown IDs must fail, never become project paths. Success is displayed as `ATTACH_FILE_BY_ID: full_filename.ext`; a missing file is displayed as `ATTACH_FILE_BY_ID: id : failed - file not exists`.
+
+`CHAT_LOG_SEARCH` searches saved USER/JIN messages with literal case-insensitive substrings, OR queries, inclusive date/daily-time bounds and newest-first results. The default limit is 10 turns, hard maximum 50. Including JIN permits bounded reasoning excerpts only alongside a matching USER in that same turn; USER-only search excludes reasoning. Matched messages retain their attachment metadata. The full request and historical identities accompany results. Contract, errors, follow-up, bubbles and persistence reuse the existing runtime-action path.
+
+**Rejected alternatives:** embedding/index infrastructure for this first version; reasoning-only evidence without a matching USER; restoring historical resources as a side effect of search. See [CHAT_LOG_SEARCH.md](CHAT_LOG_SEARCH.md).
+
+---
+
+## D055 — Paired list actions and delayed-memory ownership
+
+**Status:** Accepted / implemented
+
+`WEB_SEARCH` uses `<WEB_SEARCH> query </WEB_SEARCH>`. Delayed report loading, Active Memory deletion, and whole-file attachment accept comma-separated IDs in paired markers. Each ID becomes one ordered internal action. Model-issued `LOAD_DELAYED_MEMORY` results are ordinary tool results with tool IDs and can be removed through `CLEAN_TOOL_RESULTS`; they never populate `<LOADED_DELAYED_MEMORY>`. That block is exclusively owned by explicit user pin state. Consequently there is no model-facing `UNLOAD_DELAYED_MEMORY` contract.
+
+---
+
+## D056 — MCP integrations use one generic loaded-skill action
+
+**Status:** Accepted / implemented
+
+An MCP integration is a normal skill with one canonical `<MCP_SERVER>...</MCP_SERVER>` declaration. Loading the skill discovers the live server/tool catalog and appends it only to the in-memory skill context as `<MCP_RUNTIME>`. Core runtime exposes one generic `CALL_MCP` action rather than generating a Python action per external tool. `CALL_MCP` is model-visible only while a valid MCP skill is loaded.
+
+Each loaded MCP skill owns one persistent connection across automatic follow-ups; unload/runtime retirement closes it and a changed server config creates a new one. MCP calls are excluded from generic result reuse because external tools may mutate state. Returned MCP images join the ordinary pinned-file/attachment path so the next Brain follow-up can inspect them.
+
+**Why:** tool servers can extend JIN without expanding the core action registry per tool, while skill text retains semantic guidance and the server remains authoritative for live technical schemas.
+
+**Rejected alternatives:** one core runtime action per MCP tool; reconnecting a stateful stdio server for every follow-up; duplicating static MCP server identity/instructions in every tool result; keeping screenshot base64 in model context.
+
+---
+
+
+## Background-tab continuity — 2026-09-08
+
+An accidental socket disconnect is not a user Stop. Accepted foreground work,
+FRAME integration and queued USER batches continue in the same server runtime.
+Physical connections only deliver input/output. Unacknowledged output is replayed
+on soft reconnect with page-local event deduplication; live server state wins
+over the stale page snapshot. Browser freeze/discard cannot be prevented by a
+server timeout setting. Process termination remains outside in-memory recovery.
+
+Owner clarification (2026-09-15): reload/close explicitly retires the departing
+page runtime. If its departure signal is lost, retain a disconnected runtime for
+10 minutes, then cancel its work and release it. Reconnecting within that window
+preserves the live runtime. Connected background tabs and persisted BFCache pages
+are not explicit departures. This bounds the earlier disconnected-retention rule;
+it is not a ten-minute generation limit or a timeout on a connected action guard.
+
+---
+
+## Malformed-action recovery — 2026-09-10
+
+**Status:** Accepted / implemented; repair-loop semantics reconciled 2026-09-24
+
+Recognize the three owner-provided malformed envelopes without repairing or executing their payload. Every occurrence gets an independent `MALFORMED_ACTION` bubble, history item and T-id. The next shared follow-up starts with one ordered notification per occurrence: target action, original extracted payload, and the correct contract `schema`. Do not quote the malformed envelope in that notice. Valid action results and normal sequence history remain available together.
+
+The current loop grants one malformed repair tick outside the ordinary workflow follow-up budget. If that repair response is malformed again, stop the repair loop and run one final non-executable Brain response tick with runtime actions disabled. This supersedes the earlier "repeat repair indefinitely" wording.
+
+**Rejected:** a separate repair-only conversation, inferred action execution, collapsing repeated malformed attempts into one bubble, or an unbounded malformed-repair loop.
+
+
+
+## D049 — Bootstrap lifecycle is fixed by the owner (2026-09-11)
+
+**Status:** Accepted. Do not redesign this flow during bootstrap/UI fixes.
+
+1. Console starts, a tab opens, JIN writes its startup greeting, USER never
+   responds and closes the tab: this session is NOT saved for continuation.
+2. Console starts, a tab opens, JIN writes its greeting, USER sends a message
+   and closes the tab: this session IS saved; the next bootstrap sees that USER.
+3. Console starts, a tab opens, USER presses Stop before the greeting, then
+   sends a real message and presses Stop: this session IS saved as USER-only.
+4. Console starts, a tab opens, USER stops the greeting, sends a real message,
+   JIN answers: this session IS saved with that USER and its JIN/reasoning.
+
+A startup greeting, runtime ID, FRAME update, or completed bootstrap tick is
+not a real USER send and cannot promote the session into durable continuation.
+Stop cancels the pending/running startup tick; it must not resume later after a
+FRAME wait or consume the subsequent real message. A real USER supersedes any
+unfinished startup tick. Real USER input must survive interruption.
+
+Restore source sessions in chronological groups: USER then its actual answer
+and reasoning, followed by one divider dated to that session's last message.
+Earlier sessions remain above the newest session; never split a USER/JIN pair
+with a divider or turn one send into two USER rows. Do not guess pair ownership
+from identical text. Legacy archive corrections require concrete evidence and
+must be isolated from the ordinary bootstrap algorithm.
+
+The owner's supplied MHTML for session 7e91148a-2077-454d-a3ec-be6028cd6aec
+shows the final USER followed by the calmer-color answer/reasoning. Its JSONL
+instead recorded that answer as turn 138 before USER turn 139, then an empty
+JIN 139. The 2026-09-11 generic JIN-only-row rendering workaround was rejected;
+it exposed the corrupt ordering rather than restoring the actual pair.
+
+Physical deletion is also authoritative (owner clarification, 2026-09-11): two
+real photo messages survived provider crashes as USER-only turns, then the
+owner deleted their date directory and restarted server/browser. localStorage
+must not bring those deleted turns back. A missing source archive invalidates
+the entire browser bootstrap replica; select the latest surviving real USER
+archive even if older, or start empty when none survives. Reader exceptions
+are not proof of deletion. Explicit archived checkout and anonymous isolation
+retain their separate paths.
+
+Startup greeting/reasoning/actions remain in RAM until the first real USER
+send flushes them with the original order and reasoning reference. Closing a
+greeting-only tab must not create a date directory. Workers whose materialized
+archive directory was removed must not recreate that directory with late writes.
+
+
+## D050 — Context overflow requests immediate tool-result cleanup (2026-09-18)
+
+**Status:** Owner requested / implemented
+
+Context overflow uses a separate `FOLLOW_UP_CONTEXT_OVERFLOW_MESSAGE`, asking Brain to skip deep reasoning and immediately emit `CLEAN_TOOL_RESULTS` with a redundant tool-result ID. Do not prepend the ordinary follow-up message or its last-executed-action/result suffix. Output-only limits keep their existing continuation. Preserve the current request sequence and record/emit the interruption before recovery, as a separate Session Actions row. Provider overflow errors and native completion at the provider-reported context boundary must not silently bypass this flow.
+
+
+## D057 — Disk is the only reload/bootstrap authority (2026-09-26)
+
+**Status:** Owner-approved / implemented. Supersedes browser-authority and browser migration clauses of D020, D027, D033, D034 and D039; preserves D049 lifecycle and explicit archive restore.
+
+A clean installation/folder must not inherit dialogue, FRAME, facts, actions or tool results from the same browser origin. Logs and existing memory files own recovery. Browser storage is only an operational projection; startup sends no cognitive payload. A live reconnect uses server RAM, and a restarted backend resolves disk again. Explicit checkout is a disk archive selector, not an uploaded snapshot.
+
+Use the latest saved FRAME with its original metadata, raw dialogue/reasoning/actions and server-emitted checkpoint/tool-result events. Empty disk values remain authoritative. Remove automatic browser Facts migration. Read errors never fall back to browser data.
+
+Session CLEAR keeps its semantics with an atomic disk USER-count barrier (`logs/.continuation-cleared.json`), not a localStorage tombstone. New USER activity can pass the barrier; passive completion cannot. Archives remain available for explicit restore.
+
+**Rejected:** merely adding a folder ID to localStorage, timestamp-based browser/disk arbitration, restoring browser state after a reader error, or trusting a browser-supplied archived payload.
+
+## D058 — Session titles belong to FRAME and LOGS is an archive projection (2026-09-29)
+
+**Status:** Owner-approved / implemented.
+
+`session_title` is one reserved FRAME field, emitted on every full FRAME replacement and protected against omission, duplication, and manual deletion. The ordinary FRAME lifecycle is unchanged: a hidden bootstrap response may run FRAME and update the title. Titles have no separate store and require no extra model request.
+
+The memory panel's LOGS tab indexes restorable, USER-owned non-anonymous archives. It uses the latest committed `frames/` snapshot when present, otherwise the matching primary context snapshot, and shows the session ID for legacy archives without a title. The complete HTTP index is fetched once per page; live `archived_session_update` events insert/retitle the current row, and a focused per-session summary request repairs missed events without reloading the full archive list. Hover preview shows the newest USER-owned turns, including unanswered/action-only USER turns.
+
+Short click opens the existing `restore_session` flow in a new tab. A 1500 ms hold uses the same fade/hold interaction as the other memory rows and deletes the indexed archive through the server endpoint. Deletion rejects anonymous, unsafe, non-indexed, or symlinked targets, removes an empty date directory, and a still-live writer must not recreate a materialized archive the user deleted. Current global durable memory remains governed by the existing restore contract.

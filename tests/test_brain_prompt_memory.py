@@ -1,4 +1,8 @@
 import unittest
+from datetime import (
+    datetime,
+    timezone,
+)
 from types import (
     SimpleNamespace,
 )
@@ -6,18 +10,26 @@ from unittest.mock import (
     patch,
 )
 from rules.brain_context_builder import (
+    PREVIOUS_REASONING_EDGE_PERCENT,
+    PREVIOUS_REASONING_CONTEXT_MIN_CROP_CHARS,
+    PREVIOUS_REASONING_MIN_CROP_CHARS,
     build_brain_context,
+    build_previous_reasoning_context,
+    crop_previous_reasoning_text,
 )
 from utils.context.context_exports import (
     build_session_actions_history_context,
 )
-from runtime.L1_memory_rules import (
-    DEFAULT_RUNTIME_MEMORY,
+from utils.session_actions_history import (
+    upsert_session_action_marker_history_since,
+)
+from runtime.frame_memory_rules import (
+    INITIAL_RUNTIME_MEMORY,
 )
 from runtime.runtime_context import (
     RuntimeContext,
 )
-from runtime.L1_memory_utils import (
+from runtime.frame_memory_utils import (
     build_runtime_memory_snapshot,
 )
 
@@ -42,12 +54,99 @@ class BrainPromptMemoryTests(
             )
 
             self.assertIn(
-                "<RUNTIME_MEMORY>",
+                "<FRAME_MEMORY_",
                 prompt,
             )
             self.assertIn(
-                DEFAULT_RUNTIME_MEMORY,
+                INITIAL_RUNTIME_MEMORY.strip(),
                 prompt,
+            )
+
+    def test_runtime_memory_tag_omits_snapshot_metadata(self):
+
+            context = RuntimeContext(
+                websocket=object(),
+                emitter=object(),
+                logger=object(),
+                clients={},
+            )
+            context.runtime_memory = "topic: timestamped snapshot"
+            context.runtime_memory_snapshots = [
+                {
+                    "timestamp": "2026-08-18T23:12:31+03:00",
+                    "session_id": "snapshot-session",
+                }
+            ]
+
+            prompt = build_brain_context(
+                context=context,
+                runtime_actions={
+                    "CAN_WEB_SEARCH": False,
+                },
+            )
+
+            self.assertIn(
+                (
+                    '<FRAME_MEMORY_0>'
+                ),
+                prompt,
+            )
+            self.assertNotIn(
+                'session_id="snapshot-session"',
+                prompt,
+            )
+            self.assertNotIn(
+                'ts="',
+                prompt.split("<FRAME_MEMORY_0", 1)[1].split(">", 1)[0],
+            )
+
+    def test_frame_memory_number_matches_ui_and_chat_sits_directly_above_it(self):
+
+            context = RuntimeContext(
+                websocket=object(),
+                emitter=object(),
+                logger=object(),
+                clients={},
+            )
+            context.runtime_memory = "topic: numbered frame"
+            context.runtime_memory_display_index_offset = 1
+            context.runtime_memory_snapshots = [
+                {
+                    "index": 4,
+                    "timestamp": "2026-08-28T18:41:32+03:00",
+                    "session_id": "frame-session",
+                }
+            ]
+            context.runtime_recent_turns = [
+                {
+                    "user": "latest user message",
+                    "jin": "latest jin message",
+                }
+            ]
+
+            prompt = build_brain_context(
+                context=context,
+                runtime_actions={
+                    "CAN_WEB_SEARCH": False,
+                },
+            )
+
+            self.assertIn(
+                (
+                    '<FRAME_MEMORY_5>'
+                ),
+                prompt,
+            )
+            self.assertIn(
+                (
+                    "</FRAME_MEMORY_5>\n"
+                    '<PREVIOUS_CHAT_MESSAGES>'
+                ),
+                prompt,
+            )
+            self.assertNotIn(
+                'ts="',
+                prompt.split("<FRAME_MEMORY_5", 1)[1].split(">", 1)[0],
             )
 
     def test_brain_prompt_places_user_idle_in_runtime_memory(self):
@@ -72,11 +171,11 @@ class BrainPromptMemoryTests(
                 prompt,
             )
             self.assertIn(
-                "<RUNTIME_MEMORY>",
+                "<FRAME_MEMORY_",
                 prompt,
             )
             self.assertIn(
-                f"note: {DEFAULT_RUNTIME_MEMORY}",
+                INITIAL_RUNTIME_MEMORY.strip(),
                 prompt,
             )
             self.assertIn(
@@ -93,16 +192,10 @@ class BrainPromptMemoryTests(
                 snapshot["turn_number"],
                 0,
             )
-            self.assertEqual(
-                snapshot["user_message_count"],
-                0,
-            )
-            self.assertEqual(
-                snapshot["assistant_message_count"],
-                0,
-            )
+            self.assertNotIn("user_message_count", snapshot)
+            self.assertNotIn("assistant_message_count", snapshot)
             self.assertIn(
-                f"note: {DEFAULT_RUNTIME_MEMORY}",
+                INITIAL_RUNTIME_MEMORY.strip(),
                 snapshot["raw_memory"],
             )
             self.assertIn(
@@ -120,7 +213,7 @@ class BrainPromptMemoryTests(
             )
             context.runtime_memory = (
                 "active topic: Metaphorical identity query\n"
-                "user_idle: 3m 3s (trace: 0.50)"
+                "user_idle: 3m 3s [ created: 5m ago ]"
             )
             context.runtime_user_idle_seconds = 9
 
@@ -181,7 +274,7 @@ class BrainPromptMemoryTests(
             )
 
             self.assertIn(
-                "<RUNTIME_MEMORY>",
+                "<FRAME_MEMORY_",
                 prompt,
             )
             self.assertIn(
@@ -189,7 +282,83 @@ class BrainPromptMemoryTests(
                 prompt,
             )
 
-    def test_brain_prompt_places_runtime_state_before_session_actions_history(self):
+    def test_brain_prompt_includes_runtime_memory_lifecycle_counters(self):
+
+            context = RuntimeContext(
+                websocket=object(),
+                emitter=object(),
+                logger=object(),
+                clients={},
+            )
+            context.runtime_memory = "topic: first value"
+            context.runtime_memory_snapshot_datetime = datetime(
+                2026,
+                1,
+                1,
+                12,
+                0,
+                0,
+                tzinfo=timezone.utc,
+            )
+            first_snapshot = build_runtime_memory_snapshot(
+                context,
+                context.runtime_memory,
+            )
+            context.runtime_memory_snapshots.append(
+                first_snapshot
+            )
+
+            context.runtime_memory_snapshot_datetime = datetime(
+                2026,
+                1,
+                1,
+                12,
+                5,
+                3,
+                tzinfo=timezone.utc,
+            )
+            prompt = build_brain_context(
+                context=context,
+                runtime_actions={
+                    "CAN_WEB_SEARCH": False,
+                },
+            )
+
+            self.assertIn(
+                "topic: first value [ created: 5m 3s ago ]",
+                prompt,
+            )
+
+            context.runtime_memory = "topic: second value"
+            second_snapshot = build_runtime_memory_snapshot(
+                context,
+                context.runtime_memory,
+            )
+            context.runtime_memory_snapshots.append(
+                second_snapshot
+            )
+            context.runtime_memory_snapshot_datetime = datetime(
+                2026,
+                1,
+                1,
+                12,
+                6,
+                6,
+                tzinfo=timezone.utc,
+            )
+            prompt = build_brain_context(
+                context=context,
+                runtime_actions={
+                    "CAN_WEB_SEARCH": False,
+                },
+            )
+
+            self.assertIn(
+                "topic: second value [ updated: 1m 3s ago ]",
+                prompt,
+            )
+
+    def test_brain_prompt_places_session_actions_directly_after_tool_results(self):
 
             context = SimpleNamespace(
                 runtime_memory="",
@@ -197,9 +366,7 @@ class BrainPromptMemoryTests(
                 runtime_search_result="",
                 runtime_search_result_id="",
                 turn_number=1,
-                user_message_count=2,
-                assistant_message_count=1,
-                runtime_appended_skills=[
+                runtime_loaded_skills=[
                     {
                         "name": "wildcards",
                     },
@@ -210,7 +377,7 @@ class BrainPromptMemoryTests(
                         "created_at": 40.0,
                     },
                     {
-                        "text": "Appended skill: wildcards",
+                        "text": "Loaded skill: wildcards",
                         "created_at": 940.0,
                     },
                     {
@@ -234,35 +401,31 @@ class BrainPromptMemoryTests(
 
             self.assertTrue(
                 prompt.startswith(
-                    "<TOOLS_RESULTS>"
+                    "<TRUSTED_RUNTIME_VARIABLES>"
                 ),
             )
             self.assertLess(
+                prompt.index("</TRUSTED_RUNTIME_VARIABLES>"),
+                prompt.index("<TOOLS_RESULTS>"),
+            )
+            self.assertLess(
                 prompt.index("</TOOLS_RESULTS>"),
-                prompt.index("<RUNTIME_MEMORY>"),
-            )
-            self.assertLess(
-                prompt.index("<RUNTIME_MEMORY>"),
-                prompt.index("<CURRENT_TRUSTED_RUNTIME_VARIABLES>"),
-            )
-            self.assertLess(
-                prompt.index("<CURRENT_TRUSTED_RUNTIME_VARIABLES>"),
-                prompt.index("<CURRENT_SESSION_STATE>"),
-            )
-            self.assertLess(
-                prompt.index("<CURRENT_SESSION_STATE>"),
-                prompt.index("<CURRENT_APPENDED_SKILLS>"),
-            )
-            self.assertLess(
-                prompt.index("<CURRENT_APPENDED_SKILLS>"),
                 prompt.index("<SESSION_ACTIONS_HISTORY>"),
             )
-            self.assertIn(
-                "Total messages count:         4",
-                prompt,
+            self.assertLess(
+                prompt.index("</SESSION_ACTIONS_HISTORY>"),
+                prompt.index("<SKILLS_LIST>"),
             )
+            self.assertLess(
+                prompt.index("</SKILLS_LIST>"),
+                prompt.index("<FRAME_MEMORY_"),
+            )
+            self.assertNotIn("<SESSION_STATE>", prompt)
+            self.assertNotIn("<CURRENT_SESSION_STATE>", prompt)
+            self.assertNotIn("User messages count:", prompt)
+            self.assertNotIn("JIN messages count:", prompt)
             self.assertIn(
-                "<CURRENT_APPENDED_SKILLS>\n    1. wildcards\n</CURRENT_APPENDED_SKILLS>",
+                '<TOOL_RESULT name="LOAD_SKILL" skill="wildcards">',
                 prompt,
             )
             self.assertIn(
@@ -270,7 +433,7 @@ class BrainPromptMemoryTests(
                 prompt,
             )
             self.assertIn(
-                "2. Appended skill: wildcards ( 1m ago )",
+                "2. Loaded skill: wildcards ( 1m ago )",
                 prompt,
             )
             self.assertIn(
@@ -279,7 +442,293 @@ class BrainPromptMemoryTests(
             )
             self.assertLess(
                 prompt.index("<SESSION_ACTIONS_HISTORY>"),
-                prompt.index("I identify myself as JIN"),
+                prompt.index("I identify as JIN"),
+            )
+
+    def test_previous_reasoning_is_inserted_after_session_actions_history(self):
+
+            context = SimpleNamespace(
+                runtime_memory="",
+                deep_thought_count=0,
+                runtime_search_result="",
+                runtime_search_result_id="",
+                runtime_session_action_history=[
+                    {
+                        "text": "CLEAN_TOOL_RESULTS",
+                    },
+                ],
+                runtime_previous_reasoning_content=(
+                    "first internal note <private>\n"
+                    "short conclusion"
+                ),
+            )
+
+            prompt = build_brain_context(
+                context=context,
+                runtime_actions={
+                    "CAN_WEB_SEARCH": False,
+                },
+                include_runtime_action_instructions=False,
+            )
+
+            self.assertIn(
+                "<PREVIOUS_REASONING_EVIDENCE_TRAIL_AFTER_EXECUTED_ACTIONS>",
+                prompt,
+            )
+            self.assertIn(
+                "first internal note &lt;private&gt;",
+                prompt,
+            )
+            self.assertLess(
+                prompt.index("</SESSION_ACTIONS_HISTORY>"),
+                prompt.index("<PREVIOUS_REASONING_EVIDENCE_TRAIL_AFTER_EXECUTED_ACTIONS>"),
+            )
+            self.assertLess(
+                prompt.index("</PREVIOUS_REASONING_EVIDENCE_TRAIL_AFTER_EXECUTED_ACTIONS>"),
+                prompt.index("I identify as JIN"),
+            )
+
+    def test_previous_reasoning_block_is_omitted_when_empty(self):
+
+            context = SimpleNamespace(
+                runtime_memory="",
+                deep_thought_count=0,
+                runtime_search_result="",
+                runtime_search_result_id="",
+                runtime_session_action_history=[],
+                runtime_previous_reasoning_content="",
+            )
+
+            prompt = build_brain_context(
+                context=context,
+                runtime_actions={
+                    "CAN_WEB_SEARCH": False,
+                },
+                include_runtime_action_instructions=False,
+            )
+
+            self.assertNotIn(
+                "<PREVIOUS_REASONING_EVIDENCE_TRAIL_AFTER_EXECUTED_ACTIONS>",
+                prompt,
+            )
+
+    def test_previous_reasoning_crop_keeps_short_text_whole_and_percent_edges(self):
+
+            short_reasoning = (
+                "brief opening\n"
+                "brief conclusion"
+            )
+            self.assertEqual(
+                crop_previous_reasoning_text(
+                    short_reasoning
+                ),
+                short_reasoning,
+            )
+
+            threshold_reasoning = (
+                "x"
+                * PREVIOUS_REASONING_MIN_CROP_CHARS
+            )
+            self.assertEqual(
+                crop_previous_reasoning_text(
+                    threshold_reasoning
+                ),
+                threshold_reasoning,
+            )
+
+            prefix = "a" * 300
+            middle = "m" * 600
+            suffix = "z" * 300
+            long_reasoning = (
+                prefix
+                + middle
+                + suffix
+            )
+            edge_chars = int(
+                len(long_reasoning)
+                * PREVIOUS_REASONING_EDGE_PERCENT
+                / 100
+            )
+
+            self.assertEqual(
+                crop_previous_reasoning_text(
+                    long_reasoning
+                ),
+                prefix[:edge_chars]
+                + "\n"
+                + "---------------------------- CUTTED 600 chars ----------------------------"
+                + "\n"
+                + suffix[-edge_chars:],
+            )
+
+    def test_previous_reasoning_context_uses_larger_crop_minimum(self):
+
+            reasoning = (
+                "x"
+                * (
+                    PREVIOUS_REASONING_MIN_CROP_CHARS
+                    + 500
+                )
+            )
+
+            self.assertIn(
+                (
+                    "---------------------------- CUTTED "
+                ),
+                crop_previous_reasoning_text(
+                    reasoning
+                ),
+            )
+            self.assertNotIn(
+                (
+                    "---------------------------- CUTTED "
+                ),
+                build_previous_reasoning_context(
+                    SimpleNamespace(
+                        runtime_previous_reasoning_content=reasoning,
+                    )
+                ),
+            )
+            self.assertEqual(
+                PREVIOUS_REASONING_CONTEXT_MIN_CROP_CHARS,
+                PREVIOUS_REASONING_MIN_CROP_CHARS
+                + 1000,
+            )
+
+    def test_previous_reasoning_context_can_include_turn_reasoning_uncropped(self):
+
+            reasoning = (
+                "turn opening "
+                + "m" * (
+                    PREVIOUS_REASONING_CONTEXT_MIN_CROP_CHARS
+                    + 500
+                )
+                + " turn ending"
+            )
+            prompt = build_previous_reasoning_context(
+                SimpleNamespace(
+                    runtime_previous_reasoning_content=(
+                        "previous & private"
+                    ),
+                    runtime_turn_reasoning_content=reasoning,
+                ),
+                include_turn_reasoning=True,
+                crop=False,
+            )
+
+            self.assertIn(
+                "previous &amp; private",
+                prompt,
+            )
+            self.assertIn(
+                "turn opening",
+                prompt,
+            )
+            self.assertIn(
+                "turn ending",
+                prompt,
+            )
+            self.assertNotIn(
+                "---------------------------- CUTTED ",
+                prompt,
+            )
+
+    def test_previous_reasoning_can_be_excluded_for_followup_ticks(self):
+
+            context = SimpleNamespace(
+                runtime_memory="",
+                deep_thought_count=0,
+                runtime_search_result="",
+                runtime_search_result_id="",
+                runtime_session_action_history=[
+                    {
+                        "text": "CLEAN_TOOL_RESULTS",
+                    },
+                ],
+                runtime_previous_reasoning_content="previous reasoning",
+            )
+
+            prompt = build_brain_context(
+                context=context,
+                runtime_actions={
+                    "CAN_WEB_SEARCH": False,
+                },
+                include_previous_reasoning=False,
+            )
+
+            self.assertNotIn(
+                "<PREVIOUS_REASONING_EVIDENCE_TRAIL_AFTER_EXECUTED_ACTIONS>",
+                prompt,
+            )
+
+            context.runtime_followup_tick_active = True
+            guarded_prompt = build_brain_context(
+                context=context,
+                runtime_actions={
+                    "CAN_WEB_SEARCH": False,
+                },
+            )
+
+            self.assertNotIn(
+                "<PREVIOUS_REASONING_EVIDENCE_TRAIL_AFTER_EXECUTED_ACTIONS>",
+                guarded_prompt,
+            )
+
+    def test_previous_reasoning_loop_blocks_render_in_existing_slot(self):
+
+            context = SimpleNamespace(
+                runtime_memory="",
+                deep_thought_count=0,
+                runtime_search_result="",
+                runtime_search_result_id="",
+                runtime_session_action_history=[
+                    {
+                        "text": "output token limit reached during reasoning",
+                    },
+                ],
+                runtime_previous_reasoning_content="ordinary reasoning",
+                runtime_previous_reasoning_loop_contents=[
+                    (
+                        "loop one opening "
+                        + "m" * 1200
+                        + " loop one ending"
+                    ),
+                    "loop two short",
+                ],
+            )
+
+            prompt = build_brain_context(
+                context=context,
+                runtime_actions={
+                    "CAN_WEB_SEARCH": False,
+                },
+                include_runtime_action_instructions=False,
+                include_previous_reasoning=False,
+            )
+
+            self.assertEqual(
+                prompt.count("<PREVIOUS_REASONING_LOOP_CONTENT>"),
+                1,
+            )
+            self.assertNotIn(
+                "loop one opening",
+                prompt,
+            )
+            self.assertIn(
+                "loop two short",
+                prompt,
+            )
+            self.assertNotIn(
+                "ordinary reasoning",
+                prompt,
+            )
+            self.assertLess(
+                prompt.index("</SESSION_ACTIONS_HISTORY>"),
+                prompt.index("<PREVIOUS_REASONING_LOOP_CONTENT>"),
+            )
+            self.assertLess(
+                prompt.rindex("</PREVIOUS_REASONING_LOOP_CONTENT>"),
+                prompt.index("I identify as JIN"),
             )
 
     def test_current_action_age_starts_at_one_second(self):
@@ -309,7 +758,7 @@ class BrainPromptMemoryTests(
                 )
 
             self.assertIn(
-                "JIN message 1 executed - ASSET_ACTION ( 1s ago )",
+                "1. ASSET_ACTION ( 1s ago )",
                 history,
             )
             self.assertNotIn(
@@ -339,12 +788,12 @@ class BrainPromptMemoryTests(
                     },
                     {
                         "text": (
-                            "APPEND_SKILL: file_manager (count: 3), "
+                            "LOAD_SKILL: file_manager (count: 3), "
                             "CLEAN_TOOL_RESULTS"
                         ),
                         "parts": [
                             {
-                                "text": "APPEND_SKILL: file_manager",
+                                "text": "LOAD_SKILL: file_manager",
                                 "count": 3,
                             },
                             {
@@ -356,10 +805,10 @@ class BrainPromptMemoryTests(
                         "runtime_turn_id": "turn_000002",
                     },
                     {
-                        "text": "SAVE_SESSION",
+                        "text": "CLEAN_TOOL_RESULTS",
                         "parts": [
                             {
-                                "text": "SAVE_SESSION",
+                                "text": "CLEAN_TOOL_RESULTS",
                                 "count": 1,
                             },
                         ],
@@ -383,19 +832,101 @@ class BrainPromptMemoryTests(
                 history,
             )
             self.assertIn(
-                "JIN message 1 executed - LIST_SKILLS ( 5s ago )",
+                "1. LIST_SKILLS ( 5s ago )",
                 history,
             )
             self.assertIn(
                 (
-                    "JIN message 2 executed - APPEND_SKILL: file_manager (count: 3), "
+                    "2. LOAD_SKILL: file_manager, "
+                    "LOAD_SKILL: file_manager, "
+                    "LOAD_SKILL: file_manager, "
                     "CLEAN_TOOL_RESULTS ( 2s ago )"
                 ),
                 history,
             )
             self.assertIn(
-                "JIN message 3 executed - SAVE_SESSION ( 1s ago )",
+                "3. CLEAN_TOOL_RESULTS ( 1s ago )",
                 history,
+            )
+
+    def test_current_sequence_includes_jin_content_for_marker_message_only(self):
+
+            jin_content = (
+                "Приятно познакомиться, Сергей. "
+                "Сейчас посмотрю, что это за проект Ouroboros."
+            )
+            context = SimpleNamespace(
+                runtime_current_turn_id="turn_000002",
+                runtime_turn_started_at=900.0,
+                runtime_action_sequence_turn_ids=[
+                    "turn_000002",
+                ],
+                runtime_session_action_history=[
+                    {
+                        "text": (
+                            "WEB_SEARCH - Ouroboros AI project framework "
+                            "competitor LLM agents"
+                        ),
+                        "parts": [
+                            {
+                                "text": "WEB_SEARCH",
+                                "detail": (
+                                    "Ouroboros AI project framework "
+                                    "competitor LLM agents"
+                                ),
+                            },
+                        ],
+                        "created_at": 999.0,
+                        "runtime_turn_id": "turn_000002",
+                        "jin_message_content": jin_content,
+                    },
+                ],
+            )
+
+            with patch(
+                "utils.context.context_exports.time.time",
+                return_value=1000.0,
+            ):
+                current_sequence = build_session_actions_history_context(
+                    context,
+                    current_sequence=True,
+                )
+                session_history = build_session_actions_history_context(
+                    context,
+                )
+
+            self.assertIn(
+                (
+                    "JIN: "
+                    f"{jin_content} ( 1s ago )"
+                ),
+                current_sequence,
+            )
+            self.assertIn(
+                (
+                    "1. WEB_SEARCH: "
+                    "Ouroboros AI project framework competitor LLM agents "
+                    "( 1s ago )"
+                ),
+                current_sequence,
+            )
+            self.assertIn(
+                (
+                    "1. WEB_SEARCH: Ouroboros AI project framework "
+                    "competitor LLM agents ( 1s ago )"
+                ),
+                session_history,
+            )
+            self.assertNotIn(
+                "assistant_output_1",
+                session_history,
+            )
+            self.assertIn(
+                (
+                    "JIN: "
+                    f"{jin_content} ( 1s ago )"
+                ),
+                session_history,
             )
 
     def test_current_actions_history_filters_older_session_actions(self):
@@ -423,7 +954,7 @@ class BrainPromptMemoryTests(
                         "runtime_turn_id": "turn_000002",
                     },
                     {
-                        "text": "APPEND_SKILL",
+                        "text": "LOAD_SKILL",
                         "created_at": 998.0,
                         "runtime_turn_id": "turn_000002",
                     },
@@ -439,15 +970,17 @@ class BrainPromptMemoryTests(
                     current_sequence=True,
                 )
 
-            self.assertEqual(
+            self.assertIn(
+                "<REQUEST_ACTIONS_HISTORY>",
                 history,
-                (
-                    "<CURRENT_SEQUENCE>\n"
-                    "    --- Sequence started ---\n"
-                    "    JIN message 1 executed - LIST_SKILLS ( 55s ago )\n"
-                    "    JIN message 2 executed - APPEND_SKILL ( 2s ago )\n"
-                    "</CURRENT_SEQUENCE>"
-                ),
+            )
+            self.assertIn(
+                "1. LIST_SKILLS ( 55s ago )",
+                history,
+            )
+            self.assertIn(
+                "2. LOAD_SKILL ( 2s ago )",
+                history,
             )
             self.assertNotIn(
                 "SAVE_ACTIVE_MEMORY",
@@ -472,15 +1005,15 @@ class BrainPromptMemoryTests(
                 ],
                 runtime_session_action_history=[
                     {
-                        "text": "RESOLVE_ACTIVE_MEMORY, RESOLVE_ACTIVE_MEMORY",
+                        "text": "DELETE_ACTIVE_MEMORY, DELETE_ACTIVE_MEMORY",
                         "parts": [
                             {
-                                "text": "RESOLVE_ACTIVE_MEMORY",
+                                "text": "DELETE_ACTIVE_MEMORY",
                                 "detail": "word: кукушка",
                                 "id": "enrrqo",
                             },
                             {
-                                "text": "RESOLVE_ACTIVE_MEMORY",
+                                "text": "DELETE_ACTIVE_MEMORY",
                                 "detail": "word: кулёк",
                                 "id": "yfpywn",
                             },
@@ -502,15 +1035,79 @@ class BrainPromptMemoryTests(
 
             self.assertIn(
                 (
-                    "JIN message 1 executed - RESOLVE_ACTIVE_MEMORY - "
+                    "1. DELETE_ACTIVE_MEMORY: "
                     "id: enrrqo; content: word: кукушка, "
-                    "RESOLVE_ACTIVE_MEMORY - id: yfpywn; "
+                    "DELETE_ACTIVE_MEMORY: id: yfpywn; "
                     "content: word: кулёк ( 2s ago )"
                 ),
                 history,
             )
             self.assertNotIn(
                 "count:",
+                history,
+            )
+
+    def test_session_history_keeps_full_jin_visual_values_in_context(self):
+
+            context = SimpleNamespace(
+                runtime_session_action_history=[],
+                runtime_current_turn_id="turn_000001",
+                runtime_action_events=[],
+            )
+            marker_actions = [
+                {
+                    "name": "JIN_SIZE",
+                    "marker_count": 1,
+                    "payloads": ["300px"],
+                    "raw_payloads": ["300px 300px"],
+                },
+                {
+                    "name": "JIN_COLOR",
+                    "marker_count": 1,
+                    "payloads": ["#ff00ff"],
+                    "raw_payloads": ["#ff00ff"],
+                },
+                {
+                    "name": "JIN_POSITION",
+                    "marker_count": 1,
+                    "payloads": ["x:120px y:80px"],
+                    "raw_payloads": ["x:120px y:80px"],
+                },
+                {
+                    "name": "JIN_SPEED",
+                    "marker_count": 1,
+                    "payloads": ["80px/s"],
+                    "raw_payloads": ["80px/s"],
+                },
+            ]
+
+            with patch(
+                "utils.session_actions_history.time.time",
+                return_value=1000.0,
+            ):
+                self.assertTrue(
+                    upsert_session_action_marker_history_since(
+                        context,
+                        0,
+                        marker_actions,
+                    )
+                )
+
+            with patch(
+                "utils.context.session_actions.time.time",
+                return_value=4600.0,
+            ):
+                history = build_session_actions_history_context(
+                    context
+                )
+
+            self.assertIn(
+                (
+                    "1. JIN_SIZE: 300px, "
+                    "JIN_COLOR: #ff00ff, "
+                    "JIN_POSITION: x:120px y:80px, "
+                    "JIN_SPEED: 80px/s ( 1h ago )"
+                ),
                 history,
             )
 
@@ -532,7 +1129,7 @@ class BrainPromptMemoryTests(
                         "runtime_turn_id": "turn_000002",
                     },
                     {
-                        "text": "APPEND_SKILL",
+                        "text": "LOAD_SKILL",
                         "created_at": 998.0,
                         "runtime_turn_id": "turn_000002",
                     },
@@ -552,31 +1149,25 @@ class BrainPromptMemoryTests(
                 (
                     "<SESSION_ACTIONS_HISTORY>\n"
                     "    1. SAVE_ACTIVE_MEMORY ( 3m ago )\n"
-                    "    --- Sequence started ---\n"
+                    "    --- start of sequence ---\n"
                     "    2. LIST_SKILLS ( 55s ago )\n"
-                    "    3. APPEND_SKILL ( 2s ago )\n"
-                    "    --- Sequence ended ---\n"
+                    "    3. LOAD_SKILL ( 2s ago )\n"
+                    "    --- end of sequence ---\n"
                     "</SESSION_ACTIONS_HISTORY>"
                 ),
             )
 
-    def test_brain_prompt_does_not_count_runtime_actions_as_messages(self):
+    def test_brain_prompt_omits_session_state_and_message_counters(self):
 
             context = SimpleNamespace(
                 runtime_memory="",
                 deep_thought_count=0,
                 runtime_search_result="",
                 runtime_search_result_id="",
-                turn_number=0,
-                user_message_count=1,
-                assistant_message_count=0,
+                turn_number=699,
                 runtime_action_events=[
-                    {
-                        "name": "list_skills",
-                    },
-                    {
-                        "name": "append_skill",
-                    },
+                    {"name": "list_skills"},
+                    {"name": "load_skill"},
                 ],
             )
 
@@ -587,18 +1178,10 @@ class BrainPromptMemoryTests(
                 },
             )
 
-            session_state = prompt.split(
-                "<CURRENT_SESSION_STATE>",
-                1,
-            )[1].split(
-                "</CURRENT_SESSION_STATE>",
-                1,
-            )[0]
-
-            self.assertIn(
-                "JIN messages count:           1",
-                session_state,
-            )
+            self.assertNotIn("<SESSION_STATE>", prompt)
+            self.assertNotIn("<CURRENT_SESSION_STATE>", prompt)
+            self.assertNotIn("User messages count:", prompt)
+            self.assertNotIn("JIN messages count:", prompt)
 
     def test_brain_prompt_anchors_short_feedback_to_last_jin_response(self):
 
@@ -619,7 +1202,7 @@ class BrainPromptMemoryTests(
             )
 
             self.assertIn(
-                "<RUNTIME_MEMORY>",
+                "<FRAME_MEMORY_",
                 prompt,
             )
             self.assertIn(
@@ -637,8 +1220,6 @@ class BrainPromptMemoryTests(
                     "rating": "disliked",
                 },
                 turn_number=57,
-                user_message_count=58,
-                assistant_message_count=57,
                 deep_thought_count=0,
                 runtime_search_result="",
                 runtime_search_result_id="",
@@ -651,13 +1232,6 @@ class BrainPromptMemoryTests(
                 },
             )
 
-            session_state = prompt.split(
-                "<CURRENT_SESSION_STATE>",
-                1,
-            )[1].split(
-                "</CURRENT_SESSION_STATE>",
-                1,
-            )[0]
             user_feedback = prompt.split(
                 "<LATEST_USER_FEEDBACK priority=HIGH_PRIORITY>",
                 1,
@@ -665,11 +1239,25 @@ class BrainPromptMemoryTests(
                 "</LATEST_USER_FEEDBACK>",
                 1,
             )[0]
-            runtime_memory = prompt.split(
-                "<RUNTIME_MEMORY>",
+            frame_memory_suffix = prompt.split(
+                "<FRAME_MEMORY_",
+                1,
+            )[1]
+            frame_memory_tag = (
+                "FRAME_MEMORY_"
+                + frame_memory_suffix.split(
+                    None,
+                    1,
+                )[0].split(
+                    ">",
+                    1,
+                )[0]
+            )
+            runtime_memory = frame_memory_suffix.split(
+                ">",
                 1,
             )[1].split(
-                "</RUNTIME_MEMORY>",
+                f"</{frame_memory_tag}>",
                 1,
             )[0]
 
@@ -680,8 +1268,12 @@ class BrainPromptMemoryTests(
             )
             self.assertTrue(
                 prompt.startswith(
-                    "<TOOLS_RESULTS>"
+                    "<TRUSTED_RUNTIME_VARIABLES>"
                 ),
+            )
+            self.assertLess(
+                prompt.index("</TRUSTED_RUNTIME_VARIABLES>"),
+                prompt.index("<TOOLS_RESULTS>"),
             )
             self.assertLess(
                 prompt.index("</TOOLS_RESULTS>"),
@@ -691,20 +1283,13 @@ class BrainPromptMemoryTests(
             )
             self.assertLess(
                 prompt.index("<LATEST_USER_FEEDBACK priority=HIGH_PRIORITY>"),
-                prompt.index("<RUNTIME_MEMORY>"),
-            )
-            self.assertLess(
-                prompt.index("<RUNTIME_MEMORY>"),
-                prompt.index("<CURRENT_TRUSTED_RUNTIME_VARIABLES>"),
+                prompt.index("<FRAME_MEMORY_"),
             )
             self.assertNotIn(
                 "User feedback:",
                 prompt,
             )
-            self.assertNotIn(
-                "Last response was disliked.",
-                session_state,
-            )
+            self.assertNotIn("<SESSION_STATE>", prompt)
             self.assertNotIn(
                 "<LATEST_USER_FEEDBACK",
                 runtime_memory,
@@ -712,96 +1297,6 @@ class BrainPromptMemoryTests(
             self.assertNotIn(
                 "Last response was disliked.",
                 runtime_memory,
-            )
-
-    def test_brain_prompt_places_runtime_memory_above_session_memory(self):
-
-            context = SimpleNamespace(
-                session_memory=(
-                    "session_snapshot_first_turn: 0\n"
-                    "session_snapshot_last_turn: 6\n"
-                    "decision: Continue the memory architecture work."
-                ),
-                runtime_memory=(
-                    "topic: live runtime state"
-                ),
-                deep_thought_count=0,
-                runtime_search_result="",
-                runtime_search_result_id="",
-            )
-
-            prompt = build_brain_context(
-                context=context,
-                runtime_actions={
-                    "CAN_WEB_SEARCH": False,
-                },
-            )
-
-            self.assertIn(
-                "<PREVIOUS_SESSION_STATE priority=\"higher_than_runtime_memory\">",
-                prompt,
-            )
-            self.assertIn(
-                "Continue the memory architecture work",
-                prompt,
-            )
-            self.assertIn(
-                "session_snapshot_first_turn",
-                prompt,
-            )
-            self.assertIn(
-                "session_snapshot_last_turn",
-                prompt,
-            )
-            self.assertLess(
-                prompt.index(
-                    "<RUNTIME_MEMORY>"
-                ),
-                prompt.index(
-                    "<PREVIOUS_SESSION_STATE"
-                ),
-            )
-
-    def test_brain_prompt_includes_l2_memory_separately(self):
-
-            context = SimpleNamespace(
-                runtime_memory="topic: current factual work",
-                runtime_l2_memory="possible pattern: user compares implementation paths before coding",
-                deep_thought_count=0,
-                runtime_search_result="",
-                runtime_search_result_id="",
-            )
-
-            prompt = build_brain_context(
-                context=context,
-                runtime_actions={
-                    "CAN_WEB_SEARCH": False,
-                },
-            )
-
-            self.assertIn(
-                "<RUNTIME_MEMORY>",
-                prompt,
-            )
-            self.assertIn(
-                "<RUNTIME_PATTERN_MEMORY>",
-                prompt,
-            )
-            self.assertIn(
-                "current factual work",
-                prompt,
-            )
-            self.assertIn(
-                "compares implementation paths",
-                prompt,
-            )
-            self.assertNotIn(
-                "image/action tool",
-                prompt,
-            )
-            self.assertNotIn(
-                "Choose the best available visual representation of the request instead of description",
-                prompt,
             )
 
     def test_brain_prompt_includes_conditional_zero_diff_alert(self):
@@ -878,11 +1373,7 @@ class BrainPromptMemoryTests(
                 runtime_l2_memory=(
                     "possible pattern: repeated greeting loop; Occurrences: 3"
                 ),
-                runtime_l2_pending_patches=[
-                    {
-                        "total_diff": 29.85,
-                    },
-                ],
+                runtime_conversation_activity_diff=29.85,
                 runtime_zero_diff_alert=None,
                 deep_thought_count=0,
                 runtime_search_result="",
@@ -913,7 +1404,7 @@ class BrainPromptMemoryTests(
                     "<CONVERSATION_ACTIVITY>"
                 ),
                 prompt.index(
-                    "</CURRENT_TRUSTED_RUNTIME_VARIABLES>"
+                    "</TRUSTED_RUNTIME_VARIABLES>"
                 ),
             )
             self.assertNotIn(
@@ -925,11 +1416,11 @@ class BrainPromptMemoryTests(
                 prompt,
             )
             self.assertNotIn(
-                "SOURCE_L1_DIFF",
+                "SOURCE_FRAME_DIFF",
                 prompt,
             )
             self.assertIn(
-                "LOW activity. The conversation is fading",
+                "LOW activity.",
                 prompt,
             )
             self.assertIn(
@@ -944,11 +1435,7 @@ class BrainPromptMemoryTests(
                 runtime_l2_memory=(
                     "possible pattern: repeated greeting loop; Occurrences: 4"
                 ),
-                runtime_l2_pending_patches=[
-                    {
-                        "total_diff": 9.85,
-                    },
-                ],
+                runtime_conversation_activity_diff=9.85,
                 runtime_zero_diff_alert=None,
                 deep_thought_count=0,
                 runtime_search_result="",
@@ -992,11 +1479,7 @@ class BrainPromptMemoryTests(
             context = SimpleNamespace(
                 runtime_memory="topic: active loop diagnostics",
                 runtime_l2_memory="",
-                runtime_l2_pending_patches=[
-                    {
-                        "total_diff": 19,
-                    },
-                ],
+                runtime_conversation_activity_diff=19,
                 runtime_zero_diff_alert=None,
                 deep_thought_count=0,
                 runtime_search_result="",
@@ -1028,11 +1511,7 @@ class BrainPromptMemoryTests(
             context = SimpleNamespace(
                 runtime_memory="topic: active exchange",
                 runtime_l2_memory="",
-                runtime_l2_pending_patches=[
-                    {
-                        "total_diff": 142,
-                    },
-                ],
+                runtime_conversation_activity_diff=142,
                 runtime_zero_diff_alert=None,
                 deep_thought_count=0,
                 runtime_search_result="",
@@ -1051,7 +1530,7 @@ class BrainPromptMemoryTests(
                 prompt,
             )
             self.assertNotIn(
-                "SOURCE_L1_DIFF",
+                "SOURCE_FRAME_DIFF",
                 prompt,
             )
 

@@ -1,9 +1,11 @@
 {
   "save_delayed_memory": {
-    "version": 1,
+    "version": 5,
     "description": "Allows the model to save a delayed memory report.",
-    "runtime_action": "SAVE_DELAYED_MEMORY_CONTENT",
-    "private_marker": "<SAVE_DELAYED_MEMORY_CONTENT>",
+    "runtime_action": "SAVE_DELAYED_MEMORY",
+    "enable_flag": "CAN_SAVE_DELAYED_MEMORY",
+    "runtime_order": 180,
+    "private_marker": "<SAVE_DELAYED_MEMORY>",
     "triggers": [
       "создай отчёт",
       "сохрани отчёт",
@@ -12,23 +14,25 @@
     ],
     "blockers": [],
     "effects": {
-      "emit_followup": true
+      "emit_followup": false,
+      "follow_up_on_fail": false
     },
+    "schema": [
+      "<SAVE_DELAYED_MEMORY>",
+      "{",
+      "  \"title\": \"\",",
+      "  \"summary\": \"\",",
+      "  \"tags\": [],",
+      "  \"body\": \"\",",
+      "  \"anchor_lt_facts_ids\": [],",
+      "  \"lt_facts_ids\": [],",
+      "  \"attachments_ids\": []",
+      "}",
+      "</SAVE_DELAYED_MEMORY>"
+    ],
     "rules": [
-      "SAVE_DELAYED_MEMORY_CONTENT:",
-      "Use this marker ONLY when the user explicitly asks to save in delayed memory a summary/digest/recap/report of the current state.",
-      "Skip this marker when user request is to save session.",
-      "Emit fulfilled form inside marker only for explicit summary-save requests:",
-      "<SAVE_DELAYED_MEMORY_CONTENT>",
-      "title:",
-      "summary:",
-      "tags:",
-      "body:",
-      "</SAVE_DELAYED_MEMORY_CONTENT>",
-      "",
-      "The opening tag must be the first content line. Emit every field immediately, then always emit the matching closing tag.",
-      "When saving a summary/report NEVER skip template fields; you must fulfill all fields of delayed memory form so it will be valid for processing by runtime.",
-      "DO NOT add any other text while making a report! Do not notify user or acknowledge saving and immediately proceed with marker in response."
+      "Use to save explicit delayed-memory report!",
+      "Listed facts in lt_facts_ids will be hidden from context until delayed memory is loaded, anchors remain visible."
     ],
     "close_tag": true
   }

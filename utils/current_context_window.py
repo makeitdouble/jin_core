@@ -1,0 +1,472 @@
+import re
+from dataclasses import dataclass
+
+from utils.token_usage import (
+    get_runtime_token_estimate_scale,
+)
+from utils.tokens import (
+    estimate_prompt_tokens,
+)
+
+
+CURRENT_CONTEXT_WINDOW_TAG = "CONTEXT_WINDOW"
+CURRENT_CONTEXT_WINDOW_PLACEHOLDER = "__JIN_CURRENT_CONTEXT_WINDOW__"
+
+CURRENT_CONTEXT_WINDOW_RE = re.compile(
+    (
+        r"(?P<indent>[ \t]*)"
+        r"<CONTEXT_WINDOW>"
+        r".*?"
+        r"</CONTEXT_WINDOW>"
+    ),
+    re.DOTALL,
+)
+
+@dataclass(frozen=True)
+class CurrentContextWindowPrompt:
+    system_prompt: str
+    used_tokens: int
+    context_window: int
+    value: str
+
+
+def _as_int(
+    value,
+) -> int:
+
+    try:
+        return int(
+            value or 0
+        )
+    except (
+        TypeError,
+        ValueError,
+    ):
+        return 0
+
+
+def text_from_user_prompt(
+    user_prompt,
+) -> str:
+
+    if isinstance(
+        user_prompt,
+        str,
+    ):
+        return user_prompt
+
+    if isinstance(
+        user_prompt,
+        list,
+    ):
+        text_parts = []
+
+        for item in user_prompt:
+            if not isinstance(
+                item,
+                dict,
+            ):
+                continue
+
+            if item.get(
+                "type",
+            ) != "text":
+                continue
+
+            text_parts.append(
+                str(
+                    item.get(
+                        "text",
+                        "",
+                    )
+                )
+            )
+
+        return "\n".join(
+            text_parts
+        )
+
+    return str(
+        user_prompt
+        or ""
+    )
+
+
+def provider_counted_user_prompt_text(
+    context,
+    user_prompt,
+) -> str:
+
+    text = text_from_user_prompt(
+        user_prompt
+    )
+
+    if (
+        text == ""
+        and bool(
+            getattr(
+                context,
+                "runtime_followup_tick_active",
+                False,
+            )
+        )
+    ):
+        return " "
+
+    return text
+
+
+def format_current_context_window_value(
+    *,
+    used_tokens: int,
+    context_window: int,
+) -> str:
+
+    used_tokens = max(
+        0,
+        _as_int(
+            used_tokens
+        ),
+    )
+    context_window = _as_int(
+        context_window
+    )
+
+    if context_window > 0:
+        return f"{used_tokens}/{context_window} occupied"
+
+    return f"{used_tokens}/unknown occupied"
+
+
+def _format_field(
+    value: str,
+    *,
+    indent: str = "    ",
+) -> str:
+
+    return (
+        f"{indent}<CONTEXT_WINDOW>"
+        f"{value}"
+        "</CONTEXT_WINDOW>"
+    )
+
+
+def ensure_current_context_window_field(
+    system_prompt: str,
+    value: str = CURRENT_CONTEXT_WINDOW_PLACEHOLDER,
+) -> str:
+
+    prompt = str(
+        system_prompt
+        or ""
+    )
+
+    if CURRENT_CONTEXT_WINDOW_RE.search(
+        prompt
+    ):
+        return CURRENT_CONTEXT_WINDOW_RE.sub(
+            lambda match: _format_field(
+                value,
+                indent=match.group(
+                    "indent"
+                ),
+            ),
+            prompt,
+            count=1,
+        )
+
+    close_tag = "</TRUSTED_RUNTIME_VARIABLES>"
+    if close_tag not in prompt:
+        return prompt
+
+    for tag in (
+        "MODEL_UID",
+        "BRAIN_MODEL_UID",
+        "SERVICE_MODEL_UID",
+        "SESSION_ID",
+    ):
+        match = re.search(
+            (
+                r"(?P<indent>[ \t]*)"
+                rf"<{tag}>"
+                r".*?"
+                rf"</{tag}>"
+            ),
+            prompt,
+            flags=re.DOTALL,
+        )
+
+        if not match:
+            continue
+
+        return (
+            prompt[:match.end()]
+            + "\n"
+            + _format_field(
+                value,
+                indent=match.group(
+                    "indent"
+                ),
+            )
+            + prompt[match.end():]
+        )
+
+    return prompt.replace(
+        close_tag,
+        (
+            _format_field(
+                value,
+            )
+            + "\n"
+            + close_tag
+        ),
+        1,
+    )
+
+
+def estimate_current_context_tokens(
+    *,
+    context,
+    runtime_id: str,
+    system_prompt: str,
+    user_prompt,
+) -> int:
+
+    return estimate_prompt_tokens(
+        system_prompt=str(system_prompt or ""),
+        user_prompt=(user_prompt if isinstance(user_prompt, list) else
+                     provider_counted_user_prompt_text(context, user_prompt)),
+        scale=get_runtime_token_estimate_scale(
+            context,
+            runtime_id,
+        ),
+    )
+
+
+def annotate_current_context_window(
+    *,
+    context,
+    runtime_id: str,
+    system_prompt: str,
+    user_prompt,
+    context_window: int,
+) -> CurrentContextWindowPrompt:
+
+    prompt = ensure_current_context_window_field(
+        system_prompt,
+        CURRENT_CONTEXT_WINDOW_PLACEHOLDER,
+    )
+
+    used_tokens = 0
+    value = CURRENT_CONTEXT_WINDOW_PLACEHOLDER
+
+    for _ in range(12):
+        used_tokens = estimate_current_context_tokens(
+            context=context,
+            runtime_id=runtime_id,
+            system_prompt=prompt,
+            user_prompt=user_prompt,
+        )
+        value = format_current_context_window_value(
+            used_tokens=used_tokens,
+            context_window=context_window,
+        )
+        next_prompt = ensure_current_context_window_field(
+            prompt,
+            value,
+        )
+
+        if next_prompt == prompt:
+            break
+
+        prompt = next_prompt
+
+    used_tokens = estimate_current_context_tokens(
+        context=context,
+        runtime_id=runtime_id,
+        system_prompt=prompt,
+        user_prompt=user_prompt,
+    )
+    value = format_current_context_window_value(
+        used_tokens=used_tokens,
+        context_window=context_window,
+    )
+    prompt = ensure_current_context_window_field(
+        prompt,
+        value,
+    )
+
+    return CurrentContextWindowPrompt(
+        system_prompt=prompt,
+        used_tokens=used_tokens,
+        context_window=_as_int(
+            context_window
+        ),
+        value=value,
+    )
+
+
+def remember_current_context_window(
+    context,
+    *,
+    runtime_id: str,
+    prepared: CurrentContextWindowPrompt,
+) -> None:
+
+    if context is None:
+        return
+
+    value = {
+        "runtime_id": runtime_id,
+        "used_tokens": prepared.used_tokens,
+        "context_window": prepared.context_window,
+        "value": prepared.value,
+    }
+
+    context.runtime_current_context_window = value
+    context.runtime_current_context_window_text = prepared.value
+
+    if prepared.context_window > 0:
+        from runtime.registry import runtime_state
+
+        try:
+            runtime_state.update_runtime_state(
+                runtime_id,
+                max_tokens=prepared.context_window,
+            )
+        except KeyError:
+            # Lightweight/custom runtime IDs can use the prompt helper without
+            # becoming one of the two UI telemetry owners.
+            pass
+
+
+async def resolve_current_context_window(
+    client,
+    *,
+    fallback_context_window: int = 0,
+    force_refresh: bool = False,
+) -> int:
+
+    resolver = getattr(
+        client,
+        "resolve_request_context_window",
+        None,
+    )
+
+    if resolver is not None:
+        try:
+            resolved = await resolver(
+                force_refresh=force_refresh
+            )
+        except TypeError:
+            resolved = await resolver()
+        except Exception:
+            resolved = None
+
+        resolved_context_window = _as_int(
+            resolved
+        )
+        if resolved_context_window > 0:
+            return resolved_context_window
+
+    return max(
+        0,
+        _as_int(
+            fallback_context_window
+        ),
+    )
+
+
+async def prepare_current_context_window_prompt(
+    *,
+    client,
+    context,
+    runtime_id: str,
+    system_prompt: str,
+    user_prompt,
+    fallback_context_window: int = 0,
+    force_refresh: bool = False,
+) -> CurrentContextWindowPrompt:
+
+    context_window = await resolve_current_context_window(
+        client,
+        fallback_context_window=fallback_context_window,
+        force_refresh=force_refresh,
+    )
+
+    prompt = str(
+        system_prompt
+        or ""
+    )
+
+    if str(runtime_id or "").strip().casefold() == "brain":
+        # L-T is the one large memory inventory whose prompt projection can shrink
+        # safely. Measure the CURRENT prompt without L-T first, then keep a simple
+        # 50% -> all / 90% -> one linear budget between those points. Selection is
+        # by last_mentioned_at, while the surviving lines stay in their existing
+        # prompt order. Storage, panel order and memory-attention ordering are not
+        # touched.
+        try:
+            from runtime.LT_context_budget import (
+                calculate_lt_context_fact_limit,
+                get_lt_context_fact_ids,
+                limit_long_term_memory_context,
+                split_long_term_memory_context,
+            )
+
+            prompt_without_lt, lt_block, _lt_match = (
+                split_long_term_memory_context(
+                    prompt
+                )
+            )
+            lt_fact_ids = get_lt_context_fact_ids(
+                lt_block
+            )
+
+            if lt_fact_ids and context_window > 0:
+                base_prepared = annotate_current_context_window(
+                    context=context,
+                    runtime_id=runtime_id,
+                    system_prompt=prompt_without_lt,
+                    user_prompt=user_prompt,
+                    context_window=context_window,
+                )
+                fact_limit = calculate_lt_context_fact_limit(
+                    total_facts=len(lt_fact_ids),
+                    used_tokens_without_lt=base_prepared.used_tokens,
+                    context_window=context_window,
+                )
+                prompt = limit_long_term_memory_context(
+                    context=context,
+                    system_prompt=prompt,
+                    fact_limit=fact_limit,
+                )
+                context.runtime_lt_context_budget = {
+                    "used_tokens_without_lt": base_prepared.used_tokens,
+                    "context_window": context_window,
+                    "usage_without_lt": round(
+                        base_prepared.used_tokens / context_window,
+                        4,
+                    ),
+                    "available_facts": len(lt_fact_ids),
+                    "loaded_facts": fact_limit,
+                }
+        except Exception:
+            # Prompt budgeting must be fail-open: if anything about the optional
+            # projection fails, keep the historical all-facts prompt intact.
+            pass
+
+    prepared = annotate_current_context_window(
+        context=context,
+        runtime_id=runtime_id,
+        system_prompt=prompt,
+        user_prompt=user_prompt,
+        context_window=context_window,
+    )
+    remember_current_context_window(
+        context,
+        runtime_id=runtime_id,
+        prepared=prepared,
+    )
+
+    return prepared

@@ -18,6 +18,7 @@ from utils.actions import (
 from utils.session_actions_history import (
     compact_session_action_history_since,
     format_session_action_marker_names,
+    upsert_session_action_marker_history_since,
 )
 
 
@@ -39,22 +40,62 @@ class SkillMarkerSemanticsTests(RuntimeActionTestCase):
                 f"{name}\nTest skill.",
             )
 
-    def test_plural_append_skills_is_one_uncounted_marker(self):
-        marker = "<APPEND_SKILLS: file_manager, wildcards, porn>"
+    def test_plural_context_markers_expand_multiple_skill_payloads(self):
+        from utils.actions import RuntimeActionStreamFilter
+
+        for marker_name, internal_name in (
+            ("LOAD_SKILLS_CONTEXT", "LOAD_SKILL"),
+            ("UNLOAD_SKILLS_CONTEXT", "UNLOAD_SKILL"),
+        ):
+            marker = (
+                f"<{marker_name}> file_manager, wildcards "
+                f"</{marker_name}>"
+            )
+            split_points = (
+                0,
+                2,
+                marker.index(">") + 1,
+                len(marker) // 2,
+                marker.rindex("</") + 2,
+                len(marker),
+            )
+            for split in split_points:
+                stream = RuntimeActionStreamFilter(
+                    enabled_actions=["CAN_USE_ASSETS"],
+                )
+                results = [
+                    stream.filter(marker[:split]),
+                    stream.filter(marker[split:]),
+                    stream.flush_result(),
+                ]
+                actions = [
+                    action
+                    for result in results
+                    for action in result.actions
+                ]
+                self.assertEqual(
+                    [(action.name, action.payload) for action in actions],
+                    [
+                        (internal_name, "file_manager"),
+                        (internal_name, "wildcards"),
+                    ],
+                    (marker_name, split),
+                )
+                self.assertEqual(
+                    "".join(result.text for result in results),
+                    "",
+                )
+
+    def test_legacy_plural_load_skills_is_plain_text(self):
+        marker = "<LOAD_SKILLS: file_manager, wildcards, porn>"
         parsed = extract_runtime_actions(
             marker,
             enabled_actions=["CAN_USE_ASSETS"],
         )
 
-        self.assertEqual(
-            [(action.name, action.payload) for action in parsed.observed_actions],
-            [
-                (
-                    "APPEND_SKILLS",
-                    "file_manager, wildcards, porn",
-                ),
-            ],
-        )
+        self.assertEqual(parsed.text, marker)
+        self.assertEqual(parsed.observed_actions, ())
+        self.assertEqual(parsed.actions, ())
 
         counter = RuntimeActionCounter()
         self.assertEqual(
@@ -62,60 +103,11 @@ class SkillMarkerSemanticsTests(RuntimeActionTestCase):
             (),
         )
 
-        with tempfile.TemporaryDirectory() as temp_dir:
-            root = Path(temp_dir)
-            with contextlib.ExitStack() as stack:
-                for patcher in self.patch_asset_roots(root):
-                    stack.enter_context(patcher)
-
-                self._write_skills(
-                    root,
-                    "file_manager",
-                    "wildcards",
-                    "porn",
-                )
-                context = FakeContext()
-                context.emitter = FakeEmitter()
-                context.runtime_current_turn_id = "turn-1"
-
-                applied_count = asyncio.run(
-                    apply_runtime_action_calls(
-                        context,
-                        parsed.actions,
-                        runtime_message_id="message-1",
-                    )
-                )
-
-        self.assertEqual(applied_count, 3)
-        self.assertEqual(len(context.emitter.events), 2)
-        self.assertEqual(
-            {event["action"] for event in context.emitter.events},
-            {"append_skills"},
-        )
-        self.assertEqual(
-            {event["id"] for event in context.emitter.events},
-            {context.emitter.events[0]["id"]},
-        )
-        self.assertEqual(
-            {event["text"] for event in context.emitter.events},
-            {"APPEND_SKILLS: file_manager, wildcards, porn"},
-        )
-        self.assertTrue(
-            all("marker_count" not in event for event in context.emitter.events)
-        )
-        self.assertTrue(
-            all("counter_only" not in event for event in context.emitter.events)
-        )
-        self.assertEqual(
-            [item["text"] for item in context.runtime_session_action_history],
-            ["APPEND_SKILLS: file_manager, wildcards, porn"],
-        )
-
-    def test_singular_append_skill_markers_stay_separate_without_counter(self):
+    def test_singular_load_skill_markers_stay_separate_without_counter(self):
         parsed = extract_runtime_actions(
             (
-                "<APPEND_SKILL: wildcards>\n"
-                "<APPEND_SKILL: porn>"
+                "<LOAD_SKILL_CONTEXT> wildcards </LOAD_SKILL_CONTEXT>\n"
+                "<LOAD_SKILL_CONTEXT> porn </LOAD_SKILL_CONTEXT>"
             ),
             enabled_actions=["CAN_USE_ASSETS"],
         )
@@ -154,8 +146,8 @@ class SkillMarkerSemanticsTests(RuntimeActionTestCase):
         self.assertEqual(
             [event["text"] for event in completed_events],
             [
-                "APPEND_SKILL: wildcards",
-                "APPEND_SKILL: porn",
+                "LOAD_SKILL: wildcards",
+                "LOAD_SKILL: porn",
             ],
         )
         self.assertEqual(
@@ -171,8 +163,8 @@ class SkillMarkerSemanticsTests(RuntimeActionTestCase):
         self.assertEqual(
             [item["text"] for item in context.runtime_session_action_history],
             [
-                "APPEND_SKILL: wildcards",
-                "APPEND_SKILL: porn",
+                "LOAD_SKILL: wildcards",
+                "LOAD_SKILL: porn",
             ],
         )
 
@@ -184,8 +176,8 @@ class SkillMarkerSemanticsTests(RuntimeActionTestCase):
             RuntimeActionCall(name="WEB_SEARCH", payload="alpha"),
             RuntimeActionCall(name="WEB_SEARCH", payload="beta"),
             RuntimeActionCall(name="WEB_SEARCH", payload="alpha"),
-            RuntimeActionCall(name="APPEND_SKILL", payload="wildcards"),
-            RuntimeActionCall(name="APPEND_SKILL", payload="porn"),
+            RuntimeActionCall(name="LOAD_SKILL", payload="wildcards"),
+            RuntimeActionCall(name="LOAD_SKILL", payload="porn"),
         ])
 
         self.assertEqual(
@@ -202,10 +194,75 @@ class SkillMarkerSemanticsTests(RuntimeActionTestCase):
         self.assertEqual(
             format_session_action_marker_names(counter.marker_actions()),
             (
-                "LIST_SKILLS (count: 2), "
-                "WEB_SEARCH - alpha (count: 2), "
+                "LIST_SKILLS, LIST_SKILLS, "
+                "WEB_SEARCH - alpha, WEB_SEARCH - alpha, "
                 "WEB_SEARCH - beta"
             ),
+        )
+
+    def test_visual_marker_sequence_keeps_jin_size_and_color(self):
+        counter = RuntimeActionCounter()
+        counter.record([
+            RuntimeActionCall(name="JIN_SIZE", payload="120px 120px"),
+            RuntimeActionCall(name="JIN_COLOR", payload="#ff69b4"),
+        ])
+
+        marker_actions = counter.marker_actions(
+            display_payloads={
+                "JIN_SIZE": ["120px"],
+                "JIN_COLOR": ["#ff69b4"],
+            },
+        )
+
+        self.assertEqual(
+            format_session_action_marker_names(marker_actions),
+            "JIN_SIZE - 120px, JIN_COLOR: #ff69b4",
+        )
+
+    def test_active_memory_marker_history_keeps_payloads_separate(self):
+        counter = RuntimeActionCounter()
+        counter.record([
+            RuntimeActionCall(
+                name="SAVE_ACTIVE_MEMORY",
+                payload="remember tea",
+            ),
+            RuntimeActionCall(
+                name="SAVE_ACTIVE_MEMORY",
+                payload="remember coffee",
+            ),
+        ])
+
+        context = FakeContext()
+        context.runtime_current_turn_id = "turn-1"
+
+        self.assertTrue(
+            upsert_session_action_marker_history_since(
+                context,
+                0,
+                counter.marker_actions(),
+            )
+        )
+        self.assertEqual(
+            [
+                item["text"]
+                for item in context.runtime_session_action_history
+            ],
+            [
+                "SAVE_ACTIVE_MEMORY - remember tea",
+                "SAVE_ACTIVE_MEMORY - remember coffee",
+            ],
+        )
+        self.assertTrue(
+            all(
+                item.get("runtime_session_action_preserve_separate")
+                for item in context.runtime_session_action_history
+            )
+        )
+        self.assertFalse(
+            compact_session_action_history_since(
+                context,
+                0,
+            )
         )
 
     def test_skill_marker_ui_contract_keeps_rows_separate_and_uncounted(self):
@@ -213,17 +270,17 @@ class SkillMarkerSemanticsTests(RuntimeActionTestCase):
         runtime_source = RUNTIME_ACTIONS_JS.read_text(encoding="utf-8")
         index_source = INDEX_HTML.read_text(encoding="utf-8")
 
-        self.assertIn("keepSkillMarkerSeparate", logger_source)
-        self.assertIn('"APPEND_SKILLS"', logger_source)
-        self.assertIn('"append_skills"', runtime_source)
+        self.assertIn("keepActionInstanceSeparate", logger_source)
+        self.assertIn('"LOAD_SKILLS"', logger_source)
+        self.assertIn('"load_skills"', runtime_source)
         self.assertIn("suppressMarkerCount", runtime_source)
         self.assertRegex(
             index_source,
-            r'/static/js/logger/log-entries\.js\?v=[^"\s]+',
+            r'/static/js/logger/log-entries\.js(?:\?[^"\s]*)?',
         )
         self.assertRegex(
             index_source,
-            r'/static/js/socket/runtime-actions\.js\?v=[^"\s]+',
+            r'/static/js/socket/runtime-actions\.js(?:\?[^"\s]*)?',
         )
 
 

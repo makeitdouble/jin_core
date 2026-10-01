@@ -6,7 +6,6 @@ from pathlib import Path
 from typing import Any
 
 from rules.runtime import (
-    PROPOSAL_RULES,
     RUNTIME_ACTIONS_RULES,
     SKILL_ROUTING_RULES,
 )
@@ -16,50 +15,32 @@ CONTRACTS_DIR = Path(__file__).resolve().parent
 CONTRACT_VERSION = 1
 
 
-ACTION_CONFIG_KEYS = (
-    ("WEB_SEARCH", "CAN_WEB_SEARCH"),
-    ("SAVE_SESSION", "CAN_SAVE_SESSION"),
-    ("LIST_SKILLS", "CAN_USE_ASSETS"),
-    ("CLEAN_TOOL_RESULTS", "CAN_CLEAN_TOOL_RESULTS"),
-    ("IDLE", "CAN_IDLE"),
-    ("JIN_COLOR", "CAN_JIN_COLOR"),
-    ("APPEND_SKILL", "CAN_USE_ASSETS"),
-    ("REMOVE_SKILL", "CAN_USE_ASSETS"),
-    ("ASSET_ACTION", "CAN_USE_ASSETS"),
-    ("CREATE_TODO_LIST", "CAN_RUNTIME_TODO"),
-    ("RESOLVE_TODO", "CAN_RUNTIME_TODO"),
-    ("CHECK_TODO", "CAN_RUNTIME_TODO"),
-    ("SAVE_DELAYED_MEMORY_CONTENT", "CAN_SAVE_DELAYED_MEMORY"),
-    ("LIST_DELAYED_MEMORY", "CAN_SAVE_DELAYED_MEMORY"),
-    ("APPEND_DELAYED_MEMORY", "CAN_SAVE_DELAYED_MEMORY"),
-    ("REMOVE_DELAYED_MEMORY", "CAN_SAVE_DELAYED_MEMORY"),
-    ("SAVE_ACTIVE_MEMORY", "CAN_SAVE_ACTIVE_MEMORY"),
-    ("RESOLVE_ACTIVE_MEMORY", "CAN_SAVE_ACTIVE_MEMORY"),
-)
-
-
 ACTIVE_MEMORY_ENTRY_RE = re.compile(
     r"^\s*-?\s*active_memory(?:_\d+)?\s*:",
     re.IGNORECASE | re.MULTILINE,
 )
 
 
-def _normalize_action_name(action_name: str) -> str:
+RUNTIME_ACTION_NAME_ALIASES = {
+    "ATTACH_FILES_BY_ID": "ATTACH_FILE_BY_ID",
+    "USE_ASSETS": "ASSET_ACTION",
+    "LOAD_SKILL_CONTEXT": "LOAD_SKILL",
+    "LOAD_SKILLS_CONTEXT": "LOAD_SKILL",
+    "UNLOAD_SKILL_CONTEXT": "UNLOAD_SKILL",
+    "UNLOAD_SKILLS_CONTEXT": "UNLOAD_SKILL",
+    "RECALL_FACTS_CONTEXT": "RECALL_FACT_CONTEXT",
+}
+
+def normalize_runtime_action_name(action_name: str) -> str:
     normalized = str(action_name or "").strip().upper()
 
     if normalized.startswith("CAN_"):
         normalized = normalized[4:]
 
-    aliases = {
-        "SAVE_DELAYED_MEMORY": "SAVE_DELAYED_MEMORY_CONTENT",
-        "SAVE_ACTIVE_MEMORY": "SAVE_ACTIVE_MEMORY",
-        "USE_ASSETS": "ASSET_ACTION",
-        "TODO_LIST": "CREATE_TODO_LIST",
-        "INTERNAL_ACTION_TODO_LIST": "CREATE_TODO_LIST",
-        "INTERNAL_ACTION_CREATE_TODO_LIST": "CREATE_TODO_LIST",
-    }
-
-    return aliases.get(normalized, normalized)
+    return RUNTIME_ACTION_NAME_ALIASES.get(
+        normalized,
+        normalized,
+    )
 
 
 def _as_list(value) -> list:
@@ -128,13 +109,13 @@ def get_action_contract(name: str) -> dict[str, Any]:
 def get_action_contract_for_runtime_action(
     runtime_action: str,
 ) -> tuple[str, dict[str, Any]]:
-    normalized_action = _normalize_action_name(runtime_action)
+    normalized_action = normalize_runtime_action_name(runtime_action)
 
     if not normalized_action:
         return "", {}
 
     for name, contract in get_action_contracts().items():
-        contract_action = _normalize_action_name(
+        contract_action = normalize_runtime_action_name(
             str(contract.get("runtime_action", "") or "")
         )
 
@@ -150,18 +131,18 @@ def get_action_contract_name_for_runtime_action(runtime_action: str) -> str:
 
 
 def get_runtime_action_name(name_or_runtime_action: str) -> str:
-    normalized = _normalize_action_name(name_or_runtime_action)
+    normalized = normalize_runtime_action_name(name_or_runtime_action)
 
     if not normalized:
         return ""
 
     for contract in get_action_contracts().values():
-        action = _normalize_action_name(contract.get("runtime_action", ""))
+        action = normalize_runtime_action_name(contract.get("runtime_action", ""))
         if action == normalized:
             return action
 
     contract = get_action_contract(str(name_or_runtime_action or "").strip())
-    action = _normalize_action_name(contract.get("runtime_action", ""))
+    action = normalize_runtime_action_name(contract.get("runtime_action", ""))
     return action
 
 
@@ -195,7 +176,7 @@ def get_runtime_action_display_name(name_or_runtime_action: str) -> str:
     return (
         marker_name
         or get_runtime_action_name(name_or_runtime_action)
-        or _normalize_action_name(name_or_runtime_action)
+        or normalize_runtime_action_name(name_or_runtime_action)
     )
 
 
@@ -214,11 +195,15 @@ def build_runtime_action_display_text(
         name_or_runtime_action
     )
     normalized_payload = str(payload or "").strip()
+    _, contract = get_action_contract_for_runtime_action(
+        name_or_runtime_action
+    )
+    hide_close_tag_payload = (
+        runtime_action_has_close_tag(name_or_runtime_action)
+        and not bool(contract.get("display_payload", False))
+    )
 
-    if (
-        not normalized_payload
-        or runtime_action_has_close_tag(name_or_runtime_action)
-    ):
+    if not normalized_payload or hide_close_tag_payload:
         return display_name
 
     return f"{display_name}: {normalized_payload}"
@@ -256,12 +241,35 @@ def runtime_action_emits_followup(runtime_action: str) -> bool:
     return bool(effects.get("emit_followup", True))
 
 
-def get_enabled_runtime_actions(runtime_actions=None) -> tuple[str, ...]:
-    enabled_actions = []
-    action_flags = runtime_actions or {}
+def runtime_action_follows_up_on_fail(runtime_action: str) -> bool:
+    name, contract = get_action_contract_for_runtime_action(runtime_action)
+    if not name or not contract:
+        return False
 
-    for action_name, config_key in ACTION_CONFIG_KEYS:
-        if bool(action_flags.get(config_key, False)):
+    effects = contract.get("effects", {})
+    if not isinstance(effects, dict):
+        return False
+
+    return bool(effects.get("follow_up_on_fail", False))
+
+
+def get_enabled_runtime_actions(runtime_actions=None) -> tuple[str, ...]:
+    action_flags = runtime_actions or {}
+    contracts = sorted(
+        get_action_contracts().values(),
+        key=lambda contract: int(contract.get("runtime_order", 0) or 0),
+    )
+    enabled_actions = []
+
+    for contract in contracts:
+        enable_flag = str(contract.get("enable_flag", "") or "").strip()
+        if not enable_flag or not bool(action_flags.get(enable_flag, False)):
+            continue
+
+        action_name = normalize_runtime_action_name(
+            contract.get("runtime_action", "")
+        )
+        if action_name and action_name not in enabled_actions:
             enabled_actions.append(action_name)
 
     return tuple(enabled_actions)
@@ -269,7 +277,7 @@ def get_enabled_runtime_actions(runtime_actions=None) -> tuple[str, ...]:
 
 def normalize_runtime_action_names(enabled_actions=None) -> tuple[str, ...]:
     known_actions = {
-        _normalize_action_name(contract.get("runtime_action", ""))
+        normalize_runtime_action_name(contract.get("runtime_action", ""))
         for contract in get_action_contracts().values()
     }
     known_actions.discard("")
@@ -289,24 +297,19 @@ def normalize_runtime_action_names(enabled_actions=None) -> tuple[str, ...]:
     actions = []
 
     for action_name in candidates:
-        normalized_name = _normalize_action_name(action_name)
+        normalized_name = normalize_runtime_action_name(action_name)
         normalized_names = [normalized_name]
 
         if normalized_name == "SAVE_ACTIVE_MEMORY":
-            normalized_names.append("RESOLVE_ACTIVE_MEMORY")
+            normalized_names.append("DELETE_ACTIVE_MEMORY")
 
-        if normalized_name == "SAVE_DELAYED_MEMORY_CONTENT":
-            normalized_names.extend((
-                "LIST_DELAYED_MEMORY",
-                "APPEND_DELAYED_MEMORY",
-                "REMOVE_DELAYED_MEMORY",
-            ))
+        if normalized_name == "SAVE_DELAYED_MEMORY":
+            normalized_names.append("LOAD_DELAYED_MEMORY")
 
         if normalized_name == "ASSET_ACTION":
             normalized_names.extend((
-                "LIST_SKILLS",
-                "APPEND_SKILL",
-                "REMOVE_SKILL",
+                "LOAD_SKILL",
+                "UNLOAD_SKILL",
             ))
 
         for normalized_name in normalized_names:
@@ -320,6 +323,14 @@ def get_runtime_action_private_marker(runtime_action: str) -> str:
     _, contract = get_action_contract_for_runtime_action(runtime_action)
     return str(contract.get("private_marker", "") or "").strip()
 
+
+def get_runtime_action_schema(runtime_action: str) -> tuple[str, ...]:
+    _, contract = get_action_contract_for_runtime_action(runtime_action)
+    return tuple(
+        line
+        for line in _as_list(contract.get("schema"))
+        if isinstance(line, str) and line.strip()
+    )
 
 def get_runtime_action_rules(runtime_action: str) -> tuple[str, ...]:
     _, contract = get_action_contract_for_runtime_action(runtime_action)
@@ -360,11 +371,15 @@ def build_runtime_action_contract_instructions(runtime_action: str) -> str:
     lines = [
         line
         for line in (
-            build_runtime_action_marker_schema(contract),
+            get_runtime_action_display_name(runtime_action),
             f"Follow-up: {str(bool(emit_followup)).lower()}",
         )
         if line
     ]
+    schema = get_runtime_action_schema(runtime_action)
+    if schema:
+        lines.append("Schema:")
+        lines.extend(schema)
     lines.extend(get_runtime_action_rules(runtime_action))
 
     return "\n".join(lines)
@@ -377,7 +392,7 @@ def get_close_tag_runtime_actions() -> tuple[str, ...]:
         if not bool(contract.get("close_tag", False)):
             continue
 
-        action = _normalize_action_name(contract.get("runtime_action", ""))
+        action = normalize_runtime_action_name(contract.get("runtime_action", ""))
         if action:
             actions.append(action)
 
@@ -431,32 +446,70 @@ def _action_enabled(
     *names: str,
 ) -> bool:
     normalized_names = {
-        _normalize_action_name(name)
+        normalize_runtime_action_name(name)
         for name in names
         if str(name or "").strip()
     }
 
     return any(
-        _normalize_action_name(action) in normalized_names
+        normalize_runtime_action_name(action) in normalized_names
         for action in enabled_actions
     )
-
-
-def _context_has_list_skills_tool_result(context=None) -> bool:
-    for entry in list(getattr(context, "runtime_tool_results", []) or []):
-        if not isinstance(entry, dict):
-            continue
-
-        result = entry.get("result")
-        if isinstance(result, dict) and result.get("action") == "list_skills":
-            return True
-
-    return False
 
 
 def _context_has_delayed_memory_reports(context=None) -> bool:
     reports = getattr(context, "delayed_memory_reports", None)
     return bool(isinstance(reports, dict) and reports)
+
+
+def _context_has_loaded_skill(
+    context=None,
+    skill_name: str = "",
+) -> bool:
+    normalized_skill_name = re.sub(
+        r"[^A-Za-z0-9]+",
+        "_",
+        str(skill_name or "").strip(),
+    ).strip("_").lower()
+    if not normalized_skill_name:
+        return False
+
+    for skill in getattr(context, "runtime_loaded_skills", []) or []:
+        if not isinstance(skill, dict):
+            continue
+
+        candidate = re.sub(
+            r"[^A-Za-z0-9]+",
+            "_",
+            str(skill.get("name", "") or "").strip(),
+        ).strip("_").lower()
+        if candidate == normalized_skill_name:
+            return True
+
+    return False
+
+
+def _runtime_action_available_in_context(
+    action_name: str,
+    context=None,
+) -> bool:
+    normalized_name = normalize_runtime_action_name(action_name)
+    if normalized_name == "POSTING_BOARD":
+        return _context_has_loaded_skill(
+            context,
+            "posting_board",
+        )
+    if normalized_name == "CALL_MCP":
+        from utils.mcp_skill_utils import has_loaded_mcp_skill
+
+        return has_loaded_mcp_skill(context)
+    return True
+
+
+def _context_has_files(context=None) -> bool:
+    from utils.attached_files_store import list_file_records
+
+    return bool(list_file_records(limit=1))
 
 
 def _context_has_active_memory(context=None) -> bool:
@@ -475,33 +528,21 @@ def _context_has_active_memory(context=None) -> bool:
     )
 
 
-def build_allowed_markers(
-    enabled_actions: tuple[str, ...],
-    context=None,
-) -> str:
-    markers: list[str] = []
-    has_list_skills_result = _context_has_list_skills_tool_result(context)
-
-    for action in enabled_actions:
-        action_name = _normalize_action_name(action)
-
-        if action_name == "LIST_SKILLS" and has_list_skills_result:
-            continue
-
-        if action_name in {
-            "APPEND_SKILL",
-            "REMOVE_SKILL",
-        } and not has_list_skills_result:
-            continue
-
-        marker = get_runtime_action_private_marker(action_name)
-        if marker:
-            markers.append(marker)
-
-    if not markers:
-        return ""
-
-    return "\n".join(markers) + "."
+def _context_disables_jin_avatar_geometry(context=None) -> bool:
+    return (
+        context is not None
+        and hasattr(
+            context,
+            "runtime_avatar_panel_collapsed",
+        )
+        and not bool(
+            getattr(
+                context,
+                "runtime_avatar_panel_collapsed",
+                False,
+            )
+        )
+    )
 
 
 def build_runtime_action_instructions(
@@ -512,11 +553,8 @@ def build_runtime_action_instructions(
         return "No runtime actions are currently enabled."
 
     instructions: list[str] = [
-        RUNTIME_ACTIONS_RULES,
-        PROPOSAL_RULES,
+        RUNTIME_ACTIONS_RULES
     ]
-    has_list_skills_result = _context_has_list_skills_tool_result(context)
-
     def append_rules(action_name: str) -> None:
         action_instructions = build_runtime_action_contract_instructions(
             action_name
@@ -525,27 +563,44 @@ def build_runtime_action_instructions(
             instructions.append(action_instructions)
 
     for action_name in enabled_actions:
-        normalized_name = _normalize_action_name(action_name)
+        normalized_name = normalize_runtime_action_name(action_name)
 
-        if normalized_name == "RESOLVE_ACTIVE_MEMORY" and not _context_has_active_memory(context):
+        if not _runtime_action_available_in_context(
+            normalized_name,
+            context,
+        ):
+            continue
+
+        if (
+            normalized_name in {"JIN_SIZE", "JIN_POSITION", "JIN_SPEED"}
+            and _context_disables_jin_avatar_geometry(
+                context
+            )
+        ):
+            continue
+
+        if normalized_name == "DELETE_ACTIVE_MEMORY" and not _context_has_active_memory(context):
+            continue
+
+        if normalized_name == "LOAD_DELAYED_MEMORY" and not _context_has_delayed_memory_reports(context):
             continue
 
         if normalized_name in {
-            "LIST_DELAYED_MEMORY",
-            "APPEND_DELAYED_MEMORY",
-            "REMOVE_DELAYED_MEMORY",
-        } and not _context_has_delayed_memory_reports(context):
+            "LIST_ALL_USER_SHARED_FILES",
+            "ATTACH_FILE_CONTENT",
+            "ATTACH_FILE_BY_ID",
+        } and not _context_has_files(context):
             continue
 
         if normalized_name in {
-            "APPEND_SKILL",
-            "REMOVE_SKILL",
-        } and not has_list_skills_result:
+            "ATTACH_FILE_CONTENT",
+            "ATTACH_FILE_BY_ID",
+        } and not _context_has_loaded_skill(context, "file_manager"):
             continue
 
         append_rules(normalized_name)
 
-    if _action_enabled(enabled_actions, "LIST_SKILLS"):
+    if _action_enabled(enabled_actions, "LOAD_SKILL", "UNLOAD_SKILL"):
         instructions.append(SKILL_ROUTING_RULES)
 
     return "\n\n".join(
@@ -555,35 +610,39 @@ def build_runtime_action_instructions(
     )
 
 
+RUNTIME_ACTION_DEEP_WEB_SEARCH = get_runtime_action_name("deep_web_search")
 RUNTIME_ACTION_WEB_SEARCH = get_runtime_action_name("web_search")
-RUNTIME_ACTION_SAVE_SESSION = get_runtime_action_name("save_session")
-RUNTIME_ACTION_SAVE_DELAYED_MEMORY_CONTENT = get_runtime_action_name(
+RUNTIME_ACTION_CHAT_LOG_SEARCH = get_runtime_action_name("chat_log_search")
+RUNTIME_ACTION_SAVE_DELAYED_MEMORY = get_runtime_action_name(
     "save_delayed_memory"
 )
-RUNTIME_ACTION_LIST_DELAYED_MEMORY = get_runtime_action_name(
-    "list_delayed_memory"
+RUNTIME_ACTION_LOAD_DELAYED_MEMORY = get_runtime_action_name(
+    "load_delayed_memory"
 )
-RUNTIME_ACTION_APPEND_DELAYED_MEMORY = get_runtime_action_name(
-    "append_delayed_memory"
-)
-RUNTIME_ACTION_REMOVE_DELAYED_MEMORY = get_runtime_action_name(
-    "remove_delayed_memory"
-)
+# Reader/backward-compatibility name only. There is intentionally no current
+# model-facing contract for unloading delayed memory.
+RUNTIME_ACTION_UNLOAD_DELAYED_MEMORY = "UNLOAD_DELAYED_MEMORY"
 RUNTIME_ACTION_SAVE_ACTIVE_MEMORY = get_runtime_action_name(
     "save_active_memory"
 )
-RUNTIME_ACTION_RESOLVE_ACTIVE_MEMORY = get_runtime_action_name(
-    "resolve_active_memory"
+RUNTIME_ACTION_DELETE_ACTIVE_MEMORY = get_runtime_action_name(
+    "delete_active_memory"
 )
-RUNTIME_ACTION_LIST_SKILLS = get_runtime_action_name("list_skills")
 RUNTIME_ACTION_CLEAN_TOOL_RESULTS = get_runtime_action_name(
     "clean_tool_results"
 )
-RUNTIME_ACTION_APPEND_SKILL = get_runtime_action_name("append_skill")
-RUNTIME_ACTION_REMOVE_SKILL = get_runtime_action_name("remove_skill")
+RUNTIME_ACTION_LOAD_SKILL = get_runtime_action_name("load_skill")
+RUNTIME_ACTION_UNLOAD_SKILL = get_runtime_action_name("unload_skill")
 RUNTIME_ACTION_ASSET_ACTION = get_runtime_action_name("asset_action")
-RUNTIME_ACTION_CREATE_TODO_LIST = get_runtime_action_name("create_todo_list")
-RUNTIME_ACTION_RESOLVE_TODO = get_runtime_action_name("resolve_todo")
-RUNTIME_ACTION_CHECK_TODO = get_runtime_action_name("check_todo")
-RUNTIME_ACTION_IDLE = get_runtime_action_name("idle")
+RUNTIME_ACTION_LIST_FILES = get_runtime_action_name("list_files")
+RUNTIME_ACTION_ATTACH_FILE_BY_ID = get_runtime_action_name("attach_file_by_id")
+RUNTIME_ACTION_ATTACH_FILE_CONTENT = get_runtime_action_name("attach_file_content")
 RUNTIME_ACTION_JIN_COLOR = get_runtime_action_name("jin_color")
+RUNTIME_ACTION_JIN_REACTION = get_runtime_action_name("jin_reaction")
+RUNTIME_ACTION_JIN_SIZE = get_runtime_action_name("jin_size")
+RUNTIME_ACTION_JIN_POSITION = get_runtime_action_name("jin_position")
+RUNTIME_ACTION_JIN_SPEED = get_runtime_action_name("jin_speed")
+RUNTIME_ACTION_UPDATE_LT_FACTS = get_runtime_action_name("update_lt_facts")
+RUNTIME_ACTION_RECALL_FACT_CONTEXT = get_runtime_action_name("recall_fact_context")
+RUNTIME_ACTION_POSTING_BOARD = get_runtime_action_name("posting_board")
+RUNTIME_ACTION_CALL_MCP = get_runtime_action_name("call_mcp")

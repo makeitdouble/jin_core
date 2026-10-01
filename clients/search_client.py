@@ -307,7 +307,7 @@ async def run_search_provider(
             f"Unsupported search provider: {settings.SEARCH_PROVIDER}"
         )
 
-    if not settings.SEARCH_SERPER_API_KEY:
+    if not settings.CAN_SEARCH:
         raise RuntimeError(
             "Serper search is not configured"
         )

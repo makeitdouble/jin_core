@@ -1,3 +1,4 @@
+import json
 import re
 
 from contracts.rules_assembler import (
@@ -9,7 +10,10 @@ from .action_payload_utils import (
     _build_internal_action_payload,
     _clean_internal_action_query,
 )
-from .active_memory_utils import generate_short_runtime_id
+from .active_memory_utils import (
+    generate_short_runtime_id,
+    normalize_active_memory_slot_id,
+)
 from .regexp_utils import extract_private_marker_parts
 
 
@@ -17,9 +21,17 @@ def generate_active_memory_slot_id(
     existing_ids=None,
 ) -> str:
 
-    return generate_short_runtime_id(
-        existing_ids
-    )
+    used_suffixes = [
+        active_memory_id[3:]
+        for value in (existing_ids or ())
+        if (
+            active_memory_id := normalize_active_memory_slot_id(
+                value
+            )
+        )
+    ]
+
+    return f"AM-{generate_short_runtime_id(used_suffixes)}"
 
 def normalize_active_memory_marker_field(
     field: str,
@@ -34,23 +46,42 @@ def normalize_active_memory_marker_field(
     return normalized_field
 
 
-def get_save_active_memory_marker_fields(
+def _get_save_active_memory_placeholder_source(
     marker: str | None = None,
-) -> tuple[str, ...]:
+) -> str:
 
-    marker = (
-        marker
-        if marker is not None
-        else get_runtime_action_private_marker(
+    if marker is None:
+        marker = get_runtime_action_private_marker(
             RUNTIME_ACTION_SAVE_ACTIVE_MEMORY
         )
-    )
 
     _, marker_fields = extract_private_marker_parts(
         marker
     )
 
+    return marker_fields or "CONDITIONS"
+
+
+def get_save_active_memory_marker_fields(
+    marker: str | None = None,
+) -> tuple[str, ...]:
+
+    marker_fields = _get_save_active_memory_placeholder_source(
+        marker
+    )
+
     if not marker_fields:
+        return ()
+
+    if marker_fields.lstrip().startswith("{"):
+        try:
+            placeholder = json.loads(marker_fields)
+        except (TypeError, ValueError, json.JSONDecodeError):
+            return ()
+
+        if isinstance(placeholder, dict) and "conditions" in placeholder:
+            return ("conditions",)
+
         return ()
 
     fields = []
@@ -77,15 +108,7 @@ def get_save_active_memory_placeholder_payload(
     marker: str | None = None,
 ) -> str:
 
-    marker = (
-        marker
-        if marker is not None
-        else get_runtime_action_private_marker(
-            RUNTIME_ACTION_SAVE_ACTIVE_MEMORY
-        )
-    )
-
-    _, marker_fields = extract_private_marker_parts(
+    marker_fields = _get_save_active_memory_placeholder_source(
         marker
     )
 
@@ -104,7 +127,43 @@ def build_save_active_memory_payload(
     placeholder_payloads=(),
 ) -> str | None:
 
+    canonical_placeholder = (
+        get_save_active_memory_placeholder_payload()
+    )
+    placeholders = tuple(placeholder_payloads)
+
+    if (
+        canonical_placeholder
+        and canonical_placeholder not in placeholders
+    ):
+        placeholders = (
+            *placeholders,
+            canonical_placeholder,
+        )
+
     return _build_internal_action_payload(
         query,
-        placeholder_payloads,
+        placeholders,
     )
+
+
+def is_save_active_memory_update_payload(
+    payload: str,
+) -> bool:
+    """Return True when SAVE_ACTIVE_MEMORY explicitly targets an existing id.
+
+    The unified contract uses a flat JSON object. Presence of ``id`` switches
+    SAVE_ACTIVE_MEMORY into update mode.
+    """
+
+    text = str(payload or "").strip()
+
+    if not text.startswith("{"):
+        return False
+
+    try:
+        data = json.loads(text)
+    except (TypeError, ValueError, json.JSONDecodeError):
+        return False
+
+    return isinstance(data, dict) and "id" in data

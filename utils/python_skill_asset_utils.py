@@ -11,10 +11,24 @@ import tempfile
 from pathlib import Path
 from time import monotonic
 
-from config_loader import config
+from app_settings import settings
+from clients.service_client import ask_service_model
 from utils import assets_utils as assets_common
 from utils.skills_asset_utils import normalize_skill_name
 from utils.tokens import estimate_tokens
+from skills.skills_config import (
+    DOCUMENT_READER_INVALID_OUTPUT_RETRIES,
+    DOCUMENT_READER_MAX_CHUNK_TOKENS,
+    DOCUMENT_READER_MAX_ITERATIONS,
+    DOCUMENT_READER_MIN_CHUNK_TOKENS,
+    DOCUMENT_READER_MODEL_TIMEOUT_SECONDS,
+    DOCUMENT_READER_PROGRESS_HEARTBEAT_SECONDS,
+    DOCUMENT_READER_RESULT_MAX_TOKENS,
+    DOCUMENT_READER_SCRIPT_TIMEOUT_SECONDS,
+    DOCUMENT_READER_TEMPERATURE,
+    PYTHON_SKILL_OUTPUT_MAX_CHARS,
+    PYTHON_SKILL_TIMEOUT_SECONDS,
+)
 
 
 DEFAULT_READER_MODE = "plain-mode.md"
@@ -384,32 +398,11 @@ async def _resolve_reader_output_limit(
     context_window: int,
 ) -> int:
 
-    configured = getattr(
-        client,
-        "configured_max_tokens",
-        None,
-    )
     detected = getattr(
         client,
         "detected_max_tokens",
         None,
     )
-    prefer_server_limit = bool(
-        getattr(
-            config,
-            "RUNTIME_MAX_TOKENS_FALLBACK_TO_SERVER",
-            False,
-        )
-    )
-
-    if configured and not prefer_server_limit:
-        return max(
-            128,
-            min(
-                int(configured),
-                int(context_window),
-            ),
-        )
 
     if detected:
         return max(
@@ -441,28 +434,12 @@ async def _resolve_reader_output_limit(
                 ),
             )
 
-    if configured:
-        return max(
-            128,
-            min(
-                int(configured),
-                int(context_window),
-            ),
-        )
-
+    # LM Studio usually exposes the loaded context_length rather than a
+    # separate completion cap. In that case the live context itself is the
+    # upper generation ceiling; prompt budgeting applies the real safe limit.
     return max(
         128,
-        min(
-            int(context_window),
-            int(
-                getattr(
-                    config,
-                    "SERVICE_MAX_TOKENS",
-                    4096,
-                )
-                or 4096
-            ),
-        ),
+        int(context_window),
     )
 
 
@@ -750,11 +727,7 @@ def _estimate_document_reader_total_chunks(
 
 def _document_reader_heartbeat_seconds() -> float:
 
-    configured = getattr(
-        config,
-        "DOCUMENT_READER_PROGRESS_HEARTBEAT_SECONDS",
-        1.0,
-    )
+    configured = DOCUMENT_READER_PROGRESS_HEARTBEAT_SECONDS
 
     try:
         interval = float(configured or 1.0)
@@ -790,7 +763,9 @@ async def _ask_document_reader_with_progress(
 ):
 
     request_task = asyncio.create_task(
-        client.ask(
+        ask_service_model(
+            client=client,
+            context=context,
             system_prompt=system_prompt,
             user_prompt=user_prompt,
             temperature=temperature,
@@ -1098,7 +1073,7 @@ def _materialize_attachment(
     )
 
 
-def _require_appended_skill(
+def _require_loaded_skill(
     context,
     skill: str,
 ) -> str:
@@ -1106,7 +1081,7 @@ def _require_appended_skill(
     requested = normalize_skill_name(
         skill
     )
-    appended_names = {
+    loaded_names = {
         normalize_skill_name(
             item.get(
                 "name",
@@ -1121,19 +1096,19 @@ def _require_appended_skill(
         for item in (
             getattr(
                 context,
-                "runtime_appended_skills",
+                "runtime_loaded_skills",
                 [],
             )
             or []
         )
     }
-    appended_names.discard(
+    loaded_names.discard(
         ""
     )
 
-    if requested not in appended_names:
+    if requested not in loaded_names:
         raise PermissionError(
-            f"skill must be appended before execution: {requested}"
+            f"skill must be loaded before execution: {requested}"
         )
 
     return requested
@@ -1307,7 +1282,7 @@ async def run_python_skill_action(
             "args must be a list"
         )
 
-    _require_appended_skill(
+    _require_loaded_skill(
         context,
         skill_name,
     )
@@ -1324,11 +1299,7 @@ async def run_python_skill_action(
             float(
                 payload.get(
                     "timeout_seconds",
-                    getattr(
-                        config,
-                        "PYTHON_SKILL_TIMEOUT_SECONDS",
-                        120,
-                    ),
+                    PYTHON_SKILL_TIMEOUT_SECONDS,
                 )
                 or 120
             ),
@@ -1411,11 +1382,7 @@ async def run_python_skill_action(
         output_limit = max(
             1000,
             int(
-                getattr(
-                    config,
-                    "PYTHON_SKILL_OUTPUT_MAX_CHARS",
-                    60000,
-                )
+                PYTHON_SKILL_OUTPUT_MAX_CHARS
                 or 60000
             ),
         )
@@ -1505,24 +1472,8 @@ async def _resolve_context_window(
                 resolved
             )
 
-    configured = getattr(
-        client,
-        "configured_context_window",
-        None,
-    )
-
-    if configured:
-        return int(
-            configured
-        )
-
-    return int(
-        getattr(
-            config,
-            "SERVICE_CONTEXT_WINDOW",
-            4096,
-        )
-        or 4096
+    raise RuntimeError(
+        "The runtime API did not report the active model context window"
     )
 
 
@@ -1542,11 +1493,7 @@ def _resolve_reader_budgets(
         ),
     )
     configured_result_cap = int(
-        getattr(
-            config,
-            "DOCUMENT_READER_RESULT_MAX_TOKENS",
-            0,
-        )
+        DOCUMENT_READER_RESULT_MAX_TOKENS
         or 0
     )
     automatic_result_cap = min(
@@ -1582,11 +1529,7 @@ def _resolve_reader_budgets(
     configured_reserve = max(
         0,
         int(
-            getattr(
-                config,
-                "RUNTIME_OUTPUT_TOKEN_RESERVE",
-                256,
-            )
+            settings.RUNTIME_OUTPUT_TOKEN_RESERVE
             or 0
         ),
     )
@@ -1618,20 +1561,12 @@ def _resolve_reader_budgets(
     minimum_chunk_tokens = max(
         hard_minimum_chunk_tokens,
         int(
-            getattr(
-                config,
-                "DOCUMENT_READER_MIN_CHUNK_TOKENS",
-                256,
-            )
+            DOCUMENT_READER_MIN_CHUNK_TOKENS
             or 256
         ),
     )
     configured_maximum_chunk_tokens = int(
-        getattr(
-            config,
-            "DOCUMENT_READER_MAX_CHUNK_TOKENS",
-            0,
-        )
+        DOCUMENT_READER_MAX_CHUNK_TOKENS
         or 0
     )
     automatic_maximum_chunk_tokens = min(
@@ -1655,40 +1590,33 @@ def _resolve_reader_budgets(
     )
 
     if fits:
-        # `max_tokens` includes hidden/model reasoning on several local
-        # reasoning-capable models. Keep the visible accumulated result compact,
-        # but reserve up to one extra result-sized allowance so the very first
-        # request can actually reach its answer instead of hitting `length` and
-        # entering a retry/split loop.
-        reasoning_allowance = max(
-            256,
-            result_cap,
+        # `max_tokens` is one shared generation cap for hidden reasoning + the
+        # visible answer. Do not split that budget into fixed reasoning/answer
+        # shares. Reserve enough room for the expected result, give the reader
+        # its useful chunk ceiling, then let generation use every token left.
+        generation_limit = max(
+            hard_minimum_output_tokens,
+            int(output_token_limit or context_window),
         )
-        desired_generation_budget = min(
+        minimum_generation_budget = min(
+            generation_limit,
             max(
                 hard_minimum_output_tokens,
-                int(output_token_limit or 0),
-            ),
-            result_cap + reasoning_allowance,
-        )
-        balanced_generation_budget = max(
-            result_cap,
-            int(available_tokens * 0.55),
-        )
-        output_budget = max(
-            hard_minimum_output_tokens,
-            min(
-                desired_generation_budget,
-                balanced_generation_budget,
-                available_tokens - minimum_chunk_tokens,
+                result_cap,
             ),
         )
-        chunk_room = available_tokens - output_budget
         chunk_tokens = min(
             maximum_chunk_tokens,
             max(
                 hard_minimum_chunk_tokens,
-                chunk_room,
+                available_tokens - minimum_generation_budget,
+            ),
+        )
+        output_budget = max(
+            hard_minimum_output_tokens,
+            min(
+                generation_limit,
+                available_tokens - chunk_tokens,
             ),
         )
         chunk_words = max(
@@ -1698,6 +1626,7 @@ def _resolve_reader_budgets(
                 * 0.65
             ),
         )
+        reasoning_allowance = 0
     else:
         reasoning_allowance = 0
         output_budget = max(
@@ -2056,11 +1985,7 @@ async def _run_document_pass(
         "chunk_reader.py",
     )
     timeout_seconds = float(
-        getattr(
-            config,
-            "DOCUMENT_READER_SCRIPT_TIMEOUT_SECONDS",
-            120,
-        )
+        DOCUMENT_READER_SCRIPT_TIMEOUT_SECONDS
         or 120
     )
     info = await _run_subprocess_json(
@@ -2120,11 +2045,7 @@ async def _run_document_pass(
     max_iterations = max(
         1,
         int(
-            getattr(
-                config,
-                "DOCUMENT_READER_MAX_ITERATIONS",
-                128,
-            )
+            DOCUMENT_READER_MAX_ITERATIONS
             or 128
         ),
     )
@@ -2293,11 +2214,7 @@ async def _run_document_pass(
         max_invalid_output_retries = max(
             0,
             int(
-                getattr(
-                    config,
-                    "DOCUMENT_READER_INVALID_OUTPUT_RETRIES",
-                    2,
-                )
+                DOCUMENT_READER_INVALID_OUTPUT_RETRIES
                 or 0
             ),
         )
@@ -2367,24 +2284,12 @@ async def _run_document_pass(
                     system_prompt=system_prompt,
                     user_prompt=user_prompt,
                     temperature=float(
-                        getattr(
-                            config,
-                            "DOCUMENT_READER_TEMPERATURE",
-                            0.1,
-                        )
+                        DOCUMENT_READER_TEMPERATURE
                         or 0.1
                     ),
                     max_tokens=fitted["output_tokens"],
                     timeout=float(
-                        getattr(
-                            config,
-                            "DOCUMENT_READER_MODEL_TIMEOUT_SECONDS",
-                            getattr(
-                                config,
-                                "SERVICE_REQUEST_TIMEOUT",
-                                1000.0,
-                            ),
-                        )
+                        DOCUMENT_READER_MODEL_TIMEOUT_SECONDS
                         or 1000.0
                     ),
                 )
@@ -2695,7 +2600,7 @@ async def run_document_reader_action(
         or "chunk_reader"
     ).strip()
 
-    _require_appended_skill(
+    _require_loaded_skill(
         context,
         skill_name,
     )
@@ -2856,6 +2761,34 @@ async def run_context_asset_action(
     ).strip()
 
     try:
+        from utils.project_reader import PROJECT_ACTIONS, run_project_action
+
+        loaded_skills = getattr(
+            context,
+            "runtime_loaded_skills",
+            [],
+        ) if context is not None else []
+        if not loaded_skills:
+            raise PermissionError(
+                "ASSET_ACTION requires a loaded skill context"
+            )
+
+        if action == "project_read":
+            _require_loaded_skill(context, "project")
+            _require_loaded_skill(context, "file_manager")
+            from utils.actions.attachment_actions import attach_project_file_content
+            return await attach_project_file_content(context, payload)
+        if action in PROJECT_ACTIONS:
+            _require_loaded_skill(context, "project")
+            return await asyncio.to_thread(run_project_action, context, payload)
+
+        if action in {
+            "create_asset_file",
+            "append_asset_file",
+            "preview_file",
+        }:
+            _require_loaded_skill(context, "file_manager")
+
         if action == "run_document_reader":
             return await run_document_reader_action(
                 context,

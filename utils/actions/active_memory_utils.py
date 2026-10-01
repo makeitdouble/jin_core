@@ -1,18 +1,25 @@
+import json
 import re
 import secrets
 import string
 from datetime import datetime
 
-
-ACTIVE_MEMORY_SLOT_ID_RE = re.compile(
-    r"^[a-z0-9]{6}$",
+from utils.time_utils import (
+    utc_now_iso,
 )
 
-SHORT_RUNTIME_ID_RE = ACTIVE_MEMORY_SLOT_ID_RE
+
+ACTIVE_MEMORY_SLOT_ID_RE = re.compile(
+    r"^AM-[a-z0-9]{6}$",
+)
+
+SHORT_RUNTIME_ID_RE = re.compile(
+    r"^[a-z0-9]{6}$",
+    re.IGNORECASE,
+)
 
 ACTIVE_MEMORY_SLOT_ID_SUFFIX_RE = re.compile(
-    r"\[\s*active_memory_id\s*:\s*([a-z0-9]{6})\s*\]",
-    re.IGNORECASE,
+    r"\[\s*id\s*:\s*(AM-[a-z0-9]{6})\s*\]",
 )
 
 ACTIVE_MEMORY_SLOT_ID_ALPHABET = (
@@ -32,6 +39,7 @@ ACTIVE_MEMORY_RUNTIME_LINE_RE = re.compile(
     re.IGNORECASE,
 )
 
+ACTIVE_MEMORY_UPDATED_AT_SUFFIX_NAME = "updated_at"
 ACTIVE_MEMORY_LIFECYCLE_SUFFIX_NAMES = (
     "creation_time",
     "created_session_id",
@@ -41,9 +49,13 @@ ACTIVE_MEMORY_LIFECYCLE_SUFFIX_NAMES = (
 )
 
 ACTIVE_MEMORY_RUNTIME_MANAGED_SUFFIX_NAMES = (
-    "active_memory_id",
+    "id",
     *ACTIVE_MEMORY_LIFECYCLE_SUFFIX_NAMES,
+    # Removed metadata is still consumed so historical records cannot expose
+    # it as a custom field after the attention-only migration.
+    "significance",
     "status",
+    ACTIVE_MEMORY_UPDATED_AT_SUFFIX_NAME,
 )
 
 ACTIVE_MEMORY_LIFECYCLE_SUFFIX_RE = re.compile(
@@ -65,6 +77,449 @@ ACTIVE_MEMORY_TRACE_FIELD_RE = re.compile(
     r"\s*(?:\[\s*trace\s*:\s*[^\]]*\]|\(\s*trace\s*:\s*[^)]*\))\s*",
     re.IGNORECASE,
 )
+
+ACTIVE_MEMORY_CUSTOM_FIELD_NAME_RE = re.compile(
+    r"^[a-z][a-z0-9_]{0,31}$",
+)
+
+ACTIVE_MEMORY_CUSTOM_FIELD_SUFFIX_RE = re.compile(
+    r"\[\s*([a-z][a-z0-9_]{0,31})\s*:\s*([^\]]*)\]",
+    re.IGNORECASE,
+)
+
+ACTIVE_MEMORY_CUSTOM_FIELD_LIMIT = 3
+ACTIVE_MEMORY_CUSTOM_FIELD_VALUE_MAX_LENGTH = 256
+
+ACTIVE_MEMORY_CONDITIONS_SUFFIX_OPEN_RE = re.compile(
+    r"\[\s*conditions\s*:\s*",
+    re.IGNORECASE,
+)
+
+ACTIVE_MEMORY_RESERVED_CUSTOM_FIELD_NAMES = frozenset({
+    *ACTIVE_MEMORY_RUNTIME_MANAGED_SUFFIX_NAMES,
+    "conditions",
+    "trace",
+})
+
+
+def normalize_active_memory_slot_id(
+    value: str,
+) -> str:
+
+    normalized = str(value or "").strip()
+
+    if not ACTIVE_MEMORY_SLOT_ID_RE.fullmatch(normalized):
+        return ""
+
+    return f"AM-{normalized[3:].casefold()}"
+
+
+def normalize_active_memory_custom_field_name(
+    field_name: str,
+) -> str:
+
+    normalized = str(
+        field_name or ""
+    ).strip().casefold()
+
+    if not ACTIVE_MEMORY_CUSTOM_FIELD_NAME_RE.fullmatch(
+        normalized
+    ):
+        return ""
+
+    if normalized in ACTIVE_MEMORY_RESERVED_CUSTOM_FIELD_NAMES:
+        return ""
+
+    return normalized
+
+
+def normalize_active_memory_custom_field_value(
+    value: str,
+) -> str:
+
+    normalized = re.sub(
+        r"\s+",
+        " ",
+        str(value or "").strip(),
+    )
+    normalized = normalized.replace(
+        "[",
+        "("
+    ).replace(
+        "]",
+        ")"
+    ).strip()
+
+    if len(normalized) > ACTIVE_MEMORY_CUSTOM_FIELD_VALUE_MAX_LENGTH:
+        return ""
+
+    return normalized
+
+
+def normalize_active_memory_conditions_value(
+    value: str,
+) -> str:
+
+    return re.sub(
+        r"\s+",
+        " ",
+        str(value or "").strip(),
+    ).strip()
+
+
+def _find_balanced_active_memory_suffix_end(
+    text: str,
+    start: int,
+) -> int:
+
+    depth = 0
+
+    for index in range(start, len(text)):
+        char = text[index]
+
+        if char == "[":
+            depth += 1
+        elif char == "]":
+            depth -= 1
+
+            if depth == 0:
+                return index + 1
+
+    return -1
+
+
+def _collect_active_memory_conditions_suffixes(
+    value: str,
+) -> tuple[tuple[int, int, str], ...]:
+
+    text = str(value or "")
+    suffixes = []
+    position = 0
+
+    while position < len(text):
+        match = ACTIVE_MEMORY_CONDITIONS_SUFFIX_OPEN_RE.search(
+            text,
+            position,
+        )
+        if match is None:
+            break
+
+        suffix_end = _find_balanced_active_memory_suffix_end(
+            text,
+            match.start(),
+        )
+        if suffix_end < 0:
+            break
+
+        suffixes.append((
+            match.start(),
+            suffix_end,
+            text[match.end():suffix_end - 1],
+        ))
+        position = suffix_end
+
+    return tuple(suffixes)
+
+
+def _active_memory_description_metadata_start(
+    value: str,
+) -> int:
+
+    text = str(value or "")
+    id_match = ACTIVE_MEMORY_SLOT_ID_SUFFIX_RE.search(text)
+
+    if id_match is not None:
+        return id_match.start()
+
+    metadata_match = ACTIVE_MEMORY_CUSTOM_FIELD_SUFFIX_RE.search(text)
+
+    if metadata_match is not None:
+        return metadata_match.start()
+
+    return len(text)
+
+
+def get_active_memory_conditions_value(
+    value: str,
+) -> str:
+
+    text = str(value or "").strip()
+    metadata_start = _active_memory_description_metadata_start(text)
+    description = normalize_active_memory_conditions_value(
+        text[:metadata_start]
+    )
+    metadata = text[metadata_start:]
+    legacy_suffixes = _collect_active_memory_conditions_suffixes(
+        metadata
+    )
+
+    if legacy_suffixes:
+        legacy_value = normalize_active_memory_conditions_value(
+            legacy_suffixes[-1][2]
+        )
+        if legacy_value:
+            return legacy_value
+
+    return description
+
+
+def canonicalize_active_memory_conditions_value(
+    value: str,
+) -> str:
+
+    text = str(value or "").strip()
+    metadata_start = _active_memory_description_metadata_start(text)
+    description = normalize_active_memory_conditions_value(
+        text[:metadata_start]
+    )
+    metadata = text[metadata_start:]
+    legacy_suffixes = _collect_active_memory_conditions_suffixes(
+        metadata
+    )
+
+    if not legacy_suffixes:
+        return text
+
+    legacy_value = normalize_active_memory_conditions_value(
+        legacy_suffixes[-1][2]
+    )
+    pieces = []
+    cursor = 0
+
+    for start, end, _ in legacy_suffixes:
+        pieces.append(metadata[cursor:start])
+        cursor = end
+
+    pieces.append(metadata[cursor:])
+    cleaned_metadata = re.sub(
+        r"\s+",
+        " ",
+        " ".join(pieces),
+    ).strip()
+    next_description = legacy_value or description
+
+    return " ".join(
+        part
+        for part in (next_description, cleaned_metadata)
+        if part
+    ).strip()
+
+
+def set_active_memory_conditions_value(
+    value: str,
+    conditions: str,
+) -> tuple[str, bool, str]:
+
+    normalized_conditions = normalize_active_memory_conditions_value(
+        conditions
+    )
+    if not normalized_conditions:
+        return str(value or ""), False, ""
+
+    previous_value = get_active_memory_conditions_value(value)
+    canonical = canonicalize_active_memory_conditions_value(value)
+    metadata_start = _active_memory_description_metadata_start(
+        canonical
+    )
+    metadata = canonical[metadata_start:].strip()
+    updated = " ".join(
+        part
+        for part in (normalized_conditions, metadata)
+        if part
+    ).strip()
+
+    return updated, True, previous_value
+
+
+def canonicalize_active_memory_record(
+    record: str,
+) -> str:
+
+    text = str(record or "").strip()
+    if ":" not in text:
+        return text
+
+    key, value = text.split(":", 1)
+    if not is_active_memory_key(key):
+        return text
+
+    canonical_value = canonicalize_active_memory_conditions_value(
+        value
+    )
+
+    return f"{key.strip()}: {canonical_value}".strip()
+
+
+def extract_active_memory_creation_custom_fields(
+    value: str,
+) -> tuple[str, tuple[tuple[str, str], ...]]:
+
+    text = str(value or "").rstrip()
+
+    if text.lstrip().startswith("{"):
+        try:
+            payload_pairs = json.loads(
+                text,
+                object_pairs_hook=lambda pairs: pairs,
+            )
+        except (TypeError, ValueError, json.JSONDecodeError):
+            return "", ()
+
+        if not isinstance(payload_pairs, list):
+            return "", ()
+
+        conditions = ""
+        custom_fields_by_name = {}
+
+        for raw_name, raw_value in payload_pairs:
+            field_name = str(raw_name or "").strip().casefold()
+
+            if field_name == "conditions":
+                conditions = normalize_active_memory_conditions_value(
+                    raw_value
+                )
+                continue
+
+            normalized_name = normalize_active_memory_custom_field_name(
+                field_name
+            )
+            normalized_value = normalize_active_memory_custom_field_value(
+                raw_value
+            )
+
+            if not normalized_name or not normalized_value:
+                continue
+
+            # JSON parsers conventionally keep the last duplicate key. Do the
+            # same after name normalization instead of rejecting the complete
+            # SAVE_ACTIVE_MEMORY payload.
+            custom_fields_by_name[normalized_name] = normalized_value
+
+        custom_fields = tuple(
+            custom_fields_by_name.items()
+        )[:ACTIVE_MEMORY_CUSTOM_FIELD_LIMIT]
+
+        return conditions, custom_fields
+
+    return text.strip(), ()
+
+
+def collect_active_memory_custom_fields(
+    value: str,
+) -> tuple[tuple[str, str], ...]:
+
+    fields = []
+    seen = set()
+
+    for match in ACTIVE_MEMORY_CUSTOM_FIELD_SUFFIX_RE.finditer(
+        str(value or "")
+    ):
+        raw_name = str(match.group(1) or "").strip().casefold()
+
+        if raw_name in ACTIVE_MEMORY_RESERVED_CUSTOM_FIELD_NAMES:
+            continue
+
+        field_name = normalize_active_memory_custom_field_name(
+            raw_name
+        )
+        if not field_name or field_name in seen:
+            continue
+
+        field_value = normalize_active_memory_custom_field_value(
+            match.group(2)
+        )
+        fields.append((field_name, field_value))
+        seen.add(field_name)
+
+    return tuple(fields[:ACTIVE_MEMORY_CUSTOM_FIELD_LIMIT])
+
+
+def get_active_memory_record_title(
+    record: str,
+) -> str:
+
+    text = str(record or "").strip()
+    match = ACTIVE_MEMORY_RUNTIME_LINE_RE.match(
+        text
+    )
+    if match is None:
+        return "Active memory"
+
+    index = match.group(1) or "1"
+    value = text[match.end():].strip()
+    title = re.sub(
+        r"\s*\[[^\]]+\]\s*",
+        " ",
+        value,
+    )
+    title = re.sub(
+        r"\s+",
+        " ",
+        title,
+    ).strip()
+
+    return title or f"Active memory #{index}"
+
+
+def set_active_memory_suffix_value(
+    value: str,
+    suffix_name: str,
+    suffix_value: str,
+    *,
+    require_existing: bool = False,
+) -> tuple[str, bool, str]:
+
+    normalized_name = str(suffix_name or "").strip().casefold()
+    normalized_value = normalize_active_memory_custom_field_value(
+        suffix_value
+    )
+
+    if not normalized_name or not normalized_value:
+        return str(value or ""), False, ""
+
+    pattern = re.compile(
+        r"\[\s*"
+        + re.escape(normalized_name)
+        + r"\s*:\s*([^\]]*)\]",
+        re.IGNORECASE,
+    )
+    match = pattern.search(str(value or ""))
+    previous_value = (
+        normalize_active_memory_custom_field_value(match.group(1))
+        if match is not None
+        else ""
+    )
+
+    if match is None and require_existing:
+        return str(value or ""), False, ""
+
+    suffix = f"[ {normalized_name}: {normalized_value} ]"
+
+    if match is not None:
+        updated = (
+            str(value or "")[:match.start()]
+            + suffix
+            + str(value or "")[match.end():]
+        )
+        return updated, True, previous_value
+
+    status_match = ACTIVE_MEMORY_STATUS_FIELD_RE.search(
+        str(value or "")
+    )
+    if status_match is None:
+        return (
+            f"{str(value or '').rstrip()} {suffix}".strip(),
+            True,
+            previous_value,
+        )
+
+    before_status = str(value or "")[:status_match.start()].rstrip()
+    status_and_tail = str(value or "")[status_match.start():].lstrip()
+    return (
+        f"{before_status} {suffix} {status_and_tail}".strip(),
+        True,
+        previous_value,
+    )
 
 def strip_active_memory_managed_suffixes(
     value: str,
@@ -126,11 +581,11 @@ def collect_active_memory_slot_ids(
         for match in ACTIVE_MEMORY_SLOT_ID_SUFFIX_RE.finditer(
             str(text or "")
         ):
-            ids.add(
-                match.group(
-                    1
-                ).casefold()
+            active_memory_id = normalize_active_memory_slot_id(
+                match.group(1)
             )
+            if active_memory_id:
+                ids.add(active_memory_id)
 
     return ids
 
@@ -219,15 +674,15 @@ def generate_active_memory_slot_key(
 
 def _runtime_memory_helpers():
 
-    from runtime.L1_memory_utils import (
-        durable_memory_line_text,
+    from runtime.frame_memory_utils import (
+        runtime_memory_line_text,
         normalize_memory_key,
         parse_runtime_memory_lines,
     )
 
     return (
         parse_runtime_memory_lines,
-        durable_memory_line_text,
+        runtime_memory_line_text,
         normalize_memory_key,
     )
 
@@ -236,9 +691,9 @@ def _active_memory_line_text(
     line: dict,
 ) -> str:
 
-    _, durable_memory_line_text, _ = _runtime_memory_helpers()
+    _, runtime_memory_line_text, _ = _runtime_memory_helpers()
 
-    return durable_memory_line_text(
+    return runtime_memory_line_text(
         line
     )
 
@@ -287,9 +742,18 @@ def strip_active_memory_runtime_metadata(
         if is_active_memory_key(
             key
         ):
+            value = canonicalize_active_memory_conditions_value(
+                value
+            )
             value = ACTIVE_MEMORY_LIFECYCLE_SUFFIX_RE.sub(
                 " ",
                 value,
+            )
+            value = re.sub(
+                r"\s*\[\s*updated_at\s*:\s*[^\]]*\]\s*",
+                " ",
+                value,
+                flags=re.IGNORECASE,
             )
             value = re.sub(
                 r"\s+",
@@ -586,6 +1050,12 @@ def _attach_active_memory_lifecycle_suffixes_to_value(
         str(value or ""),
     )
     cleaned = re.sub(
+        r"\s*\[\s*significance\s*:\s*[^\]]*\]\s*",
+        " ",
+        cleaned,
+        flags=re.IGNORECASE,
+    )
+    cleaned = re.sub(
         r"\s+",
         " ",
         cleaned,
@@ -614,7 +1084,7 @@ def refresh_active_memory_runtime_metadata(
     add_runtime_user_idle_to_elapsed: bool = False,
 ) -> str:
 
-    parse_runtime_memory_lines, durable_memory_line_text, normalize_memory_key = (
+    parse_runtime_memory_lines, runtime_memory_line_text, normalize_memory_key = (
         _runtime_memory_helpers()
     )
     parsed_lines = parse_runtime_memory_lines(
@@ -641,7 +1111,7 @@ def refresh_active_memory_runtime_metadata(
             "timestamp",
             "",
         )
-        or datetime.now().isoformat()
+        or utc_now_iso()
     )
     current_datetime = (
         _parse_runtime_datetime(
@@ -711,11 +1181,15 @@ def refresh_active_memory_runtime_metadata(
             key
         ):
             updated_lines.append(
-                durable_memory_line_text(
+                runtime_memory_line_text(
                     line
                 )
             )
             continue
+
+        value = canonicalize_active_memory_conditions_value(
+            value
+        )
 
         previous_value = previous_active_values.get(
             normalize_memory_key(

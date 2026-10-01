@@ -2,32 +2,33 @@ import unittest
 import asyncio
 from types import SimpleNamespace
 
-from runtime.L1_memory_utils import emit_runtime_session_memory_update
+from runtime.action_guard import confirm_runtime_action_guards
 from runtime.registry import runtime_state
 from config_loader import (
     config,
 )
 from utils.brain_client_utils import (
     get_brain_runtime_config,
-    schedule_idle_followup,
 )
 from utils.tool_results import (
     clear_runtime_tool_results,
 )
 from websocket import (
-    PendingRequestQueue,
     apply_runtime_resume,
+    build_runtime_action_guard_retry_request,
     apply_session_bootstrap,
-    arm_save_session_from_user_text,
     cancel_current_task,
+    emit_runtime_action_guard_confirmation_failure,
     reject_when_all_models_offline,
     refresh_pending_brain_usage,
+    preserve_reconnect_pending_request,
+    restore_reconnect_pending_requests,
     wait_for_runtime_memory_update,
-    merge_runtime_idle_followup_turn,
 )
 from utils.runtime_action_abort import (
     mark_runtime_action_started,
 )
+from utils.actions.common_action_utils import RuntimeActionCall
 
 
 class FakeEmitter:
@@ -150,6 +151,188 @@ class FakeWebSocket:
 
 class WebSocketPendingUsageTests(unittest.IsolatedAsyncioTestCase):
 
+    def test_stale_guard_confirmation_builds_single_retry_with_original_context(self):
+
+        message = {
+            "decision": "continue",
+            "action": "save_delayed_memory",
+            "guard": "save_delayed_memory",
+            "confirmation_id": "turn_7:save_delayed_memory:abc",
+            "id": "save_delayed_memory_7",
+            "retry_attempt": 1,
+            "retry_user_message": "создай отчот",
+            "retry_context_snapshot": {
+                "system_prompt": "original system",
+                "user_prompt": "original model payload",
+            },
+        }
+
+        retry_request = build_runtime_action_guard_retry_request(
+            message
+        )
+
+        self.assertEqual(
+            retry_request["type"],
+            "runtime_action_guard_retry",
+        )
+        self.assertEqual(
+            retry_request["text"],
+            "создай отчот",
+        )
+        self.assertEqual(
+            retry_request["runtime_action_guard_retry"],
+            {
+                "action": "save_delayed_memory",
+                "guard": "save_delayed_memory",
+                "confirmation_id": "turn_7:save_delayed_memory:abc",
+                "id": "save_delayed_memory_7",
+                "attempt": 1,
+                "context_snapshot": {
+                    "system_prompt": "original system",
+                    "user_prompt": "original model payload",
+                },
+            },
+        )
+
+        second_attempt = dict(
+            message,
+            retry_attempt=2,
+        )
+        self.assertIsNone(
+            build_runtime_action_guard_retry_request(
+                second_attempt
+            )
+        )
+        self.assertIsNone(
+            build_runtime_action_guard_retry_request({
+                **message,
+                "decision": "reject",
+            })
+        )
+        self.assertIsNone(
+            build_runtime_action_guard_retry_request({
+                **message,
+                "guard": "save_session",
+            })
+        )
+
+    async def test_stale_guard_confirmation_failure_is_terminal_for_same_bubble(self):
+
+        context = SimpleNamespace(
+            emitter=FakeEmitter(),
+        )
+
+        await emit_runtime_action_guard_confirmation_failure(
+            context,
+            {
+                "decision": "continue",
+                "action": "save_delayed_memory",
+                "confirmation_id": "stale-confirmation",
+                "id": "save_delayed_memory_3",
+            },
+        )
+
+        self.assertEqual(
+            context.emitter.events,
+            [{
+                "type": "runtime_action",
+                "action": "save_delayed_memory",
+                "status": "failed",
+                "display_name": "SAVE_DELAYED_MEMORY",
+                "close_tag": True,
+                "confirmation_id": "stale-confirmation",
+                "error": "runtime_action_confirmation_expired",
+                "text": "SAVE_DELAYED_MEMORY: FAILED",
+                "detail": "The original confirmation no longer exists after reconnect.",
+                "id": "save_delayed_memory_3",
+            }],
+        )
+
+    async def test_action_guard_retry_bypasses_only_matching_guard_once(self):
+
+        context = SimpleNamespace(
+            emitter=FakeEmitter(),
+            runtime_action_guard_confirmations={},
+            runtime_action_guard_retry={
+                "action": "save_delayed_memory",
+                "guard": "save_delayed_memory",
+                "confirmation_id": "stale-confirmation",
+                "id": "save_delayed_memory_4",
+                "attempt": 1,
+            },
+            runtime_action_guard_retry_consumed=False,
+            runtime_action_failure_followup_messages=[],
+        )
+        action = RuntimeActionCall(
+            name="SAVE_DELAYED_MEMORY",
+            payload="title: Replay report",
+        )
+
+        (
+            confirmed_action_ids,
+            rejected_action_ids,
+            confirmation_ids,
+            action_display_ids,
+        ) = await confirm_runtime_action_guards(
+            context,
+            (action,),
+            user_message="создай отчот",
+        )
+
+        self.assertEqual(
+            confirmed_action_ids,
+            {id(action)},
+        )
+        self.assertEqual(
+            rejected_action_ids,
+            set(),
+        )
+        self.assertEqual(
+            confirmation_ids[id(action)],
+            "stale-confirmation",
+        )
+        self.assertEqual(
+            action_display_ids[id(action)],
+            "save_delayed_memory_4",
+        )
+        self.assertTrue(
+            context.runtime_action_guard_retry_consumed
+        )
+        self.assertFalse(
+            any(
+                event.get("type") == "runtime_action_guard_confirmation"
+                for event in context.emitter.events
+            )
+        )
+
+        wrong_action = RuntimeActionCall(
+            name="SAVE_DELAYED_MEMORY",
+            payload="title: Second report",
+        )
+        context.runtime_action_guard_confirmations = {}
+
+        async def reject_new_confirmation(event):
+            await FakeEmitter.emit(
+                context.emitter,
+                event,
+            )
+            if event.get("type") == "runtime_action_guard_confirmation":
+                future = context.runtime_action_guard_confirmations[
+                    event["confirmation_id"]
+                ]
+                future.set_result("reject")
+
+        context.emitter.emit = reject_new_confirmation
+
+        confirmed, rejected, _, _ = await confirm_runtime_action_guards(
+            context,
+            (wrong_action,),
+            user_message="сделай ещё один отчёт",
+        )
+
+        self.assertEqual(confirmed, set())
+        self.assertEqual(rejected, {id(wrong_action)})
+
     async def test_cancel_current_task_aborts_active_action_when_task_already_done(self):
 
         context = SimpleNamespace(
@@ -173,10 +356,10 @@ class WebSocketPendingUsageTests(unittest.IsolatedAsyncioTestCase):
 
         mark_runtime_action_started(
             context,
-            action="save_delayed_memory_content",
-            action_id="save_delayed_memory_content_1",
-            display_name="SAVE_DELAYED_MEMORY_CONTENT",
-            text="SAVE_DELAYED_MEMORY_CONTENT",
+            action="save_delayed_memory",
+            action_id="save_delayed_memory_1",
+            display_name="SAVE_DELAYED_MEMORY",
+            text="SAVE_DELAYED_MEMORY",
             close_tag=True,
         )
 
@@ -198,287 +381,9 @@ class WebSocketPendingUsageTests(unittest.IsolatedAsyncioTestCase):
         )
         self.assertEqual(
             context.emitter.events[0]["text"],
-            "SAVE_DELAYED_MEMORY_CONTENT: ABORTED",
+            "SAVE_DELAYED_MEMORY: ABORTED",
         )
 
-    def test_idle_followups_replace_same_recent_turn_instead_of_duplicating_it(self):
-
-        context = SimpleNamespace(
-            runtime_recent_turns=[
-                {
-                    "user": "run the timed experiment",
-                    "jin": "Timer armed.",
-                },
-            ],
-        )
-
-        merge_runtime_idle_followup_turn(
-            context,
-            origin_user_request="run the timed experiment",
-            assistant_message="First follow-up result.",
-            assistant_created_at=10.0,
-            idle_followup_id="idle_001",
-        )
-        merge_runtime_idle_followup_turn(
-            context,
-            origin_user_request="run the timed experiment",
-            assistant_message="Final follow-up result.",
-            assistant_created_at=20.0,
-            idle_followup_id="idle_002",
-        )
-
-        self.assertEqual(
-            len(context.runtime_recent_turns),
-            1,
-        )
-        self.assertEqual(
-            context.runtime_recent_turns[0]["user"],
-            "run the timed experiment",
-        )
-        self.assertEqual(
-            context.runtime_recent_turns[0]["jin"],
-            "Final follow-up result.",
-        )
-        self.assertEqual(
-            context.runtime_recent_turns[0]["idle_followup_id"],
-            "idle_002",
-        )
-
-    async def test_clean_tool_results_invalidates_pending_idle_snapshot(self):
-
-        queue = asyncio.Queue()
-        context = SimpleNamespace(
-            background_tasks=set(),
-            runtime_pending_requests_queue=queue,
-            runtime_pending_idle_followups=[],
-            runtime_idle_action_sequence=0,
-            runtime_tool_results_generation=0,
-            runtime_tool_results=[],
-            runtime_tool_results_turn_count=1,
-            runtime_search_result="old search",
-            runtime_search_result_id="search_1",
-            runtime_asset_results=[],
-            runtime_asset_retry_results=[],
-            runtime_asset_retry_context=[],
-            runtime_delayed_memory_results=[],
-            runtime_turn_attachments=[],
-        )
-
-        schedule_idle_followup(
-            context,
-            seconds=0,
-            source_message="<IDLE: 0s>",
-            user_message="continue later",
-            context_snapshot={
-                "system_prompt": (
-                    "<TOOLS_RESULTS>\n"
-                    "<TOOL_RESULTS type='external'>old</TOOL_RESULTS>\n"
-                    "</TOOLS_RESULTS>\n\nRULES"
-                ),
-            },
-        )
-        clear_runtime_tool_results(
-            context
-        )
-
-        queued = await asyncio.wait_for(
-            queue.get(),
-            timeout=1,
-        )
-        frozen_prompt = queued[
-            "idle_followup"
-        ]["context_snapshot"]["system_prompt"]
-
-        self.assertEqual(
-            frozen_prompt,
-            "RULES",
-        )
-        self.assertEqual(
-            queued["idle_followup"]["tool_results_generation"],
-            1,
-        )
-
-    async def test_idle_followup_preserves_root_sequence_identity(self):
-
-        queue = asyncio.Queue()
-        context = SimpleNamespace(
-            background_tasks=set(),
-            runtime_pending_requests_queue=queue,
-            runtime_pending_idle_followups=[],
-            runtime_idle_action_sequence=0,
-            runtime_tool_results_generation=0,
-            runtime_turn_attachments=[],
-            runtime_current_turn_id="idle_000002",
-            runtime_current_sequence_turn_id="turn_000001",
-            runtime_turn_started_at=1031.0,
-            runtime_current_sequence_started_at=1000.0,
-        )
-
-        schedule_idle_followup(
-            context,
-            seconds=0,
-            source_message="<IDLE: 0s>",
-            user_message="timed sequence",
-            context_snapshot={
-                "system_prompt": "frozen prompt",
-            },
-        )
-
-        queued = await asyncio.wait_for(
-            queue.get(),
-            timeout=1,
-        )
-        followup = queued["idle_followup"]
-
-        self.assertEqual(
-            followup["sequence_turn_id"],
-            "turn_000001",
-        )
-        self.assertEqual(
-            followup["sequence_started_at"],
-            1000.0,
-        )
-
-    async def test_idle_followup_inherits_sequence_attachments(self):
-
-        queue = asyncio.Queue()
-        context = SimpleNamespace(
-            background_tasks=set(),
-            runtime_pending_requests_queue=queue,
-            runtime_pending_idle_followups=[],
-            runtime_idle_action_sequence=0,
-            runtime_tool_results_generation=0,
-            runtime_turn_attachments=[],
-            runtime_current_turn_id="idle_000002",
-            runtime_current_sequence_turn_id="turn_000001",
-            runtime_turn_started_at=1031.0,
-            runtime_current_sequence_started_at=1000.0,
-            runtime_current_sequence_attachments_turn_id="turn_000001",
-            runtime_current_sequence_attachments=[
-                {
-                    "name": "README.md",
-                    "kind": "text",
-                    "text_content": "body",
-                },
-            ],
-        )
-
-        schedule_idle_followup(
-            context,
-            seconds=0,
-            source_message="<IDLE: 0s>",
-            user_message="timed sequence",
-            context_snapshot={
-                "system_prompt": "frozen prompt",
-            },
-        )
-
-        queued = await asyncio.wait_for(
-            queue.get(),
-            timeout=1,
-        )
-        followup = queued["idle_followup"]
-
-        self.assertEqual(
-            followup["attachments"],
-            [
-                {
-                    "name": "README.md",
-                    "kind": "text",
-                    "text_content": "body",
-                },
-            ],
-        )
-
-    async def test_due_idle_followup_runs_before_queued_dialogue_requests(self):
-
-        queue = PendingRequestQueue()
-        context = SimpleNamespace(
-            background_tasks=set(),
-            runtime_pending_requests_queue=queue,
-            runtime_pending_idle_followups=[],
-            runtime_idle_action_sequence=0,
-            runtime_turn_attachments=[],
-        )
-
-        await queue.put({
-            "type": "message",
-            "text": "queued user request",
-        })
-
-        schedule_idle_followup(
-            context,
-            seconds=0,
-            source_message="wait and continue <IDLE: 0s />",
-            user_message="start idle",
-            context_snapshot={
-                "system_prompt": "frozen context",
-            },
-        )
-
-        for _ in range(3):
-            await asyncio.sleep(0)
-
-        self.assertEqual(
-            queue.qsize(),
-            2,
-        )
-
-        idle_request = await asyncio.wait_for(
-            queue.get(),
-            timeout=1,
-        )
-        queued_user_request = await asyncio.wait_for(
-            queue.get(),
-            timeout=1,
-        )
-
-        self.assertEqual(
-            idle_request["type"],
-            "idle_followup",
-        )
-        self.assertEqual(
-            idle_request["idle_followup"]["origin_user_request"],
-            "start idle",
-        )
-        self.assertEqual(
-            queued_user_request["text"],
-            "queued user request",
-        )
-
-        queue.task_done()
-        queue.task_done()
-
-    async def test_arm_save_session_prearms_without_banner(self):
-
-        context = SimpleNamespace(
-            emitter=FakeEmitter(),
-            logger=FakeLogger(),
-            runtime_save_session_armed=False,
-            runtime_save_session_requested=False,
-        )
-
-        armed = await arm_save_session_from_user_text(
-            context,
-            "\u0441\u043e\u0445\u0440\u0430\u043d\u0438 \u0441\u0435\u0441\u0441\u0438\u044e",
-        )
-
-        self.assertTrue(
-            armed,
-        )
-        self.assertTrue(
-            context.runtime_save_session_armed,
-        )
-        self.assertFalse(
-            context.runtime_save_session_requested,
-        )
-        self.assertFalse(
-            context.runtime_save_session_action_emitted,
-        )
-        self.assertEqual(
-            context.emitter.events,
-            [],
-        )
 
     async def test_rejects_user_request_when_all_models_are_offline(self):
 
@@ -582,26 +487,11 @@ class WebSocketPendingUsageTests(unittest.IsolatedAsyncioTestCase):
                 "runtime_memory": "topic: restored runtime state",
                 "runtime_memory_updates": 7,
             },
+            resolved_from_disk=True
         )
 
         self.assertTrue(
             restored
-        )
-        self.assertEqual(
-            context.session_memory,
-            "decision: Resume memory work",
-        )
-        self.assertEqual(
-            context.runtime_l3_session_memory,
-            "decision: Resume memory work",
-        )
-        self.assertEqual(
-            context.runtime_session_memory_updates,
-            2,
-        )
-        self.assertEqual(
-            context.session_memory_source,
-            "browser_localStorage",
         )
         self.assertEqual(
             context.runtime_memory,
@@ -655,50 +545,108 @@ class WebSocketPendingUsageTests(unittest.IsolatedAsyncioTestCase):
                 "runtime_snapshot": {
                     "index": 4,
                     "turn_number": 14,
-                    "user_message_count": 15,
-                    "assistant_message_count": 14,
                     "raw_memory": "topic: restored runtime state",
                 },
             },
+            resolved_from_disk=True
         )
 
-        self.assertTrue(
-            restored
-        )
-        self.assertEqual(
-            context.runtime_memory_snapshot_index,
-            0,
-        )
-        self.assertEqual(
-            context.runtime_memory_snapshots[0]["index"],
-            0,
-        )
+        self.assertTrue(restored)
+        self.assertEqual(context.runtime_memory_snapshot_index, 0)
+        self.assertEqual(context.runtime_memory_snapshots[0]["index"], 0)
         self.assertEqual(
             context.runtime_memory_snapshots[0]["raw_memory"],
             "topic: restored runtime state",
         )
-        self.assertEqual(
-            context.turn_number,
-            14,
-        )
-        self.assertEqual(
-            context.user_message_count,
-            15,
-        )
-        self.assertEqual(
-            context.assistant_message_count,
-            14,
-        )
-        self.assertEqual(
-            context.runtime_memory_snapshots[0]["turn_number"],
-            14,
-        )
-        self.assertEqual(
-            len(context.runtime_memory_snapshots),
-            1,
+        self.assertEqual(context.turn_number, 14)
+        self.assertEqual(context.runtime_memory_snapshots[0]["turn_number"], 14)
+        self.assertNotIn("user_message_count", context.runtime_memory_snapshots[0])
+        self.assertNotIn("assistant_message_count", context.runtime_memory_snapshots[0])
+        self.assertNotIn("current_session_user_message_count", context.runtime_memory_snapshots[0])
+        self.assertNotIn("current_session_assistant_message_count", context.runtime_memory_snapshots[0])
+        self.assertEqual(len(context.runtime_memory_snapshots), 1)
+
+    async def test_runtime_resume_does_not_restore_browser_checkpoint(self):
+
+        context = SimpleNamespace(
+            runtime_memory="session status: New session",
+            runtime_memory_stable="session status: New session",
+            runtime_memory_updates=0,
+            runtime_memory_snapshots=[],
+            runtime_memory_snapshot_index=0,
+            runtime_turn_counter=3,
+            turn_number=3,
+            session_memory="",
+            runtime_l3_session_memory="",
+            runtime_session_memory_updates=0,
+            runtime_l3_saved_runtime_snapshot_index=4,
+            session_memory_source="",
+            delayed_memory_reports={
+                "48ggds": {
+                    "id": "48ggds",
+                    "title": "Reconnect memory",
+                },
+            },
         )
 
-    async def test_runtime_resume_hydrates_active_memory_lifecycle_counters(self):
+        restored = apply_runtime_resume(
+            context,
+            {
+                "type": "runtime_resume",
+                "runtime_memory": "topic: live reconnect state",
+                "runtime_memory_updates": 9,
+                "runtime_snapshot": {
+                    "raw_memory": "topic: live reconnect state",
+                    "turn_number": 11,
+                    "runtime_turn_counter": 17,
+                },
+                "session_memory": "decision: keep reconnect persistence",
+                "session_memory_source": "browser_soft_reconnect",
+                "session_memory_updates": 5,
+                "loaded_memory_ids": [
+                    "48ggds",
+                ],
+            },
+        )
+
+        self.assertFalse(restored)
+        self.assertEqual(context.runtime_turn_counter, 3)
+        self.assertEqual(context.turn_number, 3)
+        self.assertEqual(context.runtime_memory_snapshots, [])
+        self.assertEqual(context.runtime_memory, "session status: New session")
+        self.assertFalse(hasattr(context, "runtime_loaded_delayed_memory_ids"))
+
+    async def test_runtime_resume_ignores_removed_l3_only_payload_without_live_frame(self):
+
+        context = SimpleNamespace(
+            runtime_memory="session status: New session",
+            runtime_memory_stable="session status: New session",
+            runtime_memory_updates=0,
+            runtime_memory_snapshots=[],
+            runtime_memory_snapshot_index=0,
+            runtime_turn_counter=0,
+            turn_number=0,
+            delayed_memory_reports={},
+        )
+
+        restored = apply_runtime_resume(
+            context,
+            {
+                "type": "runtime_resume",
+                "runtime_memory": "",
+                "session_memory": "decision: restore legacy L3 only",
+                "session_memory_source": "browser_soft_reconnect",
+                "session_memory_updates": 2,
+            },
+        )
+
+        self.assertFalse(restored)
+        self.assertEqual(
+            context.runtime_memory,
+            "session status: New session",
+        )
+
+    async def test_runtime_resume_does_not_hydrate_active_memory_lifecycle(self):
 
         context = SimpleNamespace(
             runtime_memory="session status: New session",
@@ -707,8 +655,6 @@ class WebSocketPendingUsageTests(unittest.IsolatedAsyncioTestCase):
             runtime_memory_snapshots=[],
             runtime_memory_snapshot_index=0,
             turn_number=0,
-            user_message_count=0,
-            assistant_message_count=0,
             timestamp="2026-06-21T17:05:00",
             session_id="test-session",
         )
@@ -731,31 +677,12 @@ class WebSocketPendingUsageTests(unittest.IsolatedAsyncioTestCase):
             },
         )
 
-        self.assertTrue(
-            restored
-        )
-        self.assertEqual(
-            context.turn_number,
-            2,
-        )
-        self.assertEqual(
-            context.assistant_message_count,
-            2,
-        )
-        self.assertEqual(
-            context.user_message_count,
-            2,
-        )
-        self.assertIn(
-            "[ elapsed_time: 00:00:00 ]",
-            context.active_memory_records[0],
-        )
-        self.assertIn(
-            "[ elapsed_jin_message_number: 0 ]",
-            context.active_memory_records[0],
-        )
+        self.assertFalse(restored)
+        self.assertEqual(context.turn_number, 0)
+        self.assertEqual(context.runtime_memory, "session status: New session")
+        self.assertFalse(hasattr(context, "active_memory_records"))
 
-    async def test_session_bootstrap_hydrates_active_memory_elapsed_counter_floor(self):
+    async def test_session_bootstrap_hydrates_active_memory_elapsed_turn_floor(self):
 
         context = SimpleNamespace(
             runtime_memory="session status: New session",
@@ -768,8 +695,6 @@ class WebSocketPendingUsageTests(unittest.IsolatedAsyncioTestCase):
             runtime_l3_session_memory="",
             runtime_session_memory_updates=0,
             turn_number=0,
-            user_message_count=0,
-            assistant_message_count=0,
             timestamp="2026-06-21T17:05:00",
             session_id="test-session",
         )
@@ -790,23 +715,11 @@ class WebSocketPendingUsageTests(unittest.IsolatedAsyncioTestCase):
                 ],
                 "runtime_memory_updates": 1,
             },
+            resolved_from_disk=True
         )
 
-        self.assertTrue(
-            restored
-        )
-        self.assertEqual(
-            context.turn_number,
-            5,
-        )
-        self.assertEqual(
-            context.assistant_message_count,
-            5,
-        )
-        self.assertEqual(
-            context.user_message_count,
-            5,
-        )
+        self.assertTrue(restored)
+        self.assertEqual(context.turn_number, 5)
         self.assertIn(
             "[ elapsed_time: 00:00:00 ]",
             context.active_memory_records[0],
@@ -816,27 +729,6 @@ class WebSocketPendingUsageTests(unittest.IsolatedAsyncioTestCase):
             context.active_memory_records[0],
         )
 
-    async def test_runtime_session_memory_update_is_not_browser_persisted_by_default(self):
-
-        context = SimpleNamespace(
-            emitter=FakeEmitter(),
-            runtime_l3_session_memory="topic: restored but not saved",
-            session_memory="",
-            session_memory_source="browser_localStorage",
-            runtime_session_memory_updates=1,
-        )
-
-        await emit_runtime_session_memory_update(
-            context
-        )
-
-        self.assertEqual(
-            context.emitter.events[-1]["type"],
-            "runtime_session_memory_update",
-        )
-        self.assertFalse(
-            context.emitter.events[-1]["persist"],
-        )
 
     async def test_pending_brain_usage_emits_before_stream_start(self):
 
@@ -981,6 +873,79 @@ class WebSocketPendingUsageTests(unittest.IsolatedAsyncioTestCase):
                 last_error=original_state["last_error"],
                 status=original_state["status"],
             )
+
+    async def test_cancelled_frame_waiter_keeps_running_task_attached(self):
+
+        release = asyncio.Event()
+
+        async def update_memory():
+            await release.wait()
+
+        context = SimpleNamespace(
+            logger=FakeLogger(),
+            runtime_memory_update_task=None,
+        )
+        task = asyncio.create_task(
+            update_memory()
+        )
+        context.runtime_memory_update_task = task
+
+        waiter = asyncio.create_task(
+            wait_for_runtime_memory_update(context)
+        )
+        await asyncio.sleep(0)
+
+        waiter.cancel()
+        with self.assertRaises(asyncio.CancelledError):
+            await waiter
+
+        self.assertIs(
+            context.runtime_memory_update_task,
+            task,
+        )
+        self.assertFalse(task.done())
+
+        release.set()
+        await task
+
+    async def test_reconnect_pending_user_request_round_trips(self):
+
+        context = SimpleNamespace(
+            runtime_reconnect_pending_requests=[],
+        )
+        pending_requests = asyncio.Queue()
+        logger = FakeLogger()
+        message = {
+            "type": "message",
+            "text": "continue after FRAME",
+        }
+
+        self.assertTrue(
+            preserve_reconnect_pending_request(
+                context,
+                message,
+            )
+        )
+
+        restored = await restore_reconnect_pending_requests(
+            context,
+            pending_requests,
+            logger,
+        )
+
+        self.assertEqual(restored, 1)
+        self.assertEqual(
+            await pending_requests.get(),
+            message,
+        )
+        self.assertEqual(
+            context.runtime_reconnect_pending_requests,
+            [],
+        )
+        self.assertEqual(
+            logger.runtime_logs,
+            ["[WS] restored pending requests after reconnect: 1"],
+        )
 
     async def test_wait_for_runtime_memory_update_blocks_until_done(self):
 

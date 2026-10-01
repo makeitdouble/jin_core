@@ -1,0 +1,25 @@
+{
+  "jin_size": {
+    "version": 2,
+    "description": "Allows the model to update the collapsed JIN runtime avatar size for the current live session.",
+    "runtime_action": "JIN_SIZE",
+    "enable_flag": "CAN_JIN_SIZE",
+    "runtime_order": 50,
+    "private_marker": "<JIN_SIZE>",
+    "triggers": [],
+    "blockers": [],
+    "effects": {
+      "emit_followup": false,
+      "follow_up_on_fail": false
+    },
+    "schema": [
+      "<JIN_SIZE> w:120 h:120 </JIN_SIZE>"
+    ],
+    "rules": [
+      "Use to set JIN Live Avatar size.",
+      "Value may use px, vw, vh, or %. Default - px.",
+      "Percent values are axis-relative to current window."
+    ],
+    "close_tag": true
+  }
+}

@@ -5,8 +5,8 @@ const delayedMemoryClientFilterState = {
 
 const delayedMemoryTagPairs = [
   {
-    open: "<SAVE_DELAYED_MEMORY_CONTENT>",
-    close: "</SAVE_DELAYED_MEMORY_CONTENT>",
+    open: "<SAVE_DELAYED_MEMORY>",
+    close: "</SAVE_DELAYED_MEMORY>",
   },
 ];
 
@@ -30,10 +30,10 @@ function startDelayedMemoryRuntimeBubble(
 
   if (window.appendRuntimeAction) {
     window.appendRuntimeAction(
-      "save_delayed_memory_content",
-      "SAVE_DELAYED_MEMORY_CONTENT",
+      "save_delayed_memory",
+      "SAVE_DELAYED_MEMORY",
       {
-        displayName: "SAVE_DELAYED_MEMORY_CONTENT",
+        displayName: "SAVE_DELAYED_MEMORY",
         closeTag: true,
       }
     );
@@ -55,7 +55,7 @@ function completeDelayedMemoryRuntimeBubble(
 
   if (window.fadeRuntimeAction) {
     window.fadeRuntimeAction(
-      "save_delayed_memory_content"
+      "save_delayed_memory"
     );
   }
 
@@ -102,6 +102,75 @@ function generateDelayedMemoryReportId(
 }
 
 
+function normalizeDelayedMemoryFactIds(
+  value
+) {
+
+  const source =
+    Array.isArray(value)
+      ? value.flat(Infinity)
+      : [value];
+  const seen = new Set();
+  const factIds = [];
+
+  source.forEach(function (item) {
+    const matches =
+      String(item || "")
+        .match(/\bF[1-9]\d*\b/gi) || [];
+
+    matches.forEach(function (match) {
+      const factId =
+        String(match || "")
+          .trim()
+          .toUpperCase();
+
+      if (seen.has(factId)) {
+        return;
+      }
+
+      seen.add(factId);
+      factIds.push(factId);
+    });
+  });
+
+  return factIds;
+
+}
+
+function normalizeDelayedMemoryAttachmentIds(
+  value
+) {
+
+  const source =
+    Array.isArray(value)
+      ? value.flat(Infinity)
+      : [value];
+  const seen = new Set();
+  const attachmentIds = [];
+
+  source.forEach(function (item) {
+    String(item || "")
+      .split(/[,;\s]+/)
+      .map(id => id.trim().replace(/^[\[\]"']+|[\[\]"']+$/g, "").toLowerCase())
+      .filter(Boolean)
+      .forEach(function (id) {
+        if (
+            !/^[a-z0-9]{6}$/.test(id)
+            || seen.has(id)
+        ) {
+          return;
+        }
+
+        seen.add(id);
+        attachmentIds.push(id);
+      });
+  });
+
+  return attachmentIds;
+
+}
+
+
 function parseDelayedMemoryReportPayload(
   payload
 ) {
@@ -115,54 +184,96 @@ function parseDelayedMemoryReportPayload(
     return {};
   }
 
-  const fieldPattern =
-    /^[^\S\r\n]*(title|summary|tags|body)[^\S\r\n]*:[^\S\r\n]*(.*)$/gim;
+  let fields = null;
 
-  const matches = [];
-  let match = fieldPattern.exec(text);
+  try {
+    const parsed = JSON.parse(text);
 
-  while (match) {
-    matches.push({
-      name: String(match[1] || "").toLowerCase(),
-      inline: String(match[2] || "").trim(),
-      start: match.index,
-      end: fieldPattern.lastIndex,
-    });
-
-    match = fieldPattern.exec(text);
-  }
-
-  if (!matches.length) {
-    return {};
-  }
-
-  const fields = {};
-
-  matches.forEach(
-    function (
-      field,
-      index,
+    if (
+        parsed
+        && typeof parsed === "object"
+        && !Array.isArray(parsed)
     ) {
-      const nextStart =
-        index + 1 < matches.length
-          ? matches[index + 1].start
-          : text.length;
+      if (Object.prototype.hasOwnProperty.call(parsed, "title")) {
+        fields = parsed;
+      } else {
+        const values = Object.values(parsed);
 
-      const blockValue =
-        text.slice(
-          field.end,
-          nextStart
-        ).replace(/^\n+|\n+$/g, "");
-
-      fields[field.name] =
-        field.name === "body"
-          ? [field.inline, blockValue]
-              .filter(Boolean)
-              .join("\n")
-              .trim()
-          : field.inline;
+        if (
+            values.length === 1
+            && values[0]
+            && typeof values[0] === "object"
+            && !Array.isArray(values[0])
+            && Object.prototype.hasOwnProperty.call(values[0], "title")
+        ) {
+          fields = values[0];
+        }
+      }
     }
-  );
+  } catch (_error) {
+    fields = null;
+  }
+
+  if (!fields) {
+    // Compatibility for reports emitted before the JSON marker contract.
+    const fieldPattern =
+      /^[^\S\r\n]*(title|summary|tags|body|anchor_lt_facts_ids|lt_facts_ids|attachments_ids)[^\S\r\n]*:[^\S\r\n]*(.*)$/gim;
+
+    const matches = [];
+    let match = fieldPattern.exec(text);
+
+    while (match) {
+      matches.push({
+        name: String(match[1] || "").toLowerCase(),
+        inline: String(match[2] || "").trim(),
+        start: match.index,
+        end: fieldPattern.lastIndex,
+      });
+
+      match = fieldPattern.exec(text);
+    }
+
+    if (!matches.length) {
+      return {};
+    }
+
+    fields = {};
+
+    matches.forEach(
+      function (
+        field,
+        index,
+      ) {
+        const nextStart =
+          index + 1 < matches.length
+            ? matches[index + 1].start
+            : text.length;
+
+        const blockValue =
+          text.slice(
+            field.end,
+            nextStart
+          ).replace(/^\n+|\n+$/g, "");
+
+        fields[field.name] =
+          field.name === "body"
+            ? [field.inline, blockValue]
+                .filter(Boolean)
+                .join("\n")
+                .trim()
+            : [
+                "anchor_lt_facts_ids",
+                "lt_facts_ids",
+                "attachments_ids",
+              ].includes(field.name)
+              ? [field.inline, blockValue]
+                  .filter(Boolean)
+                  .join(" ")
+                  .trim()
+              : field.inline;
+      }
+    );
+  }
 
   const title =
     String(fields.title || "").trim();
@@ -182,18 +293,40 @@ function parseDelayedMemoryReportPayload(
       currentReports
     );
 
+  const anchorFactIds =
+    normalizeDelayedMemoryFactIds(
+      fields.anchor_lt_facts_ids
+    );
+  const factsIds =
+    normalizeDelayedMemoryFactIds([
+      ...normalizeDelayedMemoryFactIds(fields.lt_facts_ids),
+      ...anchorFactIds,
+    ]).sort(function (left, right) {
+      // Anchor ids are only highlighted; they never jump to the front.
+      return Number(left.slice(1)) - Number(right.slice(1));
+    });
+
   return {
     [key]: {
       title,
       summary:
         String(fields.summary || "").trim(),
       tags:
-        String(fields.tags || "")
-          .split(",")
-          .map(tag => tag.trim())
-          .filter(Boolean),
+        window.JinRuntime
+        && window.JinRuntime.storage
+        && typeof window.JinRuntime.storage.normalizeDelayedMemoryTags === "function"
+          ? window.JinRuntime.storage.normalizeDelayedMemoryTags(fields.tags)
+          : (Array.isArray(fields.tags) ? fields.tags : String(fields.tags || "").split(","))
+              .map(tag => String(tag || "").trim())
+              .filter(Boolean),
       body:
         String(fields.body || "").trim(),
+      anchor_lt_facts_ids: anchorFactIds,
+      lt_facts_ids: factsIds,
+      attachments_ids:
+        normalizeDelayedMemoryAttachmentIds(
+          fields.attachments_ids
+        ),
       created_session_id:
         String(window.jinRuntimeSessionId || websocketClientId || "").trim(),
       created_time:
@@ -204,7 +337,7 @@ function parseDelayedMemoryReportPayload(
 }
 
 
-function appendDelayedMemoryReportFromClientFallback(
+function mergeDelayedMemoryReportFromClientFallback(
   payload
 ) {
 
@@ -217,12 +350,12 @@ function appendDelayedMemoryReportFromClientFallback(
       !Object.keys(report).length
       || !window.JinRuntime
       || !window.JinRuntime.runtime
-      || !window.JinRuntime.runtime.appendDelayedMemoryReports
+      || !window.JinRuntime.runtime.mergeDelayedMemoryReports
   ) {
     return false;
   }
 
-  window.JinRuntime.runtime.appendDelayedMemoryReports(
+  window.JinRuntime.runtime.mergeDelayedMemoryReports(
     report
   );
 
@@ -300,7 +433,7 @@ function filterDelayedMemoryContentFromChunk(
       return visible;
     }
 
-    appendDelayedMemoryReportFromClientFallback(
+    mergeDelayedMemoryReportFromClientFallback(
       source.slice(
         payloadStart,
         closeIndex
@@ -343,7 +476,34 @@ function clearDelayedMemoryContentFilter(
 
 }
 
-function syncDelayedMemoryReportsToRuntime() {
+function normalizeDelayedMemoryReportIds(value) {
+  const source =
+    Array.isArray(value)
+      ? value
+      : [value];
+  const reportIds = [];
+  const seen = new Set();
+
+  source.forEach((item) => {
+    const reportId =
+      String(item || "").trim().toLowerCase();
+
+    if (
+        !/^[a-z0-9]{6}$/.test(reportId)
+        || seen.has(reportId)
+    ) {
+      return;
+    }
+
+    seen.add(reportId);
+    reportIds.push(reportId);
+  });
+
+  return reportIds;
+}
+
+
+function syncDelayedMemoryReportsToRuntime(options = {}) {
   if (
       !ws
       || ws.readyState !== WebSocket.OPEN
@@ -356,20 +516,97 @@ function syncDelayedMemoryReportsToRuntime() {
 
   const delayedMemoryReports =
     window.JinRuntime.runtime.getDelayedMemoryReports();
+  const deletedReportIds =
+    normalizeDelayedMemoryReportIds(
+      options.deletedReportIds
+      || options.deleted_delayed_memory_report_ids
+      || []
+    );
 
   if (
       !delayedMemoryReports
       || typeof delayedMemoryReports !== "object"
       || Array.isArray(delayedMemoryReports)
-      || !Object.keys(delayedMemoryReports).length
+      || (
+        !Object.keys(delayedMemoryReports).length
+        && !deletedReportIds.length
+      )
   ) {
-    return;
+    return false;
   }
 
-  sendSocketMessage({
+  const loadedDelayedMemoryIds =
+    typeof window.JinRuntime.runtime.getLoadedDelayedMemoryReportIds === "function"
+      ? window.JinRuntime.runtime.getLoadedDelayedMemoryReportIds()
+      : [];
+  const suppressedAutoLoadIds =
+    normalizeDelayedMemoryReportIds(
+      options.suppressedAutoLoadIds
+      || options.suppressed_delayed_memory_auto_load_ids
+      || []
+    );
+
+  return sendSocketMessage({
     type: "delayed_memory_store_sync",
+    mutation: Boolean(options.mutation || deletedReportIds.length),
     delayed_memory_reports: delayedMemoryReports,
+    deleted_delayed_memory_report_ids: deletedReportIds,
+    loaded_delayed_memory_ids: loadedDelayedMemoryIds,
+    ...(
+      suppressedAutoLoadIds.length
+        ? {
+          suppressed_delayed_memory_auto_load_ids:
+            suppressedAutoLoadIds,
+        }
+        : {}
+    ),
   });
 }
 
 
+window.syncDelayedMemoryReportsToRuntime =
+  syncDelayedMemoryReportsToRuntime;
+
+
+function handleDelayedMemoryStoreSnapshot(
+  data
+) {
+
+  if (
+      !data
+      || !data.delayed_memory_reports
+      || typeof data.delayed_memory_reports !== "object"
+      || Array.isArray(data.delayed_memory_reports)
+      || !window.JinRuntime
+      || !window.JinRuntime.runtime
+      || !window.JinRuntime.runtime.getDelayedMemoryReports
+      || !window.JinRuntime.runtime.replaceDelayedMemoryReports
+  ) {
+    return;
+  }
+
+  const localReports =
+    window.JinRuntime.runtime.getDelayedMemoryReports();
+
+  if (
+      typeof window.JinRuntime.runtime.replaceLoadedDelayedMemoryReportIds
+        === "function"
+  ) {
+    window.JinRuntime.runtime.replaceLoadedDelayedMemoryReportIds(
+      data.loaded_delayed_memory_ids || [],
+      { render: false }
+    );
+  }
+
+
+  window.JinRuntime.runtime.replaceDelayedMemoryReports({
+    ...data.delayed_memory_reports,
+  });
+
+}
+
+
+registerSocketMessageHandler(
+  "delayed_memory_store_snapshot",
+  handleDelayedMemoryStoreSnapshot
+);

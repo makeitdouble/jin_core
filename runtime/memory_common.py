@@ -18,15 +18,13 @@ from app_settings import (
 from runtime.runtime_context import (
     ContextContract,
 )
-from runtime.L1_memory_rules import (
+from runtime.frame_memory_rules import (
     DEFAULT_RUNTIME_MEMORY,
 )
 from runtime.registry import (
     runtime_state,
 )
-from runtime.state import (
-    RUNTIME_MEMORY_SUMMARIZER_RUNTIME_ID,
-)
+from runtime.state import SERVICE_RUNTIME_ID
 from runtime.state_sync import (
     refresh_runtime_state,
 )
@@ -84,33 +82,6 @@ def build_runtime_summarizer_trusted_context(
         if context is not None
         else None
     )
-    turn_number = (
-        getattr(
-            context,
-            "turn_number",
-            None,
-        )
-        if context is not None
-        else None
-    )
-    user_message_count = (
-        getattr(
-            context,
-            "user_message_count",
-            None,
-        )
-        if context is not None
-        else None
-    )
-    assistant_message_count = (
-        getattr(
-            context,
-            "assistant_message_count",
-            None,
-        )
-        if context is not None
-        else None
-    )
 
     now = None
 
@@ -131,8 +102,15 @@ def build_runtime_summarizer_trusted_context(
 
     contract = ContextContract(
         user_input="",
-        runtime_mode="SERVICE",
-        service_model_uid=settings.SERVICE_MODEL_UID,
+        current_session_id=str(
+            getattr(
+                context,
+                "session_id",
+                "",
+            )
+            or ""
+        ).strip(),
+        current_model_uid=settings.SERVICE_MODEL_UID,
         timestamp=str(timestamp),
         current_date=str(
             current_date
@@ -150,9 +128,6 @@ def build_runtime_summarizer_trusted_context(
             year
             or now.year
         ),
-        turn_number=turn_number,
-        user_message_count=user_message_count,
-        assistant_message_count=assistant_message_count,
     )
 
     return contract.to_runtime_xml()
@@ -404,75 +379,13 @@ async def log_memory_event(
     )
 
 
-async def log_active_memory_event(
-        context,
-        *,
-        message: str,
-        details: str | None = None,
-        fallback_channel: str = "runtime",
-        event: str | None = None,
-) -> None:
-
-    logger = getattr(
-        context,
-        "logger",
-        None,
-    )
-
-    log_active_memory = getattr(
-        logger,
-        "log_active_memory",
-        None,
-    )
-
-    if log_active_memory is not None:
-        await safe_call(
-            log_active_memory,
-            message,
-            details=details,
-            event=event,
-        )
-        return
-
-    fallback = getattr(
-        logger,
-        f"log_{fallback_channel}",
-        None,
-    )
-    formatted_message = (
-        f"[ACTIVE_MEMORY] {message}"
-    )
-
-    if details is not None:
-        await safe_call(
-            fallback,
-            formatted_message,
-            details=details,
-        )
-        return
-
-    await safe_call(
-        fallback,
-        formatted_message,
-    )
-
 def extract_runtime_memory_text(
         response: dict,
-        *,
-        allow_reasoning_fallback: bool = True,
 ) -> str:
 
     text = ResponseExtractor.extract_content_text(
         response
     )
-
-    if (
-            not text
-            and allow_reasoning_fallback
-    ):
-        text = ResponseExtractor.extract_reasoning_text(
-            response
-        )
 
     return text.strip()
 
@@ -539,7 +452,7 @@ def looks_like_incomplete_runtime_memory(
     )
 
 
-async def refresh_runtime_memory_summarizer_usage(
+async def refresh_service_runtime_usage(
         context,
         *,
         system_prompt: str,
@@ -605,11 +518,19 @@ async def refresh_runtime_memory_summarizer_usage(
     if not context_tokens:
         return
 
+    live_context_window = coerce_positive_int(
+        context_window
+    )
+    if not live_context_window:
+        live_context_window = coerce_positive_int(
+            runtime_state.get_runtime_state(
+                SERVICE_RUNTIME_ID
+            ).get("max_tokens")
+        )
+
     await refresh_runtime_state(
         context,
-        runtime_id=(
-            RUNTIME_MEMORY_SUMMARIZER_RUNTIME_ID
-        ),
+        runtime_id=SERVICE_RUNTIME_ID,
         used_tokens=(
             total_tokens
             or context_tokens
@@ -619,10 +540,7 @@ async def refresh_runtime_memory_summarizer_usage(
             total_tokens
             or context_tokens
         ),
-        max_tokens=(
-            context_window
-            or config.SERVICE_CONTEXT_WINDOW
-        ),
+        max_tokens=live_context_window or None,
         last_error=None,
         status="online",
     )
@@ -648,46 +566,6 @@ def coerce_positive_int(
     )
 
 
-def runtime_usage_is_context_overloaded(
-        runtime: dict | None,
-) -> bool:
-
-    if not isinstance(
-            runtime,
-            dict,
-    ):
-        return False
-
-    max_tokens = coerce_positive_int(
-        runtime.get(
-            "max_tokens"
-        )
-    )
-
-    if not max_tokens:
-        return False
-
-    used_tokens = max(
-        coerce_positive_int(
-            runtime.get(
-                "context_tokens"
-            )
-        ),
-        coerce_positive_int(
-            runtime.get(
-                "total_tokens"
-            )
-        ),
-        coerce_positive_int(
-            runtime.get(
-                "used_tokens"
-            )
-        ),
-    )
-
-    return used_tokens > max_tokens
-
-
 def latest_turn_context_is_overloaded(
         context,
 ) -> bool:
@@ -703,23 +581,9 @@ def latest_turn_context_is_overloaded(
             explicit_value
         )
 
-    runtime_id = (
-        config.SERVICE_MODEL_UID
-        if config.USE_SERVICE_AS_BRAIN
-        else config.BRAIN_MODEL_UID
-    )
-
-    runtime = (
-        runtime_state
-        .get_all_runtime_states()
-        .get(
-            runtime_id
-        )
-    )
-
-    return runtime_usage_is_context_overloaded(
-        runtime
-    )
+    # If the current request did not record an explicit overload decision,
+    # leave memory behavior unchanged. Runtime telemetry is presentation data.
+    return False
 
 
 def runtime_prompt_is_context_overloaded(
@@ -750,7 +614,7 @@ def build_runtime_summarizer_payload(
         system_prompt: str,
         user_prompt: str,
         temperature: float,
-        max_tokens: int,
+        max_tokens: int | None,
         stream: bool = False,
 ) -> dict:
 
@@ -782,9 +646,10 @@ async def log_runtime_summarizer_payload(
         label: str,
         payload: dict,
         stream_id: str | None = None,
+        **event_meta,
 ) -> None:
 
-    extra = {}
+    extra = dict(event_meta)
 
     if stream_id:
         extra["summarizer_stream_id"] = stream_id
@@ -835,6 +700,7 @@ async def log_runtime_summarizer_result(
         *,
         label: str,
         result: str,
+        **extra,
 ) -> None:
 
     await log_memory_event(
@@ -849,13 +715,13 @@ async def log_runtime_summarizer_result(
         ),
         fallback_channel="summarizer",
         event="summarizer_result",
+        **extra,
     )
 
 def build_runtime_summarizer_response_details(
         response: dict,
         *,
         extracted_memory: str = "",
-        allow_reasoning_fallback: bool = False,
 ) -> str:
 
     content = ResponseExtractor.extract_content_text(
@@ -881,6 +747,17 @@ def build_runtime_summarizer_response_details(
     ):
         usage = {}
 
+    reasoning_fields = {
+        "reasoning_content",
+        "reasoning",
+        "thinking",
+    }
+    visible_message = {
+        key: value
+        for key, value in message.items()
+        if key not in reasoning_fields
+    }
+
     payload = {
         "kind": "summarizer_response",
         "model": ResponseExtractor.extract_model(
@@ -890,16 +767,11 @@ def build_runtime_summarizer_response_details(
             response
         ),
         "content": content,
-        "reasoning_content": reasoning,
+        "reasoning_generated": bool(reasoning),
+        "reasoning_length": len(reasoning),
         "extracted_memory": extracted_memory,
-        "allow_reasoning_fallback": allow_reasoning_fallback,
-        "used_reasoning_fallback": (
-            bool(reasoning)
-            and not bool(content)
-            and allow_reasoning_fallback
-        ),
         "usage": usage,
-        "message": message,
+        "message": visible_message,
         "choice_index": choice.get(
             "index",
             0,

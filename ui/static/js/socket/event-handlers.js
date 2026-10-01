@@ -10,12 +10,300 @@ function resolveMessageRole(
 
 }
 
-function handleSessionActionsUpdate(
+function appendSessionBootstrapBoundary(
+  chatHistory,
+  lastTurn
+) {
+
+  if (!chatHistory) {
+    return null;
+  }
+
+  // Recent-turn timestamps are Unix seconds from the saved session.
+  // An action-only JIN completion has a timestamp even without visible text.
+  const timestamp = [
+    lastTurn && lastTurn.jin_created_at,
+    lastTurn && lastTurn.user_created_at,
+  ].map(Number).find(value => (
+    Number.isFinite(value)
+    && value > 0
+    && Number.isFinite(new Date(value * 1000).getTime())
+  ));
+
+  if (!timestamp) {
+    return null;
+  }
+
+  const lastMessageDate = new Date(timestamp * 1000);
+  const months = [
+    "january",
+    "february",
+    "march",
+    "april",
+    "may",
+    "june",
+    "july",
+    "august",
+    "september",
+    "october",
+    "november",
+    "december",
+  ];
+  const weekdays = [
+    "Sunday",
+    "Monday",
+    "Tuesday",
+    "Wednesday",
+    "Thursday",
+    "Friday",
+    "Saturday",
+  ];
+  const hours =
+    String(lastMessageDate.getHours()).padStart(2, "0");
+  const minutes =
+    String(lastMessageDate.getMinutes()).padStart(2, "0");
+  const labelText =
+    `${lastMessageDate.getDate()} `
+    + `${months[lastMessageDate.getMonth()]} `
+    + `${hours}:${minutes}, `
+    + weekdays[lastMessageDate.getDay()];
+
+  const divider =
+    document.createElement("div");
+  divider.className =
+    "jin-session-restore-divider";
+  divider.setAttribute(
+    "role",
+    "separator"
+  );
+  divider.setAttribute(
+    "aria-label",
+    `Previous session last message: ${labelText}`
+  );
+
+  const label =
+    document.createElement("span");
+  label.className =
+    "jin-session-restore-divider-label";
+  label.textContent =
+    labelText;
+
+  divider.appendChild(
+    label
+  );
+  chatHistory.appendChild(
+    divider
+  );
+
+  return divider;
+
+}
+
+function handleSessionBootstrapChatTail(
   data
 ) {
 
+  if (
+      window.jinArchivedSessionRestorePayload
+      || !data
+      || !Array.isArray(data.turns)
+  ) {
+    return;
+  }
+
+  const chatHistory =
+    document.getElementById(
+      "chat-history"
+    );
+
+  if (!chatHistory) {
+    return;
+  }
+
+  const existingMessages =
+    chatHistory.querySelectorAll(
+      ".jin-message-shell"
+    );
+
+  if (existingMessages.length) {
+    return;
+  }
+
+  const turns = data.turns
+    .filter(turn => (
+      turn
+      && typeof turn === "object"
+      && (
+        String(turn.user || "").trim()
+        || (
+          Array.isArray(turn.attachments)
+          && turn.attachments.length
+        )
+      )
+    ));
+
+  turns.forEach((turn, index) => {
+    const userText =
+      String(turn.user || "").trim();
+    const jinText =
+      String(turn.jin || "").trim();
+    const attachments =
+      Array.isArray(turn.attachments)
+        ? turn.attachments
+        : [];
+
+    const userShell = appendChatMessage(
+      "user",
+      userText,
+      null,
+      attachments
+    );
+    window.JinChatReactions?.restoreUserReaction(userShell, turn.jin_reaction);
+
+    // Marker/action-only turns have no visible JIN answer. Keep the USER
+    // bubble, but never manufacture an empty BR bubble.
+    if (jinText) {
+      const turnSourceSessionId =
+        String(
+          turn.source_session_id
+          || data.source_session_id
+          || "session"
+        ).trim();
+      const messageId =
+        `bootstrap-tail-${turnSourceSessionId
+          .replace(/[^a-zA-Z0-9_.:-]/g, "_")}-${index}`;
+
+      startStreamMessage(
+        messageId,
+        "brain",
+        null
+      );
+
+      const reasoning =
+        String(turn.reasoning || "").trim();
+
+      if (reasoning) {
+        appendThinkingChunk(
+          messageId,
+          reasoning
+        );
+      }
+
+      appendStreamChunk(
+        messageId,
+        jinText
+      );
+      finishStreamMessage(
+        messageId,
+        { retryable: false }
+      );
+    }
+
+    const nextTurn = turns[index + 1];
+    const currentSourceSessionId =
+      String(turn.source_session_id || "").trim();
+    const nextSourceSessionId =
+      String(
+        nextTurn
+        && nextTurn.source_session_id
+        || ""
+      ).trim();
+
+    if (
+        nextTurn
+        && currentSourceSessionId
+        && nextSourceSessionId
+        && currentSourceSessionId !== nextSourceSessionId
+    ) {
+      appendSessionBootstrapBoundary(
+        chatHistory,
+        turn
+      );
+    }
+  });
+
+  const divider =
+    appendSessionBootstrapBoundary(
+      chatHistory,
+      turns[turns.length - 1]
+    );
+
+  if (
+      divider
+      && typeof window.activateLiveUserTurnViewport
+        === "function"
+  ) {
+    window.activateLiveUserTurnViewport(
+      divider
+    );
+  }
+
+}
+
+
+function handleSessionActionsUpdate(
+  data
+) {
+  if (
+      data
+      && data.bootstrap_restore === true
+      && data.current_jin_color
+      && window.JinRuntime.avatar
+      && typeof window.JinRuntime.avatar.setCenterColor === "function"
+  ) {
+    window.JinRuntime.avatar.setCenterColor(
+      data.current_jin_color,
+      {
+        initialBootstrap: true,
+        persist: true,
+      }
+    );
+  }
+
   if (window.updateSessionActionsLog) {
     window.updateSessionActionsLog(
+      data
+    );
+  }
+
+}
+
+function handleFactsMemoryStoreUpdate(
+  data
+) {
+
+  if (
+      window.JINRuntimeLTMemory
+      && window.JINRuntimeLTMemory.applyFactsMemoryRecordsUpdate
+  ) {
+    window.JINRuntimeLTMemory.applyFactsMemoryRecordsUpdate(
+      data
+    );
+  }
+
+}
+
+function handleLTMemoryUpdate(
+  data
+) {
+
+  if (
+      window.JINRuntimeLTMemory
+      && window.JINRuntimeLTMemory.applyServerUpdate
+  ) {
+    window.JINRuntimeLTMemory.applyServerUpdate(
+      data
+    );
+  }
+
+}
+
+function handleSocketLTMemoryRestoreResult(
+  data
+) {
+
+  if (typeof window.handleLTLoggerMemoryRestoreResult === "function") {
+    window.handleLTLoggerMemoryRestoreResult(
       data
     );
   }
@@ -26,6 +314,10 @@ function handleSocketError(
   data
 ) {
 
+  if (window.clearPendingUserBatch) {
+    window.clearPendingUserBatch();
+  }
+
   if (window.clearInterruptedRuntimeGlow) {
     window.clearInterruptedRuntimeGlow();
   }
@@ -34,13 +326,21 @@ function handleSocketError(
     false
   );
 
+  if (window.clearJinCompletedAnswerRetryCandidate) {
+    window.clearJinCompletedAnswerRetryCandidate();
+  }
+
+  window.jinCurrentResponseRetryable = false;
+
+  if (window.releaseActiveStreamAvatar) {
+    window.releaseActiveStreamAvatar();
+  }
+
   appendLog(
     "[ERROR]",
     data.message,
     data.details
   );
-
-  stopFactCheckGlow();
 
 }
 
@@ -52,15 +352,23 @@ function handleSocketChatMessage(
     resolveMessageRole(data);
 
   let filteredText =
-    filterDelayedMemoryContentFromChunk(
-      data.message_id || "message",
-      data.text
-    );
+    String(data.text || "");
 
-  if (window.stripInternalActionMarkers) {
-    filteredText = window.stripInternalActionMarkers(
-      filteredText
-    );
+  // Runtime-action markers are output syntax. A USER message is data for the
+  // model, never executable/renderable runtime output, so keep it byte-for-byte
+  // visible instead of running it through assistant-side marker cleanup.
+  if (role !== "user") {
+    filteredText =
+      filterDelayedMemoryContentFromChunk(
+        data.message_id || "message",
+        filteredText
+      );
+
+    if (window.stripInternalActionMarkers) {
+      filteredText = window.stripInternalActionMarkers(
+        filteredText
+      );
+    }
   }
 
   clearDelayedMemoryContentFilter(
@@ -90,13 +398,109 @@ function handleThinkingChunk(
 
 }
 
-function handleAgentRuntimeStart() {
+function handleAgentRuntimeStart(data) {
+  if (window.clearPendingUserBatch) {
+    window.clearPendingUserBatch();
+  }
+
+  window.jinCurrentResponseRetryable = Boolean(
+    data && data.retryable_response
+  );
+
+  if (window.confirmJinLastResponseRetryStarted) {
+    window.confirmJinLastResponseRetryStarted();
+  }
+
   setGenerationState(
     true
   );
 }
 
-function handleAgentRuntimeEnd() {
+function withCurrentRoomState(sessionSnapshot) {
+  const roomState =
+    window.JinPanels
+    && typeof window.JinPanels.getRoomState === "function"
+      ? window.JinPanels.getRoomState(
+          sessionSnapshot.room_state || null
+        )
+      : null;
+  const avatarState =
+    roomState
+    && roomState.avatar
+    && typeof roomState.avatar === "object"
+      ? roomState.avatar
+      : null;
+
+  if (!avatarState) {
+    return sessionSnapshot;
+  }
+
+  return {
+    ...sessionSnapshot,
+    room_state: roomState,
+    current_jin_color: avatarState.color,
+    current_jin_collapsed: Boolean(avatarState.collapsed),
+    current_jin_speed: Number(
+      avatarState.speed_px_per_second || 900
+    ),
+    current_window_size: {
+      width: avatarState.window_width,
+      height: avatarState.window_height,
+    },
+    ...(
+      avatarState.geometry_known
+        ? {
+            current_jin_size: {
+              width: avatarState.width,
+              height: avatarState.height,
+            },
+            current_jin_position: {
+              x: avatarState.x,
+              y: avatarState.y,
+            },
+          }
+        : {}
+    ),
+  };
+}
+
+function handleAgentRuntimeEnd(data) {
+
+  if (window.clearPendingUserBatch) {
+    window.clearPendingUserBatch();
+  }
+
+  const runtimeSession =
+    window.JinRuntime
+    && window.JinRuntime.session;
+
+  if (
+      data
+      && data.session_snapshot
+      && runtimeSession
+      && typeof runtimeSession.persistLiveSessionCheckpoint === "function"
+  ) {
+    runtimeSession.persistLiveSessionCheckpoint({
+      session_snapshot: withCurrentRoomState(
+        data.session_snapshot
+      ),
+      completed_turn_commit: Boolean(
+        data.completed_turn_commit === true
+      ),
+    });
+  }
+
+  if (data && data.retryable_response === true) {
+    if (window.commitJinCompletedAnswerRetryCandidate) {
+      window.commitJinCompletedAnswerRetryCandidate();
+    }
+  } else if (window.clearJinCompletedAnswerRetryCandidate) {
+    window.clearJinCompletedAnswerRetryCandidate();
+  }
+
+  if (window.releaseActiveStreamAvatar) {
+    window.releaseActiveStreamAvatar();
+  }
 
   if (window.flushRuntimeTelemetryRender) {
     window.flushRuntimeTelemetryRender({
@@ -108,12 +512,55 @@ function handleAgentRuntimeEnd() {
     false
   );
 
+  window.jinCurrentResponseRetryable = false;
   window.jinActiveTurnUserIdleSeconds = 0;
 
   if (window.jinResetUserIdleTimer) {
     window.jinResetUserIdleTimer();
   }
 
+}
+
+function handlePendingUserBatchOpen(
+  data
+) {
+  if (
+    !window.openPendingUserBatch
+    || !window.openPendingUserBatch(
+      data && data.batch_id
+    )
+  ) {
+    return;
+  }
+
+  setGenerationState(
+    false
+  );
+}
+
+function handlePendingUserBatchCommit(
+  data
+) {
+  const batchId =
+    String(
+      data && data.batch_id
+      || ""
+    ).trim();
+
+  if (window.closePendingUserBatch) {
+    window.closePendingUserBatch(
+      batchId
+    );
+  }
+
+  setGenerationState(
+    true
+  );
+
+  sendSocketMessage({
+    type: "pending_user_batch_commit_ack",
+    batch_id: batchId,
+  });
 }
 
 function handleMessageStart(
@@ -132,9 +579,42 @@ function handleMessageStart(
 
 }
 
+function handleRuntimeProgress(
+  data
+) {
+
+  if (
+    !data
+    || !data.message_id
+  ) {
+    return;
+  }
+
+  if (!window.setStreamAvatarProgress) {
+    return;
+  }
+
+  window.setStreamAvatarProgress(
+    data.message_id,
+    {
+      phase: data.phase,
+      state: data.state,
+      progress: data.progress,
+      provider: data.provider,
+    }
+  );
+
+}
+
 function handleMessageChunk(
   data
 ) {
+
+  if (window.markStreamAnswerPhase) {
+    window.markStreamAnswerPhase(
+      data.message_id
+    );
+  }
 
   const filteredChunk =
     filterDelayedMemoryContentFromChunk(
@@ -157,12 +637,37 @@ function handleMessageEnd(
   data
 ) {
 
+  const runtimeSession =
+    window.JinRuntime
+    && window.JinRuntime.session;
+
+  if (
+      data
+      && data.session_snapshot
+      && runtimeSession
+      && typeof runtimeSession.persistLiveSessionCheckpoint === "function"
+  ) {
+    runtimeSession.persistLiveSessionCheckpoint({
+      session_snapshot: withCurrentRoomState(
+        data.session_snapshot
+      ),
+      completed_turn_commit: Boolean(
+        data.completed_turn_commit === true
+      ),
+    });
+  }
+
   clearDelayedMemoryContentFilter(
     data.message_id
   );
 
   finishStreamMessage(
-    data.message_id
+    data.message_id,
+    {
+      retryCandidate: Boolean(
+        window.jinCurrentResponseRetryable
+      )
+    }
   );
 
   if (window.flushRuntimeTelemetryRender) {
@@ -177,6 +682,10 @@ function handleMessageError(
   data
 ) {
 
+  if (window.clearPendingUserBatch) {
+    window.clearPendingUserBatch();
+  }
+
   clearDelayedMemoryContentFilter(
     data.message_id
   );
@@ -185,14 +694,23 @@ function handleMessageError(
     false
   );
 
-  appendLog(
-    "[VALIDATOR]",
-    data.text
-  );
+  if (!data.suppress_log) {
+    appendLog(
+      data.log_tag || "[VALIDATOR]",
+      data.text
+    );
+  }
 
   finishStreamMessage(
-    data.message_id
+    data.message_id,
+    { retryable: false }
   );
+
+  if (window.clearJinCompletedAnswerRetryCandidate) {
+    window.clearJinCompletedAnswerRetryCandidate();
+  }
+
+  window.jinCurrentResponseRetryable = false;
 
   if (window.flushRuntimeTelemetryRender) {
     window.flushRuntimeTelemetryRender({
@@ -202,9 +720,67 @@ function handleMessageError(
 
 }
 
+function handleRetryLastResponseRejected(
+  data
+) {
+  setGenerationState(
+    false
+  );
+
+  if (window.restoreJinDeletedRetryBubble) {
+    window.restoreJinDeletedRetryBubble();
+  }
+
+  appendLog(
+    "[RETRY]",
+    `Retry rejected: ${String(data && data.reason || "unavailable")}`
+  );
+}
+
+
+registerSocketMessageHandler(
+  "retry_last_response_rejected",
+  handleRetryLastResponseRejected
+);
+
+registerSocketMessageHandler(
+  "pending_user_batch_open",
+  handlePendingUserBatchOpen
+);
+
+registerSocketMessageHandler(
+  "pending_user_batch_commit",
+  handlePendingUserBatchCommit
+);
+
+registerSocketMessageHandler(
+  "session_bootstrap_chat_tail",
+  handleSessionBootstrapChatTail
+);
+
 registerSocketMessageHandler(
   "session_actions_update",
   handleSessionActionsUpdate
+);
+
+registerSocketMessageHandler(
+  "facts_memory_store_update",
+  handleFactsMemoryStoreUpdate
+);
+
+registerSocketMessageHandler(
+  "lt_memory_update",
+  handleLTMemoryUpdate
+);
+
+registerSocketMessageHandler(
+  "memory_value_edit_result",
+  data => window.JinRuntime?.memoryView?.handleMemoryValueEditResult(data)
+);
+
+registerSocketMessageHandler(
+  "lt_memory_restore_result",
+  handleSocketLTMemoryRestoreResult
 );
 
 [
@@ -236,6 +812,11 @@ registerSocketMessageHandler(
 registerSocketMessageHandler(
   "agent_runtime_end",
   handleAgentRuntimeEnd
+);
+
+registerSocketMessageHandler(
+  "runtime_progress",
+  handleRuntimeProgress
 );
 
 registerSocketMessageHandler(

@@ -1,4 +1,4 @@
-# Builds session action history and current sequence context blocks.
+# Builds the shared session action history context block.
 import re
 import time
 from xml.sax.saxutils import escape
@@ -11,6 +11,8 @@ from utils.session_actions_history import (
     format_session_action_display_parts,
     get_current_action_sequence_started_at,
     get_current_action_sequence_turn_id,
+    get_session_action_session_id,
+    session_action_belongs_to_session,
 )
 
 
@@ -53,18 +55,52 @@ def _normalize_session_action_history_item(
             "parts",
             [],
         )
+        jin_message_content = str(
+            item.get(
+                "jin_message_content",
+                "",
+            )
+            or ""
+        ).strip()
+        plain_sequence = bool(
+            item.get(
+                "runtime_session_action_plain_sequence",
+                False,
+            )
+        )
+        previous_bootstrap = bool(
+            item.get(
+                "runtime_session_action_previous_bootstrap",
+                False,
+            )
+        )
+        session_id = str(
+            item.get(
+                "session_id",
+                "",
+            )
+            or ""
+        ).strip()
     else:
         text = str(
             item
             or ""
         ).strip()
         parts = []
+        jin_message_content = ""
+        plain_sequence = False
+        previous_bootstrap = False
+        session_id = ""
 
     return {
         "text": text,
         "parts": parts,
         "created_at": created_at,
         "runtime_turn_id": runtime_turn_id,
+        "jin_message_content": jin_message_content,
+        "plain_sequence": plain_sequence,
+        "previous_bootstrap": previous_bootstrap,
+        "session_id": session_id,
     }
 
 
@@ -139,6 +175,21 @@ def _format_memory_action_context_part(
         or ""
     ).strip()
 
+    if normalized_action in {
+        "ATTACH_FILE_CONTENT",
+        "ATTACH_FILE_BY_ID",
+    }:
+        if detail and part_id:
+            return (
+                f"{action}: {detail} "
+                f"[ id: {part_id} ]"
+            )
+        if detail:
+            return f"{action}: {detail}"
+        if part_id:
+            return f"{action} [ id: {part_id} ]"
+        return action
+
     if normalized_action not in PAYLOAD_DISTINCT_SESSION_ACTIONS:
         return ""
 
@@ -161,7 +212,7 @@ def _format_memory_action_context_part(
 
     if normalized_action in {
         "SAVE_ACTIVE_MEMORY",
-        "SAVE_DELAYED_MEMORY_CONTENT",
+        "SAVE_DELAYED_MEMORY",
     }:
         if detail:
             return f"{action} - {detail}"
@@ -169,8 +220,8 @@ def _format_memory_action_context_part(
         return action
 
     if normalized_action in {
-        "RESOLVE_ACTIVE_MEMORY",
-        "REMOVE_DELAYED_MEMORY",
+        "DELETE_ACTIVE_MEMORY",
+        "UNLOAD_DELAYED_MEMORY",
     }:
         resolved_id = part_id or detail
 
@@ -192,9 +243,88 @@ def _format_session_action_context_parts(
     context_parts = []
 
     for part in parts or []:
+        part_text = str(
+            part.get(
+                "text",
+                "",
+            )
+            or ""
+        ).strip()
+        if part_text.upper() == "JIN_COLOR":
+            colors = part.get("colors", [])
+            formatted_colors = format_session_action_display_parts([
+                {
+                    "text": "JIN_COLOR",
+                    "colors": colors,
+                },
+            ])
+            if formatted_colors:
+                context_parts.append(formatted_colors)
+                continue
+        part_detail = str(
+            part.get(
+                "detail",
+                "",
+            )
+            or ""
+        ).strip()
+        if (
+            part_text.upper().endswith(":FAILED")
+            and part_detail
+        ):
+            context_parts.append(
+                f"{part_text}:{part_detail}" + (" [ tool_id: " + ", ".join(part["tool_ids"]) + " ]" if part.get("tool_ids") else "")
+            )
+            continue
+
+        if (
+            part_text.upper()
+            == "SAVE_DELAYED_MEMORY: FAILED"
+            and part_detail
+        ):
+            context_parts.append(
+                f"{part_text}: {part_detail}"
+            )
+            continue
+
+        context_detail = str(
+            part.get(
+                "context_detail",
+                "",
+            )
+            or ""
+        ).strip()
+
+        if context_detail:
+            context_part = dict(
+                part
+            )
+            context_part["detail"] = context_detail
+            context_part.pop(
+                "colors",
+                None,
+            )
+            context_part.pop(
+                "sizes",
+                None,
+            )
+            formatted = format_session_action_display_parts(
+                [
+                    context_part,
+                ],
+            )
+            if formatted:
+                context_parts.append(
+                    formatted
+                )
+                continue
+
         memory_part = _format_memory_action_context_part(
             part
         )
+
+        if memory_part and part.get("tool_ids"):
+            memory_part += " [ tool_id: " + ", ".join(part["tool_ids"]) + " ]"
 
         if memory_part:
             context_parts.append(
@@ -224,12 +354,92 @@ def _format_session_action_context_parts(
     ).strip()
 
 
+def _format_context_action_text(
+    text: str,
+) -> str:
+
+    return re.sub(
+        r"\b([A-Z][A-Z0-9_]*)\s+-\s+",
+        r"\1: ",
+        str(
+            text
+            or ""
+        ).strip(),
+    )
+
+
+def build_previous_chat_action_messages(
+    context,
+    runtime_turn_id: str,
+) -> list[dict]:
+    """Project one turn's executed actions as timestamped JIN messages."""
+
+    turn_id = str(runtime_turn_id or "").strip()
+    if context is None or not turn_id:
+        return []
+
+    session_id = get_session_action_session_id(context)
+    messages = []
+    for raw_item in list(
+        getattr(context, "runtime_session_action_history", []) or []
+    ):
+        item = _normalize_session_action_history_item(raw_item)
+        if (
+            not item["text"]
+            or item["runtime_turn_id"] != turn_id
+            or not session_action_belongs_to_session(item, session_id)
+        ):
+            continue
+
+        text = _format_context_action_text(
+            _format_session_action_context_parts(
+                item.get("parts", []),
+                fallback_text=item["text"],
+            )
+        )
+        if not text:
+            continue
+
+        messages.append({
+            "text": text,
+            "created_at": item.get("created_at"),
+        })
+
+    return messages
+
+
+def _format_jin_message_content(
+    text: str,
+    *,
+    truncate: bool = True,
+) -> str:
+
+    preview = re.sub(
+        r"\s+",
+        " ",
+        str(
+            text
+            or ""
+        ).strip(),
+    )
+
+    if not truncate or len(preview) <= 150:
+        return preview
+
+    return (
+        preview[:147].rstrip()
+        + "..."
+    )
+
+
 def build_session_actions_history_context(
     context=None,
     *,
     current_sequence: bool = False,
+    current_request: str = "",
     sequence_user_message: str = "",
     sequence_user_created_at=None,
+    latest_action: str = "",
 ) -> str:
 
     history_items = []
@@ -254,13 +464,35 @@ def build_session_actions_history_context(
         if item["text"]
     ]
 
-    if current_sequence and context is not None:
-        current_turn_id = get_current_action_sequence_turn_id(
+    if context is not None:
+        session_id = get_session_action_session_id(
             context
         )
-        turn_started_at = get_current_action_sequence_started_at(
+        history_items = [
+            item
+            for item in history_items
+            if session_action_belongs_to_session(
+                item,
+                session_id,
+            )
+        ]
+
+    current_turn_id = (
+        get_current_action_sequence_turn_id(
             context
         )
+        if context is not None
+        else ""
+    )
+    turn_started_at = (
+        get_current_action_sequence_started_at(
+            context
+        )
+        if context is not None
+        else None
+    )
+
+    if current_sequence:
         history_items = [
             item
             for item in history_items
@@ -271,18 +503,9 @@ def build_session_actions_history_context(
             )
         ]
 
-    sequence_user_text = str(
-        sequence_user_message
-        or ""
-    ).strip()
-
-    if (
-        not history_items
-        and not (
-            current_sequence
-            and sequence_user_text
-        )
-    ):
+    # The request already lives in the conversation. These blocks contain only
+    # actions and the JIN text that accompanied them, never another USER quote.
+    if not history_items:
         return ""
 
     now = time.time()
@@ -307,100 +530,120 @@ def build_session_actions_history_context(
     lines = []
     action_index = 0
     open_sequence_turn_id = ""
-
-    if current_sequence:
-        lines.append(
-            "--- Sequence started ---"
-        )
+    previous_actions_section_open = False
+    current_actions_section_open = False
+    last_jin_message_signature = None
 
     for item in history_items:
         runtime_turn_id = item[
             "runtime_turn_id"
         ]
-        item_is_sequence = (
-            not current_sequence
-            and runtime_turn_id in sequence_turn_ids
-        )
 
-        if item_is_sequence:
-            if open_sequence_turn_id != runtime_turn_id:
-                if open_sequence_turn_id:
-                    lines.append(
-                        "--- Sequence ended ---"
-                    )
+        if not current_sequence and item.get("previous_bootstrap"):
+            if not previous_actions_section_open:
                 lines.append(
-                    "--- Sequence started ---"
+                    "----- Previous actions -----"
                 )
-                open_sequence_turn_id = runtime_turn_id
-        elif open_sequence_turn_id:
+                previous_actions_section_open = True
+        elif (
+            not current_sequence
+            and
+            previous_actions_section_open
+            and not current_actions_section_open
+        ):
             lines.append(
-                "--- Sequence ended ---"
+                "----- Current session actions -----"
             )
-            open_sequence_turn_id = ""
+            current_actions_section_open = True
 
-        text = _format_session_action_context_parts(
-            item.get(
-                "parts",
-                [],
-            ),
-            fallback_text=item[
-                "text"
-            ],
+        item_is_sequence = runtime_turn_id in sequence_turn_ids
+        if not current_sequence:
+            if open_sequence_turn_id and (
+                not item_is_sequence or open_sequence_turn_id != runtime_turn_id
+            ):
+                lines.append("--- end of sequence ---")
+                open_sequence_turn_id = ""
+                last_jin_message_signature = None
+            if item_is_sequence and not open_sequence_turn_id:
+                lines.append("--- start of sequence ---")
+                open_sequence_turn_id = runtime_turn_id
+
+        text = _format_context_action_text(
+            _format_session_action_context_parts(
+                item.get(
+                    "parts",
+                    [],
+                ),
+                fallback_text=item[
+                    "text"
+                ],
+            )
         )
         created_at = item.get(
             "created_at"
         )
+        age_suffix = ""
         if created_at is not None:
-            text = (
-                f"{text} ( {format_session_action_age(now - created_at)} ago )"
+            age_suffix = (
+                f" ( {format_session_action_age(now - created_at)} ago )"
             )
+            text = f"{text}{age_suffix}"
 
         action_index += 1
-        if current_sequence:
-            lines.append(
-                f"JIN message {action_index} executed - {text}"
+
+        if (current_sequence or item_is_sequence) and not item.get("plain_sequence"):
+            jin_message_content = _format_jin_message_content(
+                item.get(
+                    "jin_message_content",
+                    "",
+                ),
+                # REQUEST_ACTIONS_HISTORY is the live continuation
+                # trace. Never chop the model text that led into an action:
+                # the next follow-up needs the complete message, not a 150
+                # character preview. The ordinary session-history projection
+                # keeps the compact preview behaviour.
+                truncate=not current_sequence,
             )
-        else:
-            lines.append(
-                f"{action_index}. {text}"
+            jin_message_signature = (
+                jin_message_content,
+                created_at,
             )
+            if (
+                jin_message_content
+                and jin_message_signature != last_jin_message_signature
+            ):
+                lines.append(
+                    f"JIN: {jin_message_content}{age_suffix}"
+                )
+                last_jin_message_signature = jin_message_signature
+
+        lines.append(f"{action_index}. {text}")
 
     if open_sequence_turn_id:
         lines.append(
-            "--- Sequence ended ---"
+            "--- end of sequence ---"
         )
 
+    # Keep these two projections distinct: a marker-triggered follow-up sees
+    # ONLY its sequence, numbered from 1. After the final marker-free answer,
+    # ordinary prompts use the full session with global numbering and paired
+    # sequence delimiters. Removing this switch makes old actions look like
+    # steps of the current task. Both views use the same canonical history.
     tag_name = (
-        "CURRENT_SEQUENCE"
+        "REQUEST_ACTIONS_HISTORY"
         if current_sequence
         else "SESSION_ACTIONS_HISTORY"
     )
 
+    escaped_lines = escape(
+        chr(10).join(
+            lines
+        )
+    )
     formatted_lines = indent_xml(
-        escape(
-            chr(10).join(
-                lines
-            )
-        ),
+        escaped_lines,
         spaces=4,
     )
-
-    if current_sequence and sequence_user_text:
-        if isinstance(
-            sequence_user_created_at,
-            (int, float),
-        ) and sequence_user_created_at > 0:
-            sequence_user_text = (
-                f"{sequence_user_text}"
-                f" ( {format_session_action_age(now - float(sequence_user_created_at))} ago )"
-            )
-
-        return (
-            f"<{tag_name}>\n"
-            f"INITIAL_SEQUENCE_INSTRUCTION: {escape(sequence_user_text)}\nDO NOT FOLLOW INITIAL_SEQUENCE_INSTRUCTION EXPLICITLY, CHECK CURRENT_SEQUENCE HISTORY BELOW!\n"
-            f"{formatted_lines}\n"
-            f"</{tag_name}>"
-        )
 
     return (
         f"<{tag_name}>\n"
@@ -409,8 +652,43 @@ def build_session_actions_history_context(
     )
 
 
+def build_current_runtime_context(
+    *,
+    user_message: str = "",
+    sequence_started_at=None,
+) -> str:
+
+    message_text = str(
+        user_message
+        or ""
+    ).strip()
+
+    if not message_text:
+        return ""
+
+    elapsed_suffix = ""
+
+    if isinstance(
+        sequence_started_at,
+        (int, float),
+    ) and sequence_started_at > 0:
+        elapsed_suffix = (
+            " ( "
+            f"{format_session_action_age(time.time() - float(sequence_started_at))}"
+            " ago )"
+        )
+
+    return (
+        f"<AWATING_INPUT{elapsed_suffix}>\n"
+        f"user_message: {escape(message_text)}\n"
+        "</AWAITING_INPUT>"
+    )
+
+
 def strip_actions_history_context(
     system_prompt: str,
+    *,
+    keep_previous_chat_messages: bool = False,
 ) -> str:
 
     prompt = str(
@@ -419,12 +697,23 @@ def strip_actions_history_context(
     )
 
     for tag_name in (
+        "FOLLOW_UP_RESPONSE_MESSAGE",
+        "FOLLOW_UP_CONTEXT_OVERFLOW_MESSAGE",
         "SESSION_ACTIONS_HISTORY",
+        "REQUEST_ACTIONS_HISTORY",
+        "CONCERNS",
+        "CURRENT_REQUEST_ACTIONS_HISTORY",  # Legacy saved prompts.
+        "CURRENT_CONCERNS",  # Legacy saved prompts.
+        "CURREN_USER_INPUT",
+        "CURRENT_RUNTIME",
+        "CURRENT_REQUEST_FLOW",  # Strip obsolete blocks from saved prompts.
         "CURRENT_SEQUENCE",
         "CURRENT_ACTIONS_HISTORY",
         "SEQUENCE_ORIGIN_REQUEST",
         "PREVIOUS_CHAT_MESSAGES",
     ):
+        if keep_previous_chat_messages and tag_name == "PREVIOUS_CHAT_MESSAGES":
+            continue
         prompt = re.sub(
             rf"(?:^|\n)<{tag_name}>.*?</{tag_name}>\n*",
             "\n",

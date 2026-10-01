@@ -1,7 +1,5 @@
-from copy import deepcopy
-
 from contracts.rules_assembler import (
-    RUNTIME_ACTION_SAVE_DELAYED_MEMORY_CONTENT,
+    RUNTIME_ACTION_SAVE_DELAYED_MEMORY,
     get_runtime_action_display_name,
     runtime_action_has_close_tag,
 )
@@ -16,73 +14,39 @@ from utils.tool_results import (
 async def apply_delayed_memory_actions(
     context,
     *,
-    list_delayed_memory_actions,
-    append_delayed_memory_actions,
-    remove_delayed_memory_actions,
+    load_delayed_memory_actions,
+    unload_delayed_memory_actions,
     log_runtime,
 ):
     from utils.brain_client_utils import (
-        append_delayed_memory_report,
-        append_delayed_memory_runtime_result,
-        build_delayed_memory_failure_result,
+        load_delayed_memory_report,
+        record_delayed_memory_runtime_result,
         build_delayed_memory_history_text,
-        clear_appended_delayed_memory_report,
         clear_delayed_memory_runtime_results,
-        get_delayed_memory_reports,
-        list_delayed_memory_reports,
-        remove_delayed_memory_report,
-        set_appended_delayed_memory_report,
     )
 
     delayed_memory_results = []
 
-    if list_delayed_memory_actions:
+    if load_delayed_memory_actions:
         if log_runtime is not None:
             await log_runtime(
-                "[RUNTIME ACTION] list_delayed_memory requested"
+                "[RUNTIME ACTION] load_delayed_memory requested"
             )
 
         clear_delayed_memory_runtime_results(
             context
         )
 
-        for action in list_delayed_memory_actions:
-            result = list_delayed_memory_reports(
-                context
-            )
-            append_delayed_memory_runtime_result(
-                context,
-                result,
-            )
-            delayed_memory_results.append(
-                result
-            )
-
-    if append_delayed_memory_actions:
-        if log_runtime is not None:
-            await log_runtime(
-                "[RUNTIME ACTION] append_delayed_memory requested"
-            )
-
-        clear_delayed_memory_runtime_results(
-            context
-        )
-
-        for action in append_delayed_memory_actions:
-            result = append_delayed_memory_report(
+        for action in load_delayed_memory_actions:
+            result = load_delayed_memory_report(
                 context,
                 action.payload,
             )
-            did_append_delayed_memory = set_appended_delayed_memory_report(
+            record_delayed_memory_runtime_result(
                 context,
                 result,
             )
-            if result.get("ok") is False:
-                append_delayed_memory_runtime_result(
-                    context,
-                    result,
-                )
-            if did_append_delayed_memory:
+            if result.get("ok") is not False:
                 history_text = build_delayed_memory_history_text(
                     result
                 )
@@ -93,74 +57,6 @@ async def apply_delayed_memory_actions(
                     )
             delayed_memory_results.append(
                 result
-            )
-
-    if remove_delayed_memory_actions:
-        if log_runtime is not None:
-            await log_runtime(
-                "[RUNTIME ACTION] remove_delayed_memory requested"
-            )
-
-        clear_delayed_memory_runtime_results(
-            context
-        )
-
-        saved_reports_before_remove = deepcopy(
-            get_delayed_memory_reports(
-                context
-            )
-        )
-
-        for action in remove_delayed_memory_actions:
-            result = remove_delayed_memory_report(
-                context,
-                action.payload,
-            )
-            did_remove_delayed_memory = clear_appended_delayed_memory_report(
-                context,
-                result.get(
-                    "id",
-                    "",
-                ),
-            )
-            result["detached"] = did_remove_delayed_memory
-            if (
-                result.get("ok") is not False
-                and not did_remove_delayed_memory
-            ):
-                result = build_delayed_memory_failure_result(
-                    action="remove_delayed_memory",
-                    requested=result.get(
-                        "id",
-                        "",
-                    ),
-                    error="delayed_memory_not_appended",
-                )
-                result["detached"] = False
-            append_delayed_memory_runtime_result(
-                context,
-                result,
-            )
-            if did_remove_delayed_memory:
-                history_text = build_delayed_memory_history_text(
-                    result
-                )
-                if history_text:
-                    record_session_action_history(
-                        context,
-                        history_text,
-                    )
-            delayed_memory_results.append(
-                result
-            )
-
-        if get_delayed_memory_reports(
-            context
-        ) != saved_reports_before_remove:
-            setattr(
-                context,
-                "delayed_memory_reports",
-                saved_reports_before_remove,
             )
 
     return delayed_memory_results
@@ -216,12 +112,25 @@ async def emit_delayed_memory_results(
             )
             or "delayed_memory"
         )
-        action_id = build_runtime_action_id(
-            result_action,
-            first_delayed_result_index
-            + result_index,
+        report_id = str(
+            result.get(
+                "id",
+                "",
+            )
+            or ""
+        ).strip().casefold()
+        report = result.get(
+            "report",
         )
-        await emit(with_action_context({
+        action_id = (
+            report_id
+            or build_runtime_action_id(
+                result_action,
+                first_delayed_result_index
+                + result_index,
+            )
+        )
+        event = {
             "type": "runtime_action",
             "action": result_action,
             "id": action_id,
@@ -240,6 +149,31 @@ async def emit_delayed_memory_results(
                 result
             ),
             "delayed_memory_result": result,
+        }
+
+        if report_id:
+            event["delayed_memory_report_id"] = (
+                report_id
+            )
+
+        if isinstance(
+            report,
+            dict,
+        ):
+            event["delayed_memory_report"] = {
+                **report,
+                "id": report_id
+                or str(
+                    report.get(
+                        "id",
+                        "",
+                    )
+                    or ""
+                ).strip().casefold(),
+            }
+
+        await emit(with_action_context({
+            **event,
         }))
 
 
@@ -302,6 +236,36 @@ async def apply_save_delayed_memory_actions(
             report
         )
 
+        from runtime.LT_memory import (
+            refresh_runtime_lt_archived_fact_ids,
+        )
+
+        refresh_runtime_lt_archived_fact_ids(
+            context
+        )
+
+        file_errors = []
+
+        if bool(
+            getattr(
+                context,
+                "delayed_memory_file_store_enabled",
+                False,
+            )
+        ):
+            from runtime.memory_profile import persist_delayed as persist_delayed_memory_reports
+
+            file_errors = persist_delayed_memory_reports(
+                context, report
+            )
+
+            if file_errors and log_runtime is not None:
+                for file_error in file_errors:
+                    await log_runtime(
+                        "[DELAYED MEMORY] local file save failed: "
+                        + file_error
+                    )
+
         saved_delayed_memory_reports.append(
             report
         )
@@ -315,7 +279,7 @@ async def apply_save_delayed_memory_actions(
 
             history_text = build_delayed_memory_history_text({
                 "ok": True,
-                "action": "save_delayed_memory_content",
+                "action": "save_delayed_memory",
                 "id": report_id,
                 "title": str(
                     report_value.get(
@@ -337,7 +301,7 @@ async def apply_save_delayed_memory_actions(
 
             saved_result = {
                 "ok": True,
-                "action": "save_delayed_memory_content",
+                "action": "save_delayed_memory",
                 "destination": (
                     "delayed_memory_reports (Delayed Memory storage)"
                 ),
@@ -353,6 +317,8 @@ async def apply_save_delayed_memory_actions(
                     **report_value,
                     "id": report_id,
                 },
+                "file_saved": not file_errors,
+                "file_errors": list(file_errors),
             }
             record_runtime_tool_result(
                 context,
@@ -437,7 +403,7 @@ async def apply_save_delayed_memory_actions(
                     )
                     and event.get(
                         "name"
-                    ) == "save_delayed_memory_content"
+                    ) == "save_delayed_memory"
                 ])
                 action_sequence = max(
                     current_action_sequence + 1,
@@ -457,19 +423,19 @@ async def apply_save_delayed_memory_actions(
                     action_sequence,
                 )
                 action_id = build_runtime_action_id(
-                    RUNTIME_ACTION_SAVE_DELAYED_MEMORY_CONTENT,
+                    RUNTIME_ACTION_SAVE_DELAYED_MEMORY,
                     action_sequence,
                 )
             await emit(with_action_context({
                 "type": "runtime_action",
-                "action": "save_delayed_memory_content",
+                "action": "save_delayed_memory",
                 "id": action_id,
                 "status": "completed",
                 "display_name": get_runtime_action_display_name(
-                    RUNTIME_ACTION_SAVE_DELAYED_MEMORY_CONTENT
+                    RUNTIME_ACTION_SAVE_DELAYED_MEMORY
                 ),
                 "close_tag": runtime_action_has_close_tag(
-                    RUNTIME_ACTION_SAVE_DELAYED_MEMORY_CONTENT
+                    RUNTIME_ACTION_SAVE_DELAYED_MEMORY
                 ),
                 "text": (
                     f"Saved delayed memory: {report_title}"

@@ -1,6 +1,13 @@
 from contracts.rules_assembler import (
     get_stream_validator_excluded_markers,
 )
+from utils.actions.regexp_utils import (
+    RUNTIME_ACTION_QUOTE_OPENERS,
+    is_quoted_runtime_marker,
+)
+
+import re
+import unicodedata
 
 # ---------------------------------------------------------
 # STREAM VALIDATOR
@@ -38,12 +45,51 @@ TRAILING_ARTIFACTS = [
 # VALIDATION THRESHOLDS
 # ---------------------------------------------------------
 
-WORD_WINDOW_SIZE = 30
-MAX_REPEAT_WORDS = 8
-MAX_REPEAT_WORD_SEQUENCE_SIZE = 6
-MAX_REPEAT_WORD_SEQUENCE_REPETITIONS = 6
-MAX_REPEAT_SENTENCES = 5
-MAX_SENTENCE_LOOP_SEQUENCE_SIZE = 16
+STREAM_VALIDATOR_WORD_WINDOW_SIZE = 30
+STREAM_VALIDATOR_MAX_REPEAT_WORDS = 8
+STREAM_VALIDATOR_MAX_REPEAT_WORD_SEQUENCE_SIZE = 6
+STREAM_VALIDATOR_MAX_REPEAT_WORD_SEQUENCE_REPETITIONS = 6
+STREAM_VALIDATOR_MAX_REPEAT_SENTENCES = 7
+STREAM_VALIDATOR_MAX_REPEAT_SYMBOLIC_MOTIFS = 5
+STREAM_VALIDATOR_SYMBOLIC_MOTIF_HISTORY_LINES = 48
+STREAM_VALIDATOR_MAX_SENTENCE_LOOP_SEQUENCE_SIZE = 16
+STREAM_VALIDATOR_MIN_RECURRENT_SENTENCE_WORDS = 5
+STREAM_VALIDATOR_MIN_RECURRENT_SENTENCE_ALNUM = 20
+
+WORD_WINDOW_SIZE = STREAM_VALIDATOR_WORD_WINDOW_SIZE
+MAX_REPEAT_WORDS = STREAM_VALIDATOR_MAX_REPEAT_WORDS
+MAX_REPEAT_WORD_SEQUENCE_SIZE = STREAM_VALIDATOR_MAX_REPEAT_WORD_SEQUENCE_SIZE
+MAX_REPEAT_WORD_SEQUENCE_REPETITIONS = STREAM_VALIDATOR_MAX_REPEAT_WORD_SEQUENCE_REPETITIONS
+MAX_REPEAT_SENTENCES = STREAM_VALIDATOR_MAX_REPEAT_SENTENCES
+MAX_REPEAT_SYMBOLIC_MOTIFS = STREAM_VALIDATOR_MAX_REPEAT_SYMBOLIC_MOTIFS
+SYMBOLIC_MOTIF_HISTORY_LINES = STREAM_VALIDATOR_SYMBOLIC_MOTIF_HISTORY_LINES
+MAX_SENTENCE_LOOP_SEQUENCE_SIZE = STREAM_VALIDATOR_MAX_SENTENCE_LOOP_SEQUENCE_SIZE
+MIN_RECURRENT_SENTENCE_WORDS = STREAM_VALIDATOR_MIN_RECURRENT_SENTENCE_WORDS
+MIN_RECURRENT_SENTENCE_ALNUM = STREAM_VALIDATOR_MIN_RECURRENT_SENTENCE_ALNUM
+
+# Inline symbol degeneration is deliberately conservative. A finite geometric
+# drawing may repeat the same visual pattern for several rows, so line breaks
+# are hard boundaries here. Only a long low-period run inside one physical line
+# counts as strong evidence of a loop.
+INLINE_SYMBOLIC_LOOP_MIN_CHARS = 96
+INLINE_SYMBOLIC_LOOP_MAX_MOTIF_SIZE = 16
+INLINE_SYMBOLIC_LOOP_MIN_REPETITIONS = 8
+# Same short mixed-symbol ASCII row repeated for many physical lines is also
+# a runaway shape. Keep the threshold high so ordinary finite ASCII art is not
+# treated as a loop. Single-symbol rows (bars, box sides, etc.) are exempt.
+ASCII_REPEAT_LOOP_MIN_LINES = 24
+ASCII_REPEAT_LOOP_MIN_VISIBLE_CHARS = 3
+# Same symbol-only ASCII row drifting one column per newline is a distinct
+# runaway shape. Keep this deliberately high so finite diagonals stay valid.
+ASCII_DRIFT_LOOP_MIN_LINES = 24
+ASCII_DRIFT_LOOP_MIN_BODY_WIDTH = 12
+MAX_RECURRENT_SENTENCE_HISTORY_SIZE = (
+    MAX_SENTENCE_LOOP_SEQUENCE_SIZE
+    * max(
+        1,
+        MAX_REPEAT_SENTENCES,
+    )
+)
 SENTENCE_HISTORY_SIZE = (
     MAX_SENTENCE_LOOP_SEQUENCE_SIZE
     + 1
@@ -86,6 +132,12 @@ EXCLUDED_MARKER_NAMES = frozenset(
     if marker_name
 )
 
+EXCLUDED_BLOCK_MARKER_NAMES = frozenset(
+    extract_marker_name(marker)
+    for marker in STREAM_VALIDATOR_EXCLUDED_MARKERS
+    if str(marker or "").lstrip().startswith("</")
+)
+
 EXCLUDED_MARKER_STARTS = tuple(
     marker_start
     for marker_name in EXCLUDED_MARKER_NAMES
@@ -94,6 +146,21 @@ EXCLUDED_MARKER_STARTS = tuple(
         f"</{marker_name}",
     )
 )
+
+LITERAL_MARKER_CLOSERS = {
+    '"': '"',
+    "'": "'",
+    '`': '`',
+    '«': '»',
+    '‹': '›',
+    '“': '”',
+    '‘': '’',
+    '„': '“',
+    '‚': '‘',
+    '(': ')',
+    '[': ']',
+    '{': '}',
+}
 
 def build_preview(
         text: str,
@@ -105,12 +172,23 @@ def build_preview(
         .strip()
     )[:TRUNCATE]
 
+def build_loop_preview(
+        text: str,
+) -> str:
+
+    return (
+        str(text or "")
+        .replace("\n", "\\n")
+        .strip()
+    )
+
 class StreamValidator:
 
     def __init__(self):
 
         self.current_sentence_parts = []
         self.sentence_history = []
+        self.recurrent_sentence_history = []
         self.sentence_period_match_counts = [
             0
         ] * (
@@ -121,7 +199,23 @@ class StreamValidator:
         self.history_paragraphs = set()
 
         self.recent_words = []
+        # A provider chunk boundary is not a word boundary. Keep the
+        # unfinished trailing token so streamed identifiers such as
+        # ``F`` + ``5,`` are validated as ``F5`` instead of eight fake
+        # repeated ``F`` words.
+        self.word_fragment = ""
+        # Symbol-only reasoning loops are invisible to the lexical guards.
+        # Keep a physical-line window so a recurring visual motif such as
+        # ``(😼) ⚡`` is still detectable when prose and code fences are
+        # interleaved between occurrences.
+        self.symbolic_line_fragment = ""
+        self.symbolic_line_index = 0
+        self.symbolic_motif_history = []
+        self.ascii_repeat_history = []
+        self.ascii_drift_history = []
         self.validation_marker_buffer = ""
+        self.validation_excluded_block_name = ""
+        self.validation_previous_chunk_last_char = ""
 
         self.last_failure_reason: str | None = None
         self.last_failure_preview = ""
@@ -522,6 +616,466 @@ class StreamValidator:
         return tail
 
     # -----------------------------------------------------
+    # VALIDATE SYMBOLIC / EMOJI MOTIF LOOPS
+    # -----------------------------------------------------
+
+    @staticmethod
+    def find_inline_symbolic_loop(
+        line: str,
+    ) -> tuple[str, str]:
+        """Return (motif, repeated_tail) for an obvious one-line symbol loop."""
+
+        line = str(line or "").rstrip("\r")
+
+        runs = []
+        current_run = []
+
+        for char in line:
+            category = unicodedata.category(char)
+
+            # Layout spacing and lightweight markdown wrappers do not change a
+            # visual motif, but a physical newline is never present here: the
+            # caller checks one completed/current line at a time.
+            if char.isspace() or char in "`*_~":
+                continue
+
+            if category[:1] in {"P", "S"}:
+                current_run.append(char)
+                continue
+
+            if category in {"Cf", "Mn", "Me"}:
+                continue
+
+            if current_run:
+                runs.append("".join(current_run))
+                current_run = []
+
+        if current_run:
+            runs.append("".join(current_run))
+
+        for run in reversed(runs):
+            if len(run) < INLINE_SYMBOLIC_LOOP_MIN_CHARS:
+                continue
+
+            max_motif_size = min(
+                INLINE_SYMBOLIC_LOOP_MAX_MOTIF_SIZE,
+                len(run) // INLINE_SYMBOLIC_LOOP_MIN_REPETITIONS,
+            )
+
+            for motif_size in range(2, max_motif_size + 1):
+                motif = run[-motif_size:]
+
+                # A solid bar / divider is common intentional ASCII art.
+                # The failure we care about has an actual repeating pattern.
+                if len(set(motif)) < 2:
+                    continue
+
+                repetitions = 0
+                offset = len(run)
+
+                while (
+                    offset >= motif_size
+                    and run[offset - motif_size:offset] == motif
+                ):
+                    repetitions += 1
+                    offset -= motif_size
+
+                repeated_length = repetitions * motif_size
+
+                if (
+                    repetitions < INLINE_SYMBOLIC_LOOP_MIN_REPETITIONS
+                    or repeated_length < INLINE_SYMBOLIC_LOOP_MIN_CHARS
+                ):
+                    continue
+
+                return (
+                    motif,
+                    run[len(run) - repeated_length:],
+                )
+
+        return "", ""
+
+    @staticmethod
+    def normalize_symbolic_motif(
+        line: str,
+    ) -> str:
+        stripped = str(line or "").strip()
+
+        if not stripped:
+            return ""
+
+        # This guard is intentionally narrow. Ordinary prose containing
+        # emoji belongs to the word/sentence validators, not here.
+        if any(
+            char.isalnum()
+            for char in stripped
+        ):
+            return ""
+
+        # Pure ASCII art commonly repeats structural rows (pipes,
+        # slashes, underscores, etc.) on purpose. Keep the cross-line
+        # motif guard scoped to non-ASCII symbols. Extremely long
+        # low-period runs inside one line are handled separately by
+        # ``find_inline_symbolic_loop``.
+        if stripped.isascii():
+            return ""
+
+        symbol_chars = [
+            char
+            for char in stripped
+            if (
+                unicodedata.category(char).startswith("S")
+                and char not in "`*_~"
+            )
+        ]
+
+        if len(symbol_chars) < 2:
+            return ""
+
+        # Two bare emoji are common conversational punctuation and are not
+        # enough evidence of a loop. Require either a richer 3+ symbol motif
+        # or real structural punctuation such as parentheses/brackets.
+        structural_punctuation = [
+            char
+            for char in stripped
+            if (
+                unicodedata.category(char).startswith("P")
+                and char not in "`*_~"
+            )
+        ]
+
+        if (
+            len(symbol_chars) < 3
+            and not structural_punctuation
+        ):
+            return ""
+
+        # Ignore spacing/markdown wrappers while preserving the actual
+        # visual motif order. ZWJ/variation selectors are deliberately not
+        # required for equality; the visible base symbols are enough.
+        return "".join(
+            char
+            for char in stripped
+            if (
+                (
+                    unicodedata.category(char).startswith("S")
+                    and char not in "`*_~"
+                )
+                or (
+                    unicodedata.category(char).startswith("P")
+                    and char not in "`*_~"
+                )
+            )
+        )
+
+    @staticmethod
+    def get_ascii_repeat_candidate(
+        line: str,
+    ) -> str:
+        line = str(line or "").rstrip("\r")
+        stripped = line.strip()
+
+        if (
+            not stripped
+            or "\t" in line
+            or not line.isascii()
+            or any(char.isalnum() for char in stripped)
+        ):
+            return ""
+
+        visible = [
+            char
+            for char in stripped
+            if not char.isspace()
+        ]
+
+        if (
+            len(visible) < ASCII_REPEAT_LOOP_MIN_VISIBLE_CHARS
+            or len(set(visible)) < 2
+            or any(
+                not (
+                    unicodedata.category(char).startswith("P")
+                    or unicodedata.category(char).startswith("S")
+                )
+                for char in visible
+            )
+        ):
+            return ""
+
+        # Spacing jitter is common in a degenerating ASCII stream. Normalize
+        # it so ``( ) )`` and ``(  )  )`` remain the same visual row.
+        return " ".join(
+            stripped.split()
+        )
+
+    def validate_ascii_repeat_line(
+        self,
+        line: str,
+    ) -> bool:
+        body = self.get_ascii_repeat_candidate(
+            line
+        )
+
+        if not body:
+            self.ascii_repeat_history = []
+            return True
+
+        if (
+            self.ascii_repeat_history
+            and self.ascii_repeat_history[-1][0] != body
+        ):
+            self.ascii_repeat_history = []
+
+        self.ascii_repeat_history.append((
+            body,
+            line.rstrip("\r"),
+        ))
+        self.ascii_repeat_history = self.ascii_repeat_history[
+            -ASCII_REPEAT_LOOP_MIN_LINES:
+        ]
+
+        if len(self.ascii_repeat_history) < ASCII_REPEAT_LOOP_MIN_LINES:
+            return True
+
+        preview = "\n".join(
+            item[1]
+            for item in self.ascii_repeat_history
+        )
+
+        self.last_failure_reason = (
+            "Repeated symbolic motif loop detected."
+        )
+        self.last_failure_preview = build_preview(
+            preview
+        )
+        self.last_failure_loop_preview = build_loop_preview(
+            body
+        )
+
+        return False
+
+    @staticmethod
+    def get_ascii_drift_candidate(
+        line: str,
+    ) -> tuple[int, str] | None:
+        line = str(line or "").rstrip("\r")
+        stripped = line.strip(" ")
+
+        if (
+            not stripped
+            or "\t" in line
+            or not line.isascii()
+            or len(stripped) < ASCII_DRIFT_LOOP_MIN_BODY_WIDTH
+            or any(char.isalnum() for char in stripped)
+        ):
+            return None
+
+        visible = [
+            char
+            for char in stripped
+            if not char.isspace()
+        ]
+
+        if (
+            len(visible) < 2
+            or any(
+                not (
+                    unicodedata.category(char).startswith("P")
+                    or unicodedata.category(char).startswith("S")
+                )
+                for char in visible
+            )
+        ):
+            return None
+
+        return (
+            len(line) - len(line.lstrip(" ")),
+            stripped,
+        )
+
+    def validate_ascii_drift_line(
+        self,
+        line: str,
+    ) -> bool:
+        candidate = self.get_ascii_drift_candidate(
+            line
+        )
+
+        if candidate is None:
+            self.ascii_drift_history = []
+            return True
+
+        indent, body = candidate
+
+        if (
+            self.ascii_drift_history
+            and self.ascii_drift_history[-1][1] != body
+        ):
+            self.ascii_drift_history = []
+
+        self.ascii_drift_history.append((
+            indent,
+            body,
+            line.rstrip("\r"),
+        ))
+        self.ascii_drift_history = self.ascii_drift_history[
+            -ASCII_DRIFT_LOOP_MIN_LINES:
+        ]
+
+        if len(self.ascii_drift_history) < ASCII_DRIFT_LOOP_MIN_LINES:
+            return True
+
+        step = (
+            self.ascii_drift_history[1][0]
+            - self.ascii_drift_history[0][0]
+        )
+
+        if (
+            abs(step) != 1
+            or any(
+                current[0] - previous[0] != step
+                for previous, current in zip(
+                    self.ascii_drift_history,
+                    self.ascii_drift_history[1:],
+                )
+            )
+        ):
+            return True
+
+        preview = "\n".join(
+            item[2]
+            for item in self.ascii_drift_history
+        )
+
+        self.last_failure_reason = (
+            "Repeated symbolic motif loop detected."
+        )
+        self.last_failure_preview = build_preview(
+            preview
+        )
+        self.last_failure_loop_preview = build_loop_preview(
+            body
+        )
+
+        return False
+
+    def validate_symbolic_motif_loops(
+        self,
+        chunk: str,
+    ) -> bool:
+        if MAX_REPEAT_SYMBOLIC_MOTIFS <= 0:
+            return True
+
+        text = self.symbolic_line_fragment + chunk
+        lines = text.split("\n")
+
+        if text.endswith("\n"):
+            complete_lines = lines[:-1]
+            self.symbolic_line_fragment = ""
+        else:
+            complete_lines = lines[:-1]
+            self.symbolic_line_fragment = lines[-1]
+
+        # Do not collapse separate rows into one symbol stream. Repeated rows
+        # are valid structure in ASCII/Unicode art; only an obviously runaway
+        # low-period sequence inside one physical line is rejected here.
+        inline_lines = list(complete_lines)
+        if self.symbolic_line_fragment:
+            inline_lines.append(self.symbolic_line_fragment)
+
+        for raw_line in inline_lines:
+            inline_motif, repeated_tail = self.find_inline_symbolic_loop(
+                raw_line
+            )
+
+            if not inline_motif:
+                continue
+
+            self.last_failure_reason = (
+                "Repeated symbolic motif loop detected."
+            )
+            self.last_failure_preview = build_preview(
+                repeated_tail
+            )
+            self.last_failure_loop_preview = build_loop_preview(
+                inline_motif
+            )
+
+            return False
+
+        for raw_line in complete_lines:
+            if not self.validate_ascii_repeat_line(
+                raw_line
+            ):
+                return False
+
+            if not self.validate_ascii_drift_line(
+                raw_line
+            ):
+                return False
+
+            self.symbolic_line_index += 1
+
+            line = raw_line.rstrip("\r")
+            motif_key = self.normalize_symbolic_motif(
+                line
+            )
+
+            min_line_index = (
+                self.symbolic_line_index
+                - SYMBOLIC_MOTIF_HISTORY_LINES
+            )
+            self.symbolic_motif_history = [
+                item
+                for item in self.symbolic_motif_history
+                if item[0] >= min_line_index
+            ]
+
+            if not motif_key:
+                continue
+
+            self.symbolic_motif_history.append((
+                self.symbolic_line_index,
+                motif_key,
+                line.strip(),
+            ))
+
+            matching = [
+                item
+                for item in self.symbolic_motif_history
+                if item[1] == motif_key
+            ]
+
+            if (
+                len(matching)
+                < MAX_REPEAT_SYMBOLIC_MOTIFS
+            ):
+                continue
+
+            matching = matching[
+                -MAX_REPEAT_SYMBOLIC_MOTIFS:
+            ]
+            loop_text = matching[-1][2]
+            preview = "\n".join(
+                item[2]
+                for item in matching
+            )
+
+            self.last_failure_reason = (
+                "Repeated symbolic motif loop detected."
+            )
+            self.last_failure_preview = build_preview(
+                preview
+            )
+            self.last_failure_loop_preview = build_loop_preview(
+                loop_text
+            )
+
+            return False
+
+        return True
+
+    # -----------------------------------------------------
     # VALIDATE WORD LOOPS
     # -----------------------------------------------------
 
@@ -529,7 +1083,20 @@ class StreamValidator:
         self,
         chunk: str,
     ):
-        words = chunk.split(" ")
+        text = self.word_fragment + chunk
+        words = text.split()
+
+        # Streaming providers may split one lexical token across chunks
+        # (for example: ``" F"`` then ``"5,"``). Do not treat the chunk
+        # edge as whitespace. Hold the trailing token until a real
+        # whitespace boundary arrives.
+        if text and not text[-1].isspace():
+            if words:
+                self.word_fragment = words.pop()
+            else:
+                self.word_fragment = text
+        else:
+            self.word_fragment = ""
 
         for word in words:
 
@@ -558,7 +1125,10 @@ class StreamValidator:
                 self.recent_words[-WORD_WINDOW_SIZE:]
             )
 
-            if len(self.recent_words) >= MAX_REPEAT_WORDS:
+            if (
+                MAX_REPEAT_WORDS > 0
+                and len(self.recent_words) >= MAX_REPEAT_WORDS
+            ):
 
                 last_word = self.recent_words[-1]
 
@@ -580,16 +1150,19 @@ class StreamValidator:
                     )
 
                     self.last_failure_preview = build_preview(preview)
-                    self.last_failure_loop_preview = build_preview(
+                    self.last_failure_loop_preview = build_loop_preview(
                         last_word
                     )
 
                     return False
 
-            max_sequence_size = min(
-                MAX_REPEAT_WORD_SEQUENCE_SIZE,
-                len(self.recent_words) // 2,
-            )
+            max_sequence_size = 0
+
+            if MAX_REPEAT_WORD_SEQUENCE_REPETITIONS > 0:
+                max_sequence_size = min(
+                    MAX_REPEAT_WORD_SEQUENCE_SIZE,
+                    len(self.recent_words) // 2,
+                )
 
             for sequence_size in range(
                 2,
@@ -635,7 +1208,7 @@ class StreamValidator:
                 self.last_failure_preview = build_preview(
                     preview
                 )
-                self.last_failure_loop_preview = build_preview(
+                self.last_failure_loop_preview = build_loop_preview(
                     loop_preview
                 )
 
@@ -673,23 +1246,48 @@ class StreamValidator:
         chunk: str,
     ) -> str:
 
+        had_marker_buffer = bool(
+            self.validation_marker_buffer
+        )
         text = self.validation_marker_buffer + chunk
         self.validation_marker_buffer = ""
 
         output = []
         offset = 0
 
+        def literal_marker_opener(
+            marker_start: int,
+        ) -> str:
+
+            if is_quoted_runtime_marker(
+                text,
+                marker_start,
+            ):
+                return text[marker_start - 1]
+
+            if (
+                marker_start == 0
+                and not had_marker_buffer
+                and self.validation_previous_chunk_last_char
+                in RUNTIME_ACTION_QUOTE_OPENERS
+            ):
+                return self.validation_previous_chunk_last_char
+
+            return ""
+
         while offset < len(text):
 
             marker_start = text.find("<", offset)
 
             if marker_start < 0:
-                output.append(text[offset:])
+                if not self.validation_excluded_block_name:
+                    output.append(text[offset:])
                 break
 
-            output.append(
-                text[offset:marker_start]
-            )
+            if not self.validation_excluded_block_name:
+                output.append(
+                    text[offset:marker_start]
+                )
 
             marker_end = text.find(
                 ">",
@@ -699,11 +1297,19 @@ class StreamValidator:
             if marker_end < 0:
                 candidate = text[marker_start:]
 
-                if self.can_be_excluded_marker_prefix(
+                if (
+                    not self.validation_excluded_block_name
+                    and literal_marker_opener(marker_start)
+                ):
+                    # Literal marker references must never start a persistent
+                    # excluded block. If the tag itself is chunk-split, keep
+                    # treating the partial text as ordinary validation input.
+                    output.append(candidate)
+                elif self.can_be_excluded_marker_prefix(
                     candidate
                 ):
                     self.validation_marker_buffer = candidate
-                else:
+                elif not self.validation_excluded_block_name:
                     output.append(candidate)
 
                 break
@@ -711,13 +1317,89 @@ class StreamValidator:
             marker = text[
                 marker_start:marker_end + 1
             ]
+            marker_name = extract_marker_name(marker)
+            is_closing = str(marker).lstrip().startswith("</")
+            literal_opener = (
+                literal_marker_opener(marker_start)
+                if not self.validation_excluded_block_name
+                else ""
+            )
 
-            if self.is_excluded_marker(marker):
+            if literal_opener:
+                # RuntimeActionStreamFilter already treats an immediately
+                # quoted/backticked/bracketed marker as literal model text.
+                # Mirror that rule here, but continue excluding the marker
+                # syntax itself from repetition analysis. Most importantly, a
+                # literal opening block marker must not leave validation stuck
+                # inside an excluded block waiting for a closing tag that is
+                # only being discussed, not emitted as an action.
+                if (
+                    marker_name in EXCLUDED_BLOCK_MARKER_NAMES
+                    and not is_closing
+                ):
+                    closing_match = re.search(
+                        rf"</{re.escape(marker_name)}\s*>",
+                        text[marker_end + 1:],
+                        re.IGNORECASE,
+                    )
+
+                    quote_closer = LITERAL_MARKER_CLOSERS.get(
+                        literal_opener,
+                        literal_opener,
+                    )
+                    quote_end = text.find(
+                        quote_closer,
+                        marker_end + 1,
+                    )
+
+                    if closing_match is not None:
+                        closing_start = (
+                            marker_end
+                            + 1
+                            + closing_match.start()
+                        )
+                        if (
+                            quote_end < 0
+                            or closing_start < quote_end
+                        ):
+                            output.append(" ")
+                            offset = (
+                                marker_end
+                                + 1
+                                + closing_match.end()
+                            )
+                            continue
+
+                output.append(" ")
+                offset = marker_end + 1
+                continue
+
+            if self.validation_excluded_block_name:
+                if (
+                    is_closing
+                    and marker_name == self.validation_excluded_block_name
+                ):
+                    self.validation_excluded_block_name = ""
+                    output.append(" ")
+
+                offset = marker_end + 1
+                continue
+
+            if (
+                marker_name in EXCLUDED_BLOCK_MARKER_NAMES
+                and not is_closing
+            ):
+                self.validation_excluded_block_name = marker_name
+                output.append(" ")
+            elif self.is_excluded_marker(marker):
                 output.append(" ")
             else:
                 output.append(marker)
 
             offset = marker_end + 1
+
+        if chunk:
+            self.validation_previous_chunk_last_char = chunk[-1]
 
         return "".join(output)
 
@@ -738,6 +1420,11 @@ class StreamValidator:
 
         if not validation_chunk:
             return True
+
+        if not self.validate_symbolic_motif_loops(
+            validation_chunk
+        ):
+            return False
 
         if not self.validate_word_loops(
             validation_chunk
@@ -797,6 +1484,107 @@ class StreamValidator:
             True,
         )
 
+    @staticmethod
+    def normalize_recurrent_sentence_key(
+        sentence: str,
+    ) -> str:
+
+        normalized = " ".join(
+            str(sentence or "")
+            .casefold()
+            .split()
+        ).strip(" *_~-\t")
+
+        if not normalized:
+            return ""
+
+        words = [
+            word.strip(
+                " \t\r\n`*_~\"'.,:;!?()[]{}<>"
+            )
+            for word in normalized.split()
+        ]
+        words = [
+            word
+            for word in words
+            if any(
+                char.isalpha()
+                for char in word
+            )
+        ]
+
+        if (
+            len(words)
+            < MIN_RECURRENT_SENTENCE_WORDS
+        ):
+            return ""
+
+        if (
+            sum(
+                char.isalnum()
+                for char in normalized
+            )
+            < MIN_RECURRENT_SENTENCE_ALNUM
+        ):
+            return ""
+
+        return normalized
+
+    def validate_recurrent_sentence_loop(
+        self,
+        sentence: str,
+    ) -> bool:
+
+        sentence_key = (
+            self.normalize_recurrent_sentence_key(
+                sentence
+            )
+        )
+
+        if not sentence_key:
+            return True
+
+        if MAX_REPEAT_SENTENCES <= 0:
+            return True
+
+        matching_sentences = [
+            history_sentence
+            for history_sentence in (
+                self.recurrent_sentence_history
+            )
+            if (
+                self.normalize_recurrent_sentence_key(
+                    history_sentence
+                )
+                == sentence_key
+            )
+        ]
+
+        if (
+            len(matching_sentences)
+            < MAX_REPEAT_SENTENCES
+        ):
+            return True
+
+        preview = "\n".join(
+            sentence.strip()
+            for sentence in matching_sentences[
+                -MAX_REPEAT_SENTENCES:
+            ]
+        )
+
+        self.last_failure_reason = (
+            "Repeated sentence loop detected."
+        )
+        self.last_failure_preview = build_preview(
+            preview
+        )
+        self.last_failure_loop_preview = build_loop_preview(
+            sentence.strip()
+        )
+
+        return False
+
     # -----------------------------------------------------
     # VALIDATE SENTENCES
     # -----------------------------------------------------
@@ -809,12 +1597,24 @@ class StreamValidator:
         self.sentence_history.append(
             sentence
         )
+        self.recurrent_sentence_history.append(
+            sentence
+        )
 
         if (
             len(self.sentence_history)
             > SENTENCE_HISTORY_SIZE
         ):
             del self.sentence_history[0]
+
+        if (
+            len(self.recurrent_sentence_history)
+            > MAX_RECURRENT_SENTENCE_HISTORY_SIZE
+        ):
+            del self.recurrent_sentence_history[0]
+
+        if MAX_REPEAT_SENTENCES <= 0:
+            return True
 
         max_sequence_size = min(
             MAX_SENTENCE_LOOP_SEQUENCE_SIZE,
@@ -886,17 +1686,32 @@ class StreamValidator:
             sequence = self.sentence_history[
                 -sequence_size:
             ]
+            loop_text = "\n".join(
+                sentence.strip()
+                for sentence in sequence
+                if sentence.strip()
+            )
 
             self.last_failure_reason = (
                 "Repeated sentence loop detected."
             )
             self.last_failure_preview = build_preview(
-                "".join(sequence)
+                loop_text
             )
-            self.last_failure_loop_preview = (
-                self.last_failure_preview
+            # Keep the whole detected sentence period, not only the
+            # final sentence that happened to trip the threshold.
+            # The loop preview is used both by the validator console
+            # and SEQUENCE recovery context, so reducing a
+            # two-sentence loop to e.g. only "No." loses the cause.
+            self.last_failure_loop_preview = build_loop_preview(
+                loop_text
             )
 
+            return False
+
+        if not self.validate_recurrent_sentence_loop(
+            sentence
+        ):
             return False
 
         return True
@@ -977,8 +1792,8 @@ class StreamValidator:
                 )
 
                 self.last_failure_preview = build_preview(paragraph)
-                self.last_failure_loop_preview = (
-                    self.last_failure_preview
+                self.last_failure_loop_preview = build_loop_preview(
+                    paragraph
                 )
 
                 return False

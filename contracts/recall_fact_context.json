@@ -1,0 +1,24 @@
+{
+  "recall_fact_context": {
+    "version": 1,
+    "description": "Reads saved historical sources of a committed L-T fact.",
+    "runtime_action": "RECALL_FACT_CONTEXT",
+    "enable_flag": "CAN_RECALL_FACT_CONTEXT",
+    "runtime_order": 85,
+    "private_marker": "<RECALL_FACTS_CONTEXT>",
+    "triggers": [],
+    "blockers": [],
+    "effects": {
+      "emit_followup": true,
+      "follow_up_on_fail": true
+    },
+    "close_tag": true,
+    "display_payload": true,
+    "schema": [
+      "<RECALL_FACTS_CONTEXT> F1, F2 </RECALL_FACTS_CONTEXT>"
+    ],
+    "rules": [
+      "Use this when a relevant fact needs its original evidence."
+    ]
+  }
+}

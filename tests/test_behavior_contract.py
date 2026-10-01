@@ -13,6 +13,7 @@ from contracts.rules_assembler import (
     build_runtime_action_instructions,
 )
 from runtime.behavior_contract import (
+    action_guard_has_trigger_match,
     get_action_guard,
     get_action_guard_blockers,
     get_action_guard_name_for_runtime_action,
@@ -49,7 +50,7 @@ class BehaviorContractTests(unittest.TestCase):
             contract["action_guards"],
             dict,
         )
-        self.assertIn(
+        self.assertNotIn(
             "save_session",
             contract["action_guards"],
         )
@@ -92,6 +93,52 @@ class BehaviorContractTests(unittest.TestCase):
                     get_action_guard_triggers("jin_color"),
                     ("second trigger",),
                 )
+
+    def test_runtime_action_enablement_comes_from_contract_metadata(self):
+
+        with tempfile.TemporaryDirectory() as directory:
+            contracts_dir = Path(directory)
+            (contracts_dir / "custom_action.json").write_text(
+                json.dumps({
+                    "custom_action": {
+                        "runtime_action": "CUSTOM_ACTION",
+                        "enable_flag": "CAN_CUSTOM_ACTION",
+                        "runtime_order": 10,
+                    },
+                }),
+                encoding="utf-8",
+            )
+
+            with patch.object(
+                rules_assembler,
+                "CONTRACTS_DIR",
+                contracts_dir,
+            ):
+                self.assertEqual(
+                    rules_assembler.get_enabled_runtime_actions({
+                        "CAN_CUSTOM_ACTION": True,
+                    }),
+                    ("CUSTOM_ACTION",),
+                )
+                self.assertEqual(
+                    rules_assembler.get_enabled_runtime_actions({
+                        "CAN_CUSTOM_ACTION": False,
+                    }),
+                    (),
+                )
+
+    def test_all_contracts_define_runtime_enable_metadata(self):
+
+        for name, contract in get_behavior_contract()["action_guards"].items():
+            self.assertTrue(
+                str(contract.get("enable_flag", "") or "").strip(),
+                msg=f"{name}.enable_flag must be set",
+            )
+            self.assertIsInstance(
+                contract.get("runtime_order"),
+                int,
+                msg=f"{name}.runtime_order must be an int",
+            )
 
     def test_all_contracts_have_trigger_words_and_blockers_as_lists(self):
 
@@ -196,24 +243,6 @@ class BehaviorContractTests(unittest.TestCase):
             ),
         )
 
-    def test_save_session_guard_exists(self):
-
-        guard = get_action_guard(
-            "save_session"
-        )
-
-        self.assertEqual(
-            guard["runtime_action"],
-            "SAVE_SESSION",
-        )
-        self.assertEqual(
-            guard["private_marker"],
-            "<SAVE_SESSION>",
-        )
-        self.assertTrue(
-            guard["effects"]["emit_followup"],
-        )
-
     def test_save_delayed_memory_contract_has_close_tag(self):
 
         guard = get_action_guard(
@@ -222,7 +251,7 @@ class BehaviorContractTests(unittest.TestCase):
 
         self.assertEqual(
             guard["private_marker"],
-            "<SAVE_DELAYED_MEMORY_CONTENT>",
+            "<SAVE_DELAYED_MEMORY>",
         )
         self.assertTrue(
             guard["close_tag"],
@@ -232,7 +261,7 @@ class BehaviorContractTests(unittest.TestCase):
 
         self.assertEqual(
             get_action_guard_name_for_runtime_action(
-                "SAVE_DELAYED_MEMORY_CONTENT"
+                "SAVE_DELAYED_MEMORY"
             ),
             "save_delayed_memory",
         )
@@ -255,6 +284,31 @@ class BehaviorContractTests(unittest.TestCase):
             )
         )
 
+    def test_save_active_memory_contract_is_autonomous(self):
+
+        instructions = build_runtime_action_contract_instructions(
+            "SAVE_ACTIVE_MEMORY"
+        )
+
+        self.assertEqual(
+            get_action_guard_triggers("save_active_memory"),
+            (),
+        )
+        self.assertFalse(
+            should_pause_action_guard_for_confirmation(
+                "save_active_memory",
+                "normal message",
+            )
+        )
+        self.assertIn(
+            "Follow-up: false",
+            instructions,
+        )
+        self.assertIn(
+            '{"conditions":"Descriptive conditions text", "additional_conditions":"additional value"}',
+            instructions,
+        )
+
     def test_runtime_action_instructions_include_marker_and_followup(self):
 
         instructions = build_runtime_action_contract_instructions(
@@ -263,23 +317,43 @@ class BehaviorContractTests(unittest.TestCase):
 
         self.assertTrue(
             instructions.startswith(
-                "<CLEAN_TOOL_RESULTS>\n"
+                "CLEAN_TOOL_RESULTS\n"
                 "Follow-up: false\n"
-                "Emit at any moment in you answer"
+                "Schema:"
             )
         )
 
     def test_close_tag_runtime_action_instructions_include_both_markers(self):
 
         instructions = build_runtime_action_contract_instructions(
-            "CREATE_TODO_LIST"
+            "JIN_COLOR"
         )
 
         self.assertTrue(
             instructions.startswith(
-                "<TODO_LIST></TODO_LIST>\n"
+                "JIN_COLOR\n"
+                "Follow-up: false\n"
+                "Schema:\n"
+                "<JIN_COLOR> #00f2ff </JIN_COLOR>\n"
+            )
+        )
+        self.assertIn(
+            "Use to set the JIN Live Avatar color.",
+            instructions,
+        )
+
+    def test_inline_runtime_action_instruction_starts_with_marker_name_only(self):
+
+        instructions = build_runtime_action_contract_instructions(
+            "WEB_SEARCH"
+        )
+
+        self.assertTrue(
+            instructions.startswith(
+                "WEB_SEARCH\n"
                 "Follow-up: true\n"
-                "RUNTIME TODO LEDGER:"
+                "Schema:\n"
+                "<WEB_SEARCH> query </WEB_SEARCH>\n"
             )
         )
 
@@ -287,64 +361,90 @@ class BehaviorContractTests(unittest.TestCase):
 
         instructions = build_runtime_action_instructions((
             "CLEAN_TOOL_RESULTS",
-            "IDLE",
+            "JIN_COLOR",
         ))
 
-        self.assertIn(
-            (
-                "Emit at any moment in you answer to clean redundant "
-                "tool results and only if they are present in the context "
-                "inside <TOOLS_RESULTS> block.\n\n"
-                "<IDLE: Ns >"
-            ),
+        self.assertEqual(
             instructions,
+            "\n\n".join(build_runtime_action_contract_instructions(action).rstrip()
+                         for action in ("CLEAN_TOOL_RESULTS", "JIN_COLOR")),
         )
+
 
     def test_configured_triggers_require_confirmation_and_allow_matching_text(self):
 
-        save_session_triggers = get_action_guard_triggers(
-            "save_session"
+        save_delayed_memory_triggers = get_action_guard_triggers(
+            "save_delayed_memory"
         )
-        if not save_session_triggers:
+        if not save_delayed_memory_triggers:
             self.skipTest(
-                "save_session contract has no triggers configured"
+                "save_delayed_memory contract has no triggers configured"
             )
 
         self.assertTrue(
             should_pause_action_guard_for_confirmation(
-                "save_session",
+                "save_delayed_memory",
                 "normal message",
             )
         )
         self.assertTrue(
             should_execute_action_guard(
-                "save_session",
-                save_session_triggers[0],
+                "save_delayed_memory",
+                save_delayed_memory_triggers[0],
             )
         )
 
-    def test_matching_blocker_skips_without_confirmation(self):
+    def test_trigger_match_uses_contract_trigger_with_token_boundaries(self):
 
-        blockers = get_action_guard_blockers(
-            "save_session"
-        )
-        if not blockers:
-            self.skipTest(
-                "save_session contract has no blockers configured"
+        trigger = get_action_guard_triggers(
+            "save_delayed_memory"
+        )[0]
+
+        self.assertTrue(
+            action_guard_has_trigger_match(
+                "save_delayed_memory",
+                f"  {trigger}  ",
             )
-
+        )
+        self.assertTrue(
+            action_guard_has_trigger_match(
+                "save_delayed_memory",
+                f"{trigger}!",
+            )
+        )
+        self.assertTrue(
+            action_guard_has_trigger_match(
+                "save_delayed_memory",
+                f"пожалуйста, {trigger}",
+            )
+        )
         self.assertFalse(
-            should_pause_action_guard_for_confirmation(
-                "save_session",
-                blockers[0],
+            action_guard_has_trigger_match(
+                "save_delayed_memory",
+                f"x{trigger}y",
             )
         )
-        self.assertFalse(
-            should_execute_action_guard(
-                "save_session",
-                blockers[0],
+
+    def test_matching_blocker_blocks_execution_without_confirmation(self):
+        with patch(
+            "runtime.behavior_contract.get_action_guard_triggers",
+            return_value=("remember this",),
+        ), patch(
+            "runtime.behavior_contract.get_action_guard_blockers",
+            return_value=("do not save",),
+        ):
+            self.assertFalse(
+                should_pause_action_guard_for_confirmation(
+                    "save_delayed_memory",
+                    "please do not save this",
+                )
             )
-        )
+            self.assertFalse(
+                should_execute_action_guard(
+                    "save_delayed_memory",
+                    "please do not save this",
+                )
+            )
 
     def test_behavior_contract_api_returns_contract(self):
 

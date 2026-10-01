@@ -2,12 +2,33 @@ const chatHistory =
   document.getElementById(
     "chat-history"
   );
+const chatInputShell =
+  document.getElementById(
+    "chat-input-shell"
+  );
 
 const streamMessages =
   new Map();
+const pendingStreamAvatarProgress =
+  new Map();
+
+const STREAM_AVATAR_LEFT_PX = 54;
+const STREAM_AVATAR_SIZE_PX = 28;
+const STREAM_AVATAR_HANDOFF_MS = 260;
+const STREAM_AVATAR_LAYOUT_TRACK_MS = 340;
+let activeStreamAvatarStream = null;
 
 const STREAM_FRAME_WARNING_MS = 12;
 const STREAM_NEAR_BOTTOM_PX = 72;
+const MEMORY_REFERENCE_HIGHLIGHT_EVENT =
+  "jin:memory-reference-highlight";
+
+let liveUserTurnAnchor = null;
+let keepLiveUserTurnAtTop = false;
+let expandedReasoningFollowStream = null;
+let expandedReasoningFollowFrame = null;
+let jinThinkCollapsedPreference = true;
+
 
 function isChatRenderForeground() {
 
@@ -133,14 +154,7 @@ function updateJinInputLoopCounter(text) {
 
 // ESCAPE HTML
 
-function escapeHtml(text) {
-
-  return String(text || "")
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;");
-
-}
+const escapeChatHtml = window.JinUiUtils.escapeHtml;
 
 function renderChatTextHtml(text) {
 
@@ -149,33 +163,52 @@ function renderChatTextHtml(text) {
       text || ""
     );
   const markerPattern =
-    /<JIN_COLOR:\s*(#?(?:[0-9a-f]{6}|[0-9a-f]{3}))\s*\/?>/gi;
+    /(?<!["'`«‹“‘„‚(\[{])(?:<(JIN_COLOR|JIN_SIZE)\s*>([\s\S]*?)<\/\1\s*>|<JIN_REACTION\s*>([\s\S]*?)<\/JIN_REACTION\s*>|<JIN_REACTION\s*:\s*([^>\r\n]+?)\s*>)/gi;
   let rendered = "";
   let lastIndex = 0;
   let match = null;
 
   while ((match = markerPattern.exec(source)) !== null) {
-    rendered += escapeHtml(
+    rendered += escapeChatHtml(
       source.slice(
         lastIndex,
         match.index
       )
     );
-    rendered += (
-      window.JinResponseFormatter
+    if (
+      (match[3] !== undefined || match[4] !== undefined)
+      && window.JinResponseFormatter
+      && typeof window.JinResponseFormatter.buildJinReactionMarkerHtml === "function"
+    ) {
+      rendered += window.JinResponseFormatter.buildJinReactionMarkerHtml(
+        match[3] !== undefined ? match[3] : match[4]
+      );
+    } else if (
+      String(match[1] || "").toUpperCase() === "JIN_COLOR"
+      && window.JinResponseFormatter
       && typeof window.JinResponseFormatter.buildJinColorMarkerHtml === "function"
-    )
-      ? window.JinResponseFormatter.buildJinColorMarkerHtml(
-          match[1]
-        )
-      : escapeHtml(
-          match[0]
-        );
+    ) {
+      rendered += window.JinResponseFormatter.buildJinColorMarkerHtml(
+        match[2]
+      );
+    } else if (
+      String(match[1] || "").toUpperCase() === "JIN_SIZE"
+      && window.JinResponseFormatter
+      && typeof window.JinResponseFormatter.buildJinSizeMarkerHtml === "function"
+    ) {
+      rendered += window.JinResponseFormatter.buildJinSizeMarkerHtml(
+        match[2]
+      );
+    } else {
+      rendered += escapeChatHtml(
+        match[0]
+      );
+    }
     lastIndex =
       markerPattern.lastIndex;
   }
 
-  rendered += escapeHtml(
+  rendered += escapeChatHtml(
     source.slice(
       lastIndex
     )
@@ -183,6 +216,62 @@ function renderChatTextHtml(text) {
 
   return rendered;
 
+}
+
+function isJinMemoryReferenceRole(role) {
+  return (
+    role === "brain"
+    || role === "service"
+  );
+}
+
+function dispatchJinMemoryReferenceHighlight(
+  source,
+  text,
+  active = true
+) {
+  window.dispatchEvent(
+    new CustomEvent(
+      MEMORY_REFERENCE_HIGHLIGHT_EVENT,
+      {
+        detail: {
+          source,
+          text: String(text || ""),
+          active: Boolean(active),
+        },
+      }
+    )
+  );
+}
+
+function clearLatestJinMemoryReferenceText() {
+  if (
+    window.JinThinkCitations
+    && typeof window.JinThinkCitations.resetThinkCitationHighlightTurn === "function"
+  ) {
+    window.JinThinkCitations.resetThinkCitationHighlightTurn();
+  }
+
+  dispatchJinMemoryReferenceHighlight(
+    "persistent",
+    "",
+    false
+  );
+}
+
+function setLatestJinMemoryReferenceText(
+  role,
+  text
+) {
+  if (!isJinMemoryReferenceRole(role)) {
+    return;
+  }
+
+  dispatchJinMemoryReferenceHighlight(
+    "persistent",
+    text,
+    true
+  );
 }
 
 function shouldFormatChatRole(role) {
@@ -193,6 +282,12 @@ function shouldFormatChatRole(role) {
     && window.JinResponseFormatter.isEnabled
     && window.JinResponseFormatter.isEnabled()
   );
+
+}
+
+function shouldInterpretChatRuntimeMarkers(role) {
+
+  return role !== "user";
 
 }
 
@@ -210,11 +305,15 @@ function renderChatTextElement(
     Boolean(
       options.format
     );
+  const interpretRuntimeMarkers =
+    options.interpretRuntimeMarkers !== false;
 
   element.classList.toggle(
     "jin-chat-markdown",
     format
   );
+  element.dataset.memoryReferenceText =
+    String(text || "");
 
   element.innerHTML =
     (
@@ -225,9 +324,35 @@ function renderChatTextElement(
       ? window.JinResponseFormatter.render(
         text
       )
-      : renderChatTextHtml(
-        text
+      : (
+        interpretRuntimeMarkers
+          ? renderChatTextHtml(
+            text
+          )
+          : escapeChatHtml(
+            text
+          )
       );
+
+  if (
+    window.JinChatReferenceIds
+    && typeof window.JinChatReferenceIds.decorate === "function"
+  ) {
+    window.JinChatReferenceIds.decorate(
+      element
+    );
+  }
+
+  if (
+    options.runtimeMessageId
+    && window.JinChatReactions
+    && typeof window.JinChatReactions.syncMessage === "function"
+  ) {
+    window.JinChatReactions.syncMessage(
+      options.runtimeMessageId,
+      element
+    );
+  }
 
 }
 
@@ -281,9 +406,542 @@ function requestStreamFrame(callback) {
 
 }
 
+function getChatHistoryTopGap() {
+
+  if (!chatHistory) {
+    return 0;
+  }
+
+  const styles =
+    window.getComputedStyle(
+      chatHistory
+    );
+
+  return (
+    Number.parseFloat(
+      styles.paddingTop
+    )
+    || 0
+  );
+
+}
+
+function getChatInputOverlaySpace() {
+
+  if (!chatInputShell) {
+    return 0;
+  }
+
+  return Math.ceil(
+    chatInputShell.getBoundingClientRect().height
+    || 0
+  );
+
+}
+
+
+function updateChatInputOverlaySpace() {
+
+  if (!chatHistory) {
+    return;
+  }
+
+  const overlaySpace =
+    getChatInputOverlaySpace();
+
+  if (!overlaySpace) {
+    chatHistory.style.removeProperty(
+      "--chat-input-overlay-space"
+    );
+    return;
+  }
+
+  chatHistory.style.setProperty(
+    "--chat-input-overlay-space",
+    `${overlaySpace}px`
+  );
+
+}
+
+
+function updateLiveUserTurnBottomSpace() {
+
+  if (!chatHistory) {
+    return;
+  }
+
+  updateChatInputOverlaySpace();
+
+  if (
+    !liveUserTurnAnchor
+    || !liveUserTurnAnchor.isConnected
+  ) {
+    chatHistory.style.removeProperty(
+      "--jin-live-turn-bottom-space"
+    );
+
+    return;
+  }
+
+  const metrics =
+    getLiveUserTurnViewportMetrics();
+
+  if (!metrics) {
+    chatHistory.style.removeProperty(
+      "--jin-live-turn-bottom-space"
+    );
+
+    return;
+  }
+
+  chatHistory.style.setProperty(
+    "--jin-live-turn-bottom-space",
+    `${Math.ceil(metrics.bottomSpace)}px`
+  );
+
+}
+
+
+function getLiveUserTurnViewportMetrics() {
+
+  if (
+    !chatHistory
+    || !liveUserTurnAnchor
+    || !liveUserTurnAnchor.isConnected
+  ) {
+    return null;
+  }
+
+  const anchorRect =
+    liveUserTurnAnchor.getBoundingClientRect();
+
+  let tailBottom =
+    anchorRect.bottom;
+
+  let sibling =
+    liveUserTurnAnchor.nextElementSibling;
+
+  while (sibling) {
+    if (!sibling.hidden) {
+      const rect =
+        sibling.getBoundingClientRect();
+
+      tailBottom =
+        Math.max(
+          tailBottom,
+          rect.bottom
+        );
+    }
+
+    sibling =
+      sibling.nextElementSibling;
+  }
+
+  const edgeGap =
+    getChatHistoryTopGap();
+
+  const occupiedHeight =
+    Math.max(
+      0,
+      tailBottom - anchorRect.top
+    );
+
+  const availableHeight =
+    Math.max(
+      0,
+      chatHistory.clientHeight
+      - edgeGap
+      - edgeGap
+      - getChatInputOverlaySpace()
+    );
+
+  const bottomSpace =
+    Math.max(
+      0,
+      availableHeight - occupiedHeight
+    );
+
+  return {
+    anchorRect,
+    bottomSpace,
+    overflow:
+      Math.max(
+        0,
+        occupiedHeight - availableHeight
+      ),
+  };
+
+}
+
+
+function liveUserTurnReachedViewportBottom() {
+
+  if (
+    !keepLiveUserTurnAtTop
+    || !chatHistory
+  ) {
+    return false;
+  }
+
+  const metrics =
+    getLiveUserTurnViewportMetrics();
+
+  return Boolean(
+    metrics
+    && metrics.bottomSpace <= 1
+  );
+
+}
+
+
+function scrollLiveUserTurnToTop() {
+
+  if (
+    !chatHistory
+    || !liveUserTurnAnchor
+    || !liveUserTurnAnchor.isConnected
+  ) {
+    return;
+  }
+
+  const metrics =
+    getLiveUserTurnViewportMetrics();
+
+  if (!metrics) {
+    return;
+  }
+
+  updateLiveUserTurnBottomSpace();
+
+  const historyRect =
+    chatHistory.getBoundingClientRect();
+
+  const anchorRect =
+    metrics.anchorRect;
+
+  const targetTop =
+    chatHistory.scrollTop
+    + anchorRect.top
+    - historyRect.top
+    - getChatHistoryTopGap();
+
+  chatHistory.scrollTop =
+    Math.max(
+      0,
+      targetTop + metrics.overflow
+    );
+
+}
+
+
+function stopExpandedReasoningFollow(
+  stream = null
+) {
+
+  if (
+    stream
+    && expandedReasoningFollowStream !== stream
+  ) {
+    return;
+  }
+
+  expandedReasoningFollowStream = null;
+
+  if (expandedReasoningFollowFrame) {
+    cancelAnimationFrame(
+      expandedReasoningFollowFrame
+    );
+    expandedReasoningFollowFrame = null;
+  }
+
+}
+
+
+function canFollowExpandedReasoning(
+  stream
+) {
+
+  return Boolean(
+    chatHistory
+    && stream
+    && stream.group
+    && stream.runtimeAvatarReasoningActive
+    && stream.group.createdThinking
+    && !stream.group.createdAnswer
+    && stream.group.thinkContent
+    && stream.group.thinkContent.isConnected
+    && !stream.group.thinkContent.classList.contains(
+      "is-collapsed"
+    )
+    && stream.group.avatarSlot
+    && stream.group.avatarSlot.isConnected
+  );
+
+}
+
+
+function getExpandedReasoningFollowTarget(
+  stream
+) {
+
+  if (!canFollowExpandedReasoning(stream)) {
+    return null;
+  }
+
+  const historyRect =
+    chatHistory.getBoundingClientRect();
+  const avatarRect =
+    stream.group.avatarSlot.getBoundingClientRect();
+  const visibleBottom =
+    historyRect.bottom
+    - getChatInputOverlaySpace()
+    - getChatHistoryTopGap();
+  const overflow =
+    avatarRect.bottom - visibleBottom;
+
+  if (overflow <= 0.5) {
+    return chatHistory.scrollTop;
+  }
+
+  const maxScrollTop =
+    Math.max(
+      0,
+      chatHistory.scrollHeight
+      - chatHistory.clientHeight
+    );
+
+  return Math.min(
+    maxScrollTop,
+    chatHistory.scrollTop + overflow
+  );
+
+}
+
+
+function runExpandedReasoningFollowFrame() {
+
+  expandedReasoningFollowFrame = null;
+
+  const stream =
+    expandedReasoningFollowStream;
+
+  if (!canFollowExpandedReasoning(stream)) {
+    stopExpandedReasoningFollow(
+      stream
+    );
+    return;
+  }
+
+  updateLiveUserTurnBottomSpace();
+
+  const targetTop =
+    getExpandedReasoningFollowTarget(
+      stream
+    );
+
+  if (targetTop === null) {
+    stopExpandedReasoningFollow(
+      stream
+    );
+    return;
+  }
+
+  const delta =
+    targetTop - chatHistory.scrollTop;
+
+  if (delta <= 0.5) {
+    return;
+  }
+
+  chatHistory.scrollTop =
+    Math.min(
+      targetTop,
+      chatHistory.scrollTop
+      + Math.max(
+        1,
+        delta * 0.24
+      )
+    );
+
+  if (
+    targetTop - chatHistory.scrollTop
+    > 0.5
+  ) {
+    expandedReasoningFollowFrame =
+      requestAnimationFrame(
+        runExpandedReasoningFollowFrame
+      );
+  }
+
+}
+
+
+function queueExpandedReasoningFollow() {
+
+  if (
+    expandedReasoningFollowFrame
+    || !canFollowExpandedReasoning(
+      expandedReasoningFollowStream
+    )
+  ) {
+    return;
+  }
+
+  expandedReasoningFollowFrame =
+    requestAnimationFrame(
+      runExpandedReasoningFollowFrame
+    );
+
+}
+
+
+function startExpandedReasoningFollow(
+  stream
+) {
+
+  if (!canFollowExpandedReasoning(stream)) {
+    return;
+  }
+
+  if (
+    expandedReasoningFollowStream
+    && expandedReasoningFollowStream !== stream
+  ) {
+    stopExpandedReasoningFollow();
+  }
+
+  expandedReasoningFollowStream =
+    stream;
+
+  // Manual expansion hands scroll ownership from the pinned USER row to the
+  // live reasoning tail. From here the viewport follows the moving avatar
+  // only when it reaches the usable bottom edge of the chat.
+  keepLiveUserTurnAtTop = false;
+  updateLiveUserTurnBottomSpace();
+  queueExpandedReasoningFollow();
+
+}
+
+
+function releaseLiveUserTurnViewportControl() {
+
+  releaseLiveUserTurnTopLock();
+  stopExpandedReasoningFollow();
+
+}
+
+
+function prepareLiveUserTurnViewport() {
+
+  stopExpandedReasoningFollow();
+  liveUserTurnAnchor = null;
+  keepLiveUserTurnAtTop = false;
+
+  if (chatHistory) {
+    chatHistory.style.removeProperty(
+      "--jin-live-turn-bottom-space"
+    );
+  }
+
+}
+
+
+function activateLiveUserTurnViewport(
+  messageRow
+) {
+
+  if (
+    !chatHistory
+    || !messageRow
+  ) {
+    return;
+  }
+
+  liveUserTurnAnchor =
+    messageRow;
+  keepLiveUserTurnAtTop =
+    true;
+
+  scrollLiveUserTurnToTop();
+
+  requestAnimationFrame(
+    () => {
+      if (keepLiveUserTurnAtTop) {
+        scrollLiveUserTurnToTop();
+      } else {
+        updateLiveUserTurnBottomSpace();
+      }
+    }
+  );
+
+}
+
+
+function releaseLiveUserTurnTopLock() {
+
+  keepLiveUserTurnAtTop = false;
+  updateLiveUserTurnBottomSpace();
+
+}
+
+
+function syncLiveUserTurnViewportForLayoutChange() {
+
+  if (
+    !liveUserTurnAnchor
+    || !liveUserTurnAnchor.isConnected
+  ) {
+    return;
+  }
+
+  // A reasoning max-height transition changes the visible tail height without
+  // producing a stream frame. Keep the compensating bottom spacer in lockstep
+  // so the browser never has to clamp chatHistory.scrollTop mid-collapse.
+  if (keepLiveUserTurnAtTop) {
+    scrollLiveUserTurnToTop();
+    return;
+  }
+
+  updateLiveUserTurnBottomSpace();
+
+  if (expandedReasoningFollowStream) {
+    queueExpandedReasoningFollow();
+  }
+
+}
+
+
+function scrollChatHistoryAfterAppend() {
+
+  if (!chatHistory) {
+    return;
+  }
+
+  updateLiveUserTurnBottomSpace();
+
+  if (keepLiveUserTurnAtTop) {
+    scrollLiveUserTurnToTop();
+    return;
+  }
+
+  if (expandedReasoningFollowStream) {
+    queueExpandedReasoningFollow();
+    return;
+  }
+
+  chatHistory.scrollTop =
+    chatHistory.scrollHeight;
+
+}
+
+
 function shouldAutoScroll() {
 
   if (!chatHistory) {
+    return false;
+  }
+
+  if (keepLiveUserTurnAtTop) {
     return false;
   }
 
@@ -298,6 +956,65 @@ function shouldAutoScroll() {
   );
 
 }
+
+
+if (chatHistory) {
+  chatHistory.addEventListener(
+    "wheel",
+    releaseLiveUserTurnViewportControl,
+    { passive: true }
+  );
+
+  chatHistory.addEventListener(
+    "touchstart",
+    releaseLiveUserTurnViewportControl,
+    { passive: true }
+  );
+}
+
+window.addEventListener(
+  "jin:generation-state-changed",
+  (event) => {
+    if (
+      event.detail
+      && event.detail.active === false
+    ) {
+      releaseLiveUserTurnViewportControl();
+    }
+  }
+);
+
+window.addEventListener(
+  "resize",
+  () => {
+    updateChatInputOverlaySpace();
+    updateLiveUserTurnBottomSpace();
+
+    if (keepLiveUserTurnAtTop) {
+      scrollLiveUserTurnToTop();
+    } else if (expandedReasoningFollowStream) {
+      queueExpandedReasoningFollow();
+    }
+  }
+);
+
+if (chatInputShell && typeof ResizeObserver !== "undefined") {
+  const chatInputShellObserver =
+    new ResizeObserver(() => {
+      updateChatInputOverlaySpace();
+      updateLiveUserTurnBottomSpace();
+
+      if (keepLiveUserTurnAtTop) {
+        scrollLiveUserTurnToTop();
+      }
+    });
+
+  chatInputShellObserver.observe(
+    chatInputShell
+  );
+}
+
+updateChatInputOverlaySpace();
 
 
 function appendTextNodeData(
@@ -377,11 +1094,17 @@ function flushStreamFrame() {
       stream
     );
 
+    let streamAvatarNeedsSync = false;
+
     if (stream.pendingThinking) {
 
       if (
         !stream.group.createdThinking
       ) {
+
+        stream.group.wrapper.classList.remove(
+          "is-awaiting-model"
+        );
 
         stream.group.wrapper.appendChild(
           stream.group.thinkWrapper
@@ -389,21 +1112,47 @@ function flushStreamFrame() {
 
         stream.group.createdThinking =
           true;
+        streamAvatarNeedsSync = true;
 
       }
 
-      appendTextNodeData(
-        stream.group.thinkContent,
-        "__jinThinkTextNode",
-        stream.pendingThinking
+      const canRenderStructuredThinking = Boolean(
+        window.JinThinkFormatter
+        && typeof window.JinThinkFormatter.renderStreaming === "function"
+        && window.JinThinkCitations
+        && typeof window.JinThinkCitations.updateStreamingRuntimeCitationHighlights === "function"
       );
 
-      updateThinkExpandedHeight(
-        stream.group.thinkContent
-      );
+      if (canRenderStructuredThinking) {
+        window.JinThinkCitations.updateStreamingRuntimeCitationHighlights(
+          stream.messageId,
+          stream
+        );
+      } else {
+        appendTextNodeData(
+          stream.group.thinkContent,
+          "__jinThinkTextNode",
+          stream.pendingThinking
+        );
+
+        updateThinkExpandedHeight(
+          stream.group.thinkContent
+        );
+
+        if (
+          window.JinThinkCitations
+          && typeof window.JinThinkCitations.updateStreamingRuntimeCitationHighlights === "function"
+        ) {
+          window.JinThinkCitations.updateStreamingRuntimeCitationHighlights(
+            stream.messageId,
+            stream
+          );
+        }
+      }
 
       stream.pendingThinking =
         "";
+      streamAvatarNeedsSync = true;
 
     }
 
@@ -413,12 +1162,21 @@ function flushStreamFrame() {
         !stream.group.createdAnswer
       ) {
 
+        stopExpandedReasoningFollow(
+          stream
+        );
+
+        stream.group.wrapper.classList.remove(
+          "is-awaiting-model"
+        );
+
         stream.group.wrapper.appendChild(
           stream.group.messageRow
         );
 
         stream.group.createdAnswer =
           true;
+        streamAvatarNeedsSync = true;
 
       }
 
@@ -429,18 +1187,50 @@ function flushStreamFrame() {
           format: shouldFormatChatRole(
             stream.role
           ),
+          interpretRuntimeMarkers: shouldInterpretChatRuntimeMarkers(
+            stream.role
+          ),
+          runtimeMessageId: stream.messageId,
         }
       );
 
       stream.pendingAnswer =
         "";
+      streamAvatarNeedsSync = true;
 
+    }
+
+    if (streamAvatarNeedsSync) {
+      syncStreamAvatarPosition(
+        stream
+      );
     }
 
   });
 
+  updateLiveUserTurnBottomSpace();
+
+  let liveTurnOverflowAutoscroll =
+    false;
+
   if (
-    autoscroll
+    !expandedReasoningFollowStream
+    && liveUserTurnReachedViewportBottom()
+  ) {
+    releaseLiveUserTurnTopLock();
+    liveTurnOverflowAutoscroll =
+      true;
+  }
+
+  if (keepLiveUserTurnAtTop) {
+    scrollLiveUserTurnToTop();
+  } else if (expandedReasoningFollowStream) {
+    queueExpandedReasoningFollow();
+  } else if (
+    (
+      autoscroll
+      || liveTurnOverflowAutoscroll
+    )
     && chatHistory
   ) {
     chatHistory.scrollTop =
@@ -497,7 +1287,7 @@ function getRoleConfig(role) {
 
     case "user":
       return {
-        avatar: "US",
+        avatar: "U",
         bubbleClass:
           "jin-chat-bubble jin-chat-bubble-user",
         avatarClass:
@@ -513,19 +1303,10 @@ function getRoleConfig(role) {
           "jin-chat-avatar-service"
       };
 
-    case "translator":
-      return {
-        avatar: "TR",
-        bubbleClass:
-            "jin-chat-bubble jin-chat-bubble-translator",
-        avatarClass:
-            "jin-chat-avatar-translator"
-      };
-
     case "brain":
     default:
       return {
-        avatar: "BR",
+        avatar: "J",
         bubbleClass:
           "jin-chat-bubble jin-chat-bubble-brain jin-chat-bubble-rateable",
         avatarClass:
@@ -535,6 +1316,42 @@ function getRoleConfig(role) {
   }
 
 }
+
+function appendJinBubbleSkin(
+  bubble
+) {
+
+  if (
+    !bubble
+    || !(
+      bubble.classList.contains(
+        "jin-chat-bubble-service"
+      )
+      || bubble.classList.contains(
+        "jin-chat-bubble-brain"
+      )
+    )
+  ) {
+    return;
+  }
+
+  const skin =
+    document.createElement("span");
+
+  skin.className =
+    "jin-chat-bubble-skin";
+
+  skin.setAttribute(
+    "aria-hidden",
+    "true"
+  );
+
+  bubble.appendChild(
+    skin
+  );
+
+}
+
 
 function formatContextSnapshot(
   role,
@@ -643,8 +1460,30 @@ function createAvatarElement(
       " cursor-help transition";
   }
 
-  avatar.textContent =
+  const progressRing =
+    document.createElement("div");
+
+  progressRing.className =
+    "jin-chat-avatar-progress-ring";
+  progressRing.setAttribute(
+    "aria-hidden",
+    "true"
+  );
+
+  const label =
+    document.createElement("span");
+
+  label.className =
+    "jin-chat-avatar-label";
+  label.textContent =
     config.avatar;
+
+  avatar.appendChild(
+    progressRing
+  );
+  avatar.appendChild(
+    label
+  );
 
   if (contextSnapshot) {
     avatar.addEventListener(
@@ -705,6 +1544,10 @@ function createMessageElement(
   bubble.className =
     config.bubbleClass;
 
+  appendJinBubbleSkin(
+    bubble
+  );
+
   bubble.appendChild(pre);
 
   msgDiv.appendChild(
@@ -722,8 +1565,7 @@ function createMessageElement(
     msgDiv
   );
 
-  chatHistory.scrollTop =
-    chatHistory.scrollHeight;
+  scrollChatHistoryAfterAppend();
 
   return pre;
 
@@ -752,11 +1594,21 @@ function createMessageAttachmentChips(
       formatAttachmentChipLabel(
         attachment
       );
+    const attachmentId =
+      String(
+        attachment && attachment.id
+          ? attachment.id
+          : ""
+      ).trim().toLowerCase();
 
     chip.type =
       "button";
     chip.className =
-      "inline-flex h-8 w-8 shrink-0 items-center justify-center rounded border border-sky-400/25 bg-sky-950/35 p-0 text-[18px] leading-none text-sky-100 transition hover:border-sky-300/50 hover:bg-sky-900/45";
+      JIN_ATTACHMENT_CHIP_CLASS;
+    if (attachmentId) {
+      chip.dataset.attachmentId =
+        attachmentId;
+    }
     chip.textContent =
       getAttachmentChipEmoji(
         attachment
@@ -766,10 +1618,121 @@ function createMessageAttachmentChips(
       label
     );
 
-    bindJinAttachmentBubble(
-      chip,
-      attachment
-    );
+    let attachmentBound = false;
+    let attachmentAvailable = !attachmentId;
+
+    if (attachmentId) {
+      chip.addEventListener(
+        "click",
+        (event) => {
+          if (attachmentAvailable) {
+            return;
+          }
+          event.preventDefault();
+          event.stopImmediatePropagation();
+        },
+        true
+      );
+      chip.addEventListener(
+        "keydown",
+        (event) => {
+          if (
+            attachmentAvailable
+            || (event.key !== "Enter" && event.key !== " ")
+          ) {
+            return;
+          }
+          event.preventDefault();
+          event.stopImmediatePropagation();
+        },
+        true
+      );
+    }
+
+    const syncAttachmentAvailability = () => {
+      // Plain/transient attachment objects keep the old behavior. A logged
+      // persistent id, however, is authoritative: if that id no longer exists
+      // in JIN Files, the historical chip stays visible as history but is dim
+      // and inert instead of opening a broken empty modal.
+      if (!attachmentId) {
+        if (!attachmentBound) {
+          bindJinAttachmentBubble(
+            chip,
+            attachment,
+            { hoverPreviewPlacement: "left" }
+          );
+          attachmentBound = true;
+        }
+        chip.disabled = false;
+        chip.style.opacity = "";
+        chip.style.cursor = "";
+        chip.removeAttribute("aria-disabled");
+        return;
+      }
+
+      const filesApi = window.JinFiles;
+      const storeReady = Boolean(
+        filesApi
+        && typeof filesApi.isLoaded === "function"
+        && filesApi.isLoaded()
+      );
+      const record = filesApi
+        && typeof filesApi.getFile === "function"
+          ? filesApi.getFile(attachmentId)
+          : null;
+      const available = Boolean(record);
+      attachmentAvailable = available;
+
+      if (available && !attachmentBound) {
+        bindJinAttachmentBubble(
+          chip,
+          {
+            ...attachment,
+            ...record,
+          },
+          { hoverPreviewPlacement: "left" }
+        );
+        attachmentBound = true;
+      }
+
+      // While the initial file snapshot is still in flight, keep the chip
+      // conservatively disabled; jin:files-store-changed immediately resolves
+      // it to available/missing once the authoritative store arrives.
+      chip.disabled = false;
+      chip.tabIndex = available ? 0 : -1;
+      chip.style.opacity = available ? "" : (storeReady ? "0.35" : "0.5");
+      chip.style.cursor = available ? "" : "default";
+      chip.style.filter = (storeReady && !available)
+        ? "grayscale(1)"
+        : "";
+      chip.setAttribute(
+        "aria-disabled",
+        available ? "false" : "true"
+      );
+
+      const unavailableLabel = attachmentId
+        ? `File ID: ${attachmentId}`
+        : label;
+      const accessibilityLabel = available
+        ? label
+        : (storeReady
+          ? unavailableLabel
+          : `${label} · loading file`);
+
+      chip.setAttribute(
+        "aria-label",
+        accessibilityLabel
+      );
+      chip.title = accessibilityLabel;
+    };
+
+    syncAttachmentAvailability();
+    if (attachmentId) {
+      window.addEventListener(
+        "jin:files-store-changed",
+        syncAttachmentAvailability
+      );
+    }
 
     container.appendChild(
       chip
@@ -799,8 +1762,35 @@ function appendChatMessage(
       format: shouldFormatChatRole(
         role
       ),
+      interpretRuntimeMarkers: shouldInterpretChatRuntimeMarkers(
+        role
+      ),
     }
   );
+
+  if (role === "user") {
+    pre.dataset.userMessageText =
+      String(text || "");
+  }
+
+  const completedBubble = pre.closest(
+    ".jin-chat-bubble"
+  );
+  if (
+    completedBubble
+    && window.markJinCompletedAnswerBubble
+  ) {
+    const visibleMessageText = String(
+      pre.innerText
+      || pre.textContent
+      || text
+      || ""
+    ).trim();
+    window.markJinCompletedAnswerBubble(
+      completedBubble,
+      visibleMessageText
+    );
+  }
 
   if (role === "user") {
     const chips =
@@ -819,14 +1809,831 @@ function appendChatMessage(
     jinConversationTurnCounter += 1;
     window.jinConversationTurnCounter =
       jinConversationTurnCounter;
+  } else {
+    setLatestJinMemoryReferenceText(
+      role,
+      text
+    );
   }
 
   flushRuntimeActionsAfterResponse(
     role
   );
 
+  return pre.closest(
+    ".jin-message-shell"
+  );
+
 }
+
+function appendToUserChatMessage(
+  messageShell,
+  text,
+  attachments = []
+) {
+
+  if (
+    !messageShell
+    || messageShell.dataset.role !== "user"
+  ) {
+    return false;
+  }
+
+  const pre =
+    messageShell.querySelector(
+      ".jin-chat-pre"
+    );
+  const bubble =
+    pre
+      ? pre.closest(".jin-chat-bubble")
+      : null;
+
+  if (!pre || !bubble) {
+    return false;
+  }
+
+  const previousText =
+    String(
+      pre.dataset.userMessageText
+      || pre.textContent
+      || ""
+    );
+  const nextText =
+    String(text || "");
+  const combinedText =
+    previousText && nextText
+      ? `${previousText}\n${nextText}`
+      : previousText || nextText;
+
+  pre.dataset.userMessageText =
+    combinedText;
+
+  renderChatTextElement(
+    pre,
+    combinedText,
+    {
+      format: false,
+      interpretRuntimeMarkers: false,
+    }
+  );
+
+  const existingAttachmentIds =
+    new Set(
+      Array.from(
+        bubble.querySelectorAll(
+          "[data-attachment-id]"
+        )
+      ).map(
+        (element) => String(
+          element.dataset.attachmentId || ""
+        ).trim().toLowerCase()
+      ).filter(Boolean)
+    );
+  const newAttachments =
+    Array.isArray(attachments)
+      ? attachments.filter((attachment) => {
+          const attachmentId =
+            String(
+              attachment && attachment.id
+                ? attachment.id
+                : ""
+            ).trim().toLowerCase();
+
+          if (
+            attachmentId
+            && existingAttachmentIds.has(
+              attachmentId
+            )
+          ) {
+            return false;
+          }
+
+          if (attachmentId) {
+            existingAttachmentIds.add(
+              attachmentId
+            );
+          }
+
+          return true;
+        })
+      : [];
+
+  if (newAttachments.length) {
+    const chips =
+      createMessageAttachmentChips(
+        newAttachments
+      );
+
+    if (chips) {
+      bubble.appendChild(
+        chips
+      );
+    }
+  }
+
+  scrollChatHistoryAfterAppend();
+
+  return true;
+
+}
+
+window.appendToUserChatMessage =
+  appendToUserChatMessage;
 // CREATE STREAM GROUP
+
+function setStreamAvatarProcessing(
+  stream,
+  active
+) {
+
+  const avatar =
+    stream
+    && stream.group
+    && stream.group.avatar;
+
+  if (!avatar) {
+    return;
+  }
+
+  avatar.classList.toggle(
+    "is-processing",
+    Boolean(active)
+  );
+  avatar.classList.toggle(
+    "is-settled",
+    !active
+  );
+
+}
+
+function applyAvatarProgressState(
+  avatar,
+  state = {}
+) {
+
+  if (!avatar) {
+    return;
+  }
+
+  const phase =
+    String(
+      state.phase
+      || ""
+    ).trim();
+
+  const hasActivePhase = Boolean(
+    phase
+  );
+
+  if (!hasActivePhase) {
+    avatar.classList.remove(
+      "has-progress",
+      "progress-phase-model-load",
+      "progress-phase-prompt-processing"
+    );
+    avatar.style.removeProperty(
+      "--jin-chat-avatar-progress-angle"
+    );
+    delete avatar.dataset.progressPhase;
+    return;
+  }
+
+  let progress = Number(
+    state.progress
+  );
+
+  if (!Number.isFinite(progress)) {
+    progress = 0;
+  }
+
+  progress = Math.max(
+    0,
+    Math.min(1, progress)
+  );
+
+  avatar.classList.add(
+    "has-progress"
+  );
+  avatar.classList.toggle(
+    "progress-phase-model-load",
+    phase === "model_load"
+  );
+  avatar.classList.toggle(
+    "progress-phase-prompt-processing",
+    phase === "prompt_processing"
+  );
+  avatar.style.setProperty(
+    "--jin-chat-avatar-progress-angle",
+    `${progress * 360}deg`
+  );
+
+  avatar.dataset.progressPhase =
+    phase;
+
+}
+
+function clearStreamAvatarProgress(
+  messageId,
+  options = {}
+) {
+
+  const dropPending =
+    options.dropPending !== false;
+
+  if (dropPending) {
+    pendingStreamAvatarProgress.delete(
+      messageId
+    );
+  }
+
+  const stream =
+    streamMessages.get(
+      messageId
+    );
+
+  if (!stream) {
+    return;
+  }
+
+  if (stream.avatarProgressClearTimer) {
+    clearTimeout(
+      stream.avatarProgressClearTimer
+    );
+    stream.avatarProgressClearTimer =
+      null;
+  }
+
+  stream.avatarProgress = null;
+
+  const avatar =
+    stream.group
+    && stream.group.avatar;
+
+  applyAvatarProgressState(
+    avatar,
+    {}
+  );
+
+}
+
+function setStreamAvatarProgress(
+  messageId,
+  payload = {}
+) {
+
+  const phase =
+    String(
+      payload.phase
+      || ""
+    ).trim();
+  const state =
+    String(
+      payload.state
+      || "progress"
+    ).trim();
+
+  if (!phase) {
+    clearStreamAvatarProgress(
+      messageId
+    );
+    return true;
+  }
+
+  let progress = Number(
+    payload.progress
+  );
+
+  if (!Number.isFinite(progress)) {
+    progress = state === "end"
+      ? 1
+      : 0;
+  }
+
+  progress = Math.max(
+    0,
+    Math.min(1, progress)
+  );
+
+  const normalizedProgress = {
+    phase,
+    state,
+    progress,
+  };
+
+  pendingStreamAvatarProgress.set(
+    messageId,
+    normalizedProgress
+  );
+
+  const stream =
+    streamMessages.get(
+      messageId
+    );
+
+  if (!stream) {
+    if (
+      activeStreamAvatarStream
+      && activeStreamAvatarStream.messageId === messageId
+    ) {
+      activeStreamAvatarStream.avatarProgress = {
+        ...normalizedProgress,
+      };
+
+      applyAvatarProgressState(
+        activeStreamAvatarStream.group
+        && activeStreamAvatarStream.group.avatar,
+        activeStreamAvatarStream.avatarProgress
+      );
+    }
+
+    return false;
+  }
+
+  if (stream.avatarProgressClearTimer) {
+    clearTimeout(
+      stream.avatarProgressClearTimer
+    );
+    stream.avatarProgressClearTimer =
+      null;
+  }
+
+  stream.avatarProgress = {
+    ...normalizedProgress,
+  };
+
+  const avatar =
+    stream.group
+    && stream.group.avatar;
+
+  applyAvatarProgressState(
+    avatar,
+    stream.avatarProgress
+  );
+
+  if (state === "end") {
+    stream.avatarProgressClearTimer =
+      window.setTimeout(
+        () => {
+          const liveStream =
+            streamMessages.get(
+              messageId
+            );
+
+          if (!liveStream) {
+            pendingStreamAvatarProgress.delete(
+              messageId
+            );
+            return;
+          }
+
+          if (
+            liveStream.avatarProgress
+            && liveStream.avatarProgress.phase === phase
+            && liveStream.avatarProgress.state === "end"
+          ) {
+            clearStreamAvatarProgress(
+              messageId
+            );
+          }
+        },
+        180
+      );
+    return true;
+  }
+
+  return true;
+
+}
+
+function disconnectStreamThinkResizeObserver(
+  stream
+) {
+
+  const observer =
+    stream
+    && stream.group
+    && stream.group.thinkResizeObserver;
+
+  if (!observer) {
+    return;
+  }
+
+  observer.disconnect();
+  stream.group.thinkResizeObserver = null;
+
+}
+
+function syncStreamAvatarPosition(
+  stream
+) {
+
+  if (
+    !stream
+    || !stream.group
+    || !stream.group.avatarSlot
+  ) {
+    return;
+  }
+
+  const group = stream.group;
+  const avatarSlot = group.avatarSlot;
+
+  let left = STREAM_AVATAR_LEFT_PX;
+  let top = 0;
+
+  if (
+    group.createdAnswer
+    && group.messageRow
+    && group.messageRow.isConnected
+  ) {
+    left =
+      group.messageRow.offsetLeft
+      + STREAM_AVATAR_LEFT_PX;
+    top = group.messageRow.offsetTop;
+
+    setStreamAvatarProcessing(
+      stream,
+      false
+    );
+    disconnectStreamThinkResizeObserver(
+      stream
+    );
+  } else if (
+    group.createdThinking
+    && group.thinkWrapper
+    && group.thinkContent
+    && group.thinkWrapper.isConnected
+  ) {
+    left = STREAM_AVATAR_LEFT_PX;
+    top = group.thinkWrapper.offsetTop;
+
+    if (
+      !group.thinkContent.classList.contains(
+        "is-collapsed"
+      )
+    ) {
+      top += Math.max(
+        0,
+        group.thinkContent.offsetHeight
+        - STREAM_AVATAR_SIZE_PX
+      );
+    }
+  }
+
+  avatarSlot.style.left =
+    `${Math.round(left)}px`;
+  avatarSlot.style.top =
+    `${Math.round(top)}px`;
+
+}
+
+function queueStreamAvatarPositionSync(
+  stream
+) {
+
+  requestAnimationFrame(
+    () => {
+      syncStreamAvatarPosition(
+        stream
+      );
+    }
+  );
+
+}
+
+function trackStreamAvatarLayoutTransition(
+  stream
+) {
+
+  if (
+    !stream
+    || !stream.group
+  ) {
+    return;
+  }
+
+  const group = stream.group;
+
+  if (
+    !group.avatarSlot
+    && !(
+      liveUserTurnAnchor
+      && liveUserTurnAnchor.isConnected
+    )
+  ) {
+    return;
+  }
+
+  const trackId =
+    (group.avatarLayoutTrackId || 0) + 1;
+  const startedAt = nowMs();
+
+  group.avatarLayoutTrackId =
+    trackId;
+
+  const tick = () => {
+
+    if (
+      group.avatarLayoutTrackId !== trackId
+    ) {
+      return;
+    }
+
+    const avatarConnected =
+      Boolean(
+        group.avatarSlot
+        && group.avatarSlot.isConnected
+      );
+    const liveTurnConnected =
+      Boolean(
+        liveUserTurnAnchor
+        && liveUserTurnAnchor.isConnected
+      );
+
+    if (
+      !avatarConnected
+      && !liveTurnConnected
+    ) {
+      return;
+    }
+
+    if (avatarConnected) {
+      syncStreamAvatarPosition(
+        stream
+      );
+    }
+
+    syncLiveUserTurnViewportForLayoutChange();
+
+    if (
+      nowMs() - startedAt
+      < STREAM_AVATAR_LAYOUT_TRACK_MS
+    ) {
+      requestAnimationFrame(
+        tick
+      );
+      return;
+    }
+
+    if (avatarConnected) {
+      syncStreamAvatarPosition(
+        stream
+      );
+    }
+
+    syncLiveUserTurnViewportForLayoutChange();
+
+  };
+
+  requestAnimationFrame(
+    tick
+  );
+
+}
+
+
+function installStreamThinkResizeObserver(
+  stream
+) {
+
+  if (
+    !stream
+    || !stream.group
+    || !stream.group.thinkContent
+    || typeof ResizeObserver !== "function"
+  ) {
+    return;
+  }
+
+  disconnectStreamThinkResizeObserver(
+    stream
+  );
+
+  const observer = new ResizeObserver(
+    () => {
+      if (
+        !stream.group.createdThinking
+        || stream.group.createdAnswer
+      ) {
+        return;
+      }
+
+      queueStreamAvatarPositionSync(
+        stream
+      );
+
+      if (
+        expandedReasoningFollowStream === stream
+      ) {
+        queueExpandedReasoningFollow();
+      }
+    }
+  );
+
+  observer.observe(
+    stream.group.thinkContent
+  );
+  stream.group.thinkResizeObserver =
+    observer;
+
+}
+
+function animateStreamAvatarHandoff(
+  stream,
+  fromRect
+) {
+
+  const slot =
+    stream
+    && stream.group
+    && stream.group.avatarSlot;
+
+  if (
+    !slot
+    || !fromRect
+    || !slot.isConnected
+  ) {
+    return;
+  }
+
+  syncStreamAvatarPosition(
+    stream
+  );
+
+  const toRect =
+    slot.getBoundingClientRect();
+  const deltaX =
+    fromRect.left - toRect.left;
+  const deltaY =
+    fromRect.top - toRect.top;
+
+  if (
+    Math.abs(deltaX) < 0.5
+    && Math.abs(deltaY) < 0.5
+  ) {
+    return;
+  }
+
+  slot.style.transition = "none";
+  slot.style.transform =
+    `translate3d(${deltaX}px, ${deltaY}px, 0)`;
+
+  // Force the origin transform to be painted before the handoff transition.
+  slot.getBoundingClientRect();
+
+  requestAnimationFrame(
+    () => {
+      slot.style.removeProperty(
+        "transition"
+      );
+      slot.style.transform =
+        "translate3d(0, 0, 0)";
+
+      window.setTimeout(
+        () => {
+          if (slot.isConnected) {
+            slot.style.removeProperty(
+              "transform"
+            );
+          }
+        },
+        STREAM_AVATAR_HANDOFF_MS + 40
+      );
+    }
+  );
+
+}
+
+function activateStreamAvatar(
+  stream
+) {
+
+  const previous =
+    activeStreamAvatarStream;
+  let previousRect = null;
+
+  if (
+    previous
+    && previous !== stream
+    && previous.group
+    && previous.group.avatarSlot
+    && !previous.group.createdAnswer
+  ) {
+    previousRect =
+      previous.group.avatarSlot.getBoundingClientRect();
+
+    previous.group.avatarSlot.remove();
+    previous.group.avatarSlot = null;
+    previous.group.avatar = null;
+    disconnectStreamThinkResizeObserver(
+      previous
+    );
+
+    if (previous.group.wrapper) {
+      previous.group.wrapper.classList.remove(
+        "is-awaiting-model"
+      );
+
+      if (
+        previous.group.wrapper.childElementCount === 0
+      ) {
+        previous.group.wrapper.remove();
+      }
+    }
+  }
+
+  activeStreamAvatarStream = stream;
+
+  setStreamAvatarProcessing(
+    stream,
+    true
+  );
+  syncStreamAvatarPosition(
+    stream
+  );
+
+  if (previousRect) {
+    animateStreamAvatarHandoff(
+      stream,
+      previousRect
+    );
+  }
+
+}
+
+function releaseActiveStreamAvatar() {
+
+  const stream =
+    activeStreamAvatarStream;
+
+  if (stream) {
+    stopStreamRuntimeAvatarReasoning(
+      stream
+    );
+
+    clearStreamAvatarProgress(
+      stream.messageId
+    );
+
+    const group = stream.group || {};
+    const hasVisibleStreamContent =
+      Boolean(
+        group.createdThinking
+        || group.createdAnswer
+      );
+
+    if (!hasVisibleStreamContent) {
+      disconnectStreamThinkResizeObserver(
+        stream
+      );
+
+      if (group.avatarSlot) {
+        group.avatarSlot.remove();
+        group.avatarSlot = null;
+        group.avatar = null;
+      }
+
+      if (group.wrapper) {
+        group.wrapper.classList.remove(
+          "is-awaiting-model"
+        );
+
+        if (group.wrapper.childElementCount === 0) {
+          group.wrapper.remove();
+        }
+      }
+    } else {
+      setStreamAvatarProcessing(
+        stream,
+        false
+      );
+    }
+  }
+
+  activeStreamAvatarStream = null;
+
+}
+
+function scrollCollapsedThinkToLatest(
+  thinkContent
+) {
+
+  if (
+    !thinkContent
+    || !thinkContent.classList.contains(
+      "is-collapsed"
+    )
+  ) {
+    return;
+  }
+
+  // The collapsed preview must land on the latest reasoning immediately.
+  // A smooth inner scroll runs at the same time as the max-height collapse
+  // and makes the whole interaction look like the chat is still moving.
+  thinkContent.scrollTop =
+    thinkContent.scrollHeight;
+
+}
 
 function updateThinkExpandedHeight(
   thinkContent
@@ -841,7 +2648,14 @@ function updateThinkExpandedHeight(
     `${thinkContent.scrollHeight}px`
   );
 
+  scrollCollapsedThinkToLatest(
+    thinkContent
+  );
+
 }
+
+window.updateThinkExpandedHeight =
+  updateThinkExpandedHeight;
 
 let thinkResizeFrame = null;
 
@@ -884,7 +2698,31 @@ function createStreamGroup(
     document.createElement("div");
 
   wrapper.className =
-    "jin-stream-wrapper mx-auto w-full max-w-4xl space-y-3";
+    "jin-stream-wrapper is-awaiting-model mx-auto w-full max-w-4xl";
+
+  const avatarSlot =
+    document.createElement("div");
+
+  avatarSlot.className =
+    "jin-stream-avatar-slot";
+
+  const avatar =
+    createAvatarElement(
+      role,
+      contextSnapshot
+    );
+
+  avatar.classList.add(
+    "jin-stream-avatar",
+    "is-processing"
+  );
+
+  avatarSlot.appendChild(
+    avatar
+  );
+  wrapper.appendChild(
+    avatarSlot
+  );
 
   // THINKING
 
@@ -897,8 +2735,15 @@ function createStreamGroup(
   const thinkContent =
     document.createElement("div");
 
+  const initialThinkCollapsed =
+    Boolean(
+      jinThinkCollapsedPreference
+    );
+
   thinkContent.className =
-    "jin-think-content";
+    initialThinkCollapsed
+      ? "jin-think-content is-collapsed"
+      : "jin-think-content";
 
   thinkContent.setAttribute(
     "role",
@@ -912,7 +2757,9 @@ function createStreamGroup(
 
   thinkContent.setAttribute(
     "aria-expanded",
-    "true"
+    initialThinkCollapsed
+      ? "false"
+      : "true"
   );
 
   thinkContent.setAttribute(
@@ -920,12 +2767,18 @@ function createStreamGroup(
     "Toggle thinking block"
   );
 
-  let collapsed = false;
+  let collapsed =
+    initialThinkCollapsed;
 
-  const setCollapsed = (nextCollapsed) => {
+  const setCollapsed = (nextCollapsed, options = {}) => {
 
     collapsed =
       nextCollapsed;
+
+    if (options.persist === true) {
+      jinThinkCollapsedPreference =
+        collapsed;
+    }
 
     thinkContent.classList.toggle(
       "is-collapsed",
@@ -939,13 +2792,93 @@ function createStreamGroup(
         : "true"
     );
 
+    if (
+      typeof thinkContent.__jinExpandedReasoningFollow
+      === "function"
+    ) {
+      thinkContent.__jinExpandedReasoningFollow(
+        !collapsed
+      );
+    }
+
+    syncLiveUserTurnViewportForLayoutChange();
+
+    if (collapsed) {
+      requestAnimationFrame(
+        () => {
+          scrollCollapsedThinkToLatest(
+            thinkContent
+          );
+        }
+      );
+    }
+
+    if (
+      typeof thinkContent.__jinStreamAvatarSync
+      === "function"
+    ) {
+      thinkContent.__jinStreamAvatarSync();
+    }
+
   };
+
+  let thinkClickStart = null;
+
+  thinkContent.addEventListener(
+    "mousedown",
+    (event) => {
+      if (event.button !== 0) {
+        return;
+      }
+
+      thinkClickStart = {
+        x: event.clientX,
+        y: event.clientY,
+      };
+    }
+  );
 
   thinkContent.addEventListener(
     "click",
-    () => {
+    (event) => {
+      const selection =
+        typeof window.getSelection === "function"
+          ? window.getSelection()
+          : null;
+      const pointerMoved =
+        thinkClickStart
+        && (
+          Math.abs(event.clientX - thinkClickStart.x) > 3
+          || Math.abs(event.clientY - thinkClickStart.y) > 3
+        );
+      const selectionTouchesThink =
+        selection
+        && !selection.isCollapsed
+        && (
+          (
+            selection.anchorNode
+            && thinkContent.contains(selection.anchorNode)
+          )
+          || (
+            selection.focusNode
+            && thinkContent.contains(selection.focusNode)
+          )
+        );
+
+      thinkClickStart = null;
+
+      if (
+        pointerMoved
+        || selectionTouchesThink
+      ) {
+        return;
+      }
+
       setCollapsed(
-        !collapsed
+        !collapsed,
+        {
+          persist: true,
+        }
       );
     }
   );
@@ -964,25 +2897,14 @@ function createStreamGroup(
       event.preventDefault();
 
       setCollapsed(
-        !collapsed
+        !collapsed,
+        {
+          persist: true,
+        }
       );
 
     }
   );
-
-  [
-    "mouseenter",
-    "mouseleave",
-  ].forEach((eventName) => {
-    thinkContent.addEventListener(
-      eventName,
-      () => {
-        window.JinThinkCitations.syncThinkRuntimeCitationHighlight(
-          thinkContent
-        );
-      }
-    );
-  });
 
   thinkWrapper.appendChild(
     thinkContent
@@ -996,6 +2918,16 @@ function createStreamGroup(
   messageRow.className =
     "jin-message-row";
 
+  const avatarSpacer =
+    document.createElement("div");
+
+  avatarSpacer.className =
+    "jin-stream-avatar-spacer";
+  avatarSpacer.setAttribute(
+    "aria-hidden",
+    "true"
+  );
+
   const pre =
     document.createElement("pre");
 
@@ -1008,13 +2940,14 @@ function createStreamGroup(
   bubble.className =
     config.bubbleClass;
 
+  appendJinBubbleSkin(
+    bubble
+  );
+
   bubble.appendChild(pre);
 
   messageRow.appendChild(
-    createAvatarElement(
-      role,
-      contextSnapshot
-    )
+    avatarSpacer
   );
 
   messageRow.appendChild(
@@ -1025,11 +2958,12 @@ function createStreamGroup(
     wrapper
   );
 
-  chatHistory.scrollTop =
-    chatHistory.scrollHeight;
+  scrollChatHistoryAfterAppend();
 
   return {
     wrapper,
+    avatarSlot,
+    avatar,
     thinkWrapper,
     thinkContent,
     messageRow,
@@ -1066,6 +3000,17 @@ function ensureStreamGroup(
   stream.group.wrapper =
     realGroup.wrapper;
 
+  stream.group.avatarSlot =
+    realGroup.avatarSlot;
+
+  stream.group.avatar =
+    realGroup.avatar;
+
+  applyAvatarProgressState(
+    stream.group.avatar,
+    stream.avatarProgress || {}
+  );
+
   stream.group.thinkWrapper =
     realGroup.thinkWrapper;
 
@@ -1087,8 +3032,115 @@ function ensureStreamGroup(
   stream.group.createdAnswer =
     false;
 
+  stream.group.thinkContent.__jinStreamAvatarSync =
+    () => {
+      syncStreamAvatarPosition(
+        stream
+      );
+      trackStreamAvatarLayoutTransition(
+        stream
+      );
+    };
+
+  stream.group.thinkContent.__jinExpandedReasoningFollow =
+    (expanded) => {
+      if (expanded) {
+        startExpandedReasoningFollow(
+          stream
+        );
+        return;
+      }
+
+      stopExpandedReasoningFollow(
+        stream
+      );
+    };
+
+  installStreamThinkResizeObserver(
+    stream
+  );
+
 }
 
+
+function getRuntimeAvatarMotionController() {
+
+  return (
+    window.JinRuntime
+    && window.JinRuntime.avatar
+  ) || null;
+
+}
+
+function startStreamRuntimeAvatarReasoning(
+  stream
+) {
+
+  if (
+    !stream
+    || stream.runtimeAvatarReasoningActive
+  ) {
+    return;
+  }
+
+  const avatar =
+    getRuntimeAvatarMotionController();
+
+  stream.runtimeAvatarReasoningActive = true;
+
+  if (
+    avatar
+    && typeof avatar.beginReasoning === "function"
+  ) {
+    avatar.beginReasoning(
+      stream.messageId
+    );
+  }
+
+}
+
+function stopStreamRuntimeAvatarReasoning(
+  stream
+) {
+
+  if (
+    !stream
+    || !stream.runtimeAvatarReasoningActive
+  ) {
+    return;
+  }
+
+  stream.runtimeAvatarReasoningActive = false;
+
+  const avatar =
+    getRuntimeAvatarMotionController();
+
+  if (
+    avatar
+    && typeof avatar.endReasoning === "function"
+  ) {
+    avatar.endReasoning(
+      stream.messageId
+    );
+  }
+
+}
+
+function markStreamAnswerPhase(
+  messageId
+) {
+
+  const stream =
+    streamMessages.get(
+      messageId
+    );
+
+  if (!stream) {
+    return false;
+  }
+
+  return true;
+}
 
 // STREAM START
 
@@ -1102,6 +3154,9 @@ function startStreamMessage(
     createdThinking: false,
     createdAnswer: false,
     wrapper: null,
+    avatarSlot: null,
+    avatar: null,
+    thinkResizeObserver: null,
     thinkWrapper: null,
     thinkContent: null,
     messageRow: null,
@@ -1117,6 +3172,11 @@ function startStreamMessage(
     answer: "",
     pendingThinking: "",
     pendingAnswer: "",
+    runtimeAvatarReasoningActive: false,
+    avatarProgress: pendingStreamAvatarProgress.get(
+      messageId
+    ) || null,
+    avatarProgressClearTimer: null,
   };
 
   streamMessages.set(
@@ -1131,6 +3191,10 @@ function startStreamMessage(
     stream
   );
 
+  activateStreamAvatar(
+    stream
+  );
+
 }
 
 
@@ -1142,23 +3206,35 @@ function stripInternalActionMarkers(
 
   return String(text || "")
     .replace(
-      /(^|\n)[^\S\r\n]*<SAVE_SESSION>[^\S\r\n]*(?=\n|$)/gi,
-      "$1"
-    )
-    .replace(
       /(^|\n)[^\S\r\n]*<WEB_SEARCH:[^>\n]*>[^\S\r\n]*(?=\n|$)/gi,
       "$1"
     )
     .replace(
-      /(^|\n)[^\S\r\n]*<LIST_SKILLS(?::[^>\n]*)?>[^\S\r\n]*(?=\n|$)/gi,
+      /(^|\n)[^\S\r\n]*<JIN_SIZE\s*>[\s\S]*?<\/JIN_SIZE\s*>[^\S\r\n]*(?=\n|$)/gi,
       "$1"
     )
     .replace(
-      /(^|\n)[^\S\r\n]*<APPEND_SKILLS?:[^>\n]*>[^\S\r\n]*(?=\n|$)/gi,
+      /(^|\n)[^\S\r\n]*<DEEP_WEB_SEARCH(?:\s*:\s*[^>\n]*)?>[\s\S]*?<\/DEEP_WEB_SEARCH>[^\S\r\n]*(?=\n|$)/gi,
       "$1"
     )
     .replace(
-      /(^|\n)[^\S\r\n]*<REMOVE_SKILLS?:[^>\n]*>[^\S\r\n]*(?=\n|$)/gi,
+      /(^|\n)[^\S\r\n]*<DEEP_WEB_SEARCH(?:\s*:\s*[^>\n]*)?>[^\S\r\n]*(?=\n|$)/gi,
+      "$1"
+    )
+    .replace(
+      /(^|\n)[^\S\r\n]*<\/DEEP_WEB_SEARCH>[^\S\r\n]*(?=\n|$)/gi,
+      "$1"
+    )
+    .replace(
+      /(^|\n)[^\S\r\n]*<LOAD_SKILLS?_CONTEXT\s*>[\s\S]*?<\/LOAD_SKILLS?_CONTEXT\s*>[^\S\r\n]*(?=\n|$)/gi,
+      "$1"
+    )
+    .replace(
+      /(^|\n)[^\S\r\n]*<UNLOAD_SKILLS?_CONTEXT\s*>[\s\S]*?<\/UNLOAD_SKILLS?_CONTEXT\s*>[^\S\r\n]*(?=\n|$)/gi,
+      "$1"
+    )
+    .replace(
+      /(^|\n)[^\S\r\n]*<UNLOAD_SKILLS?:[^>\n]*>[^\S\r\n]*(?=\n|$)/gi,
       "$1"
     )
     .replace(
@@ -1218,6 +3294,10 @@ function appendThinkingChunk(
 
   }
 
+  startStreamRuntimeAvatarReasoning(
+    stream
+  );
+
   stream.thinking += chunk;
   stream.pendingThinking += chunk;
 
@@ -1233,20 +3313,20 @@ function appendStreamChunk(
   chunk
 ) {
 
-  if (
-    chunk === null
-    || chunk === undefined
-    || chunk === ""
-  ) {
-    return;
-  }
-
   const stream =
     streamMessages.get(
       messageId
     );
 
   if (!stream) {
+    return;
+  }
+
+  if (
+    chunk === null
+    || chunk === undefined
+    || chunk === ""
+  ) {
     return;
   }
 
@@ -1275,6 +3355,10 @@ function appendStreamChunk(
     return;
   }
 
+  startStreamRuntimeAvatarReasoning(
+    stream
+  );
+
   stream.answer += chunk;
   stream.pendingAnswer += chunk;
 
@@ -1295,7 +3379,8 @@ function appendStreamChunk(
 // STREAM END
 
 function finishStreamMessage(
-  messageId
+  messageId,
+  options = {}
 ) {
 
   const stream =
@@ -1304,6 +3389,14 @@ function finishStreamMessage(
     );
 
   if (stream) {
+
+    stopStreamRuntimeAvatarReasoning(
+      stream
+    );
+
+    clearStreamAvatarProgress(
+      stream.messageId
+    );
 
     flushStreamFrame();
 
@@ -1325,15 +3418,74 @@ function finishStreamMessage(
 
     if (
       stream.group.wrapper
+      && !stream.thinking.trim()
+      && !stream.answer.trim()
+    ) {
+      disconnectStreamThinkResizeObserver(
+        stream
+      );
+
+      if (stream.group.avatarSlot) {
+        stream.group.avatarSlot.remove();
+        stream.group.avatarSlot = null;
+        stream.group.avatar = null;
+      }
+
+      stream.group.wrapper.classList.remove(
+        "is-awaiting-model"
+      );
+    }
+
+    if (
+      stream.group.wrapper
       && stream.group.wrapper.childElementCount === 0
     ) {
       stream.group.wrapper.remove();
+    }
+
+    const memoryReferenceText =
+      [
+        stream.thinking,
+        stream.answer,
+      ]
+        .map(value => String(value || "").trim())
+        .filter(Boolean)
+        .join("\n");
+
+    if (memoryReferenceText) {
+      setLatestJinMemoryReferenceText(
+        stream.role,
+        memoryReferenceText
+      );
     }
 
     if (stream.answer.trim()) {
       flushRuntimeActionsAfterResponse(
         stream.role
       );
+
+      const answerBubble = (
+        stream.group.answerContent
+        && stream.group.answerContent.closest
+      )
+        ? stream.group.answerContent.closest(".jin-chat-bubble")
+        : null;
+
+      if (
+        answerBubble
+        && window.markJinCompletedAnswerBubble
+      ) {
+        const visibleAnswerText = String(
+          stream.group.answerContent.innerText
+          || stream.group.answerContent.textContent
+          || stream.answer
+          || ""
+        ).trim();
+        window.markJinCompletedAnswerBubble(
+          answerBubble,
+          visibleAnswerText
+        );
+      }
     }
 
     window.JinThinkCitations.startThinkRuleCitationAnalysis(
@@ -1355,6 +3507,18 @@ window.updateJinInputLoopCounter =
   updateJinInputLoopCounter;
 window.appendChatMessage =
   appendChatMessage;
+window.clearLatestJinMemoryReferenceText =
+  clearLatestJinMemoryReferenceText;
+window.markStreamAnswerPhase =
+  markStreamAnswerPhase;
+window.prepareLiveUserTurnViewport =
+  prepareLiveUserTurnViewport;
+window.activateLiveUserTurnViewport =
+  activateLiveUserTurnViewport;
+window.updateLiveUserTurnBottomSpace =
+  updateLiveUserTurnBottomSpace;
+window.scrollChatHistoryAfterAppend =
+  scrollChatHistoryAfterAppend;
 window.stripInternalActionMarkers =
   stripInternalActionMarkers;
 
@@ -1370,5 +3534,14 @@ window.finishStreamMessage =
 window.appendThinkingChunk =
   appendThinkingChunk;
 
+window.setStreamAvatarProgress =
+  setStreamAvatarProgress;
+window.clearStreamAvatarProgress =
+  clearStreamAvatarProgress;
+
 window.flushStreamFrame =
   flushStreamFrame;
+window.releaseActiveStreamAvatar =
+  releaseActiveStreamAvatar;
+window.syncStreamAvatarPosition =
+  syncStreamAvatarPosition;

@@ -3,12 +3,18 @@ from contracts.rules_assembler import (
     runtime_action_has_close_tag,
 )
 from utils.actions import build_runtime_action_id
-from utils.actions.todo_actions import attach_todo_result
 from utils.session_actions_history import record_session_action_history
 from utils.skills_asset_utils import (
-    list_skills,
     load_skill,
     normalize_skill_name,
+)
+from utils.mcp_client import (
+    close_mcp_skill,
+    discover_mcp_skill_tools,
+)
+from utils.mcp_skill_utils import (
+    append_mcp_runtime_catalog,
+    get_skill_mcp_config,
 )
 
 
@@ -117,8 +123,8 @@ def _group_skill_state_results(
             or ""
         ).strip()
         is_plural = marker_name in {
-            "APPEND_SKILLS",
-            "REMOVE_SKILLS",
+            "LOAD_SKILLS",
+            "UNLOAD_SKILLS",
         }
 
         if not is_plural or not marker_group:
@@ -174,18 +180,18 @@ def _build_skill_state_group_payload(
 
     if not marker_name:
         marker_name = (
-            "APPEND_SKILL"
-            if first_action == "append_skill"
+            "LOAD_SKILL"
+            if first_action == "load_skill"
             else (
-                "REMOVE_SKILL"
-                if first_action == "remove_skill"
+                "UNLOAD_SKILL"
+                if first_action == "unload_skill"
                 else first_action.upper()
             )
         )
 
     is_plural = marker_name in {
-        "APPEND_SKILLS",
-        "REMOVE_SKILLS",
+        "LOAD_SKILLS",
+        "UNLOAD_SKILLS",
     }
 
     if marker_payload:
@@ -284,58 +290,32 @@ def _build_skill_state_group_payload(
 async def apply_skill_actions(
     context,
     *,
-    list_skill_actions,
-    append_skill_actions,
-    remove_skill_actions,
-    runtime_todo_action_items,
+    load_skill_actions,
+    unload_skill_actions,
     log_runtime,
 ):
     from utils.brain_client_utils import append_asset_runtime_result
 
     saved_asset_results = []
 
-    if list_skill_actions:
+    loaded_skill_results = []
+
+    if load_skill_actions:
         if log_runtime is not None:
             await log_runtime(
-                "[RUNTIME ACTION] list_skills requested"
-            )
-
-        for action in list_skill_actions:
-            result = list_skills(
-                action.payload
-            )
-            result = attach_todo_result(
-                context,
-                runtime_todo_action_items,
-                action,
-                result,
-            )
-            append_asset_runtime_result(
-                context,
-                result,
-            )
-            saved_asset_results.append(
-                result
-            )
-
-    appended_skill_results = []
-
-    if append_skill_actions:
-        if log_runtime is not None:
-            await log_runtime(
-                "[RUNTIME ACTION] append_skill requested"
+                "[RUNTIME ACTION] load_skill requested"
             )
 
         current_skills = list(
             getattr(
                 context,
-                "runtime_appended_skills",
+                "runtime_loaded_skills",
                 [],
             )
             or []
         )
 
-        for action in append_skill_actions:
+        for action in load_skill_actions:
             result = load_skill(
                 action.payload
             )
@@ -344,6 +324,42 @@ async def apply_skill_actions(
             )
 
             if result.get("ok") and isinstance(skill, dict):
+                mcp_config = get_skill_mcp_config(skill)
+                if mcp_config is not None:
+                    if mcp_config.get("_invalid"):
+                        discovery = {
+                            "ok": False,
+                            "error": str(mcp_config.get("error") or "invalid_mcp_config"),
+                            "detail": str(mcp_config.get("detail") or "Invalid MCP_SERVER config"),
+                            "tools": [],
+                        }
+                    else:
+                        try:
+                            discovery = await discover_mcp_skill_tools(
+                                context,
+                                skill,
+                            )
+                        except Exception as exc:
+                            discovery = {
+                                "ok": False,
+                                "error": "mcp_discovery_failed",
+                                "detail": str(exc),
+                                "tools": [],
+                            }
+                    skill = append_mcp_runtime_catalog(
+                        skill,
+                        discovery,
+                    )
+                    result["skill"] = skill
+
+                    if log_runtime is not None:
+                        status = "connected" if discovery.get("ok") is not False else "unavailable"
+                        await log_runtime(
+                            "[MCP] skill "
+                            f"{normalize_skill_name(skill.get('name', ''))} "
+                            f"{status}"
+                        )
+
                 skill_name = normalize_skill_name(
                     skill.get(
                         "name",
@@ -363,14 +379,8 @@ async def apply_skill_actions(
                 current_skills.append(
                     skill
                 )
-                context.runtime_appended_skills = current_skills
+                context.runtime_loaded_skills = current_skills
 
-            result = attach_todo_result(
-                context,
-                runtime_todo_action_items,
-                action,
-                result,
-            )
             if (
                 result.get("ok") is False
                 and result.get("error") == "skill_not_found"
@@ -382,31 +392,31 @@ async def apply_skill_actions(
                     ),
                 )
 
-            appended_skill_results.append(
+            loaded_skill_results.append(
                 _attach_skill_marker_metadata(
                     result,
                     action,
                 )
             )
 
-    removed_skill_results = []
+    unloaded_skill_results = []
 
-    if remove_skill_actions:
+    if unload_skill_actions:
         if log_runtime is not None:
             await log_runtime(
-                "[RUNTIME ACTION] remove_skill requested"
+                "[RUNTIME ACTION] unload_skill requested"
             )
 
         current_skills = list(
             getattr(
                 context,
-                "runtime_appended_skills",
+                "runtime_loaded_skills",
                 [],
             )
             or []
         )
 
-        for action in remove_skill_actions:
+        for action in unload_skill_actions:
             requested = normalize_skill_name(
                 action.payload
             )
@@ -423,14 +433,18 @@ async def apply_skill_actions(
                     )
                 ) != requested
             ]
-            context.runtime_appended_skills = current_skills
+            context.runtime_loaded_skills = current_skills
+            await close_mcp_skill(
+                context,
+                requested,
+            )
             result = {
                 "ok": True,
-                "action": "remove_skill",
+                "action": "unload_skill",
                 "requested": requested,
-                "removed": len(current_skills) < before_count,
+                "unloaded": len(current_skills) < before_count,
             }
-            removed_skill_results.append(
+            unloaded_skill_results.append(
                 _attach_skill_marker_metadata(
                     result,
                     action,
@@ -438,15 +452,15 @@ async def apply_skill_actions(
             )
 
     if (
-        appended_skill_results
-        or removed_skill_results
+        loaded_skill_results
+        or unloaded_skill_results
     ):
         context.runtime_skill_state_barrier_active = True
 
     return {
         "saved_asset_results": saved_asset_results,
-        "appended_skill_results": appended_skill_results,
-        "removed_skill_results": removed_skill_results,
+        "loaded_skill_results": loaded_skill_results,
+        "unloaded_skill_results": unloaded_skill_results,
     }
 
 
@@ -492,8 +506,8 @@ async def emit_skill_state_results(
             preserve_separate=(
                 marker_name
                 not in {
-                    "APPEND_SKILLS",
-                    "REMOVE_SKILLS",
+                    "LOAD_SKILLS",
+                    "UNLOAD_SKILLS",
                 }
             ),
         )

@@ -353,7 +353,7 @@ async def abort_active_runtime_actions(
         *,
         logger=None,
         emit_to_client: bool = True,
-        remember_for_l1: bool = True,
+        remember_for_frame: bool = True,
 ) -> list[dict]:
 
     if context is None:
@@ -450,7 +450,7 @@ async def abort_active_runtime_actions(
             event
         )
 
-        if remember_for_l1:
+        if remember_for_frame:
             append_runtime_aborted_action_memory(
                 context,
                 {

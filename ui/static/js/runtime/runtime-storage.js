@@ -2,19 +2,29 @@
 
   window.JinRuntime = window.JinRuntime || {};
 
-  const latestSavedSessionMemoryStorageKey =
+  const liveRuntimeMemoryStorageKey =
+    "jin.liveRuntimeMemory.v2";
+
+  const sessionCheckpointStorageKey =
+    "jin.sessionCheckpoint.v2";
+
+  const legacyLatestSavedSessionSnapshotStorageKey =
+    "jin.latestSavedSessionSnapshot.v1";
+
+  // One-time compatibility read for checkpoints created before L3 removal.
+  const legacyL3SavedSessionSnapshotStorageKey =
     "jin.latestSavedSessionMemory.v1";
 
-  const savedSessionMemoryHistoryStorageKey =
+  const retiredSavedSessionHistoryStorageKey =
     "jin.savedSessionMemoryHistory.v1";
 
   const runtimeSessionIdSessionStorageKey =
     "jin.runtimeSessionId.v1";
 
-  const latestRuntimeMemoryStorageKeyPrefix =
+  const legacyLatestRuntimeMemoryStorageKeyPrefix =
     "jin.latestRuntimeMemory";
 
-  const latestRuntimeMemoryStorageKeyVersion =
+  const legacyLatestRuntimeMemoryStorageKeyVersion =
     "v1";
 
   const latestSavedRuntimeMemoryStorageKey =
@@ -30,14 +40,79 @@
     "jin.factsMemory";
 
   const factsMemoryStorageKeyVersion =
-    "v1";
+    "v2";
 
-  const savedRuntimeFallbackPath =
-    "/saved_runtime.txt";
+  window.jinMemoryProfileRevisions = null;
+  window.jinMemoryProfileApplying = false;
 
-  let clonedRuntimeSessionId = null;
-  let savedRuntimeFileFallback = null;
-  let savedRuntimeFileFallbackLoaded = false;
+  // Cognitive projections live only in this page. Reload always asks disk.
+  const browserProjection = new Map();
+
+  function clearMemoryProjection() {
+    for (const key of browserProjection.keys()) {
+      if (/^jin\.(?:activeMemory|delayedMemoryReports|longTermFacts|factsMemory)(?:\.|$)/.test(key)) {
+        browserProjection.delete(key);
+      }
+    }
+    try {
+      const store = shouldIsolateAnonymousStorage() ? window.sessionStorage : window.localStorage;
+      const keys = Array.from({ length: store.length }, (_, index) => store.key(index));
+      keys.forEach((key) => {
+        if (/^jin\.(?:activeMemory|delayedMemoryReports|longTermFacts|factsMemory)(?:\.|$)/.test(key)) {
+          store.removeItem(key);
+        }
+      });
+    } catch (_error) { /* Restricted browser storage remains optional. */ }
+    if (shouldIsolateAnonymousStorage()) {
+      ["active_memory", "delayed_memory_reports", "long_term_memory"].forEach((key) => {
+        updateAnonymousSessionSnapshotField(key, key === "active_memory" ? [] : {});
+      });
+    }
+  }
+
+  let bootSourceRuntimeSessionId = null;
+  let sessionCheckpointUserActivityAt = 0;
+
+  function normalizeFactsMemoryStatus(
+    value
+  ) {
+
+    const status =
+      String(value || "")
+        .trim()
+        .toLowerCase();
+
+    return (
+        status === "analyzed"
+        || status === "analized"
+      )
+      ? "analyzed"
+      : "pending";
+
+  }
+
+
+  function buildFactsMemoryContentHash(
+    value
+  ) {
+
+    const text =
+      String(value || "")
+        .replace(/\s+/g, " ")
+        .trim();
+
+    let hash = 5381;
+
+    for (let index = 0; index < text.length; index += 1) {
+      hash =
+        ((hash << 5) + hash)
+        ^ text.charCodeAt(index);
+    }
+
+    return `h${(hash >>> 0).toString(36)}`;
+
+  }
+
 
   function generateRuntimeSessionId() {
 
@@ -48,10 +123,33 @@
       return window.crypto.randomUUID();
     }
 
+    const bytes = new Uint8Array(16);
+
+    if (
+        window.crypto
+        && typeof window.crypto.getRandomValues === "function"
+    ) {
+      window.crypto.getRandomValues(bytes);
+    } else {
+      for (let index = 0; index < bytes.length; index += 1) {
+        bytes[index] = Math.floor(Math.random() * 256);
+      }
+    }
+
+    bytes[6] = (bytes[6] & 0x0f) | 0x40;
+    bytes[8] = (bytes[8] & 0x3f) | 0x80;
+
+    const hex = Array.from(
+      bytes,
+      value => value.toString(16).padStart(2, "0")
+    ).join("");
+
     return [
-      "session",
-      Date.now().toString(36),
-      Math.random().toString(36).slice(2, 10),
+      hex.slice(0, 8),
+      hex.slice(8, 12),
+      hex.slice(12, 16),
+      hex.slice(16, 20),
+      hex.slice(20),
     ].join("-");
 
   }
@@ -99,6 +197,27 @@
 
   function createRuntimeSessionId() {
 
+    const anonymousMode =
+      window.JinRuntime
+      && window.JinRuntime.anonymousMode;
+    const anonymousSessionId =
+      anonymousMode
+      && typeof anonymousMode.getSessionId === "function"
+        ? String(anonymousMode.getSessionId() || "").trim()
+        : "";
+
+    if (anonymousSessionId) {
+      try {
+        window.sessionStorage.setItem(
+          runtimeSessionIdSessionStorageKey,
+          anonymousSessionId
+        );
+      } catch (error) {
+        // The runtime id still works even when browser storage is unavailable.
+      }
+      return anonymousSessionId;
+    }
+
     try {
       const storedSessionId =
         String(
@@ -110,8 +229,6 @@
       if (storedSessionId) {
         const newRuntimeSessionId =
           generateRuntimeSessionId();
-
-        clonedRuntimeSessionId = storedSessionId;
 
         window.sessionStorage.setItem(
           runtimeSessionIdSessionStorageKey,
@@ -146,13 +263,16 @@
   let factsMemorySessionId =
     runtimeSessionId;
 
-  let latestRuntimeMemoryStorageKey =
-    getLatestRuntimeMemoryStorageKey(
-      runtimeSessionId
-    );
-
   window.jinRuntimeSessionId =
     runtimeSessionId;
+
+  // sessionStorage can be copied into a new tab and survives reload. The live
+  // FRAME is valid only inside this already-running page, so discard any copied
+  // or reloaded value before bootstrap. Soft WebSocket reconnect does not
+  // re-execute this module and keeps using the value written afterwards.
+  removeSessionMemory(
+    liveRuntimeMemoryStorageKey
+  );
 
   function getRuntimeSessionId() {
 
@@ -190,65 +310,32 @@
   }
 
 
-  function getLatestRuntimeMemoryStorageKey(
+  function getLegacyLatestRuntimeMemoryStorageKey(
     runtimeSessionId
   ) {
 
-    return `${latestRuntimeMemoryStorageKeyPrefix}`
+    return `${legacyLatestRuntimeMemoryStorageKeyPrefix}`
       + `.${runtimeSessionId}`
-      + `.${latestRuntimeMemoryStorageKeyVersion}`;
+      + `.${legacyLatestRuntimeMemoryStorageKeyVersion}`;
 
   }
 
 
-  function getCurrentLatestRuntimeMemoryStorageKey() {
-
-    return latestRuntimeMemoryStorageKey;
-
-  }
-
-
-  function isLatestRuntimeMemoryKey(
+  function isLegacyLatestRuntimeMemoryKey(
     key
   ) {
 
     const prefix =
-      `${latestRuntimeMemoryStorageKeyPrefix}.`;
+      `${legacyLatestRuntimeMemoryStorageKeyPrefix}.`;
 
     const suffix =
-      `.${latestRuntimeMemoryStorageKeyVersion}`;
+      `.${legacyLatestRuntimeMemoryStorageKeyVersion}`;
 
     return (
       typeof key === "string"
       && key.startsWith(prefix)
       && key.endsWith(suffix)
       && key.length > prefix.length + suffix.length
-    );
-
-  }
-
-
-  function getSessionIdFromLatestRuntimeMemoryKey(
-    key
-  ) {
-
-    const prefix =
-      `${latestRuntimeMemoryStorageKeyPrefix}.`;
-
-    const suffix =
-      `.${latestRuntimeMemoryStorageKeyVersion}`;
-
-    if (
-        typeof key !== "string"
-        || !key.startsWith(prefix)
-        || !key.endsWith(suffix)
-    ) {
-      return "";
-    }
-
-    return key.slice(
-      prefix.length,
-      key.length - suffix.length
     );
 
   }
@@ -268,11 +355,6 @@
     runtimeSessionId = normalizedRuntimeSessionId;
     window.jinRuntimeSessionId =
       runtimeSessionId;
-    latestRuntimeMemoryStorageKey =
-      getLatestRuntimeMemoryStorageKey(
-        runtimeSessionId
-      );
-
     try {
       window.sessionStorage.setItem(
         runtimeSessionIdSessionStorageKey,
@@ -285,13 +367,140 @@
   }
 
 
-  function readBrowserMemory(
+  function shouldIsolateAnonymousStorage() {
+
+    return Boolean(
+      window.JinRuntime
+      && window.JinRuntime.anonymousMode
+      && typeof window.JinRuntime.anonymousMode.shouldIsolateStorage === "function"
+      && window.JinRuntime.anonymousMode.shouldIsolateStorage()
+    );
+
+  }
+
+
+  function isAnonymousModeEnabled() {
+
+    return Boolean(
+      window.JinRuntime
+      && window.JinRuntime.anonymousMode
+      && typeof window.JinRuntime.anonymousMode.isEnabled === "function"
+      && window.JinRuntime.anonymousMode.isEnabled()
+    );
+
+  }
+
+
+  function getActiveMemoryStorageKey() {
+
+    return activeMemoryStorageKey;
+
+  }
+
+
+  function getDelayedMemoryReportsStorageKey() {
+
+    return delayedMemoryReportsStorageKey;
+
+  }
+
+
+  function readAnonymousSessionSnapshot() {
+
+    const anonymousMode =
+      window.JinRuntime
+      && window.JinRuntime.anonymousMode;
+
+    return (
+      anonymousMode
+      && typeof anonymousMode.readSnapshot === "function"
+    )
+      ? anonymousMode.readSnapshot()
+      : null;
+
+  }
+
+
+  function updateAnonymousSessionSnapshotField(
+    field,
+    value
+  ) {
+
+    const anonymousMode =
+      window.JinRuntime
+      && window.JinRuntime.anonymousMode;
+
+    return Boolean(
+      anonymousMode
+      && typeof anonymousMode.updateSnapshotField === "function"
+      && anonymousMode.updateSnapshotField(field, value)
+    );
+
+  }
+
+
+  function readFactsStorageMemory(
+    key
+  ) {
+
+    return shouldIsolateAnonymousStorage()
+      ? readSessionMemory(key)
+      : readBrowserMemory(key);
+
+  }
+
+
+  function writeFactsStorageMemory(
+    key,
+    value
+  ) {
+
+    if (shouldIsolateAnonymousStorage()) {
+      writeSessionMemory(key, value);
+      return;
+    }
+
+    writeBrowserMemory(key, value);
+
+  }
+
+
+  function removeFactsStorageMemory(
+    key
+  ) {
+
+    if (shouldIsolateAnonymousStorage()) {
+      removeSessionMemory(key);
+      return;
+    }
+
+    removeBrowserMemory(key);
+
+  }
+
+
+  function readBrowserMemory(key) {
+    const value = browserProjection.get(key);
+    return value === undefined ? null : JSON.parse(value);
+  }
+
+  function writeBrowserMemory(key, value) {
+    browserProjection.set(key, JSON.stringify(value));
+    return true;
+  }
+
+  function removeBrowserMemory(key) {
+    browserProjection.delete(key);
+    try { window.localStorage.removeItem(key); } catch (_error) {}
+  }
+
+  function readSessionMemory(
     key
   ) {
 
     try {
       return JSON.parse(
-        window.localStorage.getItem(
+        window.sessionStorage.getItem(
           key
         ) || "null"
       );
@@ -302,42 +511,120 @@
   }
 
 
-  function writeBrowserMemory(
+  function writeSessionMemory(
     key,
     value
   ) {
 
     try {
-      window.localStorage.setItem(
+      window.sessionStorage.setItem(
         key,
         JSON.stringify(value)
       );
     } catch (error) {
-      // Browser memory is helpful, not required for chat.
+      // Ephemeral runtime state is helpful, not required for chat.
     }
 
   }
 
 
-  function removeBrowserMemory(
+  function removeSessionMemory(
     key
   ) {
 
     try {
-      window.localStorage.removeItem(
+      window.sessionStorage.removeItem(
         key
       );
     } catch (error) {
-      // Browser memory is helpful, not required for chat.
+      // Ephemeral runtime state is helpful, not required for chat.
     }
 
   }
 
 
+  // The old multi-checkpoint L3 history has no runtime meaning anymore.
+  // Do not mutate the normal browser profile while anonymous detection is
+  // pending or anonymous isolation is active.
+  if (!shouldIsolateAnonymousStorage()) {
+    removeBrowserMemory(
+      retiredSavedSessionHistoryStorageKey
+    );
+  }
+
+
+  function stripRetiredRuntimeMemoryEntries(
+    value
+  ) {
+
+    return String(value || "")
+      .split(/\r?\n/)
+      .filter((line) => (
+        !/^\s*(?:-\s*)?l2_pattern_evidence_\d+\s*:/i.test(line)
+      ))
+      .join("\n")
+      .trim();
+
+  }
+
+
+  function sanitizeRuntimeMemoryRecord(
+    value
+  ) {
+
+    if (
+        !value
+        || typeof value !== "object"
+        || Array.isArray(value)
+    ) {
+      return value;
+    }
+
+    const sanitized = {
+      ...value,
+      runtime_memory:
+        stripRetiredRuntimeMemoryEntries(
+          value.runtime_memory || ""
+        ),
+    };
+
+    if (
+        value.runtime_snapshot
+        && typeof value.runtime_snapshot === "object"
+        && !Array.isArray(value.runtime_snapshot)
+    ) {
+      const snapshot = {
+        ...value.runtime_snapshot,
+        raw_memory:
+          stripRetiredRuntimeMemoryEntries(
+            value.runtime_snapshot.raw_memory || ""
+          ),
+      };
+
+      if (Array.isArray(value.runtime_snapshot.lines)) {
+        snapshot.lines =
+          value.runtime_snapshot.lines.filter((line) => (
+            !line
+            || typeof line !== "object"
+            || !/^l2_pattern_evidence_\d+$/i.test(
+              String(line.key || "").trim()
+            )
+          ));
+      }
+
+      sanitized.runtime_snapshot = snapshot;
+    }
+
+    return sanitized;
+
+  }
+
   function readLatestRuntimeMemory() {
 
-    return readBrowserMemory(
-      latestRuntimeMemoryStorageKey
+    return sanitizeRuntimeMemoryRecord(
+      readSessionMemory(
+        liveRuntimeMemoryStorageKey
+      )
     );
 
   }
@@ -347,26 +634,55 @@
     value
   ) {
 
-    writeBrowserMemory(
-      latestRuntimeMemoryStorageKey,
-      value
-    );
+    const previousValue =
+      sanitizeRuntimeMemoryRecord(
+        readSessionMemory(
+          liveRuntimeMemoryStorageKey
+        )
+      );
 
-  }
+    value = sanitizeRuntimeMemoryRecord(value);
 
+    if (
+        value
+        && typeof value === "object"
+        && !Array.isArray(value)
+        && previousValue
+        && typeof previousValue === "object"
+        && !Array.isArray(previousValue)
+    ) {
+      const previousCommittedAt =
+        String(
+          previousValue.conversation_committed_at
+          || ""
+        ).trim();
 
-  function readLatestSavedSessionMemory() {
+      if (
+          previousCommittedAt
+          && !String(
+            value.conversation_committed_at
+            || ""
+          ).trim()
+      ) {
+        value.conversation_committed_at =
+          previousCommittedAt;
+      }
 
-    return readBrowserMemory(
-      latestSavedSessionMemoryStorageKey
-    );
-
-  }
-
-
-  function writeLatestSavedSessionMemory(
-    value
-  ) {
+      if (
+          previousValue.session_snapshot
+          && typeof previousValue.session_snapshot === "object"
+          && !Array.isArray(previousValue.session_snapshot)
+          && !(
+            value.session_snapshot
+            && typeof value.session_snapshot === "object"
+            && !Array.isArray(value.session_snapshot)
+          )
+      ) {
+        value.session_snapshot = {
+          ...previousValue.session_snapshot,
+        };
+      }
+    }
 
     const normalizedValue =
       (
@@ -376,83 +692,439 @@
       )
         ? {
             ...value,
-            session_id:
-              String(value.session_id || runtimeSessionId || "").trim(),
+            session_id: runtimeSessionId,
+            booted_from_session_id:
+              String(
+                value.booted_from_session_id
+                || bootSourceRuntimeSessionId
+                || ""
+              ).trim()
+              || null,
+            previous_session_id:
+              String(
+                value.previous_session_id
+                || value.booted_from_session_id
+                || bootSourceRuntimeSessionId
+                || ""
+              ).trim()
+              || null,
           }
         : value;
 
-    archiveLatestSavedSessionMemory();
+    if (
+        normalizedValue
+        && normalizedValue.runtime_snapshot
+        && typeof normalizedValue.runtime_snapshot === "object"
+    ) {
+      const snapshotSessionId =
+        String(
+          normalizedValue.runtime_snapshot.session_id
+          || ""
+        ).trim()
+        || runtimeSessionId;
 
-    writeBrowserMemory(
-      latestSavedSessionMemoryStorageKey,
+      normalizedValue.runtime_snapshot = {
+        ...normalizedValue.runtime_snapshot,
+        session_id: snapshotSessionId,
+        booted_from_session_id:
+          normalizedValue.booted_from_session_id,
+        previous_session_id:
+          normalizedValue.previous_session_id,
+      };
+    }
+
+    writeSessionMemory(
+      liveRuntimeMemoryStorageKey,
       normalizedValue
     );
 
-  }
-
-
-  function readSavedSessionMemoryHistory() {
-
-    const history =
-      readBrowserMemory(
-        savedSessionMemoryHistoryStorageKey
+    if (shouldIsolateAnonymousStorage()) {
+      updateAnonymousSessionSnapshotField(
+        "frame_memory",
+        normalizedValue || ""
       );
-
-    return Array.isArray(history)
-      ? history.filter(
-          item => item && typeof item === "object"
-        )
-      : [];
-
-  }
-
-
-  function writeSavedSessionMemoryHistory(
-    history
-  ) {
-
-    writeBrowserMemory(
-      savedSessionMemoryHistoryStorageKey,
-      Array.isArray(history)
-        ? history.filter(
-            item => item && typeof item === "object"
-          )
-        : []
-    );
-
-  }
-
-
-  function archiveLatestSavedSessionMemory() {
-
-    const previous =
-      readLatestSavedSessionMemory();
-
-    if (
-        !previous
-        || typeof previous !== "object"
-        || Array.isArray(previous)
-    ) {
-      return;
     }
 
-    writeSavedSessionMemoryHistory(
-      readSavedSessionMemoryHistory().concat([
-        {
-          ...previous,
-          archived_at: new Date().toISOString(),
-        },
-      ])
+  }
+
+
+  function normalizeSessionCheckpointRecord(
+    value
+  ) {
+
+    if (
+        !value
+        || typeof value !== "object"
+        || Array.isArray(value)
+    ) {
+      return null;
+    }
+
+    if (String(value.state || "").trim() === "cleared") {
+      return {
+        version: 2,
+        state: "cleared",
+        cleared_at:
+          String(value.cleared_at || "").trim(),
+      };
+    }
+
+    const sessionId =
+      String(value.session_id || "").trim();
+
+    if (!sessionId) {
+      return null;
+    }
+
+    return sanitizeRuntimeMemoryRecord({
+      version: 2,
+      state: "checkpoint",
+      session_id: sessionId,
+      previous_session_id:
+        String(value.previous_session_id || "").trim() || null,
+      saved_at:
+        String(value.saved_at || "").trim(),
+      conversation_committed_at:
+        String(value.conversation_committed_at || "").trim(),
+      clear_barrier_at:
+        String(value.clear_barrier_at || "").trim(),
+      runtime_memory:
+        String(value.runtime_memory || "").trim(),
+      runtime_memory_updates:
+        Number(value.runtime_memory_updates || 0),
+      runtime_snapshot:
+        (
+          value.runtime_snapshot
+          && typeof value.runtime_snapshot === "object"
+          && !Array.isArray(value.runtime_snapshot)
+        )
+          ? {
+              ...value.runtime_snapshot,
+            }
+          : null,
+      session_snapshot:
+        (
+          value.session_snapshot
+          && typeof value.session_snapshot === "object"
+          && !Array.isArray(value.session_snapshot)
+        )
+          ? {
+              ...value.session_snapshot,
+            }
+          : {},
+    });
+
+  }
+
+
+  function collectLegacyLatestRuntimeMemoryKeys(
+    storageArea
+  ) {
+
+    const keys = [];
+
+    try {
+      for (let index = 0; index < storageArea.length; index += 1) {
+        const key = storageArea.key(index);
+
+        if (isLegacyLatestRuntimeMemoryKey(key)) {
+          keys.push(key);
+        }
+      }
+    } catch (error) {
+      return [];
+    }
+
+    return keys;
+
+  }
+
+
+  function clearLegacyRuntimeStorage() {
+
+    [
+      legacyLatestSavedSessionSnapshotStorageKey,
+      legacyL3SavedSessionSnapshotStorageKey,
+      retiredSavedSessionHistoryStorageKey,
+      latestSavedRuntimeMemoryStorageKey,
+    ].forEach(removeBrowserMemory);
+
+    try {
+      collectLegacyLatestRuntimeMemoryKeys(
+        window.localStorage
+      ).forEach(removeBrowserMemory);
+    } catch (error) {
+      // Legacy cleanup is best-effort after the v2 checkpoint is safe.
+    }
+
+    try {
+      collectLegacyLatestRuntimeMemoryKeys(
+        window.sessionStorage
+      ).forEach(removeSessionMemory);
+    } catch (error) {
+      // Legacy cleanup is best-effort after the v2 checkpoint is safe.
+    }
+
+  }
+
+
+  function ensureSessionCheckpointMigration() {
+    return normalizeSessionCheckpointRecord(readBrowserMemory(sessionCheckpointStorageKey));
+  }
+
+  function readSessionCheckpointRecord() {
+
+    if (shouldIsolateAnonymousStorage()) {
+      return null;
+    }
+
+    return ensureSessionCheckpointMigration();
+
+  }
+
+
+  function readSessionCheckpoint() {
+
+    const checkpoint =
+      readSessionCheckpointRecord();
+
+    return (
+        checkpoint
+        && checkpoint.state === "checkpoint"
+      )
+      ? checkpoint
+      : null;
+
+  }
+
+
+  function markSessionCheckpointUserActivity() {
+
+    const checkpoint =
+      shouldIsolateAnonymousStorage()
+        ? null
+        : normalizeSessionCheckpointRecord(
+            readBrowserMemory(
+              sessionCheckpointStorageKey
+            )
+          );
+    const clearedAt =
+      checkpoint
+      && checkpoint.state === "cleared"
+        ? Date.parse(
+            String(checkpoint.cleared_at || "").trim()
+          )
+        : 0;
+
+    sessionCheckpointUserActivityAt =
+      Math.max(
+        Date.now(),
+        sessionCheckpointUserActivityAt + 1,
+        Number.isFinite(clearedAt)
+          ? clearedAt + 1
+          : 1
+      );
+
+    return sessionCheckpointUserActivityAt;
+
+  }
+
+
+  function canOverwriteClearedCheckpoint(
+    checkpoint
+  ) {
+
+    if (
+        !checkpoint
+        || checkpoint.state !== "cleared"
+    ) {
+      return true;
+    }
+
+    const clearedAt =
+      Date.parse(
+        String(checkpoint.cleared_at || "").trim()
+      );
+
+    return sessionCheckpointUserActivityAt > (
+      Number.isFinite(clearedAt)
+        ? clearedAt
+        : 0
     );
 
   }
 
 
-  function readLatestSavedRuntimeMemory() {
+  function writeSessionCheckpoint(
+    value
+  ) {
 
-    return readBrowserMemory(
-      latestSavedRuntimeMemoryStorageKey
+    if (shouldIsolateAnonymousStorage()) {
+      return false;
+    }
+
+    const existing =
+      readSessionCheckpointRecord();
+
+    if (!canOverwriteClearedCheckpoint(existing)) {
+      return false;
+    }
+
+    const normalized =
+      normalizeSessionCheckpointRecord(value);
+
+    if (
+        !normalized
+        || normalized.state !== "checkpoint"
+    ) {
+      return false;
+    }
+
+    const clearBarrierAt =
+      existing
+      && existing.state === "cleared"
+        ? String(existing.cleared_at || "").trim()
+        : String(
+            existing
+            && existing.clear_barrier_at
+            || ""
+          ).trim();
+    const clearBarrierTimestamp =
+      Date.parse(clearBarrierAt);
+    const changesCheckpointOwner = Boolean(
+      existing
+      && existing.state === "checkpoint"
+      && String(existing.session_id || "").trim()
+        !== String(normalized.session_id || "").trim()
     );
+
+    if (
+        changesCheckpointOwner
+        && Number.isFinite(clearBarrierTimestamp)
+        && sessionCheckpointUserActivityAt <= clearBarrierTimestamp
+    ) {
+      return false;
+    }
+
+    if (clearBarrierAt) {
+      normalized.clear_barrier_at = clearBarrierAt;
+    }
+
+    return writeBrowserMemory(
+      sessionCheckpointStorageKey,
+      normalized
+    );
+
+  }
+
+
+  function clearLiveRuntimeMemory() {
+
+    removeSessionMemory(
+      liveRuntimeMemoryStorageKey
+    );
+
+  }
+
+
+  function clearSessionCheckpoint() {
+
+    if (shouldIsolateAnonymousStorage()) {
+      return false;
+    }
+
+    sessionCheckpointUserActivityAt = 0;
+
+    const written = writeBrowserMemory(
+      sessionCheckpointStorageKey,
+      {
+        version: 2,
+        state: "cleared",
+        cleared_at: new Date().toISOString(),
+      }
+    );
+
+    if (!written) {
+      return false;
+    }
+
+    clearLiveRuntimeMemory();
+    clearLegacyRuntimeStorage();
+
+    return true;
+
+  }
+
+
+  function findBalancedActiveMemorySuffixEnd(text, start) {
+
+    let depth = 0;
+
+    for (let index = start; index < text.length; index += 1) {
+      if (text[index] === "[") {
+        depth += 1;
+      } else if (text[index] === "]") {
+        depth -= 1;
+        if (depth === 0) return index + 1;
+      }
+    }
+
+    return -1;
+
+  }
+
+
+  function canonicalizeActiveMemoryConditionsRecord(record) {
+
+    const text = String(record || "").trim();
+    const separatorIndex = text.indexOf(":");
+
+    if (separatorIndex <= 0) return text;
+
+    const key = text.slice(0, separatorIndex).trim();
+    if (!/^active_memory(?:_\d+)?$/i.test(key)) return text;
+
+    const value = text.slice(separatorIndex + 1).trim();
+    const idMatch = /\[\s*id\s*:/.exec(value);
+    const firstMetadataMatch = /\[\s*[a-z][a-z0-9_]{0,31}\s*:/i.exec(value);
+    const metadataStart = idMatch
+      ? idMatch.index
+      : firstMetadataMatch
+        ? firstMetadataMatch.index
+        : value.length;
+    const description = value.slice(0, metadataStart).replace(/\s+/g, " ").trim();
+    const metadata = value.slice(metadataStart);
+    const openPattern = /\[\s*conditions\s*:\s*/ig;
+    const spans = [];
+    let match;
+
+    while ((match = openPattern.exec(metadata)) !== null) {
+      const end = findBalancedActiveMemorySuffixEnd(metadata, match.index);
+      if (end < 0) break;
+      spans.push({ start: match.index, end, value: metadata.slice(openPattern.lastIndex, end - 1) });
+      openPattern.lastIndex = end;
+    }
+
+    if (!spans.length) return text;
+
+    const legacyConditions = String(spans.at(-1)?.value || "")
+      .replace(/\s+/g, " ")
+      .trim();
+    const pieces = [];
+    let cursor = 0;
+
+    spans.forEach((span) => {
+      pieces.push(metadata.slice(cursor, span.start));
+      cursor = span.end;
+    });
+    pieces.push(metadata.slice(cursor));
+
+    const cleanedMetadata = pieces.join(" ").replace(/\s+/g, " ").trim();
+    const nextValue = [legacyConditions || description, cleanedMetadata]
+      .filter(Boolean)
+      .join(" ");
+
+    return `${key}: ${nextValue}`.trim();
 
   }
 
@@ -468,11 +1140,14 @@
     const seen = new Set();
 
     source.forEach(function (record) {
-      const text = String(record || "").trim();
+      const rawText = String(record || "").trim();
 
-      if (!/^active_memory(?:_\d+)?\s*:/i.test(text)) {
+      if (!/^active_memory(?:_\d+)?\s*:/i.test(rawText)) {
         return;
       }
+
+      const text = canonicalizeActiveMemoryConditionsRecord(rawText);
+      if (!text) return;
 
       if (seen.has(text)) {
         return;
@@ -489,9 +1164,16 @@
 
   function readActiveMemoryRecords() {
 
+    if (shouldIsolateAnonymousStorage()) {
+      const snapshot = readAnonymousSessionSnapshot();
+      return normalizeActiveMemoryRecords(
+        snapshot && snapshot.active_memory
+      );
+    }
+
     return normalizeActiveMemoryRecords(
       readBrowserMemory(
-        activeMemoryStorageKey
+        getActiveMemoryStorageKey()
       )
     );
 
@@ -502,9 +1184,19 @@
     records
   ) {
 
+    const normalized = normalizeActiveMemoryRecords(records);
+
+    if (shouldIsolateAnonymousStorage()) {
+      updateAnonymousSessionSnapshotField(
+        "active_memory",
+        normalized
+      );
+      return;
+    }
+
     writeBrowserMemory(
-      activeMemoryStorageKey,
-      normalizeActiveMemoryRecords(records)
+      getActiveMemoryStorageKey(),
+      normalized
     );
 
   }
@@ -512,11 +1204,35 @@
 
   function clearActiveMemoryRecords() {
 
+    if (shouldIsolateAnonymousStorage()) {
+      updateAnonymousSessionSnapshotField(
+        "active_memory",
+        []
+      );
+      return [];
+    }
+
     removeBrowserMemory(
-      activeMemoryStorageKey
+      getActiveMemoryStorageKey()
     );
 
     return [];
+
+  }
+
+
+  function activeMemoryRecordHasId(record, activeMemoryId) {
+
+    const id =
+      window.JinUiUtils.normalizeActiveMemoryId(
+        activeMemoryId
+      );
+
+    if (!id) {
+      return false;
+    }
+
+    return window.JinUiUtils.extractActiveMemoryId(record) === id;
 
   }
 
@@ -539,21 +1255,62 @@
   }
 
 
+  function replaceActiveMemoryRecordById(
+    activeMemoryId,
+    record
+  ) {
+
+    const needle =
+      window.JinUiUtils.normalizeActiveMemoryId(
+        activeMemoryId
+      );
+    const nextRecord = String(record || "").trim();
+
+    if (!needle || !nextRecord) {
+      return readActiveMemoryRecords();
+    }
+
+    let replaced = false;
+    const nextRecords = readActiveMemoryRecords()
+      .map((currentRecord) => {
+        const text = String(currentRecord || "");
+
+        if (
+          replaced
+          || !activeMemoryRecordHasId(text, needle)
+        ) {
+          return currentRecord;
+        }
+
+        replaced = true;
+        return nextRecord;
+      });
+
+    if (!replaced) {
+      nextRecords.push(nextRecord);
+    }
+
+    writeActiveMemoryRecords(nextRecords);
+    return readActiveMemoryRecords();
+
+  }
+
+
   function removeActiveMemoryRecordById(
     activeMemoryId
   ) {
 
     const needle =
-      String(activeMemoryId || "")
-        .trim()
-        .toLowerCase();
+      window.JinUiUtils.normalizeActiveMemoryId(
+        activeMemoryId
+      );
 
     if (!needle) {
       return readActiveMemoryRecords();
     }
 
     const kept = readActiveMemoryRecords()
-      .filter(record => !String(record).toLowerCase().includes(needle));
+      .filter(record => !activeMemoryRecordHasId(record, needle));
 
     writeActiveMemoryRecords(
       kept
@@ -672,9 +1429,41 @@
           return;
         }
 
+        const content =
+          String(
+            field.content || field.value || ""
+          ).trim();
+
+        if (!content) {
+          return;
+        }
+
+        const contentHash =
+          String(
+            field.lt_content_hash || ""
+          ).trim()
+          || buildFactsMemoryContentHash(
+            content
+          );
+
         signals[normalizedKey] = {
           ...field,
+          content,
+          lt_status:
+            normalizeFactsMemoryStatus(
+              field.lt_status
+            ),
+          lt_content_hash: contentHash,
+          lt_analyzed_at:
+            normalizeFactsMemoryStatus(
+              field.lt_status
+            ) === "analyzed"
+              ? String(field.lt_analyzed_at || "").trim()
+              : "",
         };
+        delete signals[normalizedKey].significance;
+        delete signals[normalizedKey].metabolic_significance;
+        delete signals[normalizedKey].significance_updated_at;
       }
     );
 
@@ -688,16 +1477,21 @@
     const records = [];
 
     try {
-      for (let index = 0; index < window.localStorage.length; index += 1) {
+      const factsStorage =
+        shouldIsolateAnonymousStorage()
+          ? window.sessionStorage
+          : { length: browserProjection.size, key: index => Array.from(browserProjection.keys())[index] };
+
+      for (let index = 0; index < factsStorage.length; index += 1) {
         const storageKey =
-          window.localStorage.key(index);
+          factsStorage.key(index);
 
         if (!isFactsMemoryStorageKey(storageKey)) {
           continue;
         }
 
         const stored =
-          readBrowserMemory(storageKey);
+          readFactsStorageMemory(storageKey);
 
         const signals =
           normalizeFactsMemory(
@@ -712,7 +1506,7 @@
         }
 
         if (isLegacyFactsMemoryValue(stored)) {
-          writeBrowserMemory(
+          writeFactsStorageMemory(
             storageKey,
             signals
           );
@@ -821,12 +1615,12 @@
         currentSessionId
       );
 
-    writeBrowserMemory(
+    writeFactsStorageMemory(
       targetStorageKey,
       signals
     );
 
-    removeBrowserMemory(
+    removeFactsStorageMemory(
       storageKey
     );
 
@@ -850,8 +1644,67 @@
       return false;
     }
 
-    removeBrowserMemory(
+    removeFactsStorageMemory(
       storageKey
+    );
+
+    return true;
+
+  }
+
+
+  function clearFactsMemorySessionIfFullyAnalyzed(
+    sessionId,
+    value
+  ) {
+
+    const normalizedSessionId =
+      String(sessionId || "").trim();
+
+    const currentSessionId =
+      String(getCurrentFactsMemorySessionId() || "").trim();
+
+    if (
+        !normalizedSessionId
+        || normalizedSessionId === currentSessionId
+    ) {
+      return false;
+    }
+
+    const key =
+      getFactsMemoryStorageKey(
+        normalizedSessionId
+      );
+
+    if (!key) {
+      return false;
+    }
+
+    const signals =
+      value === undefined
+        ? readFactsMemory(
+            normalizedSessionId
+          )
+        : normalizeFactsMemory(
+            value
+          );
+
+    const signalKeys =
+      Object.keys(signals);
+
+    if (
+        !signalKeys.length
+        || !signalKeys.every(
+          function (signalKey) {
+            return signals[signalKey].lt_status === "analyzed";
+          }
+        )
+    ) {
+      return false;
+    }
+
+    removeFactsStorageMemory(
+      key
     );
 
     return true;
@@ -870,7 +1723,7 @@
 
     const stored =
       key
-        ? readBrowserMemory(key)
+        ? readFactsStorageMemory(key)
         : null;
 
     const signals =
@@ -882,7 +1735,7 @@
         key
         && isLegacyFactsMemoryValue(stored)
     ) {
-      writeBrowserMemory(
+      writeFactsStorageMemory(
         key,
         signals
       );
@@ -909,7 +1762,7 @@
       );
 
     if (key) {
-      writeBrowserMemory(
+      writeFactsStorageMemory(
         key,
         signals
       );
@@ -978,6 +1831,223 @@
 
   }
 
+  function normalizeLongTermFactIds(
+    value
+  ) {
+
+    const source =
+      Array.isArray(value)
+        ? value
+        : [value];
+    const seen = new Set();
+    const factIds = [];
+
+    source.forEach(function (item) {
+      if (Array.isArray(item)) {
+        normalizeLongTermFactIds(item).forEach(function (factId) {
+          if (!seen.has(factId)) {
+            seen.add(factId);
+            factIds.push(factId);
+          }
+        });
+        return;
+      }
+
+      const text =
+        String(item || "").trim();
+
+      if (text.startsWith("[") && text.endsWith("]")) {
+        try {
+          const parsed = JSON.parse(text);
+
+          if (Array.isArray(parsed)) {
+            normalizeLongTermFactIds(parsed).forEach(function (factId) {
+              if (!seen.has(factId)) {
+                seen.add(factId);
+                factIds.push(factId);
+              }
+            });
+            return;
+          }
+        } catch (_error) {
+          // Fall through to token parsing.
+        }
+      }
+
+      text
+        .split(/[\s,;]+/)
+        .forEach(function (candidate) {
+          const factId =
+            String(candidate || "")
+              .trim()
+              .replace(/^["'\[]+|["'\]]+$/g, "")
+              .toUpperCase();
+
+          if (
+              !/^F[1-9]\d*$/.test(factId)
+              || seen.has(factId)
+          ) {
+            return;
+          }
+
+          seen.add(factId);
+          factIds.push(factId);
+        });
+    });
+
+    return factIds;
+
+  }
+
+
+  function sortLongTermFactIdsByNumber(
+    factIds
+  ) {
+
+    return [...factIds].sort(function (left, right) {
+      return Number(String(left).slice(1))
+        - Number(String(right).slice(1));
+    });
+
+  }
+
+
+  function readDelayedLoadMetadata(
+    report,
+    key,
+    fallbackValue
+  ) {
+    if (
+        report
+        && Object.prototype.hasOwnProperty.call(report, key)
+    ) {
+      return report[key];
+    }
+
+    const legacyPrefix = "append" + "ed";
+    const legacyKeys = {
+      loaded_times: `${legacyPrefix}_times`,
+      load_streak: "append_streak",
+      last_loaded_date: `last_${legacyPrefix}_date`,
+      last_loaded_session_id: `last_${legacyPrefix}_session_id`,
+      all_loaded_session_ids: `all_${legacyPrefix}_session_ids`,
+    };
+    const legacyKey = legacyKeys[key];
+
+    return legacyKey && report
+      ? report[legacyKey]
+      : fallbackValue;
+  }
+
+  function normalizeDelayedMemoryAttachmentIds(
+    value
+  ) {
+
+    const source =
+      Array.isArray(value)
+        ? value
+        : [value];
+    const attachmentIds = [];
+    const seen = new Set();
+
+    source.flat(Infinity).forEach((item) => {
+      String(item || "")
+        .split(/[,;\s]+/)
+        .map((id) => id.trim().replace(/^[\[\]"']+|[\[\]"']+$/g, "").toLowerCase())
+        .filter(Boolean)
+        .forEach((id) => {
+          if (
+              !/^[a-z0-9]{6}$/.test(id)
+              || seen.has(id)
+          ) {
+            return;
+          }
+
+          seen.add(id);
+          attachmentIds.push(id);
+        });
+    });
+
+    return attachmentIds;
+  }
+
+  function normalizeDelayedMemoryTags(value) {
+    const source = Array.isArray(value) ? value : [value];
+    const candidates = [];
+    const tags = [];
+    const seen = new Set();
+
+    function collect(item) {
+      if (Array.isArray(item)) {
+        item.flat(Infinity).forEach(collect);
+        return;
+      }
+
+      const text = String(item || "").trim();
+      if (!text) {
+        return;
+      }
+
+      if (text.startsWith("[") && text.endsWith("]")) {
+        try {
+          const parsed = JSON.parse(text);
+          if (Array.isArray(parsed)) {
+            parsed.forEach(collect);
+            return;
+          }
+        } catch (_error) {
+          // Loose legacy bracket syntax is handled below.
+        }
+      }
+
+      text.split(/[,;\r\n]+/)
+        .map(part => part.trim())
+        .filter(Boolean)
+        .forEach((part) => {
+          const bracketed = part.startsWith("[") && part.endsWith("]");
+          const hashtagCount = (part.match(/(^|\s)#/g) || []).length;
+
+          if (bracketed) {
+            const inner = part.slice(1, -1).trim();
+            if (inner && !/["']/.test(inner)) {
+              candidates.push(...inner.split(/\s+/));
+              return;
+            }
+          }
+
+          if (hashtagCount >= 2) {
+            candidates.push(...part.split(/\s+/));
+            return;
+          }
+
+          candidates.push(part);
+        });
+    }
+
+    source.forEach(collect);
+
+    candidates.forEach((candidate) => {
+      let tag = String(candidate || "").trim();
+      tag = tag.replace(/^[\[\]{}()"']+|[\[\]{}()"']+$/g, "").trim();
+      tag = tag.replace(/^#+|#+$/g, "").trim();
+      tag = tag.replace(/^[\[\]{}()"']+|[\[\]{}()"']+$/g, "").trim();
+
+      if (!tag) {
+        return;
+      }
+
+      const key = tag.toLocaleLowerCase();
+      if (seen.has(key)) {
+        return;
+      }
+
+      seen.add(key);
+      tags.push(tag);
+    });
+
+    return tags;
+  }
+
   function normalizeDelayedMemoryReports(
     value
   ) {
@@ -1041,16 +2111,30 @@
           summary:
             String(report.summary || "").trim(),
           tags:
-            Array.isArray(report.tags)
-              ? report.tags
-                  .map(tag => String(tag || "").trim())
-                  .filter(Boolean)
-              : String(report.tags || "")
-                  .split(",")
-                  .map(tag => tag.trim())
-                  .filter(Boolean),
+            normalizeDelayedMemoryTags(report.tags),
           body:
             String(report.body || "").trim(),
+          pinned:
+            Boolean(report.pinned),
+          anchor_lt_facts_ids:
+            normalizeLongTermFactIds(
+              report.anchor_lt_facts_ids
+            ),
+          lt_facts_ids:
+            sortLongTermFactIdsByNumber(
+              normalizeLongTermFactIds(
+                [
+                  // Anchors only affect highlighting. The full list keeps
+                  // normal numeric F-id order instead of promoting anchors.
+                  report.lt_facts_ids,
+                  report.anchor_lt_facts_ids,
+                ]
+              )
+            ),
+          attachments_ids:
+            normalizeDelayedMemoryAttachmentIds(
+              report.attachments_ids
+            ),
           created_session_id:
             String(report.created_session_id || "").trim(),
           created_time:
@@ -1058,21 +2142,45 @@
             || createdDate,
           created_date:
             createdDate,
-          appended_times:
+          loaded_times:
             normalizeDelayedMemoryCounter(
-              report.appended_times
+              readDelayedLoadMetadata(
+                report,
+                "loaded_times",
+                0
+              )
             ),
-          append_streak:
+          load_streak:
             normalizeDelayedMemoryCounter(
-              report.append_streak
+              readDelayedLoadMetadata(
+                report,
+                "load_streak",
+                0
+              )
             ),
-          last_appended_date:
-            String(report.last_appended_date || "").trim(),
-          last_appended_session_id:
-            String(report.last_appended_session_id || "").trim(),
-          all_appended_session_ids:
+          last_loaded_date:
+            String(
+              readDelayedLoadMetadata(
+                report,
+                "last_loaded_date",
+                ""
+              ) || ""
+            ).trim(),
+          last_loaded_session_id:
+            String(
+              readDelayedLoadMetadata(
+                report,
+                "last_loaded_session_id",
+                ""
+              ) || ""
+            ).trim(),
+          all_loaded_session_ids:
             normalizeDelayedMemorySessionIds(
-              report.all_appended_session_ids
+              readDelayedLoadMetadata(
+                report,
+                "all_loaded_session_ids",
+                []
+              )
             ),
         };
       }
@@ -1131,40 +2239,27 @@
   }
 
 
-  function collectCurrentSessionAppendedMemoryIds() {
-
-    const sessionId =
-      getCurrentRuntimeSessionId();
-    const reports =
-      readDelayedMemoryReports();
-
-    if (!sessionId) {
-      return [];
-    }
-
-    return Object.entries(reports)
-      .filter(function ([, report]) {
-        return (
-          report
-          && Array.isArray(report.all_appended_session_ids)
-          && report.all_appended_session_ids.includes(sessionId)
-        );
-      })
-      .map(([reportId]) => reportId);
-
-  }
-
-
   function readDelayedMemoryReports() {
 
-    const rawReports =
-      readBrowserMemory(
-        delayedMemoryReportsStorageKey
-      );
+    const rawReports = shouldIsolateAnonymousStorage()
+      ? (readAnonymousSessionSnapshot() || {}).delayed_memory
+      : readBrowserMemory(
+          getDelayedMemoryReportsStorageKey()
+        );
     const reports =
       normalizeDelayedMemoryReports(
         rawReports
       );
+
+    if (shouldIsolateAnonymousStorage()) {
+      if (JSON.stringify(rawReports || {}) !== JSON.stringify(reports)) {
+        updateAnonymousSessionSnapshotField(
+          "delayed_memory",
+          reports
+        );
+      }
+      return reports;
+    }
 
     if (
         rawReports
@@ -1173,7 +2268,7 @@
         && JSON.stringify(rawReports) !== JSON.stringify(reports)
     ) {
       writeBrowserMemory(
-        delayedMemoryReportsStorageKey,
+        getDelayedMemoryReportsStorageKey(),
         reports
       );
     }
@@ -1187,17 +2282,27 @@
     reports
   ) {
 
+    const normalized = normalizeDelayedMemoryReports(
+      reports
+    );
+
+    if (shouldIsolateAnonymousStorage()) {
+      updateAnonymousSessionSnapshotField(
+        "delayed_memory",
+        normalized
+      );
+      return;
+    }
+
     writeBrowserMemory(
-      delayedMemoryReportsStorageKey,
-      normalizeDelayedMemoryReports(
-        reports
-      )
+      getDelayedMemoryReportsStorageKey(),
+      normalized
     );
 
   }
 
 
-  function appendDelayedMemoryReports(
+  function mergeDelayedMemoryReports(
     reports
   ) {
 
@@ -1216,16 +2321,18 @@
   }
 
 
-  function writeLatestSavedRuntimeMemory(
-    value
+  function setBootSourceRuntimeSessionId(
+    sourceRuntimeSessionId
   ) {
 
-    writeBrowserMemory(
-      latestSavedRuntimeMemoryStorageKey,
-      value
-    );
+    bootSourceRuntimeSessionId =
+      String(sourceRuntimeSessionId || "").trim()
+      || null;
+
+    return bootSourceRuntimeSessionId;
 
   }
+
 
 
   function buildPersistedRuntimeSnapshot(
@@ -1239,447 +2346,84 @@
       return null;
     }
 
+    const snapshotSessionId =
+      String(snapshot.session_id || "").trim()
+      || runtimeSessionId;
+
     return {
       ...snapshot,
-      session_id: runtimeSessionId,
-      persisted_pheromone_strength: true,
+      session_id: snapshotSessionId,
+      booted_from_session_id:
+        bootSourceRuntimeSessionId,
+      previous_session_id:
+        bootSourceRuntimeSessionId,
+      persisted_memory_scores: true,
     };
 
   }
 
 
-  function cloneRuntimeMemoryToCurrentSession(
-    runtimeMemory
+  function hydrateLiveRuntimeMemoryFromCheckpoint(
+    checkpoint
   ) {
 
     if (
-        !runtimeMemory
-        || typeof runtimeMemory !== "object"
-        || readBrowserMemory(latestRuntimeMemoryStorageKey)
+        !checkpoint
+        || typeof checkpoint !== "object"
+        || Array.isArray(checkpoint)
+        || !String(checkpoint.runtime_memory || "").trim()
     ) {
-      return;
+      return false;
     }
 
-    writeBrowserMemory(
-      latestRuntimeMemoryStorageKey,
-      {
-        version:
-          runtimeMemory.version || 1,
-        session_id: runtimeSessionId,
-        saved_at:
-          runtimeMemory.saved_at
-          || new Date().toISOString(),
-        runtime_memory:
-          runtimeMemory.runtime_memory || "",
-        runtime_memory_updates:
-          runtimeMemory.runtime_memory_updates || 0,
-        runtime_snapshot:
-          buildPersistedRuntimeSnapshot(
-            runtimeMemory.runtime_snapshot
-          ),
-        cloned_from_session_id:
-          runtimeMemory.session_id || null,
-      }
+    const sourceSessionId =
+      String(checkpoint.session_id || "").trim();
+
+    setBootSourceRuntimeSessionId(
+      sourceSessionId
     );
 
-  }
+    writeLatestRuntimeMemory({
+      version: 2,
+      saved_at:
+        String(checkpoint.saved_at || "").trim(),
+      runtime_memory:
+        checkpoint.runtime_memory || "",
+      runtime_memory_updates:
+        checkpoint.runtime_memory_updates || 0,
+      runtime_snapshot:
+        buildPersistedRuntimeSnapshot(
+          checkpoint.runtime_snapshot
+        ),
+      cloned_from_session_id:
+        sourceSessionId || null,
+      previous_session_id:
+        sourceSessionId || null,
+      conversation_committed_at:
+        String(
+          checkpoint.conversation_committed_at || ""
+        ).trim(),
+    });
 
-
-  function cloneRuntimeMemoryFromSessionId(
-    sourceRuntimeSessionId
-  ) {
-
-    const normalizedSourceRuntimeSessionId =
-      String(sourceRuntimeSessionId || "").trim();
-
-    if (!normalizedSourceRuntimeSessionId) {
-      return;
-    }
-
-    const sourceRuntimeMemory =
-      readBrowserMemory(
-        getLatestRuntimeMemoryStorageKey(
-          normalizedSourceRuntimeSessionId
-        )
-      );
-
-    cloneRuntimeMemoryToCurrentSession(
-      sourceRuntimeMemory
-    );
-
-  }
-
-
-  function cloneBootRuntimeMemoryIfNeeded() {
-
-    if (!clonedRuntimeSessionId) {
-      return;
-    }
-
-    // Do not copy live latestRuntimeMemory across a page reload. That cache is
-    // only safe for in-page WebSocket reconnects. Saved session restore uses
-    // latestSavedSessionMemory/latestSavedRuntimeMemory instead.
-    clonedRuntimeSessionId = null;
+    return true;
 
   }
 
 
-  function collectOtherLatestRuntimeMemorySnapshots() {
-
-    const snapshots = [];
-
-    try {
-      for (
-        let index = window.localStorage.length - 1;
-        index >= 0;
-        index -= 1
-      ) {
-        const key =
-          window.localStorage.key(index);
-
-        if (
-            !isLatestRuntimeMemoryKey(key)
-            || key === latestRuntimeMemoryStorageKey
-        ) {
-          continue;
-        }
-
-        const keySessionId =
-          getSessionIdFromLatestRuntimeMemoryKey(
-            key
-          );
-
-        if (keySessionId === runtimeSessionId) {
-          continue;
-        }
-
-        const value =
-          readBrowserMemory(
-            key
-          );
-
-        snapshots.push({
-          key,
-          key_session_id: keySessionId,
-          session_id:
-            (
-              value
-              && value.session_id
-            )
-            || keySessionId
-            || null,
-          saved_at:
-            (
-              value
-              && value.saved_at
-            )
-            || null,
-          runtime_memory_updates:
-            (
-              value
-              && value.runtime_memory_updates
-            )
-            || 0,
-          runtime_memory:
-            (
-              value
-              && value.runtime_memory
-            )
-            || "",
-        });
-      }
-    } catch (error) {
-      return [];
-    }
-
-    return snapshots.sort(
-      function (
-        left,
-        right,
-      ) {
-        return String(
-          right.saved_at || ""
-        ).localeCompare(
-          String(left.saved_at || "")
-        );
-      }
-    );
-
-  }
-
-
-  function clearOtherLatestRuntimeMemorySnapshots() {
-
-    const snapshots =
-      collectOtherLatestRuntimeMemorySnapshots();
-
-    try {
-      snapshots.forEach(
-        function (
-          snapshot
-        ) {
-          if (
-              snapshot
-              && snapshot.key
-              && snapshot.key !== latestRuntimeMemoryStorageKey
-          ) {
-            window.localStorage.removeItem(
-              snapshot.key
-            );
-          }
-        }
-      );
-    } catch (error) {
-      // Browser memory cleanup is helpful, not required for chat.
-    }
-
-    return {
-      cleared: snapshots.length,
-      keys: snapshots.map(
-        function (
-          snapshot
-        ) {
-          return snapshot.key;
-        }
-      ),
-    };
-
-  }
-
-
-  function extractSavedRuntimeConstant(
-    source,
-    name
-  ) {
-
-    const normalizedSource =
-      String(source || "").replace(
-        /\r\n/g,
-        "\n"
-      );
-
-    const markerIndex =
-      normalizedSource.indexOf(
-        name
-      );
-
-    if (markerIndex < 0) {
-      return "";
-    }
-
-    const assignmentIndex =
-      normalizedSource.indexOf(
-        "=",
-        markerIndex + name.length
-      );
-
-    if (assignmentIndex < 0) {
-      return "";
-    }
-
-    const afterAssignment =
-      normalizedSource.slice(
-        assignmentIndex + 1
-      );
-
-    const openingMatch =
-      afterAssignment.match(
-        /["'`]/
-      );
-
-    if (!openingMatch) {
-      return "";
-    }
-
-    const quote =
-      openingMatch[0];
-
-    const valueStart =
-      assignmentIndex + 1 + openingMatch.index + 1;
-
-    const closingIndex =
-      normalizedSource.indexOf(
-        `\n${quote}`,
-        valueStart
-      );
-
-    if (closingIndex < 0) {
-      return "";
-    }
-
-    return normalizedSource.slice(
-      valueStart,
-      closingIndex
-    ).trim();
-
-  }
-
-
-  function parseSavedRuntimeText(
-    source
-  ) {
-
-    const runtimeMemory =
-      extractSavedRuntimeConstant(
-        source,
-        "SAVED_RUNTIME"
-      );
-
-    const sessionMemory =
-      extractSavedRuntimeConstant(
-        source,
-        "SAVED_SESSION"
-      );
-
-    if (
-        !runtimeMemory
-        && !sessionMemory
-    ) {
-      return null;
-    }
-
-    return {
-      runtime_memory: runtimeMemory,
-      session_memory: sessionMemory,
-      source: "saved_runtime_txt",
-    };
-
-  }
-
-
-  function buildSavedRuntimeFallback(
-    memory
-  ) {
-
-    if (!memory) {
-      return null;
-    }
-
-    const runtimeMemory =
-      (
-        memory.runtime_memory
-        && String(memory.runtime_memory).trim()
-      )
-      || "";
-
-    const sessionMemory =
-      (
-        memory.session_memory
-        && String(memory.session_memory).trim()
-      )
-      || "";
-
-    if (
-        !runtimeMemory
-        && !sessionMemory
-    ) {
-      return null;
-    }
-
-    const source =
-      memory.source || "saved_runtime_txt";
-
-    const savedAt =
-      new Date().toISOString();
-
-    return {
-      source: source,
-      session_memory: sessionMemory
-        ? {
-            version: 1,
-            explicit_save: true,
-            saved_at: savedAt,
-            session_memory: sessionMemory,
-            session_memory_updates: 1,
-          }
-        : null,
-      latest_saved_runtime_memory: runtimeMemory
-        ? {
-            version: 1,
-            explicit_save: true,
-            saved_at: savedAt,
-            runtime_memory: runtimeMemory,
-            runtime_memory_updates: 1,
-            runtime_snapshot: null,
-          }
-        : null,
-      runtime_memory: runtimeMemory
-        ? {
-            version: 1,
-            saved_at: savedAt,
-            runtime_memory: runtimeMemory,
-            runtime_memory_updates: 1,
-            runtime_snapshot: null,
-          }
-        : null,
-    };
-
-  }
-
-
-  function getSavedRuntimeMemoryFallback() {
-
-    return buildSavedRuntimeFallback(
-      savedRuntimeFileFallback
-    );
-
-  }
-
-
-  async function loadSavedRuntimeMemoryFallback() {
-
-    if (savedRuntimeFileFallbackLoaded) {
-      return savedRuntimeFileFallback;
-    }
-
-    savedRuntimeFileFallbackLoaded = true;
-
-    if (
-        !window.fetch
-        || !savedRuntimeFallbackPath
-    ) {
-      return null;
-    }
-
-    try {
-      const response =
-        await window.fetch(
-          savedRuntimeFallbackPath,
-          {
-            cache: "no-store",
-          }
-        );
-
-      if (!response.ok) {
-        return null;
-      }
-
-      savedRuntimeFileFallback =
-        parseSavedRuntimeText(
-          await response.text()
-        );
-    } catch (error) {
-      savedRuntimeFileFallback = null;
-    }
-
-    return savedRuntimeFileFallback;
-
-  }
-
+  removeBrowserMemory(sessionCheckpointStorageKey);
+  clearLegacyRuntimeStorage();
+  clearMemoryProjection();
 
   const storage = {
+    clearMemoryProjection,
     keys: {
-      latestSavedSessionMemoryStorageKey,
-      savedSessionMemoryHistoryStorageKey,
+      liveRuntimeMemoryStorageKey,
+      sessionCheckpointStorageKey,
       runtimeSessionIdSessionStorageKey,
-      latestRuntimeMemoryStorageKeyPrefix,
-      latestRuntimeMemoryStorageKeyVersion,
-      latestSavedRuntimeMemoryStorageKey,
       activeMemoryStorageKey,
       delayedMemoryReportsStorageKey,
       factsMemoryStorageKeyPrefix,
       factsMemoryStorageKeyVersion,
-      savedRuntimeFallbackPath,
     },
     getRuntimeSessionId,
     getCurrentRuntimeSessionId,
@@ -1687,27 +2431,31 @@
     setCurrentFactsMemorySessionId,
     setRuntimeSessionId,
     generateRuntimeSessionId,
-    getLatestRuntimeMemoryStorageKey,
-    getCurrentLatestRuntimeMemoryStorageKey,
-    isLatestRuntimeMemoryKey,
-    getSessionIdFromLatestRuntimeMemoryKey,
     readBrowserMemory,
     writeBrowserMemory,
     removeBrowserMemory,
+    readSessionMemory,
+    writeSessionMemory,
+    removeSessionMemory,
+    isAnonymousModeEnabled,
+    shouldIsolateAnonymousStorage,
+    getActiveMemoryStorageKey,
+    getDelayedMemoryReportsStorageKey,
     readLatestRuntimeMemory,
     writeLatestRuntimeMemory,
-    readLatestSavedSessionMemory,
-    writeLatestSavedSessionMemory,
-    readSavedSessionMemoryHistory,
-    writeSavedSessionMemoryHistory,
-    collectCurrentSessionAppendedMemoryIds,
-    readLatestSavedRuntimeMemory,
-    writeLatestSavedRuntimeMemory,
+    readSessionCheckpoint,
+    readSessionCheckpointRecord,
+    writeSessionCheckpoint,
+    clearSessionCheckpoint,
+    clearLiveRuntimeMemory,
+    markSessionCheckpointUserActivity,
+    ensureSessionCheckpointMigration,
     normalizeActiveMemoryRecords,
     readActiveMemoryRecords,
     writeActiveMemoryRecords,
     clearActiveMemoryRecords,
     appendActiveMemoryRecords,
+    replaceActiveMemoryRecordById,
     removeActiveMemoryRecordById,
     getFactsMemoryStorageKey,
     isFactsMemoryStorageKey,
@@ -1717,29 +2465,22 @@
     canAppendFactsMemoryByStorageKey,
     appendFactsMemoryByStorageKey,
     clearFactsMemoryByStorageKey,
+    clearFactsMemorySessionIfFullyAnalyzed,
     readFactsMemory,
     writeFactsMemory,
+    buildFactsMemoryContentHash,
     activateFactsMemorySession,
     removeFactsMemoryField,
+    normalizeDelayedMemoryTags,
     normalizeDelayedMemoryReports,
     readDelayedMemoryReports,
     writeDelayedMemoryReports,
-    appendDelayedMemoryReports,
+    mergeDelayedMemoryReports,
+    setBootSourceRuntimeSessionId,
     buildPersistedRuntimeSnapshot,
-    cloneRuntimeMemoryToCurrentSession,
-    cloneRuntimeMemoryFromSessionId,
-    cloneBootRuntimeMemoryIfNeeded,
-    collectOtherLatestRuntimeMemorySnapshots,
-    clearOtherLatestRuntimeMemorySnapshots,
-    extractSavedRuntimeConstant,
-    parseSavedRuntimeText,
-    buildSavedRuntimeFallback,
-    getSavedRuntimeMemoryFallback,
-    loadSavedRuntimeMemoryFallback,
+    hydrateLiveRuntimeMemoryFromCheckpoint,
   };
 
   window.JinRuntime.storage = storage;
-  window.jinSavedRuntimeFallbackReady =
-    loadSavedRuntimeMemoryFallback();
 
 }());

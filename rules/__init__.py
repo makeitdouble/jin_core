@@ -8,29 +8,23 @@ from .identity import IDENTITY
 from .signal import LOOP_RULES
 
 __all__ = [
-    "BRAIN_RUNTIME_ACTIONS",
     "IDENTITY",
     "LOOP_RULES",
-    "SERVICE_AS_BRAIN_RUNTIME_ACTIONS",
-    "build_brain_context",
 ]
 
 
 def __getattr__(name):
     if name in {
         "BRAIN_RUNTIME_ACTIONS",
-        "SERVICE_AS_BRAIN_RUNTIME_ACTIONS",
         "build_brain_context",
     }:
         from .brain_context_builder import (
             BRAIN_RUNTIME_ACTIONS,
-            SERVICE_AS_BRAIN_RUNTIME_ACTIONS,
             build_brain_context,
         )
 
         exports = {
             "BRAIN_RUNTIME_ACTIONS": BRAIN_RUNTIME_ACTIONS,
-            "SERVICE_AS_BRAIN_RUNTIME_ACTIONS": SERVICE_AS_BRAIN_RUNTIME_ACTIONS,
             "build_brain_context": build_brain_context,
         }
 

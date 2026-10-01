@@ -1,6 +1,9 @@
+from runtime.memory_profile import handle_store_sync, refresh_profile, publish_profile
 from fastapi import (
     APIRouter,
     WebSocket,
+    Request,
+    Response,
 )
 from starlette.websockets import WebSocketDisconnect
 
@@ -9,13 +12,42 @@ import contextlib
 import json
 
 from .logger import WebSocketLogger
+from .transport import PAGE_CLOSED_CODE, RuntimeTransport
+from .origin import has_same_origin
+from runtime.memory_edit import apply_memory_value_edit
 
-from runtime.L1_memory import apply_runtime_response_feedback
-from runtime.L1_memory_utils import (
-    emit_runtime_l1_diff_update,
-    emit_runtime_session_memory_update,
+from runtime.frame_memory import (
+    apply_runtime_response_feedback,
+    discard_latest_runtime_memory_pending_turn,
+    resume_runtime_memory_pending_update,
 )
-from runtime.fact_check import run_fact_check_once
+from runtime.frame_memory_utils import (
+    emit_runtime_frame_diff_update,
+)
+from runtime.LT_memory import (
+    apply_facts_memory_store_sync,
+    apply_lt_memory_store_sync,
+    cancel_lt_memory_idle_update,
+    delete_lt_memory_fact,
+    emit_facts_memory_store_update,
+    restore_lt_memory_fact,
+    emit_lt_memory_update,
+    note_lt_foreground_state,
+    note_lt_user_activity,
+    register_lt_websocket_connection,
+    runtime_lt_memory_update_running,
+    schedule_lt_memory_idle_update,
+    unregister_lt_websocket_connection,
+)
+from runtime.LT_mention_backfill import (
+    schedule_lt_log_mention_backfill,
+)
+from runtime.anonymous_mode import (
+    RESTRICTED_WRITE_REASON,
+    lt_memory_writes_restricted,
+    persistent_writes_restricted,
+    session_memory_writes_restricted,
+)
 from utils.ws_errors import handle_websocket_error
 from .attachments import (
     build_user_text_with_attachments,
@@ -25,19 +57,33 @@ from .attachments import (
     redacted_message_data_for_log,
 )
 from .bootstrap import (
+    apply_active_memory_records,
     apply_delayed_memory_reports,
+    apply_suppressed_delayed_memory_auto_load_ids,
+    apply_loaded_delayed_memory_ids,
     apply_runtime_memory_slot_delete,
     apply_runtime_resume,
     apply_session_bootstrap,
+    enrich_session_bootstrap_from_archive,
+    build_session_bootstrap_chat_tail,
+    discard_session_restore_continuation_state,
     emit_current_runtime_memory,
+    emit_delayed_memory_store_snapshot,
     ensure_initial_runtime_snapshot,
     get_or_create_connection_context,
     initialize_connection,
     is_soft_resume_request,
+    get_resume_context_store,
+    normalize_resume_client_id,
+    attach_websocket_to_context,
+    ensure_anonymous_session_id,
+    websocket_requests_anonymous_mode,
 )
 from .messages import (
-    arm_save_session_from_user_text,
-    merge_runtime_idle_followup_turn,
+    build_runtime_action_guard_retry_request,
+    build_user_retry_request,
+    emit_runtime_action_guard_confirmation_failure,
+    merge_pending_user_message_batch,
     process_message,
     receive_message,
     refresh_pending_brain_usage,
@@ -46,12 +92,104 @@ from .messages import (
     wait_for_runtime_memory_update,
 )
 from .tasks import (
-    PendingRequestQueue,
     cancel_current_task,
+)
+
+from utils.delayed_memory_file_store import (
+    delete_delayed_memory_report_files,
+    persist_delayed_memory_reports,
+)
+from utils.attached_files_store import (
+    hydrate_attachment_ids,
+    public_file_snapshot,
+    sync_pinned_file_ids,
+)
+from utils.chat_log import (
+    save_current_runtime_bootstrap_context_snapshot,
+)
+from utils.actions.update_lt_facts_actions import (
+    preempt_update_lt_facts_actions,
+)
+from utils.session_actions_history import (
+    emit_session_actions_update,
 )
 
 
 websocket_router = APIRouter()
+
+
+@websocket_router.post("/ws/chat/close")
+async def close_runtime_page(request: Request):
+    # pagehide's close frame is not reliably delivered during navigation.
+    # The epoch binds this beacon to one transport, including anonymous reloads
+    # that reuse the client id. Never retire a replacement from a stale beacon.
+    if not has_same_origin(request):
+        return Response(status_code=403)
+    try:
+        payload = await request.json()
+    except ValueError:
+        return Response(status_code=400)
+    if not isinstance(payload, dict):
+        return Response(status_code=400)
+    client_id = normalize_resume_client_id(payload.get("client_id"))
+    context = get_resume_context_store(request).get(client_id)
+    transport = getattr(context, "runtime_transport", None)
+    if transport is not None and payload.get("epoch") == transport.epoch:
+        await transport.stop()
+    return Response(status_code=204)
+
+
+def preserve_reconnect_pending_request(
+    context,
+    message_data: dict,
+) -> bool:
+    """Keep an accepted USER request across a soft WebSocket reconnect."""
+
+    if not isinstance(message_data, dict):
+        return False
+
+    if message_data.get("type", "message") != "message":
+        return False
+
+    preserved = getattr(
+        context,
+        "runtime_reconnect_pending_requests",
+        None,
+    )
+    if not isinstance(preserved, list):
+        preserved = []
+        context.runtime_reconnect_pending_requests = preserved
+
+    preserved.append(dict(message_data))
+    return True
+
+
+async def restore_reconnect_pending_requests(
+    context,
+    pending_requests: asyncio.Queue,
+    logger: WebSocketLogger,
+) -> int:
+    preserved = list(
+        getattr(
+            context,
+            "runtime_reconnect_pending_requests",
+            [],
+        )
+        or []
+    )
+
+    if not preserved:
+        return 0
+
+    context.runtime_reconnect_pending_requests = []
+
+    for message_data in preserved:
+        await pending_requests.put(message_data)
+
+    await logger.log_runtime(
+        f"[WS] restored pending requests after reconnect: {len(preserved)}"
+    )
+    return len(preserved)
 
 
 @websocket_router.websocket(
@@ -60,93 +198,299 @@ websocket_router = APIRouter()
 async def websocket_endpoint(
     websocket: WebSocket,
 ):
+    if not has_same_origin(websocket):
+        await websocket.close(code=1008)
+        return
 
-    logger = WebSocketLogger(
-        websocket
+    client_id = normalize_resume_client_id(websocket.query_params.get("client_id", ""))
+    if websocket_requests_anonymous_mode(websocket) and client_id:
+        client_id = normalize_resume_client_id(ensure_anonymous_session_id(client_id))
+    context = get_resume_context_store(websocket).get(client_id) if client_id else None
+    transport = getattr(context, "runtime_transport", None)
+    live_resume = bool(
+        is_soft_resume_request(websocket)
+        and transport is not None
+        and not transport.stopping
+        and transport.task is not None
+        and not transport.task.done()
     )
+    await websocket.accept()
+    if transport is not None and transport.stopping:
+        live_resume = False
+    if not live_resume:
+        if transport is not None:
+            await transport.stop()
+        transport = RuntimeTransport(websocket)
+        logger = WebSocketLogger(transport)
+        context, resumed_context = get_or_create_connection_context(transport, logger)
+        context.runtime_transport = transport
+        transport.context = context
+        transport.client_id = client_id
+        attach_websocket_to_context(context, transport, logger)
+        transport.task = asyncio.create_task(
+            run_runtime_session(transport, context, resumed_context)
+        )
+
+    # A replacement connection has one receiver/sender; the runtime and FIFO
+    # worker remain the same tasks, including an open pending USER batch.
+    previous = transport.socket
+    transport.attach(websocket)
+    if previous is not None and previous is not websocket:
+        with contextlib.suppress(Exception):
+            await previous.close(code=1000)
+    register_lt_websocket_connection(context, app_state=websocket.app.state, websocket=websocket)
+    sender = None
+    receiver = None
+    page_closed = False
+    try:
+        await websocket.send_json({
+            "type": "runtime_transport_ready", "live_resume": live_resume,
+            "epoch": transport.epoch,
+        })
+        sender = asyncio.create_task(transport.deliver(websocket))
+        while transport.socket is websocket:
+            receiver = asyncio.create_task(websocket.receive_text())
+            done, _ = await asyncio.wait(
+                (receiver, sender, transport.task), return_when=asyncio.FIRST_COMPLETED,
+            )
+            if sender in done or transport.task in done:
+                with contextlib.suppress(Exception):
+                    await websocket.close(code=1011)
+                break
+            raw = receiver.result()
+            if transport.socket is not websocket:
+                break
+            try:
+                payload = json.loads(raw)
+            except (ValueError, TypeError):
+                payload = None
+            if isinstance(payload, dict) and payload.get("type") == "runtime_event_ack":
+                transport.acknowledge(payload.get("sequence"))
+            else:
+                await transport.incoming.put(raw)
+    except WebSocketDisconnect as error:
+        page_closed = error.code == PAGE_CLOSED_CODE
+    except OSError:
+        pass
+    finally:
+        if receiver is not None:
+            receiver.cancel()
+            with contextlib.suppress(asyncio.CancelledError, Exception):
+                await receiver
+        if sender is not None:
+            sender.cancel()
+            with contextlib.suppress(asyncio.CancelledError, Exception):
+                await sender
+        if transport.socket is websocket:
+            if page_closed or transport.task.done():
+                await transport.stop()
+                transport.socket = None
+            else:
+                transport.detach(websocket)
+        unregister_lt_websocket_connection(context, app_state=websocket.app.state, websocket=websocket)
+
+
+async def run_runtime_session(websocket, context, resumed_context):
+
+    logger = context.logger
 
     soft_resume = is_soft_resume_request(
         websocket
     )
 
-    context, resumed_context = get_or_create_connection_context(
-        websocket,
-        logger,
+    # A client can request a soft reconnect while the backend process has
+    # already restarted. Only skip bootstrap state when the server actually
+    # recovered the in-memory RuntimeContext; a fresh context needs the normal
+    # initial state so browser-side reconnect guards can reconcile it safely.
+    skip_initial_runtime_state = (
+        soft_resume
+        and resumed_context
     )
-
-    skip_initial_runtime_state = soft_resume
 
     ensure_initial_runtime_snapshot(
         context
     )
 
     current_task = None
-    pending_requests = PendingRequestQueue()
+    pending_requests = asyncio.Queue()
     context.runtime_pending_requests_queue = pending_requests
-
-    pending_idle_followups = list(
-        getattr(
-            context,
-            "runtime_pending_idle_followups",
-            [],
-        )
-        or []
-    )
-    context.runtime_pending_idle_followups = []
+    pending_user_batch_state = None
+    pending_user_batch_counter = 0
 
     async def process_pending_requests():
         nonlocal current_task
+        nonlocal pending_user_batch_state
+        nonlocal pending_user_batch_counter
 
         while True:
 
             message_data = await pending_requests.get()
+            refresh_profile(context)
+            batch_state = None
+            brain_started = False
 
             try:
 
-                is_idle_followup = (
-                    message_data.get("type") == "idle_followup"
-                    and isinstance(
-                        message_data.get("idle_followup"),
-                        dict,
+                # Stop can cancel restore while its hidden resume packet is
+                # still queued. Validate again at dequeue time.
+                if (
+                    message_data.get("type") == "archived_session_resume"
+                    and not getattr(
+                        context,
+                        "runtime_session_restore_priming",
+                        False,
                     )
+                ):
+                    await logger.log_system(
+                        "[SESSION RESTORE] dropped cancelled queued resume tick"
+                    )
+                    continue
+
+                # A dequeued request is already foreground work even when it
+                # still has to wait for the previous FRAME integration. Keep
+                # L-T idle maintenance blocked across that whole boundary so
+                # the ordering is always Brain -> FRAME -> optional L-T.
+                note_lt_foreground_state(
+                    context,
+                    running=True,
                 )
+
                 user_text = (
                     str(
-                        (
-                            message_data.get("idle_followup", {}).get(
-                                "origin_user_request",
-                                "",
-                            )
-                            if is_idle_followup
-                            else message_data.get(
-                                "text",
-                                "",
-                            )
+                        message_data.get(
+                            "text",
+                            "",
                         )
                     ).strip()
                 )
 
-                await wait_for_runtime_memory_update(
-                    context
+                runtime_memory_task = getattr(
+                    context,
+                    "runtime_memory_update_task",
+                    None,
+                )
+                waiting_for_frame = bool(
+                    message_data.get(
+                        "type",
+                        "message",
+                    ) == "message"
+                    and runtime_memory_task is not None
+                    and not runtime_memory_task.done()
                 )
 
-                if not is_idle_followup:
-                    await apply_runtime_response_feedback(
-                        context,
-                        (
-                            message_data.get(
-                                "pending_last_response_rating",
-                            )
-                            or message_data.get(
-                                "runtime_response_feedback",
-                            )
-                        ),
+                if waiting_for_frame:
+                    pending_user_batch_counter += 1
+                    batch_id = (
+                        f"pending_user_batch_{pending_user_batch_counter}"
+                    )
+                    batch_state = {
+                        "id": batch_id,
+                        "messages": [],
+                        "ack_event": asyncio.Event(),
+                        "committing": False,
+                        "aborted": False,
+                    }
+                    pending_user_batch_state = batch_state
+
+                    await websocket.send_json({
+                        "type": "pending_user_batch_open",
+                        "batch_id": batch_id,
+                    })
+
+                if message_data.get("type") == "retry_last_response":
+                    await discard_latest_runtime_memory_pending_turn(
+                        context
+                    )
+                    # If an older batch remains after removing the discarded
+                    # answer, let it settle before building the replacement.
+                    await wait_for_runtime_memory_update(
+                        context
+                    )
+                else:
+                    await wait_for_runtime_memory_update(
+                        context
                     )
 
-                    await refresh_pending_brain_usage(
-                        context,
-                        user_text,
+                if batch_state is not None:
+                    batch_state["committing"] = True
+
+                    if not batch_state.get("aborted"):
+                        await websocket.send_json({
+                            "type": "pending_user_batch_commit",
+                            "batch_id": batch_state["id"],
+                        })
+
+                    try:
+                        await asyncio.wait_for(
+                            batch_state["ack_event"].wait(),
+                            timeout=2.0,
+                        )
+                    except asyncio.TimeoutError:
+                        # Close the batch before continuing so a very late
+                        # append cannot be silently accepted after the
+                        # snapshot below. It will fall back to the normal
+                        # queue as a separate turn instead.
+                        batch_state["ack_event"].set()
+                        await logger.log_runtime(
+                            "[WS] pending user batch commit acknowledgement timed out"
+                        )
+
+                    appended_messages = list(
+                        batch_state.get(
+                            "messages",
+                            [],
+                        )
                     )
+
+                    if batch_state.get("aborted"):
+                        await logger.log_runtime(
+                            "[WS] pending user batch stopped before Brain start"
+                        )
+                        # D049 scenario 3: Stop cancels generation, not the real
+                        # USER send. Commit through process_message's ordinary
+                        # USER-only cancellation path after the FRAME boundary.
+                        message_data = {**message_data, "_interrupt_before_brain": True}
+
+                    if appended_messages:
+                        message_data = merge_pending_user_message_batch(
+                            message_data,
+                            appended_messages,
+                        )
+                        user_text = str(
+                            message_data.get(
+                                "text",
+                                "",
+                            )
+                            or ""
+                        ).strip()
+                        await logger.log_runtime(
+                            "[WS] pending user batch committed "
+                            f"({1 + len(appended_messages)} messages)"
+                        )
+                # D049: a Stop or real USER can invalidate startup while this
+                # dequeued tick waits for FRAME. Do not restart it afterwards.
+                if (
+                    message_data.get("type") == "archived_session_resume"
+                    and not getattr(context, "runtime_session_restore_priming", False)
+                ):
+                    continue
+
+                await apply_runtime_response_feedback(
+                    context,
+                    (
+                        message_data.get(
+                            "pending_last_response_rating",
+                        )
+                        or message_data.get(
+                            "runtime_response_feedback",
+                        )
+                    ),
+                )
+
+                await refresh_pending_brain_usage(
+                    context,
+                    user_text,
+                )
 
                 active_task = asyncio.create_task(
                     process_message(
@@ -154,24 +498,58 @@ async def websocket_endpoint(
                         message_data,
                     )
                 )
+                brain_started = True
                 current_task = active_task
 
                 try:
-                    await active_task
+                    await asyncio.shield(active_task)
 
                 except asyncio.CancelledError:
-                    if active_task.cancelled():
+                    if active_task.cancelled() and not asyncio.current_task().cancelling():
                         await logger.log_runtime(
                             "[WS] queued request interrupted"
                         )
                     else:
+                        active_task.cancel()
+                        with contextlib.suppress(asyncio.CancelledError, Exception):
+                            await active_task
                         raise
 
                 finally:
                     if current_task is active_task:
                         current_task = None
 
+            except asyncio.CancelledError:
+                # A disconnect cancels this connection-owned queue worker. If
+                # the request was already accepted but had not reached Brain
+                # yet (most commonly because it was waiting for FRAME), keep it
+                # on the RuntimeContext for the replacement socket.
+                if (
+                    not brain_started
+                    and not (batch_state and batch_state.get("aborted"))
+                ):
+                    preserve_reconnect_pending_request(
+                        context,
+                        merge_pending_user_message_batch(
+                            message_data, batch_state.get("messages", []),
+                        ) if batch_state and batch_state.get("messages") else message_data,
+                    )
+                raise
+
             finally:
+                # Release the foreground gate only after any FRAME wait and
+                # the Brain turn are both finished/aborted. A FRAME task that
+                # was scheduled by process_message() remains a separate L-T
+                # priority barrier until it completes.
+                note_lt_foreground_state(
+                    context,
+                    running=False,
+                )
+                if (
+                    batch_state is not None
+                    and pending_user_batch_state is batch_state
+                ):
+                    pending_user_batch_state = None
                 pending_requests.task_done()
 
     pending_processor = asyncio.create_task(
@@ -184,12 +562,6 @@ async def websocket_endpoint(
             context,
             skip_initial_runtime_state=skip_initial_runtime_state,
         )
-
-        for idle_followup in pending_idle_followups:
-            await pending_requests.put({
-                "type": "idle_followup",
-                "idle_followup": idle_followup,
-            })
 
         while True:
 
@@ -212,6 +584,25 @@ async def websocket_endpoint(
                 )
             )
 
+            if handle_store_sync(context, message_data):
+                continue
+
+            if message_type == "pending_user_batch_commit_ack":
+                batch_id = str(
+                    message_data.get(
+                        "batch_id",
+                        "",
+                    )
+                    or ""
+                ).strip()
+                batch_state = pending_user_batch_state
+                if (
+                    batch_state is not None
+                    and batch_id == batch_state.get("id")
+                ):
+                    batch_state["ack_event"].set()
+                continue
+
             # -------------------------------------------------
             # SOFT RECONNECT RUNTIME RESUME
             # -------------------------------------------------
@@ -223,10 +614,46 @@ async def websocket_endpoint(
                     message_data,
                 )
 
+                running_memory_task = getattr(
+                    context,
+                    "runtime_memory_update_task",
+                    None,
+                )
+                running_memory_task_alive = bool(
+                    running_memory_task is not None
+                    and not running_memory_task.done()
+                )
+
+                resumed_memory_task = (
+                    resume_runtime_memory_pending_update(
+                        context
+                    )
+                )
+
+                if resumed_memory_task is not None:
+                    await logger.log_runtime(
+                        "[MEMORY:FRAME] pending update still running after reconnect"
+                        if (
+                            running_memory_task_alive
+                            and resumed_memory_task is running_memory_task
+                        )
+                        else "[MEMORY:FRAME] pending update restarted after reconnect"
+                    )
+
                 if restored:
                     await logger.log_system(
                         "[WS] runtime resumed from browser memory"
                     )
+
+                    try:
+                        save_current_runtime_bootstrap_context_snapshot(
+                            context
+                        )
+                    except Exception as error:
+                        await logger.log_system(
+                            "[CHAT_LOG] resumed context snapshot save failed: "
+                            + str(error)
+                        )
 
                     if message_data.get(
                         "emit_after_restore"
@@ -235,78 +662,402 @@ async def websocket_endpoint(
                             context
                         )
 
-                        await emit_runtime_l1_diff_update(
+                        await emit_runtime_frame_diff_update(
                             context
                         )
+
+                await restore_reconnect_pending_requests(
+                    context,
+                    pending_requests,
+                    logger,
+                )
 
                 continue
 
             # -------------------------------------------------
-            # RESTORE BROWSER SESSION MEMORY
+            # RESTORE BROWSER SESSION SNAPSHOT
             # -------------------------------------------------
+
+            if message_type == "memory_value_edit":
+                refresh_profile(context)
+                try:
+                    result = await apply_memory_value_edit(
+                        context, message_data,
+                        foreground_busy=(current_task is not None and not current_task.done()),
+                    )
+                except Exception as error:
+                    await logger.log_system(f"[MEMORY EDIT] failed: {error}")
+                    result = {
+                        "type": "memory_value_edit_result",
+                        "request_id": message_data.get("request_id"),
+                        "ok": False, "error": "save_failed",
+                    }
+                await websocket.send_json(result)
+                continue
 
             if message_type == "runtime_memory_delete_slot":
                 await apply_runtime_memory_slot_delete(
                     context,
                     message_data,
+                    foreground_busy=(
+                        current_task is not None
+                        and not current_task.done()
+                    ),
                 )
                 continue
 
-            if message_type == "delayed_memory_store_sync":
-                apply_delayed_memory_reports(
+            if message_type == "active_memory_store_sync":
+                apply_active_memory_records(
                     context,
                     message_data,
                 )
-                report_count = len(
-                    getattr(
+                continue
+
+            if message_type == "attachment_context_sync":
+                requested_file_ids = message_data.get(
+                    "ids",
+                    [],
+                )
+                if persistent_writes_restricted(context):
+                    attachments = hydrate_attachment_ids(
+                        requested_file_ids
+                    )
+                    file_ids = [
+                        str(attachment.get("id", "") or "").strip()
+                        for attachment in attachments
+                        if str(attachment.get("id", "") or "").strip()
+                    ]
+                else:
+                    file_ids = sync_pinned_file_ids(
+                        requested_file_ids
+                    )
+                    attachments = hydrate_attachment_ids(
+                        file_ids
+                    )
+                from utils.actions.attachment_actions import apply_attachment_context_ids
+                apply_attachment_context_ids(context, file_ids, attachments=attachments)
+                file_snapshot = public_file_snapshot()
+                if persistent_writes_restricted(context):
+                    file_snapshot["pinned_ids"] = list(file_ids)
+                await websocket.send_json({
+                    "type": "attached_files_update",
+                    **file_snapshot,
+                })
+                continue
+
+            if message_type == "delayed_memory_store_sync":
+                if session_memory_writes_restricted(context):
+                    deleted_report_ids = []
+                else:
+                    deleted_report_ids = apply_delayed_memory_reports(
+                        context,
+                        message_data,
+                    )
+                apply_loaded_delayed_memory_ids(
+                    context,
+                    message_data,
+                )
+                apply_suppressed_delayed_memory_auto_load_ids(
+                    context,
+                    message_data,
+                )
+                if not persistent_writes_restricted(context):
+                    for report_id in deleted_report_ids:
+                        delete_errors = delete_delayed_memory_report_files(
+                            report_id
+                        )
+                        for delete_error in delete_errors:
+                            await logger.log_system(
+                                "[DELAYED MEMORY] local file delete failed: "
+                                + delete_error
+                            )
+                    reports = getattr(
                         context,
                         "delayed_memory_reports",
                         {},
+                    ) or {}
+                    file_errors = persist_delayed_memory_reports(
+                        reports
                     )
-                    or {}
+                    for file_error in file_errors:
+                        await logger.log_system(
+                            "[DELAYED MEMORY] local file save failed: "
+                            + file_error
+                        )
+                await emit_delayed_memory_store_snapshot(
+                    context
+                )
+                continue
+
+            if message_type == "facts_memory_store_sync":
+                stats = apply_facts_memory_store_sync(
+                    context,
+                    message_data.get(
+                        "records",
+                        [],
+                    ),
                 )
                 await logger.log_system(
                     (
-                        "[WS] delayed memory store synced "
-                        f"({report_count} reports)"
+                        "[WS] facts memory store synced "
+                        f"({stats['records_count']} records, "
+                        f"{stats['pending_count']} pending)"
                     )
                 )
+                await emit_facts_memory_store_update(
+                    context
+                )
+                continue
+
+            if message_type == "lt_memory_store_sync":
+                applied = apply_lt_memory_store_sync(
+                    context,
+                    message_data.get(
+                        "store",
+                        {},
+                    ),
+                )
+                if applied:
+                    await logger.log_system(
+                        "[WS] L-T memory store updated from browser profile"
+                    )
+                await emit_lt_memory_update(
+                    context,
+                    change={
+                        "synced": bool(applied),
+                    },
+                )
+
+                # Legacy fallback only: reconstruct pre-patch L-T mention dates
+                # from the raw dialogue/reasoning archive without delaying the
+                # websocket bootstrap. New turns are tracked live elsewhere.
+                schedule_lt_log_mention_backfill(
+                    context
+                )
+                continue
+
+            if message_type == "lt_memory_idle_tick":
+                # Never begin background L-T work while a foreground turn is
+                # running or already queued. Browser idle checks normally avoid
+                # this too; the server guard keeps foreground priority strict.
+                if (
+                    (current_task is not None and not current_task.done())
+                    or not pending_requests.empty()
+                ):
+                    continue
+
+                if "records" in message_data:
+                    apply_facts_memory_store_sync(
+                        context,
+                        message_data.get(
+                            "records",
+                            [],
+                        ),
+                    )
+
+                if (
+                    "store" in message_data
+                    and not runtime_lt_memory_update_running(
+                        context
+                    )
+                ):
+                    apply_lt_memory_store_sync(
+                        context,
+                        message_data.get(
+                            "store",
+                            {},
+                        ),
+                    )
+
+                schedule_lt_memory_idle_update(
+                    context=context,
+                    user_idle_seconds=message_data.get(
+                        "user_idle_seconds",
+                    ),
+                )
+                continue
+
+            if message_type == "lt_memory_delete_fact":
+                refresh_profile(context)
+                if lt_memory_writes_restricted(context):
+                    await logger.log_runtime(
+                        "[RUNTIME ACTION] lt_memory_delete_fact failed: "
+                        + RESTRICTED_WRITE_REASON
+                    )
+                    await emit_lt_memory_update(
+                        context,
+                        change={
+                            "deleted": False,
+                            "error": "restricted_write",
+                        },
+                    )
+                    continue
+                await delete_lt_memory_fact(
+                    context,
+                    str(
+                        message_data.get(
+                            "fact_id",
+                            "",
+                        )
+                        or ""
+                    ),
+                )
+                continue
+
+            if message_type == "lt_memory_restore_fact":
+                refresh_profile(context)
+                fact = message_data.get(
+                    "fact",
+                    {},
+                )
+                if lt_memory_writes_restricted(context):
+                    await logger.log_runtime(
+                        "[RUNTIME ACTION] lt_memory_restore_fact failed: "
+                        + RESTRICTED_WRITE_REASON
+                    )
+                    restored = False
+                else:
+                    restored = await restore_lt_memory_fact(
+                        context,
+                        fact,
+                    )
+                await websocket.send_json({
+                    "type": "lt_memory_restore_result",
+                    "fact_id": str(
+                        fact.get("id", "")
+                        if isinstance(fact, dict)
+                        else ""
+                    ),
+                    "restored": bool(restored),
+                    "error": (
+                        "restricted_write"
+                        if lt_memory_writes_restricted(context)
+                        else ""
+                    ),
+                })
+                if lt_memory_writes_restricted(context):
+                    await emit_lt_memory_update(
+                        context,
+                        change={
+                            "restored": False,
+                            "error": "restricted_write",
+                        },
+                    )
+                continue
+
+            if message_type == "session_continuation_clear":
+                if not persistent_writes_restricted(context):
+                    from utils.session_restore import clear_normal_session_continuation
+                    clear_normal_session_continuation()
+                    await context.emitter.emit({"type": "session_continuation_cleared"})
                 continue
 
             if message_type == "session_bootstrap":
 
-                await logger.log(
-                    "[SESSION]",
-                    "[BOOTSTRAP] browser session restore request",
-                    details=json.dumps(
-                        message_data,
-                        ensure_ascii=False,
-                        indent=2,
-                    ),
-                )
+                if persistent_writes_restricted(context):
+                    await logger.log_system(
+                        "[SESSION] browser session bootstrap ignored in anonymous mode"
+                    )
+                    continue
 
-                restored = apply_session_bootstrap(
-                    context,
-                    message_data,
-                )
+                # Once initialized, late/stale clients cannot overwrite a live
+                # context by sending another browser snapshot.
+                if (getattr(context, "runtime_disk_bootstrap_applied", False)
+                        or getattr(context, "runtime_turn_user_message", "")):
+                    continue
+                try:
+                    bootstrap = enrich_session_bootstrap_from_archive(message_data)
+                except (OSError, ValueError) as error:
+                    await logger.log_system("[BOOTSTRAP] disk restore failed: " + str(error))
+                    await context.emitter.emit({"type": "bootstrap_state", "error": "disk_restore_failed"})
+                    continue
+                restored = apply_session_bootstrap(context, bootstrap, resolved_from_disk=True)
+                context.runtime_disk_bootstrap_applied = True
+                await context.emitter.emit({"type": "bootstrap_state", "bootstrap": bootstrap})
 
                 if restored:
                     await logger.log_system(
-                        "[WS] browser session memory restored"
+                        "[WS] session restored from disk"
                     )
 
+                    try:
+                        save_current_runtime_bootstrap_context_snapshot(
+                            context
+                        )
+                    except Exception as error:
+                        await logger.log_system(
+                            "[CHAT_LOG] bootstrap context snapshot save failed: "
+                            + str(error)
+                        )
+
+                    # PREVIOUS_RUNTIME_STATE is already visible as page 1 in
+                    # the browser before websocket bootstrap. This message is
+                    # the authoritative echo of that same baseline, never a
+                    # second page. Explicit replacement also survives harmless
+                    # server-side normalization that can defeat text dedupe.
                     await emit_current_runtime_memory(
+                        context,
+                        replace_latest=True,
+                    )
+
+                    await emit_runtime_frame_diff_update(
                         context
                     )
 
-                    await emit_runtime_l1_diff_update(
+                    await emit_delayed_memory_store_snapshot(
                         context
                     )
 
-                    await emit_runtime_session_memory_update(
-                        context
+                    # Restore the same three-action trail in the visible
+                    # [SESSION ACTIONS] logger. RuntimeContext already owns
+                    # this list, so the hidden bootstrap tick sees it too.
+                    await emit_session_actions_update(
+                        context,
+                        current_sequence=False,
+                        bootstrap_restore=True,
                     )
 
+                chat_tail = build_session_bootstrap_chat_tail(
+                    context
+                )
+                if chat_tail:
+                    await context.emitter.emit({
+                        "type": "session_bootstrap_chat_tail",
+                        "source_session_id": str(
+                            getattr(
+                                context,
+                                "previous_session_id",
+                                "",
+                            )
+                            or ""
+                        ).strip(),
+                        "turns": chat_tail,
+                    })
+
+                continue
+
+            if message_type == "archived_session_resume":
+                if not getattr(
+                    context,
+                    "runtime_session_restore_priming",
+                    False,
+                ):
+                    await logger.log_system(
+                        "[SESSION RESTORE] ignored stale resume tick"
+                    )
+                    continue
+
+                if await reject_when_all_models_offline(
+                    context
+                ):
+                    continue
+
+                await pending_requests.put(
+                    message_data
+                )
+                await logger.log_runtime(
+                    "[SESSION RESTORE] queued hidden continuation tick"
+                )
                 continue
 
             if message_type == "runtime_action_guard_confirmation":
@@ -320,8 +1071,113 @@ async def websocket_endpoint(
                     await logger.log_runtime(
                         "[RUNTIME ACTION] guard confirmation received"
                     )
+                    continue
 
+                retry_request = build_runtime_action_guard_retry_request(
+                    message_data
+                )
+
+                if retry_request is not None:
+                    await pending_requests.put(
+                        retry_request
+                    )
+                    await logger.log_runtime(
+                        "[RUNTIME ACTION] stale guard confirmation "
+                        "replayed once after reconnect"
+                    )
+                    continue
+
+                await emit_runtime_action_guard_confirmation_failure(
+                    context,
+                    message_data,
+                )
+                await logger.log_runtime(
+                    "[RUNTIME ACTION] stale guard confirmation failed"
+                )
                 continue
+
+            if message_type == "retry_last_response":
+                if (
+                    current_task is not None
+                    and not current_task.done()
+                ):
+                    await websocket.send_json({
+                        "type": "retry_last_response_rejected",
+                        "reason": "generation_running",
+                    })
+                    await logger.log_runtime(
+                        "[USER RETRY] rejected: generation is running"
+                    )
+                    continue
+
+                retry_request = build_user_retry_request(
+                    context,
+                    message_data,
+                )
+                if retry_request is None:
+                    await websocket.send_json({
+                        "type": "retry_last_response_rejected",
+                        "reason": "no_retryable_response",
+                    })
+                    await logger.log_runtime(
+                        "[USER RETRY] rejected: no live retry source"
+                    )
+                    continue
+
+                note_lt_user_activity(context)
+                await cancel_lt_memory_idle_update(
+                    context,
+                    reason="user_retry",
+                )
+                await preempt_update_lt_facts_actions(
+                    context,
+                    reason="user_retry",
+                )
+
+                if await reject_when_all_models_offline(
+                    context
+                ):
+                    await websocket.send_json({
+                        "type": "retry_last_response_rejected",
+                        "reason": "models_offline",
+                    })
+                    continue
+
+                await pending_requests.put(
+                    retry_request
+                )
+                await logger.log_runtime(
+                    "[USER RETRY] queued replacement for latest JIN answer"
+                )
+                continue
+
+            if message_data.get("append_to_pending_batch"):
+                appended_user_text = str(
+                    message_data.get(
+                        "text",
+                        "",
+                    )
+                    or ""
+                ).strip()
+                if (
+                    appended_user_text
+                    or has_message_attachments(
+                        message_data
+                    )
+                ):
+                    batch_state = pending_user_batch_state
+                    if (
+                        batch_state is not None
+                        and not batch_state.get("ack_event").is_set()
+                    ):
+                        batch_state["messages"].append(
+                            message_data
+                        )
+                        await logger.log_runtime(
+                            "[WS] pending user batch messages: "
+                            f"{1 + len(batch_state['messages'])}"
+                        )
+                        continue
 
             await logger.log_user(
                 str(
@@ -345,54 +1201,36 @@ async def websocket_endpoint(
 
             if message_type == "abort":
 
+                batch_state = pending_user_batch_state
+                if (
+                    current_task is None
+                    and batch_state is not None
+                ):
+                    batch_state["aborted"] = True
+                    batch_state["ack_event"].set()
+                    await logger.log_runtime(
+                        "[WS] pending user batch abort requested"
+                    )
+                    continue
+
                 await cancel_current_task(
                     current_task,
                     logger,
                     context,
                 )
 
-                current_task = None
-
-                continue
-
-            # -------------------------------------------------
-            # MANUAL FACT CHECK
-            # -------------------------------------------------
-
-            if message_type == "fact_check":
-
-                if (
-                    current_task is not None
-                    and not current_task.done()
+                # Stop explicitly abandons the one-shot archived continuation.
+                # Keep rolling visible history, but drop predecessor-only
+                # restore dialog/reasoning before the next real USER turn.
+                if discard_session_restore_continuation_state(
+                    context,
+                    drop_previous_actions=True,
                 ):
                     await logger.log_runtime(
-                        "[FACT_CHECK] skipped: generation is running"
+                        "[SESSION RESTORE] continuation state discarded by Stop"
                     )
-                    continue
 
-                await logger.log(
-                    "[MEMORY:FACT_CHECK]",
-                    "[FACT_CHECK] manual web check requested",
-                    channel="memory",
-                    memory_level="FACT_CHECK",
-                    memory_event="fact_check_manual",
-                )
-
-                runtime_memory_task = getattr(
-                    context,
-                    "runtime_memory_update_task",
-                    None,
-                )
-
-                if runtime_memory_task is not None:
-                    await logger.log_runtime(
-                        "[FACT_CHECK] waiting for runtime memory update"
-                    )
-                    await runtime_memory_task
-
-                await run_fact_check_once(
-                    context
-                )
+                current_task = None
 
                 continue
 
@@ -421,6 +1259,32 @@ async def websocket_endpoint(
                 )
 
                 continue
+
+            # D049: the first real USER owns the conversation. Cancel an
+            # unfinished startup before queueing it, rather than displaying a
+            # late greeting beneath the USER and logging that USER afterwards.
+            if getattr(context, "runtime_session_restore_priming", False):
+                await cancel_current_task(
+                    current_task, logger, context, update_memory=False,
+                )
+                discard_session_restore_continuation_state(
+                    context, drop_previous_actions=True,
+                )
+                current_task = None
+
+            # Foreground conversation always wins over idle L-T maintenance.
+            # Cancelling here aborts the in-flight background model request
+            # before this user turn enters the generation queue; pending L-T
+            # facts remain in their stores for the next true idle window.
+            note_lt_user_activity(context)
+            await cancel_lt_memory_idle_update(
+                context,
+                reason="user_message",
+            )
+            await preempt_update_lt_facts_actions(
+                context,
+                reason="user_message",
+            )
 
             if await reject_when_all_models_offline(
                 context
@@ -513,54 +1377,30 @@ async def websocket_endpoint(
         ):
             await pending_processor
 
-        pending_idle_records = getattr(
-            context,
-            "runtime_pending_idle_followups",
-            None,
-        )
-        if not isinstance(pending_idle_records, list):
-            pending_idle_records = []
-            context.runtime_pending_idle_followups = (
-                pending_idle_records
-            )
-
-        pending_idle_ids = {
-            str(record.get("id", "") or "")
-            for record in pending_idle_records
-            if isinstance(record, dict)
-        }
-
         while True:
             try:
-                queued_message = pending_requests.get_nowait()
+                pending_message = pending_requests.get_nowait()
             except asyncio.QueueEmpty:
                 break
 
-            try:
-                idle_record = queued_message.get(
-                    "idle_followup",
-                )
-                if not isinstance(idle_record, dict):
-                    continue
+            preserve_reconnect_pending_request(
+                context,
+                pending_message,
+            )
+            pending_requests.task_done()
 
-                idle_id = str(
-                    idle_record.get(
-                        "id",
-                        "",
-                    )
-                    or ""
-                )
-                if idle_id and idle_id in pending_idle_ids:
-                    continue
-
-                pending_idle_records.append(
-                    idle_record
-                )
-                if idle_id:
-                    pending_idle_ids.add(
-                        idle_id
-                    )
-            finally:
-                pending_requests.task_done()
-
-
+        if getattr(websocket, "stopping", False):
+            # A page that left cannot replay its accepted USER queue. Preserve
+            # those moves through the existing USER-only interruption path,
+            # without starting Brain or executing a queued action/restore tick.
+            while not websocket.incoming.empty():
+                raw = websocket.incoming.get_nowait()
+                try:
+                    preserve_reconnect_pending_request(context, json.loads(raw))
+                except (ValueError, TypeError):
+                    pass
+            abandoned = getattr(context, "runtime_reconnect_pending_requests", [])
+            context.runtime_reconnect_pending_requests = []
+            for message in abandoned:
+                with contextlib.suppress(asyncio.CancelledError, Exception):
+                    await process_message(context, {**message, "_interrupt_before_brain": True})

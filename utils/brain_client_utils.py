@@ -1,45 +1,19 @@
-from app_settings import settings
-
+from runtime.memory_profile import refresh_profile, commit_active
 from rules.brain_context_builder import (
     BRAIN_RUNTIME_ACTIONS,
-    SERVICE_AS_BRAIN_RUNTIME_ACTIONS,
 )
+from runtime.state import BRAIN_RUNTIME_ID
+from runtime.registry import runtime_state
 
 
 def get_brain_runtime_config():
 
-    if settings.USE_SERVICE_AS_BRAIN:
-
-        return {
-            "runtime_id": (
-                settings
-                .SERVICE_MODEL_UID
-            ),
-            "label": "service",
-            "context_window": (
-                settings.SERVICE_CONTEXT_WINDOW
-            ),
-            "log_method": (
-                "log_service_as_brain"
-            ),
-            "model_output_log_method": (
-                "log_service_as_brain_output"
-            ),
-            "runtime_actions": (
-                SERVICE_AS_BRAIN_RUNTIME_ACTIONS
-            ),
-        }
-
     return {
-        "runtime_id": (
-            settings
-            .BRAIN_MODEL_UID
-        ),
+        "runtime_id": BRAIN_RUNTIME_ID,
         "label": "brain",
-        "context_window": (
-            settings
-            .BRAIN_CONTEXT_WINDOW
-        ),
+        "context_window": runtime_state.get_runtime_state(
+            BRAIN_RUNTIME_ID
+        ).get("max_tokens", 0),
         "log_method": (
             "log_brain"
         ),
@@ -61,23 +35,16 @@ from datetime import datetime
 from xml.etree import ElementTree
 
 from contracts.rules_assembler import (
-    RUNTIME_ACTION_APPEND_DELAYED_MEMORY,
-    RUNTIME_ACTION_APPEND_SKILL,
+    RUNTIME_ACTION_LOAD_DELAYED_MEMORY,
+    RUNTIME_ACTION_LOAD_SKILL,
     RUNTIME_ACTION_ASSET_ACTION,
-    RUNTIME_ACTION_CHECK_TODO,
-    RUNTIME_ACTION_CREATE_TODO_LIST,
     RUNTIME_ACTION_SAVE_ACTIVE_MEMORY,
-    RUNTIME_ACTION_LIST_DELAYED_MEMORY,
-    RUNTIME_ACTION_LIST_SKILLS,
-    RUNTIME_ACTION_IDLE,
     RUNTIME_ACTION_JIN_COLOR,
     RUNTIME_ACTION_CLEAN_TOOL_RESULTS,
-    RUNTIME_ACTION_REMOVE_DELAYED_MEMORY,
-    RUNTIME_ACTION_REMOVE_SKILL,
-    RUNTIME_ACTION_RESOLVE_TODO,
-    RUNTIME_ACTION_SAVE_DELAYED_MEMORY_CONTENT,
-    RUNTIME_ACTION_SAVE_SESSION,
-    RUNTIME_ACTION_RESOLVE_ACTIVE_MEMORY,
+    RUNTIME_ACTION_UNLOAD_DELAYED_MEMORY,
+    RUNTIME_ACTION_UNLOAD_SKILL,
+    RUNTIME_ACTION_SAVE_DELAYED_MEMORY,
+    RUNTIME_ACTION_DELETE_ACTIVE_MEMORY,
     RUNTIME_ACTION_WEB_SEARCH,
     build_runtime_action_display_text,
     get_runtime_action_display_name,
@@ -95,14 +62,18 @@ from utils.python_skill_asset_utils import (
     run_context_asset_action,
 )
 from utils.skills_asset_utils import (
-    list_skills,
     load_skill,
     normalize_skill_name,
 )
 from utils.actions import (
     build_runtime_action_id,
+    canonicalize_active_memory_conditions_value,
     collect_active_memory_slot_ids,
-    extract_active_memory_resolve_slot_id,
+    collect_active_memory_custom_fields,
+    extract_active_memory_creation_custom_fields,
+    get_active_memory_conditions_value,
+    get_active_memory_record_title,
+    extract_active_memory_delete_slot_id,
     extract_search_query,
     extract_runtime_actions,
     generate_active_memory_slot_id,
@@ -111,18 +82,31 @@ from utils.actions import (
     get_save_active_memory_marker_fields,
     is_delayed_memory_report_id,
     is_active_memory_record_paused,
-    parse_delayed_memory_content_payload,
-    parse_idle_seconds,
+    normalize_active_memory_custom_field_name,
+    normalize_active_memory_custom_field_value,
+    normalize_active_memory_slot_id,
+    parse_delayed_memory_payload,
+    parse_update_active_memory_payload,
     normalize_jin_color_payload,
+    normalize_delayed_memory_attachment_ids,
+    normalize_delayed_memory_fact_ids,
     refresh_active_memory_runtime_metadata,
     strip_active_memory_runtime_metadata,
     strip_active_memory_managed_suffixes,
+    set_active_memory_conditions_value,
+    set_active_memory_suffix_value,
+)
+from utils.actions.update_active_memory_utils import (
+    parse_update_active_memory_payload_fields,
 )
 from utils.session_actions_history import (
-    build_active_memory_resolve_failed_history_text,
+    build_active_memory_delete_failed_history_text,
     build_asset_action_history_text,
     build_asset_action_marker_text,
     record_session_action_history,
+)
+from utils.time_utils import (
+    utc_now_iso,
 )
 from utils.tool_results import (
     TOOL_RESULT_KIND_ASSET,
@@ -132,55 +116,16 @@ from utils.tool_results import (
     record_runtime_tool_result,
     remove_runtime_tool_results,
 )
-from utils.tool_results_context import (
-    strip_tools_results_context,
-)
-from utils.runtime_todo import (
-    apply_runtime_todo_action_result,
-    attach_runtime_todo_item_to_result,
-    build_runtime_todo_history_text,
-    check_runtime_todo_item,
-    create_runtime_todo,
-    has_active_runtime_todo,
-    mark_next_runtime_todo_item_resolved,
-    normalize_file_exists_for_runtime_todo,
-    parse_runtime_todo_item_id,
-    resolve_runtime_todo_item,
-)
 from utils.runtime_action_abort import (
     mark_runtime_action_started,
     mark_runtime_actions_completed,
 )
 
 
-def should_execute_save_session(
-    user_message: str,
-) -> bool:
-    from runtime.behavior_contract import (
-        should_execute_action_guard,
-    )
-
-    return should_execute_action_guard(
-        "save_session",
-        user_message
-    )
-
-
-def should_prearm_save_session(
-    user_message: str,
-) -> bool:
-    from runtime.behavior_contract import (
-        should_prearm_action_guard,
-    )
-
-    return should_prearm_action_guard(
-        "save_session",
-        user_message
-    )
-
-
 def should_execute_save_delayed_memory(
     user_message: str,
+    *,
+    context=None,
 ) -> bool:
     from runtime.behavior_contract import (
         should_execute_action_guard,
@@ -188,7 +133,8 @@ def should_execute_save_delayed_memory(
 
     return should_execute_action_guard(
         "save_delayed_memory",
-        user_message
+        user_message,
+        context=context,
     )
 
 
@@ -215,6 +161,99 @@ def build_action_missing_trigger_words_message(
     )
 
 
+def get_runtime_lt_fact_ids(
+    context,
+) -> set[str]:
+
+    store = getattr(
+        context,
+        "runtime_long_term_memory_store",
+        {},
+    )
+
+    if not isinstance(store, dict):
+        return set()
+
+    fact_ids = set()
+
+    for fact in store.get("facts", []) or []:
+        if not isinstance(fact, dict):
+            continue
+
+        fact_id = str(
+            fact.get(
+                "id",
+                "",
+            )
+            or ""
+        ).strip().upper()
+
+        if fact_id:
+            fact_ids.add(fact_id)
+
+    return fact_ids
+
+
+def prune_missing_delayed_memory_fact_ids(
+    context,
+    report: dict,
+) -> tuple[dict, list[str]]:
+
+    if not isinstance(report, dict):
+        return {}, []
+
+    store = getattr(
+        context,
+        "runtime_long_term_memory_store",
+        None,
+    )
+
+    # A missing/uninitialised L-T store must not erase delayed-memory links.
+    # Once the store exists, its facts list is the source of truth.
+    if (
+        not isinstance(store, dict)
+        or not isinstance(store.get("facts"), list)
+    ):
+        return dict(report), []
+
+    anchor_lt_facts_ids, lt_facts_ids = normalize_delayed_memory_fact_ids(
+        report.get("anchor_lt_facts_ids", []),
+        report.get("lt_facts_ids", []),
+    )
+    available_fact_ids = get_runtime_lt_fact_ids(context)
+    referenced_fact_ids = list(dict.fromkeys([
+        *anchor_lt_facts_ids,
+        *lt_facts_ids,
+    ]))
+    removed_fact_ids = [
+        fact_id
+        for fact_id in referenced_fact_ids
+        if fact_id not in available_fact_ids
+    ]
+    clean_anchor_fact_ids = [
+        fact_id
+        for fact_id in anchor_lt_facts_ids
+        if fact_id in available_fact_ids
+    ]
+    clean_facts_ids = [
+        fact_id
+        for fact_id in lt_facts_ids
+        if fact_id in available_fact_ids
+    ]
+    clean_anchor_fact_ids, clean_facts_ids = normalize_delayed_memory_fact_ids(
+        clean_anchor_fact_ids,
+        clean_facts_ids,
+    )
+
+    updated_report = {
+        **report,
+        "anchor_lt_facts_ids": clean_anchor_fact_ids,
+        "lt_facts_ids": clean_facts_ids,
+    }
+
+    return updated_report, removed_fact_ids
+
+
 def build_delayed_memory_report(
     context,
     payload: str,
@@ -229,7 +268,7 @@ def build_delayed_memory_report(
             )
         )
     except json.JSONDecodeError:
-        report = parse_delayed_memory_content_payload(
+        report = parse_delayed_memory_payload(
             payload
         )
 
@@ -257,7 +296,7 @@ def build_delayed_memory_report(
     ).strip()
 
     if not created_time:
-        created_time = datetime.now().isoformat()
+        created_time = utc_now_iso()
 
     used_ids = {
         str(report_id or "").strip().casefold()
@@ -294,8 +333,43 @@ def build_delayed_memory_report(
             report_id
         )
 
+        requested_anchor_fact_ids, requested_facts_ids = (
+            normalize_delayed_memory_fact_ids(
+                value.get("anchor_lt_facts_ids", []),
+                value.get("lt_facts_ids", []),
+            )
+        )
+        available_lt_fact_ids = get_runtime_lt_fact_ids(
+            context
+        )
+        anchor_lt_facts_ids = [
+            fact_id
+            for fact_id in requested_anchor_fact_ids
+            if fact_id in available_lt_fact_ids
+        ]
+        lt_facts_ids = [
+            fact_id
+            for fact_id in requested_facts_ids
+            if fact_id in available_lt_fact_ids
+        ]
+        anchor_lt_facts_ids, lt_facts_ids = normalize_delayed_memory_fact_ids(
+            anchor_lt_facts_ids,
+            lt_facts_ids,
+        )
+        from utils.attached_files_store import filter_existing_file_ids
+
+        attachments_ids = filter_existing_file_ids(
+            normalize_delayed_memory_attachment_ids(
+                value.get("attachments_ids", [])
+            )
+        )
+
         enriched_report[report_id] = {
             **value,
+            "anchor_lt_facts_ids": anchor_lt_facts_ids,
+            "lt_facts_ids": lt_facts_ids,
+            "attachments_ids": attachments_ids,
+            "pinned": bool(value.get("pinned", False)),
             "created_session_id": (
                 str(
                     value.get(
@@ -330,40 +404,40 @@ def build_delayed_memory_report(
                 ).strip()
                 or created_time
             ),
-            "appended_times": int(
+            "loaded_times": int(
                 normalize_delayed_memory_counter(
                     value.get(
-                        "appended_times",
+                        "loaded_times",
                         0,
                     )
                 )
             ),
-            "append_streak": int(
+            "load_streak": int(
                 normalize_delayed_memory_counter(
                     value.get(
-                        "append_streak",
+                        "load_streak",
                         0,
                     )
                 )
             ),
-            "last_appended_date": str(
+            "last_loaded_date": str(
                 value.get(
-                    "last_appended_date",
+                    "last_loaded_date",
                     "",
                 )
                 or ""
             ).strip(),
-            "last_appended_session_id": str(
+            "last_loaded_session_id": str(
                 value.get(
-                    "last_appended_session_id",
+                    "last_loaded_session_id",
                     "",
                 )
                 or ""
             ).strip(),
-            "all_appended_session_ids": (
+            "all_loaded_session_ids": (
                 normalize_delayed_memory_session_ids(
                     value.get(
-                        "all_appended_session_ids",
+                        "all_loaded_session_ids",
                         [],
                     )
                 )
@@ -426,7 +500,7 @@ def normalize_delayed_memory_session_ids(
     return session_ids
 
 
-def update_delayed_memory_append_metadata(
+def refresh_delayed_memory_load_metadata(
     context,
     report: dict,
 ) -> dict:
@@ -447,7 +521,7 @@ def update_delayed_memory_append_metadata(
             "",
         )
         or ""
-    ).strip() or datetime.now().isoformat()
+    ).strip() or utc_now_iso()
     session_id = str(
         getattr(
             context,
@@ -463,23 +537,23 @@ def update_delayed_memory_append_metadata(
     ).strip()
     previous_last_session_id = str(
         updated_report.get(
-            "last_appended_session_id",
+            "last_loaded_session_id",
             "",
         )
         or ""
     ).strip()
-    appended_session_ids = normalize_delayed_memory_session_ids(
+    loaded_session_ids = normalize_delayed_memory_session_ids(
         updated_report.get(
-            "all_appended_session_ids",
+            "all_loaded_session_ids",
             [],
         )
     )
 
     if (
         session_id
-        and session_id not in appended_session_ids
+        and session_id not in loaded_session_ids
     ):
-        appended_session_ids.append(
+        loaded_session_ids.append(
             session_id
         )
 
@@ -507,18 +581,18 @@ def update_delayed_memory_append_metadata(
         ).strip()
         or updated_report["created_date"]
     )
-    updated_report["appended_times"] = (
+    updated_report["loaded_times"] = (
         normalize_delayed_memory_counter(
             updated_report.get(
-                "appended_times",
+                "loaded_times",
                 0,
             )
         )
         + 1
     )
-    updated_report["append_streak"] = normalize_delayed_memory_counter(
+    updated_report["load_streak"] = normalize_delayed_memory_counter(
         updated_report.get(
-            "append_streak",
+            "load_streak",
             0,
         )
     )
@@ -530,16 +604,16 @@ def update_delayed_memory_append_metadata(
             or previous_last_session_id != session_id
         )
     ):
-        updated_report["append_streak"] += 1
+        updated_report["load_streak"] += 1
 
-    updated_report["last_appended_date"] = now
-    updated_report["last_appended_session_id"] = session_id
-    updated_report["all_appended_session_ids"] = appended_session_ids
+    updated_report["last_loaded_date"] = now
+    updated_report["last_loaded_session_id"] = session_id
+    updated_report["all_loaded_session_ids"] = loaded_session_ids
 
     return updated_report
 
 
-def record_appended_delayed_memory_id(
+def record_loaded_delayed_memory_id(
     context,
     report_id: str,
 ) -> None:
@@ -552,25 +626,25 @@ def record_appended_delayed_memory_id(
     if not normalized_report_id:
         return
 
-    appended_ids = getattr(
+    loaded_ids = getattr(
         context,
-        "runtime_appended_delayed_memory_ids",
+        "runtime_loaded_delayed_memory_ids",
         None,
     )
 
     if not isinstance(
-        appended_ids,
+        loaded_ids,
         list,
     ):
-        appended_ids = []
+        loaded_ids = []
         setattr(
             context,
-            "runtime_appended_delayed_memory_ids",
-            appended_ids,
+            "runtime_loaded_delayed_memory_ids",
+            loaded_ids,
         )
 
-    if normalized_report_id not in appended_ids:
-        appended_ids.append(
+    if normalized_report_id not in loaded_ids:
+        loaded_ids.append(
             normalized_report_id
         )
 
@@ -704,18 +778,47 @@ def build_active_memory_runtime_line(
     if not suffix_values:
         return ""
 
-    visible_value = suffix_values[0][1]
+    raw_visible_value = suffix_values[0][1]
+
+    json_payload = raw_visible_value.lstrip().startswith("{")
+
+    if (
+        not json_payload
+        and collect_active_memory_custom_fields(raw_visible_value)
+    ):
+        return ""
+
+    visible_value, custom_fields = (
+        extract_active_memory_creation_custom_fields(
+            raw_visible_value
+        )
+    )
+
+    if not visible_value:
+        return ""
+
+    # `conditions` is the primary Active-memory description itself. Keep
+    # only custom state fields as suffix metadata so the text is not duplicated.
+    suffix_items = [
+        *custom_fields,
+    ]
     suffix_text = " ".join(
         f"[ {field}: {field_value} ]"
-        for field, field_value in suffix_values
+        for field, field_value in suffix_items
     )
     active_memory_id = generate_active_memory_slot_id(
         existing_ids
     )
-    value = (
-        f"{visible_value} [ active_memory_id: {active_memory_id} ] "
-        f"{suffix_text} [ status: pending ]"
-    ).strip()
+    value = " ".join(
+        part
+        for part in (
+            visible_value,
+            f"[ id: {active_memory_id} ]",
+            suffix_text,
+            "[ status: pending ]",
+        )
+        if part
+    )
 
     slot_key = str(
         slot_key
@@ -746,9 +849,9 @@ def normalize_active_memory_content_for_duplicate_check(
     )
     memory = re.sub(
         (
-            r"\s*\[\s*(?:active_memory_id|creation_time|"
+            r"\s*\[\s*(?:id|creation_time|"
             r"created_session_id|created_jin_message_number|"
-            r"elapsed_time|elapsed_jin_message_number|status)"
+            r"elapsed_time|elapsed_jin_message_number|updated_at|status)"
             r"\s*:\s*[^\]]*\]\s*"
         ),
         " ",
@@ -858,15 +961,38 @@ ACTIVE_MEMORY_RUNTIME_LINE_RE = re.compile(
     re.IGNORECASE,
 )
 
+def _collect_context_active_memory_sources(
+    context,
+) -> list[str]:
+
+    active_records = getattr(
+        context,
+        "active_memory_records",
+        None,
+    )
+    return [
+        *(active_records or ()),
+        getattr(
+            context,
+            "runtime_memory",
+            "",
+        ),
+        getattr(
+            context,
+            "runtime_memory_stable",
+            "",
+        ),
+    ]
+
 
 def remove_active_memory_slot_from_text(
     memory: str,
     active_memory_id: str,
 ) -> tuple[str, bool]:
 
-    active_memory_id = str(
-        active_memory_id or ""
-    ).strip().casefold()
+    active_memory_id = normalize_active_memory_slot_id(
+        active_memory_id
+    )
 
     if not active_memory_id:
         return (
@@ -922,33 +1048,16 @@ def find_active_memory_slot_record(
     active_memory_id: str,
 ) -> str:
 
-    normalized_id = str(
-        active_memory_id or ""
-    ).strip().casefold()
+    normalized_id = normalize_active_memory_slot_id(
+        active_memory_id
+    )
 
     if not normalized_id:
         return ""
 
-    active_records = getattr(
-        context,
-        "active_memory_records",
-        None,
-    )
-    sources = [
-        *(active_records or ()),
-        getattr(
-            context,
-            "runtime_memory",
-            "",
-        ),
-        getattr(
-            context,
-            "runtime_memory_stable",
-            "",
-        ),
-    ]
-
-    for source in sources:
+    for source in _collect_context_active_memory_sources(
+        context
+    ):
         for line in str(
             source or ""
         ).splitlines():
@@ -968,7 +1077,7 @@ def find_active_memory_slot_record(
     return ""
 
 
-def build_active_memory_resolve_failure_result(
+def build_active_memory_delete_failure_result(
     context,
     payload: str,
     *,
@@ -983,7 +1092,7 @@ def build_active_memory_resolve_failure_result(
             or ""
         ),
     ).strip()
-    requested_id = extract_active_memory_resolve_slot_id(
+    requested_id = extract_active_memory_delete_slot_id(
         payload
     )
     available_ids = sorted(
@@ -1000,14 +1109,14 @@ def build_active_memory_resolve_failure_result(
         )
     ).strip()
     detail = (
-        "Active memory was not resolved. "
-        "Use an exact 6-character active_memory_id from <ACTIVE_MEMORY> "
+        "Active memory was not deleted. "
+        "Use an exact Active Memory id in AM-xxxxxx format from <ACTIVE_MEMORY> "
         "and retry only for a record that is still pending."
     )
 
     result = {
         "ok": False,
-        "action": "resolve_active_memory",
+        "action": "delete_active_memory",
         "error": normalized_error,
         "requested": requested,
         "detail": detail,
@@ -1020,7 +1129,7 @@ def build_active_memory_resolve_failure_result(
     return result
 
 
-def queue_active_memory_resolve_failure(
+def queue_active_memory_delete_failure(
     context,
     result: dict,
 ) -> None:
@@ -1033,7 +1142,7 @@ def queue_active_memory_resolve_failure(
 
     pending = getattr(
         context,
-        "runtime_active_memory_resolve_failures_pending",
+        "runtime_active_memory_delete_failures_pending",
         None,
     )
 
@@ -1044,7 +1153,7 @@ def queue_active_memory_resolve_failure(
         pending = []
         setattr(
             context,
-            "runtime_active_memory_resolve_failures_pending",
+            "runtime_active_memory_delete_failures_pending",
             pending,
         )
 
@@ -1053,13 +1162,13 @@ def queue_active_memory_resolve_failure(
     )
 
 
-def flush_pending_active_memory_resolve_failure_history(
+def flush_pending_active_memory_delete_failure_history(
     context,
 ) -> None:
 
     pending = getattr(
         context,
-        "runtime_active_memory_resolve_failures_pending",
+        "runtime_active_memory_delete_failures_pending",
         None,
     )
 
@@ -1078,7 +1187,7 @@ def flush_pending_active_memory_resolve_failure_history(
 
         record_session_action_history(
             context,
-            build_active_memory_resolve_failed_history_text(
+            build_active_memory_delete_failed_history_text(
                 result
             ),
         )
@@ -1086,10 +1195,296 @@ def flush_pending_active_memory_resolve_failure_history(
     pending.clear()
 
 
-async def resolve_active_memory_runtime_record(
+def _update_active_memory_line_fields(
+    line: str,
+    changes: tuple[tuple[str, str], ...],
+    *,
+    updated_at: str,
+) -> tuple[str, tuple[dict, ...]]:
+
+    text = str(line or "").strip()
+    if ":" not in text:
+        return text, ()
+
+    key, value = text.split(":", 1)
+    value = canonicalize_active_memory_conditions_value(
+        value.strip()
+    )
+    allowed_fields = {
+        "conditions": get_active_memory_conditions_value(value),
+        **dict(
+            collect_active_memory_custom_fields(
+                value
+            )
+        ),
+    }
+
+    if not changes or any(
+        field_name not in allowed_fields
+        for field_name, _ in changes
+    ):
+        return text, ()
+
+    change_results = []
+
+    for field_name, field_value in changes:
+        if field_name == "conditions":
+            (
+                value,
+                did_update,
+                previous_value,
+            ) = set_active_memory_conditions_value(
+                value,
+                field_value,
+            )
+        else:
+            value, did_update, previous_value = set_active_memory_suffix_value(
+                value,
+                field_name,
+                field_value,
+                require_existing=True,
+            )
+        if not did_update:
+            return text, ()
+
+        change_results.append({
+            "field": field_name,
+            "before": previous_value,
+            "after": field_value,
+        })
+
+    value, did_set_updated_at, _ = set_active_memory_suffix_value(
+        value,
+        "updated_at",
+        updated_at,
+        require_existing=False,
+    )
+    if not did_set_updated_at:
+        return text, ()
+
+    return (
+        f"{key.strip()}: {value}".strip(),
+        tuple(change_results),
+    )
+
+
+def _update_active_memory_slot_in_text(
+    memory: str,
+    active_memory_id: str,
+    changes: tuple[tuple[str, str], ...],
+    *,
+    updated_at: str,
+) -> tuple[str, bool]:
+
+    lines = str(memory or "").splitlines()
+    if not lines:
+        return str(memory or ""), False
+
+    updated_lines = []
+    changed = False
+
+    for line in lines:
+        if (
+            ACTIVE_MEMORY_RUNTIME_LINE_RE.match(line)
+            and active_memory_id in collect_active_memory_slot_ids(line)
+        ):
+            updated_line, applied_changes = _update_active_memory_line_fields(
+                line,
+                changes,
+                updated_at=updated_at,
+            )
+            if applied_changes:
+                line = updated_line
+                changed = True
+
+        updated_lines.append(line)
+
+    return "\n".join(updated_lines).strip(), changed
+
+
+async def update_active_memory_runtime_record(
+    context,
+    payload: str,
+) -> dict:
+
+    result = {
+        "ok": False,
+        "action": "save_active_memory",
+        "mode": "update",
+        "error": "invalid_active_memory_payload",
+        "payload": str(payload or "").strip(),
+    }
+
+    refresh_profile(context)
+
+    if context is None:
+        return result
+
+    normalized_payload = str(payload or "").strip()
+
+    active_memory_id, changes = parse_update_active_memory_payload(
+        normalized_payload
+    )
+    (
+        requested_active_memory_id,
+        requested_changes,
+    ) = parse_update_active_memory_payload_fields(
+        normalized_payload
+    )
+    result["id"] = active_memory_id or requested_active_memory_id
+    result["requested_changes"] = [
+        {
+            "field": field_name,
+            "after": field_value,
+        }
+        for field_name, field_value in requested_changes
+    ]
+
+    if not active_memory_id or not changes:
+        return result
+
+    current_record = find_active_memory_slot_record(
+        context,
+        active_memory_id,
+    )
+    if not current_record:
+        result["error"] = "active_memory_not_found"
+        return result
+
+    active_memory_key = str(
+        current_record
+    ).partition(":")[0].strip().casefold()
+    result["key"] = active_memory_key
+    result["previous_title"] = get_active_memory_record_title(
+        current_record
+    )
+
+    current_fields = {
+        "conditions": get_active_memory_conditions_value(
+            current_record.split(":", 1)[1]
+            if ":" in current_record
+            else ""
+        ),
+        **dict(
+            collect_active_memory_custom_fields(
+                current_record
+            )
+        ),
+    }
+    result["available_fields"] = list(current_fields)
+
+    requested_fields = [
+        field_name
+        for field_name, _ in changes
+    ]
+    unknown_fields = [
+        field_name
+        for field_name in requested_fields
+        if field_name not in current_fields
+    ]
+    if unknown_fields:
+        result["error"] = "active_memory_field_not_declared"
+        result["unknown_fields"] = unknown_fields
+        return result
+
+    effective_changes = tuple(
+        (field_name, field_value)
+        for field_name, field_value in changes
+        if current_fields.get(field_name) != field_value
+    )
+    if not effective_changes:
+        result["error"] = "active_memory_update_no_changes"
+        return result
+
+    updated_at = str(
+        getattr(
+            context,
+            "timestamp",
+            "",
+        )
+        or utc_now_iso()
+    )
+    updated_record, change_results = _update_active_memory_line_fields(
+        current_record,
+        effective_changes,
+        updated_at=updated_at,
+    )
+    if not change_results:
+        result["error"] = "active_memory_update_failed"
+        return result
+
+    for attr_name in (
+        "runtime_memory",
+        "runtime_memory_stable",
+    ):
+        current_memory = getattr(
+            context,
+            attr_name,
+            "",
+        )
+        updated_memory, did_update = _update_active_memory_slot_in_text(
+            current_memory,
+            active_memory_id,
+            effective_changes,
+            updated_at=updated_at,
+        )
+        if did_update:
+            setattr(
+                context,
+                attr_name,
+                updated_memory,
+            )
+
+    records = list(
+        getattr(
+            context,
+            "active_memory_records",
+            [],
+        )
+        or []
+    )
+    records_changed = False
+
+    for index, record in enumerate(records):
+        if active_memory_id not in collect_active_memory_slot_ids(record):
+            continue
+
+        next_record, applied_changes = _update_active_memory_line_fields(
+            record,
+            effective_changes,
+            updated_at=updated_at,
+        )
+        if not applied_changes:
+            continue
+
+        records[index] = next_record
+        updated_record = next_record
+        records_changed = True
+
+    if records_changed:
+        commit_active(context, records)
+        context.runtime_active_memory_records_dirty = True
+
+    result.update({
+        "ok": True,
+        "error": "",
+        "id": active_memory_id,
+        "title": get_active_memory_record_title(
+            updated_record
+        ),
+        "record": updated_record,
+        "changes": list(change_results),
+        "updated_at": updated_at,
+    })
+    return result
+
+
+async def delete_active_memory_runtime_record(
     context,
     payload: str,
 ) -> tuple[bool, str, str]:
+
+    refresh_profile(context)
 
     if context is None:
         return (
@@ -1098,7 +1493,7 @@ async def resolve_active_memory_runtime_record(
             "",
         )
 
-    active_memory_id = extract_active_memory_resolve_slot_id(
+    active_memory_id = extract_active_memory_delete_slot_id(
         payload,
         existing_ids=collect_context_active_memory_slot_ids(
             context
@@ -1112,7 +1507,7 @@ async def resolve_active_memory_runtime_record(
             "",
         )
 
-    resolved_record = find_active_memory_slot_record(
+    deleted_record = find_active_memory_slot_record(
         context,
         active_memory_id,
     )
@@ -1163,16 +1558,12 @@ async def resolve_active_memory_runtime_record(
             )
 
         if len(kept_records) != len(records):
-            setattr(
-                context,
-                "active_memory_records",
-                kept_records,
-            )
+            commit_active(context, kept_records)
 
     return (
         removed,
         active_memory_id,
-        resolved_record,
+        deleted_record,
     )
 
 
@@ -1180,6 +1571,8 @@ async def save_active_memory_runtime_record(
     context,
     payload: str,
 ) -> bool:
+
+    refresh_profile(context)
 
     if context is None:
         return False
@@ -1226,9 +1619,8 @@ async def save_active_memory_runtime_record(
         )
 
     if active_memory_line not in active_records:
-        active_records.append(
-            active_memory_line
-        )
+        active_records = [*active_records, active_memory_line]
+        commit_active(context, active_records)
 
     return True
 
@@ -1407,6 +1799,12 @@ def build_pending_asset_action_preview(
                 path = f"assets/{path}"
             result["path"] = path
 
+    if action == "project_search":
+        result["path"] = str(payload.get("path", ".") or ".").strip().replace("\\", "/") or "."
+        query = str(payload.get("query", "") or "").strip()
+        if query:
+            result["query"] = query
+
     if action == "run_document_reader":
         attachment = str(
             payload.get(
@@ -1544,7 +1942,7 @@ def append_asset_runtime_result(
     )
 
 
-def append_delayed_memory_runtime_result(
+def record_delayed_memory_runtime_result(
     context,
     result: dict,
 ) -> None:
@@ -1620,31 +2018,84 @@ def clear_delayed_memory_runtime_results(
     )
 
 
-def get_appended_delayed_memory_report(
+def get_loaded_delayed_memory_reports(
     context,
 ) -> dict:
 
-    appended_report = getattr(
+    loaded_reports = getattr(
         context,
-        "runtime_appended_delayed_memory",
+        "runtime_loaded_delayed_memory",
         None,
     )
 
     if not isinstance(
-        appended_report,
+        loaded_reports,
         dict,
     ):
-        appended_report = {}
-        setattr(
-            context,
-            "runtime_appended_delayed_memory",
-            appended_report,
+        loaded_reports = {}
+
+    legacy_report_id = str(
+        loaded_reports.get(
+            "id",
+            "",
         )
+        or ""
+    ).strip().casefold()
 
-    return appended_report
+    if (
+        legacy_report_id
+        and is_delayed_memory_report_id(
+            legacy_report_id
+        )
+        and (
+            "title" in loaded_reports
+            or "body" in loaded_reports
+            or "summary" in loaded_reports
+        )
+    ):
+        loaded_reports = {
+            legacy_report_id: {
+                **loaded_reports,
+                "id": legacy_report_id,
+            },
+        }
+    else:
+        normalized_reports = {}
+
+        for report_id, report in loaded_reports.items():
+            normalized_report_id = str(
+                report_id
+                or ""
+            ).strip().casefold()
+
+            if (
+                not is_delayed_memory_report_id(
+                    normalized_report_id
+                )
+                or not isinstance(
+                    report,
+                    dict,
+                )
+            ):
+                continue
+
+            normalized_reports[normalized_report_id] = {
+                **report,
+                "id": normalized_report_id,
+            }
+
+        loaded_reports = normalized_reports
+
+    setattr(
+        context,
+        "runtime_loaded_delayed_memory",
+        loaded_reports,
+    )
+
+    return loaded_reports
 
 
-def set_appended_delayed_memory_report(
+def set_loaded_delayed_memory_report(
     context,
     result: dict,
 ) -> bool:
@@ -1680,71 +2131,23 @@ def set_appended_delayed_memory_report(
         or ""
     ).strip().casefold()
 
-    if not report_id:
-        return False
-
-    current_report = get_appended_delayed_memory_report(
-        context
-    )
-    current_id = str(
-        current_report.get(
-            "id",
-            "",
-        )
-        or ""
-    ).strip().casefold()
-
-    if current_id == report_id:
-        return False
-
-    setattr(
-        context,
-        "runtime_appended_delayed_memory",
-        {
-            **report,
-            "id": report_id,
-        },
-    )
-    return True
-
-
-def clear_appended_delayed_memory_report(
-    context,
-    report_id: str = "",
-) -> bool:
-
-    current_report = get_appended_delayed_memory_report(
-        context
-    )
-
-    if not current_report:
-        return False
-
-    normalized_report_id = str(
+    if not is_delayed_memory_report_id(
         report_id
-        or ""
-    ).strip().casefold()
-
-    current_id = str(
-        current_report.get(
-            "id",
-            "",
-        )
-        or ""
-    ).strip().casefold()
-
-    if (
-        normalized_report_id
-        and current_id
-        and normalized_report_id != current_id
     ):
         return False
 
-    setattr(
-        context,
-        "runtime_appended_delayed_memory",
-        {},
+    loaded_reports = get_loaded_delayed_memory_reports(
+        context
     )
+
+    if report_id in loaded_reports:
+        return False
+
+    loaded_reports[report_id] = {
+        **report,
+        "id": report_id,
+    }
+
     return True
 
 
@@ -1808,38 +2211,7 @@ def build_delayed_memory_failure_result(
     }
 
 
-def list_delayed_memory_reports(
-    context,
-) -> dict:
-
-    reports = get_delayed_memory_reports(
-        context
-    )
-
-    return {
-        "ok": True,
-        "action": "list_delayed_memory",
-        "reports": [
-            {
-                "id": report_id,
-                "title": str(
-                    report.get(
-                        "title",
-                        "",
-                    )
-                    or ""
-                ).strip(),
-            }
-            for report_id, report in reports.items()
-            if isinstance(
-                report,
-                dict,
-            )
-        ],
-    }
-
-
-def append_delayed_memory_report(
+def load_delayed_memory_report(
     context,
     payload: str,
 ) -> dict:
@@ -1854,12 +2226,22 @@ def append_delayed_memory_report(
         report_id,
     )
 
+    from utils.project_context import pinned_project_reports, project_review_active
+    if project_review_active(context) and report_id not in pinned_project_reports(context):
+        return {
+            **build_delayed_memory_failure_result(
+                action="load_delayed_memory", requested=report_id or payload,
+                error="project_memory_not_pinned",
+            ),
+            "detail": "Project review uses only reports explicitly pinned by the user.",
+        }
+
     if not report_id or not isinstance(
         report,
         dict,
     ):
         return build_delayed_memory_failure_result(
-            action="append_delayed_memory",
+            action="load_delayed_memory",
             requested=report_id
             or payload,
             error=(
@@ -1869,19 +2251,53 @@ def append_delayed_memory_report(
             ),
         )
 
-    updated_report = update_delayed_memory_append_metadata(
+    updated_report = refresh_delayed_memory_load_metadata(
         context,
         report,
     )
+    updated_report, pruned_fact_ids = prune_missing_delayed_memory_fact_ids(
+        context,
+        updated_report,
+    )
     reports[report_id] = updated_report
-    record_appended_delayed_memory_id(
+
+    loaded_reports = getattr(
+        context,
+        "runtime_loaded_delayed_memory",
+        None,
+    )
+    if (
+        isinstance(loaded_reports, dict)
+        and report_id in loaded_reports
+    ):
+        loaded_reports[report_id] = {
+            **updated_report,
+            "id": report_id,
+        }
+
+    record_loaded_delayed_memory_id(
         context,
         report_id,
     )
 
+    file_errors = []
+
+    if bool(
+        getattr(
+            context,
+            "delayed_memory_file_store_enabled",
+            False,
+        )
+    ):
+        from runtime.memory_profile import persist_delayed as persist_delayed_memory_reports
+
+        file_errors = persist_delayed_memory_reports(context, {
+            report_id: updated_report,
+        })
+
     return {
         "ok": True,
-        "action": "append_delayed_memory",
+        "action": "load_delayed_memory",
         "id": report_id,
         "title": str(
             updated_report.get(
@@ -1894,68 +2310,75 @@ def append_delayed_memory_report(
             **updated_report,
             "id": report_id,
         },
+        "pruned_fact_ids": pruned_fact_ids,
+        "file_saved": not file_errors,
+        "file_errors": file_errors,
     }
 
 
-def remove_delayed_memory_report(
+def include_pinned_delayed_memory_reports(
     context,
-    payload: str,
 ) -> dict:
 
-    report_id = normalize_delayed_memory_action_id(
-        payload
+    reports = getattr(
+        context,
+        "delayed_memory_reports",
+        None,
+    )
+    loaded_reports = get_loaded_delayed_memory_reports(context)
+
+    if not isinstance(reports, dict):
+        return loaded_reports
+    turn_id = str(
+        getattr(context, "runtime_current_turn_id", "")
+        or getattr(context, "runtime_message_id", "")
+        or ""
+    ).strip()
+    touched_by_report = getattr(
+        context,
+        "runtime_pinned_delayed_memory_turns",
+        None,
     )
 
-    if not report_id:
-        return build_delayed_memory_failure_result(
-            action="remove_delayed_memory",
-            requested=payload,
-            error="invalid_delayed_memory_id",
-        )
+    if not isinstance(touched_by_report, dict):
+        touched_by_report = {}
+        context.runtime_pinned_delayed_memory_turns = touched_by_report
 
-    reports = get_delayed_memory_reports(
-        context
-    )
-    report = (
-        reports.get(
-            report_id,
-        )
-        if report_id
-        else None
-    )
+    reports_to_persist = {}
 
-    if not isinstance(
-        report,
-        dict,
-    ):
-        return build_delayed_memory_failure_result(
-            action="remove_delayed_memory",
-            requested=report_id,
-            error="delayed_memory_not_found",
-        )
+    for report_id, report in reports.items():
+        if not isinstance(report, dict) or not bool(report.get("pinned", False)):
+            continue
 
-    return {
-        "ok": True,
-        "action": "remove_delayed_memory",
-        "id": report_id,
-        "detached": bool(
-            report_id
-        ),
-        "title": (
-            str(
-                report.get(
-                    "title",
-                    "",
-                )
-                or ""
-            ).strip()
-            if isinstance(
+        updated_report = report
+
+        if turn_id and touched_by_report.get(report_id) != turn_id:
+            updated_report = refresh_delayed_memory_load_metadata(
+                context,
                 report,
-                dict,
             )
-            else ""
-        ),
-    }
+            updated_report["pinned"] = True
+            reports[report_id] = updated_report
+            touched_by_report[report_id] = turn_id
+            reports_to_persist[report_id] = updated_report
+
+        loaded_reports[report_id] = {
+            **updated_report,
+            "id": report_id,
+        }
+
+    if reports_to_persist and bool(
+        getattr(
+            context,
+            "delayed_memory_file_store_enabled",
+            False,
+        )
+    ):
+        from runtime.memory_profile import persist_delayed as persist_delayed_memory_reports
+
+        persist_delayed_memory_reports(context, reports_to_persist)
+
+    return loaded_reports
 
 
 def build_delayed_memory_action_text(
@@ -1966,7 +2389,7 @@ def build_delayed_memory_action_text(
         result,
         dict,
     ):
-        return "Delayed memory updated"
+        return "Delayed memory action"
 
     action = str(
         result.get(
@@ -1975,9 +2398,6 @@ def build_delayed_memory_action_text(
         )
         or ""
     )
-
-    if action == "list_delayed_memory":
-        return "Listing delayed memory"
 
     title = str(
         result.get(
@@ -2019,13 +2439,23 @@ def build_delayed_memory_action_text(
             or "unknown"
         ).strip()
 
-    if action == "append_delayed_memory":
-        return f"Appending: {title}"
+    failed = result.get("ok") is False
 
-    if action == "remove_delayed_memory":
-        return f"Removing: {title}"
+    if action == "load_delayed_memory":
+        return (
+            f"Load failed: {title}"
+            if failed
+            else f"Loading: {title}"
+        )
 
-    return "Delayed memory updated"
+    if action == "unload_delayed_memory":
+        return (
+            f"Unload failed: {title}"
+            if failed
+            else f"Unloading: {title}"
+        )
+
+    return "Delayed memory action"
 
 
 def build_delayed_memory_history_text(
@@ -2092,14 +2522,14 @@ def build_delayed_memory_history_text(
     if not title:
         return ""
 
-    if action == "save_delayed_memory_content":
+    if action == "save_delayed_memory":
         return f"Delayed memory saved: {title}"
 
-    if action == "append_delayed_memory":
-        return f"Delayed memory appended: {title}"
+    if action == "load_delayed_memory":
+        return f"Delayed memory loaded: {title}"
 
-    if action == "remove_delayed_memory":
-        return f"Delayed memory removed from context: {title}"
+    if action == "unload_delayed_memory":
+        return f"Delayed memory unloaded from context: {title}"
 
     return ""
 
@@ -2165,235 +2595,6 @@ async def log_runtime_action_marker_removals(
             await log_runtime(
                 message
             )
-
-
-def _track_background_task(
-    context,
-    task: asyncio.Task,
-) -> None:
-
-    tasks = getattr(
-        context,
-        "background_tasks",
-        None,
-    )
-
-    if not isinstance(tasks, set):
-        tasks = set()
-        setattr(
-            context,
-            "background_tasks",
-            tasks,
-        )
-
-    tasks.add(task)
-    task.add_done_callback(
-        tasks.discard
-    )
-
-
-async def _enqueue_idle_followup_after_delay(
-    context,
-    record: dict,
-) -> None:
-
-    seconds = max(
-        0,
-        int(record.get("seconds", 0) or 0),
-    )
-
-    await asyncio.sleep(seconds)
-
-    scheduled_generation = int(
-        record.get(
-            "tool_results_generation",
-            0,
-        )
-        or 0
-    )
-    current_generation = int(
-        getattr(
-            context,
-            "runtime_tool_results_generation",
-            0,
-        )
-        or 0
-    )
-    context_snapshot = deepcopy(
-        record.get(
-            "context_snapshot",
-            {},
-        )
-    )
-    if not isinstance(
-        context_snapshot,
-        dict,
-    ):
-        context_snapshot = {}
-
-    if scheduled_generation != current_generation:
-        context_snapshot["system_prompt"] = (
-            strip_tools_results_context(
-                context_snapshot.get(
-                    "system_prompt",
-                    "",
-                )
-            )
-        )
-
-    record = {
-        **record,
-        "context_snapshot": context_snapshot,
-        "tool_results_generation": current_generation,
-        "fired_at": time.time(),
-    }
-    queue = getattr(
-        context,
-        "runtime_pending_requests_queue",
-        None,
-    )
-
-    if queue is not None:
-        await queue.put({
-            "type": "idle_followup",
-            "idle_followup": record,
-        })
-        return
-
-    pending = getattr(
-        context,
-        "runtime_pending_idle_followups",
-        None,
-    )
-    if not isinstance(pending, list):
-        pending = []
-        setattr(
-            context,
-            "runtime_pending_idle_followups",
-            pending,
-        )
-
-    pending.append(record)
-
-
-def schedule_idle_followup(
-    context,
-    *,
-    seconds: int,
-    source_message: str,
-    user_message: str,
-    context_snapshot: dict | None,
-) -> dict:
-
-    sequence = int(
-        getattr(
-            context,
-            "runtime_idle_action_sequence",
-            0,
-        )
-        or 0
-    ) + 1
-    context.runtime_idle_action_sequence = sequence
-
-    scheduled_at = time.time()
-    sequence_turn_id = str(
-        getattr(
-            context,
-            "runtime_current_sequence_turn_id",
-            "",
-        )
-        or getattr(
-            context,
-            "runtime_current_turn_id",
-            "",
-        )
-        or ""
-    ).strip()
-    sequence_started_at = getattr(
-        context,
-        "runtime_current_sequence_started_at",
-        None,
-    )
-    if not isinstance(
-        sequence_started_at,
-        (int, float),
-    ) or sequence_started_at <= 0:
-        sequence_started_at = getattr(
-            context,
-            "runtime_turn_started_at",
-            scheduled_at,
-        )
-    if not isinstance(
-        sequence_started_at,
-        (int, float),
-    ) or sequence_started_at <= 0:
-        sequence_started_at = scheduled_at
-    current_attachments = getattr(
-        context,
-        "runtime_turn_attachments",
-        [],
-    )
-    sequence_attachment_turn_id = str(
-        getattr(
-            context,
-            "runtime_current_sequence_attachments_turn_id",
-            "",
-        )
-        or ""
-    ).strip()
-    sequence_attachments = getattr(
-        context,
-        "runtime_current_sequence_attachments",
-        [],
-    )
-    if (
-        not current_attachments
-        and sequence_attachment_turn_id == sequence_turn_id
-    ):
-        current_attachments = sequence_attachments
-
-    record = {
-        "id": build_runtime_action_id(
-            RUNTIME_ACTION_IDLE,
-            sequence,
-        ),
-        "action": "idle",
-        "seconds": seconds,
-        "scheduled_at": scheduled_at,
-        "due_at": scheduled_at + seconds,
-        "source_message": str(source_message or ""),
-        "origin_user_request": str(user_message or ""),
-        "sequence_turn_id": sequence_turn_id,
-        "sequence_started_at": float(sequence_started_at),
-        "context_snapshot": deepcopy(context_snapshot)
-        if isinstance(context_snapshot, dict)
-        else {},
-        "tool_results_generation": int(
-            getattr(
-                context,
-                "runtime_tool_results_generation",
-                0,
-            )
-            or 0
-        ),
-        "attachments": deepcopy(
-            current_attachments
-            or []
-        ),
-    }
-
-    task = asyncio.create_task(
-        _enqueue_idle_followup_after_delay(
-            context,
-            record,
-        )
-    )
-    _track_background_task(
-        context,
-        task,
-    )
-
-    return record
 
 
 async def apply_runtime_action_calls(
@@ -2531,7 +2732,7 @@ def get_conversation_activity_diff(
     patch_sources = (
         getattr(
             context,
-            "runtime_l2_pending_patches",
+            "runtime_frame_diff_history",
             None,
         )
         or getattr(
@@ -2603,6 +2804,4 @@ def has_zero_diff_stall_alert(
             None,
         )
     )
-
-
 

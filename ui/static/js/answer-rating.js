@@ -9,9 +9,22 @@
         "jin-rating-press-neutral",
         "jin-rating-press-plus",
     ];
+    const ratingPressClasses = [
+        "jin-rating-press-minus",
+        "jin-rating-press-neutral",
+        "jin-rating-press-plus",
+    ];
     const ratingVisualClasses = ratingSelectionClasses.filter(
         (className) => className !== "jin-rating-committed"
     );
+    const ratingCountLabels = {
+        minus: "Dislikes",
+        plus: "Likes",
+    };
+    const ratingHoverLabels = {
+        minus: "Dislike answer",
+        plus: "Like answer",
+    };
     const ratingBubbleSelector =
         ".jin-chat-bubble-rateable, .jin-chat-bubble-service, .jin-chat-bubble-brain";
     const activeRatingBubbleSelector =
@@ -19,6 +32,248 @@
         + ".jin-chat-bubble-service.jin-rating-selected-active:not(.jin-rating-committed), "
         + ".jin-chat-bubble-brain.jin-rating-selected-active:not(.jin-rating-committed)";
     let latestRatingBubbleSequence = 0;
+
+    // Rating stays in the codebase, but the release interaction is now a
+    // dedicated copy control under each chat avatar.
+    const ANSWER_RATING_ENABLED = false;
+    const bubbleUtilitySelector =
+        ".jin-chat-bubble-user, .jin-chat-bubble-service, .jin-chat-bubble-brain";
+    const bubbleCopyText = new WeakMap();
+
+    if (document.body) {
+        document.body.classList.toggle(
+            "jin-answer-rating-enabled",
+            ANSWER_RATING_ENABLED
+        );
+    }
+
+    function getBubbleUtilityText(bubble) {
+        const storedText = bubbleCopyText.get(bubble);
+        if (typeof storedText === "string" && storedText.trim()) {
+            return storedText;
+        }
+
+        const content = bubble && bubble.querySelector
+            ? bubble.querySelector(".jin-chat-pre")
+            : null;
+        return String(
+            content && (content.innerText || content.textContent) || ""
+        ).trim();
+    }
+
+    async function copyBubbleUtilityText(bubble) {
+        const text = getBubbleUtilityText(bubble);
+        if (!text) {
+            return false;
+        }
+
+        try {
+            if (navigator.clipboard && navigator.clipboard.writeText) {
+                await navigator.clipboard.writeText(text);
+                return true;
+            }
+        } catch (error) {
+            // Fall through to the textarea copy path.
+        }
+
+        const textarea = document.createElement("textarea");
+        textarea.value = text;
+        textarea.setAttribute("readonly", "");
+        textarea.style.position = "fixed";
+        textarea.style.opacity = "0";
+        document.body.appendChild(textarea);
+        textarea.select();
+
+        let copied = false;
+        try {
+            copied = document.execCommand("copy");
+        } catch (error) {
+            copied = false;
+        }
+
+        textarea.remove();
+        return copied;
+    }
+
+    function getBubbleCopyHost(bubble) {
+        if (!bubble || !bubble.closest) {
+            return null;
+        }
+
+        const streamWrapper = bubble.closest(".jin-stream-wrapper");
+        if (streamWrapper) {
+            const avatarSlot = streamWrapper.querySelector(".jin-stream-avatar-slot");
+            return avatarSlot
+                ? { host: avatarSlot, hoverRoot: streamWrapper }
+                : null;
+        }
+
+        const messageShell = bubble.closest(".jin-message-shell");
+        return messageShell
+            ? { host: messageShell, hoverRoot: messageShell }
+            : null;
+    }
+
+    function createBubbleCopyControl(bubble) {
+        const placement = getBubbleCopyHost(bubble);
+        if (!placement) {
+            return null;
+        }
+
+        const existing = placement.host.querySelector(
+            ":scope > .jin-message-copy-control"
+        );
+        if (existing) {
+            return {
+                button: existing,
+                hoverRoot: placement.hoverRoot,
+            };
+        }
+
+        const button = document.createElement("button");
+        button.type = "button";
+        button.className = "jin-message-copy-control";
+        button.title = "Copy all";
+        button.setAttribute("aria-label", "Copy all");
+        button.innerHTML = `
+            <span class="jin-message-copy-glyph" aria-hidden="true">
+                <svg viewBox="0 0 24 24" fill="none" focusable="false">
+                    <rect x="9" y="9" width="10" height="10" rx="1.5"></rect>
+                    <path d="M15 9V6.5A1.5 1.5 0 0 0 13.5 5h-8A1.5 1.5 0 0 0 4 6.5v8A1.5 1.5 0 0 0 5.5 16H9"></path>
+                </svg>
+            </span>
+            <span class="jin-message-copy-check" aria-hidden="true">
+                <svg viewBox="0 0 24 24" fill="none" focusable="false">
+                    <path d="m6.5 12.5 3.4 3.4 7.6-8"></path>
+                </svg>
+            </span>`;
+
+        let reboundTimer = null;
+        let copiedTimer = null;
+
+        const clearPressState = (withRebound) => {
+            button.classList.remove("is-pressed");
+            if (!withRebound) {
+                button.classList.remove("is-rebound");
+                return;
+            }
+
+            button.classList.add("is-rebound");
+            if (reboundTimer !== null) {
+                window.clearTimeout(reboundTimer);
+            }
+            reboundTimer = window.setTimeout(() => {
+                reboundTimer = null;
+                button.classList.remove("is-rebound");
+            }, 95);
+        };
+
+        button.addEventListener("pointerdown", (event) => {
+            if (event.button !== 0) {
+                return;
+            }
+            button.classList.remove("is-rebound");
+            button.classList.add("is-pressed");
+        });
+
+        button.addEventListener("pointerup", (event) => {
+            if (event.button === 0) {
+                clearPressState(true);
+            }
+        });
+        button.addEventListener("pointercancel", () => clearPressState(false));
+        button.addEventListener("pointerleave", (event) => {
+            if (event.buttons) {
+                clearPressState(false);
+            }
+        });
+
+        button.addEventListener("click", async (event) => {
+            event.preventDefault();
+            event.stopPropagation();
+
+            if (!await copyBubbleUtilityText(bubble)) {
+                return;
+            }
+
+            button.classList.add("is-copied");
+            if (copiedTimer !== null) {
+                window.clearTimeout(copiedTimer);
+            }
+            copiedTimer = window.setTimeout(() => {
+                copiedTimer = null;
+                button.classList.remove("is-copied");
+            }, 1050);
+        });
+
+        placement.host.appendChild(button);
+        return { button, hoverRoot: placement.hoverRoot };
+    }
+
+    function setBubbleCopyReady(bubble, ready = true) {
+        const control = createBubbleCopyControl(bubble);
+        if (!control) {
+            return;
+        }
+
+        control.hoverRoot.classList.toggle("jin-copy-ready", Boolean(ready));
+        control.button.disabled = !ready;
+    }
+
+    function bindBubbleUtilityInteractions(bubble) {
+        if (!bubble || bubble.dataset.bubbleUtilityBound === "true") {
+            return;
+        }
+
+        bubble.dataset.bubbleUtilityBound = "true";
+
+        // Remove the old invisible edge gesture surface completely. Copy is now
+        // available only through the explicit control beneath the avatar.
+        bubble.classList.remove("jin-bubble-utility-enabled", "jin-bubble-utility-retryable");
+        bubble.querySelectorAll(
+            ":scope > .jin-bubble-utility-zones, :scope > .jin-rating-hover-zones"
+        ).forEach((node) => node.remove());
+
+        // Clear dormant rating presentation only; all rating implementation
+        // remains below this release feature flag.
+        bubble.classList.remove(
+            ...ratingSelectionClasses,
+            "jin-rating-disabled",
+            "jin-rating-frame-waiting",
+            "jin-rating-interaction-blocked"
+        );
+
+        createBubbleCopyControl(bubble);
+
+        // User messages are complete as soon as they appear. Model bubbles stay
+        // hidden until markJinCompletedAnswerBubble() is called at stream end.
+        if (bubble.classList.contains("jin-chat-bubble-user")) {
+            setBubbleCopyReady(bubble, true);
+        }
+    }
+
+    function addBubbleUtilityZones(root) {
+        const scope = root instanceof Element ? root : document;
+        const bubbles = Array.from(scope.querySelectorAll(bubbleUtilitySelector));
+        if (
+            scope !== document
+            && scope.matches
+            && scope.matches(bubbleUtilitySelector)
+        ) {
+            bubbles.unshift(scope);
+        }
+        bubbles.forEach(bindBubbleUtilityInteractions);
+    }
+
+    window.markJinCompletedAnswerBubble = function (bubble, copyText) {
+        if (!bubble) {
+            return;
+        }
+
+        bindBubbleUtilityInteractions(bubble);
+        bubbleCopyText.set(bubble, String(copyText || ""));
+        setBubbleCopyReady(bubble, true);
+    };
 
     function isRatingInteractionBlocked() {
         return Boolean(
@@ -131,17 +386,23 @@
             });
         }
 
-        bubble.classList.remove(...ratingVisualClasses);
+        bubble.classList.remove(...ratingPressClasses);
+        bubble.classList.remove("jin-rating-disabled");
+        delete bubble.dataset.ratingDisabled;
+        clearBubbleRatingModeTitle(bubble);
         bubble.classList.add("jin-rating-committed");
         bubble.dataset.ratingPending = "false";
         bubble.dataset.ratingCommitted = "true";
         bubble.dataset.ratingPastTurn = "true";
-        delete bubble.dataset.ratingSelected;
-        clearBubbleRatingIntensity(bubble);
-        setBubbleRatingClickAlt(bubble, 0);
+
+        if (!previousRating) {
+            bubble.classList.remove(...ratingVisualClasses);
+            clearBubbleRatingIntensity(bubble);
+            setBubbleRatingClickAlt(bubble, 0);
+        }
 
         const zones = bubble.querySelector(":scope > .jin-rating-hover-zones");
-        if (zones) {
+        if (zones && !previousRating) {
             zones.title = "";
         }
     }
@@ -178,16 +439,217 @@
         return bubble && bubble === syncLatestRateableBubbleState();
     }
 
+    function isBubbleLockedBelowCurrentGeneration(bubble) {
+        const bubbleGeneration = Number(
+            bubble && bubble.dataset.ratingGateGeneration || 0
+        );
+        const gateState = window.getJinAnswerRatingFrameGateState
+            ? window.getJinAnswerRatingFrameGateState()
+            : {};
+        const lockedBelow = Number(gateState.lockedBelowGeneration || 0);
+
+        return Boolean(
+            bubbleGeneration > 0
+            && lockedBelow > 0
+            && bubbleGeneration < lockedBelow
+        );
+    }
+
+    function clearBubbleRatingModeTitle(bubble) {
+        if (!bubble || bubble.dataset.ratingModeTitle !== "enable rating") {
+            return;
+        }
+
+        bubble.removeAttribute("alt");
+        bubble.removeAttribute("aria-label");
+        bubble.removeAttribute("title");
+        delete bubble.dataset.ratingModeTitle;
+    }
+
+    function setBubbleRatingModeTitle(bubble) {
+        if (!bubble) {
+            return;
+        }
+
+        const label = "enable rating";
+        bubble.dataset.ratingModeTitle = label;
+        bubble.setAttribute("alt", label);
+        bubble.setAttribute("aria-label", label);
+        bubble.setAttribute("title", label);
+    }
+
+    function disableBubbleRating(bubble) {
+        if (
+            !bubble
+            || bubble.classList.contains("jin-rating-committed")
+            || bubble.dataset.ratingCommitted === "true"
+            || bubble.dataset.ratingPastTurn === "true"
+        ) {
+            return false;
+        }
+
+        if (!isLatestRateableBubble(bubble)) {
+            markBubbleAsPastTurn(bubble);
+            return false;
+        }
+
+        if (isBubbleLockedBelowCurrentGeneration(bubble)) {
+            markBubbleAsPastTurn(bubble);
+            return false;
+        }
+
+        const previousRating = bubble.dataset.ratingSelected || null;
+
+        bubble.classList.remove(...ratingSelectionClasses);
+        delete bubble.dataset.ratingSelected;
+        delete bubble.dataset.ratingPending;
+        clearBubbleRatingIntensity(bubble);
+        setBubbleRatingClickAlt(bubble, 0);
+
+        if (previousRating) {
+            if (window.clearJinAnswerRating) {
+                window.clearJinAnswerRating({
+                    previousRating,
+                    reason: "rating-disabled",
+                    runtimeSnapshotIndex: bubble.dataset.runtimeSnapshotIndex || null,
+                    ratingGateGeneration: bubble.dataset.ratingGateGeneration || null,
+                    ratingBubbleSequence: bubble.dataset.ratingBubbleSequence || null,
+                });
+            }
+
+            bubble.dispatchEvent(new CustomEvent("jin:answer-rating-cleared", {
+                bubbles: true,
+                detail: {
+                    previousRating,
+                    reason: "rating-disabled",
+                },
+            }));
+        }
+
+        bubble.classList.add("jin-rating-disabled");
+        bubble.dataset.ratingDisabled = "true";
+        setBubbleRatingModeTitle(bubble);
+
+        bubble.dispatchEvent(new CustomEvent("jin:answer-rating-disabled", {
+            bubbles: true,
+        }));
+
+        return true;
+    }
+
+    function enableBubbleRating(bubble) {
+        if (
+            !bubble
+            || bubble.dataset.ratingDisabled !== "true"
+            || bubble.classList.contains("jin-rating-committed")
+            || bubble.dataset.ratingCommitted === "true"
+            || bubble.dataset.ratingPastTurn === "true"
+        ) {
+            return false;
+        }
+
+        if (!isLatestRateableBubble(bubble) || isBubbleLockedBelowCurrentGeneration(bubble)) {
+            markBubbleAsPastTurn(bubble);
+            return false;
+        }
+
+        bubble.classList.remove("jin-rating-disabled");
+        delete bubble.dataset.ratingDisabled;
+        clearBubbleRatingModeTitle(bubble);
+        markBubbleRatingFrameState(bubble);
+
+        bubble.dispatchEvent(new CustomEvent("jin:answer-rating-enabled", {
+            bubbles: true,
+        }));
+
+        return true;
+    }
+
+    function clearBrowserTextSelection() {
+        const clearSelection = () => {
+            const selection = window.getSelection ? window.getSelection() : null;
+            if (selection && selection.rangeCount) {
+                selection.removeAllRanges();
+            }
+        };
+
+        clearSelection();
+        window.requestAnimationFrame(clearSelection);
+    }
+
+    function bindBubbleRatingModeInteractions(bubble, zones) {
+        if (!bubble || bubble.dataset.ratingModeBound === "true") {
+            return;
+        }
+
+        bubble.dataset.ratingModeBound = "true";
+
+        bubble.addEventListener("dblclick", (event) => {
+            if (bubble.dataset.ratingDisabled !== "true") {
+                return;
+            }
+
+            if (event.target.closest && event.target.closest(".jin-chat-reference-id")) {
+                return;
+            }
+
+            event.preventDefault();
+            event.stopPropagation();
+            if (enableBubbleRating(bubble)) {
+                clearBrowserTextSelection();
+            }
+        });
+
+        bubble.addEventListener("click", (event) => {
+            const reference = event.target.closest
+                ? event.target.closest(".jin-chat-reference-id")
+                : null;
+
+            if (!reference || bubble.dataset.ratingDisabled === "true") {
+                return;
+            }
+
+            if (
+                bubble.classList.contains("jin-rating-committed")
+                || bubble.dataset.ratingCommitted === "true"
+                || bubble.dataset.ratingPastTurn === "true"
+            ) {
+                return;
+            }
+
+            const rect = bubble.getBoundingClientRect();
+            if (!rect.width) {
+                return;
+            }
+
+            const ratio = Math.max(0, Math.min(0.999, (event.clientX - rect.left) / rect.width));
+            const zoneIndex = ratio < (1 / 3)
+                ? 0
+                : (ratio < (2 / 3) ? 1 : 2);
+            const zone = zones && zones.children
+                ? zones.children[zoneIndex]
+                : null;
+
+            if (!zone) {
+                return;
+            }
+
+            event.preventDefault();
+            event.stopPropagation();
+            zone.click();
+        });
+    }
+
     function getCurrentRatingGateGeneration() {
-        if (!window.getJinAnswerRatingL1GateState) {
+        if (!window.getJinAnswerRatingFrameGateState) {
             return 0;
         }
 
-        const gateState = window.getJinAnswerRatingL1GateState() || {};
+        const gateState = window.getJinAnswerRatingFrameGateState() || {};
         return Number(gateState.waitingGeneration || gateState.generation || 0);
     }
 
-    function isBubbleRatingL1Ready(bubble) {
+    function isBubbleRatingFrameReady(bubble) {
         const generation = Number(bubble && bubble.dataset.ratingGateGeneration || 0);
 
         if (!generation) {
@@ -201,29 +663,81 @@
         return Boolean(window.isJinAnswerRatingReadyForGateGeneration(generation));
     }
 
-    function markBubbleRatingL1State(bubble) {
+    function markBubbleRatingFrameState(bubble) {
         if (!bubble) {
             return;
         }
 
         const blocked = isRatingInteractionBlocked();
         const pastTurn = bubble.dataset.ratingPastTurn === "true";
-        const ready = !blocked && !pastTurn && isBubbleRatingL1Ready(bubble);
-        bubble.dataset.ratingL1Ready = ready ? "true" : "false";
-        bubble.classList.toggle("jin-rating-l1-waiting", !ready);
+        const frameReady = isBubbleRatingFrameReady(bubble);
+        const ready = !blocked && !pastTurn && frameReady;
+        const waitingForFrame = !blocked && !pastTurn && !frameReady;
+        bubble.dataset.ratingFrameReady = ready ? "true" : "false";
+        bubble.classList.toggle("jin-rating-frame-waiting", waitingForFrame);
         bubble.classList.toggle("jin-rating-interaction-blocked", blocked);
 
         const zones = bubble.querySelector(":scope > .jin-rating-hover-zones");
         if (zones && blocked) {
             zones.title = "rating is locked while JIN is generating";
-        } else if (zones && !ready && !bubble.dataset.ratingSelected) {
-            zones.title = "waiting for L1 snapshot before rating";
+        } else if (zones && waitingForFrame && !bubble.dataset.ratingSelected) {
+            zones.title = "waiting for FRAME snapshot before rating";
         } else if (zones && !bubble.dataset.ratingSelected) {
             zones.title = "";
         }
     }
 
-    function setBubbleRatingClickAlt(bubble, count) {
+    function getBubbleRatingCountKey(ratingValue) {
+        const value = String(ratingValue || "");
+        if (!value) {
+            return "";
+        }
+
+        return `rating${value[0].toUpperCase()}${value.slice(1)}Count`;
+    }
+
+    function getBubbleRatingValueCount(bubble, ratingValue) {
+        const key = getBubbleRatingCountKey(ratingValue);
+        if (!bubble || !key) {
+            return 0;
+        }
+
+        const value = Number(bubble.dataset[key] || 0);
+        return Number.isFinite(value) ? Math.max(0, Math.trunc(value)) : 0;
+    }
+
+    function formatRatingValueLabel(bubble, ratingValue) {
+        const count = getBubbleRatingValueCount(bubble, ratingValue);
+        const countLabel = ratingCountLabels[ratingValue];
+
+        if (countLabel && count > 0) {
+            return `${countLabel}: ${count}`;
+        }
+
+        return ratingHoverLabels[ratingValue] || "";
+    }
+
+    function syncBubbleRatingZoneTitles(bubble) {
+        if (!bubble) {
+            return;
+        }
+
+        const zones = bubble.querySelector(":scope > .jin-rating-hover-zones");
+        if (!zones) {
+            return;
+        }
+
+        Array.from(zones.children || []).forEach((zone) => {
+            const ratingValue = zone.dataset.ratingValue || "";
+            const label = formatRatingValueLabel(bubble, ratingValue);
+            if (label) {
+                zone.title = label;
+                zone.setAttribute("aria-label", label);
+            }
+        });
+    }
+
+    function setBubbleRatingClickAlt(bubble, count, ratingValue = "") {
         if (!bubble) {
             return;
         }
@@ -237,11 +751,14 @@
             return;
         }
 
-        const label = String(Math.trunc(value));
+        const ratingLabel = ratingCountLabels[ratingValue];
+        const label = ratingLabel
+            ? `${ratingLabel}: ${Math.trunc(value)}`
+            : String(Math.trunc(value));
         bubble.dataset.ratingClickAlt = label;
         bubble.setAttribute("alt", label);
         bubble.setAttribute("aria-label", label);
-        bubble.setAttribute("title", label);
+        bubble.removeAttribute("title");
     }
 
     function clearBubbleRatingIntensity(bubble) {
@@ -307,6 +824,11 @@
     }
 
     function addRatingHoverZones(root) {
+        if (!ANSWER_RATING_ENABLED) {
+            addBubbleUtilityZones(root);
+            return;
+        }
+
         const scope = root instanceof Element ? root : document;
         syncLatestRateableBubbleState(scope);
 
@@ -315,7 +837,8 @@
             ensureBubbleRatingSequence(bubble);
 
             if (bubble.querySelector(":scope > .jin-rating-hover-zones")) {
-                markBubbleRatingL1State(bubble);
+                markBubbleRatingFrameState(bubble);
+                syncBubbleRatingZoneTitles(bubble);
                 return;
             }
 
@@ -323,25 +846,32 @@
                 bubble.dataset.ratingGateGeneration = String(getCurrentRatingGateGeneration());
             }
 
-            markBubbleRatingL1State(bubble);
+            markBubbleRatingFrameState(bubble);
 
             const zones = document.createElement("div");
             zones.className = "jin-rating-hover-zones";
             zones.setAttribute("aria-hidden", "true");
 
             [
-                ["jin-rating-zone jin-rating-zone-minus", "minus", "negative feedback hover zone"],
-                ["jin-rating-zone jin-rating-zone-neutral", "neutral", "neutral feedback hover zone"],
-                ["jin-rating-zone jin-rating-zone-plus", "plus", "positive feedback hover zone"],
+                ["jin-rating-zone jin-rating-zone-minus", "minus", "Dislike answer"],
+                ["jin-rating-zone jin-rating-zone-neutral", "disable", "disable rating"],
+                ["jin-rating-zone jin-rating-zone-plus", "plus", "Like answer"],
             ].forEach(([className, ratingValue, label]) => {
                 const zone = document.createElement("div");
                 zone.className = className;
                 zone.dataset.ratingValue = ratingValue;
                 zone.dataset.ratingHover = label;
+                zone.title = label;
+                zone.setAttribute("aria-label", label);
 
                 zone.addEventListener("click", (event) => {
                     event.preventDefault();
                     event.stopPropagation();
+
+                    if (ratingValue === "disable") {
+                        disableBubbleRating(bubble);
+                        return;
+                    }
 
                     if (
                         bubble.classList.contains("jin-rating-committed")
@@ -349,33 +879,28 @@
                         || bubble.dataset.ratingPastTurn === "true"
                         || isRatingInteractionBlocked()
                     ) {
-                        markBubbleRatingL1State(bubble);
+                        markBubbleRatingFrameState(bubble);
                         return;
                     }
 
                     if (!isLatestRateableBubble(bubble)) {
                         markBubbleAsPastTurn(bubble);
-                        markBubbleRatingL1State(bubble);
+                        markBubbleRatingFrameState(bubble);
                         return;
                     }
 
                     // Generation guard: if a newer turn has already been
                     // submitted, this bubble's gate generation is below the
                     // lock threshold — treat it as permanently committed.
-                    const bubbleGen = Number(bubble.dataset.ratingGateGeneration || 0);
-                    const gateState = window.getJinAnswerRatingL1GateState
-                        ? window.getJinAnswerRatingL1GateState()
-                        : {};
-                    const lockedBelow = Number(gateState.lockedBelowGeneration || 0);
-                    if (bubbleGen > 0 && bubbleGen < lockedBelow) {
+                    if (isBubbleLockedBelowCurrentGeneration(bubble)) {
                         bubble.classList.add("jin-rating-committed");
                         bubble.dataset.ratingCommitted = "true";
                         bubble.dataset.ratingPastTurn = "true";
-                        markBubbleRatingL1State(bubble);
+                        markBubbleRatingFrameState(bubble);
                         return;
                     }
 
-                    markBubbleRatingL1State(bubble);
+                    markBubbleRatingFrameState(bubble);
 
                     const globalCounts = window.jinAnswerRatingCounts || {
                         minus: 0,
@@ -389,7 +914,7 @@
                     window.jinAnswerRatingCounts = globalCounts;
 
                     const bubbleClickCount = Number(bubble.dataset.ratingClickCount || 0) + 1;
-                    const bubbleRatingCountKey = `rating${ratingValue[0].toUpperCase()}${ratingValue.slice(1)}Count`;
+                    const bubbleRatingCountKey = getBubbleRatingCountKey(ratingValue);
                     const previousRating = bubble.dataset.ratingSelected || null;
                     const activeRatingClickCount = Number(bubble.dataset[bubbleRatingCountKey] || 0) + 1;
 
@@ -415,8 +940,9 @@
                         bubble.classList.remove(pressClass);
                     }, 680);
 
-                    setBubbleRatingClickAlt(bubble, activeRatingClickCount);
-                    zones.title = String(activeRatingClickCount);
+                    setBubbleRatingClickAlt(bubble, activeRatingClickCount, ratingValue);
+                    zones.title = "";
+                    syncBubbleRatingZoneTitles(bubble);
 
                     const ratingDetail = {
                         rating: ratingValue,
@@ -445,17 +971,21 @@
             });
 
             bubble.appendChild(zones);
+            bindBubbleRatingModeInteractions(bubble, zones);
         });
     }
 
-    window.addEventListener("jin:l1-rating-gate-ready", () => {
+    window.addEventListener("jin:frame-rating-gate-ready", () => {
         addRatingHoverZones(document);
     });
 
     window.addEventListener("jin:generation-state-changed", () => {
+        if (!ANSWER_RATING_ENABLED) {
+            return;
+        }
         document
             .querySelectorAll(ratingBubbleSelector)
-            .forEach(markBubbleRatingL1State);
+            .forEach(markBubbleRatingFrameState);
     });
 
     addRatingHoverZones(document);
@@ -481,6 +1011,21 @@
     const chatForm = document.getElementById("chat-form");
     if (chatForm) {
         chatForm.addEventListener("submit", () => {
+            if (!ANSWER_RATING_ENABLED) {
+                return;
+            }
+
+            document
+                .querySelectorAll(ratingBubbleSelector)
+                .forEach((bubble) => {
+                    if (
+                        bubble.dataset.ratingDisabled === "true"
+                        && bubble.dataset.ratingPastTurn !== "true"
+                    ) {
+                        markBubbleAsPastTurn(bubble);
+                    }
+                });
+
             document
                 .querySelectorAll(activeRatingBubbleSelector)
                 .forEach((bubble) => {
@@ -489,16 +1034,20 @@
                     const committedClickCount =
                         Number(bubble.dataset.ratingClickCount || 0);
 
-                    bubble.classList.remove(...ratingVisualClasses);
+                    bubble.classList.remove(...ratingPressClasses);
                     bubble.classList.add("jin-rating-committed");
                     bubble.dataset.ratingPending = "false";
                     bubble.dataset.ratingCommitted = "true";
-                    delete bubble.dataset.ratingSelected;
-                    clearBubbleRatingIntensity(bubble);
-                    setBubbleRatingClickAlt(bubble, 0);
+                    bubble.dataset.ratingPastTurn = "true";
 
                     const zones = bubble.querySelector(":scope > .jin-rating-hover-zones");
-                    if (zones) {
+                    if (!committedRating) {
+                        bubble.classList.remove(...ratingVisualClasses);
+                        clearBubbleRatingIntensity(bubble);
+                        setBubbleRatingClickAlt(bubble, 0);
+                    }
+
+                    if (zones && !committedRating) {
                         zones.title = "";
                     }
 

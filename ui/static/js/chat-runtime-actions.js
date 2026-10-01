@@ -2,6 +2,15 @@ const deferredRuntimeActionsAfterResponse = [];
 let runtimeActionRowCounter = 0;
 
 let sceneSearchFadeTimer = null;
+const activeSceneSearchRuntimeActions = new Set();
+const DEEP_SEARCH_STACK_MOTION_MS = 220;
+const DEEP_SEARCH_STACK_COLLAPSED_REVEAL_PX = 0;
+const DEEP_SEARCH_STACK_FIRST_GAP_PX = 5;
+const DEEP_SEARCH_STACK_EXPANDED_GAP_PX = 4;
+const deepSearchStackAnimations = new Map();
+const deepSearchStackExpandedGroups = new Set();
+let deepSearchStackResizeFrameId = null;
+
 
 function getSceneRoot() {
   return document.querySelector("main");
@@ -31,6 +40,54 @@ function setSceneSearchScreenActive(active) {
   );
 }
 
+function buildSceneSearchRuntimeActionKey(
+  action,
+  options = {}
+) {
+
+  const normalizedAction =
+    String(
+      action || "runtime_action"
+    ).trim().toLowerCase()
+    || "runtime_action";
+  const id =
+    String(
+      options.id || ""
+    ).trim();
+
+  if (id) {
+    return `${normalizedAction}:${id}`;
+  }
+
+  const runtimeMessageId =
+    String(
+      options.runtimeMessageId
+      || options.runtime_message_id
+      || ""
+    ).trim();
+  const runtimeTurnId =
+    String(
+      options.runtimeTurnId
+      || options.runtime_turn_id
+      || ""
+    ).trim();
+  const parentId =
+    String(
+      options.deepSearchParentId
+      || options.deep_search_parent_id
+      || ""
+    ).trim();
+
+  return [
+    normalizedAction,
+    id,
+    runtimeMessageId,
+    runtimeTurnId,
+    parentId,
+  ].join(":");
+
+}
+
 function syncSceneSearchScreenForRuntimeAction(
   action,
   active,
@@ -47,8 +104,24 @@ function syncSceneSearchScreenForRuntimeAction(
     return;
   }
 
+  const key =
+    buildSceneSearchRuntimeActionKey(
+      action,
+      options
+    );
+
+  if (active) {
+    activeSceneSearchRuntimeActions.add(
+      key
+    );
+  } else {
+    activeSceneSearchRuntimeActions.delete(
+      key
+    );
+  }
+
   setSceneSearchScreenActive(
-    active
+    activeSceneSearchRuntimeActions.size > 0
   );
 }
 
@@ -85,7 +158,6 @@ const runtimeActionGuardDecisionClasses = [
   "jin-runtime-action-guard-rejected",
   "jin-runtime-action-guard-continued",
 ];
-const RUNTIME_ACTION_SAVE_SESSION = "save_session";
 const RUNTIME_ACTION_GUARD_CONFIRMATION_DELAY_MS = 0;
 const RUNTIME_ACTION_GUARD_ANIMATION_DURATION_MS = 3200;
 const RUNTIME_ACTION_GUARD_GEOMETRY_REFERENCE_WIDTH = 10;
@@ -105,16 +177,195 @@ const RUNTIME_ACTION_GUARD_MAX_ROTATION_SCALE = 0.15;
 const RUNTIME_ACTION_GUARD_MIN_ROTATION_WIDTH = 220;
 const RUNTIME_ACTION_GUARD_MAX_ROTATION_WIDTH = 760;
 const RUNTIME_ACTION_GUARD_MIN_ICON_GAP = 8;
+const RUNTIME_ACTION_ICON_SVG_NS =
+  "http://www.w3.org/2000/svg";
+const runtimeActionIconDefinitions = {
+  chat_log_search: {
+    title: "chat log search",
+    tone: "search",
+    svg: '<circle cx="10.5" cy="10.5" r="5.25"></circle><path d="m15 15 4 4"></path>',
+  },
+  web_search: {
+    title: "web search",
+    tone: "search",
+    svg: '<circle cx="10.5" cy="10.5" r="5.25"></circle><path d="m15 15 4 4"></path>',
+  },
+  deep_web_search: {
+    title: "deep web search",
+    tone: "search",
+    svg: '<circle cx="10.5" cy="10.5" r="5.25"></circle><path d="m15 15 4 4"></path><path d="M5.5 10.5h10"></path><path d="M10.5 5.5c1.5 1.6 2.25 3.25 2.25 5s-.75 3.4-2.25 5"></path><path d="M10.5 5.5c-1.5 1.6-2.25 3.25-2.25 5s.75 3.4 2.25 5"></path>',
+  },
+  save_delayed_memory: {
+    title: "save delayed memory",
+    tone: "save",
+    svg: '<path d="M5 4h11l3 3v13H5z"></path><path d="M8 4v6h7V4"></path><path d="M8 16h8"></path>',
+  },
+  load_delayed_memory: {
+    title: "load delayed memory",
+    tone: "memory",
+    svg: '<path d="M5 5h14v14H5z"></path><path d="M8 8h8"></path><path d="M12 8v8"></path><path d="m9 13 3 3 3-3"></path>',
+  },
+  unload_delayed_memory: {
+    title: "unload delayed memory",
+    tone: "delete",
+    svg: '<path d="M9 4h6l1 2h4"></path><path d="M4 6h16"></path><path d="m7 9 .7 10h8.6L17 9"></path><path d="M10 11v5"></path><path d="M14 11v5"></path>',
+  },
+  save_active_memory: {
+    title: "save active memory",
+    tone: "memory",
+    svg: '<path d="M7 5h10v15l-5-3-5 3z"></path><path d="M12 8v5"></path><path d="M9.5 10.5h5"></path>',
+  },
+  delete_active_memory: {
+    title: "delete active memory",
+    tone: "delete",
+    svg: '<path d="M9 4h6l1 2h4"></path><path d="M4 6h16"></path><path d="m7 9 .7 10h8.6L17 9"></path><path d="M10 11v5"></path><path d="M14 11v5"></path>',
+  },
+  clean_tool_results: {
+    title: "clean tool results",
+    tone: "clean",
+    svg: '<path d="M14 4 5 13"></path><path d="m11 7 6 6"></path><path d="m3 18 4-4 3 3-4 4H3z"></path><path d="M13.5 14.5 17 18"></path>',
+  },
+  load_skill: {
+    title: "load skill",
+    tone: "skill",
+    svg: '<path d="M8 4h8v5H8z"></path><path d="M6 12h12v8H6z"></path><path d="M12 9v3"></path><path d="M10 16h4"></path>',
+  },
+  unload_skill: {
+    title: "unload skill",
+    tone: "delete",
+    svg: '<path d="M8 4h8v5H8z"></path><path d="M6 12h12v8H6z"></path><path d="M10 16h4"></path><path d="m5 5 14 14"></path>',
+  },
+  asset_action: {
+    title: "asset action",
+    tone: "asset",
+    svg: '<path d="m12 3 8 4.5v9L12 21l-8-4.5v-9z"></path><path d="M4 7.5 12 12l8-4.5"></path><path d="M12 12v9"></path>',
+  },
+  posting_board: {
+    title: "posting board",
+    tone: "asset",
+    svg: '<rect x="4" y="5" width="16" height="14" rx="1.5"></rect><path d="M8 9h8"></path><path d="M8 13h5"></path><path d="M7 3v4"></path><path d="M17 3v4"></path>',
+  },
+  idle: {
+    title: "idle",
+    tone: "idle",
+    svg: '<path d="M17 14.5A7 7 0 0 1 9.5 5a7.5 7.5 0 1 0 7.5 9.5z"></path>',
+  },
+  jin_color: {
+    title: "jin color",
+    tone: "color",
+    svg: '<path d="M12 3C8 7.2 6 10.4 6 13.5A6 6 0 0 0 18 13.5C18 10.4 16 7.2 12 3z"></path><path d="M9.5 14.5c.7 1 1.6 1.5 2.5 1.5s1.8-.5 2.5-1.5"></path>',
+  },
+  jin_size: {
+    title: "jin size",
+    tone: "size",
+    svg: '<path d="M4 8V4h4"></path><path d="M20 8V4h-4"></path><path d="M4 16v4h4"></path><path d="M20 16v4h-4"></path>',
+  },
+  update_lt_facts: {
+    title: "update L-T facts",
+    tone: "update",
+    svg: '<ellipse cx="12" cy="6" rx="6" ry="3"></ellipse><path d="M6 6v6c0 1.7 2.7 3 6 3s6-1.3 6-3V6"></path><path d="M6 12v3c0 1.7 2.7 3 6 3 1.3 0 2.4-.2 3.4-.6"></path><path d="m16 16 2 2 3-4"></path>',
+  },
+};
 let runtimeActionGuardGeometryFrame = null;
-let saveSessionPendingUntilL3Active = false;
 
-function isSaveSessionRuntimeAction(
+function normalizeRuntimeActionIconName(
   action
 ) {
 
   return String(
     action || ""
-  ).trim().toLowerCase() === RUNTIME_ACTION_SAVE_SESSION;
+  ).trim().toLowerCase();
+
+}
+
+function getRuntimeActionIconDefinition(
+  action
+) {
+
+  const actionName =
+    normalizeRuntimeActionIconName(
+      action
+    );
+
+  return (
+    runtimeActionIconDefinitions[actionName]
+    || {
+      title: "runtime action",
+      tone: "default",
+      svg: '<circle cx="12" cy="12" r="6"></circle><path d="M12 9v3"></path><path d="M12 15h.01"></path>',
+    }
+  );
+
+}
+
+function appendRuntimeActionIconGlyph(
+  icon,
+  action
+) {
+
+  if (!icon) {
+    return null;
+  }
+
+  const definition =
+    getRuntimeActionIconDefinition(
+      action
+    );
+  const svg =
+    document.createElementNS(
+      RUNTIME_ACTION_ICON_SVG_NS,
+      "svg"
+    );
+
+  icon.classList.add(
+    "jin-runtime-action-icon",
+    `jin-runtime-action-icon-${definition.tone}`
+  );
+  icon.dataset.runtimeActionIcon =
+    normalizeRuntimeActionIconName(
+      action
+    ) || "runtime_action";
+
+  svg.setAttribute(
+    "viewBox",
+    "0 0 24 24"
+  );
+  svg.setAttribute(
+    "aria-hidden",
+    "true"
+  );
+  svg.setAttribute(
+    "focusable",
+    "false"
+  );
+  svg.setAttribute(
+    "fill",
+    "none"
+  );
+  svg.setAttribute(
+    "stroke",
+    "currentColor"
+  );
+  svg.setAttribute(
+    "stroke-width",
+    "1.8"
+  );
+  svg.setAttribute(
+    "stroke-linecap",
+    "round"
+  );
+  svg.setAttribute(
+    "stroke-linejoin",
+    "round"
+  );
+  svg.innerHTML =
+    definition.svg;
+
+  icon.replaceChildren(
+    svg
+  );
+
+  return definition;
 
 }
 
@@ -129,75 +380,209 @@ function canPreviewAssetResult(
 
 }
 
-function setRuntimeActionPendingUntilL3(
-  row,
-  pending
+function bindPostingBoardResultPreview(
+  element,
+  postingBoardResult
+) {
+  if (!element) {
+    return;
+  }
+
+  if (element._postingBoardPreviewHandler) {
+    element.removeEventListener(
+      "click",
+      element._postingBoardPreviewHandler
+    );
+    element.removeEventListener(
+      "keydown",
+      element._postingBoardPreviewKeyHandler
+    );
+    delete element._postingBoardPreviewHandler;
+    delete element._postingBoardPreviewKeyHandler;
+  }
+
+  element.classList.remove(
+    "cursor-pointer"
+  );
+  if (element.dataset.postingBoardPreviewTitle) {
+    element.removeAttribute("title");
+    delete element.dataset.postingBoardPreviewTitle;
+  }
+  element.removeAttribute("role");
+  element.removeAttribute("tabindex");
+
+  if (
+    !postingBoardResult
+    || typeof postingBoardResult !== "object"
+  ) {
+    return;
+  }
+
+  const openPreview = () => {
+    if (typeof window.showPostingBoardTrace === "function") {
+      window.showPostingBoardTrace(
+        postingBoardResult
+      );
+      return;
+    }
+
+    if (typeof window.showTrace === "function") {
+      window.showTrace(
+        JSON.stringify(postingBoardResult, null, 2),
+        "POSTING BOARD"
+      );
+    }
+  };
+  const keyHandler = (event) => {
+    if (event.key !== "Enter" && event.key !== " ") {
+      return;
+    }
+    event.preventDefault();
+    openPreview();
+  };
+
+  element._postingBoardPreviewHandler = openPreview;
+  element._postingBoardPreviewKeyHandler = keyHandler;
+  element.addEventListener("click", openPreview);
+  element.addEventListener("keydown", keyHandler);
+  element.classList.add("cursor-pointer");
+  element.dataset.postingBoardPreviewTitle = "1";
+  element.title = "show posting board request / response";
+  element.setAttribute("role", "button");
+  element.setAttribute("tabindex", "0");
+}
+
+
+function getMcpRuntimeActionRequest(
+  options = {}
 ) {
 
-  if (!row) {
-      return;
-  }
+  const candidates = [
+    options.mcpRequest,
+    options.mcpResult,
+    options.mcpPayload,
+  ];
 
-  if (
-      isSaveSessionRuntimeAction(
-        row.dataset.runtimeAction
-      )
-      && pending
-      && runtimeActionRowIsTerminal(
-        row
-      )
-  ) {
-    saveSessionPendingUntilL3Active = false;
-    row.classList.remove(
-      "jin-runtime-action-pending-l3"
-    );
-    delete row.dataset.runtimeActionPendingL3;
-    return;
-  }
+  for (const candidate of candidates) {
+    let parsed = candidate;
 
-  if (
-      isSaveSessionRuntimeAction(
-        row.dataset.runtimeAction
-      )
-  ) {
-    saveSessionPendingUntilL3Active =
-      Boolean(pending);
-  }
-
-  row.classList.toggle(
-    "jin-runtime-action-pending-l3",
-    pending
-  );
-
-  if (!pending) {
-    delete row.dataset.runtimeActionPendingL3;
-    if (
-        isSaveSessionRuntimeAction(
-          row.dataset.runtimeAction
-        )
-    ) {
-      saveSessionPendingUntilL3Active = false;
+    if (typeof parsed === "string") {
+      try {
+        parsed = JSON.parse(parsed);
+      } catch (_error) {
+        parsed = null;
+      }
     }
+
+    if (
+      parsed
+      && typeof parsed === "object"
+      && !Array.isArray(parsed)
+      && (parsed.skill || parsed.tool || parsed.arguments)
+    ) {
+      return {
+        skill: String(parsed.skill || "").trim(),
+        tool: String(parsed.tool || "").trim(),
+        arguments:
+          parsed.arguments
+          && typeof parsed.arguments === "object"
+          && !Array.isArray(parsed.arguments)
+            ? parsed.arguments
+            : {},
+      };
+    }
+  }
+
+  return null;
+
+}
+
+function bindMcpRuntimeActionPreview(
+  element,
+  options = {}
+) {
+
+  if (!element) {
     return;
   }
 
-  row.dataset.runtimeActionPendingL3 =
-    "true";
-  delete row.dataset.runtimeActionCompleted;
-  delete row.dataset.runtimeActionCompletionDeferred;
-  row.classList.remove(
-    "opacity-45",
-    ...runtimeActionGuardDecisionClasses
-  );
-  row
-    .querySelectorAll("div, button")
-    .forEach((element) => {
-      element.classList.remove(
-        "border-zinc-700/50",
-        "bg-zinc-900/30",
-        "text-zinc-400"
+  const request =
+    getMcpRuntimeActionRequest(options);
+
+  element._jinMcpRequest = request;
+
+  if (!request) {
+    return;
+  }
+
+  const isViewportScreenshot =
+    request.tool.toLowerCase()
+    === "get_viewport_screenshot";
+  const attachments =
+    options.mcpResult
+    && Array.isArray(options.mcpResult.attachments)
+      ? options.mcpResult.attachments
+      : [];
+  const screenshot =
+    isViewportScreenshot
+      ? attachments.find((item) => (
+        item
+        && (
+          String(item.kind || "").toLowerCase() === "image"
+          || String(item.type || item.mime_type || "")
+            .toLowerCase().startsWith("image/")
+        )
+      )) || attachments[0]
+      : null;
+
+  if (
+    screenshot
+    && typeof window.bindRuntimeActionAttachmentPreview
+      === "function"
+  ) {
+    window.bindRuntimeActionAttachmentPreview(
+      element,
+      screenshot,
+      screenshot.id || ""
+    );
+    return;
+  }
+
+  if (isViewportScreenshot) {
+    return;
+  }
+
+  element.classList.remove("cursor-help");
+  element.classList.add("cursor-pointer");
+  element.setAttribute("role", "button");
+  element.tabIndex = 0;
+  element.title = "show MCP payload";
+
+  if (element._jinMcpPayloadBound) {
+    return;
+  }
+
+  element._jinMcpPayloadBound = true;
+
+  const openPayload = () => {
+    if (typeof window.showMcpPayloadTrace === "function") {
+      window.showMcpPayloadTrace(
+        element._jinMcpRequest
       );
-    });
+    }
+  };
+
+  element.addEventListener("click", (event) => {
+    event.preventDefault();
+    openPayload();
+  });
+  element.addEventListener("keydown", (event) => {
+    if (event.key !== "Enter" && event.key !== " ") {
+      return;
+    }
+    event.preventDefault();
+    openPayload();
+  });
 
 }
 
@@ -224,58 +609,1184 @@ function runtimeActionRowIsTerminal(
 
 }
 
-function activateRuntimeActionPendingUntilL3(
-  action = RUNTIME_ACTION_SAVE_SESSION
+function runtimeActionBooleanOption(
+  options,
+  camelName,
+  snakeName
+) {
+
+  return (
+    options[camelName] === true
+    || options[snakeName] === true
+  );
+
+}
+
+function normalizeRuntimeActionDataValue(
+  value
+) {
+
+  return String(
+    value || ""
+  ).trim();
+
+}
+
+function isDeepSearchParentRuntimeAction(
+  action,
+  options = {}
 ) {
 
   const normalizedAction =
-    String(action || "").trim().toLowerCase();
+    String(
+      action || ""
+    ).trim().toLowerCase();
 
-  if (
-      normalizedAction !== RUNTIME_ACTION_SAVE_SESSION
-  ) {
-    return false;
+  return (
+    normalizedAction === "deep_web_search"
+    || runtimeActionBooleanOption(
+      options,
+      "deepSearchParent",
+      "deep_search_parent"
+    )
+  );
+
+}
+
+function isDeepSearchChildRuntimeAction(
+  action,
+  options = {}
+) {
+
+  const normalizedAction =
+    String(
+      action || ""
+    ).trim().toLowerCase();
+
+  return (
+    normalizedAction === "web_search"
+    && runtimeActionBooleanOption(
+      options,
+      "deepSearchChild",
+      "deep_search_child"
+    )
+  );
+
+}
+
+function isDeepSearchRuntimeActionRow(
+  action,
+  options = {}
+) {
+
+  return (
+    isDeepSearchParentRuntimeAction(
+      action,
+      options
+    )
+    || isDeepSearchChildRuntimeAction(
+      action,
+      options
+    )
+  );
+
+}
+
+function readDeepSearchGroupId(
+  row
+) {
+
+  if (!row) {
+    return "";
   }
 
-  const rows = Array.from(
+  return normalizeRuntimeActionDataValue(
+    row.dataset.runtimeActionDeepSearchGroup
+  );
+
+}
+
+function findDeepSearchGroupRows(
+  groupId
+) {
+
+  const normalizedGroupId =
+    normalizeRuntimeActionDataValue(
+      groupId
+    );
+
+  if (!normalizedGroupId) {
+    return [];
+  }
+
+  return Array.from(
     chatHistory.querySelectorAll(
-      `[data-runtime-action="${RUNTIME_ACTION_SAVE_SESSION}"]`
+      ".jin-runtime-action-deep-search-parent,"
+      + ".jin-runtime-action-deep-search-child"
     )
   ).filter((row) => (
-    !runtimeActionRowIsTerminal(
+    readDeepSearchGroupId(
       row
+    ) === normalizedGroupId
+  ));
+
+}
+
+function readDeepSearchStackMarginTop(
+  row
+) {
+
+  const marginTop = Number.parseFloat(
+    window.getComputedStyle(
+      row
+    ).marginTop || "0"
+  );
+
+  return Number.isFinite(marginTop)
+    ? marginTop
+    : 0;
+
+}
+
+function writeDeepSearchStackVisualOffset(
+  row,
+  offset
+) {
+
+  const label = row.querySelector(
+    ":scope > .jin-runtime-action-label"
+  );
+
+  if (!label) {
+    return;
+  }
+
+  const normalizedOffset = Number.isFinite(offset)
+    ? offset
+    : 0;
+
+  if (Math.abs(normalizedOffset) <= 0.05) {
+    delete row.dataset.runtimeActionDeepSearchVisualOffset;
+    label.style.removeProperty(
+      "--jin-deep-search-stack-translate-y"
+    );
+    return;
+  }
+
+  row.dataset.runtimeActionDeepSearchVisualOffset =
+    String(normalizedOffset);
+  label.style.setProperty(
+    "--jin-deep-search-stack-translate-y",
+    `${normalizedOffset}px`
+  );
+
+}
+
+function writeDeepSearchStackMarginTop(
+  row,
+  marginTop
+) {
+
+  row.style.setProperty(
+    "margin-top",
+    `${marginTop}px`,
+    "important"
+  );
+
+}
+
+function buildDeepSearchStackTargetMargins(
+  childRows,
+  expanded
+) {
+
+  return childRows.map((childRow, index) => {
+    if (index === 0) {
+      return DEEP_SEARCH_STACK_FIRST_GAP_PX;
+    }
+
+    if (expanded) {
+      return DEEP_SEARCH_STACK_EXPANDED_GAP_PX;
+    }
+
+    const previousRow = childRows[index - 1];
+    const previousHeight = Math.max(
+      0,
+      previousRow.offsetHeight || 0
+    );
+
+    return (
+      DEEP_SEARCH_STACK_COLLAPSED_REVEAL_PX
+      - previousHeight
+    );
+  });
+
+}
+
+function syncDeepSearchStackScrollAnchor() {
+
+  if (!chatHistory) {
+    return;
+  }
+
+  chatHistory.classList.toggle(
+    "jin-deep-search-stack-animating",
+    deepSearchStackAnimations.size > 0
+  );
+
+}
+
+function clearDeepSearchStackMotionNode(
+  node
+) {
+
+  if (!node) {
+    return;
+  }
+
+  node.classList.remove(
+    "jin-deep-search-stack-motion",
+    "jin-deep-search-stack-motion-prep"
+  );
+  node.style.removeProperty(
+    "--jin-deep-search-stack-motion-y"
+  );
+
+}
+
+function cancelDeepSearchStackAnimation(
+  groupId
+) {
+
+  const activeAnimation =
+    deepSearchStackAnimations.get(
+      groupId
+    );
+
+  if (!activeAnimation) {
+    return;
+  }
+
+  if (activeAnimation.frameId !== null) {
+    window.cancelAnimationFrame(
+      activeAnimation.frameId
+    );
+  }
+
+  if (activeAnimation.cleanupTimer !== null) {
+    window.clearTimeout(
+      activeAnimation.cleanupTimer
+    );
+  }
+
+  (
+    activeAnimation.motionNodes || []
+  ).forEach(
+    clearDeepSearchStackMotionNode
+  );
+
+  deepSearchStackAnimations.delete(
+    groupId
+  );
+  syncDeepSearchStackScrollAnchor();
+
+}
+
+function buildDeepSearchStackMotionEntries(
+  groupRows,
+  childRows
+) {
+
+  const entries = [];
+  const seenNodes = new Set();
+
+  childRows.forEach((childRow) => {
+    const label = childRow.querySelector(
+      ":scope > .jin-runtime-action-label"
+    );
+
+    if (!label || seenNodes.has(childRow)) {
+      return;
+    }
+
+    seenNodes.add(childRow);
+    entries.push({
+      node: childRow,
+      measureNode: label,
+    });
+  });
+
+  const directGroupRows = groupRows.filter((groupRow) => (
+    groupRow.parentElement === chatHistory
+  ));
+  const lastGroupRow =
+    directGroupRows[directGroupRows.length - 1];
+  let sibling =
+    lastGroupRow
+      ? lastGroupRow.nextElementSibling
+      : null;
+
+  while (sibling) {
+    if (!seenNodes.has(sibling)) {
+      seenNodes.add(sibling);
+      entries.push({
+        node: sibling,
+        measureNode: sibling,
+      });
+    }
+
+    sibling = sibling.nextElementSibling;
+  }
+
+  return entries;
+
+}
+
+function captureDeepSearchStackMotionEntries(
+  groupRows,
+  childRows
+) {
+
+  return buildDeepSearchStackMotionEntries(
+    groupRows,
+    childRows
+  ).map((entry) => ({
+    ...entry,
+    beforeTop:
+      entry.measureNode.getBoundingClientRect().top,
+  }));
+
+}
+
+function finishDeepSearchStackAnimation(
+  groupId,
+  animationState
+) {
+
+  if (
+    deepSearchStackAnimations.get(
+      groupId
+    ) !== animationState
+  ) {
+    return;
+  }
+
+  (
+    animationState.motionNodes || []
+  ).forEach(
+    clearDeepSearchStackMotionNode
+  );
+
+  deepSearchStackAnimations.delete(
+    groupId
+  );
+  syncDeepSearchStackScrollAnchor();
+
+}
+
+function startDeepSearchStackFlip(
+  groupId,
+  motionEntries,
+  animationState
+) {
+
+  const movedEntries = [];
+
+  motionEntries.forEach((entry) => {
+    if (
+      !entry.node
+      || !entry.node.isConnected
+      || !entry.measureNode
+      || !entry.measureNode.isConnected
+    ) {
+      return;
+    }
+
+    const afterTop =
+      entry.measureNode.getBoundingClientRect().top;
+    const deltaY =
+      entry.beforeTop - afterTop;
+
+    if (Math.abs(deltaY) <= 0.1) {
+      return;
+    }
+
+    entry.node.classList.add(
+      "jin-deep-search-stack-motion",
+      "jin-deep-search-stack-motion-prep"
+    );
+    entry.node.style.setProperty(
+      "--jin-deep-search-stack-motion-y",
+      `${deltaY}px`
+    );
+    movedEntries.push(entry);
+  });
+
+  animationState.motionNodes =
+    movedEntries.map((entry) => entry.node);
+
+  if (!movedEntries.length) {
+    finishDeepSearchStackAnimation(
+      groupId,
+      animationState
+    );
+    return;
+  }
+
+  // Commit the inverse FLIP position with transitions disabled. The layout
+  // is already in its final state, so the rest of the chat does not reflow
+  // frame-by-frame while the visual motion plays on the compositor.
+  void chatHistory.offsetHeight;
+
+  movedEntries.forEach((entry) => {
+    entry.node.classList.remove(
+      "jin-deep-search-stack-motion-prep"
+    );
+  });
+
+  animationState.frameId =
+    window.requestAnimationFrame(() => {
+      if (
+        deepSearchStackAnimations.get(
+          groupId
+        ) !== animationState
+      ) {
+        return;
+      }
+
+      animationState.frameId = null;
+
+      movedEntries.forEach((entry) => {
+        entry.node.style.setProperty(
+          "--jin-deep-search-stack-motion-y",
+          "0px"
+        );
+      });
+
+      animationState.cleanupTimer =
+        window.setTimeout(() => {
+          finishDeepSearchStackAnimation(
+            groupId,
+            animationState
+          );
+        }, DEEP_SEARCH_STACK_MOTION_MS + 40);
+    });
+
+}
+
+function buildDeepSearchStackExpandedVisualOffsets(
+  childRows
+) {
+
+  let cumulativeOffset = 0;
+
+  return childRows.map((childRow, index) => {
+    if (index === 0) {
+      return 0;
+    }
+
+    const previousRow = childRows[index - 1];
+    const previousHeight = Math.max(
+      0,
+      previousRow.offsetHeight || 0
+    );
+
+    cumulativeOffset += (
+      previousHeight
+      + DEEP_SEARCH_STACK_EXPANDED_GAP_PX
+      - DEEP_SEARCH_STACK_COLLAPSED_REVEAL_PX
+    );
+
+    return cumulativeOffset;
+  });
+
+}
+
+function syncDeepSearchStackChildVisibility(
+  groupId,
+  expanded
+) {
+
+  findDeepSearchGroupRows(
+    groupId
+  ).filter((groupRow) => (
+    groupRow.classList.contains(
+      "jin-runtime-action-deep-search-child"
+    )
+  )).forEach((childRow, index) => {
+    childRow.classList.toggle(
+      "jin-runtime-action-deep-search-child-obscured",
+      !expanded && index > 0
+    );
+  });
+
+}
+
+function settleDeepSearchStackGeometry(
+  groupId,
+  expanded
+) {
+
+  const groupRows = findDeepSearchGroupRows(
+    groupId
+  );
+  const parentRow = groupRows.find((groupRow) => (
+    groupRow.classList.contains(
+      "jin-runtime-action-deep-search-parent"
+    )
+  ));
+  const childRows = groupRows.filter((groupRow) => (
+    groupRow.classList.contains(
+      "jin-runtime-action-deep-search-child"
     )
   ));
 
-  const currentTurn =
-    String(jinConversationTurnCounter);
-  const row =
-    (
-      rows.findLast
-        ? rows.findLast((candidate) => (
-          candidate.dataset.runtimeActionTurn === currentTurn
-        ))
-        : rows
-            .slice()
-            .reverse()
-            .find((candidate) => (
-              candidate.dataset.runtimeActionTurn === currentTurn
-            ))
-    )
-    || rows[rows.length - 1]
-    || null;
+  if (!parentRow || !childRows.length) {
+    return;
+  }
 
-  if (!row) {
-    saveSessionPendingUntilL3Active = false;
+  cancelDeepSearchStackAnimation(
+    groupId
+  );
+
+  groupRows.forEach((groupRow) => {
+    groupRow.classList.toggle(
+      "jin-runtime-action-deep-search-stack-expanded",
+      expanded
+    );
+  });
+
+  const targetMargins =
+    buildDeepSearchStackTargetMargins(
+      childRows,
+      false
+    );
+  const targetVisualOffsets = expanded
+    ? buildDeepSearchStackExpandedVisualOffsets(
+      childRows
+    )
+    : childRows.map(() => 0);
+
+  childRows.forEach((childRow, index) => {
+    writeDeepSearchStackMarginTop(
+      childRow,
+      targetMargins[index]
+    );
+    writeDeepSearchStackVisualOffset(
+      childRow,
+      targetVisualOffsets[index]
+    );
+  });
+
+  syncDeepSearchStackChildVisibility(
+    groupId,
+    expanded
+  );
+
+}
+
+function primeDeepSearchInsertedChild(
+  row,
+  groupId,
+  expanded
+) {
+
+  if (!row || !row.offsetHeight) {
     return false;
   }
 
-  setRuntimeActionPendingUntilL3(
-    row,
-    true
+  cancelDeepSearchStackAnimation(
+    groupId
   );
 
+  writeDeepSearchStackMarginTop(
+    row,
+    -row.offsetHeight
+  );
+  writeDeepSearchStackVisualOffset(
+    row,
+    0
+  );
+
+  window.requestAnimationFrame(() => {
+    if (!row.isConnected) {
+      return;
+    }
+
+    settleDeepSearchStackGeometry(
+      groupId,
+      expanded
+    );
+  });
+
   return true;
+
+}
+
+function setDeepSearchStackExpanded(
+  row,
+  expanded,
+  options = {}
+) {
+
+  const groupId = readDeepSearchGroupId(
+    row
+  );
+  const groupRows = findDeepSearchGroupRows(
+    groupId
+  );
+
+  if (!groupId || !groupRows.length) {
+    return;
+  }
+
+  const wasExpanded =
+    deepSearchStackExpandedGroups.has(
+      groupId
+    );
+
+  if (expanded) {
+    deepSearchStackExpandedGroups.add(
+      groupId
+    );
+  } else {
+    deepSearchStackExpandedGroups.delete(
+      groupId
+    );
+  }
+
+  const parentRow = groupRows.find((groupRow) => (
+    groupRow.classList.contains(
+      "jin-runtime-action-deep-search-parent"
+    )
+  ));
+  const childRows = groupRows.filter((groupRow) => (
+    groupRow.classList.contains(
+      "jin-runtime-action-deep-search-child"
+    )
+  ));
+
+  if (!parentRow || !childRows.length) {
+    return;
+  }
+
+  if (
+    wasExpanded === expanded
+    && options.force !== true
+  ) {
+    syncDeepSearchStackChildVisibility(
+      groupId,
+      expanded
+    );
+    return;
+  }
+
+  cancelDeepSearchStackAnimation(
+    groupId
+  );
+
+  const targetMargins =
+    buildDeepSearchStackTargetMargins(
+      childRows,
+      false
+    );
+  const targetVisualOffsets = expanded
+    ? buildDeepSearchStackExpandedVisualOffsets(
+      childRows
+    )
+    : childRows.map(() => 0);
+
+  childRows.forEach((childRow, index) => {
+    writeDeepSearchStackMarginTop(
+      childRow,
+      targetMargins[index]
+    );
+    writeDeepSearchStackVisualOffset(
+      childRow,
+      targetVisualOffsets[index]
+    );
+  });
+
+  groupRows.forEach((groupRow) => {
+    groupRow.classList.toggle(
+      "jin-runtime-action-deep-search-stack-expanded",
+      expanded
+    );
+  });
+
+  syncDeepSearchStackChildVisibility(
+    groupId,
+    expanded
+  );
+
+}
+
+function deepSearchStackHasSelectedText() {
+
+  if (!window.getSelection) {
+    return false;
+  }
+
+  const selection = window.getSelection();
+
+  return Boolean(
+    selection
+    && !selection.isCollapsed
+    && String(selection).trim()
+  );
+
+}
+
+function bindDeepSearchStackClick(
+  row
+) {
+
+  if (
+    !row
+    || !row.classList.contains(
+      "jin-runtime-action-deep-search-child"
+    )
+    || row.dataset.runtimeActionDeepSearchClickBound === "true"
+  ) {
+    return;
+  }
+
+  const clickTarget = row.querySelector(
+    ":scope > .jin-runtime-action-label"
+  );
+
+  if (!clickTarget) {
+    return;
+  }
+
+  row.dataset.runtimeActionDeepSearchClickBound =
+    "true";
+
+  clickTarget.addEventListener(
+    "click",
+    () => {
+      const groupId = readDeepSearchGroupId(
+        row
+      );
+
+      if (
+        !groupId
+        || deepSearchStackExpandedGroups.has(
+          groupId
+        )
+        || deepSearchStackHasSelectedText()
+      ) {
+        return;
+      }
+
+      const firstChildRow = findDeepSearchGroupRows(
+        groupId
+      ).find((groupRow) => (
+        groupRow.classList.contains(
+          "jin-runtime-action-deep-search-child"
+        )
+      ));
+
+      if (firstChildRow !== row) {
+        return;
+      }
+
+      setDeepSearchStackExpanded(
+        row,
+        true
+      );
+    }
+  );
+
+}
+
+function handleDeepSearchStackDocumentClick(
+  event
+) {
+
+  if (!deepSearchStackExpandedGroups.size) {
+    return;
+  }
+
+  const target = event.target;
+
+  Array.from(
+    deepSearchStackExpandedGroups
+  ).forEach((groupId) => {
+    const groupRows = findDeepSearchGroupRows(
+      groupId
+    );
+
+    if (
+      target
+      && groupRows.some((groupRow) => (
+        groupRow.contains(target)
+      ))
+    ) {
+      return;
+    }
+
+    const anchorRow = groupRows[0];
+
+    if (!anchorRow) {
+      deepSearchStackExpandedGroups.delete(
+        groupId
+      );
+      return;
+    }
+
+    setDeepSearchStackExpanded(
+      anchorRow,
+      false
+    );
+  });
+
+}
+
+function scheduleDeepSearchStackGeometrySync() {
+
+  if (deepSearchStackResizeFrameId !== null) {
+    window.cancelAnimationFrame(
+      deepSearchStackResizeFrameId
+    );
+  }
+
+  deepSearchStackResizeFrameId = window.requestAnimationFrame(
+    () => {
+      deepSearchStackResizeFrameId = null;
+
+      const groupIds = new Set(
+        Array.from(
+          chatHistory.querySelectorAll(
+            ".jin-runtime-action-deep-search-parent"
+          )
+        ).map(
+          readDeepSearchGroupId
+        ).filter(Boolean)
+      );
+
+      groupIds.forEach((groupId) => {
+        settleDeepSearchStackGeometry(
+          groupId,
+          deepSearchStackExpandedGroups.has(
+            groupId
+          )
+        );
+      });
+    }
+  );
+
+}
+
+function syncRuntimeActionDetailHover(
+  row,
+  label,
+  detail,
+  suppress = false
+) {
+
+  const hoverDetail =
+    suppress
+      ? ""
+      : String(detail || "").trim();
+
+  if (hoverDetail) {
+    label.title = hoverDetail;
+    row.title = hoverDetail;
+    label
+      .querySelectorAll(
+        ".jin-runtime-action-name, .jin-runtime-action-marker-count"
+      )
+      .forEach(node => {
+        node.title = hoverDetail;
+      });
+    label.classList.add(
+      "cursor-help"
+    );
+    return;
+  }
+
+  label.removeAttribute(
+    "title"
+  );
+  row.removeAttribute(
+    "title"
+  );
+  label
+    .querySelectorAll(
+      ".jin-runtime-action-name, .jin-runtime-action-marker-count"
+    )
+    .forEach(node => {
+      node.removeAttribute("title");
+    });
+  label.classList.remove(
+    "cursor-help"
+  );
+
+}
+
+function syncDeepSearchChildStack(
+  row
+) {
+
+  const groupId =
+    readDeepSearchGroupId(
+      row
+    );
+
+  if (!groupId) {
+    return;
+  }
+
+  findDeepSearchGroupRows(
+    groupId
+  ).filter((groupRow) => (
+    groupRow.classList.contains(
+      "jin-runtime-action-deep-search-child"
+    )
+  )).forEach((childRow, index) => {
+    childRow.dataset.runtimeActionDeepSearchIndex =
+      String(index + 1);
+    childRow.style.setProperty(
+      "--jin-deep-search-stack-order",
+      String(index)
+    );
+    childRow.style.setProperty(
+      "--jin-deep-search-stack-z",
+      String(30 - index)
+    );
+  });
+
+}
+
+function insertRuntimeActionRow(
+  row,
+  action,
+  options = {}
+) {
+
+  if (row) {
+    // Every newly materialized runtime-action bubble uses the same 250ms
+    // accelerating drop-in motion, regardless of action type.
+    row.classList.add(
+      "jin-runtime-action-enter"
+    );
+
+    if (
+      row.classList.contains(
+        "jin-runtime-action-deep-search"
+      )
+    ) {
+      bindDeepSearchStackClick(
+        row
+      );
+    }
+  }
+
+  if (
+      !row
+      || !isDeepSearchChildRuntimeAction(
+        action,
+        options
+      )
+  ) {
+    chatHistory.appendChild(
+      row
+    );
+    return;
+  }
+
+  const groupId =
+    readDeepSearchGroupId(
+      row
+    );
+  const groupRows =
+    findDeepSearchGroupRows(
+      groupId
+    );
+  const parentRow =
+    groupRows.find((groupRow) => (
+      groupRow.classList.contains(
+        "jin-runtime-action-deep-search-parent"
+      )
+    ));
+  const firstChildRow =
+    groupRows.find((groupRow) => (
+      groupRow.classList.contains(
+        "jin-runtime-action-deep-search-child"
+      )
+    ));
+
+  if (
+      parentRow
+      && parentRow.parentElement === chatHistory
+  ) {
+    parentRow.insertAdjacentElement(
+      "afterend",
+      row
+    );
+  } else if (
+      firstChildRow
+      && firstChildRow.parentElement === chatHistory
+  ) {
+    chatHistory.insertBefore(
+      row,
+      firstChildRow
+    );
+  } else {
+    chatHistory.appendChild(
+      row
+    );
+  }
+
+  syncDeepSearchChildStack(
+    row
+  );
+
+  primeDeepSearchInsertedChild(
+    row,
+    groupId,
+    deepSearchStackExpandedGroups.has(
+      groupId
+    )
+  );
+
+}
+
+function syncRuntimeActionSearchState(
+  row,
+  action,
+  options = {}
+) {
+
+  if (!row) {
+    return;
+  }
+
+  const isDeepSearch =
+    isDeepSearchRuntimeActionRow(
+      action,
+      options
+    );
+  const isDeepSearchParent =
+    isDeepSearchParentRuntimeAction(
+      action,
+      options
+    );
+  const isDeepSearchChild =
+    isDeepSearchChildRuntimeAction(
+      action,
+      options
+    );
+
+  if (!isDeepSearch) {
+    delete row.dataset.runtimeActionDeepSearch;
+    delete row.dataset.runtimeActionDeepSearchGroup;
+    delete row.dataset.runtimeActionDeepSearchParent;
+    delete row.dataset.runtimeActionDeepSearchObjective;
+    delete row.dataset.runtimeActionStatus;
+    row.classList.remove(
+      "jin-runtime-action-deep-search",
+      "jin-runtime-action-deep-search-parent",
+      "jin-runtime-action-deep-search-child",
+      "jin-runtime-action-deep-search-stack-expanded"
+    );
+    return;
+  }
+
+  const status =
+    String(
+      options.status || ""
+    ).trim().toLowerCase();
+
+  if (status) {
+    row.dataset.runtimeActionStatus =
+      status;
+  } else {
+    delete row.dataset.runtimeActionStatus;
+  }
+
+  row.dataset.runtimeActionDeepSearch =
+    "true";
+  row.classList.add(
+    "jin-runtime-action-deep-search"
+  );
+  row.classList.toggle(
+    "jin-runtime-action-deep-search-parent",
+    isDeepSearchParent
+  );
+  row.classList.toggle(
+    "jin-runtime-action-deep-search-child",
+    isDeepSearchChild
+  );
+
+  const parentId =
+    normalizeRuntimeActionDataValue(
+      options.deepSearchParentId
+      || options.deep_search_parent_id
+    );
+  const objective =
+    normalizeRuntimeActionDataValue(
+      options.deepSearchObjective
+      || options.deep_search_objective
+      || options.query
+      || options.detail
+    );
+  const ownId =
+    normalizeRuntimeActionDataValue(
+      row.dataset.runtimeActionId
+      || options.id
+    );
+  const groupId =
+    parentId
+    || (
+      isDeepSearchParent
+        ? ownId
+        : ""
+    )
+    || (
+      objective
+        ? `objective:${objective}`
+        : ""
+    );
+
+  if (groupId) {
+    row.dataset.runtimeActionDeepSearchGroup =
+      groupId;
+  }
+
+  if (parentId) {
+    row.dataset.runtimeActionDeepSearchParent =
+      parentId;
+  }
+
+  if (objective) {
+    row.dataset.runtimeActionDeepSearchObjective =
+      objective;
+  }
+
+  if (isDeepSearchChild) {
+    row
+      .querySelectorAll(
+        ":scope > .jin-runtime-action-icon"
+      )
+      .forEach((icon) => {
+        icon.remove();
+      });
+    bindDeepSearchStackClick(
+      row
+    );
+    syncDeepSearchChildStack(
+      row
+    );
+    return;
+  }
+
+  if (isDeepSearchParent) {
+    bindDeepSearchStackClick(
+      row
+    );
+  }
 
 }
 
@@ -584,32 +2095,205 @@ function runtimeActionRowMatchesScope(
 
 }
 
-function normalizeRuntimeActionColor(value) {
+function normalizeRuntimeActionLifecycleStatus(value) {
 
-  const match =
-    String(
-      value || ""
-    ).trim().match(
-      /^#?([0-9a-f]{3}|[0-9a-f]{6})$/i
-    );
-
-  if (!match) {
-    return "";
-  }
-
-  let hex =
-    match[1].toLowerCase();
-
-  if (hex.length === 3) {
-    hex = hex
-      .split("")
-      .map((char) => char + char)
-      .join("");
-  }
-
-  return `#${hex}`;
+  return normalizeRuntimeActionKeyPart(
+    value
+  );
 
 }
+
+function isRuntimeActionLifecycleStartStatus(value) {
+
+  return [
+    "started",
+    "start",
+    "pending",
+  ].includes(
+    normalizeRuntimeActionLifecycleStatus(
+      value
+    )
+  );
+
+}
+
+function isRuntimeActionLifecycleProgressStatus(value) {
+
+  const status =
+    normalizeRuntimeActionLifecycleStatus(
+      value
+    );
+
+  return Boolean(status)
+    && !isRuntimeActionLifecycleStartStatus(
+      status
+    )
+    && status !== "summary"
+    && status !== "counter_final";
+
+}
+
+function isRuntimeActionLifecycleTerminalStatus(value) {
+
+  return [
+    "completed",
+    "complete",
+    "done",
+    "failed",
+    "interrupted",
+    "aborted",
+  ].includes(
+    normalizeRuntimeActionLifecycleStatus(
+      value
+    )
+  );
+
+}
+
+function runtimeActionRowMatchesLifecycleScope(
+  row,
+  runtimeTurnId,
+  runtimeMessageId
+) {
+
+  if (!row) {
+    return false;
+  }
+
+  const rowRuntimeTurnId =
+    normalizeRuntimeActionKeyPart(
+      row.dataset.runtimeActionRuntimeTurn
+    );
+  const normalizedRuntimeTurnId =
+    normalizeRuntimeActionKeyPart(
+      runtimeTurnId
+    );
+
+  if (
+    rowRuntimeTurnId
+    && normalizedRuntimeTurnId
+    && rowRuntimeTurnId !== normalizedRuntimeTurnId
+  ) {
+    return false;
+  }
+
+  const rowRuntimeMessageId =
+    normalizeRuntimeActionKeyPart(
+      row.dataset.runtimeActionRuntimeMessage
+    );
+  const normalizedRuntimeMessageId =
+    normalizeRuntimeActionKeyPart(
+      runtimeMessageId
+    );
+
+  if (
+    rowRuntimeMessageId
+    && normalizedRuntimeMessageId
+    && rowRuntimeMessageId !== normalizedRuntimeMessageId
+  ) {
+    return false;
+  }
+
+  return true;
+
+}
+
+function markRuntimeActionLifecyclePhase(
+  row,
+  status
+) {
+
+  if (!row) {
+    return;
+  }
+
+  const normalizedStatus =
+    normalizeRuntimeActionLifecycleStatus(
+      status
+    );
+
+  if (!normalizedStatus) {
+    return;
+  }
+
+  row.dataset.runtimeActionLifecycleStatus =
+    normalizedStatus;
+
+  if (
+    isRuntimeActionLifecycleStartStatus(
+      normalizedStatus
+    )
+  ) {
+    row.dataset.runtimeActionLifecycleStarted =
+      "true";
+    if (
+      row.dataset.runtimeActionLifecycleBound
+      !== "true"
+    ) {
+      row.dataset.runtimeActionLifecycleBound =
+        "false";
+    }
+    return;
+  }
+
+  if (
+    isRuntimeActionLifecycleProgressStatus(
+      normalizedStatus
+    )
+  ) {
+    row.dataset.runtimeActionLifecycleBound =
+      "true";
+  }
+
+}
+
+function findRuntimeActionLifecycleRow(
+  action,
+  options = {},
+  {allowBound = false} = {}
+) {
+
+  const normalizedAction =
+    normalizeRuntimeActionKeyPart(
+      action
+    );
+
+  if (
+    !normalizedAction
+    || !isRuntimeActionLifecycleProgressStatus(
+      options.status
+    )
+  ) {
+    return null;
+  }
+
+  const candidates = Array.from(
+    chatHistory.querySelectorAll(
+      `.jin-runtime-action-row[data-runtime-action="${normalizedAction}"]`
+    )
+  ).filter((row) => (
+    row.dataset.runtimeActionTurn
+      === String(jinConversationTurnCounter)
+    && row.dataset.runtimeActionCompleted !== "true"
+    && row.dataset.runtimeActionLifecycleStarted === "true"
+    && runtimeActionRowMatchesLifecycleScope(
+      row,
+      options.runtimeTurnId,
+      options.runtimeMessageId
+    )
+    && (
+      allowBound
+      || row.dataset.runtimeActionLifecycleBound
+        !== "true"
+    )
+  ));
+
+  return candidates[0] || null;
+
+}
+
+const normalizeRuntimeActionColor =
+  window.JinUiUtils.normalizeJinColor;
 
 function extractRuntimeActionColorFromText(text) {
 
@@ -628,10 +2312,123 @@ function extractRuntimeActionColorFromText(text) {
 
 }
 
+function normalizeRuntimeActionSize(value) {
+
+  const formatter =
+    window.JinResponseFormatter
+    && typeof window.JinResponseFormatter.normalizeJinSizeMarker === "function"
+      ? window.JinResponseFormatter.normalizeJinSizeMarker
+      : null;
+
+  if (
+    value
+    && typeof value === "object"
+  ) {
+    const nestedPayload = String(
+      value.size || value.payload || ""
+    ).trim();
+
+    if (nestedPayload && formatter) {
+      const normalizedPayload = formatter(
+        nestedPayload
+      );
+
+      if (normalizedPayload) {
+        return normalizedPayload;
+      }
+    }
+
+    const rawWidth = value.width ?? value.w;
+    const rawHeight = value.height ?? value.h ?? rawWidth;
+
+    if (
+      rawWidth !== undefined
+      && rawHeight !== undefined
+      && formatter
+    ) {
+      const normalizedDimensions = formatter(
+        `w:${rawWidth} h:${rawHeight}`
+      );
+
+      if (normalizedDimensions) {
+        return normalizedDimensions;
+      }
+    }
+  }
+
+  if (formatter) {
+    return formatter(
+      value
+    );
+  }
+
+  const text =
+    String(
+      value || ""
+    ).trim();
+  const single =
+    text.match(/^(\d+)(?:px)?$/i);
+
+  if (single) {
+    return `${Number.parseInt(single[1], 10)}px`;
+  }
+
+  const pair =
+    text.match(/^(\d+)(?:px)?\s+(\d+)(?:px)?$/i);
+
+  if (pair) {
+    const width =
+      Number.parseInt(pair[1], 10);
+    const height =
+      Number.parseInt(pair[2], 10);
+
+    return width === height
+      ? `${width}px`
+      : `w:${width}px h:${height}px`;
+  }
+
+  const labeled =
+    text.match(/^w\s*:\s*(\d+)(?:px)?\s+h\s*:\s*(\d+)(?:px)?$/i);
+
+  if (labeled) {
+    const width =
+      Number.parseInt(labeled[1], 10);
+    const height =
+      Number.parseInt(labeled[2], 10);
+
+    return width === height
+      ? `${width}px`
+      : `w:${width}px h:${height}px`;
+  }
+
+  return "";
+
+}
+
+function readRuntimeActionAggregateSizes(
+  row
+) {
+
+  if (!row) {
+    return [];
+  }
+
+  return String(
+    row.dataset.runtimeActionSizes || ""
+  ).split(",").map(
+    normalizeRuntimeActionSize
+  ).filter(Boolean);
+
+}
+
 function shouldAggregateRuntimeAction(
-  _action,
+  action,
   options = {}
 ) {
+
+  if (action === "jin_color") {
+    return false;
+  }
 
   const markerCount = Math.max(
     0,
@@ -750,12 +2547,32 @@ function applyRuntimeActionAggregateState(
     || extractRuntimeActionColorFromText(
       text
     );
+  const explicitSizes = Array.isArray(
+    options.sizes
+  )
+    ? options.sizes
+        .map(normalizeRuntimeActionSize)
+        .filter(Boolean)
+    : [];
+  const incomingSize =
+    normalizeRuntimeActionSize(
+      options.size
+      || (
+        action === "jin_size"
+          ? options.payload || options.detail || text
+          : ""
+      )
+    );
   const markerCount = Math.max(
     currentMarkerCount,
     explicitMarkerCount
   );
   let storedColors =
     readRuntimeActionAggregateColors(
+      row
+    );
+  let storedSizes =
+    readRuntimeActionAggregateSizes(
       row
     );
 
@@ -772,6 +2589,19 @@ function applyRuntimeActionAggregateState(
     );
   }
 
+  if (explicitSizes.length) {
+    storedSizes = explicitSizes;
+  } else if (
+    incomingSize
+    && options.counterOnly !== true
+    && storedSizes[storedSizes.length - 1]
+      !== incomingSize
+  ) {
+    storedSizes.push(
+      incomingSize
+    );
+  }
+
   if (markerCount > 0) {
     row.dataset.runtimeActionMarkerCount =
       String(markerCount);
@@ -784,6 +2614,13 @@ function applyRuntimeActionAggregateState(
     delete row.dataset.runtimeActionColors;
   }
 
+  if (storedSizes.length) {
+    row.dataset.runtimeActionSizes =
+      storedSizes.join(",");
+  } else {
+    delete row.dataset.runtimeActionSizes;
+  }
+
   delete row.dataset.runtimeActionPendingColor;
 
   return {
@@ -791,6 +2628,7 @@ function applyRuntimeActionAggregateState(
     aggregateMarkers: true,
     markerCount,
     colors: storedColors,
+    sizes: storedSizes,
   };
 
 }
@@ -819,26 +2657,11 @@ function syncRuntimeActionMarkerCount(
     duplicate.remove();
   });
 
-  if (markerCount <= 1) {
-    if (countLabel) {
-      countLabel.remove();
-    }
-    return;
+  // Action bubbles are per-marker lifecycle projections. Marker counters are
+  // transport metadata and must never be rendered on a bubble.
+  if (countLabel) {
+    countLabel.remove();
   }
-
-  if (!countLabel) {
-    countLabel = document.createElement("span");
-    countLabel.className =
-      "jin-runtime-action-count";
-    label.appendChild(
-      countLabel
-    );
-  }
-
-  countLabel.textContent =
-    formatRuntimeActionCountLabel(
-      markerCount
-    );
 
 }
 
@@ -889,10 +2712,6 @@ function syncRuntimeActionCancelledState(
   if (isCancelled) {
     row.dataset.runtimeActionCancelled =
       "true";
-    setRuntimeActionPendingUntilL3(
-      row,
-      false
-    );
     row.classList.add(
       "opacity-45"
     );
@@ -983,7 +2802,7 @@ function renderRuntimeActionLabel(
     );
   }
 
-  if (action === "jin_color") {
+  if (action === "jin_color" && options.status !== "failed") {
     const textColor =
       extractRuntimeActionColorFromText(
         text
@@ -995,18 +2814,17 @@ function renderRuntimeActionLabel(
           .map(normalizeRuntimeActionColor)
           .filter(Boolean)
       : [];
-    const colors = explicitColors.length
-      ? explicitColors
-      : [
-          normalizeRuntimeActionColor(
-            options.color
-            || options.payload
-            || options.detail
-          )
-          || textColor,
-        ].filter(Boolean);
+    const color =
+      normalizeRuntimeActionColor(
+        options.color
+        || options.payload
+        || options.detail
+      )
+      || textColor
+      || explicitColors[explicitColors.length - 1]
+      || "";
 
-    colors.forEach((color) => {
+    if (color) {
       const swatch =
         document.createElement("span");
 
@@ -1022,7 +2840,7 @@ function renderRuntimeActionLabel(
       label.appendChild(
         swatch
       );
-    });
+    }
 
     const name =
       document.createElement("span");
@@ -1040,24 +2858,76 @@ function renderRuntimeActionLabel(
       name
     );
 
-    const payloadColor =
-      colors.length
-        ? colors[colors.length - 1]
-        : normalizeRuntimeActionColor(
-          options.color
-          || options.payload
-          || options.detail
-        )
-        || textColor;
-
-    if (payloadColor) {
+    if (color) {
       const payload =
         document.createElement("span");
 
       payload.className =
         "jin-runtime-action-payload";
       payload.textContent =
-        `: ${payloadColor}`;
+        `: ${color}`;
+
+      label.appendChild(
+        payload
+      );
+    }
+
+    return;
+  }
+
+  if (action === "jin_size" && options.status !== "failed") {
+    const explicitSizes = Array.isArray(
+      options.sizes
+    )
+      ? options.sizes
+          .map(normalizeRuntimeActionSize)
+          .filter(Boolean)
+      : [];
+    const sizes = explicitSizes.length
+      ? explicitSizes
+      : [
+          normalizeRuntimeActionSize(
+            options.size
+            || options.payload
+            || options.detail
+            || text
+          ),
+        ].filter(Boolean);
+
+    const name =
+      document.createElement("span");
+
+    name.className =
+      "jin-runtime-action-name";
+    name.textContent =
+      String(
+        options.displayName
+        || "JIN_SIZE"
+      ).trim()
+      || "JIN_SIZE";
+
+    label.appendChild(
+      name
+    );
+
+    const payloadSize =
+      sizes.length
+        ? sizes[sizes.length - 1]
+        : normalizeRuntimeActionSize(
+          options.size
+          || options.payload
+          || options.detail
+          || text
+        );
+
+    if (payloadSize) {
+      const payload =
+        document.createElement("span");
+
+      payload.className =
+        "jin-runtime-action-payload";
+      payload.textContent =
+        `: ${payloadSize}`;
 
       label.appendChild(
         payload
@@ -1412,18 +3282,6 @@ function settleRuntimeActionGuardConfirmation(
   row.dataset.runtimeActionGuardDecision =
     decision;
 
-  if (
-      isSaveSessionRuntimeAction(
-        row.dataset.runtimeAction
-      )
-      && decision === "continue"
-  ) {
-    setRuntimeActionPendingUntilL3(
-      row,
-      true
-    );
-  }
-
   const zones =
     row.querySelector(
       ".jin-runtime-action-guard-zones"
@@ -1566,6 +3424,22 @@ function bindRuntimeActionGuardConfirmation(
               id: options.id || "",
               guard: confirmation.guard || "",
               decision,
+              retry_user_message:
+                String(
+                  confirmation.retryUserMessage
+                  || confirmation.retry_user_message
+                  || ""
+                ),
+              retry_attempt:
+                Number(
+                  confirmation.retryAttempt
+                  || confirmation.retry_attempt
+                  || 1
+                ),
+              retry_context_snapshot:
+                confirmation.retryContextSnapshot
+                || confirmation.retry_context_snapshot
+                || null,
             })
             : false;
 
@@ -1676,64 +3550,50 @@ function updateRuntimeActionRow(
     options.cancelled
   );
 
-  const pendingUntilL3 =
-    Boolean(options.pendingUntilL3)
-    || (
-      isSaveSessionRuntimeAction(
-        action
-      )
-      && saveSessionPendingUntilL3Active
-      && options.cancelled !== true
-      && options.forceCompletePendingL3 !== true
-    )
-    || (
-      isSaveSessionRuntimeAction(
-        action
-      )
-      && row.dataset.runtimeActionPendingL3 === "true"
-      && options.cancelled !== true
-      && options.forceCompletePendingL3 !== true
-    );
+  syncRuntimeActionSearchState(
+    row,
+    action,
+    options
+  );
 
-  if (pendingUntilL3) {
-    setRuntimeActionPendingUntilL3(
-      row,
-      true
-    );
-  } else if (
-      options.completed
-      || options.cancelled
-      || options.forceCompletePendingL3
-  ) {
-    setRuntimeActionPendingUntilL3(
-      row,
-      false
-    );
-    delete row.dataset.runtimeActionCompletionDeferred;
-  } else {
-    row.classList.remove(
-      "jin-runtime-action-pending-l3"
-    );
-  }
-
-  const detail =
+  const incomingDetail =
     String(
       options.detail || ""
     ).trim();
+  const storedDetail =
+    String(
+      row.dataset.runtimeActionDetail || ""
+    ).trim();
+  const detail =
+    incomingDetail
+    || (
+      options.counterOnly === true
+        ? storedDetail
+        : ""
+    );
 
-  if (detail) {
-    label.title = detail;
-    label.classList.add(
-      "cursor-help"
-    );
-  } else {
-    label.removeAttribute(
-      "title"
-    );
-    label.classList.remove(
-      "cursor-help"
-    );
+  if (incomingDetail) {
+    row.dataset.runtimeActionDetail =
+      incomingDetail;
   }
+
+  if (!detail) {
+    delete row.dataset.runtimeActionDetail;
+  }
+
+  syncRuntimeActionDetailHover(
+    row,
+    label,
+    detail,
+    action === "call_mcp"
+    || row.classList.contains(
+      "jin-runtime-action-deep-search-child"
+    )
+    || isDeepSearchChildRuntimeAction(
+      action,
+      options
+    )
+  );
 
   if (action === "asset_action") {
     bindAssetResultPreview(
@@ -1746,7 +3606,34 @@ function updateRuntimeActionRow(
     );
   }
 
-  if (action === "save_delayed_memory_content") {
+  if (action === "posting_board") {
+    bindPostingBoardResultPreview(
+      label,
+      options.postingBoardResult || null
+    );
+  }
+
+  if (
+      ["attach_file_content", "attach_file_by_id"].includes(action)
+      && typeof window.bindRuntimeActionAttachmentPreview === "function"
+  ) {
+    window.bindRuntimeActionAttachmentPreview(
+      label,
+      options.attachmentResult || null,
+      options.id || ""
+    );
+  }
+
+  if (action === "call_mcp") {
+    bindMcpRuntimeActionPreview(label, options);
+  }
+
+  if (
+    [
+      "save_delayed_memory",
+      "load_delayed_memory",
+    ].includes(action)
+  ) {
     if (
       options.delayedMemoryReport
       || options.delayedMemoryReportId
@@ -1850,11 +3737,9 @@ function reviveRuntimeActionRow(
 
   delete row.dataset.runtimeActionCompleted;
   delete row.dataset.runtimeActionCancelled;
-  delete row.dataset.runtimeActionPendingL3;
   row.classList.remove(
     "opacity-45",
-    "jin-runtime-action-cancelled",
-    "jin-runtime-action-pending-l3"
+    "jin-runtime-action-cancelled"
   );
 
   row
@@ -1883,40 +3768,8 @@ function markRuntimeActionRowCompleted(
     return;
   }
 
-  if (
-      isSaveSessionRuntimeAction(
-        row.dataset.runtimeAction
-      )
-      && options.forceCompletePendingL3 !== true
-  ) {
-    setRuntimeActionPendingUntilL3(
-      row,
-      true
-    );
-    row.dataset.runtimeActionCompletionDeferred =
-      "true";
-    row.classList.remove(
-      "opacity-45"
-    );
-    return;
-  }
-
-  if (
-      isSaveSessionRuntimeAction(
-        row.dataset.runtimeAction
-      )
-  ) {
-    saveSessionPendingUntilL3Active = false;
-  }
-
   row.dataset.runtimeActionCompleted =
     "true";
-
-  delete row.dataset.runtimeActionPendingL3;
-  delete row.dataset.runtimeActionCompletionDeferred;
-  row.classList.remove(
-    "jin-runtime-action-pending-l3"
-  );
 
   clearRuntimeActionGuardConfirmation(
     row
@@ -1997,6 +3850,30 @@ function appendRuntimeAction(
         );
       });
 
+    // A terminal executor event must replace the visible started bubble.
+    // Counter/telemetry rows can carry the same id, so do not let one of
+    // those steal completion while the real lifecycle row keeps glowing.
+    if (
+        isRuntimeActionLifecycleTerminalStatus(
+          options.status
+        )
+        && (
+          !existingRow
+          || existingRow.dataset.runtimeActionLifecycleStarted !== "true"
+        )
+    ) {
+      const lifecycleRow =
+        findRuntimeActionLifecycleRow(
+          action,
+          options,
+          {allowBound: true}
+        );
+
+      if (lifecycleRow) {
+        existingRow = lifecycleRow;
+      }
+    }
+
     if (
         !existingRow
         && options.id
@@ -2013,6 +3890,9 @@ function appendRuntimeAction(
               row,
               action,
               options.id
+            )
+            && runtimeActionRowMatchesScope(
+              row, options.runtimeTurnId, options.runtimeMessageId
             )
             && (
               options.reuseCompleted
@@ -2040,10 +3920,7 @@ function appendRuntimeAction(
           )
         ).find((row) => {
           return (
-            (
-              options.pendingUntilL3
-              || row.dataset.runtimeActionCompleted !== "true"
-            )
+            row.dataset.runtimeActionCompleted !== "true"
             && row.dataset.runtimeActionGuardConfirmationId
               === guardConfirmationId
           );
@@ -2061,16 +3938,33 @@ function appendRuntimeAction(
           )
         ).find((row) => {
           return (
-            (
-              options.pendingUntilL3
-              || row.dataset.runtimeActionCompleted !== "true"
-            )
+            row.dataset.runtimeActionCompleted !== "true"
             && Boolean(
               row.dataset.runtimeActionGuardConfirmationId
               || row.dataset.runtimeActionGuardDecision
             )
           );
         });
+    }
+
+    // Stream parsing and action execution are two separate passes. Most of
+    // the time they carry the same action id, but a regenerated/missing id
+    // must not create a second glowing row for the same logical action.
+    // Pair later running/terminal events with the oldest unbound started row
+    // in the same message scope, then adopt the execution id below. This is
+    // generic for every runtime action rather than action-specific cleanup.
+    if (!existingRow) {
+      existingRow =
+        findRuntimeActionLifecycleRow(
+          action,
+          options,
+          {
+            allowBound:
+              isRuntimeActionLifecycleTerminalStatus(
+                options.status
+              ),
+          }
+        );
     }
 
     if (
@@ -2129,42 +4023,6 @@ function appendRuntimeAction(
     }
 
     if (
-        !existingRow
-        && options.pendingUntilL3
-        && action
-    ) {
-      const pendingRows = Array.from(
-        chatHistory.querySelectorAll(
-          `.jin-runtime-action-row[data-runtime-action="${action}"]`
-        )
-      ).filter((row) => (
-        row.dataset.runtimeActionCancelled !== "true"
-      ));
-
-      existingRow =
-        pendingRows.findLast
-          ? (
-            pendingRows.findLast((row) => (
-              row.dataset.runtimeActionTurn
-                === String(jinConversationTurnCounter)
-            ))
-            || pendingRows[pendingRows.length - 1]
-            || null
-          )
-          : (
-            pendingRows
-              .slice()
-              .reverse()
-              .find((row) => (
-                row.dataset.runtimeActionTurn
-                  === String(jinConversationTurnCounter)
-              ))
-            || pendingRows[pendingRows.length - 1]
-            || null
-          );
-    }
-
-    if (
         existingRow
         && updateRuntimeActionRow(
           existingRow,
@@ -2174,15 +4032,20 @@ function appendRuntimeAction(
             ...options,
             reviveExisting:
               Boolean(
-                (
-                  options.reuseCompleted
-                  || options.pendingUntilL3
-                )
+                options.reuseCompleted
                 && options.reviveCompleted !== false
               ),
           }
         )
     ) {
+      if (options.activateScene !== false) {
+        syncSceneSearchScreenForRuntimeAction(
+          action,
+          !options.completed,
+          options
+        );
+      }
+
       if (options.id) {
         existingRow.dataset.runtimeActionKey =
           actionKey || "";
@@ -2197,6 +4060,10 @@ function appendRuntimeAction(
         existingRow.dataset.runtimeActionRuntimeMessage =
           String(options.runtimeMessageId);
       }
+      markRuntimeActionLifecyclePhase(
+        existingRow,
+        options.status
+      );
       removeDuplicateRuntimeActionRows(
         existingRow,
         actionKey,
@@ -2231,11 +4098,17 @@ function appendRuntimeAction(
     document.createElement("div");
 
   row.className =
-    "jin-message-row jin-runtime-action-row mx-auto w-full max-w-4xl text-xs text-cyan-100 transition duration-500";
+    "jin-message-row jin-runtime-action-row jin-runtime-action-enter mx-auto w-full max-w-4xl text-xs text-cyan-100 transition duration-500";
 
   if (action === "jin_color") {
     row.classList.add(
       "jin-runtime-action-color-row"
+    );
+  }
+
+  if (action === "jin_size") {
+    row.classList.add(
+      "jin-runtime-action-size-row"
     );
   }
 
@@ -2262,6 +4135,11 @@ function appendRuntimeAction(
       String(options.runtimeMessageId);
   }
 
+  markRuntimeActionLifecyclePhase(
+    row,
+    options.status
+  );
+
   options = applyRuntimeActionAggregateState(
     row,
     action,
@@ -2274,63 +4152,72 @@ function appendRuntimeAction(
       "true";
   }
 
-  if (options.pendingUntilL3) {
-    setRuntimeActionPendingUntilL3(
-      row,
-      true
+  const omitIcon =
+    isDeepSearchChildRuntimeAction(
+      action,
+      options
     );
-  }
+  let icon = null;
 
-  const icon =
-    document.createElement(
+  if (!omitIcon) {
+    icon = document.createElement(
       options.contextSnapshot
         ? "button"
         : "div"
     );
 
-  if (options.contextSnapshot) {
-    icon.type =
-      "button";
-  }
+    if (options.contextSnapshot) {
+      icon.type =
+        "button";
+    }
 
-  icon.className =
-    "h-6 w-6 rounded bg-cyan-950/70 border border-cyan-700 flex items-center justify-center text-[12px] shrink-0";
+    icon.className =
+      "h-6 w-6 rounded bg-cyan-950/70 border border-cyan-700 flex items-center justify-center shrink-0";
 
-  icon.textContent =
-    action === "web_search"
-      ? "🔍"
-      : action === "list_skills"
-        ? "📘"
-        : action === "asset_action"
-          ? "▣"
-      : "●";
+    const iconDefinition =
+      appendRuntimeActionIconGlyph(
+        icon,
+        action
+      );
 
-  if (options.contextSnapshot) {
-    icon.className +=
-      " cursor-help hover:bg-cyan-900/70 transition";
+    if (options.contextSnapshot) {
+      icon.className +=
+        " cursor-help hover:bg-cyan-900/70 transition";
 
-    icon.title =
-      "show action context";
+      icon.title =
+        "show action context";
+      icon.setAttribute(
+        "aria-label",
+        `show action context: ${iconDefinition.title}`
+      );
 
-    icon.addEventListener(
-      "click",
-      function () {
-        if (!window.showTrace) {
-          return;
+      icon.addEventListener(
+        "click",
+        function () {
+          if (!window.showTrace) {
+            return;
+          }
+
+          window.showTrace(
+            formatContextSnapshot(
+              "action",
+              options.contextSnapshot
+            ),
+            formatRuntimeActionContextTitle(
+              action,
+              options.contextSnapshot
+            )
+          );
         }
-
-        window.showTrace(
-          formatContextSnapshot(
-            "action",
-            options.contextSnapshot
-          ),
-          formatRuntimeActionContextTitle(
-            action,
-            options.contextSnapshot
-          )
-        );
-      }
-    );
+      );
+    } else {
+      icon.title =
+        iconDefinition.title;
+      icon.setAttribute(
+        "aria-hidden",
+        "true"
+      );
+    }
   }
 
   const label =
@@ -2351,17 +4238,28 @@ function appendRuntimeAction(
     options.cancelled
   );
 
+  syncRuntimeActionSearchState(
+    row,
+    action,
+    options
+  );
+
   const detail =
     String(
       options.detail || ""
     ).trim();
 
   if (detail) {
-    label.title = detail;
-    label.classList.add(
-      "cursor-help"
-    );
+    row.dataset.runtimeActionDetail =
+      detail;
   }
+
+  syncRuntimeActionDetailHover(
+    row,
+    label,
+    detail,
+    omitIcon || action === "call_mcp"
+  );
 
   if (action === "asset_action") {
     bindAssetResultPreview(
@@ -2374,7 +4272,34 @@ function appendRuntimeAction(
     );
   }
 
-  if (action === "save_delayed_memory_content") {
+  if (action === "posting_board") {
+    bindPostingBoardResultPreview(
+      label,
+      options.postingBoardResult || null
+    );
+  }
+
+  if (
+      ["attach_file_content", "attach_file_by_id"].includes(action)
+      && typeof window.bindRuntimeActionAttachmentPreview === "function"
+  ) {
+    window.bindRuntimeActionAttachmentPreview(
+      label,
+      options.attachmentResult || null,
+      options.id || ""
+    );
+  }
+
+  if (action === "call_mcp") {
+    bindMcpRuntimeActionPreview(label, options);
+  }
+
+  if (
+    [
+      "save_delayed_memory",
+      "load_delayed_memory",
+    ].includes(action)
+  ) {
     if (
       options.delayedMemoryReport
       || options.delayedMemoryReportId
@@ -2397,9 +4322,11 @@ function appendRuntimeAction(
     );
   }
 
-  row.appendChild(
-    icon
-  );
+  if (icon) {
+    row.appendChild(
+      icon
+    );
+  }
 
   row.appendChild(
     label
@@ -2412,8 +4339,10 @@ function appendRuntimeAction(
     );
   }
 
-  chatHistory.appendChild(
-    row
+  insertRuntimeActionRow(
+    row,
+    action,
+    options
   );
 
   removeDuplicateRuntimeActionRows(
@@ -2431,8 +4360,12 @@ function appendRuntimeAction(
     action
   );
 
-  chatHistory.scrollTop =
-    chatHistory.scrollHeight;
+  if (window.scrollChatHistoryAfterAppend) {
+    window.scrollChatHistoryAfterAppend();
+  } else {
+    chatHistory.scrollTop =
+      chatHistory.scrollHeight;
+  }
 
   return true;
 
@@ -2441,6 +4374,16 @@ function appendRuntimeAction(
 window.addEventListener(
   "resize",
   scheduleRuntimeActionGuardGeometryUpdate
+);
+
+window.addEventListener(
+  "resize",
+  scheduleDeepSearchStackGeometrySync
+);
+
+document.addEventListener(
+  "click",
+  handleDeepSearchStackDocumentClick
 );
 
 window.requestAnimationFrame(
@@ -2484,6 +4427,10 @@ function queueRuntimeActionAfterNextResponse(
       options.closeTag === true,
     assetResult:
       options.assetResult || null,
+    postingBoardResult:
+      options.postingBoardResult || null,
+    attachmentResult:
+      options.attachmentResult || null,
     detail:
       options.detail || "",
     completed: false,
@@ -2540,6 +4487,10 @@ function flushRuntimeActionsAfterResponse(
           entry.closeTag === true,
         assetResult:
           entry.assetResult || null,
+        postingBoardResult:
+          entry.postingBoardResult || null,
+        attachmentResult:
+          entry.attachmentResult || null,
         detail:
           entry.detail || "",
         completed:
@@ -2571,13 +4522,6 @@ function fadeRuntimeAction(
   action,
   options = {}
 ) {
-
-  const keepSaveSessionPendingUntilL3 =
-    isSaveSessionRuntimeAction(
-      action
-    )
-    && options.forceCompletePendingL3 !== true
-    && options.cancelled !== true;
 
   const actionKey =
     options.id
@@ -2628,6 +4572,26 @@ function fadeRuntimeAction(
     ));
   }
 
+  // Last-resort lifecycle reconciliation for terminal events that arrive
+  // without a matching execution id (or without a renderable terminal
+  // label). This retires the original started bubble instead of leaving a
+  // permanent glow behind.
+  if (!rows.length) {
+    const lifecycleRow =
+      findRuntimeActionLifecycleRow(
+        action,
+        {
+          ...options,
+          status: options.status || "completed",
+        },
+        {allowBound: true}
+      );
+
+    if (lifecycleRow) {
+      rows = [lifecycleRow];
+    }
+  }
+
   if (
     !rows.length
     && options.fallbackToLatestActive
@@ -2660,55 +4624,10 @@ function fadeRuntimeAction(
       : [];
   }
 
-  if (keepSaveSessionPendingUntilL3) {
-    saveSessionPendingUntilL3Active = true;
-
-    rows.forEach((row) => {
-      setRuntimeActionPendingUntilL3(
-        row,
-        true
-      );
-    });
-
-    return;
-  }
-
   rows.forEach((row) => {
     markRuntimeActionRowCompleted(
       row,
       options
-    );
-  });
-
-}
-
-function clearPendingRuntimeActionGlow(
-  action = "",
-) {
-
-  const normalizedAction =
-    String(action || "").trim().toLowerCase();
-
-  const selector =
-    normalizedAction
-      ? `.jin-runtime-action-row[data-runtime-action="${normalizedAction}"]`
-      : ".jin-runtime-action-row";
-
-  if (
-      !normalizedAction
-      || normalizedAction === RUNTIME_ACTION_SAVE_SESSION
-  ) {
-    saveSessionPendingUntilL3Active = false;
-  }
-
-  Array.from(
-    chatHistory.querySelectorAll(
-      selector
-    )
-  ).forEach((row) => {
-    delete row.dataset.runtimeActionPendingL3;
-    row.classList.remove(
-      "jin-runtime-action-pending-l3"
     );
   });
 
@@ -2729,8 +4648,3 @@ window.queueRuntimeActionAfterNextResponse =
 window.fadeRuntimeAction =
   fadeRuntimeAction;
 
-window.clearPendingRuntimeActionGlow =
-  clearPendingRuntimeActionGlow;
-
-window.activateRuntimeActionPendingUntilL3 =
-  activateRuntimeActionPendingUntilL3;

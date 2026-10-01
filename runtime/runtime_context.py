@@ -3,8 +3,8 @@ from datetime import datetime
 from typing import TYPE_CHECKING
 from xml.sax.saxutils import escape
 
-from runtime.L1_memory_rules import (
-    DEFAULT_RUNTIME_MEMORY,
+from runtime.frame_memory_rules import (
+    INITIAL_RUNTIME_MEMORY,
 )
 
 
@@ -12,9 +12,10 @@ if TYPE_CHECKING:
     from websocket.logger import WebSocketLogger
 
 
-RECENT_MESSAGES_MAX_PAIRS = 3
-RECENT_MESSAGE_MAX_CHARS = 220
+RECENT_MESSAGES_MAX_PAIRS = 5
 DEFAULT_JIN_COLOR = "#1f4f8f"
+DEFAULT_JIN_SIZE_TEXT = "120px"
+DEFAULT_JIN_SPEED_TEXT = "900px/s"
 
 
 class RuntimeEmitter:
@@ -53,6 +54,16 @@ class RuntimeContext:
 
     deep_thought_count: int = 0
 
+    runtime_deep_search_calls: list[dict] = field(
+        default_factory=list
+    )
+
+    runtime_deep_search_result: str = ""
+
+    runtime_deep_search_result_id: str = ""
+
+    runtime_deep_search_query_sequence: int = 0
+
     runtime_search_queries: list[str] = field(
         default_factory=list
     )
@@ -69,9 +80,14 @@ class RuntimeContext:
         default_factory=list
     )
 
+    runtime_tool_result_sequence: int = 0
     runtime_tool_results_turn_count: int = 0
 
     runtime_tool_results_generation: int = 0
+
+    runtime_followup_action_failure_pending: bool = False
+    runtime_failure_followup_tool_ids: list[str] = field(default_factory=list)
+    runtime_failure_followup_entries: list[dict] = field(default_factory=list)
 
     runtime_asset_results: list[dict] = field(
         default_factory=list
@@ -97,13 +113,41 @@ class RuntimeContext:
 
     runtime_delayed_memory_action_sequence: int = 0
 
-    runtime_appended_delayed_memory: dict = field(
+    runtime_loaded_delayed_memory: dict = field(
         default_factory=dict
     )
 
-    runtime_appended_skills: list[dict] = field(
+    runtime_loaded_delayed_memory_ids: list[str] = field(
         default_factory=list
     )
+
+    runtime_suppressed_delayed_memory_auto_load_ids: list[str] = field(
+        default_factory=list
+    )
+
+    runtime_pinned_delayed_memory_turns: dict[str, str] = field(
+        default_factory=dict
+    )
+
+    runtime_delayed_memory_file_warnings: list[str] = field(
+        default_factory=list
+    )
+
+    delayed_memory_file_store_enabled: bool = True
+
+    runtime_lt_file_store_enabled: bool | None = None
+
+    runtime_anonymous_mode: bool = False
+
+    runtime_persistent_writes_restricted: bool = False
+
+    runtime_loaded_skills: list[dict] = field(
+        default_factory=list
+    )
+
+    runtime_mcp_action_sequence: int = 0
+
+    runtime_mcp_manager: object | None = None
 
     runtime_action_events: list[dict] = field(
         default_factory=list
@@ -123,27 +167,32 @@ class RuntimeContext:
 
     runtime_turn_interrupted_memory_update_scheduled: bool = False
 
-    runtime_idle_action_sequence: int = 0
-
-    runtime_pending_idle_followups: list[dict] = field(
-        default_factory=list
-    )
-
     runtime_action_guard_confirmations: dict[str, object] = field(
         default_factory=dict
     )
 
+    runtime_action_guard_retry: dict[str, object] = field(
+        default_factory=dict
+    )
+
+    runtime_action_guard_retry_consumed: bool = False
+
+    runtime_suppress_chat_content: bool = False
+
     runtime_pending_requests_queue: object | None = None
+
+    # USER requests that were already accepted but had not reached Brain when
+    # the owning WebSocket disappeared. They are replayed into the replacement
+    # connection after the soft-resume handshake instead of being silently lost.
+    runtime_reconnect_pending_requests: list[dict] = field(
+        default_factory=list
+    )
 
     runtime_session_action_history: list[dict] = field(
         default_factory=list
     )
 
     runtime_action_sequence_turn_ids: list[str] = field(
-        default_factory=list
-    )
-
-    runtime_todo: list[dict] = field(
         default_factory=list
     )
 
@@ -157,6 +206,55 @@ class RuntimeContext:
         default_factory=dict
     )
 
+    runtime_facts_memory_records: list[dict] = field(
+        default_factory=list
+    )
+
+    runtime_long_term_memory_store: dict = field(
+        default_factory=dict
+    )
+
+    runtime_lt_archived_fact_ids: set[str] = field(
+        default_factory=set
+    )
+
+    runtime_lt_explicit_edit_turn_id: str = ""
+
+    runtime_lt_explicit_edit_fact_ids: set[str] = field(
+        default_factory=set
+    )
+
+    runtime_lt_active_attempt: object | None = None
+    runtime_lt_explicit_note_queue: list[dict] = field(default_factory=list)
+
+    # Transient merge recovery state. A reasoning-heavy service model can
+    # consume the shared generation budget before emitting final L-T JSON; the
+    # runtime learns a smaller FIFO batch and backs off instead of hammering
+    # the identical pending queue on every idle tick.
+    runtime_lt_merge_batch_limit: int = 0
+    runtime_lt_merge_last_success_batch_limit: int = 0
+    runtime_lt_merge_batch_locked: bool = False
+    runtime_lt_merge_context_window_tokens: int = 0
+    runtime_lt_merge_existing_batch_mode: str = ""
+    runtime_lt_merge_paused_signature: str = ""
+    runtime_lt_merge_truncation_streak: int = 0
+    runtime_lt_merge_retry_not_before: float = 0.0
+    runtime_lt_merge_deferred_pending_until: dict[str, float] = field(
+        default_factory=dict
+    )
+    runtime_lt_merge_single_retry_pending_ids: set[str] = field(
+        default_factory=set
+    )
+    runtime_lt_merge_force_single_batch_once: bool = False
+    runtime_lt_idle_last_started_at: float = 0.0
+    runtime_lt_priority_finished_at: float = 0.0
+    runtime_lt_priority_cycle_active: bool = False
+    runtime_lt_profile_sync_at: float = 0.0
+    runtime_lt_last_user_activity_at: float = 0.0
+    runtime_lt_websocket_connected: bool = False
+    runtime_lt_app_state: object | None = None
+    runtime_foreground_turn_running: bool = False
+
     runtime_usage_events: list[dict] = field(
         default_factory=list
     )
@@ -165,47 +263,36 @@ class RuntimeContext:
         default_factory=dict
     )
 
-    runtime_memory: str = DEFAULT_RUNTIME_MEMORY
+    runtime_current_context_window: dict = field(
+        default_factory=dict
+    )
 
-    runtime_memory_stable: str = DEFAULT_RUNTIME_MEMORY
+    runtime_current_context_window_text: str = ""
+
+    runtime_recall_fact_context_progress: dict = field(default_factory=dict)
+
+    runtime_previous_answer_context_window: dict = field(
+        default_factory=dict
+    )
+
+    runtime_memory: str = INITIAL_RUNTIME_MEMORY
+
+    runtime_memory_stable: str = INITIAL_RUNTIME_MEMORY
 
     runtime_memory_updates: int = 0
 
-    runtime_l2_memory: str = ""
+    # Offset that maps the server snapshot index to the FRAME number shown in
+    # the right-panel UI. Fresh sessions start at 0; restored baselines can
+    # start at 1, and soft reconnects can resume at any visible FRAME number.
+    runtime_memory_display_index_offset: int = 0
 
     runtime_pattern_counter: int = 0
 
     runtime_repeated_input_count: int = 0
 
-    session_memory: str = ""
-
-    session_memory_source: str = ""
-
-    runtime_l3_session_memory: str = ""
-
-    runtime_session_memory_updates: int = 0
-
-    runtime_l3_session_first_turn: int | None = None
-
-    runtime_l3_session_last_turn: int | None = None
-
-    runtime_l3_saved_runtime_snapshot_index: int | None = None
-
-    runtime_session_memory_update_task: object | None = None
-
-    runtime_save_session_armed: bool = False
-
-    runtime_save_session_requested: bool = False
-
-    runtime_l1_diff_history: list[dict] = field(
+    runtime_frame_diff_history: list[dict] = field(
         default_factory=list
     )
-
-    runtime_l2_pending_patches: list[dict] = field(
-        default_factory=list
-    )
-
-    runtime_l2_last_turn: int = 0
 
     runtime_zero_diff_alert: dict | None = None
 
@@ -229,21 +316,82 @@ class RuntimeContext:
 
     runtime_current_sequence_attachments_turn_id: str = ""
 
-    user_message_count: int = 0
+    runtime_current_sequence_jin_messages: list[dict] = field(
+        default_factory=list
+    )
 
-    assistant_message_count: int = 0
 
     runtime_memory_pending_turns: list[dict] = field(
         default_factory=list
     )
 
+    runtime_memory_pending_base_updates: int = 0
+
     runtime_recent_turns: list[dict] = field(
         default_factory=list
     )
 
-    runtime_memory_update_task: object | None = None
+    # One-shot UI projection for normal bootstrap. It may span the direct
+    # predecessor chain so a short/stopped child session does not erase the
+    # visible chat tail. It is not a second rolling dialogue owner.
+    runtime_bootstrap_chat_tail_turns: list[dict] = field(
+        default_factory=list
+    )
 
-    fact_check_idle_task: object | None = None
+    # The last real user request is retained only in the live runtime so the
+    # latest completed JIN answer can be replaced in-place by a user retry.
+    # It is intentionally not part of bootstrap/history state.
+    runtime_last_retryable_request: dict = field(
+        default_factory=dict
+    )
+
+    runtime_user_retry_active: bool = False
+
+    runtime_user_retry_count: int = 0
+
+    runtime_restored_session_dialog: str = ""
+
+    runtime_restored_session_source_id: str = ""
+
+    runtime_archived_session_id: str = ""
+
+    runtime_session_restore_priming: bool = False
+
+    # True only while staged restore resources are reconstructed through the
+    # normal action dispatcher. UI action logs use this to distinguish
+    # synthetic restore replay from model-emitted actions.
+    runtime_session_restore_replay_in_progress: bool = False
+
+    runtime_session_restore_reasoning_dump: str = ""
+
+    runtime_session_restore_lt_fact_ids: list[str] = field(
+        default_factory=list
+    )
+
+    runtime_session_restore_delayed_memory_metadata: list[dict] = field(
+        default_factory=list
+    )
+
+    runtime_session_restore_attached_file_metadata: list[dict] = field(
+        default_factory=list
+    )
+
+    # Delayed reports that were loaded in an archived session are staged during
+    # the hidden restore turn. Their bodies stay out of the first restore prompt
+    # and become normally loaded only after JIN has produced the restore greeting.
+    runtime_session_restore_pending_loaded_memory_ids: list[str] = field(
+        default_factory=list
+    )
+
+    # Persistent files from an archived session follow the same one-shot
+    # restore contract as delayed memory: metadata is visible to the hidden
+    # restore turn, while the real ATTACH_FILE_CONTENT actions are replayed only after
+    # JIN has completed that first response.
+    runtime_session_restore_pending_attached_file_ids: list[str] = field(
+        default_factory=list
+    )
+
+    runtime_memory_update_task: object | None = None
 
     runtime_memory_snapshots: list[dict] = field(
         default_factory=list
@@ -263,6 +411,8 @@ class RuntimeContext:
 
     session_id: str = ""
 
+    previous_session_id: str = ""
+
     background_tasks: set = field(
         default_factory=set
     )
@@ -271,10 +421,8 @@ class RuntimeContext:
 
     runtime_turn_memory_user_message: str = ""
 
-    runtime_save_session_memory_committed_this_turn: bool = False
-
-    runtime_save_session_result: dict = field(
-        default_factory=dict
+    runtime_attached_file_ids: list[str] = field(
+        default_factory=list
     )
 
     runtime_turn_attachments: list[dict] = field(
@@ -283,7 +431,19 @@ class RuntimeContext:
 
     runtime_turn_assistant_response: str = ""
 
+    runtime_turn_jin_reaction: str = ""
+
     runtime_turn_reasoning_content: str = ""
+
+    runtime_previous_reasoning_content: str = ""
+
+    # True only while runtime_previous_reasoning_content was imported from an
+    # archived-session bootstrap. A live reasoning replaces it and clears the flag.
+    runtime_previous_reasoning_from_session_restore: bool = False
+
+    runtime_previous_reasoning_loop_contents: list[str] = field(
+        default_factory=list
+    )
 
     runtime_turn_interrupted: bool = False
 
@@ -297,7 +457,7 @@ class RuntimeContext:
 
     runtime_delayed_memory_save_rejected_title: str = ""
 
-    runtime_active_memory_resolve_failures_pending: list[dict] = field(
+    runtime_active_memory_delete_failures_pending: list[dict] = field(
         default_factory=list
     )
 
@@ -317,14 +477,32 @@ class RuntimeContext:
 
     runtime_last_response_feedback: dict | None = None
 
+    runtime_memory_attention_lt_focus_ids: list[str] = field(
+        default_factory=list
+    )
+
+    runtime_avatar_panel_collapsed: bool = False
+
+    runtime_avatar_current_size: dict = field(
+        default_factory=dict
+    )
+
+    runtime_avatar_current_position: dict = field(
+        default_factory=dict
+    )
+
+    runtime_avatar_window_size: dict = field(
+        default_factory=dict
+    )
+
+    runtime_avatar_move_speed: int = 900
+
 
 def format_xml_field(
     tag: str,
     value,
 ) -> str:
 
-    if tag == "CURRENT_SESSION_STATE":
-        return str(value)
 
     rendered_value = escape(
         str(value)
@@ -384,26 +562,6 @@ def format_user_datetime(
     )
 
 
-def format_session_state(
-    *,
-    turn_number: int | None,
-    user_message_count: int | None,
-    assistant_message_count: int | None,
-) -> str:
-
-    lines = [
-        "<CURRENT_SESSION_STATE>",
-    ]
-
-    lines.extend([
-        f"    User messages count:          {user_message_count or 0}",
-        f"    JIN messages count:           {assistant_message_count or 0}",
-        f"    Total messages count:         {(user_message_count or 0) + (assistant_message_count or 0)}",
-        "</CURRENT_SESSION_STATE>",
-    ])
-
-    return "\n".join(lines)
-
 
 def format_user_feedback(
     user_feedback: str,
@@ -422,13 +580,16 @@ class ContextContract:
     original_user_input: str = ""
     compressed_history: str = ""
     system_state: str = "ACTIVE"
-    runtime_mode: str = ""
-    service_model_uid: str = ""
-    brain_model_uid: str = ""
+    current_session_id: str = ""
+    current_model_uid: str = ""
+    current_context_window: str = ""
     jin_color: str = DEFAULT_JIN_COLOR
+    jin_size_context: str = ""
+    jin_position_context: str = ""
+    jin_speed_context: str = DEFAULT_JIN_SPEED_TEXT
+    window_size_context: str = ""
     can_web_search: bool = True
     can_use_assets: bool = False
-    can_save_session: bool = False
     can_save_active_memory: bool = False
 
     timestamp: str = field(default_factory=lambda: datetime.now().isoformat())
@@ -440,28 +601,36 @@ class ContextContract:
     year: int = field(default_factory=lambda: datetime.now().year)
     conversation_activity_instruction: str = ""
 
-    turn_number: int | None = None
-    user_message_count: int | None = None
-    assistant_message_count: int | None = None
 
     def build_runtime_fields(self) -> str:
 
         fields = {}
 
-        if self.runtime_mode:
-            fields["RUNTIME_MODE"] = self.runtime_mode
+        if self.current_session_id:
+            fields["SESSION_ID"] = self.current_session_id
 
-        if self.service_model_uid:
-            fields["SERVICE_MODEL_UID"] = self.service_model_uid
+        if self.current_model_uid:
+            fields["MODEL_UID"] = self.current_model_uid
 
-        if (
-            self.runtime_mode == "BRAIN"
-            and self.brain_model_uid
-        ):
-            fields["BRAIN_MODEL_UID"] = self.brain_model_uid
+        if self.current_context_window:
+            fields["CONTEXT_WINDOW"] = (
+                self.current_context_window
+            )
 
         if self.jin_color:
             fields["JIN_COLOR"] = self.jin_color
+
+        if self.jin_size_context:
+            fields["JIN_SIZE"] = self.jin_size_context
+
+        if self.jin_position_context:
+            fields["JIN_POSITION"] = self.jin_position_context
+
+        if self.jin_speed_context:
+            fields["JIN_SPEED"] = self.jin_speed_context
+
+        if self.window_size_context:
+            fields["WINDOW_SIZE"] = self.window_size_context
 
         fields["USER_DATETIME"] = format_user_datetime(
             self.current_date,
@@ -472,22 +641,6 @@ class ContextContract:
         if self.conversation_activity_instruction:
             fields["CONVERSATION_ACTIVITY"] = (
                 self.conversation_activity_instruction
-            )
-
-        has_session_counts = any(
-            value is not None
-            for value in (
-                self.turn_number,
-                self.user_message_count,
-                self.assistant_message_count,
-            )
-        )
-
-        if has_session_counts:
-            fields["CURRENT_SESSION_STATE"] = format_session_state(
-                turn_number=self.turn_number,
-                user_message_count=self.user_message_count,
-                assistant_message_count=self.assistant_message_count,
             )
 
         state_fields = [
@@ -594,7 +747,7 @@ class ContextContract:
         )
 
         return (
-            "<CURRENT_TRUSTED_RUNTIME_VARIABLES>\n"
+            "<TRUSTED_RUNTIME_VARIABLES>\n"
             f"    {fields_xml}\n"
-            "</CURRENT_TRUSTED_RUNTIME_VARIABLES>"
+            "</TRUSTED_RUNTIME_VARIABLES>"
         )

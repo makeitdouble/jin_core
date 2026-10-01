@@ -1,5 +1,7 @@
 import unittest
 from typing import cast
+from types import SimpleNamespace
+from unittest.mock import patch
 
 import httpx
 
@@ -27,7 +29,12 @@ from websocket.logger import (
     WebSocketLogger,
 )
 from rules.brain_context_builder import (
-    SERVICE_AS_BRAIN_RUNTIME_ACTIONS,
+    build_brain_context,
+    get_enabled_runtime_actions,
+    BRAIN_RUNTIME_ACTIONS,
+)
+from app_settings import (
+    is_valid_serper_api_key,
 )
 
 
@@ -342,16 +349,125 @@ class SearchFlowTests(
 
     def setUp(self):
         self._original_service_web_search = (
-            SERVICE_AS_BRAIN_RUNTIME_ACTIONS.get(
+            BRAIN_RUNTIME_ACTIONS.get(
                 "CAN_WEB_SEARCH",
                 False,
             )
         )
-        SERVICE_AS_BRAIN_RUNTIME_ACTIONS["CAN_WEB_SEARCH"] = True
+        self._original_service_deep_web_search = (
+            BRAIN_RUNTIME_ACTIONS.get(
+                "CAN_DEEP_WEB_SEARCH",
+                False,
+            )
+        )
+        BRAIN_RUNTIME_ACTIONS["CAN_WEB_SEARCH"] = True
+        BRAIN_RUNTIME_ACTIONS["CAN_DEEP_WEB_SEARCH"] = True
+        self._search_settings_patch = patch(
+            "rules.brain_context_builder.settings",
+            SimpleNamespace(CAN_SEARCH=True),
+        )
+        self._search_settings_patch.start()
 
     def tearDown(self):
-        SERVICE_AS_BRAIN_RUNTIME_ACTIONS["CAN_WEB_SEARCH"] = (
+        self._search_settings_patch.stop()
+        BRAIN_RUNTIME_ACTIONS["CAN_WEB_SEARCH"] = (
             self._original_service_web_search
+        )
+        BRAIN_RUNTIME_ACTIONS["CAN_DEEP_WEB_SEARCH"] = (
+            self._original_service_deep_web_search
+        )
+
+    def test_serper_key_validation_accepts_any_configured_real_key(self):
+
+        for value in (
+            "7037beeecf37f7555e12ac2c06904634a283ff0",
+            "r/7037beeecf37f7555e12ac2c06904634a283ff0",
+            "serper-live-key-with-provider-defined-format",
+        ):
+            with self.subTest(value=value):
+                self.assertTrue(
+                    is_valid_serper_api_key(
+                        value
+                    )
+                )
+
+        for value in (
+            "",
+            "   ",
+            "mock-serper-api-key",
+            "your-serper-api-key",
+            "your_serper_api_key",
+        ):
+            with self.subTest(value=value):
+                self.assertFalse(
+                    is_valid_serper_api_key(
+                        value
+                    )
+                )
+
+    def test_configured_serper_key_keeps_search_actions_in_context(self):
+
+        runtime_actions = {
+            "CAN_WEB_SEARCH": True,
+            "CAN_DEEP_WEB_SEARCH": True,
+        }
+
+        with patch(
+            "rules.brain_context_builder.settings",
+            SimpleNamespace(CAN_SEARCH=True),
+        ):
+            prompt = build_brain_context(
+                runtime_actions=runtime_actions
+            )
+
+            self.assertEqual(
+                get_enabled_runtime_actions(
+                    runtime_actions
+                ),
+                (
+                    "DEEP_WEB_SEARCH",
+                    "WEB_SEARCH",
+                ),
+            )
+
+        self.assertIn(
+            "<WEB_SEARCH> query </WEB_SEARCH>",
+            prompt,
+        )
+        self.assertIn(
+            "Use only when user explicitly asks for deep searching.",
+            prompt,
+        )
+
+    def test_invalid_serper_key_hides_search_actions_from_context(self):
+
+        runtime_actions = {
+            "CAN_WEB_SEARCH": True,
+            "CAN_DEEP_WEB_SEARCH": True,
+        }
+
+        with patch(
+            "rules.brain_context_builder.settings",
+            SimpleNamespace(CAN_SEARCH=False),
+        ):
+            prompt = build_brain_context(
+                runtime_actions=runtime_actions
+            )
+
+            self.assertEqual(
+                get_enabled_runtime_actions(
+                    runtime_actions
+                ),
+                (),
+            )
+
+        self.assertNotIn(
+            "<WEB_SEARCH> query </WEB_SEARCH>",
+            prompt,
+        )
+        self.assertNotIn(
+            "Use DEEP_WEB_SEARCH",
+            prompt,
         )
 
     def test_found_search_result_contains_results(self):
@@ -527,7 +643,7 @@ class SearchFlowTests(
                         "type": "content",
                         "content": (
                             "Needs current pricing. "
-                            "<WEB_SEARCH:tesla car price>"
+                            "<WEB_SEARCH>tesla car price</WEB_SEARCH>"
                         ),
                     },
                 ],
@@ -550,7 +666,6 @@ class SearchFlowTests(
                 "\u0430\u0432\u0442\u043e\u043c\u043e\u0431\u0438\u043b\u044f "
                 "\u0442\u0435\u0441\u043b\u0430"
             ),
-            translated_input="search tesla car price",
         )
 
         await BrainNode().run(
@@ -594,7 +709,7 @@ class SearchFlowTests(
         )
         self.assertEqual(
             runtime_events[0]["text"],
-            "WEB_SEARCH: tesla car price",
+            "WEB_SEARCH",
         )
         self.assertNotIn(
             "Searching for",
@@ -608,7 +723,9 @@ class SearchFlowTests(
                 "display_name": "WEB_SEARCH",
                 "id": "web_search_001",
                 "status": "completed",
+                "query": "tesla car price",
                 "scene_effect": "search",
+                "text": 'WEB_SEARCH: {"query": "tesla car price"}',
             },
         )
         self.assertIn(
@@ -625,35 +742,34 @@ class SearchFlowTests(
                 "tesla car price",
             ],
         )
-        self.assertIn(
-            "action: web_search",
-            "\n".join(
-                message
-                for _, message, _ in get_fake_logger(
-                    context
-                ).messages
-            ),
+        logger_text = "\n".join(
+            message
+            for _, message, _ in get_fake_logger(
+                context
+            ).messages
         )
         self.assertIn(
-            "query: tesla car price",
-            "\n".join(
-                message
-                for _, message, _ in get_fake_logger(
-                    context
-                ).messages
-            ),
+            "[RUNTIME ACTION] executing search",
+            logger_text,
         )
         self.assertIn(
-            "id: web_search_001",
-            "\n".join(
-                message
-                for _, message, _ in get_fake_logger(
-                    context
-                ).messages
-            ),
+            "id='web_search_001'",
+            logger_text,
         )
         self.assertIn(
-            f"INITIAL_SEQUENCE_INSTRUCTION: {state.translated_input}",
+            "query='tesla car price'",
+            logger_text,
+        )
+        self.assertNotIn(
+            "<CURRENT_REQUEST_FLOW>",
+            brain_client.prompts[1]["system_prompt"],
+        )
+        self.assertNotIn(
+            "<ORIGINAL_USER_REQUEST>",
+            brain_client.prompts[1]["system_prompt"],
+        )
+        self.assertNotIn(
+            "<LAST_EXECUTED_ACTION>",
             brain_client.prompts[1]["system_prompt"],
         )
         self.assertNotIn(
@@ -669,11 +785,11 @@ class SearchFlowTests(
             brain_client.prompts[1]["user_prompt"],
         )
         self.assertIn(
-            '<TOOL_RESULT name="WEB_SEARCH" id="web_search_001">',
+            '<TOOL_RESULT tool_id="T1" name="WEB_SEARCH" id="web_search_001"',
             brain_client.prompts[1]["system_prompt"],
         )
         self.assertIn(
-            "<CURRENT_TRUSTED_RUNTIME_VARIABLES>",
+            "<TRUSTED_RUNTIME_VARIABLES>",
             brain_client.prompts[1]["system_prompt"],
         )
         self.assertIn(
@@ -709,7 +825,7 @@ class SearchFlowTests(
                         "type": "content",
                         "content": (
                             "I will check. "
-                            "<WEB_SEARCH:tesla car price>"
+                            "<WEB_SEARCH>tesla car price</WEB_SEARCH>"
                         ),
                     },
                 ],
@@ -727,7 +843,6 @@ class SearchFlowTests(
         )
         state = AgentState(
             user_input="Tell me about Tesla.",
-            translated_input="Tell me about Tesla.",
         )
 
         await BrainNode().run(
@@ -760,7 +875,7 @@ class SearchFlowTests(
             2,
         )
 
-    async def test_search_action_stops_initial_brain_stream(self):
+    async def test_search_action_preserves_initial_brain_stream(self):
 
         search_provider = FakeSearchProvider(
             results=[
@@ -778,7 +893,7 @@ class SearchFlowTests(
                         "type": "content",
                         "content": (
                             "Needs current pricing. "
-                            "<WEB_SEARCH:apple price>"
+                            "<WEB_SEARCH>apple price</WEB_SEARCH>"
                         ),
                     },
                     {
@@ -800,7 +915,6 @@ class SearchFlowTests(
         )
         state = AgentState(
             user_input="How much are apples?",
-            translated_input="How much are apples?",
         )
 
         await BrainNode().run(
@@ -819,11 +933,24 @@ class SearchFlowTests(
             if message.get("type") == "message_chunk"
         ]
 
-        self.assertNotIn(
+        visible_text = "".join(
+            message_chunks
+        )
+        self.assertIn(
+            "Needs current pricing.",
+            visible_text,
+        )
+        self.assertIn(
             "Guessed apple price before search.",
-            "".join(
-                message_chunks
-            ),
+            visible_text,
+        )
+        self.assertIn(
+            "Apple price from search result.",
+            visible_text,
+        )
+        self.assertNotIn(
+            "<WEB_SEARCH",
+            visible_text,
         )
         self.assertEqual(
             state.brain_response,
@@ -832,6 +959,199 @@ class SearchFlowTests(
         self.assertEqual(
             len(brain_client.prompts),
             2,
+        )
+
+    async def test_deep_search_marker_runs_child_search_bubbles(self):
+
+        search_provider = FakeSearchProvider(
+            results=[
+                make_result(
+                    title="Blue tomato evidence",
+                    quote="Blue tomato anthocyanin evidence.",
+                ),
+            ],
+        )
+        brain_client = FakeBrainClient(
+            streams=[
+                [
+                    {
+                        "type": "content",
+                        "content": (
+                            "<DEEP_WEB_SEARCH>\n"
+                            "Research blue tomato varieties.\n"
+                            "</DEEP_WEB_SEARCH>"
+                        ),
+                    },
+                ],
+                [
+                    {
+                        "type": "content",
+                        "content": "Blue tomato summary from deep search.",
+                    },
+                ],
+            ],
+            ask_responses=[
+                (
+                    '{"queries":["blue tomato varieties",'
+                    '"blue tomato anthocyanins"],'
+                    '"spawn":[],"report":"need two sources",'
+                    '"done":true}'
+                ),
+                (
+                    '{"queries":[],"spawn":[],'
+                    '"report":"blue tomato final report",'
+                    '"done":true}'
+                ),
+            ],
+        )
+        context = make_context(
+            brain_client,
+            search_provider=search_provider,
+        )
+        state = AgentState(
+            user_input="Research blue tomatoes.",
+        )
+
+        await BrainNode().run(
+            state,
+            context,
+        )
+
+        runtime_events = [
+            message
+            for message in get_fake_websocket(
+                context
+            ).messages
+            if message.get("type") == "runtime_action"
+            and message.get("action") == "web_search"
+        ]
+        deep_search_events = [
+            message
+            for message in (
+                context.emitter.payloads
+                + get_fake_websocket(
+                    context
+                ).messages
+            )
+            if message.get("type") == "runtime_action"
+            and message.get("action") == "deep_web_search"
+        ]
+        deep_search_lifecycle_events = [
+            event
+            for event in deep_search_events
+            if event.get("status") in {
+                "started",
+                "completed",
+            }
+        ]
+        started = [
+            event
+            for event in runtime_events
+            if event.get("status") == "started"
+        ]
+        completed = [
+            event
+            for event in runtime_events
+            if event.get("status") == "completed"
+        ]
+        message_chunks = [
+            message.get(
+                "chunk",
+                "",
+            )
+            for message in get_fake_websocket(
+                context
+            ).messages
+            if message.get("type") == "message_chunk"
+        ]
+        visible_text = "".join(
+            message_chunks
+        )
+
+        self.assertEqual(
+            search_provider.queries,
+            [
+                "blue tomato varieties",
+                "blue tomato anthocyanins",
+            ],
+        )
+        self.assertEqual(
+            [
+                event.get("status")
+                for event in deep_search_lifecycle_events
+            ],
+            [
+                "started",
+                "completed",
+            ],
+        )
+        self.assertEqual(
+            [event.get("status") for event in deep_search_events],
+            ["started", "running", "completed"],
+        )
+        self.assertFalse(
+            any(
+                event.get("counter_only")
+                for event in deep_search_events
+            )
+        )
+        self.assertEqual(
+            deep_search_lifecycle_events[0].get("text"),
+            "DEEP_WEB_SEARCH",
+        )
+        self.assertEqual(
+            deep_search_lifecycle_events[1].get("text"),
+            'DEEP_WEB_SEARCH: {"query": "Research blue tomato varieties."}',
+        )
+        self.assertEqual(
+            deep_search_lifecycle_events[0].get("id"),
+            deep_search_lifecycle_events[1].get("id"),
+        )
+        self.assertEqual(
+            [event.get("query") for event in started],
+            search_provider.queries,
+        )
+        self.assertEqual(
+            [event.get("query") for event in completed],
+            search_provider.queries,
+        )
+        self.assertTrue(
+            all(
+                event.get("deep_search_child") is True
+                for event in runtime_events
+            )
+        )
+        self.assertTrue(
+            all(
+                event.get("deep_search_parent_id")
+                == deep_search_lifecycle_events[0].get("id")
+                for event in runtime_events
+            )
+        )
+        self.assertNotIn(
+            "<DEEP_WEB_SEARCH",
+            visible_text,
+        )
+        self.assertNotIn(
+            "</DEEP_WEB_SEARCH>",
+            visible_text,
+        )
+        self.assertEqual(
+            state.brain_response,
+            "Blue tomato summary from deep search.",
+        )
+        followup_prompt = brain_client.prompts[1]["system_prompt"]
+        self.assertIn(
+            'name="DEEP_WEB_SEARCH"',
+            followup_prompt,
+        )
+        self.assertIn(
+            "Objective: Research blue tomato varieties.",
+            followup_prompt,
+        )
+        self.assertNotIn(
+            "do not start another web search",
+            followup_prompt,
         )
 
     async def test_empty_search_results_are_removed_from_brain_context(self):
@@ -843,7 +1163,7 @@ class SearchFlowTests(
                     {
                         "type": "content",
                         "content": (
-                            "<WEB_SEARCH:jupiter cost>"
+                            "<WEB_SEARCH>jupiter cost</WEB_SEARCH>"
                         ),
                     },
                 ],
@@ -861,7 +1181,6 @@ class SearchFlowTests(
         )
         state = AgentState(
             user_input="How much does Jupiter cost?",
-            translated_input="How much does Jupiter cost?",
         )
 
         await BrainNode().run(
@@ -895,7 +1214,7 @@ class SearchFlowTests(
                     {
                         "type": "content",
                         "content": (
-                            "<WEB_SEARCH:latest Python version>"
+                            "<WEB_SEARCH>latest Python version</WEB_SEARCH>"
                         ),
                     },
                 ],
@@ -908,7 +1227,6 @@ class SearchFlowTests(
         )
         state = AgentState(
             user_input="Latest Python?",
-            translated_input="Latest Python?",
         )
 
         await BrainNode().run(

@@ -1,55 +1,127 @@
 /* Базовая сцена, панели, консоль и поле ввода. */
 
 ::-webkit-scrollbar {
-    width: 4px;
-    height: 4px;
+    width: 1px;
+    height: 1px;
+}
+
+html,
+body,
+#chat-history {
+    scrollbar-width: thin;
+    scrollbar-color: transparent transparent;
+}
+
+html::-webkit-scrollbar,
+body::-webkit-scrollbar,
+#chat-history::-webkit-scrollbar {
+    width: 1px;
+    height: 1px;
 }
 
 ::-webkit-scrollbar-track {
-    background: #09090b;
+    background: transparent;
 }
 
 ::-webkit-scrollbar-thumb {
-    background: #3f3f46;
+    background: transparent;
     border-radius: 2px;
 }
 
-::-webkit-scrollbar-thumb:hover {
-    background: #52525b;
+html.jin-scrollbar-active,
+body.jin-scrollbar-active,
+#chat-history.jin-scrollbar-active {
+    scrollbar-color: rgba(39, 39, 42, 0.90) transparent;
+}
+
+.jin-scrollbar-active::-webkit-scrollbar-track {
+    background-color: transparent;
+}
+
+.jin-scrollbar-active::-webkit-scrollbar-thumb {
+    background-color: rgba(39, 39, 42, 0.90);
+    border-radius: 1px;
+}
+
+.jin-scrollbar-active::-webkit-scrollbar-thumb:hover {
+    background-color: rgba(63, 63, 70, 0.94);
 }
 
 :root {
-    --panel-gap: 24px;
-    --panel-width: 330px;
-
-    --safe-left: 380px;
-    --safe-right: 380px;
+    --panel-gap: 8px;
+    --panel-width: 333px;
+    --memory-panel-width: 333px;
+    --panel-collapsed-title-height: 40px;
+    --runtime-avatar-panel-size: 333px;
+    --memory-avatar-collapsed-frame-size: 2px;
+    --panel-collapse-duration: 0.22s;
+    --panel-startup-collapse-duration: 5s;
+    --panel-collapse-easing: cubic-bezier(0.45, 0, 0.55, 1);
+    --app-header-height: 40px;
+    --app-header-slide-duration: 0.24s;
+    --app-header-slide-easing: cubic-bezier(0.22, 1, 0.36, 1);
+    --panel-geometry-transition: height var(--panel-collapse-duration) var(--panel-collapse-easing), min-height var(--panel-collapse-duration) var(--panel-collapse-easing), max-height var(--panel-collapse-duration) var(--panel-collapse-easing);
 
     --chat-max-width: 820px;
     --chat-min-width: 200px;
     --scene-shade-alpha: 0;
     --jin-color: #1f4f8f;
-    --scene-base-color: #0f1b2c;
-    --scene-jin-tint-alpha: 0.40;
+    --scene-base-color: #122540;
+    --scene-jin-tint-alpha: 0.048;
+    --scene-jin-tint-transition-duration: 333ms;
+
+    --scene-layer-base: 0;
+    --scene-layer-context: 1;
+    --scene-layer-search: 2;
+    --scene-layer-tint: 3;
+    --scene-layer-shade: 4;
+    --scene-layer-anonymous: 5;
 
     /* Вертикальный ритм чата: добавляет немного воздуха между ходами. */
     --chat-turn-gap: 2.05rem;
     --chat-inner-gap: 0.85rem;
+    --chat-reasoning-gap: 0.28rem;
+    --chat-action-adjacent-gap: 0.82rem;
     --chat-question-gap: 2.55rem;
     --chat-history-edge-gap: 1.9rem;
+    --chat-input-overlay-space: 5.35rem;
+    --chat-input-overlay-bottom-gap: 1.05rem;
+    --chat-input-overlay-side-gap: clamp(0.85rem, 3.2vw, 2.65rem);
 }
 
 body {
-    min-width: 900px;
+    min-width: 0;
+}
+
+#app-header {
+    position: fixed;
+    top: 0;
+    right: 0;
+    left: 0;
+    z-index: 40;
+    transform: translate3d(0, -100%, 0);
+    transition: transform var(--app-header-slide-duration) var(--app-header-slide-easing);
+    will-change: transform;
+    box-shadow:
+            0 5px 14px rgba(0, 0, 0, 0.22),
+            0 1px 0 rgba(255, 255, 255, 0.018);
+}
+
+body.app-header-visible #app-header {
+    transform: translate3d(0, 0, 0);
 }
 
 main {
     background-color: var(--scene-base-color);
-    transition: background-color 0.22s ease;
+    transition: background-color var(--scene-jin-tint-transition-duration) ease;
+}
+
+main.panel-startup-collapse-active {
+    --panel-collapse-duration: var(--panel-startup-collapse-duration);
 }
 
 #scene-bg {
-    z-index: 0;
+    z-index: var(--scene-layer-base);
     background-image: url('/static/images/states/default.jpg');
     background-size: cover;
     background-position: center;
@@ -66,7 +138,7 @@ main {
 
 #scene-clutter-overlay,
 #scene-cluttered-overlay {
-    z-index: 1;
+    z-index: var(--scene-layer-context);
     transition: opacity 3s ease;
 }
 
@@ -79,31 +151,50 @@ main {
 }
 
 #scene-search-overlay {
-    z-index: 2;
+    z-index: var(--scene-layer-search);
     transition: opacity 0.22s ease;
 
     background-image: url('/static/images/states/searching.png');
 }
 
 main.scene-clutter-middle #scene-clutter-overlay,
-main.scene-cluttered #scene-clutter-overlay,
-main.scene-cluttered #scene-cluttered-overlay,
+main.scene-cluttered #scene-cluttered-overlay {
+    opacity: 0;
+}
+
 main.scene-searching #scene-search-overlay {
-    opacity: 1;
+    opacity: 0.88;
 }
 
 #scene-jin-tint {
-    z-index: 3;
+    z-index: var(--scene-layer-tint);
     background-color: var(--jin-color);
-    opacity: var(--scene-jin-tint-alpha);
-    mix-blend-mode: multiply;
+    opacity: var(--scene-jin-tint-alpha, 0.048);
     transition:
-            background-color 0.22s ease,
-            opacity 0.22s ease;
+            background-color var(--scene-jin-tint-transition-duration) ease,
+            opacity var(--scene-jin-tint-transition-duration) ease;
+}
+
+#scene-anonymous-tint {
+    z-index: var(--scene-layer-anonymous);
+    background:
+            radial-gradient(
+                    circle at 50% 42%,
+                    rgba(3, 8, 13, 0.34) 0%,
+                    rgba(1, 4, 8, 0.58) 48%,
+                    rgba(0, 0, 0, 0.76) 100%
+            ),
+            rgba(0, 0, 0, 0.34);
+    opacity: 0;
+    transition: opacity 0.45s ease;
+}
+
+html.jin-anonymous-room #scene-anonymous-tint {
+    opacity: 1;
 }
 
 #scene-shade {
-    z-index: 4;
+    z-index: var(--scene-layer-shade);
     background:
             radial-gradient(
                     circle at 50% 52%,
@@ -128,40 +219,80 @@ main.scene-searching #scene-search-overlay {
     inset: 0;
     background: #000;
     opacity: var(--scene-shade-alpha);
-    transition: opacity 0.22s ease;
-}
-
-main.panels-collapsed-1 #scene-shade {
-    --scene-shade-alpha: 0.12;
-}
-
-main.panels-collapsed-2 #scene-shade {
-    --scene-shade-alpha: 0.20;
+    transition: opacity var(--panel-collapse-duration) var(--panel-collapse-easing);
 }
 
 #console-panel,
-#settings-panel {
-    width: var(--panel-width);
+#memory-panel {
+    --app-header-panel-shift: 0px;
     max-height: 100%;
+    overflow: visible;
     opacity: 1;
-    transition: opacity 0.35s ease;
+    transform: translate3d(0, var(--app-header-panel-shift), 0);
+    transition:
+            var(--panel-geometry-transition),
+            opacity 0.35s ease,
+            transform var(--app-header-slide-duration) var(--app-header-slide-easing);
+    will-change: transform;
+}
+
+#console-drag-handle,
+#memory-drag-handle {
+    flex-shrink: 0;
+    /* The panels intentionally keep overflow visible for external glow/resize
+       affordances. Clip their top surfaces locally to the panel radius so a
+       square header/avatar background cannot poke through rounded corners. */
+    border-top-left-radius: inherit;
+    border-top-right-radius: inherit;
+}
+
+#console-panel.panel-collapsed #console-drag-handle,
+#memory-panel.panel-collapsed #memory-drag-handle {
+    border-radius: inherit;
+}
+
+#console-panel.panel-collapsed #console-drag-handle {
+    /* No body exists below a collapsed console title, so the internal divider
+       must not stick through the rounded lower corners as a stray line. */
+    border-bottom-color: transparent !important;
 }
 
 #console-panel:not(.panel-collapsed),
-#settings-panel:not(.panel-collapsed) {
+#memory-panel:not(.panel-collapsed) {
     min-height: 49%;
 }
 
-#console-panel.panel-collapsed,
-#settings-panel.panel-collapsed {
-    height: 40px !important;
-    min-height: 40px;
-    max-height: 40px;
+#console-panel.panel-collapsed {
+    height: var(--panel-collapsed-title-height) !important;
+    min-height: var(--panel-collapsed-title-height) !important;
+    max-height: var(--panel-collapsed-title-height) !important;
+}
+
+#memory-panel.panel-avatar-inspector-closing,
+#memory-panel.panel-collapsed {
+    height: calc(var(--runtime-avatar-panel-size) + var(--memory-avatar-collapsed-frame-size)) !important;
+    min-height: calc(var(--runtime-avatar-panel-size) + var(--memory-avatar-collapsed-frame-size)) !important;
+    max-height: calc(var(--runtime-avatar-panel-size) + var(--memory-avatar-collapsed-frame-size)) !important;
+}
+
+#console-stream,
+.memory-scroll {
+    max-height: calc(100vh - var(--panel-collapsed-title-height));
+    min-height: 0;
+    transition:
+            max-height var(--panel-collapse-duration) var(--panel-collapse-easing),
+            padding-top var(--panel-collapse-duration) var(--panel-collapse-easing),
+            padding-bottom var(--panel-collapse-duration) var(--panel-collapse-easing);
+    will-change: max-height, padding-top, padding-bottom;
 }
 
 #console-panel.panel-collapsed #console-stream,
-#settings-panel.panel-collapsed .settings-scroll {
-    display: none;
+#memory-panel.panel-avatar-inspector-closing .memory-scroll,
+#memory-panel.panel-collapsed .memory-scroll {
+    max-height: 0;
+    padding-top: 0 !important;
+    padding-bottom: 0 !important;
+    overflow: hidden;
 }
 
 .panel-bottom-resize-handle {
@@ -190,45 +321,138 @@ main.panels-collapsed-2 #scene-shade {
     background: rgba(148, 163, 184, 0.42);
 }
 
+#memory-panel.panel-avatar-inspector-closing .panel-bottom-resize-handle,
 .panel-collapsed .panel-bottom-resize-handle {
     display: none;
 }
 
+.panel-avatar-resize-handle {
+    position: absolute;
+    z-index: 14;
+    display: none;
+    touch-action: none;
+}
+
+#memory-panel.panel-collapsed .panel-avatar-resize-handle {
+    display: block;
+}
+
+#memory-panel.panel-collapsed.panel-avatar-resetting {
+    transition: opacity 0.35s ease !important;
+}
+
+#memory-panel.panel-collapsed.panel-avatar-size-changing {
+    opacity: 1 !important;
+    transition: none !important;
+}
+
+#memory-panel.panel-avatar-resetting #memory-drag-handle,
+#memory-panel.panel-avatar-size-changing #memory-drag-handle {
+    transition: none !important;
+}
+
+#memory-panel.panel-avatar-resetting .jin-runtime-avatar-shell,
+#memory-panel.panel-avatar-size-changing .jin-runtime-avatar-shell {
+    transition: none !important;
+}
+
+#memory-panel.panel-avatar-resetting .jin-runtime-avatar-core-button,
+#memory-panel.panel-avatar-size-changing .jin-runtime-avatar-core-button {
+    transition:
+            box-shadow 0.18s ease,
+            transform 0.18s ease,
+            background 0.18s ease;
+}
+
+.panel-avatar-resize-handle[data-panel-avatar-resize-edge="n"],
+.panel-avatar-resize-handle[data-panel-avatar-resize-edge="s"] {
+    right: 14px;
+    left: 14px;
+    height: 12px;
+    cursor: ns-resize;
+}
+
+.panel-avatar-resize-handle[data-panel-avatar-resize-edge="n"] {
+    top: 0;
+}
+
+.panel-avatar-resize-handle[data-panel-avatar-resize-edge="s"] {
+    bottom: 0;
+}
+
+.panel-avatar-resize-handle[data-panel-avatar-resize-edge="e"],
+.panel-avatar-resize-handle[data-panel-avatar-resize-edge="w"] {
+    top: 14px;
+    bottom: 14px;
+    width: 12px;
+    cursor: ew-resize;
+}
+
+.panel-avatar-resize-handle[data-panel-avatar-resize-edge="e"] {
+    right: 0;
+}
+
+.panel-avatar-resize-handle[data-panel-avatar-resize-edge="w"] {
+    left: 0;
+}
+
+.panel-avatar-resize-handle[data-panel-avatar-resize-edge="ne"],
+.panel-avatar-resize-handle[data-panel-avatar-resize-edge="nw"],
+.panel-avatar-resize-handle[data-panel-avatar-resize-edge="se"],
+.panel-avatar-resize-handle[data-panel-avatar-resize-edge="sw"] {
+    width: 18px;
+    height: 18px;
+}
+
+.panel-avatar-resize-handle[data-panel-avatar-resize-edge="ne"] {
+    top: 0;
+    right: 0;
+    cursor: nesw-resize;
+}
+
+.panel-avatar-resize-handle[data-panel-avatar-resize-edge="nw"] {
+    top: 0;
+    left: 0;
+    cursor: nwse-resize;
+}
+
+.panel-avatar-resize-handle[data-panel-avatar-resize-edge="se"] {
+    right: 0;
+    bottom: 0;
+    cursor: nwse-resize;
+}
+
+.panel-avatar-resize-handle[data-panel-avatar-resize-edge="sw"] {
+    bottom: 0;
+    left: 0;
+    cursor: nesw-resize;
+}
+
+#console-panel.panel-resizing,
+#memory-panel.panel-resizing {
+    transition:
+            opacity 0.35s ease,
+            transform var(--app-header-slide-duration) var(--app-header-slide-easing);
+}
+
 #console-panel {
     left: var(--panel-gap);
+    width: var(--panel-width);
     top: var(--panel-gap);
     height: calc(100% - (var(--panel-gap) * 2));
 }
 
-@keyframes factCheckGlowPulse {
-    0%, 100% {
-        box-shadow:
-                0 0 0 1px rgba(56, 189, 248, 0.26),
-                0 0 18px rgba(59, 130, 246, 0.22),
-                0 0 48px rgba(37, 99, 235, 0.13),
-                inset 0 0 16px rgba(14, 165, 233, 0.06);
-    }
-
-    50% {
-        box-shadow:
-                0 0 0 1px rgba(125, 211, 252, 0.46),
-                0 0 28px rgba(96, 165, 250, 0.36),
-                0 0 76px rgba(37, 99, 235, 0.22),
-                inset 0 0 24px rgba(56, 189, 248, 0.10);
-    }
-}
-
-
-#settings-panel {
+#memory-panel {
     right: var(--panel-gap);
+    width: var(--memory-panel-width);
     top: var(--panel-gap);
     height: calc(100% - (var(--panel-gap) * 2));
 }
 
 #memory-drag-handle {
-    flex: 0 0 40px;
-    height: 40px;
-    min-height: 40px;
+    flex: 0 0 var(--panel-collapsed-title-height);
+    height: var(--panel-collapsed-title-height);
+    min-height: var(--panel-collapsed-title-height);
 }
 
 #memory-drag-handle h3 {
@@ -237,16 +461,196 @@ main.panels-collapsed-2 #scene-shade {
 }
 
 #console-stream,
-.settings-scroll {
+.memory-scroll {
     scrollbar-width: none;
     -ms-overflow-style: none;
 }
 
 #console-stream::-webkit-scrollbar,
-.settings-scroll::-webkit-scrollbar {
+.memory-scroll::-webkit-scrollbar {
     width: 0;
     height: 0;
     display: none;
+}
+
+/* Bottom-right scroll-to-top affordance for the floating console/memory panels.
+   Only the vertical position follows the actual scroll viewport: in the console
+   this keeps the control above attachment/delayed-memory plaques. */
+.panel-scroll-top-shadow,
+.panel-scroll-top-affordance {
+    --panel-scroll-top-bottom-offset: 0px;
+
+    position: absolute;
+    right: -1px;
+    bottom: var(--panel-scroll-top-bottom-offset);
+    width: 154px;
+    height: 118px;
+    overflow: visible;
+    opacity: 0;
+    transform: translateY(10px);
+    transition:
+            opacity 420ms ease,
+            transform 300ms cubic-bezier(0.22, 1, 0.36, 1);
+    will-change: opacity, transform;
+}
+
+.panel-scroll-top-shadow {
+    --panel-scroll-top-blur-opacity: 0.34;
+    --panel-scroll-top-dim-opacity: 0.31;
+
+    z-index: 1;
+    pointer-events: none;
+}
+
+.panel-scroll-top-affordance {
+    z-index: 3;
+    pointer-events: none;
+}
+
+.panel-scroll-top-shadow::before {
+    content: "";
+    position: absolute;
+    top: -54px;
+    right: -10px;
+    bottom: -32px;
+    left: -88px;
+    background:
+            linear-gradient(
+                    to bottom,
+                    rgba(4, 6, 10, 0) 0%,
+                    rgba(4, 6, 10, 0.020) 28%,
+                    rgba(4, 6, 10, 0.055) 72%,
+                    rgba(4, 6, 10, 0.085) 100%
+            );
+    /*-webkit-backdrop-filter: blur(14px) saturate(0.92);
+    backdrop-filter: blur(14px) saturate(0.92);*/
+    -webkit-mask-image: radial-gradient(
+            ellipse 136px 124px at calc(100% - 48px) calc(100% - 10px),
+            rgba(0, 0, 0, 1) 0%,
+            rgba(0, 0, 0, 0.92) 32%,
+            rgba(0, 0, 0, 0.58) 58%,
+            rgba(0, 0, 0, 0.18) 80%,
+            rgba(0, 0, 0, 0) 100%
+    );
+    mask-image: radial-gradient(
+            ellipse 136px 124px at calc(100% - 48px) calc(100% - 10px),
+            rgba(0, 0, 0, 1) 0%,
+            rgba(0, 0, 0, 0.92) 32%,
+            rgba(0, 0, 0, 0.58) 58%,
+            rgba(0, 0, 0, 0.18) 80%,
+            rgba(0, 0, 0, 0) 100%
+    );
+    opacity: var(--panel-scroll-top-blur-opacity);
+    transition: opacity 180ms ease;
+}
+
+.panel-scroll-top-shadow::after {
+    content: "";
+    position: absolute;
+    top: -22px;
+    right: 2px;
+    bottom: -22px;
+    left: -56px;
+    background:
+            radial-gradient(
+                    ellipse 104px 104px at calc(100% - 38px) calc(100% - 8px),
+                    rgba(1, 3, 6, 0.38) 0%,
+                    rgba(2, 4, 8, 0.22) 34%,
+                    rgba(3, 5, 9, 0.11) 58%,
+                    rgba(3, 5, 9, 0.03) 78%,
+                    rgba(3, 5, 9, 0) 100%
+            ),
+            radial-gradient(
+                    ellipse 138px 122px at calc(100% - 34px) 100%,
+                    rgba(2, 4, 8, 0.155) 0%,
+                    rgba(3, 5, 9, 0.066) 48%,
+                    rgba(3, 5, 9, 0.015) 72%,
+                    rgba(3, 5, 9, 0) 100%
+            );
+    opacity: var(--panel-scroll-top-dim-opacity);
+    transition: opacity 180ms ease;
+}
+
+.panel-scroll-top-shadow.is-visible,
+.panel-scroll-top-affordance.is-visible {
+    opacity: 1;
+    transform: translateY(0);
+}
+
+.panel-scroll-top-shadow.is-hovered {
+    --panel-scroll-top-blur-opacity: 0.48;
+    --panel-scroll-top-dim-opacity: 0.43;
+}
+
+.panel-scroll-top-button {
+    position: absolute;
+    z-index: 2;
+    right: 10px;
+    bottom: 6px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 22px;
+    height: 18px;
+    padding: 0;
+    border: 0;
+    border-radius: 0;
+    background: transparent;
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+    box-shadow: none;
+    color: rgba(214, 223, 230, 0.68);
+    cursor: pointer;
+    pointer-events: none;
+    transition:
+            color 160ms ease,
+            filter 160ms ease,
+            transform 180ms cubic-bezier(0.22, 1, 0.36, 1),
+            opacity 160ms ease;
+}
+
+.panel-scroll-top-affordance.is-visible .panel-scroll-top-button {
+    pointer-events: auto;
+}
+
+.panel-scroll-top-button svg {
+    display: block;
+    width: 13px;
+    height: 9px;
+    margin: 0 auto;
+    overflow: visible;
+}
+
+.panel-scroll-top-button path {
+    fill: currentColor;
+    stroke: none;
+}
+
+.panel-scroll-top-button:hover,
+.panel-scroll-top-button:focus-visible {
+    color: rgba(224, 231, 236, 0.82);
+    filter: drop-shadow(0 2px 5px rgba(0, 0, 0, 0.28));
+    transform: translateY(-1px);
+}
+
+.panel-scroll-top-button:focus-visible {
+    outline: none;
+}
+
+#console-panel.panel-collapsed .panel-scroll-top-shadow,
+#console-panel.panel-collapsed .panel-scroll-top-affordance,
+#memory-panel.panel-collapsed .panel-scroll-top-shadow,
+#memory-panel.panel-collapsed .panel-scroll-top-affordance {
+    opacity: 0 !important;
+    pointer-events: none !important;
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .panel-scroll-top-shadow,
+    .panel-scroll-top-affordance,
+    .panel-scroll-top-button {
+        transition-duration: 1ms !important;
+    }
 }
 
 #console-stream .logger-tag {
@@ -267,7 +671,6 @@ main.panels-collapsed-2 #scene-shade {
     color: #aeb4bd !important;
 }
 
-#console-stream [data-log-kind="flow"] > .logger-tag,
 #console-stream [data-log-kind="before"] > .logger-tag,
 #console-stream [data-log-kind="after"] > .logger-tag {
     color: #a99bc4 !important;
@@ -393,6 +796,7 @@ main.panels-collapsed-2 #scene-shade {
 #chat-drop-zone {
     min-width: 0;
     border-right: 0;
+    overflow: hidden;
 }
 
 #chat-drop-zone.jin-drop-zone-active {
@@ -401,11 +805,19 @@ main.panels-collapsed-2 #scene-shade {
 }
 
 #chat-history {
-    padding-left: min(var(--safe-left), calc((100% - var(--chat-min-width)) / 2));
-    padding-right: min(var(--safe-right), calc((100% - var(--chat-min-width)) / 2));
+    padding-left: 0;
+    padding-right: 0;
     padding-top: var(--chat-history-edge-gap) !important;
-    padding-bottom: var(--chat-history-edge-gap) !important;
-    scroll-padding-bottom: calc(var(--chat-history-edge-gap) + 0.5rem);
+    padding-bottom: calc(
+            var(--chat-history-edge-gap)
+            + var(--chat-input-overlay-space)
+            + var(--jin-live-turn-bottom-space, 0px)
+    ) !important;
+    scroll-padding-top: var(--chat-history-edge-gap);
+    scroll-padding-bottom: calc(
+            var(--chat-history-edge-gap)
+            + var(--chat-input-overlay-space)
+    );
 }
 
 #chat-history > :not([hidden]) ~ :not([hidden]) {
@@ -418,9 +830,27 @@ main.panels-collapsed-2 #scene-shade {
     margin-top: var(--chat-question-gap) !important;
 }
 
+#chat-history > .jin-stream-wrapper:has(> .jin-think-wrapper:last-child)
++ .jin-stream-wrapper:has(
+    > .jin-think-wrapper:first-child,
+    > .jin-stream-avatar-slot:first-child + .jin-think-wrapper
+) {
+    margin-top: var(--chat-reasoning-gap) !important;
+}
+
 #chat-history > :not(.jin-runtime-action-row) + .jin-runtime-action-row {
     /* Первый action-бабл держим рядом с ответом JIN, а не как отдельный ход. */
     margin-top: 0.45rem !important;
+}
+
+#chat-history > .jin-stream-wrapper:has(> .jin-think-wrapper:last-child)
++ .jin-runtime-action-row,
+#chat-history > .jin-runtime-action-row
++ .jin-stream-wrapper:has(
+    > .jin-think-wrapper:first-child,
+    > .jin-stream-avatar-slot:first-child + .jin-think-wrapper
+) {
+    margin-top: var(--chat-action-adjacent-gap) !important;
 }
 
 #chat-history > .jin-runtime-action-row + .jin-runtime-action-row {
@@ -434,27 +864,269 @@ main.panels-collapsed-2 #scene-shade {
 }
 
 #chat-input-shell {
-    padding-left: min(var(--safe-left), calc((100% - var(--chat-min-width)) / 2));
-    padding-right: min(var(--safe-right), calc((100% - var(--chat-min-width)) / 2));
+    position: absolute;
+    z-index: 22;
+    right: 0;
+    bottom: 0;
+    left: 0;
+    padding: 2.35rem var(--chat-input-overlay-side-gap) var(--chat-input-overlay-bottom-gap);
+    container-type: inline-size;
+    pointer-events: none;
+}
+
+#chat-input-shell::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    z-index: -1;
+    pointer-events: none;
+    background:
+            linear-gradient(
+                    to bottom,
+                    rgba(3, 7, 18, 0) 0%,
+                    rgba(3, 7, 18, 0.135) 34%,
+                    rgba(3, 7, 18, 0.465) 72%,
+                    rgba(3, 7, 18, 0.615) 100%
+            );
+    /*backdrop-filter: blur(1.5px);
+    -webkit-backdrop-filter: blur(1.5px);*/
+    mask-image:
+            linear-gradient(
+                    to bottom,
+                    rgba(0, 0, 0, 0) 0,
+                    rgba(0, 0, 0, 0.22) 18px,
+                    rgba(0, 0, 0, 1) 52px
+            );
+    -webkit-mask-image:
+            linear-gradient(
+                    to bottom,
+                    rgba(0, 0, 0, 0) 0,
+                    rgba(0, 0, 0, 0.22) 18px,
+                    rgba(0, 0, 0, 1) 52px
+            );
+}
+
+#chat-composer {
+    position: relative;
+    width: min(100%, var(--chat-max-width));
+    margin-inline: auto;
+}
+
+#composer-attachments {
+    position: absolute;
+    right: calc(100% + 1rem);
+    top: 0;
+    bottom: 0;
+    display: flex;
+    flex-direction: row-reverse;
+    align-items: center;
+    gap: 0.5rem;
+    width: max-content;
+    pointer-events: auto;
+}
+
+#composer-attachments.hidden {
+    display: none;
+}
+
+.jin-composer-attachment {
+    animation: jin-composer-attachment-in 333ms cubic-bezier(0.22, 1, 0.36, 1);
+    touch-action: pan-x;
+    user-select: none;
+    -webkit-touch-callout: none;
+}
+
+@keyframes jin-composer-attachment-in {
+    from { opacity: 0; transform: translateY(4px) scale(0.55); }
+    to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+/* Keep the strip beside input when the outer gutter cannot hold five chips. */
+@container (max-width: 1220px) {
+    #chat-composer {
+        display: flex;
+        align-items: center;
+        gap: 1rem;
+    }
+
+    #composer-attachments {
+        position: static;
+        flex: 0 1 auto;
+        max-width: calc(100% - var(--chat-min-width) - 1rem);
+        overflow-x: auto;
+        scrollbar-width: none;
+    }
+
+    #chat-composer > #chat-form {
+        flex: 1 1 0;
+        min-width: min(100%, var(--chat-min-width));
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .jin-composer-attachment { animation: none; }
 }
 
 #chat-form {
+    position: relative;
     width: min(100%, var(--chat-max-width));
     min-width: var(--chat-min-width);
 
     margin-left: auto;
     margin-right: auto;
+    pointer-events: auto;
 }
 
+#attached-delayed-memory,
 #attached-files {
-    width: min(100%, var(--chat-max-width));
-    min-width: var(--chat-min-width);
+    position: relative;
+    z-index: 2;
+    flex: 0 0 auto;
+    margin: 0 8px 8px;
+    max-height: none;
+    overflow: visible;
+    border: 1px solid rgba(63, 63, 70, 0.78);
+    border-radius: 6px;
+    background: rgba(9, 9, 11, 0.78);
+    padding: 9px 10px 8px;
+    pointer-events: auto;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+}
+
+#attached-delayed-memory.hidden,
+#attached-files.hidden {
+    display: none !important;
+}
+
+.jin-attached-files-header {
+    display: flex;
+    align-items: center;
+    justify-content: flex-start;
+    gap: 8px;
+}
+
+.jin-attached-files-header.has-files {
+    padding-bottom: 7px;
+    border-bottom: 1px solid rgba(63, 63, 70, 0.72);
+}
+
+.jin-attached-files-title {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: rgba(212, 212, 216, 0.84);
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.14em;
+}
+
+.jin-attached-files-header .jin-attached-files-attach-button:first-of-type {
+    margin-left: auto;
+}
+
+.jin-attached-files-attach-button {
+    flex: 0 0 auto;
+    border: 1px solid rgba(82, 82, 91, 0.82);
+    border-radius: 3px;
+    background: rgba(24, 24, 27, 0.84);
+    padding: 5px 8px 4px;
+    color: rgba(228, 228, 231, 0.82);
+    font: inherit;
+    font-size: 9px;
+    font-weight: 700;
+    letter-spacing: 0.11em;
+    line-height: 1;
+    cursor: pointer;
+    transition:
+            border-color 120ms ease,
+            background-color 120ms ease,
+            color 120ms ease;
+}
+
+.jin-attached-files-attach-button:hover,
+.jin-attached-files-attach-button:focus-visible {
+    border-color: rgba(113, 113, 122, 0.92);
+    background: rgba(39, 39, 42, 0.92);
+    color: rgba(244, 244, 245, 0.94);
+    outline: none;
+}
+
+.jin-attached-files-list {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    padding-top: 6px;
+}
+
+.jin-attached-files-row {
+    display: flex;
+    align-items: center;
+    min-width: 0;
+    gap: 5px;
+    padding: 2px 3px;
+    border-radius: 4px;
+}
+
+.jin-attached-files-name {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: rgba(212, 212, 216, 0.78);
+    font-size: 10px;
+}
+.jin-attached-files-name.jin-attachment-bubble {
+    flex: 1 1 auto;
+    padding: 2px 4px;
+    border-radius: 3px;
+    transition: background-color 120ms ease, color 120ms ease;
+}
+
+.jin-attached-files-name.jin-attachment-bubble:hover {
+    background: transparent;
+    color: rgba(228, 228, 231, 0.92);
+}
+
+.jin-attached-delayed-memory-name {
+    cursor: pointer;
+    transition: color 120ms ease;
+}
+
+.jin-attached-delayed-memory-name:hover {
+    color: rgba(228, 228, 231, 0.92);
+}
+
+.jin-attached-delayed-memory-name:focus-visible {
+    outline: 1px solid rgba(161, 161, 170, 0.48);
+    outline-offset: 1px;
+}
+
+.jin-attached-files-row.jin-attached-files-row-avatar-hover,
+.jin-attached-files-row:hover {
+    background: rgba(255, 255, 255, 0.045);
+}
+
+.jin-attached-files-row.jin-attached-files-row-avatar-hover .jin-attached-files-name,
+.jin-attached-files-row.jin-attached-files-row-avatar-hover .delayed-memory-modal-pin,
+.jin-attached-files-row.jin-attached-files-row-avatar-hover .delayed-memory-modal-pin svg {
+    color: rgba(244, 244, 245, 0.94);
+    filter:
+            drop-shadow(0 0 6px rgba(240, 253, 250, 0.30))
+            drop-shadow(0 0 14px rgba(45, 212, 191, 0.16));
+}
+
+#console-panel.panel-collapsed #attached-delayed-memory,
+#console-panel.panel-collapsed #attached-files {
+    display: none !important;
 }
 
 #user-input {
     width: 100%;
 }
 
+/* НИКОГДА НЕ ТРОГАТЬ ЭТИ АУРЫ НИ ПРИ КАКИХ ОБСТОЯТЕЛЬСТВАХ.
+   ЭТО ЭФФЕКТЫ ПАНЕЛИ MEMORY PANEL, НЕ АВАТАРА. */
 @keyframes memoryGlowPulse {
     0%, 100% {
         box-shadow:
@@ -509,59 +1181,137 @@ main.panels-collapsed-2 #scene-shade {
     }
 }
 
-@keyframes factCheckGlowPulse {
-    0%, 100% {
+@keyframes memoryLTNeutralFade {
+    from {
+        border-color: rgba(255, 255, 255, 0.50);
         box-shadow:
-                0 0 0 1px rgba(56, 189, 248, 0.26),
-                0 0 18px rgba(59, 130, 246, 0.22),
-                0 0 48px rgba(37, 99, 235, 0.13),
-                inset 0 0 16px rgba(14, 165, 233, 0.06);
+                0 0 0 1px rgba(255, 255, 255, 0.22),
+                0 0 18px rgba(255, 255, 255, 0.18),
+                0 0 48px rgba(255, 255, 255, 0.10),
+                inset 0 0 16px rgba(255, 255, 255, 0.04);
     }
 
-    50% {
+    to {
+        border-color: rgba(255, 255, 255, 0.08);
         box-shadow:
-                0 0 0 1px rgba(125, 211, 252, 0.46),
-                0 0 28px rgba(96, 165, 250, 0.36),
-                0 0 76px rgba(37, 99, 235, 0.22),
-                inset 0 0 24px rgba(56, 189, 248, 0.10);
+                0 0 0 1px rgba(255, 255, 255, 0.02),
+                0 0 8px rgba(255, 255, 255, 0.025),
+                0 0 18px rgba(255, 255, 255, 0.015),
+                inset 0 0 8px rgba(255, 255, 255, 0.01);
     }
 }
 
+@keyframes memoryLTSuccessFade {
+    from {
+        border-color: rgba(74, 222, 128, 0.62);
+        box-shadow:
+                0 0 0 1px rgba(74, 222, 128, 0.30),
+                0 0 22px rgba(74, 222, 128, 0.24),
+                0 0 58px rgba(34, 197, 94, 0.14),
+                inset 0 0 18px rgba(74, 222, 128, 0.055);
+    }
 
-#settings-panel {
+    to {
+        border-color: rgba(74, 222, 128, 0.08);
+        box-shadow:
+                0 0 0 1px rgba(74, 222, 128, 0.02),
+                0 0 8px rgba(74, 222, 128, 0.025),
+                0 0 18px rgba(34, 197, 94, 0.015),
+                inset 0 0 8px rgba(74, 222, 128, 0.01);
+    }
+}
+
+@keyframes memoryLTFailureFade {
+    from {
+        border-color: rgba(248, 113, 113, 0.62);
+        box-shadow:
+                0 0 0 1px rgba(248, 113, 113, 0.30),
+                0 0 22px rgba(248, 113, 113, 0.24),
+                0 0 58px rgba(239, 68, 68, 0.14),
+                inset 0 0 18px rgba(248, 113, 113, 0.055);
+    }
+
+    to {
+        border-color: rgba(248, 113, 113, 0.08);
+        box-shadow:
+                0 0 0 1px rgba(248, 113, 113, 0.02),
+                0 0 8px rgba(248, 113, 113, 0.025),
+                0 0 18px rgba(239, 68, 68, 0.015),
+                inset 0 0 8px rgba(248, 113, 113, 0.01);
+    }
+}
+
+#memory-panel {
     transition:
             border-color 1.8s ease,
             box-shadow 1.8s ease,
-            opacity 0.35s ease;
+            var(--panel-geometry-transition),
+            opacity 0.35s ease,
+            transform var(--app-header-slide-duration) var(--app-header-slide-easing);
+}
+
+#memory-panel.panel-resizing {
+    transition:
+            border-color 1.8s ease,
+            box-shadow 1.8s ease,
+            opacity 0.35s ease,
+            transform var(--app-header-slide-duration) var(--app-header-slide-easing);
 }
 
 #console-panel.panel-inactive {
     opacity: 0.75;
-    transition: opacity 3s cubic-bezier(0.22, 1, 0.36, 1);
+    transition:
+            opacity 3s cubic-bezier(0.22, 1, 0.36, 1),
+            transform var(--app-header-slide-duration) var(--app-header-slide-easing);
 }
 
-#settings-panel.panel-inactive {
+#memory-panel.panel-inactive {
     opacity: 0.75;
     transition:
             border-color 1.8s ease,
             box-shadow 1.8s ease,
-            opacity 3s cubic-bezier(0.22, 1, 0.36, 1);
+            opacity 3s cubic-bezier(0.22, 1, 0.36, 1),
+            transform var(--app-header-slide-duration) var(--app-header-slide-easing);
 }
 
 #console-panel.panel-inactive:hover {
     opacity: 1;
-    transition: opacity 0.35s ease;
+    transition:
+            opacity 0.35s ease,
+            transform var(--app-header-slide-duration) var(--app-header-slide-easing);
 }
 
-#settings-panel.panel-inactive:hover {
+#memory-panel.panel-inactive:hover {
     opacity: 1;
     transition:
             border-color 1.8s ease,
             box-shadow 1.8s ease,
-            opacity 0.35s ease;
+            opacity 0.35s ease,
+            transform var(--app-header-slide-duration) var(--app-header-slide-easing);
 }
 
-#settings-panel.memory-updating {
+main.panel-startup-collapse-active #console-panel,
+main.panel-startup-collapse-active #memory-panel {
+    transition:
+            height var(--panel-collapse-duration) var(--panel-collapse-easing),
+            min-height var(--panel-collapse-duration) var(--panel-collapse-easing),
+            max-height var(--panel-collapse-duration) var(--panel-collapse-easing),
+            opacity var(--panel-collapse-duration) var(--panel-collapse-easing),
+            transform var(--app-header-slide-duration) var(--app-header-slide-easing) !important;
+}
+
+main.panel-startup-collapse-active #memory-panel {
+    transition:
+            border-color 1.8s ease,
+            box-shadow 1.8s ease,
+            height var(--panel-collapse-duration) var(--panel-collapse-easing),
+            min-height var(--panel-collapse-duration) var(--panel-collapse-easing),
+            max-height var(--panel-collapse-duration) var(--panel-collapse-easing),
+            opacity var(--panel-collapse-duration) var(--panel-collapse-easing),
+            transform var(--app-header-slide-duration) var(--app-header-slide-easing) !important;
+}
+
+#memory-panel.memory-updating {
     border-color: rgba(255,190,95,.50);
 
     box-shadow:
@@ -571,7 +1321,7 @@ main.panels-collapsed-2 #scene-shade {
             inset 0 0 16px rgba(255,170,70,.05);
 }
 
-#settings-panel.memory-l2-updating {
+#memory-panel.memory-l2-updating {
     border-color: rgba(255, 255, 255, 0.50);
 
     box-shadow:
@@ -581,7 +1331,7 @@ main.panels-collapsed-2 #scene-shade {
             inset 0 0 16px rgba(255, 255, 255, 0.04);
 }
 
-#settings-panel.memory-l3-updating {
+#memory-panel.memory-l3-updating {
     border-color: rgba(190, 120, 255, 0.50);
 
     box-shadow:
@@ -591,19 +1341,33 @@ main.panels-collapsed-2 #scene-shade {
             inset 0 0 16px rgba(168, 85, 247, 0.05);
 }
 
-#settings-panel.memory-updating.memory-pulse {
+#memory-panel.memory-lt-updating {
+    border-color: rgba(255, 255, 255, 0.50);
+
+    box-shadow:
+            0 0 0 1px rgba(255, 255, 255, 0.22),
+            0 0 18px rgba(255, 255, 255, 0.18),
+            0 0 48px rgba(255, 255, 255, 0.10),
+            inset 0 0 16px rgba(255, 255, 255, 0.04);
+}
+
+#memory-panel.memory-updating.memory-pulse {
     animation: memoryGlowPulse 5s ease-in-out infinite;
 }
 
-#settings-panel.memory-l2-updating.memory-l2-pulse {
+#memory-panel.memory-l2-updating.memory-l2-pulse {
     animation: memoryL2GlowPulse 5s ease-in-out infinite;
 }
 
-#settings-panel.memory-l3-updating.memory-l3-pulse {
+#memory-panel.memory-l3-updating.memory-l3-pulse {
     animation: memoryL3GlowPulse 5s ease-in-out infinite;
 }
 
-#settings-panel.memory-fading {
+#memory-panel.memory-lt-updating.memory-lt-pulse {
+    animation: memoryL2GlowPulse 5s ease-in-out infinite;
+}
+
+#memory-panel.memory-fading {
     border-color: rgba(255, 190, 95, 0.18);
 
     box-shadow:
@@ -613,7 +1377,7 @@ main.panels-collapsed-2 #scene-shade {
             inset 0 0 10px rgba(255, 170, 70, 0.03);
 }
 
-#settings-panel.memory-l2-fading {
+#memory-panel.memory-l2-fading {
     border-color: rgba(255, 255, 255, 0.18);
 
     box-shadow:
@@ -623,7 +1387,7 @@ main.panels-collapsed-2 #scene-shade {
             inset 0 0 10px rgba(255, 255, 255, 0.03);
 }
 
-#settings-panel.memory-l3-fading {
+#memory-panel.memory-l3-fading {
     border-color: rgba(190, 120, 255, 0.18);
 
     box-shadow:
@@ -632,30 +1396,18 @@ main.panels-collapsed-2 #scene-shade {
             0 0 32px rgba(126, 34, 206, 0.06),
             inset 0 0 10px rgba(168, 85, 247, 0.03);
 }
-#settings-panel.fact-check-running {
-    border-color: rgba(56, 189, 248, 0.58);
 
-    box-shadow:
-            0 0 0 1px rgba(56, 189, 248, 0.28),
-            0 0 20px rgba(59, 130, 246, 0.24),
-            0 0 56px rgba(37, 99, 235, 0.16),
-            inset 0 0 18px rgba(14, 165, 233, 0.06);
+#memory-panel.memory-lt-fading {
+    animation: memoryLTNeutralFade 1.4s ease-out forwards;
 }
 
-#settings-panel.fact-check-running.fact-check-pulse {
-    animation: factCheckGlowPulse 4s ease-in-out infinite;
+#memory-panel.memory-lt-success {
+    animation: memoryLTSuccessFade 1.8s ease-out forwards;
 }
 
-#settings-panel.fact-check-fading {
-    border-color: rgba(56, 189, 248, 0.20);
-
-    box-shadow:
-            0 0 0 1px rgba(56, 189, 248, 0.09),
-            0 0 12px rgba(59, 130, 246, 0.12),
-            0 0 34px rgba(37, 99, 235, 0.07),
-            inset 0 0 10px rgba(14, 165, 233, 0.03);
+#memory-panel.memory-lt-failed {
+    animation: memoryLTFailureFade 1.8s ease-out forwards;
 }
-
 #user-input::placeholder {
     color: rgba(255,255,255,0.35);
 }
@@ -682,4 +1434,28 @@ main.panels-collapsed-2 #scene-shade {
     box-shadow:
             0 0 0 1px rgba(255,255,255,0.1),
             0 0 12px rgba(255,255,255,0.2);
+}
+
+#console-title{
+    margin-top: -2px;
+}
+
+.jin-project-folder-form {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-top: 8px;
+}
+.jin-project-folder-form.hidden { display: none; }
+.jin-project-folder-input {
+    flex: 1 1 140px;
+    min-width: 0;
+    font-weight: normal;
+    letter-spacing: normal;
+    cursor: text;
+}
+.jin-project-folder-status {
+    width: 100%;
+    font-size: 10px;
+    overflow-wrap: anywhere;
 }

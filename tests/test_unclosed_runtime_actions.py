@@ -1,0 +1,241 @@
+import json
+from types import SimpleNamespace
+from unittest import IsolatedAsyncioTestCase, TestCase
+
+from contracts.rules_assembler import get_close_tag_runtime_actions, get_runtime_action_schema
+from tests.helpers.runtime_action_payloads import PAIRED_ACTION_PAYLOADS as PAYLOADS
+from utils.actions import RuntimeActionStreamFilter
+
+
+
+
+def parse_chunks(chunks):
+    parser = RuntimeActionStreamFilter()
+    results = [parser.filter(chunk) for chunk in chunks]
+    results.append(parser.flush_result())
+    return parser, results
+
+
+def fragmented(text):
+    cuts = sorted({cut for cut in (2, len(text) // 2, len(text) - 2) if 0 < cut < len(text)})
+    points = [0, *cuts, len(text)]
+    return [text[a:b] for a, b in zip(points, points[1:])]
+
+
+class UnclosedParserTests(TestCase):
+    def test_covers_every_paired_contract(self):
+        # LOAD_SKILL uses its plural public marker and CALL_MCP is dynamically
+        # exposed only by a loaded MCP skill; both have dedicated parser tests.
+        self.assertTrue(
+            set(PAYLOADS).issubset(set(get_close_tag_runtime_actions()))
+        )
+
+    def assert_unclosed_failure(self, name, body, chunks):
+        parser, results = parse_chunks(chunks)
+        self.assertEqual(''.join(r.text for r in results).strip(), 'before')
+        self.assertFalse([a for r in results for a in r.actions])
+        failures = [a for r in results for a in r.failed_actions]
+        self.assertEqual([a.name for a in failures], [name])
+        self.assertEqual(failures[0].payload, body)
+        self.assertFalse(parser.flush_result().failed_actions)
+
+    def test_every_paired_contract_hides_and_fails_unclosed_blocks(self):
+        # Contract coverage and stream-fragmentation coverage are separate concerns.
+        # Every paired action must fail unclosed; one representative action also
+        # exercises charwise provider fragmentation.
+        for name, payload in PAYLOADS.items():
+            text = f'before\n<{name}>{payload}'
+            with self.subTest(name=name, chunks='whole'):
+                self.assert_unclosed_failure(name, payload, [text])
+    
+        name = 'SAVE_ACTIVE_MEMORY'
+        payload = PAYLOADS[name]
+        text = f'before\n<{name}>{payload}'
+        with self.subTest(name=name, chunks='charwise'):
+            self.assert_unclosed_failure(name, payload, fragmented(text))
+    def test_unclosed_block_boundary_matrix(self):
+        # Exhaustive provider split coverage belongs to the stream-filter tests.
+        # Here we only keep representative boundaries for one paired action.
+        name = 'SAVE_ACTIVE_MEMORY'
+        payload = PAYLOADS[name]
+        for body in ('', payload, payload + f'</{name[:-2]}'):
+            text = f'before\n<{name}>{body}'
+            split_points = sorted({
+                1,
+                text.find('<') + 1,
+                text.find('>') + 1,
+                len(text) // 2,
+                len(text) - 1,
+            })
+            for split in split_points:
+                with self.subTest(body=body, split=split):
+                    self.assert_unclosed_failure(name, body, [text[:split], text[split:]])
+    def test_repeated_opening_is_not_a_close_tag(self):
+        for name, payload in PAYLOADS.items():
+            text = f'<{name}>{payload}<{name}>'
+            _, results = parse_chunks([text])
+            self.assertFalse([a for r in results for a in r.actions], name)
+            self.assertEqual([a.name for r in results for a in r.failed_actions], [name])
+            self.assertEqual(''.join(r.text for r in results), '')
+    
+        # One fragmented representative is enough to verify that chunking does not
+        # turn a repeated opening tag into a close tag.
+        name = 'SAVE_ACTIVE_MEMORY'
+        payload = PAYLOADS[name]
+        text = f'<{name}>{payload}<{name}>'
+        _, results = parse_chunks(fragmented(text))
+        self.assertFalse([a for r in results for a in r.actions])
+        self.assertEqual([a.name for r in results for a in r.failed_actions], [name])
+        self.assertEqual(''.join(r.text for r in results), '')
+    def test_closed_blocks_and_literal_openings_keep_their_semantics(self):
+        for name, payload in PAYLOADS.items():
+            text = f'before <{name}>{payload}</{name}> after'
+            _, results = parse_chunks([text])
+            self.assertEqual([a.name for r in results for a in r.actions], [name])
+            self.assertFalse([a for r in results for a in r.failed_actions])
+            self.assertEqual(' '.join(''.join(r.text for r in results).split()), 'before after')
+    
+        # Preserve one charwise closed-block smoke test; exhaustive provider split
+        # coverage belongs to RuntimeActionStreamFilter itself.
+        name = 'SAVE_ACTIVE_MEMORY'
+        payload = PAYLOADS[name]
+        text = f'before <{name}>{payload}</{name}> after'
+        _, results = parse_chunks(fragmented(text))
+        self.assertEqual([a.name for r in results for a in r.actions], [name])
+        self.assertFalse([a for r in results for a in r.failed_actions])
+        self.assertEqual(' '.join(''.join(r.text for r in results).split()), 'before after')
+    
+        name = 'UPDATE_LT_FACTS'
+        payload = PAYLOADS[name]
+        openings = ('"', "'", '`', '(', '[', '{', '«')
+        for opening in openings:
+            text = f'{opening}<{name}>{payload}'
+            _, results = parse_chunks([text])
+            self.assertEqual(''.join(r.text for r in results), text)
+            self.assertFalse([a for r in results for a in r.failed_actions])
+    
+        text = f'"<{name}>{payload}'
+        _, results = parse_chunks(fragmented(text))
+        self.assertEqual(''.join(r.text for r in results), text)
+        self.assertFalse([a for r in results for a in r.failed_actions])
+    def test_private_tail_cannot_execute_nested_markers(self):
+        for name in set(PAYLOADS) - {'ASSET_ACTION'}:
+            text = f'before <{name}>private <CLEAN_TOOL_RESULTS><ASSET_ACTION>{{"action":"list_files"}}</ASSET_ACTION>'
+            _, results = parse_chunks([text])
+            self.assertEqual(''.join(r.text for r in results), 'before ')
+            self.assertFalse([a for r in results for a in r.actions])
+            self.assertEqual([a.name for r in results for a in r.failed_actions], [name])
+            self.assertTrue(all(a.name == name for r in results for a in r.started_actions))
+
+    def test_closed_outer_block_keeps_nested_marker_text_in_payload(self):
+        payload = (
+            '{"conditions":"demo <JIN_REACTION>.",'
+            '"custom_field":"topic","custom_value":"markers"}'
+        )
+        text = (
+            'before <SAVE_ACTIVE_MEMORY>'
+            + payload
+            + '</SAVE_ACTIVE_MEMORY> after'
+        )
+
+        for label, chunks in (("whole", [text]), ("fragmented", fragmented(text))):
+            with self.subTest(chunks=label):
+                _, results = parse_chunks(chunks)
+                visible_text = ''.join(r.text for r in results)
+                self.assertEqual(
+                    ' '.join(visible_text.split()),
+                    'before after',
+                )
+                self.assertNotIn('SAVE_ACTIVE_MEMORY', visible_text)
+                self.assertNotIn('JIN_REACTION', visible_text)
+                self.assertEqual(
+                    [(a.name, a.payload) for r in results for a in r.actions],
+                    [('SAVE_ACTIVE_MEMORY', payload)],
+                )
+                self.assertFalse([a for r in results for a in r.failed_actions])
+                self.assertEqual(
+                    [a.name for r in results for a in r.started_actions],
+                    ['SAVE_ACTIVE_MEMORY'],
+                )
+
+    def test_complete_then_incomplete_and_partial_false_prefix(self):
+        _, results = parse_chunks(fragmented('<UPDATE_LT_FACTS>first</UPDATE_LT_FACTS><UPDATE_LT_FACTS>second'))
+        self.assertEqual(len([a for r in results for a in r.actions]), 1)
+        self.assertEqual(len([a for r in results for a in r.failed_actions]), 1)
+        for text in ('normal <ASSET_ACTOR> text', 'normal (<UPDATE_LT_', 'text < 5'):
+            _, results = parse_chunks(fragmented(text))
+            self.assertEqual(''.join(r.text for r in results), text)
+            self.assertFalse([a for r in results for a in r.failed_actions])
+        _, results = parse_chunks(fragmented('<CLEAN_TOOL_RESULTS>'))
+        self.assertFalse([a for r in results for a in r.actions])
+        self.assertEqual(
+            [a.name for r in results for a in r.failed_actions],
+            ['CLEAN_TOOL_RESULTS'],
+        )
+
+
+class UnclosedRuntimeTests(IsolatedAsyncioTestCase):
+    async def test_eof_fails_every_contract_before_message_end_and_survives_bootstrap(self):
+        from agent.nodes.brain import (
+            action_event_requires_follow_up, consume_action_failure_followup_context,
+            _build_failed_runtime_action_marker,
+        )
+        from runtime.stream import RuntimeStream
+        from runtime.frame_memory_utils import build_runtime_session_checkpoint
+        from websocket.bootstrap import clean_bootstrap_tool_results
+        from utils.context.tool_results import build_tool_results_context
+        from tests.helpers.runtime_stream import FakeEmitter, FakeLogger, FakeWebSocket
+
+        for name, payload in PAYLOADS.items():
+            with self.subTest(name=name):
+                context = SimpleNamespace(
+                    websocket=FakeWebSocket(), emitter=FakeEmitter(), logger=FakeLogger(),
+                    runtime_action_events=[], runtime_session_action_history=[],
+                    runtime_current_turn_id='turn-test', runtime_current_sequence_turn_id='turn-test',
+                    runtime_session_id='session-test', runtime_turn_user_message='test',
+                )
+                stream = RuntimeStream(
+                    context=context, runtime_id='brain', role='brain', context_window=8192,
+                    log_method=context.logger.log_service, enable_validator=False,
+                    runtime_actions=list(PAYLOADS),
+                )
+                # Guards are a separate completed-action policy; don't open a real
+                # confirmation timer in this protocol-lifecycle test.
+                async def no_guard(actions):
+                    return None
+                stream.confirm_started_runtime_action_guards = no_guard
+                async def chunks():
+                    # Parser unit tests own provider-boundary fragmentation. This
+                    # runtime test verifies EOF failure propagation/checkpointing.
+                    yield {'type': 'content', 'content': f'before\n<{name}>{payload}'}
+                response = await stream.run(chunks())
+                self.assertIsNotNone(response, context.logger.messages)
+                self.assertEqual(response.strip(), 'before')
+                failures = [e for e in context.emitter.events if e.get('status') == 'failed']
+                self.assertEqual(len(failures), 1)
+                failure = failures[0]
+                self.assertEqual(failure['action'], name.lower())
+                self.assertEqual(failure['text'], f'{name}: failed: no close tag provided in output')
+                starts = [e for e in context.emitter.events if e.get('status') == 'started']
+                if starts and starts[-1].get('id'):
+                    self.assertEqual(failure['id'], starts[-1]['id'])
+                self.assertFalse(context.runtime_active_action_markers)
+                self.assertTrue(action_event_requires_follow_up(context.runtime_action_events[-1]))
+                self.assertNotIn(f'</{name}>', _build_failed_runtime_action_marker(context.runtime_action_events[-1]))
+                self.assertTrue(consume_action_failure_followup_context(context))
+                self.assertIn('failed: no close tag', stream.build_action_log(0))
+                self.assertIn('failed: no close tag', str(context.logger.messages))
+                self.assertIn('failed: no close tag', str(context.runtime_session_action_history))
+                prompt = build_tool_results_context(context)
+                self.assertIn(f'name="{name}"', prompt)
+                self.assertIn('Status: failed', prompt)
+                self.assertIn('Reason: no close tag provided in output', prompt)
+                if get_runtime_action_schema(name):
+                    self.assertIn('Correct action schema:', prompt)
+                checkpoint = build_runtime_session_checkpoint(context)
+                restored, _ = clean_bootstrap_tool_results(json.loads(json.dumps(checkpoint['tool_results'])))
+                self.assertEqual(restored[0]['result'], context.runtime_tool_results[0]['result'])
+                context.runtime_tool_results = restored
+                self.assertIn('no close tag provided in output', build_tool_results_context(context))
+                self.assertFalse(getattr(context, 'runtime_pending_delayed_memory_action_ids', []))
+                self.assertFalse(getattr(context, 'runtime_pending_asset_action_ids', []))

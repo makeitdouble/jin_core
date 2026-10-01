@@ -1,98 +1,16 @@
-# Formats delayed memory tool results and appended delayed memory context blocks.
-from rules.runtime import (
-    NO_ENTRIES_FOUND_MESSAGE,
+# Formats delayed memory tool results and loaded delayed memory context blocks.
+from .runtime_action_result_text import (
+    format_runtime_action_result,
 )
-
-from .formatting import (
-    format_tool_result_payload,
-)
-
-
-def format_delayed_memory_list_result(
-    result: dict,
-) -> str:
-
-    reports = [
-        report
-        for report in result.get(
-            "reports",
-            [],
-        )
-        or []
-        if isinstance(
-            report,
-            dict,
-        )
-    ]
-
-    if not reports:
-        return NO_ENTRIES_FOUND_MESSAGE
-
-    lines = []
-
-    for index, report in enumerate(
-        reports,
-        start=1,
-    ):
-        title = str(
-            report.get(
-                "title",
-                "",
-            )
-            or ""
-        ).strip()
-
-        if not title:
-            title = "Untitled delayed memory"
-
-        report_id = str(
-            report.get(
-                "id",
-                "",
-            )
-            or ""
-        ).strip()
-
-        lines.append(
-            f"{index}. {title} | id: {report_id}"
-        )
-
-    return "\n".join(
-        lines
-    )
 
 
 def format_delayed_memory_report_result(
     result: dict,
 ) -> str:
 
-    if result.get("ok") is False:
-        return format_delayed_memory_failure_result(
-            result
-        )
-
-    if result.get(
-        "destination"
-    ):
-        return format_tool_result_payload(
-            result
-        )
-
-    report = result.get(
-        "report",
-        {},
-    )
-
-    if not isinstance(
-        report,
-        dict,
-    ):
-        return format_tool_result_payload(
-            result
-        )
-
-    return format_tool_result_payload(
-        report
+    return format_runtime_action_result(
+        result,
+        runtime_action="SAVE_DELAYED_MEMORY",
     )
 
 
@@ -100,32 +18,15 @@ def format_delayed_memory_failure_result(
     result: dict,
 ) -> str:
 
-    failure = str(
-        result.get(
-            "failure",
-            "",
-        )
+    action = str(
+        result.get("action", "")
         or ""
-    ).strip()
+    ).strip().upper()
 
-    if failure:
-        return failure
-
-    failure_followup_message = str(
-        result.get(
-            "failure_followup_message",
-            "",
-        )
-        or ""
-    ).strip()
-
-    if failure_followup_message:
-        return f"Failure: {failure_followup_message}"
-
-    return format_tool_result_payload(
-        result
+    return format_runtime_action_result(
+        result,
+        runtime_action=action,
     )
-
 
 def format_delayed_memory_result_sections(
     payload,
@@ -148,48 +49,22 @@ def format_delayed_memory_result_sections(
             or ""
         )
 
-        if action == "list_delayed_memory":
+        if action == "load_delayed_memory":
             sections.append(
                 (
-                    "LIST_DELAYED_MEMORY",
-                    format_delayed_memory_list_result(
-                        result
+                    "LOAD_DELAYED_MEMORY",
+                    format_runtime_action_result(
+                        result,
+                        runtime_action="LOAD_DELAYED_MEMORY",
                     ),
                 )
             )
             continue
 
-        if action == "append_delayed_memory":
-            if result.get("ok") is False:
-                sections.append(
-                    (
-                        "APPEND_DELAYED_MEMORY",
-                        format_delayed_memory_failure_result(
-                            result
-                        ),
-                    )
-                )
-            continue
-
-        if action == "remove_delayed_memory":
+        if action == "save_delayed_memory":
             sections.append(
                 (
-                    "REMOVE_DELAYED_MEMORY",
-                    (
-                        format_delayed_memory_failure_result
-                        if result.get("ok") is False
-                        else format_tool_result_payload
-                    )(
-                        result
-                    ),
-                )
-            )
-            continue
-
-        if action == "save_delayed_memory_content":
-            sections.append(
-                (
-                    "SAVE_DELAYED_MEMORY_CONTENT",
+                    "SAVE_DELAYED_MEMORY",
                     format_delayed_memory_report_result(
                         result
                     ),

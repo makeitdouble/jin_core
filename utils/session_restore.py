@@ -1,0 +1,2590 @@
+import json
+import errno
+import re
+import shutil
+import time
+from datetime import datetime
+from html import unescape
+from pathlib import Path
+from xml.sax.saxutils import escape
+
+from runtime.runtime_context import RECENT_MESSAGES_MAX_PAIRS
+from runtime.frame_memory_utils import get_session_title
+from runtime.anonymous_mode import is_anonymous_session_id
+from utils.chat_log import (
+    CHAT_LOG_ROOT,
+    _clean_session_id,
+    chat_log_root_for_mode,
+    summarize_attachments,
+)
+from utils.actions import (
+    normalize_jin_color_payload,
+    normalize_jin_position_dict,
+    normalize_jin_speed_value,
+)
+from utils.session_actions_history import (
+    build_session_action_marker_history_items,
+)
+from utils.context.session_actions import format_session_action_age
+
+
+BLOCK_RE_TEMPLATE = r"<{name}(?:\s+[^>]*)?>\s*(?P<body>[\s\S]*?)\s*</{name}>"
+TOOL_RESULT_RE = re.compile(
+    r'<TOOL_RESULT\s+(?P<before_attrs>[^>]*?)\bname="(?P<name>[^"]+)"(?P<attrs>[^>]*)>\s*(?P<body>[\s\S]*?)\s*</TOOL_RESULT>',
+    re.IGNORECASE,
+)
+TRUSTED_VALUE_RE = re.compile(
+    r"<(?P<name>CURRENT_[A-Z0-9_]+)>(?P<value>[\s\S]*?)</(?P=name)>",
+    re.IGNORECASE,
+)
+ATTACHED_FILE_ID_RE = re.compile(
+    r"\[\s*id\s*:\s*(?P<id>[a-zA-Z0-9_.-]+)\s*\]",
+    re.IGNORECASE,
+)
+LT_FACT_ID_RE = re.compile(
+    r"(?<![a-zA-Z0-9_])F(?P<number>\d+)(?![a-zA-Z0-9_])",
+    re.IGNORECASE,
+)
+UPDATE_LT_FACTS_BLOCK_RE = re.compile(
+    r"^[ \t]*<UPDATE_LT_FACTS(?:\s+[^>]*)?>[ \t]*\r?\n"
+    r"(?P<body>[\s\S]*?)"
+    r"^[ \t]*</UPDATE_LT_FACTS>[ \t]*[\"'`]*$",
+    re.IGNORECASE | re.MULTILINE,
+)
+RESTORED_DIALOG_SOURCE_RE = re.compile(
+    r'<(?:PREVIOUS_CHAT_MESSAGES|OLD_SESSION_RESTORED_STATE)\b[^>]*\bsession_id="(?P<session_id>[^"]+)"',
+    re.IGNORECASE,
+)
+
+
+ACTION_LABELS = {
+    "SAVE_SESSION": "Saved session",
+    "SAVE_DELAYED_MEMORY": "Saved delayed memory",
+    "LOAD_DELAYED_MEMORY": "Loaded delayed memory",
+    "UNLOAD_DELAYED_MEMORY": "Unloaded delayed memory",
+    "SAVE_ACTIVE_MEMORY": "Saved active memory",
+    "DELETE_ACTIVE_MEMORY": "Deleted active memory",
+    "UPDATE_LT_FACTS": "Updated L-T facts",
+    "ATTACH_FILE_CONTENT": "Attached file content",
+    "ATTACH_FILE_BY_ID": "Attached file by ID",
+    "JIN_COLOR": "JIN color",
+    "JIN_SIZE": "JIN size",
+}
+
+ACTION_LABEL_KEYS = {
+    str(label or "").strip().casefold(): action
+    for action, label in ACTION_LABELS.items()
+    if str(label or "").strip()
+}
+
+
+def _extract_block(text: str, name: str) -> str:
+    match = re.search(
+        BLOCK_RE_TEMPLATE.format(name=re.escape(name)),
+        str(text or ""),
+        re.IGNORECASE,
+    )
+    if match is None:
+        return ""
+
+    body = match.group("body").replace("\r\n", "\n")
+    lines = body.splitlines()
+    non_empty = [line for line in lines if line.strip()]
+    if non_empty:
+        indentation = min(
+            len(line) - len(line.lstrip())
+            for line in non_empty
+        )
+        if indentation:
+            lines = [
+                line[indentation:] if line.strip() else ""
+                for line in lines
+            ]
+    return "\n".join(lines).strip()
+
+
+def _extract_latest_frame_memory_block(text: str) -> str:
+    matches = list(re.finditer(
+        r"<FRAME_MEMORY_(?P<number>\d+)(?:\s+[^>]*)?>\s*"
+        r"(?P<body>[\s\S]*?)\s*</FRAME_MEMORY_(?P=number)>",
+        str(text or ""),
+        re.IGNORECASE,
+    ))
+    if not matches:
+        return ""
+    return matches[-1].group("body").strip()
+
+
+def _parse_iso_timestamp(value) -> float:
+    text = str(value or "").strip()
+    if not text:
+        return 0.0
+    normalized = text[:-1] + "+00:00" if text.endswith("Z") else text
+    try:
+        return datetime.fromisoformat(normalized).timestamp()
+    except ValueError:
+        return 0.0
+
+
+def _entry_timestamp(entry: dict) -> float:
+    return _parse_iso_timestamp(entry.get("ts"))
+
+
+def _find_session_directory(session_id: str, root: Path) -> Path | None:
+    normalized = _clean_session_id(session_id)
+    if not normalized or not root.is_dir():
+        return None
+
+    candidates = []
+    for date_directory in root.iterdir():
+        if not date_directory.is_dir():
+            continue
+        if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", date_directory.name):
+            continue
+        candidate = date_directory / normalized
+        if candidate.is_dir():
+            candidates.append(candidate)
+
+    if not candidates:
+        return None
+
+    return sorted(candidates, key=lambda item: item.parent.name)[-1]
+
+
+def _load_dialog(path: Path) -> list[dict]:
+    entries = []
+    try:
+        lines = path.read_text(encoding="utf-8", errors="replace").splitlines()
+    except OSError:
+        return entries
+
+    decoder = json.JSONDecoder()
+
+    for line in lines:
+        source = str(line or "").lstrip("\ufeff")
+        offset = 0
+
+        # A log can survive an interrupted append without the final newline.
+        # If the next process later appends another object, the physical line
+        # becomes ``}{``. Decode every adjacent JSON value so one damaged
+        # separator cannot make the last visible chat bubble disappear.
+        while offset < len(source):
+            while offset < len(source) and source[offset].isspace():
+                offset += 1
+            if offset >= len(source):
+                break
+
+            try:
+                entry, end = decoder.raw_decode(source, offset)
+            except (TypeError, ValueError, json.JSONDecodeError):
+                break
+
+            if isinstance(entry, dict):
+                entries.append(entry)
+
+            if end <= offset:
+                break
+            offset = end
+
+    return entries
+
+
+def _first_meaningful_user_entry(path: Path) -> dict | None:
+    """Find USER ownership without materializing the archive dialogue."""
+    decoder = json.JSONDecoder()
+    try:
+        source_lines = path.open(encoding="utf-8", errors="replace")
+    except OSError:
+        return None
+    with source_lines:
+        for raw_line in source_lines:
+            source = str(raw_line or "").lstrip("\ufeff")
+            offset = 0
+            while offset < len(source):
+                while offset < len(source) and source[offset].isspace():
+                    offset += 1
+                if offset >= len(source):
+                    break
+                try:
+                    entry, end = decoder.raw_decode(source, offset)
+                except (TypeError, ValueError, json.JSONDecodeError):
+                    break
+                if (
+                    isinstance(entry, dict)
+                    and str(entry.get("role", "") or "").strip().lower() == "user"
+                    and (
+                        str(entry.get("text", "") or "").strip()
+                        or bool(entry.get("attachments", []) or [])
+                    )
+                ):
+                    return entry
+                if end <= offset:
+                    break
+                offset = end
+    return None
+
+
+def _dialog_turn_key(entry: dict, index: int) -> object:
+    try:
+        turn_number = int(entry.get("turn", 0) or 0)
+    except (TypeError, ValueError):
+        turn_number = 0
+
+    turn_id = str(entry.get("turn_id", "") or "").strip()
+    if turn_number > 0:
+        return ("turn", turn_number)
+    if turn_id:
+        return ("turn_id", turn_id)
+
+    # A legacy row without a turn identity cannot be paired safely.
+    return ("row", index)
+
+
+def _recent_restored_dialog_pairs(entries: list[dict]) -> list[tuple[dict, dict]]:
+    """Return the newest complete USER/JIN pairs in chronological order."""
+    turns: dict[object, dict[str, dict]] = {}
+    ordered_keys: list[object] = []
+
+    for index, entry in enumerate(entries):
+        role = str(entry.get("role", "")).strip().lower()
+        if role not in {"user", "jin", "assistant", "brain", "service"}:
+            continue
+
+        text = str(entry.get("text", "") or "").strip()
+        if not text:
+            continue
+
+        key = _dialog_turn_key(entry, index)
+
+        if key not in turns:
+            turns[key] = {}
+            ordered_keys.append(key)
+
+        side = "user" if role == "user" else "jin"
+        turns[key][side] = entry
+
+    complete_pairs = [
+        (turns[key]["user"], turns[key]["jin"])
+        for key in ordered_keys
+        if "user" in turns[key] and "jin" in turns[key]
+    ]
+    return complete_pairs[-RECENT_MESSAGES_MAX_PAIRS:]
+
+
+def _recent_visible_dialog_entries(entries: list[dict]) -> list[dict]:
+    """Project the same bounded USER-owned tail used by continuation state."""
+
+    user_turn_keys = []
+    seen = set()
+    for index, entry in enumerate(entries):
+        if str(entry.get("role", "")).strip().lower() != "user":
+            continue
+        if not (
+            str(entry.get("text", "") or "").strip()
+            or bool(entry.get("attachments", []) or [])
+        ):
+            continue
+
+        key = _dialog_turn_key(entry, index)
+        if key in seen:
+            continue
+        seen.add(key)
+        user_turn_keys.append(key)
+
+    selected_keys = user_turn_keys[-RECENT_MESSAGES_MAX_PAIRS:]
+    if not selected_keys:
+        return []
+
+    first_selected_key = selected_keys[0]
+    for index, entry in enumerate(entries):
+        if (
+            str(entry.get("role", "")).strip().lower() == "user"
+            and _dialog_turn_key(entry, index) == first_selected_key
+        ):
+            # Keep later JIN-only continuation rows too: an earlier archived
+            # restore greeting is a visible move even though it has no USER row.
+            return entries[index:]
+
+    return []
+
+
+def _format_restored_dialog_age_suffix(created_at, *, now: float) -> str:
+    try:
+        timestamp = float(created_at)
+    except (TypeError, ValueError):
+        timestamp = _parse_iso_timestamp(created_at)
+
+    if timestamp <= 0:
+        return ""
+
+    return f" ({format_session_action_age(now - timestamp)} ago)"
+
+
+def _append_restored_dialog_entry(
+    lines: list[str],
+    entry: dict,
+    *,
+    now: float,
+) -> None:
+    role = str(entry.get("role", "")).strip().lower()
+    tag = "USER" if role == "user" else "JIN"
+    text = str(entry.get("text", "") or "").strip()
+    age_suffix = _format_restored_dialog_age_suffix(
+        entry.get("ts"),
+        now=now,
+    )
+    lines.append(f"<{tag}>{escape(text)}</{tag}>{age_suffix}")
+
+
+
+def _build_restored_dialog_context(
+    entries: list[dict],
+    session_id: str,
+) -> str:
+    lines = [
+        f'<PREVIOUS_CHAT_MESSAGES session_id="{escape(session_id)}">',
+        "This is the exact visible dialogue restored from the archived session. The newest complete USER/JIN pairs are shown in chronological order. Archived JIN reasoning is intentionally excluded from this bootstrap block; continue from the visible interaction state and do not summarize or re-introduce it unless the user asks.",
+    ]
+
+    pairs = _recent_restored_dialog_pairs(entries)
+    latest_user_entry = next(
+        (
+            entry
+            for entry in reversed(entries)
+            if str(entry.get("role", "")).strip().lower() == "user"
+            and str(entry.get("text", "") or "").strip()
+        ),
+        None,
+    )
+    latest_user_is_unpaired = bool(
+        latest_user_entry is not None
+        and (not pairs or pairs[-1][0] is not latest_user_entry)
+    )
+    if latest_user_is_unpaired:
+        pairs = pairs[-max(RECENT_MESSAGES_MAX_PAIRS - 1, 0):]
+
+    now = time.time()
+
+    for user_entry, jin_entry in pairs:
+        _append_restored_dialog_entry(lines, user_entry, now=now)
+        _append_restored_dialog_entry(lines, jin_entry, now=now)
+
+    if latest_user_is_unpaired:
+        _append_restored_dialog_entry(
+            lines,
+            latest_user_entry,
+            now=now,
+        )
+
+    lines.append("</PREVIOUS_CHAT_MESSAGES>")
+    return "\n".join(lines)
+
+
+def _extract_reasoning_body(text: str) -> str:
+    source = str(text or "").strip()
+    if not source:
+        return ""
+
+    marker = "--- REASONING ---"
+    if marker not in source:
+        return source
+
+    return source.split(marker, 1)[1].strip()
+
+
+def _build_recent_turn_candidates(
+    entries: list[dict],
+    reasoning_by_turn_id: dict[str, str] | None = None,
+) -> list[dict]:
+    turns: dict[int, dict] = {}
+    ordered_turns = []
+    reasoning_by_turn_id = reasoning_by_turn_id or {}
+
+    for entry in entries:
+        try:
+            turn_number = int(entry.get("turn", 0) or 0)
+        except (TypeError, ValueError):
+            turn_number = 0
+        if turn_number <= 0:
+            continue
+
+        if turn_number not in turns:
+            turn = {
+                "user": "",
+                "jin": "",
+                "_jin_row_seen": False,
+            }
+            turns[turn_number] = turn
+            ordered_turns.append((turn_number, turn))
+        else:
+            turn = turns[turn_number]
+
+        role = str(entry.get("role", "")).strip().lower()
+        text = str(entry.get("text", "") or "").strip()
+        timestamp = _entry_timestamp(entry)
+
+        if role == "runtime" and entry.get("event") == "jin_reaction":
+            from utils.actions.jin_reaction_utils import normalize_jin_reaction_payload
+            payload = entry.get("payload")
+            reaction = normalize_jin_reaction_payload(
+                payload.get("emoji", "") if isinstance(payload, dict) else ""
+            )
+            if reaction:
+                turn["jin_reaction"] = reaction
+        if role == "user":
+            turn["user"] = text
+            attachments = summarize_attachments(
+                entry.get("attachments", [])
+            )
+            if attachments:
+                turn["attachments"] = attachments
+            else:
+                turn.pop("attachments", None)
+            if timestamp:
+                turn["user_created_at"] = timestamp
+        elif role in {"jin", "assistant", "brain", "service"}:
+            # A JIN row is appended only after runtime.run returns. Even when
+            # marker stripping leaves no visible answer text, that empty row
+            # is the durable commit marker for a real USER-only turn.
+            if "jin_reaction" in entry:
+                from utils.actions.jin_reaction_utils import normalize_jin_reaction_payload
+                reaction = normalize_jin_reaction_payload(entry["jin_reaction"])
+                if reaction:
+                    turn["jin_reaction"] = reaction
+                else:
+                    turn.pop("jin_reaction", None)
+            turn["_jin_row_seen"] = True
+            turn["jin"] = text
+            reasoning = _extract_reasoning_body(
+                reasoning_by_turn_id.get(
+                    str(entry.get("turn_id", "") or "").strip(),
+                    "",
+                )
+            )
+            if reasoning:
+                turn["reasoning"] = reasoning
+            if timestamp:
+                turn["jin_created_at"] = timestamp
+
+    ordered_turns.sort(key=lambda item: item[0])
+    return [
+        item
+        for _, item in ordered_turns
+        if item.get("user")
+    ]
+
+
+def _select_recent_turn_candidates(
+    candidates: list[dict],
+    *,
+    completed_turn_limit: int = RECENT_MESSAGES_MAX_PAIRS,
+) -> list[dict]:
+    """Keep N completed turns without charging interrupted USER-only moves.
+
+    An interrupted USER row is a real conversation move, but it is not one of
+    the completed USER/JIN pairs that define the rolling-history budget. Keep
+    such rows in chronological position while walking backwards until the
+    completed-turn budget is satisfied. A small hard cap prevents a pathological
+    run of interrupted rows from making bootstrap history unbounded.
+    """
+    try:
+        completed_turn_limit = max(int(completed_turn_limit), 1)
+    except (TypeError, ValueError):
+        completed_turn_limit = RECENT_MESSAGES_MAX_PAIRS
+
+    selected_newest_first = []
+    completed_turns = 0
+    max_items = completed_turn_limit * 2
+
+    for item in reversed(candidates or []):
+        if completed_turns >= completed_turn_limit:
+            break
+        if len(selected_newest_first) >= max_items:
+            break
+
+        selected_newest_first.append(item)
+        if bool(item.get("_jin_row_seen")):
+            completed_turns += 1
+
+    selected_newest_first.reverse()
+    return selected_newest_first
+
+
+def _public_recent_turn(item: dict) -> dict:
+    return {
+        key: value
+        for key, value in item.items()
+        if not key.startswith("_")
+    }
+
+
+def _build_recent_turns(
+    entries: list[dict],
+    reasoning_by_turn_id: dict[str, str] | None = None,
+) -> list[dict]:
+    candidates = _build_recent_turn_candidates(
+        entries,
+        reasoning_by_turn_id,
+    )
+    return [
+        _public_recent_turn(item)
+        for item in _select_recent_turn_candidates(candidates)
+    ]
+
+
+def _load_session_lineage_source(
+    session_id: str,
+    root: Path,
+) -> tuple[list[dict], str, str] | None:
+    session_directory = _find_session_directory(session_id, root)
+    if session_directory is None:
+        return None
+
+    dialog_paths = sorted(
+        (path for path in session_directory.glob("*.jsonl") if path.is_file()),
+        key=lambda path: path.name,
+    )
+    # A blank historical tab may have only a bootstrap prompt. It contributes
+    # no messages, but can still link to the preceding day's real session.
+    dialog_path = dialog_paths[-1] if dialog_paths else None
+    entries = _load_dialog(dialog_path) if dialog_path else []
+    candidates = _build_recent_turn_candidates(
+        entries,
+        _read_reasoning(session_directory, entries),
+    )
+
+    if dialog_path is not None:
+        context_paths = [
+            dialog_path.with_name(dialog_path.stem + ".bootstrap.txt"),
+            dialog_path.with_suffix(".txt"),
+        ]
+    else:
+        context_paths = sorted(
+            session_directory.glob("*.bootstrap.txt"), reverse=True,
+        )
+
+    context_text = ""
+    for context_path in context_paths:
+        try:
+            text = context_path.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            continue
+        # The immutable bootstrap prompt owns the direct predecessor. Later
+        # primary contexts can drop OLD_SESSION_RESTORED_STATE after continuation.
+        if _direct_predecessor_session_id(text):
+            context_text = text
+            break
+
+    return candidates, context_text, session_directory.parent.name
+
+
+def _direct_predecessor_session_id(context_text: str) -> str:
+    match = RESTORED_DIALOG_SOURCE_RE.search(str(context_text or ""))
+    if match is None:
+        return ""
+    return _clean_session_id(match.group("session_id"))
+
+
+def _lineage_session_start_timestamp(candidates: list[dict]) -> float:
+    timestamps = []
+
+    for item in candidates or []:
+        for key in ("user_created_at", "jin_created_at"):
+            try:
+                timestamp = float(item.get(key, 0) or 0)
+            except (TypeError, ValueError):
+                timestamp = 0.0
+            if timestamp > 0:
+                timestamps.append(timestamp)
+
+    return min(timestamps) if timestamps else 0.0
+
+
+def _lineage_session_tail_timestamp(candidates: list[dict]) -> float:
+    timestamps = []
+
+    for item in candidates or []:
+        for key in ("jin_created_at", "user_created_at"):
+            try:
+                timestamp = float(item.get(key, 0) or 0)
+            except (TypeError, ValueError):
+                timestamp = 0.0
+            if timestamp > 0:
+                timestamps.append(timestamp)
+
+    return max(timestamps) if timestamps else 0.0
+
+
+def _find_previous_real_user_session_id(
+    current_session_id: str,
+    root: Path,
+    *,
+    before_timestamp: float,
+    excluded_session_ids: set[str] | None = None,
+) -> str:
+    """Find the immediately preceding real USER session by raw timestamps.
+
+    This is a repair fallback for histories whose immutable bootstrap context
+    was overwritten by older builds and therefore lost OLD_SESSION_RESTORED_STATE.
+    An explicit predecessor marker always wins; this scan is used only when
+    that metadata is completely absent.
+    """
+    if before_timestamp <= 0 or not root.is_dir():
+        return ""
+
+    current_session_id = _clean_session_id(current_session_id)
+    excluded = {
+        _clean_session_id(value)
+        for value in (excluded_session_ids or set())
+        if _clean_session_id(value)
+    }
+    excluded.add(current_session_id)
+
+    best_session_id = ""
+    best_tail_timestamp = 0.0
+
+    for date_directory in root.iterdir():
+        if (
+            not date_directory.is_dir()
+            or not re.fullmatch(r"\d{4}-\d{2}-\d{2}", date_directory.name)
+        ):
+            continue
+
+        for session_directory in date_directory.iterdir():
+            if not session_directory.is_dir():
+                continue
+
+            candidate_session_id = _clean_session_id(
+                session_directory.name
+            )
+            if (
+                not candidate_session_id
+                or candidate_session_id in excluded
+                or is_anonymous_session_id(candidate_session_id)
+            ):
+                continue
+
+            dialog_paths = sorted(
+                (
+                    path
+                    for path in session_directory.glob("*.jsonl")
+                    if path.is_file()
+                ),
+                key=lambda path: path.name,
+            )
+            if not dialog_paths:
+                continue
+
+            entries = _load_dialog(dialog_paths[-1])
+            candidates = _build_recent_turn_candidates(entries)
+            if not candidates:
+                continue
+
+            tail_timestamp = _lineage_session_tail_timestamp(candidates)
+            if (
+                tail_timestamp <= 0
+                or tail_timestamp >= before_timestamp
+                or tail_timestamp <= best_tail_timestamp
+            ):
+                continue
+
+            best_tail_timestamp = tail_timestamp
+            best_session_id = candidate_session_id
+
+    return best_session_id
+
+
+def build_session_bootstrap_lineage_recent_turns(
+    session_id: str,
+    *,
+    root: Path | str | None = None,
+) -> list[dict]:
+    """Build the normal-bootstrap tail across direct predecessor sessions.
+
+    The newest session still owns continuation. This helper only backfills its
+    visible/history tail from the exact OLD_SESSION_RESTORED_STATE predecessor
+    chain when the newest session itself does not contain five completed turns.
+    """
+    source_session_id = _clean_session_id(session_id)
+    if not source_session_id or is_anonymous_session_id(source_session_id):
+        return []
+
+    root_path = Path(root if root is not None else CHAT_LOG_ROOT)
+    selected_newest_first = []
+    completed_turns = 0
+    max_items = RECENT_MESSAGES_MAX_PAIRS * 2
+    seen_session_ids = set()
+    current_session_id = source_session_id
+
+    while (
+        current_session_id
+        and current_session_id not in seen_session_ids
+        and not is_anonymous_session_id(current_session_id)
+        and completed_turns < RECENT_MESSAGES_MAX_PAIRS
+        and len(selected_newest_first) < max_items
+    ):
+        seen_session_ids.add(current_session_id)
+        loaded = _load_session_lineage_source(
+            current_session_id,
+            root_path,
+        )
+        if loaded is None:
+            break
+
+        candidates, context_text, session_date = loaded
+        for item in reversed(candidates):
+            if completed_turns >= RECENT_MESSAGES_MAX_PAIRS:
+                break
+            if len(selected_newest_first) >= max_items:
+                break
+
+            annotated = dict(item)
+            annotated["source_session_id"] = current_session_id
+            if session_date:
+                annotated["source_session_date"] = session_date
+            selected_newest_first.append(annotated)
+
+            if bool(item.get("_jin_row_seen")):
+                completed_turns += 1
+
+        if (
+            completed_turns >= RECENT_MESSAGES_MAX_PAIRS
+            or len(selected_newest_first) >= max_items
+        ):
+            break
+
+        direct_predecessor_session_id = _direct_predecessor_session_id(
+            context_text
+        )
+        if direct_predecessor_session_id:
+            current_session_id = direct_predecessor_session_id
+            continue
+
+        # Older builds rewrote ``*.bootstrap.txt`` on follow-up requests. Once
+        # OLD_SESSION_RESTORED_STATE disappeared, bootstrap could see only the
+        # newest local turn and stopped. Recover only when predecessor metadata
+        # is absent; an explicit (even missing/deleted) predecessor remains
+        # authoritative and is never guessed around.
+        current_session_id = _find_previous_real_user_session_id(
+            current_session_id,
+            root_path,
+            before_timestamp=_lineage_session_start_timestamp(candidates),
+            excluded_session_ids=seen_session_ids,
+        )
+
+    selected_newest_first.reverse()
+    return [
+        _public_recent_turn(item)
+        for item in selected_newest_first
+    ]
+
+
+def build_session_bootstrap_lineage_dialog_context(
+    turns: list[dict],
+    source_session_id: str,
+) -> str:
+    if not isinstance(turns, list) or not turns:
+        return ""
+
+    lines = [
+        f'<PREVIOUS_CHAT_MESSAGES session_id="{escape(_clean_session_id(source_session_id))}">'
+    ]
+
+    now = time.time()
+
+    for turn in turns:
+        if not isinstance(turn, dict):
+            continue
+        user_text = str(turn.get("user", "") or "").strip()
+        jin_text = str(turn.get("jin", "") or "").strip()
+        source_id = _clean_session_id(turn.get("source_session_id", ""))
+        source_attr = (
+            f' source_session_id="{escape(source_id)}"'
+            if source_id
+            else ""
+        )
+
+        if user_text:
+            age_suffix = _format_restored_dialog_age_suffix(
+                turn.get("user_created_at"),
+                now=now,
+            )
+            lines.append(
+                f"<USER{source_attr}>{escape(user_text)}</USER>{age_suffix}"
+            )
+        if jin_text:
+            age_suffix = _format_restored_dialog_age_suffix(
+                turn.get("jin_created_at"),
+                now=now,
+            )
+            lines.append(
+                f"<JIN{source_attr}>{escape(jin_text)}</JIN>{age_suffix}"
+            )
+
+    lines.append("</PREVIOUS_CHAT_MESSAGES>")
+    return "\n".join(lines)
+
+
+def _read_reasoning(session_directory: Path, entries: list[dict]) -> dict[str, str]:
+    reasoning_directory = session_directory / "reasoning"
+    if not reasoning_directory.is_dir():
+        return {}
+
+    by_turn_id = {}
+    for entry in entries:
+        role = str(entry.get("role", "")).strip().lower()
+        if role not in {"jin", "assistant", "brain", "service"}:
+            continue
+
+        turn_id = str(entry.get("turn_id", "") or "").strip()
+        reasoning_path = str(entry.get("reasoning_path", "") or "").strip()
+        candidate = None
+
+        if reasoning_path:
+            candidate = reasoning_directory / Path(reasoning_path).name
+        elif turn_id:
+            matches = sorted(reasoning_directory.glob(f"*_{turn_id}.txt"))
+            candidate = matches[-1] if matches else None
+
+        if candidate is None or not candidate.is_file():
+            continue
+
+        try:
+            text = candidate.read_text(encoding="utf-8", errors="replace").strip()
+        except OSError:
+            continue
+        if text:
+            by_turn_id[turn_id] = text
+
+    return by_turn_id
+
+
+
+def _extract_lt_fact_ids(*texts: str) -> list[str]:
+    ids = []
+    seen = set()
+
+    for text in texts:
+        for match in LT_FACT_ID_RE.finditer(str(text or "")):
+            fact_id = f"F{match.group('number')}".upper()
+            if fact_id in seen:
+                continue
+            seen.add(fact_id)
+            ids.append(fact_id)
+
+    return ids
+
+
+def _parse_restore_attached_file_metadata(
+    attached_files_block: str,
+    entries: list[dict],
+    attached_file_ids: list[str],
+) -> list[dict]:
+    metadata = {}
+
+    for entry in reversed(entries):
+        attachments = entry.get("attachments", [])
+        if not isinstance(attachments, list):
+            continue
+        for attachment in attachments:
+            if not isinstance(attachment, dict):
+                continue
+            file_id = str(attachment.get("id", "") or "").strip()
+            if not file_id or file_id not in attached_file_ids:
+                continue
+            name = str(attachment.get("name", "") or "").strip()
+            metadata.setdefault(file_id, {
+                "id": file_id,
+                "title": name or file_id,
+            })
+
+    for line in str(attached_files_block or "").splitlines():
+        match = ATTACHED_FILE_ID_RE.search(line)
+        if match is None:
+            continue
+        file_id = match.group("id").strip()
+        if file_id not in attached_file_ids or file_id in metadata:
+            continue
+        title = line[:match.start()].strip().lstrip("-").strip()
+        metadata[file_id] = {
+            "id": file_id,
+            "title": title or file_id,
+        }
+
+    return [
+        metadata.get(file_id, {"id": file_id, "title": file_id})
+        for file_id in attached_file_ids
+    ]
+
+
+def _parse_restore_delayed_memory_metadata(
+    context_text: str,
+    loaded_memory_ids: list[str],
+) -> list[dict]:
+    metadata = {}
+    source = str(context_text or "")
+    pattern = re.compile(
+        BLOCK_RE_TEMPLATE.format(name=re.escape("LOADED_DELAYED_MEMORY")),
+        re.IGNORECASE,
+    )
+
+    for match in pattern.finditer(source):
+        body = match.group("body").strip()
+        report = {}
+        try:
+            parsed = json.loads(body)
+            if isinstance(parsed, dict):
+                report = parsed
+        except (TypeError, ValueError):
+            pass
+
+        report_id = str(report.get("id", "") or "").strip()
+        title = str(report.get("title", "") or "").strip()
+
+        if not report_id:
+            id_match = re.search(
+                r'"id"\s*:\s*"(?P<value>[^"\n]+)"',
+                body,
+                re.IGNORECASE,
+            )
+            if id_match is not None:
+                report_id = id_match.group("value").strip()
+
+        if not title:
+            title_match = re.search(
+                r'"title"\s*:\s*"(?P<value>[^"\n]+)"',
+                body,
+                re.IGNORECASE,
+            )
+            if title_match is not None:
+                title = title_match.group("value").strip()
+
+        if report_id and report_id in loaded_memory_ids:
+            metadata[report_id] = {
+                "id": report_id,
+                "title": title or report_id,
+            }
+
+    inventory = _extract_block(source, "DELAYED_MEMORY")
+    for report_id in loaded_memory_ids:
+        if report_id in metadata:
+            continue
+        title = ""
+        inventory_match = re.search(
+            rf"(?m)^\s*{re.escape(report_id)}_(?P<title>.+?)(?:\s+\([^\n)]*\))?\s*$",
+            inventory,
+            re.IGNORECASE,
+        )
+        if inventory_match is not None:
+            title = inventory_match.group("title").strip().replace("_", " ")
+        metadata[report_id] = {
+            "id": report_id,
+            "title": title or report_id,
+        }
+
+    return [metadata[report_id] for report_id in loaded_memory_ids]
+
+
+def _tool_result_detail(name: str, payload: dict) -> tuple[str, str]:
+    action_name = str(name or "").strip().upper()
+    label = ACTION_LABELS.get(
+        action_name,
+        action_name.replace("_", " ").title(),
+    )
+    detail = ""
+
+    for key in ("title", "message", "path", "id"):
+        value = str(payload.get(key, "") or "").strip()
+        if value:
+            detail = value
+            break
+
+    report = payload.get("report")
+    if not detail and isinstance(report, dict):
+        detail = str(report.get("title", "") or report.get("id", "") or "").strip()
+
+    return label, detail
+
+
+def _tool_result_kind(name: str) -> str:
+    action_name = str(name or "").strip().upper()
+    if action_name == "WEB_SEARCH":
+        return "search"
+    if action_name == "DEEP_WEB_SEARCH":
+        return "deep_search"
+    if action_name in {
+        "ASSET_ACTION",
+        "CREATE_WILDCARD_FILE",
+        "APPEND_WILDCARD_FILE",
+        "GENERATE_PROMPT_BATCH",
+        "PREVIEW_FILE",
+        "EXPAND_TEMPLATE",
+        "SAMPLE_WILDCARD",
+    }:
+        return "asset"
+    if action_name in {
+        "SAVE_ACTIVE_MEMORY",
+        "DELETE_ACTIVE_MEMORY",
+        "UPDATE_ACTIVE_MEMORY",
+    }:
+        return "active_memory"
+    if action_name in {
+        "SAVE_DELAYED_MEMORY",
+        "LOAD_DELAYED_MEMORY",
+        "UNLOAD_DELAYED_MEMORY",
+    }:
+        return "delayed_memory"
+    if action_name in {
+        "LIST_ALL_USER_SHARED_FILES",
+        "LIST_FILES",
+        "ATTACH_FILE_CONTENT",
+        "ATTACH_FILE_BY_ID",
+    }:
+        return "files"
+    if action_name == "UPDATE_LT_FACTS":
+        return "lt"
+    return ""
+
+
+def _clean_restored_tool_result_body(value: str) -> str:
+    source = unescape(
+        str(value or "")
+    ).replace("\r\n", "\n").replace("\r", "\n")
+    lines = source.splitlines()
+    non_empty = [
+        line
+        for line in lines
+        if line.strip()
+    ]
+    if non_empty:
+        indentation = min(
+            len(line) - len(line.lstrip())
+            for line in non_empty
+        )
+        if indentation:
+            lines = [
+                line[indentation:] if line.strip() else ""
+                for line in lines
+            ]
+
+    return "\n".join(lines).strip()[:32000]
+
+
+def _parse_restore_tool_results(
+    context_text: str,
+    fallback_created_at: float,
+    *,
+    runtime_tool_result_created_ats: dict[str, list[float]] | None = None,
+) -> list[dict]:
+    items = []
+    offset = 0.0
+    timestamp_queues = {
+        key: list(values)
+        for key, values in (runtime_tool_result_created_ats or {}).items()
+    }
+
+    for match in TOOL_RESULT_RE.finditer(str(context_text or "")):
+        kind = _tool_result_kind(
+            match.group("name")
+        )
+        if not kind:
+            continue
+
+        body = _clean_restored_tool_result_body(
+            match.group("body")
+        )
+        if not body:
+            continue
+
+        result = body
+        if kind == "lt":
+            try:
+                parsed_result = json.loads(body)
+            except (TypeError, ValueError, json.JSONDecodeError):
+                parsed_result = None
+            if isinstance(parsed_result, dict):
+                result = parsed_result
+
+        attrs = str(match.group("before_attrs") or "") + str(match.group("attrs") or "")
+        created_at = _consume_runtime_tool_result_created_at(
+            attrs,
+            timestamp_queues,
+        )
+        if created_at <= 0:
+            created_at = fallback_created_at + offset
+
+        item = {
+            "kind": kind,
+            "result": result,
+            "created_at": created_at,
+        }
+        tool_id_match = re.search(r'\btool_id="(T[1-9][0-9]*)"', attrs)
+        if tool_id_match:
+            item["tool_id"] = tool_id_match[1]
+        id_match = re.search(
+            r'\bid="(?P<id>[^"]+)"',
+            attrs,
+            re.IGNORECASE,
+        )
+        if id_match is not None:
+            item["id"] = unescape(id_match.group("id").strip())
+
+        items.append(item)
+        offset += 0.001
+
+    return items[-20:]
+
+
+def _consume_runtime_tool_result_created_at(
+    attrs: str,
+    timestamp_queues: dict[str, list[float]] | None,
+) -> float:
+    if not timestamp_queues:
+        return 0.0
+
+    tool_id_match = re.search(r'\btool_id="(T[1-9][0-9]*)"', attrs)
+    result_id_match = re.search(
+        r'\bid="(?P<id>[^"]+)"',
+        attrs,
+        re.IGNORECASE,
+    )
+    keys = []
+    if tool_id_match:
+        keys.append(f"tool:{tool_id_match.group(1)}")
+    if result_id_match is not None:
+        keys.append(f"id:{unescape(result_id_match.group('id').strip())}")
+
+    for key in keys:
+        queue = timestamp_queues.get(key)
+        if isinstance(queue, list) and queue:
+            return float(queue.pop(0))
+
+    return 0.0
+
+
+def _build_session_actions(
+    context_text: str,
+    fallback_created_at: float,
+    *,
+    runtime_tool_result_created_ats: dict[str, list[float]] | None = None,
+) -> list[dict]:
+    items = []
+    offset = 0.0
+    timestamp_queues = {
+        key: list(values)
+        for key, values in (runtime_tool_result_created_ats or {}).items()
+    }
+
+    for match in TOOL_RESULT_RE.finditer(str(context_text or "")):
+        raw_payload = match.group("body").strip()
+        start = raw_payload.find("{")
+        end = raw_payload.rfind("}")
+        if start < 0 or end < start:
+            continue
+        try:
+            payload = json.loads(raw_payload[start:end + 1])
+        except (TypeError, ValueError):
+            payload = {}
+
+        if not isinstance(payload, dict):
+            payload = {}
+
+        label, detail = _tool_result_detail(match.group("name"), payload)
+
+        if not detail:
+            for key in ("title", "message", "path", "id"):
+                detail_match = re.search(
+                    rf'"{key}"\s*:\s*"(?P<value>[^"\n]+)"',
+                    raw_payload,
+                    re.IGNORECASE,
+                )
+                if detail_match is not None:
+                    detail = detail_match.group("value").strip()
+                    if detail:
+                        break
+
+        attrs = str(match.group("before_attrs") or "") + str(match.group("attrs") or "")
+        created_at = _consume_runtime_tool_result_created_at(
+            attrs,
+            timestamp_queues,
+        )
+        if created_at <= 0:
+            created_at = fallback_created_at + offset
+        offset += 0.001
+
+        report = payload.get("report")
+        if isinstance(report, dict):
+            report_timestamp = _parse_iso_timestamp(
+                report.get("created_time") or report.get("created_date")
+            )
+            if report_timestamp:
+                created_at = report_timestamp
+        else:
+            timestamp_match = re.search(
+                r'"created_(?:time|date)"\s*:\s*"(?P<value>[^"\n]+)"',
+                raw_payload,
+                re.IGNORECASE,
+            )
+            if timestamp_match is not None:
+                report_timestamp = _parse_iso_timestamp(
+                    timestamp_match.group("value")
+                )
+                if report_timestamp:
+                    created_at = report_timestamp
+
+        part = {"text": label}
+        if detail:
+            part["detail"] = detail
+
+        items.append({
+            "text": label if not detail else f"{label} - {detail}",
+            "created_at": created_at,
+            "parts": [part],
+        })
+
+    return items
+
+
+def _runtime_event_created_at(entry: dict, payload: dict) -> float:
+    try:
+        created_at = float(payload.get("created_at", 0) or 0)
+    except (TypeError, ValueError):
+        created_at = 0.0
+    return created_at if created_at > 0 else _entry_timestamp(entry)
+
+
+def _runtime_tool_result_timestamp_queues(
+    entries: list[dict],
+) -> dict[str, list[float]]:
+    queues: dict[str, list[float]] = {}
+
+    for entry in entries:
+        if str(entry.get("event", "") or "").strip() != "runtime_tool_result":
+            continue
+        payload = entry.get("payload")
+        if not isinstance(payload, dict):
+            continue
+        created_at = _runtime_event_created_at(entry, payload)
+        if created_at <= 0:
+            continue
+
+        tool_id = str(payload.get("tool_id", "") or "").strip()
+        result_id = str(payload.get("id", "") or "").strip()
+        if re.fullmatch(r"T[1-9][0-9]*", tool_id):
+            queues.setdefault(f"tool:{tool_id}", []).append(created_at)
+        if result_id:
+            queues.setdefault(f"id:{result_id}", []).append(created_at)
+
+    return queues
+
+
+def _merge_timestamp_queues(
+    *sources: dict[str, list[float]],
+) -> dict[str, list[float]]:
+    merged: dict[str, list[float]] = {}
+    for source in sources:
+        for key, values in (source or {}).items():
+            merged.setdefault(key, []).extend(
+                float(value)
+                for value in values
+                if float(value) > 0
+            )
+    return merged
+
+
+def _normalize_runtime_session_action_item(
+    raw_action,
+    *,
+    entry: dict | None = None,
+    payload: dict | None = None,
+) -> dict | None:
+    if not isinstance(raw_action, dict):
+        return None
+
+    text = str(raw_action.get("text", "") or "").strip()
+    if not text:
+        return None
+
+    item = dict(raw_action)
+    item["text"] = text
+
+    parts = raw_action.get("parts", [])
+    item["parts"] = [
+        dict(part)
+        for part in parts
+        if isinstance(part, dict)
+        and str(part.get("text", "") or "").strip()
+    ]
+
+    event_payload = payload if isinstance(payload, dict) else {}
+    event_entry = entry if isinstance(entry, dict) else {}
+    created_at = _runtime_event_created_at(
+        event_entry,
+        {
+            "created_at": raw_action.get(
+                "created_at",
+                event_payload.get("created_at", 0),
+            ),
+        },
+    )
+    if created_at > 0:
+        item["created_at"] = created_at
+
+    runtime_turn_id = str(
+        raw_action.get("runtime_turn_id", "")
+        or event_entry.get("turn_id", "")
+        or ""
+    ).strip()
+    if runtime_turn_id:
+        item["runtime_turn_id"] = runtime_turn_id
+
+    event_id = str(
+        raw_action.get("id", "")
+        or event_payload.get("event_id", "")
+        or ""
+    ).strip()
+    if event_id:
+        item["id"] = event_id
+
+    return item
+
+
+def _build_runtime_event_session_actions(entries: list[dict]) -> list[dict]:
+    latest_snapshot = None
+
+    for entry in entries:
+        if str(entry.get("event", "") or "").strip() != "session_actions_snapshot":
+            continue
+        payload = entry.get("payload")
+        if not isinstance(payload, dict):
+            continue
+        raw_items = payload.get("items")
+        if not isinstance(raw_items, list):
+            continue
+
+        snapshot_items = []
+        for raw_item in raw_items:
+            item = _normalize_runtime_session_action_item(
+                raw_item,
+                entry=entry,
+                payload=payload,
+            )
+            if item is not None:
+                snapshot_items.append(item)
+        latest_snapshot = snapshot_items[-200:]
+
+    if latest_snapshot is not None:
+        return latest_snapshot
+
+    # Legacy logs before generic snapshots persisted a session-action payload
+    # on some runtime_action_request rows. Restore that payload generically;
+    # action names are deliberately irrelevant here.
+    items = []
+    for entry in entries:
+        if str(entry.get("event", "") or "").strip() != "runtime_action_request":
+            continue
+        payload = entry.get("payload")
+        if not isinstance(payload, dict):
+            continue
+        item = _normalize_runtime_session_action_item(
+            payload.get("session_action"),
+            entry=entry,
+            payload=payload,
+        )
+        if item is not None:
+            items.append(item)
+            continue
+
+        action_name = str(payload.get("action", "") or "").strip()
+        if not action_name:
+            continue
+        created_at = _runtime_event_created_at(entry, payload)
+        runtime_turn_id = str(entry.get("turn_id", "") or "").strip()
+        action_payload = payload.get("payload", "")
+        if not action_payload and action_name.strip().upper() == "JIN_COLOR":
+            action_payload = payload.get("color", "")
+        marker_action = {
+            "name": action_name,
+            "payload": str(action_payload or "").strip(),
+            "created_at": created_at,
+        }
+        marker_items = build_session_action_marker_history_items(
+            [marker_action],
+            created_at=created_at,
+            runtime_turn_id=runtime_turn_id,
+        )
+        items.extend(marker_items)
+
+    return items[-200:]
+
+
+def _session_action_part_name(part: dict) -> str:
+    if not isinstance(part, dict):
+        return ""
+
+    text = str(part.get("text", "") or "").strip()
+    if not text:
+        return ""
+
+    label_key = text.casefold()
+    if label_key in ACTION_LABEL_KEYS:
+        return ACTION_LABEL_KEYS[label_key]
+
+    head = text.split(":", 1)[0].strip()
+    if head.casefold() in ACTION_LABEL_KEYS:
+        return ACTION_LABEL_KEYS[head.casefold()]
+
+    normalized = re.sub(r"[^A-Za-z0-9]+", "_", head).strip("_").upper()
+    return normalized
+
+
+def _session_action_part_counts(item: dict) -> dict[str, int]:
+    counts = {}
+    if not isinstance(item, dict):
+        return counts
+
+    parts = item.get("parts", [])
+    if not isinstance(parts, list) or not parts:
+        parts = [{"text": item.get("text", "")}]
+
+    for part in parts:
+        name = _session_action_part_name(part)
+        if not name:
+            continue
+        try:
+            count = max(1, int(part.get("count", 1) or 1))
+        except (TypeError, ValueError, AttributeError):
+            count = 1
+        counts[name] = counts.get(name, 0) + count
+
+    return counts
+
+
+def _merge_session_actions_preferring_runtime(
+    parsed_actions: list[dict],
+    runtime_actions: list[dict],
+) -> list[dict]:
+    if not runtime_actions:
+        return list(parsed_actions)
+
+    covered = {}
+    for item in runtime_actions:
+        for name, count in _session_action_part_counts(item).items():
+            covered[name] = covered.get(name, 0) + count
+
+    remaining_parsed = []
+    for item in parsed_actions:
+        item_counts = _session_action_part_counts(item)
+        if not item_counts:
+            remaining_parsed.append(item)
+            continue
+
+        fully_covered = True
+        for name, count in item_counts.items():
+            if covered.get(name, 0) < count:
+                fully_covered = False
+                break
+
+        if not fully_covered:
+            remaining_parsed.append(item)
+            continue
+
+        for name, count in item_counts.items():
+            covered[name] -= count
+
+    return (remaining_parsed + runtime_actions)[-200:]
+
+
+def _build_predecessor_runtime_event_session_actions(
+    context_text: str,
+    root: Path,
+    *,
+    seen_session_ids: set[str],
+    remaining_sessions: int = 3,
+) -> list[dict]:
+    """Recover inherited actions from the real direct-predecessor log chain."""
+    if remaining_sessions <= 0:
+        return []
+
+    match = RESTORED_DIALOG_SOURCE_RE.search(str(context_text or ""))
+    if match is None:
+        return []
+
+    source_session_id = _clean_session_id(match.group("session_id"))
+    if not source_session_id or source_session_id in seen_session_ids:
+        return []
+
+    seen_session_ids.add(source_session_id)
+    session_directory = _find_session_directory(source_session_id, root)
+    if session_directory is None:
+        return []
+
+    dialog_paths = sorted(
+        (path for path in session_directory.glob("*.jsonl") if path.is_file()),
+        key=lambda path: path.name,
+    )
+    if not dialog_paths:
+        return []
+
+    dialog_path = dialog_paths[-1]
+    entries = _load_dialog(dialog_path)
+    context_path = dialog_path.with_suffix(".txt")
+    try:
+        predecessor_context = (
+            context_path.read_text(encoding="utf-8", errors="replace")
+            if context_path.is_file()
+            else ""
+        )
+    except OSError:
+        predecessor_context = ""
+
+    older_actions = _build_predecessor_runtime_event_session_actions(
+        predecessor_context,
+        root,
+        seen_session_ids=seen_session_ids,
+        remaining_sessions=remaining_sessions - 1,
+    )
+    return (
+        older_actions
+        + _build_runtime_event_session_actions(entries)
+    )[-200:]
+
+
+def _build_predecessor_runtime_tool_result_timestamp_queues(
+    context_text: str,
+    root: Path,
+    *,
+    seen_session_ids: set[str],
+    remaining_sessions: int = 3,
+) -> dict[str, list[float]]:
+    if remaining_sessions <= 0:
+        return {}
+
+    match = RESTORED_DIALOG_SOURCE_RE.search(str(context_text or ""))
+    if match is None:
+        return {}
+
+    source_session_id = _clean_session_id(match.group("session_id"))
+    if not source_session_id or source_session_id in seen_session_ids:
+        return {}
+
+    seen_session_ids.add(source_session_id)
+    session_directory = _find_session_directory(source_session_id, root)
+    if session_directory is None:
+        return {}
+
+    dialog_paths = sorted(
+        (path for path in session_directory.glob("*.jsonl") if path.is_file()),
+        key=lambda path: path.name,
+    )
+    if not dialog_paths:
+        return {}
+
+    dialog_path = dialog_paths[-1]
+    entries = _load_dialog(dialog_path)
+    context_path = dialog_path.with_suffix(".txt")
+    try:
+        predecessor_context = (
+            context_path.read_text(encoding="utf-8", errors="replace")
+            if context_path.is_file()
+            else ""
+        )
+    except OSError:
+        predecessor_context = ""
+
+    older = _build_predecessor_runtime_tool_result_timestamp_queues(
+        predecessor_context,
+        root,
+        seen_session_ids=seen_session_ids,
+        remaining_sessions=remaining_sessions - 1,
+    )
+    return _merge_timestamp_queues(
+        older,
+        _runtime_tool_result_timestamp_queues(entries),
+    )
+
+
+def _latest_runtime_jin_color(entries: list[dict]) -> str:
+    for entry in reversed(entries):
+        if str(entry.get("event", "") or "").strip() != "runtime_action_request":
+            continue
+
+        payload = entry.get("payload")
+        if not isinstance(payload, dict):
+            continue
+        if str(payload.get("action", "") or "").strip().upper() != "JIN_COLOR":
+            continue
+
+        color = normalize_jin_color_payload(
+            payload.get("color")
+            or payload.get("payload")
+        )
+        if color:
+            return color
+
+    return ""
+
+
+def _build_runtime_event_tool_results(entries: list[dict]) -> list[dict]:
+    items = []
+
+    for entry in entries:
+        if str(entry.get("event", "") or "").strip() != "runtime_tool_result":
+            continue
+        payload = entry.get("payload")
+        if not isinstance(payload, dict):
+            continue
+        kind = str(payload.get("kind", "") or "").strip().casefold()
+        result = payload.get("result")
+        if not kind or result is None:
+            continue
+
+        item = {
+            "kind": kind,
+            "result": result,
+            "created_at": _runtime_event_created_at(entry, payload),
+        }
+        tool_id = str(payload.get("tool_id", ""))
+        if re.fullmatch(r"T[1-9][0-9]*", tool_id):
+            item["tool_id"] = tool_id
+        result_id = str(payload.get("id", "") or "").strip()
+        if result_id:
+            item["id"] = result_id
+        items.append(item)
+
+    return items[-20:]
+
+
+def _build_reasoning_lt_fallback_action(
+    entries: list[dict],
+    reasoning_by_turn_id: dict[str, str],
+) -> dict | None:
+    for entry in reversed(entries):
+        role = str(entry.get("role", "") or "").strip().casefold()
+        if role not in {"jin", "assistant", "brain", "service"}:
+            continue
+        turn_id = str(entry.get("turn_id", "") or "").strip()
+        reasoning = str(reasoning_by_turn_id.get(turn_id, "") or "")
+        matches = list(UPDATE_LT_FACTS_BLOCK_RE.finditer(reasoning))
+        if not matches:
+            continue
+
+        body = unescape(matches[-1].group("body")).strip()
+        if not body:
+            continue
+        message = body
+        try:
+            parsed = json.loads(body)
+        except (TypeError, ValueError, json.JSONDecodeError):
+            parsed = None
+        if isinstance(parsed, dict):
+            message = str(parsed.get("message", "") or "").strip() or body
+        message = " ".join(message.split()).strip()
+        if not message:
+            continue
+
+        return {
+            "text": f"UPDATE_LT_FACTS: {message}",
+            "created_at": _entry_timestamp(entry),
+            "parts": [{
+                "text": "UPDATE_LT_FACTS",
+                "message": message,
+            }],
+        }
+
+    return None
+
+
+def _merge_restore_tool_results(
+    context_results: list[dict],
+    runtime_results: list[dict],
+) -> list[dict]:
+    merged = []
+    keyed_indexes = {}
+
+    for item in [*context_results, *runtime_results]:
+        if not isinstance(item, dict):
+            continue
+        kind = str(item.get("kind", "") or "").strip().casefold()
+        result_id = str(item.get("id", "") or "").strip()
+        tool_id = str(item.get("tool_id", "") or "")
+        key = ("tool_id", tool_id) if tool_id else ((kind, result_id) if kind and result_id else None)
+        if key is not None and key in keyed_indexes:
+            merged[keyed_indexes[key]] = item
+            continue
+        if key is not None:
+            keyed_indexes[key] = len(merged)
+        merged.append(item)
+
+    return merged[-20:]
+
+
+def _parse_trusted_values(context_text: str) -> dict:
+    values = {}
+    source = str(context_text or "")
+
+    for name in (
+        "RUNTIME_MODE",
+        "MODEL_UID",
+        "CONTEXT_WINDOW",
+        "JIN_COLOR",
+        "JIN_SIZE",
+        "JIN_POSITION",
+        "JIN_SPEED",
+        "WINDOW_SIZE",
+        "USER_DATETIME",
+        # Reader compatibility for archives written before the prompt-tag rename.
+        "CURRENT_MODEL_UID",
+        "SERVICE_MODEL_UID",
+        "BRAIN_MODEL_UID",
+        "CURRENT_CONTEXT_WINDOW",
+        "CURRENT_JIN_COLOR",
+        "CURRENT_JIN_SIZE",
+        "CURRENT_JIN_POSITION",
+        "CURRENT_JIN_SPEED",
+        "CURRENT_WINDOW_SIZE",
+        "CURRENT_USER_DATETIME",
+    ):
+        match = re.search(
+            rf"<{name}>(?P<value>[\s\S]*?)</{name}>",
+            source,
+            re.IGNORECASE,
+        )
+        if match is not None:
+            values[name] = match.group("value").strip()
+
+    return values
+
+
+def _parse_loaded_delayed_reports(context_text: str) -> dict:
+    reports = {}
+    source = str(context_text or "")
+    pattern = re.compile(
+        BLOCK_RE_TEMPLATE.format(name=re.escape("LOADED_DELAYED_MEMORY")),
+        re.IGNORECASE,
+    )
+
+    for block_match in pattern.finditer(source):
+        body = block_match.group("body").strip()
+        if not body:
+            continue
+
+        try:
+            report = json.loads(body)
+        except (TypeError, ValueError):
+            report = {}
+
+            for key in (
+                "id",
+                "title",
+                "summary",
+            ):
+                match = re.search(
+                    rf'"{key}"\s*:\s*"(?P<value>[^"\n]*)"',
+                    body,
+                    re.IGNORECASE,
+                )
+                if match is not None:
+                    report[key] = match.group("value").strip()
+
+            tags_match = re.search(
+                r'"tags"\s*:\s*\[(?P<value>[\s\S]*?)\]',
+                body,
+                re.IGNORECASE,
+            )
+            if tags_match is not None:
+                report["tags"] = re.findall(
+                    r'"([^"\n]+)"',
+                    tags_match.group("value"),
+                )
+
+            body_match = re.search(
+                r'"body"\s*:\s*"(?P<value>[\s\S]*?)"\s*(?:,\s*"(?:pinned|anchor_lt_facts_ids|lt_facts_ids|attachments_ids|created_session_id|created_time|created_date|loaded_times|load_streak|last_loaded_date|last_loaded_session_id|all_loaded_session_ids|id)"|\n\s*})',
+                body,
+                re.IGNORECASE,
+            )
+            if body_match is not None:
+                report["body"] = body_match.group("value").strip()
+
+        if not isinstance(report, dict) or not report:
+            continue
+
+        report_id = str(
+            report.get("id", "")
+            or report.get("_storage_key", "")
+            or ""
+        ).strip()
+        if not report_id:
+            continue
+
+        clean_report = dict(report)
+        clean_report.pop("id", None)
+        clean_report.pop("_storage_key", None)
+        reports[report_id] = clean_report
+
+    return reports
+
+
+def _parse_active_memory_records(runtime_memory: str) -> list[str]:
+    records = []
+    for line in str(runtime_memory or "").splitlines():
+        if re.match(
+            r"^\s*active_memory(?:_\d+)?\s*:",
+            line,
+            re.IGNORECASE,
+        ):
+            normalized = line.strip()
+            if normalized and normalized not in records:
+                records.append(normalized)
+    return records
+
+
+def _parse_jin_size(value: str):
+    numbers = re.findall(
+        r"(?<![a-zA-Z0-9])(?P<number>\d{2,4})(?:px)?",
+        str(value or ""),
+        re.IGNORECASE,
+    )
+    if not numbers:
+        return ""
+    width = int(numbers[0])
+    height = int(numbers[1]) if len(numbers) > 1 else width
+    if width <= 0 or height <= 0:
+        return ""
+    return {
+        "width": width,
+        "height": height,
+    }
+
+
+def clear_normal_session_continuation(*, root: Path | str | None = None) -> None:
+    """Disk tombstone: only another real USER row can authorize continuation.
+
+    Counts avoid clock precision races and late completion in another open tab.
+    Archives remain available for an explicit user-requested restore.
+    """
+    root_path = Path(root if root is not None else chat_log_root_for_mode(False))
+    blocked = {}
+    for path in root_path.glob("*/*/*.jsonl"):
+        if is_anonymous_session_id(path.parent.name):
+            continue
+        blocked[str(path.relative_to(root_path))] = sum(
+            str(row.get("role", "")).lower() == "user" for row in _load_dialog(path)
+        )
+    root_path.mkdir(parents=True, exist_ok=True)
+    target = root_path / ".continuation-cleared.json"
+    temporary = target.with_suffix(".tmp")
+    temporary.write_text(json.dumps({"version": 1, "blocked_user_counts": blocked}), encoding="utf-8")
+    temporary.replace(target)
+
+
+def find_latest_completed_session_restore_payload(
+    *,
+    root: Path | str | None = None,
+    anonymous_mode: bool | None = None,
+) -> dict | None:
+    """Return the newest raw-log session containing a real user move.
+
+    A USER row qualifies immediately, even if generation was stopped before a
+    JIN row or FRAME update. Bootstrap-only sessions with no real USER row do not
+    qualify, so merely opening/stopping a fresh tab keeps the predecessor.
+    """
+    if bool(anonymous_mode):
+        return None
+
+    root_path = Path(
+        root
+        if root is not None
+        else chat_log_root_for_mode(False)
+    )
+    if not root_path.is_dir():
+        return None
+
+    barrier_path = root_path / ".continuation-cleared.json"
+    blocked = (json.loads(barrier_path.read_text(encoding="utf-8")).get("blocked_user_counts", {})
+               if barrier_path.is_file() else {})
+
+    date_directories = sorted(
+        (
+            path
+            for path in root_path.iterdir()
+            if path.is_dir()
+            and re.fullmatch(r"\d{4}-\d{2}-\d{2}", path.name)
+        ),
+        key=lambda path: path.name,
+        reverse=True,
+    )
+
+    for date_directory in date_directories:
+        best_session_id = ""
+        best_turn_timestamp = 0.0
+
+        for session_directory in date_directory.iterdir():
+            if (
+                not session_directory.is_dir()
+                or is_anonymous_session_id(
+                    session_directory.name
+                )
+            ):
+                continue
+
+            dialog_paths = sorted(
+                (
+                    path
+                    for path in session_directory.glob("*.jsonl")
+                    if path.is_file()
+                ),
+                key=lambda path: path.name,
+            )
+            if not dialog_paths:
+                continue
+
+            # Match build_archived_session_restore_payload: the last JSONL is
+            # the authoritative dialogue file for this runtime session.
+            entries = _load_dialog(dialog_paths[-1])
+            key = str(dialog_paths[-1].relative_to(root_path))
+            if key in blocked and sum(str(row.get("role", "")).lower() == "user" for row in entries) <= blocked[key]:
+                continue
+            recent_turns = _build_recent_turns(entries)
+            if not recent_turns:
+                continue
+
+            latest_turn = recent_turns[-1]
+            try:
+                turn_timestamp = float(
+                    latest_turn.get("jin_created_at", 0)
+                    or latest_turn.get("user_created_at", 0)
+                    or 0
+                )
+            except (TypeError, ValueError):
+                turn_timestamp = 0.0
+
+            if turn_timestamp <= best_turn_timestamp:
+                continue
+
+            best_turn_timestamp = turn_timestamp
+            best_session_id = _clean_session_id(
+                session_directory.name
+            )
+
+        if not best_session_id:
+            continue
+
+        payload = build_archived_session_restore_payload(
+            best_session_id,
+            root=root_path,
+        )
+        if isinstance(payload, dict):
+            payload = dict(payload)
+            payload["latest_completed_turn_at"] = (
+                best_turn_timestamp
+            )
+            return payload
+
+    return None
+
+
+def _read_latest_frame_snapshot(session_directory: Path, prefix: str) -> dict | None:
+    candidates = []
+    for path in (session_directory / "frames").glob(f"{prefix}_frame_*.txt"):
+        match = re.search(r"_frame_(\d+)\.txt$", path.name)
+        if match:
+            candidates.append((int(match.group(1)), path))
+    for number, path in sorted(candidates, reverse=True):
+        try:
+            text = path.read_text(encoding="utf-8")
+            header, separator, memory = text.partition("\n--- FRAME ---\n")
+            if not separator:
+                continue
+            for line in header.splitlines():
+                if line.startswith("snapshot_json: "):
+                    snapshot = json.loads(line[len("snapshot_json: "):])
+                    if isinstance(snapshot, dict):
+                        return snapshot
+            # Legacy inspectable FRAME files still outrank the earlier prompt.
+            return {"raw_memory": memory.strip(), "index": number,
+                    "runtime_memory_updates": number}
+        except (OSError, ValueError, json.JSONDecodeError):
+            # An interrupted FRAME write must not conceal earlier valid titles.
+            continue
+    return None
+
+
+def list_archived_sessions(
+    *,
+    root: Path | str | None = None,
+) -> list[dict]:
+    """Return compact restore choices without loading archived message bodies."""
+    root_path = Path(root if root is not None else CHAT_LOG_ROOT)
+    if not root_path.is_dir():
+        return []
+
+    sessions = []
+    for date_directory in root_path.iterdir():
+        if (
+            not date_directory.is_dir()
+            or not re.fullmatch(r"\d{4}-\d{2}-\d{2}", date_directory.name)
+        ):
+            continue
+
+        for session_directory in date_directory.iterdir():
+            session_id = _clean_session_id(session_directory.name)
+            if (
+                not session_directory.is_dir()
+                or not session_id
+                or is_anonymous_session_id(session_id)
+            ):
+                continue
+
+            dialog_paths = sorted(
+                path for path in session_directory.glob("*.jsonl")
+                if path.is_file()
+            )
+            if not dialog_paths:
+                continue
+            dialog_path = dialog_paths[-1]
+
+            summary = read_archived_session_summary(dialog_path)
+            if summary is not None:
+                sessions.append(summary)
+
+    return sorted(
+        sessions,
+        key=lambda item: (
+            item["date"],
+            _parse_iso_timestamp(item["created_at"]),
+            item["session_id"],
+        ),
+        reverse=True,
+    )
+
+
+def read_archived_session_summary(dialog_path: Path) -> dict | None:
+    """Read one persisted session for both the index and live updates."""
+    session_directory = dialog_path.parent
+    session_id = session_directory.name
+    if is_anonymous_session_id(session_id):
+        return None
+    # Technical/greeting-only sessions are not restore choices. Stop
+    # at the first real USER row; title extraction never reads chat.
+    first_user_entry = _first_meaningful_user_entry(dialog_path)
+    if first_user_entry is None:
+        return None
+
+    try:
+        frame_snapshot = _read_latest_frame_snapshot(
+            session_directory,
+            dialog_path.stem,
+        )
+    except (OSError, ValueError, json.JSONDecodeError):
+        frame_snapshot = None
+
+    # Reading the often-large prompt/context file for every LOGS row is wasted
+    # work once an authoritative FRAME has actually been committed to disk.
+    if isinstance(frame_snapshot, dict):
+        frame_memory = str(frame_snapshot.get("raw_memory", "") or "")
+    else:
+        context_path = dialog_path.with_suffix(".txt")
+        try:
+            context_text = (
+                context_path.read_text(encoding="utf-8", errors="replace")
+                if context_path.is_file() else ""
+            )
+        except OSError:
+            context_text = ""
+        frame_memory = (
+            _extract_block(context_text, "PREVIOUS_FRAME_MEMORY_SNAPSHOT")
+            or _extract_block(context_text, "PREVIOUS_RUNTIME_STATE")
+            or _extract_latest_frame_memory_block(context_text)
+        )
+    title = get_session_title(frame_memory) or session_id
+    created_at = str(first_user_entry.get("ts", "") or "").strip()
+    if not created_at:
+        try:
+            created_at = datetime.fromtimestamp(
+                dialog_path.stat().st_mtime
+            ).astimezone().isoformat()
+        except OSError:
+            created_at = ""
+
+    return {
+        "session_id": session_id,
+        "date": session_directory.parent.name,
+        "created_at": created_at,
+        "title": title,
+    }
+
+
+def get_archived_session_summary(
+    session_id: str,
+    *,
+    root: Path | str | None = None,
+) -> dict | None:
+    """Resolve only one disk-owned LOGS row, without reloading the full index."""
+    if is_anonymous_session_id(session_id):
+        return None
+    root_path = Path(root if root is not None else CHAT_LOG_ROOT)
+    session_directory = _find_session_directory(session_id, root_path)
+    if session_directory is None:
+        return None
+    dialog_paths = sorted(
+        path for path in session_directory.glob("*.jsonl") if path.is_file()
+    )
+    return read_archived_session_summary(dialog_paths[-1]) if dialog_paths else None
+
+
+def delete_archived_session(
+    session_id: str,
+    *,
+    root: Path | str | None = None,
+) -> bool:
+    """Delete one saved LOGS session, then remove its date folder if empty.
+
+    The existing chat logger notices when its materialized directory vanishes
+    and will not resurrect a deleted archive from a still-open runtime tab.
+    """
+    session_id = str(session_id or "").strip()
+    if (
+        not session_id
+        or session_id != _clean_session_id(session_id)
+        or is_anonymous_session_id(session_id)
+    ):
+        return False
+
+    root_path = Path(root if root is not None else CHAT_LOG_ROOT)
+    directory = _find_session_directory(session_id, root_path)
+    if directory is None:
+        return False
+    date_directory = directory.parent
+    # Never follow a symlink outside the logs tree, even if the index happens
+    # to expose such a directory. Only persisted USER-owned LOGS rows qualify.
+    if (
+        date_directory.is_symlink()
+        or directory.is_symlink()
+        or date_directory.resolve().parent != root_path.resolve()
+        or directory.resolve().parent != date_directory.resolve()
+    ):
+        return False
+    dialog_paths = sorted(path for path in directory.glob("*.jsonl") if path.is_file())
+    if not dialog_paths or read_archived_session_summary(dialog_paths[-1]) is None:
+        return False
+
+    shutil.rmtree(directory)
+    try:
+        # rmdir (not rmtree): keep the date if another session or any other
+        # file still exists. The logs root itself is never removed.
+        date_directory.rmdir()
+    except OSError as error:
+        if error.errno not in (errno.ENOTEMPTY, errno.EEXIST, errno.ENOENT):
+            raise
+    return True
+
+
+def build_archived_session_preview(
+    session_id: str,
+    *,
+    root: Path | str | None = None,
+) -> dict | None:
+    """Build a preview of the latest USER turns, including unanswered ones.
+
+    A logged JIN row can legitimately have no visible text (action-only turns,
+    interrupted responses, stripped markers). Unlike bootstrap's complete-pair
+    projection, the LOGS preview must not discard the USER message in that case.
+    """
+    if is_anonymous_session_id(session_id):
+        return None
+    root_path = Path(root if root is not None else CHAT_LOG_ROOT)
+    session_directory = _find_session_directory(session_id, root_path)
+    if session_directory is None:
+        return None
+    dialog_paths = sorted(
+        path for path in session_directory.glob("*.jsonl") if path.is_file()
+    )
+    if not dialog_paths:
+        return None
+    turns = {}
+    ordered_keys = []
+    pending_user_key = None
+    for index, entry in enumerate(_load_dialog(dialog_paths[-1])):
+        role = str(entry.get("role", "") or "").strip().lower()
+        if role not in {"user", "jin", "assistant", "brain", "service"}:
+            continue
+
+        text = str(entry.get("text", "") or "").strip()
+        key = _dialog_turn_key(entry, index)
+        if role == "user":
+            if not text:
+                attachments = summarize_attachments(entry.get("attachments", []))
+                if attachments:
+                    text = "📎 " + ", ".join(item["name"] for item in attachments)
+            if not text:
+                continue
+            if key not in turns:
+                turns[key] = {"user": "", "jin": ""}
+                ordered_keys.append(key)
+            turns[key]["user"] = text
+            pending_user_key = key
+        elif text:
+            # Legacy rows without turn/turn_id belong to the preceding USER.
+            if key[0] == "row":
+                key = pending_user_key
+            if key in turns:
+                turns[key]["jin"] = text
+
+    pairs = [turns[key] for key in ordered_keys if turns[key]["user"]]
+    if not pairs:
+        return None
+    return {
+        "session_id": _clean_session_id(session_id),
+        "pairs": pairs[-RECENT_MESSAGES_MAX_PAIRS:],
+    }
+
+
+def _restore_disk_checkpoint(entries: list[dict]) -> dict:
+    """Replay exact server checkpoints and later cleanup/results in source order."""
+    state = {}
+    for entry in entries:
+        event, payload = entry.get("event"), entry.get("payload")
+        if not isinstance(payload, dict):
+            continue
+        if event == "session_checkpoint":
+            # Dialogue still comes from USER/JIN rows and their reasoning files.
+            for key in ("tool_results", "tool_result_sequence", "loaded_memory_ids",
+                        "attached_file_ids", "current_jin_color",
+                        "current_jin_size", "current_jin_position", "current_jin_speed",
+                        "current_jin_collapsed", "current_window_size"):
+                if key in payload:
+                    state[key] = payload[key]
+        elif event == "runtime_action" and payload.get("action") == "clean_tool_results" and payload.get("status") == "completed":
+            if isinstance(payload.get("tool_results"), list):
+                state["tool_results"] = payload["tool_results"]
+                state["tool_result_sequence"] = payload.get("tool_result_sequence", 0)
+        elif event == "runtime_tool_result" and "tool_results" in state:
+            additions = _build_runtime_event_tool_results([entry])
+            state["tool_results"] = _merge_restore_tool_results(state["tool_results"], additions)
+        elif event == "runtime_action_request" and str(payload.get("action", "")).upper() == "JIN_COLOR":
+            color = _latest_runtime_jin_color([entry])
+            if color:
+                state["current_jin_color"] = color
+    return state
+
+
+def build_archived_session_restore_payload(
+    session_id: str,
+    *,
+    root: Path | str | None = None,
+    anonymous_mode: bool | None = None,
+) -> dict | None:
+    if bool(anonymous_mode) or is_anonymous_session_id(session_id):
+        return None
+
+    root_path = Path(
+        root
+        if root is not None
+        else (
+            CHAT_LOG_ROOT
+        )
+    )
+    session_directory = _find_session_directory(session_id, root_path)
+    if session_directory is None:
+        return None
+
+    dialog_paths = sorted(
+        (path for path in session_directory.glob("*.jsonl") if path.is_file()),
+        key=lambda path: path.name,
+    )
+    if not dialog_paths:
+        return None
+
+    dialog_path = dialog_paths[-1]
+    entries = _load_dialog(dialog_path)
+    if not entries:
+        return None
+
+    context_path = dialog_path.with_suffix(".txt")
+    try:
+        context_text = context_path.read_text(
+            encoding="utf-8",
+            errors="replace",
+        ) if context_path.is_file() else ""
+    except OSError:
+        context_text = ""
+
+    reasoning_by_turn_id = _read_reasoning(session_directory, entries)
+    visible_entries = []
+    for entry in entries:
+        turn_id = str(entry.get("turn_id", "") or "").strip()
+        has_text = bool(str(entry.get("text", "") or "").strip())
+        has_attachments = bool(entry.get("attachments", []) or [])
+        has_reasoning = bool(
+            str(reasoning_by_turn_id.get(turn_id, "") or "").strip()
+        )
+        if has_text or has_attachments or has_reasoning:
+            visible_entries.append(entry)
+
+    if not visible_entries:
+        return None
+
+    trusted_values = _parse_trusted_values(context_text)
+    previous_runtime_state = (
+        _extract_block(context_text, "PREVIOUS_FRAME_MEMORY_SNAPSHOT")
+        or _extract_block(context_text, "PREVIOUS_RUNTIME_STATE")
+    )
+    attached_files_block = _extract_block(context_text, "ATTACHED_FILES")
+
+    last_entry = visible_entries[-1]
+    loaded_memory_ids = [
+        str(item or "").strip()
+        for item in last_entry.get("delayed_memory_ids", []) or []
+        if str(item or "").strip()
+    ]
+    attached_file_ids = list(dict.fromkeys(
+        match.group("id").strip()
+        for match in ATTACHED_FILE_ID_RE.finditer(attached_files_block)
+        if match.group("id").strip()
+    ))
+
+    jin_entries = [
+        entry for entry in visible_entries
+        if str(entry.get("role", "")).strip().lower()
+        in {"jin", "assistant", "brain", "service"}
+    ]
+    user_entries = [
+        entry for entry in visible_entries
+        if str(entry.get("role", "")).strip().lower() == "user"
+    ]
+
+    latest_reasoning = ""
+    latest_jin_text = ""
+    for entry in reversed(jin_entries):
+        if not latest_jin_text:
+            latest_jin_text = str(entry.get("text", "") or "").strip()
+        turn_id = str(entry.get("turn_id", "") or "").strip()
+        latest_reasoning = _extract_reasoning_body(
+            reasoning_by_turn_id.get(turn_id, "")
+        )
+        if latest_reasoning:
+            break
+
+    # Archived reasoning remains available through UI message payloads and
+    # previous_reasoning, but the legacy bootstrap reasoning dump is retired.
+    # Keep the response key empty for compatibility with older clients.
+    restore_reasoning_dump = ""
+    restore_lt_fact_ids = _extract_lt_fact_ids(
+        latest_reasoning,
+        latest_jin_text,
+    )
+    restore_delayed_memory_metadata = (
+        _parse_restore_delayed_memory_metadata(
+            context_text,
+            loaded_memory_ids,
+        )
+    )
+    restore_attached_file_metadata = (
+        _parse_restore_attached_file_metadata(
+            attached_files_block,
+            entries,
+            attached_file_ids,
+        )
+    )
+
+    max_turn = 0
+    for entry in entries:
+        try:
+            max_turn = max(max_turn, int(entry.get("turn", 0) or 0))
+        except (TypeError, ValueError):
+            pass
+
+    fallback_created_at = _entry_timestamp(visible_entries[0]) or dialog_path.stat().st_mtime
+    runtime_tool_result_created_ats = _merge_timestamp_queues(
+        _build_predecessor_runtime_tool_result_timestamp_queues(
+            context_text,
+            root_path,
+            seen_session_ids={_clean_session_id(session_id)},
+        ),
+        _runtime_tool_result_timestamp_queues(entries),
+    )
+    session_actions = _build_session_actions(
+        context_text,
+        fallback_created_at,
+        runtime_tool_result_created_ats=runtime_tool_result_created_ats,
+    )
+    runtime_session_actions = (
+        _build_predecessor_runtime_event_session_actions(
+            context_text,
+            root_path,
+            seen_session_ids={_clean_session_id(session_id)},
+        )
+        + _build_runtime_event_session_actions(entries)
+    )[-200:]
+    if runtime_session_actions:
+        session_actions = _merge_session_actions_preferring_runtime(
+            session_actions,
+            runtime_session_actions,
+        )
+    elif not any(
+        isinstance(item, dict)
+        and any(
+            isinstance(part, dict)
+            and str(part.get("text", "") or "").strip()
+            in {"UPDATE_LT_FACTS", ACTION_LABELS["UPDATE_LT_FACTS"]}
+            for part in item.get("parts", []) or []
+        )
+        for item in session_actions
+    ):
+        fallback_lt_action = _build_reasoning_lt_fallback_action(
+            visible_entries,
+            reasoning_by_turn_id,
+        )
+        if fallback_lt_action is not None:
+            session_actions.append(fallback_lt_action)
+    session_actions = session_actions[-200:]
+
+    tool_results = _merge_restore_tool_results(
+        _parse_restore_tool_results(
+            context_text,
+            fallback_created_at,
+            runtime_tool_result_created_ats=runtime_tool_result_created_ats,
+        ),
+        _build_runtime_event_tool_results(entries),
+    )
+
+    archive_tail_at = ""
+    archive_tail_timestamp = 0.0
+    for entry in entries:
+        entry_timestamp = _entry_timestamp(entry)
+        if entry_timestamp >= archive_tail_timestamp:
+            archive_tail_timestamp = entry_timestamp
+            archive_tail_at = str(entry.get("ts", "") or "").strip()
+
+    reactions_by_turn = {}
+    for entry in entries:
+        number = entry.get("turn", 0)
+        if entry.get("role") == "runtime" and entry.get("event") == "jin_reaction":
+            payload = entry.get("payload")
+            if isinstance(payload, dict):
+                reactions_by_turn[number] = payload.get("emoji", "")
+        elif entry.get("role") in {"jin", "assistant", "brain", "service"} and "jin_reaction" in entry:
+            reactions_by_turn[number] = entry["jin_reaction"]
+    ui_messages = []
+    for entry in _recent_visible_dialog_entries(visible_entries):
+        role = str(entry.get("role", "")).strip().lower()
+        if role not in {"user", "jin", "assistant", "brain", "service"}:
+            continue
+        turn_id = str(entry.get("turn_id", "") or "").strip()
+        ui_messages.append({
+            "role": role,
+            "turn": entry.get("turn", 0),
+            "turn_id": turn_id,
+            "ts": entry.get("ts", ""),
+            "text": str(entry.get("text", "") or ""),
+            **({"jin_reaction": reactions_by_turn.get(entry.get("turn", 0), "")}
+               if role == "user" else {}),
+            "attachments": entry.get("attachments", []) or [],
+            "delayed_memory_ids": entry.get("delayed_memory_ids", []) or [],
+            "active_memory_ids": entry.get("active_memory_ids", []) or [],
+            "reasoning": (
+                _extract_reasoning_body(
+                    reasoning_by_turn_id.get(turn_id, "")
+                )
+                if role != "user"
+                else ""
+            ),
+        })
+
+    runtime_mode = trusted_values.get("RUNTIME_MODE", "BRAIN").strip().upper()
+    if runtime_mode not in {"BRAIN", "SERVICE"}:
+        runtime_mode = "BRAIN"
+
+    bootstrap_lineage_turns = (
+        build_session_bootstrap_lineage_recent_turns(
+            session_id,
+            root=root_path,
+        )
+    )
+    bootstrap_lineage_dialog_context = (
+        build_session_bootstrap_lineage_dialog_context(
+            bootstrap_lineage_turns,
+            _clean_session_id(session_id),
+        )
+        if bootstrap_lineage_turns
+        else ""
+    )
+
+    frame_snapshot = _read_latest_frame_snapshot(session_directory, dialog_path.stem)
+    disk_checkpoint = _restore_disk_checkpoint(entries)
+
+    return {
+        "ok": True,
+        "source_session_id": _clean_session_id(session_id),
+        "source_session_date": session_directory.parent.name,
+        "dialog_file": dialog_path.name,
+        "context_file": context_path.name if context_path.is_file() else "",
+        "messages": ui_messages,
+        "archive_tail_at": archive_tail_at,
+        "dialog_context": _build_restored_dialog_context(
+            visible_entries,
+            _clean_session_id(session_id),
+        ),
+        "recent_turns": _build_recent_turns(
+            entries,
+            reasoning_by_turn_id,
+        ),
+        "bootstrap_lineage_turns": bootstrap_lineage_turns,
+        "bootstrap_lineage_dialog_context": (
+            bootstrap_lineage_dialog_context
+        ),
+        "previous_reasoning": latest_reasoning,
+        "restore_reasoning_dump": restore_reasoning_dump,
+        "restore_lt_fact_ids": restore_lt_fact_ids,
+        "restore_delayed_memory_metadata": restore_delayed_memory_metadata,
+        "restore_attached_file_metadata": restore_attached_file_metadata,
+        "runtime_memory": (frame_snapshot["raw_memory"] if frame_snapshot is not None else previous_runtime_state),
+        "runtime_snapshot": frame_snapshot,
+        "runtime_memory_updates": (frame_snapshot.get("runtime_memory_updates", frame_snapshot.get("index", 0)) if frame_snapshot is not None else len(jin_entries)),
+        "loaded_memory_ids": loaded_memory_ids,
+        "delayed_memory_reports": _parse_loaded_delayed_reports(context_text),
+        "active_memory_records": _parse_active_memory_records(previous_runtime_state),
+        "attached_file_ids": attached_file_ids,
+        "session_actions": session_actions,
+        "tool_results": tool_results,
+        "runtime_turn_counter": max_turn,
+        "turn_number": max_turn,
+        "current_jin_color": (
+            _latest_runtime_jin_color(entries)
+            or trusted_values.get("JIN_COLOR", "")
+            or trusted_values.get("CURRENT_JIN_COLOR", "")
+        ),
+        "current_jin_size": _parse_jin_size(
+            trusted_values.get("JIN_SIZE", "")
+            or trusted_values.get("CURRENT_JIN_SIZE", "")
+        ),
+        "current_jin_position": normalize_jin_position_dict(
+            trusted_values.get("JIN_POSITION", "")
+            or trusted_values.get("CURRENT_JIN_POSITION", "")
+        ),
+        "current_jin_speed": (
+            normalize_jin_speed_value(
+                trusted_values.get("JIN_SPEED", "")
+                or trusted_values.get("CURRENT_JIN_SPEED", "")
+            )
+            or 900
+        ),
+        "current_window_size": _parse_jin_size(
+            trusted_values.get("WINDOW_SIZE", "")
+            or trusted_values.get("CURRENT_WINDOW_SIZE", "")
+        ),
+        "current_jin_collapsed": bool(
+            str(
+                trusted_values.get("JIN_SIZE", "")
+                or trusted_values.get("CURRENT_JIN_SIZE", "")
+            ).strip()
+            or str(
+                trusted_values.get("JIN_POSITION", "")
+                or trusted_values.get("CURRENT_JIN_POSITION", "")
+            ).strip()
+        ),
+        "runtime_mode": runtime_mode,
+        "archived_context": context_text,
+        **disk_checkpoint,
+    }

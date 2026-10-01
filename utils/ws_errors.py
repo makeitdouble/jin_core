@@ -1,9 +1,7 @@
 import traceback
 import logging
 
-from runtime.state_sync import (
-    set_runtime_offline,
-)
+
 
 module_logger = logging.getLogger(__name__)
 
@@ -24,42 +22,6 @@ async def send_ws_error(
         "runtime_id": runtime_id,
         "component": component,
     })
-
-
-async def handle_runtime_error(
-    context,
-    *,
-    runtime_id: str,
-    public_message: str,
-    exception: Exception,
-):
-
-    websocket = context.websocket
-    logger = context.logger
-
-    error_text = str(
-        exception
-    )
-
-    await logger.log_error(
-        f"[{runtime_id}] "
-        f"{public_message}: "
-        f"{error_text}"
-    )
-
-    await send_ws_error(
-        websocket,
-        error_type="error",
-        runtime_id=runtime_id,
-        message=public_message,
-        details=error_text,
-    )
-
-    await set_runtime_offline(
-        context,
-        runtime_id=runtime_id,
-        error=error_text,
-    )
 
 
 async def handle_fatal_runtime_error(

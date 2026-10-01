@@ -1,12 +1,19 @@
+// Shared by sent messages and the composer attachment strip.
+const JIN_ATTACHMENT_CHIP_CLASS =
+  "inline-flex h-8 w-8 shrink-0 items-center justify-center rounded border border-sky-400/25 bg-sky-950/35 p-0 text-[18px] leading-none text-sky-100 transition hover:border-sky-300/50 hover:bg-sky-900/45";
 const ATTACHMENT_IMAGE_PREVIEW_MAX_PX = 200;
 const ASSET_TEXT_PREVIEW_ENDPOINT = "/api/assets/text-preview";
 const ASSET_TEXT_PREVIEW_MAX_CHARS = 60000;
 
 let attachmentHoverPreview = null;
 let attachmentHoverPreviewImage = null;
+let attachmentHoverPreviewOwner = null;
 let attachmentModal = null;
 let attachmentModalTitle = null;
 let attachmentModalContent = null;
+let attachmentModalPinButton = null;
+let attachmentModalDeleteButton = null;
+let activeAttachmentModalRecord = null;
 
 function normalizeAttachmentValue(value) {
   return String(
@@ -35,7 +42,7 @@ function getAttachmentName(attachment) {
         || attachment.filename
       )
       : "attachment"
-  );
+  ).replace(/\.jin-folder$/i, "");
 }
 
 function getAttachmentSizeLabel(attachment) {
@@ -151,6 +158,7 @@ function formatAttachmentChipLabel(attachment) {
 }
 
 function getAttachmentChipEmoji(attachment) {
+  if (/\.jin-folder$/i.test(String(attachment && (attachment.name || attachment.filename) || ""))) return "📁";
   const kind =
     getAttachmentKind(
       attachment
@@ -193,9 +201,27 @@ function ensureAttachmentHoverPreview() {
   return attachmentHoverPreview;
 }
 
-function positionAttachmentHoverPreview(event) {
+function normalizeAttachmentPreviewMaxPx(value) {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) && parsed > 0
+    ? parsed
+    : ATTACHMENT_IMAGE_PREVIEW_MAX_PX;
+}
+
+function positionAttachmentHoverPreview(
+  event,
+  maxPx = ATTACHMENT_IMAGE_PREVIEW_MAX_PX,
+  placement = "pointer"
+) {
   const preview =
     ensureAttachmentHoverPreview();
+  const previewMaxPx =
+    normalizeAttachmentPreviewMaxPx(maxPx);
+
+  preview.style.setProperty(
+    "--jin-attachment-preview-max-px",
+    `${previewMaxPx}px`
+  );
 
   if (!event) {
     return;
@@ -205,23 +231,52 @@ function positionAttachmentHoverPreview(event) {
   const rect =
     preview.getBoundingClientRect();
   const width =
-    rect.width || ATTACHMENT_IMAGE_PREVIEW_MAX_PX;
+    rect.width || previewMaxPx;
   const height =
-    rect.height || ATTACHMENT_IMAGE_PREVIEW_MAX_PX;
+    rect.height || previewMaxPx;
   const viewportWidth =
     window.innerWidth || document.documentElement.clientWidth || width;
   const viewportHeight =
     window.innerHeight || document.documentElement.clientHeight || height;
 
-  let left = event.clientX + offset;
-  let top = event.clientY + offset;
+  const owner =
+    event.currentTarget
+    || attachmentHoverPreviewOwner;
+  const ownerRect =
+    placement === "left"
+    && owner
+    && typeof owner.getBoundingClientRect === "function"
+      ? owner.getBoundingClientRect()
+      : null;
 
-  if (left + width + offset > viewportWidth) {
-    left = event.clientX - width - offset;
-  }
+  let left;
+  let top;
 
-  if (top + height + offset > viewportHeight) {
-    top = event.clientY - height - offset;
+  if (ownerRect) {
+    left = ownerRect.left - width - offset;
+    top = ownerRect.top;
+
+    if (left < offset) {
+      const right = ownerRect.right + offset;
+      left = right + width + offset <= viewportWidth
+        ? right
+        : offset;
+    }
+
+    if (top + height + offset > viewportHeight) {
+      top = viewportHeight - height - offset;
+    }
+  } else {
+    left = event.clientX + offset;
+    top = event.clientY + offset;
+
+    if (left + width + offset > viewportWidth) {
+      left = event.clientX - width - offset;
+    }
+
+    if (top + height + offset > viewportHeight) {
+      top = event.clientY - height - offset;
+    }
   }
 
   preview.style.left =
@@ -230,7 +285,12 @@ function positionAttachmentHoverPreview(event) {
     `${Math.max(offset, top)}px`;
 }
 
-function showAttachmentHoverPreview(attachment, event) {
+function showAttachmentHoverPreview(
+  attachment,
+  event,
+  maxPx = ATTACHMENT_IMAGE_PREVIEW_MAX_PX,
+  placement = "pointer"
+) {
   if (
       getAttachmentKind(attachment) !== "image"
   ) {
@@ -249,16 +309,42 @@ function showAttachmentHoverPreview(attachment, event) {
   const preview =
     ensureAttachmentHoverPreview();
 
+  attachmentHoverPreviewOwner = event && event.currentTarget
+    ? event.currentTarget
+    : null;
   attachmentHoverPreviewImage.src =
     source;
-
-  positionAttachmentHoverPreview(
-    event
-  );
 
   preview.classList.remove(
     "hidden"
   );
+
+  positionAttachmentHoverPreview(
+    event,
+    maxPx,
+    placement
+  );
+
+  if (!attachmentHoverPreviewImage.complete) {
+    const previewOwner = attachmentHoverPreviewOwner;
+    attachmentHoverPreviewImage.addEventListener(
+      "load",
+      () => {
+        if (attachmentHoverPreviewOwner === previewOwner) {
+          positionAttachmentHoverPreview(
+            {
+              currentTarget: previewOwner,
+              clientX: event ? event.clientX : 0,
+              clientY: event ? event.clientY : 0,
+            },
+            maxPx,
+            placement
+          );
+        }
+      },
+      { once: true }
+    );
+  }
 }
 
 function hideAttachmentHoverPreview() {
@@ -269,6 +355,7 @@ function hideAttachmentHoverPreview() {
   attachmentHoverPreview.classList.add(
     "hidden"
   );
+  attachmentHoverPreviewOwner = null;
 
   if (attachmentHoverPreviewImage) {
     attachmentHoverPreviewImage.removeAttribute(
@@ -317,18 +404,99 @@ function ensureJinAttachmentModal() {
   attachmentModalTitle.className =
     "min-w-0 truncate text-[12px] font-semibold uppercase tracking-[0.16em] text-zinc-100";
 
+  const headerActions =
+    document.createElement("div");
+  headerActions.className =
+    "flex shrink-0 items-center gap-2";
+
+  attachmentModalPinButton =
+    document.createElement("button");
+  attachmentModalPinButton.type = "button";
+  attachmentModalPinButton.className =
+    "delayed-memory-modal-icon-button delayed-memory-modal-pin";
+  attachmentModalPinButton.innerHTML =
+    '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14.7 3.3 20.7 9.3 18.6 11.4 16.9 9.7 13.7 12.9 14.4 15.7 12.9 17.2 9.4 13.7 5.3 17.8 4.2 16.7 8.3 12.6 4.8 9.1 6.3 7.6 9.1 8.3 12.3 5.1 10.6 3.4 12.7 1.3Z"/></svg>';
+
+  attachmentModalDeleteButton =
+    document.createElement("button");
+  attachmentModalDeleteButton.type = "button";
+  attachmentModalDeleteButton.className =
+    "delayed-memory-modal-icon-button delayed-memory-modal-delete";
+  attachmentModalDeleteButton.setAttribute("aria-label", "Hold to delete file");
+  attachmentModalDeleteButton.title = "Hold to delete file";
+  attachmentModalDeleteButton.innerHTML =
+    '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 3h6l1 2h4v2H4V5h4l1-2Zm1 6h2v9h-2V9Zm4 0h2v9h-2V9ZM7 9h2l.7 10h4.6L15 9h2l-.8 11.1A2 2 0 0 1 14.2 22H9.8a2 2 0 0 1-2-1.9L7 9Z"/></svg>';
+
   const closeButton =
     document.createElement("button");
   closeButton.type =
     "button";
   closeButton.className =
-    "shrink-0 rounded border border-zinc-700 px-2 py-1 text-[11px] text-zinc-300 transition hover:border-red-300/50 hover:text-red-200";
+    "delayed-memory-modal-icon-button delayed-memory-modal-close shrink-0";
+  closeButton.setAttribute(
+    "aria-label",
+    "Close"
+  );
   closeButton.textContent =
-    "x";
+    "\u00d7";
 
   closeButton.addEventListener(
     "click",
     closeJinAttachmentModal
+  );
+
+  attachmentModalPinButton.addEventListener("click", async () => {
+    const record = activeAttachmentModalRecord;
+    if (!record || !record.id || !window.JinFiles) return;
+    await window.JinFiles.setPinned(record.id, !Boolean(record.pinned));
+    const refreshed = window.JinFiles.getFile(record.id);
+    if (refreshed) {
+      activeAttachmentModalRecord = refreshed;
+      attachmentModalPinButton.classList.toggle(
+        "delayed-memory-modal-pin-active",
+        Boolean(refreshed.pinned)
+      );
+      attachmentModalPinButton.setAttribute(
+        "aria-pressed",
+        refreshed.pinned ? "true" : "false"
+      );
+      attachmentModalPinButton.title = refreshed.pinned
+        ? "Remove file from JIN context"
+        : "Attach file to JIN context";
+    }
+  });
+
+  const deleteActiveAttachment = async () => {
+    const record = activeAttachmentModalRecord;
+    if (!record || !record.id || !window.JinFiles) return false;
+    const deleted = await window.JinFiles.deleteFile(record.id);
+    if (deleted) closeJinAttachmentModal();
+    return deleted;
+  };
+
+  attachmentModalDeleteButton.addEventListener("click", (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+  });
+
+  if (
+    window.JinRuntime
+    && window.JinRuntime.memoryView
+    && typeof window.JinRuntime.memoryView.configureDeleteHold === "function"
+  ) {
+    window.JinRuntime.memoryView.configureDeleteHold(
+      attachmentModalDeleteButton,
+      deleteActiveAttachment,
+      {
+        keepHiddenOnComplete: true,
+      }
+    );
+  }
+
+  headerActions.append(
+    attachmentModalPinButton,
+    attachmentModalDeleteButton,
+    closeButton
   );
 
   attachmentModalContent =
@@ -340,7 +508,7 @@ function ensureJinAttachmentModal() {
     attachmentModalTitle
   );
   header.appendChild(
-    closeButton
+    headerActions
   );
   panel.appendChild(
     header
@@ -355,10 +523,26 @@ function ensureJinAttachmentModal() {
     attachmentModal
   );
 
+  let attachmentModalBackdropPointerDown = false;
+
+  attachmentModal.addEventListener(
+    "pointerdown",
+    (event) => {
+      attachmentModalBackdropPointerDown =
+        event.target === attachmentModal;
+    }
+  );
+
   attachmentModal.addEventListener(
     "click",
     (event) => {
-      if (event.target === attachmentModal) {
+      const shouldClose =
+        event.target === attachmentModal
+        && attachmentModalBackdropPointerDown;
+
+      attachmentModalBackdropPointerDown = false;
+
+      if (shouldClose) {
         closeJinAttachmentModal();
       }
     }
@@ -380,16 +564,78 @@ function ensureJinAttachmentModal() {
   return attachmentModal;
 }
 
+function formatAttachmentCreatedAt(attachment) {
+  const rawValue = attachment && attachment.created_at;
+  if (rawValue === null || rawValue === undefined || rawValue === "") {
+    return "";
+  }
+
+  let milliseconds = null;
+
+  if (typeof rawValue === "number" || /^\d+(?:\.\d+)?$/.test(String(rawValue).trim())) {
+    const numeric = Number(rawValue);
+    if (Number.isFinite(numeric) && numeric > 0) {
+      milliseconds = numeric > 100000000000
+        ? numeric
+        : numeric * 1000;
+    }
+  } else {
+    const parsed = Date.parse(String(rawValue));
+    if (Number.isFinite(parsed) && parsed > 0) {
+      milliseconds = parsed;
+    }
+  }
+
+  if (!milliseconds) {
+    return "";
+  }
+
+  const date = new Date(milliseconds);
+  if (!Number.isFinite(date.getTime())) {
+    return "";
+  }
+
+  const pad2 = (value) => String(value).padStart(2, "0");
+  return (
+    `${date.getFullYear()}-${pad2(date.getMonth() + 1)}-${pad2(date.getDate())}`
+    + ` ${pad2(date.getHours())}:${pad2(date.getMinutes())}:${pad2(date.getSeconds())}`
+  );
+}
+
 function createAttachmentInfoElement(attachment) {
   const info =
     document.createElement("div");
 
   info.className =
     "jin-attachment-modal-info";
-  info.textContent =
+
+  const detailParts =
     getAttachmentDetailParts(
       attachment
-    ).join(" - ");
+    );
+  const systemId =
+    normalizeAttachmentValue(
+      attachment && attachment.id
+    ).trim();
+
+  if (systemId && detailParts.length) {
+    detailParts[0] = systemId;
+  } else if (systemId) {
+    detailParts.push(systemId);
+  }
+
+  const kind = getAttachmentKind(attachment);
+  const createdAt =
+    kind === "text" || kind === "image"
+      ? formatAttachmentCreatedAt(attachment)
+      : "";
+
+  if (createdAt) {
+    detailParts.push(`created ${createdAt}`);
+  }
+
+  info.textContent =
+    detailParts.join(" - ");
 
   return info;
 }
@@ -480,6 +726,15 @@ async function resolveAttachmentForModal(attachment) {
     return attachment.resolve_modal_attachment();
   }
 
+  if (
+      attachment
+      && attachment.id
+      && window.JinFiles
+      && typeof window.JinFiles.resolveAttachment === "function"
+  ) {
+    return window.JinFiles.resolveAttachment(attachment);
+  }
+
   return attachment;
 }
 
@@ -490,6 +745,31 @@ async function openJinAttachmentModal(attachment) {
     );
 
   ensureJinAttachmentModal();
+
+  activeAttachmentModalRecord =
+    resolvedAttachment && resolvedAttachment.id && window.JinFiles
+      ? (window.JinFiles.getFile(resolvedAttachment.id) || resolvedAttachment)
+      : resolvedAttachment;
+
+  const isPersistentFile = Boolean(
+    activeAttachmentModalRecord && activeAttachmentModalRecord.id && window.JinFiles
+  );
+  attachmentModalPinButton.classList.toggle("hidden", !isPersistentFile);
+  attachmentModalDeleteButton.classList.toggle("hidden", !isPersistentFile);
+  attachmentModalDeleteButton.style.opacity = "";
+  if (isPersistentFile) {
+    attachmentModalPinButton.classList.toggle(
+      "delayed-memory-modal-pin-active",
+      Boolean(activeAttachmentModalRecord.pinned)
+    );
+    attachmentModalPinButton.setAttribute(
+      "aria-pressed",
+      activeAttachmentModalRecord.pinned ? "true" : "false"
+    );
+    attachmentModalPinButton.title = activeAttachmentModalRecord.pinned
+      ? "Remove file from JIN context"
+      : "Attach file to JIN context";
+  }
 
   attachmentModalTitle.textContent =
     getAttachmentName(
@@ -524,7 +804,232 @@ async function openJinAttachmentModal(attachment) {
   );
 }
 
-function bindJinAttachmentBubble(element, attachment) {
+function bindJinAttachmentHoverPreview(
+  element,
+  attachment,
+  options = {}
+) {
+  if (!element || !attachment) {
+    return;
+  }
+
+  const hoverPreviewMaxPx =
+    normalizeAttachmentPreviewMaxPx(
+      options && options.hoverPreviewMaxPx
+    );
+  const hoverPreviewPlacement =
+    options && options.hoverPreviewPlacement === "left"
+      ? "left"
+      : "pointer";
+
+  element.addEventListener(
+    "mouseenter",
+    (event) => {
+      showAttachmentHoverPreview(
+        attachment,
+        event,
+        hoverPreviewMaxPx,
+        hoverPreviewPlacement
+      );
+    }
+  );
+
+  element.addEventListener(
+    "mousemove",
+    (event) => {
+      if (
+          attachmentHoverPreview
+          && !attachmentHoverPreview.classList.contains("hidden")
+      ) {
+        positionAttachmentHoverPreview(
+          event,
+          hoverPreviewMaxPx,
+          hoverPreviewPlacement
+        );
+      }
+    }
+  );
+
+  element.addEventListener(
+    "mouseleave",
+    hideAttachmentHoverPreview
+  );
+
+  // Preview lifecycle invariant: attachment controls can hide or detach
+  // themselves on interaction. mouseleave is not guaranteed in that case,
+  // so cleanup must happen before any attachment UI mutation as well.
+  const hideBeforeAttachmentMutation = () => {
+    if (
+        !attachmentHoverPreviewOwner
+        || attachmentHoverPreviewOwner === element
+        || !attachmentHoverPreviewOwner.isConnected
+    ) {
+      hideAttachmentHoverPreview();
+    }
+  };
+
+  element.addEventListener(
+    "pointerdown",
+    hideBeforeAttachmentMutation
+  );
+  element.addEventListener(
+    "keydown",
+    (event) => {
+      if (event.key === "Enter" || event.key === " ") {
+        hideBeforeAttachmentMutation();
+      }
+    }
+  );
+}
+
+function normalizeRuntimeActionAttachmentForModal(
+  attachmentResult,
+  attachmentId = ""
+) {
+  const result =
+    attachmentResult
+    && typeof attachmentResult === "object"
+    && !Array.isArray(attachmentResult)
+      ? attachmentResult
+      : {};
+  if (result.source === "project" && result.ok === true && typeof result.content === "string") {
+    return {
+      ...createAssetTextAttachment(result),
+      id: result.file_ref || result.id,
+    };
+  }
+  const id =
+    normalizeAttachmentValue(
+      result.id || attachmentId
+    ).trim().toLowerCase();
+
+  if (!id) {
+    return null;
+  }
+
+  const storedRecord =
+    window.JinFiles
+    && typeof window.JinFiles.getFile === "function"
+      ? window.JinFiles.getFile(id)
+      : null;
+
+  return {
+    ...result,
+    ...(storedRecord || {}),
+    id,
+    name:
+      normalizeAttachmentValue(
+        (storedRecord && storedRecord.name)
+        || result.name
+        || "attachment"
+      ),
+  };
+}
+
+function bindRuntimeActionAttachmentPreview(
+  element,
+  attachmentResult,
+  attachmentId = ""
+) {
+  if (!element) {
+    return;
+  }
+
+  const attachment =
+    normalizeRuntimeActionAttachmentForModal(
+      attachmentResult,
+      attachmentId
+    );
+
+  element._jinRuntimeActionAttachment =
+    attachment;
+
+  if (!attachment) {
+    element.removeAttribute("role");
+    element.removeAttribute("tabindex");
+    element.classList.remove(
+      "cursor-pointer"
+    );
+    return;
+  }
+
+  element.setAttribute(
+    "role",
+    "button"
+  );
+  element.tabIndex = 0;
+  element.classList.remove(
+    "cursor-help"
+  );
+  element.classList.add(
+    "cursor-pointer"
+  );
+  element.title =
+    formatAttachmentHoverTitle(
+      attachment
+    )
+    || element.title
+    || "Open attachment preview";
+
+  if (element._jinRuntimeActionAttachmentBound) {
+    return;
+  }
+
+  element._jinRuntimeActionAttachmentBound =
+    true;
+
+  // Reuse the existing compact inline attachment hover preview, including
+  // its mouseleave / pointerdown cleanup so the image cannot stay orphaned.
+  bindJinAttachmentHoverPreview(
+    element,
+    attachment,
+    {
+      hoverPreviewMaxPx: 100,
+    }
+  );
+
+  const openAttachment = () => {
+    const currentAttachment =
+      element._jinRuntimeActionAttachment;
+
+    if (!currentAttachment) {
+      return;
+    }
+
+    void openJinAttachmentModal(
+      currentAttachment
+    );
+  };
+
+  element.addEventListener(
+    "click",
+    (event) => {
+      event.preventDefault();
+      openAttachment();
+    }
+  );
+
+  element.addEventListener(
+    "keydown",
+    (event) => {
+      if (
+          event.key !== "Enter"
+          && event.key !== " "
+      ) {
+        return;
+      }
+
+      event.preventDefault();
+      openAttachment();
+    }
+  );
+}
+
+function bindJinAttachmentBubble(
+  element,
+  attachment,
+  options = {}
+) {
   if (!element || !attachment) {
     return;
   }
@@ -548,33 +1053,10 @@ function bindJinAttachmentBubble(element, attachment) {
     );
   }
 
-  element.addEventListener(
-    "mouseenter",
-    (event) => {
-      showAttachmentHoverPreview(
-        attachment,
-        event
-      );
-    }
-  );
-
-  element.addEventListener(
-    "mousemove",
-    (event) => {
-      if (
-          attachmentHoverPreview
-          && !attachmentHoverPreview.classList.contains("hidden")
-      ) {
-        positionAttachmentHoverPreview(
-          event
-        );
-      }
-    }
-  );
-
-  element.addEventListener(
-    "mouseleave",
-    hideAttachmentHoverPreview
+  bindJinAttachmentHoverPreview(
+    element,
+    attachment,
+    options
   );
 
   element.addEventListener(
@@ -720,6 +1202,47 @@ async function fetchAssetTextPreview(path) {
 }
 
 function createAssetTextAttachment(assetResult) {
+  if (assetResult && assetResult.ok === true
+      && (assetResult.source === "project" || ["project_tree", "project_search", "project_read"].includes(assetResult.action))) {
+    if (assetResult.action === "project_search") {
+      const rawContent = String(assetResult.content || "");
+      const legacyEmpty = rawContent === ""
+        || rawContent === "No matching lines in the searched files."
+        || rawContent.startsWith("No results returned on this page;");
+      const count = assetResult.returned !== undefined
+        ? Number(assetResult.returned || 0)
+        : (legacyEmpty ? 0 : rawContent.split("\n").filter(Boolean).length);
+      const lines = [
+        `Search: ${assetResult.query || ""}`,
+        `Result: ${count === 0 ? "no matches" : `${count} match${count === 1 ? "" : "es"}`}`,
+      ];
+      if (count > 0 && assetResult.content) {
+        lines.push("", assetResult.content);
+      }
+      if (assetResult.has_more && assetResult.next_offset !== undefined) {
+        lines.push("", `More: offset ${assetResult.next_offset}`);
+      }
+      return {
+        name: `project_search · ${assetResult.query || "search"}`,
+        type: "text/plain",
+        kind: "text",
+        text_content: lines.join("\n"),
+      };
+    }
+
+    return {
+      name: `${assetResult.action} · ${assetResult.attachment || ""} · ${assetResult.path || "."}`,
+      type: "text/plain",
+      kind: "text",
+      text_content: [
+        assetResult.query ? `Query: ${assetResult.query}` : "",
+        assetResult.range || assetResult.page || "",
+        assetResult.notice || "",
+        "",
+        assetResult.content || "",
+      ].join("\n"),
+    };
+  }
   if (!isPreviewableTextAssetResult(assetResult)) {
     return null;
   }
@@ -809,7 +1332,8 @@ function normalizeDelayedMemoryReportForModal(
   const requestedId =
     String(
       delayedMemoryReportId || ""
-    ).trim();
+    ).trim()
+    .toLowerCase();
 
   if (
     requestedId
@@ -857,6 +1381,132 @@ function normalizeDelayedMemoryReportForModal(
 
 }
 
+function getDelayedMemoryReportPreviewSource(
+  delayedMemoryReport,
+  delayedMemoryReportId = ""
+) {
+
+  if (
+    delayedMemoryReport
+    && typeof delayedMemoryReport === "object"
+    && !Array.isArray(delayedMemoryReport)
+  ) {
+    return delayedMemoryReport;
+  }
+
+  const requestedId =
+    String(
+      delayedMemoryReportId || ""
+    ).trim()
+    .toLowerCase();
+
+  if (
+    !requestedId
+    || !window.JinRuntime
+    || !window.JinRuntime.runtime
+    || !window.JinRuntime.runtime.getDelayedMemoryReports
+  ) {
+    return null;
+  }
+
+  const reports =
+    window.JinRuntime.runtime.getDelayedMemoryReports();
+  const report =
+    reports
+    && typeof reports === "object"
+    && !Array.isArray(reports)
+      ? reports[requestedId]
+      : null;
+
+  if (
+    !report
+    || typeof report !== "object"
+    || Array.isArray(report)
+  ) {
+    return null;
+  }
+
+  return {
+    [requestedId]: report,
+  };
+
+}
+
+function applyDelayedMemoryReportPreviewState(
+  element,
+  report
+) {
+
+  if (!element) {
+    return;
+  }
+
+  const normalizedId =
+    report
+    && typeof report === "object"
+    && !Array.isArray(report)
+      ? String(
+          report._storage_key
+          || report.id
+          || ""
+        ).trim().toLowerCase()
+      : "";
+  const pinned =
+    Boolean(
+      report
+      && typeof report === "object"
+      && !Array.isArray(report)
+      && report.pinned
+    );
+
+  if (normalizedId) {
+    element.dataset.delayedMemoryReportId =
+      normalizedId;
+  } else {
+    delete element.dataset.delayedMemoryReportId;
+  }
+
+  element.classList.toggle(
+    "jin-runtime-action-delayed-memory-pinned",
+    pinned
+  );
+}
+
+function syncDelayedMemoryReportPreviewState(
+  reportId,
+  pinned
+) {
+
+  const normalizedId =
+    String(reportId || "").trim().toLowerCase();
+
+  if (!normalizedId) {
+    return;
+  }
+
+  document.querySelectorAll(
+    `[data-delayed-memory-report-id="${normalizedId}"]`
+  ).forEach((element) => {
+    if (!element || !element.classList) {
+      return;
+    }
+
+    element.classList.toggle(
+      "jin-runtime-action-delayed-memory-pinned",
+      Boolean(pinned)
+    );
+
+    if (element._jinDelayedMemoryReport
+      && typeof element._jinDelayedMemoryReport === "object"
+      && !Array.isArray(element._jinDelayedMemoryReport)) {
+      element._jinDelayedMemoryReport = {
+        ...element._jinDelayedMemoryReport,
+        pinned: Boolean(pinned),
+      };
+    }
+  });
+}
+
 function bindDelayedMemoryReportPreview(
   element,
   delayedMemoryReport,
@@ -869,12 +1519,19 @@ function bindDelayedMemoryReportPreview(
 
   const report =
     normalizeDelayedMemoryReportForModal(
-      delayedMemoryReport,
+      getDelayedMemoryReportPreviewSource(
+        delayedMemoryReport,
+        delayedMemoryReportId
+      ),
       delayedMemoryReportId
     );
 
   element._jinDelayedMemoryReport =
     report;
+  applyDelayedMemoryReportPreviewState(
+    element,
+    report
+  );
 
   if (!report) {
     element.removeAttribute(
@@ -882,6 +1539,9 @@ function bindDelayedMemoryReportPreview(
     );
     element.removeAttribute(
       "tabindex"
+    );
+    element.classList.remove(
+      "cursor-pointer"
     );
     return;
   }
@@ -891,8 +1551,11 @@ function bindDelayedMemoryReportPreview(
     "button"
   );
   element.tabIndex = 0;
-  element.classList.add(
+  element.classList.remove(
     "cursor-help"
+  );
+  element.classList.add(
+    "cursor-pointer"
   );
 
   element.title =
@@ -956,7 +1619,18 @@ function bindDelayedMemoryReportPreview(
 
 window.bindJinAttachmentBubble =
   bindJinAttachmentBubble;
+window.bindRuntimeActionAttachmentPreview =
+  bindRuntimeActionAttachmentPreview;
+window.hideJinAttachmentHoverPreview =
+  hideAttachmentHoverPreview;
+window.bindJinAttachmentHoverPreview =
+  bindJinAttachmentHoverPreview;
 window.openJinAttachmentModal =
   openJinAttachmentModal;
 window.formatJinAttachmentChipLabel =
   formatAttachmentChipLabel;
+window.syncDelayedMemoryReportPreviewState =
+  syncDelayedMemoryReportPreviewState;
+window.dispatchEvent(
+  new CustomEvent("jin:attachment-ui-ready")
+);

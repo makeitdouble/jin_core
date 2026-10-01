@@ -4,14 +4,306 @@
   const THINK_RULE_CITATIONS_ENDPOINT =
     "/api/debug/rule-citations";
   const THINK_RULE_WORKER_URL =
-    "/static/js/think-rule-worker.js?v=rule-citations-4";
-  const THINK_RUNTIME_CITATION_HOVER_EVENT =
-    "jin:think-runtime-citation-hover";
+    "/static/js/think-rule-worker.js";
+  const THINK_RUNTIME_CITATION_HIGHLIGHT_EVENT =
+    "jin:think-runtime-citation-highlight";
+  const MEMORY_REFERENCE_HIGHLIGHT_EVENT =
+    "jin:memory-reference-highlight";
+  const ACTIVE_MEMORY_RECORDS_CHANGED_EVENT =
+    "jin:active-memory-records-changed";
+  const buildCitationRecordIdentity =
+    window.JinRuntime
+    && typeof window.JinRuntime.buildCitationRecordIdentity === "function"
+      ? window.JinRuntime.buildCitationRecordIdentity
+      : () => "";
 
   let thinkRuleCitationWorker = null;
   let thinkRuleCitationRegistryPromise = null;
   let nextThinkRuntimeCitationIndex = 0;
+  let latestThinkCitationTarget = null;
+  let hoveredThinkCitationTarget = null;
+  let latestPersistentMemoryReferenceText = "";
+  let activeMemoryCitationRevision = 0;
   const activeThinkRuleCitationJobs = new Map();
+
+  const ACTIVE_MEMORY_VALUE_MIN_RATIO = 0.25;
+  const ACTIVE_MEMORY_VALUE_MIN_TOKENS = 4;
+  const ACTIVE_MEMORY_VALUE_MIN_CHARS = 24;
+
+  const normalizeActiveMemoryId =
+    window.JinUiUtils.normalizeActiveMemoryId;
+
+  function normalizeDelayedMemoryId(value) {
+    const normalized =
+      String(value || "").trim().toLowerCase();
+
+    return /^[a-z0-9]{6}$/.test(normalized)
+      ? normalized
+      : "";
+  }
+
+  function normalizeActiveMemoryKey(value) {
+    const normalized =
+      String(value || "").trim().toLowerCase();
+
+    return /^active_memory(?:_\d+)?$/.test(normalized)
+      ? normalized
+      : "";
+  }
+
+  const extractActiveMemoryId =
+    window.JinUiUtils.extractActiveMemoryId;
+
+  function parseActiveMemoryMetadata(value) {
+    const fields = new Map();
+    const source = String(value || "");
+    const pattern = /\[\s*([a-z][a-z0-9_.-]{0,31})\s*:\s*([^\]]*)\]/gi;
+    let match = null;
+
+    while ((match = pattern.exec(source)) !== null) {
+      const key = String(match[1] || "").trim().toLowerCase();
+      const fieldValue = String(match[2] || "")
+        .replace(/\s+/g, " ")
+        .trim();
+
+      if (key && fieldValue && !fields.has(key)) {
+        fields.set(key, fieldValue);
+      }
+    }
+
+    return fields;
+  }
+
+  function stripActiveMemoryMetadata(value) {
+    return String(value || "")
+      .replace(/\s*\[\s*[a-z][a-z0-9_.-]{0,31}\s*:\s*[^\]]*\]\s*/gi, " ")
+      .replace(/\s+/g, " ")
+      .trim();
+  }
+
+  function parseActiveMemoryCitationRecord(record, index) {
+    const text = String(record || "").trim();
+    const separatorIndex = text.indexOf(":");
+
+    if (separatorIndex <= 0) {
+      return null;
+    }
+
+    const key = text.slice(0, separatorIndex).trim();
+    const normalizedKey = normalizeActiveMemoryKey(key);
+
+    if (!normalizedKey) {
+      return null;
+    }
+
+    const rawValue = text.slice(separatorIndex + 1).trim();
+    const id = extractActiveMemoryId(rawValue);
+
+    const metadata = parseActiveMemoryMetadata(rawValue);
+    const visibleValue = stripActiveMemoryMetadata(rawValue);
+    const conditions = String(
+      metadata.get("conditions") || visibleValue
+    ).replace(/\s+/g, " ").trim();
+    const customTitle = String(
+      metadata.get("title") || ""
+    ).replace(/\s+/g, " ").trim();
+    const slotMatch = key.match(/_(\d+)$/);
+    const slotNumber = slotMatch
+      ? Number(slotMatch[1])
+      : index + 1;
+    const runtimeOwnedMetadataKeys = new Set([
+      "id",
+      "conditions",
+      "status",
+      "title",
+      "creation_time",
+      "created_at",
+      "updated_at",
+      "elapsed_time",
+      "session_id",
+      "message_id",
+      "message_count",
+    ]);
+    const customMetadataAliases = [];
+
+    metadata.forEach((fieldValue, fieldKey) => {
+      if (runtimeOwnedMetadataKeys.has(fieldKey)) {
+        return;
+      }
+
+      customMetadataAliases.push(fieldKey);
+
+      const normalizedValue = String(fieldValue || "")
+        .replace(/\s+/g, " ")
+        .trim();
+
+      if (normalizedValue.length >= 4) {
+        customMetadataAliases.push(normalizedValue);
+      }
+    });
+
+    return {
+      id,
+      key,
+      rawValue,
+      conditions,
+      customTitle,
+      displayTitles: [
+        `Active memory #${slotNumber}`,
+        `Active memory ${slotNumber}`,
+        `active_memory[${slotNumber}]`,
+        `active memory #${slotNumber}`,
+      ],
+      customMetadataAliases,
+      text,
+      normalizedKey,
+      identity: id
+        ? `active:${id}`
+        : `active-key:${normalizedKey}`,
+      index,
+    };
+  }
+
+  function getActiveMemoryCitationRecords() {
+    const runtimeApi =
+      window.JinRuntime
+      && window.JinRuntime.runtime;
+    const records =
+      runtimeApi
+      && typeof runtimeApi.getActiveMemoryRecords === "function"
+        ? runtimeApi.getActiveMemoryRecords()
+        : [];
+
+    return (Array.isArray(records) ? records : [])
+      .map(parseActiveMemoryCitationRecord)
+      .filter(Boolean);
+  }
+
+  function getDelayedMemoryCitationRecords() {
+    const runtimeApi =
+      window.JinRuntime
+      && window.JinRuntime.runtime;
+    const reports =
+      runtimeApi
+      && typeof runtimeApi.getDelayedMemoryReports === "function"
+        ? runtimeApi.getDelayedMemoryReports()
+        : {};
+
+    if (
+      !reports
+      || typeof reports !== "object"
+      || Array.isArray(reports)
+    ) {
+      return [];
+    }
+
+    return Object.entries(reports)
+      .map(([storageKey, report]) => {
+        if (
+          !report
+          || typeof report !== "object"
+          || Array.isArray(report)
+        ) {
+          return null;
+        }
+
+        const id =
+          normalizeDelayedMemoryId(report._storage_key)
+          || normalizeDelayedMemoryId(report.id)
+          || normalizeDelayedMemoryId(storageKey);
+
+        if (!id) {
+          return null;
+        }
+
+        const title =
+          String(report.title || "")
+            .replace(/\s+/g, " ")
+            .trim();
+        const summary =
+          String(report.summary || "")
+            .replace(/\s+/g, " ")
+            .trim();
+
+        return {
+          id,
+          title,
+          summary,
+          identity: `delayed:${id}`,
+        };
+      })
+      .filter(Boolean);
+  }
+
+  function getCurrentActiveMemoryIds() {
+    return new Set(
+      getActiveMemoryCitationRecords()
+        .map(record => record.id)
+        .filter(Boolean)
+    );
+  }
+
+  function getCurrentActiveMemoryKeys() {
+    return new Set(
+      getActiveMemoryCitationRecords()
+        .map(record => record.normalizedKey || normalizeActiveMemoryKey(record.key))
+        .filter(Boolean)
+    );
+  }
+
+  function getMatchActiveMemoryId(match) {
+    if (!match || match.sourceType !== "active") {
+      return "";
+    }
+
+    return normalizeActiveMemoryId(
+      match.activeMemoryId
+      || extractActiveMemoryId(match.sourceLineText)
+      || extractActiveMemoryId(match.titleText)
+      || extractActiveMemoryId(match.sourceText)
+    );
+  }
+
+  function getMatchActiveMemoryKey(match) {
+    if (!match || match.sourceType !== "active") {
+      return "";
+    }
+
+    return normalizeActiveMemoryKey(
+      match.activeMemoryKey
+      || match.sourceLineKey
+      || match.constantName
+    );
+  }
+
+  function filterLiveActiveMemoryMatches(matches) {
+    const activeMemoryIds =
+      getCurrentActiveMemoryIds();
+    const activeMemoryKeys =
+      getCurrentActiveMemoryKeys();
+
+    return (Array.isArray(matches) ? matches : [])
+      .filter((match) => {
+        if (!match || match.sourceType !== "active") {
+          return Boolean(match);
+        }
+
+        const activeMemoryId =
+          getMatchActiveMemoryId(match);
+
+        if (activeMemoryId) {
+          return activeMemoryIds.has(activeMemoryId);
+        }
+
+        const activeMemoryKey =
+          getMatchActiveMemoryKey(match);
+
+        return Boolean(
+          activeMemoryKey
+          && activeMemoryKeys.has(activeMemoryKey)
+        );
+      });
+  }
 
   function isThinkCitationDebugEnabled() {
 
@@ -127,12 +419,33 @@
       match
       && match.sourceType === "rule"
     ) {
-      return 2;
+      return 4;
     }
 
     if (
       match
       && match.sourceType === "runtime"
+    ) {
+      return 3;
+    }
+
+    if (
+      match
+      && match.sourceType === "active"
+    ) {
+      return 2;
+    }
+
+    if (
+      match
+      && match.sourceType === "delayed"
+    ) {
+      return 1;
+    }
+
+    if (
+      match
+      && match.sourceType === "lt"
     ) {
       return 1;
     }
@@ -249,9 +562,15 @@
     const label =
       match.sourceType === "runtime"
         ? "RUNTIME"
-        : match.sourceType === "session"
-          ? "SESSION"
-          : "RULE";
+        : match.sourceType === "active"
+          ? "ACTIVE"
+          : match.sourceType === "delayed"
+            ? "DELAYED"
+            : match.sourceType === "lt"
+              ? "L-T"
+            : match.sourceType === "session"
+              ? "SESSION"
+              : "RULE";
 
     return [
       `${label} - ${match.constantName || "unknown"} - ${match.level || "match"} - ${score}%`,
@@ -268,9 +587,15 @@
     const sourceClass =
       match.sourceType === "runtime"
         ? "runtime"
-        : match.sourceType === "session"
-          ? "session"
-          : "rule";
+        : match.sourceType === "active"
+          ? "active"
+          : match.sourceType === "delayed"
+            ? "delayed"
+            : match.sourceType === "lt"
+              ? "lt"
+            : match.sourceType === "session"
+              ? "session"
+              : "rule";
 
     return [
       "think-rule-hit",
@@ -327,6 +652,10 @@
       idPrefix,
       defaultConstantName,
       sourceSnapshotIndex = null,
+      sourceLineIdentity = "",
+      activeMemoryId = "",
+      activeMemoryKey = "",
+      activeContiguousRatio = 0,
     } = options;
 
     const fragments = [];
@@ -389,6 +718,13 @@
             sourceSnapshotIndex,
             sourceLineKey: key || defaultConstantName,
             sourceLineText: line,
+            sourceLineIdentity,
+            activeMemoryId:
+              normalizeActiveMemoryId(activeMemoryId),
+            activeMemoryKey:
+              normalizeActiveMemoryKey(activeMemoryKey),
+            activeContiguousRatio:
+              Number(activeContiguousRatio || 0),
             minScore: 0.72,
           }
         );
@@ -476,7 +812,21 @@
     const runtimeMemory =
       getRuntimeCitationTextFromSnapshot(
         snapshot
-      );
+      )
+        .split(/\r?\n/)
+        .filter((line) => {
+          const separatorIndex = line.indexOf(":");
+          const key = separatorIndex > 0
+            ? line.slice(0, separatorIndex).trim()
+            : "";
+
+          // Active memory has its own live store and stable ids. Treat that
+          // store as canonical so a mirrored FRAME line cannot steal the match
+          // or keep a resolved slot highlighted.
+          return !/^active_memory(?:_\d+)?$/i.test(key);
+        })
+        .join("\n")
+        .trim();
 
     if (!runtimeMemory) {
       return [];
@@ -497,50 +847,796 @@
 
   }
 
-  function buildSessionCitationFragments() {
+  function buildActiveMemoryCitationFragments() {
 
-    const storage =
+    return getActiveMemoryCitationRecords()
+      .flatMap((record) => {
+        const fragments = [];
+        const activeSourceId = record.id || record.normalizedKey || record.key;
+        const base = {
+          source: `activeMemory[${activeSourceId}]`,
+          sourceType: "active",
+          citationType: "active_memory_citation",
+          layer: "active",
+          constantName: record.key,
+          titleText: record.customTitle || record.conditions || record.text,
+          sourceLineKey: record.key,
+          sourceLineText: record.text,
+          sourceLineIdentity: record.identity,
+          activeMemoryId: record.id,
+          activeMemoryKey: record.normalizedKey || record.key,
+          minScore: 0.72,
+        };
+
+        if (record.conditions) {
+          fragments.push({
+            ...base,
+            id: `active:${activeSourceId}:conditions`,
+            sourceText: record.conditions,
+            activeContiguousRatio: ACTIVE_MEMORY_VALUE_MIN_RATIO,
+          });
+        }
+
+        if (
+          record.customTitle
+          && normalizeThinkRuntimeCitationIdentity(record.customTitle)
+            !== normalizeThinkRuntimeCitationIdentity(record.conditions)
+        ) {
+          fragments.push({
+            ...base,
+            id: `active:${activeSourceId}:title`,
+            sourceText: record.customTitle,
+            activeExactOnly: true,
+          });
+        }
+
+        return fragments;
+      });
+
+  }
+
+  function buildLTCitationFragments() {
+
+    const ltMemory =
       window.JinRuntime
-      && window.JinRuntime.storage;
+      && window.JinRuntime.ltMemory;
 
     if (
-      !storage
-      || typeof storage.readLatestSavedSessionMemory !== "function"
+      !ltMemory
+      || (
+        typeof ltMemory.getFacts !== "function"
+        && typeof ltMemory.getVisibleFacts !== "function"
+      )
     ) {
       return [];
     }
 
-    const savedSession =
-      storage.readLatestSavedSessionMemory();
+    const facts =
+      typeof ltMemory.getVisibleFacts === "function"
+        ? ltMemory.getVisibleFacts()
+        : ltMemory.getFacts();
 
-    if (
-      !savedSession
-      || savedSession.explicit_save !== true
-    ) {
+    if (!Array.isArray(facts)) {
       return [];
     }
 
-    const sessionMemory =
-      String(
-        savedSession.session_memory || ""
-      ).trim();
-
-    if (!sessionMemory) {
-      return [];
-    }
-
-    return buildMemoryCitationFragments(
-      sessionMemory,
-      {
-        source: "latestSavedSessionMemory",
-        sourceType: "session",
-        citationType: "session_citation",
-        layer: "session",
-        idPrefix: "session",
-        defaultConstantName: "session_memory",
+    return facts.flatMap((fact, index) => {
+      if (
+        !fact
+        || typeof fact !== "object"
+        || Array.isArray(fact)
+      ) {
+        return [];
       }
+
+      const id =
+        String(fact.id || "").trim();
+      const key =
+        String(fact.key || "").trim();
+      const value =
+        String(fact.value || fact.content || "").trim();
+      const sourceLineIdentity =
+        buildCitationRecordIdentity(
+          id,
+          key,
+          value
+        );
+
+      if (!key || !value) {
+        return [];
+      }
+
+      return buildMemoryCitationFragments(
+        `${key}: ${value}`,
+        {
+          source: `ltFact[${id || index}]`,
+          sourceType: "lt",
+          citationType: "lt_citation",
+          layer: "lt",
+          idPrefix: `lt:${id || index}`,
+          defaultConstantName: key,
+          sourceLineIdentity,
+        }
+      );
+    });
+
+  }
+
+  function buildActiveMemoryValueAnchors(value) {
+    const words = String(value || "")
+      .replace(/\s+/g, " ")
+      .trim()
+      .split(" ")
+      .filter(Boolean);
+
+    if (words.length < ACTIVE_MEMORY_VALUE_MIN_TOKENS) {
+      return [];
+    }
+
+    const windowSize = Math.max(
+      ACTIVE_MEMORY_VALUE_MIN_TOKENS,
+      Math.ceil(words.length * ACTIVE_MEMORY_VALUE_MIN_RATIO)
+    );
+    const lastStart = Math.max(0, words.length - windowSize);
+    const stride = Math.max(1, Math.floor(windowSize / 2));
+    const starts = [];
+
+    for (let start = 0; start <= lastStart; start += stride) {
+      starts.push(start);
+    }
+
+    if (!starts.includes(lastStart)) {
+      starts.push(lastStart);
+    }
+
+    return starts
+      .slice(0, 9)
+      .map(start => words.slice(start, start + windowSize).join(" "))
+      .filter(phrase => phrase.length >= ACTIVE_MEMORY_VALUE_MIN_CHARS);
+  }
+
+  function getFastCitationTargetIdentity(candidate) {
+    const activeMemoryId = normalizeActiveMemoryId(
+      candidate && candidate.activeMemoryId
     );
 
+    if (activeMemoryId) {
+      return `active:${activeMemoryId}`;
+    }
+
+    const activeMemoryKey = normalizeActiveMemoryKey(
+      candidate
+      && (candidate.activeMemoryKey || candidate.sourceLineKey)
+    );
+
+    if (
+      candidate
+      && candidate.sourceType === "active"
+      && activeMemoryKey
+    ) {
+      return `active-key:${activeMemoryKey}`;
+    }
+
+    const lineIdentity = normalizeThinkRuntimeCitationIdentity(
+      candidate && candidate.sourceLineIdentity
+    );
+
+    if (lineIdentity) {
+      return `line:${lineIdentity}`;
+    }
+
+    return [
+      candidate && candidate.sourceType,
+      candidate && candidate.source,
+      candidate && candidate.sourceLineKey,
+      candidate && candidate.sourceLineText,
+    ].map(normalizeThinkRuntimeCitationIdentity).join("|");
+  }
+
+  function fastCitationSourcePriority(candidate) {
+    if (candidate && candidate.sourceType === "active") return 3;
+    if (candidate && candidate.sourceType === "runtime") return 2;
+    if (candidate && candidate.sourceType === "delayed") return 1;
+    if (candidate && candidate.sourceType === "lt") return 1;
+    return 0;
+  }
+
+  function isPlainSingleWordCitationKey(value) {
+    const key = String(value || "").trim();
+
+    if (!key || /\s/.test(key)) {
+      return false;
+    }
+
+    try {
+      return /^\p{L}[\p{L}\p{M}]*$/u.test(key);
+    } catch (error) {
+      return /^[a-z]+$/i.test(key);
+    }
+  }
+
+  function buildFastExactCitationCandidates(snapshotIndex) {
+    const candidates = [];
+
+    function add(alias, match, force = false, options = {}) {
+      alias = String(alias || "").replace(/\s+/g, " ").trim();
+      if (
+        !alias
+        || (
+          !force
+          && (
+            alias.length < 4
+            || /\s/.test(alias)
+            || !/[0-9_.#-]/.test(alias)
+          )
+        )
+      ) {
+        return;
+      }
+
+      candidates.push({
+        ...match,
+        alias,
+        aliasIdentity: alias.toLocaleLowerCase(),
+        matchKind: options.matchKind || "token",
+        score: 1,
+        level: "exact",
+        sourceText: options.sourceText || alias,
+      });
+    }
+
+    function addLine(sourceType, source, lineText, options = {}) {
+      lineText = String(lineText || "").trim();
+      if (!lineText) return;
+      const separatorIndex = lineText.indexOf(":");
+      const key = separatorIndex > 0
+        ? lineText.slice(0, separatorIndex).trim()
+        : String(options.key || "").trim();
+      const activeMemoryId = normalizeActiveMemoryId(
+        options.activeMemoryId
+        || extractActiveMemoryId(lineText)
+      );
+      const base = {
+        source,
+        sourceType,
+        citationType: options.citationType,
+        layer: options.layer,
+        constantName: key || options.id || "memory",
+        titleText: options.titleText || lineText,
+        sourceLineKey: key,
+        sourceLineText: lineText,
+        sourceLineIdentity: options.identity || "",
+        activeMemoryId,
+        activeMemoryKey:
+          sourceType === "active"
+            ? normalizeActiveMemoryKey(options.activeMemoryKey || key)
+            : "",
+      };
+
+      add(options.id, base, true);
+      if (options.includeKeyAlias !== false) {
+        add(
+          key,
+          base,
+          true,
+          {
+            matchKind:
+              isPlainSingleWordCitationKey(key)
+                ? "key-value"
+                : "token",
+          }
+        );
+      }
+      if (activeMemoryId) {
+        add(activeMemoryId, base, true);
+      }
+      (Array.isArray(options.aliases) ? options.aliases : [])
+        .forEach(alias => add(alias, base, true));
+      (Array.isArray(options.valueAnchors) ? options.valueAnchors : [])
+        .forEach(anchor => add(
+          anchor,
+          base,
+          true,
+          {
+            matchKind: "phrase",
+            sourceText: options.valueText || anchor,
+          }
+        ));
+    }
+
+    const activeRecords = getActiveMemoryCitationRecords();
+    const activeIds = new Set(activeRecords.map(record => record.id));
+    const activeKeys = new Set(
+      activeRecords.map(record => record.key.toLocaleLowerCase())
+    );
+
+    const snapshot = getRuntimeCitationSnapshot(snapshotIndex);
+    const snapshotLines = snapshot && Array.isArray(snapshot.lines) ? snapshot.lines : [];
+    snapshotLines.forEach((line, index) => {
+      const key = String(line && line.key || `runtime_memory_${index + 1}`).trim();
+      const value = String(line && line.value || "").trim();
+      const activeMemoryId = normalizeActiveMemoryId(
+        line && line.active_memory_id
+        || extractActiveMemoryId(value)
+      );
+
+      if (
+        /^active_memory(?:_\d+)?$/i.test(key)
+        || activeKeys.has(key.toLocaleLowerCase())
+        || (activeMemoryId && activeIds.has(activeMemoryId))
+      ) {
+        return;
+      }
+
+      addLine("runtime", `runtimeSnapshot[${snapshotIndex}]`, `${key}: ${value}`, {
+        id: line && line.id,
+        layer: "runtime",
+        citationType: "runtime_citation",
+      });
+    });
+
+    activeRecords.forEach((record) => {
+      const aliases = [
+        ...record.displayTitles,
+        record.customTitle,
+        ...record.customMetadataAliases,
+      ].filter(Boolean);
+
+      const activeSourceId =
+        record.id || record.normalizedKey || record.key;
+
+      addLine("active", `activeMemory[${activeSourceId}]`, record.text, {
+        id: record.id,
+        activeMemoryId: record.id,
+        activeMemoryKey: record.normalizedKey || record.key,
+        identity: record.identity,
+        aliases,
+        valueAnchors: buildActiveMemoryValueAnchors(record.conditions),
+        valueText: record.conditions,
+        titleText: record.customTitle || record.conditions || record.text,
+        layer: "active",
+        citationType: "active_memory_citation",
+      });
+    });
+
+    getDelayedMemoryCitationRecords().forEach((record) => {
+      const lineText = [
+        record.id,
+        record.title,
+        record.summary,
+      ].filter(Boolean).join(": ");
+
+      addLine(
+        "delayed",
+        `delayedMemory[${record.id}]`,
+        lineText,
+        {
+          id: record.id,
+          key: record.id,
+          identity: record.identity,
+          includeKeyAlias: false,
+          titleText: record.title || lineText,
+          layer: "delayed",
+          citationType: "delayed_memory_citation",
+        }
+      );
+    });
+
+    const ltMemory = window.JinRuntime && window.JinRuntime.ltMemory;
+    const facts = ltMemory && typeof ltMemory.getVisibleFacts === "function"
+      ? ltMemory.getVisibleFacts()
+      : ltMemory && typeof ltMemory.getFacts === "function"
+        ? ltMemory.getFacts()
+        : [];
+    (Array.isArray(facts) ? facts : []).forEach((fact, index) => {
+      if (!fact || typeof fact !== "object" || Array.isArray(fact)) return;
+      const id = String(fact.id || "").trim();
+      const key = String(fact.key || "").trim();
+      const value = String(fact.value || fact.content || "").trim();
+      if (!key || !value) return;
+      addLine("lt", `ltFact[${id || index}]`, `${key}: ${value}`, {
+        id,
+        layer: "lt",
+        citationType: "lt_citation",
+        identity: buildCitationRecordIdentity(id, key, value),
+      });
+    });
+
+    const byAlias = new Map();
+    candidates.forEach((candidate) => {
+      const list = byAlias.get(candidate.aliasIdentity) || [];
+      list.push(candidate);
+      byAlias.set(candidate.aliasIdentity, list);
+    });
+
+    const selected = [];
+    byAlias.forEach((matches) => {
+      const targetIdentities = new Set(
+        matches.map(getFastCitationTargetIdentity).filter(Boolean)
+      );
+
+      // Ambiguous literal aliases are safer ignored than attached to the
+      // wrong memory. Mirrored runtime/active copies of the same stable id
+      // collapse to one target instead of cancelling each other out.
+      if (targetIdentities.size !== 1) {
+        return;
+      }
+
+      matches.sort((left, right) => (
+        fastCitationSourcePriority(right)
+        - fastCitationSourcePriority(left)
+      ));
+      selected.push(matches[0]);
+    });
+
+    return selected;
+  }
+
+  function isFastCitationCoreTokenCharacter(char) {
+    if (!char) return false;
+    if (/[0-9_]/.test(char)) return true;
+    try {
+      return /\p{L}/u.test(char);
+    } catch (error) {
+      return /[a-z]/i.test(char);
+    }
+  }
+
+  function isFastCitationTokenJoiner(char) {
+    return char === "." || char === "-";
+  }
+
+  function isFastCitationBoundaryBlocked(
+    source,
+    boundaryIndex,
+    direction
+  ) {
+    const char = source[boundaryIndex] || "";
+
+    if (isFastCitationCoreTokenCharacter(char)) {
+      return true;
+    }
+
+    if (!isFastCitationTokenJoiner(char)) {
+      return false;
+    }
+
+    const neighborIndex = direction === "before"
+      ? boundaryIndex - 1
+      : boundaryIndex + 1;
+
+    // Dot/hyphen is part of a token only when it bridges two token chunks
+    // (foo.bar / foo-bar). Sentence punctuation after an id (abc123.)
+    // must remain a valid boundary.
+    return isFastCitationCoreTokenCharacter(
+      source[neighborIndex] || ""
+    );
+  }
+
+  function isFastCitationObservedWholeToken(
+    text,
+    start,
+    end,
+    allowTerminalBoundary = false
+  ) {
+    const source = String(text || "");
+
+    if (
+      start > 0
+      && isFastCitationBoundaryBlocked(source, start - 1, "before")
+    ) {
+      return false;
+    }
+
+    if (end < source.length) {
+      return !isFastCitationBoundaryBlocked(source, end, "after");
+    }
+
+    return Boolean(
+      allowTerminalBoundary
+      && end === source.length
+    );
+  }
+
+  function hasFastCitationKeyValueSuffix(source, end) {
+    return /^:\s*\S/.test(
+      String(source || "").slice(end)
+    );
+  }
+
+  function isFastCitationCandidateMatchValid(
+    source,
+    candidate,
+    start,
+    end,
+    allowTerminalBoundary = false
+  ) {
+    if (
+      !isFastCitationObservedWholeToken(
+        source,
+        start,
+        end,
+        allowTerminalBoundary
+      )
+    ) {
+      return false;
+    }
+
+    return (
+      !candidate
+      || candidate.matchKind !== "key-value"
+      || hasFastCitationKeyValueSuffix(
+        source,
+        end
+      )
+    );
+  }
+
+  function findFastExactCitationMatches(
+    text,
+    candidates,
+    options = {}
+  ) {
+    const source = String(text || "");
+    const haystack = source.toLocaleLowerCase();
+    const allowTerminalBoundary = Boolean(
+      options.allowTerminalBoundary
+    );
+    const scanStart = Math.max(
+      0,
+      Number(options.scanStart || 0)
+    );
+    const previousLength = Math.max(
+      0,
+      Number(options.previousLength || 0)
+    );
+    const requireNewText = Boolean(
+      options.requireNewText
+    );
+    const matches = [];
+
+    (Array.isArray(candidates) ? candidates : []).forEach((candidate) => {
+      const needle = String(candidate && candidate.aliasIdentity || "");
+
+      if (!needle) {
+        return;
+      }
+
+      let index = haystack.indexOf(needle, scanStart);
+
+      while (index >= 0) {
+        const end = index + needle.length;
+        const reachesNewText = Boolean(
+          !requireNewText
+          || source.length < previousLength
+          // A token that ended exactly at the previous frame boundary was
+          // intentionally deferred because its right boundary was unknown.
+          // Once the next chunk arrives, re-admit that exact end position.
+          || end >= previousLength
+          || (allowTerminalBoundary && end === source.length)
+        );
+
+        if (
+          reachesNewText
+          && isFastCitationCandidateMatchValid(
+            source,
+            candidate,
+            index,
+            end,
+            allowTerminalBoundary
+          )
+        ) {
+          matches.push({
+            ...candidate,
+            start: index,
+            end,
+          });
+        }
+
+        index = haystack.indexOf(
+          needle,
+          index + Math.max(1, needle.length)
+        );
+      }
+    });
+
+    return matches;
+  }
+
+  function mergeFastCitationMatches(
+    existingMatches,
+    incomingMatches
+  ) {
+    const merged = [];
+    const seen = new Set();
+
+    [
+      ...(Array.isArray(existingMatches) ? existingMatches : []),
+      ...(Array.isArray(incomingMatches) ? incomingMatches : []),
+    ].forEach((match) => {
+      if (!match) {
+        return;
+      }
+
+      const key = [
+        match.aliasIdentity,
+        Number(match.start || 0),
+        Number(match.end || 0),
+        getFastCitationTargetIdentity(match),
+      ].join("|");
+
+      if (seen.has(key)) {
+        return;
+      }
+
+      seen.add(key);
+      merged.push(match);
+    });
+
+    return resolveThinkRuleOverlaps(merged);
+  }
+
+  function pruneUnstableFastCitationMatches(
+    text,
+    stream,
+    allowTerminalBoundary = false
+  ) {
+    const currentMatches = Array.isArray(stream.__jinFastCitationMatches)
+      ? stream.__jinFastCitationMatches
+      : [];
+    const stableMatches = currentMatches.filter(match => (
+      match
+      && isFastCitationCandidateMatchValid(
+        text,
+        match,
+        Number(match.start || 0),
+        Number(match.end || 0),
+        allowTerminalBoundary
+      )
+    ));
+
+    if (stableMatches.length === currentMatches.length) {
+      return false;
+    }
+
+    stream.__jinFastCitationMatches = stableMatches;
+    stream.__jinFastCitationMatchKeys = new Set(
+      stableMatches.map(match => (
+        `${match.aliasIdentity}|${match.start}|${match.end}|${match.source}`
+      ))
+    );
+
+    return true;
+  }
+
+  function ensureThinkRuntimeCitationIndex(stream) {
+    if (Number.isInteger(stream && stream.runtimeCitationIndex)) {
+      return stream.runtimeCitationIndex;
+    }
+    const index = nextThinkRuntimeCitationIndex++;
+    if (stream) stream.runtimeCitationIndex = index;
+    return index;
+  }
+
+  function buildFastCitationMatchesSignature(matches) {
+    return (Array.isArray(matches) ? matches : [])
+      .map(match => [
+        match && match.aliasIdentity,
+        Number(match && match.start || 0),
+        Number(match && match.end || 0),
+        getFastCitationTargetIdentity(match),
+      ].join("|"))
+      .sort()
+      .join("||");
+  }
+
+  function updateStreamingRuntimeCitationHighlights(messageId, stream) {
+    if (!stream || !stream.group || !stream.group.createdThinking || !stream.group.thinkContent || !stream.thinking) return;
+
+    const thinkContent = stream.group.thinkContent;
+    const thinkId = String(messageId);
+    const text = String(stream.thinking || "");
+    const runtimeCitationIndex = ensureThinkRuntimeCitationIndex(stream);
+
+    const activeRevisionChanged =
+      stream.__jinFastCitationActiveRevision !== activeMemoryCitationRevision;
+
+    if (
+      !Array.isArray(stream.__jinFastCitationCandidates)
+      || activeRevisionChanged
+    ) {
+      stream.__jinFastCitationCandidates =
+        buildFastExactCitationCandidates(runtimeCitationIndex);
+      stream.__jinFastCitationMaxAliasLength =
+        stream.__jinFastCitationCandidates.reduce(
+          (max, candidate) => Math.max(max, candidate.alias.length),
+          0
+        );
+      stream.__jinFastCitationActiveRevision =
+        activeMemoryCitationRevision;
+
+      if (!Array.isArray(stream.__jinFastCitationMatches)) {
+        stream.__jinFastCitationMatches = [];
+      }
+
+      stream.__jinFastCitationMatches =
+        filterLiveActiveMemoryMatches(
+          stream.__jinFastCitationMatches
+        );
+      stream.__jinFastCitationScannedLength =
+        activeRevisionChanged ? 0 : Number(stream.__jinFastCitationScannedLength || 0);
+    }
+
+    const previousLength = Number(stream.__jinFastCitationScannedLength || 0);
+    const maxAliasLength = Number(stream.__jinFastCitationMaxAliasLength || 0);
+    const allowTerminalBoundary = Boolean(
+      stream.__jinFastCitationFinalizing
+    );
+    const removedUnstableMatch =
+      pruneUnstableFastCitationMatches(
+        text,
+        stream,
+        allowTerminalBoundary
+      );
+    const scanStart =
+      activeRevisionChanged || text.length < previousLength
+        ? 0
+        : Math.max(0, previousLength - maxAliasLength - 1);
+    const incomingMatches =
+      findFastExactCitationMatches(
+        text,
+        stream.__jinFastCitationCandidates,
+        {
+          allowTerminalBoundary,
+          scanStart,
+          previousLength,
+          requireNewText: !activeRevisionChanged,
+        }
+      );
+    const previousMatchSignature =
+      buildFastCitationMatchesSignature(
+        stream.__jinFastCitationMatches
+      );
+
+    stream.__jinFastCitationMatches =
+      mergeFastCitationMatches(
+        stream.__jinFastCitationMatches,
+        incomingMatches
+      );
+    stream.__jinFastCitationScannedLength = text.length;
+
+    const matchesChanged =
+      buildFastCitationMatchesSignature(
+        stream.__jinFastCitationMatches
+      ) !== previousMatchSignature;
+
+    const structuredStreamingAvailable = Boolean(
+      window.JinThinkFormatter
+      && typeof window.JinThinkFormatter.renderStreaming === "function"
+    );
+
+    if (
+      !matchesChanged
+      && !removedUnstableMatch
+      && !activeRevisionChanged
+      && !structuredStreamingAvailable
+    ) return;
+
+    thinkContent.dataset.thinkId = thinkId;
+    thinkContent.dataset.runtimeCitationIndex = String(runtimeCitationIndex);
+    thinkContent.__jinThinkRawText = text;
+    bindThinkCitationHover(thinkContent);
+    latestThinkCitationTarget = thinkContent;
+    renderThinkRuleHighlights({
+      thinkId,
+      element: thinkContent,
+      text,
+      runtimeCitationIndex,
+      matches: [...stream.__jinFastCitationMatches],
+      done: false,
+      streaming: structuredStreamingAvailable,
+    });
+    syncAllThinkCitationHighlights();
   }
 
   function normalizeThinkRuntimeCitationIdentity(value) {
@@ -557,15 +1653,36 @@
 
   }
 
-  function buildThinkRuntimeCitationHoverState(matches) {
+  function buildThinkRuntimeCitationHighlightState(matches) {
 
     const runtimeMatches =
-      (Array.isArray(matches) ? matches : [])
-        .filter(match => match && match.sourceType === "runtime");
+      filterLiveActiveMemoryMatches(matches)
+        .filter(match => (
+          match
+          && ["runtime", "active", "delayed", "lt"].includes(
+            match.sourceType
+          )
+        ));
+    const nonActiveMatches =
+      runtimeMatches.filter(match => match.sourceType !== "active");
+    const activeMemoryIds =
+      Array.from(new Set(
+        runtimeMatches
+          .filter(match => match.sourceType === "active")
+          .map(getMatchActiveMemoryId)
+          .filter(Boolean)
+      ));
+    const activeMemoryKeys =
+      Array.from(new Set(
+        runtimeMatches
+          .filter(match => match.sourceType === "active")
+          .map(getMatchActiveMemoryKey)
+          .filter(Boolean)
+      ));
 
     const lineKeys =
       Array.from(new Set(
-        runtimeMatches
+        nonActiveMatches
           .map(match => normalizeThinkRuntimeCitationIdentity(
             match.sourceLineKey
             || match.constantName
@@ -573,9 +1690,18 @@
           .filter(Boolean)
       ));
 
+    const lineIdentities =
+      Array.from(new Set(
+        nonActiveMatches
+          .map(match => normalizeThinkRuntimeCitationIdentity(
+            match.sourceLineIdentity
+          ))
+          .filter(Boolean)
+      ));
+
     const lineTexts =
       Array.from(new Set(
-        runtimeMatches
+        nonActiveMatches
           .map(match => normalizeThinkRuntimeCitationIdentity(
             match.sourceLineText
             || match.titleText
@@ -584,18 +1710,27 @@
           .filter(Boolean)
       ));
 
-    if (!lineKeys.length && !lineTexts.length) {
+    if (
+      !activeMemoryIds.length
+      && !activeMemoryKeys.length
+      && !lineIdentities.length
+      && !lineKeys.length
+      && !lineTexts.length
+    ) {
       return null;
     }
 
     return {
+      activeMemoryIds,
+      activeMemoryKeys,
+      lineIdentities,
       lineKeys,
       lineTexts,
     };
 
   }
 
-  function dispatchThinkRuntimeCitationHover(
+  function dispatchThinkRuntimeCitationHighlight(
     thinkContent,
     active
   ) {
@@ -606,25 +1741,31 @@
 
     const state =
       active
-        ? thinkContent.__jinRuntimeCitationHoverState
+        ? thinkContent.__jinRuntimeCitationHighlightState
         : null;
     const sourceId =
       String(thinkContent.dataset.thinkId || "unknown-think");
 
     window.dispatchEvent(
       new CustomEvent(
-        THINK_RUNTIME_CITATION_HOVER_EVENT,
+        THINK_RUNTIME_CITATION_HIGHLIGHT_EVENT,
         {
           detail: state
             ? {
               active: true,
               sourceId,
+              activeMemoryIds: [...state.activeMemoryIds],
+              activeMemoryKeys: [...state.activeMemoryKeys],
+              lineIdentities: [...state.lineIdentities],
               lineKeys: [...state.lineKeys],
               lineTexts: [...state.lineTexts],
             }
             : {
               active: false,
               sourceId,
+              activeMemoryIds: [],
+              activeMemoryKeys: [],
+              lineIdentities: [],
               lineKeys: [],
               lineTexts: [],
             },
@@ -636,33 +1777,347 @@
 
   function shouldRevealThinkRuntimeCitations(thinkContent) {
 
-    if (
-      !thinkContent
-      || !thinkContent.__jinRuntimeCitationHoverState
-    ) {
-      return false;
+    return Boolean(
+      thinkContent
+      && thinkContent.__jinRuntimeCitationHighlightState
+    );
+
+  }
+
+  function hasThinkRuleHighlights(thinkContent) {
+
+    return Boolean(
+      thinkContent
+      && thinkContent.__jinHasRuleHighlights
+    );
+
+  }
+
+  function getActiveThinkCitationTarget() {
+
+    return (
+      hoveredThinkCitationTarget
+      || latestThinkCitationTarget
+    );
+
+  }
+
+  function buildThinkRuntimeCitationHighlightSignature(state) {
+    if (!state) {
+      return "";
     }
 
-    const hovered =
-      typeof thinkContent.matches === "function"
-      && thinkContent.matches(":hover");
-    const autoRevealing =
-      thinkContent.classList.contains(
-        "is-rule-highlight-revealing"
-      );
+    return [
+      [...state.activeMemoryIds].sort().join(","),
+      [...state.activeMemoryKeys].sort().join(","),
+      [...state.lineIdentities].sort().join(","),
+      [...state.lineKeys].sort().join(","),
+      [...state.lineTexts].sort().join(","),
+    ].join("|");
+  }
 
-    return hovered || autoRevealing;
+  function setThinkCitationElementActive(
+    thinkContent,
+    active
+  ) {
+
+    if (!thinkContent) {
+      return;
+    }
+
+    const nextActive = Boolean(
+      active
+      && hasThinkRuleHighlights(
+        thinkContent
+      )
+    );
+
+    thinkContent.classList.toggle(
+      "has-rule-highlights",
+      nextActive
+    );
+
+    const runtimeActive = Boolean(
+      nextActive
+      && shouldRevealThinkRuntimeCitations(
+        thinkContent
+      )
+    );
+
+    const runtimeState =
+      runtimeActive
+        ? thinkContent.__jinRuntimeCitationHighlightState
+        : null;
+    const runtimeSignature =
+      buildThinkRuntimeCitationHighlightSignature(
+        runtimeState
+      );
+    const activeChanged =
+      thinkContent.__jinRuntimeCitationHighlightActive
+      !== runtimeActive;
+    const stateChanged =
+      thinkContent.__jinRuntimeCitationHighlightSignature
+      !== runtimeSignature;
+
+    if (!activeChanged && !stateChanged) {
+      return;
+    }
+
+    thinkContent.__jinRuntimeCitationHighlightActive =
+      runtimeActive;
+    thinkContent.__jinRuntimeCitationHighlightSignature =
+      runtimeSignature;
+
+    dispatchThinkRuntimeCitationHighlight(
+      thinkContent,
+      runtimeActive
+    );
+
+  }
+
+  function syncAllThinkCitationHighlights() {
+
+    const activeTarget =
+      getActiveThinkCitationTarget();
+
+    document
+      .querySelectorAll(
+        ".jin-think-content"
+      )
+      .forEach((thinkContent) => {
+        setThinkCitationElementActive(
+          thinkContent,
+          thinkContent === activeTarget
+        );
+      });
+
+  }
+
+  function dispatchPersistentMemoryReferenceOverride(text) {
+
+    window.dispatchEvent(
+      new CustomEvent(
+        MEMORY_REFERENCE_HIGHLIGHT_EVENT,
+        {
+          detail: {
+            source: "persistent",
+            text: String(text || ""),
+            active: Boolean(
+              String(text || "")
+            ),
+            origin: "think-citation-hover",
+          },
+        }
+      )
+    );
+
+  }
+
+  function restoreLatestPersistentMemoryReference() {
+
+    dispatchPersistentMemoryReferenceOverride(
+      latestPersistentMemoryReferenceText
+    );
+
+  }
+
+  function activateHoveredThinkCitation(thinkContent) {
+
+    if (
+      !thinkContent
+      || thinkContent === latestThinkCitationTarget
+    ) {
+      return;
+    }
+
+    hoveredThinkCitationTarget =
+      thinkContent;
+
+    dispatchPersistentMemoryReferenceOverride(
+      thinkContent.__jinThinkRawText
+      || thinkContent.textContent
+      || ""
+    );
+
+    syncAllThinkCitationHighlights();
+
+  }
+
+  function deactivateHoveredThinkCitation(thinkContent) {
+
+    if (
+      !thinkContent
+      || hoveredThinkCitationTarget !== thinkContent
+    ) {
+      return;
+    }
+
+    hoveredThinkCitationTarget = null;
+
+    restoreLatestPersistentMemoryReference();
+    syncAllThinkCitationHighlights();
+
+  }
+
+  function bindThinkCitationHover(thinkContent) {
+
+    if (
+      !thinkContent
+      || thinkContent.__jinCitationHoverBound
+    ) {
+      return;
+    }
+
+    thinkContent.__jinCitationHoverBound = true;
+
+    thinkContent.addEventListener(
+      "mouseenter",
+      () => {
+        activateHoveredThinkCitation(
+          thinkContent
+        );
+      }
+    );
+
+    thinkContent.addEventListener(
+      "mouseleave",
+      () => {
+        deactivateHoveredThinkCitation(
+          thinkContent
+        );
+      }
+    );
+
+  }
+
+  function handlePersistentMemoryReferenceHighlight(event) {
+
+    const detail =
+      event && event.detail || {};
+
+    if (
+      detail.source !== "persistent"
+      || detail.origin === "think-citation-hover"
+    ) {
+      return;
+    }
+
+    latestPersistentMemoryReferenceText =
+      detail.active === false
+        ? ""
+        : String(detail.text || "");
+
+  }
+
+  function resetThinkCitationHighlightTurn() {
+
+    latestThinkCitationTarget = null;
+    hoveredThinkCitationTarget = null;
+
+    document
+      .querySelectorAll(
+        ".jin-think-content"
+      )
+      .forEach((thinkContent) => {
+        setThinkCitationElementActive(
+          thinkContent,
+          false
+        );
+      });
 
   }
 
   function syncThinkRuntimeCitationHighlight(thinkContent) {
 
-    dispatchThinkRuntimeCitationHover(
+    setThinkCitationElementActive(
       thinkContent,
-      shouldRevealThinkRuntimeCitations(
-        thinkContent
-      )
+      thinkContent === getActiveThinkCitationTarget()
     );
+
+  }
+
+  function buildThinkFormatterDecorations(
+    text,
+    matches
+  ) {
+
+    const source =
+      String(text || "");
+
+    return (Array.isArray(matches) ? matches : [])
+      .map((match) => {
+        const start = Math.max(
+          0,
+          Math.min(
+            source.length,
+            Number(match.start || 0)
+          )
+        );
+        const end = Math.max(
+          start,
+          Math.min(
+            source.length,
+            Number(match.end || 0)
+          )
+        );
+        const matchedText =
+          source.slice(start, end);
+        const title =
+          buildThinkRuleTitle(
+            match,
+            matchedText
+          );
+
+        return {
+          start,
+          end,
+          className:
+            getThinkCitationClassName(
+              match
+            ),
+          title,
+          ariaLabel: title,
+          score: Number(match.score || 0),
+        };
+      });
+
+  }
+
+  function renderStructuredThinkContent(
+    element,
+    text,
+    matches,
+    streaming = false
+  ) {
+
+    const formatter =
+      window.JinThinkFormatter;
+    const renderMethod =
+      streaming
+        ? formatter && formatter.renderStreaming
+        : formatter && formatter.render;
+
+    if (typeof renderMethod !== "function") {
+      return false;
+    }
+
+    try {
+      renderMethod.call(
+        formatter,
+        element,
+        text,
+        {
+          decorations:
+            buildThinkFormatterDecorations(
+              text,
+              matches
+            ),
+        }
+      );
+      return true;
+    } catch (_) {
+      return false;
+    }
 
   }
 
@@ -680,14 +2135,84 @@
 
     const text =
       job.text;
+    const useStructuredFormatting =
+      Boolean(job.done || job.streaming);
     const matches =
       resolveThinkRuleOverlaps(
-        job.matches
+        filterLiveActiveMemoryMatches(
+          job.matches
+        )
       );
 
+    job.matches = matches;
+    element.__jinThinkMatches = [...matches];
+
     if (!matches.length) {
+      if (
+        !useStructuredFormatting
+        || !renderStructuredThinkContent(
+          element,
+          text,
+          matches,
+          Boolean(job.streaming)
+        )
+      ) {
+        element.replaceChildren(
+          document.createTextNode(text)
+        );
+        element.classList.remove(
+          "is-structured"
+        );
+        element.__jinThinkStreamingFormatState =
+          null;
+      }
+      element.__jinHasRuleHighlights = false;
+      element.__jinThinkTextNode = null;
+      element.__jinRuntimeCitationHighlightState = null;
+
+      updateThinkContentExpandedHeight(
+        element
+      );
+      syncThinkRuntimeCitationHighlight(
+        element
+      );
+
       return false;
     }
+
+    if (
+      useStructuredFormatting
+      && renderStructuredThinkContent(
+        element,
+        text,
+        matches,
+        Boolean(job.streaming)
+      )
+    ) {
+      element.__jinHasRuleHighlights = true;
+      element.__jinThinkTextNode = null;
+
+      updateThinkContentExpandedHeight(
+        element
+      );
+
+      element.__jinRuntimeCitationHighlightState =
+        buildThinkRuntimeCitationHighlightState(
+          matches
+        );
+
+      syncThinkRuntimeCitationHighlight(
+        element
+      );
+
+      return true;
+    }
+
+    element.classList.remove(
+      "is-structured"
+    );
+    element.__jinThinkStreamingFormatState =
+      null;
 
     const fragment =
       document.createDocumentFragment();
@@ -778,20 +2303,15 @@
     element.replaceChildren(
       fragment
     );
-    element.classList.add(
-      "has-rule-highlights"
-    );
+    element.__jinHasRuleHighlights = true;
     element.__jinThinkTextNode = null;
 
     updateThinkContentExpandedHeight(
       element
     );
 
-    job.matches =
-      matches;
-
-    element.__jinRuntimeCitationHoverState =
-      buildThinkRuntimeCitationHoverState(
+    element.__jinRuntimeCitationHighlightState =
+      buildThinkRuntimeCitationHighlightState(
         matches
       );
 
@@ -803,52 +2323,47 @@
 
   }
 
-  function pulseThinkRuleHighlights(job) {
+  function refreshActiveMemoryCitationHighlights() {
+    activeThinkRuleCitationJobs.forEach((job) => {
+      job.matches = filterLiveActiveMemoryMatches(job.matches);
+    });
 
-    const element =
-      job.element;
+    document
+      .querySelectorAll(".jin-think-content")
+      .forEach((thinkContent) => {
+        if (!Array.isArray(thinkContent.__jinThinkMatches)) {
+          return;
+        }
 
-    if (
-      !element
-      || element.dataset.thinkId !== job.thinkId
-    ) {
-      return;
-    }
-
-    if (element.__jinThinkRulePulseTimer) {
-      clearTimeout(
-        element.__jinThinkRulePulseTimer
-      );
-    }
-
-    element.classList.remove(
-      "is-rule-highlight-revealing"
-    );
-
-    void element.offsetWidth;
-
-    element.classList.add(
-      "is-rule-highlight-revealing"
-    );
-
-    syncThinkRuntimeCitationHighlight(
-      element
-    );
-
-    element.__jinThinkRulePulseTimer = setTimeout(
-      () => {
-        element.classList.remove(
-          "is-rule-highlight-revealing"
+        const thinkId =
+          String(thinkContent.dataset.thinkId || "");
+        const text = String(
+          thinkContent.__jinThinkRawText
+          || thinkContent.textContent
+          || ""
         );
-        element.__jinThinkRulePulseTimer = null;
 
-        syncThinkRuntimeCitationHighlight(
-          element
-        );
-      },
-        5000
-      );
+        if (!thinkId) {
+          return;
+        }
 
+        renderThinkRuleHighlights({
+          thinkId,
+          element: thinkContent,
+          text,
+          matches: filterLiveActiveMemoryMatches(
+            thinkContent.__jinThinkMatches
+          ),
+          done: true,
+        });
+      });
+
+    syncAllThinkCitationHighlights();
+  }
+
+  function handleActiveMemoryRecordsChanged() {
+    activeMemoryCitationRevision += 1;
+    refreshActiveMemoryCitationHighlights();
   }
 
   function handleThinkRuleWorkerMessage(event) {
@@ -887,17 +2402,9 @@
       data.type === "ruleMatchesDone"
     ) {
       job.done = true;
-      if (
-        renderThinkRuleHighlights(
-          job
-        )
-      ) {
-        requestAnimationFrame(
-          () => pulseThinkRuleHighlights(
-            job
-          )
-        );
-      }
+      renderThinkRuleHighlights(
+        job
+      );
       activeThinkRuleCitationJobs.delete(
         thinkId
       );
@@ -928,15 +2435,45 @@
       );
     const text =
       stream.thinking;
-    const runtimeCitationIndex =
-      Number.isInteger(
-        stream.runtimeCitationIndex
-      )
-        ? stream.runtimeCitationIndex
-        : nextThinkRuntimeCitationIndex++;
 
-    stream.runtimeCitationIndex =
-      runtimeCitationIndex;
+    stream.__jinFastCitationFinalizing = true;
+    try {
+      updateStreamingRuntimeCitationHighlights(
+        messageId,
+        stream
+      );
+    } finally {
+      stream.__jinFastCitationFinalizing = false;
+    }
+    const runtimeCitationIndex =
+      ensureThinkRuntimeCitationIndex(
+        stream
+      );
+    const finalFastCandidates =
+      buildFastExactCitationCandidates(
+        runtimeCitationIndex
+      );
+    const finalFastMatches =
+      findFastExactCitationMatches(
+        text,
+        finalFastCandidates,
+        {
+          allowTerminalBoundary: true,
+          scanStart: 0,
+          previousLength: 0,
+          requireNewText: false,
+        }
+      );
+
+    stream.__jinFastCitationCandidates = finalFastCandidates;
+    stream.__jinFastCitationActiveRevision = activeMemoryCitationRevision;
+    stream.__jinFastCitationMatches =
+      mergeFastCitationMatches(
+        filterLiveActiveMemoryMatches(
+          stream.__jinFastCitationMatches
+        ),
+        finalFastMatches
+      );
 
     thinkContent.dataset.thinkId =
       thinkId;
@@ -947,6 +2484,31 @@
     thinkContent.__jinThinkRawText =
       text;
 
+    bindThinkCitationHover(
+      thinkContent
+    );
+
+    latestThinkCitationTarget =
+      thinkContent;
+
+    if (thinkContent.__jinRuntimeCitationHighlightState) {
+      thinkContent.__jinRuntimeCitationHighlightActive = false;
+    }
+
+    renderThinkRuleHighlights({
+      thinkId,
+      element: thinkContent,
+      text,
+      runtimeCitationIndex,
+      matches:
+        Array.isArray(stream.__jinFastCitationMatches)
+          ? [...stream.__jinFastCitationMatches]
+          : [],
+      done: true,
+    });
+
+    syncAllThinkCitationHighlights();
+
     activeThinkRuleCitationJobs.set(
       thinkId,
       {
@@ -954,7 +2516,10 @@
         element: thinkContent,
         text,
         runtimeCitationIndex,
-        matches: [],
+        matches:
+          Array.isArray(stream.__jinFastCitationMatches)
+            ? [...stream.__jinFastCitationMatches]
+            : [],
         done: false,
       }
     );
@@ -985,7 +2550,11 @@
           ...buildRuntimeCitationFragments(
             currentJob.runtimeCitationIndex
           ),
-          ...buildSessionCitationFragments(),
+          ...buildActiveMemoryCitationFragments(),
+          // L-T deliberately does not enter fuzzy/semantic citation matching.
+          // Its F-id and full key are already covered by the streaming exact
+          // candidate path, which prevents incidental fact-value wording from
+          // flashing the L-T panel/avatar.
         ];
 
         if (!fragments.length) {
@@ -1017,8 +2586,20 @@
 
   }
 
+  window.addEventListener(
+    ACTIVE_MEMORY_RECORDS_CHANGED_EVENT,
+    handleActiveMemoryRecordsChanged
+  );
+
+  window.addEventListener(
+    MEMORY_REFERENCE_HIGHLIGHT_EVENT,
+    handlePersistentMemoryReferenceHighlight
+  );
+
   window.JinThinkCitations = {
+    resetThinkCitationHighlightTurn,
     startThinkRuleCitationAnalysis,
+    updateStreamingRuntimeCitationHighlights,
     syncThinkRuntimeCitationHighlight,
   };
 

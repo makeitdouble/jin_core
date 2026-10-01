@@ -7,6 +7,7 @@ env/
 
 .env
 .env.*
+!.env.example
 config.py
 
 .idea/
@@ -18,9 +19,35 @@ repomix-output.xml
 init.py
 saved_runtime.txt
 *.patch
+pack_for_patch.bat
 
 assets/*
 !assets/skills/
 !assets/skills/**
 
-.gitkeep
+# Memory contents
+memory/**/*.json
+logs/*
+!logs/.gitkeep
+logs/**/*
+!logs/**/
+!logs/**/.gitkeep
+logs_anon/*
+!logs_anon/.gitkeep
+logs_anon/**/*
+!logs_anon/**/
+!logs_anon/**/.gitkeep
+
+# Keep empty memory directory structure
+!memory/**/.gitkeep
+# Atomic memory write leftovers
+memory/**/*.tmp
+
+# JIN persistent attachment library (runtime data)
+!assets/files/
+assets/files/*
+!assets/files/.gitkeep
+
+# Windows launcher runtime/cache data
+.jin_launcher/
+.jin_runtime/

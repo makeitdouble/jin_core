@@ -1,38 +1,88 @@
+from runtime.memory_profile import enabled as profile_enabled, refresh_profile, enable_profile
+import json
 import re
+from datetime import datetime
 
 from fastapi import WebSocket
 
 from .logger import WebSocketLogger
 
-from runtime.runtime_context import RuntimeContext, RuntimeEmitter
-from runtime.L1_memory import (
-    build_runtime_memory_snapshot,
-    parse_runtime_memory_lines,
+from runtime.runtime_context import (
+    RECENT_MESSAGES_MAX_PAIRS,
+    RuntimeContext,
+    RuntimeEmitter,
 )
-from runtime.L1_memory_utils import (
+from runtime.frame_memory_pending import (
+    restore_pending_frame_update,
+)
+from runtime.frame_memory_utils import (
     build_runtime_memory_context_text,
+    build_runtime_memory_snapshot,
     canonicalize_runtime_memory_key,
-    emit_runtime_l1_diff_update,
+    emit_runtime_frame_diff_update,
     emit_runtime_memory_snapshot_refresh,
-    emit_runtime_session_memory_update,
     rebuild_latest_runtime_memory_snapshot,
+    parse_runtime_memory_lines,
     remove_runtime_user_idle_lines,
+    strip_runtime_memory_line_metadata,
 )
-from runtime.L3_memory_utils import parse_l3_session_snapshot_metadata
 from runtime.telemetry import send_telemetry
+from runtime.memory_edit import frame_memory_write_busy
+from runtime.anonymous_mode import (
+    configure_runtime_anonymous_mode,
+    ensure_anonymous_session_id,
+    websocket_requests_anonymous_mode,
+)
 from utils.actions import (
+    canonicalize_active_memory_record,
     is_active_memory_key,
     is_delayed_memory_report_id,
+    normalize_jin_color_payload,
     refresh_active_memory_runtime_metadata,
     remove_active_memory_entries,
+)
+from utils.chat_log import (
+    resume_chat_log_session,
+    summarize_attachments,
+)
+from utils.session_actions_history import (
+    get_session_action_session_id,
+    session_action_belongs_to_session,
+)
+from utils.attached_files_store import (
+    hydrate_attachment_ids,
+)
+from utils.delayed_memory_file_store import (
+    load_delayed_memory_reports_from_files,
+    merge_delayed_memory_reports,
+    normalize_delayed_memory_reports,
 )
 
 
 MAX_BOOTSTRAP_MEMORY_CHARS = 12000
+MAX_BOOTSTRAP_TOOL_RESULT_CHARS = 32000
 MAX_RESUME_CLIENT_ID_CHARS = 80
 RESUME_CLIENT_ID_RE = re.compile(
     r"[^a-zA-Z0-9_.:-]"
 )
+
+
+RETIRED_RUNTIME_MEMORY_LINE_RE = re.compile(
+    r"^\s*(?:-\s*)?l2_pattern_evidence_\d+\s*:",
+    re.IGNORECASE,
+)
+
+
+BOOTSTRAP_TOOL_RESULT_KINDS = {
+    "active_memory",
+    "asset",
+    "deep_search",
+    "delayed_memory",
+    "files",
+    "lt",
+    "runtime_action",
+    "search",
+}
 
 
 ACTIVE_MEMORY_LINE_RE = re.compile(
@@ -61,6 +111,10 @@ def clean_active_memory_records(value) -> list[str]:
         if not ACTIVE_MEMORY_LINE_RE.match(line):
             continue
 
+        line = canonicalize_active_memory_record(line)
+        if not line:
+            continue
+
         if line in seen:
             continue
 
@@ -74,6 +128,10 @@ def apply_active_memory_records(
     context,
     message_data: dict,
 ) -> None:
+
+    if profile_enabled(context):
+        refresh_profile(context)
+        return
 
     records = clean_active_memory_records(
         message_data.get(
@@ -98,249 +156,1006 @@ def active_memory_records_text(context) -> str:
     )
 
 
-def clean_delayed_memory_counter(value) -> int:
+def discard_session_restore_continuation_state(
+    context,
+    *,
+    drop_previous_actions: bool = False,
+) -> bool:
+    """Discard one-shot archived continuation state after an explicit Stop.
 
-    try:
-        return max(
-            int(
-                value
-                or 0
-            ),
-            0,
+    Rolling visible chat and restored resource selection are intentionally
+    preserved. The next real USER turn should see normal recent chat, not
+    predecessor-only restore dialogue/reasoning prepared for the hidden tick.
+    """
+
+    if context is None:
+        return False
+
+    imported_reasoning = bool(
+        getattr(
+            context,
+            "runtime_previous_reasoning_from_session_restore",
+            False,
         )
-    except (TypeError, ValueError):
-        return 0
-
-
-def clean_delayed_memory_session_ids(value) -> list[str]:
-
-    source = (
-        value
-        if isinstance(
-            value,
-            list,
-        )
-        else []
     )
-    session_ids = []
-    seen = set()
+    pending_memory_ids = list(
+        getattr(
+            context,
+            "runtime_session_restore_pending_loaded_memory_ids",
+            [],
+        )
+        or []
+    )
+    pending_file_ids = list(
+        getattr(
+            context,
+            "runtime_session_restore_pending_attached_file_ids",
+            [],
+        )
+        or []
+    )
+    had_restore_state = bool(
+        getattr(context, "runtime_session_restore_priming", False)
+        or getattr(context, "runtime_restored_session_dialog", "")
+        or getattr(context, "runtime_session_restore_reasoning_dump", "")
+        or imported_reasoning
+        or pending_memory_ids
+        or pending_file_ids
+    )
 
-    for item in source:
-        session_id = clean_bootstrap_memory(
-            str(
+    if not had_restore_state:
+        return False
+
+    context.runtime_session_restore_priming = False
+    context.runtime_session_restore_reasoning_dump = ""
+    context.runtime_session_restore_lt_fact_ids = []
+    context.runtime_session_restore_delayed_memory_metadata = []
+    context.runtime_session_restore_attached_file_metadata = []
+    context.runtime_session_restore_pending_loaded_memory_ids = []
+    context.runtime_session_restore_pending_attached_file_ids = []
+    context.runtime_restored_session_dialog = ""
+    context.runtime_restored_session_source_id = ""
+
+    if imported_reasoning:
+        context.runtime_previous_reasoning_content = ""
+        context.runtime_previous_reasoning_loop_contents = []
+
+    context.runtime_previous_reasoning_from_session_restore = False
+
+    if drop_previous_actions:
+        session_actions = getattr(
+            context,
+            "runtime_session_action_history",
+            [],
+        )
+        if isinstance(session_actions, list):
+            context.runtime_session_action_history = [
                 item
-                or ""
-            ),
-            limit=200,
+                for item in session_actions
+                if not (
+                    isinstance(item, dict)
+                    and item.get(
+                        "runtime_session_action_previous_bootstrap",
+                        False,
+                    )
+                )
+            ]
+
+    # Stop cancels only the hidden continuation prompt, not the user's restored
+    # pin/load selection. Promote staged resources directly to live state so
+    # the immediate new task does not lose its project/files/reports.
+    if pending_file_ids:
+        live_file_ids = [
+            str(file_id or "").strip().casefold()
+            for file_id in (
+                getattr(context, "runtime_attached_file_ids", [])
+                or []
+            )
+            if str(file_id or "").strip()
+        ]
+        restored_file_ids = [
+            str(item.get("id", "") or "").strip()
+            for item in hydrate_attachment_ids(pending_file_ids)
+            if isinstance(item, dict)
+            and str(item.get("id", "") or "").strip()
+        ]
+        context.runtime_attached_file_ids = list(dict.fromkeys(
+            [*live_file_ids, *restored_file_ids]
+        ))
+
+    if pending_memory_ids:
+        live_memory_ids = list(
+            getattr(
+                context,
+                "runtime_loaded_delayed_memory_ids",
+                [],
+            )
+            or []
+        )
+        apply_loaded_delayed_memory_ids(
+            context,
+            {
+                "loaded_memory_ids": list(dict.fromkeys(
+                    [*live_memory_ids, *pending_memory_ids]
+                )),
+            },
         )
 
+    return True
+
+
+def apply_archived_session_continuation_state(
+    context,
+    message_data: dict,
+) -> None:
+
+    source_session_id = clean_bootstrap_memory(
+        message_data.get(
+            "source_session_id",
+            "",
+        ),
+        limit=80,
+    )
+
+    if (
+        source_session_id
+        and bool(
+            message_data.get(
+                "archived_session_restore",
+                True,
+            )
+        )
+    ):
+        # A browser checkpoint with predecessor lineage is enough to resume
+        # the conversation by default. Raw-log archive enrichment is optional:
+        # later fresh tabs may only have the browser snapshot for their direct
+        # predecessor, but they must still get the hidden continuation tick.
+        # An explicit archived_session_restore=false remains an opt-out.
+        context.runtime_archived_session_id = source_session_id
+        context.runtime_session_restore_priming = True
+
+    restore_reasoning_dump = clean_bootstrap_memory(
+        message_data.get(
+            "restore_reasoning_dump",
+            "",
+        ),
+        limit=32000,
+    )
+    context.runtime_session_restore_reasoning_dump = (
+        restore_reasoning_dump
+    )
+
+    restore_lt_fact_ids = []
+    for fact_id in message_data.get(
+        "restore_lt_fact_ids",
+        [],
+    ) if isinstance(message_data.get("restore_lt_fact_ids", []), list) else []:
+        normalized = clean_bootstrap_memory(
+            fact_id,
+            limit=80,
+        ).upper()
+        if normalized and normalized not in restore_lt_fact_ids:
+            restore_lt_fact_ids.append(normalized)
+    context.runtime_session_restore_lt_fact_ids = restore_lt_fact_ids
+
+    def _clean_restore_metadata(field_name: str) -> list[dict]:
+        source = message_data.get(field_name, [])
+        if not isinstance(source, list):
+            return []
+        items = []
+        seen = set()
+        for raw_item in source:
+            if not isinstance(raw_item, dict):
+                continue
+            item_id = clean_bootstrap_memory(
+                raw_item.get("id", ""),
+                limit=200,
+            )
+            if not item_id or item_id in seen:
+                continue
+            seen.add(item_id)
+            items.append({
+                "id": item_id,
+                "title": clean_bootstrap_memory(
+                    raw_item.get("title", ""),
+                    limit=500,
+                ) or item_id,
+            })
+        return items
+
+    context.runtime_session_restore_delayed_memory_metadata = (
+        _clean_restore_metadata(
+            "restore_delayed_memory_metadata"
+        )
+    )
+    context.runtime_session_restore_attached_file_metadata = (
+        _clean_restore_metadata(
+            "restore_attached_file_metadata"
+        )
+    )
+
+    recent_turns = message_data.get(
+        "recent_turns",
+        [],
+    )
+
+    if isinstance(recent_turns, list):
+        normalized_turns = []
+
+        for turn in recent_turns:
+            if not isinstance(turn, dict):
+                continue
+
+            user_text = clean_bootstrap_memory(
+                turn.get("user", ""),
+                limit=12000,
+            )
+            jin_text = clean_bootstrap_memory(
+                turn.get("jin", ""),
+                limit=12000,
+            )
+
+            if not user_text and not jin_text:
+                continue
+
+            normalized_turn = {
+                "user": user_text,
+                "jin": jin_text,
+            }
+
+            runtime_turn_id = clean_bootstrap_memory(
+                turn.get("runtime_turn_id", ""),
+                limit=120,
+            )
+            if runtime_turn_id:
+                normalized_turn["runtime_turn_id"] = runtime_turn_id
+
+            attachments = summarize_attachments(
+                turn.get("attachments", [])
+            )
+            if attachments:
+                normalized_turn["attachments"] = attachments
+
+            from utils.actions.jin_reaction_utils import normalize_jin_reaction_payload
+            reaction = normalize_jin_reaction_payload(turn.get("jin_reaction", ""))
+            if reaction:
+                normalized_turn["jin_reaction"] = reaction
+
+            reasoning = clean_bootstrap_memory(
+                turn.get("reasoning", ""),
+                limit=32000,
+            )
+            if reasoning:
+                normalized_turn["reasoning"] = reasoning
+
+            for source_key, target_key in (
+                ("user_created_at", "user_created_at"),
+                ("jin_created_at", "jin_created_at"),
+            ):
+                try:
+                    timestamp = float(
+                        turn.get(source_key, 0)
+                        or 0
+                    )
+                except (TypeError, ValueError):
+                    timestamp = 0.0
+
+                if timestamp > 0:
+                    normalized_turn[target_key] = timestamp
+
+            normalized_turns.append(normalized_turn)
+
+        context.runtime_recent_turns = normalized_turns[
+            -RECENT_MESSAGES_MAX_PAIRS:
+        ]
+
+    bootstrap_chat_tail_turns = message_data.get(
+        "bootstrap_chat_tail_turns",
+        [],
+    )
+    if isinstance(bootstrap_chat_tail_turns, list):
+        context.runtime_bootstrap_chat_tail_turns = [
+            dict(turn)
+            for turn in bootstrap_chat_tail_turns[-(RECENT_MESSAGES_MAX_PAIRS * 2):]
+            if isinstance(turn, dict)
+        ]
+    else:
+        context.runtime_bootstrap_chat_tail_turns = []
+
+    restored_dialog = clean_bootstrap_memory(
+        message_data.get(
+            "dialog_context",
+            "",
+        ),
+        limit=48000,
+    )
+
+    # Presence is authoritative, including an explicit empty value. Without
+    # this an older restored dialogue can survive a newer checkpoint that
+    # deliberately has no restore dialogue.
+    if "dialog_context" in message_data:
+        context.runtime_restored_session_dialog = restored_dialog
+        context.runtime_restored_session_source_id = (
+            clean_bootstrap_memory(
+                message_data.get(
+                    "source_session_id",
+                    "",
+                ),
+                limit=80,
+            )
+            if restored_dialog
+            else ""
+        )
+
+    previous_reasoning = clean_bootstrap_memory(
+        message_data.get(
+            "previous_reasoning",
+            "",
+        ),
+        limit=48000,
+    )
+
+    # An explicit empty checkpoint also clears older imported reasoning.
+    if "previous_reasoning" in message_data:
+        context.runtime_previous_reasoning_content = previous_reasoning
+        context.runtime_previous_reasoning_loop_contents = []
+        context.runtime_previous_reasoning_from_session_restore = bool(
+            previous_reasoning
+        )
+
+        recent_turns = getattr(
+            context,
+            "runtime_recent_turns",
+            [],
+        )
         if (
-            not session_id
-            or session_id in seen
+            previous_reasoning
+            and isinstance(recent_turns, list)
+            and recent_turns
+            and isinstance(recent_turns[-1], dict)
+            and not str(recent_turns[-1].get("reasoning", "") or "").strip()
         ):
-            continue
+            recent_turns[-1]["reasoning"] = previous_reasoning
 
-        seen.add(
-            session_id
+    session_actions = message_data.get(
+        "session_actions",
+        [],
+    )
+
+    if isinstance(session_actions, list):
+        normalized_actions = []
+        current_session_id = get_session_action_session_id(
+            context
         )
-        session_ids.append(
-            session_id
+        restored_previous_session = bool(
+            source_session_id
+            and current_session_id
+            and source_session_id != current_session_id
         )
 
-    return session_ids
+        for item in session_actions[-200:]:
+            if not isinstance(item, dict):
+                continue
+
+            # Fresh continuation actions belong to the predecessor session.
+            # Accept them here and rebind the final three to this runtime below.
+            if (
+                not restored_previous_session
+                and not session_action_belongs_to_session(
+                    item,
+                    current_session_id,
+                )
+            ):
+                continue
+
+            text = clean_bootstrap_memory(
+                item.get("text", ""),
+                limit=2000,
+            )
+
+            if not text:
+                continue
+
+            normalized_item = {
+                "text": text,
+            }
+
+            for identity_field, limit in (
+                ("id", 200),
+                ("event_id", 200),
+                ("runtime_turn_id", 120),
+            ):
+                identity_value = clean_bootstrap_memory(
+                    item.get(identity_field, ""),
+                    limit=limit,
+                )
+                if identity_value:
+                    normalized_item[identity_field] = identity_value
+
+            item_session_id = clean_bootstrap_memory(
+                item.get(
+                    "session_id",
+                    "",
+                ),
+                limit=80,
+            )
+            if item_session_id:
+                normalized_item["session_id"] = item_session_id
+
+            try:
+                created_at = float(
+                    item.get("created_at", 0)
+                    or 0
+                )
+            except (TypeError, ValueError):
+                created_at = 0.0
+
+            if created_at > 0:
+                normalized_item["created_at"] = created_at
+
+            jin_message_content = clean_bootstrap_memory(
+                item.get(
+                    "jin_message_content",
+                    "",
+                ),
+                limit=4000,
+            )
+            if jin_message_content:
+                normalized_item["jin_message_content"] = (
+                    jin_message_content
+                )
+
+            # These booleans are semantic history metadata, not UI fluff.
+            # Dropping them during bootstrap changes marker grouping and
+            # sequence rendering after opening a fresh tab.
+            for metadata_field in (
+                "runtime_session_action_marker_item",
+                "runtime_session_action_preserve_separate",
+                "runtime_session_action_plain_sequence",
+            ):
+                if item.get(metadata_field) is True:
+                    normalized_item[metadata_field] = True
+
+            parts = item.get("parts", [])
+            if isinstance(parts, list):
+                normalized_parts = []
+                for part in parts:
+                    if not isinstance(part, dict):
+                        continue
+                    part_text = clean_bootstrap_memory(
+                        part.get("text", ""),
+                        limit=600,
+                    )
+                    if not part_text:
+                        continue
+                    normalized_part = {
+                        "text": part_text,
+                    }
+                    detail = clean_bootstrap_memory(
+                        part.get("detail", ""),
+                        limit=1200,
+                    )
+                    message = clean_bootstrap_memory(
+                        part.get("message", ""),
+                        limit=2400,
+                    )
+                    part_id = clean_bootstrap_memory(
+                        part.get("id", ""),
+                        limit=200,
+                    )
+                    if detail:
+                        normalized_part["detail"] = detail
+                    if message:
+                        normalized_part["message"] = message
+                    if part_id:
+                        normalized_part["id"] = part_id
+
+                    raw_colors = part.get("colors", [])
+                    if isinstance(raw_colors, (str, bytes)):
+                        raw_colors = [raw_colors]
+                    if isinstance(raw_colors, list):
+                        colors = []
+                        for raw_color in raw_colors:
+                            color = clean_bootstrap_memory(
+                                raw_color,
+                                limit=16,
+                            ).lower()
+                            match = re.fullmatch(
+                                r"#?([0-9a-f]{3}|[0-9a-f]{6})",
+                                color,
+                                re.IGNORECASE,
+                            )
+                            if match is None:
+                                continue
+                            color = match.group(1).lower()
+                            if len(color) == 3:
+                                color = "".join(
+                                    char * 2
+                                    for char in color
+                                )
+                            normalized_color = f"#{color}"
+                            colors.append(normalized_color)
+                        if colors:
+                            normalized_part["colors"] = colors
+
+                    if isinstance(part.get("tool_ids"), list):
+                        normalized_part["tool_ids"] = [value for value in part["tool_ids"] if isinstance(value, str) and re.fullmatch(r"T[1-9][0-9]*", value)]
+                    normalized_parts.append(normalized_part)
+
+                if normalized_parts:
+                    normalized_item["parts"] = normalized_parts
+
+            normalized_actions.append(normalized_item)
+
+        if restored_previous_session:
+            # Keep exactly the three latest actions from the direct predecessor.
+            # Rebinding makes normal per-session pruning retain them, while new
+            # actions from this tab append to the same history afterwards.
+            normalized_actions = normalized_actions[-3:]
+            for item in normalized_actions:
+                item["runtime_session_action_previous_bootstrap"] = True
+                if current_session_id:
+                    item["session_id"] = current_session_id
+
+        context.runtime_session_action_history = normalized_actions
+
+        restored_sequence_turn_ids = []
+        raw_sequence_turn_ids = message_data.get(
+            "runtime_action_sequence_turn_ids",
+            [],
+        )
+        if isinstance(raw_sequence_turn_ids, list):
+            available_turn_ids = {
+                str(item.get("runtime_turn_id", "") or "").strip()
+                for item in normalized_actions
+                if isinstance(item, dict)
+                and str(item.get("runtime_turn_id", "") or "").strip()
+            }
+            for raw_turn_id in raw_sequence_turn_ids[-200:]:
+                turn_id = clean_bootstrap_memory(
+                    raw_turn_id,
+                    limit=120,
+                )
+                if (
+                    turn_id
+                    and turn_id in available_turn_ids
+                    and turn_id not in restored_sequence_turn_ids
+                ):
+                    restored_sequence_turn_ids.append(turn_id)
+
+        context.runtime_action_sequence_turn_ids = (
+            restored_sequence_turn_ids
+        )
+
+    restored_jin_color = normalize_jin_color_payload(
+        message_data.get("current_jin_color", "")
+    )
+    if restored_jin_color:
+        # Normal next-tab bootstrap owns the live color too. Previously only
+        # explicit archived restores staged it, leaving RuntimeContext on the
+        # default #1f4f8f even after the action trail was recovered.
+        context.jin_color = restored_jin_color
+
+    if bool(
+        message_data.get("archived_session_restore")
+        and source_session_id
+    ):
+        stage_session_restore_attached_file_ids(
+            context,
+            message_data,
+        )
+    else:
+        context.runtime_session_restore_pending_attached_file_ids = []
+        attached_file_ids = [
+            str(file_id or "").strip()
+            for file_id in message_data.get(
+                "attached_file_ids",
+                [],
+            )
+            if str(file_id or "").strip()
+        ]
+
+        if attached_file_ids:
+            attachments = hydrate_attachment_ids(
+                attached_file_ids
+            )
+            context.runtime_attached_file_ids = [
+                str(item.get("id", "") or "").strip()
+                for item in attachments
+                if isinstance(item, dict)
+                and str(item.get("id", "") or "").strip()
+            ]
+            context.runtime_turn_attachments = list(attachments)
+            context.runtime_current_sequence_attachments = list(attachments)
 
 
 def clean_delayed_memory_reports(value) -> dict:
 
-    if not isinstance(
-        value,
-        dict,
-    ):
-        return {}
+    return normalize_delayed_memory_reports(
+        value
+    )
 
-    reports = {}
 
-    for key, report in value.items():
+def clean_delayed_memory_report_ids(value) -> list[str]:
+
+    source = value if isinstance(value, list) else [value]
+    report_ids = []
+    seen = set()
+
+    for item in source:
         report_id = str(
-            key
+            item
             or ""
         ).strip().casefold()
 
-        if not is_delayed_memory_report_id(
+        if (
+            not report_id
+            or report_id in seen
+            or not is_delayed_memory_report_id(
+                report_id
+            )
+        ):
+            continue
+
+        seen.add(
             report_id
-        ):
-            continue
-
-        if not isinstance(
-            report,
-            dict,
-        ):
-            continue
-
-        title = clean_bootstrap_memory(
-            str(
-                report.get(
-                    "title",
-                    "",
-                )
-                or ""
-            ),
-            limit=500,
+        )
+        report_ids.append(
+            report_id
         )
 
-        if not title:
-            continue
+    return report_ids
 
-        tags = report.get(
-            "tags",
+def apply_loaded_delayed_memory_ids(
+    context,
+    message_data: dict,
+) -> list[str]:
+
+    if "loaded_delayed_memory_ids" in message_data:
+        raw_ids = message_data.get(
+            "loaded_delayed_memory_ids",
             [],
         )
+    elif "loaded_memory_ids" in message_data:
+        raw_ids = message_data.get(
+            "loaded_memory_ids",
+            [],
+        )
+    else:
+        return list(
+            getattr(
+                context,
+                "runtime_loaded_delayed_memory_ids",
+                [],
+            )
+            or []
+        )
 
-        if isinstance(
-            tags,
-            list,
-        ):
-            clean_tags = [
-                clean_bootstrap_memory(
-                    str(tag or ""),
-                    limit=80,
-                )
-                for tag in tags
-                if clean_bootstrap_memory(
-                    str(tag or ""),
-                    limit=80,
-                )
-            ][:30]
-        else:
-            clean_tags = [
-                clean_bootstrap_memory(
-                    tag,
-                    limit=80,
-                )
-                for tag in str(
-                    tags
-                    or ""
-                ).split(",")
-                if clean_bootstrap_memory(
-                    tag,
-                    limit=80,
-                )
-            ][:30]
+    requested_ids = clean_delayed_memory_report_ids(
+        raw_ids
+    )
+    reports = getattr(
+        context,
+        "delayed_memory_reports",
+        {},
+    )
+    reports = reports if isinstance(reports, dict) else {}
+    loaded_reports = {}
+    loaded_ids = []
 
-        reports[report_id] = {
-            "title": title,
-            "summary": clean_bootstrap_memory(
-                str(
-                    report.get(
-                        "summary",
-                        "",
-                    )
-                    or ""
-                ),
-                limit=2000,
-            ),
-            "tags": clean_tags,
-            "body": clean_bootstrap_memory(
-                str(
-                    report.get(
-                        "body",
-                        "",
-                    )
-                    or ""
-                ),
-                limit=12000,
-            ),
-            "created_session_id": clean_bootstrap_memory(
-                str(
-                    report.get(
-                        "created_session_id",
-                        "",
-                    )
-                    or ""
-                ),
-                limit=200,
-            ),
-            "created_time": clean_bootstrap_memory(
-                str(
-                    report.get(
-                        "created_time",
-                        "",
-                    )
-                    or ""
-                ),
-                limit=100,
-            ),
-            "created_date": clean_bootstrap_memory(
-                str(
-                    report.get(
-                        "created_date",
-                        "",
-                    )
-                    or report.get(
-                        "created_time",
-                        "",
-                    )
-                    or ""
-                ),
-                limit=100,
-            ),
-            "appended_times": clean_delayed_memory_counter(
-                report.get(
-                    "appended_times",
-                    0,
-                )
-            ),
-            "append_streak": clean_delayed_memory_counter(
-                report.get(
-                    "append_streak",
-                    0,
-                )
-            ),
-            "last_appended_date": clean_bootstrap_memory(
-                str(
-                    report.get(
-                        "last_appended_date",
-                        "",
-                    )
-                    or ""
-                ),
-                limit=100,
-            ),
-            "last_appended_session_id": clean_bootstrap_memory(
-                str(
-                    report.get(
-                        "last_appended_session_id",
-                        "",
-                    )
-                    or ""
-                ),
-                limit=200,
-            ),
-            "all_appended_session_ids": clean_delayed_memory_session_ids(
-                report.get(
-                    "all_appended_session_ids",
-                    [],
-                )
-            ),
+    for report_id in requested_ids:
+        report = reports.get(report_id)
+
+        if not isinstance(report, dict):
+            continue
+
+        loaded_ids.append(report_id)
+        loaded_reports[report_id] = {
+            **report,
+            "id": report_id,
         }
 
-    return reports
+    context.runtime_loaded_delayed_memory = loaded_reports
+    context.runtime_loaded_delayed_memory_ids = loaded_ids
+
+    from runtime.LT_memory import (
+        refresh_runtime_lt_archived_fact_ids,
+    )
+
+    refresh_runtime_lt_archived_fact_ids(
+        context
+    )
+
+    return loaded_ids
+
+
+
+
+def stage_session_restore_attached_file_ids(
+    context,
+    message_data: dict,
+) -> list[str]:
+
+    raw_ids = message_data.get(
+        "attached_file_ids",
+        [],
+    )
+    pending_ids = []
+    seen = set()
+
+    for raw_id in raw_ids if isinstance(raw_ids, list) else []:
+        file_id = clean_bootstrap_memory(
+            raw_id,
+            limit=80,
+        ).casefold()
+        if not file_id or file_id in seen:
+            continue
+        seen.add(file_id)
+        pending_ids.append(file_id)
+
+    context.runtime_session_restore_pending_attached_file_ids = (
+        pending_ids
+    )
+
+    # The hidden restore turn receives only RESTORED_SESSION_RESOURCES
+    # metadata. Do not keep a browser/file-store sync active in the runtime
+    # context, otherwise the restore answer can accidentally inherit the
+    # archived file payload before the synthetic ATTACH_FILE_CONTENT replay below.
+    context.runtime_attached_file_ids = []
+    context.runtime_turn_attachments = []
+    context.runtime_current_sequence_attachments = []
+    context.runtime_current_sequence_attachments_turn_id = ""
+
+    return pending_ids
+
+
+def stage_session_restore_loaded_delayed_memory_ids(
+    context,
+    message_data: dict,
+) -> list[str]:
+
+    raw_loaded_ids = message_data.get(
+        "loaded_delayed_memory_ids",
+        message_data.get("loaded_memory_ids", []),
+    )
+    requested_ids = clean_delayed_memory_report_ids(
+        raw_loaded_ids
+    )
+    # Keep the archived ids even if a report record has not reached this
+    # connection yet. A delayed-memory store sync can arrive before the hidden
+    # restore tick; activation after that tick will resolve only ids that exist.
+    pending_ids = list(requested_ids)
+
+    context.runtime_session_restore_pending_loaded_memory_ids = pending_ids
+    context.runtime_loaded_delayed_memory = {}
+    context.runtime_loaded_delayed_memory_ids = []
+
+    from runtime.LT_memory import (
+        refresh_runtime_lt_archived_fact_ids,
+    )
+
+    refresh_runtime_lt_archived_fact_ids(
+        context
+    )
+
+    return pending_ids
+
+
+def get_context_loaded_delayed_memory_ids(
+    context,
+) -> list[str]:
+
+    loaded_reports = getattr(
+        context,
+        "runtime_loaded_delayed_memory",
+        {},
+    )
+
+    if not isinstance(loaded_reports, dict):
+        return []
+
+    return clean_delayed_memory_report_ids(
+        list(loaded_reports.keys())
+    )
+
+
+def apply_suppressed_delayed_memory_auto_load_ids(
+    context,
+    message_data: dict,
+) -> list[str]:
+
+    # Accept the old key only as a one-way migration path. Runtime state and
+    # outgoing protocol use LOAD terminology exclusively.
+    raw_ids = message_data.get(
+        "suppressed_delayed_memory_auto_load_ids",
+        message_data.get(
+            "suppressed_delayed_memory_" + "append_ids",
+            getattr(
+                context,
+                "runtime_suppressed_delayed_memory_auto_load_ids",
+                [],
+            ),
+        ),
+    )
+
+    report_ids = clean_delayed_memory_report_ids(
+        raw_ids
+    )
+    reports = getattr(
+        context,
+        "delayed_memory_reports",
+        {},
+    )
+    reports = reports if isinstance(reports, dict) else {}
+    report_ids = [
+        report_id
+        for report_id in report_ids
+        if report_id in reports
+    ]
+
+    context.runtime_suppressed_delayed_memory_auto_load_ids = report_ids
+
+    return report_ids
 
 
 def apply_delayed_memory_reports(
     context,
     message_data: dict,
-) -> None:
+) -> list[str]:
 
-    reports = clean_delayed_memory_reports(
+    if profile_enabled(context) and not message_data.get("_profile_edit"):
+        refresh_profile(context)
+        return []
+
+    deleted_report_ids = clean_delayed_memory_report_ids(
+        message_data.get(
+            "deleted_delayed_memory_report_ids",
+            [],
+        )
+    )
+
+    if (
+        "delayed_memory_reports" not in message_data
+        and not deleted_report_ids
+    ):
+        return []
+
+    incoming_reports = clean_delayed_memory_reports(
         message_data.get(
             "delayed_memory_reports",
             {},
         )
     )
+    existing_reports = clean_delayed_memory_reports(
+        getattr(
+            context,
+            "delayed_memory_reports",
+            {},
+        )
+    )
 
-    if "delayed_memory_reports" in message_data:
-        context.delayed_memory_reports = reports
+    for report_id in deleted_report_ids:
+        existing_reports.pop(
+            report_id,
+            None,
+        )
+
+    context.delayed_memory_reports = {
+        **existing_reports,
+        **incoming_reports,
+    }
+
+    loaded_reports = getattr(
+        context,
+        "runtime_loaded_delayed_memory",
+        None,
+    )
+
+    if isinstance(
+        loaded_reports,
+        dict,
+    ):
+        for report_id in deleted_report_ids:
+            loaded_reports.pop(
+                report_id,
+                None,
+            )
+
+    loaded_ids = getattr(
+        context,
+        "runtime_loaded_delayed_memory_ids",
+        None,
+    )
+
+    if isinstance(
+        loaded_ids,
+        list,
+    ):
+        deleted_report_id_set = set(
+            deleted_report_ids
+        )
+        loaded_ids[:] = [
+            report_id
+            for report_id in loaded_ids
+            if str(report_id or "").strip().casefold()
+            not in deleted_report_id_set
+        ]
+
+    from runtime.LT_memory import (
+        refresh_runtime_lt_archived_fact_ids,
+    )
+
+    refresh_runtime_lt_archived_fact_ids(
+        context
+    )
+
+    return deleted_report_ids
+
+
+def hydrate_delayed_memory_reports_from_files(
+    context,
+) -> None:
+
+    if profile_enabled(context):
+        refresh_profile(context)
+        return
+
+    if bool(
+        getattr(
+            context,
+            "runtime_anonymous_mode",
+            False,
+        )
+    ):
+        # configure_runtime_anonymous_mode initializes a new room once.
+        # A soft reconnect must keep its reports and loaded bodies intact.
+        return
+
+    file_reports, warnings = (
+        load_delayed_memory_reports_from_files()
+    )
+    current_reports = clean_delayed_memory_reports(
+        getattr(
+            context,
+            "delayed_memory_reports",
+            {},
+        )
+    )
+
+    context.delayed_memory_reports = merge_delayed_memory_reports(
+        current_reports,
+        file_reports,
+    )
+
+    from runtime.LT_memory import (
+        refresh_runtime_lt_archived_fact_ids,
+    )
+
+    refresh_runtime_lt_archived_fact_ids(
+        context
+    )
+
+    if warnings:
+        current_warnings = getattr(
+            context,
+            "runtime_delayed_memory_file_warnings",
+            None,
+        )
+
+        if not isinstance(
+            current_warnings,
+            list,
+        ):
+            current_warnings = []
+            context.runtime_delayed_memory_file_warnings = (
+                current_warnings
+            )
+
+        current_warnings.extend(
+            warning
+            for warning in warnings
+            if warning not in current_warnings
+        )
 
 
 def remove_runtime_memory_slot_by_key(
@@ -352,7 +1167,7 @@ def remove_runtime_memory_slot_by_key(
         str(key or "")
     )
 
-    if not normalized_key:
+    if not normalized_key or normalized_key.casefold() == "session_title":
         return str(memory or "").strip(), False
 
     kept_lines = []
@@ -389,6 +1204,8 @@ def remove_runtime_memory_slot_by_key(
 async def apply_runtime_memory_slot_delete(
         context,
         message_data: dict,
+        *,
+        foreground_busy: bool = False,
 ) -> bool:
 
     key = str(
@@ -401,9 +1218,37 @@ async def apply_runtime_memory_slot_delete(
 
     if (
             not normalized_key
-            or normalized_key == "user_idle"
+            or normalized_key.casefold() in {"user_idle", "session_title"}
             or is_active_memory_key(normalized_key)
     ):
+        return False
+
+    # FRAME delete mutates the same canonical state as the FRAME summarizer.
+    # The browser applies long-hold deletion optimistically, so when the writer
+    # is busy we must also push the authoritative latest snapshot back to the
+    # client instead of merely dropping the request and leaving local state
+    # diverged until the next FRAME update.
+    if frame_memory_write_busy(
+            context,
+            foreground_busy=foreground_busy,
+    ):
+        snapshot = rebuild_latest_runtime_memory_snapshot(
+            context
+        )
+
+        if snapshot is None:
+            snapshot = build_runtime_memory_snapshot(
+                context,
+                getattr(context, "runtime_memory", ""),
+            )
+
+        await emit_runtime_memory_snapshot_refresh(
+            context,
+            snapshot,
+        )
+        await context.logger.log_system(
+            f"[RUNTIME MEMORY] slot delete blocked: memory busy: {normalized_key}"
+        )
         return False
 
     current_memory = str(
@@ -459,7 +1304,7 @@ async def apply_runtime_memory_slot_delete(
         context,
         snapshot,
     )
-    await emit_runtime_l1_diff_update(
+    await emit_runtime_frame_diff_update(
         context
     )
 
@@ -499,13 +1344,240 @@ def clean_bootstrap_runtime_memory(
     limit: int = MAX_BOOTSTRAP_MEMORY_CHARS,
 ) -> str:
 
-    return remove_active_memory_entries(
+    cleaned = remove_active_memory_entries(
         remove_runtime_user_idle_lines(
             clean_bootstrap_memory(
                 value,
                 limit=limit,
             )
         )
+    ).strip()
+
+    return "\n".join(
+        line
+        for line in cleaned.splitlines()
+        if not RETIRED_RUNTIME_MEMORY_LINE_RE.match(line)
+    ).strip()
+
+
+def clean_bootstrap_tool_result_value(value):
+
+    if isinstance(
+        value,
+        str,
+    ):
+        return clean_bootstrap_memory(
+            value,
+            limit=MAX_BOOTSTRAP_TOOL_RESULT_CHARS,
+        )
+
+    if isinstance(
+        value,
+        (dict, list),
+    ):
+        try:
+            encoded = json.dumps(
+                value,
+                ensure_ascii=False,
+                default=str,
+            )
+            # Chat search is bounded by turn count and preserves full messages.
+            # Slicing its JSON makes it a string and silently drops it from the
+            # next prompt. Keep this structured result intact across reconnect.
+            if (isinstance(value, dict) and value.get("action") == "CHAT_LOG_SEARCH"
+                    and isinstance(value.get("results"), list)):
+                from utils.chat_log_search import CHAT_LOG_SEARCH_MAX_LIMIT
+                if len(value["results"]) <= CHAT_LOG_SEARCH_MAX_LIMIT:
+                    return json.loads(encoded)
+            from utils.context.files import project_file_ref
+            if (isinstance(value, dict) and project_file_ref(value)
+                    and isinstance(value.get("content"), str)
+                    and len(value["content"]) <= 24000 and len(encoded) <= 160000):
+                return json.loads(encoded)
+            if len(encoded) > MAX_BOOTSTRAP_TOOL_RESULT_CHARS:
+                encoded = encoded[
+                    -MAX_BOOTSTRAP_TOOL_RESULT_CHARS:
+                ]
+            return json.loads(
+                encoded
+            )
+        except (
+            TypeError,
+            ValueError,
+            json.JSONDecodeError,
+        ):
+            return clean_bootstrap_memory(
+                str(value),
+                limit=MAX_BOOTSTRAP_TOOL_RESULT_CHARS,
+            )
+
+    if value is None:
+        return ""
+
+    return clean_bootstrap_memory(
+        str(value),
+        limit=MAX_BOOTSTRAP_TOOL_RESULT_CHARS,
+    )
+
+
+def clean_bootstrap_tool_results(value) -> tuple[list[dict], list]:
+
+    if not isinstance(
+        value,
+        list,
+    ):
+        return [], []
+
+    results = []
+    created_ats = []
+
+    from utils.context.files import select_file_tool_results
+    for raw_item in select_file_tool_results(value, 50):
+        if not isinstance(
+            raw_item,
+            dict,
+        ):
+            continue
+
+        kind = clean_bootstrap_memory(
+            raw_item.get("kind", ""),
+            limit=80,
+        ).casefold()
+        if kind not in BOOTSTRAP_TOOL_RESULT_KINDS:
+            continue
+
+        result = clean_bootstrap_tool_result_value(
+            raw_item.get("result")
+        )
+        if result is None or result == "":
+            continue
+
+        item = {
+            "kind": kind,
+            "result": result,
+        }
+
+        item_id = clean_bootstrap_memory(
+            raw_item.get("id", ""),
+            limit=200,
+        )
+        if item_id:
+            item["id"] = item_id
+        tool_id = str(raw_item.get("tool_id", ""))
+        if re.fullmatch(r"T[1-9][0-9]*", tool_id):
+            item["tool_id"] = tool_id
+        for key in ("action_name", "action_payload", "absorbed_by", "reused_from"):
+            if isinstance(raw_item.get(key), str):
+                item[key] = raw_item[key]
+
+        created_at = 0.0
+        for key in (
+            "created_at",
+            "recorded_at",
+        ):
+            try:
+                created_at = float(
+                    raw_item.get(key, 0)
+                    or 0
+                )
+            except (
+                TypeError,
+                ValueError,
+            ):
+                created_at = 0.0
+            if created_at > 0:
+                break
+
+        if created_at > 0:
+            item["created_at"] = created_at
+            created_ats.append(created_at)
+        else:
+            created_ats.append(None)
+
+        results.append(item)
+
+    return results, created_ats
+
+
+def apply_bootstrap_tool_results(
+    context,
+    message_data: dict,
+) -> list[dict]:
+
+    if "tool_results" not in message_data:
+        return list(
+            getattr(
+                context,
+                "runtime_tool_results",
+                [],
+            )
+            or []
+        )
+
+    results, created_ats = clean_bootstrap_tool_results(
+        message_data.get(
+            "tool_results",
+            [],
+        )
+    )
+
+    context.runtime_tool_results = results
+    try:
+        restored_sequence = max(0, int(message_data.get("tool_result_sequence", 0) or 0))
+    except (TypeError, ValueError):
+        restored_sequence = 0
+    context.runtime_tool_result_sequence = max(
+        int(getattr(context, "runtime_tool_result_sequence", 0) or 0), restored_sequence,
+        max((int(item["tool_id"][1:]) for item in results if item.get("tool_id")), default=0),
+    )
+    context.runtime_tool_result_created_ats = created_ats
+    context.runtime_tool_results_turn_count = 0
+    context.runtime_tool_results_generation = (
+        int(
+            getattr(
+                context,
+                "runtime_tool_results_generation",
+                0,
+            )
+            or 0
+        )
+        + 1
+    )
+
+    return results
+
+
+def reset_archived_runtime_memory_lifecycle(
+    memory: str,
+) -> str:
+
+    fresh_lines = []
+
+    for raw_line in str(memory or "").splitlines():
+        line = raw_line.strip()
+
+        if not line:
+            continue
+
+        if ":" not in line:
+            fresh_lines.append(
+                strip_runtime_memory_line_metadata(line)
+            )
+            continue
+
+        key, value = line.split(
+            ":",
+            1,
+        )
+        cleaned_value = strip_runtime_memory_line_metadata(
+            value
+        )
+        fresh_lines.append(
+            f"{key.strip()}: {cleaned_value}".rstrip()
+        )
+
+    return "\n".join(
+        line for line in fresh_lines if line.strip()
     ).strip()
 
 
@@ -572,6 +1644,19 @@ def attach_websocket_to_context(
     context.clients = websocket.app.state.clients
 
 
+def hydrate_attached_files_from_store(context) -> None:
+    from utils.attached_files_store import (
+        get_pinned_file_ids,
+        hydrate_attachment_ids,
+    )
+
+    file_ids = get_pinned_file_ids()
+    attachments = hydrate_attachment_ids(file_ids)
+    context.runtime_attached_file_ids = list(file_ids)
+    context.runtime_turn_attachments = list(attachments)
+    context.runtime_current_sequence_attachments = list(attachments)
+
+
 def get_or_create_connection_context(
     websocket: WebSocket,
     logger: WebSocketLogger,
@@ -584,6 +1669,15 @@ def get_or_create_connection_context(
         )
     )
 
+    anonymous_mode_enabled = websocket_requests_anonymous_mode(
+        websocket
+    )
+
+    if anonymous_mode_enabled and client_id:
+        client_id = normalize_resume_client_id(
+            ensure_anonymous_session_id(client_id)
+        )
+
     if not client_id:
         context = RuntimeContext(
             websocket=websocket,
@@ -592,6 +1686,17 @@ def get_or_create_connection_context(
             ),
             logger=logger,
             clients=websocket.app.state.clients,
+        )
+        configure_runtime_anonymous_mode(
+            context,
+            anonymous_mode_enabled,
+        )
+        enable_profile(context)
+        hydrate_delayed_memory_reports_from_files(
+            context
+        )
+        hydrate_attached_files_from_store(
+            context
         )
 
         return context, False
@@ -608,13 +1713,36 @@ def get_or_create_connection_context(
         existing_context,
         RuntimeContext,
     ):
-        attach_websocket_to_context(
-            existing_context,
-            websocket,
-            logger,
-        )
-        existing_context.session_id = client_id
-        return existing_context, True
+        # Anonymous rooms may reuse server RAM only for a websocket-level
+        # soft reconnect inside the same loaded page. A full page reload
+        # must start with a fresh FRAME; the tab-scoped browser stores are
+        # synced back separately after the new connection is established.
+        if (
+            anonymous_mode_enabled
+            and not is_soft_resume_request(websocket)
+        ):
+            store.pop(client_id, None)
+            existing_context = None
+        else:
+            attach_websocket_to_context(
+                existing_context,
+                websocket,
+                logger,
+            )
+            # A reconnect resumes the current runtime session, not the archived
+            # parent that may have bootstrapped it.
+            existing_context.session_id = client_id
+            configure_runtime_anonymous_mode(
+                existing_context,
+                anonymous_mode_enabled,
+            )
+            hydrate_delayed_memory_reports_from_files(
+                existing_context
+            )
+            hydrate_attached_files_from_store(
+                existing_context
+            )
+            return existing_context, True
 
     context = RuntimeContext(
         websocket=websocket,
@@ -624,6 +1752,23 @@ def get_or_create_connection_context(
         logger=logger,
         clients=websocket.app.state.clients,
         session_id=client_id,
+    )
+    configure_runtime_anonymous_mode(
+        context,
+        anonymous_mode_enabled,
+    )
+    enable_profile(context)
+    resume_chat_log_session(
+        context
+    )
+    hydrate_delayed_memory_reports_from_files(
+        context
+    )
+    hydrate_attached_files_from_store(
+        context
+    )
+    restore_pending_frame_update(
+        context
     )
 
     store[client_id] = context
@@ -705,7 +1850,7 @@ def attach_user_idle_to_initial_runtime_snapshot(
 
     if getattr(
         context,
-        "user_message_count",
+        "turn_number",
         0,
     ) != 0:
         return
@@ -813,12 +1958,13 @@ def build_restored_runtime_pheromone_snapshot(
     index: int = 0,
 ) -> dict | None:
 
-    if not runtime_snapshot_has_pheromone_strength(
-        runtime_snapshot
+    if not isinstance(
+        runtime_snapshot,
+        dict,
     ):
         return None
 
-    snapshot_memory = clean_bootstrap_memory(
+    snapshot_memory = clean_bootstrap_runtime_memory(
         runtime_snapshot.get(
             "raw_memory",
             "",
@@ -829,7 +1975,7 @@ def build_restored_runtime_pheromone_snapshot(
         return None
 
     lines = [
-        line
+        dict(line)
         for line in runtime_snapshot.get(
             "lines",
             [],
@@ -843,65 +1989,49 @@ def build_restored_runtime_pheromone_snapshot(
     if not lines:
         return None
 
-    return {
+    restored_snapshot = {
         **runtime_snapshot,
         "index": index,
         "raw_memory": runtime_memory,
         "lines": lines,
-        "display_source": "restored_runtime_pheromone_snapshot",
-        "restored_pheromone_strength": True,
+        "display_source": "restored_runtime_snapshot",
     }
 
+    if runtime_snapshot_has_pheromone_strength(
+        runtime_snapshot
+    ):
+        restored_snapshot[
+            "restored_pheromone_strength"
+        ] = True
 
-def build_l3_bootstrap_runtime_memory(
-    *,
-    session_memory_updates: int,
+    return restored_snapshot
+
+
+def resolve_restored_runtime_snapshot_session_id(
+    runtime_snapshot: dict,
+    source_session_id: str,
 ) -> str:
 
-    return (
-        "session status: Restored from saved L3 session memory; browser L1 runtime snapshot was stale and was ignored.\n"
-        "current context: Use restored session_memory as the source of truth until new L1 runtime facts are created.\n"
-        f"session memory source: browser restore; L3 updates restored: {session_memory_updates}.\n"
-        "last_jin_response: Browser session restore completed; awaiting the user's next message."
+    snapshot_session_id = clean_bootstrap_memory(
+        runtime_snapshot.get("session_id", "")
+        if isinstance(runtime_snapshot, dict)
+        else "",
+        limit=80,
     )
 
+    if snapshot_session_id:
+        return snapshot_session_id
 
-def should_ignore_bootstrap_runtime_memory(
-    *,
-    session_memory: str,
-    runtime_memory: str,
-    session_memory_updates: int,
-    runtime_memory_updates: int,
-    runtime_memory_is_snapshot_fallback: bool = False,
-) -> bool:
-
-    if not (
-        session_memory
-        and runtime_memory
-    ):
-        return False
-
-    # Only reject L1 during browser/L3 bootstrap when it was inferred from an
-    # unconfirmed runtime_snapshot.raw_memory fallback. An explicitly persisted
-    # session runtime is the exact L1 state saved with the session, so it must
-    # survive bootstrap even if its L1 counter is lower than the L3 counter.
-    if not runtime_memory_is_snapshot_fallback:
-        return False
-
-    if runtime_memory_updates == 0:
-        return True
-
-    if (
-        session_memory_updates > 0
-        and runtime_memory_updates < session_memory_updates
-    ):
-        return True
-
-    return False
+    return clean_bootstrap_memory(
+        source_session_id,
+        limit=80,
+    )
 
 
 async def emit_current_runtime_memory(
     context,
+    *,
+    replace_latest: bool = False,
 ):
 
     snapshots = getattr(
@@ -929,6 +2059,9 @@ async def emit_current_runtime_memory(
             context.runtime_memory,
         )
 
+    from runtime.frame_memory_utils import log_runtime_frame_snapshot
+
+    await log_runtime_frame_snapshot(context, snapshot)
     await context.emitter.emit({
         "type": "runtime_memory_update",
         "memory": snapshot.get(
@@ -947,6 +2080,9 @@ async def emit_current_runtime_memory(
         "snapshot_index": snapshot.get(
             "index",
             0,
+        ),
+        "replace_latest": bool(
+            replace_latest
         ),
     })
 
@@ -975,8 +2111,7 @@ def is_default_runtime_memory_text(
     ).lower()
 
     return normalized == (
-        "this session has just begun. "
-        "you have no history with the user yet."
+        "this session has just begun."
     ).lower()
 
 
@@ -1127,8 +2262,7 @@ def hydrate_runtime_counters_from_bootstrap_metadata(
 
     for field_name in (
         "turn_number",
-        "user_message_count",
-        "assistant_message_count",
+        "runtime_turn_counter",
     ):
         floor = parse_bootstrap_counter(
             message_data.get(
@@ -1147,6 +2281,7 @@ def hydrate_runtime_counters_from_bootstrap_metadata(
         )
 
 
+
 def hydrate_runtime_counters_from_active_memory(
     context,
     runtime_memory: str,
@@ -1161,8 +2296,6 @@ def hydrate_runtime_counters_from_active_memory(
 
     for field_name in (
         "turn_number",
-        "assistant_message_count",
-        "user_message_count",
     ):
         _raise_runtime_counter_floor(
             context,
@@ -1196,155 +2329,175 @@ def refresh_restored_active_memory_runtime_metadata(
     )
 
 
-def apply_runtime_resume(
-    context,
+def apply_runtime_resume(context, message_data: dict) -> bool:
+    # Soft reconnect reuses RuntimeContext. A restarted backend resolves disk
+    # through session_bootstrap, never an old page's FRAME or tool inventory.
+    return False
+
+
+def enrich_session_bootstrap_from_archive(
     message_data: dict,
-) -> bool:
+    *,
+    anonymous_mode: bool | None = None,
+) -> dict:
+    """Resolve a restore request from disk; browser state is never an input."""
+    empty = {"type": "session_bootstrap"}
+    if not isinstance(message_data, dict) or anonymous_mode:
+        return empty
 
-    apply_active_memory_records(
-        context,
-        message_data,
+    from utils.session_restore import (
+        build_archived_session_restore_payload,
+        find_latest_completed_session_restore_payload,
     )
-    apply_delayed_memory_reports(
-        context,
-        message_data,
-    )
-
-    runtime_memory = clean_bootstrap_runtime_memory(
-        message_data.get(
-            "runtime_memory",
-            "",
-        )
-    )
-
-    runtime_snapshot = message_data.get(
-        "runtime_snapshot",
-        {},
-    )
-
-    runtime_memory_is_snapshot_fallback = False
-
-    if (
-        not runtime_memory
-        and isinstance(
-            runtime_snapshot,
-            dict,
-        )
-    ):
-        runtime_memory = clean_bootstrap_runtime_memory(
-            runtime_snapshot.get(
-                "raw_memory",
-                "",
-            )
-        )
-        runtime_memory_is_snapshot_fallback = True
-
-    if (
-        not runtime_memory
-        or is_default_runtime_memory_text(
-            runtime_memory
-        )
-    ):
-        return False
-
-    hydrate_runtime_counters_from_bootstrap_metadata(
-        context,
-        message_data,
-    )
-
-    runtime_memory_updates = parse_bootstrap_counter(
-        message_data.get(
-            "runtime_memory_updates",
-            0,
-        )
-    )
-
-    if runtime_memory_is_snapshot_fallback:
-        runtime_memory_updates = 0
-
-    active_memory_text = active_memory_records_text(
-        context
-    )
-
-    if active_memory_text:
-        hydrate_runtime_counters_from_active_memory(
-            context,
-            active_memory_text,
-        )
-
-    runtime_memory = refresh_restored_active_memory_runtime_metadata(
-        context,
-        runtime_memory,
-    )
-
-    current_updates = parse_bootstrap_counter(
-        getattr(
-            context,
-            "runtime_memory_updates",
-            0,
-        )
-    )
-
-    current_memory = clean_bootstrap_memory(
-        getattr(
-            context,
-            "runtime_memory",
-            "",
-        )
-    )
-
-    if (
-        current_memory
-        and not is_default_runtime_memory_text(
-            current_memory
-        )
-        and current_updates >= runtime_memory_updates
-    ):
-        return False
-
-    restored_pheromone_snapshot = (
-        build_restored_runtime_pheromone_snapshot(
-            runtime_snapshot,
-            runtime_memory,
-        )
-        if isinstance(
-            runtime_snapshot,
-            dict,
-        )
-        else None
-    )
-
-    context.runtime_memory = runtime_memory
-    context.runtime_memory_stable = runtime_memory
-    context.runtime_memory_updates = max(
-        current_updates,
-        runtime_memory_updates,
-    )
-
-    if restored_pheromone_snapshot:
-        restored_snapshot = {
-            **restored_pheromone_snapshot,
-            "index": 0,
-            "runtime_memory_updates": context.runtime_memory_updates,
-        }
+    explicit = message_data.get("archived_session_restore") is True
+    if explicit:
+        source = clean_bootstrap_memory(message_data.get("source_session_id", ""), limit=80)
+        archived = build_archived_session_restore_payload(source, anonymous_mode=False) if source else None
     else:
-        restored_snapshot = build_runtime_memory_snapshot(
+        archived = find_latest_completed_session_restore_payload(anonymous_mode=False)
+    if not isinstance(archived, dict):
+        return empty
+
+    resolved = {**archived, "type": "session_bootstrap", "archived_session_restore": True}
+    if not explicit:
+        turns = archived.get("bootstrap_lineage_turns", [])
+        if turns:
+            resolved["recent_turns"] = turns
+            resolved["bootstrap_chat_tail_turns"] = turns
+            resolved["dialog_context"] = archived.get("bootstrap_lineage_dialog_context", "")
+    return resolved
+
+
+def build_session_bootstrap_chat_tail(
+    context,
+) -> list[dict]:
+
+    lineage_turns = getattr(
+        context,
+        "runtime_bootstrap_chat_tail_turns",
+        [],
+    )
+    uses_lineage_tail = bool(
+        isinstance(lineage_turns, list)
+        and lineage_turns
+    )
+    turns = (
+        lineage_turns
+        if uses_lineage_tail
+        else getattr(
             context,
-            runtime_memory,
+            "runtime_recent_turns",
+            [],
         )
+    )
+    if not isinstance(turns, list):
+        return []
 
-    context.runtime_memory_snapshots = [
-        restored_snapshot
-    ]
-    context.runtime_memory_snapshot_index = 0
+    committed_turns = []
+    for turn in turns:
+        if not isinstance(turn, dict):
+            continue
 
-    return True
+        user_text = clean_bootstrap_memory(
+            turn.get("user", ""),
+            limit=12000,
+        )
+        attachment_context_marker = "\n\nAttached context:\n"
+        if attachment_context_marker in user_text:
+            user_text = user_text.split(
+                attachment_context_marker,
+                1,
+            )[0].rstrip()
+        elif user_text.startswith("Attached context:\n"):
+            user_text = ""
+
+        jin_text = clean_bootstrap_memory(
+            turn.get("jin", ""),
+            limit=12000,
+        )
+        attachments = summarize_attachments(
+            turn.get("attachments", [])
+        )
+        # runtime_recent_turns contains the latest real USER moves. A stopped
+        # turn or action-only completion can legitimately have no visible JIN
+        # text; its USER bubble still belongs to the predecessor chat tail.
+        # Attachment-only USER moves likewise stay visible after the logged
+        # Attached context suffix is stripped from their chat text.
+        if not user_text and not attachments:
+            continue
+
+        item = {
+            "user": user_text,
+            "jin": jin_text,
+        }
+        if attachments:
+            item["attachments"] = attachments
+        from utils.actions.jin_reaction_utils import normalize_jin_reaction_payload
+        reaction = normalize_jin_reaction_payload(turn.get("jin_reaction", ""))
+        if reaction:
+            item["jin_reaction"] = reaction
+        reasoning = clean_bootstrap_memory(
+            turn.get("reasoning", ""),
+            limit=32000,
+        )
+        reasoning_marker = "--- REASONING ---"
+        if reasoning_marker in reasoning:
+            reasoning = reasoning.split(
+                reasoning_marker,
+                1,
+            )[1].strip()
+        if reasoning:
+            item["reasoning"] = reasoning
+
+        for key in (
+            "user_created_at",
+            "jin_created_at",
+        ):
+            try:
+                created_at = float(turn.get(key, 0) or 0)
+            except (TypeError, ValueError):
+                created_at = 0.0
+            if created_at > 0:
+                item[key] = created_at
+
+        for key, limit in (
+            ("source_session_id", 80),
+            ("source_session_date", 20),
+        ):
+            source_value = clean_bootstrap_memory(
+                turn.get(key, ""),
+                limit=limit,
+            )
+            if source_value:
+                item[key] = source_value
+
+        committed_turns.append(item)
+
+    tail_limit = (
+        RECENT_MESSAGES_MAX_PAIRS * 2
+        if uses_lineage_tail
+        else RECENT_MESSAGES_MAX_PAIRS
+    )
+    return committed_turns[-tail_limit:]
 
 
 def apply_session_bootstrap(
     context,
     message_data: dict,
+    *,
+    resolved_from_disk: bool = False,
 ) -> bool:
+
+    message_data = message_data if resolved_from_disk else enrich_session_bootstrap_from_archive(
+        message_data,
+        anonymous_mode=bool(
+            getattr(
+                context,
+                "runtime_anonymous_mode",
+                False,
+            )
+        ),
+    )
 
     apply_active_memory_records(
         context,
@@ -1354,13 +2507,46 @@ def apply_session_bootstrap(
         context,
         message_data,
     )
-
-    session_memory = clean_bootstrap_memory(
-        message_data.get(
-            "session_memory",
-            "",
-        )
+    apply_bootstrap_tool_results(
+        context,
+        message_data,
     )
+
+    is_archived_restore = bool(
+        message_data.get("archived_session_restore")
+        and str(message_data.get("source_session_id", "") or "").strip()
+    )
+
+    if is_archived_restore:
+        # Do not mark archived delayed reports as loaded before the hidden
+        # restoration turn. Otherwise their full bodies can leak into the
+        # bootstrap prompt through store sync/race paths. Keep only the ids
+        # staged; metadata is injected separately by the restore context builder.
+        stage_session_restore_loaded_delayed_memory_ids(
+            context,
+            message_data,
+        )
+    else:
+        context.runtime_session_restore_pending_loaded_memory_ids = []
+        apply_loaded_delayed_memory_ids(
+            context,
+            message_data,
+        )
+
+    apply_archived_session_continuation_state(
+        context,
+        message_data,
+    )
+
+    source_session_id = clean_bootstrap_memory(
+        message_data.get(
+            "source_session_id",
+            message_data.get("previous_session_id", ""),
+        ),
+        limit=80,
+    )
+    if source_session_id:
+        context.previous_session_id = source_session_id
 
     runtime_memory = clean_bootstrap_runtime_memory(
         message_data.get(
@@ -1392,9 +2578,34 @@ def apply_session_bootstrap(
         )
         runtime_memory_is_snapshot_fallback = True
 
+    if is_archived_restore and runtime_memory:
+        # The persisted runtime snapshot owns the historical FRAME lifecycle.
+        # Prefer its canonical raw_memory so snapshot timestamp + per-line
+        # created_at/updated_at survive the restore instead of being rebased to
+        # the current boot time.
+        snapshot_memory = (
+            clean_bootstrap_runtime_memory(
+                runtime_snapshot.get(
+                    "raw_memory",
+                    "",
+                )
+            )
+            if isinstance(runtime_snapshot, dict)
+            else ""
+        )
+
+        if snapshot_memory:
+            runtime_memory = snapshot_memory
+        else:
+            # Log-only legacy archives have relative presentation suffixes but
+            # no absolute snapshot metadata. Keep the semantic values clean; in
+            # that fallback case there is simply no exact lifecycle to restore.
+            runtime_memory = reset_archived_runtime_memory_lifecycle(
+                runtime_memory
+            )
+
     has_bootstrap_content = bool(
-        session_memory
-        or runtime_memory
+        runtime_memory
     )
 
     if has_bootstrap_content:
@@ -1403,15 +2614,6 @@ def apply_session_bootstrap(
             message_data,
         )
 
-    session_memory_updates = parse_bootstrap_counter(
-        message_data.get(
-            "session_memory_updates",
-            message_data.get(
-                "runtime_session_memory_updates",
-                0,
-            ),
-        )
-    )
     runtime_memory_updates = parse_bootstrap_counter(
         message_data.get(
             "runtime_memory_updates",
@@ -1419,29 +2621,7 @@ def apply_session_bootstrap(
         )
     )
 
-    # If runtime_memory arrived only through snapshot fallback and L3 exists,
-    # force the L1 counter to 0 so stale bootstrap logic can reject it.
-    if (
-        runtime_memory_is_snapshot_fallback
-        and session_memory
-    ):
-        runtime_memory_updates = 0
-
-    # Preserve the original stale snapshot raw text for UI display before
-    # replacing runtime_memory with the agent-facing status message.
-    stale_runtime_memory_for_ui = None
-
-    if should_ignore_bootstrap_runtime_memory(
-        session_memory=session_memory,
-        runtime_memory=runtime_memory,
-        session_memory_updates=session_memory_updates,
-        runtime_memory_updates=runtime_memory_updates,
-        runtime_memory_is_snapshot_fallback=runtime_memory_is_snapshot_fallback,
-    ):
-        stale_runtime_memory_for_ui = runtime_memory
-        runtime_memory = build_l3_bootstrap_runtime_memory(
-            session_memory_updates=session_memory_updates,
-        )
+    if runtime_memory_is_snapshot_fallback:
         runtime_memory_updates = 0
 
     active_memory_text = active_memory_records_text(
@@ -1454,44 +2634,11 @@ def apply_session_bootstrap(
             active_memory_text,
         )
 
-    if runtime_memory and not stale_runtime_memory_for_ui:
+    if runtime_memory:
         runtime_memory = refresh_restored_active_memory_runtime_metadata(
             context,
             runtime_memory,
         )
-
-    if session_memory:
-        session_metadata = parse_l3_session_snapshot_metadata(
-            session_memory
-        )
-
-        context.session_memory = session_memory
-        context.runtime_l3_session_memory = session_memory
-        context.runtime_l3_session_first_turn = session_metadata.get(
-            "session_snapshot_first_turn"
-        )
-        context.runtime_l3_session_last_turn = session_metadata.get(
-            "session_snapshot_last_turn"
-        )
-        # Do not restore runtime_l3_saved_runtime_snapshot_index from browser L3.
-        # Runtime snapshot indexes are window-local and may restart after reload;
-        # only same-process saves use that marker to avoid re-feeding old UI pages.
-        context.runtime_l3_saved_runtime_snapshot_index = None
-        context.runtime_session_memory_updates = max(
-            session_memory_updates,
-            getattr(
-                context,
-                "runtime_session_memory_updates",
-                0,
-            ),
-        )
-        context.session_memory_source = clean_bootstrap_memory(
-            message_data.get(
-                "session_memory_source",
-                "browser",
-            ),
-            limit=80,
-        ) or "browser"
 
     if runtime_memory:
         restored_pheromone_snapshot = (
@@ -1499,16 +2646,14 @@ def apply_session_bootstrap(
                 runtime_snapshot,
                 runtime_memory,
             )
-            if not stale_runtime_memory_for_ui
+            if isinstance(runtime_snapshot, dict)
             else None
         )
 
         # Bootstrap should replace the initial/default runtime page, not append
-        # extra pages. If L3 made the saved L1 runtime stale, the stale snapshot
-        # must not stay visible as a separate page. If pheromone persistence is
-        # enabled and the saved snapshot matches runtime_memory, keep that
-        # snapshot as the single restored baseline so the next L1 update can
-        # continue strength calculations from it.
+        # extra pages. If the saved snapshot matches runtime_memory, keep that
+        # exact snapshot as the restored baseline so lifecycle timestamps, diff
+        # state, and pheromone strength all continue from the saved point.
         context.runtime_memory_snapshots = []
         context.runtime_memory_snapshot_index = 0
 
@@ -1546,14 +2691,34 @@ def apply_session_bootstrap(
                 context.runtime_memory,
             )
 
+        restored_snapshot_session_id = (
+            resolve_restored_runtime_snapshot_session_id(
+                runtime_snapshot,
+                source_session_id,
+            )
+        )
+        if restored_snapshot_session_id:
+            restored_snapshot["session_id"] = (
+                restored_snapshot_session_id
+            )
+
+
+        context.runtime_memory_display_index_offset = parse_bootstrap_counter(
+            message_data.get(
+                "frame_memory_index",
+                1,
+            )
+        )
         context.runtime_memory_snapshots.append(
             restored_snapshot
         )
         context.runtime_memory_snapshot_index = 0
 
     return bool(
-        session_memory
-        or runtime_memory
+        runtime_memory
+        or source_session_id
+        or getattr(context, "runtime_session_action_history", [])
+        or getattr(context, "runtime_recent_turns", [])
     )
 
 
@@ -1561,16 +2726,71 @@ def apply_session_bootstrap(
 # CONNECTION SETUP
 # ---------------------------------------------------------
 
+async def emit_delayed_memory_store_snapshot(
+    context,
+) -> None:
+
+    reports = clean_delayed_memory_reports(
+        getattr(
+            context,
+            "delayed_memory_reports",
+            {},
+        )
+    )
+
+    await context.emitter.emit({
+        "type": "delayed_memory_store_snapshot",
+        "delayed_memory_reports": reports,
+        "loaded_delayed_memory_ids": (
+            get_context_loaded_delayed_memory_ids(
+                context
+            )
+        ),
+    })
+
+
 async def initialize_connection(
     context,
     *,
     skip_initial_runtime_state: bool = False,
 ):
 
+    from runtime.memory_profile import publish_profile
+    publish_profile(context)
     await context.websocket.accept()
 
     await send_telemetry(
         context
+    )
+
+    file_warnings = list(
+        getattr(
+            context,
+            "runtime_delayed_memory_file_warnings",
+            [],
+        )
+        or []
+    )
+    context.runtime_delayed_memory_file_warnings = []
+
+    for warning in file_warnings:
+        await context.logger.log_system(
+            "[DELAYED MEMORY] " + str(warning)
+        )
+
+    await emit_delayed_memory_store_snapshot(
+        context
+    )
+
+    from runtime.LT_memory import (
+        emit_lt_memory_update,
+    )
+
+    await emit_lt_memory_update(
+        context,
+        change={
+            "source": "file_bootstrap",
+        },
     )
 
     if skip_initial_runtime_state:
@@ -1583,11 +2803,7 @@ async def initialize_connection(
         context
     )
 
-    await emit_runtime_l1_diff_update(
-        context
-    )
-
-    await emit_runtime_session_memory_update(
+    await emit_runtime_frame_diff_update(
         context
     )
 

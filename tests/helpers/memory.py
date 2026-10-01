@@ -19,7 +19,7 @@ class FakeServiceClient:
         response_text,
         finish_reasons=None,
         usage=None,
-        context_window=None,
+        context_window=8192,
     ):
 
         self.response_text = response_text
