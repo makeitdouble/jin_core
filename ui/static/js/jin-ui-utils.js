@@ -36,14 +36,14 @@
   function normalizeActiveMemoryId(value) {
     const normalized = String(value || "").trim();
 
-    return /^AM-[a-z0-9]{6}$/.test(normalized)
+    return /^(?:SUB-)?AM-[a-z0-9]{6}$/.test(normalized)
       ? normalized
       : "";
   }
 
   function extractActiveMemoryId(value) {
     const match = String(value || "").match(
-      /\[\s*id\s*:\s*(AM-[a-z0-9]{6})\s*\]/
+      /\[\s*id\s*:\s*((?:SUB-)?AM-[a-z0-9]{6})\s*\]/
     );
 
     return match

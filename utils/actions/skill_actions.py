@@ -21,6 +21,10 @@ from utils.mcp_skill_utils import (
 _RUNTIME_MARKER_NAME = "_runtime_marker_name"
 _RUNTIME_MARKER_PAYLOAD = "_runtime_marker_payload"
 _RUNTIME_MARKER_GROUP = "_runtime_marker_group"
+_PLURAL_SKILL_MARKERS = {
+    "LOAD_SKILLS_CONTEXT",
+    "UNLOAD_SKILLS_CONTEXT",
+}
 
 
 def _attach_skill_marker_metadata(
@@ -122,10 +126,7 @@ def _group_skill_state_results(
             )
             or ""
         ).strip()
-        is_plural = marker_name in {
-            "LOAD_SKILLS",
-            "UNLOAD_SKILLS",
-        }
+        is_plural = marker_name in _PLURAL_SKILL_MARKERS
 
         if not is_plural or not marker_group:
             groups.append([
@@ -189,10 +190,7 @@ def _build_skill_state_group_payload(
             )
         )
 
-    is_plural = marker_name in {
-        "LOAD_SKILLS",
-        "UNLOAD_SKILLS",
-    }
+    is_plural = marker_name in _PLURAL_SKILL_MARKERS
 
     if marker_payload:
         requested_names = [
@@ -254,7 +252,9 @@ def _build_skill_state_group_payload(
         if display_payload
         else marker_name
     )
-    event_action = marker_name.lower()
+    # Public marker controls the label, internal action controls UI lifecycle.
+    # Started rows use load_skill/unload_skill, so terminal rows must too.
+    event_action = first_action
     all_ok = all(
         result.get("ok") is not False
         for result in results
@@ -505,10 +505,7 @@ async def emit_skill_state_results(
             text,
             preserve_separate=(
                 marker_name
-                not in {
-                    "LOAD_SKILLS",
-                    "UNLOAD_SKILLS",
-                }
+                not in _PLURAL_SKILL_MARKERS
             ),
         )
 
@@ -576,16 +573,9 @@ async def emit_skill_state_results(
                 ),
             }
 
-            if status == "failed":
-                await emit(with_action_context({
-                    **payload,
-                    "status": status,
-                }))
-                continue
-
-            await emit(with_action_context(
-                payload
-            ))
+            # The marker already produced the started bubble during the
+            # stream. One terminal event replaces and fades it; an extra
+            # status-less event could create a second glowing row.
             await emit(with_action_context({
                 **payload,
                 "status": status,

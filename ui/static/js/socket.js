@@ -695,17 +695,13 @@ async function handleSocketOpen(liveResume = false) {
   }
 
   if (isSoftReconnect) {
-    // The transport was lost: this page is now a projection of a new backend.
-    // A stale DOM tail must not suppress the disk-owned chat-tail renderer.
-    const historyElement = document.getElementById("chat-history");
-    if (historyElement) historyElement.replaceChildren();
-    if (typeof streamMessages !== "undefined") streamMessages.clear();
-    window.jinArchivedSessionRestorePayload = null;
-    window.jinArchivedSessionBootstrap = null;
+    // The page survived the backend. Keep its DOM and page-local state;
+    // reconnecting must not request bootstrap or a continuation turn.
     if (window.clearPendingUserBatch) window.clearPendingUserBatch();
     clearInterruptedRuntimeGlow();
     if (window.releaseActiveStreamAvatar) window.releaseActiveStreamAvatar();
     setGenerationState(false);
+    return;
   }
 
   if (window.JinFiles && typeof window.JinFiles.syncContext === "function") {

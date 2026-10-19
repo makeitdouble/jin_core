@@ -144,7 +144,7 @@ Canonical form:
 
 **Why:** one action owns the Active Memory write path while the presence of `id` makes create versus update explicit; update keys remain constrained to existing fields, and prose cannot be silently promoted into structure.
 
-**Strict format rule:** Active Memory updates accept only flat `SAVE_ACTIVE_MEMORY` JSON with exact `id: "AM-xxxxxx"`; old UPDATE markers/shapes, nested `fields`/`updates`, `active_memory_id`, and bare six-character IDs are rejected. SAVE custom fields come only from explicit JSON root fields; plain prose/parenthesized text remains conditions.
+**Strict format rule:** Active Memory updates accept only flat `SAVE_ACTIVE_MEMORY` JSON with exact `id: "AM-xxxxxx"` (or server-assigned `SUB-AM-xxxxxx` for child scratchpad records, D060); old UPDATE markers/shapes, nested `fields`/`updates`, `active_memory_id`, and bare six-character IDs are rejected. SAVE custom fields come only from explicit JSON root fields; plain prose/parenthesized text remains conditions.
 
 ---
 
@@ -805,3 +805,87 @@ Session CLEAR keeps its semantics with an atomic disk USER-count barrier (`logs/
 The memory panel's LOGS tab indexes restorable, USER-owned non-anonymous archives. It uses the latest committed `frames/` snapshot when present, otherwise the matching primary context snapshot, and shows the session ID for legacy archives without a title. The complete HTTP index is fetched once per page; live `archived_session_update` events insert/retitle the current row, and a focused per-session summary request repairs missed events without reloading the full archive list. Hover preview shows the newest USER-owned turns, including unanswered/action-only USER turns.
 
 Short click opens the existing `restore_session` flow in a new tab. A 1500 ms hold uses the same fade/hold interaction as the other memory rows and deletes the indexed archive through the server endpoint. Deletion rejects anonymous, unsafe, non-indexed, or symlinked targets, removes an empty date directory, and a still-live writer must not recreate a materialized archive the user deleted. Current global durable memory remains governed by the existing restore contract.
+
+## D059 — Whole linked-folder attachments and explicit text writes (2026-10-09)
+
+**Status:** Owner-requested extension.
+
+ATTACH_FILES_BY_PATH loads whole linked-folder images/text into the existing sequence attachment pipeline; each marker replaces the previous temporary path set without changing pinned resources. It does not import files or create USER messages. History persists metadata, while Stop/new USER/disk restore unload the temporary contents. This extends D047's source-path distinction without changing BY_ID.
+
+The owner additionally authorized file_manager writes into currently attached folders. Existing create_asset_file/append_asset_file accept an explicit attachment selector; omitted attachment keeps assets/ behavior. Root confinement, explicit overwrite and anonymous-mode restrictions remain. No default JIN source-root write fallback is allowed.
+
+## D060 — Self-fork is a parent-owned continuation sequence (2026-10-13)
+
+JIN may split one current intention with `CREATE_JIN_INSTANCES`, but only the
+parent may create a group. Children execute sequentially through the existing
+Brain follow-up loop and must terminate with an authoritative
+`FINISH_SUBTASK`; nested groups are rejected and the default configured group
+limit is 32. The dispatcher registers work but never waits for or recursively
+runs children.
+
+The sequence remains one foreground turn, so FRAME updates once after the
+parent's final answer. Shared memory is read-only for children (owner revision
+2026-10-19). Children create/update/delete only their own temporary Active records
+with server-assigned ownership and SUB-AM-xxxxxx IDs. FINISH validates first,
+then commits cleanup before returning; a storage failure leaves finish unsuccessful.
+Stop and terminal runtime exit also clean up; restart reaps orphan owners while
+protecting live owners in other contexts. Findings to retain go in finish_reason,
+not child durable-memory writes. Other tool results remain visible to later children. Child L-T prompt projection is limited
+to facts whose `created_at` or `updated_at` is within 24 hours. Stop discards the
+remaining queue and preserves completed tool results; backend restart leaves
+the transient group interrupted rather than resuming or declaring completion.
+
+The independent child context is its assignment, reasoning/recovery state, and
+in-flight dialogue projection, within the one RuntimeContext. FRAME, durable
+memory, and current tool results retain the shared owners above. No separate
+active-instance UI or automatic queue recovery is required. Temporary Active rows
+reuse the ACTIVE tab below main rows, labelled subN_active_memory_M. Assignment and
+recent L-T projection apply on every child tick. Positive follow-up limits and
+exhausted malformed repair return to a non-executable parent summary with the
+unfinished group marked interrupted, never successfully finished. Conditions
+have no separate arbitrary character cap; they must be non-empty JSON strings.
+
+
+## Preventive context maintenance (2026-10-16)
+
+Owner-approved: inject optional maintenance into an existing Brain invocation
+after its L-T projection is budgeted; never force cleanup or add a model tick.
+Defaults are 75% and 85% one-shot thresholds, then every invocation from 90%.
+Falling below a threshold rearms it. Falling to exactly the threshold also
+rearms silently; remaining exactly there stays silent until usage rises above
+it (in particular 93 -> 85 -> 85 -> 87 warns only at 93 and 87).
+An initial arrival at exactly a threshold can warn. Warning overhead is counted
+in displayed totals but does not itself trigger/rearm another threshold.
+
+Empty visible TOOLS_RESULTS suppresses maintenance and leaves it eligible when
+results reappear. Only visible canonical removable tool IDs may be suggested;
+automatic directory_link and other synthetic projections are excluded from ID
+hints. State stays shared across the sequential self-fork flow. Preserve data
+with SAVE_ACTIVE_MEMORY and observe its successful ordinary follow-up before
+emitting dependent cleanup; a failed save must retain its source.
+
+The owner explicitly chose to retain the separate legacy 50% previous-answer
+CONCERNS message. Emergency overflow recovery retains priority and its existing
+flow. Maintenance is an advisory prompt, not a new action dependency protocol.
+
+## Surviving-page backend restart (2026-10-16)
+
+An open room reconnects without clearing its DOM, replaying startup snapshots,
+or starting a continuation model turn. If the backend lost its RuntimeContext,
+it silently hydrates that exact room's disk archive before accepting new work,
+including anonymous audit logs. It restores FRAME (including explicit empty
+values and original timestamps), recent dialogue/reasoning, actions and tool
+results; ordinary memory profiles keep their disk owners. The next USER request
+therefore has prior context even though the page received no bootstrap replay.
+Live server RAM is reused without disk rehydration. A missing/deleted room log
+never falls back to another room or browser cognitive contents. Anonymous logs
+remain excluded from normal bootstrap and explicit archive checkout. FRAME
+numbering continues after the saved file number across repeated restarts.
+New-page bootstrap and explicit archive checkout retain their existing behavior.
+This corrects the earlier incomplete implementation which preserved only the UI
+and left the restarted Brain without context; D057 disk authority is retained.
+
+
+## D061 — One file-content marker, explicit asset alternatives (2026-10-17)
+
+Owner-approved: remove ATTACH_FILES_BY_ID and ATTACH_FILES_BY_PATH XML contracts. ATTACH_FILE_CONTENT is the single attachment marker, accepting IDs and paths, including linked images and existing source-window ranges. ASSET_ACTION exposes ATTACH_FILE_BY_ID and ATTACH_FILE_BY_PATH for whole-file loading through the same canonical attachment owners and guards. Upper/lowercase operation names are accepted; no plural XML aliases remain. BY_ID never falls back to path reading. Existing text-window continuation, anonymous restrictions, disk unloading and historical result readers are retained. This supersedes the public marker syntax of D047/D059 without creating another storage or execution pipeline.

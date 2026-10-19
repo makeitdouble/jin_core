@@ -24,7 +24,6 @@ async def apply_asset_actions(
         append_asset_runtime_result,
         build_pending_asset_action_preview,
         build_runtime_action_event_display_fields,
-        preserve_failed_asset_action_for_retry,
     )
 
     saved_asset_results = []
@@ -145,11 +144,7 @@ async def apply_asset_actions(
         append_asset_runtime_result(
             context,
             result,
-        )
-        preserve_failed_asset_action_for_retry(
-            context,
-            result,
-            action.payload,
+            payload_text=action.payload,
         )
         if (
             log_runtime is not None

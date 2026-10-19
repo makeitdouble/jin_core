@@ -10,7 +10,7 @@ from utils.time_utils import (
 
 
 ACTIVE_MEMORY_SLOT_ID_RE = re.compile(
-    r"^AM-[a-z0-9]{6}$",
+    r"^(?:SUB-)?AM-[a-z0-9]{6}$",
 )
 
 SHORT_RUNTIME_ID_RE = re.compile(
@@ -19,7 +19,7 @@ SHORT_RUNTIME_ID_RE = re.compile(
 )
 
 ACTIVE_MEMORY_SLOT_ID_SUFFIX_RE = re.compile(
-    r"\[\s*id\s*:\s*(AM-[a-z0-9]{6})\s*\]",
+    r"\[\s*id\s*:\s*((?:SUB-)?AM-[a-z0-9]{6})\s*\]",
 )
 
 ACTIVE_MEMORY_SLOT_ID_ALPHABET = (
@@ -50,6 +50,8 @@ ACTIVE_MEMORY_LIFECYCLE_SUFFIX_NAMES = (
 
 ACTIVE_MEMORY_RUNTIME_MANAGED_SUFFIX_NAMES = (
     "id",
+    "owner_subtask_agent_id",
+    "subtask_memory_label",
     *ACTIVE_MEMORY_LIFECYCLE_SUFFIX_NAMES,
     # Removed metadata is still consumed so historical records cannot expose
     # it as a custom field after the attention-only migration.
@@ -111,7 +113,7 @@ def normalize_active_memory_slot_id(
     if not ACTIVE_MEMORY_SLOT_ID_RE.fullmatch(normalized):
         return ""
 
-    return f"AM-{normalized[3:].casefold()}"
+    return normalized
 
 
 def normalize_active_memory_custom_field_name(
@@ -311,7 +313,7 @@ def set_active_memory_conditions_value(
 ) -> tuple[str, bool, str]:
 
     normalized_conditions = normalize_active_memory_conditions_value(
-        conditions
+        strip_active_memory_managed_suffixes(conditions)
     )
     if not normalized_conditions:
         return str(value or ""), False, ""

@@ -158,8 +158,8 @@ class RuntimeActionRegexpUtilsTests(unittest.TestCase):
                 ("a1b2c3", "d4e5f6"),
             ),
             (
-                "<ATTACH_FILES_BY_ID> a1b2c3, d4e5f6 </ATTACH_FILES_BY_ID>",
-                "ATTACH_FILE_BY_ID",
+                "<ATTACH_FILE_CONTENT: a1b2c3, d4e5f6 >",
+                "ATTACH_FILE_CONTENT",
                 ("a1b2c3", "d4e5f6"),
             ),
         )

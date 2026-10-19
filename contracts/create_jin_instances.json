@@ -1,0 +1,23 @@
+{
+  "create_jin_instances": {
+    "version": 1,
+    "description": "Creates a bounded parent-owned sequence of JIN subtask instances.",
+    "runtime_action": "CREATE_JIN_INSTANCES",
+    "enable_flag": "CAN_CREATE_JIN_INSTANCES",
+    "runtime_order": 160,
+    "private_marker": "<CREATE_JIN_INSTANCES>",
+    "triggers": [],
+    "blockers": [],
+    "effects": {"emit_followup": true, "follow_up_on_fail": true},
+    "schema": [
+      "<CREATE_JIN_INSTANCES>",
+      "{\"id\":1,\"conditions\":\"One precise subtask\"}",
+      "{\"id\":2,\"conditions\":\"Another precise subtask\"}",
+      "</CREATE_JIN_INSTANCES>"
+    ],
+    "rules": [
+      "Use this only as the parent JIN to split the current user intention into independent sequential subtasks. IDs must be consecutive integers starting at 1 and every conditions value must be non-empty. The runtime assigns authoritative instance and session IDs. Child instances cannot create nested instances."
+    ],
+    "close_tag": true
+  }
+}

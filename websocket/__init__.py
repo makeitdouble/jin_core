@@ -298,14 +298,9 @@ async def run_runtime_session(websocket, context, resumed_context):
         websocket
     )
 
-    # A client can request a soft reconnect while the backend process has
-    # already restarted. Only skip bootstrap state when the server actually
-    # recovered the in-memory RuntimeContext; a fresh context needs the normal
-    # initial state so browser-side reconnect guards can reconcile it safely.
-    skip_initial_runtime_state = (
-        soft_resume
-        and resumed_context
-    )
+    # A surviving page only reconnects. A fresh context was hydrated from its
+    # own disk session before this worker starts; do not replay state or Brain.
+    skip_initial_runtime_state = soft_resume
 
     ensure_initial_runtime_snapshot(
         context

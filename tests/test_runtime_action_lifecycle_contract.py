@@ -96,6 +96,27 @@ const terminal = findRuntimeActionLifecycleRow(
   {allowBound: true}
 );
 if (terminal !== rows[0]) throw new Error("terminal recovery could not retire a bound started row");
+// A streamed plural skill marker starts as the internal `load_skill` action
+// without an execution id. The backend terminal event must find *this* row,
+// not create another glowing `load_skills_context` row.
+const skillStartedRow = {
+  dataset: {
+    runtimeAction: "load_skill",
+    runtimeActionTurn: "1",
+    runtimeActionRuntimeMessage: "skill-message-1",
+    runtimeActionLifecycleStarted: "true",
+    runtimeActionLifecycleBound: "false",
+  },
+};
+rows.push(skillStartedRow);
+const completedSkillRow = findRuntimeActionLifecycleRow(
+  "load_skill",
+  {runtimeMessageId: "skill-message-1", status: "completed"},
+  {allowBound: true}
+);
+if (completedSkillRow !== skillStartedRow) {
+  throw new Error("skill terminal did not match its streamed started row");
+}
 '''
         completed = subprocess.run(
             [shutil.which("node"), "-e", script],

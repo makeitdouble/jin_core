@@ -7,7 +7,7 @@ from .active_memory_utils import normalize_active_memory_slot_id
 
 
 ACTIVE_MEMORY_DELETE_SLOT_ID_TOKEN_RE = re.compile(
-    r"(?<![a-zA-Z0-9_-])(AM-[a-z0-9]{6})(?![a-zA-Z0-9_-])",
+    r"(?<![a-zA-Z0-9_-])((?:SUB-)?AM-[a-z0-9]{6})(?![a-zA-Z0-9_-])",
 )
 
 

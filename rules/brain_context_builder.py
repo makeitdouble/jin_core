@@ -48,6 +48,8 @@ BRAIN_RUNTIME_ACTIONS = {
     "CAN_RECALL_FACT_CONTEXT": True,
     "CAN_POSTING_BOARD": True,
     "CAN_CALL_MCP": True,
+    "CAN_CREATE_JIN_INSTANCES": True,
+    "CAN_FINISH_SUBTASK": True,
 }
 
 
@@ -267,6 +269,8 @@ def _append_FRAME_runtime_memory(
         include_lifecycle_suffixes=True,
     )
 
+    from utils.subtask_memory import owner, running_child
+    child = running_child(context)
     stored_active_memory_records = [
         str(record or "").strip()
         for record in getattr(
@@ -344,9 +348,8 @@ def _append_FRAME_runtime_memory(
         active_memory_context_records = [
             line
             for line in active_memory_text.splitlines()
-            if not is_active_memory_record_paused(
-                line
-            )
+            if not is_active_memory_record_paused(line)
+            and (not owner(line) or (child and owner(line) == child["subtask_agent_id"]))
         ]
 
         # Memory attention changes only the prompt projection. Storage/UI keep
@@ -920,6 +923,16 @@ def build_long_term_memory_context(
 
     if project_review_active(context):
         restore_fact_ids = project_fact_ids(context)
+
+    from utils.actions.jin_instance_actions import active_child, recent_lt_fact_ids
+    if active_child(context) is not None:
+        from runtime.LT_memory import ensure_runtime_lt_state
+        ensure_runtime_lt_state(context)
+        recent_ids = recent_lt_fact_ids(context)
+        restore_fact_ids = (
+            recent_ids if restore_fact_ids is None
+            else [fact_id for fact_id in restore_fact_ids if fact_id in recent_ids]
+        )
 
     return build_runtime_lt_memory_context(
         context=context,

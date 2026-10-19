@@ -78,8 +78,17 @@ def read_profile(context):
     lt, warnings = load_long_term_facts_store(**file_options(context, "facts"))
     if warnings:
         raise ValueError("; ".join(warnings))
+    from utils.subtask_memory import owner, live_owners, strip_records_and_results
+    active = load_active_records(**file_options(context, "active"))
+    owners = live_owners(context)
+    removed = [row for row in active if owner(row) and owner(row) not in owners]
+    if removed:
+        from utils.active_memory_file_store import persist_active_records
+        active = [row for row in active if row not in removed]
+        persist_active_records(active, **file_options(context, "active"))
+        strip_records_and_results(context, removed)
     return {
-        "active": load_active_records(**file_options(context, "active")),
+        "active": active,
         "delayed": delayed, "lt": lt,
         "pending": load_pending_facts(**file_options(context, "facts")).get("records", []),
     }

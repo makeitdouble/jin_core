@@ -596,7 +596,7 @@ function buildSessionActionRow(
         part.text
       );
     const isAttachmentAction = (
-      ["ATTACH_FILE_CONTENT", "ATTACH_FILE_BY_ID"].includes(normalizedActionName)
+      ["ATTACH_FILE_CONTENT", "ATTACH_FILE_BY_ID", "ATTACH_FILE_BY_PATH"].includes(normalizedActionName)
     );
     const isCallMcpAction =
       normalizedActionName === "CALL_MCP";
@@ -616,7 +616,7 @@ function buildSessionActionRow(
       );
     }
 
-    if (isAttachmentAction && part.id) {
+    if (isAttachmentAction && normalizedActionName !== "ATTACH_FILE_BY_PATH" && part.id) {
       const attachmentId =
         document.createElement("span");
 

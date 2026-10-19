@@ -4511,7 +4511,7 @@ function renderContextToolResultBody(
 }
 
 function contextToolResultFileTitleSuffix(content, toolName) {
-  if (!["ATTACH_FILE_CONTENT", "ATTACH_FILE_BY_ID"].includes(String(toolName || "").trim().toUpperCase())) {
+  if (!["ATTACH_FILE_CONTENT", "ATTACH_FILE_BY_ID", "ATTACH_FILE_BY_PATH"].includes(String(toolName || "").trim().toUpperCase())) {
     return "";
   }
 
@@ -4524,7 +4524,7 @@ function contextToolResultFileTitleSuffix(content, toolName) {
   const reason = decoded.match(/^\s*Reason:\s*(.+?)\s*$/m);
   if (failed) {
     const failure = reason ? reason[1] : "action failed";
-    return String(toolName).toUpperCase() === "ATTACH_FILE_BY_ID"
+    return ["ATTACH_FILE_BY_ID", "ATTACH_FILE_BY_PATH"].includes(String(toolName).toUpperCase())
       ? `${filePath} : failed - ${failure}`
       : `${filePath} - failed: ${failure}`;
   }
@@ -5121,6 +5121,9 @@ function renderContextSnapshotTrace(snapshot) {
     "LONG_TERM_MEMORY"
   );
 
+  otherSystemBlocks
+    .filter((block) => normalizedTitle(block) === "CONTEXT_MAINTENANCE")
+    .forEach((block) => appendContextCard(systemStack, block, syncCollapseAllToggle));
   appendContextCard(
     systemStack,
     {
@@ -5148,6 +5151,7 @@ function renderContextSnapshotTrace(snapshot) {
     ));
   });
   const knownSystemTitles = new Set([
+    "CONTEXT_MAINTENANCE",
     "TRUSTED_RUNTIME_VARIABLES",
     "SKILLS_LIST",
   ]);

@@ -1,38 +1,16 @@
 # Formats the always-visible skill inventory and loaded skill state.
-import re
 from xml.sax.saxutils import escape
 
 from utils.brain_client_utils import indent_xml
-from utils.skills_asset_utils import list_skills
+from utils.skills_asset_utils import list_skills, normalize_skill_name
+from utils.project_context import DIRECTORY_LINK_SKILL_NAME, directory_link_skill_active
 
 
 def _normalize_skill_status_name(
     name,
 ) -> str:
-
-    normalized = str(
-        name
-        or ""
-    ).strip()
-
-    if normalized.lower().endswith(
-        ".txt"
-    ):
-        normalized = normalized[:-4]
-
-    normalized = re.sub(
-        r"[^A-Za-z0-9]+",
-        "_",
-        normalized,
-    ).strip(
-        "_"
-    ).lower()
-
-    return re.sub(
-        r"_+",
-        "_",
-        normalized,
-    )
+    # Keep inventory names identical to the actual loader's names.
+    return normalize_skill_name(name)
 
 
 def _loaded_skill_names(
@@ -68,6 +46,10 @@ def _loaded_skill_names(
             names.add(
                 name
             )
+
+    # This is an implicit capability, not a persisted LOAD_SKILL action.
+    if directory_link_skill_active(context):
+        names.add(DIRECTORY_LINK_SKILL_NAME)
 
     return names
 

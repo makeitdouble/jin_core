@@ -506,7 +506,7 @@ function getInternalActionLogKey(
     // ATTACH_FILE_CONTENT in the same turn; sharing one logger key made the restore
     // entry overwrite the real success/failure log.
     "ATTACH_FILE_CONTENT",
-    "ATTACH_FILE_BY_ID",
+    "ATTACH_FILE_BY_ID", "ATTACH_FILE_BY_PATH",
   ].includes(normalizedActionName);
   const instanceKey = keepActionInstanceSeparate
     ? String(
@@ -746,7 +746,7 @@ function log_internal_action(
     status === "failed"
     && [
       "ATTACH_FILE_CONTENT",
-      "ATTACH_FILE_BY_ID",
+      "ATTACH_FILE_BY_ID", "ATTACH_FILE_BY_PATH",
       ].includes(actionName)
       ? String(
         (

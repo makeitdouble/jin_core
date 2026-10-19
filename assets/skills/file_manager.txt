@@ -9,14 +9,14 @@ When to use:
 - Use files instead of pasting large generated resources into chat.
 
 Scope:
-- Work only inside assets/.
+- Work inside assets/ by default. To operate in a currently user-linked folder, provide the explicit ASSET_ACTION attachment selector (visible folder name, or folder ID for duplicate names).
 - Use task-specific folders when another loaded instruction block defines them.
 - Use assets/prompts/, assets/templates/, assets/outputs/, or another verified assets/ subfolder when appropriate.
 - Never use absolute paths or parent traversal.
 
 File behavior:
 - Verify existing paths through the relevant project workflow before referencing or editing them.
-- Create parent folders inside assets/ when useful.
+- Create parent folders inside the selected writable root when useful. A folder must stay attached throughout the operation; no implicit JIN source-root writes.
 - Do not delete files unless the user explicitly asks for deletion.
 - Do not overwrite existing files unless the user explicitly asks to replace their contents.
 - If create_asset_file fails with file_exists, use the payload from that failed tool result as the exact previous write request.
@@ -27,7 +27,7 @@ File behavior:
 - Keep generated lists in files; report only concise examples in chat.
 
 Action workflow:
-1. Check <SKILLS_LIST> before an operational file workflow and LOAD_SKILL if the relevant project skill is available but not loaded.
+1. Check <SKILLS_LIST> before a file workflow. Linked folders automatically provide `directory_link`; load `file_manager` separately when needed.
 2. Use ASSET_ACTION with JSON payload for create_asset_file, append_asset_file, preview_file, and any task-specific asset action provided by another loaded instruction block.
 3. Emit ASSET_ACTION as a JSON block:
 <ASSET_ACTION>
@@ -46,7 +46,19 @@ Action workflow:
 8. After ASSET_ACTION completes, report paths, counts, and 3-5 examples when useful. Do not paste huge generated files into chat.
 
 User-shared file context:
-- Use <ATTACH_FILE_BY_ID: file_id > to attach a whole persistent text file or image by its 6-character system ID. Do not use a stored image filename as a source path. Wait for the follow-up tick before reasoning about its content.
+- Use <ATTACH_FILE_CONTENT: abc123, def456 > for whole persistent files by their system IDs.
+- Use <ATTACH_FILE_CONTENT: dataset/00036.png, dataset/00036.txt > for images and text source windows in a currently linked folder. Copy exact paths from project_tree and preserve case. IDs and paths may share one comma-separated marker. Wait for FOLLOW-UP before inspecting pixels/text.
+- Each image marker or whole-file ASSET_ACTION BY_PATH call replaces the previous temporary path set, preserving pinned files and the folder. Up to five files, 20 MiB per image, 40 MiB per set and 32000 text characters per set. Supported images: PNG, JPEG, GIF, WebP. Commas delimit paths and cannot occur in path names. Whole-file BY_PATH operations accept no line ranges or absolute paths; source-window ranges use ATTACH_FILE_CONTENT. Detach, Stop, new USER sequence and disk restore unload path bytes; reattach before analysis.
 - Use <ATTACH_FILE_CONTENT: file_id > for a persistent text file, or <ATTACH_FILE_CONTENT: folder_name/relative/path > to read a source path into FILE_CONTENT.
 - To read an explicit source window use <ATTACH_FILE_CONTENT: folder_name/relative/path#L1-L200 >. A bare project path continues from the next unread window; an explicit range may be read again.
 - When no project folder is linked, relative paths resolve against JIN's own read-only source directory. When a folder is linked, linked-project resolution takes precedence.
+
+Linked-folder file operations (same handlers, explicit destination):
+<ASSET_ACTION>
+{"action":"create_asset_file","attachment":"dataset","path":"captions/00036.txt","content":"caption line"}
+</ASSET_ACTION>
+- Use overwrite:true only when the user has requested replacement/correction. Existing files otherwise fail with file_exists.
+- append_asset_file and preview_file accept the same attachment and path fields. Parent folders are created inside that linked folder. Both relative and folder-rooted paths are accepted.
+- Omitting attachment preserves the existing assets/ destination. Anonymous/shadow mode cannot write into linked folders. No deletion or binary-write action is added.
+
+Whole-file alternatives (file_manager required): <ASSET_ACTION> {"action":"ATTACH_FILE_BY_ID","ids":["abc123","def456"]} </ASSET_ACTION> or <ASSET_ACTION> {"action":"ATTACH_FILE_BY_PATH","paths":["dataset/image.png","dataset/caption.txt"]} </ASSET_ACTION>. Use only existing files, omit missing TXT, and wait for FOLLOW-UP. These are JSON operations; the only attachment XML marker is ATTACH_FILE_CONTENT.

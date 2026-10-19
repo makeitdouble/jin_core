@@ -15,7 +15,7 @@ def record_payload(record):
         raise ValueError("Invalid Active key")
     tags = list(TAG.finditer(value))
     identity = next((m for m in tags if m[1].strip() == "id"), None)
-    if identity is None or not re.fullmatch(r"AM-[a-z0-9]{6}", identity[2].strip()):
+    if identity is None or not re.fullmatch(r"(?:SUB-)?AM-[a-z0-9]{6}", identity[2].strip()):
         raise ValueError("Invalid Active id")
     return {
         "key": key.strip(), "conditions": value[:identity.start()].strip(),

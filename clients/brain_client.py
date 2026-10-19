@@ -10,6 +10,8 @@ from contracts.rules_assembler import (
     RUNTIME_ACTION_POSTING_BOARD,
     RUNTIME_ACTION_CALL_MCP,
     RUNTIME_ACTION_SAVE_DELAYED_MEMORY,
+    RUNTIME_ACTION_CREATE_JIN_INSTANCES,
+    RUNTIME_ACTION_FINISH_SUBTASK,
 )
 
 from clients.errors import (
@@ -28,11 +30,13 @@ from utils.brain_client_utils import (
 
 from runtime.client import (
     LMStudioAPIError,
+    RuntimeClient,
 )
 from runtime.state import BRAIN_RUNTIME_ID
 
 
 from utils.current_context_window import (
+    commit_context_maintenance,
     prepare_current_context_window_prompt,
 )
 from utils.skills_asset_utils import (
@@ -56,6 +60,15 @@ def get_response_enabled_runtime_actions(
             runtime_actions
         )
     )
+
+    from utils.actions.jin_instance_actions import active_child
+
+    child_is_active = active_child(context) is not None
+    if child_is_active:
+        if RUNTIME_ACTION_CREATE_JIN_INSTANCES in enabled_actions:
+            enabled_actions.remove(RUNTIME_ACTION_CREATE_JIN_INSTANCES)
+    elif RUNTIME_ACTION_FINISH_SUBTASK in enabled_actions:
+        enabled_actions.remove(RUNTIME_ACTION_FINISH_SUBTASK)
 
     if (
         RUNTIME_ACTION_SAVE_DELAYED_MEMORY
@@ -162,6 +175,9 @@ def build_brain_user_prompt_content(
     context=None,
 ):
 
+    if context is not None:
+        from utils.actions.attachment_actions import prune_path_attachments
+        prune_path_attachments(context)
     content = [
         {
             "type": "text",
@@ -252,6 +268,7 @@ async def ask_brain_stream(
     brain_payload: str | None = None,
     runtime_actions=None,
     context_window_prepared: bool = False,
+    prepared_context_window=None,
 ):
 
     resolved_brain_payload: str = (
@@ -297,12 +314,23 @@ async def ask_brain_stream(
     # Provider transport only. RuntimeStream is the single owner of runtime
     # marker parsing, action lifecycle, counters, guards and session history.
     try:
+        submission_options = {}
+        if prepared_context_window is not None:
+            if isinstance(client, RuntimeClient):
+                # Native request building can still fail before HTTP submission.
+                submission_options["on_request_submitted"] = lambda: commit_context_maintenance(
+                    context, prepared_context_window,
+                )
+            else:
+                # Custom transports expose stream() as their invocation boundary.
+                commit_context_maintenance(context, prepared_context_window)
         async for model_chunk in client.stream(
             context=context,
             system_prompt=resolved_system_prompt,
             user_prompt=model_user_prompt,
             temperature=config.BRAIN_TEMPERATURE,
             max_tokens=None,
+            **submission_options,
         ):
             yield model_chunk
 

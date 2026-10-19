@@ -65,6 +65,8 @@ class RuntimeTransport:
         if context is not None:
             context.runtime_lt_websocket_connected = False
             context.runtime_turn_abort_requested = True
+            from utils.actions.attachment_actions import clear_path_attachments
+            clear_path_attachments(context)
             # Cancel guard waits; never resolve them as permission to execute.
             for future in list(context.runtime_action_guard_confirmations.values()):
                 if not future.done():

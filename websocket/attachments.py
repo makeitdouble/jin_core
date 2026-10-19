@@ -191,9 +191,9 @@ def format_attachment_context(
             )
             lines.append(f"- {context_path}/: folder{duplicate_suffix}")
             lines.append(
-                f"Linked project (read only). File-path root is {context_path}/. "
+                f"Linked project. File-path root is {context_path}/. "
                 f"Use {context_path} as the ASSET_ACTION attachment (or omit it when this is the only folder). "
-                "List/search with ASSET_ACTION; load files by copying folder-rooted paths into ATTACH_FILE_CONTENT."
+                "List/search with ASSET_ACTION; read source windows with ATTACH_FILE_CONTENT or whole images/text with ATTACH_FILES_BY_PATH. The file_manager skill supports writes with an explicit attachment selector."
             )
             continue
 

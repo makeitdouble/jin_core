@@ -181,6 +181,12 @@ class RuntimeContext:
 
     runtime_pending_requests_queue: object | None = None
 
+    # One source-ordered, parent-owned self-fork group. Child ticks execute
+    # inside the current foreground turn so FRAME is updated only after the
+    # restored parent emits its final answer.
+    runtime_jin_instance_group: dict = field(default_factory=dict)
+    runtime_instance_action_barrier: bool = False
+
     # USER requests that were already accepted but had not reached Brain when
     # the owning WebSocket disappeared. They are replayed into the replacement
     # connection after the soft-resume handshake instead of being silently lost.
@@ -269,6 +275,9 @@ class RuntimeContext:
 
     runtime_current_context_window_text: str = ""
 
+    # Ephemeral, shared by parent/children; never restored from disk snapshots.
+    runtime_context_maintenance: dict = field(default_factory=dict)
+
     runtime_recall_fact_context_progress: dict = field(default_factory=dict)
 
     runtime_previous_answer_context_window: dict = field(
@@ -315,6 +324,7 @@ class RuntimeContext:
     )
 
     runtime_current_sequence_attachments_turn_id: str = ""
+    runtime_path_attachment_group: tuple = ()
 
     runtime_current_sequence_jin_messages: list[dict] = field(
         default_factory=list

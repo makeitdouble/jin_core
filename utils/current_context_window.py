@@ -1,5 +1,8 @@
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
+
+from config_loader import config
+from rules.runtime import CONTEXT_MAINTENANCE_WARNING_MESSAGE
 
 from utils.token_usage import (
     get_runtime_token_estimate_scale,
@@ -28,6 +31,108 @@ class CurrentContextWindowPrompt:
     used_tokens: int
     context_window: int
     value: str
+    maintenance_state: dict | None = None
+
+
+CONTEXT_MAINTENANCE_THRESHOLD_1 = 0.75
+CONTEXT_MAINTENANCE_THRESHOLD_2 = 0.85
+CONTEXT_MAINTENANCE_THRESHOLD_ALWAYS = 0.90
+CONTEXT_MAINTENANCE_PREFIX_RE = re.compile(
+    r"\A(?:<CONTEXT_MAINTENANCE>.*?</CONTEXT_MAINTENANCE>\s*)+", re.DOTALL,
+)
+
+
+def _maintenance_thresholds() -> tuple[float, float, float]:
+    defaults = (CONTEXT_MAINTENANCE_THRESHOLD_1, CONTEXT_MAINTENANCE_THRESHOLD_2,
+                CONTEXT_MAINTENANCE_THRESHOLD_ALWAYS)
+    try:
+        values = tuple(float(getattr(config, name, default)) for name, default in zip(
+            ("CONTEXT_MAINTENANCE_THRESHOLD_1", "CONTEXT_MAINTENANCE_THRESHOLD_2",
+             "CONTEXT_MAINTENANCE_THRESHOLD_ALWAYS"), defaults,
+        ))
+        if 0 < values[0] < values[1] < values[2] <= 1:
+            return values
+    except (TypeError, ValueError):
+        pass
+    return defaults
+
+
+def _maintenance_decision(context, prepared, *, has_results: bool):
+    """Plan state only. Submission, not preview/preparation, commits it."""
+    thresholds = _maintenance_thresholds()
+    session_id = str(getattr(context, "session_id", "") or "")
+    old = getattr(context, "runtime_context_maintenance", {}) or {}
+    if old.get("session_id") != session_id or old.get("thresholds") != thresholds:
+        old = {}
+    usage = prepared.used_tokens / prepared.context_window if prepared.context_window > 0 else 0
+    previous = old.get("usage", 0)
+    delivered = list(old.get("delivered", (False, False)))
+    boundary_rearmed = list(old.get("boundary_rearmed", (False, False)))
+    for index, threshold in enumerate(thresholds[:2]):
+        falling_edge = usage == threshold and previous > threshold
+        boundary_rearmed[index] = falling_edge or (usage == threshold and boundary_rearmed[index])
+        if usage < threshold or falling_edge:
+            delivered[index] = False
+    if not has_results:
+        delivered = [False, False]
+    warn = has_results and prepared.context_window > 0 and (
+        usage >= thresholds[2] or any(
+            usage >= threshold and not delivered[index] and not boundary_rearmed[index]
+            for index, threshold in enumerate(thresholds[:2])
+        )
+    )
+    if warn:
+        for index, threshold in enumerate(thresholds[:2]):
+            if usage >= threshold and not boundary_rearmed[index]:
+                delivered[index] = True
+    return warn, {"session_id": session_id, "thresholds": thresholds,
+                  "usage": usage, "delivered": tuple(delivered),
+                  "boundary_rearmed": tuple(boundary_rearmed)}
+
+
+def commit_context_maintenance(context, prepared: CurrentContextWindowPrompt) -> None:
+    """Called at the Brain client submission boundary, including follow-ups."""
+    if context is not None and prepared.maintenance_state is not None:
+        context.runtime_context_maintenance = dict(prepared.maintenance_state)
+
+
+def _with_context_maintenance(*, context, runtime_id, prepared, user_prompt):
+    from utils.context.tool_results import visible_removable_tool_result_hints
+    from utils.tool_results_context import has_nonempty_tools_results_context
+
+    warn, next_state = _maintenance_decision(
+        context, prepared,
+        has_results=has_nonempty_tools_results_context(prepared.system_prompt),
+    )
+    if not warn:
+        return replace(prepared, maintenance_state=next_state)
+
+    base = prepared.system_prompt
+    hints = visible_removable_tool_result_hints(context, base)
+    # Metadata and CONTEXT_WINDOW describe the same final prompt. Rebuild from
+    # the unchanged base, never prepend recursively. Threshold decisions use
+    # the pre-warning budget so the warning cannot trigger itself or a new band.
+    for _ in range(16):
+        available = max(0, prepared.context_window - prepared.used_tokens)
+        block = (
+            "<CONTEXT_MAINTENANCE>\n" + CONTEXT_MAINTENANCE_WARNING_MESSAGE + "\n\n"
+            f"context_used_tokens: {prepared.used_tokens}\n"
+            f"context_total_tokens: {prepared.context_window}\n"
+            f"context_available_tokens: {available}\n"
+            f"context_used_percent: {100 * prepared.used_tokens / prepared.context_window:.2f}%\n"
+            f"context_available_percent: {100 * available / prepared.context_window:.2f}%\n"
+            + hints + "</CONTEXT_MAINTENANCE>\n\n"
+        )
+        updated = annotate_current_context_window(
+            context=context, runtime_id=runtime_id, system_prompt=block + base,
+            user_prompt=user_prompt, context_window=prepared.context_window,
+        )
+        if updated.used_tokens == prepared.used_tokens:
+            return replace(updated, maintenance_state=next_state)
+        prepared = updated
+    # The estimator depends on text length, so numeric widths normally settle
+    # within a few passes. Never submit inaccurate self-referential metadata.
+    raise ValueError("Context maintenance token metadata did not stabilize")
 
 
 def _as_int(
@@ -400,6 +505,7 @@ async def prepare_current_context_window_prompt(
     )
 
     if str(runtime_id or "").strip().casefold() == "brain":
+        prompt = CONTEXT_MAINTENANCE_PREFIX_RE.sub("", prompt)
         # L-T is the one large memory inventory whose prompt projection can shrink
         # safely. Measure the CURRENT prompt without L-T first, then keep a simple
         # 50% -> all / 90% -> one linear budget between those points. Selection is
@@ -463,6 +569,10 @@ async def prepare_current_context_window_prompt(
         user_prompt=user_prompt,
         context_window=context_window,
     )
+    if str(runtime_id or "").strip().casefold() == "brain":
+        prepared = _with_context_maintenance(
+            context=context, runtime_id=runtime_id, prepared=prepared, user_prompt=user_prompt,
+        )
     remember_current_context_window(
         context,
         runtime_id=runtime_id,

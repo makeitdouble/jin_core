@@ -22,8 +22,8 @@
     "rules": [
       "Use to create or update active memory!",
       "`conditions` is required.",
-      "Update: include `id` of an existing record.",
-      "Every JSON key other than `id` and `conditions` is a custom field; can create maximum 3 custom fields."
+      "Update: include `id` of an existing record. Use the exact AM-xxxxxx ID for main memory or SUB-AM-xxxxxx for temporary child memory. A child may update only its own records.",
+      "Every JSON key other than `id`, `conditions` and runtime-owned metadata is a custom field; can create maximum 3 custom fields. Do not supply owner_subtask_agent_id or subtask_memory_label."
     ],
     "close_tag": true,
     "display_payload": false

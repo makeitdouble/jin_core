@@ -7,7 +7,9 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 BROWSER_TESTS = (
+    "test_subtask_active_memory_client.js",
     "test_attach_file_by_id_client.js",
+    "test_attach_file_by_path_client.js",
     "test_chat_log_search_client.js",
     "test_chat_log_search_modal.js",
     "test_context_snapshot_tabs.js",

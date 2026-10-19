@@ -22,7 +22,7 @@ def generate_active_memory_slot_id(
 ) -> str:
 
     used_suffixes = [
-        active_memory_id[3:]
+        active_memory_id.rsplit("-", 1)[-1]
         for value in (existing_ids or ())
         if (
             active_memory_id := normalize_active_memory_slot_id(

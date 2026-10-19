@@ -794,6 +794,7 @@ def build_active_memory_runtime_line(
         )
     )
 
+    visible_value = strip_active_memory_managed_suffixes(visible_value)
     if not visible_value:
         return ""
 
@@ -851,7 +852,7 @@ def normalize_active_memory_content_for_duplicate_check(
         (
             r"\s*\[\s*(?:id|creation_time|"
             r"created_session_id|created_jin_message_number|"
-            r"elapsed_time|elapsed_jin_message_number|updated_at|status)"
+            r"elapsed_time|elapsed_jin_message_number|updated_at|status|owner_subtask_agent_id|subtask_memory_label)"
             r"\s*:\s*[^\]]*\]\s*"
         ),
         " ",
@@ -908,13 +909,15 @@ def has_exact_active_memory_duplicate(
     if not candidate:
         return False
 
+    from utils.subtask_memory import owner
+    candidate_owner = owner(active_memory_line)
     return any(
         candidate in active_memory_duplicate_check_candidates(
             existing_memory
         )
-        for existing_memory in collect_context_active_memory_texts(
-            context
-        )
+        for source in collect_context_active_memory_texts(context)
+        for existing_memory in str(source or "").splitlines()
+        if owner(existing_memory) == candidate_owner
     )
 
 
@@ -1110,7 +1113,7 @@ def build_active_memory_delete_failure_result(
     ).strip()
     detail = (
         "Active memory was not deleted. "
-        "Use an exact Active Memory id in AM-xxxxxx format from <ACTIVE_MEMORY> "
+        "Use an exact Active Memory id in AM-xxxxxx or SUB-AM-xxxxxx format from <ACTIVE_MEMORY> "
         "and retry only for a record that is still pending."
     )
 
@@ -1351,6 +1354,11 @@ async def update_active_memory_runtime_record(
         result["error"] = "active_memory_not_found"
         return result
 
+    from utils.subtask_memory import can_mutate_record
+    if not can_mutate_record(context, current_record):
+        result["error"] = "subtask_memory_read_only"
+        return result
+
     active_memory_key = str(
         current_record
     ).partition(":")[0].strip().casefold()
@@ -1511,6 +1519,9 @@ async def delete_active_memory_runtime_record(
         context,
         active_memory_id,
     )
+    from utils.subtask_memory import can_mutate_record
+    if not can_mutate_record(context, deleted_record):
+        return False, active_memory_id, ""
     removed = False
 
     for attr_name in (
@@ -1592,6 +1603,16 @@ async def save_active_memory_runtime_record(
     if not active_memory_line:
         return False
 
+    from utils.subtask_memory import running_child, OWNER, LABEL
+    if getattr(context, "runtime_instance_action_barrier", False):
+        return False
+    child = running_child(context)
+    if child is not None:
+        active_memory_line = active_memory_line.replace("[ id: AM-", "[ id: SUB-AM-", 1)
+        number = int(child.get("active_memory_sequence", 0)) + 1
+        label = f"sub{child['ordinal']}_active_memory_{number}"
+        active_memory_line += f" [ {OWNER}: {child['subtask_agent_id']} ] [ {LABEL}: {label} ]"
+
     if has_exact_active_memory_duplicate(
         context,
         active_memory_line,
@@ -1621,6 +1642,9 @@ async def save_active_memory_runtime_record(
     if active_memory_line not in active_records:
         active_records = [*active_records, active_memory_line]
         commit_active(context, active_records)
+        if child is not None:
+            child["active_memory_sequence"] = number
+            child.setdefault("active_memory_ids", []).extend(collect_active_memory_slot_ids(active_memory_line))
 
     return True
 
@@ -1896,6 +1920,8 @@ def preserve_failed_asset_action_for_retry(
 def append_asset_runtime_result(
     context,
     result: dict,
+    *,
+    payload_text: str | None = None,
 ) -> None:
 
     asset_results = getattr(
@@ -1931,6 +1957,9 @@ def append_asset_runtime_result(
             "runtime_turn_id"
         ):
             result["runtime_turn_id"] = runtime_turn_id
+
+    if payload_text is not None:
+        preserve_failed_asset_action_for_retry(context, result, payload_text)
 
     asset_results.append(
         result

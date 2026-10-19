@@ -218,12 +218,12 @@ def _same_name_project_paths(root: Path, relative: str, *, limit: int = 3) -> li
     return matches
 
 
-def _inside(root: Path, relative: str) -> Path:
+def _inside(root: Path, relative: str, *, allow_missing=False) -> Path:
     relative = str(relative or ".").replace("\\", "/")
     if Path(relative).is_absolute() or PureWindowsPath(relative).drive or ".." in Path(relative).parts:
         raise ValueError("Use a relative path inside the linked folder")
     try:
-        path = (root / relative).resolve(strict=True)
+        path = (root / relative).resolve(strict=not allow_missing)
     except (FileNotFoundError, NotADirectoryError):
         # Keep host absolute paths out of model-facing errors. A missing file
         # should not look like an "absolute path" schema failure. If the model
@@ -536,8 +536,8 @@ def format_project_result(result: dict, *, include_content=False) -> str:
             lines.append(f"Notes: {notice}")
     if failed:
         from contracts.rules_assembler import get_runtime_action_schema
-        name = "ATTACH_FILE_CONTENT" if ref else "ASSET_ACTION"
-        lines.extend(["Correct action schema:", *get_runtime_action_schema(name)])
+        name = "ASSET_ACTION" if result.get("action") == "attach_file_by_path" else "ATTACH_FILE_CONTENT" if ref else "ASSET_ACTION"
+        lines.extend(["Correct action schema:", *get_runtime_action_schema(result.get("runtime_action_name") or name)])
     elif "content" in result:
         if ref:
             if include_content:

@@ -85,7 +85,7 @@ def _iter_skill_entries() -> list[tuple[str, Path, Path | None]]:
         assets_common.SKILLS_ROOT.iterdir(),
         key=lambda item: item.name.casefold(),
     ):
-        if path.is_file() and path.suffix.lower() == ".txt":
+        if path.is_file() and path.suffix.lower() in {".txt", ".md"}:
             entries.append((
                 normalize_skill_name(
                     path.stem

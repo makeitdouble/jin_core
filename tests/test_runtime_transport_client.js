@@ -9,7 +9,7 @@ const {chromium} = require('playwright');
     const page = await browser.newPage();
     const errors = [];
     page.on('pageerror', error => errors.push(error.message));
-    await page.setContent('<form id="chat-form"><input id="user-input"><button type="submit"></button></form><div id="stop-indicator"></div><div id="output"></div>');
+    await page.setContent('<form id="chat-form"><input id="user-input"><button type="submit"></button></form><div id="stop-indicator"></div><div id="output"></div><div id="chat-history"><p>existing dialogue</p></div>');
     await page.evaluate(() => {
       window.sockets = [];
       window.sent = [];
@@ -73,7 +73,8 @@ const {chromium} = require('playwright');
     assert.equal(await page.locator('#output').textContent(), 'AB');
     assert.equal(await page.locator('#chat-form').getAttribute('aria-busy'), 'false');
     assert.equal(await page.evaluate(() => sent.at(-1).sequence), 4);
-    // Restart epoch resets deduplication and uses existing bootstrap fallback.
+    const sentBeforeRestart = await page.evaluate(() => sent.length);
+    // Restart preserves the real chat DOM and never requests a new turn.
     await page.evaluate(() => {
       window.getSoftReconnectRuntimeResume = () => ({type:'runtime_resume'});
       sockets.at(-1).close();
@@ -82,7 +83,18 @@ const {chromium} = require('playwright');
       deliver({type:'test_chunk', chunk:'C', _jin_event_id:1});
     });
     assert.equal(await page.locator('#output').textContent(), 'ABC');
-    assert.equal(await page.evaluate(() => sent.some(e=>e.type==='runtime_resume')), true);
+    assert.equal(await page.locator('#chat-history').innerText(), 'existing dialogue');
+    assert.deepEqual(await page.evaluate(start => sent.slice(start).filter(e => e.type !== 'runtime_event_ack'), sentBeforeRestart), []);
+    // The anonymous window uses exactly the same DOM-preserving restart path.
+    const beforeAnonymousRestart = await page.evaluate(() => sent.length);
+    await page.evaluate(() => {
+      window.JinRuntime = {anonymousMode: {isEnabled: () => true}};
+      sockets.at(-1).close();
+      window.dispatchEvent(new Event('online'));
+      openSocket(false, 'anonymous-restarted');
+    });
+    assert.equal(await page.locator('#chat-history').innerText(), 'existing dialogue');
+    assert.equal(await page.evaluate(() => sent.length), beforeAnonymousRestart);
     // BFCache preserves this page, while actual page departure retires it.
     await page.evaluate(() => window.dispatchEvent(new PageTransitionEvent('pagehide', {persisted:true})));
     assert.equal(await page.evaluate(() => sockets.at(-1).readyState), 1);
@@ -96,7 +108,7 @@ const {chromium} = require('playwright');
     assert.equal(await page.evaluate(() => sockets.at(-1).closeCode), 4001);
     assert.equal(await page.evaluate(() => beacons.length), 1);
     assert.equal(await page.evaluate(() => beacons[0].url), '/ws/chat/close');
-    assert.equal(await page.evaluate(async () => JSON.parse(await beacons[0].body.text()).epoch), 'restarted');
+    assert.equal(await page.evaluate(async () => JSON.parse(await beacons[0].body.text()).epoch), 'anonymous-restarted');
     await page.waitForTimeout(800);
     assert.equal(await page.evaluate(() => sockets.length), countBeforeClose);
     assert.deepEqual(errors, []);

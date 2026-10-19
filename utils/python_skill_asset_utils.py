@@ -1106,6 +1106,16 @@ def _require_loaded_skill(
         ""
     )
 
+    # Linking a folder implicitly loads the directory_link instructions.
+    # Recheck the live link for each action so detaching revokes the capability.
+    from utils.project_context import DIRECTORY_LINK_SKILL_NAME, directory_link_skill_active
+    if requested == DIRECTORY_LINK_SKILL_NAME and directory_link_skill_active(context):
+        return requested
+
+    # Older restored sessions may still refer to the former `project` skill.
+    if requested == DIRECTORY_LINK_SKILL_NAME and "project" in loaded_names:
+        return requested
+
     if requested not in loaded_names:
         raise PermissionError(
             f"skill must be loaded before execution: {requested}"
@@ -2761,25 +2771,25 @@ async def run_context_asset_action(
     ).strip()
 
     try:
-        from utils.project_reader import PROJECT_ACTIONS, run_project_action
+        from utils.project_reader import PROJECT_ACTIONS, linked_projects, run_project_action
 
         loaded_skills = getattr(
             context,
             "runtime_loaded_skills",
             [],
         ) if context is not None else []
-        if not loaded_skills:
+        if not loaded_skills and not (action in PROJECT_ACTIONS and linked_projects(context)):
             raise PermissionError(
                 "ASSET_ACTION requires a loaded skill context"
             )
 
         if action == "project_read":
-            _require_loaded_skill(context, "project")
+            _require_loaded_skill(context, "directory_link")
             _require_loaded_skill(context, "file_manager")
             from utils.actions.attachment_actions import attach_project_file_content
             return await attach_project_file_content(context, payload)
         if action in PROJECT_ACTIONS:
-            _require_loaded_skill(context, "project")
+            _require_loaded_skill(context, "directory_link")
             return await asyncio.to_thread(run_project_action, context, payload)
 
         if action in {
@@ -2788,6 +2798,13 @@ async def run_context_asset_action(
             "preview_file",
         }:
             _require_loaded_skill(context, "file_manager")
+            if payload.get("attachment"):
+                from utils.file_manager_asset_utils import create_asset_file, append_asset_file, preview_file
+                handler = {"create_asset_file": create_asset_file, "append_asset_file": append_asset_file, "preview_file": preview_file}[action]
+                result = handler(payload, context=context)
+                if result.get("ok") is False:
+                    result["payload"] = payload
+                return result
 
         if action == "run_document_reader":
             return await run_document_reader_action(

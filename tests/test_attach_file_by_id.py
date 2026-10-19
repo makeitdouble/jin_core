@@ -31,14 +31,14 @@ class AttachFileByIdTests(unittest.TestCase):
 
     def attach(self, payload):
         actions = extract_runtime_actions(
-            f'<{PUBLIC_MARKER}> {payload} </{PUBLIC_MARKER}>',
-            enabled_actions=[ACTION],
+            '<ASSET_ACTION>' + json.dumps({'action': ACTION, 'id': payload}) + '</ASSET_ACTION>',
+            enabled_actions=['ASSET_ACTION'],
         ).actions
         self.assertEqual(len(actions), 1)
         start = len(self.context.runtime_session_action_history)
         with patch('utils.actions.dispatcher.ensure_assets_tree'), patch('utils.chat_log.append_chat_runtime_event'):
             asyncio.run(apply_runtime_action_calls(self.context, actions))
-        upsert_session_action_marker_history_since(self.context, start, [{'name': ACTION, 'payload': payload}])
+        upsert_session_action_marker_history_since(self.context, start, [{'name': a.name, 'payload': a.payload} for a in actions])
         return self.context.runtime_tool_results[-1]['result']
 
     def test_full_text_image_history_and_checkpoint(self):
@@ -83,7 +83,7 @@ class AttachFileByIdTests(unittest.TestCase):
             with patch('utils.actions.attachment_actions.parse_project_file_target', side_effect=AssertionError('must not read a path')):
                 result = self.attach(value)
             self.assertFalse(result['ok'])
-            result_label = f'{ACTION}: {value.casefold()} : failed - file not exists'
+            result_label = f'{ACTION}: {value} : failed - file not exists'
             self.assertEqual(file_result_summary(result), result_label)
             self.assertIn(
                 f'{ACTION}: {value}',
@@ -102,7 +102,7 @@ class AttachFileByIdTests(unittest.TestCase):
         self.assertIn(record['id'], self.context.runtime_attached_file_ids)
 
     def test_stream_boundaries_literals_false_prefix_repeat_and_flush(self):
-        marker = f'<{PUBLIC_MARKER}> abc123 </{PUBLIC_MARKER}>'
+        marker = '<ATTACH_FILE_CONTENT: abc123 >'
         split_points = sorted({
             1,
             marker.find('>') + 1,
@@ -111,7 +111,7 @@ class AttachFileByIdTests(unittest.TestCase):
             len(marker) - 1,
         })
         for split in split_points:
-            parser = RuntimeActionStreamFilter(enabled_actions=[ACTION])
+            parser = RuntimeActionStreamFilter(enabled_actions=['ATTACH_FILE_CONTENT'])
             parts = [parser.filter(marker[:split]), parser.filter(marker[split:]), parser.flush_result()]
             self.assertEqual(sum(len(p.actions) for p in parts), 1, split)
             self.assertEqual(''.join(p.text for p in parts), '')
@@ -120,31 +120,31 @@ class AttachFileByIdTests(unittest.TestCase):
         # supported literal prefixes, but use one representative payload split.
         split = len(marker) // 2
         for quote in ('"', "'", '`', '['):
-            parser = RuntimeActionStreamFilter(enabled_actions=[ACTION])
+            parser = RuntimeActionStreamFilter(enabled_actions=['ATTACH_FILE_CONTENT'])
             parts = [parser.filter(quote + marker[:split]), parser.filter(marker[split:]), parser.flush_result()]
             self.assertFalse(any(p.actions for p in parts))
             self.assertEqual(''.join(p.text for p in parts), quote + marker)
     
-        self.assertEqual(len(extract_runtime_actions(marker * 2, enabled_actions=[ACTION]).actions), 1)
+        self.assertEqual(len(extract_runtime_actions(marker * 2, enabled_actions=['ATTACH_FILE_CONTENT']).actions), 1)
         self.assertFalse(
             extract_runtime_actions(
                 '<ATTACH_FILES_BY_IDISH> abc123 </ATTACH_FILES_BY_IDISH>',
-                enabled_actions=[ACTION],
+                enabled_actions=['ATTACH_FILE_CONTENT'],
             ).actions
         )
-        parser = RuntimeActionStreamFilter(enabled_actions=[ACTION])
+        parser = RuntimeActionStreamFilter(enabled_actions=['ATTACH_FILE_CONTENT'])
         parser.filter(marker[:-2])
         self.assertFalse(parser.flush_result().actions)
-        result = extract_runtime_actions('before ' + marker + ' after', enabled_actions=[ACTION])
+        result = extract_runtime_actions('before ' + marker + ' after', enabled_actions=['ATTACH_FILE_CONTENT'])
         self.assertIn('before', result.text)
         self.assertIn('after', result.text)
     def test_contract_is_enabled_and_distinguishes_whole_files(self):
         enabled = get_enabled_runtime_actions({'CAN_USE_ASSETS': True})
-        self.assertIn(ACTION, enabled)
+        self.assertNotIn(ACTION, enabled)
         rules = build_runtime_action_instructions(enabled, self.context)
-        self.assertIn(f'<{PUBLIC_MARKER}> id1, id2 </{PUBLIC_MARKER}>', rules)
-        self.assertIn('whole file', rules)
-        self.assertIn('photo/image', rules)
+        self.assertIn('ATTACH_FILE_CONTENT', rules)
+        self.assertIn('whole', rules)
+        self.assertIn('text/image', rules)
 
 
 if __name__ == '__main__':

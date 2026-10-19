@@ -22,7 +22,6 @@ ACTIVE_MEMORY_ENTRY_RE = re.compile(
 
 
 RUNTIME_ACTION_NAME_ALIASES = {
-    "ATTACH_FILES_BY_ID": "ATTACH_FILE_BY_ID",
     "USE_ASSETS": "ASSET_ACTION",
     "LOAD_SKILL_CONTEXT": "LOAD_SKILL",
     "LOAD_SKILLS_CONTEXT": "LOAD_SKILL",
@@ -494,6 +493,9 @@ def _runtime_action_available_in_context(
     context=None,
 ) -> bool:
     normalized_name = normalize_runtime_action_name(action_name)
+    from utils.subtask_memory import running_child, SHARED_MEMORY_WRITES
+    if running_child(context) and normalized_name in SHARED_MEMORY_WRITES:
+        return False
     if normalized_name == "POSTING_BOARD":
         return _context_has_loaded_skill(
             context,
@@ -589,12 +591,14 @@ def build_runtime_action_instructions(
             "LIST_ALL_USER_SHARED_FILES",
             "ATTACH_FILE_CONTENT",
             "ATTACH_FILE_BY_ID",
+            "ATTACH_FILE_BY_PATH",
         } and not _context_has_files(context):
             continue
 
         if normalized_name in {
             "ATTACH_FILE_CONTENT",
             "ATTACH_FILE_BY_ID",
+            "ATTACH_FILE_BY_PATH",
         } and not _context_has_loaded_skill(context, "file_manager"):
             continue
 
@@ -635,7 +639,9 @@ RUNTIME_ACTION_LOAD_SKILL = get_runtime_action_name("load_skill")
 RUNTIME_ACTION_UNLOAD_SKILL = get_runtime_action_name("unload_skill")
 RUNTIME_ACTION_ASSET_ACTION = get_runtime_action_name("asset_action")
 RUNTIME_ACTION_LIST_FILES = get_runtime_action_name("list_files")
-RUNTIME_ACTION_ATTACH_FILE_BY_ID = get_runtime_action_name("attach_file_by_id")
+# Internal attachment operations and historical result names, not XML markers.
+RUNTIME_ACTION_ATTACH_FILE_BY_ID = "ATTACH_FILE_BY_ID"
+RUNTIME_ACTION_ATTACH_FILE_BY_PATH = "ATTACH_FILE_BY_PATH"
 RUNTIME_ACTION_ATTACH_FILE_CONTENT = get_runtime_action_name("attach_file_content")
 RUNTIME_ACTION_JIN_COLOR = get_runtime_action_name("jin_color")
 RUNTIME_ACTION_JIN_REACTION = get_runtime_action_name("jin_reaction")
@@ -646,3 +652,5 @@ RUNTIME_ACTION_UPDATE_LT_FACTS = get_runtime_action_name("update_lt_facts")
 RUNTIME_ACTION_RECALL_FACT_CONTEXT = get_runtime_action_name("recall_fact_context")
 RUNTIME_ACTION_POSTING_BOARD = get_runtime_action_name("posting_board")
 RUNTIME_ACTION_CALL_MCP = get_runtime_action_name("call_mcp")
+RUNTIME_ACTION_CREATE_JIN_INSTANCES = get_runtime_action_name("create_jin_instances")
+RUNTIME_ACTION_FINISH_SUBTASK = get_runtime_action_name("finish_subtask")

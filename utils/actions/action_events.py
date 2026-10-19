@@ -205,9 +205,14 @@ async def record_action_event(batch, selection, action, search_counts, *, accept
             elif display_id in pending_ids:
                 pending_ids.remove(display_id)
 
+    # A call emitted after FINISH_SUBTASK/Stop belongs to the previous
+    # instance. Preserve its rejection, not its private payload, in history.
+    transition_rejection = rejected_event is not None and getattr(
+        batch.context, "runtime_instance_action_barrier", False
+    )
     action_event = {
         "name": action.name.lower(),
-        "payload": str(action.payload or "").strip(),
+        "payload": "" if transition_rejection else str(action.payload or "").strip(),
     }
     action_display_id = _display_id(batch.context, action, batch.action_display_ids)
     if action_display_id:
@@ -220,7 +225,7 @@ async def record_action_event(batch, selection, action, search_counts, *, accept
         action_event["runtime_message_id"] = batch.resolved_runtime_message_id
 
     extractor = _QUERY_EXTRACTORS.get(action.name)
-    extracted_query = extractor(action.payload) if extractor else ""
+    extracted_query = extractor(action.payload) if extractor and not transition_rejection else ""
     query = extracted_query if action.name == RUNTIME_ACTION_WEB_SEARCH else ""
     deep_search_objective = (
         extracted_query if action.name == RUNTIME_ACTION_DEEP_WEB_SEARCH else ""
@@ -232,7 +237,7 @@ async def record_action_event(batch, selection, action, search_counts, *, accept
     if chat_log_search_query:
         action_event["query"] = chat_log_search_query
 
-    if action.name == RUNTIME_ACTION_DELETE_ACTIVE_MEMORY:
+    if action.name == RUNTIME_ACTION_DELETE_ACTIVE_MEMORY and not transition_rejection:
         active_memory_id = extract_active_memory_delete_slot_id(
             action.payload,
             existing_ids=collect_context_active_memory_slot_ids(batch.context),
@@ -254,7 +259,7 @@ async def record_action_event(batch, selection, action, search_counts, *, accept
         )
         batch.action_display_ids[id(action)] = tool_call_id
         action_event.update(id=tool_call_id, query=query)
-    else:
+    elif not transition_rejection:
         _VISUAL_PROJECTIONS.get(action.name, _project_payload)(action, action_event)
 
     if rejected_event is not None:

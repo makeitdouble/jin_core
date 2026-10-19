@@ -2691,6 +2691,9 @@ def build_runtime_session_checkpoint(
         ):
             continue
 
+        if item.get("owner_subtask_agent_id"):
+            continue  # Child scratchpad results are never reload continuity.
+
         kind = str(
             item.get(
                 "kind",

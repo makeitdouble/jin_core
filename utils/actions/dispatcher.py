@@ -1,5 +1,6 @@
 """Source-ordered runtime action dispatcher."""
 
+from collections import Counter
 from itertools import groupby
 
 from runtime.anonymous_mode import persistent_writes_restricted
@@ -84,7 +85,16 @@ async def _run_batch(
     if not persistent_writes_restricted(context):
         ensure_assets_tree()
 
-    state = {}
+    # All actions still execute strictly in source order. The shared count
+    # lets a handler emit one result for a plural marker after its last
+    # member, without postponing the underlying actions themselves.
+    state = {
+        "_marker_group_remaining": Counter(
+            action.marker_group
+            for action in actions
+            if getattr(action, "marker_group", "")
+        ),
+    }
     search_counts = snapshot_search_counts(context)
     action_state = ActionState(batch)
     applied = 0

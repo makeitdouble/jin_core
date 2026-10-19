@@ -1492,7 +1492,7 @@ def _build_session_action_marker_detail(
         "LOAD_DELAYED_MEMORY",
         "UNLOAD_DELAYED_MEMORY",
         "ATTACH_FILE_CONTENT",
-        "ATTACH_FILE_BY_ID",
+        "ATTACH_FILE_BY_ID", "ATTACH_FILE_BY_PATH",
     }:
         return normalized_payload
 
@@ -1650,7 +1650,7 @@ def _build_payload_distinct_session_action_parts(
 
     attachment_marker_action = action_name in {
         "ATTACH_FILE_CONTENT",
-        "ATTACH_FILE_BY_ID",
+        "ATTACH_FILE_BY_ID", "ATTACH_FILE_BY_PATH",
     }
     chat_log_search_action = (
         action_name == "CHAT_LOG_SEARCH"
@@ -1777,7 +1777,7 @@ def _build_payload_distinct_session_action_parts(
                 "LOAD_DELAYED_MEMORY",
                 "UNLOAD_DELAYED_MEMORY",
                 "ATTACH_FILE_CONTENT",
-                "ATTACH_FILE_BY_ID",
+                "ATTACH_FILE_BY_ID", "ATTACH_FILE_BY_PATH",
                     }
             and payload_key
             and payload_key != part.get(
@@ -3754,7 +3754,7 @@ def _add_tool_ids_to_history_parts(context, marker_actions, parts):
                 for index, event in candidates
                 if (event.get("status") == "failed") == failed
             ]
-        if name in {"ATTACH_FILE_CONTENT", "ATTACH_FILE_BY_ID", "LOAD_SKILL", "UNLOAD_SKILL"}:
+        if name in {"ATTACH_FILE_CONTENT", "ATTACH_FILE_BY_ID", "ATTACH_FILE_BY_PATH", "LOAD_SKILL", "UNLOAD_SKILL"}:
             identities = {
                 str(part.get("id") or "").strip(),
                 str(part.get("detail") or "").strip(),
@@ -3777,12 +3777,22 @@ def _add_tool_ids_to_history_parts(context, marker_actions, parts):
         if selected:
             part["tool_ids"] = [event["tool_id"] for _index, event in selected]
             consumed_event_indexes.update(index for index, _event in selected)
-            if name in {"ATTACH_FILE_CONTENT", "ATTACH_FILE_BY_ID"}:
+            attachment_ids = [tool_id for _index, event in selected
+                              for tool_id in event.get("attachment_tool_ids", [])]
+            if name == "ASSET_ACTION" and attachment_ids:
+                from utils.context.files import file_result_summary
+                results = {entry.get("tool_id"): entry.get("result") for entry in
+                           getattr(context, "runtime_tool_results", []) or []}
+                part["tool_ids"] = attachment_ids
+                summaries = [file_result_summary(results[tool_id]) for tool_id in attachment_ids
+                             if isinstance(results.get(tool_id), dict)]
+                part["text"] = "ASSET_ACTION: " + "; ".join(summaries)
+            if name in {"ATTACH_FILE_CONTENT", "ATTACH_FILE_BY_ID", "ATTACH_FILE_BY_PATH"}:
                 from utils.context.files import file_result_summary
                 result = next((entry.get("result") for entry in
                                getattr(context, "runtime_tool_results", []) or []
                                if entry.get("tool_id") == selected[-1][1]["tool_id"]), None)
-                if isinstance(result, dict) and (result.get("ok") is False or name == "ATTACH_FILE_BY_ID"):
+                if isinstance(result, dict) and (result.get("ok") is False or name in {"ATTACH_FILE_BY_ID", "ATTACH_FILE_BY_PATH"}):
                     part["text"] = file_result_summary(result)
                     part.pop("detail", None)
                     part.pop("message", None)

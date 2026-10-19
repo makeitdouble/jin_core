@@ -2,7 +2,13 @@ const fs = require('fs');
 const assert = require('assert/strict');
 const {chromium} = require('playwright');
 
-const systemPrompt = `Keep the base system rules visible.
+const systemPrompt = `<CONTEXT_MAINTENANCE>
+Maintenance sentinel: review optional cleanup without restarting the task.
+context_used_tokens: 122880
+context_total_tokens: 163840
+context_available_tokens: 40960
+</CONTEXT_MAINTENANCE>
+Keep the base system rules visible.
 
 <TRUSTED_RUNTIME_VARIABLES>
 runtime: ready
@@ -23,7 +29,7 @@ report: pinned
 LT-000001 | preference: compact
 </LONG_TERM_MEMORY>
 <TOOLS_RESULTS>
-<TOOL_RESULT tool_id="T2" name="CHAT_LOG_SEARCH" timestamp="2026-09-28T12:00:00Z"> (1 minute ago)
+<TOOL_RESULT tool_id="T2" name="CHAT_LOG_SEARCH" timestamp="2026-09-28T12:00:00Z" (1 minute ago) >
 Status: success
 Returned: 0; matching turns: 0; more: false
 </TOOL_RESULT>
@@ -48,6 +54,8 @@ const details = `SYSTEM PROMPT\n----------------\n${systemPrompt}\n\nUSER PROMPT
   try {
     const page = await browser.newPage({viewport: {width: 1200, height: 900}});
     await page.setContent('<body style="background:#09090b;color:#ddd;font-family:monospace"></body>');
+    // The app loads Tailwind globally; keep its layout primitives in this offline harness.
+    await page.addStyleTag({content: '*{box-sizing:border-box}.flex{display:flex}.flex-col{flex-direction:column}.flex-1{flex:1 1 0%}.min-h-0{min-height:0}'});
     await page.addStyleTag({content: fs.readFileSync('ui/static/css/runtime-memory.css', 'utf8')});
     await page.addScriptTag({content: fs.readFileSync('ui/static/js/logger/trace-modal.js', 'utf8')});
     await page.evaluate(() => {
@@ -140,6 +148,10 @@ const details = `SYSTEM PROMPT\n----------------\n${systemPrompt}\n\nUSER PROMPT
     assert.match(systemText, /runtime: ready/);
     assert.match(systemText, /alpha/);
     assert.match(systemText, /preserve me/);
+    assert.match(systemText, /Maintenance sentinel/);
+    assert.equal((systemText.match(/Maintenance sentinel/g) || []).length, 1);
+    assert.ok(systemText.indexOf('Maintenance sentinel') < systemText.indexOf('runtime: ready'));
+    await page.getByRole('tabpanel', {name: 'SYSTEM'}).locator('.jin-context-card-header').filter({hasText: 'SETTINGS'}).click();
     await page.getByRole('button', {name: 'bamboo'}).click();
     assert.equal(await page.evaluate(() => window.__skin), 'bamboo');
     assert.equal(await page.getByRole('button', {name: 'bamboo'}).getAttribute('aria-pressed'), 'true');

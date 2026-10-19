@@ -1607,6 +1607,7 @@ class RuntimeClient:
             user_prompt,
             temperature: float,
             max_tokens: int | None,
+            on_request_submitted=None,
     ):
 
         provider_user_prompt = self.provider_user_prompt(
@@ -1636,6 +1637,8 @@ class RuntimeClient:
 
             try:
 
+                if on_request_submitted is not None:
+                    on_request_submitted()
                 async with self.client.stream(
                         "POST",
                         endpoint,

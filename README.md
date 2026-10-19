@@ -102,7 +102,7 @@ Current contract families include:
 
 * `SAVE_ACTIVE_MEMORY` for both create/update, plus paired multi-ID `DELETE_ACTIVE_MEMORY`;
 * `SAVE_DELAYED_MEMORY` and paired multi-ID `LOAD_DELAYED_MEMORY`; loaded reports are removable tool results, while only user-pinned reports enter the dedicated loaded-memory block;
-* `LIST_ALL_USER_SHARED_FILES`, plus skill-gated `ATTACH_FILE_CONTENT` and paired multi-ID `ATTACH_FILES_BY_ID` (internally `ATTACH_FILE_BY_ID` per file);
+* `LIST_ALL_USER_SHARED_FILES`, plus the single attachment marker `ATTACH_FILE_CONTENT` for IDs, image paths and text windows; whole-file alternatives are `ASSET_ACTION` operations `ATTACH_FILE_BY_ID` and `ATTACH_FILE_BY_PATH`;
 * `LOAD_SKILLS_CONTEXT` and `UNLOAD_SKILLS_CONTEXT` accept comma-separated skill lists; the internal actions remain singular;
 * `POSTING_BOARD` after the `posting_board` skill is loaded;
 * `CALL_MCP` after any skill containing a valid `<MCP_SERVER>...</MCP_SERVER>` declaration is loaded;
@@ -180,7 +180,7 @@ assets/
 `-- outputs/      # Generated files
 ```
 
-JIN can inspect `<SKILLS_LIST>`, load required skills with one comma-separated `<LOAD_SKILLS_CONTEXT> ... </LOAD_SKILLS_CONTEXT>` block, run their allowed actions, and unload one or more with `<UNLOAD_SKILLS_CONTEXT> ... </UNLOAD_SKILLS_CONTEXT>`. Loaded skill bodies are projected through the normal tool-results context, while `<SKILLS_LIST>` remains the compact availability/loaded-state inventory. Python skills execute from `.py` files inside the selected skill directory with bounded execution and output limits. Persistent uploaded files are stored separately under `assets/files/` and keep stable ids across turns.
+JIN can inspect `<SKILLS_LIST>`, load required skills with one comma-separated `<LOAD_SKILLS_CONTEXT> ... </LOAD_SKILLS_CONTEXT>` block, run their allowed actions, and unload one or more with `<UNLOAD_SKILLS_CONTEXT> ... </UNLOAD_SKILLS_CONTEXT>`. Loaded skill bodies are projected through the normal tool-results context, while `<SKILLS_LIST>` remains the compact availability/loaded-state inventory. Linking a local folder automatically includes the `directory_link` skill in `<TOOLS_RESULTS>` (and marks it loaded in `<SKILLS_LIST>`); detaching it removes this implicit skill without any `LOAD_SKILL`/`UNLOAD_SKILL` action. Python skills execute from `.py` files inside the selected skill directory with bounded execution and output limits. Persistent uploaded files are stored separately under `assets/files/` and keep stable ids across turns.
 
 ### MCP skills
 
@@ -377,3 +377,5 @@ npm run probe delayed
 ```
 
 GitHub Actions runs the same suite. Browser client tests stay separate because they require Playwright and an Edge browser channel; run them explicitly with `npm run browser_tests` in an environment that provides those dependencies. Model-dependent probes remain local unless CI is connected to a compatible runtime.
+
+Linked-folder workflows can attach an image and its text together with `<ATTACH_FILE_CONTENT: dataset/00036.png, dataset/00036.txt >` and inspect them on the next follow-up. Images use temporary path attachments and text paths use source windows; ASSET_ACTION ATTACH_FILE_BY_PATH loads/replaces a whole-file set; files are not imported into the persistent library. The `file_manager` skill can create/append text in a linked folder using an explicit `attachment` selector, while omitted selectors retain the assets/ destination.

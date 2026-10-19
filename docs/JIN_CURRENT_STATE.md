@@ -32,7 +32,7 @@ Current high-signal state:
 - reload/new-tab continuity is disk-owned (JSONL/runtime events plus saved `frames/` snapshots). Browser cognitive records are page-local projections only: `jin.liveRuntimeMemory.v2` is cleared at page load and the retired durable `jin.sessionCheckpoint.v2` browser value is removed before bootstrap;
 - Session CLEAR is a durable tombstone that blocks passive resurrection across already-open tabs until a new USER message is successfully sent;
 - `SAVE_SESSION` is not a current runtime-action contract; archived-session restore is handled by the bootstrap/restore path;
-- the current action set includes `JIN_REACTION`, internal `RECALL_FACT_CONTEXT`, `CHAT_LOG_SEARCH`, generic skill-gated `CALL_MCP`, and whole-file `ATTACH_FILE_BY_ID`; fact recall, delayed-memory loading, Active deletion, file-by-ID attachment, skill loading, and skill unloading use paired list markers while their internal actions remain singular;
+- the current action set includes `JIN_REACTION`, internal `RECALL_FACT_CONTEXT`, `CHAT_LOG_SEARCH`, generic skill-gated `CALL_MCP`, and the single `ATTACH_FILE_CONTENT` attachment marker; whole-file BY_ID/BY_PATH are ASSET_ACTION operations; fact recall, delayed-memory loading, Active deletion, skill loading, and skill unloading use paired list markers;
 - runtime actions execute in exact model-emitted source order (`prepare -> run` per call); `runtime_order` only orders advertised contracts, and the former visual-sequence collector/stage path is absent;
 - `BRAIN_MAX_FOLLOWUPS=0` is unlimited; positive values cap executable workflow ticks and then allow one final response tick with actions disabled. Malformed output gets at most one separate repair tick outside that budget;
 - `<CONCERNS>` is omitted when empty; at 50%+ previous-answer context usage it shows the live percentage, and if tool results are present it explicitly recommends cleaning redundant results;
@@ -192,7 +192,6 @@ POSTING_BOARD
 CALL_MCP
 LIST_ALL_USER_SHARED_FILES
 ATTACH_FILE_CONTENT
-ATTACH_FILE_BY_ID
 SAVE_DELAYED_MEMORY
 LOAD_DELAYED_MEMORY
 SAVE_ACTIVE_MEMORY
@@ -211,8 +210,7 @@ The mapped Brain feature flags in `rules/brain_context_builder.py` are enabled. 
 
 Canonical short action syntax is paired: `<WEB_SEARCH> query </WEB_SEARCH>`,
 `<LOAD_DELAYED_MEMORY> id1, id2 </LOAD_DELAYED_MEMORY>`,
-`<DELETE_ACTIVE_MEMORY> id1, id2 </DELETE_ACTIVE_MEMORY>`, and
-`<ATTACH_FILES_BY_ID> id1, id2 </ATTACH_FILES_BY_ID>`. A model-issued delayed
+`<DELETE_ACTIVE_MEMORY> id1, id2 </DELETE_ACTIVE_MEMORY>`. Attachment uses `<ATTACH_FILE_CONTENT: id_or_path, id_or_path >`. A model-issued delayed
 load records each report as a separately identified tool result and does not
 populate `<LOADED_DELAYED_MEMORY>`. Only explicit user pinning populates that
 block. `UNLOAD_DELAYED_MEMORY` is no longer a model-facing contract; tool-result
@@ -319,7 +317,7 @@ Normal connection sends an empty `session_bootstrap` request. The server selects
 
 The existing archive builder combines USER/JIN rows and reasoning, structured action history, server `session_checkpoint` events and later cleanup/tool-result events. Latest `frames/<prefix>_frame_<N>.txt` wins over the earlier prompt's FRAME. New frame files embed the complete snapshot metadata beside the readable FRAME; legacy files retain their text fallback. Explicit empty FRAME and tool inventories stay empty. A single server `bootstrap_state` response feeds the existing UI projection, followed by the established FRAME/actions/chat-tail events and hidden continuation tick.
 
-`RuntimeContext` remains the live owner. Soft reconnect with a surviving transport sends no browser state. After server restart, the same page requests disk bootstrap again. `runtime_resume` snapshots are ignored. Active/Delayed/Facts/L-T remain disk-profile-owned; automatic legacy browser Facts imports are disabled.
+`RuntimeContext` remains the live owner. Soft reconnect with a surviving transport sends no browser state. After server restart, an already-open page reconnects silently: the server hydrates its exact session ID from disk (including anonymous audit logs) before accepting work, without emitting bootstrap state/chat/FRAME replacements or starting a hidden Brain turn. Missing logs do not select another room. New-page bootstrap remains unchanged. `runtime_resume` snapshots are ignored. Active/Delayed/Facts/L-T remain disk-profile-owned; automatic legacy browser Facts imports are disabled.
 
 Normal cognitive caches use page RAM, with the existing ephemeral FRAME record cleared on every page load. The `jin.sessionCheckpoint.v2` and older durable cognitive records are retired and removed on startup, without migrating their contents. UI preferences remain in localStorage. An in-page checkpoint API remains for existing projection callers; it cannot become a reload source.
 
@@ -553,6 +551,33 @@ The supplied snapshot does not include `.git`, so repository dirty status cannot
 
 ---
 
+## 17.1 Self-fork instances — 2026-10-13
+
+The current runtime exposes paired `CREATE_JIN_INSTANCES` and `FINISH_SUBTASK`
+contracts. A validated group runs sequentially inside the existing Brain
+follow-up loop, uses authoritative server IDs, records each finish as an
+ordinary action/tool result, disables nesting, and returns once to the parent.
+`JIN_MAX_INSTANCES` defaults to 32. Children are explicitly instructed to use
+the existing `CLEAN_TOOL_RESULTS` action to remove obsolete predecessor results
+while preserving skills and evidence needed later. No separate window, agent
+framework, browser-owned queue, or FRAME writer was added.
+
+Follow-up audit correction (2026-10-13): ordinary/recovery child ticks now keep
+their assignment and 24-hour L-T projection; the parent regains unfiltered L-T
+and its own reasoning/dialogue state. Follow-up exhaustion and repeated malformed
+output terminalize unfinished work before the parent final tick. Stop restores
+parent state again after the cancelled stream's finalizer. CREATE/FINISH bypass
+tool-result reuse, so another group with identical conditions executes afresh.
+Strict JSON type validation rejects floating/bool IDs and non-string conditions
+or finish reasons. Server-authoritative original_conditions remains intentional.
+
+Verification: 211 targeted tests passed (instance flow, Brain follow-ups,
+action-result reuse, malformed recovery, stream boundaries/lifecycle, and L-T
+context/budget). Python compilation and scoped diff whitespace checks passed.
+The full suite and a live provider run were not performed for this correction.
+
+---
+
 ## 18. Open / known-unknown items
 
 Do not present these as settled without fresh code evidence:
@@ -698,3 +723,106 @@ FRAME now owns one protected `session_title`, refreshed through the existing sum
 LOGS uses the common memory lazy-render pipeline with 20-row batches. The full index is fetched once per page, while successful disk commits publish `archived_session_update` so the current session can be inserted or retitled live; a per-session summary request reconciles a missed update without reloading the historical list. Session dialogue is fetched only while a row is hovered, shown in the existing memory hover-card as up to five newest USER-owned turns, and discarded on mouse leave.
 
 Short-click restores the session in a new tab. A 1500 ms hold reuses the shared fade/delete interaction and calls the disk DELETE endpoint. Only indexed USER-owned, non-anonymous archive directories are eligible; symlink escapes are rejected, an empty date directory is removed only when truly empty, and the live writer will not recreate a physically deleted session from a still-open runtime.
+
+## Linked-folder attachments and writes — 2026-10-09
+
+Added ATTACH_FILES_BY_PATH using the existing parser/dispatcher/follow-up, image payload, tool-result and attachment preview paths. Temporary path sets replace each other without importing files into assets/files; disk restore retains history but unloads bytes. Explicit file_manager attachment selectors extend create_asset_file/append_asset_file/preview_file to current linked folders, preserving overwrite and anonymous-mode rules. This owner-requested extension supersedes the former read-only linked-folder restriction.
+
+The dataset skill in this checkout is assets/skills/dataset_captioning.md, not the directory-style JIN_SKILL.md path cited in the task; the existing skill was updated in place.
+
+Directory Link skill: `assets/skills/directory_link.txt` replaces the former `project.txt`. When the user links a real local folder, prompt assembly projects this skill automatically into `<TOOLS_RESULTS>`, and `<SKILLS_LIST>` marks it loaded. `project_tree`/`project_search` therefore work immediately without a `LOAD_SKILL` action; `project_read` continues to require `file_manager`. Implicit loading is recomputed from live folder links on every prompt/action and never persists as a synthetic tool result, so unlinking removes the skill. Unlinked JIN source-root access continues to require a manual directory_link load.
+
+
+## Surviving-page backend restart (2026-10-16)
+
+An open room reconnects without clearing its DOM, replaying startup snapshots,
+or starting a continuation model turn. If the backend lost its RuntimeContext,
+it silently hydrates that exact room's disk archive before accepting new work,
+including anonymous audit logs. It restores FRAME (including explicit empty
+values and original timestamps), recent dialogue/reasoning, actions and tool
+results; ordinary memory profiles keep their disk owners. The next USER request
+therefore has prior context even though the page received no bootstrap replay.
+Live server RAM is reused without disk rehydration. A missing/deleted room log
+never falls back to another room or browser cognitive contents. Anonymous logs
+remain excluded from normal bootstrap and explicit archive checkout. FRAME
+numbering continues after the saved file number across repeated restarts.
+New-page bootstrap and explicit archive checkout retain their existing behavior.
+This corrects the earlier incomplete implementation which preserved only the UI
+and left the restarted Brain without context; D057 disk authority is retained.
+
+## Context maintenance warning (2026-10-16)
+
+Brain preparation now prepends optional CONTEXT_MAINTENANCE after dynamic L-T
+budgeting. Final estimates include warning text and image reserves. Shared
+in-process threshold state covers ordinary turns, child-instance ticks and the
+parent return; native preflight failure/abandoned preparation does not consume
+a threshold. Empty visible results suppress it. Largest/oldest hints intersect
+visible blocks with canonical removable tool IDs, excluding implicit skills.
+The existing CONCERNS warning remains by explicit owner choice. Exact downward
+boundary rearming follows the owner-approved 93 -> 85 -> 87 example. No action,
+follow-up-budget, persistence or automatic cleanup mechanism was added.
+
+Implementation files: `rules/runtime.py`, `utils/current_context_window.py`,
+`utils/context/tool_results.py`, `runtime/runtime_context.py`, `runtime/client.py`,
+`clients/brain_client.py`, `agent/nodes/brain.py`, `config.example.py`, and
+`ui/static/js/logger/trace-modal.js`. Tests: `tests/test_context_maintenance.py`
+and `tests/test_context_snapshot_tabs.js`. The architecture and decisions docs
+record the request-boundary projection and retained legacy concerns behavior.
+
+Verification: 145 targeted Python tests passed across maintenance, current
+window, L-T budget, overflow/follow-up continuity, result IDs/checkpoints,
+instances, concerns, Brain/runtime client, and directory-link behavior. The
+Edge DOM test passed for snapshot tabs, warning placement, counts, collapse,
+settings, keyboard, reopening and narrow layout. Its stale result-age fixture
+and missing offline Tailwind layout primitives were corrected; settings are
+expanded before clicking the skin control. Python compilation, JS syntax and
+scoped diff whitespace checks passed. Full `git diff --check` still reports
+pre-existing whitespace in `tests/test_attach_file_by_id_client.js:12`, which
+was not changed for maintenance. No full-suite/live-provider claim is made.
+
+
+## Unified file attachment (2026-10-17)
+
+The owner superseded the earlier BY_ID/BY_PATH marker design. Only ATTACH_FILE_CONTENT remains a model-facing attachment marker; it accepts comma-separated IDs, linked image paths, and existing text paths/ranges. ASSET_ACTION adds case-insensitive ATTACH_FILE_BY_ID and ATTACH_FILE_BY_PATH whole-file operations behind file_manager. The two old marker contracts are removed, not aliased. Internal result names and archived readers remain for disk/UI continuity. The shared loader retains confinement, size, pin, anonymous, Stop and restore behavior. Asset failures preserve their original payload before tool-result copying.
+
+Verification: 103 targeted unittest cases passed (unified attachments, ID/path loaders, project windows, asset actions, lifecycle, streaming and malformed recovery). Both existing Edge attachment DOM suites passed, including preview/modal and failure/counter behavior. Python syntax, JSON parsing and scoped diff whitespace checks passed. Full diff checking still reports the pre-existing whitespace in tests/test_attach_file_by_id_client.js:12. No live-provider or full-suite green claim; backend restart is required to load the new contracts/runtime.
+
+## Ephemeral child Active Memory (2026-10-19)
+
+Owner-requested revision to D060: children read shared Active/Delayed/L-T context,
+but model actions cannot mutate shared memory. They may create, update or delete
+only their own temporary Active records. Runtime assigns `owner_subtask_agent_id`,
+`SUB-AM-xxxxxx` IDs, and `subN_active_memory_M` labels; ownership is reserved metadata,
+not a custom field. Main IDs remain `AM-xxxxxx`. ACTIVE renders child rows below
+main rows with existing row/hover/edit primitives. Existing child 24-hour L-T
+read projection remains unchanged.
+
+Validated FINISH commits deletion before transitioning; invalid FINISH leaves
+memory intact and failed persistence does not report success. Stop, follow-up
+exhaustion and terminal request exit clean up as well. Follow-up/recovery ticks
+retain the records. Profile reads reap orphan owners after restart, while checking
+all live contexts in the same normal/anonymous profile. Scratchpad records/results
+are removed from live projections; their tool results are excluded from checkpoint,
+raw-event and prompt-based reload paths. Other tool results and finish_reason remain.
+Actions after FINISH in the same response are rejected until the next instance tick.
+This uses the existing single-server profile synchronization, not cross-process locks.
+
+Implementation scope: `utils/subtask_memory.py`, instance actions, Active normalization,
+ID/parser/dispatcher/reuse paths, tool-result serialization and restore, memory profile,
+Brain prompt projection, terminal request/Stop integration, shared UI ID helpers and
+ACTIVE row presentation. Canonical storage keys remain `active_memory_N`; labels are
+presentation metadata. Contracts and D060 were updated for the new child permissions.
+
+Verification: 32 instance tests (including disk lifecycle, failed deletion, Stop,
+other live contexts, anonymous profile, ownership injection, split markers, recovery,
+and serialize/reload result filtering); 310 memory tests; 61 bootstrap tests;
+4 checkpoint tests; 27 archive-restore tests; 7 streaming-latency tests; 9 malformed
+action tests. These suites overlap. Python compilation and scoped `git diff --check`
+passed. Real headless Edge DOM test verifies SUB-AM identity, label, main-first order,
+hover and removal. No live model/provider run was performed.
+
+Broader action regression run: 197 tests, 2 failures and 1 error in existing adjacent
+work: attachment marker metadata expectation, attachment capability enumeration,
+and the reaction test's prepared-window stub missing `maintenance_state`. These
+unrelated paths were not changed to make the suite green. Repository-wide diff check
+also reports pre-existing trailing whitespace in `tests/test_attach_file_by_id_client.js`.

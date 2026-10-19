@@ -175,7 +175,7 @@ Ordinary turn:
 2. optional `<CONCERNS>`; it is omitted when empty, and from 50% previous-answer context usage it includes the percentage and can ask Brain to clean redundant tool results;
 3. trusted runtime XML / enabled actions;
 4. optional project-review context;
-5. `TOOLS_RESULTS` — this is also where loaded skill bodies are projected;
+5. `TOOLS_RESULTS` — this is also where loaded skill bodies are projected; a user-linked folder implicitly projects `directory_link` each turn without an action/result record, and detaching removes it;
 6. session action history;
 7. attached-files inventory, then Delayed Memory inventory;
 8. always-present `<SKILLS_LIST>` availability/loaded-state inventory;
@@ -192,6 +192,15 @@ On ordinary turns, `<PREVIOUS_CHAT_MESSAGES>` takes the newest five recent USER/
 The ordinary initial Brain prompt also includes the previous successfully completed reasoning in `<PREVIOUS_REASONING_EVIDENCE_TRAIL_AFTER_EXECUTED_ACTIONS>`. Up to 2000 characters are kept whole; above that threshold the projection keeps the first and last 25% and replaces the middle with `CUTTED N chars`. Action/recovery follow-ups project visible dialogue first, then carried reasoning evidence, then `<FOLLOW_UP_RESPONSE_MESSAGE>` and the current failure/recovery/tool state, rather than duplicating the ordinary previous-reasoning slot.
 
 Prompt text is a transient projection. Canonical state remains in `RuntimeContext` and filesystem stores; browser cognitive data is only a page-local projection.
+
+After assembly and the dynamic L-T budget, Brain request preparation may prepend
+one ephemeral `<CONTEXT_MAINTENANCE>` block. Its counts include the warning and
+the actual user/image payload. The block is part of the request snapshot, not
+builder source data or dialogue. The existing SYSTEM tab renders it first using
+the ordinary context card. Threshold state is transient on `RuntimeContext`,
+shared across parent/child instances, and committed only at request submission
+(after native provider preflight). It does not schedule a tick or change any
+follow-up budget. The existing previous-answer `CONCERNS` warning is retained.
 
 ---
 
@@ -233,7 +242,6 @@ Current action names in runtime order are:
 - `CALL_MCP` — enabled only when at least one loaded skill has a valid MCP server declaration; one generic action routes exact discovered tool calls.
 - `LIST_ALL_USER_SHARED_FILES`
 - `ATTACH_FILE_CONTENT`
-- `ATTACH_FILE_BY_ID` (model-facing paired list marker: `ATTACH_FILES_BY_ID`)
 - `SAVE_DELAYED_MEMORY`
 - `LOAD_DELAYED_MEMORY`
 - `SAVE_ACTIVE_MEMORY`
@@ -324,6 +332,42 @@ MCP is an extension of the existing skill/action path, not a parallel agent fram
 Loading a valid MCP skill establishes/discovers the server with `tools/list` and appends one ephemeral `<MCP_RUNTIME>` block to the in-memory loaded skill. That block carries server identity/instructions plus live tool names, descriptions, and input schemas; the source `JIN_SKILL.md` is not rewritten. `CALL_MCP` becomes model-visible only while at least one valid MCP skill is loaded. Calls must name an exact loaded skill and exact discovered tool, are deliberately excluded from result-reuse caching, and use one persistent asyncio-owned MCP connection per loaded skill so server/session state survives automatic Brain follow-ups. Unload/runtime retirement closes that connection; a changed MCP config creates a fresh one.
 
 MCP image blocks are decoded with a 20 MiB per-image limit, stored as normal pinned JIN files, stripped of raw base64 in the tool result, and synchronized into the current-turn/sequence attachments so the next Brain follow-up can inspect them. The UI keeps Session Actions compact (`CALL_MCP: skill / tool`), uses a structured MCP payload/result modal for generic calls, and reuses the attachment hover/click preview for `get_viewport_screenshot`. Static server identity/instructions stay in discovery context instead of being duplicated into every tool result. See [MCP_SKILLS.md](MCP_SKILLS.md).
+
+### 6.9 Parent-owned self-fork sequences
+
+`CREATE_JIN_INSTANCES` creates a bounded, parent-owned sequence inside the
+current foreground Brain turn. The action handler validates assignments and
+registers authoritative child/session IDs; it never runs child model calls
+inside the dispatcher. `BrainNode` advances the registered children through
+ordinary follow-up ticks, one at a time, and enables `FINISH_SUBTASK` while
+removing `CREATE_JIN_INSTANCES` from every child prompt and executable action
+set. The last successful finish produces one parent-return tick. FRAME is not
+scheduled between these ticks; the ordinary websocket tail schedules it only
+after the restored parent emits the final answer.
+
+Children read shared durable memory but may mutate only their own temporary Active records.
+Runtime assigns `owner_subtask_agent_id`, `SUB-AM-xxxxxx` IDs and a
+`subN_active_memory_M` display label (below main records in ACTIVE). These
+records survive follow-ups, then are removed from disk, live projections and
+Active tool results before FINISH succeeds, or on terminal interruption. Startup
+reaps owners absent from every live context in the same profile. Shared Active,
+L-T and Delayed writes are rejected for children; useful findings return through
+`finish_reason`. Other tool results retain their existing owners. Each child sees
+the original USER intention, its own conditions, ordered predecessor reports,
+current Active/Delayed state, and an L-T prompt projection containing only
+facts created or updated within 24 hours. The projection never deletes facts.
+Child reasoning is not carried into the next child prompt. Stop interrupts the
+active child and cancels unstarted assignments; process restart does not resume
+an in-memory group or classify it as completed.
+
+Every child follow-up, including recovery, carries its authoritative assignment;
+the 24-hour L-T restriction is applied by the common prompt builder using fact
+IDs, without replacing the canonical memory store. Parent reasoning/recovery
+state and in-flight dialogue are saved before the first child and restored on
+return or interruption; each child starts from the parent's dialogue snapshot.
+Reaching a follow-up or malformed-repair limit interrupts unfinished children,
+cancels queued work, and runs the existing final non-executable tick as the
+parent with terminal reports. Instance transitions never reuse cached results.
 
 ---
 
@@ -432,6 +476,11 @@ Creation custom fields are explicit structure only: JSON root fields beside `con
 
 Historical nested `fields`/`updates`, line-based update payloads, self-closing UPDATE attribute forms, old `active_memory_id` storage fields, and bare six-character Active Memory IDs are not accepted by the current write/storage path. Internally/browser-side, Active Memory is still represented in a string-record format with metadata suffixes; the identity suffix is `[ id: AM-xxxxxx ]`.
 
+Temporary child records use `SUB-AM-xxxxxx`; their server-owned metadata is excluded
+from the custom-field cap and cannot be changed through SAVE payloads. The stored
+slot key remains canonical `active_memory_N`; `subtask_memory_label` supplies the
+child-specific UI label without changing ID-based edits/citations.
+
 Paused Active records are removed from the Brain prompt. Memory Attention may reorder the prompt projection by lexical/context relevance without changing canonical storage order.
 
 ### 7.7 Persistent Files
@@ -448,8 +497,8 @@ The composer projects currently pinned files as compact attachment chips. A chip
 
 ### Project review through linked files
 
-`<ATTACH_FILES_BY_ID> id1, id2 </ATTACH_FILES_BY_ID>` expands to ordered
-internal `ATTACH_FILE_BY_ID` actions and attaches whole existing persistent files through
+`<ATTACH_FILE_CONTENT: id1, id2 >` expands to ordered
+file attachment calls and attaches whole existing persistent files through
 the ordinary pin/hydration path. Text uses the shared attachment context budget;
 images use the existing multimodal Brain payload when image input is enabled.
 It accepts only system IDs, never paths, stored filenames, or line ranges.
@@ -462,16 +511,15 @@ is reserved for reports the user explicitly pins. There is no model-facing
 reports from context.
 Missing/deleted IDs fail without falling back to project reading. Its result
 uses the existing bubble, Session Actions, tool-result and checkpoint paths.
-`ATTACH_FILE_CONTENT` remains the source-path/range reader, with its old
-persistent-ID handling retained for compatibility.
+`ATTACH_FILE_CONTENT` is the sole attachment marker: persistent IDs attach whole files, linked image paths supply vision bytes, and text paths/ranges retain source-window reading. Explicit whole-file ASSET_ACTION operations ATTACH_FILE_BY_ID and ATTACH_FILE_BY_PATH reuse the same loader; their names are not XML markers.
 
 `LINK FOLDER` beside `ATTACH FILE` accepts a local path (including a folder
 copied into `assets/`) or a `file:///` URL. The user-facing endpoint validates
 the directory and stores an ordinary `.jin-folder` descriptor in Files. Its
 existing id, pin/unpin, preview, delete/restore, and session attachment paths
 remain authoritative. Deleting the descriptor never deletes the project.
-Remote repository URLs, project writes, execution, indexing, and ingestion
-are outside this increment.
+Remote repository URLs, execution, indexing, and ingestion remain outside this interface.
+User-requested linked-folder text writes use file_manager as described below.
 
 An attached folder activates the prompt-only `PROJECT_REVIEW` projection.
 Brain retains recent conversation, FRAME, ACTIVE, and exact accumulated
@@ -561,7 +609,7 @@ Normal connection sends an empty `session_bootstrap` request. The server selects
 
 The existing archive builder combines USER/JIN rows and reasoning, structured action history, server `session_checkpoint` events and later cleanup/tool-result events. Latest `frames/<prefix>_frame_<N>.txt` wins over the earlier prompt's FRAME. New frame files embed the complete snapshot metadata beside the readable FRAME; legacy files retain their text fallback. Explicit empty FRAME and tool inventories stay empty. A single server `bootstrap_state` response feeds the existing UI projection, followed by the established FRAME/actions/chat-tail events and hidden continuation tick.
 
-`RuntimeContext` remains the live owner. Soft reconnect with a surviving transport sends no browser state. After server restart, the same page requests disk bootstrap again. `runtime_resume` snapshots are ignored. Active/Delayed/Facts/L-T remain disk-profile-owned; automatic legacy browser Facts imports are disabled.
+`RuntimeContext` remains the live owner. Soft reconnect with a surviving transport sends no browser state. After server restart, an already-open page reconnects silently: the server hydrates its exact session ID from disk (including anonymous audit logs) before accepting work, without emitting bootstrap state/chat/FRAME replacements or starting a hidden Brain turn. Missing logs do not select another room. New-page bootstrap remains unchanged. `runtime_resume` snapshots are ignored. Active/Delayed/Facts/L-T remain disk-profile-owned; automatic legacy browser Facts imports are disabled.
 
 Normal cognitive caches use page RAM, with the existing ephemeral FRAME record cleared on every page load. The `jin.sessionCheckpoint.v2` and older durable cognitive records are retired and removed on startup, without migrating their contents. UI preferences remain in localStorage. An in-page checkpoint API remains for existing projection callers; it cannot become a reload source.
 
@@ -760,3 +808,11 @@ Do not infer current architecture from compatibility/history alone:
 The verified filesystem has no active L2/L3 modules and no current `SAVE_SESSION` contract.
 
 For the exact transition/conflict list, see `docs/JIN_CURRENT_STATE.md`.
+
+### Whole linked-folder attachments and writes (2026-10-09)
+
+`ASSET_ACTION` operation `ATTACH_FILE_BY_PATH` expands case-preserving paths through the existing attachment dispatcher. `RuntimeContext.runtime_turn_attachments` and `runtime_current_sequence_attachments` own the current set; the marker group replaces only previous path attachments. Files never enter assets/files or persistent pin IDs. The shared byte hydrator and Brain image_url builder carry real image bytes; FILE_CONTENT under the corresponding tool result carries whole UTF-8 text once. Results/history/checkpoints hold metadata only. Each set has at most five files, 40 MiB total, 20 MiB per image, and 32000 text characters; oversized files fail instead of silently cropping. PNG/JPEG/GIF/WebP are supported. The JSON operation accepts path or a paths array; the unified marker accepts comma-separated references.
+
+Only currently linked folders authorize these reads: no implicit source root, absolute/drive/stream paths, parent traversal or symlink escape. New USER sequences, Stop and disk bootstrap unload path attachments. Live reconnect uses server RAM; prompt projection prunes detached/deleted files. Preview reuses the existing attachment modal, through a no-store server endpoint that rechecks the runtime folder selection, recorded result and file digest. Changed/unavailable files show an unavailable result.
+
+`file_manager` uses the existing create_asset_file, append_asset_file and preview_file operations with optional explicit `attachment` (folder name or selector ID) and relative `path`. Without attachment, assets/ behavior is unchanged. With attachment, the same text writers work inside the currently linked root, including new parent folders; overwrite still requires overwrite:true. Anonymous/shadow persistent-write restrictions apply. There is no new runtime write action, dataset loop or automatic caption saving.

@@ -86,8 +86,26 @@ def find_reusable_result(context, action):
     # Bare ATTACH_FILE_CONTENT is stateful: each call advances to the next
     # unread project-file window, so an identical payload is not equivalent
     # to the previous execution and must never be satisfied from reuse cache.
-    if action.name in {"CLEAN_TOOL_RESULTS", "ATTACH_FILE_CONTENT", "CALL_MCP"}:
+    # Instance actions are transitions of the live group. Cached creation
+    # cannot start another group, and cached finish cannot validate its owner.
+    if action.name in {"CLEAN_TOOL_RESULTS", "ATTACH_FILE_CONTENT", "ATTACH_FILE_BY_PATH", "CALL_MCP",
+                       "CREATE_JIN_INSTANCES", "FINISH_SUBTASK"}:
         return None
+
+    if action.name in {"SAVE_ACTIVE_MEMORY", "DELETE_ACTIVE_MEMORY"}:
+        from utils.subtask_memory import running_child
+        if running_child(context):
+            return None  # Parent/predecessor results do not satisfy child-owned mutations.
+
+    if action.name == "ASSET_ACTION":
+        from utils.python_skill_asset_utils import _parse_payload
+        # Linked folders are live user resources. Recheck selection and contents
+        # on every call, including writes and preview after detach/reconnect.
+        payload = _parse_payload(action.payload)
+        if payload.get("attachment") or str(payload.get("action", "")).strip().upper() in {
+            "ATTACH_FILE_BY_ID", "ATTACH_FILE_BY_PATH",
+        }:
+            return None
 
     # Posting Board reads/checkpoints are live server state, not reusable
     # results. Reusing inbox/feed/read/search would return stale data after an

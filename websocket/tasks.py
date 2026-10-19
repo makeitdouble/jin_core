@@ -20,6 +20,7 @@ async def cancel_current_task(
         task is not None
         and not task.done()
     )
+    interrupted_instance_group = None
 
     # -----------------------------------
     # FORCE CLOSE ACTIVE STREAMS
@@ -29,7 +30,15 @@ async def cancel_current_task(
 
         context.runtime_turn_interrupted = True
         context.runtime_turn_abort_requested = True
+        from utils.actions.attachment_actions import clear_path_attachments
+        clear_path_attachments(context)
         context.runtime_turn_discard_requested = not update_memory
+        from utils.actions.jin_instance_actions import interrupt_instance_group, self_fork_phase
+        if self_fork_phase(context) in {"child_pending", "child_running", "parent_pending"}:
+            interrupted_instance_group = interrupt_instance_group(context, "stopped_by_user")
+
+        from clients.brain_client import emit_active_memory_records_update_if_dirty
+        await emit_active_memory_records_update_if_dirty(context)
 
         await abort_active_runtime_actions(
             context,
@@ -80,6 +89,11 @@ async def cancel_current_task(
         )
 
     if context:
+        # A cancelled stream appends its last reasoning in its finally block.
+        # Restore the parent after that append as well as at the Stop boundary.
+        from utils.actions.jin_instance_actions import restore_parent_reasoning
+        if interrupted_instance_group is not None and getattr(context, "runtime_jin_instance_group", None) is interrupted_instance_group:
+            restore_parent_reasoning(context)
         if not update_memory:
             return
 

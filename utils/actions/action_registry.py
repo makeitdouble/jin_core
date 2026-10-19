@@ -14,8 +14,11 @@ from typing import Awaitable, Callable, TYPE_CHECKING
 from contracts.rules_assembler import (
     RUNTIME_ACTION_ASSET_ACTION,
     RUNTIME_ACTION_ATTACH_FILE_BY_ID,
+    RUNTIME_ACTION_ATTACH_FILE_BY_PATH,
     RUNTIME_ACTION_ATTACH_FILE_CONTENT,
     RUNTIME_ACTION_CALL_MCP,
+    RUNTIME_ACTION_CREATE_JIN_INSTANCES,
+    RUNTIME_ACTION_FINISH_SUBTASK,
     RUNTIME_ACTION_CHAT_LOG_SEARCH,
     RUNTIME_ACTION_CLEAN_TOOL_RESULTS,
     RUNTIME_ACTION_DEEP_WEB_SEARCH,
@@ -458,7 +461,7 @@ async def _run_clean(batch, action, state):
     return 1
 
 
-async def _run_skill(batch, action, _state):
+async def _run_skill(batch, action, state):
     from .asset_actions import emit_saved_asset_results
     from .skill_actions import apply_skill_actions, emit_skill_state_results
 
@@ -490,11 +493,25 @@ async def _run_skill(batch, action, _state):
             results["saved_asset_results"],
             with_action_context=batch.with_action_context_for(action),
         )
-    await emit_skill_state_results(
-        batch.context,
-        loaded + unloaded,
-        with_action_context=batch.with_action_context_for(action),
-    )
+    skill_results = loaded + unloaded
+    marker_group = str(getattr(action, "marker_group", "") or "")
+    if marker_group:
+        # A plural public marker expands to ordered singular actions. Gather
+        # only their *presentation* results, not the executions or mutations.
+        pending = state.setdefault("_skill_marker_results", {})
+        pending.setdefault(marker_group, []).extend(skill_results)
+        remaining = state["_marker_group_remaining"]
+        remaining[marker_group] -= 1
+        if remaining[marker_group] == 0:
+            skill_results = pending.pop(marker_group)
+        else:
+            skill_results = []
+    if skill_results:
+        await emit_skill_state_results(
+            batch.context,
+            skill_results,
+            with_action_context=batch.with_action_context_for(action),
+        )
     return len(results["saved_asset_results"]) + len(loaded) + len(unloaded)
 
 
@@ -502,6 +519,53 @@ async def _run_asset(batch, action, _state):
     from .asset_actions import apply_asset_actions, emit_saved_asset_results
 
     logger = getattr(batch.context, "logger", None)
+    from .attachment_actions import parse_asset_attachment_calls, apply_attachment_actions
+    from utils.python_skill_asset_utils import _parse_payload, _require_loaded_skill
+
+    payload = _parse_payload(action.payload)
+    if str(payload.get("action", "")).strip().upper() in {
+        RUNTIME_ACTION_ATTACH_FILE_BY_ID, RUNTIME_ACTION_ATTACH_FILE_BY_PATH,
+    }:
+        owner_id = batch.action_display_ids.get(id(action)) or (
+            f"asset_attachment_{len(batch.context.runtime_action_events):06d}"
+        )
+        batch.action_display_ids[id(action)] = owner_id
+        batch.context.runtime_action_events[-1]["id"] = owner_id
+        try:
+            _require_loaded_skill(batch.context, "file_manager")
+            calls = parse_asset_attachment_calls(payload)
+        except (ValueError, PermissionError) as error:
+            from utils.brain_client_utils import append_asset_runtime_result
+            result = {"ok": False, "action": "asset_action", "payload": payload,
+                      "error": "invalid_attachment_action", "detail": str(error),
+                      "runtime_action_id": owner_id}
+            append_asset_runtime_result(batch.context, result)
+            await emit_saved_asset_results(
+                batch.context, [result], with_action_context=batch.with_action_context_for(action)
+            )
+            return 1
+        results = await apply_attachment_actions(
+            batch.context, list_actions=(), attach_actions=calls,
+            runtime_message_id=batch.resolved_runtime_message_id,
+            action_display_ids={id(call): f"{owner_id}_{index}" for index, call in enumerate(calls, 1)},
+            owner_action_id=owner_id,
+            log_runtime=getattr(logger, "log_runtime", None),
+            with_action_context=batch.with_action_context_for(action),
+        )
+        from utils.context.files import file_result_summary
+        from utils.session_actions_history import record_session_action_history
+        tool_ids = batch.context.runtime_action_events[-1].get("attachment_tool_ids", [])
+        text = "ASSET_ACTION: " + "; ".join(file_result_summary(r) for r in results)
+        record_session_action_history(batch.context, text,
+                                      display_parts=[{"text": text, "tool_ids": tool_ids}])
+        emit = getattr(getattr(batch.context, "emitter", None), "emit", None)
+        if emit is not None:
+            await emit(batch.with_action_context_for(action)({
+                "type": "runtime_action", "action": "asset_action", "id": owner_id,
+                "status": "completed" if all(r.get("ok") for r in results) else "failed",
+                "text": "; ".join(file_result_summary(r) for r in results),
+            }))
+        return len(results)
     results = await apply_asset_actions(
         batch.context,
         (action,),
@@ -522,6 +586,8 @@ async def _run_attachment(batch, action, _state):
         batch.context,
         list_actions=(action,) if action.name == RUNTIME_ACTION_LIST_FILES else (),
         attach_actions=(action,) if action.name != RUNTIME_ACTION_LIST_FILES else (),
+        runtime_message_id=batch.resolved_runtime_message_id,
+        action_display_ids=batch.action_display_ids,
         log_runtime=getattr(logger, "log_runtime", None),
         with_action_context=batch.with_action_context_for(action),
     )
@@ -650,6 +716,18 @@ async def _run_save_delayed(batch, action, _state):
     return len(results)
 
 
+async def _run_create_jin_instances(batch, action, state):
+    from .jin_instance_actions import apply_create_jin_instances
+
+    return await apply_create_jin_instances(batch, action, state)
+
+
+async def _run_finish_subtask(batch, action, state):
+    from .jin_instance_actions import apply_finish_subtask
+
+    return await apply_finish_subtask(batch, action, state)
+
+
 ACTIONS = {
     RUNTIME_ACTION_CHAT_LOG_SEARCH: Action(prepare=_prepare_always, run=_run_chat_log_search, on_success=_event_text_success, on_fail=_event_text_fail),
     RUNTIME_ACTION_DEEP_WEB_SEARCH: Action(prepare=_prepare_deep_search, run=_run_deep_search),
@@ -660,6 +738,7 @@ ACTIONS = {
     RUNTIME_ACTION_ASSET_ACTION: Action(run=_run_asset, on_success=_event_text_success, on_fail=_event_text_fail),
     RUNTIME_ACTION_LIST_FILES: Action(run=_run_attachment, on_success=_event_text_success, on_fail=_event_text_fail),
     RUNTIME_ACTION_ATTACH_FILE_BY_ID: Action(run=_run_attachment, on_success=_event_text_success, on_fail=_event_text_fail),
+    RUNTIME_ACTION_ATTACH_FILE_BY_PATH: Action(run=_run_attachment, on_success=_event_text_success, on_fail=_event_text_fail),
     RUNTIME_ACTION_ATTACH_FILE_CONTENT: Action(run=_run_attachment, on_success=_event_text_success, on_fail=_event_text_fail),
     RUNTIME_ACTION_JIN_COLOR: Action(prepare=_prepare_color, run=_run_visual),
     RUNTIME_ACTION_JIN_REACTION: Action(prepare=_prepare_reaction, run=_run_reaction),
@@ -675,6 +754,8 @@ ACTIONS = {
     RUNTIME_ACTION_SAVE_ACTIVE_MEMORY: Action(prepare=_prepare_save_active, run=_run_save_active, on_success=_event_text_success, on_fail=_event_text_fail),
     RUNTIME_ACTION_DELETE_ACTIVE_MEMORY: Action(prepare=_prepare_delete_active, run=_run_delete_active, on_success=_event_text_success, on_fail=_event_text_fail),
     RUNTIME_ACTION_SAVE_DELAYED_MEMORY: Action(prepare=_prepare_save_delayed, run=_run_save_delayed, on_success=_event_text_success, on_fail=_event_text_fail),
+    RUNTIME_ACTION_CREATE_JIN_INSTANCES: Action(prepare=_prepare_always, run=_run_create_jin_instances, on_success=_event_text_success, on_fail=_event_text_fail),
+    RUNTIME_ACTION_FINISH_SUBTASK: Action(prepare=_prepare_always, run=_run_finish_subtask, on_success=_event_text_success, on_fail=_event_text_fail),
 }
 
 # Skill state changes create a follow-up barrier. Only these actions are allowed

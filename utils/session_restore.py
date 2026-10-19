@@ -67,6 +67,7 @@ ACTION_LABELS = {
     "UPDATE_LT_FACTS": "Updated L-T facts",
     "ATTACH_FILE_CONTENT": "Attached file content",
     "ATTACH_FILE_BY_ID": "Attached file by ID",
+    "ATTACH_FILE_BY_PATH": "Attached file by path",
     "JIN_COLOR": "JIN color",
     "JIN_SIZE": "JIN size",
 }
@@ -1038,7 +1039,7 @@ def _tool_result_kind(name: str) -> str:
         "LIST_ALL_USER_SHARED_FILES",
         "LIST_FILES",
         "ATTACH_FILE_CONTENT",
-        "ATTACH_FILE_BY_ID",
+        "ATTACH_FILE_BY_ID", "ATTACH_FILE_BY_PATH",
     }:
         return "files"
     if action_name == "UPDATE_LT_FACTS":
@@ -1106,6 +1107,8 @@ def _parse_restore_tool_results(
                 result = parsed_result
 
         attrs = str(match.group("before_attrs") or "") + str(match.group("attrs") or "")
+        if "owner_subtask_agent_id=" in attrs:
+            continue
         created_at = _consume_runtime_tool_result_created_at(
             attrs,
             timestamp_queues,
@@ -1634,6 +1637,8 @@ def _build_runtime_event_tool_results(entries: list[dict]) -> list[dict]:
         payload = entry.get("payload")
         if not isinstance(payload, dict):
             continue
+        if payload.get("owner_subtask_agent_id"):
+            continue
         kind = str(payload.get("kind", "") or "").strip().casefold()
         result = payload.get("result")
         if not kind or result is None:
@@ -2000,10 +2005,10 @@ def _read_latest_frame_snapshot(session_directory: Path, prefix: str) -> dict | 
                 if line.startswith("snapshot_json: "):
                     snapshot = json.loads(line[len("snapshot_json: "):])
                     if isinstance(snapshot, dict):
-                        return snapshot
+                        return {**snapshot, "frame_memory_index": number}
             # Legacy inspectable FRAME files still outrank the earlier prompt.
             return {"raw_memory": memory.strip(), "index": number,
-                    "runtime_memory_updates": number}
+                    "frame_memory_index": number, "runtime_memory_updates": number}
         except (OSError, ValueError, json.JSONDecodeError):
             # An interrupted FRAME write must not conceal earlier valid titles.
             continue
@@ -2278,13 +2283,22 @@ def build_archived_session_restore_payload(
     if bool(anonymous_mode) or is_anonymous_session_id(session_id):
         return None
 
-    root_path = Path(
-        root
-        if root is not None
-        else (
-            CHAT_LOG_ROOT
-        )
-    )
+    return _build_session_restore_payload(session_id, root=root)
+
+
+def build_runtime_reconnect_payload(session_id: str, *, root=None) -> dict | None:
+    """Recover one connected room; anonymous logs stay excluded from checkout."""
+    payload = _build_session_restore_payload(session_id, root=root)
+    if payload is not None:
+        # A restarted room is not an archive checkout and has no hidden tick.
+        payload.update(archived_session_restore=False, dialog_context="",
+                       restore_reasoning_dump="", restore_lt_fact_ids=[],
+                       restore_delayed_memory_metadata=[], restore_attached_file_metadata=[])
+    return payload
+
+
+def _build_session_restore_payload(session_id: str, *, root=None) -> dict | None:
+    root_path = Path(root if root is not None else CHAT_LOG_ROOT)
     session_directory = _find_session_directory(session_id, root_path)
     if session_directory is None:
         return None

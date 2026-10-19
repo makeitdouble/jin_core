@@ -186,6 +186,27 @@ class ActionState:
             )
             return "rejected"
 
+        from utils.subtask_memory import action_denial
+        denial = action_denial(self.batch.context, action.name, action.payload)
+        if denial:
+            self.rejected_action_events[id(action)] = {
+                "status": "failed", "error": "subtask_memory_read_only",
+                "failure_reason": denial,
+                "failure_followup_message": ACTION_FAILURE_FOLLOWUP_MESSAGE,
+            }
+            result = {
+                "ok": False, "action": action.name.lower(),
+                "error": "subtask_memory_read_only", "detail": denial,
+            }
+            # Rejected calls after an instance transition must not expose the
+            # former child's payload to the next instance via TOOL_RESULTS.
+            if not getattr(self.batch.context, "runtime_instance_action_barrier", False):
+                result["payload"] = action.payload
+            record_runtime_tool_result(
+                self.batch.context, TOOL_RESULT_KIND_RUNTIME_ACTION, result,
+            )
+            return "rejected"
+
         if not await self._restricted(action):
             return "rejected"
         if not self._guard(action):

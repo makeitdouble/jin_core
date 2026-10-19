@@ -3,6 +3,14 @@ from utils.project_reader import linked_projects, project_review_active
 from utils.attached_files_store import file_display_name
 
 
+DIRECTORY_LINK_SKILL_NAME = "directory_link"
+
+
+def directory_link_skill_active(context) -> bool:
+    """A real user-linked folder implicitly activates the directory skill."""
+    return bool(context is not None and linked_projects(context))
+
+
 def pinned_project_reports(context) -> dict:
     return {
         str(report_id).casefold(): report
@@ -62,13 +70,13 @@ def build_project_review_context(context) -> str:
         )
     return "\n".join([
         "<PROJECT_REVIEW>",
-        "Linked local projects (read only):",
+        "Linked local projects:",
         *project_lines,
         "Only user-pinned DELAYED reports and their linked L-T facts are included. "
         "Other stored memories are outside this review's context. "
         "The conversation, FRAME, ACTIVE, reasoning and action results remain available.",
         "Continue the current request and reasoning; attached context is not a new user turn. "
-        "Load the project skill before using ASSET_ACTION for this linked folder. "
+        "The directory_link skill is automatically available in TOOL RESULTS for this linked folder. "
         "Load file_manager separately when source contents must be attached. "
         "Keep folder links attached unless the user asks to detach.",
         "</PROJECT_REVIEW>",

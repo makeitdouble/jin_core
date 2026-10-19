@@ -1369,6 +1369,8 @@ async def process_message(
         context.runtime_current_sequence_started_at = (
             context.runtime_turn_started_at
         )
+        from utils.actions.attachment_actions import clear_path_attachments
+        clear_path_attachments(context)
         if is_action_guard_retry:
             context.runtime_turn_attachments = deepcopy(
                 hydrated_active_attachments
@@ -1847,6 +1849,11 @@ async def process_message(
         )
 
     finally:
+        from utils.actions.jin_instance_actions import interrupt_instance_group, self_fork_phase
+        if self_fork_phase(context) in {"child_pending", "child_running", "parent_pending"}:
+            interrupt_instance_group(context, "runtime_ended")
+            from clients.brain_client import emit_active_memory_records_update_if_dirty
+            await emit_active_memory_records_update_if_dirty(context)
 
         if reasoning_save_pending:
             try:

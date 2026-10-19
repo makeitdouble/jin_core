@@ -236,6 +236,36 @@ async def api_delete_archived_session(session_id: str):
     return {"deleted": True, "session_id": session_id}
 
 
+@app.get("/api/project-attachment/preview")
+async def api_project_attachment_preview(session_id: str, attachment: str, path: str, sha256: str, raw: bool = False):
+    from utils.actions.attachment_actions import load_project_attachment
+    from utils.project_reader import linked_projects
+    from starlette.responses import Response
+    import base64
+
+    contexts = getattr(app.state, "websocket_runtime_contexts", {}).values()
+    context = next((c for c in contexts if str(getattr(c, "session_id", "")) == session_id), None)
+    if context is None or attachment not in {p["id"] for p in linked_projects(context)}:
+        raise HTTPException(status_code=404, detail="Attachment is unloaded")
+    # Only previously attached results can be previewed; query strings are not authority.
+    if not any(e.get("result", {}).get("file_ref") == f"{attachment}/{path}"
+               and e.get("result", {}).get("sha256") == sha256
+               and e.get("result", {}).get("ok") is True
+               for e in getattr(context, "runtime_tool_results", []) or []):
+        raise HTTPException(status_code=404, detail="Attachment is unavailable")
+    try:
+        item = load_project_attachment(context, f"{attachment}/{path}")
+        if item["sha256"] != sha256:
+            raise ValueError("File changed; attach it again")
+    except (OSError, ValueError, RuntimeError):
+        raise HTTPException(status_code=404, detail="Attachment is unavailable or changed") from None
+    headers = {"Cache-Control": "no-store", "X-Content-Type-Options": "nosniff"}
+    if raw and item["kind"] == "image":
+        return Response(base64.b64decode(item["data_url"].split(",", 1)[1]), media_type=item["type"], headers=headers)
+    from starlette.responses import JSONResponse
+    return JSONResponse(item, headers=headers)
+
+
 @app.get("/api/files")
 async def api_list_files():
     return public_file_snapshot()

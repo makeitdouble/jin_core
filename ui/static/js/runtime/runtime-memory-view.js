@@ -1328,6 +1328,8 @@
     const sortedRows = rows
       .slice()
       .sort((left, right) => {
+        const ownerDifference = Number(left.dataset.subtaskMemory === "true") - Number(right.dataset.subtaskMemory === "true");
+        if (ownerDifference) return ownerDifference;
         const leftHighlighted =
           left.classList.contains("runtime-memory-reference-hit")
           || left.classList.contains("runtime-memory-citation-hit")
@@ -1790,6 +1792,9 @@
           getActiveMemoryActivityTimestamp(record),
       }))
       .sort((left, right) => {
+        const temporary = record => /\[\s*owner_subtask_agent_id\s*:/.test(String(record));
+        const ownerDifference = Number(temporary(left.record)) - Number(temporary(right.record));
+        if (ownerDifference) return ownerDifference;
         const activityDifference =
             right.activityTimestamp
             - left.activityTimestamp;
@@ -5132,6 +5137,9 @@
             line && line.active_memory_id
           );
 
+      if (line.display_key && /^sub\d+_active_memory_\d+$/.test(line.display_key)) {
+        row.dataset.subtaskMemory = "true";
+      }
       if (activeMemoryId) {
         row.dataset.activeMemoryId =
             activeMemoryId;
@@ -5237,7 +5245,7 @@
       const keySpan =
           document.createElement("span");
       const displayKey =
-          memoryModel.runtimeMemoryDisplay.convertKeyToName(key) || key;
+          line.display_key || memoryModel.runtimeMemoryDisplay.convertKeyToName(key) || key;
       let longTermHeader = null;
 
       keySpan.className =
@@ -10291,6 +10299,7 @@
             return {
               ...parsed,
               active_memory_id: activeMemoryId,
+              display_key: (record.match(/\[\s*subtask_memory_label\s*:\s*(sub\d+_active_memory_\d+)\s*\]/) || [])[1] || "",
               citation_identity:
                 activeMemoryId
                   ? `active:${activeMemoryId}`

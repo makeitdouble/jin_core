@@ -14,7 +14,7 @@
     },
     "schema": ["<DELETE_ACTIVE_MEMORY> AM-abcdef, AM-ghijkl </DELETE_ACTIVE_MEMORY>"],
     "rules": [
-      "Delete one or more Active Memory records by comma-separated IDs."
+      "Delete one or more Active Memory records by exact comma-separated AM-xxxxxx or SUB-AM-xxxxxx IDs. A child may delete only its own temporary records; runtime cleans them up automatically on finish or interruption."
     ],
     "close_tag": true
   }

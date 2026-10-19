@@ -1,0 +1,22 @@
+{
+  "finish_subtask": {
+    "version": 1,
+    "description": "Finishes the currently active child JIN subtask.",
+    "runtime_action": "FINISH_SUBTASK",
+    "enable_flag": "CAN_FINISH_SUBTASK",
+    "runtime_order": 161,
+    "private_marker": "<FINISH_SUBTASK>",
+    "triggers": [],
+    "blockers": [],
+    "effects": {"emit_followup": true, "follow_up_on_fail": true},
+    "schema": [
+      "<FINISH_SUBTASK>",
+      "{\"subtask_agent_id\":\"authoritative-id\",\"session_id\":\"authoritative-session-id\",\"original_conditions\":\"Original conditions\",\"finish_reason\":\"What was completed and where the results are\"}",
+      "</FINISH_SUBTASK>"
+    ],
+    "rules": [
+      "Use this only when the assigned child subtask is actually complete. The runtime validates authoritative IDs and overwrites original_conditions with the stored assignment. A report is not proof that a claimed file exists."
+    ],
+    "close_tag": true
+  }
+}

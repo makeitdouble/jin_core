@@ -3614,7 +3614,8 @@ function updateRuntimeActionRow(
   }
 
   if (
-      ["attach_file_content", "attach_file_by_id"].includes(action)
+      ["attach_file_content", "attach_file_by_id", "attach_file_by_path"].includes(action)
+      && options.counterOnly !== true
       && typeof window.bindRuntimeActionAttachmentPreview === "function"
   ) {
     window.bindRuntimeActionAttachmentPreview(
@@ -4280,7 +4281,8 @@ function appendRuntimeAction(
   }
 
   if (
-      ["attach_file_content", "attach_file_by_id"].includes(action)
+      ["attach_file_content", "attach_file_by_id", "attach_file_by_path"].includes(action)
+      && options.counterOnly !== true
       && typeof window.bindRuntimeActionAttachmentPreview === "function"
   ) {
     window.bindRuntimeActionAttachmentPreview(

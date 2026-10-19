@@ -74,6 +74,16 @@ from utils.actions import (
 from utils.actions.action_registry import (
     apply_action_feedback,
 )
+from utils.actions.jin_instance_actions import (
+    active_child,
+    build_child_instruction,
+    build_parent_return_instruction,
+    mark_child_started,
+    mark_parent_returned,
+    interrupt_instance_group,
+    restore_parent_reasoning,
+    self_fork_phase,
+)
 
 from utils.actions.action_counter_utils import (
     format_runtime_action_count,
@@ -1568,6 +1578,10 @@ class BrainNode(BaseNode):
                 failed_action_context
             )
 
+        child_instruction = build_child_instruction(context)
+        if child_instruction:
+            sections.append(child_instruction)
+
         if instruction.strip():
             sections.append(
                 instruction.strip()
@@ -1908,6 +1922,7 @@ class BrainNode(BaseNode):
                 # window above. Do not prepare it a second time in the client:
                 # L-T budgeting must run once against the full turn prompt.
                 context_window_prepared=True,
+                prepared_context_window=prepared_context_window,
             )
 
             text = await runtime.run(
@@ -1977,6 +1992,7 @@ class BrainNode(BaseNode):
             )
         )
 
+        context.runtime_instance_action_barrier = False
         begin_runtime_tool_results_turn(
             context
         )
@@ -2566,6 +2582,7 @@ class BrainNode(BaseNode):
             unlimited_followups
             or followup_count < max_followups
             or malformed_followup_pending()
+            or self_fork_phase(context) in {"child_pending", "parent_pending"}
         ):
             if abort_requested():
                 break
@@ -2589,6 +2606,68 @@ class BrainNode(BaseNode):
             context.runtime_active_memory_refresh_tick = (
                 followup_count + 1
             )
+
+            instance_phase = self_fork_phase(context)
+            if instance_phase in {"child_pending", "parent_pending"}:
+                followup_action_events = consume_current_action_batch()
+                group = getattr(context, "runtime_jin_instance_group", {})
+                child_tick = instance_phase == "child_pending"
+                instruction = (
+                    ""
+                    if child_tick
+                    else build_parent_return_instruction(context)
+                )
+                if child_tick:
+                    # Every child owns an independent ordinary follow-up
+                    # budget and malformed-action repair allowance.
+                    followup_count = 0
+                    malformed_repair_count = 0
+                    mark_child_started(context)
+                else:
+                    followup_count = 0
+                    malformed_repair_count = 0
+                    restore_parent_reasoning(context)
+
+                followup_runtime_actions = {**runtime_actions}
+                followup_runtime_actions["CAN_CREATE_JIN_INSTANCES"] = not child_tick
+                followup_runtime_actions["CAN_FINISH_SUBTASK"] = child_tick
+                # Keep every ordinary action follow-up inside this instance on
+                # the same capability boundary. The parent boundary is restored
+                # only by the explicit parent-return tick below.
+                runtime_actions = followup_runtime_actions
+                instance_context = build_brain_context(
+                    context,
+                    runtime_actions=followup_runtime_actions,
+                    user_input=sequence_user_request,
+                    commit_active_memory_refresh=True,
+                    include_previous_chat_messages=False,
+                    include_previous_reasoning=False,
+                    include_turn_reasoning=not child_tick,
+                )
+                followup_system_prompt = self.build_followup_system_prompt(
+                    instance_context,
+                    sequence_user_request,
+                    context=context,
+                    instruction=instruction,
+                )
+                await emit_active_memory_records_update_if_dirty(context)
+                expected_group = group
+                text, reasoning = await self.run_brain_stream(
+                    state=state,
+                    context=context,
+                    brain_runtime=brain_runtime,
+                    brain_client=brain_client,
+                    system_prompt=followup_system_prompt,
+                    brain_payload="",
+                    followup_tick=True,
+                    runtime_actions=followup_runtime_actions,
+                    emit_content_to_chat=True,
+                    filter_runtime_actions=True,
+                )
+                if not child_tick:
+                    mark_parent_returned(context, expected_group)
+                followup_count += int(not repairing_malformed)
+                continue
 
             if getattr(
                 context,
@@ -3084,6 +3163,47 @@ class BrainNode(BaseNode):
                         False,
                     )
                 ):
+                    child = active_child(context)
+                    if child is not None and self_fork_phase(context) == "child_running":
+                        finish_runtime_actions = {**runtime_actions}
+                        finish_runtime_actions["CAN_CREATE_JIN_INSTANCES"] = False
+                        finish_runtime_actions["CAN_FINISH_SUBTASK"] = True
+                        unfinished_context = build_brain_context(
+                            context,
+                            runtime_actions=finish_runtime_actions,
+                            user_input=sequence_user_request,
+                            commit_active_memory_refresh=True,
+                            include_previous_chat_messages=False,
+                            include_previous_reasoning=False,
+                            include_turn_reasoning=True,
+                            crop_previous_reasoning=False,
+                        )
+                        finish_instruction = (
+                            "<JIN_SUBTASK_NOT_FINISHED>\n"
+                            "You did not emit FINISH_SUBTASK, so the assigned child task is not complete. "
+                            "Continue working with ordinary actions. Emit FINISH_SUBTASK only after the task is actually complete."
+                            "\n</JIN_SUBTASK_NOT_FINISHED>"
+                        )
+                        followup_system_prompt = self.build_followup_system_prompt(
+                            unfinished_context,
+                            sequence_user_request,
+                            context=context,
+                            instruction=finish_instruction,
+                        )
+                        text, reasoning = await self.run_brain_stream(
+                            state=state,
+                            context=context,
+                            brain_runtime=brain_runtime,
+                            brain_client=brain_client,
+                            system_prompt=followup_system_prompt,
+                            brain_payload="",
+                            followup_tick=True,
+                            runtime_actions=finish_runtime_actions,
+                            emit_content_to_chat=True,
+                            filter_runtime_actions=True,
+                        )
+                        followup_count += int(not repairing_malformed)
+                        continue
                     break
 
                 followup_action_events = (
@@ -3181,7 +3301,7 @@ class BrainNode(BaseNode):
             reasoning,
         )
 
-        if (
+        if not abort_requested() and (
             (not unlimited_followups and followup_count >= max_followups)
             or malformed_repair_limit_reached
         ):
@@ -3237,6 +3357,14 @@ class BrainNode(BaseNode):
                 "text": stop_event_text,
             })
 
+            parent_return_instruction = ""
+            if self_fork_phase(context) in {"child_pending", "child_running", "parent_pending"}:
+                interrupt_instance_group(
+                    context,
+                    "malformed_repair_limit" if malformed_repair_limit_reached else "followup_limit",
+                )
+                parent_return_instruction = build_parent_return_instruction(context)
+
             final_runtime_actions = {
                 key: False
                 for key in runtime_actions
@@ -3278,7 +3406,7 @@ class BrainNode(BaseNode):
                     ),
                     sequence_user_request,
                     context=context,
-                    instruction=followup_limit_instruction,
+                    instruction="\n".join(filter(None, (parent_return_instruction, followup_limit_instruction))),
                 )
             )
 

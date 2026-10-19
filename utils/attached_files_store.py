@@ -468,6 +468,17 @@ def _size_label(size: int) -> str:
     return f"{value / (1024 * 1024):.1f} MB"
 
 
+def hydrate_file_bytes(record: dict, data: bytes, *, strict_text=False) -> dict:
+    """Shared whole-file attachment shape for persistent and sequence files."""
+    attachment = dict(record)
+    attachment["size_label"] = _size_label(len(data))
+    if record["kind"] == "text":
+        attachment["text_content"] = data.decode("utf-8-sig" if strict_text else "utf-8", errors="strict" if strict_text else "replace")
+    elif record["kind"] == "image" or record["type"] == "application/pdf":
+        attachment["data_url"] = f"data:{record['type']};base64,{base64.b64encode(data).decode('ascii')}"
+    return attachment
+
+
 def hydrate_attachment_ids(file_ids: Iterable[str]) -> list[dict]:
     hydrated = []
     for file_id in list(file_ids or ())[:MAX_ATTACHED_FILES]:
@@ -484,8 +495,7 @@ def hydrate_attachment_ids(file_ids: Iterable[str]) -> list[dict]:
                 attachment["text_content"] = ""
         elif record["kind"] == "image" or record["type"] == "application/pdf":
             try:
-                encoded = base64.b64encode(path.read_bytes()).decode("ascii")
-                attachment["data_url"] = f"data:{record['type']};base64,{encoded}"
+                attachment = hydrate_file_bytes(record, path.read_bytes())
             except OSError:
                 pass
         hydrated.append(attachment)

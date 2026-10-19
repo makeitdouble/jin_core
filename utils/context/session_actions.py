@@ -175,9 +175,12 @@ def _format_memory_action_context_part(
         or ""
     ).strip()
 
+    if normalized_action == "ATTACH_FILE_BY_PATH":
+        return f"{action}: {detail or part_id}" if detail or part_id else action
+
     if normalized_action in {
         "ATTACH_FILE_CONTENT",
-        "ATTACH_FILE_BY_ID",
+        "ATTACH_FILE_BY_ID", "ATTACH_FILE_BY_PATH",
     }:
         if detail and part_id:
             return (

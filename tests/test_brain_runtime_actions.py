@@ -140,8 +140,15 @@ def expected_enabled_runtime_actions(runtime_actions: dict) -> tuple[str, ...]:
                 "LIST_ALL_USER_SHARED_FILES",
                 "ATTACH_FILE_CONTENT",
                 "ATTACH_FILE_BY_ID",
+                "ATTACH_FILE_BY_PATH",
             )
         )
+
+    if bool(runtime_actions.get("CAN_CREATE_JIN_INSTANCES", False)):
+        expected_actions.append("CREATE_JIN_INSTANCES")
+
+    if bool(runtime_actions.get("CAN_FINISH_SUBTASK", False)):
+        expected_actions.append("FINISH_SUBTASK")
 
     if bool(runtime_actions.get("CAN_SAVE_DELAYED_MEMORY", False)):
         expected_actions.extend(

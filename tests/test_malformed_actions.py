@@ -6,8 +6,8 @@ from utils.actions import RuntimeActionStreamFilter, extract_runtime_actions
 
 
 FORMS = (
-    '<tool_call>call:ATTACH_FILE_BY_ID{id:"z4tsdy"}<tool_call|>',
-    '<ATTACH_FILE_BY_ID id="z4tsdy"></ATTACH_FILE_BY_ID>',
+    '<tool_call>call:ATTACH_FILE_CONTENT{id:"z4tsdy"}<tool_call|>',
+    '<ATTACH_FILE_CONTENT id="z4tsdy"></ATTACH_FILE_CONTENT>',
 )
 PAYLOADS = ('{id:"z4tsdy"}', 'id="z4tsdy"')
 
@@ -45,7 +45,7 @@ class MalformedParserTests(TestCase):
             text = 'before ' + form + ' after'
             split_points = (
                 1,
-                text.index('ATTACH_FILE_BY_ID') + len('ATTACH_'),
+                text.index('ATTACH_FILE_CONTENT') + len('ATTACH_'),
                 text.index('z4tsdy'),
                 len(text) - len(' after'),
                 len(text) - 1,
@@ -61,7 +61,7 @@ class MalformedParserTests(TestCase):
                     self.assertEqual(visible.split(), ['before', 'after'])
                     self.assertEqual(
                         [(a.name, a.marker_name, a.payload) for a in actions],
-                        [('MALFORMED_ACTION', 'ATTACH_FILE_BY_ID', payload)],
+                        [('MALFORMED_ACTION', 'ATTACH_FILE_CONTENT', payload)],
                     )
     
             visible, actions = parse([form * 5])
@@ -75,14 +75,14 @@ class MalformedParserTests(TestCase):
         self.assertEqual(visible.split(), ['before', 'after'])
         self.assertEqual(
             [(a.name, a.marker_name, a.payload) for a in actions],
-            [('MALFORMED_ACTION', 'ATTACH_FILE_BY_ID', PAYLOADS[0])],
+            [('MALFORMED_ACTION', 'ATTACH_FILE_CONTENT', PAYLOADS[0])],
         )
     def test_whole_text_and_mixed_source_order(self):
         source = (
             FORMS[0]
             + '<LIST_ALL_USER_SHARED_FILES>'
             + FORMS[1]
-            + '<ATTACH_FILES_BY_ID> abc123 </ATTACH_FILES_BY_ID>'
+            + '<ATTACH_FILE_CONTENT: abc123 >'
         )
         cut1 = len(source) // 3
         cut2 = 2 * len(source) // 3
@@ -91,7 +91,7 @@ class MalformedParserTests(TestCase):
             self.assertEqual(visible, '')
             self.assertEqual([a.name for a in actions], [
                 'MALFORMED_ACTION', 'LIST_ALL_USER_SHARED_FILES',
-                'MALFORMED_ACTION', 'ATTACH_FILE_BY_ID',
+                'MALFORMED_ACTION', 'ATTACH_FILE_CONTENT',
             ])
         self.assertEqual(len(extract_runtime_actions(source).actions), 4)
     def test_quoted_unknown_and_false_prefix_are_plain_text(self):
@@ -103,24 +103,24 @@ class MalformedParserTests(TestCase):
                 self.assertEqual(visible, opener + form)
                 self.assertEqual(actions, [])
     
-            unknown = form.replace('ATTACH_FILE_BY_ID', 'UNKNOWN_ACTION')
+            unknown = form.replace('ATTACH_FILE_CONTENT', 'UNKNOWN_ACTION')
             self.assertEqual(parse([unknown]), (unknown, []))
     
         # Keep one fragmented quoted malformed action and one fragmented unknown
         # action as streaming smoke coverage.
         quoted = '"' + FORMS[0]
         self.assertEqual(parse(fragmented(quoted)), (quoted, []))
-        unknown = FORMS[0].replace('ATTACH_FILE_BY_ID', 'UNKNOWN_ACTION')
+        unknown = FORMS[0].replace('ATTACH_FILE_CONTENT', 'UNKNOWN_ACTION')
         self.assertEqual(parse(fragmented(unknown)), (unknown, []))
     
-        false_prefixes = ('text <ATTACH_FILE_BY_', 'text <tool_cal', '<ATTACH_FILE_BY_IDEA>hi')
+        false_prefixes = ('text <ATTACH_FILE_BY_', 'text <tool_cal', '<ATTACH_FILE_CONTENTEA>hi')
         for text in false_prefixes:
             self.assertEqual(parse([text]), (text, []))
         self.assertEqual(parse(fragmented(false_prefixes[0])), (false_prefixes[0], []))
     def test_incomplete_known_envelopes_and_flush_once(self):
         cases = (
-            ('<ATTACH_FILE_BY_ID id="abc123">', []),
-            ('<tool_call>call:ATTACH_FILE_BY_ID{id:"abc123"}', ['MALFORMED_ACTION']),
+            ('<ATTACH_FILE_CONTENT id="abc123">', ['MALFORMED_ACTION']),
+            ('<tool_call>call:ATTACH_FILE_CONTENT{id:"abc123"}', ['MALFORMED_ACTION']),
         )
         for source, expected_actions in cases:
             visible, actions = parse(fragmented(source))
@@ -148,7 +148,7 @@ class MalformedRuntimeTests(IsolatedAsyncioTestCase):
         stream = RuntimeStream(
             context=context, runtime_id='brain', role='brain', context_window=8192,
             log_method=context.logger.log_service, enable_validator=False,
-            runtime_actions=['LIST_ALL_USER_SHARED_FILES', 'ATTACH_FILE_BY_ID'],
+            runtime_actions=['LIST_ALL_USER_SHARED_FILES', 'ATTACH_FILE_CONTENT'],
         )
         async def chunks():
             yield {'type': 'content', 'content': '<LIST_ALL_USER_SHARED_FILES>' + FORMS[0] + FORMS[1]}
@@ -158,7 +158,7 @@ class MalformedRuntimeTests(IsolatedAsyncioTestCase):
                          ['list_files', 'malformed_action', 'malformed_action'])
         history = build_session_actions_history_context(context)
         self.assertIn('LIST_ALL_USER_SHARED_FILES', history)
-        self.assertEqual(history.count('MALFORMED_ACTION: ATTACH_FILE_BY_ID'), 2)
+        self.assertEqual(history.count('MALFORMED_ACTION: ATTACH_FILE_CONTENT'), 2)
         self.assertLess(history.index('LIST_ALL_USER_SHARED_FILES'), history.index('MALFORMED_ACTION'))
         prompt = BrainNode.build_followup_system_prompt(build_tool_results_context(context), 'test', context=context)
         self.assertIn('<MALFORMED_ACTION_NOTIFICATION>', prompt)
@@ -234,7 +234,7 @@ class MalformedRuntimeTests(IsolatedAsyncioTestCase):
         stream = RuntimeStream(
             context=context, runtime_id='brain', role='brain', context_window=8192,
             log_method=context.logger.log_service, enable_validator=False,
-            runtime_actions=['ATTACH_FILE_BY_ID'],
+            runtime_actions=['ATTACH_FILE_CONTENT'],
         )
         async def chunks():
             # Parser tests above own provider-boundary fragmentation. Runtime
@@ -245,7 +245,7 @@ class MalformedRuntimeTests(IsolatedAsyncioTestCase):
         events = [e for e in context.emitter.events if e.get('action') == 'malformed_action']
         self.assertEqual(len(events), 2)
         self.assertEqual(len({e['id'] for e in events}), 2)
-        self.assertTrue(all(e['text'] == 'MALFORMED_ACTION: ATTACH_FILE_BY_ID' for e in events))
+        self.assertTrue(all(e['text'] == 'MALFORMED_ACTION: ATTACH_FILE_CONTENT' for e in events))
         self.assertEqual([e['payload'] for e in events], list(PAYLOADS))
         self.assertEqual(len(context.runtime_session_action_history), 2)
         self.assertTrue(all(action_event_requires_follow_up(e) for e in context.runtime_action_events))
@@ -256,7 +256,7 @@ class MalformedRuntimeTests(IsolatedAsyncioTestCase):
         self.assertIn('<MALFORMED_ACTION_NOTIFICATION>', prompt)
         self.assertEqual(prompt.count('<MALFORMED_ACTION_NOTIFICATION>'), 2)
         self.assertLess(prompt.index('tool_id: T2'), prompt.index('tool_id: T1'))
-        self.assertEqual(prompt.count(get_runtime_action_schema('ATTACH_FILE_BY_ID')[0]), 2)
+        self.assertEqual(prompt.count(get_runtime_action_schema('ATTACH_FILE_CONTENT')[0]), 2)
         self.assertNotIn('ACTION_FAILURE_FOLLOWUP', prompt)
         self.assertNotIn('<MALFORMED_ACTION_NOTIFICATION>', BrainNode.build_followup_system_prompt('BASE', 'test', context=context))
         checkpoint = build_runtime_session_checkpoint(context)

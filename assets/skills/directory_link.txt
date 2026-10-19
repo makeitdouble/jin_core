@@ -1,0 +1,26 @@
+directory_link
+
+Purpose:
+Inspect a user-pinned local project folder through the generic ASSET_ACTION envelope. The runtime automatically includes this skill in TOOL RESULTS while a user-linked folder is attached. No LOAD_SKILL action is needed.
+
+Mandatory workflow:
+1. Use these instructions for a folder explicitly linked by the user.
+2. Project actions read the active linked local source root; use the attached folder name or selector id.
+3. Emit JSON inside <ASSET_ACTION>...</ASSET_ACTION>. The directory link is already active; do not LOAD_SKILL directory_link again.
+
+Schemas:
+<ASSET_ACTION>
+{"action":"project_tree","attachment":"attached folder name or selector id","path":".","offset":0,"limit":100}
+</ASSET_ACTION>
+
+<ASSET_ACTION>
+{"action":"project_search","attachment":"attached folder name or selector id","path":".","query":"literal text","offset":0,"limit":100}
+</ASSET_ACTION>
+
+Rules:
+- project_tree lists file and folder paths. Start with path "." and the default depth. Use depth 2..20 only for deliberate drill-down, preferably on a specific subfolder.
+- project_search searches file contents, not filenames. query is literal text and case-insensitive.
+- offset is the number of results to skip (default 0). limit is the maximum returned paths or matching lines (default 100, allowed 1..200). For the next page, reuse the returned offset and keep all other inputs unchanged. A larger limit or offset does not extend the scan.
+- To inspect a source window, load file_manager and use ATTACH_FILE_CONTENT. To see images or text windows, use ATTACH_FILE_CONTENT with the exact returned paths and wait for FOLLOW-UP. For user-requested writes, file_manager supports create_asset_file/append_asset_file with an explicit attachment selector.
+
+Whole-file alternatives (file_manager required): <ASSET_ACTION> {"action":"ATTACH_FILE_BY_ID","ids":["abc123","def456"]} </ASSET_ACTION> or <ASSET_ACTION> {"action":"ATTACH_FILE_BY_PATH","paths":["dataset/image.png","dataset/caption.txt"]} </ASSET_ACTION>. Use only existing files, omit missing TXT, and wait for FOLLOW-UP. These are JSON operations; the only attachment XML marker is ATTACH_FILE_CONTENT.

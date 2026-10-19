@@ -1433,6 +1433,8 @@ def clean_bootstrap_tool_results(value) -> tuple[list[dict], list]:
 
     from utils.context.files import select_file_tool_results
     for raw_item in select_file_tool_results(value, 50):
+        if isinstance(raw_item, dict) and raw_item.get("owner_subtask_agent_id"):
+            continue
         if not isinstance(
             raw_item,
             dict,
@@ -1522,6 +1524,8 @@ def apply_bootstrap_tool_results(
     )
 
     context.runtime_tool_results = results
+    from utils.actions.attachment_actions import clear_path_attachments
+    clear_path_attachments(context)
     try:
         restored_sequence = max(0, int(message_data.get("tool_result_sequence", 0) or 0))
     except (TypeError, ValueError):
@@ -1767,6 +1771,8 @@ def get_or_create_connection_context(
     hydrate_attached_files_from_store(
         context
     )
+    if is_soft_resume_request(websocket):
+        restore_reconnected_runtime(context)
     restore_pending_frame_update(
         context
     )
@@ -1774,6 +1780,47 @@ def get_or_create_connection_context(
     store[client_id] = context
 
     return context, False
+
+
+def restore_reconnected_runtime(context) -> bool:
+    """Hydrate a fresh backend for an existing page without emitting or running."""
+    from copy import deepcopy
+    from utils.session_restore import build_runtime_reconnect_payload
+
+    payload = build_runtime_reconnect_payload(context.session_id)
+    context.runtime_disk_bootstrap_applied = True
+    if payload is None:
+        # Never substitute another room or browser contents for a missing log.
+        return False
+
+    previous_session_id = context.previous_session_id
+    context.runtime_attached_file_ids = []
+    context.runtime_turn_attachments = []
+    context.runtime_current_sequence_attachments = []
+    apply_session_bootstrap(context, payload, resolved_from_disk=True)
+    context.previous_session_id = previous_session_id
+    hydrate_runtime_counters_from_bootstrap_metadata(context, payload)
+    context.runtime_session_restore_priming = False
+    context.runtime_previous_reasoning_from_session_restore = False
+    # These are already bounded, disk-parsed turns, not browser input. Preserve
+    # full messages and reasoning for the next ordinary Brain prompt.
+    context.runtime_recent_turns = deepcopy(payload.get("recent_turns", []))
+    context.runtime_previous_reasoning_content = payload.get("previous_reasoning", "")
+
+    snapshot = payload.get("runtime_snapshot")
+    if isinstance(snapshot, dict) and "raw_memory" in snapshot:
+        # Exact empty FRAME and original lifecycle/lineage metadata are valid.
+        context.runtime_memory = snapshot["raw_memory"]
+        context.runtime_memory_stable = snapshot["raw_memory"]
+        context.runtime_memory_snapshots = [{**deepcopy(snapshot), "index": 0}]
+        context.runtime_memory_snapshot_index = 0
+        context.runtime_memory_display_index_offset = parse_bootstrap_counter(
+            snapshot.get("frame_memory_index", snapshot.get("index", 0))
+        )
+        context.runtime_memory_updates = parse_bootstrap_counter(
+            payload.get("runtime_memory_updates", 0)
+        )
+    return True
 
 
 def ensure_initial_runtime_snapshot(
@@ -2755,6 +2802,11 @@ async def initialize_connection(
     skip_initial_runtime_state: bool = False,
 ):
 
+    if skip_initial_runtime_state:
+        # A surviving page needs only runtime_transport_ready, not startup
+        # snapshots or a replacement of its existing UI projection.
+        return
+
     from runtime.memory_profile import publish_profile
     publish_profile(context)
     await context.websocket.accept()
@@ -2792,12 +2844,6 @@ async def initialize_connection(
             "source": "file_bootstrap",
         },
     )
-
-    if skip_initial_runtime_state:
-        await context.logger.log_system(
-            "[WS] soft reconnect: initial runtime state skipped"
-        )
-        return
 
     await emit_current_runtime_memory(
         context

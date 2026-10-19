@@ -327,6 +327,12 @@ def record_runtime_tool_result(
         ),
     }
 
+    if kind == TOOL_RESULT_KIND_ACTIVE_MEMORY:
+        from utils.subtask_memory import running_child, OWNER
+        child = running_child(context)
+        if child:
+            entry[OWNER] = child["subtask_agent_id"]
+
     normalized_result_id = str(
         result_id
         or ""
@@ -619,9 +625,12 @@ def bind_tool_result_to_action(context, entry) -> None:
             event_requested = normalize_skill_name(event.get("payload", ""))
             if requested and event_requested != requested:
                 continue
-        if (event.get("name") == name and not event.get("tool_id")
+        attachment_batch = bool(exact and kind == TOOL_RESULT_KIND_FILES and name == "asset_action")
+        if (event.get("name") == name and (not event.get("tool_id") or attachment_batch)
                 and (not turn_id or event.get("runtime_turn_id", "") == turn_id)):
-            event["tool_id"] = entry["tool_id"]
+            if attachment_batch:
+                event.setdefault("attachment_tool_ids", []).append(entry["tool_id"])
+            event.setdefault("tool_id", entry["tool_id"])
             entry["runtime_message_id"] = event.get("runtime_message_id", "")
             entry["action_name"] = name.upper()
             entry["action_payload"] = event.get("payload", event.get("query", ""))

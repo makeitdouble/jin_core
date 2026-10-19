@@ -826,7 +826,7 @@ function bindJinAttachmentHoverPreview(
     "mouseenter",
     (event) => {
       showAttachmentHoverPreview(
-        attachment,
+        element._jinRuntimeActionAttachment !== undefined ? element._jinRuntimeActionAttachment : attachment,
         event,
         hoverPreviewMaxPx,
         hoverPreviewPlacement
@@ -892,6 +892,26 @@ function normalizeRuntimeActionAttachmentForModal(
     && !Array.isArray(attachmentResult)
       ? attachmentResult
       : {};
+  if (result.action === "attach_file_by_path") {
+    if (result.ok !== true || !result.preview_url) return null;
+    const attachment = {
+      name: result.display_ref || result.name,
+      kind: result.kind,
+      type: result.type,
+      size_label: result.size_label,
+      url: result.kind === "image" ? result.preview_url + "&raw=true" : "",
+    };
+    attachment.resolve_modal_attachment = async () => {
+      try {
+        const response = await fetch(result.preview_url, {cache: "no-store"});
+        if (!response.ok) throw new Error("Attachment is unloaded, unavailable or changed");
+        return await response.json();
+      } catch (error) {
+        return {name: attachment.name, kind: "text", text_content: String(error.message || error)};
+      }
+    };
+    return attachment;
+  }
   if (result.source === "project" && result.ok === true && typeof result.content === "string") {
     return {
       ...createAssetTextAttachment(result),

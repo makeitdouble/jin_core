@@ -560,11 +560,11 @@ class RuntimeSkillActionTests(RuntimeActionTestCase):
                     "LOAD_SKILL: Image Prompt Generator.txt",
                 )
                 self.assertEqual(
-                    context.emitter.events[2]["action"],
+                    context.emitter.events[1]["action"],
                     "unload_skill",
                 )
                 self.assertEqual(
-                    context.emitter.events[2]["text"],
+                    context.emitter.events[1]["text"],
                     "UNLOAD_SKILL: wildcards",
                 )
                 self.assertEqual(

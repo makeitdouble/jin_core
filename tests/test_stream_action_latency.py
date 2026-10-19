@@ -64,8 +64,11 @@ class StreamActionLatencyTests(unittest.IsolatedAsyncioTestCase):
 
         payloads = dict(PAIRED_ACTION_PAYLOADS, WEB_SEARCH="test query", CALL_MCP='{"server":"blender","tool":"get_scene_info","arguments":{}}', LOAD_SKILL="blender_mcp",
                         UNLOAD_SKILL="blender_mcp", RECALL_FACT_CONTEXT="F1",
-                        ATTACH_FILE_BY_ID="file1", LOAD_DELAYED_MEMORY="D1",
-                        DELETE_ACTIVE_MEMORY="abc123")
+                        ATTACH_FILE_BY_ID="file1", ATTACH_FILE_BY_PATH="dataset/Photo_036.PNG, dataset/Photo_036.txt",
+                        LOAD_DELAYED_MEMORY="D1",
+                        DELETE_ACTIVE_MEMORY="abc123",
+                        CREATE_JIN_INSTANCES='{"id":1,"conditions":"test"}',
+                        FINISH_SUBTASK='{"subtask_agent_id":"sub_jin_1","session_id":"session_1","original_conditions":"test","finish_reason":"done"}')
         for name in get_close_tag_runtime_actions():
             marker_name = get_runtime_action_private_marker(name).strip("<> ")
             marker = f"<{marker_name}>{payloads[name]}</{marker_name}>"

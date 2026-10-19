@@ -9,7 +9,7 @@ const {chromium} = require('playwright');
   try {
     const page = await browser.newPage();
     await page.setContent('<main><div id="chat"></div></main>');
-    for (const file of ['ui/static/js/chat-runtime-actions.js', 'ui/static/js/socket/runtime-actions.js', 'ui/static/js/logger/session-actions.js']) {
+    for (const file of ['ui/static/js/jin-ui-utils.js', 'ui/static/js/chat-runtime-actions.js', 'ui/static/js/socket/runtime-actions.js', 'ui/static/js/logger/session-actions.js']) {
       await page.addScriptTag({content: fs.readFileSync(file, 'utf8')});
     }
     const result = await page.evaluate(() => {

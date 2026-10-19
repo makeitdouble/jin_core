@@ -9,7 +9,6 @@ from contracts.rules_assembler import (
     RUNTIME_ACTION_LOAD_SKILL,
     RUNTIME_ACTION_LOAD_DELAYED_MEMORY,
     RUNTIME_ACTION_ATTACH_FILE_CONTENT,
-    RUNTIME_ACTION_ATTACH_FILE_BY_ID,
     RUNTIME_ACTION_LIST_FILES,
     RUNTIME_ACTION_DELETE_ACTIVE_MEMORY,
     RUNTIME_ACTION_SAVE_ACTIVE_MEMORY,
@@ -27,6 +26,8 @@ from contracts.rules_assembler import (
     RUNTIME_ACTION_WEB_SEARCH,
     RUNTIME_ACTION_POSTING_BOARD,
     RUNTIME_ACTION_CALL_MCP,
+    RUNTIME_ACTION_CREATE_JIN_INSTANCES,
+    RUNTIME_ACTION_FINISH_SUBTASK,
 )
 from contracts.rules_assembler import (
     get_close_tag_runtime_actions,
@@ -637,12 +638,13 @@ _ACTION_PAYLOAD_BUILDERS = {
     RUNTIME_ACTION_SAVE_DELAYED_MEMORY: build_save_delayed_memory_payload,
     RUNTIME_ACTION_LOAD_DELAYED_MEMORY: build_load_delayed_memory_payload,
     RUNTIME_ACTION_ATTACH_FILE_CONTENT: build_resolve_action_payload,
-    RUNTIME_ACTION_ATTACH_FILE_BY_ID: build_resolve_action_payload,
     RUNTIME_ACTION_LOAD_SKILL: build_load_skill_payload,
     RUNTIME_ACTION_UNLOAD_SKILL: build_resolve_action_payload,
     RUNTIME_ACTION_ASSET_ACTION: build_asset_action_payload,
     RUNTIME_ACTION_POSTING_BOARD: lambda payload, _: str(payload or "").strip(),
     RUNTIME_ACTION_CALL_MCP: lambda payload, _: str(payload or "").strip(),
+    RUNTIME_ACTION_CREATE_JIN_INSTANCES: lambda payload, _: str(payload or "").strip(),
+    RUNTIME_ACTION_FINISH_SUBTASK: lambda payload, _: str(payload or "").strip(),
 }
 
 
@@ -711,7 +713,7 @@ def _bare_prefix_payload_is_strictly_valid(
     if action_name == RUNTIME_ACTION_DELETE_ACTIVE_MEMORY:
         return bool(
             ACTIVE_MEMORY_SLOT_ID_RE.fullmatch(
-                payload.casefold()
+                payload
             )
         )
 
@@ -1280,7 +1282,7 @@ def extract_runtime_actions(
         if normalize_runtime_action_name(action_name) in {
             RUNTIME_ACTION_LOAD_DELAYED_MEMORY,
             RUNTIME_ACTION_DELETE_ACTIVE_MEMORY,
-            RUNTIME_ACTION_ATTACH_FILE_BY_ID,
+            RUNTIME_ACTION_ATTACH_FILE_CONTENT,
         }:
             return handle_plural_id_marker(raw_marker, action_name, query)
 
@@ -1422,7 +1424,7 @@ def extract_runtime_actions(
             return raw_marker
 
         item_ids = tuple(dict.fromkeys(
-            item.strip().casefold()
+            (item.strip() if normalized_action_name in {RUNTIME_ACTION_ATTACH_FILE_CONTENT, RUNTIME_ACTION_DELETE_ACTIVE_MEMORY} else item.strip().casefold())
             for item in str(query or "").split(",")
             if item.strip()
         ))

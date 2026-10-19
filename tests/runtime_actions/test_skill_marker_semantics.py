@@ -20,6 +20,8 @@ from utils.session_actions_history import (
     format_session_action_marker_names,
     upsert_session_action_marker_history_since,
 )
+from utils.skills_asset_utils import list_skills, load_skill
+from utils.context.skills import build_skills_inventory_context
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -39,6 +41,95 @@ class SkillMarkerSemanticsTests(RuntimeActionTestCase):
                 f"{name}.txt",
                 f"{name}\nTest skill.",
             )
+
+    def test_flat_markdown_skill_is_listed_loaded_and_marked_loaded(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            with contextlib.ExitStack() as stack:
+                for patcher in self.patch_asset_roots(root):
+                    stack.enter_context(patcher)
+                self.write_skill_fixture(
+                    root,
+                    "dataset_captioning.md",
+                    "# Dataset captioning\nOne short line per photo.",
+                )
+                self.write_skill_fixture(
+                    root, "file_manager.txt", "File manager tools.",
+                )
+
+                names = [skill["name"] for skill in list_skills()["skills"]]
+                self.assertEqual(names, ["dataset_captioning", "file_manager"])
+                result = load_skill("dataset_captioning.md")
+                self.assertTrue(result["ok"], result)
+                self.assertIn("One short line", result["skill"]["content"])
+
+                context = FakeContext()
+                context.runtime_loaded_skills = [result["skill"]]
+                inventory = build_skills_inventory_context(context)
+                self.assertIn("dataset_captioning (loaded)", inventory)
+                self.assertIn("file_manager", inventory)
+
+    def test_plural_skill_marker_emits_one_finished_bubble_for_both_skills(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            with contextlib.ExitStack() as stack:
+                for patcher in self.patch_asset_roots(root):
+                    stack.enter_context(patcher)
+                self.write_skill_fixture(root, "file_manager.txt", "File manager tools.")
+                self.write_skill_fixture(root, "dataset_captioning.md", "Image captions.")
+
+                context = FakeContext()
+                context.emitter = FakeEmitter()
+                context.runtime_current_turn_id = "turn-1"
+                parsed = extract_runtime_actions(
+                    "<LOAD_SKILLS_CONTEXT> file_manager, dataset_captioning </LOAD_SKILLS_CONTEXT>",
+                    enabled_actions=["CAN_USE_ASSETS"],
+                )
+                applied = asyncio.run(apply_runtime_action_calls(
+                    context, parsed.actions, runtime_message_id="message-1",
+                ))
+
+                events = [event for event in context.emitter.events
+                          if event.get("type") == "runtime_action"]
+                self.assertEqual(applied, 2)
+                self.assertEqual(len(events), 1)  # one terminal bubble
+                self.assertEqual([event.get("status") for event in events],
+                                 ["completed"])
+                self.assertEqual({event["action"] for event in events}, {"load_skill"})
+                self.assertEqual({event["id"] for event in events}, {events[0]["id"]})
+                self.assertEqual(events[-1]["display_name"], "LOAD_SKILLS_CONTEXT")
+                self.assertEqual(events[-1]["text"],
+                                 "LOAD_SKILLS_CONTEXT: file_manager, dataset_captioning")
+                self.assertEqual([skill["name"] for skill in context.runtime_loaded_skills],
+                                 ["file_manager", "dataset_captioning"])
+                self.assertEqual([item["text"] for item in context.runtime_session_action_history],
+                                 ["LOAD_SKILLS_CONTEXT: file_manager, dataset_captioning"])
+
+    def test_plural_skill_failure_finishes_one_bubble_without_false_success(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            with contextlib.ExitStack() as stack:
+                for patcher in self.patch_asset_roots(root):
+                    stack.enter_context(patcher)
+                self.write_skill_fixture(root, "file_manager.txt", "File manager tools.")
+                context = FakeContext()
+                context.emitter = FakeEmitter()
+                context.runtime_current_turn_id = "turn-1"
+                parsed = extract_runtime_actions(
+                    "<LOAD_SKILLS_CONTEXT> file_manager, absent_skill </LOAD_SKILLS_CONTEXT>",
+                    enabled_actions=["CAN_USE_ASSETS"],
+                )
+                asyncio.run(apply_runtime_action_calls(
+                    context, parsed.actions, runtime_message_id="message-1",
+                ))
+                events = [event for event in context.emitter.events
+                          if event.get("type") == "runtime_action"]
+                self.assertEqual(len(events), 1)
+                self.assertEqual(events[0]["action"], "load_skill")
+                self.assertEqual(events[0]["status"], "failed")
+                self.assertIn("absent_skill ( does not exist )", events[0]["text"])
+                self.assertEqual([skill["name"] for skill in context.runtime_loaded_skills],
+                                 ["file_manager"])
 
     def test_plural_context_markers_expand_multiple_skill_payloads(self):
         from utils.actions import RuntimeActionStreamFilter

@@ -288,12 +288,13 @@ def _write_text_file(
     lines: list[str],
     *,
     overwrite: bool = False,
+    display_path: str | None = None,
 ) -> dict:
     if path.exists() and not overwrite:
         return {
             "ok": False,
             "error": "file_exists",
-            "path": _relative(path),
+            "path": display_path if display_path is not None else _relative(path),
         }
 
     path.parent.mkdir(
@@ -307,7 +308,7 @@ def _write_text_file(
 
     return {
         "ok": True,
-        "path": _relative(path),
+        "path": display_path if display_path is not None else _relative(path),
         "line_count": len(lines),
         "examples": lines[:5],
     }
@@ -318,12 +319,13 @@ def _write_text_content(
     content,
     *,
     overwrite: bool = False,
+    display_path: str | None = None,
 ) -> dict:
     if path.exists() and not overwrite:
         return {
             "ok": False,
             "error": "file_exists",
-            "path": _relative(path),
+            "path": display_path if display_path is not None else _relative(path),
         }
 
     normalized_content = _normalize_text_content(
@@ -345,7 +347,7 @@ def _write_text_content(
 
     return {
         "ok": True,
-        "path": _relative(path),
+        "path": display_path if display_path is not None else _relative(path),
         "line_count": len(lines),
         "examples": lines[:5],
     }

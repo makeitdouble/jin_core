@@ -1,5 +1,6 @@
 # Builds the full tool results context from search, asset, memory, and session results.
 import time
+import re
 from xml.sax.saxutils import escape
 
 from contracts.rules_assembler import (
@@ -27,6 +28,8 @@ from utils.tool_results import (
 )
 from utils.tool_results_context import (
     build_tools_results_context,
+    TOOLS_RESULTS_BLOCK_RE,
+    TOOL_RESULT_BLOCK_RE,
 )
 
 from .assets import (
@@ -45,6 +48,39 @@ from .runtime_action_result_text import (
 from .result_sections import (
     format_active_memory_result_sections,
 )
+
+
+def visible_removable_tool_result_hints(context, system_prompt: str) -> str:
+    """Intersect actual visible blocks with the exact-ID cleanup owner's records.
+
+    Synthetic directory-link/loaded-skill/attachment projections have no owned
+    tool_id. Do not allocate IDs, rebuild projections or reorder storage here.
+    """
+    from utils.tokens import estimate_stream_text_tokens
+
+    visible = {}
+    for wrapper in TOOLS_RESULTS_BLOCK_RE.finditer(system_prompt):
+        for match in TOOL_RESULT_BLOCK_RE.finditer(wrapper.group(1)):
+            block = match.group(0)
+            tag = block.split(">", 1)[0]
+            tool_id = re.search(r'\btool_id=[\"\x27](T[1-9][0-9]*)[\"\x27]', tag)
+            if tool_id:
+                visible.setdefault(tool_id.group(1), block)
+    candidates = []
+    for index, entry in enumerate(getattr(context, "runtime_tool_results", []) or []):
+        tool_id = entry.get("tool_id")
+        if tool_id not in visible:
+            continue
+        timestamp = get_runtime_tool_result_created_at(context, index, entry)
+        candidates.append((tool_id, estimate_stream_text_tokens(visible[tool_id]), timestamp, index))
+    if len(candidates) < 2:
+        return ""
+    biggest = min(candidates, key=lambda item: (-item[1], item[3], item[0]))
+    # Legacy timestamp omissions retain insertion order; never invent an age.
+    oldest = (min(candidates, key=lambda item: (item[2], item[3], item[0]))
+              if all(item[2] is not None for item in candidates)
+              else min(candidates, key=lambda item: (item[3], item[0])))
+    return f"biggest_block_id: {biggest[0]}\noldest_block_id: {oldest[0]}\n"
 
 
 def _format_tool_result_age(
@@ -238,6 +274,14 @@ def _file_result_content_block(
         project_file_ref,
     )
 
+    if result.get("action") == "attach_file_by_path":
+        attachment = next((a for a in getattr(context, "runtime_turn_attachments", []) or []
+                           if a.get("path_attachment") and a.get("file_ref") == result.get("file_ref")
+                           and a.get("sha256") == result.get("sha256")), None)
+        if attachment and attachment.get("kind") == "text":
+            return format_file_content(attachment["display_ref"], attachment["text_content"])
+        return ""
+
     ref = project_file_ref(result)
     if ref:
         from .files import project_file_result_active
@@ -388,6 +432,8 @@ def _append_recorded_tool_results(
     if embedded_project_refs is None:
         embedded_project_refs = set()
 
+    from utils.subtask_memory import discard_orphan_tool_results
+    discard_orphan_tool_results(context)
     recorded_results = get_runtime_tool_results(context)
     turn_count = int(
         getattr(context, "runtime_tool_results_turn_count", 0) or 0
@@ -534,6 +580,7 @@ def _append_recorded_tool_results(
             continue
 
         if kind == TOOL_RESULT_KIND_ACTIVE_MEMORY:
+            owner_attr = entry.get("owner_subtask_agent_id", "")
             sections = format_active_memory_result_sections(
                 [result]
             )
@@ -543,6 +590,8 @@ def _append_recorded_tool_results(
             blocks = []
             for name, payload in sections:
                 attrs = tool_id_attr + f'name="{escape(name)}"'
+                if owner_attr:
+                    attrs += f' owner_subtask_agent_id="{escape(owner_attr)}"'
                 blocks.append(
                     f"{_build_tool_result_open_tag(attrs, created_at=created_at, now=now)}\n"
                     f"{indent_xml(_escape_runtime_action_payload(payload))}\n"
@@ -757,7 +806,7 @@ def build_loaded_skills_content_context(
     return "\n".join(
         _build_recorded_tool_result_block(
             f'name="LOAD_SKILL" skill="{escape(str(skill.get("name") or ""))}"',
-            format_tool_result_payload(skill),
+            str(skill.get("content") or ""),
         )
         for skill in loaded_skills
         if isinstance(skill, dict)
@@ -897,11 +946,46 @@ def _load_delayed_memory_results(
     )
 
 
+def build_automatic_directory_link_skill_result(context=None) -> str:
+    """Project links project their skill through the ordinary TOOL RESULTS path.
+
+    Derived from live attachments at prompt-build time: no synthetic action,
+    stored result, or manual LOAD_SKILL is needed. Detaching immediately
+    removes the projection, and CLEAN_TOOL_RESULTS cannot delete it.
+    """
+    from utils.project_context import DIRECTORY_LINK_SKILL_NAME, directory_link_skill_active
+    if not directory_link_skill_active(context):
+        return ""
+
+    from utils.skills_asset_utils import load_skill, normalize_skill_name
+    # Explicitly loaded skills already appear in the existing result path.
+    for item in getattr(context, "runtime_loaded_skills", []) or []:
+        if not isinstance(item, dict) or not str(item.get("content") or "").strip():
+            continue
+        if normalize_skill_name(item.get("name")) == DIRECTORY_LINK_SKILL_NAME:
+            return ""
+
+    result = load_skill(DIRECTORY_LINK_SKILL_NAME)
+    skill = result.get("skill") if result.get("ok") else None
+    if not isinstance(skill, dict):
+        return ""
+    return _build_recorded_tool_result_block(
+        'name="LOAD_SKILL" skill="directory_link" source="linked_folder"',
+        str(skill.get("content") or ""),
+    )
+
+
 def build_tool_results_context(
     context=None,
 ) -> str:
 
+    from utils.actions.attachment_actions import prune_path_attachments
+    if context is not None:
+        prune_path_attachments(context)
     tool_result_blocks = []
+    directory_link_content = build_automatic_directory_link_skill_result(context)
+    if directory_link_content:
+        tool_result_blocks.append(directory_link_content)
     loaded_skills_content = build_loaded_skills_content_context(context)
     if loaded_skills_content:
         tool_result_blocks.append(loaded_skills_content)

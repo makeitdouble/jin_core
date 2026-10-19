@@ -295,7 +295,7 @@ def file_result_summary(result):
     text = f"{action}: {reference}" if reference else action
     if result.get("ok") is False:
         reason = str(result.get("detail") or result.get("error") or "action failed").strip()
-        text += (f" : failed - {reason}" if action == "ATTACH_FILE_BY_ID"
+        text += (f" : failed - {reason}" if action in {"ATTACH_FILE_BY_ID", "ATTACH_FILE_BY_PATH"}
                  else f" - failed: {reason}")
     return text
 
@@ -311,7 +311,10 @@ def format_file_result(result):
     if result.get("ok") is False:
         from contracts.rules_assembler import get_runtime_action_schema
         lines.extend(["Status: failed", f"Reason: {result.get('detail') or result.get('error')}",
-                      "Correct action schema:", *get_runtime_action_schema(action.upper())])
+                      "Correct action schema:", *get_runtime_action_schema(
+                          result.get("runtime_action_name") or (
+                              "ASSET_ACTION" if action in {"attach_file_by_id", "attach_file_by_path"}
+                              else action.upper()))])
     else:
         if result.get("loaded") is False:
             lines.append("Status: unloaded")
@@ -331,6 +334,8 @@ def select_file_tool_results(entries, limit):
         result = entry.get("result")
         if not isinstance(result, dict) or result.get("ok") is False or result.get("loaded") is False:
             return False
+        if result.get("action") == "attach_file_by_path":
+            return True
         if project_file_ref(result):
             return "content" in result
         return (
