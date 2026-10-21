@@ -68,8 +68,8 @@ def assert_not_contains_text(test_case, text: str, needle: str) -> None:
 def expected_enabled_runtime_actions(runtime_actions: dict) -> tuple[str, ...]:
     expected_actions = []
 
-    if bool(runtime_actions.get("CAN_DEEP_WEB_SEARCH", False)):
-        expected_actions.append("DEEP_WEB_SEARCH")
+    if bool(runtime_actions.get("CAN_DEEP_RESEARCH", False)):
+        expected_actions.append("DEEP_RESEARCH")
 
     if bool(runtime_actions.get("CAN_WEB_SEARCH", False)):
         expected_actions.append("WEB_SEARCH")

@@ -122,7 +122,7 @@ function handleSessionBootstrapChatTail(
 
   const existingMessages =
     chatHistory.querySelectorAll(
-      ".jin-message-shell"
+      ".jin-message-shell, .jin-session-restore-divider"
     );
 
   if (existingMessages.length) {
@@ -135,6 +135,7 @@ function handleSessionBootstrapChatTail(
       && typeof turn === "object"
       && (
         String(turn.user || "").trim()
+        || turn.heartbeat
         || (
           Array.isArray(turn.attachments)
           && turn.attachments.length
@@ -152,12 +153,12 @@ function handleSessionBootstrapChatTail(
         ? turn.attachments
         : [];
 
-    const userShell = appendChatMessage(
+    const userShell = (userText || attachments.length) ? appendChatMessage(
       "user",
       userText,
       null,
       attachments
-    );
+    ) : null;
     window.JinChatReactions?.restoreUserReaction(userShell, turn.jin_reaction);
 
     // Marker/action-only turns have no visible JIN answer. Keep the USER

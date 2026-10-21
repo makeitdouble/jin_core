@@ -212,10 +212,11 @@ def _first_meaningful_user_entry(path: Path) -> dict | None:
                     break
                 if (
                     isinstance(entry, dict)
-                    and str(entry.get("role", "") or "").strip().lower() == "user"
+                    and (str(entry.get("role", "") or "").strip().lower() == "user" or entry.get("heartbeat"))
                     and (
                         str(entry.get("text", "") or "").strip()
                         or bool(entry.get("attachments", []) or [])
+                        or entry.get("heartbeat")
                     )
                 ):
                     return entry
@@ -278,11 +279,12 @@ def _recent_visible_dialog_entries(entries: list[dict]) -> list[dict]:
     user_turn_keys = []
     seen = set()
     for index, entry in enumerate(entries):
-        if str(entry.get("role", "")).strip().lower() != "user":
+        if str(entry.get("role", "")).strip().lower() != "user" and not entry.get("heartbeat"):
             continue
         if not (
             str(entry.get("text", "") or "").strip()
             or bool(entry.get("attachments", []) or [])
+            or entry.get("heartbeat")
         ):
             continue
 
@@ -299,7 +301,7 @@ def _recent_visible_dialog_entries(entries: list[dict]) -> list[dict]:
     first_selected_key = selected_keys[0]
     for index, entry in enumerate(entries):
         if (
-            str(entry.get("role", "")).strip().lower() == "user"
+            (str(entry.get("role", "")).strip().lower() == "user" or entry.get("heartbeat"))
             and _dialog_turn_key(entry, index) == first_selected_key
         ):
             # Keep later JIN-only continuation rows too: an earlier archived
@@ -346,6 +348,14 @@ def _build_restored_dialog_context(
         f'<PREVIOUS_CHAT_MESSAGES session_id="{escape(session_id)}">',
         "This is the exact visible dialogue restored from the archived session. The newest complete USER/JIN pairs are shown in chronological order. Archived JIN reasoning is intentionally excluded from this bootstrap block; continue from the visible interaction state and do not summarize or re-introduce it unless the user asks.",
     ]
+
+    if any(entry.get("heartbeat") for entry in entries):
+        now = time.time()
+        for entry in _recent_visible_dialog_entries(entries):
+            if str(entry.get("role", "")).lower() in {"user", "jin", "assistant", "brain", "service"} and str(entry.get("text", "") or "").strip():
+                _append_restored_dialog_entry(lines, entry, now=now)
+        lines.append("</PREVIOUS_CHAT_MESSAGES>")
+        return "\n".join(lines)
 
     pairs = _recent_restored_dialog_pairs(entries)
     latest_user_entry = next(
@@ -432,6 +442,10 @@ def _build_recent_turn_candidates(
             )
             if reaction:
                 turn["jin_reaction"] = reaction
+        if entry.get("heartbeat"):
+            turn["heartbeat"] = True
+            if timestamp:
+                turn["jin_created_at"] = timestamp
         if role == "user":
             turn["user"] = text
             attachments = summarize_attachments(
@@ -471,7 +485,7 @@ def _build_recent_turn_candidates(
     return [
         item
         for _, item in ordered_turns
-        if item.get("user")
+        if item.get("user") or item.get("heartbeat")
     ]
 
 
@@ -1011,8 +1025,8 @@ def _tool_result_kind(name: str) -> str:
     action_name = str(name or "").strip().upper()
     if action_name == "WEB_SEARCH":
         return "search"
-    if action_name == "DEEP_WEB_SEARCH":
-        return "deep_search"
+    if action_name == "DEEP_RESEARCH":
+        return "deep_research"
     if action_name in {
         "ASSET_ACTION",
         "CREATE_WILDCARD_FILE",
@@ -1107,7 +1121,7 @@ def _parse_restore_tool_results(
                 result = parsed_result
 
         attrs = str(match.group("before_attrs") or "") + str(match.group("attrs") or "")
-        if "owner_subtask_agent_id=" in attrs:
+        if "owner_subtask_agent_id=" in attrs or re.search(r'\btool_id="SUB_T[1-9][0-9]*"', attrs):
             continue
         created_at = _consume_runtime_tool_result_created_at(
             attrs,
@@ -1637,7 +1651,9 @@ def _build_runtime_event_tool_results(entries: list[dict]) -> list[dict]:
         payload = entry.get("payload")
         if not isinstance(payload, dict):
             continue
-        if payload.get("owner_subtask_agent_id"):
+        if payload.get("owner_subtask_agent_id") or re.fullmatch(
+            r"SUB_T[1-9][0-9]*", str(payload.get("tool_id", ""))
+        ):
             continue
         kind = str(payload.get("kind", "") or "").strip().casefold()
         result = payload.get("result")
@@ -1862,24 +1878,32 @@ def _parse_jin_size(value: str):
     }
 
 
-def clear_normal_session_continuation(*, root: Path | str | None = None) -> None:
-    """Disk tombstone: only another real USER row can authorize continuation.
+def _heartbeat_move_count(entries):
+    return len({_dialog_turn_key(row, i) for i, row in enumerate(entries) if row.get("heartbeat")})
 
+
+def clear_normal_session_continuation(*, root: Path | str | None = None) -> None:
+    """Disk tombstone: a new USER or meaningful heartbeat authorizes continuation.
+
+    Distinct heartbeat turn counts exclude late completion of an existing tick.
     Counts avoid clock precision races and late completion in another open tab.
     Archives remain available for an explicit user-requested restore.
     """
     root_path = Path(root if root is not None else chat_log_root_for_mode(False))
     blocked = {}
+    blocked_heartbeats = {}
     for path in root_path.glob("*/*/*.jsonl"):
         if is_anonymous_session_id(path.parent.name):
             continue
+        entries = _load_dialog(path)
+        blocked_heartbeats[str(path.relative_to(root_path))] = _heartbeat_move_count(entries)
         blocked[str(path.relative_to(root_path))] = sum(
-            str(row.get("role", "")).lower() == "user" for row in _load_dialog(path)
+            str(row.get("role", "")).lower() == "user" for row in entries
         )
     root_path.mkdir(parents=True, exist_ok=True)
     target = root_path / ".continuation-cleared.json"
     temporary = target.with_suffix(".tmp")
-    temporary.write_text(json.dumps({"version": 1, "blocked_user_counts": blocked}), encoding="utf-8")
+    temporary.write_text(json.dumps({"version": 2, "blocked_user_counts": blocked, "blocked_heartbeat_counts": blocked_heartbeats}), encoding="utf-8")
     temporary.replace(target)
 
 
@@ -1888,11 +1912,11 @@ def find_latest_completed_session_restore_payload(
     root: Path | str | None = None,
     anonymous_mode: bool | None = None,
 ) -> dict | None:
-    """Return the newest raw-log session containing a real user move.
+    """Select the newest USER or explicitly marked meaningful heartbeat move.
 
-    A USER row qualifies immediately, even if generation was stopped before a
-    JIN row or FRAME update. Bootstrap-only sessions with no real USER row do not
-    qualify, so merely opening/stopping a fresh tab keeps the predecessor.
+    USER-only interruptions and failed heartbeat action attempts qualify.
+    Unmarked greetings and reasoning-only ticks cannot become owners.
+    Compare timestamps across archive dates: a long-lived tab can act later.
     """
     if bool(anonymous_mode):
         return None
@@ -1906,8 +1930,9 @@ def find_latest_completed_session_restore_payload(
         return None
 
     barrier_path = root_path / ".continuation-cleared.json"
-    blocked = (json.loads(barrier_path.read_text(encoding="utf-8")).get("blocked_user_counts", {})
-               if barrier_path.is_file() else {})
+    barrier = json.loads(barrier_path.read_text(encoding="utf-8")) if barrier_path.is_file() else {}
+    blocked = barrier.get("blocked_user_counts", {})
+    blocked_heartbeats = barrier.get("blocked_heartbeat_counts", {})
 
     date_directories = sorted(
         (
@@ -1920,9 +1945,9 @@ def find_latest_completed_session_restore_payload(
         reverse=True,
     )
 
+    best_session_id = ""
+    best_turn_timestamp = 0.0
     for date_directory in date_directories:
-        best_session_id = ""
-        best_turn_timestamp = 0.0
 
         for session_directory in date_directory.iterdir():
             if (
@@ -1948,7 +1973,8 @@ def find_latest_completed_session_restore_payload(
             # the authoritative dialogue file for this runtime session.
             entries = _load_dialog(dialog_paths[-1])
             key = str(dialog_paths[-1].relative_to(root_path))
-            if key in blocked and sum(str(row.get("role", "")).lower() == "user" for row in entries) <= blocked[key]:
+            if (key in blocked and sum(str(row.get("role", "")).lower() == "user" for row in entries) <= blocked[key]
+                    and _heartbeat_move_count(entries) <= blocked_heartbeats.get(key, 0)):
                 continue
             recent_turns = _build_recent_turns(entries)
             if not recent_turns:
@@ -1972,18 +1998,11 @@ def find_latest_completed_session_restore_payload(
                 session_directory.name
             )
 
-        if not best_session_id:
-            continue
-
-        payload = build_archived_session_restore_payload(
-            best_session_id,
-            root=root_path,
-        )
+    if best_session_id:
+        payload = build_archived_session_restore_payload(best_session_id, root=root_path)
         if isinstance(payload, dict):
             payload = dict(payload)
-            payload["latest_completed_turn_at"] = (
-                best_turn_timestamp
-            )
+            payload["latest_completed_turn_at"] = best_turn_timestamp
             return payload
 
     return None
@@ -2229,6 +2248,11 @@ def build_archived_session_preview(
                 ordered_keys.append(key)
             turns[key]["user"] = text
             pending_user_key = key
+        elif entry.get("heartbeat"):
+            if key not in turns:
+                turns[key] = {"user": "", "jin": "", "heartbeat": True}
+                ordered_keys.append(key)
+            turns[key]["jin"] = text
         elif text:
             # Legacy rows without turn/turn_id belong to the preceding USER.
             if key[0] == "row":
@@ -2236,7 +2260,7 @@ def build_archived_session_preview(
             if key in turns:
                 turns[key]["jin"] = text
 
-    pairs = [turns[key] for key in ordered_keys if turns[key]["user"]]
+    pairs = [turns[key] for key in ordered_keys if turns[key]["user"] or turns[key].get("heartbeat")]
     if not pairs:
         return None
     return {
@@ -2249,6 +2273,8 @@ def _restore_disk_checkpoint(entries: list[dict]) -> dict:
     """Replay exact server checkpoints and later cleanup/results in source order."""
     state = {}
     for entry in entries:
+        if entry.get("heartbeat") and "heartbeat_tick_speed" in entry:
+            state["heartbeat_tick_speed"] = entry["heartbeat_tick_speed"]
         event, payload = entry.get("event"), entry.get("payload")
         if not isinstance(payload, dict):
             continue
@@ -2257,9 +2283,11 @@ def _restore_disk_checkpoint(entries: list[dict]) -> dict:
             for key in ("tool_results", "tool_result_sequence", "loaded_memory_ids",
                         "attached_file_ids", "current_jin_color",
                         "current_jin_size", "current_jin_position", "current_jin_speed",
-                        "current_jin_collapsed", "current_window_size"):
+                        "current_jin_collapsed", "current_window_size", "heartbeat_tick_speed"):
                 if key in payload:
                     state[key] = payload[key]
+        elif event == "runtime_action" and payload.get("action") == "set_heartbeat_tick_speed" and payload.get("status") == "completed":
+            state["heartbeat_tick_speed"] = payload.get("seconds", payload.get("payload", {}).get("seconds", 600))
         elif event == "runtime_action" and payload.get("action") == "clean_tool_results" and payload.get("status") == "completed":
             if isinstance(payload.get("tool_results"), list):
                 state["tool_results"] = payload["tool_results"]
@@ -2333,7 +2361,7 @@ def _build_session_restore_payload(session_id: str, *, root=None) -> dict | None
         has_reasoning = bool(
             str(reasoning_by_turn_id.get(turn_id, "") or "").strip()
         )
-        if has_text or has_attachments or has_reasoning:
+        if has_text or has_attachments or has_reasoning or entry.get("heartbeat"):
             visible_entries.append(entry)
 
     if not visible_entries:

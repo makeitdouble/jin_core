@@ -1934,9 +1934,9 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
             )
 
         context = _context()
-        context.runtime_deep_search_calls = []
-        context.runtime_deep_search_result = ""
-        context.runtime_deep_search_result_id = ""
+        context.runtime_deep_research_calls = []
+        context.runtime_deep_research_result = ""
+        context.runtime_deep_research_result_id = ""
         context.runtime_tool_results = []
         context.runtime_session_action_history = []
         context.runtime_current_turn_id = "turn_reasoning_recovery"

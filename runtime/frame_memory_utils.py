@@ -2691,7 +2691,9 @@ def build_runtime_session_checkpoint(
         ):
             continue
 
-        if item.get("owner_subtask_agent_id"):
+        if item.get("owner_subtask_agent_id") or re.fullmatch(
+            r"SUB_T[1-9][0-9]*", str(item.get("tool_id", ""))
+        ):
             continue  # Child scratchpad results are never reload continuity.
 
         kind = str(
@@ -2763,6 +2765,7 @@ def build_runtime_session_checkpoint(
     runtime_tool_results = select_file_tool_results(runtime_tool_results, 20)
 
     return {
+        "heartbeat_tick_speed": getattr(context, "heartbeat_tick_speed", 600),
         "session_id": str(
             getattr(
                 context,

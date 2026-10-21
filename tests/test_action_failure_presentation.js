@@ -21,7 +21,7 @@ vm.runInContext(extract(trace, 'contextToolResultFileTitleSuffix', 'setContextCa
 const parent = {children: [], appendChild(n) {this.children.push(n);}};
 context.renderContextToolResultsBody(parent, body);
 assert.equal(parent.children[0].children[0].title, 'T8 · ' + label);
-vm.runInContext(extract(socket, 'buildRuntimeActionDisplayText', 'shouldUseDeepSearchStartedDisplayNameOnly'), context);
+vm.runInContext(extract(socket, 'buildRuntimeActionDisplayText', 'shouldUseDeepResearchStartedDisplayNameOnly'), context);
 assert.equal(context.buildRuntimeActionDisplayText({}, 'attach_file_content', label), label);
 assert.equal(context.contextToolResultFileTitleSuffix('File: root/a.py\nFile lines: 1-20 of 100 lines', 'ATTACH_FILE_CONTENT'), 'root/a.py#1-20');
 console.log('PASS: rendered tool card title and bubble text agree; successful range labels preserved');

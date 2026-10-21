@@ -224,7 +224,7 @@ Concrete action schemas live in `contracts/*.json`. `contracts/rules_assembler.p
 
 Current action names in runtime order are:
 
-- `DEEP_WEB_SEARCH`
+- `DEEP_RESEARCH`
 - `WEB_SEARCH`
 - `CLEAN_TOOL_RESULTS`
 - `JIN_COLOR`
@@ -248,7 +248,7 @@ Current action names in runtime order are:
 - `DELETE_ACTIVE_MEMORY`
 
 `runtime_order` above is the deterministic order used to assemble/advertise enabled action contracts in the Brain prompt. It is **not** an execution stage or priority. Once calls are parsed, the dispatcher follows model source order.
-The default `rules/brain_context_builder.py` feature map enables the listed capabilities. Search is an additional effective-capability gate: `WEB_SEARCH` and `DEEP_WEB_SEARCH` are removed from the model-facing action set unless `app_settings.settings.CAN_SEARCH` is true. `CAN_SEARCH` currently means provider `serper` plus a non-empty, non-placeholder key supplied through `SEARCH_SERPER_API_KEY` or `JIN_SEARCH_SERPER_API_KEY`; the runtime deliberately does not guess a provider-specific key shape and leaves credential validation to Serper. The Windows launcher loads repository-root `.env` values into its child JIN process, while direct `python app.py` starts require the variables to be exported by the calling shell. The search client enforces the same gate before making a request. `POSTING_BOARD` is separately gated by the loaded `posting_board` skill: the skill owns the per-action API contract and safety rules, while the native runtime action owns HTTP execution, tool-result projection, follow-ups, logging, and UI events. Its API token follows the same process-environment path through `GETPOSTINGBOARD_API_KEY` or `JIN_GETPOSTINGBOARD_API_KEY` and is deliberately omitted from request previews/tool results.
+The default `rules/brain_context_builder.py` feature map enables the listed capabilities. `DEEP_RESEARCH` is a bounded service-model investigation: its coordinator decomposes substantial analytical objectives into independent agents, each agent may analyze the supplied context and images, request web searches when useful, or delegate narrower questions, and a final agent synthesizes one report for Brain. It remains model-visible without a search provider. `WEB_SEARCH` is removed unless `app_settings.settings.CAN_SEARCH` is true, and `DEEP_RESEARCH` suppresses worker-requested web queries under the same condition while continuing context-only analysis. `CAN_SEARCH` currently means provider `serper` plus a non-empty, non-placeholder key supplied through `SEARCH_SERPER_API_KEY` or `JIN_SEARCH_SERPER_API_KEY`; the runtime deliberately does not guess a provider-specific key shape and leaves credential validation to Serper. The Windows launcher loads repository-root `.env` values into its child JIN process, while direct `python app.py` starts require the variables to be exported by the calling shell. The search client enforces the same gate before making a request. `POSTING_BOARD` is separately gated by the loaded `posting_board` skill: the skill owns the per-action API contract and safety rules, while the native runtime action owns HTTP execution, tool-result projection, follow-ups, logging, and UI events. Its API token follows the same process-environment path through `GETPOSTINGBOARD_API_KEY` or `JIN_GETPOSTINGBOARD_API_KEY` and is deliberately omitted from request previews/tool results.
 
 There is **no current `SAVE_SESSION` contract** in this snapshot.
 
@@ -339,9 +339,12 @@ MCP image blocks are decoded with a 20 MiB per-image limit, stored as normal pin
 current foreground Brain turn. The action handler validates assignments and
 registers authoritative child/session IDs; it never runs child model calls
 inside the dispatcher. `BrainNode` advances the registered children through
-ordinary follow-up ticks, one at a time, and enables `FINISH_SUBTASK` while
-removing `CREATE_JIN_INSTANCES` from every child prompt and executable action
-set. The last successful finish produces one parent-return tick. FRAME is not
+ordinary follow-up ticks, one at a time. Children retain `CREATE_JIN_INSTANCES`
+and may suspend themselves to run another group. `runtime_jin_instance_stack`
+holds suspended groups; `runtime_jin_instance_group` is the active frame.
+Each task has an internal `instance_id` (its authoritative `subtask_agent_id`)
+and `parent_instance_id`. The last successful finish resumes the immediate
+parent before its return tick, so its own FINISH targets its own assignment. FRAME is not
 scheduled between these ticks; the ordinary websocket tail schedules it only
 after the restored parent emits the final answer.
 
@@ -356,8 +359,8 @@ L-T and Delayed writes are rejected for children; useful findings return through
 the original USER intention, its own conditions, ordered predecessor reports,
 current Active/Delayed state, and an L-T prompt projection containing only
 facts created or updated within 24 hours. The projection never deletes facts.
-Child reasoning is not carried into the next child prompt. Stop interrupts the
-active child and cancels unstarted assignments; process restart does not resume
+Child reasoning is not carried into the next child prompt. Stop unwinds all
+suspended groups and cancels their unstarted assignments; process restart does not resume
 an in-memory group or classify it as completed.
 
 Every child follow-up, including recovery, carries its authoritative assignment;
@@ -367,7 +370,27 @@ state and in-flight dialogue are saved before the first child and restored on
 return or interruption; each child starts from the parent's dialogue snapshot.
 Reaching a follow-up or malformed-repair limit interrupts unfinished children,
 cancels queued work, and runs the existing final non-executable tick as the
-parent with terminal reports. Instance transitions never reuse cached results.
+root parent with terminal reports. Instance transitions never reuse cached results.
+
+Recursive runtime part 1 (2026-10-21): each group preserves its caller's
+follow-up/repair counters, reasoning, recovery and in-flight dialogue. Nested
+groups temporarily park the caller's mutable tool projections; their completion
+reports are published into the immediate parent's namespace on return. Suspended
+ancestors remain live memory owners. CREATE sets the existing transition barrier
+so trailing actions cannot run as an unstarted child. Brain's terminal boundary
+also unwinds the tree on provider errors/cancellation.
+
+`JIN_MAX_INSTANCE_TICKS` defaults to 256 and bounds follow-up loop iterations
+across the entire tree in one foreground turn (including replacement groups and
+recovery), independently of `BRAIN_MAX_FOLLOWUPS=0`. Exhaustion uses the existing
+final non-executable root response. No fixed nesting-depth limit or recursive
+Python model executor is added.
+
+This is the first owner-requested delivery stage, not full relative inheritance:
+ancestor temporary Active records remain protected but are not yet projected as
+ordinary child AM IDs; ancestor SUB Tool Results are parked, not yet inherited as
+ordinary T IDs. Those changes are reserved for parts 2 and 3. Shared durable
+memory/tool resources retain the existing owners; no browser/UI changes are made.
 
 ---
 
@@ -673,7 +696,7 @@ Backend behavior:
 - `UPDATE_LT_FACTS` and `SAVE_DELAYED_MEMORY` mutate only the anonymous file-backed profile;
 - Delayed sync supports restore, pin/unpin, and delete against the anonymous profile without touching normal files;
 - a soft WebSocket reconnect preserves the room's reports and loaded bodies;
-- persistent asset-write actions are restricted;
+- asset-write actions are allowed under ordinary skill, path and overwrite guards; other restricted writes retain their guards;
 - chat and reasoning still log normally under `logs/<date>/<session>_anon/`;
 - normal restore/bootstrap and L-T log-freshness scans ignore `_anon` sessions.
 
@@ -815,4 +838,34 @@ For the exact transition/conflict list, see `docs/JIN_CURRENT_STATE.md`.
 
 Only currently linked folders authorize these reads: no implicit source root, absolute/drive/stream paths, parent traversal or symlink escape. New USER sequences, Stop and disk bootstrap unload path attachments. Live reconnect uses server RAM; prompt projection prunes detached/deleted files. Preview reuses the existing attachment modal, through a no-store server endpoint that rechecks the runtime folder selection, recorded result and file digest. Changed/unavailable files show an unavailable result.
 
-`file_manager` uses the existing create_asset_file, append_asset_file and preview_file operations with optional explicit `attachment` (folder name or selector ID) and relative `path`. Without attachment, assets/ behavior is unchanged. With attachment, the same text writers work inside the currently linked root, including new parent folders; overwrite still requires overwrite:true. Anonymous/shadow persistent-write restrictions apply. There is no new runtime write action, dataset loop or automatic caption saving.
+`file_manager` uses the existing create_asset_file, append_asset_file and preview_file operations with optional explicit `attachment` (folder name or selector ID) and relative `path`. Without attachment, assets/ behavior is unchanged. With attachment, the same text writers work inside the currently linked root, including new parent folders; overwrite still requires overwrite:true. Anonymous rooms may execute these asset writes; shadow persistent-write restrictions still apply. There is no new runtime write action, dataset loop or automatic caption saving.
+
+
+## Autonomous heartbeat — D062 (2026-10-20)
+
+`runtime/heartbeat.py` owns deadline helpers, the initial system notification and
+the interval action handler. State lives on `RuntimeContext`. A server
+`call_later` deadline offers one generation-tagged packet to the existing
+WebSocket request queue. Admission is rechecked after asynchronous preparation
+and at process_message entry. The full AgentRuntime/BrainNode/action/child chain
+occupies the existing current task; queue completion and the existing FRAME task
+completion arm the next interval. No second Brain executor is used.
+
+`runtime-idle.js` sends bounded page-activity events separately from the existing
+conversation-idle display. Pointer gestures, wheel/touch scrolling, keyboard/input
+and focus/visibility events reset only this room's future deadline. Transport
+retirement releases it; disconnected transports cannot start a new tick.
+
+The canonical JSON contract registers SET_HEARTBEAT_TICK_SPEED through the ordinary
+parser/dispatcher/results/failure-follow-up path. Brain prepends the notification
+only to the initial tick, ahead of maintenance if present. The provider reuses
+its existing whitespace-only continuation adapter, without a fake USER message
+in application history. Memory and tool permission checks are unchanged.
+
+D062 supersedes the USER-only ownership statements in sections 3 and 9: meaningful
+heartbeat output/action attempts materialize the existing deferred logger using
+a marked runtime event, with the actual JIN row committed on completion/Stop.
+Reasoning-only ticks and the first greeting do not promote a blank session.
+Disk checkpoint/action rows restore the interval; raw marked dialogue drives
+latest-source selection, bounded history and LOGS. CLEAR counts distinct marked
+heartbeat turns as well as USER rows. Browser state never supplies disk recovery.

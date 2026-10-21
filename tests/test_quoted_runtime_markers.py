@@ -18,7 +18,7 @@ MARKERS = (
     "<UPDATE_LT_FACTS>",
     "<UPDATE_LT_FACTS>Remember this.</UPDATE_LT_FACTS>",
     "<WEB_SEARCH: test query>",
-    "<DEEP_WEB_SEARCH>research this</DEEP_WEB_SEARCH>",
+    "<DEEP_RESEARCH>research this</DEEP_RESEARCH>",
     "<CLEAN_TOOL_RESULTS> T1, T2 </CLEAN_TOOL_RESULTS>",
     "</CLEAN_TOOL_RESULTS>",
     "<JIN_COLOR> #00f2ff </JIN_COLOR>",

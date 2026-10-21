@@ -1,0 +1,27 @@
+{
+  "deep_research": {
+    "version": 1,
+    "description": "Starts a bounded multi-agent investigation that can analyze the supplied context and attachments and use web search when useful.",
+    "runtime_action": "DEEP_RESEARCH",
+    "enable_flag": "CAN_DEEP_RESEARCH",
+    "runtime_order": 10,
+    "private_marker": "<DEEP_RESEARCH>",
+    "triggers": [],
+    "blockers": [],
+    "effects": {
+      "emit_followup": true,
+      "follow_up_on_fail": false
+    },
+    "schema": [
+      "<DEEP_RESEARCH>",
+      "research or analysis objective",
+      "</DEEP_RESEARCH>"
+    ],
+    "rules": [
+      "DEEP_RESEARCH includes web search when external evidence is useful, but it is not limited to web search.",
+      "Use it for a substantial investigation or analysis that benefits from independent research agents, including analysis of supplied images or other context.",
+      "Do not use it for a simple lookup or a question that Brain can answer directly."
+    ],
+    "close_tag": true
+  }
+}

@@ -38,7 +38,16 @@ async def apply_clean_tool_results_actions(
         else:
             # An explicitly empty block is the contract's clear-all form,
             # including modern current-turn and legacy ID-less results.
-            clear_runtime_tool_results(context)
+            from utils.subtask_memory import running_child, OWNER
+            from utils.tool_results import remove_runtime_tool_results
+            child = running_child(context)
+            if child:
+                remove_runtime_tool_results(
+                    context, lambda entry: isinstance(entry, dict)
+                    and entry.get(OWNER) == child["subtask_agent_id"],
+                )
+            else:
+                clear_runtime_tool_results(context)
             ok = True
         reason = "" if ok else f"Unknown or invalid tool_id list: {target_payload}"
         event = next(

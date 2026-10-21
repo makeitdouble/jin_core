@@ -1160,7 +1160,7 @@ class RuntimeClient:
                 )
             )
 
-            if followup_tick or (restore_tick and user_prompt == ""):
+            if followup_tick or ((restore_tick or getattr(context, "runtime_heartbeat_active", False)) and user_prompt == ""):
                 # Do not replace this with "" or "(empty)": LM Studio prompt
                 # templates reject a truly empty user message ("No user query
                 # found"). Text-only follow-ups are system/context continuations,

@@ -1,0 +1,22 @@
+{
+  "set_heartbeat_tick_speed": {
+    "version": 1,
+    "description": "Set your autonomous heartbeat interval freely according to the current context.",
+    "runtime_action": "SET_HEARTBEAT_TICK_SPEED",
+    "enable_flag": "CAN_SET_HEARTBEAT_TICK_SPEED",
+    "runtime_order": 75,
+    "private_marker": "<SET_HEARTBEAT_TICK_SPEED>",
+    "triggers": [],
+    "blockers": [],
+    "effects": {"emit_followup": false, "follow_up_on_fail": true},
+    "schema": [
+      "<SET_HEARTBEAT_TICK_SPEED>{\"seconds\": 600}</SET_HEARTBEAT_TICK_SPEED>"
+    ],
+    "rules": [
+      "You may freely choose and change your heartbeat interval whenever you wish; no USER request is required.",
+      "After 300 seconds without activity on current JIN page, the runtime waits one heartbeat interval and offers an autonomous Brain tick.",
+      "A heartbeat is an opportunity, never an assigned task. You may do nothing, speak, use actions, memory or subagents under their existing rules. Do not invent mandatory goals or act merely to fill a tick."
+    ],
+    "close_tag": true
+  }
+}

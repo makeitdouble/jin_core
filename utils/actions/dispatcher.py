@@ -30,6 +30,9 @@ async def apply_runtime_action_calls(
     if context is None or not actions:
         return 0
 
+    from runtime.heartbeat import mark_heartbeat_activity
+    mark_heartbeat_activity(context)
+
     applied = 0
     # Malformed notifications split batches but never reorder valid actions.
     for malformed, group in groupby(

@@ -614,7 +614,7 @@ def build_runtime_action_instructions(
     )
 
 
-RUNTIME_ACTION_DEEP_WEB_SEARCH = get_runtime_action_name("deep_web_search")
+RUNTIME_ACTION_DEEP_RESEARCH = get_runtime_action_name("deep_research")
 RUNTIME_ACTION_WEB_SEARCH = get_runtime_action_name("web_search")
 RUNTIME_ACTION_CHAT_LOG_SEARCH = get_runtime_action_name("chat_log_search")
 RUNTIME_ACTION_SAVE_DELAYED_MEMORY = get_runtime_action_name(

@@ -757,23 +757,23 @@ function buildRuntimeActionDisplayText(
 
 }
 
-function shouldUseDeepSearchStartedDisplayNameOnly(
+function shouldUseDeepResearchStartedDisplayNameOnly(
   action,
   status,
-  deepSearchParent,
-  deepSearchPayloadReady
+  deepResearchParent,
+  deepResearchPayloadReady
 ) {
 
   return (
-    action === "deep_web_search"
-    && deepSearchParent
+    action === "deep_research"
+    && deepResearchParent
     && [
       "started",
       "start",
       "pending",
       "running",
     ].includes(status)
-    && !deepSearchPayloadReady
+    && !deepResearchPayloadReady
   );
 
 }
@@ -1397,26 +1397,26 @@ function handleRuntimeAction(
       data
     );
 
-  const deepSearchChild =
-    data.deep_search_child === true
-    || data.deepSearchChild === true;
-  const deepSearchParent =
-    data.deep_search_parent === true
-    || data.deepSearchParent === true;
-  const deepSearchPayloadReady =
-    data.deep_search_payload_ready === true
-    || data.deepSearchPayloadReady === true;
+  const deepResearchChild =
+    data.deep_research_child === true
+    || data.deepResearchChild === true;
+  const deepResearchParent =
+    data.deep_research_parent === true
+    || data.deepResearchParent === true;
+  const deepResearchPayloadReady =
+    data.deep_research_payload_ready === true
+    || data.deepResearchPayloadReady === true;
 
   const displayText =
     missingCloseTagFailure
       ? text
       : activeMemorySuccessText
       ? activeMemorySuccessText
-      : shouldUseDeepSearchStartedDisplayNameOnly(
+      : shouldUseDeepResearchStartedDisplayNameOnly(
       action,
       status,
-      deepSearchParent,
-      deepSearchPayloadReady
+      deepResearchParent,
+      deepResearchPayloadReady
     )
       ? displayName
       : updateLTFactsMessage
@@ -1436,16 +1436,16 @@ function handleRuntimeAction(
         )
       )
       : baseDisplayText;
-  const deepSearchParentId =
+  const deepResearchParentId =
     String(
-      data.deep_search_parent_id
-      || data.deepSearchParentId
+      data.deep_research_parent_id
+      || data.deepResearchParentId
       || ""
     ).trim();
-  const deepSearchObjective =
+  const deepResearchObjective =
     String(
-      data.deep_search_objective
-      || data.deepSearchObjective
+      data.deep_research_objective
+      || data.deepResearchObjective
       || ""
     ).trim();
 
@@ -2093,10 +2093,10 @@ function handleRuntimeAction(
           displayName,
           sceneEffect,
           status,
-          deepSearchParent,
-          deepSearchChild,
-          deepSearchParentId,
-          deepSearchObjective,
+          deepResearchParent,
+          deepResearchChild,
+          deepResearchParentId,
+          deepResearchObjective,
           closeTag,
         }
       );
@@ -2123,10 +2123,10 @@ function handleRuntimeAction(
           runtimeTurnId,
           runtimeMessageId,
           sceneEffect,
-          deepSearchParent,
-          deepSearchChild,
-          deepSearchParentId,
-          deepSearchObjective,
+          deepResearchParent,
+          deepResearchChild,
+          deepResearchParentId,
+          deepResearchObjective,
           status,
         }
       );
@@ -2173,10 +2173,10 @@ function handleRuntimeAction(
           runtimeTurnId,
           runtimeMessageId,
           sceneEffect,
-          deepSearchParent,
-          deepSearchChild,
-          deepSearchParentId,
-          deepSearchObjective,
+          deepResearchParent,
+          deepResearchChild,
+          deepResearchParentId,
+          deepResearchObjective,
           status,
           fallbackToLatestActive:
             terminalFailure,
@@ -2240,10 +2240,10 @@ function handleRuntimeAction(
       displayName,
       sceneEffect,
       status,
-      deepSearchParent,
-      deepSearchChild,
-      deepSearchParentId,
-      deepSearchObjective,
+      deepResearchParent,
+      deepResearchChild,
+      deepResearchParentId,
+      deepResearchObjective,
       closeTag,
     }
   );
@@ -2273,10 +2273,10 @@ function handleRuntimeAction(
         runtimeTurnId,
         runtimeMessageId,
         sceneEffect,
-        deepSearchParent,
-        deepSearchChild,
-        deepSearchParentId,
-        deepSearchObjective,
+        deepResearchParent,
+        deepResearchChild,
+        deepResearchParentId,
+        deepResearchObjective,
         status,
         fallbackToLatestActive:
           terminalFailure,

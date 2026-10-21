@@ -788,6 +788,7 @@ function connectWebSocket() {
     }
 
     // Bootstrap begins on runtime_transport_ready, before replayed events.
+    window.JinRuntime?.idle?.flushHeartbeatActivity?.();
   };
 
   socket.onclose = function (event) {

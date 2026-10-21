@@ -76,7 +76,7 @@ RETIRED_RUNTIME_MEMORY_LINE_RE = re.compile(
 BOOTSTRAP_TOOL_RESULT_KINDS = {
     "active_memory",
     "asset",
-    "deep_search",
+    "deep_research",
     "delayed_memory",
     "files",
     "lt",
@@ -395,10 +395,11 @@ def apply_archived_session_continuation_state(
                 limit=12000,
             )
 
-            if not user_text and not jin_text:
+            if not user_text and not jin_text and not turn.get("heartbeat"):
                 continue
 
             normalized_turn = {
+                **({"heartbeat": True} if turn.get("heartbeat") else {}),
                 "user": user_text,
                 "jin": jin_text,
             }
@@ -1432,8 +1433,20 @@ def clean_bootstrap_tool_results(value) -> tuple[list[dict], list]:
     created_ats = []
 
     from utils.context.files import select_file_tool_results
-    for raw_item in select_file_tool_results(value, 50):
-        if isinstance(raw_item, dict) and raw_item.get("owner_subtask_agent_id"):
+    # Remove ephemeral child entries before applying the history cap, or they
+    # could push surviving parent results out of the restored window.
+    persistent_entries = [
+        item for item in value
+        if not (isinstance(item, dict) and (
+            item.get("owner_subtask_agent_id")
+            or re.fullmatch(r"SUB_T[1-9][0-9]*", str(item.get("tool_id", "")))
+        ))
+    ]
+    for raw_item in select_file_tool_results(persistent_entries, 50):
+        if isinstance(raw_item, dict) and (
+            raw_item.get("owner_subtask_agent_id")
+            or re.fullmatch(r"SUB_T[1-9][0-9]*", str(raw_item.get("tool_id", "")))
+        ):
             continue
         if not isinstance(
             raw_item,
@@ -1468,6 +1481,7 @@ def clean_bootstrap_tool_results(value) -> tuple[list[dict], list]:
         tool_id = str(raw_item.get("tool_id", ""))
         if re.fullmatch(r"T[1-9][0-9]*", tool_id):
             item["tool_id"] = tool_id
+        # SUB_T* are temporary even if their ownership metadata was lost.
         for key in ("action_name", "action_payload", "absorbed_by", "reused_from"):
             if isinstance(raw_item.get(key), str):
                 item[key] = raw_item[key]
@@ -2470,10 +2484,11 @@ def build_session_bootstrap_chat_tail(
         # text; its USER bubble still belongs to the predecessor chat tail.
         # Attachment-only USER moves likewise stay visible after the logged
         # Attached context suffix is stripped from their chat text.
-        if not user_text and not attachments:
+        if not user_text and not attachments and not turn.get("heartbeat"):
             continue
 
         item = {
+            **({"heartbeat": True} if turn.get("heartbeat") else {}),
             "user": user_text,
             "jin": jin_text,
         }
@@ -2545,6 +2560,9 @@ def apply_session_bootstrap(
             )
         ),
     )
+
+    from runtime.heartbeat import restore_tick_speed
+    restore_tick_speed(context, message_data)
 
     apply_active_memory_records(
         context,

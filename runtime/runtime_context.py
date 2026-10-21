@@ -52,17 +52,26 @@ class RuntimeContext:
         default_factory=dict
     )
 
+    heartbeat_tick_speed: float = 600
+    runtime_heartbeat_last_activity: float = 0.0
+    runtime_heartbeat_generation: int = 0
+    runtime_heartbeat_handle: object = None
+    runtime_heartbeat_frame_wait: object = None
+    runtime_heartbeat_enqueue: object = None
+    runtime_heartbeat_active: bool = False
+    runtime_heartbeat_meaningful: bool = False
+
     deep_thought_count: int = 0
 
-    runtime_deep_search_calls: list[dict] = field(
+    runtime_deep_research_calls: list[dict] = field(
         default_factory=list
     )
 
-    runtime_deep_search_result: str = ""
+    runtime_deep_research_result: str = ""
 
-    runtime_deep_search_result_id: str = ""
+    runtime_deep_research_result_id: str = ""
 
-    runtime_deep_search_query_sequence: int = 0
+    runtime_deep_research_query_sequence: int = 0
 
     runtime_search_queries: list[str] = field(
         default_factory=list
@@ -181,10 +190,12 @@ class RuntimeContext:
 
     runtime_pending_requests_queue: object | None = None
 
-    # One source-ordered, parent-owned self-fork group. Child ticks execute
+    # Source-ordered self-fork groups, with suspended ancestors on a stack. Child ticks execute
     # inside the current foreground turn so FRAME is updated only after the
     # restored parent emits its final answer.
     runtime_jin_instance_group: dict = field(default_factory=dict)
+    runtime_jin_instance_stack: list[dict] = field(default_factory=list)
+    runtime_jin_root_instance_id: str = ""
     runtime_instance_action_barrier: bool = False
 
     # USER requests that were already accepted but had not reached Brain when

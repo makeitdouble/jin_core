@@ -4,7 +4,7 @@ from copy import deepcopy
 
 
 TOOL_RESULT_KIND_SEARCH = "search"
-TOOL_RESULT_KIND_DEEP_SEARCH = "deep_search"
+TOOL_RESULT_KIND_DEEP_RESEARCH = "deep_research"
 TOOL_RESULT_KIND_ASSET = "asset"
 TOOL_RESULT_KIND_ACTIVE_MEMORY = "active_memory"
 TOOL_RESULT_KIND_DELAYED_MEMORY = "delayed_memory"
@@ -203,7 +203,7 @@ def _failed_tool_result_requires_followup(
     if normalized_kind in {
         TOOL_RESULT_KIND_RUNTIME_ACTION,
         TOOL_RESULT_KIND_SEARCH,
-        TOOL_RESULT_KIND_DEEP_SEARCH,
+        TOOL_RESULT_KIND_DEEP_RESEARCH,
         TOOL_RESULT_KIND_ASSET,
         TOOL_RESULT_KIND_DELAYED_MEMORY,
         TOOL_RESULT_KIND_FILES,
@@ -327,11 +327,12 @@ def record_runtime_tool_result(
         ),
     }
 
-    if kind == TOOL_RESULT_KIND_ACTIVE_MEMORY:
-        from utils.subtask_memory import running_child, OWNER
-        child = running_child(context)
-        if child:
-            entry[OWNER] = child["subtask_agent_id"]
+    # Every tool result created during a child tick is temporary, regardless
+    # of kind (assets, search, failed actions, memory, etc.).
+    from utils.subtask_memory import running_child, OWNER
+    child = running_child(context)
+    if child:
+        entry[OWNER] = child["subtask_agent_id"]
 
     normalized_result_id = str(
         result_id
@@ -348,7 +349,7 @@ def record_runtime_tool_result(
         else None
     )
 
-    entry["tool_id"] = allocate_runtime_tool_id(context)
+    entry["tool_id"] = allocate_runtime_tool_id(context, child=child)
     bind_tool_result_to_action(context, entry)
     tool_results.append(
         entry
@@ -390,52 +391,57 @@ def record_runtime_tool_result(
     return True
 
 
-def remove_runtime_tool_results(
-    context,
-    predicate,
-) -> None:
+def remove_runtime_tool_results(context, predicate) -> None:
+    """Remove recorded results and keep their metadata/projections aligned."""
+    tool_results = get_runtime_tool_results(context)
+    created_ats = align_runtime_tool_result_created_ats(context)
+    current_count = min(max(int(getattr(context, "runtime_tool_results_turn_count", 0) or 0), 0), len(tool_results))
+    current_start = len(tool_results) - current_count
+    removed, kept = [], []
+    kept_ats = []
+    kept_current = 0
+    for index, entry in enumerate(tool_results):
+        if predicate(entry):
+            removed.append(entry)
+        else:
+            kept.append(entry)
+            kept_ats.append(created_ats[index])
+            if index >= current_start:
+                kept_current += 1
+    if not removed:
+        return
+    tool_results[:] = kept
+    created_ats[:] = kept_ats
+    context.runtime_tool_results_turn_count = kept_current
+    context.runtime_tool_results_generation = int(getattr(context, "runtime_tool_results_generation", 0) or 0) + 1
 
-    tool_results = get_runtime_tool_results(
-        context
-    )
-    created_ats = getattr(
-        context,
-        RUNTIME_TOOL_RESULT_CREATED_AT_ATTRIBUTE,
-        None,
-    )
-    next_tool_results = []
-    next_created_ats = []
-
-    for index, entry in enumerate(
-        tool_results
-    ):
-        if predicate(
-            entry
-        ):
+    # Legacy mirrors must not reintroduce removed child outputs; don't discard
+    # a mirror if an identical parent result still owns the same value.
+    kept_values = [entry.get("result") for entry in kept if isinstance(entry, dict)]
+    for entry in removed:
+        if not isinstance(entry, dict):
             continue
-
-        next_tool_results.append(
-            entry
-        )
-        if (
-            isinstance(
-                created_ats,
-                list,
-            )
-            and index < len(
-                created_ats
-            )
-        ):
-            next_created_ats.append(
-                created_ats[index]
-            )
-
-    tool_results[:] = next_tool_results
-    if isinstance(
-        created_ats,
-        list,
-    ):
-        created_ats[:] = next_created_ats
+        value = entry.get("result")
+        if value in kept_values:
+            continue
+        for attr in RUNTIME_TOOL_RESULT_LIST_ATTRIBUTES:
+            values = getattr(context, attr, None)
+            if isinstance(values, list):
+                values[:] = [item for item in values if item != value]
+        for kind, prefix in ((TOOL_RESULT_KIND_SEARCH, "runtime_search"),
+                             (TOOL_RESULT_KIND_DEEP_RESEARCH, "runtime_deep_research")):
+            if entry.get("kind") == kind and getattr(context, prefix + "_result", None) == value:
+                setattr(context, prefix + "_result", "")
+                setattr(context, prefix + "_result_id", "")
+    removed_ids = {entry.get("tool_id") for entry in removed if isinstance(entry, dict)}
+    context.runtime_failure_followup_tool_ids = [
+        tool_id for tool_id in (getattr(context, "runtime_failure_followup_tool_ids", []) or [])
+        if tool_id not in removed_ids
+    ]
+    context.runtime_failure_followup_entries = [
+        entry for entry in (getattr(context, "runtime_failure_followup_entries", []) or [])
+        if not (isinstance(entry, dict) and entry.get("tool_id") in removed_ids)
+    ]
 
 
 def clear_runtime_tool_results_before_current_turn(
@@ -561,12 +567,12 @@ def clear_runtime_tool_results(
     )
     setattr(
         context,
-        "runtime_deep_search_result",
+        "runtime_deep_research_result",
         "",
     )
     setattr(
         context,
-        "runtime_deep_search_result_id",
+        "runtime_deep_research_result_id",
         "",
     )
     for attribute_name in RUNTIME_TOOL_RESULT_LIST_ATTRIBUTES:
@@ -589,8 +595,19 @@ def clear_runtime_tool_results(
             )
 
 
-def allocate_runtime_tool_id(context) -> str:
-    """Never assign IDs to legacy entries or reuse a removed ID."""
+def allocate_runtime_tool_id(context, *, child=None) -> str:
+    """Parent IDs are global T*, while each sequential child starts at SUB_T1."""
+    if child is not None:
+        # The task is the counter owner: no cross-child uniqueness necessary.
+        high_water = int(child.get("tool_result_sequence", 0) or 0)
+        for entry in get_runtime_tool_results(context):
+            if entry.get("owner_subtask_agent_id") != child["subtask_agent_id"]:
+                continue
+            match = re.fullmatch(r"SUB_T([1-9][0-9]*)", str(entry.get("tool_id", "")))
+            if match:
+                high_water = max(high_water, int(match[1]))
+        child["tool_result_sequence"] = high_water + 1
+        return f"SUB_T{high_water + 1}"
     high_water = int(getattr(context, "runtime_tool_result_sequence", 0) or 0)
     for entry in get_runtime_tool_results(context):
         match = re.fullmatch(r"T([1-9][0-9]*)", str(entry.get("tool_id", "")))
@@ -606,7 +623,7 @@ def bind_tool_result_to_action(context, entry) -> None:
     name = str(result.get("runtime_action_name") or result.get("action") or "").lower() if isinstance(result, dict) else ""
     if kind == TOOL_RESULT_KIND_ASSET and name not in {"load_skill", "unload_skill", "list_skills"}:
         name = "asset_action"
-    name = {TOOL_RESULT_KIND_SEARCH: "web_search", TOOL_RESULT_KIND_DEEP_SEARCH: "deep_web_search",
+    name = {TOOL_RESULT_KIND_SEARCH: "web_search", TOOL_RESULT_KIND_DEEP_RESEARCH: "deep_research",
             TOOL_RESULT_KIND_LT: "update_lt_facts", TOOL_RESULT_KIND_FACT_CONTEXT: "recall_fact_context"}.get(kind, name)
     events = getattr(context, "runtime_action_events", []) or []
     turn_id = str(getattr(context, "runtime_current_turn_id", "") or "")
@@ -641,31 +658,26 @@ def bind_tool_result_to_action(context, entry) -> None:
             break
 
 
+def _tool_id_is_owned_by_current_instance(context, entry) -> bool:
+    from utils.subtask_memory import OWNER, running_child
+    child = running_child(context)
+    if child:
+        return entry.get(OWNER) == child["subtask_agent_id"] and bool(
+            re.fullmatch(r"SUB_T[1-9][0-9]*", str(entry.get("tool_id", "")))
+        )
+    return not entry.get(OWNER) and bool(
+        re.fullmatch(r"T[1-9][0-9]*", str(entry.get("tool_id", "")))
+    )
+
+
 def clean_runtime_tool_result(context, tool_id: str) -> bool:
-    """Remove exactly one modern result; legacy entries never match."""
-    if not re.fullmatch(r"T[1-9][0-9]*", tool_id):
-        return False
+    """Only remove results owned by the current parent/child instance."""
     entries = get_runtime_tool_results(context)
-    target = next((entry for entry in entries if entry.get("tool_id") == tool_id), None)
-    if target is None:
+    target = next((entry for entry in entries
+                   if isinstance(entry, dict) and entry.get("tool_id") == tool_id), None)
+    if target is None or not _tool_id_is_owned_by_current_instance(context, target):
         return False
-    # Legacy mirrors must not resurrect the removed result when the list empties.
-    kind, result = target.get("kind"), target.get("result")
-    for attr in RUNTIME_TOOL_RESULT_LIST_ATTRIBUTES:
-        values = getattr(context, attr, None)
-        if isinstance(values, list):
-            values[:] = [value for value in values if value != result]
-    for result_kind, prefix in ((TOOL_RESULT_KIND_SEARCH, "runtime_search"),
-                                (TOOL_RESULT_KIND_DEEP_SEARCH, "runtime_deep_search")):
-        if kind == result_kind and getattr(context, prefix + "_result", None) == result:
-            setattr(context, prefix + "_result", "")
-            setattr(context, prefix + "_result_id", "")
-    current_start = len(entries) - int(getattr(context, "runtime_tool_results_turn_count", 0) or 0)
-    was_current = entries.index(target) >= current_start
     remove_runtime_tool_results(context, lambda entry: entry is target)
-    context.runtime_tool_results_generation = int(getattr(context, "runtime_tool_results_generation", 0) or 0) + 1
-    if was_current:
-        context.runtime_tool_results_turn_count = max(0, int(getattr(context, "runtime_tool_results_turn_count", 0) or 0) - 1)
     return True
 
 
@@ -676,7 +688,7 @@ def clean_runtime_tool_results_by_ids(context, tool_ids) -> bool:
         for tool_id in tool_ids
     ))
     if not normalized_ids or any(
-        not re.fullmatch(r"T[1-9][0-9]*", tool_id)
+        not re.fullmatch(r"(?:SUB_)?T[1-9][0-9]*", tool_id)
         for tool_id in normalized_ids
     ):
         return False
@@ -684,7 +696,7 @@ def clean_runtime_tool_results_by_ids(context, tool_ids) -> bool:
     existing_ids = {
         str(entry.get("tool_id") or "")
         for entry in get_runtime_tool_results(context)
-        if entry.get("tool_id")
+        if isinstance(entry, dict) and _tool_id_is_owned_by_current_instance(context, entry)
     }
     if any(tool_id not in existing_ids for tool_id in normalized_ids):
         return False

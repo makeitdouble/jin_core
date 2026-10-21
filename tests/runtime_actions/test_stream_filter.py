@@ -186,16 +186,16 @@ class RuntimeStreamFilterTests(RuntimeActionTestCase):
         )
 
 
-    def test_extracts_deep_web_search_marker_payload(self):
+    def test_extracts_deep_research_marker_payload(self):
 
         result = extract_runtime_actions(
             (
-                "<DEEP_WEB_SEARCH>\n"
+                "<DEEP_RESEARCH>\n"
                 "blue tomato varieties\n"
-                "</DEEP_WEB_SEARCH>"
+                "</DEEP_RESEARCH>"
             ),
             enabled_actions=[
-                "CAN_DEEP_WEB_SEARCH",
+                "CAN_DEEP_RESEARCH",
             ],
         )
 
@@ -209,7 +209,7 @@ class RuntimeStreamFilterTests(RuntimeActionTestCase):
         )
         self.assertEqual(
             result.actions[0].name,
-            "DEEP_WEB_SEARCH",
+            "DEEP_RESEARCH",
         )
         self.assertIn(
             "blue tomato varieties",
@@ -217,12 +217,12 @@ class RuntimeStreamFilterTests(RuntimeActionTestCase):
         )
 
 
-    def test_extracts_legacy_inline_deep_web_search_marker_payload(self):
+    def test_extracts_legacy_inline_deep_research_marker_payload(self):
 
         result = extract_runtime_actions(
-            "<DEEP_WEB_SEARCH: blue tomato varieties>",
+            "<DEEP_RESEARCH: blue tomato varieties>",
             enabled_actions=[
-                "CAN_DEEP_WEB_SEARCH",
+                "CAN_DEEP_RESEARCH",
             ],
         )
 
@@ -240,12 +240,12 @@ class RuntimeStreamFilterTests(RuntimeActionTestCase):
         )
 
 
-    def test_legacy_inline_deep_web_search_placeholder_is_ignored(self):
+    def test_legacy_inline_deep_research_placeholder_is_ignored(self):
 
         result = extract_runtime_actions(
-            "<DEEP_WEB_SEARCH: research objective >",
+            "<DEEP_RESEARCH: research objective >",
             enabled_actions=[
-                "CAN_DEEP_WEB_SEARCH",
+                "CAN_DEEP_RESEARCH",
             ],
         )
 
@@ -259,16 +259,16 @@ class RuntimeStreamFilterTests(RuntimeActionTestCase):
         )
 
 
-    def test_deep_web_search_block_uses_body_when_attribute_is_placeholder(self):
+    def test_deep_research_block_uses_body_when_attribute_is_placeholder(self):
 
         result = extract_runtime_actions(
             (
-                "<DEEP_WEB_SEARCH: research objective >\n"
+                "<DEEP_RESEARCH: research objective >\n"
                 "Identify the movie with the talking head robot.\n"
-                "</DEEP_WEB_SEARCH>"
+                "</DEEP_RESEARCH>"
             ),
             enabled_actions=[
-                "CAN_DEEP_WEB_SEARCH",
+                "CAN_DEEP_RESEARCH",
             ],
         )
 

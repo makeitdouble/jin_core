@@ -232,7 +232,7 @@ class AnonymousModeTests(unittest.IsolatedAsyncioTestCase):
             )
         )
 
-    async def test_dispatcher_rejects_mutating_asset_action_but_allows_read_classifier(self):
+    async def test_dispatcher_rejects_shadow_asset_write_but_allows_read_classifier(self):
         context = RuntimeContext(
             websocket=None,
             emitter=FakeEmitter(),
@@ -249,6 +249,11 @@ class AnonymousModeTests(unittest.IsolatedAsyncioTestCase):
                 "content": "nope",
             }),
         )
+
+        self.assertFalse(runtime_action_write_is_restricted(
+            context, write_action.name, write_action.payload,
+        ))
+        context.runtime_anonymous_mode = False
 
         self.assertTrue(
             runtime_action_write_is_restricted(

@@ -1,11 +1,12 @@
 import re
+import json
 
 from dataclasses import dataclass
 from functools import lru_cache
 
 from contracts.rules_assembler import (
     RUNTIME_ACTION_CHAT_LOG_SEARCH,
-    RUNTIME_ACTION_DEEP_WEB_SEARCH,
+    RUNTIME_ACTION_DEEP_RESEARCH,
     RUNTIME_ACTION_LOAD_SKILL,
     RUNTIME_ACTION_LOAD_DELAYED_MEMORY,
     RUNTIME_ACTION_ATTACH_FILE_CONTENT,
@@ -123,6 +124,7 @@ CLOSE_TAG_RUNTIME_ACTIONS = frozenset(
 )
 
 REPEATABLE_RUNTIME_ACTIONS = frozenset({
+    "SET_HEARTBEAT_TICK_SPEED",
     RUNTIME_ACTION_CHAT_LOG_SEARCH,
     RUNTIME_ACTION_JIN_COLOR,
     RUNTIME_ACTION_JIN_SIZE,
@@ -236,9 +238,9 @@ def _find_all_runtime_action_matches(
             ),
         )
 
-        if action_name == RUNTIME_ACTION_DEEP_WEB_SEARCH:
+        if action_name == RUNTIME_ACTION_DEEP_RESEARCH:
             action_matches = (
-                *_find_deep_web_search_block_matches(
+                *_find_deep_research_block_matches(
                     text,
                     private_marker,
                     action_name,
@@ -366,7 +368,7 @@ def _mask_compact_project_asset_action_markers(
 
     parts.append(text[cursor:])
     return "".join(parts)
-def _find_deep_web_search_block_matches(
+def _find_deep_research_block_matches(
     text: str,
     private_marker: str,
     action_name: str,
@@ -479,6 +481,44 @@ class RuntimeActionCall:
     marker_name: str = ""
     marker_payload: str = ""
     marker_group: str = ""
+
+    def __post_init__(self):
+        # Localized compatibility for models wrapping native operations in
+        # ASSET_ACTION. Normalize before guards, reuse and events.
+        if self.name != RUNTIME_ACTION_ASSET_ACTION:
+            return
+        try:
+            value = json.loads(self.payload)
+        except (TypeError, ValueError):
+            return
+        if not isinstance(value, dict):
+            return
+        operation = str(value.get("action", "")).strip().casefold()
+        if operation == "attach_file_content":
+            keys = [key for key in ("id", "file_id", "path", "payload", "ids", "paths") if key in value]
+            if len(keys) != 1:
+                return
+            key = keys[0]
+            references = value[key] if key in {"ids", "paths"} else [value[key]]
+            if (not isinstance(references, list) or not references
+                    or any(not isinstance(item, str) or not item.strip() or "," in item for item in references)):
+                return
+            references = list(dict.fromkeys(item.strip() for item in references))
+            selector = value.get("attachment", "")
+            if selector:
+                if key not in {"path", "paths"} or not isinstance(selector, str):
+                    return
+                selector = selector.strip()
+                references = [reference if reference.replace("\\", "/").startswith(selector + "/")
+                              else selector + "/" + reference for reference in references]
+            object.__setattr__(self, "name", RUNTIME_ACTION_ATTACH_FILE_CONTENT)
+            object.__setattr__(self, "payload", ", ".join(references))
+            return
+        if operation != "create_jin_instances":
+            return
+        value = {key: item for key, item in value.items() if key != "action"}
+        object.__setattr__(self, "name", RUNTIME_ACTION_CREATE_JIN_INSTANCES)
+        object.__setattr__(self, "payload", json.dumps(value, ensure_ascii=False))
 
 
 @dataclass(frozen=True)
@@ -607,7 +647,7 @@ class RuntimeActionRepetitionGuard:
         return False
 
 
-def build_deep_web_search_payload(
+def build_deep_research_payload(
     query: str,
     placeholder_payloads=(),
 ) -> str | None:
@@ -622,6 +662,7 @@ def build_deep_web_search_payload(
 
 
 _ACTION_PAYLOAD_BUILDERS = {
+    "SET_HEARTBEAT_TICK_SPEED": lambda payload, _: str(payload or "").strip(),
     RUNTIME_ACTION_CHAT_LOG_SEARCH: lambda payload, _: str(payload or "").strip(),
     RUNTIME_ACTION_CLEAN_TOOL_RESULTS: lambda payload, _: str(payload or "").strip(),
     RUNTIME_ACTION_JIN_COLOR: build_jin_color_payload,
@@ -631,7 +672,7 @@ _ACTION_PAYLOAD_BUILDERS = {
     RUNTIME_ACTION_JIN_SPEED: build_jin_speed_payload,
     RUNTIME_ACTION_UPDATE_LT_FACTS: build_update_lt_facts_payload,
     RUNTIME_ACTION_RECALL_FACT_CONTEXT: build_recall_fact_context_payload,
-    RUNTIME_ACTION_DEEP_WEB_SEARCH: build_deep_web_search_payload,
+    RUNTIME_ACTION_DEEP_RESEARCH: build_deep_research_payload,
     RUNTIME_ACTION_WEB_SEARCH: build_web_search_payload,
     RUNTIME_ACTION_SAVE_ACTIVE_MEMORY: build_save_active_memory_payload,
     RUNTIME_ACTION_DELETE_ACTIVE_MEMORY: build_resolve_action_payload,
@@ -1331,6 +1372,12 @@ def extract_runtime_actions(
             query,
         )
 
+        if (action is not None and normalized_action_name == RUNTIME_ACTION_ASSET_ACTION
+                and action.name == RUNTIME_ACTION_ATTACH_FILE_CONTENT):
+            return handle_plural_id_marker(
+                raw_marker, action.name, action.payload, enabled_asset_alias=True,
+            )
+
         if action is None:
             if _is_payloadless_jin_color_marker(
                 raw_marker,
@@ -1414,13 +1461,15 @@ def extract_runtime_actions(
         raw_marker: str,
         action_name: str,
         query: str = "",
+        *,
+        enabled_asset_alias: bool = False,
     ) -> str:
         nonlocal plural_id_marker_index
         nonlocal marker_repetition_exceeded
         nonlocal marker_repetition_reason
 
         normalized_action_name = normalize_runtime_action_name(action_name)
-        if normalized_action_name not in enabled_action_names:
+        if normalized_action_name not in enabled_action_names and not enabled_asset_alias:
             return raw_marker
 
         item_ids = tuple(dict.fromkeys(
@@ -2144,6 +2193,15 @@ def _asset_action_block_has_payload(
     tail = text[
         opening_match.end():
     ]
+    # These envelopes are normalized to native actions once their JSON is
+    # complete. A speculative ASSET_ACTION start would have a different ID
+    # and could never be completed by the native handler. Let that handler
+    # own its lifecycle instead of creating a second, orphaned bubble.
+    operation = re.search(r'"action"\s*:\s*"([^"\r\n]+)"', tail, re.IGNORECASE)
+    if operation and operation.group(1).strip().casefold() in {
+        "create_jin_instances", "attach_file_content",
+    }:
+        return False
     next_tag = compile_runtime_action_tag_regexp(
         private_marker,
         RUNTIME_ACTION_ASSET_ACTION,

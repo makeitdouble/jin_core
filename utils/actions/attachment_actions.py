@@ -378,7 +378,7 @@ async def apply_attachment_actions(
             group = (runtime_message_id, getattr(action, "marker_group", ""), getattr(action, "marker_payload", "") or action.payload)
             display_id = (action_display_ids or {}).get(id(action)) or f"attach_path_{len(getattr(context, 'runtime_action_events', []) or []):06d}"
             emit = getattr(getattr(context, "emitter", None), "emit", None)
-            if emit is not None:
+            if emit is not None and not owner_action_id:
                 await emit(with_action_context({"type": "runtime_action", "action": "attach_file_by_path",
                                                 "id": display_id, "status": "running", "text": action.name,
                                                 "payload": action.payload}))
@@ -452,7 +452,7 @@ async def apply_attachment_actions(
 
     emitter = getattr(context, "emitter", None)
     emit = getattr(emitter, "emit", None)
-    if emit is not None:
+    if emit is not None and not owner_action_id:
         for result in results:
             action_name = {
                 "list_files": RUNTIME_ACTION_LIST_FILES,

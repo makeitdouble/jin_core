@@ -28,11 +28,14 @@ def contexts(context):
 
 def live_owners(context):
     from runtime.memory_profile import anonymous, root
+    from utils.actions.jin_instance_actions import instance_groups
     return {
         child["subtask_agent_id"]
         for target in contexts(context)
         if anonymous(target) == anonymous(context) and root(target) == root(context)
-        for child in [running_child(target)] if child is not None
+        for group in instance_groups(target)
+        if group.get("phase") == "child_running"
+        for child in group.get("tasks", []) if child.get("status") == "running"
     }
 
 
@@ -72,7 +75,9 @@ def discard_orphan_tool_results(context):
     from utils.tool_results import remove_runtime_tool_results
     owners = live_owners(context)
     remove_runtime_tool_results(context, lambda entry: bool(
-        isinstance(entry, dict) and entry.get(OWNER) and entry[OWNER] not in owners
+        isinstance(entry, dict)
+        and ((entry.get(OWNER) and entry[OWNER] not in owners)
+             or (str(entry.get("tool_id", "")).startswith("SUB_T") and not entry.get(OWNER)))
     ))
 
 

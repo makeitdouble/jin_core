@@ -354,14 +354,14 @@ class SearchFlowTests(
                 False,
             )
         )
-        self._original_service_deep_web_search = (
+        self._original_service_deep_research = (
             BRAIN_RUNTIME_ACTIONS.get(
-                "CAN_DEEP_WEB_SEARCH",
+                "CAN_DEEP_RESEARCH",
                 False,
             )
         )
         BRAIN_RUNTIME_ACTIONS["CAN_WEB_SEARCH"] = True
-        BRAIN_RUNTIME_ACTIONS["CAN_DEEP_WEB_SEARCH"] = True
+        BRAIN_RUNTIME_ACTIONS["CAN_DEEP_RESEARCH"] = True
         self._search_settings_patch = patch(
             "rules.brain_context_builder.settings",
             SimpleNamespace(CAN_SEARCH=True),
@@ -373,8 +373,8 @@ class SearchFlowTests(
         BRAIN_RUNTIME_ACTIONS["CAN_WEB_SEARCH"] = (
             self._original_service_web_search
         )
-        BRAIN_RUNTIME_ACTIONS["CAN_DEEP_WEB_SEARCH"] = (
-            self._original_service_deep_web_search
+        BRAIN_RUNTIME_ACTIONS["CAN_DEEP_RESEARCH"] = (
+            self._original_service_deep_research
         )
 
     def test_serper_key_validation_accepts_any_configured_real_key(self):
@@ -409,7 +409,7 @@ class SearchFlowTests(
 
         runtime_actions = {
             "CAN_WEB_SEARCH": True,
-            "CAN_DEEP_WEB_SEARCH": True,
+            "CAN_DEEP_RESEARCH": True,
         }
 
         with patch(
@@ -425,7 +425,7 @@ class SearchFlowTests(
                     runtime_actions
                 ),
                 (
-                    "DEEP_WEB_SEARCH",
+                    "DEEP_RESEARCH",
                     "WEB_SEARCH",
                 ),
             )
@@ -434,16 +434,14 @@ class SearchFlowTests(
             "<WEB_SEARCH> query </WEB_SEARCH>",
             prompt,
         )
-        self.assertIn(
-            "Use only when user explicitly asks for deep searching.",
-            prompt,
-        )
+        self.assertIn("<DEEP_RESEARCH>", prompt)
+        self.assertIn("includes web search", prompt)
 
-    def test_invalid_serper_key_hides_search_actions_from_context(self):
+    def test_invalid_serper_key_hides_web_search_but_keeps_deep_research(self):
 
         runtime_actions = {
             "CAN_WEB_SEARCH": True,
-            "CAN_DEEP_WEB_SEARCH": True,
+            "CAN_DEEP_RESEARCH": True,
         }
 
         with patch(
@@ -458,17 +456,14 @@ class SearchFlowTests(
                 get_enabled_runtime_actions(
                     runtime_actions
                 ),
-                (),
+                ("DEEP_RESEARCH",),
             )
 
         self.assertNotIn(
             "<WEB_SEARCH> query </WEB_SEARCH>",
             prompt,
         )
-        self.assertNotIn(
-            "Use DEEP_WEB_SEARCH",
-            prompt,
-        )
+        self.assertIn("<DEEP_RESEARCH>", prompt)
 
     def test_found_search_result_contains_results(self):
 
@@ -961,7 +956,7 @@ class SearchFlowTests(
             2,
         )
 
-    async def test_deep_search_marker_runs_child_search_bubbles(self):
+    async def test_deep_research_marker_runs_child_search_bubbles(self):
 
         search_provider = FakeSearchProvider(
             results=[
@@ -977,16 +972,16 @@ class SearchFlowTests(
                     {
                         "type": "content",
                         "content": (
-                            "<DEEP_WEB_SEARCH>\n"
+                            "<DEEP_RESEARCH>\n"
                             "Research blue tomato varieties.\n"
-                            "</DEEP_WEB_SEARCH>"
+                            "</DEEP_RESEARCH>"
                         ),
                     },
                 ],
                 [
                     {
                         "type": "content",
-                        "content": "Blue tomato summary from deep search.",
+                        "content": "Blue tomato summary from deep research.",
                     },
                 ],
             ],
@@ -1025,7 +1020,7 @@ class SearchFlowTests(
             if message.get("type") == "runtime_action"
             and message.get("action") == "web_search"
         ]
-        deep_search_events = [
+        deep_research_events = [
             message
             for message in (
                 context.emitter.payloads
@@ -1034,11 +1029,11 @@ class SearchFlowTests(
                 ).messages
             )
             if message.get("type") == "runtime_action"
-            and message.get("action") == "deep_web_search"
+            and message.get("action") == "deep_research"
         ]
-        deep_search_lifecycle_events = [
+        deep_research_lifecycle_events = [
             event
-            for event in deep_search_events
+            for event in deep_research_events
             if event.get("status") in {
                 "started",
                 "completed",
@@ -1078,7 +1073,7 @@ class SearchFlowTests(
         self.assertEqual(
             [
                 event.get("status")
-                for event in deep_search_lifecycle_events
+                for event in deep_research_lifecycle_events
             ],
             [
                 "started",
@@ -1086,26 +1081,26 @@ class SearchFlowTests(
             ],
         )
         self.assertEqual(
-            [event.get("status") for event in deep_search_events],
+            [event.get("status") for event in deep_research_events],
             ["started", "running", "completed"],
         )
         self.assertFalse(
             any(
                 event.get("counter_only")
-                for event in deep_search_events
+                for event in deep_research_events
             )
         )
         self.assertEqual(
-            deep_search_lifecycle_events[0].get("text"),
-            "DEEP_WEB_SEARCH",
+            deep_research_lifecycle_events[0].get("text"),
+            "DEEP_RESEARCH",
         )
         self.assertEqual(
-            deep_search_lifecycle_events[1].get("text"),
-            'DEEP_WEB_SEARCH: {"query": "Research blue tomato varieties."}',
+            deep_research_lifecycle_events[1].get("text"),
+            'DEEP_RESEARCH: {"query": "Research blue tomato varieties."}',
         )
         self.assertEqual(
-            deep_search_lifecycle_events[0].get("id"),
-            deep_search_lifecycle_events[1].get("id"),
+            deep_research_lifecycle_events[0].get("id"),
+            deep_research_lifecycle_events[1].get("id"),
         )
         self.assertEqual(
             [event.get("query") for event in started],
@@ -1117,32 +1112,32 @@ class SearchFlowTests(
         )
         self.assertTrue(
             all(
-                event.get("deep_search_child") is True
+                event.get("deep_research_child") is True
                 for event in runtime_events
             )
         )
         self.assertTrue(
             all(
-                event.get("deep_search_parent_id")
-                == deep_search_lifecycle_events[0].get("id")
+                event.get("deep_research_parent_id")
+                == deep_research_lifecycle_events[0].get("id")
                 for event in runtime_events
             )
         )
         self.assertNotIn(
-            "<DEEP_WEB_SEARCH",
+            "<DEEP_RESEARCH",
             visible_text,
         )
         self.assertNotIn(
-            "</DEEP_WEB_SEARCH>",
+            "</DEEP_RESEARCH>",
             visible_text,
         )
         self.assertEqual(
             state.brain_response,
-            "Blue tomato summary from deep search.",
+            "Blue tomato summary from deep research.",
         )
         followup_prompt = brain_client.prompts[1]["system_prompt"]
         self.assertIn(
-            'name="DEEP_WEB_SEARCH"',
+            'name="DEEP_RESEARCH"',
             followup_prompt,
         )
         self.assertIn(

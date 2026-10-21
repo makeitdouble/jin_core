@@ -50,8 +50,8 @@ class ActionState:
         self.had_search_queries = bool(
             getattr(batch.context, "runtime_search_queries", [])
         )
-        self.had_deep_search_calls = bool(
-            getattr(batch.context, "runtime_deep_search_calls", [])
+        self.had_deep_research_calls = bool(
+            getattr(batch.context, "runtime_deep_research_calls", [])
         )
         self.loaded_skill_names = {
             normalize_skill_name(skill.get("name", ""))

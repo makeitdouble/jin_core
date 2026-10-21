@@ -3214,15 +3214,15 @@ function stripInternalActionMarkers(
       "$1"
     )
     .replace(
-      /(^|\n)[^\S\r\n]*<DEEP_WEB_SEARCH(?:\s*:\s*[^>\n]*)?>[\s\S]*?<\/DEEP_WEB_SEARCH>[^\S\r\n]*(?=\n|$)/gi,
+      /(^|\n)[^\S\r\n]*<DEEP_RESEARCH(?:\s*:\s*[^>\n]*)?>[\s\S]*?<\/DEEP_RESEARCH>[^\S\r\n]*(?=\n|$)/gi,
       "$1"
     )
     .replace(
-      /(^|\n)[^\S\r\n]*<DEEP_WEB_SEARCH(?:\s*:\s*[^>\n]*)?>[^\S\r\n]*(?=\n|$)/gi,
+      /(^|\n)[^\S\r\n]*<DEEP_RESEARCH(?:\s*:\s*[^>\n]*)?>[^\S\r\n]*(?=\n|$)/gi,
       "$1"
     )
     .replace(
-      /(^|\n)[^\S\r\n]*<\/DEEP_WEB_SEARCH>[^\S\r\n]*(?=\n|$)/gi,
+      /(^|\n)[^\S\r\n]*<\/DEEP_RESEARCH>[^\S\r\n]*(?=\n|$)/gi,
       "$1"
     )
     .replace(

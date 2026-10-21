@@ -66,8 +66,10 @@ class AttachFileByPathTests(unittest.TestCase):
         history = build_session_actions_history_context(self.context)
         self.assertIn('Photo_036.PNG', history)
         self.assertIn(ACTION, history)
-        events = [e for e in self.context.emitter.events if e.get('attachment_result')]
-        self.assertEqual(len(events), 4)
+        events = [e for e in self.context.emitter.events if e.get('attachment_results')]
+        self.assertEqual(len(events), 2)
+        self.assertTrue(all(len(e['attachment_results']) == 2 for e in events))
+        self.assertFalse(any(e.get('attachment_result') for e in self.context.emitter.events))
         self.assertTrue(all(e['status'] == 'completed' for e in events))
         self.assertNotIn('base64', json.dumps(events))
         # Pinning another persistent file does not erase the current path set.
@@ -212,10 +214,11 @@ class AttachFileByPathTests(unittest.TestCase):
         captured = asyncio.run(run())
         self.assertEqual(captured['system_prompt'].count('CAPTION_036'), 1)
         self.assertEqual(base64.b64decode(captured['user_prompt'][1]['image_url']['url'].split(',')[1]), PNG)
-        completed = [e for e in self.context.emitter.events if e.get('attachment_result')]
-        self.assertEqual(len(completed), 2)
-        self.assertEqual(len({e['id'] for e in completed}), 2)
-        running = [e for e in self.context.emitter.events if e.get('action') == 'attach_file_by_path' and e.get('status') == 'running']
+        completed = [e for e in self.context.emitter.events if e.get('attachment_results')]
+        self.assertEqual(len(completed), 1)
+        self.assertEqual(len(completed[0]['attachment_results']), 2)
+        self.assertFalse(any(e.get('attachment_result') for e in self.context.emitter.events))
+        running = [e for e in self.context.emitter.events if e.get('action') == 'asset_action' and e.get('status') == 'started']
         self.assertEqual({e['id'] for e in running}, {e['id'] for e in completed})
         history = build_session_actions_history_context(self.context)
         self.assertIn('Photo_036.PNG', history)

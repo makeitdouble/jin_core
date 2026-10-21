@@ -21,7 +21,7 @@ from contracts.rules_assembler import (
     RUNTIME_ACTION_FINISH_SUBTASK,
     RUNTIME_ACTION_CHAT_LOG_SEARCH,
     RUNTIME_ACTION_CLEAN_TOOL_RESULTS,
-    RUNTIME_ACTION_DEEP_WEB_SEARCH,
+    RUNTIME_ACTION_DEEP_RESEARCH,
     RUNTIME_ACTION_DELETE_ACTIVE_MEMORY,
     RUNTIME_ACTION_JIN_COLOR,
     RUNTIME_ACTION_JIN_POSITION,
@@ -349,9 +349,9 @@ def _prepare_delete_active(state, action):
     return True
 
 
-def _prepare_deep_search(state, action):
+def _prepare_deep_research(state, action):
     objective = extract_search_query(action.payload)
-    if not objective or state.had_deep_search_calls:
+    if not objective or state.had_deep_research_calls:
         return False
     return state.dedup.accept(action, objective)
 
@@ -434,13 +434,13 @@ async def _run_search(batch, action, _state):
     return 1
 
 
-async def _run_deep_search(batch, action, _state):
+async def _run_deep_research(batch, action, _state):
     objective = extract_search_query(action.payload)
     if not objective:
         return 0
-    if not hasattr(batch.context, "runtime_deep_search_calls"):
-        batch.context.runtime_deep_search_calls = []
-    batch.context.runtime_deep_search_calls.append({
+    if not hasattr(batch.context, "runtime_deep_research_calls"):
+        batch.context.runtime_deep_research_calls = []
+    batch.context.runtime_deep_research_calls.append({
         "id": str(batch.action_display_ids.get(id(action), "") or ""),
         "query": objective,
         "payload": action.payload,
@@ -526,7 +526,9 @@ async def _run_asset(batch, action, _state):
     if str(payload.get("action", "")).strip().upper() in {
         RUNTIME_ACTION_ATTACH_FILE_BY_ID, RUNTIME_ACTION_ATTACH_FILE_BY_PATH,
     }:
-        owner_id = batch.action_display_ids.get(id(action)) or (
+        pending_ids = getattr(batch.context, "runtime_pending_asset_action_ids", None)
+        pending_id = pending_ids.pop(0) if isinstance(pending_ids, list) and pending_ids else ""
+        owner_id = pending_id or batch.action_display_ids.get(id(action)) or (
             f"asset_attachment_{len(batch.context.runtime_action_events):06d}"
         )
         batch.action_display_ids[id(action)] = owner_id
@@ -552,7 +554,7 @@ async def _run_asset(batch, action, _state):
             log_runtime=getattr(logger, "log_runtime", None),
             with_action_context=batch.with_action_context_for(action),
         )
-        from utils.context.files import file_result_summary
+        from utils.context.files import file_result_summary, format_file_result
         from utils.session_actions_history import record_session_action_history
         tool_ids = batch.context.runtime_action_events[-1].get("attachment_tool_ids", [])
         text = "ASSET_ACTION: " + "; ".join(file_result_summary(r) for r in results)
@@ -564,6 +566,8 @@ async def _run_asset(batch, action, _state):
                 "type": "runtime_action", "action": "asset_action", "id": owner_id,
                 "status": "completed" if all(r.get("ok") for r in results) else "failed",
                 "text": "; ".join(file_result_summary(r) for r in results),
+                "detail": "\n\n".join(format_file_result(r) for r in results),
+                "attachment_results": results,
             }))
         return len(results)
     results = await apply_asset_actions(
@@ -728,9 +732,12 @@ async def _run_finish_subtask(batch, action, state):
     return await apply_finish_subtask(batch, action, state)
 
 
+from runtime.heartbeat import apply_tick_speed
+
 ACTIONS = {
+    "SET_HEARTBEAT_TICK_SPEED": Action(prepare=_prepare_always, run=apply_tick_speed, on_success=_event_text_success, on_fail=_event_text_fail),
     RUNTIME_ACTION_CHAT_LOG_SEARCH: Action(prepare=_prepare_always, run=_run_chat_log_search, on_success=_event_text_success, on_fail=_event_text_fail),
-    RUNTIME_ACTION_DEEP_WEB_SEARCH: Action(prepare=_prepare_deep_search, run=_run_deep_search),
+    RUNTIME_ACTION_DEEP_RESEARCH: Action(prepare=_prepare_deep_research, run=_run_deep_research),
     RUNTIME_ACTION_WEB_SEARCH: Action(prepare=_prepare_search, run=_run_search),
     RUNTIME_ACTION_CLEAN_TOOL_RESULTS: Action(run=_run_clean),
     RUNTIME_ACTION_LOAD_SKILL: Action(prepare=_prepare_load_skill, run=_run_skill, on_success=_event_text_success, on_fail=_event_text_fail),
@@ -765,7 +772,7 @@ SKILL_WORKFLOW_ACTIONS = frozenset({
     RUNTIME_ACTION_LOAD_SKILL,
     RUNTIME_ACTION_UNLOAD_SKILL,
     RUNTIME_ACTION_CLEAN_TOOL_RESULTS,
-    RUNTIME_ACTION_DEEP_WEB_SEARCH,
+    RUNTIME_ACTION_DEEP_RESEARCH,
     RUNTIME_ACTION_WEB_SEARCH,
     RUNTIME_ACTION_JIN_COLOR,
     RUNTIME_ACTION_JIN_REACTION,
@@ -790,6 +797,7 @@ KEEP_ACTIVE_ACTIONS = frozenset({
 # Actions whose repeated source markers are meaningful inside one model response.
 # Their prepare callbacks own any adjacency/alternation rules.
 SOURCE_REPEAT_ACTIONS = frozenset({
+    "SET_HEARTBEAT_TICK_SPEED",
     RUNTIME_ACTION_CHAT_LOG_SEARCH,
     RUNTIME_ACTION_JIN_COLOR,
     RUNTIME_ACTION_JIN_REACTION,

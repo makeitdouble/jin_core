@@ -16,7 +16,7 @@
       "</CREATE_JIN_INSTANCES>"
     ],
     "rules": [
-      "Use this only as the parent JIN to split the current user intention into independent sequential subtasks. IDs must be consecutive integers starting at 1 and every conditions value must be non-empty. The runtime assigns authoritative instance and session IDs. Child instances cannot create nested instances."
+      "Split your current assignment into sequential subtasks, including from a child instance. IDs must be consecutive integers starting at 1 and every conditions value must be non-empty. The runtime assigns authoritative instance and session IDs. Your group suspends your execution until all its children finish; results return to you, the immediate parent. CREATE ends the current action batch: wait for the next runtime tick before further actions. Nested groups share a configured execution budget."
     ],
     "close_tag": true
   }

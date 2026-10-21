@@ -20,10 +20,12 @@ from utils.tool_results import TOOL_RESULT_KIND_RUNTIME_ACTION, record_runtime_t
 
 
 CHILD_TOOL_RESULTS_INSTRUCTION = (
-    "BEFORE FINISHING, YOU MUST REVIEW TOOL RESULTS LEFT BY EARLIER SUB-AGENTS. "
-    "USE <CLEAN_TOOL_RESULTS> TO REMOVE RESULTS THAT ARE NO LONGER NEEDED, AND "
-    "KEEP RESULTS THAT ARE STILL REQUIRED, INCLUDING LOADED SKILLS OR EVIDENCE "
-    "NEEDED BY LATER SUB-AGENTS OR THE PARENT."
+    "All TOOL_RESULTs created by you belong to your temporary instance and use "
+    "SUB_T1, SUB_T2, ... IDs starting from SUB_T1 for each child. "
+    "They are forcibly removed on FINISH_SUBTASK or interruption, including failures. "
+    "Inherited parent TOOL_RESULTs use T* IDs and are read-only: do not clean them. "
+    "CLEAN_TOOL_RESULTS accepts your SUB_T* IDs; an empty payload clears only your results. "
+    "Return essential findings in finish_reason before finishing."
 )
 
 
@@ -87,14 +89,22 @@ def _current_group(context) -> dict:
     return group if isinstance(group, dict) else {}
 
 
-def active_child(context) -> dict | None:
-    group = _current_group(context)
+def instance_groups(context) -> list[dict]:
+    """Live execution frames, oldest first; the current group has one owner."""
+    return [*(getattr(context, "runtime_jin_instance_stack", []) or []), _current_group(context)]
+
+
+def _group_child(group) -> dict | None:
     index = group.get("active_index")
     tasks = group.get("tasks")
     if not isinstance(index, int) or not isinstance(tasks, list) or not 0 <= index < len(tasks):
         return None
     task = tasks[index]
     return task if isinstance(task, dict) else None
+
+
+def active_child(context) -> dict | None:
+    return _group_child(_current_group(context))
 
 
 def self_fork_phase(context) -> str:
@@ -159,9 +169,11 @@ async def _finish_event(batch, action, *, ok: bool, result: dict, text: str) -> 
 
 async def apply_create_jin_instances(batch, action, _state) -> int:
     context = batch.context
-    if active_child(context) is not None:
-        error = "Child JIN instances cannot create nested instance groups"
-        result = {"action": action.name.lower(), "ok": False, "error": "nested_group", "detail": error}
+    previous_group = _current_group(context)
+    parent = active_child(context) if self_fork_phase(context) == "child_running" else None
+    if self_fork_phase(context) in {"child_pending", "parent_pending"}:
+        error = "The registered instance group must advance before another CREATE"
+        result = {"action": action.name.lower(), "ok": False, "error": "group_pending", "detail": error}
         record_runtime_tool_result(context, TOOL_RESULT_KIND_RUNTIME_ACTION, result)
         await _finish_event(batch, action, ok=False, result=result, text=error)
         return 1
@@ -174,7 +186,10 @@ async def apply_create_jin_instances(batch, action, _state) -> int:
         return 1
 
     group_id = f"jin_group_{uuid4().hex}"
-    parent_session_id = str(getattr(context, "session_id", "") or "")
+    if not getattr(context, "runtime_jin_root_instance_id", ""):
+        context.runtime_jin_root_instance_id = f"jin_{uuid4().hex}"
+    parent_instance_id = parent["subtask_agent_id"] if parent else context.runtime_jin_root_instance_id
+    parent_session_id = str(parent["session_id"] if parent else getattr(context, "session_id", "") or "")
     tasks = []
     for assignment in assignments:
         ordinal = assignment["ordinal"]
@@ -185,16 +200,20 @@ async def apply_create_jin_instances(batch, action, _state) -> int:
             "status": "pending",
             "finish_reason": "",
         })
+    for task in tasks:
+        task["instance_id"] = task["subtask_agent_id"]
+        task["parent_instance_id"] = parent_instance_id
     group = {
         "group_id": group_id,
+        "parent_instance_id": parent_instance_id,
         "parent_session_id": parent_session_id,
+        "depth": len(getattr(context, "runtime_jin_instance_stack", []) or []) + (1 if parent else 0),
         "parent_user_message": str(getattr(context, "runtime_turn_user_message", "") or ""),
         "created_at": time.time(),
         "phase": "child_pending",
         "active_index": 0,
         "tasks": tasks,
     }
-    context.runtime_jin_instance_group = group
     result = {
         "action": action.name.lower(),
         "ok": True,
@@ -205,7 +224,14 @@ async def apply_create_jin_instances(batch, action, _state) -> int:
             for task in tasks
         ],
     }
+    # CREATE is owned by its caller, before changing the active execution frame.
     record_runtime_tool_result(context, TOOL_RESULT_KIND_RUNTIME_ACTION, result, result_id=group_id)
+    if parent is not None:
+        stack = list(getattr(context, "runtime_jin_instance_stack", []) or [])
+        stack.append(previous_group)
+        context.runtime_jin_instance_stack = stack
+    context.runtime_jin_instance_group = group
+    context.runtime_instance_action_barrier = True
     await _finish_event(
         batch, action, ok=True, result=result,
         text=f"Created {len(tasks)} sequential JIN instances",
@@ -260,7 +286,6 @@ async def apply_finish_subtask(batch, action, _state) -> int:
     context.runtime_instance_action_barrier = True
     task.update(status="completed", finish_reason=finish_reason, completed_at=time.time())
     result = {"action": action.name.lower(), "ok": True, **authoritative}
-    record_runtime_tool_result(context, TOOL_RESULT_KIND_RUNTIME_ACTION, result, result_id=task["subtask_agent_id"])
     next_index = int(group["active_index"]) + 1
     if next_index < len(group["tasks"]):
         group["active_index"] = next_index
@@ -268,6 +293,14 @@ async def apply_finish_subtask(batch, action, _state) -> int:
     else:
         group["active_index"] = None
         group["phase"] = "parent_pending"
+    # Completion report belongs to the parent, not to the finished child's
+    # ephemeral tool-result collection.
+    if getattr(context, "runtime_jin_instance_stack", []):
+        # Publish in the immediate parent's namespace when its frame resumes.
+        # Until then, ordered task reports feed the next sibling's instruction.
+        group.setdefault("completion_results", []).append(result)
+    else:
+        record_runtime_tool_result(context, TOOL_RESULT_KIND_RUNTIME_ACTION, result, result_id=task["subtask_agent_id"])
     await _finish_event(
         batch, action, ok=True, result=result,
         text=f"JIN instance {task['ordinal']} finished: {finish_reason}",
@@ -293,8 +326,10 @@ def build_child_instruction(context) -> str:
         f"Your authoritative session_id: {task['session_id']}\n"
         f"Original user intention: {group.get('parent_user_message', '')}\n"
         f"Your assigned conditions: {task['conditions']}\n"
-        "You inherit the parent's current context, memories, skills, attachments, tools, and all current tool results. "
-        "Work autonomously through ordinary runtime actions and their ordinary follow-ups. Do not create JIN instances.\n"
+        "Use the context, memories, skills, attachments, tools, and tool results provided in this tick. "
+        "Work autonomously through ordinary runtime actions and their ordinary follow-ups. You may create nested JIN instances with CREATE_JIN_INSTANCES.\n"
+        "On your first tick, execute a runtime action if work is needed, or emit FINISH_SUBTASK if it is already done. "
+        "Plain narration without an action immediately stops this child; nothing runs in the background.\n"
         "Shared Active Memory, L-T facts and Delayed Memory are read-only. "
         "Use SAVE_ACTIVE_MEMORY freely on any follow-up tick for your own temporary intentions, conclusions, "
         "conditions and working state. You may update or delete only your own Active records. "
@@ -323,10 +358,10 @@ def build_parent_return_instruction(context) -> str:
         )
     return (
         "<JIN_INSTANCES_RETURN_TO_PARENT>\n"
-        "You are the original parent JIN. All child instances have reached terminal states. "
+        "You are the immediate parent of this group. All its child instances have reached terminal states. "
         "Continue the original user intention using the ordered reports and the actual current tool results. "
         "A child report is not proof that a claimed file exists; verify real outputs when needed. "
-        "You may finish with a normal answer, continue yourself, or create a new top-level instance group if necessary.\n"
+        "Continue your own assignment. If you are a child yourself, use your own FINISH_SUBTASK only when your assignment is complete; otherwise you may answer normally. You may create another group if necessary.\n"
         + "\n".join(lines)
         + "\n</JIN_INSTANCES_RETURN_TO_PARENT>"
     )
@@ -342,6 +377,16 @@ def mark_child_started(context) -> None:
                 name: deepcopy(getattr(context, name, default))
                 for name, default in INSTANCE_REASONING_DEFAULTS.items()
             }
+        # Suspend the parent's mutable tool projections as well as reasoning.
+        # Relative inheritance of SUB results is introduced in part 3; until
+        # then keep ancestor scratch results out of a descendant's SUB namespace.
+        if getattr(context, "runtime_jin_instance_stack", []) and "parent_tool_state" not in group:
+            group["parent_tool_state"] = {
+                name: deepcopy(getattr(context, name, default))
+                for name, default in INSTANCE_TOOL_DEFAULTS.items()
+            }
+            from utils.tool_results import remove_runtime_tool_results
+            remove_runtime_tool_results(context, lambda entry: bool(entry.get("owner_subtask_agent_id")))
         for name, default in INSTANCE_REASONING_DEFAULTS.items():
             setattr(context, name, deepcopy(default))
         if "parent_jin_messages" not in group:
@@ -354,7 +399,27 @@ def mark_child_started(context) -> None:
         group["phase"] = "child_running"
 
 
+INSTANCE_TOOL_DEFAULTS = {
+    "runtime_tool_results": [],
+    "runtime_tool_result_created_ats": [],
+    "runtime_tool_results_turn_count": 0,
+    "runtime_tool_result_sequence": 0,
+    "runtime_asset_results": [],
+    "runtime_asset_retry_results": [],
+    "runtime_asset_retry_context": [],
+    "runtime_delayed_memory_results": [],
+    "runtime_search_result": "",
+    "runtime_search_result_id": "",
+    "runtime_deep_research_result": "",
+    "runtime_deep_research_result_id": "",
+}
+
+
 INSTANCE_REASONING_DEFAULTS = {
+    "runtime_failure_followup_entries": [],
+    "runtime_failure_followup_tool_ids": [],
+    "runtime_followup_action_failure_pending": False,
+    "runtime_action_failure_followup_messages": [],
     "runtime_turn_reasoning_content": "",
     "runtime_previous_reasoning_loop_contents": [],
     "runtime_reasoning_recovery_pending": False,
@@ -367,7 +432,10 @@ INSTANCE_REASONING_DEFAULTS = {
 
 def restore_parent_reasoning(context) -> None:
     context.runtime_instance_action_barrier = False
-    snapshot = _current_group(context).get("parent_reasoning_state", {})
+    group = _current_group(context)
+    for name, value in group.get("parent_tool_state", {}).items():
+        setattr(context, name, deepcopy(value))
+    snapshot = group.get("parent_reasoning_state", {})
     for name, value in snapshot.items():
         setattr(context, name, deepcopy(value))
     group = _current_group(context)
@@ -376,14 +444,53 @@ def restore_parent_reasoning(context) -> None:
 
 
 def mark_parent_returned(context, expected_group: dict) -> None:
-    # A parent can register its next group in the return tick. Finish the old
-    # group without touching the newly registered one.
+    # Detach the finished frame before the caller's return tick can act again.
     if expected_group.get("phase") == "parent_pending":
         expected_group["phase"] = "completed"
         expected_group["completed_at"] = time.time()
+    stack = getattr(context, "runtime_jin_instance_stack", [])
+    if _current_group(context) is expected_group and stack:
+        context.runtime_jin_instance_group = stack.pop()
+        for result in expected_group.pop("completion_results", []):
+            record_runtime_tool_result(context, TOOL_RESULT_KIND_RUNTIME_ACTION, result,
+                                       result_id=result["subtask_agent_id"])
+        # Retain reports on the parent task, never a second live group owner.
+        parent = active_child(context)
+        if parent is not None:
+            parent.setdefault("child_group_reports", []).append(_group_report(expected_group))
+        expected_group.pop("parent_tool_state", None)
+        expected_group.pop("parent_reasoning_state", None)
+        expected_group.pop("parent_jin_messages", None)
+
+
+def _group_report(group) -> dict:
+    # Keep terminal diagnostics flat. Copying nested frame/report trees while
+    # unwinding would reintroduce a Python recursion limit into the stack loop.
+    keys = ("ordinal", "subtask_agent_id", "session_id", "parent_instance_id",
+            "conditions", "status", "finish_reason", "memory_cleanup_error")
+    return {"group_id": group.get("group_id", ""), "tasks": [
+        {key: task[key] for key in keys if key in task}
+        for task in group.get("tasks", [])
+    ]}
 
 
 def interrupt_instance_group(context, reason: str = "stopped") -> dict:
+    """Unwind the whole suspended tree without recursing through Python calls."""
+    while True:
+        group = _interrupt_current_group(context, reason)
+        stack = getattr(context, "runtime_jin_instance_stack", [])
+        if not stack:
+            return group
+        context.runtime_jin_instance_group = stack.pop()
+        parent = active_child(context)
+        if parent is not None:
+            parent.setdefault("child_group_reports", []).append(_group_report(group))
+        group.pop("parent_tool_state", None)
+        group.pop("parent_reasoning_state", None)
+        group.pop("parent_jin_messages", None)
+
+
+def _interrupt_current_group(context, reason: str = "stopped") -> dict:
     group = _current_group(context)
     if group.get("phase") not in {"child_pending", "child_running", "parent_pending"}:
         return group

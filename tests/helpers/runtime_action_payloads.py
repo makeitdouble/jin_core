@@ -3,7 +3,7 @@ PAIRED_ACTION_PAYLOADS = {
     "CLEAN_TOOL_RESULTS": "T1, T2",
     "WEB_SEARCH": '{"query":"pizza"}',
     "ASSET_ACTION": '{"action":"list_files"}',
-    "DEEP_WEB_SEARCH": "research this topic",
+    "DEEP_RESEARCH": "research this topic",
     "JIN_COLOR": "#112233",
     "JIN_REACTION": "😂",
     "JIN_POSITION": "x:100px y:200px",

@@ -1075,10 +1075,12 @@ def append_runtime_recent_turn(
         or ""
     ).strip()
 
-    if not user_message and not assistant_message:
+    heartbeat = bool(getattr(context, "runtime_heartbeat_active", False) and getattr(context, "runtime_heartbeat_meaningful", False))
+    if not user_message and not assistant_message and not heartbeat:
         return
 
     turn = {
+        **({"heartbeat": True} if heartbeat else {}),
         "user": user_message,
         "jin": assistant_message,
     }
@@ -1204,6 +1206,13 @@ async def process_message(
     retry_terminal_emitted = False
     reasoning_save_pending = False
     recent_turn_committed = False
+    is_heartbeat = message_data.get("type") == "heartbeat_tick"
+    if is_heartbeat and "_heartbeat_generation" in message_data:
+        from runtime.heartbeat import eligible
+        if not eligible(context, message_data["_heartbeat_generation"]):
+            return
+    context.runtime_heartbeat_active = is_heartbeat
+    context.runtime_heartbeat_meaningful = False
 
     try:
 
@@ -1343,6 +1352,9 @@ async def process_message(
             )
         )
 
+        if is_heartbeat:
+            user_text = ""
+
         context.runtime_turn_jin_reaction = ""
         context.runtime_turn_user_message = user_text
         context.runtime_turn_started_at = time.time()
@@ -1398,11 +1410,12 @@ async def process_message(
         context.runtime_turn_interruption_reason = ""
         context.runtime_turn_interruption_quote = ""
         context.runtime_turn_memory_user_message = ""
-        context.runtime_avatar_panel_collapsed = False
-        context.runtime_avatar_current_size = {}
-        context.runtime_avatar_current_position = {}
-        context.runtime_avatar_window_size = {}
-        context.runtime_avatar_move_speed = 900
+        if not is_heartbeat:
+            context.runtime_avatar_panel_collapsed = False
+            context.runtime_avatar_current_size = {}
+            context.runtime_avatar_current_position = {}
+            context.runtime_avatar_window_size = {}
+            context.runtime_avatar_move_speed = 900
         context.runtime_reasoning_recovery_pending = False
         context.runtime_context_limit_recovery_pending = False
         context.runtime_context_limit_stage = ""
@@ -1411,6 +1424,7 @@ async def process_message(
         if (
             not is_action_guard_retry
             and not is_session_restore_resume
+            and not is_heartbeat
         ):
             if not is_user_retry:
                 apply_user_idle_context(
@@ -1455,6 +1469,7 @@ async def process_message(
         if (
             not is_action_guard_retry
             and not is_session_restore_resume
+            and not is_heartbeat
             and not is_user_retry
         ):
             try:
@@ -1477,6 +1492,8 @@ async def process_message(
         state = AgentState(
             user_input=user_text
         )
+        if is_heartbeat:
+            state.metadata["heartbeat_tick"] = True
         if is_session_restore_resume:
             state.metadata["session_restore_resume"] = True
         if is_user_retry:
@@ -1560,11 +1577,15 @@ async def process_message(
             or context.runtime_turn_assistant_response
         )
 
+        if is_heartbeat and str(assistant_message or "").strip():
+            context.runtime_heartbeat_meaningful = True
+        heartbeat_empty = is_heartbeat and not context.runtime_heartbeat_meaningful
+
         # The last visible message_end already persisted a browser-side preview
         # of this turn. Commit the same completed turn to the raw archive and
         # runtime history before agent_runtime_end so both bootstrap sources
         # converge immediately.
-        if not is_action_guard_retry:
+        if not is_action_guard_retry and not heartbeat_empty:
             try:
                 if is_user_retry:
                     replace_latest_chat_log_entry(
@@ -1585,7 +1606,7 @@ async def process_message(
                 )
 
         assistant_created_at = time.time()
-        if not is_action_guard_retry:
+        if not is_action_guard_retry and not heartbeat_empty:
             append_runtime_recent_turn(
                 context,
                 user_message=user_text,
@@ -1604,7 +1625,7 @@ async def process_message(
                     user_retry_replaced_turn.get("user_created_at")
                     if is_user_retry
                     and isinstance(user_retry_replaced_turn, dict)
-                    else getattr(
+                    else None if is_heartbeat else getattr(
                         context,
                         "runtime_turn_started_at",
                         None,
@@ -1613,7 +1634,7 @@ async def process_message(
                 assistant_created_at=assistant_created_at,
             )
             recent_turn_committed = True
-        if not is_action_guard_retry and not is_user_retry:
+        if not is_action_guard_retry and not is_user_retry and not heartbeat_empty:
             context.turn_number += 1
 
         if not is_action_guard_retry:
@@ -1645,6 +1666,7 @@ async def process_message(
         retryable_response = bool(
             not is_action_guard_retry
             and not is_session_restore_resume
+            and not is_heartbeat
             and not getattr(
                 context,
                 "runtime_turn_interrupted",
@@ -1661,6 +1683,7 @@ async def process_message(
         completed_turn_commit = bool(
             not is_action_guard_retry
             and not is_session_restore_resume
+            and not is_heartbeat
             and not getattr(
                 context,
                 "runtime_turn_interrupted",
@@ -1700,7 +1723,7 @@ async def process_message(
             context.runtime_session_restore_delayed_memory_metadata = []
             context.runtime_session_restore_attached_file_metadata = []
 
-        if is_action_guard_retry:
+        if is_action_guard_retry or heartbeat_empty:
             memory_update_task = None
         elif getattr(
             context,
@@ -1734,10 +1757,10 @@ async def process_message(
                     context,
                     "runtime_turn_memory_user_message",
                     "",
-                ) or format_runtime_memory_user_message(
+                ) or ("" if is_heartbeat else format_runtime_memory_user_message(
                     context,
                     user_text,
-                ),
+                )),
                 assistant_message=assistant_message,
             )
 
@@ -1849,6 +1872,20 @@ async def process_message(
         )
 
     finally:
+        if is_heartbeat and not recent_turn_committed:
+            partial = str(getattr(context, "runtime_turn_assistant_response", "") or "").strip()
+            if partial:
+                context.runtime_heartbeat_meaningful = True
+            if context.runtime_heartbeat_meaningful:
+                try:
+                    append_chat_log_entry(context, role="jin", text=partial)
+                except Exception as error:
+                    await logger.log_system("[CHAT_LOG] interrupted heartbeat save failed: " + str(error))
+                append_runtime_recent_turn(
+                    context, user_message="", assistant_message=partial,
+                    reasoning=getattr(context, "runtime_turn_reasoning_content", ""),
+                    assistant_created_at=time.time(),
+                )
         from utils.actions.jin_instance_actions import interrupt_instance_group, self_fork_phase
         if self_fork_phase(context) in {"child_pending", "child_running", "parent_pending"}:
             interrupt_instance_group(context, "runtime_ended")
@@ -1866,6 +1903,7 @@ async def process_message(
                     "[CHAT_LOG] interrupted reasoning save failed: " + str(error)
                 )
 
+        context.runtime_heartbeat_active = False
         if is_user_retry:
             context.runtime_user_retry_active = False
 

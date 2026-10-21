@@ -10,8 +10,8 @@ def _managed_path(payload, context=None):
         return path, assets_common._relative(path)
     from utils.project_reader import linked_projects, _root_for, _inside, _strip_project_display_root
     from utils.attached_files_store import file_display_name
-    from runtime.anonymous_mode import persistent_writes_restricted
-    if payload.get("action") != "preview_file" and persistent_writes_restricted(context):
+    from runtime.anonymous_mode import runtime_action_write_is_restricted
+    if runtime_action_write_is_restricted(context, "ASSET_ACTION", payload):
         raise PermissionError("Persistent writes are restricted in this mode")
     if not linked_projects(context):
         raise ValueError("No folder attached")

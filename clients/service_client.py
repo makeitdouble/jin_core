@@ -14,6 +14,7 @@ async def ask_service_model(
     max_tokens: int | None,
     timeout: float | None = None,
     track_usage: bool = True,
+    usage_user_prompt: str | None = None,
 ):
 
     request = {
@@ -30,7 +31,11 @@ async def ask_service_model(
         await refresh_service_runtime_usage(
             context,
             system_prompt=system_prompt,
-            user_prompt=user_prompt,
+            user_prompt=(
+                usage_user_prompt
+                if usage_user_prompt is not None
+                else user_prompt
+            ),
         )
 
     response = await client.ask(
@@ -41,7 +46,11 @@ async def ask_service_model(
         await refresh_service_runtime_usage(
             context,
             system_prompt=system_prompt,
-            user_prompt=user_prompt,
+            user_prompt=(
+                usage_user_prompt
+                if usage_user_prompt is not None
+                else user_prompt
+            ),
             response=response,
         )
 

@@ -1,14 +1,16 @@
 import json
 import time
 import unittest
+from types import SimpleNamespace
+from unittest.mock import patch
 
-from runtime.deep_web_search import (
-    build_deep_search_current_sequence,
+from runtime.deep_research import (
+    build_deep_research_current_sequence,
     compact_search_result,
-    DeepSearchPool,
-    DeepSearchWorker,
-    parse_deep_search_worker_response,
-    run_deep_web_search,
+    DeepResearchPool,
+    DeepResearchWorker,
+    parse_deep_research_worker_response,
+    run_deep_research,
 )
 from runtime.runtime_context import RuntimeContext, RuntimeEmitter
 from utils.context.session_actions import build_session_actions_history_context
@@ -117,15 +119,23 @@ def make_context(service_client, search_provider):
         },
     )
     context.search_provider = search_provider
-    context.runtime_current_turn_id = "turn-deep-search"
-    context.runtime_current_sequence_turn_id = "turn-deep-search"
+    context.runtime_current_turn_id = "turn-deep-research"
+    context.runtime_current_sequence_turn_id = "turn-deep-research"
     context.runtime_current_sequence_started_at = time.time() - 1
     return context
 
 
-class DeepWebSearchFlowTests(unittest.IsolatedAsyncioTestCase):
+class DeepResearchFlowTests(unittest.IsolatedAsyncioTestCase):
+    def test_worker_prompt_defines_analysis_and_optional_web_search(self):
+        from runtime.deep_research import DEEP_RESEARCH_WORKER_SYSTEM_PROMPT
+
+        self.assertIn("Web search is one optional", DEEP_RESEARCH_WORKER_SYSTEM_PROMPT)
+        self.assertIn("Analyze the supplied context and image attachments", DEEP_RESEARCH_WORKER_SYSTEM_PROMPT)
+        self.assertIn("first split it into 1 to 3 independent", DEEP_RESEARCH_WORKER_SYSTEM_PROMPT)
+        self.assertIn("integrated conclusion", DEEP_RESEARCH_WORKER_SYSTEM_PROMPT)
+
     def test_worker_response_parser_accepts_fenced_json(self):
-        parsed = parse_deep_search_worker_response(
+        parsed = parse_deep_research_worker_response(
             "```json\n"
             '{"queries":["one","two"],"spawn":["branch"],'
             '"report":"ok","done":false}'
@@ -137,7 +147,7 @@ class DeepWebSearchFlowTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(parsed["done"])
 
     def test_worker_response_parser_recovers_adjacent_json_objects(self):
-        parsed = parse_deep_search_worker_response(
+        parsed = parse_deep_research_worker_response(
             '{"queries":["dark trip-hop cinematic score industrial ambient",'
             '"Nordic Noir electronic soundtrack minimalist techno",'
             '"industrial ambient noir music artists"]}\n'
@@ -170,7 +180,7 @@ class DeepWebSearchFlowTests(unittest.IsolatedAsyncioTestCase):
         provider = FakeSearchProvider()
         context = make_context(service, provider)
 
-        result = await run_deep_web_search(
+        result = await run_deep_research(
             context=context,
             objective="research split json handling",
         )
@@ -179,7 +189,7 @@ class DeepWebSearchFlowTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("final report", result)
 
     def test_worker_response_parser_does_not_truthify_string_false(self):
-        parsed = parse_deep_search_worker_response(
+        parsed = parse_deep_research_worker_response(
             '{"queries":["q1"],"spawn":[],"report":"ok","done":"false"}'
         )
 
@@ -187,7 +197,7 @@ class DeepWebSearchFlowTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(parsed["done"])
 
     def test_current_sequence_contains_shared_budget_and_previous_steps(self):
-        pool = DeepSearchPool(
+        pool = DeepResearchPool(
             objective="find similar music",
             max_queries=10,
             queries_per_worker=3,
@@ -198,12 +208,12 @@ class DeepWebSearchFlowTests(unittest.IsolatedAsyncioTestCase):
             "compact": "status=FOUND; source evidence",
             "result": "",
         })
-        worker = DeepSearchWorker(
+        worker = DeepResearchWorker(
             worker_id=2,
             task="albums",
             last_note="2 queries remaining",
         )
-        prompt = build_deep_search_current_sequence(pool, worker)
+        prompt = build_deep_research_current_sequence(pool, worker)
         self.assertIn("research_objective: find similar music", prompt)
         self.assertIn("current_task: albums", prompt)
         self.assertIn("1/10 used; 9 remaining", prompt)
@@ -222,7 +232,7 @@ class DeepWebSearchFlowTests(unittest.IsolatedAsyncioTestCase):
         provider = FakeSearchProvider()
         context = make_context(service, provider)
 
-        result = await run_deep_web_search(
+        result = await run_deep_research(
             context=context,
             objective="research something difficult",
         )
@@ -234,7 +244,7 @@ class DeepWebSearchFlowTests(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn("q11", provider.queries)
         self.assertNotIn("q12", provider.queries)
         self.assertIn("final report", result)
-        self.assertIn("Deep web search report", result)
+        self.assertIn("Deep research report", result)
         self.assertIn("Source notes:", result)
         self.assertNotIn("<SEARCH>", result)
         self.assertNotIn("<EVIDENCE>", result)
@@ -263,7 +273,7 @@ class DeepWebSearchFlowTests(unittest.IsolatedAsyncioTestCase):
         )
         self.assertTrue(
             all(
-                payload.get("deep_search_child") is True
+                payload.get("deep_research_child") is True
                 for payload in started
             )
         )
@@ -273,7 +283,7 @@ class DeepWebSearchFlowTests(unittest.IsolatedAsyncioTestCase):
         )
         self.assertTrue(
             all(
-                payload.get("deep_search_child") is True
+                payload.get("deep_research_child") is True
                 for payload in completed
             )
         )
@@ -317,7 +327,7 @@ class DeepWebSearchFlowTests(unittest.IsolatedAsyncioTestCase):
         provider = FakeSearchProvider()
         context = make_context(service, provider)
 
-        await run_deep_web_search(
+        await run_deep_research(
             context=context,
             objective="blue tomato research",
         )
@@ -330,6 +340,76 @@ class DeepWebSearchFlowTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("WEB_SEARCH: blue tomato varieties", current_sequence)
         self.assertIn("WEB_SEARCH: blue tomato anthocyanins", current_sequence)
         self.assertNotIn("WEB_SEARCH ×", current_sequence)
+
+    async def test_context_only_investigation_spawns_agents_and_synthesizes(self):
+        service = FakeServiceClient([
+            worker_response([], report="Initial framing", spawn=[
+                "Inspect what is visually surprising.",
+                "Compare the image with familiar visual patterns.",
+            ]),
+            worker_response([], report="The visual joke depends on scale.", done=True),
+            worker_response([], report="The composition resembles an advertisement.", done=True),
+            worker_response([], report="Integrated interpretation without web evidence.", done=True),
+        ])
+        provider = FakeSearchProvider()
+        context = make_context(service, provider)
+
+        result = await run_deep_research(
+            context=context,
+            objective="Analyze the attached image from several perspectives",
+        )
+
+        self.assertEqual(provider.queries, [])
+        self.assertEqual(len(service.prompts), 4)
+        self.assertIn("current_worker_role: coordinator", service.prompts[0]["user_prompt"])
+        self.assertIn("current_worker_role: research_agent", service.prompts[1]["user_prompt"])
+        self.assertIn("current_worker_role: synthesizer", service.prompts[3]["user_prompt"])
+        self.assertIn("Integrated interpretation without web evidence.", result)
+        self.assertIn("Web search: not used", result)
+
+    async def test_image_attachment_is_forwarded_to_research_agents(self):
+        service = FakeServiceClient([
+            worker_response([], report="Observed the image directly.", done=True),
+            worker_response([], report="Final visual analysis.", done=True),
+        ])
+        context = make_context(service, FakeSearchProvider())
+        context.runtime_turn_attachments = [{
+            "kind": "image",
+            "name": "example.png",
+            "data_url": "data:image/png;base64,AAAA",
+        }]
+
+        result = await run_deep_research(
+            context=context,
+            objective="Study this image",
+        )
+
+        self.assertIn("Final visual analysis.", result)
+        for prompt in service.prompts:
+            self.assertIsInstance(prompt["user_prompt"], list)
+            self.assertEqual(prompt["user_prompt"][1]["type"], "image_url")
+            self.assertEqual(
+                prompt["user_prompt"][1]["image_url"]["url"],
+                "data:image/png;base64,AAAA",
+            )
+
+    async def test_unavailable_web_search_does_not_stop_context_analysis(self):
+        service = FakeServiceClient([
+            worker_response(["query that must not run"], report="Analyzed locally.", done=True),
+            worker_response([], report="Context-only synthesis.", done=True),
+        ])
+        context = make_context(service, FakeSearchProvider())
+        context.search_provider = None
+
+        with patch("runtime.deep_research.settings", SimpleNamespace(CAN_SEARCH=False)):
+            result = await run_deep_research(
+                context=context,
+                objective="Analyze without external search",
+            )
+
+        self.assertIn("Context-only synthesis.", result)
+        self.assertIn("web_search_available: no", service.prompts[0]["user_prompt"])
+        self.assertEqual(len(service.prompts), 2)
 
     def test_plain_sequence_history_does_not_use_jin_message_wording(self):
         service = FakeServiceClient([])

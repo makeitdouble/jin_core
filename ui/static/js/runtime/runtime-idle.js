@@ -13,6 +13,39 @@
 
   let onIdleTextChanged = null;
 
+  // Page activity is distinct from the displayed conversation idle counter.
+  // Leading + trailing notifications keep pointer traffic bounded, while the
+  // server owns deadlines even when background-tab timers are throttled.
+  let heartbeatActivityTimer = null;
+  let heartbeatActivityLastSent = -Infinity;
+  let heartbeatActivityPending = false;
+  function notifyHeartbeatActivity() {
+    heartbeatActivityTimer = null;
+    heartbeatActivityLastSent = Date.now();
+    heartbeatActivityPending = !window.sendSocketMessage?.({ type: "heartbeat_activity" });
+  }
+  function heartbeatPageActivity(event) {
+    if (event && event.isTrusted === false) return;
+    heartbeatActivityPending = true;
+    if (Date.now() - heartbeatActivityLastSent >= 250) {
+      if (heartbeatActivityTimer !== null) clearTimeout(heartbeatActivityTimer);
+      notifyHeartbeatActivity();
+    } else if (heartbeatActivityTimer === null) {
+      heartbeatActivityTimer = setTimeout(notifyHeartbeatActivity, 250);
+    }
+  }
+  function flushHeartbeatActivity() {
+    if (!heartbeatActivityPending) return;
+    if (heartbeatActivityTimer !== null) clearTimeout(heartbeatActivityTimer);
+    notifyHeartbeatActivity();
+  }
+  // Scroll intent comes from wheel/touch/keys/scrollbar pointer gestures.
+  // A bare scroll event also fires during JIN's own automatic chat scrolling.
+  ["pointermove", "pointerdown", "keydown", "input", "wheel", "touchstart", "touchmove"]
+    .forEach(name => document.addEventListener(name, heartbeatPageActivity, { capture: true, passive: true }));
+  ["focus", "blur"].forEach(name => window.addEventListener(name, heartbeatPageActivity));
+  document.addEventListener("visibilitychange", heartbeatPageActivity);
+
   function formatUserIdleDuration(ms) {
     const totalSeconds = Math.max(
         0,
@@ -342,6 +375,7 @@
 
 
   const idle = {
+    flushHeartbeatActivity,
     configure,
     start,
     stop,

@@ -14,16 +14,11 @@
     },
     "schema": [
       "<ASSET_ACTION>",
-      "{\"action\":\"action_from_loaded_skill\",\"...\":\"schema defined by that skill\"}",
-      "</ASSET_ACTION>",
-      "<ASSET_ACTION> {\"action\":\"ATTACH_FILE_BY_ID\",\"id\":\"abc123\"} </ASSET_ACTION>",
-      "<ASSET_ACTION> {\"action\":\"ATTACH_FILE_BY_ID\",\"ids\":[\"abc123\",\"def456\"]} </ASSET_ACTION>",
-      "<ASSET_ACTION> {\"action\":\"ATTACH_FILE_BY_PATH\",\"paths\":[\"dataset/image.png\",\"dataset/caption.txt\"]} </ASSET_ACTION>",
-      "<ASSET_ACTION> {\"action\":\"ATTACH_FILE_BY_PATH\",\"attachment\":\"dataset\",\"path\":\"image.png\"} </ASSET_ACTION>"
+      "{\"schema defined by skill\"}",
+      "</ASSET_ACTION>"
     ],
     "rules": [
-      "MANDATORY: ASSET_ACTION requires a loaded skill context with action schemas.",
-      "With file_manager loaded, ATTACH_FILE_BY_ID and ATTACH_FILE_BY_PATH attach whole existing text/images through the same attachment pipeline as ATTACH_FILE_CONTENT. Operation names are case-insensitive. Use id or ids for persistent IDs, path or paths for linked-folder paths; never reinterpret a missing ID as a path. Paths preserve case and stay within currently linked folders. Each BY_PATH call replaces the previous temporary path set; pins are preserved. At most five files; existing byte/text limits apply. Wait for FOLLOW-UP to inspect actual text/pixels. These operations never create files; omit missing TXT files and create captions later with create_asset_file. Prefer the single ATTACH_FILE_CONTENT marker for ordinary attachment and text-window reads."
+      "MANDATORY: Asset operations require a loaded skill context with action schemas."
     ],
     "close_tag": true
   }

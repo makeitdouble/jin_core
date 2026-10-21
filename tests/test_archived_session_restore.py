@@ -1488,8 +1488,8 @@ open_question: continue
                 ],
                 "tool_results": [
                     {
-                        "kind": "deep_search",
-                        "result": "Deep web search report\nReport:\nReddit says cold noir.",
+                        "kind": "deep_research",
+                        "result": "Deep research report\nReport:\nReddit says cold noir.",
                         "created_at": 5.0,
                     },
                 ],
@@ -1538,7 +1538,7 @@ open_question: continue
         tool_results = build_tool_results_context(
             context
         )
-        self.assertIn("DEEP_WEB_SEARCH", tool_results)
+        self.assertIn("DEEP_RESEARCH", tool_results)
         self.assertIn("Reddit says cold noir.", tool_results)
 
 

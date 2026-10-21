@@ -107,7 +107,7 @@ Current contract families include:
 * `POSTING_BOARD` after the `posting_board` skill is loaded;
 * `CALL_MCP` after any skill containing a valid `<MCP_SERVER>...</MCP_SERVER>` declaration is loaded;
 * `JIN_COLOR`, `JIN_REACTION`, `JIN_SIZE`, `JIN_POSITION`, and `JIN_SPEED`.
-* `WEB_SEARCH`, `DEEP_WEB_SEARCH`, and local `CHAT_LOG_SEARCH` when their capability gates allow them;
+* `WEB_SEARCH`, `DEEP_RESEARCH`, and local `CHAT_LOG_SEARCH` when their capability gates allow them;
 * `CLEAN_TOOL_RESULTS`, `UPDATE_LT_FACTS`, and model-facing `<RECALL_FACTS_CONTEXT> F1, F2 </RECALL_FACTS_CONTEXT>`;
 
 Concrete schemas in `contracts/*.json` are authoritative.
@@ -333,7 +333,7 @@ The Windows one-click launcher creates `config.py` automatically after a success
 | `SERVICE_API_BASE`, `SERVICE_MODEL_UID`, `SERVICE_TEMPERATURE` | Optionally configure a dedicated background Service runtime. Leave `SERVICE_API_BASE` empty to reuse Brain. |
 | `LT_IDLE_SECONDS` | Set the L-T background consolidation idle delay. L-T memory itself is always enabled. |
 | `SEARCH_PROVIDER`, `SEARCH_MAX_RESULTS` | Configure the built-in web-search provider and result count. |
-| `DEEP_WEB_SEARCH_MAX_QUERIES_PER_WORKER`, `DEEP_WEB_SEARCH_MAX_WORKER_CALLS` | Bound worker fan-out/call count for Deep Web Search. |
+| `DEEP_RESEARCH_MAX_QUERIES_PER_WORKER`, `DEEP_RESEARCH_MAX_WORKER_CALLS` | Bound worker fan-out/call count for Deep Research. |
 
 User-facing config values can also be supplied through environment variables. Plain names and `JIN_`-prefixed names are supported; plain names take priority.
 

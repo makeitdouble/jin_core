@@ -22,7 +22,7 @@ def test_runtime_actions_run_in_model_emission_order():
         context = SimpleNamespace(
             runtime_action_events=[],
             runtime_search_calls=[],
-            runtime_deep_search_calls=[],
+            runtime_deep_research_calls=[],
             runtime_loaded_skills=[],
             runtime_skill_state_barrier_active=False,
             runtime_current_turn_id="turn-order",

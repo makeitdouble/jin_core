@@ -23,9 +23,9 @@ class LiveSessionCheckpointTests(unittest.TestCase):
             ],
             runtime_tool_results=[
                 {
-                    "kind": "deep_search",
-                    "result": "Deep web search report",
-                    "id": "deep_web_search_001",
+                    "kind": "deep_research",
+                    "result": "Deep research report",
+                    "id": "deep_research_001",
                 },
             ],
             runtime_tool_result_created_ats=[42.0],
@@ -74,9 +74,9 @@ class LiveSessionCheckpointTests(unittest.TestCase):
             checkpoint["tool_results"],
             [
                 {
-                    "kind": "deep_search",
-                    "result": "Deep web search report",
-                    "id": "deep_web_search_001",
+                    "kind": "deep_research",
+                    "result": "Deep research report",
+                    "id": "deep_research_001",
                     "created_at": 42.0,
                 },
             ],

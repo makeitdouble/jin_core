@@ -89,7 +89,7 @@ def find_reusable_result(context, action):
     # Instance actions are transitions of the live group. Cached creation
     # cannot start another group, and cached finish cannot validate its owner.
     if action.name in {"CLEAN_TOOL_RESULTS", "ATTACH_FILE_CONTENT", "ATTACH_FILE_BY_PATH", "CALL_MCP",
-                       "CREATE_JIN_INSTANCES", "FINISH_SUBTASK"}:
+                       "CREATE_JIN_INSTANCES", "FINISH_SUBTASK", "SET_HEARTBEAT_TICK_SPEED"}:
         return None
 
     if action.name in {"SAVE_ACTIVE_MEMORY", "DELETE_ACTIVE_MEMORY"}:

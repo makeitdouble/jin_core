@@ -133,15 +133,15 @@ const cases = [
     "before\n\nafter",
   ],
   [
-    "<DEEP_WEB_SEARCH>\nFind albums like Hitman.\n</DEEP_WEB_SEARCH>",
+    "<DEEP_RESEARCH>\nFind albums like Hitman.\n</DEEP_RESEARCH>",
     "",
   ],
   [
-    "<DEEP_WEB_SEARCH: research objective >\nFind albums like Hitman.\n</DEEP_WEB_SEARCH>",
+    "<DEEP_RESEARCH: research objective >\nFind albums like Hitman.\n</DEEP_RESEARCH>",
     "",
   ],
   [
-    "before\n<DEEP_WEB_SEARCH>\nFind albums.\n</DEEP_WEB_SEARCH>\nafter",
+    "before\n<DEEP_RESEARCH>\nFind albums.\n</DEEP_RESEARCH>\nafter",
     "before\n\nafter",
   ],
 ];
@@ -179,21 +179,21 @@ for (const [input, expected] of cases) {
 
     @unittest.skipUnless(
         shutil.which("node"),
-        "node is required for the deep-search click interaction test",
+        "node is required for the deep-research click interaction test",
     )
-    def test_deep_search_stack_click_interaction_routes_only_expected_clicks(self):
+    def test_deep_research_stack_click_interaction_routes_only_expected_clicks(self):
         script = r'''
 const fs = require("fs");
 const source = fs.readFileSync(process.argv[1], "utf8");
-const start = source.indexOf("function deepSearchStackHasSelectedText()");
-const end = source.indexOf("function scheduleDeepSearchStackGeometrySync(", start);
+const start = source.indexOf("function deepResearchStackHasSelectedText()");
+const end = source.indexOf("function scheduleDeepResearchStackGeometrySync(", start);
 
 if (start < 0 || end < 0) {
-  throw new Error("deep-search click helpers were not found");
+  throw new Error("deep-research click helpers were not found");
 }
 
 let selectedText = "";
-const deepSearchStackExpandedGroups = new Set();
+const deepResearchStackExpandedGroups = new Set();
 const rowsByGroup = new Map();
 const stateChanges = [];
 
@@ -222,7 +222,7 @@ function makeRow(kind, name) {
     dataset: {},
     classList: {
       contains(value) {
-        return value === `jin-runtime-action-deep-search-${kind}`;
+        return value === `jin-runtime-action-deep-research-${kind}`;
       },
     },
     querySelector() {
@@ -242,32 +242,32 @@ const parent = makeRow("parent", "parent");
 const first = makeRow("child", "first");
 const second = makeRow("child", "second");
 [parent, first, second].forEach((row) => {
-  row.dataset.runtimeActionDeepSearchGroup = "group-1";
+  row.dataset.runtimeActionDeepResearchGroup = "group-1";
 });
 rowsByGroup.set("group-1", [parent, first, second]);
 
-function readDeepSearchGroupId(row) {
-  return row.dataset.runtimeActionDeepSearchGroup || "";
+function readDeepResearchGroupId(row) {
+  return row.dataset.runtimeActionDeepResearchGroup || "";
 }
 
-function findDeepSearchGroupRows(groupId) {
+function findDeepResearchGroupRows(groupId) {
   return rowsByGroup.get(groupId) || [];
 }
 
-function setDeepSearchStackExpanded(row, expanded) {
-  const groupId = readDeepSearchGroupId(row);
+function setDeepResearchStackExpanded(row, expanded) {
+  const groupId = readDeepResearchGroupId(row);
   stateChanges.push([row.name, expanded]);
   if (expanded) {
-    deepSearchStackExpandedGroups.add(groupId);
+    deepResearchStackExpandedGroups.add(groupId);
   } else {
-    deepSearchStackExpandedGroups.delete(groupId);
+    deepResearchStackExpandedGroups.delete(groupId);
   }
 }
 
 eval(source.slice(start, end));
 
-bindDeepSearchStackClick(first);
-bindDeepSearchStackClick(second);
+bindDeepResearchStackClick(first);
+bindDeepResearchStackClick(second);
 
 second.listeners.click();
 if (stateChanges.length !== 0) {
@@ -291,12 +291,12 @@ if (stateChanges.length !== 1) {
   throw new Error("clicking a bubble while expanded changed stack state");
 }
 
-handleDeepSearchStackDocumentClick({ target: second.label });
+handleDeepResearchStackDocumentClick({ target: second.label });
 if (stateChanges.length !== 1) {
   throw new Error("clicking inside a child bubble collapsed the stack");
 }
 
-handleDeepSearchStackDocumentClick({ target: { name: "outside" } });
+handleDeepResearchStackDocumentClick({ target: { name: "outside" } });
 if (stateChanges.length !== 2 || stateChanges[1][1] !== false) {
   throw new Error("outside click did not collapse the stack");
 }
@@ -326,7 +326,7 @@ if (stateChanges.length !== 2 || stateChanges[1][1] !== false) {
         shutil.which("node"),
         "node is required for the browser-side search scene test",
     )
-    def test_deep_search_scene_overlay_stays_until_parent_completes(self):
+    def test_deep_research_scene_overlay_stays_until_parent_completes(self):
         script = r'''
 const fs = require("fs");
 const source = fs.readFileSync(process.argv[1], "utf8");
@@ -359,17 +359,17 @@ global.document = {
 };
 
 syncSceneSearchScreenForRuntimeAction(
-  "deep_web_search",
+  "deep_research",
   true,
   {
-    id: "deep_web_search_001",
+    id: "deep_research_001",
     runtimeMessageId: "message_1",
     sceneEffect: "search",
   }
 );
 
 if (!classes.has("scene-searching")) {
-  throw new Error("deep search parent did not activate the search scene");
+  throw new Error("deep research parent did not activate the search scene");
 }
 
 syncSceneSearchScreenForRuntimeAction(
@@ -377,7 +377,7 @@ syncSceneSearchScreenForRuntimeAction(
   true,
   {
     id: "web_search_001",
-    deepSearchParentId: "deep_web_search_001",
+    deepResearchParentId: "deep_research_001",
     sceneEffect: "search",
   }
 );
@@ -386,26 +386,26 @@ syncSceneSearchScreenForRuntimeAction(
   false,
   {
     id: "web_search_001",
-    deepSearchParentId: "deep_web_search_001",
+    deepResearchParentId: "deep_research_001",
     sceneEffect: "search",
   }
 );
 
 if (!classes.has("scene-searching")) {
-  throw new Error("child web search completion hid the deep search scene");
+  throw new Error("child web search completion hid the deep research scene");
 }
 
 syncSceneSearchScreenForRuntimeAction(
-  "deep_web_search",
+  "deep_research",
   false,
   {
-    id: "deep_web_search_001",
+    id: "deep_research_001",
     sceneEffect: "search",
   }
 );
 
 if (classes.has("scene-searching")) {
-  throw new Error("deep search parent completion did not hide the search scene");
+  throw new Error("deep research parent completion did not hide the search scene");
 }
 '''
         completed = subprocess.run(

@@ -233,7 +233,13 @@ def runtime_action_write_is_restricted(
         return session_memory_writes_restricted(context)
 
     if normalized_name == "ASSET_ACTION":
-        return asset_action_writes_persistent_data(payload)
+        # Anonymous rooms isolate memory, but owner-authorized asset work
+        # uses the ordinary persistent files. Other restricted contexts retain
+        # the write guard (for example shadow/background execution).
+        return (
+            not bool(getattr(context, "runtime_anonymous_mode", False))
+            and asset_action_writes_persistent_data(payload)
+        )
 
     if normalized_name == "POSTING_BOARD":
         return (

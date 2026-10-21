@@ -2,7 +2,7 @@ import asyncio
 from types import SimpleNamespace
 import unittest
 
-from contracts.rules_assembler import RUNTIME_ACTION_DEEP_WEB_SEARCH
+from contracts.rules_assembler import RUNTIME_ACTION_DEEP_RESEARCH
 from runtime.stream import RuntimeStream
 from utils.actions import RuntimeActionCall
 
@@ -15,7 +15,7 @@ class FakeEmitter:
         self.events.append(dict(payload))
 
 
-class DeepWebSearchMarkerLifecycleTests(unittest.TestCase):
+class DeepResearchMarkerLifecycleTests(unittest.TestCase):
 
     def build_runtime_stream(self):
         context = SimpleNamespace(
@@ -23,15 +23,15 @@ class DeepWebSearchMarkerLifecycleTests(unittest.TestCase):
             runtime_action_events=[],
             runtime_active_action_markers=[],
             runtime_current_turn_id="turn_000001",
-            runtime_deep_web_search_action_sequence=0,
+            runtime_deep_research_action_sequence=0,
             delayed_memory_reports={},
         )
         runtime_stream = RuntimeStream.__new__(RuntimeStream)
         runtime_stream.context = context
         runtime_stream.context_snapshot = {}
         runtime_stream.stream = SimpleNamespace(message_id="message_000001")
-        runtime_stream.deep_web_search_action_ids = {}
-        runtime_stream.started_deep_web_search_action_ids = []
+        runtime_stream.deep_research_action_ids = {}
+        runtime_stream.started_deep_research_action_ids = []
         runtime_stream.started_active_memory_action_ids = []
         runtime_stream.started_delayed_memory_action_ids = []
         runtime_stream.started_update_lt_facts_action_ids = []
@@ -45,23 +45,23 @@ class DeepWebSearchMarkerLifecycleTests(unittest.TestCase):
         runtime_stream, context = self.build_runtime_stream()
 
         asyncio.run(runtime_stream.emit_started_runtime_actions((
-            RuntimeActionCall(name=RUNTIME_ACTION_DEEP_WEB_SEARCH),
+            RuntimeActionCall(name=RUNTIME_ACTION_DEEP_RESEARCH),
         )))
 
         self.assertEqual(len(context.emitter.events), 1)
         event = context.emitter.events[0]
-        self.assertEqual(event["action"], "deep_web_search")
+        self.assertEqual(event["action"], "deep_research")
         self.assertEqual(event["status"], "started")
-        self.assertEqual(event["text"], "DEEP_WEB_SEARCH")
-        self.assertTrue(event["deep_search_parent"])
-        self.assertFalse(event["deep_search_payload_ready"])
+        self.assertEqual(event["text"], "DEEP_RESEARCH")
+        self.assertTrue(event["deep_research_parent"])
+        self.assertFalse(event["deep_research_payload_ready"])
         self.assertTrue(event["id"])
 
     def test_closing_marker_reuses_opening_parent_bubble_id(self):
         runtime_stream, _context = self.build_runtime_stream()
-        opening = RuntimeActionCall(name=RUNTIME_ACTION_DEEP_WEB_SEARCH)
+        opening = RuntimeActionCall(name=RUNTIME_ACTION_DEEP_RESEARCH)
         completed = RuntimeActionCall(
-            name=RUNTIME_ACTION_DEEP_WEB_SEARCH,
+            name=RUNTIME_ACTION_DEEP_RESEARCH,
             payload='{"query": "Noir jazz history and instrumentation"}',
         )
 
@@ -69,9 +69,9 @@ class DeepWebSearchMarkerLifecycleTests(unittest.TestCase):
         completed_id = runtime_stream.get_runtime_action_display_id(completed)
 
         self.assertEqual(completed_id, opening_id)
-        self.assertEqual(runtime_stream.started_deep_web_search_action_ids, [])
+        self.assertEqual(runtime_stream.started_deep_research_action_ids, [])
         self.assertEqual(
-            runtime_stream.deep_web_search_action_ids[completed.payload],
+            runtime_stream.deep_research_action_ids[completed.payload],
             opening_id,
         )
 

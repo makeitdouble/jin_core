@@ -174,7 +174,7 @@ the then-current restore-dialog bound, and bounded URL-restore UI tail. Those we
 The contract assembler currently advertises these actions in `runtime_order` order (this is prompt-contract ordering, not execution priority):
 
 ```text
-DEEP_WEB_SEARCH
+DEEP_RESEARCH
 WEB_SEARCH
 CLEAN_TOOL_RESULTS
 JIN_COLOR
@@ -206,7 +206,7 @@ DELETE_ACTIVE_MEMORY
 
 `CALL_MCP` is generic and skill-gated. A loaded skill with valid `<MCP_SERVER>...</MCP_SERVER>` config is discovered with `tools/list`; the live server/tool schema is appended only to that loaded in-memory skill as `<MCP_RUNTIME>`, and then `CALL_MCP` can route `{skill, tool, arguments}` to an exact loaded skill/tool. One MCP connection is kept per loaded skill across follow-ups, calls are excluded from result reuse, and unload/runtime retirement closes the connection. Returned image blocks are capped at 20 MiB each, stored as pinned JIN files, stripped of base64, and attached to the current sequence so the next Brain tick can inspect them. Generic MCP bubbles open a structured request/result modal; `get_viewport_screenshot` reuses the standard attachment preview. Full contract: [MCP_SKILLS.md](MCP_SKILLS.md).
 
-The mapped Brain feature flags in `rules/brain_context_builder.py` are enabled. `WEB_SEARCH` and `DEEP_WEB_SEARCH` are then filtered again by `settings.CAN_SEARCH`, so they are not model-visible unless provider `serper` has a non-empty, non-placeholder process-environment key. `jl.ps1` imports an ignored repository-root `.env` before resolving configuration and starting Python; `.env.example` documents the supported secret names without containing credentials. Direct `python app.py` starts still rely on variables exported by the calling shell. The local availability check intentionally does not impose an invented key-length/shape regex; Serper remains the credential authority.
+The mapped Brain feature flags in `rules/brain_context_builder.py` are enabled. `WEB_SEARCH` is filtered again by `settings.CAN_SEARCH`, while `DEEP_RESEARCH` remains visible for bounded multi-agent analysis and suppresses worker-requested web queries when search is unavailable. Provider `serper` requires a non-empty, non-placeholder process-environment key. `jl.ps1` imports an ignored repository-root `.env` before resolving configuration and starting Python; `.env.example` documents the supported secret names without containing credentials. Direct `python app.py` starts still rely on variables exported by the calling shell. The local availability check intentionally does not impose an invented key-length/shape regex; Serper remains the credential authority.
 
 Canonical short action syntax is paired: `<WEB_SEARCH> query </WEB_SEARCH>`,
 `<LOAD_DELAYED_MEMORY> id1, id2 </LOAD_DELAYED_MEMORY>`,
@@ -302,7 +302,7 @@ Current `build_brain_context()` order is intentionally structured. Important anc
 - archived restore priming instead begins with inherited `<PREVIOUS_CHAT_MESSAGES>`, then carried reasoning evidence, then `<MANDATORY_SYSTEM_NOTIFICATION>`; `RUNTIME_SETTINGS` and the normal live scaffolding come after that continuity preamble;
 - action/recovery follow-ups likewise move visible dialogue and carried reasoning ahead of `<FOLLOW_UP_RESPONSE_MESSAGE>`, then append failure/recovery/action history/current concerns/tool results and the base prompt without duplicating those continuity blocks;
 - action contracts remain present even on restore ticks, subject to effective capability filtering;
-- `WEB_SEARCH` and `DEEP_WEB_SEARCH` disappear when `settings.CAN_SEARCH` is false;
+- `WEB_SEARCH` disappears when `settings.CAN_SEARCH` is false; `DEEP_RESEARCH` remains available but cannot execute worker-requested web queries;
 - identity and loop rules remain at the bottom of the base prompt.
 
 Any prompt-order change can alter behavior materially. Do not reorder sections for aesthetics.
@@ -826,3 +826,109 @@ work: attachment marker metadata expectation, attachment capability enumeration,
 and the reaction test's prepared-window stub missing `maintenance_state`. These
 unrelated paths were not changed to make the suite green. Repository-wide diff check
 also reports pre-existing trailing whitespace in `tests/test_attach_file_by_id_client.js`.
+
+
+## Anonymous asset writes — 2026-10-19
+
+Owner revision: ASSET_ACTION writes are now allowed in anonymous rooms, including
+create/append in assets and explicitly linked folders. Dispatcher admission and
+linked-folder file_manager checks share the same action restriction policy.
+Skill, confinement and overwrite checks remain. Shadow contexts remain restricted;
+anonymous memory isolation and other non-asset write restrictions are unchanged.
+This supersedes earlier anonymous asset-write restriction notes above.
+
+
+## Autonomous heartbeat — 2026-10-20
+
+D062 adds per-room idle Brain ticks through the existing serialized WebSocket
+queue. First deadline is 300 seconds of page inactivity plus the interval;
+subsequent idle deadlines use only the interval after the entire activity chain
+and pending FRAME finish. Page activity resets waiting, never cancels accepted
+work. Stop remains the cancellation control. Empty/anonymous tabs participate;
+explicit page retirement releases timers and disconnected rooms cannot start.
+
+SET_HEARTBEAT_TICK_SPEED is a permanent paired-XML/JSON contract, finite seconds
+>=60, default 600. It is never satisfied by result-cache reuse. RuntimeContext
+owns the value; disk checkpoint/action/heartbeat records restore it per room.
+Only the initial heartbeat prompt receives HEARTBEAT_TICK_MESSAGE, including
+when maintenance is present; ordinary action/recovery and guard retries omit it.
+
+This supersedes earlier USER-only archive ownership text: first visible output
+or attempted ACTION promotes a marked heartbeat archive through the existing
+deferred logger. Reasoning-only ticks and greeting-only tabs remain unsaved.
+No USER row is invented. Bootstrap/LOGS preserve standalone JIN moves and
+intervals, including action-only ownership. Selection compares activity across
+archive dates. CLEAR records unique heartbeat turns beside USER counts, so late
+completion cannot lift it. Browser state remains non-authoritative.
+
+Verification: 112 combined unittest cases passed across heartbeat, bootstrap,
+disk authority, transport, instances and context maintenance; one additional
+guard-retry notification test and 24 Brain-guard/client/follow-up tests passed.
+All 13 function-style latest-session/atomicity checks also passed, run directly
+with isolated temporary-directory fixtures because pytest is not installed.
+Four JS suites passed: real Edge heartbeat DOM/activity and transport tests,
+plus bootstrap lifecycle and boundary tests. Python compilation, JS parsing and
+git diff whitespace checks passed. No live model/provider or full-suite claim.
+Restart the backend and reload open JIN pages to load the implementation.
+
+Final heartbeat check: Active Memory uses its real lifecycle timestamps on
+heartbeat turns instead of reapplying the previous USER idle credit. The focused
+normal-vs-heartbeat regression passes. Interrupted-heartbeat persistence checks
+also pass after the error-cleanup guard. No provider calls were made.
+
+
+## Recursive Nested Instances — part 1 (2026-10-21)
+
+The owner's new task supersedes the old D060 nesting prohibition. This delivery
+adds the RuntimeContext group stack and enables child CREATE through the existing
+sequential Brain loop. FINISH resumes only the immediate parent; parent reasoning,
+dialogue, recovery and follow-up budgets survive nested groups. Suspended memory
+owners are protected against orphan cleanup. Nested completion Tool Results are
+owned by the resumed parent. CREATE uses the existing transition barrier.
+
+Stop, provider failure and terminal budget paths unwind all suspended frames.
+JIN_MAX_INSTANCE_TICKS (default 256, positive) bounds the entire self-fork workflow,
+even with unlimited ordinary follow-ups; there is no fixed depth limit.
+
+Staged scope: relative Active Memory normalization is part 2, Tool Result
+normalization is part 3, and full inheritance/integration is part 4. Until those
+parts, ancestor temporary Active records are protected but not inherited as AM,
+and ancestor temporary tool projections are parked until parent return. This is
+not a claim that the final task's inheritance acceptance criteria are complete.
+No new UI, durable memory system, model executor or dependency was introduced.
+
+Verification of this staged delivery: 371 targeted tests, 367 passed, 3 failures
+and 1 error. All 10 recursive-runtime tests, 35 existing instance tests and
+4 subtask Tool Result tests passed. The four remaining cases were replayed
+against saved pre-task source using a read-only import overlay and failed there
+too: action capability enumeration (heartbeat/retired attachment names), malformed
+notification prefix, DELETE_ACTIVE_MEMORY ID casing, and missing heartbeat payload
+in the stream-latency fixture. These adjacent failures are not fixed by this patch.
+Syntax/JSON validation and git diff --check pass. No live provider or UI changes;
+the full repository suite was not run. Archive contains a task-only diff against
+the exact dirty source snapshot, plus changed files and detailed test logs.
+
+## Deep Research — 2026-10-21
+
+The predecessor action was replaced without a parser or archive alias by
+the canonical `DEEP_RESEARCH` action and `<DEEP_RESEARCH>...</DEEP_RESEARCH>`
+marker. The old names are absent from current source, tests, UI identifiers and
+documentation. The action is no longer defined as search-only: its coordinator
+decomposes substantial investigations into independent service-model agents.
+Each agent may analyze the supplied context and image attachments, request
+bounded web searches when external evidence is useful, or create narrower child
+tasks. The final service pass synthesizes findings, alternatives,
+contradictions, changed understanding and remaining uncertainty into one report
+for Brain.
+
+`DEEP_RESEARCH` stays model-visible without a configured search provider. In
+that state requested queries are suppressed and the agents continue with
+context-only analysis; direct `WEB_SEARCH` retains the `settings.CAN_SEARCH`
+gate. Multimodal worker requests reuse live turn/sequence image attachments and
+service usage accounting uses the textual research sequence so token tracking
+does not receive a multimodal list.
+
+Verification: 44 focused research/search/marker/session/UI-contract tests and
+3 explicit streaming-marker tests pass. Relevant Python compilation, contract
+JSON parsing, JavaScript syntax checks, the removed-name search and
+`git diff --check` pass. No live model or search-provider call was performed.

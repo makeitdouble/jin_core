@@ -59,6 +59,6 @@ Linked-folder file operations (same handlers, explicit destination):
 </ASSET_ACTION>
 - Use overwrite:true only when the user has requested replacement/correction. Existing files otherwise fail with file_exists.
 - append_asset_file and preview_file accept the same attachment and path fields. Parent folders are created inside that linked folder. Both relative and folder-rooted paths are accepted.
-- Omitting attachment preserves the existing assets/ destination. Anonymous/shadow mode cannot write into linked folders. No deletion or binary-write action is added.
+- Omitting attachment preserves the existing assets/ destination. Anonymous mode allows asset writes, including linked-folder create/append, with the same confinement and explicit overwrite checks. Shadow-mode writes remain restricted. No deletion or binary-write action is added.
 
 Whole-file alternatives (file_manager required): <ASSET_ACTION> {"action":"ATTACH_FILE_BY_ID","ids":["abc123","def456"]} </ASSET_ACTION> or <ASSET_ACTION> {"action":"ATTACH_FILE_BY_PATH","paths":["dataset/image.png","dataset/caption.txt"]} </ASSET_ACTION>. Use only existing files, omit missing TXT, and wait for FOLLOW-UP. These are JSON operations; the only attachment XML marker is ATTACH_FILE_CONTENT.

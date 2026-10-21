@@ -27,13 +27,12 @@ from app_settings import (
 
 CURRENT_RUNTIME_SETTINGS_CONTENT = ("")
 SEARCH_RUNTIME_ACTION_FLAGS = (
-    "CAN_DEEP_WEB_SEARCH",
     "CAN_WEB_SEARCH",
 )
 
 BRAIN_RUNTIME_ACTIONS = {
     "CAN_CHAT_LOG_SEARCH": True,
-    "CAN_DEEP_WEB_SEARCH": True,
+    "CAN_DEEP_RESEARCH": True,
     "CAN_WEB_SEARCH": True,
     "CAN_USE_ASSETS": True,
     "CAN_SAVE_DELAYED_MEMORY": True,
@@ -44,6 +43,7 @@ BRAIN_RUNTIME_ACTIONS = {
     "CAN_JIN_SIZE": True,
     "CAN_JIN_POSITION": True,
     "CAN_JIN_SPEED": True,
+    "CAN_SET_HEARTBEAT_TICK_SPEED": True,
     "CAN_UPDATE_LT_FACTS": True,
     "CAN_RECALL_FACT_CONTEXT": True,
     "CAN_POSTING_BOARD": True,
@@ -327,6 +327,9 @@ def _append_FRAME_runtime_memory(
                 previous_memory=previous_active_memory_text,
                 add_runtime_user_idle_to_elapsed=(
                     not active_memory_idle_already_applied
+                    # Heartbeats use real record timestamps, not another copy
+                    # of the idle credit supplied with the last USER request.
+                    and not getattr(context, "runtime_heartbeat_active", False)
                 ),
             )
         )

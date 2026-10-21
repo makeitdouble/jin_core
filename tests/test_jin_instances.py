@@ -143,7 +143,7 @@ class JinInstanceContextTests(unittest.TestCase):
         self.assertIn("sub_jin_2", instruction)
         self.assertIn("created file one", instruction)
         self.assertIn(CHILD_TOOL_RESULTS_INSTRUCTION, instruction)
-        self.assertIn("Do not create JIN instances", instruction)
+        self.assertIn("You may create nested JIN instances", instruction)
 
     def test_parent_report_is_ordered(self):
         report = build_parent_return_instruction(self.make_context())
@@ -189,7 +189,7 @@ class JinInstanceActionFlowTests(unittest.IsolatedAsyncioTestCase):
             emitter=Emitter(),
             runtime_action_events=[],
             runtime_search_calls=[],
-            runtime_deep_search_calls=[],
+            runtime_deep_research_calls=[],
             runtime_loaded_skills=[],
             runtime_current_turn_id="turn_1",
             runtime_current_sequence_turn_id="turn_1",
@@ -306,7 +306,7 @@ class JinInstanceBrainFlowTests(unittest.IsolatedAsyncioTestCase):
                 self.assertIn("RECENT_FACT_SENTINEL", prompt)
                 self.assertNotIn("OLD_FACT_SENTINEL", prompt)
                 self.assertNotIn("PARENT_REASONING_SENTINEL", prompt)
-                self.assertFalse(kwargs["runtime_actions"]["CAN_CREATE_JIN_INSTANCES"])
+                self.assertTrue(kwargs["runtime_actions"]["CAN_CREATE_JIN_INSTANCES"])
                 count = child_calls.get(child["subtask_agent_id"], 0) + 1
                 child_calls[child["subtask_agent_id"]] = count
                 if scratchpad:
@@ -361,6 +361,62 @@ class JinInstanceBrainFlowTests(unittest.IsolatedAsyncioTestCase):
             await BrainNode().run(state, context)
         self.assertEqual(context.runtime_memory, "fixed FRAME")
         return context, state, calls, groups
+
+    async def test_silent_child_stops_immediately_without_retry(self):
+        """Parent -> silent child -> final parent; never retry the child."""
+        from agent.nodes.brain import BrainNode
+        from agent.state import AgentState
+        from tests.helpers.brain import brain_context_stub, brain_runtime_config
+
+        context = brain_context_stub()
+        context.logger = SimpleNamespace(log_runtime=AsyncMock())
+        context.websocket = SimpleNamespace(send_json=AsyncMock())
+        context.emitter = SimpleNamespace(emit=AsyncMock())
+        context.runtime_turn_user_message = "Caption the first picture via a subagent"
+        context.runtime_persistent_writes_restricted = True
+        context.runtime_lt_file_store_enabled = False
+        context.runtime_current_turn_id = "child-idle-test"
+        context.runtime_current_sequence_turn_id = "child-idle-test"
+        context.runtime_tool_results = []
+        context.runtime_current_sequence_jin_messages = []
+        state = AgentState(user_input=context.runtime_turn_user_message)
+        calls = []
+
+        async def stream(**kwargs):
+            calls.append(kwargs)
+            self.assertLessEqual(len(calls), 3, "A silent child must never be re-prompted")
+            if len(calls) == 1:
+                await apply_runtime_action_calls(context, (
+                    RuntimeActionCall(name="CREATE_JIN_INSTANCES", payload='{"id":1,"conditions":"caption first image"}'),
+                ))
+                return "", "parent reasoning"
+            if len(calls) == 2:
+                self.assertIsNotNone(active_child(context))
+                self.assertIn("<JIN_SUBTASK_INSTANCE>", kwargs["system_prompt"])
+                self.assertTrue(kwargs["runtime_actions"]["CAN_FINISH_SUBTASK"])
+                return "I am scanning the folder, please wait.", "no actions"
+            self.assertIsNone(active_child(context))
+            self.assertIn("<JIN_INSTANCES_RETURN_TO_PARENT>", kwargs["system_prompt"])
+            self.assertIn("<JIN_SUBTASK_STALLED>", kwargs["system_prompt"])
+            self.assertNotIn("<JIN_SUBTASK_NOT_FINISHED>", kwargs["system_prompt"])
+            self.assertFalse(any(kwargs["runtime_actions"].values()))
+            return "Child did not do the work.", "parent conclusion"
+
+        runtime = brain_runtime_config()
+        runtime["runtime_actions"].update(CAN_CREATE_JIN_INSTANCES=True, CAN_FINISH_SUBTASK=True)
+        with patch("agent.nodes.brain.get_brain_runtime_config", return_value=runtime), patch(
+            "agent.nodes.brain.build_brain_payload", return_value="payload"
+        ), patch("agent.nodes.brain.emit_active_memory_records_update_if_dirty", new=AsyncMock()), patch(
+            "agent.nodes.brain.config.BRAIN_MAX_FOLLOWUPS", 0
+        ), patch.object(BrainNode, "run_brain_stream", side_effect=stream):
+            await BrainNode().run(state, context)
+
+        self.assertEqual(len(calls), 3)
+        self.assertEqual(context.runtime_jin_instance_group["phase"], "interrupted")
+        self.assertEqual(context.runtime_jin_instance_group["tasks"][0]["finish_reason"], "no_progress")
+        self.assertEqual(state.brain_response, "Child did not do the work.")
+        context.websocket.send_json.assert_awaited_once()
+        self.assertEqual(context.websocket.send_json.await_args.args[0]["action"], "subtask_stalled")
 
     async def test_children_keep_assignment_and_lt_on_action_followup_then_restore_parent(self):
         context, state, calls, groups = await self.run_sequence()
@@ -506,7 +562,7 @@ class EphemeralSubtaskMemoryTests(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn('SUB-AM-', c.runtime_memory_stable)
         self.assertEqual(len(list((self.root / 'active').glob('*.json'))), 1)
         self.assertFalse(any(entry.get('owner_subtask_agent_id') for entry in c.runtime_tool_results))
-        self.assertTrue(any(entry['kind'] == 'asset' for entry in c.runtime_tool_results))
+        self.assertFalse(any(entry['kind'] == 'asset' for entry in c.runtime_tool_results))
         self.assertTrue(any(call.args[0].get('type') == 'active_memory_records_update'
                             for call in c.emitter.emit.call_args_list))
         mark_child_started(c)
@@ -519,6 +575,27 @@ class EphemeralSubtaskMemoryTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(record_payload(c.active_memory_records[-1])['id'].startswith('AM-'))
         refresh_profile(c)
         self.assertEqual(len(c.active_memory_records), 2)
+
+    async def test_finish_cleans_sub_tool_results_and_resets_next_child_ids(self):
+        from utils.tool_results import record_runtime_tool_result
+        c = self.context
+        await self.start()
+        first = active_child(c)["subtask_agent_id"]
+        record_runtime_tool_result(c, 'files', {'ok': True, 'source': 'child_one'})
+        record_runtime_tool_result(c, 'search', 'private result')
+        self.assertEqual([e['tool_id'] for e in c.runtime_tool_results[-2:]], ['SUB_T1', 'SUB_T2'])
+        self.assertTrue(all(e['owner_subtask_agent_id'] == first for e in c.runtime_tool_results[-2:]))
+        parent_sequence = c.runtime_tool_result_sequence
+        await self.finish()
+        self.assertFalse(any(e.get('owner_subtask_agent_id') for e in c.runtime_tool_results))
+        self.assertFalse(any(e['tool_id'].startswith('SUB_') for e in c.runtime_tool_results))
+        self.assertEqual(c.runtime_tool_result_sequence, parent_sequence + 1)
+        self.assertEqual(c.runtime_tool_results[-1]['result']['action'], 'finish_subtask')
+        mark_child_started(c)
+        record_runtime_tool_result(c, 'asset', {'ok': True, 'source': 'child_two'})
+        self.assertEqual(c.runtime_tool_results[-1]['tool_id'], 'SUB_T1')
+        await self.finish()
+        self.assertFalse(any(e['tool_id'].startswith('SUB_') for e in c.runtime_tool_results))
 
     async def test_shared_writes_denied_and_own_delete_allowed(self):
         from utils.active_memory_file_store import record_payload

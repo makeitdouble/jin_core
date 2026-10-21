@@ -9,7 +9,7 @@ from contracts.rules_assembler import (
     RUNTIME_ACTION_JIN_POSITION,
     RUNTIME_ACTION_JIN_SPEED,
     RUNTIME_ACTION_DELETE_ACTIVE_MEMORY,
-    RUNTIME_ACTION_DEEP_WEB_SEARCH,
+    RUNTIME_ACTION_DEEP_RESEARCH,
     RUNTIME_ACTION_WEB_SEARCH,
     RUNTIME_ACTION_POSTING_BOARD,
     RUNTIME_ACTION_CALL_MCP,
@@ -47,7 +47,7 @@ _SEQUENCE_ATTRIBUTES = {
 }
 _QUERY_EXTRACTORS = {
     RUNTIME_ACTION_CHAT_LOG_SEARCH: extract_chat_log_search_query,
-    RUNTIME_ACTION_DEEP_WEB_SEARCH: extract_search_query,
+    RUNTIME_ACTION_DEEP_RESEARCH: extract_search_query,
     RUNTIME_ACTION_WEB_SEARCH: extract_search_query,
 }
 _DISPLAY_BUILDERS = {
@@ -59,7 +59,7 @@ _DISPLAY_BUILDERS = {
 def snapshot_search_counts(context):
     return {
         name: sum((event.get("name") == name.lower() for event in context.runtime_action_events))
-        for name in (RUNTIME_ACTION_WEB_SEARCH, RUNTIME_ACTION_DEEP_WEB_SEARCH)
+        for name in (RUNTIME_ACTION_WEB_SEARCH, RUNTIME_ACTION_DEEP_RESEARCH)
     }
 
 
@@ -227,8 +227,8 @@ async def record_action_event(batch, selection, action, search_counts, *, accept
     extractor = _QUERY_EXTRACTORS.get(action.name)
     extracted_query = extractor(action.payload) if extractor and not transition_rejection else ""
     query = extracted_query if action.name == RUNTIME_ACTION_WEB_SEARCH else ""
-    deep_search_objective = (
-        extracted_query if action.name == RUNTIME_ACTION_DEEP_WEB_SEARCH else ""
+    deep_research_objective = (
+        extracted_query if action.name == RUNTIME_ACTION_DEEP_RESEARCH else ""
     )
     chat_log_search_query = (
         extracted_query if action.name == RUNTIME_ACTION_CHAT_LOG_SEARCH else ""
@@ -245,13 +245,13 @@ async def record_action_event(batch, selection, action, search_counts, *, accept
         if active_memory_id:
             action_event["id"] = active_memory_id
 
-    if deep_search_objective:
-        search_counts[RUNTIME_ACTION_DEEP_WEB_SEARCH] += 1
+    if deep_research_objective:
+        search_counts[RUNTIME_ACTION_DEEP_RESEARCH] += 1
         tool_call_id = action_display_id or build_runtime_action_id(
-            action.name, search_counts[RUNTIME_ACTION_DEEP_WEB_SEARCH]
+            action.name, search_counts[RUNTIME_ACTION_DEEP_RESEARCH]
         )
         batch.action_display_ids[id(action)] = tool_call_id
-        action_event.update(id=tool_call_id, query=deep_search_objective)
+        action_event.update(id=tool_call_id, query=deep_research_objective)
     elif query:
         search_counts[RUNTIME_ACTION_WEB_SEARCH] += 1
         tool_call_id = action_display_id or build_runtime_action_id(
@@ -291,8 +291,8 @@ async def record_action_event(batch, selection, action, search_counts, *, accept
     display_name = get_runtime_action_display_name(action.name)
     display_text = build_runtime_action_display_text(action.name, action.payload)
     runtime_action_id = str(action_event.get("id", action_display_id) or "").strip()
-    if deep_search_objective:
-        display_text = f"{display_name}: {deep_search_objective}"
+    if deep_research_objective:
+        display_text = f"{display_name}: {deep_research_objective}"
     elif chat_log_search_query:
         display_text = f"{display_name}: {chat_log_search_query}"
     else:
@@ -313,22 +313,22 @@ async def record_action_event(batch, selection, action, search_counts, *, accept
         context_snapshot=batch.action_context_snapshot,
     )
 
-    if deep_search_objective:
+    if deep_research_objective:
         emit = getattr(getattr(batch.context, "emitter", None), "emit", None)
         if emit is not None:
             await emit(
                 batch.with_action_context_for(action)(
                     {
                         "type": "runtime_action",
-                        "action": RUNTIME_ACTION_DEEP_WEB_SEARCH.lower(),
+                        "action": RUNTIME_ACTION_DEEP_RESEARCH.lower(),
                         "id": runtime_action_id,
                         "status": "running",
                         "display_name": display_name,
                         "text": display_text,
-                        "query": deep_search_objective,
+                        "query": deep_research_objective,
                         "scene_effect": "search",
-                        "deep_search_parent": True,
-                        "deep_search_payload_ready": True,
+                        "deep_research_parent": True,
+                        "deep_research_payload_ready": True,
                         "close_tag": runtime_action_has_close_tag(action.name),
                     }
                 )

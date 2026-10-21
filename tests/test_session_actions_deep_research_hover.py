@@ -1,13 +1,13 @@
 from types import SimpleNamespace
 import unittest
 
-from runtime.deep_web_search import _record_sequence_line
+from runtime.deep_research import _record_sequence_line
 
 
 
-class DeepSearchSessionActionHoverTests(unittest.IsolatedAsyncioTestCase):
+class DeepResearchSessionActionHoverTests(unittest.IsolatedAsyncioTestCase):
 
-    async def test_completion_history_keeps_full_deep_search_text_for_hover(self):
+    async def test_completion_history_keeps_full_deep_research_text_for_hover(self):
         context = SimpleNamespace(
             runtime_session_action_history=[],
             emitter=None,
@@ -15,9 +15,9 @@ class DeepSearchSessionActionHoverTests(unittest.IsolatedAsyncioTestCase):
 
         await _record_sequence_line(
             context,
-            "DEEP_WEB_SEARCH complete: 8/10 searches",
+            "DEEP_RESEARCH complete: 8/10 searches",
             hover_text=(
-                "DEEP_WEB_SEARCH: Deep dive into Noir Jazz genres and "
+                "DEEP_RESEARCH: Deep dive into Noir Jazz genres and "
                 "essential albums."
             ),
         )
@@ -27,7 +27,7 @@ class DeepSearchSessionActionHoverTests(unittest.IsolatedAsyncioTestCase):
                 "context_detail"
             ],
             (
-                "DEEP_WEB_SEARCH: Deep dive into Noir Jazz genres and "
+                "DEEP_RESEARCH: Deep dive into Noir Jazz genres and "
                 "essential albums."
             ),
         )

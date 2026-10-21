@@ -326,6 +326,15 @@ async def run_runtime_session(websocket, context, resumed_context):
 
             try:
 
+                if message_data.get("type") == "heartbeat_tick" and not eligible(
+                    context, message_data.get("_heartbeat_generation")
+                ):
+                    continue
+
+                if message_data.get("type") == "heartbeat_tick":
+                    await cancel_lt_memory_idle_update(context, reason="heartbeat_tick")
+                    await preempt_update_lt_facts_actions(context, reason="heartbeat_tick")
+
                 # Stop can cancel restore while its hidden resume packet is
                 # still queued. Validate again at dequeue time.
                 if (
@@ -470,6 +479,11 @@ async def run_runtime_session(websocket, context, resumed_context):
                 ):
                     continue
 
+                if message_data.get("type") == "heartbeat_tick" and not eligible(
+                    context, message_data.get("_heartbeat_generation")
+                ):
+                    continue
+
                 await apply_runtime_response_feedback(
                     context,
                     (
@@ -486,6 +500,11 @@ async def run_runtime_session(websocket, context, resumed_context):
                     context,
                     user_text,
                 )
+
+                if message_data.get("type") == "heartbeat_tick" and not eligible(
+                    context, message_data.get("_heartbeat_generation")
+                ):
+                    continue
 
                 active_task = asyncio.create_task(
                     process_message(
@@ -546,6 +565,26 @@ async def run_runtime_session(websocket, context, resumed_context):
                 ):
                     pending_user_batch_state = None
                 pending_requests.task_done()
+                finish_activity(context)
+
+    from runtime.heartbeat import arm_deadline, eligible, note_activity, stop_heartbeat, finish_activity
+
+    def enqueue_heartbeat(generation):
+        context.runtime_heartbeat_handle = None
+        if not eligible(context, generation):
+            arm_deadline(context)
+            return
+        if (current_task is not None and not current_task.done()) or not pending_requests.empty() or getattr(context, "runtime_foreground_turn_running", False):
+            # The queue completion boundary arms a fresh interval.
+            return
+        frame = getattr(context, "runtime_memory_update_task", None)
+        if frame is not None and not frame.done():
+            finish_activity(context)
+            return
+        pending_requests.put_nowait({"type": "heartbeat_tick", "_heartbeat_generation": generation})
+
+    context.runtime_heartbeat_enqueue = enqueue_heartbeat
+    note_activity(context)
 
     pending_processor = asyncio.create_task(
         process_pending_requests()
@@ -578,6 +617,14 @@ async def run_runtime_session(websocket, context, resumed_context):
                     "message",
                 )
             )
+
+            if message_type == "heartbeat_tick":
+                continue  # Only the server deadline can enqueue autonomous work.
+            if message_type == "heartbeat_activity":
+                note_activity(context)
+                continue
+            if message_type in {"message", "stop", "abort", "retry_last_response"}:
+                note_activity(context)
 
             if handle_store_sync(context, message_data):
                 continue
@@ -1384,6 +1431,7 @@ async def run_runtime_session(websocket, context, resumed_context):
             )
             pending_requests.task_done()
 
+        stop_heartbeat(context)
         if getattr(websocket, "stopping", False):
             # A page that left cannot replay its accepted USER queue. Preserve
             # those moves through the existing USER-only interruption path,

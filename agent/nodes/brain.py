@@ -8,8 +8,8 @@ from agent.nodes.base import BaseNode
 from runtime.stream import (
     RuntimeStream,
 )
-from runtime.deep_web_search import (
-    run_deep_web_search,
+from runtime.deep_research import (
+    run_deep_research,
 )
 
 from clients.brain_client import (
@@ -32,7 +32,7 @@ from rules.runtime import (
 )
 from contracts.rules_assembler import (
     RUNTIME_ACTION_ATTACH_FILE_CONTENT,
-    RUNTIME_ACTION_DEEP_WEB_SEARCH,
+    RUNTIME_ACTION_DEEP_RESEARCH,
     RUNTIME_ACTION_LOAD_DELAYED_MEMORY,
     RUNTIME_ACTION_WEB_SEARCH,
 )
@@ -92,7 +92,7 @@ from utils.actions.action_counter_utils import (
 
 from utils.tool_results import (
     TOOL_RESULT_KIND_ASSET,
-    TOOL_RESULT_KIND_DEEP_SEARCH,
+    TOOL_RESULT_KIND_DEEP_RESEARCH,
     TOOL_RESULT_KIND_SEARCH,
     begin_runtime_tool_results_turn,
     record_runtime_tool_result,
@@ -1821,6 +1821,13 @@ class BrainNode(BaseNode):
             fallback_context_window=brain_runtime["context_window"],
             force_refresh=True,
         )
+        if state.metadata.get("heartbeat_tick") and not is_followup_tick:
+            from dataclasses import replace
+            from runtime.heartbeat import HEARTBEAT_TICK_MESSAGE
+            prepared_context_window = replace(
+                prepared_context_window,
+                system_prompt=HEARTBEAT_TICK_MESSAGE + "\n\n" + prepared_context_window.system_prompt.replace(HEARTBEAT_TICK_MESSAGE, "", 1).strip(),
+            )
         system_prompt = prepared_context_window.system_prompt
         brain_runtime["context_window"] = (
             prepared_context_window.context_window
@@ -1963,7 +1970,16 @@ class BrainNode(BaseNode):
             runtime.stream.reasoning,
         )
 
-    async def run(
+    async def run(self, state, context):
+        try:
+            await self._run_sequence(state, context)
+        finally:
+            # Provider errors and cancellation must unwind suspended frames too.
+            # The WebSocket finalizer remains a defensive, idempotent boundary.
+            if self_fork_phase(context) in {"child_pending", "child_running", "parent_pending"}:
+                interrupt_instance_group(context, "runtime_ended")
+
+    async def _run_sequence(
             self,
             state,
             context,
@@ -2022,10 +2038,10 @@ class BrainNode(BaseNode):
             return value
 
         ensure_runtime_list(
-            "runtime_deep_search_calls"
+            "runtime_deep_research_calls"
         ).clear()
-        context.runtime_deep_search_result = ""
-        context.runtime_deep_search_result_id = ""
+        context.runtime_deep_research_result = ""
+        context.runtime_deep_research_result_id = ""
         ensure_runtime_list(
             "runtime_search_queries"
         ).clear()
@@ -2083,7 +2099,9 @@ class BrainNode(BaseNode):
         )
 
         if retry_system_prompt:
-            system_prompt = retry_system_prompt
+            from runtime.heartbeat import HEARTBEAT_TICK_MESSAGE
+            # A guard-confirmation retry is a follow-up, not another idle tick.
+            system_prompt = retry_system_prompt.replace(HEARTBEAT_TICK_MESSAGE, "", 1)
             brain_payload = retry_user_prompt
         else:
             system_prompt = (
@@ -2104,6 +2122,11 @@ class BrainNode(BaseNode):
                     context=context,
                 )
             )
+
+        if state.metadata.get("heartbeat_tick"):
+            from runtime.heartbeat import HEARTBEAT_TICK_MESSAGE
+            system_prompt = HEARTBEAT_TICK_MESSAGE + "\n\n" + system_prompt
+            brain_payload = ""
 
         sequence_user_request = str(
             getattr(
@@ -2244,6 +2267,11 @@ class BrainNode(BaseNode):
         malformed_repair_count = 0
         max_malformed_repairs = 1
         malformed_repair_limit_reached = False
+        child_stalled = False
+        instance_ticks = 0
+        instance_budget_exhausted = False
+        max_instance_ticks = max(1, int(getattr(config, "JIN_MAX_INSTANCE_TICKS", 256) or 256))
+        base_runtime_actions = dict(runtime_actions)
         current_turn_id = str(
             getattr(
                 context,
@@ -2587,6 +2615,14 @@ class BrainNode(BaseNode):
             if abort_requested():
                 break
 
+            # One budget for the entire tree, including replacement groups.
+            # Independent per-instance limits cannot bound recursive delegation.
+            if instance_ticks or self_fork_phase(context) in {"child_pending", "child_running", "parent_pending"}:
+                if instance_ticks >= max_instance_ticks:
+                    instance_budget_exhausted = True
+                    break
+                instance_ticks += 1
+
             repairing_malformed = malformed_followup_pending()
             if repairing_malformed:
                 if malformed_repair_count >= max_malformed_repairs:
@@ -2620,17 +2656,25 @@ class BrainNode(BaseNode):
                 if child_tick:
                     # Every child owns an independent ordinary follow-up
                     # budget and malformed-action repair allowance.
+                    group.setdefault("parent_followup_state", (followup_count, malformed_repair_count))
                     followup_count = 0
                     malformed_repair_count = 0
                     mark_child_started(context)
                 else:
-                    followup_count = 0
-                    malformed_repair_count = 0
+                    followup_count, malformed_repair_count = group.get("parent_followup_state", (0, 0))
                     restore_parent_reasoning(context)
+                    # Resume the caller BEFORE generating its response, so its
+                    # FINISH/CREATE and all ordinary actions target its own frame.
+                    mark_parent_returned(context, group)
+                    runtime_tool_result_followup_offset = len(getattr(context, "runtime_tool_results", []))
+                    if not unlimited_followups and followup_count >= max_followups:
+                        break
 
-                followup_runtime_actions = {**runtime_actions}
-                followup_runtime_actions["CAN_CREATE_JIN_INSTANCES"] = not child_tick
-                followup_runtime_actions["CAN_FINISH_SUBTASK"] = child_tick
+                # SUB_T IDs are local to a frame. A transition header must not
+                # refer to the former frame's IDs in the resumed/new namespace.
+                context.runtime_followup_response_tool_ids = []
+                followup_runtime_actions = {**base_runtime_actions}
+                followup_runtime_actions["CAN_FINISH_SUBTASK"] = active_child(context) is not None
                 # Keep every ordinary action follow-up inside this instance on
                 # the same capability boundary. The parent boundary is restored
                 # only by the explicit parent-return tick below.
@@ -2651,7 +2695,7 @@ class BrainNode(BaseNode):
                     instruction=instruction,
                 )
                 await emit_active_memory_records_update_if_dirty(context)
-                expected_group = group
+                # The completed child frame is already detached on return.
                 text, reasoning = await self.run_brain_stream(
                     state=state,
                     context=context,
@@ -2664,8 +2708,6 @@ class BrainNode(BaseNode):
                     emit_content_to_chat=True,
                     filter_runtime_actions=True,
                 )
-                if not child_tick:
-                    mark_parent_returned(context, expected_group)
                 followup_count += int(not repairing_malformed)
                 continue
 
@@ -2730,48 +2772,48 @@ class BrainNode(BaseNode):
                 followup_count += int(not repairing_malformed)
                 continue
 
-            if context.runtime_deep_search_calls:
+            if context.runtime_deep_research_calls:
 
-                deep_search_call = context.runtime_deep_search_calls.pop(0)
+                deep_research_call = context.runtime_deep_research_calls.pop(0)
                 objective = str(
-                    deep_search_call.get("query")
+                    deep_research_call.get("query")
                     or ""
                 ).strip()
                 tool_call_id = str(
-                    deep_search_call.get("id")
+                    deep_research_call.get("id")
                     or ""
                 ).strip()
-                context.runtime_deep_search_calls.clear()
+                context.runtime_deep_research_calls.clear()
 
-                # DEEP_WEB_SEARCH owns the web-search budget for this sequence.
+                # DEEP_RESEARCH owns the web-search budget for this sequence.
                 # Ignore a stray direct WEB_SEARCH emitted alongside it.
                 context.runtime_search_queries.clear()
                 context.runtime_search_calls.clear()
 
                 await logger.log_runtime(
-                    "[RUNTIME ACTION] executing deep web search "
+                    "[RUNTIME ACTION] executing deep research "
                     f"id={tool_call_id!r} objective={objective!r}"
                 )
 
-                deep_search_action = RuntimeActionCall(
-                    name=RUNTIME_ACTION_DEEP_WEB_SEARCH,
-                    payload=str(deep_search_call.get("payload") or objective),
+                deep_research_action = RuntimeActionCall(
+                    name=RUNTIME_ACTION_DEEP_RESEARCH,
+                    payload=str(deep_research_call.get("payload") or objective),
                 )
                 try:
-                    deep_search_result = await run_deep_web_search(
+                    deep_research_result = await run_deep_research(
                         context=context,
                         objective=objective,
-                        context_snapshot=deep_search_call.get("context"),
+                        context_snapshot=deep_research_call.get("context"),
                         parent_action_id=tool_call_id,
                     )
                 except Exception as exc:
                     failed_event = apply_action_feedback(
-                        deep_search_action,
+                        deep_research_action,
                         {
                             "type": "runtime_action",
-                            "action": RUNTIME_ACTION_DEEP_WEB_SEARCH.lower(),
+                            "action": RUNTIME_ACTION_DEEP_RESEARCH.lower(),
                             "display_name": get_runtime_action_display_name(
-                                RUNTIME_ACTION_DEEP_WEB_SEARCH
+                                RUNTIME_ACTION_DEEP_RESEARCH
                             ),
                             "id": tool_call_id,
                             "status": "failed",
@@ -2779,46 +2821,46 @@ class BrainNode(BaseNode):
                             "detail": str(exc),
                             "query": objective,
                             "scene_effect": "search",
-                            "context": deep_search_call.get("context"),
-                            "deep_search_parent": True,
-                            "deep_search_payload_ready": True,
+                            "context": deep_research_call.get("context"),
+                            "deep_research_parent": True,
+                            "deep_research_payload_ready": True,
                         },
                     )
                     await context.websocket.send_json(failed_event)
                     raise
 
-                deep_search_display_name = (
+                deep_research_display_name = (
                     get_runtime_action_display_name(
-                        RUNTIME_ACTION_DEEP_WEB_SEARCH
+                        RUNTIME_ACTION_DEEP_RESEARCH
                     )
                 )
                 completed_event = apply_action_feedback(
-                    deep_search_action,
+                    deep_research_action,
                     {
                         "type": "runtime_action",
-                        "action": RUNTIME_ACTION_DEEP_WEB_SEARCH.lower(),
-                        "display_name": deep_search_display_name,
+                        "action": RUNTIME_ACTION_DEEP_RESEARCH.lower(),
+                        "display_name": deep_research_display_name,
                         "id": tool_call_id,
                         "status": "completed",
                         "query": objective,
                         "scene_effect": "search",
-                        "context": deep_search_call.get("context"),
-                        "deep_search_parent": True,
-                        "deep_search_payload_ready": True,
+                        "context": deep_research_call.get("context"),
+                        "deep_research_parent": True,
+                        "deep_research_payload_ready": True,
                     },
                 )
                 await context.websocket.send_json(completed_event)
                 mark_runtime_action_completed(
                     context,
-                    action=RUNTIME_ACTION_DEEP_WEB_SEARCH,
+                    action=RUNTIME_ACTION_DEEP_RESEARCH,
                     action_id=tool_call_id,
                 )
-                context.runtime_deep_search_result = deep_search_result
-                context.runtime_deep_search_result_id = tool_call_id
+                context.runtime_deep_research_result = deep_research_result
+                context.runtime_deep_research_result_id = tool_call_id
                 record_runtime_tool_result(
                     context,
-                    TOOL_RESULT_KIND_DEEP_SEARCH,
-                    deep_search_result,
+                    TOOL_RESULT_KIND_DEEP_RESEARCH,
+                    deep_research_result,
                     result_id=tool_call_id,
                 )
 
@@ -3165,45 +3207,44 @@ class BrainNode(BaseNode):
                 ):
                     child = active_child(context)
                     if child is not None and self_fork_phase(context) == "child_running":
-                        finish_runtime_actions = {**runtime_actions}
-                        finish_runtime_actions["CAN_CREATE_JIN_INSTANCES"] = False
-                        finish_runtime_actions["CAN_FINISH_SUBTASK"] = True
-                        unfinished_context = build_brain_context(
-                            context,
-                            runtime_actions=finish_runtime_actions,
-                            user_input=sequence_user_request,
-                            commit_active_memory_refresh=True,
-                            include_previous_chat_messages=False,
-                            include_previous_reasoning=False,
-                            include_turn_reasoning=True,
-                            crop_previous_reasoning=False,
-                        )
-                        finish_instruction = (
-                            "<JIN_SUBTASK_NOT_FINISHED>\n"
-                            "You did not emit FINISH_SUBTASK, so the assigned child task is not complete. "
-                            "Continue working with ordinary actions. Emit FINISH_SUBTASK only after the task is actually complete."
-                            "\n</JIN_SUBTASK_NOT_FINISHED>"
-                        )
-                        followup_system_prompt = self.build_followup_system_prompt(
-                            unfinished_context,
-                            sequence_user_request,
-                            context=context,
-                            instruction=finish_instruction,
-                        )
-                        text, reasoning = await self.run_brain_stream(
-                            state=state,
-                            context=context,
-                            brain_runtime=brain_runtime,
-                            brain_client=brain_client,
-                            system_prompt=followup_system_prompt,
-                            brain_payload="",
-                            followup_tick=True,
-                            runtime_actions=finish_runtime_actions,
-                            emit_content_to_chat=True,
-                            filter_runtime_actions=True,
-                        )
-                        followup_count += int(not repairing_malformed)
-                        continue
+                        if repairing_malformed:
+                            # A malformed marker is a separate protocol error,
+                            # handled by the existing one-shot repair budget.
+                            repair_runtime_actions = {**runtime_actions}
+                            repair_runtime_actions["CAN_CREATE_JIN_INSTANCES"] = base_runtime_actions.get("CAN_CREATE_JIN_INSTANCES", False)
+                            repair_runtime_actions["CAN_FINISH_SUBTASK"] = True
+                            repair_system_prompt = self.build_followup_system_prompt(
+                                build_brain_context(
+                                    context,
+                                    runtime_actions=repair_runtime_actions,
+                                    user_input=sequence_user_request,
+                                    commit_active_memory_refresh=True,
+                                    include_previous_chat_messages=False,
+                                    include_previous_reasoning=False,
+                                    include_turn_reasoning=True,
+                                    crop_previous_reasoning=False,
+                                ),
+                                sequence_user_request,
+                                context=context,
+                            )
+                            text, reasoning = await self.run_brain_stream(
+                                state=state,
+                                context=context,
+                                brain_runtime=brain_runtime,
+                                brain_client=brain_client,
+                                system_prompt=repair_system_prompt,
+                                brain_payload="",
+                                followup_tick=True,
+                                runtime_actions=repair_runtime_actions,
+                                emit_content_to_chat=True,
+                                filter_runtime_actions=True,
+                            )
+                            continue
+                        # No executable action, tool result or recovery request.
+                        # Do not re-prompt an idle child: the old path could
+                        # loop forever when BRAIN_MAX_FOLLOWUPS=0.
+                        interrupt_instance_group(context, "no_progress")
+                        child_stalled = True
                     break
 
                 followup_action_events = (
@@ -3302,14 +3343,27 @@ class BrainNode(BaseNode):
         )
 
         if not abort_requested() and (
-            (not unlimited_followups and followup_count >= max_followups)
+            child_stalled
+            or instance_budget_exhausted
+            or (not unlimited_followups and followup_count >= max_followups)
             or malformed_repair_limit_reached
         ):
             context.runtime_active_memory_refresh_tick = (
                 followup_count + 1
             )
 
-            if malformed_repair_limit_reached:
+            if instance_budget_exhausted:
+                stop_reason = f"Shared JIN instance execution budget exhausted ({max_instance_ticks} ticks)."
+                stop_event_text = stop_reason
+                stop_instruction_reason = stop_reason + " All unfinished descendants were interrupted."
+            elif child_stalled:
+                stop_reason = "Child JIN emitted no action; stopping on its first idle tick."
+                stop_event_text = "Child subtask stopped: no action on its first idle tick."
+                stop_instruction_reason = (
+                    "The child was interrupted because it produced no executable "
+                    "action or pending tool result. It will not receive another tick."
+                )
+            elif malformed_repair_limit_reached:
                 stop_reason = (
                     "Brain workflow stopped after a repeated malformed "
                     "runtime action. One repair tick was attempted; one "
@@ -3342,13 +3396,13 @@ class BrainNode(BaseNode):
                 )
 
             await logger.log_runtime(
-                "[BRAIN FOLLOW-UP LIMIT] "
+                ("[BRAIN SUBTASK STALLED] " if child_stalled else "[BRAIN FOLLOW-UP LIMIT] ")
                 + stop_reason
             )
 
             await context.websocket.send_json({
                 "type": "runtime_action",
-                "action": "followup_limit_reached",
+                "action": "subtask_stalled" if child_stalled else "followup_limit_reached",
                 "id": (
                     current_turn_id
                     or "current_turn"
@@ -3358,9 +3412,13 @@ class BrainNode(BaseNode):
             })
 
             parent_return_instruction = ""
-            if self_fork_phase(context) in {"child_pending", "child_running", "parent_pending"}:
+            if child_stalled:
+                # interrupt_instance_group already restored parent state.
+                parent_return_instruction = build_parent_return_instruction(context)
+            elif self_fork_phase(context) in {"child_pending", "child_running", "parent_pending"}:
                 interrupt_instance_group(
                     context,
+                    "instance_tick_budget" if instance_budget_exhausted else
                     "malformed_repair_limit" if malformed_repair_limit_reached else "followup_limit",
                 )
                 parent_return_instruction = build_parent_return_instruction(context)
@@ -3370,21 +3428,32 @@ class BrainNode(BaseNode):
                 for key in runtime_actions
             }
 
-            followup_limit_instruction = (
-                "<FOLLOWUP_LIMIT_REACHED>\n"
-                f"{stop_instruction_reason} This is the final response "
-                "tick. No runtime action emitted in this response will "
-                "execute, and no further follow-up tick will run. Any "
-                "runtime action marker you output will be shown to the "
-                "user as plain model text. If work remains and your next "
-                "step would normally be a runtime action, output that exact "
-                "marker so the user can see where execution stopped. State "
-                "clearly that the workflow stopped because the follow-up "
-                "limit was reached. Briefly "
-                "summarize what was completed and what remains. Do not "
-                "claim unfinished work is complete.\n"
-                "</FOLLOWUP_LIMIT_REACHED>"
-            )
+            if child_stalled:
+                followup_limit_instruction = (
+                    "<JIN_SUBTASK_STALLED>\n"
+                    f"{stop_instruction_reason} You are the parent JIN. "
+                    "This is a final non-executable response. Do not restart "
+                    "the subtask or imply that work continues in the background. "
+                    "Report what succeeded and what remains undone without "
+                    "claiming unverified work is complete.\n"
+                    "</JIN_SUBTASK_STALLED>"
+                )
+            else:
+                followup_limit_instruction = (
+                    "<FOLLOWUP_LIMIT_REACHED>\n"
+                    f"{stop_instruction_reason} This is the final response "
+                    "tick. No runtime action emitted in this response will "
+                    "execute, and no further follow-up tick will run. Any "
+                    "runtime action marker you output will be shown to the "
+                    "user as plain model text. If work remains and your next "
+                    "step would normally be a runtime action, output that exact "
+                    "marker so the user can see where execution stopped. State "
+                    "clearly that the workflow stopped because the follow-up "
+                    "or shared instance execution budget was reached. Briefly "
+                    "summarize what was completed and what remains. Do not "
+                    "claim unfinished work is complete.\n"
+                    "</FOLLOWUP_LIMIT_REACHED>"
+                )
 
             # The final executable tick may itself have produced actions/tool
             # results. Refresh the generic follow-up header before the forced

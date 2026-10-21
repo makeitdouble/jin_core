@@ -57,7 +57,7 @@ class ActionContext:
         for name in (
             "runtime_action_events",
             "runtime_search_calls",
-            "runtime_deep_search_calls",
+            "runtime_deep_research_calls",
             "runtime_loaded_skills",
         ):
             if not hasattr(context, name):

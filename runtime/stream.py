@@ -70,7 +70,7 @@ from runtime.action_guard import (
     get_action_guard_retry_display_id,
 )
 from contracts.rules_assembler import (
-    RUNTIME_ACTION_DEEP_WEB_SEARCH,
+    RUNTIME_ACTION_DEEP_RESEARCH,
     RUNTIME_ACTION_LOAD_DELAYED_MEMORY,
     RUNTIME_ACTION_LOAD_SKILL,
     RUNTIME_ACTION_ASSET_ACTION,
@@ -217,8 +217,8 @@ class RuntimeStream:
         self.jin_size_action_ids = {}
         self.posting_board_action_ids = {}
         self.mcp_action_ids = {}
-        self.deep_web_search_action_ids = {}
-        self.started_deep_web_search_action_ids = []
+        self.deep_research_action_ids = {}
+        self.started_deep_research_action_ids = []
         self.update_lt_facts_action_ids = {}
         self.last_jin_color_action_color = ""
         self.last_jin_size_action_size = ""
@@ -544,6 +544,9 @@ class RuntimeStream:
                 self.stream.response
             )
         )
+        if self.context.runtime_turn_assistant_response.strip():
+            from runtime.heartbeat import mark_heartbeat_activity
+            mark_heartbeat_activity(self.context)
 
     def build_message_end_checkpoint_payload(self) -> dict:
         if not self.is_brain_context():
@@ -1519,7 +1522,7 @@ class RuntimeStream:
                 "observed_actions",
                 (),
             )
-            if action.name != RUNTIME_ACTION_DEEP_WEB_SEARCH
+            if action.name != RUNTIME_ACTION_DEEP_RESEARCH
         )
         counter_entries = self.action_counter.record(
             observed_actions
@@ -1852,29 +1855,29 @@ class RuntimeStream:
 
             return action_id
 
-        if action.name == RUNTIME_ACTION_DEEP_WEB_SEARCH:
+        if action.name == RUNTIME_ACTION_DEEP_RESEARCH:
             payload_key = str(
                 action.payload
                 or ""
             ).strip()
-            deep_search_action_ids = getattr(
+            deep_research_action_ids = getattr(
                 self,
-                "deep_web_search_action_ids",
+                "deep_research_action_ids",
                 None,
             )
 
             if not isinstance(
-                deep_search_action_ids,
+                deep_research_action_ids,
                 dict,
             ):
-                deep_search_action_ids = {}
-                self.deep_web_search_action_ids = (
-                    deep_search_action_ids
+                deep_research_action_ids = {}
+                self.deep_research_action_ids = (
+                    deep_research_action_ids
                 )
 
             started_action_ids = getattr(
                 self,
-                "started_deep_web_search_action_ids",
+                "started_deep_research_action_ids",
                 None,
             )
             if not isinstance(
@@ -1882,12 +1885,12 @@ class RuntimeStream:
                 list,
             ):
                 started_action_ids = []
-                self.started_deep_web_search_action_ids = (
+                self.started_deep_research_action_ids = (
                     started_action_ids
                 )
 
             action_id = (
-                deep_search_action_ids.get(
+                deep_research_action_ids.get(
                     payload_key,
                     "",
                 )
@@ -1906,7 +1909,7 @@ class RuntimeStream:
                     or ""
                 ).strip()
                 if action_id:
-                    deep_search_action_ids[payload_key] = (
+                    deep_research_action_ids[payload_key] = (
                         action_id
                     )
 
@@ -1924,29 +1927,29 @@ class RuntimeStream:
                     )
                     and event.get(
                         "name"
-                    ) == RUNTIME_ACTION_DEEP_WEB_SEARCH.lower()
+                    ) == RUNTIME_ACTION_DEEP_RESEARCH.lower()
                 ])
                 sequence = max(
                     int(
                         getattr(
                             self.context,
-                            "runtime_deep_web_search_action_sequence",
+                            "runtime_deep_research_action_sequence",
                             0,
                         )
                         or 0
                     ),
                     existing_count,
                 ) + 1
-                self.context.runtime_deep_web_search_action_sequence = (
+                self.context.runtime_deep_research_action_sequence = (
                     sequence
                 )
                 action_id = build_runtime_action_id(
-                    RUNTIME_ACTION_DEEP_WEB_SEARCH,
+                    RUNTIME_ACTION_DEEP_RESEARCH,
                     sequence,
                 )
 
                 if payload_key:
-                    deep_search_action_ids[payload_key] = (
+                    deep_research_action_ids[payload_key] = (
                         action_id
                     )
                 elif action_id not in started_action_ids:
@@ -2292,7 +2295,7 @@ class RuntimeStream:
             )
             search_query = ""
 
-            if action.name == RUNTIME_ACTION_DEEP_WEB_SEARCH:
+            if action.name == RUNTIME_ACTION_DEEP_RESEARCH:
                 search_query = extract_search_query(
                     action.payload
                 )
@@ -2553,9 +2556,9 @@ class RuntimeStream:
                     "close_tag": has_close_tag,
                 }
 
-                if action.name == RUNTIME_ACTION_DEEP_WEB_SEARCH:
-                    payload["deep_search_parent"] = True
-                    payload["deep_search_payload_ready"] = False
+                if action.name == RUNTIME_ACTION_DEEP_RESEARCH:
+                    payload["deep_research_parent"] = True
+                    payload["deep_research_payload_ready"] = False
                     payload["scene_effect"] = "search"
 
                     if search_query:
@@ -2669,7 +2672,7 @@ class RuntimeStream:
                     "started_active_memory_action_ids",
                     "started_delayed_memory_action_ids",
                     "started_update_lt_facts_action_ids",
-                    "started_deep_web_search_action_ids",
+                    "started_deep_research_action_ids",
                 )),
             ):
                 for attribute in attributes:
@@ -2703,8 +2706,8 @@ class RuntimeStream:
                     "text": text,
                     "detail": detail,
                     "context": self.context_snapshot,
-                    "deep_search_parent": action.name == RUNTIME_ACTION_DEEP_WEB_SEARCH,
-                    "scene_effect": "search" if action.name == RUNTIME_ACTION_DEEP_WEB_SEARCH else "",
+                    "deep_research_parent": action.name == RUNTIME_ACTION_DEEP_RESEARCH,
+                    "scene_effect": "search" if action.name == RUNTIME_ACTION_DEEP_RESEARCH else "",
                 })
             await emit_session_actions_update(self.context, current_sequence=True)
 

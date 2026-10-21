@@ -506,7 +506,9 @@ def _chat_archive_deleted(context, path: Path) -> bool:
 def _defer_bootstrap_archive(context, path: Path) -> bool:
     # D049: startup output is page-local until a real USER makes this session
     # saveable. Keep its original rows/reasoning in RAM for scenario 2.
-    if (getattr(context, "runtime_session_restore_priming", False)
+    if ((getattr(context, "runtime_session_restore_priming", False)
+         or (getattr(context, "runtime_heartbeat_active", False)
+             and not getattr(context, "runtime_heartbeat_meaningful", False)))
             and not path.is_file()):
         context.runtime_chat_bootstrap_deferred = True
     return bool(getattr(context, "runtime_chat_bootstrap_deferred", False))
@@ -1301,6 +1303,10 @@ def build_chat_log_entry(
             )
             or ""
         ),
+        **({"event": "heartbeat_started"} if str(role or "").lower() == "runtime"
+           and getattr(context, "runtime_heartbeat_active", False) else {}),
+        **({"heartbeat": True, "heartbeat_tick_speed": getattr(context, "heartbeat_tick_speed", 600)}
+           if getattr(context, "runtime_heartbeat_active", False) and getattr(context, "runtime_heartbeat_meaningful", False) else {}),
         "role": str(
             role
             or ""
@@ -1620,7 +1626,7 @@ def append_chat_log_entry(
             Path(reasoning_path)
         )
 
-    if str(role or "").casefold() == "user":
+    if str(role or "").casefold() == "user" or entry.get("heartbeat"):
         context.runtime_chat_bootstrap_deferred = False
         for pending_entry in getattr(context, "runtime_chat_pending_entries", []):
             _append_chat_log_json_entry(path, pending_entry)

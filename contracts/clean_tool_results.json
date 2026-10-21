@@ -13,7 +13,8 @@
       "follow_up_on_fail": true
     },
     "schema": [
-      "<CLEAN_TOOL_RESULTS> T1, T2 </CLEAN_TOOL_RESULTS>"
+      "<CLEAN_TOOL_RESULTS> T1, T2 </CLEAN_TOOL_RESULTS>",
+      "<CLEAN_TOOL_RESULTS> SUB_T1, SUB_T2 </CLEAN_TOOL_RESULTS>"
     ],
     "rules": [
       "Remove listed tool results by id. Empty: remove all. "

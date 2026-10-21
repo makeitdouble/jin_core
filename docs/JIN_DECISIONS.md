@@ -212,7 +212,7 @@ Serialize/deserialize must preserve entity/snapshot timestamps. `now()` is only 
 
 **Status:** Accepted / implemented
 
-Long-pressing the avatar opens a fresh JIN room with a generated `_anon` session id. Active, Delayed, Facts Memory candidates, and L-T use the ordinary memory folders with `_anon.json` filenames, are shared by concurrently open anonymous rooms, and are deleted after the last anonymous room closes. The browser is only a projection of this anonymous file-backed profile; normal memory never seeds it. FRAME remains tab/runtime-local and does not create a crash journal for anonymous rooms. Global non-memory/asset writes remain restricted. Chat and reasoning remain auditable in ordinary `logs/` under the suffixed session id, while normal bootstrap and L-T freshness scanners ignore those logs.
+Long-pressing the avatar opens a fresh JIN room with a generated `_anon` session id. Active, Delayed, Facts Memory candidates, and L-T use the ordinary memory folders with `_anon.json` filenames, are shared by concurrently open anonymous rooms, and are deleted after the last anonymous room closes. The browser is only a projection of this anonymous file-backed profile; normal memory never seeds it. FRAME remains tab/runtime-local and does not create a crash journal for anonymous rooms. Owner revision 2026-10-19: ASSET_ACTION writes are allowed, including persistent assets and explicitly linked folders; normal path confinement, skill requirements and explicit overwrite checks remain. Other global non-memory writes remain restricted. Chat and reasoning remain auditable in ordinary `logs/` under the suffixed session id, while normal bootstrap and L-T freshness scanners ignore those logs.
 
 **Why:** anonymous experimentation must not inherit or contaminate the durable memory room, and browser Incognito detection is not a reliable product primitive.
 
@@ -360,9 +360,9 @@ Current code uses 333 ms reveal and 1000 ms hide. This mismatch is documented, n
 
 **Status:** Accepted / implemented
 
-`WEB_SEARCH` and `DEEP_WEB_SEARCH` are model-visible only when both their runtime feature flags and `settings.CAN_SEARCH` allow them. For the current Serper integration, local capability means provider `serper` plus a non-empty, non-placeholder API key supplied through the process environment. Secrets do not belong in `config.py` or `config.example.py`; the Windows launcher may populate its child process from an ignored repository-root `.env`, with `.env.example` documenting names through placeholders only.
+`WEB_SEARCH` is model-visible only when both its runtime feature flag and `settings.CAN_SEARCH` allow it. `DEEP_RESEARCH` is model-visible whenever its own runtime flag allows it because it also performs multi-agent analysis of supplied context and images without searching. Its workers may request web searches only when `settings.CAN_SEARCH` is true. For the current Serper integration, local search capability means provider `serper` plus a non-empty, non-placeholder API key supplied through the process environment. Secrets do not belong in `config.py` or `config.example.py`; the Windows launcher may populate its child process from an ignored repository-root `.env`, with `.env.example` documenting names through placeholders only.
 
-**Why:** advertising an action that cannot execute creates fake affordance and failed loops. Conversely, Serper does not define a stable client-side key shape, so arbitrary length/prefix regexes can incorrectly hide valid credentials.
+**Why:** advertising direct web search when it cannot execute creates fake affordance and failed loops. Deep research still has useful non-web work to perform, so provider absence disables only its query execution. Conversely, Serper does not define a stable client-side key shape, so arbitrary length/prefix regexes can incorrectly hide valid credentials.
 
 **Rejected alternatives:** feature flags alone deciding search availability; hard-coding guessed Serper key formats instead of letting the provider validate credentials.
 
@@ -812,15 +812,16 @@ Short click opens the existing `restore_session` flow in a new tab. A 1500 ms ho
 
 ATTACH_FILES_BY_PATH loads whole linked-folder images/text into the existing sequence attachment pipeline; each marker replaces the previous temporary path set without changing pinned resources. It does not import files or create USER messages. History persists metadata, while Stop/new USER/disk restore unload the temporary contents. This extends D047's source-path distinction without changing BY_ID.
 
-The owner additionally authorized file_manager writes into currently attached folders. Existing create_asset_file/append_asset_file accept an explicit attachment selector; omitted attachment keeps assets/ behavior. Root confinement, explicit overwrite and anonymous-mode restrictions remain. No default JIN source-root write fallback is allowed.
+The owner additionally authorized file_manager writes into currently attached folders. Existing create_asset_file/append_asset_file accept an explicit attachment selector; omitted attachment keeps assets/ behavior. Root confinement and explicit overwrite remain. The 2026-10-19 owner revision permits these asset writes in anonymous rooms; shadow-mode restrictions remain. No default JIN source-root write fallback is allowed.
 
 ## D060 — Self-fork is a parent-owned continuation sequence (2026-10-13)
 
-JIN may split one current intention with `CREATE_JIN_INSTANCES`, but only the
-parent may create a group. Children execute sequentially through the existing
-Brain follow-up loop and must terminate with an authoritative
-`FINISH_SUBTASK`; nested groups are rejected and the default configured group
-limit is 32. The dispatcher registers work but never waits for or recursively
+Owner revision 2026-10-21 (Recursive Nested Instances, staged delivery): any
+running JIN instance may create its own group with `CREATE_JIN_INSTANCES`.
+Children execute sequentially through the existing Brain follow-up loop and
+must terminate with an authoritative `FINISH_SUBTASK` returning to their
+immediate parent. The old prohibition on nested groups is superseded by this
+explicit task. The default configured per-group limit remains 32. The dispatcher registers work but never waits for or recursively
 runs children.
 
 The sequence remains one foreground turn, so FRAME updates once after the
@@ -834,6 +835,16 @@ not child durable-memory writes. Other tool results remain visible to later chil
 to facts whose `created_at` or `updated_at` is within 24 hours. Stop discards the
 remaining queue and preserves completed tool results; backend restart leaves
 the transient group interrupted rather than resuming or declaring completion.
+
+Recursive part 1 preserves suspended execution frames and follow-up/repair
+budgets in RuntimeContext, unwinds the whole tree on Stop/terminal errors,
+and applies one positive configurable JIN_MAX_INSTANCE_TICKS budget (default
+256 follow-up loop iterations) across the foreground self-fork workflow.
+Completed nested groups detach before the caller's return tick. CREATE ends
+the current action batch via the existing transition barrier. The task's
+relative SUB-AM/SUB_T inheritance is explicitly deferred to parts 2/3;
+part 1 only protects ancestor ownership and parks temporary tool projections.
+Each part requires owner confirmation before the next, per task section 13.
 
 The independent child context is its assignment, reasoning/recovery state, and
 in-flight dialogue projection, within the one RuntimeContext. FRAME, durable
@@ -889,3 +900,37 @@ and left the restarted Brain without context; D057 disk authority is retained.
 ## D061 — One file-content marker, explicit asset alternatives (2026-10-17)
 
 Owner-approved: remove ATTACH_FILES_BY_ID and ATTACH_FILES_BY_PATH XML contracts. ATTACH_FILE_CONTENT is the single attachment marker, accepting IDs and paths, including linked images and existing source-window ranges. ASSET_ACTION exposes ATTACH_FILE_BY_ID and ATTACH_FILE_BY_PATH for whole-file loading through the same canonical attachment owners and guards. Upper/lowercase operation names are accepted; no plural XML aliases remain. BY_ID never falls back to path reading. Existing text-window continuation, anonymous restrictions, disk unloading and historical result readers are retained. This supersedes the public marker syntax of D047/D059 without creating another storage or execution pipeline.
+
+
+## D062 — Autonomous per-room heartbeat (2026-10-20)
+
+Owner-approved extension of D049/D057: a meaningful autonomous heartbeat is a
+continuation owner even without a USER row. The first bootstrap greeting alone
+still never saves a session. A visible response or any attempted ACTION (including
+failure) promotes the archive; reasoning alone does not. Promotion records a
+heartbeat ownership event, never a synthetic USER message. Deferred greeting
+artifacts flush through the existing logger. Stop retains meaningful partial
+activity. Physical deletion and anonymous isolation remain authoritative.
+
+Every open room, including an empty or anonymous room, has its own deadline.
+Page pointer/input/wheel/touch/key activity and focus/visibility transitions reset
+it. Focus is an event, not a continuous veto; automatic chat scrolling is not USER
+activity. Other applications/pages are not observed. First tick: 300 idle seconds
+plus the room interval (default 600). After the entire Brain/action/child/FRAME
+chain finishes, wait only another interval while still idle. Activity resets
+future waiting; an already accepted chain stops only through normal Stop/cancel.
+No queued catch-up ticks, parallel Brain invocation, cron, or separate executor.
+
+SET_HEARTBEAT_TICK_SPEED is a permanent JSON action contract; JIN may freely choose
+any finite number of seconds >=60. It applies to the next interval, is disk-owned,
+and is inherited from the selected bootstrap source. Open tabs then vary it
+independently. Only the initial autonomous call prepends HEARTBEAT_TICK_MESSAGE;
+action/recovery follow-ups do not retain that notification. The initial tick does
+not consume the existing follow-up budget or assign an obligatory goal.
+
+Newest USER/meaningful-heartbeat activity selects normal continuation, comparing
+actual timestamps across date directories. Explicitly marked autonomous moves
+join the existing bounded history without manufactured USER bubbles. CLEAR adds
+distinct heartbeat-turn counts beside USER counts: a new meaningful tick may
+start continuation, but late completion of an already counted tick cannot.
+Existing v1 USER-count barriers remain readable.

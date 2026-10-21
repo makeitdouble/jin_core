@@ -14,16 +14,15 @@
     },
     "schema": [
       "<ATTACH_FILE_CONTENT: file_id >",
-      "<ATTACH_FILE_CONTENT: folder_name/relative/path >",
-      "<ATTACH_FILE_CONTENT: folder_name/relative/path#L1-L200 >",
       "<ATTACH_FILE_CONTENT: relative/path >",
-      "<ATTACH_FILE_CONTENT: relative/path#L1-L200 >",
-      "<ATTACH_FILE_CONTENT: file_id, folder_name/image.png, folder_name/caption.txt >"
+      "<ATTACH_FILE_CONTENT: relative/path#L1-L200 >"
     ],
     "rules": [
-      "ATTACH_FILE_CONTENT is the only file-content attachment marker. Supply a persistent file ID to attach the whole text/image, or a linked-folder image path to send its pixels to vision. Supply a text path to read a source window into FILE_CONTENT; #Lstart-Lend selects explicit lines and a bare text path continues from the next unread window. Comma-separated references are processed in source order; preserve path case. Wait for FOLLOW-UP before inspecting contents. Only attach existing files; attachment never creates a missing caption TXT.",
-      "For explicit whole-file loading, ASSET_ACTION also accepts ATTACH_FILE_BY_ID (id or ids) and ATTACH_FILE_BY_PATH (path or paths, optional attachment folder selector). These are JSON operations, not XML markers. The removed ATTACH_FILES_BY_ID and ATTACH_FILES_BY_PATH markers must not be emitted.",
-      "Whole image/path attachments require a currently linked folder and obey existing size and path guards. Each marker replaces the previous temporary image/path set while preserving pinned files. When no folder is linked, text paths and jin_core/relative/path retain the read-only JIN source window behavior. Never use a stored image filename in place of its persistent ID."
+      "ATTACH_FILE_CONTENT is the only file-content attachment marker.",
+      "Supply a persistent file ID to attach the whole text/image, or a linked-folder image path to send its pixels to vision.",
+      "Supply a text path to read a source window into FILE_CONTENT; #Lstart-Lend selects explicit lines and a bare text path continues from the next unread window.",
+      "Comma-separated references are processed in source order; preserve path case.",
+      "Wait for FOLLOW-UP before inspecting contents."
     ],
     "close_tag": false
   }

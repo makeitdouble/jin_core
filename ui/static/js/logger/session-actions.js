@@ -28,7 +28,7 @@ function normalizeSessionActionName(value) {
     .toUpperCase();
 }
 
-function normalizeDeepSearchSessionActionDisplay(
+function normalizeDeepResearchSessionActionDisplay(
   text,
   detail = "",
 ) {
@@ -38,7 +38,7 @@ function normalizeDeepSearchSessionActionDisplay(
     String(detail || "").trim();
   const queryMatch =
     normalizedText.match(
-      /^DEEP_WEB_SEARCH\s*:\s*(.+)$/i
+      /^DEEP_RESEARCH\s*:\s*(.+)$/i
     );
 
   if (!queryMatch) {
@@ -52,7 +52,7 @@ function normalizeDeepSearchSessionActionDisplay(
     String(queryMatch[1] || "").trim();
 
   return {
-    text: "DEEP_WEB_SEARCH",
+    text: "DEEP_RESEARCH",
     detail: query || normalizedDetail,
   };
 }
@@ -235,7 +235,7 @@ function normalizeSessionActionParts(
           }
 
           ({ text, detail } =
-            normalizeDeepSearchSessionActionDisplay(
+            normalizeDeepResearchSessionActionDisplay(
               text,
               detail
             ));
@@ -294,18 +294,18 @@ function normalizeSessionActionParts(
     return [];
   }
 
-  const deepSearchDisplay =
-    normalizeDeepSearchSessionActionDisplay(
+  const deepResearchDisplay =
+    normalizeDeepResearchSessionActionDisplay(
       text
     );
 
   if (
-    deepSearchDisplay.text === "DEEP_WEB_SEARCH"
-    && deepSearchDisplay.detail
+    deepResearchDisplay.text === "DEEP_RESEARCH"
+    && deepResearchDisplay.detail
   ) {
     return [{
-      text: deepSearchDisplay.text,
-      detail: deepSearchDisplay.detail,
+      text: deepResearchDisplay.text,
+      detail: deepResearchDisplay.detail,
       message: "",
       id: "",
       colors: [],
@@ -652,10 +652,10 @@ function buildSessionActionRow(
       );
     }
 
-    const isDeepWebSearchAction =
-      normalizedActionName === "DEEP_WEB_SEARCH"
+    const isDeepResearchAction =
+      normalizedActionName === "DEEP_RESEARCH"
       || normalizedActionName.startsWith(
-        "DEEP_WEB_SEARCH "
+        "DEEP_RESEARCH "
       );
 
     const hoverText =
@@ -665,7 +665,7 @@ function buildSessionActionRow(
           part.message
           || part.detail
           || (
-            isDeepWebSearchAction
+            isDeepResearchAction
               ? part.contextDetail
               : ""
           )

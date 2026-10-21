@@ -43,7 +43,7 @@ class RuntimeActionCounter:
         "LOAD_SKILLS",
         "UNLOAD_SKILL",
         "UNLOAD_SKILLS",
-        "DEEP_WEB_SEARCH",
+        "DEEP_RESEARCH",
     })
 
     def __init__(self):

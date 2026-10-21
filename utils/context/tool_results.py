@@ -4,7 +4,7 @@ import re
 from xml.sax.saxutils import escape
 
 from contracts.rules_assembler import (
-    RUNTIME_ACTION_DEEP_WEB_SEARCH,
+    RUNTIME_ACTION_DEEP_RESEARCH,
     RUNTIME_ACTION_UPDATE_LT_FACTS,
     RUNTIME_ACTION_RECALL_FACT_CONTEXT,
     RUNTIME_ACTION_WEB_SEARCH,
@@ -17,7 +17,7 @@ from utils.tool_results import (
     TOOL_RESULT_KIND_ACTIVE_MEMORY,
     TOOL_RESULT_KIND_ASSET,
     TOOL_RESULT_KIND_DELAYED_MEMORY,
-    TOOL_RESULT_KIND_DEEP_SEARCH,
+    TOOL_RESULT_KIND_DEEP_RESEARCH,
     TOOL_RESULT_KIND_SEARCH,
     TOOL_RESULT_KIND_FILES,
     TOOL_RESULT_KIND_LT,
@@ -63,13 +63,16 @@ def visible_removable_tool_result_hints(context, system_prompt: str) -> str:
         for match in TOOL_RESULT_BLOCK_RE.finditer(wrapper.group(1)):
             block = match.group(0)
             tag = block.split(">", 1)[0]
-            tool_id = re.search(r'\btool_id=[\"\x27](T[1-9][0-9]*)[\"\x27]', tag)
+            tool_id = re.search(r'\btool_id=[\"\x27]((?:SUB_)?T[1-9][0-9]*)[\"\x27]', tag)
             if tool_id:
                 visible.setdefault(tool_id.group(1), block)
+    from utils.tool_results import _tool_id_is_owned_by_current_instance
     candidates = []
     for index, entry in enumerate(getattr(context, "runtime_tool_results", []) or []):
         tool_id = entry.get("tool_id")
         if tool_id not in visible:
+            continue
+        if not _tool_id_is_owned_by_current_instance(context, entry):
             continue
         timestamp = get_runtime_tool_result_created_at(context, index, entry)
         candidates.append((tool_id, estimate_stream_text_tokens(visible[tool_id]), timestamp, index))
@@ -471,6 +474,8 @@ def _append_recorded_tool_results(
         )
 
         tool_id_attr = f'tool_id="{escape(entry["tool_id"])}" ' if entry.get("tool_id") else ""
+        if entry.get("owner_subtask_agent_id"):
+            tool_id_attr += f'owner_subtask_agent_id="{escape(entry["owner_subtask_agent_id"])}" '
 
         if entry.get("absorbed_by"):
             attrs = tool_id_attr + f'name="{escape(entry.get("action_name", "runtime_action"))}"'
@@ -514,7 +519,7 @@ def _append_recorded_tool_results(
             appended = True
             continue
 
-        if kind == TOOL_RESULT_KIND_DEEP_SEARCH:
+        if kind == TOOL_RESULT_KIND_DEEP_RESEARCH:
             deep_result = str(
                 result
                 or ""
@@ -522,7 +527,7 @@ def _append_recorded_tool_results(
             if not deep_result:
                 continue
 
-            attrs = tool_id_attr + f'name="{escape(RUNTIME_ACTION_DEEP_WEB_SEARCH)}"'
+            attrs = tool_id_attr + f'name="{escape(RUNTIME_ACTION_DEEP_RESEARCH)}"'
             result_id = str(
                 entry.get(
                     "id",
@@ -580,7 +585,6 @@ def _append_recorded_tool_results(
             continue
 
         if kind == TOOL_RESULT_KIND_ACTIVE_MEMORY:
-            owner_attr = entry.get("owner_subtask_agent_id", "")
             sections = format_active_memory_result_sections(
                 [result]
             )
@@ -590,8 +594,6 @@ def _append_recorded_tool_results(
             blocks = []
             for name, payload in sections:
                 attrs = tool_id_attr + f'name="{escape(name)}"'
-                if owner_attr:
-                    attrs += f' owner_subtask_agent_id="{escape(owner_attr)}"'
                 blocks.append(
                     f"{_build_tool_result_open_tag(attrs, created_at=created_at, now=now)}\n"
                     f"{indent_xml(_escape_runtime_action_payload(payload))}\n"
