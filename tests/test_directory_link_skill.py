@@ -89,10 +89,9 @@ class DirectoryLinkSkillTests(unittest.TestCase):
         result = asyncio.run(run_context_asset_action(payload, context=self.context))
         self.assertTrue(result['ok'], result)
         self.assertIn('My Folder/photo.png', result['content'])
-        # Other skills must still be explicitly loaded.
-        denied = asyncio.run(run_context_asset_action('{"action":"project_read","attachment":"My Folder","path":"photo.png"}', context=self.context))
-        self.assertFalse(denied['ok'])
-        self.assertIn('file_manager', str(denied))
+        # Executing an asset no longer requires loading its instructional skill.
+        result = asyncio.run(run_context_asset_action('{"action":"project_read","attachment":"My Folder","path":"photo.png"}', context=self.context))
+        self.assertNotIn("skill must be loaded", str(result))
         self.context.runtime_attached_file_ids = []
         denied = asyncio.run(run_context_asset_action(payload, context=self.context))
         self.assertFalse(denied['ok'])

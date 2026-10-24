@@ -71,6 +71,10 @@ from runtime.LT_memory import (
     start_lt_memory_server_scheduler,
     stop_lt_memory_server_scheduler,
 )
+from utils.telegram_transport import (
+    start_telegram_polling,
+    stop_telegram_polling,
+)
 
 from runtime.registry import runtime_state
 from runtime.state import (
@@ -147,12 +151,19 @@ async def lifespan(application: FastAPI):
         application.state
     )
 
+    start_telegram_polling(
+        application.state
+    )
+
     yield
 
     # -----------------------------------------------------
     # SHUTDOWN
     # -----------------------------------------------------
 
+    await stop_telegram_polling(
+        application.state
+    )
     await stop_lt_memory_server_scheduler(
         application.state
     )

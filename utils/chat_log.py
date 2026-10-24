@@ -506,10 +506,13 @@ def _chat_archive_deleted(context, path: Path) -> bool:
 def _defer_bootstrap_archive(context, path: Path) -> bool:
     # D049: startup output is page-local until a real USER makes this session
     # saveable. Keep its original rows/reasoning in RAM for scenario 2.
-    if ((getattr(context, "runtime_session_restore_priming", False)
-         or (getattr(context, "runtime_heartbeat_active", False)
-             and not getattr(context, "runtime_heartbeat_meaningful", False)))
-            and not path.is_file()):
+    # A fresh tab is not an archived conversation until a real USER message
+    # commits it. Bootstrap actions, tool results, reasoning, and Stop must
+    # remain in memory even after restore priming finishes.
+    # Meaningful heartbeat ticks retain the existing autonomous archive policy.
+    if (not path.is_file()
+            and not (getattr(context, "runtime_heartbeat_active", False)
+                     and getattr(context, "runtime_heartbeat_meaningful", False))):
         context.runtime_chat_bootstrap_deferred = True
     return bool(getattr(context, "runtime_chat_bootstrap_deferred", False))
 

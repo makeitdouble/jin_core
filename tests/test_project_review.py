@@ -179,6 +179,25 @@ class ProjectReviewTests(unittest.TestCase):
         self.assertIn("Next unread line: 4", read["notice"])
         self.assertIn("2-3 of 4 lines", build_asset_action_context_detail(read))
 
+    def test_project_selector_accepts_display_folder_trailing_separator(self):
+        for selector in (
+            self.project.name + "/",
+            self.project.name + "\\",
+            self.record["id"] + "/",
+        ):
+            with self.subTest(selector=selector):
+                result = run_project_action(self.context, {
+                    "action": "project_tree",
+                    "attachment": selector,
+                    "path": ".",
+                    "limit": 1,
+                })
+                self.assertTrue(result["ok"])
+                self.assertEqual(
+                    result["content"],
+                    f"{self.project.name}/README.md",
+                )
+
     def test_scope_escape_binary_large_and_invalid_ranges(self):
         (self.root / "outside.txt").write_text("outside secret")
         try:

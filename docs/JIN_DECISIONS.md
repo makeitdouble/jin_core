@@ -934,3 +934,35 @@ join the existing bounded history without manufactured USER bubbles. CLEAR adds
 distinct heartbeat-turn counts beside USER counts: a new meaningful tick may
 start continuation, but late completion of an already counted tick cannot.
 Existing v1 USER-count barriers remain readable.
+
+
+## D063 — Telegram is an optional transport over the existing room queue (2026-10-23)
+
+Owner-approved: Telegram adds no model route, memory, contract, dispatcher, or
+automatic answer mirroring. Explicit outbound delivery is the `telegram_send`
+subaction of ASSET_ACTION and requires the loaded `telegram` skill plus a
+successful Tool Result before Brain may claim delivery.
+
+The emitted send text is also a visible source-ordered projection:
+`TELEGRAM_MESSAGE_OUTPUT`. Successful `telegram_send` is the narrow exception
+to ASSET_ACTION's ordinary automatic follow-up; any same-response prose remains
+visible after the projection. Failed sends retain the shared failure follow-up.
+
+Inbound `getUpdates` long polling accepts only the configured private account:
+`chat.type == private`, `chat.id == TELEGRAM_CHAT_ID`, and
+`from.id == TELEGRAM_CHAT_ID`. It chooses the active non-anonymous tab opened
+most recently; activity and heartbeat timing do not alter the choice. No active
+normal tab means a Telegram error response and no synthetic runtime. The chosen
+room's existing FIFO admission and `process_message()` remain authoritative, so
+Telegram requests cannot run in parallel with another foreground request.
+
+Text is one USER move. At room admission its text is wrapped in the explicit
+`TELEGRAM_MESSAGE_INPUT` block and the canonical `telegram` skill is loaded if
+it is not already present; the same normalized text reaches UI, disk log, and
+Brain. One photo with or without caption is one USER move.
+Updates sharing `media_group_id` are briefly buffered into one ordered move;
+more than five photos rejects the whole album. Images reuse the persistent File
+store, ordinary attachment hydration, multimodal Brain payload, session log,
+and UI preview, but are unpinned and selected only for their originating turn.
+No webhook, public listener, Telegram history reader, group/media expansion, or
+separate Telegram memory is introduced.

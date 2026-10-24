@@ -334,10 +334,30 @@ async def apply_attachment_actions(
     active_ids = _active_ids(context)
     restricted_writes = persistent_writes_restricted(context)
 
-    def record_attachment_result(result):
+    def record_attachment_result(result, *, introduced_attachment_refs=()):
         result["runtime_action_name"] = "ASSET_ACTION" if owner_action_id else action.name
         record_runtime_tool_result(context, TOOL_RESULT_KIND_FILES, result,
                                    result_id=owner_action_id)
+        if (
+            not owner_action_id
+            and action.name == RUNTIME_ACTION_ATTACH_FILE_CONTENT
+            and result.get("ok") is not False
+            and result.get("loaded") is not False
+        ):
+            recorded = (getattr(context, "runtime_tool_results", []) or [])[-1]
+            pending = list(
+                getattr(
+                    context,
+                    "runtime_attach_file_content_followup_pending",
+                    [],
+                )
+                or []
+            )
+            pending.append({
+                "tool_id": recorded.get("tool_id", ""),
+                "attachment_refs": list(introduced_attachment_refs),
+            })
+            context.runtime_attach_file_content_followup_pending = pending
 
     if list_actions:
         records = list_file_records()
@@ -375,6 +395,11 @@ async def apply_attachment_actions(
             and str(action.payload).casefold().endswith((".png", ".jpg", ".jpeg", ".gif", ".webp"))
         )
         if action.name == RUNTIME_ACTION_ATTACH_FILE_BY_PATH or image_path:
+            previous_attachment_refs = {
+                str(item.get("file_ref") or item.get("id") or "").strip()
+                for item in getattr(context, "runtime_current_sequence_attachments", []) or []
+                if isinstance(item, dict)
+            }
             group = (runtime_message_id, getattr(action, "marker_group", ""), getattr(action, "marker_payload", "") or action.payload)
             display_id = (action_display_ids or {}).get(id(action)) or f"attach_path_{len(getattr(context, 'runtime_action_events', []) or []):06d}"
             emit = getattr(getattr(context, "emitter", None), "emit", None)
@@ -384,7 +409,18 @@ async def apply_attachment_actions(
                                                 "payload": action.payload}))
             result = await attach_project_path(context, action, group)
             result["runtime_action_id"] = display_id
-            record_attachment_result(result)
+            attachment_ref = str(
+                result.get("file_ref") or result.get("id") or ""
+            ).strip()
+            record_attachment_result(
+                result,
+                introduced_attachment_refs=(
+                    [attachment_ref]
+                    if attachment_ref
+                    and attachment_ref not in previous_attachment_refs
+                    else []
+                ),
+            )
             results.append(result)
             continue
         by_id = action.name == RUNTIME_ACTION_ATTACH_FILE_BY_ID
@@ -442,7 +478,18 @@ async def apply_attachment_actions(
                 if replaced:
                     result["replaced_id"] = replaced[0]
 
-        record_attachment_result(result)
+        introduced_attachment_refs = []
+        if (
+            result.get("ok") is not False
+            and file_id
+            and record is not None
+            and file_id not in previous_ids
+        ):
+            introduced_attachment_refs.append(file_id)
+        record_attachment_result(
+            result,
+            introduced_attachment_refs=introduced_attachment_refs,
+        )
         results.append(result)
 
     if attach_actions:
@@ -485,3 +532,44 @@ async def apply_attachment_actions(
             }))
 
     return results
+
+
+def consume_attach_file_content_followup(context, pending_items) -> None:
+    """Unload only ATTACH_FILE_CONTENT bodies consumed by one model follow-up."""
+    pending_tool_ids = {
+        str(item.get("tool_id") or "").strip()
+        for item in pending_items or []
+        if isinstance(item, dict)
+    }
+    attachment_refs = {
+        str(reference or "").strip()
+        for item in pending_items or []
+        if isinstance(item, dict)
+        for reference in item.get("attachment_refs", []) or []
+    }
+    pending_tool_ids.discard("")
+    attachment_refs.discard("")
+
+    for entry in getattr(context, "runtime_tool_results", []) or []:
+        if not isinstance(entry, dict) or entry.get("tool_id") not in pending_tool_ids:
+            continue
+        result = entry.get("result")
+        if not isinstance(result, dict):
+            continue
+        result.pop("content", None)
+        result["loaded"] = False
+
+    if not attachment_refs:
+        return
+    for attribute in (
+        "runtime_turn_attachments",
+        "runtime_current_sequence_attachments",
+    ):
+        attachments = getattr(context, attribute, []) or []
+        setattr(context, attribute, [
+            item
+            for item in attachments
+            if not isinstance(item, dict)
+            or str(item.get("file_ref") or item.get("id") or "").strip()
+            not in attachment_refs
+        ])

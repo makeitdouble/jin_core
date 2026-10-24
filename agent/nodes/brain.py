@@ -107,6 +107,14 @@ from config_loader import (
     config,
 )
 
+def is_terminal_telegram_result(result) -> bool:
+    return (
+        isinstance(result, dict)
+        and result.get("ok") is True
+        and str(result.get("action", "") or "").strip().casefold() == "telegram_send"
+    )
+
+
 def action_event_requires_follow_up(event) -> bool:
 
     if not isinstance(event, dict):
@@ -117,7 +125,11 @@ def action_event_requires_follow_up(event) -> bool:
     if status == "aborted":
         return False
 
-    name = str(event.get("name", "") or "").strip().casefold()
+    name = str(
+        event.get("name")
+        or event.get("action")
+        or ""
+    ).strip().casefold()
 
     if name == "malformed_action":
         return True
@@ -128,6 +140,13 @@ def action_event_requires_follow_up(event) -> bool:
         return runtime_action_follows_up_on_fail(
             name
         )
+
+    asset_result = event.get("asset_result")
+    if (
+        name == "asset_action"
+        and is_terminal_telegram_result(asset_result)
+    ):
+        return False
 
     return runtime_action_emits_followup(
         name
@@ -1796,8 +1815,20 @@ class BrainNode(BaseNode):
         )
 
         effective_brain_payload = brain_payload
+        consumed_attachment_items = []
 
         if is_followup_tick:
+            pending_attachment_items = list(
+                getattr(
+                    context,
+                    "runtime_attach_file_content_followup_pending",
+                    [],
+                )
+                or []
+            )
+            if pending_attachment_items:
+                consumed_attachment_items = pending_attachment_items
+                context.runtime_attach_file_content_followup_pending = []
             restore_sequence_attachments_for_followup(
                 context
             )
@@ -1940,6 +1971,15 @@ class BrainNode(BaseNode):
                 context.runtime_followup_tick_active = (
                     previous_followup_tick
                 )
+                if consumed_attachment_items:
+                    from utils.actions.attachment_actions import (
+                        consume_attach_file_content_followup,
+                    )
+
+                    consume_attach_file_content_followup(
+                        context,
+                        consumed_attachment_items,
+                    )
 
             if runtime.stream.reasoning:
                 context.runtime_turn_reasoning_content = "\n".join(
@@ -2365,6 +2405,9 @@ class BrainNode(BaseNode):
                     or "asset_action"
                 ).strip()
 
+                if is_terminal_telegram_result(result):
+                    continue
+
                 if not runtime_action_emits_followup(
                     runtime_action
                 ):
@@ -2568,6 +2611,7 @@ class BrainNode(BaseNode):
                 if (
                     id(result) not in restore_replay_asset_result_ids
                     and belongs_to_current_turn(result)
+                    and not is_terminal_telegram_result(result)
                 )
             ]
             asset_result_offset = len(
@@ -3180,6 +3224,7 @@ class BrainNode(BaseNode):
                 if (
                     id(result) not in restore_replay_asset_result_ids
                     and belongs_to_current_turn(result)
+                    and not is_terminal_telegram_result(result)
                 )
             ]
 

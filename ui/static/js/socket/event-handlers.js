@@ -388,6 +388,40 @@ function handleSocketChatMessage(
 
 }
 
+function handleExternalUserMessage(
+  data
+) {
+  const text =
+    String(data && data.text || "");
+  const attachments =
+    Array.isArray(data && data.attachments)
+      ? data.attachments
+      : [];
+
+  if (!text.trim() && !attachments.length) {
+    return;
+  }
+
+  if (window.prepareLiveUserTurnViewport) {
+    window.prepareLiveUserTurnViewport();
+  }
+
+  const row = appendChatMessage(
+    "user",
+    text,
+    null,
+    attachments,
+    {telegramSource: data.source === "telegram"}
+  );
+
+  if (window.activateLiveUserTurnViewport) {
+    window.activateLiveUserTurnViewport(row);
+  }
+  if (window.markSessionActivityDirty) {
+    window.markSessionActivityDirty();
+  }
+}
+
 function handleThinkingChunk(
   data
 ) {
@@ -798,6 +832,11 @@ registerSocketMessageHandler(
 registerSocketMessageHandler(
   "message",
   handleSocketChatMessage
+);
+
+registerSocketMessageHandler(
+  "external_user_message",
+  handleExternalUserMessage
 );
 
 registerSocketMessageHandler(

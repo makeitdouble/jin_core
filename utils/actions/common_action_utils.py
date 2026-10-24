@@ -1286,9 +1286,17 @@ def extract_runtime_actions(
     preserve_action_text: bool = False,
     seen_action_keys=None,
     preserve_action_marker=None,
+    project_action_marker=None,
     repetition_guard: RuntimeActionRepetitionGuard | None = None,
     allow_bare_prefix_fallback: bool = True,
 ) -> RuntimeActionResult:
+
+    text, escaped_tail = _normalize_html_escaped_runtime_tags(
+        text,
+        enabled_actions,
+        flush=True,
+    )
+    text += escaped_tail
 
     if not text:
         return RuntimeActionResult(
@@ -1433,6 +1441,7 @@ def extract_runtime_actions(
                 raw_marker
             )
 
+        action_recorded = False
         if action_enabled:
             action_key = (
                 action.name,
@@ -1450,6 +1459,15 @@ def extract_runtime_actions(
                 actions.append(
                     action
                 )
+                action_recorded = True
+
+        if action_recorded and project_action_marker is not None:
+            projected_marker = project_action_marker(
+                raw_marker,
+                action,
+            )
+            if isinstance(projected_marker, str):
+                return projected_marker
 
         return (
             raw_marker
@@ -1774,6 +1792,72 @@ def extract_runtime_actions(
         marker_repetition_reason=marker_repetition_reason,
     )
 
+
+def _normalize_html_escaped_runtime_tags(
+    text: str,
+    enabled_actions=None,
+    *,
+    flush: bool = False,
+    preceding_text: str = "",
+) -> tuple[str, str]:
+    """Decode only action-shaped ``&lt;...&gt;`` tags, retaining other entities."""
+    value = str(text or "")
+    enabled_action_names = normalize_runtime_action_names(enabled_actions)
+    allowed_names = set(_enabled_action_stream_candidates(enabled_action_names))
+    allowed_names.update({"TOOL_CALL", "|TOOL_CALL"})
+    parts = []
+    cursor = 0
+
+    while cursor < len(value):
+        start = value.casefold().find("&lt;", cursor)
+        if start < 0:
+            parts.append(value[cursor:])
+            break
+        parts.append(value[cursor:start])
+        end = value.casefold().find("&gt;", start + 4)
+        if end < 0:
+            if flush:
+                parts.append(value[start:])
+                return "".join(parts), ""
+            return "".join(parts), value[start:]
+
+        raw_tag = value[start:end + 4]
+        inner = value[start + 4:end].strip()
+        candidate = inner[1:].lstrip() if inner.startswith("/") else inner
+        name_match = re.match(
+            r"(\|?tool_call|[A-Z][A-Z0-9_]*)",
+            candidate,
+            re.IGNORECASE,
+        )
+        preceding_character = (
+            value[start - 1]
+            if start > 0
+            else preceding_text[-1:] if preceding_text else ""
+        )
+        if (
+            name_match is not None
+            and name_match.group(1).upper() in allowed_names
+            and (
+                not preceding_character
+                or preceding_character not in RUNTIME_ACTION_QUOTE_OPENERS
+            )
+        ):
+            parts.append("<" + inner + ">")
+        else:
+            parts.append(raw_tag)
+        cursor = end + 4
+    else:
+        return "".join(parts), ""
+
+    normalized = "".join(parts)
+    if flush:
+        return normalized, ""
+    for length in range(min(3, len(normalized)), 0, -1):
+        suffix = normalized[-length:]
+        if "&lt;".startswith(suffix.casefold()):
+            return normalized[:-length], suffix
+    return normalized, ""
+
 def _enabled_action_start_markers(
     enabled_actions=None,
 ) -> tuple[str, ...]:
@@ -2045,6 +2129,7 @@ def _extract_runtime_actions_if_needed(
     preserve_action_text: bool = False,
     seen_action_keys=None,
     preserve_action_marker=None,
+    project_action_marker=None,
     repetition_guard: RuntimeActionRepetitionGuard | None = None,
     allow_bare_prefix_fallback: bool = False,
 ) -> RuntimeActionResult:
@@ -2071,6 +2156,7 @@ def _extract_runtime_actions_if_needed(
         preserve_action_text=preserve_action_text,
         seen_action_keys=seen_action_keys,
         preserve_action_marker=preserve_action_marker,
+        project_action_marker=project_action_marker,
         repetition_guard=repetition_guard,
         allow_bare_prefix_fallback=(
             allow_bare_prefix_fallback
@@ -2234,15 +2320,18 @@ class RuntimeActionStreamFilter:
         enabled_actions=None,
         preserve_action_text: bool = False,
         preserve_action_marker=None,
+        project_action_marker=None,
         repetition_guard: RuntimeActionRepetitionGuard | None = None,
         allow_bare_prefix_fallback: bool = True,
     ):
         self.pending = ""
+        self.html_escaped_tag_pending = ""
         self.pending_is_action = False
         self.bare_prefix_pending = ""
         self.bare_prefix_fallback_active = allow_bare_prefix_fallback
         self.preserve_action_text = preserve_action_text
         self.preserve_action_marker = preserve_action_marker
+        self.project_action_marker = project_action_marker
         self.repetition_guard = repetition_guard
         self.seen_action_keys = set()
         self.pending_started_actions = set()
@@ -2396,6 +2485,16 @@ class RuntimeActionStreamFilter:
                 text="",
             )
 
+        chunk, self.html_escaped_tag_pending = (
+            _normalize_html_escaped_runtime_tags(
+                self.html_escaped_tag_pending + chunk,
+                self.enabled_actions,
+                preceding_text=self.pending,
+            )
+        )
+        if not chunk:
+            return RuntimeActionResult(text="")
+
         if (
             self.bare_prefix_fallback_active
             and not self.pending_is_action
@@ -2479,6 +2578,7 @@ class RuntimeActionStreamFilter:
                     preserve_action_text=self.preserve_action_text,
                     seen_action_keys=self.seen_action_keys,
                     preserve_action_marker=self.preserve_action_marker,
+                    project_action_marker=self.project_action_marker,
                     repetition_guard=self.repetition_guard,
                     allow_bare_prefix_fallback=(
                         self.bare_prefix_fallback_active
@@ -2517,6 +2617,7 @@ class RuntimeActionStreamFilter:
                     preserve_action_text=self.preserve_action_text,
                     seen_action_keys=self.seen_action_keys,
                     preserve_action_marker=self.preserve_action_marker,
+                    project_action_marker=self.project_action_marker,
                     repetition_guard=self.repetition_guard,
                     allow_bare_prefix_fallback=(
                         self.bare_prefix_fallback_active
@@ -2637,6 +2738,7 @@ class RuntimeActionStreamFilter:
                 preserve_action_text=self.preserve_action_text,
                 seen_action_keys=self.seen_action_keys,
                 preserve_action_marker=self.preserve_action_marker,
+                project_action_marker=self.project_action_marker,
                 repetition_guard=self.repetition_guard,
                 allow_bare_prefix_fallback=(
                     self.bare_prefix_fallback_active
@@ -2685,6 +2787,7 @@ class RuntimeActionStreamFilter:
                 preserve_action_text=self.preserve_action_text,
                 seen_action_keys=self.seen_action_keys,
                 preserve_action_marker=self.preserve_action_marker,
+                project_action_marker=self.project_action_marker,
                 repetition_guard=self.repetition_guard,
                 allow_bare_prefix_fallback=(
                     self.bare_prefix_fallback_active
@@ -2704,6 +2807,7 @@ class RuntimeActionStreamFilter:
             preserve_action_text=self.preserve_action_text,
             seen_action_keys=self.seen_action_keys,
             preserve_action_marker=self.preserve_action_marker,
+            project_action_marker=self.project_action_marker,
             repetition_guard=self.repetition_guard,
             allow_bare_prefix_fallback=(
                 self.bare_prefix_fallback_active
@@ -2722,9 +2826,11 @@ class RuntimeActionStreamFilter:
         pending = (
             self.bare_prefix_pending
             + self.pending
+            + self.html_escaped_tag_pending
         )
         self.bare_prefix_pending = ""
         self.pending = ""
+        self.html_escaped_tag_pending = ""
         self.pending_is_action = False
         self.pending_started_actions.clear()
 
@@ -2808,6 +2914,7 @@ class RuntimeActionStreamFilter:
             enabled_actions=self.enabled_actions,
             preserve_action_text=False,
             preserve_action_marker=self.preserve_action_marker,
+            project_action_marker=self.project_action_marker,
             repetition_guard=self.repetition_guard,
             allow_bare_prefix_fallback=(
                 self.bare_prefix_fallback_active

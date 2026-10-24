@@ -1126,6 +1126,22 @@ class BrainRuntimeActionTests(unittest.TestCase):
             runtime_xml,
         )
 
+    def test_runtime_xml_exposes_compact_current_heartbeat_tick_speed(self):
+
+        for seconds, expected in ((600, "10m"), (1800, "30m"), (90, "90s")):
+            with self.subTest(seconds=seconds):
+                runtime_xml = build_runtime_xml(
+                    context=SimpleNamespace(
+                        runtime_action_events=[],
+                        heartbeat_tick_speed=seconds,
+                    ),
+                )
+
+                self.assertIn(
+                    f"<CURRENT_HEARTBEAT_TICK_SPEED>{expected}</CURRENT_HEARTBEAT_TICK_SPEED>",
+                    runtime_xml,
+                )
+
     def test_runtime_xml_exposes_last_valid_jin_color(self):
 
         runtime_xml = build_runtime_xml(

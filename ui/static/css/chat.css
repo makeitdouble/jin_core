@@ -530,6 +530,40 @@
     font-size: 0.95em;
 }
 
+/* Keep the Telegram badge visible beyond the message text scrollport. */
+.jin-chat-pre:has(.jin-telegram-block) {
+    overflow: visible;
+}
+
+.jin-telegram-block {
+    display: block;
+    position: relative;
+    margin: 0.7em 0 0.95em;
+    border-radius: 4px;
+    background: rgba(0, 0, 0, 0.09);
+    padding: 0.75em 0.9em;
+    color: inherit;
+    font: inherit;
+    white-space: normal;
+}
+
+.jin-telegram-text {
+    display: block;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    color: inherit;
+    font: inherit;
+}
+
+.jin-telegram-logo {
+    position: absolute;
+    top: -10px;
+    left: -10px;
+    width: 24px;
+    height: 24px;
+    pointer-events: none;
+}
+
 .jin-chat-markdown .jin-chat-code-block {
     margin: 0.7em 0 0.95em;
     max-width: 100%;

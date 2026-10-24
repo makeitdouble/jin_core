@@ -291,6 +291,35 @@ function shouldInterpretChatRuntimeMarkers(role) {
 
 }
 
+function renderTelegramChatBlocks(text, renderText, direction = "") {
+  const source = String(text || "");
+  // OUTPUT needs the server-only projection sentinel. INPUT needs an
+  // explicitly trusted transport event. Model/user-authored tags stay literal.
+  const pattern = direction === "input"
+    ? /<TELEGRAM_MESSAGE_INPUT>\n?([\s\S]*?)<\/TELEGRAM_MESSAGE_INPUT>/g
+    : direction === "output"
+      ? /\uE000<TELEGRAM_MESSAGE_OUTPUT>\n?([\s\S]*?)<\/TELEGRAM_MESSAGE_OUTPUT>/g
+      : /(?!)x/g;
+  const codeRanges = Array.from(source.matchAll(/```[^\n]*\n[\s\S]*?(?:```|$)|`[^`\n]*`/g),
+    match => [match.index, match.index + match[0].length]);
+  let html = "";
+  let cursor = 0;
+  for (const match of source.matchAll(pattern)) {
+    const start = match.index;
+    const end = start + match[0].length;
+    if (codeRanges.some(([a, b]) => start < b && end > a)) continue;
+    html += renderText(source.slice(cursor, start));
+    const body = match[1].replace(/\n$/, "");
+    html += '<span class="jin-telegram-block" data-telegram-direction="'
+      + direction + '">'
+      + '<img class="jin-telegram-logo" src="/static/telegram-logo.webp"'
+      + ' alt="Telegram" width="24" height="24" draggable="false">'
+      + '<span class="jin-telegram-text">' + escapeChatHtml(body) + '</span></span>';
+    cursor = end;
+  }
+  return html + renderText(source.slice(cursor));
+}
+
 function renderChatTextElement(
   element,
   text,
@@ -315,7 +344,7 @@ function renderChatTextElement(
   element.dataset.memoryReferenceText =
     String(text || "");
 
-  element.innerHTML =
+  element.innerHTML = renderTelegramChatBlocks(text, (text) =>
     (
       format
       && window.JinResponseFormatter
@@ -332,7 +361,7 @@ function renderChatTextElement(
           : escapeChatHtml(
             text
           )
-      );
+      ), options.telegramDirection || "");
 
   if (
     window.JinChatReferenceIds
@@ -1191,6 +1220,7 @@ function flushStreamFrame() {
             stream.role
           ),
           runtimeMessageId: stream.messageId,
+          telegramDirection: stream.role === "user" ? "" : "output",
         }
       );
 
@@ -1746,7 +1776,8 @@ function appendChatMessage(
   role,
   text,
   contextSnapshot = null,
-  attachments = []
+  attachments = [],
+  options = {}
 ) {
 
   const pre =
@@ -1765,6 +1796,7 @@ function appendChatMessage(
       interpretRuntimeMarkers: shouldInterpretChatRuntimeMarkers(
         role
       ),
+      telegramDirection: options.telegramSource === true && role === "user" ? "input" : (role === "user" ? "" : "output"),
     }
   );
 

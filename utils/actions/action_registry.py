@@ -520,7 +520,7 @@ async def _run_asset(batch, action, _state):
 
     logger = getattr(batch.context, "logger", None)
     from .attachment_actions import parse_asset_attachment_calls, apply_attachment_actions
-    from utils.python_skill_asset_utils import _parse_payload, _require_loaded_skill
+    from utils.python_skill_asset_utils import _parse_payload
 
     payload = _parse_payload(action.payload)
     if str(payload.get("action", "")).strip().upper() in {
@@ -534,7 +534,6 @@ async def _run_asset(batch, action, _state):
         batch.action_display_ids[id(action)] = owner_id
         batch.context.runtime_action_events[-1]["id"] = owner_id
         try:
-            _require_loaded_skill(batch.context, "file_manager")
             calls = parse_asset_attachment_calls(payload)
         except (ValueError, PermissionError) as error:
             from utils.brain_client_utils import append_asset_runtime_result

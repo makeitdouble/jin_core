@@ -75,10 +75,10 @@ class UnifiedFileAttachmentTests(unittest.TestCase):
         self.assertIn('ATTACH_FILE_BY_ID', tools)
         self.assertTrue(consume_action_failure_followup_context(self.context))
 
-    def test_asset_requires_skill_and_linked_folder_and_never_falls_back_from_id(self):
+    def test_asset_requires_linked_folder_and_never_falls_back_from_id(self):
         self.context.runtime_loaded_skills = []
         result = self.asset('ATTACH_FILE_BY_PATH', path='README.md')[0]['result']
-        self.assertFalse(result['ok'])
+        self.assertTrue(result['ok'])
         self.context.runtime_loaded_skills = [{'name': 'file_manager'}]
         result = self.asset('ATTACH_FILE_BY_ID', id='README.md')[0]['result']
         self.assertEqual(result['error'], 'file_not_found')

@@ -648,6 +648,14 @@ def bind_tool_result_to_action(context, entry) -> None:
             if attachment_batch:
                 event.setdefault("attachment_tool_ids", []).append(entry["tool_id"])
             event.setdefault("tool_id", entry["tool_id"])
+            if kind == TOOL_RESULT_KIND_ASSET and name == "asset_action" and isinstance(result, dict):
+                # Brain consumes this internal event, not the separate UI event.
+                # Keep only the outcome needed for Telegram follow-up policy.
+                if str(result.get("action", "") or "").strip().casefold() == "telegram_send":
+                    event["asset_result"] = {
+                        "action": "telegram_send",
+                        "ok": result.get("ok"),
+                    }
             entry["runtime_message_id"] = event.get("runtime_message_id", "")
             entry["action_name"] = name.upper()
             entry["action_payload"] = event.get("payload", event.get("query", ""))

@@ -112,6 +112,7 @@ def project_review_active(context) -> bool:
 
 def _root_for(context, attachment: str) -> tuple[Path, dict]:
     projects = linked_projects(context, include_pending_restore=True)
+    selector = str(attachment or "").strip().rstrip("/\\")
 
     # No linked folder: expose JIN's own source tree as an implicit read-only
     # project. This must stay separate from linked_projects(), otherwise merely
@@ -123,7 +124,6 @@ def _root_for(context, attachment: str) -> tuple[Path, dict]:
         if not root.is_dir():
             raise ValueError("Default JIN source folder is unavailable")
         name = default_project_name(root)
-        selector = str(attachment or "").strip()
         allowed = {"", DEFAULT_PROJECT_SELECTOR.casefold(), name.casefold(), "jin_core"}
         if selector.casefold() not in allowed:
             raise ValueError(
@@ -133,13 +133,13 @@ def _root_for(context, attachment: str) -> tuple[Path, dict]:
 
     matches = [
         record for record in projects
-        if attachment in {
+        if selector in {
             record["id"],
             record["name"],
             files.file_display_name(record["name"]),
         }
     ]
-    if not attachment and len(projects) == 1:
+    if not selector and len(projects) == 1:
         matches = projects
     if len(matches) != 1:
         raise ValueError("Select an attached project by its folder name or ASSET_ACTION attachment id")

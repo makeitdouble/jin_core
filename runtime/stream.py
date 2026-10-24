@@ -1,4 +1,5 @@
 import asyncio
+import json
 from functools import partial
 from utils.stream_action_queue import StreamActionQueue
 import contextlib
@@ -131,6 +132,29 @@ CONTEXT_LIMIT_FINISH_REASONS = frozenset({
     "context_overflow",
 })
 
+
+def project_telegram_asset_action_marker(_raw_marker: str, action):
+    """Expose telegram_send text in the visible JIN response while executing it."""
+
+    if getattr(action, "name", "") != RUNTIME_ACTION_ASSET_ACTION:
+        return None
+
+    from utils.assets_utils import parse_telegram_send_payload
+    payload = parse_telegram_send_payload(getattr(action, "payload", ""))
+
+    if not isinstance(payload, dict) or str(payload.get("action", "")).casefold() != "telegram_send":
+        return None
+
+    text = str(payload.get("text", "") or "")
+    if not text.strip():
+        return None
+
+    return "\n".join((
+        "\uE000<TELEGRAM_MESSAGE_OUTPUT>",
+        text,
+        "</TELEGRAM_MESSAGE_OUTPUT>",
+    ))
+
 GENERATION_LIMIT_FINISH_REASONS = (
     OUTPUT_LIMIT_FINISH_REASONS
     | CONTEXT_LIMIT_FINISH_REASONS
@@ -231,6 +255,7 @@ class RuntimeStream:
         self.action_filter = RuntimeActionStreamFilter(
             enabled_actions=self.runtime_actions,
             preserve_action_marker=self.should_preserve_action_marker,
+            project_action_marker=project_telegram_asset_action_marker,
             repetition_guard=self.repetition_guard,
         )
 

@@ -50,3 +50,14 @@ SEARCH_MAX_RESULTS = 5
 # DEEP_RESEARCH uses the service model as bounded research workers.
 DEEP_RESEARCH_MAX_QUERIES_PER_WORKER = 3
 DEEP_RESEARCH_MAX_WORKER_CALLS = 24
+
+# ---------------------------------------------------------
+# TELEGRAM
+# ---------------------------------------------------------
+
+# Secrets should be supplied through the root .env file. Telegram is disabled
+# unless all three values are configured. Only the configured private chat is
+# accepted by the inbound long poller.
+TELEGRAM_ENABLED = False
+TELEGRAM_BOT_TOKEN = ""
+TELEGRAM_CHAT_ID = ""

@@ -280,6 +280,11 @@ def build_runtime_xml(
                 "runtime_current_context_window_text",
                 "",
             ),
+            heartbeat_tick_speed=getattr(
+                context,
+                "heartbeat_tick_speed",
+                600,
+            ),
             jin_color=get_current_jin_color(
                 context
             ),

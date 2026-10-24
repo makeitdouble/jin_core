@@ -334,6 +334,7 @@ The Windows one-click launcher creates `config.py` automatically after a success
 | `LT_IDLE_SECONDS` | Set the L-T background consolidation idle delay. L-T memory itself is always enabled. |
 | `SEARCH_PROVIDER`, `SEARCH_MAX_RESULTS` | Configure the built-in web-search provider and result count. |
 | `DEEP_RESEARCH_MAX_QUERIES_PER_WORKER`, `DEEP_RESEARCH_MAX_WORKER_CALLS` | Bound worker fan-out/call count for Deep Research. |
+| `TELEGRAM_ENABLED`, `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID` | Enable the private Telegram bot transport. The token and allowed private chat ID should be supplied through `.env`. |
 
 User-facing config values can also be supplied through environment variables. Plain names and `JIN_`-prefixed names are supported; plain names take priority.
 
@@ -342,6 +343,9 @@ For optional credentials used by the Windows one-click launcher, copy `.env.exam
 ```dotenv
 SEARCH_SERPER_API_KEY=your-serper-api-key
 GETPOSTINGBOARD_API_KEY=your-getpostingboard-api-key
+TELEGRAM_BOT_TOKEN=your-telegram-bot-token
+TELEGRAM_CHAT_ID=your-private-telegram-chat-id
+TELEGRAM_ENABLED=true
 ```
 
 When starting JIN manually with `python app.py`, export the same variables in the shell first; automatic `.env` loading belongs to the Windows launcher.
@@ -350,6 +354,15 @@ Secrets are environment-only and are intentionally not stored in `config.py`:
 
 - `SEARCH_SERPER_API_KEY` or `JIN_SEARCH_SERPER_API_KEY`
 - `GETPOSTINGBOARD_API_KEY` or `JIN_GETPOSTINGBOARD_API_KEY`
+- `TELEGRAM_BOT_TOKEN` or `JIN_TELEGRAM_BOT_TOKEN`
+
+Telegram uses Bot API long polling and requires no webhook or public port. It
+accepts only a private message whose `chat.id` and `from.id` both equal
+`TELEGRAM_CHAT_ID`. Text and photo albums of at most five images are supported.
+An inbound message is routed to the most recently opened active non-anonymous
+JIN tab; if none exists, the bot replies with an error. JIN responses remain in
+the JIN UI unless the loaded `telegram` skill explicitly emits
+`ASSET_ACTION {"action":"telegram_send", ...}`.
 
 ## Tests
 

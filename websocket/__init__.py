@@ -10,6 +10,7 @@ from starlette.websockets import WebSocketDisconnect
 import asyncio
 import contextlib
 import json
+import time
 
 from .logger import WebSocketLogger
 from .transport import PAGE_CLOSED_CODE, RuntimeTransport
@@ -113,9 +114,58 @@ from utils.actions.update_lt_facts_actions import (
 from utils.session_actions_history import (
     emit_session_actions_update,
 )
+from utils.skills_asset_utils import (
+    load_skill,
+    normalize_skill_name,
+)
 
 
 websocket_router = APIRouter()
+
+
+TELEGRAM_INPUT_OPEN = "<TELEGRAM_MESSAGE_INPUT>"
+TELEGRAM_INPUT_CLOSE = "</TELEGRAM_MESSAGE_INPUT>"
+
+
+def prepare_external_user_message(context, message_data: dict) -> dict:
+    """Normalize trusted transport input before UI, logging, and Brain use."""
+
+    prepared = dict(message_data)
+    source = str(prepared.get("external_source", "") or "").strip().casefold()
+    if source != "telegram":
+        return prepared
+
+    raw_text = str(prepared.get("text", "") or "")
+    prepared["text"] = "\n".join((
+        TELEGRAM_INPUT_OPEN,
+        raw_text,
+        TELEGRAM_INPUT_CLOSE,
+    ))
+
+    current_skills = list(getattr(context, "runtime_loaded_skills", []) or [])
+    if any(
+        normalize_skill_name(
+            skill.get("name", "") if isinstance(skill, dict) else skill
+        ) == "telegram"
+        for skill in current_skills
+    ):
+        return prepared
+
+    result = load_skill("telegram")
+    skill = result.get("skill")
+    if result.get("ok") is not True or not isinstance(skill, dict):
+        raise RuntimeError("Telegram skill could not be loaded")
+
+    # Keep the canonical loaded-skill list unique by normalized name. This is
+    # the same replacement rule used by the explicit LOAD_SKILL action.
+    context.runtime_loaded_skills = [
+        existing
+        for existing in current_skills
+        if normalize_skill_name(
+            existing.get("name", "") if isinstance(existing, dict) else existing
+        ) != "telegram"
+    ] + [skill]
+    return prepared
 
 
 @websocket_router.post("/ws/chat/close")
@@ -231,6 +281,11 @@ async def websocket_endpoint(
             run_runtime_session(transport, context, resumed_context)
         )
 
+    if not live_resume:
+        # This is page-open order, not activity order. A soft reconnect keeps
+        # the original rank; a full reload/new page becomes the newest tab.
+        context.runtime_tab_opened_at = time.monotonic()
+
     # A replacement connection has one receiver/sender; the runtime and FIFO
     # worker remain the same tasks, including an open pending USER batch.
     previous = transport.socket
@@ -311,6 +366,112 @@ async def run_runtime_session(websocket, context, resumed_context):
     context.runtime_pending_requests_queue = pending_requests
     pending_user_batch_state = None
     pending_user_batch_counter = 0
+
+    async def enqueue_external_user(message_data):
+        """Admit a trusted transport packet through this room's USER queue."""
+        nonlocal current_task
+
+        transport = getattr(context, "runtime_transport", None)
+        if (
+            not isinstance(message_data, dict)
+            or bool(getattr(context, "runtime_anonymous_mode", False))
+            or transport is None
+            or getattr(transport, "stopping", False)
+            or getattr(transport, "socket", None) is None
+        ):
+            return {
+                "ok": False,
+                "error": "telegram_no_active_tab",
+                "detail": "target JIN tab is no longer active",
+            }
+
+        user_text = str(message_data.get("text", "") or "").strip()
+        if not user_text and not has_message_attachments(message_data):
+            return {
+                "ok": False,
+                "error": "telegram_empty_message",
+                "detail": "Telegram message contains neither text nor photos",
+            }
+
+        try:
+            message_data = prepare_external_user_message(context, message_data)
+        except RuntimeError as error:
+            return {
+                "ok": False,
+                "error": "telegram_skill_unavailable",
+                "detail": str(error),
+            }
+
+        note_activity(context)
+        await logger.log_user(
+            str(message_data.get("text", "") or ""),
+            details=json.dumps(
+                redacted_message_data_for_log(message_data),
+                ensure_ascii=False,
+                indent=2,
+            ),
+        )
+
+        if getattr(context, "runtime_session_restore_priming", False):
+            await cancel_current_task(
+                current_task,
+                logger,
+                context,
+                update_memory=False,
+            )
+            discard_session_restore_continuation_state(
+                context,
+                drop_previous_actions=True,
+            )
+            current_task = None
+
+        note_lt_user_activity(context)
+        await cancel_lt_memory_idle_update(
+            context,
+            reason="telegram_user_message",
+        )
+        await preempt_update_lt_facts_actions(
+            context,
+            reason="telegram_user_message",
+        )
+
+        if await reject_when_all_models_offline(context):
+            return {
+                "ok": False,
+                "error": "models_offline",
+                "detail": "JIN models are offline",
+            }
+
+        attachments = hydrate_attachment_ids([
+            str(item.get("id", "") or "").strip()
+            for item in message_data.get("attachments", [])
+            if isinstance(item, dict)
+        ])
+        snapshot = public_file_snapshot()
+        await websocket.send_json({
+            "type": "attached_files_update",
+            **snapshot,
+        })
+        await websocket.send_json({
+            "type": "external_user_message",
+            "source": str(message_data.get("external_source", "") or "external"),
+            "text": str(message_data.get("text", "") or ""),
+            "attachments": [
+                {
+                    key: value
+                    for key, value in attachment.items()
+                    if key not in {"data_url", "text_content"}
+                }
+                for attachment in attachments
+            ],
+        })
+        await pending_requests.put(dict(message_data))
+        await logger.log_runtime(
+            f"[WS] external USER queued; pending requests: {pending_requests.qsize()}"
+        )
+        return {"ok": True}
+
+    context.runtime_external_user_enqueue = enqueue_external_user
 
     async def process_pending_requests():
         nonlocal current_task
@@ -1404,6 +1565,8 @@ async def run_runtime_session(websocket, context, resumed_context):
         )
 
     finally:
+        if getattr(context, "runtime_external_user_enqueue", None) is enqueue_external_user:
+            context.runtime_external_user_enqueue = None
         if getattr(
             context,
             "runtime_pending_requests_queue",

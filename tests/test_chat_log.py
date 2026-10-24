@@ -8,6 +8,7 @@ from types import SimpleNamespace
 from config_loader import config
 from utils.chat_log import (
     append_chat_log_entry,
+    append_chat_runtime_event,
     build_chat_log_entry,
     extract_active_memory_ids,
     get_chat_bootstrap_context_path,
@@ -42,6 +43,28 @@ class ChatLogTests(unittest.TestCase):
             )
         else:
             config.ENABLE_RUNTIME_LOGS = self.original_runtime_logs
+
+    def test_stopped_bootstrap_tool_results_do_not_create_archive(self):
+        context = SimpleNamespace(
+            session_id="stopped-bootstrap",
+            runtime_turn_counter=0,
+            runtime_current_turn_id="",
+        )
+        now = datetime(2026, 10, 24, 14, 31, tzinfo=timezone.utc)
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            for index in range(3):
+                self.assertIsNone(append_chat_runtime_event(
+                    context, event="runtime_tool_result",
+                    payload={"index": index}, now=now, root=root,
+                ))
+            path = get_chat_log_path(context, now=now, root=root)
+            self.assertFalse(path.parent.exists())
+            # A real USER message commits the deferred events and conversation.
+            append_chat_log_entry(context, role="user", text="hello", now=now, root=root)
+            entries = [json.loads(row) for row in path.read_text(encoding="utf-8").splitlines()]
+            self.assertEqual([row.get("event", row.get("role")) for row in entries],
+                             ["runtime_tool_result"] * 3 + ["user"])
 
     def test_extract_active_memory_ids_prefers_explicit_ids(self):
 
@@ -708,6 +731,13 @@ class ChatLogTests(unittest.TestCase):
                 context,
                 system_prompt="system context",
                 user_prompt="user payload",
+                now=now,
+                root=root,
+            )
+            append_chat_log_entry(
+                context,
+                role="user",
+                text="Please solve this",
                 now=now,
                 root=root,
             )

@@ -1073,57 +1073,6 @@ def _materialize_attachment(
     )
 
 
-def _require_loaded_skill(
-    context,
-    skill: str,
-) -> str:
-
-    requested = normalize_skill_name(
-        skill
-    )
-    loaded_names = {
-        normalize_skill_name(
-            item.get(
-                "name",
-                "",
-            )
-            if isinstance(
-                item,
-                dict,
-            )
-            else item
-        )
-        for item in (
-            getattr(
-                context,
-                "runtime_loaded_skills",
-                [],
-            )
-            or []
-        )
-    }
-    loaded_names.discard(
-        ""
-    )
-
-    # Linking a folder implicitly loads the directory_link instructions.
-    # Recheck the live link for each action so detaching revokes the capability.
-    from utils.project_context import DIRECTORY_LINK_SKILL_NAME, directory_link_skill_active
-    if requested == DIRECTORY_LINK_SKILL_NAME and directory_link_skill_active(context):
-        return requested
-
-    # Older restored sessions may still refer to the former `project` skill.
-    if requested == DIRECTORY_LINK_SKILL_NAME and "project" in loaded_names:
-        return requested
-
-    if requested not in loaded_names:
-        raise PermissionError(
-            f"skill must be loaded before execution: {requested}"
-        )
-
-    return requested
-
-
 def _find_skill_directory(
     skill: str,
 ) -> Path:
@@ -1292,10 +1241,6 @@ async def run_python_skill_action(
             "args must be a list"
         )
 
-    _require_loaded_skill(
-        context,
-        skill_name,
-    )
     skill_directory = _find_skill_directory(
         skill_name
     )
@@ -2610,10 +2555,6 @@ async def run_document_reader_action(
         or "chunk_reader"
     ).strip()
 
-    _require_loaded_skill(
-        context,
-        skill_name,
-    )
     skill_directory = _find_skill_directory(
         skill_name
     )
@@ -2773,23 +2714,14 @@ async def run_context_asset_action(
     try:
         from utils.project_reader import PROJECT_ACTIONS, linked_projects, run_project_action
 
-        loaded_skills = getattr(
-            context,
-            "runtime_loaded_skills",
-            [],
-        ) if context is not None else []
-        if not loaded_skills and not (action in PROJECT_ACTIONS and linked_projects(context)):
-            raise PermissionError(
-                "ASSET_ACTION requires a loaded skill context"
-            )
+        if action == "telegram_send":
+            from utils.telegram_transport import telegram_send
+            return await telegram_send(payload)
 
         if action == "project_read":
-            _require_loaded_skill(context, "directory_link")
-            _require_loaded_skill(context, "file_manager")
             from utils.actions.attachment_actions import attach_project_file_content
             return await attach_project_file_content(context, payload)
         if action in PROJECT_ACTIONS:
-            _require_loaded_skill(context, "directory_link")
             return await asyncio.to_thread(run_project_action, context, payload)
 
         if action in {
@@ -2797,7 +2729,6 @@ async def run_context_asset_action(
             "append_asset_file",
             "preview_file",
         }:
-            _require_loaded_skill(context, "file_manager")
             if payload.get("attachment"):
                 from utils.file_manager_asset_utils import create_asset_file, append_asset_file, preview_file
                 handler = {"create_asset_file": create_asset_file, "append_asset_file": append_asset_file, "preview_file": preview_file}[action]

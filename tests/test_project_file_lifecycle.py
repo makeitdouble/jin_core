@@ -12,7 +12,10 @@ from contracts.rules_assembler import get_runtime_action_schema
 from rules.brain_context_builder import build_brain_context, BRAIN_RUNTIME_ACTIONS
 from utils import attached_files_store as files
 from utils.actions import RuntimeActionStreamFilter, extract_runtime_actions
-from utils.actions.attachment_actions import apply_attachment_context_ids
+from utils.actions.attachment_actions import (
+    apply_attachment_context_ids,
+    consume_attach_file_content_followup,
+)
 from utils.context.files import build_file_contents_context, loaded_project_files
 from utils.context.tool_results import build_tool_results_context
 from utils.tool_results import record_runtime_tool_result, clear_runtime_tool_results
@@ -286,6 +289,46 @@ class ProjectFileLifecycleTests(unittest.TestCase):
         self.assertTrue(self.call(f'<ATTACH_FILE_CONTENT: {record["id"]} >')['ok'])
         self.assertEqual(build_tool_results_context(self.context).count('UNIQUE UPLOAD BODY'), 1)
         self.assertIsNotNone(files.get_file_record(record['id']))
+
+    def test_attach_file_content_body_is_consumed_after_one_followup(self):
+        result = self.call(f'<ATTACH_FILE_CONTENT: {self.ref()} >')
+        self.assertTrue(result['ok'])
+        self.assertIn('1: first', self.prompt())
+
+        pending = list(
+            self.context.runtime_attach_file_content_followup_pending
+        )
+        self.context.runtime_attach_file_content_followup_pending = []
+        consume_attach_file_content_followup(self.context, pending)
+
+        self.assertNotIn('1: first', self.prompt())
+        self.assertFalse(
+            self.context.runtime_tool_results[-1]['result']['loaded']
+        )
+        self.assertTrue((self.project / 'src/main.py').is_file())
+
+    def test_attach_file_content_does_not_remove_preexisting_user_attachment(self):
+        record, _, _ = files.store_uploaded_file(
+            name='kept.txt',
+            content=b'PREEXISTING USER BODY',
+            pin=False,
+        )
+        apply_attachment_context_ids(self.context, [record['id']])
+        self.assertTrue(
+            self.call(f'<ATTACH_FILE_CONTENT: {record["id"]} >')['ok']
+        )
+
+        pending = list(
+            self.context.runtime_attach_file_content_followup_pending
+        )
+        self.context.runtime_attach_file_content_followup_pending = []
+        consume_attach_file_content_followup(self.context, pending)
+
+        self.assertIn(
+            record['id'],
+            [item.get('id') for item in self.context.runtime_turn_attachments],
+        )
+        self.assertIn('PREEXISTING USER BODY', self.prompt())
 
     def test_upload_and_project_alias_of_same_bytes_can_both_load(self):
         record, _, _ = files.store_uploaded_file(name='copy.py', content=(self.project/'src/main.py').read_bytes(), pin=False)

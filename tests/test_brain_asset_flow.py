@@ -74,6 +74,49 @@ def _assert_latest_request_payload(
 
 class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
 
+    async def test_telegram_dispatch_finishes_without_extra_brain_call(self):
+        from utils.actions import RuntimeActionCall
+        from utils.actions.dispatcher import apply_runtime_action_calls
+        from utils.skills_asset_utils import load_skill
+        from unittest.mock import AsyncMock
+
+        for send_ok, mixed in ((True, False), (False, False), (True, True)):
+            with self.subTest(send_ok=send_ok, mixed=mixed):
+                calls = []
+                context = _context()
+                context.runtime_loaded_skills = [load_skill('telegram')['skill']]
+                state = AgentState(user_input='send a Telegram message')
+                visible = '<TELEGRAM_MESSAGE_OUTPUT>\nhello\n</TELEGRAM_MESSAGE_OUTPUT>'
+
+                async def stream(**kwargs):
+                    calls.append(kwargs)
+                    if len(calls) == 1:
+                        await apply_runtime_action_calls(context, (RuntimeActionCall(
+                            name='ASSET_ACTION',
+                            payload='{"action":"telegram_send","text":"hello"}',
+                        ),))
+                        if mixed:
+                            record_runtime_tool_result(context, TOOL_RESULT_KIND_ASSET,
+                                                       {'ok': True, 'action': 'list_skills', 'skills': []})
+                        return visible, ''
+                    return 'followup', ''
+
+                result = {'ok': send_ok, 'action': 'telegram_send', 'message_id': 42}
+                if not send_ok:
+                    result['error'] = 'telegram_timeout'
+                with patch('utils.telegram_transport.telegram_send', new=AsyncMock(return_value=result)), \
+                     patch('agent.nodes.brain.get_brain_runtime_config', return_value=_brain_runtime()), \
+                     patch('agent.nodes.brain.build_brain_payload', return_value='payload'), \
+                     patch('agent.nodes.brain.emit_active_memory_records_update_if_dirty', new=AsyncMock()), \
+                     patch.object(BrainNode, 'run_brain_stream', staticmethod(stream)):
+                    await BrainNode().run(state, context)
+
+                self.assertEqual(len(calls), 1 if send_ok and not mixed else 2)
+                self.assertTrue(any(entry['result'].get('action') == 'telegram_send'
+                                    for entry in context.runtime_tool_results))
+                if send_ok and not mixed:
+                    self.assertEqual(state.brain_response, visible)
+
     async def test_retry_asset_payload_is_available_for_exactly_next_turn(self):
 
         failed_result = {
@@ -1280,6 +1323,93 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(
             context.runtime_followup_tick_active,
             False,
+        )
+
+    async def test_followup_stream_consumes_attach_file_content_once(self):
+
+        attachment = {
+            "id": "file001",
+            "name": "one-turn.txt",
+            "kind": "text",
+            "type": "text/plain",
+            "text_content": "ONE TURN BODY",
+        }
+        observed_attachments = []
+
+        async def fake_ask_brain_stream(**kwargs):
+            observed_attachments.append(list(
+                kwargs["context"].runtime_turn_attachments
+            ))
+            if False:
+                yield {}
+
+        class FakeRuntimeStream:
+
+            def __init__(self, **_kwargs):
+                self.stream = SimpleNamespace(reasoning="")
+
+            async def run(self, generator):
+                async for _event in generator:
+                    pass
+                return ""
+
+        context = _context()
+        context.runtime_attached_file_ids = ["file001"]
+        context.runtime_turn_attachments = [attachment]
+        context.runtime_current_sequence_attachments = [attachment]
+        context.runtime_tool_results = [{
+            "tool_id": "T1",
+            "kind": "files",
+            "result": {
+                "action": "attach_file_content",
+                "id": "file001",
+                "ok": True,
+                "loaded": True,
+            },
+        }]
+        context.runtime_attach_file_content_followup_pending = [{
+            "tool_id": "T1",
+            "attachment_refs": ["file001"],
+        }]
+        context.logger = SimpleNamespace(
+            log_brain=lambda _message: _async_noop(),
+        )
+        state = AgentState(user_input="inspect")
+
+        with patch(
+            "agent.nodes.brain.ask_brain_stream",
+            new=fake_ask_brain_stream,
+        ), patch(
+            "agent.nodes.brain.RuntimeStream",
+            new=FakeRuntimeStream,
+        ):
+            await BrainNode.run_brain_stream(
+                state=state,
+                context=context,
+                brain_runtime=_brain_runtime(),
+                brain_client=object(),
+                system_prompt="system prompt",
+                brain_payload="",
+                runtime_actions={},
+                followup_tick=True,
+            )
+            await BrainNode.run_brain_stream(
+                state=state,
+                context=context,
+                brain_runtime=_brain_runtime(),
+                brain_client=object(),
+                system_prompt="system prompt",
+                brain_payload="",
+                runtime_actions={},
+                followup_tick=True,
+            )
+
+        self.assertEqual(observed_attachments[0], [attachment])
+        self.assertEqual(observed_attachments[1], [])
+        self.assertFalse(context.runtime_tool_results[0]["result"]["loaded"])
+        self.assertEqual(
+            context.runtime_attach_file_content_followup_pending,
+            [],
         )
 
     async def test_followup_tick_does_not_forward_original_user_message_as_text(self):

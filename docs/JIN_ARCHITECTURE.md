@@ -134,6 +134,45 @@ turn or finish a cancelled stream as a completed turn.
 
 A later foreground turn can wait for a pending FRAME update through `wait_for_runtime_memory_update()` so the Brain does not race stale live memory.
 
+### 3.4 Telegram transport
+
+Telegram is an optional transport around the existing foreground path, not a
+new runtime action family or model route. `utils/telegram_transport.py` owns one
+Bot API `getUpdates` long poller for the configured bot. A process lock prevents
+two local JIN processes from polling the same token, and a disk offset under
+`.jin_runtime/` prevents accepted updates from replaying after restart. The
+poller has a dedicated HTTP client without launcher/runtime trace hooks because
+the Bot API token is part of request URLs.
+
+Inbound authorization requires a private chat and exact equality of both
+`chat.id` and `from.id` with `TELEGRAM_CHAT_ID`. The newest page-open timestamp
+selects one connected, non-anonymous `RuntimeContext`; later page activity and
+per-room heartbeat state do not change that ranking. With no eligible tab, the
+bot sends a transport-level error and does not create a runtime or memory.
+
+Accepted text is wrapped in `<TELEGRAM_MESSAGE_INPUT>...</TELEGRAM_MESSAGE_INPUT>`
+for the browser USER bubble, chat log, and Brain request, and the canonical
+`telegram` skill is loaded into that room before the request is queued. Existing
+loaded-skill normalization prevents a second copy when it is already loaded.
+The request then enters the selected room's existing serialized USER queue. A
+photo is downloaded, bounded by the ordinary five-file, 20 MiB-per-image and
+40 MiB-set limits, stored as an unpinned persistent File, and supplied by ID to
+the ordinary attachment hydration/session/Brain path. Photo captions share the
+same USER turn. `media_group_id` updates receive a short ordered buffer and
+become one turn; albums over five photos fail atomically. The browser receives
+an `external_user_message` projection so the normal USER bubble and attachment
+preview render immediately. Those file IDs belong only to that turn/sequence
+and are replaced by the next USER attachment set.
+
+Outbound delivery remains explicit. A loaded `telegram` skill may request
+`telegram_send` through the existing ASSET_ACTION handler. Python rechecks the
+configured recipient, length, and credentials; success/failure then follows the
+ordinary Tool Result path. Its message text is projected in source order into
+the visible answer as `TELEGRAM_MESSAGE_OUTPUT`; a successful send does not
+start an automatic Brain follow-up, while failure retains the shared action
+failure continuation. Normal JIN responses are never automatically mirrored to
+Telegram.
+
 ---
 
 ## 4. Agent and model boundary

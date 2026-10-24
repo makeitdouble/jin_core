@@ -194,6 +194,49 @@ def _extract_json_string_field(
     ).strip()
 
 
+def parse_telegram_send_payload(payload_text: str) -> dict:
+    """Recover bare quotes in the text of a narrowly shaped telegram_send call.
+
+    Normal JSON is always preferred. The fallback accepts only action + text,
+    optionally followed by chat_id, and never treats other asset actions as valid.
+    """
+    raw = str(payload_text or "").strip()
+    try:
+        data = json.loads(raw)
+        return data if isinstance(data, dict) else {}
+    except (ValueError, TypeError):
+        pass
+
+    match = re.fullmatch(
+        r'\{\s*"action"\s*:\s*"telegram_send"\s*,\s*"text"\s*:\s*"(?P<message>.*)"\s*\}',
+        raw, flags=re.DOTALL,
+    )
+    if not match:
+        return {}
+
+    message = match.group("message")
+    # A trailing JSON field is not part of the message; never swallow it.
+    if re.search(r'(?<!\\)"\s*,\s*"[^"\r\n]+"\s*:', message):
+        return {}
+    # Escape ONLY unescaped quotes. Preserve valid JSON escapes, including \n.
+    repaired = []
+    for i, character in enumerate(message):
+        if character == '"':
+            backslashes = 0
+            j = i - 1
+            while j >= 0 and message[j] == "\\":
+                backslashes += 1
+                j -= 1
+            if backslashes % 2 == 0:
+                repaired.append("\\")
+        repaired.append(character)
+    try:
+        decoded = json.loads('"' + "".join(repaired) + '"')
+    except (ValueError, TypeError):
+        return {}
+    return {"action": "telegram_send", "text": decoded}
+
+
 def _parse_lenient_asset_payload(
     payload_text: str,
 ) -> dict:
@@ -201,6 +244,10 @@ def _parse_lenient_asset_payload(
         payload_text
         or ""
     ).strip()
+
+    telegram_payload = parse_telegram_send_payload(text)
+    if telegram_payload.get("action") == "telegram_send":
+        return telegram_payload
 
     action = _extract_json_string_field(
         text,

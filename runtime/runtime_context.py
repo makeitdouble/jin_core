@@ -18,6 +18,13 @@ DEFAULT_JIN_SIZE_TEXT = "120px"
 DEFAULT_JIN_SPEED_TEXT = "900px/s"
 
 
+def format_heartbeat_tick_speed(seconds: float) -> str:
+    value = float(seconds)
+    if value.is_integer() and int(value) % 60 == 0:
+        return f"{int(value) // 60}m"
+    return f"{value:g}s"
+
+
 class RuntimeEmitter:
 
     def __init__(
@@ -190,6 +197,14 @@ class RuntimeContext:
 
     runtime_pending_requests_queue: object | None = None
 
+    # Telegram and other trusted server-side transports may submit an ordinary
+    # USER packet only through the live room's serialized request admission.
+    runtime_external_user_enqueue: object | None = None
+
+    # Set only when a page is newly opened/reloaded. Browser activity and
+    # heartbeat ticks deliberately do not change Telegram room selection.
+    runtime_tab_opened_at: float = 0.0
+
     # Source-ordered self-fork groups, with suspended ancestors on a stack. Child ticks execute
     # inside the current foreground turn so FRAME is updated only after the
     # restored parent emits its final answer.
@@ -336,6 +351,9 @@ class RuntimeContext:
 
     runtime_current_sequence_attachments_turn_id: str = ""
     runtime_path_attachment_group: tuple = ()
+    runtime_attach_file_content_followup_pending: list[dict] = field(
+        default_factory=list
+    )
 
     runtime_current_sequence_jin_messages: list[dict] = field(
         default_factory=list
@@ -604,6 +622,7 @@ class ContextContract:
     current_session_id: str = ""
     current_model_uid: str = ""
     current_context_window: str = ""
+    heartbeat_tick_speed: float = 600
     jin_color: str = DEFAULT_JIN_COLOR
     jin_size_context: str = ""
     jin_position_context: str = ""
@@ -637,6 +656,10 @@ class ContextContract:
             fields["CONTEXT_WINDOW"] = (
                 self.current_context_window
             )
+
+        fields["CURRENT_HEARTBEAT_TICK_SPEED"] = (
+            format_heartbeat_tick_speed(self.heartbeat_tick_speed)
+        )
 
         if self.jin_color:
             fields["JIN_COLOR"] = self.jin_color

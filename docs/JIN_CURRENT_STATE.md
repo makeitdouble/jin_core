@@ -932,3 +932,43 @@ Verification: 44 focused research/search/marker/session/UI-contract tests and
 3 explicit streaming-marker tests pass. Relevant Python compilation, contract
 JSON parsing, JavaScript syntax checks, the removed-name search and
 `git diff --check` pass. No live model or search-provider call was performed.
+
+## Telegram transport — 2026-10-23
+
+Telegram now uses the existing loaded-skill ASSET_ACTION path for explicit
+`telegram_send` delivery and one application-lifecycle Bot API long poller for
+inbound private text/photos. Incoming requests select the most recently opened
+connected non-anonymous tab and enter its existing serialized USER queue. The
+UI receives the same USER bubble/attachment projection, while Files hydration,
+Brain multimodal input and chat/session persistence remain canonical.
+
+Inbound Telegram text is projected consistently to the UI, chat log, and Brain
+inside `TELEGRAM_MESSAGE_INPUT`. Admission automatically loads the canonical
+`telegram` skill into the selected room, retaining one normalized copy when it
+was already loaded. The skill documents how Brain should handle that block.
+
+Outbound `telegram_send` text is projected into the same JIN response as a
+`TELEGRAM_MESSAGE_OUTPUT` block at the action marker's source position. A
+successful send no longer consumes an automatic Brain follow-up; its action
+bubble and Tool Result remain, and failures still use normal recovery.
+
+2026-10-24 follow-up correction: the first implementation checked UI events
+but Brain reads internal action events, and the legacy runtime_asset_results
+branch still triggered a tick. Tool-result binding now carries the Telegram
+outcome to the internal event; both asset-result collection and its consumed
+offset exclude successful sends. A full Brain-sequence test using the real
+dispatcher reproduced two calls before the fix and one afterwards; failures
+and mixed batches still continue normally.
+
+Photo albums are short-buffered by `media_group_id`, capped atomically at five,
+and stored unpinned for their originating turn. Missing eligible tabs produce a
+Telegram error reply. Authorization checks private `chat.type`, `chat.id`, and
+`from.id`; the poller persists its accepted offset and uses a per-token process
+lock. Telegram HTTP uses a dedicated untraced client so token-bearing URLs do
+not enter runtime tracing. JIN output is not automatically sent back.
+
+Verification: 163 targeted unittest cases passed across Telegram transport,
+ASSET_ACTION/skills/follow-ups, attachments, heartbeat, bootstrap, reconnect,
+soft restart and anonymous isolation. Python compilation, JavaScript syntax and
+`git diff --check` pass. The configured token is absent from tracked files and
+the local `.env` remains ignored. No live Telegram or model request was made.
