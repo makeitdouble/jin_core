@@ -19,6 +19,7 @@ async def apply_asset_actions(
     *,
     log_runtime,
     with_action_context,
+    runtime_message_id="",
 ):
     from utils.brain_client_utils import (
         append_asset_runtime_result,
@@ -146,6 +147,17 @@ async def apply_asset_actions(
             result,
             payload_text=action.payload,
         )
+        # Record the newest result first. Then age only prior *identical*
+        # project listings, preserving the new result and distinct pages.
+        from utils.actions.asset_action_utils import project_listing_request_key
+        request_key = project_listing_request_key(action.payload, result)
+        if request_key:
+            newest = (getattr(context, "runtime_tool_results", []) or [])[-1]
+            newest["asset_request_key"] = request_key
+            from .attachment_actions import compact_previous_repeated_project_tool_results
+            compact_previous_repeated_project_tool_results(
+                context, runtime_message_id,
+            )
         if (
             log_runtime is not None
             and result.get("ok") is False

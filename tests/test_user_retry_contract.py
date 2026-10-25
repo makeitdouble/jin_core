@@ -95,7 +95,6 @@ class UserRetryContractTests(unittest.TestCase):
         context = SimpleNamespace(
             runtime_recent_turns=[{"user": "u", "jin": "old"}],
             runtime_previous_reasoning_content="old reasoning",
-            runtime_previous_reasoning_loop_contents=["old loop"],
         )
 
         previous = discard_latest_visible_turn_for_user_retry(context)
@@ -103,7 +102,6 @@ class UserRetryContractTests(unittest.TestCase):
         self.assertEqual(previous["jin"], "old")
         self.assertEqual(context.runtime_recent_turns, [])
         self.assertEqual(context.runtime_previous_reasoning_content, "")
-        self.assertEqual(context.runtime_previous_reasoning_loop_contents, [])
 
     def test_retry_is_explicit_in_brain_and_frame_context(self):
         context = SimpleNamespace(

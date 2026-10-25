@@ -1297,7 +1297,7 @@ class BrainRuntimeActionTests(unittest.TestCase):
             '<TOOL_RESULT name="LIST_SKILLS"',
         )
 
-    def test_prompt_places_tool_results_at_context_top(self):
+    def test_prompt_places_tool_results_after_identity(self):
 
         context = SimpleNamespace(
             runtime_memory="session_status: active",
@@ -1334,8 +1334,8 @@ class BrainRuntimeActionTests(unittest.TestCase):
 
         self.assertTrue(prompt.startswith("<TRUSTED_RUNTIME_VARIABLES>"))
         self.assertLess(
+            prompt.index("I identify as JIN"),
             prompt.index('<TOOL_RESULT name="ASSETS"'),
-            prompt.index("<SESSION_ACTIONS_HISTORY>"),
         )
         self.assertLess(
             prompt.index("</SESSION_ACTIONS_HISTORY>"),
@@ -1443,7 +1443,7 @@ class BrainRuntimeActionTests(unittest.TestCase):
             loaded_block,
         )
 
-    def test_prompt_lists_available_delayed_memory_below_tool_results(self):
+    def test_prompt_lists_available_delayed_memory_before_tool_results(self):
 
         empty_context = SimpleNamespace(
             runtime_memory="session_status: active",
@@ -1527,11 +1527,7 @@ class BrainRuntimeActionTests(unittest.TestCase):
             ),
             1,
         )
-        self.assertIn(
-            "</TOOLS_RESULTS>\n\n"
-            + expected_inventory,
-            prompt,
-        )
+        self.assertLess(prompt.index(expected_inventory), prompt.index("<TOOLS_RESULTS>"))
         self.assertLess(
             prompt.index(
                 expected_inventory
@@ -1716,25 +1712,10 @@ class BrainRuntimeActionTests(unittest.TestCase):
             runtime_context,
             "AM-5fdg4g",
         )
-        self.assertTrue(
-            prompt.startswith(
-                "<CONCERNS>"
-            )
-        )
-        self.assertLess(
-            prompt.index("</CONCERNS>"),
-            prompt.index("<TRUSTED_RUNTIME_VARIABLES>"),
-        )
-        self.assertLess(
-            prompt.index("</TRUSTED_RUNTIME_VARIABLES>"),
-            prompt.index("</TOOLS_RESULTS>"),
-        )
-        self.assertLess(
-            prompt.index("</TOOLS_RESULTS>"),
-            prompt.index(
-                "<ACTIVE_MEMORY priority=\"active_runtime_contracts\">"
-            ),
-        )
+        self.assertNotIn("<CONCERNS>", prompt)
+        self.assertTrue(prompt.startswith("<TRUSTED_RUNTIME_VARIABLES>"))
+        self.assertLess(prompt.index("<ACTIVE_MEMORY"), prompt.index("<TOOLS_RESULTS>"))
+        self.assertLess(prompt.index("I identify as JIN"), prompt.index("<TOOLS_RESULTS>"))
         self.assertLess(
             prompt.index("<ACTIVE_MEMORY"),
             prompt.index("<FRAME_MEMORY_"),

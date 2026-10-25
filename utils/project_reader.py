@@ -270,6 +270,18 @@ def _text(path: Path, *, with_digest=False):
         raise ValueError("File is not UTF-8 text") from error
 
 
+def _natural_name_key(path: Path):
+    """Sort numeric filename runs by value without converting huge integers."""
+    parts = []
+    for part in re.split(r"(\d+)", path.name):
+        if part.isdigit():
+            significant = part.lstrip("0") or "0"
+            parts.append((0, len(significant), significant, len(part), part))
+        else:
+            parts.append((1, part.casefold(), part))
+    return parts
+
+
 def _walk(root, start, depth, state):
     """No link traversal, stable pagination, bounded traversal even for huge folders."""
     def visit(directory, level):
@@ -284,7 +296,7 @@ def _walk(root, start, depth, state):
                                             else f"time limit ({MAX_SCAN_SECONDS} seconds)")
                     break
                 children.append(Path(entry.path))
-        for path in sorted(children, key=lambda item: (item.name.casefold(), item.name)):
+        for path in sorted(children, key=_natural_name_key):
             if monotonic() > state["deadline"]:
                 state["limited"] = True
                 state["stop_reason"] = f"time limit ({MAX_SCAN_SECONDS} seconds)"

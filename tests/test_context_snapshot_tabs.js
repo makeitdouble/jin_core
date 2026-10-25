@@ -36,6 +36,8 @@ Returned: 0; matching turns: 0; more: false
 <TOOL_RESULT name="LEGACY_TOOL">
 legacy payload
 </TOOL_RESULT>
+<TOOL_RESULT tool_id="T3" name="ATTACH_FILE_CONTENT" summary="ATTACH_FILE_CONTENT: dataset/10.txt - failed: file not exists">
+</TOOL_RESULT>
 legacy note outside a result
 </TOOLS_RESULTS>
 JIN_COLOR
@@ -87,7 +89,7 @@ const details = `SYSTEM PROMPT\n----------------\n${systemPrompt}\n\nUSER PROMPT
       };
     });
     assert.equal(initial.selected, 'MEMORY');
-    assert.deepEqual(initial.labels, ['MEMORY', 'SYSTEM', 'TOOL RESULTS (2)', 'ACTIONS']);
+    assert.deepEqual(initial.labels, ['MEMORY', 'SYSTEM', 'TOOL RESULTS (3)', 'ACTIONS']);
     assert.equal(initial.visiblePanels, 1);
     assert.doesNotMatch(initial.overviewText, /\bblocks\b|system chars/);
     assert.match(initial.userText, /hello from the user/);
@@ -156,10 +158,16 @@ const details = `SYSTEM PROMPT\n----------------\n${systemPrompt}\n\nUSER PROMPT
     assert.equal(await page.evaluate(() => window.__skin), 'bamboo');
     assert.equal(await page.getByRole('button', {name: 'bamboo'}).getAttribute('aria-pressed'), 'true');
 
-    await page.getByRole('tab', {name: 'TOOL RESULTS (2)'}).click();
+    await page.getByRole('tab', {name: 'TOOL RESULTS (3)'}).click();
     const toolTitles = await page.evaluate(() => [...document.querySelectorAll('[role="tabpanel"]:not([hidden]) > .jin-context-tab-stack > .jin-context-card > .jin-context-card-header .jin-context-card-title')].map(node => node.textContent));
-    assert.deepEqual(toolTitles.slice(0, 2), ['T2 · CHAT_LOG_SEARCH', 'LEGACY_TOOL']);
-    assert.match(await page.getByRole('tabpanel', {name: 'TOOL RESULTS (2)'}).textContent(), /legacy note outside a result/);
+    assert.deepEqual(toolTitles.slice(0, 3), [
+      'T2 · CHAT_LOG_SEARCH',
+      'LEGACY_TOOL',
+      'T3 · ATTACH_FILE_CONTENT: dataset/10.txt - failed: file not exists',
+    ]);
+    const compactedCard = page.locator('.jin-context-card').filter({hasText: 'T3 · ATTACH_FILE_CONTENT'});
+    assert.equal((await compactedCard.locator('.jin-context-card-body').textContent()).trim(), '');
+    assert.match(await page.getByRole('tabpanel', {name: 'TOOL RESULTS (3)'}).textContent(), /legacy note outside a result/);
 
     await page.getByRole('tab', {name: 'ACTIONS'}).focus();
     await page.keyboard.press('Home');

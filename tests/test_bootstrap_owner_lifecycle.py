@@ -42,7 +42,7 @@ class BootstrapOwnerLifecycleTests(unittest.IsolatedAsyncioTestCase):
                     if scenario == 3:
                         raise asyncio.CancelledError()
                     state.brain_response = 'greeting' if runtime.runtime_session_restore_priming else 'reply'
-                    runtime.runtime_turn_reasoning_content = 'saved reasoning'
+                    runtime.runtime_previous_reasoning_content = 'saved reasoning'
 
                 stack.enter_context(patch('websocket.messages.AgentRuntime', return_value=SimpleNamespace(run=model)))
                 stack.enter_context(patch('websocket.messages.load_delayed_memory_by_tags', new=AsyncMock()))

@@ -233,7 +233,7 @@ class CancelledBootstrapLogTests(unittest.IsolatedAsyncioTestCase):
                     context.session_id = "cancel-anon" if anonymous else "cancel"
                     context.runtime_anonymous_mode = anonymous
                     context.runtime_session_restore_priming = True
-                    context.runtime_turn_reasoning_content = "stale previous turn"
+                    context.runtime_previous_reasoning_content = "stale previous turn"
                     context.runtime_memory = "topic: inherited"
                     context.runtime_memory_display_index_offset = 1
                     await emit_current_runtime_memory(context)
@@ -255,7 +255,7 @@ class CancelledBootstrapLogTests(unittest.IsolatedAsyncioTestCase):
                     stack.enter_context(patch("websocket.messages.AgentRuntime", return_value=SimpleNamespace(run=run)))
                     with self.assertRaises(asyncio.CancelledError):
                         await process_message(context, {"type": "archived_session_resume"})
-                    self.assertEqual(context.runtime_turn_reasoning_content, reasoning)
+                    self.assertEqual(context.runtime_previous_reasoning_content, reasoning)
                     self.assertEqual(list(root.rglob("*.jsonl")), [])
                     logs = list(root.rglob("*_turn_*.txt"))
                     self.assertEqual(logs, [])

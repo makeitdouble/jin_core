@@ -2643,6 +2643,10 @@ class RuntimeStream:
                     "payload",
                     action.payload,
                 ),
+                scene_effect=payload.get(
+                    "scene_effect",
+                    "",
+                ),
                 close_tag=payload.get(
                     "close_tag",
                     has_close_tag,

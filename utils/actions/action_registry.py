@@ -574,6 +574,7 @@ async def _run_asset(batch, action, _state):
         (action,),
         log_runtime=getattr(logger, "log_runtime", None),
         with_action_context=batch.with_action_context_for(action),
+        runtime_message_id=batch.resolved_runtime_message_id,
     )
     await emit_saved_asset_results(
         batch.context, results, with_action_context=batch.with_action_context_for(action)

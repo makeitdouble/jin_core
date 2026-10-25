@@ -704,7 +704,7 @@ def strip_actions_history_context(
         "FOLLOW_UP_CONTEXT_OVERFLOW_MESSAGE",
         "SESSION_ACTIONS_HISTORY",
         "REQUEST_ACTIONS_HISTORY",
-        "CONCERNS",
+        "CONCERNS",  # Removed block; strip legacy saved prompts only.
         "CURRENT_REQUEST_ACTIONS_HISTORY",  # Legacy saved prompts.
         "CURRENT_CONCERNS",  # Legacy saved prompts.
         "CURREN_USER_INPUT",
@@ -714,6 +714,7 @@ def strip_actions_history_context(
         "CURRENT_ACTIONS_HISTORY",
         "SEQUENCE_ORIGIN_REQUEST",
         "PREVIOUS_CHAT_MESSAGES",
+        "OLD_SESSION_RESTORED_STATE",  # Legacy dialogue wrapper.
     ):
         if keep_previous_chat_messages and tag_name == "PREVIOUS_CHAT_MESSAGES":
             continue

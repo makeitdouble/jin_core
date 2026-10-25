@@ -236,7 +236,6 @@ def _append_FRAME_runtime_memory(
     *,
     user_input: str = "",
     commit_active_memory_refresh: bool = False,
-    previous_chat_messages_context: str = "",
 ) -> None:
 
     from runtime.frame_memory_utils import (
@@ -422,11 +421,6 @@ def _append_FRAME_runtime_memory(
             f"<{frame_memory_tag}>\n"
             f"{indent_xml(escape(canonicalize_runtime_memory_text(runtime_memory)))}\n"
             f"</{frame_memory_tag}>"
-        )
-
-    if previous_chat_messages_context:
-        parts.append(
-            previous_chat_messages_context
         )
 
 
@@ -1039,112 +1033,25 @@ def build_previous_reasoning_context(
     context=None,
     *,
     include_previous_reasoning: bool = True,
-    include_turn_reasoning: bool = False,
     crop: bool = True,
 ) -> str:
 
-    reasoning_parts = []
-    seen_reasoning_parts = set()
+    if not include_previous_reasoning or context is None:
+        return ""
 
-    for attr_name in (
-        "runtime_previous_reasoning_content",
-        "runtime_turn_reasoning_content",
-    ):
-        if (
-            attr_name == "runtime_previous_reasoning_content"
-            and not include_previous_reasoning
-        ):
-            continue
-        if (
-            attr_name == "runtime_turn_reasoning_content"
-            and not include_turn_reasoning
-        ):
-            continue
-
-        reasoning_part = str(
-            getattr(
-                context,
-                attr_name,
-                "",
-            )
-            if context is not None
-            else ""
-            or ""
-        ).strip()
-
-        if (
-            not reasoning_part
-            or reasoning_part in seen_reasoning_parts
-        ):
-            continue
-
-        reasoning_parts.append(
-            reasoning_part
-        )
-        seen_reasoning_parts.add(
-            reasoning_part
-        )
-
-    if not reasoning_parts:
+    reasoning = str(
+        getattr(context, "runtime_previous_reasoning_content", "") or ""
+    ).strip()
+    if not reasoning:
         return ""
 
     return _format_previous_reasoning_context(
         tag_name="PREVIOUS_REASONING_EVIDENCE_TRAIL_AFTER_EXECUTED_ACTIONS",
-        reasoning="\n\n".join(
-            reasoning_parts
-        ),
+        reasoning=reasoning,
         edge_percent=PREVIOUS_REASONING_EDGE_PERCENT,
         min_crop_chars=PREVIOUS_REASONING_CONTEXT_MIN_CROP_CHARS,
         crop=crop,
     )
-
-
-def build_previous_reasoning_loop_context(
-    context=None,
-) -> str:
-
-    if context is None:
-        return ""
-
-    loop_reasonings = getattr(
-        context,
-        "runtime_previous_reasoning_loop_contents",
-        [],
-    )
-
-    if isinstance(
-        loop_reasonings,
-        str,
-    ):
-        loop_reasonings = [
-            loop_reasonings,
-        ]
-
-    if not isinstance(
-        loop_reasonings,
-        list,
-    ):
-        return ""
-
-    # Keep this defensive too: even if older/stale state contains several
-    # entries, only the latest non-empty failed reasoning belongs in the
-    # current recovery prompt.
-    for reasoning in reversed(
-        loop_reasonings
-    ):
-        if not str(
-            reasoning
-            or ""
-        ).strip():
-            continue
-
-        return _format_previous_reasoning_context(
-            tag_name="PREVIOUS_REASONING_LOOP_CONTENT",
-            reasoning=reasoning,
-            edge_percent=PREVIOUS_REASONING_LOOP_EDGE_PERCENT,
-        )
-
-    return ""
 
 
 # Runtime action rules are assembled from contracts/rules_assembler.py.
@@ -1160,13 +1067,9 @@ def build_brain_context(
     include_runtime_action_instructions: bool = True,
     include_previous_chat_messages: bool = True,
     include_previous_reasoning: bool = True,
-    include_turn_reasoning: bool = False,
     crop_previous_reasoning: bool = True,
 ) -> str:
 
-    from utils.context.current_concerns import (
-        build_current_concerns_context,
-    )
     from utils.context.messages import (
         build_previous_chat_messages_context,
     )
@@ -1178,9 +1081,6 @@ def build_brain_context(
     )
     from utils.context.tool_results import (
         build_tool_results_context,
-    )
-    from utils.tool_results_context import (
-        has_nonempty_tools_results_context,
     )
     from utils.context.skills import (
         build_skills_inventory_context,
@@ -1203,6 +1103,7 @@ def build_brain_context(
 
     prompt_parts = []
     runtime_context_parts = []
+    previous_reasoning_context = ""
     restore_priming = bool(
         getattr(
             context,
@@ -1230,31 +1131,6 @@ def build_brain_context(
             build_session_restore_message,
         )
 
-        # Bootstrap continuity follows the same ordering as action follow-ups:
-        # show the inherited visible dialogue first, then its carried reasoning
-        # evidence, then the synthetic automatic-response instruction. This
-        # makes the state Brain is continuing from visible before the notice
-        # tells it that there is no new USER move.
-        if previous_chat_messages_context:
-            prompt_parts.append(
-                previous_chat_messages_context
-            )
-
-        previous_reasoning_context = (
-            build_previous_reasoning_context(
-                context,
-                include_previous_reasoning=(
-                    include_previous_reasoning
-                ),
-                include_turn_reasoning=include_turn_reasoning,
-                crop=crop_previous_reasoning,
-            )
-        )
-        if previous_reasoning_context:
-            prompt_parts.append(
-                previous_reasoning_context
-            )
-
         prompt_parts.append(
             build_session_restore_message(
                 SESSION_RESTORE_MESSAGE,
@@ -1270,9 +1146,6 @@ def build_brain_context(
         build_current_runtime_settings_context()
     )
     if current_runtime_settings_context:
-        # Ordinary turns keep SETTINGS first. During bootstrap the inherited
-        # dialogue/reasoning + automatic bootstrap notice deliberately precede
-        # every other block, matching the follow-up continuation layout.
         prompt_parts.append(
             current_runtime_settings_context
         )
@@ -1281,23 +1154,7 @@ def build_brain_context(
         runtime_actions
     )
 
-    # Build tool results before CONCERNS so the live warning can say
-    # whether there is actually transient tool output available to clean. The
-    # rendered ordering is unchanged: concerns still stay above tool results.
-    tool_results_context = build_tool_results_context(
-        context
-    )
-    has_tool_results = has_nonempty_tools_results_context(
-        tool_results_context
-    )
-
-    # Omit CONCERNS entirely when there is no live concern to report.
-    concerns_context = build_current_concerns_context(
-        context,
-        has_tool_results=has_tool_results,
-    )
-    if concerns_context:
-        prompt_parts.append(concerns_context)
+    tool_results_context = build_tool_results_context(context)
 
     # Runtime XML block: exposes trusted runtime variables and enabled actions.
     prompt_parts.append(
@@ -1313,14 +1170,7 @@ def build_brain_context(
     if project_review_context:
         prompt_parts.append(project_review_context)
 
-    # Tool results block: places recent tool/action outputs near the top.
-    if tool_results_context:
-        prompt_parts.append(
-            tool_results_context
-        )
-
-    # Session actions history sits directly under tool results on ordinary
-    # turns and is rebuilt for follow-ups from the same action history.
+    # Session action history is rebuilt from the same owner on follow-ups.
     session_actions_history_context = (
         build_session_actions_history_context(
             context
@@ -1388,19 +1238,11 @@ def build_brain_context(
         context,
     )
 
-    # Ordinary turns keep the canonical dialogue block immediately below the
-    # FRAME snapshot. Bootstrap dialogue was already projected at the absolute
-    # front of the prompt together with its reasoning evidence.
     _append_FRAME_runtime_memory(
         runtime_context_parts,
         context,
         user_input=user_input,
         commit_active_memory_refresh=commit_active_memory_refresh,
-        previous_chat_messages_context=(
-            ""
-            if restore_priming
-            else previous_chat_messages_context
-        ),
     )
 
 
@@ -1467,52 +1309,11 @@ def build_brain_context(
             )
         )
 
-    # Bootstrap reasoning was already projected directly under
-    # PREVIOUS_CHAT_MESSAGES at the front of the prompt. Ordinary turns keep
-    # their existing previous-reasoning placement below the runtime context.
-    if not restore_priming:
-        previous_reasoning_loop_context = (
-            build_previous_reasoning_loop_context(
-                context
-            )
-        )
-
-        if previous_reasoning_loop_context:
-            prompt_parts.append(
-                previous_reasoning_loop_context
-            )
-        else:
-            # Previous-turn reasoning stays suppressed on follow-up ticks, but
-            # the accumulated reasoning from THIS action sequence is an
-            # independent input. Follow-up callers deliberately request only
-            # runtime_turn_reasoning_content so JIN keeps its current plan
-            # without resurrecting reasoning from the previous user turn.
-            include_previous_reasoning_content = bool(
-                include_previous_reasoning
-                and not getattr(
-                    context,
-                    "runtime_followup_tick_active",
-                    False,
-                )
-            )
-            if (
-                include_previous_reasoning_content
-                or include_turn_reasoning
-            ):
-                previous_reasoning_context = (
-                    build_previous_reasoning_context(
-                        context,
-                        include_previous_reasoning=(
-                            include_previous_reasoning_content
-                        ),
-                        include_turn_reasoning=include_turn_reasoning,
-                        crop=crop_previous_reasoning,
-                    )
-                )
-                if previous_reasoning_context:
-                    prompt_parts.append(
-                        previous_reasoning_context
-                    )
+    previous_reasoning_context = build_previous_reasoning_context(
+        context,
+        include_previous_reasoning=include_previous_reasoning,
+        crop=crop_previous_reasoning,
+    )
 
     # Keep the normal runtime action contract on the hidden restore turn too.
     # Session restore changes which historical/resource payloads are exposed,
@@ -1525,17 +1326,14 @@ def build_brain_context(
             )
         )
 
-    # Identity block: anchors the brain persona and base behavior contract.
-    prompt_parts.append(
-        IDENTITY
-    )
-
-    # Loop rules block: adds turn-specific behavior guidance.
-    prompt_parts.append(
-        build_loop_rules(
-            context
-        )
-    )
+    # Keep behavioral guidance before the identity/continuity tail.
+    prompt_parts.append(build_loop_rules(context))
+    prompt_parts.append(IDENTITY)
+    prompt_parts.extend(block for block in (
+        previous_chat_messages_context,
+        previous_reasoning_context,
+        tool_results_context,
+    ) if block)
 
     return "\n\n".join(
         prompt_parts

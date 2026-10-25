@@ -218,7 +218,7 @@ class HeartbeatPersistenceTests(unittest.IsolatedAsyncioTestCase):
                 c.runtime_session_restore_priming = True
 
                 async def model(state, runtime):
-                    runtime.runtime_turn_reasoning_content = "reasoning"
+                    runtime.runtime_previous_reasoning_content = "reasoning"
                     if state.metadata.get("session_restore_resume"):
                         state.brain_response = "greeting"
                         return

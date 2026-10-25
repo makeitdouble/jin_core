@@ -251,14 +251,22 @@ async def record_action_event(batch, selection, action, search_counts, *, accept
             action.name, search_counts[RUNTIME_ACTION_DEEP_RESEARCH]
         )
         batch.action_display_ids[id(action)] = tool_call_id
-        action_event.update(id=tool_call_id, query=deep_research_objective)
+        action_event.update(
+            id=tool_call_id,
+            query=deep_research_objective,
+            scene_effect="search",
+        )
     elif query:
         search_counts[RUNTIME_ACTION_WEB_SEARCH] += 1
         tool_call_id = action_display_id or build_runtime_action_id(
             action.name, search_counts[RUNTIME_ACTION_WEB_SEARCH]
         )
         batch.action_display_ids[id(action)] = tool_call_id
-        action_event.update(id=tool_call_id, query=query)
+        action_event.update(
+            id=tool_call_id,
+            query=query,
+            scene_effect="search",
+        )
     elif not transition_rejection:
         _VISUAL_PROJECTIONS.get(action.name, _project_payload)(action, action_event)
 
@@ -309,6 +317,7 @@ async def record_action_event(batch, selection, action, search_counts, *, accept
         payload=action_event.get("payload", "")
         or action_event.get("query", "")
         or action.payload,
+        scene_effect=action_event.get("scene_effect", ""),
         close_tag=runtime_action_has_close_tag(action.name),
         context_snapshot=batch.action_context_snapshot,
     )

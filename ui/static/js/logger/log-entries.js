@@ -699,6 +699,19 @@ function updateInternalActionLogPayload(
   );
 }
 
+function formatInternalAttachmentFailureText(baseText, failureDetail, actionName) {
+  if (!failureDetail) {
+    return baseText;
+  }
+  // Failure summaries already contain "failed: <reason>". Never repeat it.
+  const displayed = String(baseText || "").toLowerCase().replace(/\s+/g, " ");
+  const reason = `failed: ${failureDetail}`.toLowerCase().replace(/\s+/g, " ");
+  if (displayed.includes(reason)) {
+    return baseText;
+  }
+  return `${baseText || actionName}\nFAILED: ${failureDetail}`;
+}
+
 function log_internal_action(
   action,
   data = {}
@@ -757,13 +770,11 @@ function log_internal_action(
         || ""
       ).trim()
       : "";
-  const text =
-    attachmentFailureDetail
-      ? (
-        `${baseText || actionName}\n`
-        + `FAILED: ${attachmentFailureDetail}`
-      )
-      : baseText;
+  const text = formatInternalAttachmentFailureText(
+    baseText,
+    attachmentFailureDetail,
+    actionName
+  );
   const payload =
     getInternalActionPayload(
       data
@@ -896,6 +907,17 @@ function log_internal_action(
     || abortedByUser,
     counterOnly
   );
+  // Created/updated text files use the same modal as chat asset bubbles.
+  if (
+    actionName === "ASSET_ACTION"
+    && status === "completed"
+    && typeof window.bindAssetResultPreview === "function"
+  ) {
+    window.bindAssetResultPreview(
+      logDiv.querySelector(":scope > .internal-action-log-message"),
+      data.asset_result || null
+    );
+  }
   updateInternalActionLogPayload(
     logDiv,
     payload,

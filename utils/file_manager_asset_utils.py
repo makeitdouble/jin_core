@@ -91,6 +91,48 @@ def read_asset_text_preview(
     }
 
 
+def read_project_asset_text_preview(payload: dict, *, context) -> dict:
+    """Preview only TXT inside a folder explicitly linked to this live context."""
+    from utils.project_reader import linked_projects
+    from utils.attached_files_store import file_display_name
+
+    display_path = str(payload.get("path", "") or "").strip().replace("\\", "/")
+    selector = display_path.split("/", 1)[0]
+    if not selector or not any(
+        selector in {record["id"], file_display_name(record["name"])}
+        for record in linked_projects(context)
+    ):
+        raise FileNotFoundError("Linked project asset unavailable")
+
+    if not display_path.lower().endswith(".txt"):
+        raise FileNotFoundError("Linked TXT asset unavailable")
+
+    path, name = _managed_path(
+        {"attachment": selector, "path": display_path, "action": "preview_file"},
+        context,
+    )
+    if path.suffix.lower() != ".txt" or not path.is_file():
+        raise FileNotFoundError("Linked TXT asset unavailable")
+    if path.stat().st_size > 1024 * 1024:
+        raise ValueError("TXT file is too large for preview")
+
+    max_chars = max(1, min(int(payload.get("max_chars", 60000) or 60000), 250000))
+    content = path.read_text(encoding="utf-8")
+    return {
+        "ok": True,
+        "path": name,
+        "name": name,
+        "type": "text/plain",
+        "kind": "text",
+        "size_bytes": path.stat().st_size,
+        "line_count": len(content.splitlines()),
+        "text_content": content[:max_chars],
+        "preview_chars": min(max_chars, len(content)),
+        "preview_limit": max_chars,
+        "truncated": len(content) > max_chars,
+    }
+
+
 def create_asset_file(payload: dict, *, context=None) -> dict:
     path, display_path = _managed_path(payload, context)
     overwrite = bool(

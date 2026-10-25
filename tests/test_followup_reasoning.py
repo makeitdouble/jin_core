@@ -19,10 +19,8 @@ class FollowupReasoningTests(unittest.TestCase):
             for action in actions:
                 with self.subTest(loop=loop, action=action):
                     context = SimpleNamespace(
-                        runtime_previous_reasoning_content="previous unique thought",
-                        runtime_turn_reasoning_content="current unique thought",
-                        runtime_previous_reasoning_loop_contents=(
-                            ["failed unique thought"] if loop else []
+                        runtime_previous_reasoning_content=(
+                            "failed unique thought" if loop else "current unique thought"
                         ),
                         runtime_reasoning_recovery_pending=loop,
                         runtime_turn_interruption_reason=(
@@ -31,8 +29,7 @@ class FollowupReasoningTests(unittest.TestCase):
                     )
                     base = build_brain_context(
                         context,
-                        include_previous_reasoning=False,
-                        include_turn_reasoning=True,
+                        include_previous_reasoning=True,
                         crop_previous_reasoning=False,
                     )
                     prompt = BrainNode.build_followup_system_prompt(
@@ -50,8 +47,8 @@ class FollowupReasoningTests(unittest.TestCase):
                     self.assertNotIn("previous unique thought", prompt)
                     self.assertIn("Continue after the action.", prompt)
                     self.assertEqual(
-                        context.runtime_turn_reasoning_content,
-                        "current unique thought",
+                        context.runtime_previous_reasoning_content,
+                        thought,
                     )
                     if loop:
                         self.assertIn("<REASONING_RECOVERY>", prompt)

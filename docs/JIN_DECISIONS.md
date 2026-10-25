@@ -489,7 +489,7 @@ The first bootstrap color uses the one 2-second avatar-and-scene transition. Lat
 
 Normal bootstrap renders the five newest real USER moves with JIN/reasoning where present, then places the current-session date divider and starts the live viewport there. USER-only turns remain visible without an empty JIN bubble. Explicit archived restore uses its own history renderer but projects the same bounded USER-owned tail, keeps later visible JIN-only continuation rows, and must not duplicate the normal-bootstrap tail. Its reasoning bubbles contain the reasoning body, not archive-file headers.
 
-The hidden bootstrap Brain prompt projects continuity before the synthetic instruction: inherited `<PREVIOUS_CHAT_MESSAGES>` first, then carried `<PREVIOUS_REASONING_EVIDENCE_TRAIL_AFTER_EXECUTED_ACTIONS>` when available, then `<MANDATORY_SYSTEM_NOTIFICATION>` with the fresh current session ID/time and `!!! USER DIDN'T SEND NEW MESSAGE! !!!`. Legacy `<OLD_SESSION_RESTORED_STATE>` wrappers are reader compatibility and normalize into `<PREVIOUS_CHAT_MESSAGES>`; they are not the current model-facing block name.
+The hidden bootstrap Brain prompt starts with `<MANDATORY_SYSTEM_NOTIFICATION>` with the fresh current session ID/time and `!!! USER DIDN'T SEND NEW MESSAGE! !!!`. Per the 2026-10-25 owner update, inherited `<PREVIOUS_CHAT_MESSAGES>` and carried `<PREVIOUS_REASONING_EVIDENCE_TRAIL_AFTER_EXECUTED_ACTIONS>` now follow identity, ahead of `<TOOLS_RESULTS>`. Legacy `<OLD_SESSION_RESTORED_STATE>` wrappers are reader compatibility and normalize into `<PREVIOUS_CHAT_MESSAGES>`; they are not the current model-facing block name.
 
 For explicit URL restore, the server archive owns dialogue, reasoning, FRAME, Session Actions, and archived visual/runtime state as one causal restore payload. The page may mirror restored room/avatar state into its local projection after application, but browser storage cannot replace individual archive fields or become a restore source. The inherited dialogue/reasoning continuity is the newest conversational authority during the one-shot priming turn; restored FRAME is background and may be one update behind the final visible turn.
 
@@ -875,8 +875,8 @@ hints. State stays shared across the sequential self-fork flow. Preserve data
 with SAVE_ACTIVE_MEMORY and observe its successful ordinary follow-up before
 emitting dependent cleanup; a failed save must retain its source.
 
-The owner explicitly chose to retain the separate legacy 50% previous-answer
-CONCERNS message. Emergency overflow recovery retains priority and its existing
+The 2026-10-25 owner request supersedes the earlier choice to retain the legacy
+50% previous-answer CONCERNS message: remove that block and all its generation logic. Emergency overflow recovery retains priority and its existing
 flow. Maintenance is an advisory prompt, not a new action dependency protocol.
 
 ## Surviving-page backend restart (2026-10-16)
@@ -966,3 +966,23 @@ store, ordinary attachment hydration, multimodal Brain payload, session log,
 and UI preview, but are unpinned and selected only for their originating turn.
 No webhook, public listener, Telegram history reader, group/media expansion, or
 separate Telegram memory is introduced.
+
+## Prompt continuity tail (2026-10-25)
+
+Owner-approved ordering for ordinary turns, archive priming and action/recovery
+follow-ups: identity, PREVIOUS_CHAT_MESSAGES, previous reasoning evidence, then
+TOOLS_RESULTS. Optional continuity blocks remain optional. Follow-up/restore
+notifications and action history stay before identity. Remove CONCERNS and its
+resource-count/50% warning builder; keep independent CONTEXT_MAINTENANCE and
+emergency recovery. Saved legacy concern blocks may still be stripped on read.
+
+
+### Attachment cleanup lifecycle — owner update 2026-10-25
+
+Each new attachment-bearing model message ages earlier attachment results and
+successful `create_asset_file` / `append_asset_file` receipts once: first remove
+the body and retain the tool ID plus outcome header, then remove that empty
+header on the next attachment-bearing message. Multiple attaches in the same
+message do not age results again. Failed writes and unrelated results retain
+their existing lifetime. Cleanup persists the remaining tool inventory through
+the existing disk checkpoint path. This replaces indefinite compact-header retention.

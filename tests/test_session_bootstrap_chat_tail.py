@@ -199,7 +199,6 @@ class SessionBootstrapChatTailTests(unittest.TestCase):
             runtime_recent_turns=[],
             runtime_bootstrap_chat_tail_turns=[],
             runtime_previous_reasoning_content="",
-            runtime_previous_reasoning_loop_contents=[],
             runtime_session_restore_delayed_memory_metadata=[],
             runtime_session_restore_attached_file_metadata=[],
             runtime_session_restore_reasoning_dump="",
@@ -284,7 +283,6 @@ class SessionBootstrapChatTailTests(unittest.TestCase):
         context = SimpleNamespace(
             runtime_recent_turns=[],
             runtime_previous_reasoning_content="",
-            runtime_previous_reasoning_loop_contents=[],
             runtime_session_restore_delayed_memory_metadata=[],
             runtime_session_restore_attached_file_metadata=[],
             runtime_session_restore_reasoning_dump="",

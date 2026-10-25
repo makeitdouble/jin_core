@@ -477,6 +477,15 @@ def _append_recorded_tool_results(
         if entry.get("owner_subtask_agent_id"):
             tool_id_attr += f'owner_subtask_agent_id="{escape(entry["owner_subtask_agent_id"])}" '
 
+        if isinstance(result, dict) and result.get("compacted"):
+            name = "ASSETS" if kind == TOOL_RESULT_KIND_ASSET else str(result.get("action") or "file").upper()
+            attrs = tool_id_attr + f'name="{escape(name)}" summary="{escape(str(result.get("summary") or ""))}"'
+            parts.append(_build_recorded_tool_result_block(
+                attrs, "", created_at=created_at, now=now,
+            ))
+            appended = True
+            continue
+
         if entry.get("absorbed_by"):
             attrs = tool_id_attr + f'name="{escape(entry.get("action_name", "runtime_action"))}"'
             body = (

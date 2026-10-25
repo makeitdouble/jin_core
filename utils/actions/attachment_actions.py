@@ -325,6 +325,113 @@ def parse_asset_attachment_calls(payload):
                                    marker_payload=group) for value in values)
 
 
+def _age_matching_tool_result_entries(context, runtime_message_id: str, match_summary) -> None:
+    """One stage per model message: full body -> empty card -> removal."""
+    current_message_id = str(runtime_message_id or "").strip()
+    if not current_message_id:
+        return
+
+    from utils.tool_results import (
+        RUNTIME_TOOL_RESULT_LIST_ATTRIBUTES, remove_runtime_tool_results,
+    )
+
+    removed = set()
+    changed = False
+    for entry in getattr(context, "runtime_tool_results", []) or []:
+        if (not isinstance(entry, dict)
+                or str(entry.get("runtime_message_id") or "").strip() == current_message_id):
+            continue
+        result = entry.get("result")
+        if not isinstance(result, dict):
+            continue
+        summary = match_summary(entry, result)
+        if summary is None or result.get("compacted_in_message") == current_message_id:
+            continue
+        if result.get("compacted") is True:
+            removed.add(id(entry))
+            continue
+        compacted = {
+            "action": str(result.get("action") or "").strip().casefold(),
+            "runtime_action_name": str(result.get("runtime_action_name") or "").strip(),
+            "loaded": False,
+            "compacted": True,
+            "compacted_in_message": current_message_id,
+            "summary": summary,
+        }
+        # Keep legacy output mirrors from resurrecting the removed body.
+        for attr in RUNTIME_TOOL_RESULT_LIST_ATTRIBUTES:
+            for mirror in getattr(context, attr, []) or []:
+                if mirror == result and mirror is not result:
+                    mirror.clear()
+                    mirror.update(compacted)
+        result.clear()
+        result.update(compacted)
+        changed = True
+    if removed:
+        remove_runtime_tool_results(context, lambda entry: id(entry) in removed)
+    if changed or removed:
+        from runtime.frame_memory_utils import build_runtime_session_checkpoint
+        from utils.chat_log import append_chat_runtime_event
+        append_chat_runtime_event(context, event="session_checkpoint",
+                                  payload={key: value for key, value in build_runtime_session_checkpoint(context).items()
+                                           if key in {"tool_results", "tool_result_sequence"}})
+
+
+def compact_previous_attachment_tool_results(context, runtime_message_id: str) -> None:
+    """Age prior attachments and successful file writes on each attach message."""
+    from utils.context.files import file_result_summary
+    from utils.tool_results import TOOL_RESULT_KIND_ASSET
+
+    attachment_actions = {"attach_file_content", "attach_file_by_id", "attach_file_by_path"}
+
+    def match_summary(entry, result):
+        action = str(result.get("action") or "").strip().casefold()
+        if entry.get("kind") == TOOL_RESULT_KIND_FILES and action in attachment_actions:
+            return file_result_summary(result)
+        if (entry.get("kind") == TOOL_RESULT_KIND_ASSET
+                and action in {"create_asset_file", "append_asset_file"}
+                and (result.get("ok") is True or result.get("compacted") is True)):
+            return f"{action.upper()}: {result.get('path') or ''} - success"
+        return None
+
+    _age_matching_tool_result_entries(context, runtime_message_id, match_summary)
+
+
+def compact_previous_repeated_project_tool_results(context, runtime_message_id: str) -> None:
+    """On identical project listing/search repeats, age only older matches.
+
+    Calls with other offsets, depths, searches or folders remain untouched.
+    The new record was just appended; it is never compacted in this pass.
+    """
+    from utils.actions.asset_action_utils import project_listing_request_key
+    from utils.tool_results import TOOL_RESULT_KIND_ASSET
+
+    entries = getattr(context, "runtime_tool_results", []) or []
+    if not entries or not isinstance(entries[-1], dict):
+        return
+    latest = entries[-1]
+    if latest.get("kind") != TOOL_RESULT_KIND_ASSET:
+        return
+    latest_key = str(latest.get("asset_request_key") or "")
+    if not latest_key:
+        return
+
+    def match_summary(entry, result):
+        if (entry is latest or entry.get("kind") != TOOL_RESULT_KIND_ASSET
+                or entry.get("owner_subtask_agent_id") != latest.get("owner_subtask_agent_id")):
+            return None
+        key = entry.get("asset_request_key")
+        if not key and result.get("compacted") is not True:
+            key = project_listing_request_key(entry.get("action_payload", ""), result)
+            if key:
+                entry["asset_request_key"] = key  # pre-upgrade records
+        if key != latest_key:
+            return None
+        return f"{str(result.get('action') or '').upper()}: repeated request"
+
+    _age_matching_tool_result_entries(context, runtime_message_id, match_summary)
+
+
 async def apply_attachment_actions(
     context, *, list_actions, attach_actions,
     log_runtime=None, with_action_context=lambda payload: payload, runtime_message_id="", action_display_ids=None,
@@ -333,6 +440,9 @@ async def apply_attachment_actions(
     results = []
     active_ids = _active_ids(context)
     restricted_writes = persistent_writes_restricted(context)
+
+    if attach_actions:
+        compact_previous_attachment_tool_results(context, runtime_message_id)
 
     def record_attachment_result(result, *, introduced_attachment_refs=()):
         result["runtime_action_name"] = "ASSET_ACTION" if owner_action_id else action.name

@@ -1130,7 +1130,7 @@ function isPreviewableTextAssetResult(assetResult) {
         && !isExistingFileResult
       )
       || !path
-      || !path.startsWith("assets/")
+      || (!path.startsWith("assets/") && !/^[^/]+\/.+\.txt$/i.test(path))
   ) {
     return false;
   }
@@ -1174,6 +1174,13 @@ async function fetchAssetTextPreview(path) {
     "path",
     path
   );
+  // Linked-folder assets are confined to the current live runtime session.
+  if (!path.startsWith("assets/")) {
+    url.searchParams.set(
+      "session_id",
+      String(window.jinRuntimeSessionId || "")
+    );
+  }
   url.searchParams.set(
     "max_chars",
     String(ASSET_TEXT_PREVIEW_MAX_CHARS)
@@ -1316,24 +1323,47 @@ function createAssetTextAttachment(assetResult) {
 }
 
 function bindAssetResultPreview(element, assetResult) {
-  const attachment =
-    createAssetTextAttachment(
-      assetResult
-    );
-
-  if (!attachment) {
+  if (!element) {
     return;
   }
 
-  element.title =
-    formatAttachmentHoverTitle(
-      attachment
-    );
+  const attachment = createAssetTextAttachment(assetResult);
+  element._jinAssetResultAttachment = attachment;
+  if (!attachment) {
+    element.classList.remove("cursor-pointer", "jin-attachment-bubble");
+    element.removeAttribute("role");
+    element.removeAttribute("tabindex");
+    if (element._jinAssetResultPreviewBound) {
+      element.removeAttribute("title");
+    }
+    return;
+  }
 
-  bindJinAttachmentBubble(
-    element,
-    attachment
-  );
+  element.title = formatAttachmentHoverTitle(attachment);
+  element.classList.add("cursor-pointer", "jin-attachment-bubble");
+  element.setAttribute("role", "button");
+  element.tabIndex = 0;
+  // Updated/reused runtime rows must not accumulate click listeners or keep
+  // opening the path of a previous asset result.
+  if (element._jinAssetResultPreviewBound) {
+    return;
+  }
+  element._jinAssetResultPreviewBound = true;
+  const open = () => {
+    if (element._jinAssetResultAttachment) {
+      void openJinAttachmentModal(element._jinAssetResultAttachment);
+    }
+  };
+  element.addEventListener("click", (event) => {
+    event.preventDefault();
+    open();
+  });
+  element.addEventListener("keydown", (event) => {
+    if (event.key === "Enter" || event.key === " ") {
+      event.preventDefault();
+      open();
+    }
+  });
 }
 
 function normalizeDelayedMemoryReportForModal(
@@ -1637,6 +1667,8 @@ function bindDelayedMemoryReportPreview(
 
 }
 
+window.bindAssetResultPreview =
+  bindAssetResultPreview;
 window.bindJinAttachmentBubble =
   bindJinAttachmentBubble;
 window.bindRuntimeActionAttachmentPreview =

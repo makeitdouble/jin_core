@@ -472,17 +472,11 @@ class RuntimeContext:
 
     runtime_turn_jin_reaction: str = ""
 
-    runtime_turn_reasoning_content: str = ""
-
     runtime_previous_reasoning_content: str = ""
 
     # True only while runtime_previous_reasoning_content was imported from an
     # archived-session bootstrap. A live reasoning replaces it and clears the flag.
     runtime_previous_reasoning_from_session_restore: bool = False
-
-    runtime_previous_reasoning_loop_contents: list[str] = field(
-        default_factory=list
-    )
 
     runtime_turn_interrupted: bool = False
 

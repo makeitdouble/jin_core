@@ -16,7 +16,10 @@ from agent.nodes.brain import (
     format_previous_runtime_memory_tag,
     prepare_asset_results_for_turn,
 )
-from rules.runtime import ACTION_FAILURE_FOLLOWUP_MESSAGE
+from rules.runtime import (
+    ACTION_FAILURE_FOLLOWUP_MESSAGE,
+    FOLLOW_UP_TICK_BODY_MESSAGE,
+)
 from rules.brain_context_builder import (
     build_brain_context,
     build_loaded_delayed_memory_context,
@@ -434,118 +437,38 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
             prompt,
         )
 
-    async def test_action_followup_keeps_previous_reasoning_in_base_context_slot(self):
-
-        context = SimpleNamespace(
-            runtime_memory="",
-            runtime_recent_turns=[],
-            runtime_session_action_history=[],
-            runtime_loaded_delayed_memory={},
-            runtime_previous_reasoning_content=(
-                "previous reasoning <note>"
-            ),
-            runtime_turn_reasoning_content=(
-                "turn reasoning opening "
-                + "m" * 2600
-                + " turn reasoning ending"
-            ),
-        )
-
+    async def test_action_followup_keeps_only_latest_reasoning_in_context(self):
+        context = SimpleNamespace(runtime_previous_reasoning_content="latest reasoning <note>")
         base_prompt = build_brain_context(
-            context,
-            runtime_actions={
-                "CAN_WEB_SEARCH": False,
-            },
-            include_previous_chat_messages=False,
-            include_previous_reasoning=True,
-            include_turn_reasoning=True,
+            context, runtime_actions={"CAN_WEB_SEARCH": False},
+            include_previous_chat_messages=False, include_previous_reasoning=True,
             crop_previous_reasoning=False,
         )
         prompt = BrainNode.build_followup_system_prompt(
-            base_prompt,
-            "continue with search result",
-            context=context,
-            latest_action="web_search",
+            base_prompt, "continue with search result", context=context, latest_action="web_search",
         )
+        self.assertEqual(prompt.count("<PREVIOUS_REASONING_EVIDENCE_TRAIL_AFTER_EXECUTED_ACTIONS>"), 1)
+        self.assertIn("latest reasoning &lt;note&gt;", prompt)
+        self.assertNotIn("<PREVIOUS_REASONING_LOOP_CONTENT>", prompt)
+        self.assertLess(prompt.index("<PREVIOUS_REASONING_EVIDENCE_TRAIL_AFTER_EXECUTED_ACTIONS>"), prompt.index("<TOOLS_RESULTS>"))
 
-        self.assertIn(
-            "<PREVIOUS_REASONING_EVIDENCE_TRAIL_AFTER_EXECUTED_ACTIONS>",
-            prompt,
-        )
-        self.assertIn(
-            "previous reasoning &lt;note&gt;",
-            prompt,
-        )
-        self.assertIn(
-            "turn reasoning opening",
-            prompt,
-        )
-        self.assertIn(
-            "turn reasoning ending",
-            prompt,
-        )
-        self.assertNotIn(
-            "---------------------------- CUTTED ",
-            prompt,
-        )
-        self.assertLess(
-            prompt.index("<PREVIOUS_REASONING_EVIDENCE_TRAIL_AFTER_EXECUTED_ACTIONS>"),
-            prompt.index("<TOOLS_RESULTS>"),
-        )
-        self.assertLess(
-            prompt.index("</PREVIOUS_REASONING_EVIDENCE_TRAIL_AFTER_EXECUTED_ACTIONS>"),
-            prompt.index("I identify as JIN"),
-        )
-
-    async def test_reasoning_loop_followup_keeps_loop_reasoning_rules_separate(self):
-
+    async def test_recovery_uses_standard_previous_reasoning_slot(self):
         context = SimpleNamespace(
-            runtime_memory="",
-            runtime_recent_turns=[],
-            runtime_session_action_history=[],
-            runtime_loaded_delayed_memory={},
-            runtime_previous_reasoning_content="ordinary previous reasoning",
-            runtime_turn_reasoning_content="ordinary turn reasoning",
-            runtime_previous_reasoning_loop_contents=[
-                "loop reasoning opening "
-                + "m" * 1200
-                + " loop reasoning ending",
-            ],
+            runtime_previous_reasoning_content="last failed thought",
+            runtime_reasoning_recovery_pending=True,
         )
-
         base_prompt = build_brain_context(
-            context,
-            runtime_actions={
-                "CAN_WEB_SEARCH": False,
-            },
-            include_previous_chat_messages=False,
-            include_previous_reasoning=True,
-            include_turn_reasoning=True,
+            context, runtime_actions={"CAN_WEB_SEARCH": False},
+            include_previous_chat_messages=False, include_previous_reasoning=True,
             crop_previous_reasoning=False,
         )
         prompt = BrainNode.build_followup_system_prompt(
-            base_prompt,
-            "recover from reasoning loop",
-            context=context,
+            base_prompt, "recover from reasoning loop", context=context,
             latest_action="stuck in a reasoning loop",
         )
-
-        self.assertNotIn(
-            "<PREVIOUS_REASONING_EVIDENCE_TRAIL_AFTER_EXECUTED_ACTIONS>",
-            prompt,
-        )
-        self.assertIn(
-            "<PREVIOUS_REASONING_LOOP_CONTENT>",
-            prompt,
-        )
-        self.assertIn(
-            "loop reasoning opening",
-            prompt,
-        )
-        self.assertNotIn(
-            "ordinary turn reasoning",
-            prompt,
-        )
+        self.assertIn("last failed thought", prompt)
+        self.assertIn("<REASONING_RECOVERY>", prompt)
+        self.assertNotIn("<PREVIOUS_REASONING_LOOP_CONTENT>", prompt)
 
     async def test_followup_consumes_reasoning_recovery_block(self):
 
@@ -1466,8 +1389,13 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
         )
         self.assertEqual(
             observed["brain_payload"],
-            "",
+            FOLLOW_UP_TICK_BODY_MESSAGE,
         )
+        self.assertEqual(
+            state.visible_response_context["user_prompt"],
+            FOLLOW_UP_TICK_BODY_MESSAGE,
+        )
+        self.assertEqual(state.user_input, "создай новый lt факт")
         self.assertNotIn(
             "action_user_message",
             observed,
@@ -1924,7 +1852,7 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
 
         async def fake_run_brain_stream(**kwargs):
             context = kwargs["context"]
-            context.runtime_turn_reasoning_content = (
+            context.runtime_previous_reasoning_content = (
                 "reasoning from this ordinary chat"
             )
             return (
@@ -2002,12 +1930,12 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
                     system_prompt,
                 )
                 self.assertIn(
-                    "<PREVIOUS_REASONING_LOOP_CONTENT>",
+                    "<PREVIOUS_REASONING_EVIDENCE_TRAIL_AFTER_EXECUTED_ACTIONS>",
                     system_prompt,
                 )
                 self.assertEqual(
                     system_prompt.count(
-                        "<PREVIOUS_REASONING_LOOP_CONTENT>"
+                        "<PREVIOUS_REASONING_EVIDENCE_TRAIL_AFTER_EXECUTED_ACTIONS>"
                     ),
                     1,
                 )
@@ -2041,7 +1969,7 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
                 )
                 self.assertEqual(
                     system_prompt.count(
-                        "<PREVIOUS_REASONING_LOOP_CONTENT>"
+                        "<PREVIOUS_REASONING_EVIDENCE_TRAIL_AFTER_EXECUTED_ACTIONS>"
                     ),
                     1,
                 )
@@ -2083,7 +2011,6 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
         context.runtime_context_limit_kind = ""
         context.runtime_context_limit_finish_reason = ""
         context.runtime_previous_reasoning_content = ""
-        context.runtime_previous_reasoning_loop_contents = []
         context.runtime_memory = ""
         context.deep_thought_count = 0
         state = AgentState(
@@ -2123,10 +2050,6 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(
             context.runtime_previous_reasoning_content,
             "final successful reasoning",
-        )
-        self.assertEqual(
-            context.runtime_previous_reasoning_loop_contents,
-            [],
         )
 
     async def test_asset_operation_result_is_returned_to_model_before_visible_response(self):

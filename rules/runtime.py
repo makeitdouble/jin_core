@@ -27,6 +27,8 @@ ACTION_FAILURE_FOLLOWUP_MESSAGE = (
     "Inspect the error in TOOLS_RESULTS and continue from the failed result."
 )
 
+FOLLOW_UP_TICK_BODY_MESSAGE = "<system_follow_up_tick>"
+
 FOLLOW_UP_RESPONSE_MESSAGE = (
     "!!! YOU MUST USE DEEP REASONING! !!!\n"
     "!!! USER DIDN'T SEND NEW MESSAGE! !!!\n"

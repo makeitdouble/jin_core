@@ -4560,17 +4560,22 @@ function renderContextToolResultsBody(parent, content) {
   resultBlocks.forEach((block) => {
     const toolId = getContextAttributeValue(block.attributes, "tool_id");
     const toolName = getContextAttributeValue(block.attributes, "name");
+    const compactedSummary = decodeContextEntities(
+      getContextAttributeValue(block.attributes, "summary")
+    );
     const attributes = block.attributes.filter((attribute) => (
       !String(attribute || "").startsWith("tool_id=")
       && !String(attribute || "").startsWith("name=")
+      && !String(attribute || "").startsWith("summary=")
     ));
     const fileSuffix = contextToolResultFileTitleSuffix(
       block.content,
       toolName
     );
-    const displayToolName = fileSuffix
+    const displayToolName = compactedSummary
+      || (fileSuffix
       ? `${toolName || "TOOL_RESULT"}: ${fileSuffix}`
-      : (toolName || "TOOL_RESULT");
+      : (toolName || "TOOL_RESULT"));
     const title = [toolId, displayToolName]
       .filter(Boolean)
       .join(" · ");
@@ -4598,17 +4603,22 @@ function appendContextToolResultCard(
     getContextAttributeValue(block.attributes, "tool_id");
   const toolName =
     getContextAttributeValue(block.attributes, "name");
+  const compactedSummary = decodeContextEntities(
+    getContextAttributeValue(block.attributes, "summary")
+  );
   const attributes = block.attributes.filter((attribute) => (
     !String(attribute || "").startsWith("tool_id=")
     && !String(attribute || "").startsWith("name=")
+    && !String(attribute || "").startsWith("summary=")
   ));
   const fileSuffix = contextToolResultFileTitleSuffix(
     block.content,
     toolName
   );
-  const displayToolName = fileSuffix
+  const displayToolName = compactedSummary
+    || (fileSuffix
     ? `${toolName || "TOOL_RESULT"}: ${fileSuffix}`
-    : (toolName || "TOOL_RESULT");
+    : (toolName || "TOOL_RESULT"));
   const title = [toolId, displayToolName]
     .filter(Boolean)
     .join(" · ");

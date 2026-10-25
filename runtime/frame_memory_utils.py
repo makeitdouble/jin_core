@@ -2601,17 +2601,7 @@ def build_runtime_session_checkpoint(
         ]
 
     reasoning = str(
-        getattr(
-            context,
-            "runtime_turn_reasoning_content",
-            "",
-        )
-        or getattr(
-            context,
-            "runtime_previous_reasoning_content",
-            "",
-        )
-        or ""
+        getattr(context, "runtime_previous_reasoning_content", "") or ""
     ).strip()
 
     loaded_memory_ids = [
@@ -2730,7 +2720,7 @@ def build_runtime_session_checkpoint(
             restored_item["id"] = result_id
         if item.get("tool_id"):
             restored_item["tool_id"] = item["tool_id"]
-        for key in ("action_name", "action_payload", "absorbed_by", "reused_from"):
+        for key in ("action_name", "action_payload", "absorbed_by", "reused_from", "asset_request_key"):
             if key in item:
                 restored_item[key] = item[key]
 

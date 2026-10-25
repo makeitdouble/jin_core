@@ -114,6 +114,7 @@ def mark_runtime_action_started(
         text: str = "",
         payload: str = "",
         detail: str = "",
+        scene_effect: str = "",
         close_tag: bool | None = None,
         context_snapshot: dict | None = None,
 ) -> dict | None:
@@ -188,6 +189,13 @@ def mark_runtime_action_started(
     ).strip()
     if normalized_detail:
         record["detail"] = normalized_detail
+
+    normalized_scene_effect = str(
+        scene_effect
+        or ""
+    ).strip().lower()
+    if normalized_scene_effect:
+        record["scene_effect"] = normalized_scene_effect
 
     if runtime_turn_id:
         record["runtime_turn_id"] = runtime_turn_id
@@ -445,6 +453,8 @@ async def abort_active_runtime_actions(
             event["id"] = action_id
         if runtime_turn_id:
             event["runtime_turn_id"] = runtime_turn_id
+        if record.get("scene_effect"):
+            event["scene_effect"] = record["scene_effect"]
 
         runtime_events.append(
             event
@@ -486,6 +496,8 @@ async def abort_active_runtime_actions(
                 payload["detail"] = record.get("detail")
             if record.get("payload"):
                 payload["payload"] = record.get("payload")
+            if record.get("scene_effect"):
+                payload["scene_effect"] = record["scene_effect"]
             if isinstance(
                 record.get("context"),
                 dict,

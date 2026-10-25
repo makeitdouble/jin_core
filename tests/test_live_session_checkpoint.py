@@ -16,8 +16,7 @@ class LiveSessionCheckpointTests(unittest.TestCase):
                 {"user": "u3", "jin": "j3"},
                 {"user": "u4", "jin": "j4"},
             ],
-            runtime_turn_reasoning_content="latest reasoning",
-            runtime_previous_reasoning_content="older reasoning",
+            runtime_previous_reasoning_content="latest reasoning",
             runtime_session_action_history=[
                 {"text": "action"},
             ],

@@ -1037,7 +1037,6 @@ def discard_latest_visible_turn_for_user_retry(
     # re-injected beside the explicit retry marker.
     context.runtime_previous_reasoning_content = ""
     context.runtime_previous_reasoning_from_session_restore = False
-    context.runtime_previous_reasoning_loop_contents = []
 
     return previous_turn
 
@@ -1400,7 +1399,6 @@ async def process_message(
         context.runtime_turn_assistant_response = ""
         context.runtime_current_sequence_jin_messages = []
         context.runtime_turn_reasoning_log_path = ""
-        context.runtime_turn_reasoning_content = ""
         context.runtime_active_action_markers = []
         context.runtime_turn_aborted_actions = []
         context.runtime_turn_abort_requested = False
@@ -1536,7 +1534,7 @@ async def process_message(
                 context,
                 getattr(
                     context,
-                    "runtime_turn_reasoning_content",
+                    "runtime_previous_reasoning_content",
                     "",
                 ),
             )
@@ -1613,7 +1611,7 @@ async def process_message(
                 assistant_message=assistant_message,
                 reasoning=getattr(
                     context,
-                    "runtime_turn_reasoning_content",
+                    "runtime_previous_reasoning_content",
                     "",
                 ),
                 attachments=getattr(
@@ -1643,7 +1641,7 @@ async def process_message(
                     context,
                     getattr(
                         context,
-                        "runtime_turn_reasoning_content",
+                        "runtime_previous_reasoning_content",
                         "",
                     ),
                     assistant_message,
@@ -1734,7 +1732,7 @@ async def process_message(
                 context,
                 getattr(
                     context,
-                    "runtime_turn_reasoning_content",
+                    "runtime_previous_reasoning_content",
                     "",
                 ),
             )
@@ -1747,7 +1745,7 @@ async def process_message(
                 context,
                 getattr(
                     context,
-                    "runtime_turn_reasoning_content",
+                    "runtime_previous_reasoning_content",
                     "",
                 ),
             )
@@ -1815,7 +1813,7 @@ async def process_message(
                 user_message=user_text,
                 reasoning=getattr(
                     context,
-                    "runtime_turn_reasoning_content",
+                    "runtime_previous_reasoning_content",
                     "",
                 ),
                 attachments=getattr(
@@ -1883,7 +1881,7 @@ async def process_message(
                     await logger.log_system("[CHAT_LOG] interrupted heartbeat save failed: " + str(error))
                 append_runtime_recent_turn(
                     context, user_message="", assistant_message=partial,
-                    reasoning=getattr(context, "runtime_turn_reasoning_content", ""),
+                    reasoning=getattr(context, "runtime_previous_reasoning_content", ""),
                     assistant_created_at=time.time(),
                 )
         from utils.actions.jin_instance_actions import interrupt_instance_group, self_fork_phase
@@ -1896,7 +1894,7 @@ async def process_message(
             try:
                 save_turn_reasoning(
                     context,
-                    getattr(context, "runtime_turn_reasoning_content", ""),
+                    getattr(context, "runtime_previous_reasoning_content", ""),
                 )
             except Exception as error:
                 await logger.log_system(

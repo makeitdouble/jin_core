@@ -100,7 +100,7 @@ class BrainPromptMemoryTests(
                 prompt.split("<FRAME_MEMORY_0", 1)[1].split(">", 1)[0],
             )
 
-    def test_frame_memory_number_matches_ui_and_chat_sits_directly_above_it(self):
+    def test_frame_memory_number_matches_ui_and_chat_follows_identity(self):
 
             context = RuntimeContext(
                 websocket=object(),
@@ -137,13 +137,8 @@ class BrainPromptMemoryTests(
                 ),
                 prompt,
             )
-            self.assertIn(
-                (
-                    "</FRAME_MEMORY_5>\n"
-                    '<PREVIOUS_CHAT_MESSAGES>'
-                ),
-                prompt,
-            )
+            self.assertLess(prompt.index("</FRAME_MEMORY_5>"), prompt.index("I identify as JIN"))
+            self.assertLess(prompt.index("I identify as JIN"), prompt.index("<PREVIOUS_CHAT_MESSAGES>"))
             self.assertNotIn(
                 'ts="',
                 prompt.split("<FRAME_MEMORY_5", 1)[1].split(">", 1)[0],
@@ -358,7 +353,7 @@ class BrainPromptMemoryTests(
                 prompt,
             )
 
-    def test_brain_prompt_places_session_actions_directly_after_tool_results(self):
+    def test_brain_prompt_places_session_actions_before_tool_results(self):
 
             context = SimpleNamespace(
                 runtime_memory="",
@@ -409,8 +404,8 @@ class BrainPromptMemoryTests(
                 prompt.index("<TOOLS_RESULTS>"),
             )
             self.assertLess(
-                prompt.index("</TOOLS_RESULTS>"),
-                prompt.index("<SESSION_ACTIONS_HISTORY>"),
+                prompt.index("</SESSION_ACTIONS_HISTORY>"),
+                prompt.index("<TOOLS_RESULTS>"),
             )
             self.assertLess(
                 prompt.index("</SESSION_ACTIONS_HISTORY>"),
@@ -484,8 +479,8 @@ class BrainPromptMemoryTests(
                 prompt.index("<PREVIOUS_REASONING_EVIDENCE_TRAIL_AFTER_EXECUTED_ACTIONS>"),
             )
             self.assertLess(
-                prompt.index("</PREVIOUS_REASONING_EVIDENCE_TRAIL_AFTER_EXECUTED_ACTIONS>"),
                 prompt.index("I identify as JIN"),
+                prompt.index("<PREVIOUS_REASONING_EVIDENCE_TRAIL_AFTER_EXECUTED_ACTIONS>"),
             )
 
     def test_previous_reasoning_block_is_omitted_when_empty(self):
@@ -595,43 +590,15 @@ class BrainPromptMemoryTests(
                 + 1000,
             )
 
-    def test_previous_reasoning_context_can_include_turn_reasoning_uncropped(self):
-
-            reasoning = (
-                "turn opening "
-                + "m" * (
-                    PREVIOUS_REASONING_CONTEXT_MIN_CROP_CHARS
-                    + 500
-                )
-                + " turn ending"
-            )
-            prompt = build_previous_reasoning_context(
-                SimpleNamespace(
-                    runtime_previous_reasoning_content=(
-                        "previous & private"
-                    ),
-                    runtime_turn_reasoning_content=reasoning,
-                ),
-                include_turn_reasoning=True,
-                crop=False,
-            )
-
-            self.assertIn(
-                "previous &amp; private",
-                prompt,
-            )
-            self.assertIn(
-                "turn opening",
-                prompt,
-            )
-            self.assertIn(
-                "turn ending",
-                prompt,
-            )
-            self.assertNotIn(
-                "---------------------------- CUTTED ",
-                prompt,
-            )
+    def test_previous_reasoning_slot_is_uncropped_when_requested(self):
+        reasoning = "latest opening " + "m" * (PREVIOUS_REASONING_CONTEXT_MIN_CROP_CHARS + 500) + " latest ending"
+        prompt = build_previous_reasoning_context(
+            SimpleNamespace(runtime_previous_reasoning_content=reasoning),
+            crop=False,
+        )
+        self.assertIn("latest opening", prompt)
+        self.assertIn("latest ending", prompt)
+        self.assertNotIn("CUTTED", prompt)
 
     def test_previous_reasoning_can_be_excluded_for_followup_ticks(self):
 
@@ -669,67 +636,21 @@ class BrainPromptMemoryTests(
                 },
             )
 
-            self.assertNotIn(
+            self.assertIn(
                 "<PREVIOUS_REASONING_EVIDENCE_TRAIL_AFTER_EXECUTED_ACTIONS>",
                 guarded_prompt,
             )
 
-    def test_previous_reasoning_loop_blocks_render_in_existing_slot(self):
+    def test_recovery_uses_only_latest_reasoning_in_standard_slot(self):
+        context = SimpleNamespace(
+            runtime_previous_reasoning_content="latest failed reasoning",
+            runtime_reasoning_recovery_pending=True,
+        )
+        prompt = build_brain_context(context, include_runtime_action_instructions=False)
+        self.assertEqual(prompt.count("<PREVIOUS_REASONING_EVIDENCE_TRAIL_AFTER_EXECUTED_ACTIONS>"), 1)
+        self.assertIn("latest failed reasoning", prompt)
+        self.assertNotIn("<PREVIOUS_REASONING_LOOP_CONTENT>", prompt)
 
-            context = SimpleNamespace(
-                runtime_memory="",
-                deep_thought_count=0,
-                runtime_search_result="",
-                runtime_search_result_id="",
-                runtime_session_action_history=[
-                    {
-                        "text": "output token limit reached during reasoning",
-                    },
-                ],
-                runtime_previous_reasoning_content="ordinary reasoning",
-                runtime_previous_reasoning_loop_contents=[
-                    (
-                        "loop one opening "
-                        + "m" * 1200
-                        + " loop one ending"
-                    ),
-                    "loop two short",
-                ],
-            )
-
-            prompt = build_brain_context(
-                context=context,
-                runtime_actions={
-                    "CAN_WEB_SEARCH": False,
-                },
-                include_runtime_action_instructions=False,
-                include_previous_reasoning=False,
-            )
-
-            self.assertEqual(
-                prompt.count("<PREVIOUS_REASONING_LOOP_CONTENT>"),
-                1,
-            )
-            self.assertNotIn(
-                "loop one opening",
-                prompt,
-            )
-            self.assertIn(
-                "loop two short",
-                prompt,
-            )
-            self.assertNotIn(
-                "ordinary reasoning",
-                prompt,
-            )
-            self.assertLess(
-                prompt.index("</SESSION_ACTIONS_HISTORY>"),
-                prompt.index("<PREVIOUS_REASONING_LOOP_CONTENT>"),
-            )
-            self.assertLess(
-                prompt.rindex("</PREVIOUS_REASONING_LOOP_CONTENT>"),
-                prompt.index("I identify as JIN"),
-            )
 
     def test_current_action_age_starts_at_one_second(self):
 
@@ -1276,10 +1197,8 @@ class BrainPromptMemoryTests(
                 prompt.index("<TOOLS_RESULTS>"),
             )
             self.assertLess(
-                prompt.index("</TOOLS_RESULTS>"),
-                prompt.index(
-                    "<LATEST_USER_FEEDBACK priority=HIGH_PRIORITY>"
-                ),
+                prompt.index("<LATEST_USER_FEEDBACK priority=HIGH_PRIORITY>"),
+                prompt.index("<TOOLS_RESULTS>"),
             )
             self.assertLess(
                 prompt.index("<LATEST_USER_FEEDBACK priority=HIGH_PRIORITY>"),

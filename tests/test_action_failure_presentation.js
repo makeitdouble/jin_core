@@ -10,9 +10,11 @@ const trace = fs.readFileSync(path.join(root, 'logger/trace-modal.js'), 'utf8');
 const socket = fs.readFileSync(path.join(root, 'socket/runtime-actions.js'), 'utf8');
 const label = 'ATTACH_FILE_CONTENT: jin_core/agent/nodes/brain.py - failed: no project folder attached by user';
 const body = 'Action: attach_file_content\nFile: jin_core/agent/nodes/brain.py\nStatus: failed\nReason: no project folder attached by user\nCorrect action schema:\n<ATTACH_FILE_CONTENT: file_id >';
+let parsedBody = body;
+let parsedAttributes = ['tool_id=T8', 'name=ATTACH_FILE_CONTENT'];
 const context = vm.createContext({
   decodeContextEntities: x => x,
-  parseContextBlocks: () => [{title: 'TOOL_RESULT', attributes: ['tool_id=T8', 'name=ATTACH_FILE_CONTENT'], content: body}],
+  parseContextBlocks: () => [{title: 'TOOL_RESULT', attributes: parsedAttributes, content: parsedBody}],
   getContextAttributeValue: (attrs, key) => attrs.find(a => a.startsWith(key + '='))?.split('=')[1],
   contextElement: () => ({children: [], appendChild(n) {this.children.push(n);}}),
   appendContextCard: (parent, card) => parent.appendChild(card),
@@ -21,7 +23,13 @@ vm.runInContext(extract(trace, 'contextToolResultFileTitleSuffix', 'setContextCa
 const parent = {children: [], appendChild(n) {this.children.push(n);}};
 context.renderContextToolResultsBody(parent, body);
 assert.equal(parent.children[0].children[0].title, 'T8 · ' + label);
+parsedBody = '';
+parsedAttributes = ['tool_id=T8', 'name=ATTACH_FILE_CONTENT', `summary=${label}`];
+const compactedParent = {children: [], appendChild(n) {this.children.push(n);}};
+context.renderContextToolResultsBody(compactedParent, '');
+assert.equal(compactedParent.children[0].children[0].title, 'T8 · ' + label);
+assert.equal(compactedParent.children[0].children[0].content, '');
 vm.runInContext(extract(socket, 'buildRuntimeActionDisplayText', 'shouldUseDeepResearchStartedDisplayNameOnly'), context);
 assert.equal(context.buildRuntimeActionDisplayText({}, 'attach_file_content', label), label);
 assert.equal(context.contextToolResultFileTitleSuffix('File: root/a.py\nFile lines: 1-20 of 100 lines', 'ATTACH_FILE_CONTENT'), 'root/a.py#1-20');
-console.log('PASS: rendered tool card title and bubble text agree; successful range labels preserved');
+console.log('PASS: rendered tool card title survives compacted body; bubble and range labels preserved');

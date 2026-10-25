@@ -32,11 +32,11 @@ class AttachFileByPathTests(unittest.TestCase):
         actions = extract_runtime_actions('<ASSET_ACTION>' + json.dumps({'action': ACTION, 'paths': payload.split(', ')}) + '</ASSET_ACTION>', enabled_actions=['ASSET_ACTION']).actions
         self.assertTrue(actions)
         start = len(self.context.runtime_session_action_history)
-        before = len(self.context.runtime_tool_results)
+        before = {e['tool_id'] for e in self.context.runtime_tool_results}
         with patch('utils.actions.dispatcher.ensure_assets_tree'), patch('utils.chat_log.append_chat_runtime_event'):
             asyncio.run(apply_runtime_action_calls(self.context, actions, runtime_message_id=message))
         upsert_session_action_marker_history_since(self.context, start, [{'name': a.name, 'payload': a.payload} for a in actions])
-        return [e['result'] for e in self.context.runtime_tool_results[before:]]
+        return [e['result'] for e in self.context.runtime_tool_results if e['tool_id'] not in before]
 
     def pair(self, number):
         (self.project / f'Photo_{number}.PNG').write_bytes(PNG)

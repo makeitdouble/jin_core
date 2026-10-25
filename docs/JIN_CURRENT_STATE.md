@@ -29,13 +29,14 @@ Current high-signal state:
 - pinned outgoing files appear as composer attachment chips; click previews, hold detaches from context without deleting the persistent file.
 - Brain recent-message context is adjacent to `<FRAME_MEMORY_N>` and keeps the newest five pairs in full, with newline/XML normalization but no per-message character crop;
 - ordinary Brain turns include the previous successful reasoning block with explicit middle-crop semantics, while follow-ups keep their dedicated reasoning context;
+- empty action/recovery follow-up provider USER bodies use the internal `<system_follow_up_tick>` sentinel without creating a conversation USER move;
 - reload/new-tab continuity is disk-owned (JSONL/runtime events plus saved `frames/` snapshots). Browser cognitive records are page-local projections only: `jin.liveRuntimeMemory.v2` is cleared at page load and the retired durable `jin.sessionCheckpoint.v2` browser value is removed before bootstrap;
 - Session CLEAR is a durable tombstone that blocks passive resurrection across already-open tabs until a new USER message is successfully sent;
 - `SAVE_SESSION` is not a current runtime-action contract; archived-session restore is handled by the bootstrap/restore path;
 - the current action set includes `JIN_REACTION`, internal `RECALL_FACT_CONTEXT`, `CHAT_LOG_SEARCH`, generic skill-gated `CALL_MCP`, and the single `ATTACH_FILE_CONTENT` attachment marker; whole-file BY_ID/BY_PATH are ASSET_ACTION operations; fact recall, delayed-memory loading, Active deletion, skill loading, and skill unloading use paired list markers;
 - runtime actions execute in exact model-emitted source order (`prepare -> run` per call); `runtime_order` only orders advertised contracts, and the former visual-sequence collector/stage path is absent;
 - `BRAIN_MAX_FOLLOWUPS=0` is unlimited; positive values cap executable workflow ticks and then allow one final response tick with actions disabled. Malformed output gets at most one separate repair tick outside that budget;
-- `<CONCERNS>` is omitted when empty; at 50%+ previous-answer context usage it shows the live percentage, and if tool results are present it explicitly recommends cleaning redundant results;
+- `CONCERNS` and its generation logic are removed (owner update 2026-10-25); independent `CONTEXT_MAINTENANCE` remains;
 - bubble skins are `dark`, `light`, and `bamboo`, with dark/light following normal/Win95 theme defaults unless a non-default skin is explicitly pinned;
 - Live Avatar scaffold circles/rays now mirror the context-pressure color, ray peak opacity scales approximately 0.10 -> 0.70 over a 30-second fade-to-zero breathing cycle, and center hide includes the file ring before switching hidden layers to dormant mode after the fade.
 
@@ -293,17 +294,17 @@ Do not “finish the migration” by replacing the internal storage shape in an 
 
 Current `build_brain_context()` order is intentionally structured. Important anchors:
 
-- ordinary turns put `RUNTIME_SETTINGS` first when non-empty, then optional `CONCERNS` and trusted runtime XML; the former user-waiting and separate context-usage prompt blocks are removed;
-- at 50%+ previous-answer context usage, `CONCERNS` shows the percentage; with nonempty tool results it appends `check and clean redundant tool results`;
+- ordinary turns put `RUNTIME_SETTINGS` first when non-empty, then trusted runtime XML; the former user-waiting and separate context-usage prompt blocks are removed;
+- the legacy 50% previous-answer warning and resource-count concern builder are removed;
 - tool results precede Session Actions, attached-file/Delayed inventories, and the always-present `SKILLS_LIST`; loaded skill bodies are part of the tool-results projection rather than a second independent prompt section;
-- the runtime-context group orders Active Memory before FRAME, and `<PREVIOUS_CHAT_MESSAGES>` immediately after `<FRAME_MEMORY_N>`; loaded Delayed/L-T follow later in the same group;
+- the runtime-context group orders Active Memory before FRAME, and moves `<PREVIOUS_CHAT_MESSAGES>` to the tail after identity; loaded Delayed/L-T follow later in the same group;
 - ordinary `<PREVIOUS_CHAT_MESSAGES>` keeps the newest five pairs without per-message character cropping; physical newlines become literal `\n` and XML-sensitive characters are escaped;
 - ordinary initial turns include previous successful reasoning in `<PREVIOUS_REASONING_EVIDENCE_TRAIL_AFTER_EXECUTED_ACTIONS>`; blocks over 2000 characters keep the first and last 25% with an explicit middle-cut marker;
-- archived restore priming instead begins with inherited `<PREVIOUS_CHAT_MESSAGES>`, then carried reasoning evidence, then `<MANDATORY_SYSTEM_NOTIFICATION>`; `RUNTIME_SETTINGS` and the normal live scaffolding come after that continuity preamble;
-- action/recovery follow-ups likewise move visible dialogue and carried reasoning ahead of `<FOLLOW_UP_RESPONSE_MESSAGE>`, then append failure/recovery/action history/current concerns/tool results and the base prompt without duplicating those continuity blocks;
+- archived restore priming begins with `<MANDATORY_SYSTEM_NOTIFICATION>`; inherited dialogue and reasoning follow identity, before tool results;
+- action/recovery follow-ups start with their notification and failure/recovery/action history; the base prompt ends in identity, dialogue, carried reasoning and tool results without duplicate continuity blocks;
 - action contracts remain present even on restore ticks, subject to effective capability filtering;
 - `WEB_SEARCH` disappears when `settings.CAN_SEARCH` is false; `DEEP_RESEARCH` remains available but cannot execute worker-requested web queries;
-- identity and loop rules remain at the bottom of the base prompt.
+- loop rules precede identity; identity is followed by dialogue, reasoning evidence and tool results.
 
 Any prompt-order change can alter behavior materially. Do not reorder sections for aesthetics.
 
@@ -341,7 +342,7 @@ Verified behavior:
 
 - archived visible dialogue is rebuilt from logs;
 - the newest five real USER moves are used for the restore context in chronological order, with empty JIN retained where the turn was interrupted/action-only;
-- no separate restore-reasoning dump is generated; the hidden bootstrap prompt instead carries the prior reasoning through `<PREVIOUS_REASONING_EVIDENCE_TRAIL_AFTER_EXECUTED_ACTIONS>` after `<PREVIOUS_CHAT_MESSAGES>` and before the mandatory automatic-restore notification;
+- no separate restore-reasoning dump is generated; the hidden bootstrap prompt instead carries the prior reasoning through `<PREVIOUS_REASONING_EVIDENCE_TRAIL_AFTER_EXECUTED_ACTIONS>` after `<PREVIOUS_CHAT_MESSAGES>` in the tail after identity;
 - loaded Delayed IDs and attached files are staged; room/avatar state is restored by bootstrap and is not replayed as runtime actions;
 - restore Brain response occurs before normal resource reactivation;
 - `BrainNode.replay_session_restore_resource_actions()` consumes the staged Delayed/file envelope and applies only those resources through the real action dispatcher;
@@ -732,6 +733,13 @@ The dataset skill in this checkout is assets/skills/dataset_captioning.md, not t
 
 Directory Link skill: `assets/skills/directory_link.txt` replaces the former `project.txt`. When the user links a real local folder, prompt assembly projects this skill automatically into `<TOOLS_RESULTS>`, and `<SKILLS_LIST>` marks it loaded. `project_tree`/`project_search` therefore work immediately without a `LOAD_SKILL` action; `project_read` continues to require `file_manager`. Implicit loading is recomputed from live folder links on every prompt/action and never persists as a synthetic tool result, so unlinking removes the skill. Unlinked JIN source-root access continues to require a manual directory_link load.
 
+Attachment-result compaction: when a later model message executes
+`ATTACH_FILE_CONTENT`, `ATTACH_FILE_BY_ID`, or `ATTACH_FILE_BY_PATH`, older
+attachment Tool Results keep their `T*` identity and one-line outcome but lose
+their detailed success/failure bodies. Results produced within the same model
+message remain grouped and fully available, so files needed together must be
+requested together. The compacted representation survives checkpoint/bootstrap.
+
 
 ## Surviving-page backend restart (2026-10-16)
 
@@ -758,7 +766,7 @@ in-process threshold state covers ordinary turns, child-instance ticks and the
 parent return; native preflight failure/abandoned preparation does not consume
 a threshold. Empty visible results suppress it. Largest/oldest hints intersect
 visible blocks with canonical removable tool IDs, excluding implicit skills.
-The existing CONCERNS warning remains by explicit owner choice. Exact downward
+The earlier choice to retain CONCERNS was superseded by its removal on 2026-10-25. Exact downward
 boundary rearming follows the owner-approved 93 -> 85 -> 87 example. No action,
 follow-up-budget, persistence or automatic cleanup mechanism was added.
 
@@ -767,7 +775,7 @@ Implementation files: `rules/runtime.py`, `utils/current_context_window.py`,
 `clients/brain_client.py`, `agent/nodes/brain.py`, `config.example.py`, and
 `ui/static/js/logger/trace-modal.js`. Tests: `tests/test_context_maintenance.py`
 and `tests/test_context_snapshot_tabs.js`. The architecture and decisions docs
-record the request-boundary projection and retained legacy concerns behavior.
+record the request-boundary projection; legacy concerns generation is now removed.
 
 Verification: 145 targeted Python tests passed across maintenance, current
 window, L-T budget, overflow/follow-up continuity, result IDs/checkpoints,
@@ -972,3 +980,33 @@ ASSET_ACTION/skills/follow-ups, attachments, heartbeat, bootstrap, reconnect,
 soft restart and anonymous isolation. Python compilation, JavaScript syntax and
 `git diff --check` pass. The configured token is absent from tracked files and
 the local `.env` remains ignored. No live Telegram or model request was made.
+
+## Prompt tail and CONCERNS removal (2026-10-25)
+
+Ordinary, archive-priming and follow-up prompts now place identity immediately
+before optional previous dialogue, optional carried reasoning evidence, and
+TOOLS_RESULTS. Loop guidance precedes identity. Follow-up/restore notifications
+remain at the front. The concerns builder and its counters are deleted; the
+legacy reader only strips obsolete concern blocks from saved prompts.
+
+Verification: 222 unique targeted tests passed using project-venv unittest,
+including six function-style session-continuity tests run with FunctionTestCase.
+Coverage includes prompt order, repeated follow-ups, restore, full recent-message
+text, reasoning crop/suppression, action flows, project review, overflow and
+independent context maintenance. One existing action-list expectation fails:
+`test_agent_runtime_action_flags_follow_assembler_constants` expects standalone
+ATTACH_FILE_BY_ID/BY_PATH and omits SET_HEARTBEAT_TICK_SPEED. Its assertion,
+expected-list function, runtime flags and enabled-action selector are unchanged
+from HEAD. Compilation and git diff --check passed. No live provider run or
+full-suite green claim.
+
+
+### Attachment cleanup lifecycle — owner update 2026-10-25
+
+Each new attachment-bearing model message ages earlier attachment results and
+successful `create_asset_file` / `append_asset_file` receipts once: first remove
+the body and retain the tool ID plus outcome header, then remove that empty
+header on the next attachment-bearing message. Multiple attaches in the same
+message do not age results again. Failed writes and unrelated results retain
+their existing lifetime. Cleanup persists the remaining tool inventory through
+the existing disk checkpoint path. This replaces indefinite compact-header retention.

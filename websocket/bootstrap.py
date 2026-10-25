@@ -218,7 +218,6 @@ def discard_session_restore_continuation_state(
 
     if imported_reasoning:
         context.runtime_previous_reasoning_content = ""
-        context.runtime_previous_reasoning_loop_contents = []
 
     context.runtime_previous_reasoning_from_session_restore = False
 
@@ -499,7 +498,6 @@ def apply_archived_session_continuation_state(
     # An explicit empty checkpoint also clears older imported reasoning.
     if "previous_reasoning" in message_data:
         context.runtime_previous_reasoning_content = previous_reasoning
-        context.runtime_previous_reasoning_loop_contents = []
         context.runtime_previous_reasoning_from_session_restore = bool(
             previous_reasoning
         )
@@ -1482,7 +1480,7 @@ def clean_bootstrap_tool_results(value) -> tuple[list[dict], list]:
         if re.fullmatch(r"T[1-9][0-9]*", tool_id):
             item["tool_id"] = tool_id
         # SUB_T* are temporary even if their ownership metadata was lost.
-        for key in ("action_name", "action_payload", "absorbed_by", "reused_from"):
+        for key in ("action_name", "action_payload", "absorbed_by", "reused_from", "asset_request_key"):
             if isinstance(raw_item.get(key), str):
                 item[key] = raw_item[key]
 

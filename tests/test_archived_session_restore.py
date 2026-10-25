@@ -1356,13 +1356,14 @@ open_question: continue
             )
 
         self.assertTrue(
-            prompt.startswith("<PREVIOUS_CHAT_MESSAGES>")
+            prompt.startswith("<MANDATORY_SYSTEM_NOTIFICATION>")
         )
         old_session_pos = prompt.index("<PREVIOUS_CHAT_MESSAGES>")
         mandatory_pos = prompt.index("<MANDATORY_SYSTEM_NOTIFICATION>")
-        concerns_pos = prompt.index("<CONCERNS>")
-        self.assertLess(old_session_pos, mandatory_pos)
-        self.assertLess(mandatory_pos, concerns_pos)
+        identity_pos = prompt.index("I identify as JIN")
+        self.assertLess(mandatory_pos, identity_pos)
+        self.assertLess(identity_pos, old_session_pos)
+        self.assertNotIn("<CONCERNS>", prompt)
         self.assertIn("EXACT OLD FLOW", prompt)
         self.assertNotIn("RAW REASONING", prompt)
         self.assertNotIn("RESTORED_SESSION_REASONING_DUMP", prompt)

@@ -206,29 +206,27 @@ The runtime status modal is also the current model-switch surface. For an availa
 
 `rules/brain_context_builder.py::build_brain_context()` is the authoritative prompt assembly path.
 
-The current high-level order differs slightly between an ordinary user turn and archived-restore priming.
-
 Ordinary turn:
 
-1. optional `<RUNTIME_SETTINGS>` — first live-settings block when non-empty;
-2. optional `<CONCERNS>`; it is omitted when empty, and from 50% previous-answer context usage it includes the percentage and can ask Brain to clean redundant tool results;
-3. trusted runtime XML / enabled actions;
-4. optional project-review context;
-5. `TOOLS_RESULTS` — this is also where loaded skill bodies are projected; a user-linked folder implicitly projects `directory_link` each turn without an action/result record, and detaching removes it;
-6. session action history;
-7. attached-files inventory, then Delayed Memory inventory;
-8. always-present `<SKILLS_LIST>` availability/loaded-state inventory;
-9. runtime-context group: explicit feedback/retry, Active Memory, current `<FRAME_MEMORY_N ...>` snapshot, then `<PREVIOUS_CHAT_MESSAGES>`, visible session counters, loaded Delayed Memory bodies, L-T facts, and any zero-diff alert;
-10. previous reasoning evidence/loop block when applicable;
-11. runtime-action instructions assembled from current contracts;
-12. identity block;
-13. turn/loop rules.
+1. optional `<RUNTIME_SETTINGS>`;
+2. trusted runtime XML / enabled actions;
+3. optional project-review context;
+4. session action history;
+5. attached-files inventory, then Delayed Memory inventory;
+6. always-present `<SKILLS_LIST>` availability/loaded-state inventory;
+7. runtime-context group: explicit feedback/retry, Active Memory, current FRAME snapshot, visible session counters, loaded Delayed Memory bodies, L-T facts, and any zero-diff alert;
+8. previous reasoning loop block when applicable;
+9. runtime-action instructions and turn/loop rules;
+10. identity;
+11. `<PREVIOUS_CHAT_MESSAGES>` when present;
+12. `<PREVIOUS_REASONING_EVIDENCE_TRAIL_AFTER_EXECUTED_ACTIONS>` when present;
+13. `<TOOLS_RESULTS>` (including loaded skills and implicit `directory_link`).
 
-Archived restore priming deliberately moves continuity to the absolute front: inherited `<PREVIOUS_CHAT_MESSAGES>` first, then `<PREVIOUS_REASONING_EVIDENCE_TRAIL_AFTER_EXECUTED_ACTIONS>` when available, then `<MANDATORY_SYSTEM_NOTIFICATION>`. `<RUNTIME_SETTINGS>` follows that restore preamble, after which the normal concerns/runtime/tool/action scaffolding continues. Restore resource metadata replaces the ordinary attached-file/Delayed inventories, and the ordinary previous-reasoning slot is suppressed because reasoning evidence was already projected at the front.
+Archived restore starts with `<MANDATORY_SYSTEM_NOTIFICATION>` before the live settings/scaffolding. Its inherited dialogue and reasoning use the same tail after identity. Restore resource metadata still replaces ordinary attached-file/Delayed inventories. Action/recovery follow-ups start with their follow-up notification and recovery/failure/action-history blocks, then the base prompt through identity, followed by freshly projected dialogue, carried reasoning, and tool results. Each tail block is emitted once, including on repeated follow-ups. `CONCERNS` and its generation/counting logic are removed by owner request (2026-10-25); old saved concern blocks are only stripped by the compatibility reader.
 
 On ordinary turns, `<PREVIOUS_CHAT_MESSAGES>` takes the newest five recent USER/JIN pairs. The bound is pair count only: selected message bodies are not character-cropped. CRLF/CR is normalized, physical newlines are serialized as literal `\n`, surrounding whitespace is stripped, and XML-sensitive characters are escaped without removing the remaining text.
 
-The ordinary initial Brain prompt also includes the previous successfully completed reasoning in `<PREVIOUS_REASONING_EVIDENCE_TRAIL_AFTER_EXECUTED_ACTIONS>`. Up to 2000 characters are kept whole; above that threshold the projection keeps the first and last 25% and replaces the middle with `CUTTED N chars`. Action/recovery follow-ups project visible dialogue first, then carried reasoning evidence, then `<FOLLOW_UP_RESPONSE_MESSAGE>` and the current failure/recovery/tool state, rather than duplicating the ordinary previous-reasoning slot.
+The ordinary initial Brain prompt also includes the previous successfully completed reasoning in `<PREVIOUS_REASONING_EVIDENCE_TRAIL_AFTER_EXECUTED_ACTIONS>`. Up to 2000 characters are kept whole; above that threshold the projection keeps the first and last 25% and replaces the middle with `CUTTED N chars`. Action/recovery follow-ups place dialogue, carried reasoning evidence and tools after identity, without duplicating the ordinary previous-reasoning slot. When a follow-up has no attachment-specific text payload, its provider USER body is the internal `<system_follow_up_tick>` sentinel rather than an empty string. It is transport context only and does not create a USER dialogue row.
 
 Prompt text is a transient projection. Canonical state remains in `RuntimeContext` and filesystem stores; browser cognitive data is only a page-local projection.
 
@@ -239,7 +237,7 @@ builder source data or dialogue. The existing SYSTEM tab renders it first using
 the ordinary context card. Threshold state is transient on `RuntimeContext`,
 shared across parent/child instances, and committed only at request submission
 (after native provider preflight). It does not schedule a tick or change any
-follow-up budget. The existing previous-answer `CONCERNS` warning is retained.
+follow-up budget. This maintenance mechanism remains independent of the removed `CONCERNS` block.
 
 ---
 
@@ -605,6 +603,10 @@ UTF-8 source ranges; actionable limits are reported without boilerplate.
 persistence/bootstrap path; no separate loaded-file registry is added.
 `FILE_CONTENT` projects each loaded body once, below compact TOOL_RESULTS.
 Persistent attachments use the same projection, not USER/flow text. Explicit
+attachment results from an older model message retain only their tool ID and
+one-line outcome after a newer attachment request executes. Detailed success
+and failure bodies are removed; every file requested within the same model
+message remains available together.
 ranges may be read again; the newest result owns the visible FILE_CONTENT for
 that range, while a bare project path advances to the next unread window.
 CLEAN_TOOL_RESULTS clears project snapshots along with tool results. Removing
@@ -697,7 +699,7 @@ Archived restore is a distinct path:
 2. Browser renders the bounded five-USER-move tail from the RESTORE endpoint and sends only the explicit archive selector; the WebSocket resolves it from disk again. Saved reasoning is attached to its owning JIN turn after archive-file metadata is removed; later visible JIN-only restore rows remain in order.
 3. Backend sets `runtime_session_restore_priming` and stages historical resource IDs/metadata.
 4. A hidden `archived_session_resume` Brain tick receives restore-specific context.
-5. The hidden restore prompt projects the newest complete visible USER/JIN dialogue in `<PREVIOUS_CHAT_MESSAGES>`, with compact relative ages derived from archived timestamps, then carries the previous reasoning evidence in `<PREVIOUS_REASONING_EVIDENCE_TRAIL_AFTER_EXECUTED_ACTIONS>` when available, and only then emits the mandatory automatic-restore notification. There is no separate raw reasoning dump or replay of old action markers as executable intent.
+5. The hidden restore prompt projects the newest complete visible USER/JIN dialogue in `<PREVIOUS_CHAT_MESSAGES>`, with compact relative ages derived from archived timestamps, then carries the previous reasoning evidence in `<PREVIOUS_REASONING_EVIDENCE_TRAIL_AFTER_EXECUTED_ACTIONS>` when available; both blocks follow identity, while the mandatory automatic-restore notification starts the prompt. There is no separate raw reasoning dump or replay of old action markers as executable intent.
 6. Historical loaded Delayed IDs and attached files are staged until after the restore greeting; room/avatar state is already restored by the bootstrap path and is not replayed as runtime actions.
 7. `BrainNode` consumes the staged restore envelope and replays only those delayed-memory/file resources through the normal runtime-action dispatcher.
 8. The WebSocket tail performs defensive cleanup only; it must not apply the same resources a second time.
@@ -908,3 +910,14 @@ Reasoning-only ticks and the first greeting do not promote a blank session.
 Disk checkpoint/action rows restore the interval; raw marked dialogue drives
 latest-source selection, bounded history and LOGS. CLEAR counts distinct marked
 heartbeat turns as well as USER rows. Browser state never supplies disk recovery.
+
+
+### Attachment cleanup lifecycle — owner update 2026-10-25
+
+Each new attachment-bearing model message ages earlier attachment results and
+successful `create_asset_file` / `append_asset_file` receipts once: first remove
+the body and retain the tool ID plus outcome header, then remove that empty
+header on the next attachment-bearing message. Multiple attaches in the same
+message do not age results again. Failed writes and unrelated results retain
+their existing lifetime. Cleanup persists the remaining tool inventory through
+the existing disk checkpoint path. This replaces indefinite compact-header retention.

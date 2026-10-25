@@ -99,3 +99,51 @@ def build_asset_action_payload(
         query,
         placeholder_payloads,
     )
+
+
+def project_listing_request_key(payload_text: str, result: dict) -> str:
+    """Identify the *same request*, not just the same project tool name.
+
+    In particular, different project_tree pages and project_search queries
+    must keep their own results. Use the resolved folder/path from the result
+    so display-name, ID and default-argument spellings compare equally.
+    """
+    if not isinstance(result, dict):
+        return ""
+    from utils.python_skill_asset_utils import _parse_payload
+
+    payload = _parse_payload(payload_text)
+    action = str(payload.get("action") or result.get("action") or "").strip().casefold()
+    if action not in {"project_tree", "project_search"} or action != result.get("action"):
+        return ""
+    if result.get("ok") is False:
+        return ""
+
+    def number(field, default):
+        # Old checkpoint records may lack the original action_payload. Page
+        # metadata still records the exact offset and limit of that request.
+        value = payload.get(field)
+        if value is None and field in {"offset", "limit"}:
+            match = re.search(rf"\b{field}\s+(\d+)", str(result.get("page") or ""))
+            if match:
+                value = match.group(1)
+        if value is None and field == "depth":
+            value = result.get("depth")
+        try:
+            return int(default if value is None else value)
+        except (TypeError, ValueError):
+            return default
+
+    request = {
+        "action": action,
+        "attachment": str(result.get("attachment") or payload.get("attachment") or "").strip(),
+        "path": str(result.get("path") or payload.get("path") or ".").replace("\\", "/").strip(),
+        "offset": number("offset", 0),
+        "limit": number("limit", 100),
+    }
+    if action == "project_tree":
+        request["depth"] = number("depth", 1)
+    else:
+        request["query"] = str(payload.get("query") or result.get("query") or "").casefold()
+
+    return json.dumps(request, sort_keys=True, ensure_ascii=False, separators=(",", ":"))

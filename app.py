@@ -1183,9 +1183,21 @@ async def api_behavior_contract():
 async def api_asset_text_preview(
     path: str = Query(...),
     max_chars: int = Query(60000),
+    session_id: str = Query(""),
 ):
 
     try:
+        if not path.startswith("assets/"):
+            from utils.file_manager_asset_utils import read_project_asset_text_preview
+            contexts = getattr(app.state, "websocket_runtime_contexts", {}).values()
+            context = next((c for c in contexts
+                            if str(getattr(c, "session_id", "")) == session_id
+                            and session_id), None)
+            if context is None:
+                raise HTTPException(status_code=404, detail="Linked project unavailable")
+            return read_project_asset_text_preview(
+                {"path": path, "max_chars": max_chars}, context=context
+            )
         return read_asset_text_preview({
             "path": path,
             "max_chars": max_chars,

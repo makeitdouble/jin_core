@@ -89,22 +89,19 @@ class JinInstanceParsingTests(unittest.TestCase):
 class JinInstanceContextTests(unittest.TestCase):
     def test_children_isolate_reasoning_and_dialogue_but_keep_shared_results(self):
         context = self.make_context()
-        context.runtime_turn_reasoning_content = "parent plan"
-        context.runtime_previous_reasoning_loop_contents = ["parent recovery"]
+        context.runtime_previous_reasoning_content = "parent plan"
         context.runtime_current_sequence_jin_messages = [{"text": "parent message"}]
         context.runtime_tool_results = [{"result": "shared evidence"}]
         mark_child_started(context)
-        self.assertEqual(context.runtime_turn_reasoning_content, "")
-        self.assertEqual(context.runtime_previous_reasoning_loop_contents, [])
-        context.runtime_turn_reasoning_content = "child private plan"
+        self.assertEqual(context.runtime_previous_reasoning_content, "")
+        context.runtime_previous_reasoning_content = "child private plan"
         context.runtime_current_sequence_jin_messages.append({"text": "child draft"})
         context.runtime_tool_results.append({"result": "new evidence"})
         mark_child_started(context)
-        self.assertEqual(context.runtime_turn_reasoning_content, "")
+        self.assertEqual(context.runtime_previous_reasoning_content, "")
         self.assertEqual(context.runtime_current_sequence_jin_messages, [{"text": "parent message"}])
         interrupt_instance_group(context)
-        self.assertEqual(context.runtime_turn_reasoning_content, "parent plan")
-        self.assertEqual(context.runtime_previous_reasoning_loop_contents, ["parent recovery"])
+        self.assertEqual(context.runtime_previous_reasoning_content, "parent plan")
         self.assertEqual(len(context.runtime_tool_results), 2)
 
     def make_context(self):
@@ -294,7 +291,7 @@ class JinInstanceBrainFlowTests(unittest.IsolatedAsyncioTestCase):
             calls.append(kwargs)
             self.assertLess(len(calls), 20)
             if len(calls) == 1:
-                context.runtime_turn_reasoning_content = "PARENT_REASONING_SENTINEL"
+                context.runtime_previous_reasoning_content = "PARENT_REASONING_SENTINEL"
                 await create()
                 return "", "parent"
             prompt = kwargs["system_prompt"]
@@ -320,7 +317,7 @@ class JinInstanceBrainFlowTests(unittest.IsolatedAsyncioTestCase):
                     self.assertNotIn("CHILD_PRIVATE_SENTINEL", prompt)
                 elif not malformed:
                     self.assertNotIn("<JIN_SUBTASK_NOT_FINISHED>", prompt)
-                context.runtime_turn_reasoning_content = "CHILD_PRIVATE_SENTINEL"
+                context.runtime_previous_reasoning_content = "CHILD_PRIVATE_SENTINEL"
                 if stop:
                     context.runtime_turn_abort_requested = True
                     interrupt_instance_group(context, "stopped_by_user")
@@ -442,7 +439,7 @@ class JinInstanceBrainFlowTests(unittest.IsolatedAsyncioTestCase):
         context, state, calls, groups = await self.run_sequence(limit=1, stop=True)
         self.assertEqual(len(calls), 2)
         self.assertEqual(groups[0]["phase"], "interrupted")
-        self.assertEqual(context.runtime_turn_reasoning_content, "PARENT_REASONING_SENTINEL")
+        self.assertEqual(context.runtime_previous_reasoning_content, "PARENT_REASONING_SENTINEL")
 
     async def test_repeated_malformed_child_returns_to_parent(self):
         context, state, calls, groups = await self.run_sequence(malformed=True)
@@ -463,7 +460,7 @@ class JinInstanceBrainFlowTests(unittest.IsolatedAsyncioTestCase):
     async def test_stop_waits_for_stream_finally_before_restoring_parent(self):
         from websocket.tasks import cancel_current_task
         context = JinInstanceContextTests().make_context()
-        context.runtime_turn_reasoning_content = "parent plan"
+        context.runtime_previous_reasoning_content = "parent plan"
         context.active_streams = {}
         mark_child_started(context)
         entered = asyncio.Event()
@@ -473,13 +470,13 @@ class JinInstanceBrainFlowTests(unittest.IsolatedAsyncioTestCase):
                 entered.set()
                 await asyncio.Event().wait()
             finally:
-                context.runtime_turn_reasoning_content += "child tail"
+                context.runtime_previous_reasoning_content += "child tail"
 
         task = asyncio.create_task(stream())
         await entered.wait()
         with patch("websocket.tasks.abort_active_runtime_actions", new=AsyncMock()):
             await cancel_current_task(task, SimpleNamespace(log_runtime=AsyncMock()), context, update_memory=False)
-        self.assertEqual(context.runtime_turn_reasoning_content, "parent plan")
+        self.assertEqual(context.runtime_previous_reasoning_content, "parent plan")
         self.assertEqual(context.runtime_jin_instance_group["phase"], "interrupted")
 
 

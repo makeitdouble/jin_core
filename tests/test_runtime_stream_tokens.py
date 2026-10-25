@@ -264,6 +264,39 @@ class RuntimeStreamTokenTests(unittest.IsolatedAsyncioTestCase):
             logger.messages[0][1],
         )
 
+    async def test_abort_active_runtime_action_preserves_scene_effect(self):
+
+        context = SimpleNamespace(
+            emitter=FakeEmitter(),
+            runtime_action_events=[],
+            runtime_active_action_markers=[],
+            runtime_turn_aborted_actions=[],
+            runtime_action_guard_confirmations={},
+            runtime_current_turn_id="turn_abort_search",
+        )
+
+        mark_runtime_action_started(
+            context,
+            action="web_search",
+            action_id="web_search_1",
+            display_name="WEB_SEARCH",
+            text="WEB_SEARCH: cats",
+            payload="cats",
+            scene_effect="search",
+            close_tag=True,
+        )
+
+        aborted = await abort_active_runtime_actions(context)
+
+        self.assertEqual(
+            aborted[0]["scene_effect"],
+            "search",
+        )
+        self.assertEqual(
+            context.emitter.events[0]["scene_effect"],
+            "search",
+        )
+
     async def test_session_history_never_adds_single_action_count(self):
 
         context = SimpleNamespace(

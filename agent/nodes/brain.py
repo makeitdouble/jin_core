@@ -26,6 +26,7 @@ from rules.brain_context_builder import (
 from rules.runtime import (
     ACTION_FAILURE_FOLLOWUP_MESSAGE,
     CONTEXT_LIMIT_RECOVERY_MESSAGE,
+    FOLLOW_UP_TICK_BODY_MESSAGE,
     FOLLOW_UP_RESPONSE_MESSAGE,
     FOLLOW_UP_CONTEXT_OVERFLOW_MESSAGE,
     REASONING_RECOVERY_MESSAGE,
@@ -99,7 +100,6 @@ from utils.tool_results import (
 )
 from utils.tool_results_context import (
     build_tools_results_context,
-    has_nonempty_tools_results_context,
     split_tools_results_context,
 )
 
@@ -730,12 +730,10 @@ def remember_recovery_reasoning_for_followup(
     if not normalized_reasoning:
         return
 
-    # Recovery follow-ups only need the immediately preceding failed
-    # reasoning. Replacing the slot prevents repeated loop retries from
-    # accumulating older reasoning blocks in the next prompt.
-    context.runtime_previous_reasoning_loop_contents = [
-        normalized_reasoning
-    ]
+    # Failed and successful Brain calls share exactly one rolling slot.
+    # Never accumulate or preserve an older thought across a failed retry.
+    context.runtime_previous_reasoning_content = normalized_reasoning
+    context.runtime_previous_reasoning_from_session_restore = False
 
 
 def remember_successful_previous_reasoning(
@@ -752,6 +750,11 @@ def remember_successful_previous_reasoning(
         getattr(
             context,
             "runtime_turn_interrupted",
+            False,
+        )
+        or getattr(
+            context,
+            "runtime_turn_abort_requested",
             False,
         )
         or getattr(
@@ -775,7 +778,6 @@ def remember_successful_previous_reasoning(
     context.runtime_previous_reasoning_from_session_restore = bool(
         from_session_restore
     )
-    context.runtime_previous_reasoning_loop_contents = []
 
 
 POTENTIAL_LOOP_FOLLOWUP_MESSAGE = (
@@ -968,67 +970,6 @@ def rename_runtime_memory_for_followup(
         + "</PREVIOUS_FRAME_MEMORY_SNAPSHOT>"
         + prompt[closing_index + len(closing_tag):]
     )
-
-
-def place_previous_chat_messages_after_frame_snapshot(
-        system_prompt: str,
-        previous_chat_messages_context: str,
-) -> str:
-
-    prompt = str(
-        system_prompt
-        or ""
-    ).strip()
-    block = str(
-        previous_chat_messages_context
-        or ""
-    ).strip()
-
-    if not block:
-        return prompt
-
-    # Follow-ups rebuild this block from live context, so remove any stale
-    # inherited copy before placing the fresh one beside the FRAME snapshot.
-    for tag_name in (
-        "PREVIOUS_CHAT_MESSAGES",
-        "OLD_SESSION_RESTORED_STATE",
-    ):
-        prompt = re.sub(
-            rf"(?:^|\n)<{tag_name}(?:\s+[^>]*)?>.*?</{tag_name}>\n*",
-            "\n",
-            prompt,
-            flags=re.DOTALL | re.IGNORECASE,
-        ).strip()
-
-    snapshot_match = re.search(
-        r"<PREVIOUS_FRAME_MEMORY_SNAPSHOT(?:\s+[^>]*)?>[\s\S]*?"
-        r"</PREVIOUS_FRAME_MEMORY_SNAPSHOT>",
-        prompt,
-        flags=re.IGNORECASE,
-    )
-    if snapshot_match is None:
-        snapshot_match = re.search(
-            r"<FRAME_MEMORY_[^>]+>[\s\S]*?</FRAME_MEMORY_[^>]+>",
-            prompt,
-            flags=re.IGNORECASE,
-        )
-    if snapshot_match is None:
-        snapshot_match = re.search(
-            r"<RUNTIME_MEMORY(?:\s+[^>]*)?>[\s\S]*?</RUNTIME_MEMORY>",
-            prompt,
-            flags=re.IGNORECASE,
-        )
-
-    if snapshot_match is not None:
-        return (
-            prompt[:snapshot_match.end()].rstrip()
-            + "\n\n"
-            + block
-            + "\n\n"
-            + prompt[snapshot_match.end():].lstrip()
-        ).strip()
-
-    return (prompt + "\n\n" + block).strip()
 
 
 def extract_prompt_context_block(
@@ -1473,9 +1414,6 @@ class BrainNode(BaseNode):
             build_session_actions_history_context,
             strip_actions_history_context,
         )
-        from utils.context.current_concerns import (
-            build_current_concerns_context,
-        )
         from utils.session_actions_history import (
             get_current_action_sequence_started_at,
             mark_current_action_sequence,
@@ -1666,23 +1604,6 @@ class BrainNode(BaseNode):
             )
         )
 
-        # Rebuild this live block on every internal follow-up instead of
-        # inheriting the stale snapshot from the initial prompt.
-        sections.append(
-            build_current_concerns_context(
-                context,
-                has_tool_results=(
-                    has_nonempty_tools_results_context(
-                        followup_tool_results_context
-                    )
-                ),
-            )
-        )
-
-        sections.append(
-            followup_tool_results_context
-        )
-
         if (
             context is not None
             and getattr(
@@ -1731,22 +1652,8 @@ class BrainNode(BaseNode):
             if context is not None
             else ""
         )
-        base_prompt = place_previous_chat_messages_after_frame_snapshot(
-            base_prompt,
-            previous_chat_messages_context,
-        )
-
-        # Follow-up continuity must be the first thing Brain sees: visible chat
-        # first, then the accumulated reasoning evidence, then the synthetic
-        # FOLLOW_UP_RESPONSE_MESSAGE. Remove these blocks from their ordinary
-        # base-prompt positions before projecting them at the front so repeated
-        # follow-ups never duplicate them.
-        previous_chat_messages_context, base_prompt = (
-            extract_prompt_context_block(
-                base_prompt,
-                "PREVIOUS_CHAT_MESSAGES",
-            )
-        )
+        # Rebuild dialogue from live state and move carried reasoning to the
+        # same tail used by ordinary/restore prompts, without duplicate blocks.
         previous_reasoning_evidence_context, base_prompt = (
             extract_prompt_context_block(
                 base_prompt,
@@ -1762,12 +1669,9 @@ class BrainNode(BaseNode):
             )
             if block
         ]
-        if continuity_sections:
-            sections = continuity_sections + sections
-
-        sections.append(
-            base_prompt
-        )
+        sections.append(base_prompt)
+        sections.extend(continuity_sections)
+        sections.append(followup_tool_results_context)
 
         return "\n\n".join(
             sections
@@ -1836,7 +1740,7 @@ class BrainNode(BaseNode):
                 build_followup_attachment_payload(
                     context
                 )
-                or brain_payload
+                or FOLLOW_UP_TICK_BODY_MESSAGE
             )
             context.runtime_followup_tick_active = True
 
@@ -1981,19 +1885,12 @@ class BrainNode(BaseNode):
                         consumed_attachment_items,
                     )
 
-            if runtime.stream.reasoning:
-                context.runtime_turn_reasoning_content = "\n".join(
-                    part
-                    for part in (
-                        getattr(
-                            context,
-                            "runtime_turn_reasoning_content",
-                            "",
-                        ),
-                        runtime.stream.reasoning,
-                    )
-                    if str(part or "").strip()
-                )
+            # One Brain invocation = one reasoning snapshot.  Empty reasoning
+            # clears the slot too, so the next follow-up never sees stale text.
+            context.runtime_previous_reasoning_content = (
+                _normalize_previous_reasoning_content(runtime.stream.reasoning)
+            )
+            context.runtime_previous_reasoning_from_session_restore = False
 
         if emit_content_to_chat and str(text or "").strip():
             from utils.context.messages import (
@@ -2052,7 +1949,6 @@ class BrainNode(BaseNode):
         begin_runtime_tool_results_turn(
             context
         )
-        context.runtime_turn_reasoning_content = ""
 
         def ensure_runtime_list(
                 name: str,
@@ -2151,8 +2047,7 @@ class BrainNode(BaseNode):
                     user_input=state.user_input,
                     commit_active_memory_refresh=True,
                     # Ordinary user turns must carry the previous completed
-                    # reasoning block. Follow-up builders disable it explicitly
-                    # where they need the current turn reasoning instead.
+                    # reasoning block, shared with subsequent follow-up ticks.
                     include_previous_reasoning=True,
                 )
             )
@@ -2195,7 +2090,7 @@ class BrainNode(BaseNode):
             )
             or []
         )
-        runtime_tool_result_followup_offset = len(
+        consumed_tool_results = list(
             getattr(
                 context,
                 "runtime_tool_results",
@@ -2245,12 +2140,14 @@ class BrainNode(BaseNode):
             action_events_before_replay = len(
                 getattr(context, "runtime_action_events", []) or []
             )
-            tool_results_before_replay = len(
-                getattr(context, "runtime_tool_results", []) or []
-            )
-            asset_results_before_replay = len(
-                getattr(context, "runtime_asset_results", []) or []
-            )
+            # Cleanup may remove older entries while replay runs. Length-based
+            # slices can then miss a newly appended result. Track identity.
+            tool_result_ids_before_replay = {
+                id(item) for item in (getattr(context, "runtime_tool_results", []) or [])
+            }
+            asset_result_ids_before_replay = {
+                id(item) for item in (getattr(context, "runtime_asset_results", []) or [])
+            }
             delayed_results_before_replay = len(
                 getattr(context, "runtime_delayed_memory_results", []) or []
             )
@@ -2280,15 +2177,13 @@ class BrainNode(BaseNode):
                 }
                 restore_replay_tool_result_ids = {
                     id(item)
-                    for item in (
-                        getattr(context, "runtime_tool_results", []) or []
-                    )[tool_results_before_replay:]
+                    for item in (getattr(context, "runtime_tool_results", []) or [])
+                    if id(item) not in tool_result_ids_before_replay
                 }
                 restore_replay_asset_result_ids = {
                     id(item)
-                    for item in (
-                        getattr(context, "runtime_asset_results", []) or []
-                    )[asset_results_before_replay:]
+                    for item in (getattr(context, "runtime_asset_results", []) or [])
+                    if id(item) not in asset_result_ids_before_replay
                 }
                 restore_replay_delayed_memory_result_ids = {
                     id(item)
@@ -2297,7 +2192,7 @@ class BrainNode(BaseNode):
                     )[delayed_results_before_replay:]
                 }
 
-        asset_result_offset = 0
+        consumed_asset_results = []
         delayed_memory_result_offset = 0
         followup_count = 0
         max_followups = int(config.BRAIN_MAX_FOLLOWUPS)
@@ -2381,9 +2276,9 @@ class BrainNode(BaseNode):
             )
             pending_results = []
 
-            for entry in tool_results[
-                runtime_tool_result_followup_offset:
-            ]:
+            for entry in tool_results:
+                if any(entry is consumed for consumed in consumed_tool_results):
+                    continue
                 if id(entry) in restore_replay_tool_result_ids:
                     continue
                 if (
@@ -2455,9 +2350,9 @@ class BrainNode(BaseNode):
         def consume_current_action_batch():
 
             nonlocal action_event_followup_offset
-            nonlocal asset_result_offset
+            nonlocal consumed_asset_results
             nonlocal delayed_memory_result_offset
-            nonlocal runtime_tool_result_followup_offset
+            nonlocal consumed_tool_results
             nonlocal session_action_history_followup_offset
 
             pending_action_events = (
@@ -2520,9 +2415,9 @@ class BrainNode(BaseNode):
             if not isinstance(tool_results, list):
                 tool_results = []
 
-            for entry in tool_results[
-                runtime_tool_result_followup_offset:
-            ]:
+            for entry in tool_results:
+                if any(entry is consumed for consumed in consumed_tool_results):
+                    continue
                 if (
                     id(entry) in restore_replay_tool_result_ids
                     or not isinstance(entry, dict)
@@ -2614,9 +2509,7 @@ class BrainNode(BaseNode):
                     and not is_terminal_telegram_result(result)
                 )
             ]
-            asset_result_offset = len(
-                current_asset_results
-            )
+            consumed_asset_results = list(current_asset_results)
 
             current_delayed_memory_results = [
                 result
@@ -2633,7 +2526,7 @@ class BrainNode(BaseNode):
             delayed_memory_result_offset = len(
                 current_delayed_memory_results
             )
-            runtime_tool_result_followup_offset = len(
+            consumed_tool_results = list(
                 getattr(
                     context,
                     "runtime_tool_results",
@@ -2710,7 +2603,7 @@ class BrainNode(BaseNode):
                     # Resume the caller BEFORE generating its response, so its
                     # FINISH/CREATE and all ordinary actions target its own frame.
                     mark_parent_returned(context, group)
-                    runtime_tool_result_followup_offset = len(getattr(context, "runtime_tool_results", []))
+                    consumed_tool_results = list(getattr(context, "runtime_tool_results", []))
                     if not unlimited_followups and followup_count >= max_followups:
                         break
 
@@ -2729,8 +2622,7 @@ class BrainNode(BaseNode):
                     user_input=sequence_user_request,
                     commit_active_memory_refresh=True,
                     include_previous_chat_messages=False,
-                    include_previous_reasoning=False,
-                    include_turn_reasoning=not child_tick,
+                    include_previous_reasoning=True,
                 )
                 followup_system_prompt = self.build_followup_system_prompt(
                     instance_context,
@@ -2789,7 +2681,7 @@ class BrainNode(BaseNode):
                             user_input=sequence_user_request,
                             commit_active_memory_refresh=True,
                             include_previous_chat_messages=False,
-                            include_previous_reasoning=False,
+                            include_previous_reasoning=True,
                         ),
                         sequence_user_request,
                         context=context,
@@ -2920,8 +2812,7 @@ class BrainNode(BaseNode):
                         user_input=sequence_user_request,
                         commit_active_memory_refresh=True,
                         include_previous_chat_messages=False,
-                        include_previous_reasoning=False,
-                        include_turn_reasoning=True,
+                        include_previous_reasoning=True,
                         crop_previous_reasoning=False,
                     ),
                     sequence_user_request,
@@ -3061,8 +2952,7 @@ class BrainNode(BaseNode):
                             user_input=sequence_user_request,
                             commit_active_memory_refresh=True,
                             include_previous_chat_messages=False,
-                            include_previous_reasoning=False,
-                            include_turn_reasoning=True,
+                            include_previous_reasoning=True,
                             crop_previous_reasoning=False,
                         ),
                         sequence_user_request,
@@ -3121,8 +3011,7 @@ class BrainNode(BaseNode):
                             user_input=sequence_user_request,
                             commit_active_memory_refresh=True,
                             include_previous_chat_messages=False,
-                            include_previous_reasoning=False,
-                            include_turn_reasoning=True,
+                            include_previous_reasoning=True,
                             crop_previous_reasoning=False,
                         ),
                         sequence_user_request,
@@ -3184,8 +3073,7 @@ class BrainNode(BaseNode):
                             user_input=sequence_user_request,
                             commit_active_memory_refresh=True,
                             include_previous_chat_messages=False,
-                            include_previous_reasoning=False,
-                            include_turn_reasoning=True,
+                            include_previous_reasoning=True,
                             crop_previous_reasoning=False,
                         ),
                         sequence_user_request,
@@ -3228,7 +3116,10 @@ class BrainNode(BaseNode):
                 )
             ]
 
-            if len(current_asset_results) <= asset_result_offset:
+            if not any(
+                not any(result is consumed for consumed in consumed_asset_results)
+                for result in current_asset_results
+            ):
                 pending_action_events = (
                     collect_pending_action_events()
                 )
@@ -3265,8 +3156,7 @@ class BrainNode(BaseNode):
                                     user_input=sequence_user_request,
                                     commit_active_memory_refresh=True,
                                     include_previous_chat_messages=False,
-                                    include_previous_reasoning=False,
-                                    include_turn_reasoning=True,
+                                    include_previous_reasoning=True,
                                     crop_previous_reasoning=False,
                                 ),
                                 sequence_user_request,
@@ -3308,8 +3198,7 @@ class BrainNode(BaseNode):
                             user_input=sequence_user_request,
                             commit_active_memory_refresh=True,
                             include_previous_chat_messages=False,
-                            include_previous_reasoning=False,
-                            include_turn_reasoning=True,
+                            include_previous_reasoning=True,
                             crop_previous_reasoning=False,
                         ),
                         sequence_user_request,
@@ -3353,8 +3242,7 @@ class BrainNode(BaseNode):
                         user_input=sequence_user_request,
                         commit_active_memory_refresh=True,
                         include_previous_chat_messages=False,
-                        include_previous_reasoning=False,
-                        include_turn_reasoning=True,
+                        include_previous_reasoning=True,
                         crop_previous_reasoning=False,
                     ),
                     sequence_user_request,
@@ -3514,8 +3402,7 @@ class BrainNode(BaseNode):
                         user_input=sequence_user_request,
                         commit_active_memory_refresh=True,
                         include_previous_chat_messages=False,
-                        include_previous_reasoning=False,
-                        include_turn_reasoning=True,
+                        include_previous_reasoning=True,
                         crop_previous_reasoning=False,
                     ),
                     sequence_user_request,

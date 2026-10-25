@@ -22,6 +22,7 @@ from utils.tool_results import record_runtime_tool_result, clear_runtime_tool_re
 from websocket.attachments import build_user_text_with_attachments
 from websocket.bootstrap import apply_bootstrap_tool_results
 from runtime.frame_memory_utils import build_runtime_session_checkpoint
+from runtime.runtime_context import RuntimeContext
 
 
 class ProjectFileLifecycleTests(unittest.TestCase):
@@ -65,7 +66,8 @@ class ProjectFileLifecycleTests(unittest.TestCase):
         self.assertEqual(prompt.count('1: first'), 1)
         self.assertEqual(prompt.count('1: Project overview'), 1)
         self.assertIn('<FILE_CONTENT: main.py#1-4 >', prompt)
-        self.assertIn('Loaded: 3 files', prompt)
+        self.assertIn(f'{self.project.name}/README.md; read: 1-1', prompt)
+        self.assertIn(f'{self.project.name}/src/main.py; read: 1-4', prompt)
         tools = build_tool_results_context(self.context)
         for value in ('"content":', 'Notice:', 'Result (source data'):
             self.assertNotIn(value, tools)
@@ -330,6 +332,218 @@ class ProjectFileLifecycleTests(unittest.TestCase):
         )
         self.assertIn('PREEXISTING USER BODY', self.prompt())
 
+    def test_new_attach_message_compacts_prior_success_and_failure_bodies(self):
+        initial = extract_runtime_actions(
+            '<ATTACH_FILE_CONTENT: src/main.py, missing-file.txt >',
+            enabled_actions=['ATTACH_FILE_CONTENT'],
+        ).actions
+        asyncio.run(apply_runtime_action_calls(
+            self.context, initial, runtime_message_id='attach-message-1',
+        ))
+        self.assertIn('1: first', build_tool_results_context(self.context))
+        self.assertIn('Correct action schema:', build_tool_results_context(self.context))
+
+        following = extract_runtime_actions(
+            '<ATTACH_FILE_CONTENT: README.md >',
+            enabled_actions=['ATTACH_FILE_CONTENT'],
+        ).actions
+        asyncio.run(apply_runtime_action_calls(
+            self.context, following, runtime_message_id='attach-message-2',
+        ))
+
+        previous = self.context.runtime_tool_results[:2]
+        self.assertTrue(all(entry['result']['compacted'] for entry in previous))
+        self.assertTrue(all(set(entry['result']) == {
+            'action', 'runtime_action_name', 'loaded', 'compacted', 'summary', 'compacted_in_message',
+        } for entry in previous))
+        tools = build_tool_results_context(self.context)
+        self.assertNotIn('1: first', tools)
+        self.assertNotIn('Correct action schema:', tools)
+        self.assertIn('1: Project overview', tools)
+        self.assertIn('tool_id="T1"', tools)
+        self.assertIn('tool_id="T2"', tools)
+        self.assertIn('summary="ATTACH_FILE_CONTENT:', tools)
+
+        checkpoint = json.loads(json.dumps(build_runtime_session_checkpoint(self.context)))
+        restored = RuntimeContext(websocket=None, emitter=None, logger=None, clients={})
+        apply_bootstrap_tool_results(restored, checkpoint)
+        restored_tools = build_tool_results_context(restored)
+        self.assertIn('tool_id="T1"', restored_tools)
+        self.assertIn('summary="ATTACH_FILE_CONTENT:', restored_tools)
+        self.assertNotIn('Correct action schema:', restored_tools)
+
+    def test_three_attach_messages_age_asset_success_and_empty_headers(self):
+        from utils.actions.attachment_actions import compact_previous_attachment_tool_results
+        from utils.tool_results import TOOL_RESULT_KIND_ASSET
+        record_runtime_tool_result(self.context, TOOL_RESULT_KIND_ASSET, {
+            'action': 'create_asset_file', 'ok': True, 'path': 'caption.txt',
+            'examples': ['SUCCESS BODY'],
+        })
+        record_runtime_tool_result(self.context, TOOL_RESULT_KIND_ASSET, {
+            'action': 'create_asset_file', 'ok': False, 'error': 'KEEP FAILURE',
+        })
+        for message, marker in enumerate((
+            'src/main.py, missing.txt', 'README.md, missing2.txt', 'src/main.py',
+        ), start=1):
+            actions = extract_runtime_actions(
+                f'<ATTACH_FILE_CONTENT: {marker} >',
+                enabled_actions=['ATTACH_FILE_CONTENT'],
+            ).actions
+            asyncio.run(apply_runtime_action_calls(
+                self.context, actions, runtime_message_id=f'aging-{message}',
+            ))
+            tools = build_tool_results_context(self.context)
+            if message == 1:
+                self.assertIn('tool_id="T1"', tools)
+                self.assertNotIn('SUCCESS BODY', tools)
+                self.assertIn('summary="CREATE_ASSET_FILE: caption.txt - success"', tools)
+            if message == 2:
+                self.assertNotIn('tool_id="T1"', tools)
+                self.assertIn('tool_id="T3"', tools)
+                self.assertIn('tool_id="T4"', tools)
+                checkpoint = json.loads(json.dumps(build_runtime_session_checkpoint(self.context)))
+                restored = RuntimeContext(websocket=None, emitter=None, logger=None, clients={})
+                apply_bootstrap_tool_results(restored, checkpoint)
+                compact_previous_attachment_tool_results(restored, 'aging-3')
+                self.assertNotIn('tool_id="T3"', build_tool_results_context(restored))
+                self.assertNotIn('tool_id="T1"', build_tool_results_context(restored))
+            if message == 3:
+                self.assertNotIn('tool_id="T3"', tools)
+                self.assertNotIn('tool_id="T4"', tools)
+                self.assertIn('tool_id="T5"', tools)
+                self.assertIn('tool_id="T6"', tools)
+            self.assertIn('KEEP FAILURE', tools)
+            self.assertEqual(len(self.context.runtime_tool_results),
+                             len(self.context.runtime_tool_result_created_ats))
+
+    def project_listing(self, *, message_id, action="project_tree", **kwargs):
+        payload = {"action": action, "attachment": self.record["id"], "path": ".", **kwargs}
+        marker = "<ASSET_ACTION>" + json.dumps(payload) + "</ASSET_ACTION>"
+        actions = extract_runtime_actions(marker, enabled_actions=["ASSET_ACTION"]).actions
+        asyncio.run(apply_runtime_action_calls(
+            self.context, actions, runtime_message_id=message_id,
+        ))
+        return self.context.runtime_tool_results[-1]
+
+    def test_repeated_identical_project_tree_ages_body_then_removes_card(self):
+        first = self.project_listing(message_id="tree-1")
+        first_id = first["tool_id"]
+        self.assertIn("content", first["result"])
+        original_body = first["result"]["content"]
+        self.assertTrue(original_body)
+        second = self.project_listing(message_id="tree-2", offset=0, limit=100)
+        self.assertTrue(first["result"]["compacted"])
+        self.assertNotIn("content", first["result"])
+        self.assertNotIn("content", first["result"].get("summary", ""))
+        self.assertIn(f'tool_id="{first_id}"', build_tool_results_context(self.context))
+        self.assertIn("content", second["result"])
+        third = self.project_listing(message_id="tree-3")
+        self.assertNotIn(first, self.context.runtime_tool_results)
+        self.assertTrue(second["result"]["compacted"])
+        self.assertIn("content", third["result"])
+        self.assertNotIn(f'tool_id="{first_id}"', build_tool_results_context(self.context))
+        self.assertEqual(len(self.context.runtime_tool_results), len(self.context.runtime_tool_result_created_ats))
+        self.assertGreater(int(third["tool_id"][1:]), int(second["tool_id"][1:]))
+
+    def test_project_listing_pages_and_searches_are_not_false_duplicates(self):
+        page0 = self.project_listing(message_id="page-0", offset=0)
+        page100 = self.project_listing(message_id="page-100", offset=100)
+        self.assertIn("content", page0["result"])
+        self.assertIn("content", page100["result"])
+        page0_again = self.project_listing(message_id="page-0-again")
+        self.assertTrue(page0["result"].get("compacted"))
+        self.assertIn("content", page100["result"])
+        self.assertIn("content", page0_again["result"])
+
+        search_one = self.project_listing(message_id="search-one", action="project_search", query="first")
+        search_two = self.project_listing(message_id="search-two", action="project_search", query="third")
+        self.assertIn("content", search_one["result"])
+        self.assertIn("content", search_two["result"])
+        search_one_again = self.project_listing(message_id="search-one-again", action="project_search", query="FIRST")
+        self.assertTrue(search_one["result"].get("compacted"))
+        self.assertIn("content", search_two["result"])
+        self.assertIn("content", search_one_again["result"])
+
+    def test_project_listing_multiple_actions_per_message_age_once(self):
+        old = self.project_listing(message_id="batch-1")
+        self.project_listing(message_id="batch-1")
+        self.assertIn("content", old["result"])
+        self.project_listing(message_id="batch-2")
+        self.assertTrue(old["result"]["compacted"])
+        self.project_listing(message_id="batch-2")
+        self.assertIn(old, self.context.runtime_tool_results)
+        self.project_listing(message_id="batch-3")
+        self.assertNotIn(old, self.context.runtime_tool_results)
+
+    def test_repeated_legacy_project_listing_without_action_payload(self):
+        old = self.project_listing(message_id="legacy-1")
+        old.pop("asset_request_key", None)
+        old.pop("action_payload", None)
+        self.project_listing(message_id="legacy-2")
+        self.assertTrue(old["result"].get("compacted"))
+
+    def test_project_listing_cleanup_survives_checkpoint_reload(self):
+        first = self.project_listing(message_id="restore-tree-1")
+        self.project_listing(message_id="restore-tree-2")
+        self.assertTrue(first["result"].get("compacted"))
+        saved_id = first["tool_id"]
+        checkpoint = json.loads(json.dumps(build_runtime_session_checkpoint(self.context)))
+        self.assertTrue(any(e.get("asset_request_key") for e in checkpoint["tool_results"]))
+        apply_bootstrap_tool_results(self.context, checkpoint)
+        self.project_listing(message_id="restore-tree-3")
+        self.assertNotIn(saved_id, [e.get("tool_id") for e in self.context.runtime_tool_results])
+        self.assertEqual(len(self.context.runtime_tool_results), len(self.context.runtime_tool_result_created_ats))
+
+    def test_attachment_cleanup_checkpoints_removal_without_reusing_ids(self):
+        from utils.actions.attachment_actions import compact_previous_attachment_tool_results
+        from utils.tool_results import TOOL_RESULT_KIND_ASSET
+        record_runtime_tool_result(self.context, TOOL_RESULT_KIND_ASSET, {
+            'action': 'append_asset_file', 'ok': True, 'path': 'caption.txt',
+            'examples': ['APPEND BODY'],
+        })
+        with patch('utils.chat_log.append_chat_runtime_event') as log:
+            compact_previous_attachment_tool_results(self.context, 'first-attach')
+            first = json.loads(json.dumps(log.call_args.kwargs['payload']))
+            self.assertEqual(set(first), {'tool_results', 'tool_result_sequence'})
+            self.assertTrue(first['tool_results'][0]['result']['compacted'])
+            compact_previous_attachment_tool_results(self.context, 'first-attach')
+            self.assertEqual(log.call_count, 1)
+            restored = RuntimeContext(websocket=None, emitter=None, logger=None, clients={})
+            apply_bootstrap_tool_results(restored, first)
+            compact_previous_attachment_tool_results(restored, 'second-attach')
+            last = json.loads(json.dumps(log.call_args.kwargs['payload']))
+            self.assertEqual(last['tool_results'], [])
+            self.assertEqual(last['tool_result_sequence'], first['tool_result_sequence'])
+            apply_bootstrap_tool_results(restored, last)
+            self.assertEqual(restored.runtime_tool_results, [])
+            record_runtime_tool_result(restored, TOOL_RESULT_KIND_ASSET, {
+                'action': 'append_asset_file', 'ok': True, 'path': 'next.txt',
+            })
+            self.assertEqual(restored.runtime_tool_results[-1]['tool_id'], 'T2')
+
+    def test_same_attach_message_keeps_all_requested_file_bodies(self):
+        first, _, _ = files.store_uploaded_file(
+            name='one.txt', content=b'ONE REQUEST BODY', pin=False,
+        )
+        second, _, _ = files.store_uploaded_file(
+            name='two.txt', content=b'TWO REQUEST BODY', pin=False,
+        )
+        actions = extract_runtime_actions(
+            f'<ATTACH_FILE_CONTENT: {first["id"]}, {second["id"]} >',
+            enabled_actions=['ATTACH_FILE_CONTENT'],
+        ).actions
+        asyncio.run(apply_runtime_action_calls(
+            self.context, actions, runtime_message_id='one-attach-message',
+        ))
+
+        tools = build_tool_results_context(self.context)
+        self.assertIn('ONE REQUEST BODY', tools)
+        self.assertIn('TWO REQUEST BODY', tools)
+        self.assertFalse(any(
+            entry['result'].get('compacted')
+            for entry in self.context.runtime_tool_results
+        ))
+
     def test_upload_and_project_alias_of_same_bytes_can_both_load(self):
         record, _, _ = files.store_uploaded_file(name='copy.py', content=(self.project/'src/main.py').read_bytes(), pin=False)
         self.assertTrue(self.call(f'<ATTACH_FILE_CONTENT: {record["id"]} >')['ok'])
@@ -444,7 +658,7 @@ class ProjectFileLifecycleTests(unittest.TestCase):
                 markers=[f'<ATTACH_FILE_CONTENT: {self.ref()} >',f'<ATTACH_FILE_CONTENT: {self.ref("README.md")} >']
             actions=extract_runtime_actions(''.join(markers),enabled_actions=['ATTACH_FILE_CONTENT','ASSET_ACTION']).actions
             await apply_runtime_action_calls(self.context,actions,runtime_message_id=f'file-step-{index}')
-            self.context.runtime_turn_reasoning_content += '\nbatch thought '+str(index)
+            self.context.runtime_previous_reasoning_content += '\nbatch thought '+str(index)
             return '', 'batch thought '+str(index)
         state=AgentState(user_input='inspect project')
         runtime={'runtime_id':'brain-test','label':'brain','context_window':32768,'log_method':'log_brain','runtime_actions':BRAIN_RUNTIME_ACTIONS}

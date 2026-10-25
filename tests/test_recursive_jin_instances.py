@@ -94,7 +94,7 @@ class RecursiveInstancesTests(unittest.IsolatedAsyncioTestCase):
                 self.assertTrue(kw['runtime_actions']['CAN_FINISH_SUBTASK'])
             if counts[name] == 1:
                 plans[name] = 'PRIVATE_PLAN_' + name
-                self.c.runtime_turn_reasoning_content = plans[name]
+                self.c.runtime_previous_reasoning_content = plans[name]
                 self.c.runtime_current_sequence_jin_messages.append({'text': 'dialogue ' + name})
                 if name == 'MAIN':
                     await self.create('A', 'D')
@@ -105,7 +105,7 @@ class RecursiveInstancesTests(unittest.IsolatedAsyncioTestCase):
                 else:
                     await self.finish()
             else:
-                self.assertEqual(self.c.runtime_turn_reasoning_content, plans[name])
+                self.assertEqual(self.c.runtime_previous_reasoning_content, plans[name])
                 self.assertEqual(self.c.runtime_current_sequence_jin_messages[-1]['text'], 'dialogue ' + name)
                 self.assertIn('<JIN_INSTANCES_RETURN_TO_PARENT>', prompt)
                 if task:
@@ -227,7 +227,7 @@ class RecursiveInstancesTests(unittest.IsolatedAsyncioTestCase):
         async def stream(**kw):
             depth = len(instance_groups(self.c)) if active_child(self.c) else 0
             if depth == 0:
-                self.c.runtime_turn_reasoning_content = 'ROOT plan'
+                self.c.runtime_previous_reasoning_content = 'ROOT plan'
             if depth < 3:
                 await self.create(str(depth))
                 return '', ''
@@ -236,7 +236,7 @@ class RecursiveInstancesTests(unittest.IsolatedAsyncioTestCase):
         with self.assertRaisesRegex(RuntimeError, 'provider failed'):
             await self.run_model(stream)
         self.assertEqual(self.c.runtime_jin_instance_stack, [])
-        self.assertEqual(self.c.runtime_turn_reasoning_content, 'ROOT plan')
+        self.assertEqual(self.c.runtime_previous_reasoning_content, 'ROOT plan')
         self.assertFalse(any(e.get('owner_subtask_agent_id') for e in self.c.runtime_tool_results))
         self.assertTrue(all(g['phase'] == 'interrupted' for g in self.groups))
 
@@ -294,18 +294,18 @@ class RecursiveInstancesTests(unittest.IsolatedAsyncioTestCase):
     async def test_deep_stack_unwinds_without_python_recursion(self):
         # No model calls or heavyweight context snapshots; stress the execution
         # stack itself beyond Python's normal recursion limit.
-        self.c.runtime_turn_reasoning_content = 'root'
+        self.c.runtime_previous_reasoning_content = 'root'
         frames = []
         for index in range(1100):
             frames.append({'group_id': str(index), 'phase': 'child_running', 'active_index': 0,
                            'tasks': [{'ordinal': 1, 'subtask_agent_id': str(index), 'status': 'running'}],
-                           'parent_reasoning_state': {'runtime_turn_reasoning_content': 'root' if index == 0 else str(index)}})
+                           'parent_reasoning_state': {'runtime_previous_reasoning_content': 'root' if index == 0 else str(index)}})
         self.c.runtime_jin_instance_stack = frames[:-1]
         self.c.runtime_jin_instance_group = frames[-1]
         with patch('utils.subtask_memory.cleanup_child_memory'):
             interrupt_instance_group(self.c)
         self.assertEqual(self.c.runtime_jin_instance_stack, [])
-        self.assertEqual(self.c.runtime_turn_reasoning_content, 'root')
+        self.assertEqual(self.c.runtime_previous_reasoning_content, 'root')
         self.assertTrue(all(g['phase'] == 'interrupted' for g in frames))
 
     async def test_stop_at_depth_three_cleans_tree_and_preserves_main(self):
@@ -314,7 +314,7 @@ class RecursiveInstancesTests(unittest.IsolatedAsyncioTestCase):
         entered = asyncio.Event()
         async def stream(**kw):
             if not active_child(self.c):
-                self.c.runtime_turn_reasoning_content = 'ROOT plan'
+                self.c.runtime_previous_reasoning_content = 'ROOT plan'
             if len(self.groups) < 3:
                 await self.create('level ' + str(len(self.groups)))
                 return '', ''
@@ -323,12 +323,12 @@ class RecursiveInstancesTests(unittest.IsolatedAsyncioTestCase):
                 entered.set()
                 await asyncio.Event().wait()
             finally:
-                self.c.runtime_turn_reasoning_content += 'C tail'
+                self.c.runtime_previous_reasoning_content += 'C tail'
         task = asyncio.create_task(self.run_model(stream))
         await asyncio.wait_for(entered.wait(), 10)
         await cancel_current_task(task, self.c.logger, self.c, update_memory=False, emit_aborted_actions=False)
         self.assertEqual(self.c.runtime_jin_instance_stack, [])
-        self.assertEqual(self.c.runtime_turn_reasoning_content, 'ROOT plan')
+        self.assertEqual(self.c.runtime_previous_reasoning_content, 'ROOT plan')
         self.assertTrue(all(g['phase'] == 'interrupted' for g in self.groups))
         self.assertFalse(any(e.get('owner_subtask_agent_id') for e in self.c.runtime_tool_results))
 

@@ -45,8 +45,7 @@ class ProjectReviewTests(unittest.TestCase):
         self.context.runtime_current_turn_id = "turn-project"
         self.context.runtime_memory = "task: inspect source"
         self.context.runtime_recent_turns = [{"user": "our prior question", "jin": "our prior answer"}]
-        self.context.runtime_previous_reasoning_content = "previous thought"
-        self.context.runtime_turn_reasoning_content = "first inspection thought"
+        self.context.runtime_previous_reasoning_content = "first inspection thought"
         # This suite uses synthetic L-T fixtures. Never let a fake websocket
         # make those fixtures eligible for the real persistent memory store.
         self.context.delayed_memory_file_store_enabled = False
@@ -179,6 +178,29 @@ class ProjectReviewTests(unittest.TestCase):
         self.assertIn("Next unread line: 4", read["notice"])
         self.assertIn("2-3 of 4 lines", build_asset_action_context_detail(read))
 
+    def test_project_tree_naturally_sorts_numbered_files_across_pages(self):
+        numbered = self.project / "numbered"
+        numbered.mkdir()
+        for name in ("100.png", "10.png", "2.png", "1.png", "11.png", "3.png"):
+            (numbered / name).write_bytes(b"image")
+
+        first = self.action("project_tree", path="numbered", limit=3)
+        second = self.action("project_tree", path="numbered", offset=3, limit=3)
+
+        prefix = f"{self.project.name}/numbered/"
+        self.assertEqual(first["content"].splitlines(), [
+            prefix + "1.png",
+            prefix + "2.png",
+            prefix + "3.png",
+        ])
+        self.assertIn("offset 3", first["notice"])
+        self.assertEqual(second["content"].splitlines(), [
+            prefix + "10.png",
+            prefix + "11.png",
+            prefix + "100.png",
+        ])
+        self.assertIn("No more results", second["notice"])
+
     def test_project_selector_accepts_display_folder_trailing_separator(self):
         for selector in (
             self.project.name + "/",
@@ -234,9 +256,8 @@ class ProjectReviewTests(unittest.TestCase):
         prompt = self.prompt()
         for value in ("SELECTED_REPORT_BODY", "UNRELATED_REPORT_BODY", "UNRELATED_REPORT_TITLE", "PROJECT_REVIEW_SELECTED_FACT", "PROJECT_REVIEW_UNRELATED_FACT", "PROJECT_REVIEW_ORDINARY_FACT"):
             self.assertNotIn(value, prompt)
-        for value in ("our prior question", "our prior answer", "task: inspect source", "previous thought"):
+        for value in ("our prior question", "our prior answer", "task: inspect source", "first inspection thought"):
             self.assertIn(value, prompt)
-        self.assertNotIn("first inspection thought", prompt)
         self.assertIn("SAVE_DELAYED_MEMORY", prompt)
         self.assertIn("UPDATE_LT_FACTS", prompt)
 
@@ -248,8 +269,7 @@ class ProjectReviewTests(unittest.TestCase):
             runtime_actions=BRAIN_RUNTIME_ACTIONS,
             user_input=current_user,
             include_previous_chat_messages=False,
-            include_previous_reasoning=False,
-            include_turn_reasoning=True,
+            include_previous_reasoning=True,
         )
         prompt = BrainNode.build_followup_system_prompt(
             base,
@@ -285,8 +305,8 @@ class ProjectReviewTests(unittest.TestCase):
     def test_pinned_report_and_only_its_facts_on_every_followup(self):
         self.memories(pinned=True)
         for step in range(3):
-            self.context.runtime_turn_reasoning_content += f"\nthought {step} " + "x" * 2200
-            base = build_brain_context(self.context, runtime_actions=BRAIN_RUNTIME_ACTIONS, include_previous_chat_messages=False, include_previous_reasoning=False, include_turn_reasoning=True)
+            self.context.runtime_previous_reasoning_content += f"\nthought {step} " + "x" * 2200
+            base = build_brain_context(self.context, runtime_actions=BRAIN_RUNTIME_ACTIONS, include_previous_chat_messages=False, include_previous_reasoning=True)
             prompt = BrainNode.build_followup_system_prompt(base, "inspect project", context=self.context)
             self.assertIn("SELECTED_REPORT_BODY", prompt)
             self.assertIn("PROJECT_REVIEW_SELECTED_FACT", prompt)
@@ -294,7 +314,7 @@ class ProjectReviewTests(unittest.TestCase):
             self.assertNotIn("PROJECT_REVIEW_UNRELATED_FACT", prompt)
             self.assertNotIn("PROJECT_REVIEW_ORDINARY_FACT", prompt)
             self.assertIn("our prior question", prompt)
-            self.assertIn("first inspection thought", prompt)
+            self.assertIn("thought", prompt)
             self.assertIn("CUTTED", prompt)
             self.assertEqual(prompt.count("SELECTED_REPORT_BODY"), 1)
         self.assertTrue(self.context.delayed_memory_reports["abc123"]["pinned"])
@@ -428,7 +448,7 @@ class ProjectReviewTests(unittest.TestCase):
             payload = json.dumps({"action": action, "attachment": self.record["id"], **args})
             await apply_runtime_action_calls(self.context, (RuntimeActionCall(name="ASSET_ACTION", payload=payload),))
             # The real stream appends each provider reasoning block to this slot.
-            self.context.runtime_turn_reasoning_content += f"\nthought-step-{index}"
+            self.context.runtime_previous_reasoning_content += f"\nthought-step-{index}"
             return "", f"thought-step-{index}"
         state = AgentState(user_input="inspect project")
         runtime = {"runtime_id": "brain-test", "label": "brain", "context_window": 32768, "log_method": "log_brain", "runtime_actions": BRAIN_RUNTIME_ACTIONS}

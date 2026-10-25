@@ -577,6 +577,7 @@ async def _run_pool_search(
         display_name=display_name,
         text=text,
         payload=query,
+        scene_effect="search",
         context_snapshot=context_snapshot,
     )
     await context.websocket.send_json(payload)
