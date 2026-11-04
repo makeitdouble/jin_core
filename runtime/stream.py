@@ -3574,6 +3574,11 @@ class RuntimeStream:
                 )
             )
 
+            # Reflection finishes asynchronously after the marker's initial history row.
+            # Reconcile through the existing writer once the action queue has closed.
+            if any(marker.get("name") == "RUN_SELF_REFLECTION" for marker in counted_markers):
+                await self.sync_session_action_marker_history()
+
             session_action_history = getattr(
                 self.context,
                 "runtime_session_action_history",

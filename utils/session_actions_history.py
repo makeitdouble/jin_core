@@ -3777,6 +3777,12 @@ def _add_tool_ids_to_history_parts(context, marker_actions, parts):
         if selected:
             part["tool_ids"] = [event["tool_id"] for _index, event in selected]
             consumed_event_indexes.update(index for index, _event in selected)
+            if name == "RUN_SELF_REFLECTION":
+                outcome = selected[-1][1].get("result", {})
+                if isinstance(outcome, dict) and outcome.get("text"):
+                    part["text"] = "RUN_SELF_REFLECTION: " + str(outcome.get("status", ""))
+                    part["detail"] = outcome["text"]
+                    part["context_detail"] = outcome["text"]
             attachment_ids = [tool_id for _index, event in selected
                               for tool_id in event.get("attachment_tool_ids", [])]
             if name == "ASSET_ACTION" and attachment_ids:

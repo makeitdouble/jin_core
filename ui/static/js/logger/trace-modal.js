@@ -2896,8 +2896,9 @@ function parseContextBlocks(text) {
       continue;
     }
 
+    const intuitionOpen = lines[i].trim() === "<JIN INTUITION BLOCK>";
     const fileOpen = lines[i].match(/^\s*<FILE_CONTENT:\s*(.*?)\s*>\s*$/);
-    const open = fileOpen
+    const open = intuitionOpen ? [lines[i], "JIN INTUITION BLOCK", ""] : fileOpen
       ? [fileOpen[0], "FILE_CONTENT", ""]
       : lines[i].match(/^\s*<([A-Za-z][\w.-]*)(\s+[^>]*)?>\s*$/);
 
@@ -4280,6 +4281,29 @@ function renderContextUserPromptBody(parent, content) {
   );
 }
 
+function renderContextIntuitionBody(parent, content) {
+  const table = contextElement("div", "jin-context-kv-list");
+  table.setAttribute("role", "table");
+  table.setAttribute("aria-label", "JIN intuition");
+  String(content || "").split("\n").filter(line => line.trim()).forEach((line, index) => {
+    const cells = line.split("|").map(value => decodeContextEntities(value.trim()));
+    if (cells.length !== 3) return;
+    const row = contextElement("div", "jin-context-kv-row jin-context-intuition-row");
+    row.setAttribute("role", "row");
+    cells.forEach((value, column) => {
+      const cell = contextElement("div", index === 0 ? "jin-context-kv-key" : "jin-context-kv-value", value);
+      cell.setAttribute("role", index === 0 ? "columnheader" : "cell");
+      if (column > 0) {
+        cell.style.textAlign = "right";
+        cell.style.fontVariantNumeric = "tabular-nums";
+      }
+      row.appendChild(cell);
+    });
+    table.appendChild(row);
+  });
+  parent.appendChild(table);
+}
+
 function renderContextBody(parent, content, minimumFields = 2) {
   const text =
     String(content || "").trim();
@@ -4774,6 +4798,8 @@ function appendContextCard(
 
   if (typeof block.renderBody === "function") {
     block.renderBody(body);
+  } else if (normalizedBlockTitle === "JIN INTUITION BLOCK") {
+    renderContextIntuitionBody(body, block.content);
   } else if (normalizedBlockTitle === "TOOLS_RESULTS") {
     renderContextToolResultsBody(
       body,

@@ -1797,6 +1797,10 @@
     border-bottom: 1px solid rgba(39, 39, 42, 0.74);
 }
 
+.jin-context-kv-row.jin-context-intuition-row {
+    grid-template-columns: minmax(0, 1fr) minmax(52px, 0.14fr) minmax(52px, 0.14fr);
+}
+
 .jin-context-kv-row:last-child {
     border-bottom: 0;
 }

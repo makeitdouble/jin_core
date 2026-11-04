@@ -9,15 +9,29 @@ DEFAULT_HEARTBEAT_TICK_SPEED = 600
 
 HEARTBEAT_TICK_MESSAGE = """<HEARTBEAT_TICK_MESSAGE>
 This is an autonomous heartbeat tick. USER DID NOT SEND A NEW MESSAGE.
-The user is idle. Examine the ordinary current context and decide whether
-you have a reason to act. You may speak, use available ACTIONS, FOLLOW-UP,
-subagents and ACTIVE MEMORY under their existing rules. You may freely set
-your next heartbeat interval with SET_HEARTBEAT_TICK_SPEED.
-There is no assigned task and no obligation to act. If nothing calls for
-action, finish silently without starting further actions or follow-ups.
+The user is idle; there is no assigned task or obligation to act. You may
+pursue whatever in recent experience draws your attention: explore the unknown,
+form and test hypotheses about the user, yourself, or the world, continue
+promising inquiries, and preserve verified useful discoveries in L-T when
+available. You may speak, use available ACTIONS, FOLLOW-UP, subagents and ACTIVE
+MEMORY under their existing rules, and freely set your next heartbeat interval
+with SET_HEARTBEAT_TICK_SPEED. If nothing calls for action, finish silently
+without starting further actions or follow-ups.
 This notification applies only to this initial heartbeat request.
 </HEARTBEAT_TICK_MESSAGE>"""
 
+
+def heartbeat_message(system_prompt):
+    if "RUN_SELF_REFLECTION\nFollow-up: false\nSchema:\n<RUN_SELF_REFLECTION>" not in system_prompt:
+        return HEARTBEAT_TICK_MESSAGE
+    return HEARTBEAT_TICK_MESSAGE.replace(
+        "</HEARTBEAT_TICK_MESSAGE>",
+        "If nothing else needs doing, you may optionally try RUN_SELF_REFLECTION to learn from an archived episode.\n</HEARTBEAT_TICK_MESSAGE>",
+    )
+
+def strip_heartbeat_message(system_prompt):
+    import re
+    return re.sub(r"<HEARTBEAT_TICK_MESSAGE>.*?</HEARTBEAT_TICK_MESSAGE>\s*", "", system_prompt, flags=re.S)
 
 def validate_tick_speed(value):
     if isinstance(value, bool) or not isinstance(value, (int, float)):

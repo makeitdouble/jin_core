@@ -921,3 +921,19 @@ header on the next attachment-bearing message. Multiple attaches in the same
 message do not age results again. Failed writes and unrelated results retain
 their existing lifetime. Cleanup persists the remaining tool inventory through
 the existing disk checkpoint path. This replaces indefinite compact-header retention.
+
+
+### Self-reflection — D064 (2026-10-27)
+
+`runtime/self_reflection.py` is an ordinary optional action handler on the initial
+heartbeat. It uses the existing Service client, usage accounting and request/result
+logging. `utils/self_reflection_history.py` projects JSONL evidence, while
+`utils/self_reflection_store.py` atomically owns analysis snapshots, cursors, events
+and characteristic counters in `memory/self_reflection/state.json`. A shared
+nonblocking claim serializes analysis across rooms in the server process.
+
+Brain context assembly adds the disk-derived intuition block independently of
+action availability. The existing context modal renders it as a SYSTEM card/table.
+RuntimeStream reconciles the existing marker-history writer after reflection
+finishes; tool results and session-action metadata retain the actual outcome.
+Details and manual checks: [SELF_REFLECTION.md](SELF_REFLECTION.md).

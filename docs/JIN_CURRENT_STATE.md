@@ -1010,3 +1010,34 @@ header on the next attachment-bearing message. Multiple attaches in the same
 message do not age results again. Failed writes and unrelated results retain
 their existing lifetime. Cleanup persists the remaining tool inventory through
 the existing disk checkpoint path. This replaces indefinite compact-header retention.
+
+
+## Optional heartbeat self-reflection — 2026-10-27
+
+The D064 vertical slice is implemented: initial heartbeat -> optional
+RUN_SELF_REFLECTION -> one Service request -> validated event/no_event -> atomic
+reflection store -> JIN INTUITION BLOCK. The contract and idle suggestion are
+conditional on eligible history. Follow-ups cannot execute it, and failures/Stop
+never schedule recovery or advance its cursor. All live server sessions and
+anonymous archives are excluded; anonymous contexts can read learned intuition.
+
+The context viewer renders the intuition table in an ordinary collapsible SYSTEM
+card. Action bubbles, Tool Results, disk events and Session Actions retain the
+outcome. Full stream testing found that early marker-history rows needed final
+reconciliation after the asynchronous Service result; the existing history writer
+now performs that reconciliation for this action.
+
+Verification: 17 new reflection unittest cases pass, including actual stream
+parsing/dispatch, repeated/split markers, initial-only exposure, model-error/Stop
+boundaries, multi-room exclusion, restart/frozen-source behavior, atomic-write
+failure and structured action-history disk round trip. The expanded selection
+ran 138 unittest cases: 137 passed and one pre-existing DELETE_ACTIVE_MEMORY
+AM-/am- casing assertion failed. Replaying that case with the common action parser
+loaded from HEAD reproduced it. Seven function-style registry/order/feedback
+checks also passed via unittest.FunctionTestCase. Three real headless Edge DOM
+scripts pass (reflection UI, context tabs, heartbeat). Python/JSON validation and
+git diff --check pass. No live model request or full-suite-green claim.
+
+No changes were made to the pre-existing dirty rules/runtime.py modification.
+Implementation details, complete changed-file inventory and manual checks are in
+[SELF_REFLECTION.md](SELF_REFLECTION.md).

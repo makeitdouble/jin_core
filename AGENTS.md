@@ -155,3 +155,11 @@ When you finish a coding task, report:
 6. any conflict between current code and documented product intent.
 
 Keep this file short. Put architecture detail in `docs/JIN_ARCHITECTURE.md`, durable decisions in `docs/JIN_DECISIONS.md`, and migrations/known conflicts in `docs/JIN_CURRENT_STATE.md`.
+
+## Self-reflection — D064
+
+RUN_SELF_REFLECTION is optional and initial-heartbeat-only, with its hint/contract
+hidden when no eligible archives exist. Errors/Stop never request immediate
+follow-up or move its cursor. Exclude every live session and anonymous archives;
+anonymous Brain contexts may read the shared intuition block. See
+`docs/SELF_REFLECTION.md` for stable evidence indexes and atomic ownership.

@@ -1,0 +1,20 @@
+{
+  "run_self_reflection": {
+    "version": 1,
+    "description": "Optionally reflect on one archived episode during the initial heartbeat tick.",
+    "runtime_action": "RUN_SELF_REFLECTION",
+    "enable_flag": "CAN_RUN_SELF_REFLECTION",
+    "runtime_order": 76,
+    "private_marker": "<RUN_SELF_REFLECTION>",
+    "triggers": [],
+    "blockers": [],
+    "effects": {"emit_followup": false, "follow_up_on_fail": false},
+    "schema": ["<RUN_SELF_REFLECTION>"],
+    "rules": [
+      "No payload or closing tag. Optional, at most once on the initial heartbeat request, never on USER turns or follow-ups.",
+      "One separate Service request examines the oldest eligible archive for the next observable success or failure. No obligation to run it.",
+      "Failure or cancellation leaves progress unchanged. Retry only on a later heartbeat, without a recovery follow-up."
+    ],
+    "close_tag": false
+  }
+}

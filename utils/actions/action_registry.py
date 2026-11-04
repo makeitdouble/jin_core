@@ -733,8 +733,10 @@ async def _run_finish_subtask(batch, action, state):
 
 
 from runtime.heartbeat import apply_tick_speed
+from runtime.self_reflection import apply_self_reflection
 
 ACTIONS = {
+    "RUN_SELF_REFLECTION": Action(prepare=_prepare_always, run=apply_self_reflection, on_success=_event_text_success, on_fail=_event_text_fail),
     "SET_HEARTBEAT_TICK_SPEED": Action(prepare=_prepare_always, run=apply_tick_speed, on_success=_event_text_success, on_fail=_event_text_fail),
     RUNTIME_ACTION_CHAT_LOG_SEARCH: Action(prepare=_prepare_always, run=_run_chat_log_search, on_success=_event_text_success, on_fail=_event_text_fail),
     RUNTIME_ACTION_DEEP_RESEARCH: Action(prepare=_prepare_deep_research, run=_run_deep_research),

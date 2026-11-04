@@ -986,3 +986,20 @@ header on the next attachment-bearing message. Multiple attaches in the same
 message do not age results again. Failed writes and unrelated results retain
 their existing lifetime. Cleanup persists the remaining tool inventory through
 the existing disk checkpoint path. This replaces indefinite compact-header retention.
+
+
+## D064 — Optional heartbeat self-reflection (2026-10-27)
+
+Owner-approved increment: only an initial heartbeat with eligible archived history
+may advertise RUN_SELF_REFLECTION and its optional idle suggestion. One marker
+requests one Service analysis of the next observable success/failure. All live
+server sessions and anonymous archives are excluded. Earlier history is context
+only; indexed ACTION records cover autonomous turns without dialogue.
+
+Failures and Stop are an explicit exception to immediate action-failure recovery:
+retain the cursor and defer any retry to a later heartbeat. There is no mandatory
+analysis loop. Atomically stored events/cursors/counts prevent repeat accounting;
+processed history is not revised and archive deletion preserves learned experience.
+Descriptions may use any language. Unsmoothed success/failure fractions appear as
+JIN INTUITION BLOCK on ordinary and follow-up contexts, including anonymous rooms.
+See [SELF_REFLECTION.md](SELF_REFLECTION.md) for storage, UI and verification.

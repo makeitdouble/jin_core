@@ -40,6 +40,7 @@ from utils.brain_client_utils import (
 )
 
 _SEQUENCE_ATTRIBUTES = {
+    "RUN_SELF_REFLECTION": "runtime_self_reflection_action_sequence",
     RUNTIME_ACTION_SAVE_ACTIVE_MEMORY: "runtime_active_memory_action_sequence",
     RUNTIME_ACTION_POSTING_BOARD: "runtime_posting_board_action_sequence",
     RUNTIME_ACTION_CALL_MCP: "runtime_mcp_action_sequence",

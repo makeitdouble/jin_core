@@ -67,6 +67,9 @@ class RuntimeContext:
     runtime_heartbeat_enqueue: object = None
     runtime_heartbeat_active: bool = False
     runtime_heartbeat_meaningful: bool = False
+    runtime_self_reflection_allowed: bool = False
+    runtime_self_reflection_attempted_turn: str | None = None
+    runtime_self_reflection_action_sequence: int = 0
 
     deep_thought_count: int = 0
 

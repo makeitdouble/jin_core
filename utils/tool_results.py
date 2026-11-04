@@ -195,6 +195,10 @@ def _failed_tool_result_requires_followup(
     ):
         return False
 
+    # Reflection deliberately defers all retries to a later heartbeat.
+    if str(result.get("action", "")).upper() == "RUN_SELF_REFLECTION":
+        return False
+
     normalized_kind = str(
         kind
         or ""

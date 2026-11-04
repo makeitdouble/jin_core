@@ -1068,6 +1068,7 @@ def build_brain_context(
     include_previous_chat_messages: bool = True,
     include_previous_reasoning: bool = True,
     crop_previous_reasoning: bool = True,
+    initial_heartbeat: bool = False,
 ) -> str:
 
     from utils.context.messages import (
@@ -1089,6 +1090,11 @@ def build_brain_context(
         build_attached_files_inventory_context,
     )
 
+    from runtime.self_reflection import available
+    from utils.self_reflection_store import intuition_block
+    runtime_actions = dict(runtime_actions or {})
+    runtime_actions["CAN_RUN_SELF_REFLECTION"] = bool(initial_heartbeat and available(context))
+
     project_review = project_review_active(context)
     include_current_user_in_previous_chat = bool(
         project_review
@@ -1103,6 +1109,14 @@ def build_brain_context(
 
     prompt_parts = []
     runtime_context_parts = []
+    try:
+        intuition = intuition_block()
+    except (OSError, ValueError, KeyError, TypeError):
+        import logging
+        logging.getLogger(__name__).exception("Cannot read self-reflection experience")
+        intuition = ""
+    if intuition:
+        runtime_context_parts.append(intuition)
     previous_reasoning_context = ""
     restore_priming = bool(
         getattr(

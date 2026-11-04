@@ -1419,6 +1419,12 @@ class BrainNode(BaseNode):
             mark_current_action_sequence,
         )
 
+        from runtime.heartbeat import strip_heartbeat_message
+        from contracts.rules_assembler import build_runtime_action_contract_instructions
+        system_prompt = strip_heartbeat_message(system_prompt).replace(
+            build_runtime_action_contract_instructions("RUN_SELF_REFLECTION"), ""
+        )
+
         sequence_started_at = (
             get_current_action_sequence_started_at(
                 context
@@ -1718,6 +1724,13 @@ class BrainNode(BaseNode):
             False,
         )
 
+        from runtime.self_reflection import available as reflection_available
+        context.runtime_self_reflection_allowed = bool(
+            state.metadata.get("heartbeat_tick") and not is_followup_tick
+            and filter_runtime_actions and reflection_available(context)
+        )
+        runtime_actions = {**runtime_actions, "CAN_RUN_SELF_REFLECTION": context.runtime_self_reflection_allowed}
+
         effective_brain_payload = brain_payload
         consumed_attachment_items = []
 
@@ -1758,10 +1771,10 @@ class BrainNode(BaseNode):
         )
         if state.metadata.get("heartbeat_tick") and not is_followup_tick:
             from dataclasses import replace
-            from runtime.heartbeat import HEARTBEAT_TICK_MESSAGE
+            from runtime.heartbeat import heartbeat_message, strip_heartbeat_message
             prepared_context_window = replace(
                 prepared_context_window,
-                system_prompt=HEARTBEAT_TICK_MESSAGE + "\n\n" + prepared_context_window.system_prompt.replace(HEARTBEAT_TICK_MESSAGE, "", 1).strip(),
+                system_prompt=heartbeat_message(system_prompt) + "\n\n" + strip_heartbeat_message(prepared_context_window.system_prompt).strip(),
             )
         system_prompt = prepared_context_window.system_prompt
         brain_runtime["context_window"] = (
@@ -1871,6 +1884,7 @@ class BrainNode(BaseNode):
                 generator
             )
         finally:
+            context.runtime_self_reflection_allowed = False
             if is_followup_tick:
                 context.runtime_followup_tick_active = (
                     previous_followup_tick
@@ -1911,6 +1925,7 @@ class BrainNode(BaseNode):
         try:
             await self._run_sequence(state, context)
         finally:
+            context.runtime_self_reflection_allowed = False
             # Provider errors and cancellation must unwind suspended frames too.
             # The WebSocket finalizer remains a defensive, idempotent boundary.
             if self_fork_phase(context) in {"child_pending", "child_running", "parent_pending"}:
@@ -2035,9 +2050,9 @@ class BrainNode(BaseNode):
         )
 
         if retry_system_prompt:
-            from runtime.heartbeat import HEARTBEAT_TICK_MESSAGE
+            from runtime.heartbeat import strip_heartbeat_message
             # A guard-confirmation retry is a follow-up, not another idle tick.
-            system_prompt = retry_system_prompt.replace(HEARTBEAT_TICK_MESSAGE, "", 1)
+            system_prompt = strip_heartbeat_message(retry_system_prompt)
             brain_payload = retry_user_prompt
         else:
             system_prompt = (
@@ -2049,6 +2064,7 @@ class BrainNode(BaseNode):
                     # Ordinary user turns must carry the previous completed
                     # reasoning block, shared with subsequent follow-up ticks.
                     include_previous_reasoning=True,
+                    initial_heartbeat=bool(state.metadata.get("heartbeat_tick")),
                 )
             )
             brain_payload = (
@@ -2059,8 +2075,8 @@ class BrainNode(BaseNode):
             )
 
         if state.metadata.get("heartbeat_tick"):
-            from runtime.heartbeat import HEARTBEAT_TICK_MESSAGE
-            system_prompt = HEARTBEAT_TICK_MESSAGE + "\n\n" + system_prompt
+            from runtime.heartbeat import heartbeat_message
+            system_prompt = heartbeat_message(system_prompt) + "\n\n" + system_prompt
             brain_payload = ""
 
         sequence_user_request = str(

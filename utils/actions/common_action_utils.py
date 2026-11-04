@@ -662,6 +662,7 @@ def build_deep_research_payload(
 
 
 _ACTION_PAYLOAD_BUILDERS = {
+    "RUN_SELF_REFLECTION": lambda payload, _: str(payload or "").strip(),
     "SET_HEARTBEAT_TICK_SPEED": lambda payload, _: str(payload or "").strip(),
     RUNTIME_ACTION_CHAT_LOG_SEARCH: lambda payload, _: str(payload or "").strip(),
     RUNTIME_ACTION_CLEAN_TOOL_RESULTS: lambda payload, _: str(payload or "").strip(),

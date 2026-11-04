@@ -47,7 +47,7 @@ FOLLOW_UP_CONTEXT_OVERFLOW_MESSAGE = (
 REASONING_RECOVERY_MESSAGE = (
     "!!! MANDATORY !!! You stuck in your reasoning during previous turn.\n"
     "!!! MANDATORY !!! This time you must act instantly!.\n"
-    "!!! MANDATORY !!! Check PREVIOUS_REASONING_LOOP_CONTENT block, derive your goal AND MUST ACT INSTANTLY OUTPUT NOW !!!!!.\n"
+    "!!! MANDATORY !!! Check PREVIOUS_REASONING_EVIDENCE_TRAIL_AFTER_EXECUTED_ACTIONS block, derive your goal AND MUST ACT INSTANTLY OUTPUT NOW !!!!!.\n"
 )
 
 CONTEXT_LIMIT_RECOVERY_MESSAGE = (
