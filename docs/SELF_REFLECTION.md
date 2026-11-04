@@ -1,4 +1,4 @@
-# Self Reflection — increment 1
+# Self Reflection — increment 2
 
 JIN may emit `<RUN_SELF_REFLECTION>` on an initial autonomous heartbeat when
 there is unprocessed archived history. The heartbeat notification offers this
@@ -28,13 +28,17 @@ success nor failure requests a Brain follow-up.
   action snapshots are associated by their owning turn, using tool IDs when present.
 - Context/checkpoint/FRAME/reasoning payloads, binary data, HTML and long embedded
   file bodies are excluded. Tool summaries preserve success/failure fields.
-- Earlier indexed history is provided as context. A new event's range must be
-  strictly after the saved cursor and entirely within the supplied history.
+- Service receives only indexed records strictly after the saved cursor, plus
+  every existing characteristic's stable ID, original description and counters.
+  It semantically chooses CREATE or UPDATE; topic or literal-text overlap alone
+  is not an UPDATE rule.
 - The first successful transaction saves the normalized source snapshot, keeping
   indexes stable on later calls. Later source edits do not rewrite that analysis
   snapshot. Deleted archives are not scheduled again; accumulated experience stays.
-- `event_found` atomically stores the event, updates the matching characteristic
-  and moves the cursor to its end. `no_event` completes the entire supplied remainder.
+- `event_found` atomically stores the event, creates a stable `IC-xxxxxx`
+  characteristic or updates the exact Service-selected ID, and moves the cursor
+  to the event end. UPDATE never rewrites the original description. `no_event`
+  records SKIP and completes the entire supplied remainder.
   An event reaching the last index also completes the session without an empty
   extra Service request.
   The next heartbeat can consider the next oldest eligible session.
@@ -46,22 +50,27 @@ commits all of them. A process-wide nonblocking claim prevents concurrent Servic
 requests and lost updates across rooms. A competing tick does not queue work.
 The store has no browser-owned copy and no model-action write API.
 
-Descriptions use any language convenient for Service. Matching is exact after
-whitespace normalization and case folding, with no semantic merging. Success and
-Failure are unsmoothed fractions of their combined counters, displayed to two
+State version 2 keys characteristics by stable `IC-xxxxxx` IDs. Version 1
+text-keyed rows are deterministically migrated and atomically persisted when the
+next reflection action claims the store; counters, snapshots and event history
+are retained. Descriptions use any language convenient for Service. Success and
+Failure remain unsmoothed fractions of their combined counters, displayed to two
 decimal places. They are evidence, not behavioral commands.
 
 ## Context and UI
 
 The Brain context builder reads `<JIN INTUITION BLOCK>` from disk on ordinary
 turns and follow-ups, including anonymous rooms. The context viewer places it in
-SYSTEM as a collapsible three-column table using existing card, text, border and
-spacing primitives. Empty experience does not create an empty block.
+SYSTEM as a collapsible four-column table using existing card, text, border and
+spacing primitives. The table now includes the stable ID before Behavior,
+Success and Failure. Empty experience does not create an empty block.
 
 The ordinary runtime-action path emits running/completed/failed bubbles, tool
 IDs, Session Actions with status and result detail, and JSONL request/result/tool
 events. Final stream reconciliation updates the early marker history after the
 Service request finishes. Normal session snapshots preserve that result on reload.
+The result detail states the source session, sent and selected ranges,
+CREATE/UPDATE/SKIP, characteristic ID, outcome and cursor transition.
 
 ## Manual verification
 

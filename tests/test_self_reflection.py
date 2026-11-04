@@ -37,7 +37,8 @@ class ReflectionTests(unittest.IsolatedAsyncioTestCase):
         self.c.runtime_self_reflection_allowed = True
         self.c.clients["service"] = SimpleNamespace(ask=AsyncMock())
         self.event = {"status": "event_found", "session_id": "old", "start_message_index": 1,
-                      "end_message_index": 2, "intuition_line": {"description": "Я проверил результат", "success": True}}
+                      "end_message_index": 2, "operation": "CREATE",
+                      "description": "Я проверил результат", "success": True}
         self.path = self.archive("old", [self.row("user", "Do it"), self.row("jin", "Done"),
                                          self.row("user", "Good", turn="turn_000002")])
 
@@ -87,11 +88,17 @@ class ReflectionTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual([r["message_index"] for r in history], [1, 2, 3])
         self.assertEqual(len(history[0]["actions"]), 1)
         self.assertEqual(history[0]["actions"][0]["result"]["ok"], False)
-        text = serialize_history("old", history, 2)
+        characteristic = {"characteristic_id": "IC-000001", "description": "I verify results",
+                          "success_count": 2, "failure_count": 1}
+        text = serialize_history("old", history, 0, [characteristic])
         self.assertNotIn("SECRET", text)
         self.assertNotIn("<b>", text)
         self.assertIn("denied", text)
-        self.assertIn('"last_processed_index": 2', text)
+        self.assertIn('"last_processed_index": 0', text)
+        self.assertIn('"characteristic_id": "IC-000001"', text)
+        remaining = json.loads(serialize_history("old", history, 2, [characteristic]))
+        self.assertEqual([row["message_index"] for row in remaining["history"]], [3])
+        self.assertNotIn("Do it", json.dumps(remaining))
         trimmed = compact({"data": {"ok": False, "error": "nested failure", "body": "SECRET"},
                            "results": [{"ok": True}] * 13 + [{"ok": False, "error": "late failure"}]})
         self.assertIn("nested failure", str(trimmed))
@@ -144,41 +151,147 @@ class ReflectionTests(unittest.IsolatedAsyncioTestCase):
         saved = store.load_state()
         self.assertEqual(saved["sessions"]["old"]["cursor"], 2)
         self.assertEqual(saved["stats"]["events"], 1)
+        characteristic_id = next(iter(saved["characteristics"]))
+        self.assertEqual(characteristic_id, "IC-000001")
         self.assertIn("1.00 | 0.00", store.intuition_block())
+        self.assertIn("IC-000001", store.intuition_block())
         # A fresh context reads the disk cursor, never a cached tool result.
-        next_event = {**self.event, "start_message_index": 3, "end_message_index": 3}
+        next_event = {"status": "event_found", "session_id": "old",
+                      "start_message_index": 3, "end_message_index": 3,
+                      "operation": "UPDATE", "characteristic_id": characteristic_id,
+                      "success": True}
         await self.dispatch(next_event, turn="turn_000002")
         self.assertEqual(self.c.clients["service"].ask.await_count, 2)
-        prompt = self.c.clients["service"].ask.call_args.kwargs["user_prompt"]
-        self.assertIn('"last_processed_index": 2', prompt)
-        self.assertIn("Do it", prompt)
+        prompt = json.loads(self.c.clients["service"].ask.call_args.kwargs["user_prompt"])
+        self.assertEqual(prompt["last_processed_index"], 2)
+        self.assertNotIn("Do it", json.dumps(prompt))
+        self.assertEqual(prompt["history"][0]["message_index"], 3)
+        self.assertEqual(prompt["characteristics"][0]["characteristic_id"], characteristic_id)
+        self.assertEqual(prompt["characteristics"][0]["success_count"], 1)
         await self.dispatch({"status": "no_event", "session_id": "old"}, turn="turn_000003")
         self.assertEqual(store.load_state()["stats"], {"processed_sessions": 1, "events": 2})
+        self.assertEqual(store.load_state()["characteristics"][characteristic_id]["success_count"], 2)
         self.assertFalse(reflection.available(self.c))
         self.c.runtime_anonymous_mode = True
         self.assertIn("<JIN INTUITION BLOCK>", build_brain_context(self.c))
         self.assertNotIn("<RUN_SELF_REFLECTION>", build_brain_context(self.c, initial_heartbeat=True))
         self.assertFalse(self.c.runtime_failure_followup_entries)
-        self.assertIn("no new event", build_tool_results_context(self.c))
+        self.assertIn("no clear event", build_tool_results_context(self.c))
+
+    async def test_create_update_failure_and_distinct_behavior(self):
+        self.archive("old", [
+            self.row("user", "Design protocol"), self.row("jin", "Protocol"),
+            self.row("user", "Approved", turn="turn_000002"),
+            self.row("jin", "Used it", turn="turn_000002"),
+            self.row("user", "It failed", turn="turn_000003"),
+            self.row("jin", "Acknowledged", turn="turn_000003"),
+            self.row("user", "Different behavior", turn="turn_000004"),
+            self.row("jin", "Different outcome", turn="turn_000004"),
+        ])
+        await self.dispatch(self.event)
+        state = store.load_state()
+        first_id = next(iter(state["characteristics"]))
+        self.assertEqual(state["sessions"]["old"]["cursor"], 2)
+        await self.dispatch({"status": "event_found", "session_id": "old",
+            "start_message_index": 3, "end_message_index": 4, "operation": "UPDATE",
+            "characteristic_id": first_id, "success": True}, turn="similar_success")
+        self.assertEqual(store.load_state()["sessions"]["old"]["cursor"], 4)
+        await self.dispatch({"status": "event_found", "session_id": "old",
+            "start_message_index": 5, "end_message_index": 6, "operation": "UPDATE",
+            "characteristic_id": first_id, "success": False}, turn="same_failure")
+        state = store.load_state()
+        self.assertEqual(state["characteristics"][first_id]["success_count"], 2)
+        self.assertEqual(state["characteristics"][first_id]["failure_count"], 1)
+        self.assertEqual(state["sessions"]["old"]["cursor"], 6)
+        await self.dispatch({"status": "event_found", "session_id": "old",
+            "start_message_index": 7, "end_message_index": 7, "operation": "CREATE",
+            "description": "I distinguished behavior from topic overlap", "success": True},
+            turn="different_behavior")
+        state = store.load_state()
+        self.assertEqual(list(state["characteristics"]), ["IC-000001", "IC-000002"])
+        self.assertEqual(state["characteristics"][first_id]["success_count"], 2)
+        self.assertEqual([event["operation"] for event in state["events"]],
+                         ["CREATE", "UPDATE", "UPDATE", "CREATE"])
+
+    async def test_no_event_and_empty_history_are_explicit_skips(self):
+        await self.dispatch({"status": "no_event", "session_id": "old"})
+        state = store.load_state()
+        self.assertEqual(state["sessions"]["old"]["cursor"], 3)
+        self.assertTrue(state["sessions"]["old"]["completed"])
+        self.assertEqual(state["characteristics"], {})
+        result = self.c.runtime_action_events[-1]["result"]
+        self.assertEqual(result["operation"], "SKIP")
+        self.assertIn("reviewed remainder", result["text"])
+
+        store.STORE_PATH.unlink()
+        self.path.unlink()
+        self.archive("blank", [self.row("jin", "   ")])
+        await self.dispatch({"status": "no_event", "session_id": "blank"}, turn="blank")
+        state = store.load_state()
+        self.assertEqual(state["sessions"]["blank"]["cursor"], 0)
+        self.assertTrue(state["sessions"]["blank"]["completed"])
+        prompt = json.loads(self.c.clients["service"].ask.call_args.kwargs["user_prompt"])
+        self.assertEqual(prompt["history"], [])
+
+    async def test_unknown_update_id_fails_without_mutation(self):
+        await self.dispatch(self.event)
+        before = store.load_state()
+        await self.dispatch({"status": "event_found", "session_id": "old",
+            "start_message_index": 3, "end_message_index": 3, "operation": "UPDATE",
+            "characteristic_id": "IC-999999", "success": False}, turn="unknown")
+        self.assertEqual(store.load_state(), before)
+        self.assertEqual(self.c.runtime_action_events[-1]["status"], "failed")
+        self.assertIn("unknown characteristic_id", self.c.runtime_action_events[-1]["result"]["error"])
+
+    def test_legacy_state_migrates_stable_ids_and_preserves_history(self):
+        legacy = {"version": 1,
+            "sessions": {"old": {"cursor": 2, "completed": False,
+                                     "history": [{"message_index": 1}, {"message_index": 2}]}},
+            "events": [{"id": "old:1:2", "status": "event_found", "session_id": "old",
+                        "start_message_index": 1, "end_message_index": 2,
+                        "intuition_line": {"description": "I verify results", "success": True}}],
+            "characteristics": {"i verify results": {
+                "description": "I verify results", "success_count": 1, "failure_count": 0}},
+            "stats": {"processed_sessions": 0, "events": 1}}
+        store.STORE_PATH.parent.mkdir(parents=True, exist_ok=True)
+        store.STORE_PATH.write_text(json.dumps(legacy), encoding="utf-8")
+        state = store.load_state(persist_migration=True)
+        repeated = store.load_state()
+        self.assertEqual(state["version"], 2)
+        self.assertEqual(list(state["characteristics"]), ["IC-000001"])
+        self.assertEqual(list(repeated["characteristics"]), ["IC-000001"])
+        self.assertEqual(state["events"][0]["characteristic_id"], "IC-000001")
+        self.assertEqual(state["sessions"]["old"]["history"], legacy["sessions"]["old"]["history"])
+        self.assertEqual(json.loads(store.STORE_PATH.read_text(encoding="utf-8"))["version"], 2)
+        records = [{"message_index": 1}]
+        update = {"status": "event_found", "session_id": "next",
+                  "start_message_index": 1, "end_message_index": 1,
+                  "operation": "UPDATE", "characteristic_id": "IC-000001",
+                  "success": False}
+        parsed = store.validate_result(json.dumps(update), "next", records, 0, state)
+        store.commit_result(state, "next", records, parsed)
+        persisted = json.loads(store.STORE_PATH.read_text(encoding="utf-8"))
+        self.assertEqual(persisted["version"], 2)
+        self.assertEqual(persisted["characteristics"]["IC-000001"]["failure_count"], 1)
 
     def test_result_parser_accepts_model_wrappers_but_keeps_strict_schema(self):
         fenced = "```json\n" + json.dumps(self.event, ensure_ascii=False) + "\n```"
         self.assertEqual(
-            store.validate_result(fenced, "old", normalize_session("old", [self.path]), 0),
+            store.validate_result(fenced, "old", normalize_session("old", [self.path]), 0, store._empty_state()),
             self.event,
         )
         wrapped = "Here is the result:\n" + json.dumps(self.event) + "\nDone."
         self.assertEqual(
-            store.validate_result(wrapped, "old", normalize_session("old", [self.path]), 0),
+            store.validate_result(wrapped, "old", normalize_session("old", [self.path]), 0, store._empty_state()),
             self.event,
         )
         with self.assertRaises(ValueError):
-            store.validate_result("```json\n{\"status\":\"event_found\"}\n```", "old", [], 0)
+            store.validate_result("```json\n{\"status\":\"event_found\"}\n```", "old", [], 0, store._empty_state())
 
     async def test_failures_do_not_advance_or_follow_up(self):
         for index, bad in enumerate([{"status": "no_event", "session_id": "wrong"},
             {**self.event, "end_message_index": 50}, {**self.event, "start_message_index": True},
-            {**self.event, "intuition_line": {"description": "x", "success": "false"}}]):
+            {**self.event, "success": "false"}]):
             await self.dispatch(bad, turn=f"bad_{index}")
             self.assertFalse(store.STORE_PATH.exists())
             self.assertFalse(self.c.runtime_failure_followup_entries)
@@ -228,6 +341,7 @@ class ReflectionTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_restart_rejects_recount_and_keeps_frozen_indexes(self):
         await self.dispatch(self.event)
+        first_id = next(iter(store.load_state()["characteristics"]))
         self.c = context()
         self.c.runtime_heartbeat_active = self.c.runtime_self_reflection_allowed = True
         self.c.clients["service"] = SimpleNamespace(ask=AsyncMock())
@@ -235,9 +349,15 @@ class ReflectionTests(unittest.IsolatedAsyncioTestCase):
         await self.dispatch(self.event)
         self.assertEqual(store.load_state()["stats"]["events"], 1)
         self.assertEqual(store.load_state()["sessions"]["old"]["cursor"], 2)
-        prompt = self.c.clients["service"].ask.call_args.kwargs["user_prompt"]
-        self.assertIn("Do it", prompt)
-        self.assertIn('"last_processed_index": 2', prompt)
+        prompt = json.loads(self.c.clients["service"].ask.call_args.kwargs["user_prompt"])
+        self.assertNotIn("Do it", json.dumps(prompt))
+        self.assertEqual(prompt["last_processed_index"], 2)
+        self.assertEqual(prompt["history"][0]["message_index"], 3)
+        await self.dispatch({"status": "event_found", "session_id": "old",
+            "start_message_index": 3, "end_message_index": 3, "operation": "UPDATE",
+            "characteristic_id": first_id, "success": True}, turn="restart_continue")
+        self.assertEqual(store.load_state()["sessions"]["old"]["cursor"], 3)
+        self.assertEqual(store.load_state()["characteristics"][first_id]["success_count"], 2)
 
     async def test_anonymous_archives_never_become_candidates(self):
         self.path.unlink()
@@ -287,6 +407,10 @@ class ReflectionTests(unittest.IsolatedAsyncioTestCase):
         history = self.c.runtime_session_action_history
         self.assertIn("completed", history[-1]["text"])
         self.assertIn("Я проверил результат", history[-1]["parts"][0]["detail"])
+        detail = history[-1]["parts"][0]["detail"]
+        for expected in ("session=old", "sent=1–3", "event=1–2", "operation=CREATE",
+                         "characteristic=IC-000001", "outcome=success", "cursor=0→2"):
+            self.assertIn(expected, detail)
         raw = [json.loads(line) for p in (self.root / "logs").glob("*/child/*.jsonl")
                for line in p.read_text(encoding="utf-8").splitlines()]
         restored = _build_runtime_event_session_actions(raw)

@@ -1021,22 +1021,26 @@ conditional on eligible history. Follow-ups cannot execute it, and failures/Stop
 never schedule recovery or advance its cursor. All live server sessions and
 anonymous archives are excluded; anonymous contexts can read learned intuition.
 
+Increment 2 sends only the unprocessed remainder plus existing stable-ID
+characteristics to Service. Service returns CREATE, UPDATE by exact ID, or SKIP;
+the store commits the selected counter and cursor atomically. Version 1 text-keyed
+rows migrate to `IC-xxxxxx` IDs, and action detail exposes the sent/event ranges,
+decision, ID, outcome and cursor transition.
+
 The context viewer renders the intuition table in an ordinary collapsible SYSTEM
 card. Action bubbles, Tool Results, disk events and Session Actions retain the
 outcome. Full stream testing found that early marker-history rows needed final
 reconciliation after the asynchronous Service result; the existing history writer
 now performs that reconciliation for this action.
 
-Verification: 17 new reflection unittest cases pass, including actual stream
-parsing/dispatch, repeated/split markers, initial-only exposure, model-error/Stop
-boundaries, multi-room exclusion, restart/frozen-source behavior, atomic-write
-failure and structured action-history disk round trip. The expanded selection
-ran 138 unittest cases: 137 passed and one pre-existing DELETE_ACTIVE_MEMORY
-AM-/am- casing assertion failed. Replaying that case with the common action parser
-loaded from HEAD reproduced it. Seven function-style registry/order/feedback
-checks also passed via unittest.FunctionTestCase. Three real headless Edge DOM
-scripts pass (reflection UI, context tabs, heartbeat). Python/JSON validation and
-git diff --check pass. No live model request or full-suite-green claim.
+Verification: 24 reflection unittest cases pass, including CREATE/UPDATE/SKIP,
+stable-ID migration, unknown-ID rejection, unprocessed-only prompts, actual stream
+dispatch, cancellation, restart, atomic-write failure and action-history round trip.
+An additional 44 heartbeat/Brain-context tests pass. The real headless Edge
+reflection DOM test passes with the four-column stable-ID table. Python compile,
+contract JSON validation and git diff --check pass. The broader pre-existing
+runtime-action capability assertion still fails on unrelated attachment/heartbeat
+expectations documented elsewhere; no live model request or full-suite-green claim.
 
 No changes were made to the pre-existing dirty rules/runtime.py modification.
 Implementation details, complete changed-file inventory and manual checks are in

@@ -18,7 +18,7 @@ const {chromium} = require('playwright');
       'socket/runtime-actions.js', 'logger/trace-modal.js']) {
       await page.addScriptTag({content: fs.readFileSync('ui/static/js/' + file, 'utf8')});
     }
-    const prompt = '<FRAME_MEMORY_1>\nfocus: reflection\n</FRAME_MEMORY_1>\n<JIN INTUITION BLOCK>\nBehavior | Success | Failure\nЯ проверил результат | 0.85 | 0.15\nI checked &lt;output&gt; | 0.10 | 0.90\n</JIN INTUITION BLOCK>';
+    const prompt = '<FRAME_MEMORY_1>\nfocus: reflection\n</FRAME_MEMORY_1>\n<JIN INTUITION BLOCK>\nID | Behavior | Success | Failure\nIC-000001 | Я проверил результат | 0.85 | 0.15\nIC-000002 | I checked &lt;output&gt; | 0.10 | 0.90\n</JIN INTUITION BLOCK>';
     await page.evaluate(prompt => {
       ensureTraceModal();
       renderTraceDetails(`SYSTEM PROMPT\n----------------\n${prompt}\n\nUSER PROMPT / CONTEXT PAYLOAD\n----------------\nhello`, 'Context');
@@ -27,7 +27,8 @@ const {chromium} = require('playwright');
     const card = page.locator('.jin-context-card').filter({has: page.locator('.jin-context-card-title', {hasText: 'JIN INTUITION BLOCK'})});
     assert.equal(await card.count(), 1);
     assert.equal(await card.getByRole('row').count(), 3);
-    assert.equal(await card.getByRole('columnheader').count(), 3);
+    assert.equal(await card.getByRole('columnheader').count(), 4);
+    assert.match(await card.innerText(), /IC-000001/);
     assert.match(await card.innerText(), /0\.85/);
     assert.match(await card.innerText(), /I checked <output>/);
     await card.locator('.jin-context-card-header').click();
@@ -37,7 +38,7 @@ const {chromium} = require('playwright');
       await page.setViewportSize({width, height: 850});
       assert(await card.evaluate(node => node.scrollWidth <= node.clientWidth + 1));
       const cells = await card.getByRole('row').nth(1).getByRole('cell').evaluateAll(nodes => nodes.map(n => n.getBoundingClientRect().x));
-      assert(cells[0] < cells[1] && cells[1] < cells[2]);
+      assert(cells[0] < cells[1] && cells[1] < cells[2] && cells[2] < cells[3]);
     }
     if (process.env.REFLECTION_SCREENSHOT) await card.screenshot({path: process.env.REFLECTION_SCREENSHOT});
     await page.evaluate(() => {
@@ -47,7 +48,7 @@ const {chromium} = require('playwright');
         aggregate_markers: true, marker_count: 1, payloads: [], text: 'RUN_SELF_REFLECTION'};
       handleRuntimeAction({...counter, status: 'counted', counter_final: false});
       handleRuntimeAction({...base, status: 'running', text: 'RUN_SELF_REFLECTION'});
-      handleRuntimeAction({...base, status: 'completed', text: 'RUN_SELF_REFLECTION: old: I checked results (success), messages 1–2', detail: 'saved'});
+      handleRuntimeAction({...base, status: 'completed', text: 'RUN_SELF_REFLECTION: session=old; sent=1–3; event=1–2; operation=CREATE; characteristic=IC-000001; behavior=I checked results; outcome=success; cursor=0→2', detail: 'saved'});
       handleRuntimeAction({...counter, status: 'counter_final', counter_final: true});
       handleRuntimeAction({...base, id: 'reflection_2', status: 'running', text: 'RUN_SELF_REFLECTION'});
       handleRuntimeAction({...base, id: 'reflection_2', status: 'failed', text: 'RUN_SELF_REFLECTION: Self-reflection cancelled; progress unchanged', detail: 'cancelled'});

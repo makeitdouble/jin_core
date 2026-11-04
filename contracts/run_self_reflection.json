@@ -1,6 +1,6 @@
 {
   "run_self_reflection": {
-    "version": 1,
+    "version": 2,
     "description": "Optionally reflect on one archived episode during the initial heartbeat tick.",
     "runtime_action": "RUN_SELF_REFLECTION",
     "enable_flag": "CAN_RUN_SELF_REFLECTION",
@@ -12,7 +12,8 @@
     "schema": ["<RUN_SELF_REFLECTION>"],
     "rules": [
       "No payload or closing tag. Optional, at most once on the initial heartbeat request, never on USER turns or follow-ups.",
-      "One separate Service request examines the oldest eligible archive for the next observable success or failure. No obligation to run it.",
+      "One separate Service request examines only the unprocessed remainder of the oldest eligible archive and may CREATE a characteristic, UPDATE one supplied stable characteristic ID, or SKIP when no clear event exists.",
+      "Service decides semantic identity; topic overlap or literal description equality alone is not enough for UPDATE.",
       "Failure or cancellation leaves progress unchanged. Retry only on a later heartbeat, without a recovery follow-up."
     ],
     "close_tag": false

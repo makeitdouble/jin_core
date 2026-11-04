@@ -1801,6 +1801,10 @@
     grid-template-columns: minmax(0, 1fr) minmax(52px, 0.14fr) minmax(52px, 0.14fr);
 }
 
+.jin-context-kv-row.jin-context-intuition-row-with-id {
+    grid-template-columns: minmax(76px, 0.16fr) minmax(0, 1fr) minmax(52px, 0.14fr) minmax(52px, 0.14fr);
+}
+
 .jin-context-kv-row:last-child {
     border-bottom: 0;
 }

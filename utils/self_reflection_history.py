@@ -184,7 +184,11 @@ def normalize_session(session_id, paths):
     return records
 
 
-def serialize_history(session_id, records, cursor):
-    # Full earlier context is intentional for increment 1 (no token chunking).
-    return json.dumps({"session_id": session_id, "last_processed_index": cursor,
-                       "history": records}, ensure_ascii=False, indent=2)
+def serialize_history(session_id, records, cursor, characteristics=None):
+    remaining = [record for record in records if record.get("message_index", 0) > cursor]
+    return json.dumps({
+        "session_id": session_id,
+        "last_processed_index": cursor,
+        "history": remaining,
+        "characteristics": list(characteristics or []),
+    }, ensure_ascii=False, indent=2)

@@ -932,7 +932,14 @@ logging. `utils/self_reflection_history.py` projects JSONL evidence, while
 and characteristic counters in `memory/self_reflection/state.json`. A shared
 nonblocking claim serializes analysis across rooms in the server process.
 
-Brain context assembly adds the disk-derived intuition block independently of
+Each Service request contains only the selected session's records after its saved
+cursor and the existing stable-ID characteristics with their original descriptions
+and counters. Service semantically chooses CREATE, UPDATE by exact supplied ID, or
+SKIP; the store validates that decision and commits the event, counter and cursor
+as one transaction. Legacy text-keyed characteristics migrate deterministically to
+`IC-xxxxxx` IDs without changing their counters or archived history.
+
+Brain context assembly adds the disk-derived stable-ID intuition block independently of
 action availability. The existing context modal renders it as a SYSTEM card/table.
 RuntimeStream reconciles the existing marker-history writer after reflection
 finishes; tool results and session-action metadata retain the actual outcome.

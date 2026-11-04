@@ -21,6 +21,24 @@ def live_session_ids(context):
     return {str(getattr(c, "session_id", "")) for c in contexts(context)}
 
 
+def _candidate_first_stamp(history, paths):
+    values = [stamp(record.get("ts")) for record in history if record.get("ts")]
+    values = [value for value in values if value]
+    if values:
+        return min(values)
+    path = paths[0]
+    day = path.parent.parent.name
+    clock = "".join(character for character in path.stem if character.isdigit())[:6]
+    if len(clock) == 6:
+        value = stamp(f"{day}T{clock[:2]}:{clock[2:4]}:{clock[4:6]}")
+        if value:
+            return value
+    try:
+        return path.stat().st_mtime
+    except OSError:
+        return 0
+
+
 def candidate(context, state):
     live = live_session_ids(context)
     candidates = []
@@ -35,9 +53,8 @@ def candidate(context, state):
         except (OSError, ValueError) as error:
             logger.warning("Cannot read reflection archive %s: %s", session_id, error)
             continue
-        if history:
-            first = min((stamp(r.get("ts")) for r in history if r.get("ts")), default=0)
-            candidates.append((first, paths[0].as_posix(), session_id, history, saved.get("cursor", 0)))
+        first = _candidate_first_stamp(history, paths)
+        candidates.append((first, paths[0].as_posix(), session_id, history, saved.get("cursor", 0)))
     if not candidates:
         return None
     _, _, session_id, history, cursor = min(candidates, key=lambda item: item[:2])
@@ -90,16 +107,21 @@ async def apply_self_reflection(batch, action, _state):
         acquired = store.ANALYSIS_LOCK.acquire(blocking=False)
         if not acquired:
             raise ValueError("Reflection is already running; wait for another heartbeat")
-        state = store.load_state()
+        state = store.load_state(persist_migration=True)
         selected = candidate(context, state)
         if selected is None:
             raise ValueError("No eligible archive remains")
         session_id, history, cursor = selected
         await emit("running", action.name)
+        sent_from = cursor + 1 if cursor < len(history) else None
+        sent_through = len(history) if cursor < len(history) else None
+        characteristics = store.characteristics_for_service(state)
         append_chat_runtime_event(context, event="runtime_action_request", payload={
-            "action": action.name, "id": action_id, "status": "running", "source_session_id": session_id})
+            "action": action.name, "id": action_id, "status": "running",
+            "source_session_id": session_id, "sent_from": sent_from,
+            "sent_through": sent_through, "characteristic_count": len(characteristics)})
         client = context.clients["service"]
-        prompt = serialize_history(session_id, history, cursor)
+        prompt = serialize_history(session_id, history, cursor, characteristics)
         temperature = config.SERVICE_TEMPERATURE
         await log_runtime_summarizer_payload(context, label="SELF_REFLECTION", payload=build_runtime_summarizer_payload(
             service_client=client, system_prompt=SELF_REFLECTION_RULES, user_prompt=prompt,
@@ -110,21 +132,31 @@ async def apply_self_reflection(batch, action, _state):
         await log_runtime_summarizer_result(context, label="SELF_REFLECTION", result=text)
         if ResponseExtractor.extract_finish_reason(response) in {"length", "max_tokens"}:
             raise ValueError("Service response was truncated")
-        parsed = store.validate_result(text, session_id, history, cursor)
+        parsed = store.validate_result(text, session_id, history, cursor, state)
         # Last cancellable boundary, before the synchronous atomic transaction.
         await asyncio.sleep(0)
         if asyncio.current_task().cancelling() or getattr(context, "runtime_turn_abort_requested", False):
             raise asyncio.CancelledError()
         if session_id in live_session_ids(context) or session_id not in archive_paths(chat_log_root_for_context(context)):
             raise ValueError("Source archive is now live or has been deleted")
-        store.commit_result(state, session_id, history, parsed)
-        summary = (f"{session_id}: {parsed['intuition_line']['description']} "
-                   f"({'success' if parsed['intuition_line']['success'] else 'failure'}), "
-                   f"messages {parsed['start_message_index']}–{parsed['end_message_index']}"
-                   if parsed["status"] == "event_found" else f"{session_id}: no new event; reviewed through {len(history)}")
+        transaction = store.commit_result(state, session_id, history, parsed)
+        sent_range = (f"{transaction['sent_from']}–{transaction['sent_through']}"
+                      if transaction["sent_from"] is not None else "empty")
+        event_range = (f"{transaction['event_from']}–{transaction['event_through']}"
+                       if transaction["event_from"] is not None else "none")
+        if transaction["operation"] == "SKIP":
+            summary = (f"session={session_id}; sent={sent_range}; event=none; operation=SKIP; "
+                       f"reviewed remainder and found no clear event; "
+                       f"cursor={transaction['cursor_before']}→{transaction['cursor_after']}")
+        else:
+            summary = (f"session={session_id}; sent={sent_range}; event={event_range}; "
+                       f"operation={transaction['operation']}; "
+                       f"characteristic={transaction['characteristic_id']}; "
+                       f"behavior={transaction['description']}; "
+                       f"outcome={transaction['outcome']}; "
+                       f"cursor={transaction['cursor_before']}→{transaction['cursor_after']}")
         result = {"action": action.name.lower(), "ok": True, "status": "completed",
-                  "text": summary, "reflection": parsed,
-                  "reviewed_from": cursor + 1, "reviewed_through": state["sessions"][session_id]["cursor"]}
+                  "text": summary, "reflection": parsed, **transaction}
     except asyncio.CancelledError:
         cancelled = True
         result = {"action": action.name.lower(), "ok": False, "status": "failed",

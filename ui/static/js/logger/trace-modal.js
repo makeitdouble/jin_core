@@ -4287,13 +4287,14 @@ function renderContextIntuitionBody(parent, content) {
   table.setAttribute("aria-label", "JIN intuition");
   String(content || "").split("\n").filter(line => line.trim()).forEach((line, index) => {
     const cells = line.split("|").map(value => decodeContextEntities(value.trim()));
-    if (cells.length !== 3) return;
+    if (cells.length !== 3 && cells.length !== 4) return;
     const row = contextElement("div", "jin-context-kv-row jin-context-intuition-row");
+    if (cells.length === 4) row.classList.add("jin-context-intuition-row-with-id");
     row.setAttribute("role", "row");
     cells.forEach((value, column) => {
       const cell = contextElement("div", index === 0 ? "jin-context-kv-key" : "jin-context-kv-value", value);
       cell.setAttribute("role", index === 0 ? "columnheader" : "cell");
-      if (column > 0) {
+      if (column > cells.length - 3) {
         cell.style.textAlign = "right";
         cell.style.fontVariantNumeric = "tabular-nums";
       }
