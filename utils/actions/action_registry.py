@@ -741,7 +741,11 @@ ACTIONS = {
     RUNTIME_ACTION_CHAT_LOG_SEARCH: Action(prepare=_prepare_always, run=_run_chat_log_search, on_success=_event_text_success, on_fail=_event_text_fail),
     RUNTIME_ACTION_DEEP_RESEARCH: Action(prepare=_prepare_deep_research, run=_run_deep_research),
     RUNTIME_ACTION_WEB_SEARCH: Action(prepare=_prepare_search, run=_run_search),
-    RUNTIME_ACTION_CLEAN_TOOL_RESULTS: Action(run=_run_clean),
+    RUNTIME_ACTION_CLEAN_TOOL_RESULTS: Action(
+        run=_run_clean,
+        on_success=_event_text_success,
+        on_fail=_event_text_fail,
+    ),
     RUNTIME_ACTION_LOAD_SKILL: Action(prepare=_prepare_load_skill, run=_run_skill, on_success=_event_text_success, on_fail=_event_text_fail),
     RUNTIME_ACTION_UNLOAD_SKILL: Action(prepare=_prepare_unload_skill, run=_run_skill, on_success=_event_text_success, on_fail=_event_text_fail),
     RUNTIME_ACTION_ASSET_ACTION: Action(run=_run_asset, on_success=_event_text_success, on_fail=_event_text_fail),

@@ -29,7 +29,8 @@ Current high-signal state:
 - pinned outgoing files appear as composer attachment chips; click previews, hold detaches from context without deleting the persistent file.
 - Brain recent-message context is adjacent to `<FRAME_MEMORY_N>` and keeps the newest five pairs in full, with newline/XML normalization but no per-message character crop;
 - ordinary Brain turns include the previous successful reasoning block with explicit middle-crop semantics, while follow-ups keep their dedicated reasoning context;
-- empty action/recovery follow-up provider USER bodies use the internal `<system_follow_up_tick>` sentinel without creating a conversation USER move;
+- first-child-tick provider USER bodies start with `<subinstance_initial_tick>` followed by that child's role, authoritative task conditions and IDs; other empty action/recovery follow-ups use `<system_follow_up_tick>`. Both are internal transport messages and create no conversation USER move;
+- every first child tick receives exactly one `SUB_T1` `JIN_SUBINSTANCE_CREATED` result describing successful creation of that current child; the parent group-creation result is excluded, and subsequent child action results continue at `SUB_T2`;
 - reload/new-tab continuity is disk-owned (JSONL/runtime events plus saved `frames/` snapshots). Browser cognitive records are page-local projections only: `jin.liveRuntimeMemory.v2` is cleared at page load and the retired durable `jin.sessionCheckpoint.v2` browser value is removed before bootstrap;
 - Session CLEAR is a durable tombstone that blocks passive resurrection across already-open tabs until a new USER message is successfully sent;
 - `SAVE_SESSION` is not a current runtime-action contract; archived-session restore is handled by the bootstrap/restore path;

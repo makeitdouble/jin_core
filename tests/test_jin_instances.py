@@ -10,8 +10,10 @@ from utils.actions import RuntimeActionCall
 from utils.actions.dispatcher import apply_runtime_action_calls
 
 from utils.actions.jin_instance_actions import (
+    CHILD_STARTED_TOOL_ACTION,
     CHILD_TOOL_RESULTS_INSTRUCTION,
     active_child,
+    build_child_identity_context,
     build_child_instruction,
     build_parent_return_instruction,
     interrupt_instance_group,
@@ -19,6 +21,7 @@ from utils.actions.jin_instance_actions import (
     recent_lt_fact_ids,
     mark_child_started,
 )
+from utils.tool_results_context import split_tools_results_context
 
 
 class JinInstanceParsingTests(unittest.TestCase):
@@ -141,6 +144,32 @@ class JinInstanceContextTests(unittest.TestCase):
         self.assertIn("created file one", instruction)
         self.assertIn(CHILD_TOOL_RESULTS_INSTRUCTION, instruction)
         self.assertIn("You may create nested JIN instances", instruction)
+        role_line = instruction.index("Your current role: sub-instance JIN")
+        ordinal_line = instruction.index("Your ordinal number:")
+        self.assertLess(role_line, ordinal_line)
+        identity_end = instruction.index("Your authoritative session_id:")
+        role_start = instruction.index("You are JIN, a child instance")
+        intention_start = instruction.index("Original user intention:")
+        self.assertLess(identity_end, role_start)
+        self.assertLess(role_start, intention_start)
+
+        initial_instruction = build_child_instruction(context, include_identity=False)
+        initial_identity = build_child_identity_context(
+            context,
+            include_task_conditions=True,
+        )
+        self.assertNotIn("Your current role:", initial_instruction)
+        self.assertNotIn("Your authoritative subtask_agent_id:", initial_instruction)
+        self.assertEqual(
+            initial_identity.splitlines(),
+            [
+                "Your current role: sub-instance JIN",
+                "Your task conditions: create file two",
+                "Your ordinal number: 2",
+                "Your authoritative subtask_agent_id: sub_jin_2",
+                "Your authoritative session_id: session_2",
+            ],
+        )
 
     def test_parent_report_is_ordered(self):
         report = build_parent_return_instruction(self.make_context())
@@ -297,9 +326,36 @@ class JinInstanceBrainFlowTests(unittest.IsolatedAsyncioTestCase):
             prompt = kwargs["system_prompt"]
             child = active_child(context)
             if child is not None:
+                prior_count = child_calls.get(child["subtask_agent_id"], 0)
+                self.assertEqual(kwargs.get("subinstance_initial_tick", False), prior_count == 0)
+                self.assertTrue(prompt.startswith("<JIN_SUBTASK_INSTANCE>"))
+                if prior_count == 0:
+                    self.assertNotIn("<FOLLOW_UP_RESPONSE_MESSAGE>", prompt)
+                    self.assertNotIn("Your current role: sub-instance JIN", prompt)
+                    initial_tool_blocks, _ = split_tools_results_context(prompt)
+                    self.assertEqual(len(initial_tool_blocks), 1)
+                    initial_tool_result = initial_tool_blocks[0]
+                    self.assertIn('tool_id="SUB_T1"', initial_tool_result)
+                    self.assertIn(f'name="{CHILD_STARTED_TOOL_ACTION.upper()}"', initial_tool_result)
+                    self.assertIn("Status: success", initial_tool_result)
+                    self.assertIn(child["subtask_agent_id"], initial_tool_result)
+                    self.assertIn(child["session_id"], initial_tool_result)
+                    self.assertIn(child["conditions"], initial_tool_result)
+                    self.assertNotIn("CREATE_JIN_INSTANCES", initial_tool_result)
+                else:
+                    self.assertIn("<FOLLOW_UP_RESPONSE_MESSAGE>", prompt)
+                    self.assertIn("Your current role: sub-instance JIN", prompt)
+                    self.assertNotIn("<TOOLS_RESULTS>\n</TOOLS_RESULTS>", prompt)
                 self.assertEqual(prompt.count("<JIN_SUBTASK_INSTANCE>"), 1)
                 self.assertIn(child["conditions"], prompt)
-                self.assertIn(child["session_id"], prompt)
+                if prior_count != 0:
+                    self.assertIn(child["session_id"], prompt)
+                self.assertIn("The parent is suspended until you finish", prompt)
+                if prior_count == 0:
+                    self.assertNotIn(
+                        "Last executed actions: CREATE_JIN_INSTANCES",
+                        prompt,
+                    )
                 self.assertIn("RECENT_FACT_SENTINEL", prompt)
                 self.assertNotIn("OLD_FACT_SENTINEL", prompt)
                 self.assertNotIn("PARENT_REASONING_SENTINEL", prompt)
@@ -339,6 +395,7 @@ class JinInstanceBrainFlowTests(unittest.IsolatedAsyncioTestCase):
                 })
                 return "", "child finish"
             self.assertIn("<JIN_INSTANCES_RETURN_TO_PARENT>", prompt)
+            self.assertIn("<FOLLOW_UP_RESPONSE_MESSAGE>", prompt)
             self.assertIn("OLD_FACT_SENTINEL", prompt)
             self.assertIn("PARENT_REASONING_SENTINEL", prompt)
             self.assertNotIn("CHILD_PRIVATE_SENTINEL", prompt)
@@ -580,7 +637,7 @@ class EphemeralSubtaskMemoryTests(unittest.IsolatedAsyncioTestCase):
         first = active_child(c)["subtask_agent_id"]
         record_runtime_tool_result(c, 'files', {'ok': True, 'source': 'child_one'})
         record_runtime_tool_result(c, 'search', 'private result')
-        self.assertEqual([e['tool_id'] for e in c.runtime_tool_results[-2:]], ['SUB_T1', 'SUB_T2'])
+        self.assertEqual([e['tool_id'] for e in c.runtime_tool_results[-2:]], ['SUB_T2', 'SUB_T3'])
         self.assertTrue(all(e['owner_subtask_agent_id'] == first for e in c.runtime_tool_results[-2:]))
         parent_sequence = c.runtime_tool_result_sequence
         await self.finish()
@@ -590,7 +647,7 @@ class EphemeralSubtaskMemoryTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(c.runtime_tool_results[-1]['result']['action'], 'finish_subtask')
         mark_child_started(c)
         record_runtime_tool_result(c, 'asset', {'ok': True, 'source': 'child_two'})
-        self.assertEqual(c.runtime_tool_results[-1]['tool_id'], 'SUB_T1')
+        self.assertEqual(c.runtime_tool_results[-1]['tool_id'], 'SUB_T2')
         await self.finish()
         self.assertFalse(any(e['tool_id'].startswith('SUB_') for e in c.runtime_tool_results))
 

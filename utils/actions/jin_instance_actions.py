@@ -20,13 +20,16 @@ from utils.tool_results import TOOL_RESULT_KIND_RUNTIME_ACTION, record_runtime_t
 
 
 CHILD_TOOL_RESULTS_INSTRUCTION = (
-    "All TOOL_RESULTs created by you belong to your temporary instance and use "
-    "SUB_T1, SUB_T2, ... IDs starting from SUB_T1 for each child. "
+    "The runtime creation acknowledgement is your temporary SUB_T1 result. "
+    "All TOOL_RESULTs created by you belong to your temporary instance and continue "
+    "with SUB_T2, SUB_T3, ... IDs. "
     "They are forcibly removed on FINISH_SUBTASK or interruption, including failures. "
     "Inherited parent TOOL_RESULTs use T* IDs and are read-only: do not clean them. "
     "CLEAN_TOOL_RESULTS accepts your SUB_T* IDs; an empty payload clears only your results. "
     "Return essential findings in finish_reason before finishing."
 )
+
+CHILD_STARTED_TOOL_ACTION = "jin_subinstance_created"
 
 
 def _json_objects(payload) -> list[dict]:
@@ -308,7 +311,30 @@ async def apply_finish_subtask(batch, action, _state) -> int:
     return 1
 
 
-def build_child_instruction(context) -> str:
+def build_child_identity_context(
+    context,
+    *,
+    include_task_conditions: bool = False,
+) -> str:
+    task = active_child(context)
+    if task is None:
+        return ""
+    lines = [
+        "Your current role: sub-instance JIN",
+    ]
+    if include_task_conditions:
+        lines.append(
+            f"Your task conditions: {task['conditions']}"
+        )
+    lines.extend((
+        f"Your ordinal number: {task['ordinal']}",
+        f"Your authoritative subtask_agent_id: {task['subtask_agent_id']}",
+        f"Your authoritative session_id: {task['session_id']}",
+    ))
+    return "\n".join(lines)
+
+
+def build_child_instruction(context, *, include_identity: bool = True) -> str:
     group = _current_group(context)
     task = active_child(context)
     if task is None:
@@ -318,12 +344,13 @@ def build_child_instruction(context) -> str:
         f"- JIN #{item['ordinal']} ({item['subtask_agent_id']}): {item['finish_reason']}"
         for item in completed
     ) or "- none"
+    identity_context = build_child_identity_context(context) if include_identity else ""
     return (
         "<JIN_SUBTASK_INSTANCE>\n"
-        "You are JIN, a child instance of yourself created to execute one part of the original user intention.\n"
-        f"Your ordinal number: {task['ordinal']}\n"
-        f"Your authoritative subtask_agent_id: {task['subtask_agent_id']}\n"
-        f"Your authoritative session_id: {task['session_id']}\n"
+        + (identity_context + "\n" if identity_context else "")
+        + "You are JIN, a child instance of yourself created to execute one part of the original user intention.\n"
+        "This model invocation is your active child execution tick. The parent is suspended until you finish. "
+        "Do not wait for the child instances, describe yourself as the parent, or treat the parent's CREATE_JIN_INSTANCES result as your own last action.\n"
         f"Original user intention: {group.get('parent_user_message', '')}\n"
         f"Your assigned conditions: {task['conditions']}\n"
         "Use the context, memories, skills, attachments, tools, and tool results provided in this tick. "
@@ -339,7 +366,7 @@ def build_child_instruction(context) -> str:
         "Ownership is assigned by runtime and cannot be supplied or changed. "
         "Return all findings that should survive in finish_reason; the parent decides what to retain.\n"
         f"{CHILD_TOOL_RESULTS_INSTRUCTION}\n"
-        "When and only when the assigned subtask is complete, emit FINISH_SUBTASK using the authoritative IDs above, "
+        "When and only when the assigned subtask is complete, emit FINISH_SUBTASK using the authoritative IDs supplied for this child, "
         "the original assigned conditions, and a precise finish_reason.\n"
         "Completed predecessor reports:\n"
         f"{reports}\n"
@@ -397,6 +424,22 @@ def mark_child_started(context) -> None:
         task["status"] = "running"
         task["started_at"] = time.time()
         group["phase"] = "child_running"
+        if not task.get("start_tool_result_recorded"):
+            record_runtime_tool_result(
+                context,
+                TOOL_RESULT_KIND_RUNTIME_ACTION,
+                {
+                    "action": CHILD_STARTED_TOOL_ACTION,
+                    "ok": True,
+                    "message": "Current sub-instance JIN created successfully.",
+                    "ordinal": task["ordinal"],
+                    "subtask_agent_id": task["subtask_agent_id"],
+                    "session_id": task["session_id"],
+                    "assigned_conditions": task["conditions"],
+                },
+                result_id=task["subtask_agent_id"],
+            )
+            task["start_tool_result_recorded"] = True
 
 
 INSTANCE_TOOL_DEFAULTS = {

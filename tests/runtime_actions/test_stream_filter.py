@@ -2013,6 +2013,10 @@ class RuntimeStreamFilterTests(RuntimeActionTestCase):
                 "clean_tool_results",
             ],
         )
+        self.assertEqual(
+            context.emitter.events[0]["text"],
+            "All tool results cleared",
+        )
 
 
     def test_apply_runtime_action_calls_deduplicates_same_resolve_id(self):

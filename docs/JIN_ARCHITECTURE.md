@@ -226,7 +226,7 @@ Archived restore starts with `<MANDATORY_SYSTEM_NOTIFICATION>` before the live s
 
 On ordinary turns, `<PREVIOUS_CHAT_MESSAGES>` takes the newest five recent USER/JIN pairs. The bound is pair count only: selected message bodies are not character-cropped. CRLF/CR is normalized, physical newlines are serialized as literal `\n`, surrounding whitespace is stripped, and XML-sensitive characters are escaped without removing the remaining text.
 
-The ordinary initial Brain prompt also includes the previous successfully completed reasoning in `<PREVIOUS_REASONING_EVIDENCE_TRAIL_AFTER_EXECUTED_ACTIONS>`. Up to 2000 characters are kept whole; above that threshold the projection keeps the first and last 25% and replaces the middle with `CUTTED N chars`. Action/recovery follow-ups place dialogue, carried reasoning evidence and tools after identity, without duplicating the ordinary previous-reasoning slot. When a follow-up has no attachment-specific text payload, its provider USER body is the internal `<system_follow_up_tick>` sentinel rather than an empty string. It is transport context only and does not create a USER dialogue row.
+The ordinary initial Brain prompt also includes the previous successfully completed reasoning in `<PREVIOUS_REASONING_EVIDENCE_TRAIL_AFTER_EXECUTED_ACTIONS>`. Up to 2000 characters are kept whole; above that threshold the projection keeps the first and last 25% and replaces the middle with `CUTTED N chars`. Action/recovery follow-ups place dialogue, carried reasoning evidence and tools after identity, without duplicating the ordinary previous-reasoning slot. When a follow-up has no attachment-specific text payload, its provider USER body is an internal transport sentinel rather than an empty string: `<subinstance_initial_tick>` for the first tick of each child JIN and `<system_follow_up_tick>` for other follow-ups. Neither sentinel creates a USER dialogue row.
 
 Prompt text is a transient projection. Canonical state remains in `RuntimeContext` and filesystem stores; browser cognitive data is only a page-local projection.
 
@@ -405,6 +405,22 @@ the 24-hour L-T restriction is applied by the common prompt builder using fact
 IDs, without replacing the canonical memory store. Parent reasoning/recovery
 state and in-flight dialogue are saved before the first child and restored on
 return or interruption; each child starts from the parent's dialogue snapshot.
+The child assignment block replaces the generic `FOLLOW_UP_RESPONSE_MESSAGE`
+only on the first tick of each child (emergency context overflow retains
+precedence). That tick's provider USER body starts with `<subinstance_initial_tick>`
+followed immediately by the child role, authoritative task conditions, ordinal,
+authoritative agent ID and session ID; those lines are omitted from the initial
+system block.
+The initial child `<TOOLS_RESULTS>` contains exactly one runtime-owned
+`JIN_SUBINSTANCE_CREATED` acknowledgement (`SUB_T1`) with success status,
+ordinal, authoritative agent/session IDs and assigned conditions. Parent action
+results, including the group-level `CREATE_JIN_INSTANCES`, are excluded from
+that initial projection. The child's own action results continue at `SUB_T2`.
+Ordinary action follow-ups restore the identity lines to the system child block
+and retain the generic follow-up block plus the normal current tool-result
+projection. Parent returns and non-child follow-ups also retain it. Frame transitions clear the former frame's
+last-action/tool-ID follow-up header so a child cannot interpret the parent's
+CREATE result as an instruction to wait on itself.
 Reaching a follow-up or malformed-repair limit interrupts unfinished children,
 cancels queued work, and runs the existing final non-executable tick as the
 root parent with terminal reports. Instance transitions never reuse cached results.

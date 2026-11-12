@@ -40,10 +40,10 @@ def test_parent_and_each_child_independent_numbering_and_cleanup():
         mark_child_started(c)
         record_runtime_tool_result(c, 'search', 'first evidence')
         record_runtime_tool_result(c, 'asset', {'ok': False, 'detail': 'failed'})
-        assert [e['tool_id'] for e in c.runtime_tool_results] == ['T1', 'SUB_T1', 'SUB_T2']
-        assert [e.get('owner_subtask_agent_id') for e in c.runtime_tool_results] == [None, 'first', 'first']
+        assert [e['tool_id'] for e in c.runtime_tool_results] == ['T1', 'SUB_T1', 'SUB_T2', 'SUB_T3']
+        assert [e.get('owner_subtask_agent_id') for e in c.runtime_tool_results] == [None, 'first', 'first', 'first']
         assert c.runtime_tool_result_sequence == 1
-        assert c.runtime_tool_result_created_ats and len(c.runtime_tool_result_created_ats) == 3
+        assert c.runtime_tool_result_created_ats and len(c.runtime_tool_result_created_ats) == 4
         from utils.tool_results import remove_runtime_tool_results
         remove_runtime_tool_results(c, lambda e: e.get('owner_subtask_agent_id') == 'first')
         assert [e['tool_id'] for e in c.runtime_tool_results] == ['T1']
@@ -53,7 +53,7 @@ def test_parent_and_each_child_independent_numbering_and_cleanup():
         c.runtime_jin_instance_group['active_index'] = 1
         mark_child_started(c)
         record_runtime_tool_result(c, 'files', {'ok': True})
-        assert [e['tool_id'] for e in c.runtime_tool_results] == ['T1', 'SUB_T1']
+        assert [e['tool_id'] for e in c.runtime_tool_results] == ['T1', 'SUB_T1', 'SUB_T2']
         assert c.runtime_tool_results[-1]['owner_subtask_agent_id'] == 'second'
 
 
@@ -65,7 +65,7 @@ def test_child_cannot_clean_inherited_parent_results_and_empty_clear_is_local():
         record_runtime_tool_result(c, 'search', 'child evidence')
         assert not clean_runtime_tool_result(c, 'T1')
         assert not clean_runtime_tool_results_by_ids(c, ['SUB_T1', 'T1'])
-        assert [e['tool_id'] for e in c.runtime_tool_results] == ['T1', 'SUB_T1']
+        assert [e['tool_id'] for e in c.runtime_tool_results] == ['T1', 'SUB_T1', 'SUB_T2']
         assert clean_runtime_tool_results_by_ids(c, ['SUB_T1'])
         record_runtime_tool_result(c, 'files', {'ok': True})
     with patch('utils.actions.dispatcher.ensure_assets_tree'), patch('utils.chat_log.append_chat_runtime_event'):

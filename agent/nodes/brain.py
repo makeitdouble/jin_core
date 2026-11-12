@@ -27,6 +27,7 @@ from rules.runtime import (
     ACTION_FAILURE_FOLLOWUP_MESSAGE,
     CONTEXT_LIMIT_RECOVERY_MESSAGE,
     FOLLOW_UP_TICK_BODY_MESSAGE,
+    SUBINSTANCE_INITIAL_TICK_BODY_MESSAGE,
     FOLLOW_UP_RESPONSE_MESSAGE,
     FOLLOW_UP_CONTEXT_OVERFLOW_MESSAGE,
     REASONING_RECOVERY_MESSAGE,
@@ -76,7 +77,9 @@ from utils.actions.action_registry import (
     apply_action_feedback,
 )
 from utils.actions.jin_instance_actions import (
+    CHILD_STARTED_TOOL_ACTION,
     active_child,
+    build_child_identity_context,
     build_child_instruction,
     build_parent_return_instruction,
     mark_child_started,
@@ -1408,6 +1411,7 @@ class BrainNode(BaseNode):
             context=None,
             instruction: str = "",
             latest_action: str = "",
+            subinstance_initial_tick: bool = False,
     ) -> str:
 
         from utils.context.context_exports import (
@@ -1497,7 +1501,7 @@ class BrainNode(BaseNode):
         )
         # Overflow needs an immediate cleanup instruction, without the ordinary
         # deep-reasoning notice or its last-executed-action/result suffix.
-        sections = [
+        followup_response_context = (
             (
                 "<FOLLOW_UP_CONTEXT_OVERFLOW_MESSAGE>\n"
                 + FOLLOW_UP_CONTEXT_OVERFLOW_MESSAGE
@@ -1508,7 +1512,28 @@ class BrainNode(BaseNode):
                 context,
                 latest_action=latest_action,
             )
-        ]
+        )
+
+        # Only the first tick of a new child frame replaces the generic
+        # follow-up notice. Ordinary action follow-ups inside that same child
+        # retain FOLLOW_UP_RESPONSE_MESSAGE. Emergency overflow stays first.
+        child_instruction = build_child_instruction(
+            context,
+            include_identity=not subinstance_initial_tick,
+        )
+        sections = (
+            (
+                [followup_response_context, child_instruction]
+                if context_overflow_pending
+                else (
+                    [child_instruction]
+                    if subinstance_initial_tick
+                    else [child_instruction, followup_response_context]
+                )
+            )
+            if child_instruction
+            else [followup_response_context]
+        )
 
         if potential_loop_detected:
             sections.append(
@@ -1540,10 +1565,6 @@ class BrainNode(BaseNode):
             sections.append(
                 failed_action_context
             )
-
-        child_instruction = build_child_instruction(context)
-        if child_instruction:
-            sections.append(child_instruction)
 
         if instruction.strip():
             sections.append(
@@ -1606,7 +1627,19 @@ class BrainNode(BaseNode):
 
         followup_tool_results_context = (
             build_tools_results_context(
-                tool_result_blocks
+                (
+                    [
+                        block
+                        for block in tool_result_blocks
+                        if re.search(
+                            rf'\bname=["\x27]{re.escape(CHILD_STARTED_TOOL_ACTION)}["\x27]',
+                            block,
+                            re.IGNORECASE,
+                        )
+                    ]
+                    if subinstance_initial_tick
+                    else tool_result_blocks
+                )
             )
         )
 
@@ -1711,6 +1744,7 @@ class BrainNode(BaseNode):
             filter_runtime_actions: bool = True,
             preserve_runtime_action_markers: bool = False,
             followup_tick: bool = False,
+            subinstance_initial_tick: bool = False,
     ) -> tuple[str, str]:
 
         logger = context.logger
@@ -1749,12 +1783,25 @@ class BrainNode(BaseNode):
             restore_sequence_attachments_for_followup(
                 context
             )
-            effective_brain_payload = (
-                build_followup_attachment_payload(
-                    context
+            followup_attachment_payload = build_followup_attachment_payload(context)
+            if subinstance_initial_tick:
+                effective_brain_payload = "\n".join(
+                    part
+                    for part in (
+                        SUBINSTANCE_INITIAL_TICK_BODY_MESSAGE,
+                        build_child_identity_context(
+                            context,
+                            include_task_conditions=True,
+                        ),
+                        followup_attachment_payload,
+                    )
+                    if part
                 )
-                or FOLLOW_UP_TICK_BODY_MESSAGE
-            )
+            else:
+                effective_brain_payload = (
+                    followup_attachment_payload
+                    or FOLLOW_UP_TICK_BODY_MESSAGE
+                )
             context.runtime_followup_tick_active = True
 
         model_user_prompt = build_brain_user_prompt_content(
@@ -2623,8 +2670,10 @@ class BrainNode(BaseNode):
                     if not unlimited_followups and followup_count >= max_followups:
                         break
 
-                # SUB_T IDs are local to a frame. A transition header must not
-                # refer to the former frame's IDs in the resumed/new namespace.
+                # Follow-up action lines and SUB_T IDs belong to the former
+                # execution frame. The child/parent transition instruction and
+                # ordered reports carry the authoritative handoff instead.
+                context.runtime_followup_response_action_lines = []
                 context.runtime_followup_response_tool_ids = []
                 followup_runtime_actions = {**base_runtime_actions}
                 followup_runtime_actions["CAN_FINISH_SUBTASK"] = active_child(context) is not None
@@ -2645,6 +2694,7 @@ class BrainNode(BaseNode):
                     sequence_user_request,
                     context=context,
                     instruction=instruction,
+                    subinstance_initial_tick=child_tick,
                 )
                 await emit_active_memory_records_update_if_dirty(context)
                 # The completed child frame is already detached on return.
@@ -2656,6 +2706,7 @@ class BrainNode(BaseNode):
                     system_prompt=followup_system_prompt,
                     brain_payload="",
                     followup_tick=True,
+                    subinstance_initial_tick=child_tick,
                     runtime_actions=followup_runtime_actions,
                     emit_content_to_chat=True,
                     filter_runtime_actions=True,

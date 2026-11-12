@@ -26,6 +26,41 @@ def test_default_success_formats_mapping_payload():
     assert event["text"] == "JIN_POSITION: x: 10, y: 20"
 
 
+def test_clean_tool_results_success_keeps_emitted_summary_out_of_event_context():
+    event = apply_action_feedback(
+        RuntimeActionCall(name="CLEAN_TOOL_RESULTS", payload=""),
+        {
+            "type": "runtime_action",
+            "action": "clean_tool_results",
+            "status": "completed",
+            "text": "All tool results cleared",
+            "context": {
+                "system_prompt": "PRIVATE SYSTEM PROMPT",
+                "user_prompt": "PRIVATE USER PROMPT",
+            },
+        },
+    )
+
+    assert event["text"] == "All tool results cleared"
+    assert "PRIVATE SYSTEM PROMPT" not in event["text"]
+    assert "PRIVATE USER PROMPT" not in event["text"]
+
+
+def test_clean_tool_results_failure_keeps_emitted_failure_summary():
+    event = apply_action_feedback(
+        RuntimeActionCall(name="CLEAN_TOOL_RESULTS", payload="T404"),
+        {
+            "type": "runtime_action",
+            "action": "clean_tool_results",
+            "status": "failed",
+            "text": "Unknown or invalid tool_id list: T404",
+            "context": {"system_prompt": "PRIVATE SYSTEM PROMPT"},
+        },
+    )
+
+    assert event["text"] == "Unknown or invalid tool_id list: T404"
+
+
 def test_jin_size_success_uses_normalized_size_message():
     event = apply_action_feedback(
         RuntimeActionCall(name="JIN_SIZE", payload="150 100"),

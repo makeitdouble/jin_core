@@ -19,6 +19,7 @@ from agent.nodes.brain import (
 from rules.runtime import (
     ACTION_FAILURE_FOLLOWUP_MESSAGE,
     FOLLOW_UP_TICK_BODY_MESSAGE,
+    SUBINSTANCE_INITIAL_TICK_BODY_MESSAGE,
 )
 from rules.brain_context_builder import (
     build_brain_context,
@@ -1400,6 +1401,72 @@ class BrainAssetFlowTests(unittest.IsolatedAsyncioTestCase):
             "action_user_message",
             observed,
         )
+
+    async def test_subinstance_initial_tick_uses_dedicated_body_message(self):
+
+        observed = {}
+
+        async def fake_ask_brain_stream(**kwargs):
+            observed.update(kwargs)
+            if False:
+                yield {}
+
+        class FakeRuntimeStream:
+
+            def __init__(self, **_kwargs):
+                self.stream = SimpleNamespace(reasoning="")
+
+            async def run(self, generator):
+                async for _event in generator:
+                    pass
+                return ""
+
+        context = _context()
+        context.runtime_turn_attachments = []
+        context.logger = SimpleNamespace(log_brain=lambda _message: _async_noop())
+        context.runtime_jin_instance_group = {
+            "phase": "child_running",
+            "active_index": 0,
+            "tasks": [{
+                "ordinal": 1,
+                "subtask_agent_id": "sub_jin_1_test",
+                "session_id": "jin_group_test_session_1",
+                "conditions": "test",
+                "status": "running",
+            }],
+        }
+        state = AgentState(user_input="исходная задача")
+
+        with patch("agent.nodes.brain.ask_brain_stream", new=fake_ask_brain_stream), patch(
+            "agent.nodes.brain.RuntimeStream", new=FakeRuntimeStream,
+        ):
+            await BrainNode.run_brain_stream(
+                state=state,
+                context=context,
+                brain_runtime=_brain_runtime(),
+                brain_client=object(),
+                system_prompt="subinstance system",
+                brain_payload="",
+                runtime_actions={},
+                followup_tick=True,
+                subinstance_initial_tick=True,
+            )
+
+        self.assertEqual(observed["text"], "")
+        self.assertEqual(
+            observed["brain_payload"].splitlines(),
+            [
+                SUBINSTANCE_INITIAL_TICK_BODY_MESSAGE,
+                "Your current role: sub-instance JIN",
+                "Your ordinal number: 1",
+                "Your authoritative subtask_agent_id: sub_jin_1_test",
+                "Your authoritative session_id: jin_group_test_session_1",
+            ],
+        )
+        self.assertEqual(
+            state.visible_response_context["user_prompt"], observed["brain_payload"],
+        )
+        self.assertEqual(state.user_input, "исходная задача")
 
     async def test_failed_delayed_memory_save_triggers_followup_with_payload(self):
 
