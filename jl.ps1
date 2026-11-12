@@ -20,7 +20,9 @@ $ManagedPythonDir = Join-Path $RuntimeDir "python"
 $UvCacheDir = Join-Path $RuntimeDir "uv-cache"
 $ManagedPythonVersion = "3.12"
 $UvVersion = "0.12.19"
-$LlamaBuild = "b11112"
+$script:LlamaBuild = "b11112"
+$LlamaPreferredBuild = "b11112"
+$LlamaFallbackBuilds = @("b11000", "b10800", "b10600")
 $LlamaCudaVersion = "12.4"
 $LlamaDir = Join-Path $RuntimeDir "llama"
 $LlamaServerExe = Join-Path $LlamaDir "llama-server.exe"
@@ -29,6 +31,9 @@ $LlamaMainAsset = "llama-$LlamaBuild-bin-win-cuda-$LlamaCudaVersion-x64.zip"
 $LlamaCudaAsset = "cudart-llama-bin-win-cuda-$LlamaCudaVersion-x64.zip"
 $LlamaMainSha256 = "f43f62912ef90878f4a1612066c6390fb0bd3d39c4060749e959ca2fdd316316"
 $LlamaCudaSha256 = "8c79a9b226de4b3cacfd1f83d24f962d0773be79f1e7b75c6af4ded7e32ae1d6"
+$LlamaCpuAsset = "llama-$LlamaBuild-bin-win-cpu-x64.zip"
+$LlamaVulkanAsset = "llama-$LlamaBuild-bin-win-vulkan-x64.zip"
+$script:LlamaBackend = "cpu"
 $EmbeddedModelsDir = Join-Path $RuntimeDir "models"
 $DefaultEmbeddedModelRepo = "lmstudio-community/gemma-4-E4B-it-GGUF"
 $DefaultEmbeddedModelFile = "gemma-4-E4B-it-Q4_K_M.gguf"
@@ -48,7 +53,7 @@ $EmbeddedBrainPort = 12345
 $EmbeddedBrainBaseUrl = "http://$EmbeddedBrainHost`:$EmbeddedBrainPort"
 $LmStudioBaseUrl = "http://127.0.0.1:1234"
 $EmbeddedBrainModelId = "google/gemma-4-e4b"
-$EmbeddedBrainDefaultContext = 16384
+$EmbeddedBrainDefaultContext = 8192
 $EmbeddedBrainMaxContext = 32768
 $EmbeddedBrainContextPath = Join-Path $LauncherDir "brain_context.txt"
 $script:EmbeddedBrainContext = $EmbeddedBrainDefaultContext
@@ -56,7 +61,8 @@ if (Test-Path -LiteralPath $EmbeddedBrainContextPath) {
     try {
         $savedEmbeddedContext = [int](Get-Content -Raw -LiteralPath $EmbeddedBrainContextPath)
         if ($savedEmbeddedContext -in @(4096, 8192, 16384, 32768)) {
-            $script:EmbeddedBrainContext = $savedEmbeddedContext
+            # Upgrade previously saved 4K to the new 8K startup default.
+            $script:EmbeddedBrainContext = [Math]::Max(8192, $savedEmbeddedContext)
         }
     }
     catch {}
@@ -1070,46 +1076,100 @@ function Get-WindowsArchitecture {
 }
 
 function Test-LlamaServerExecutable {
-    if (-not (Test-Path -LiteralPath $LlamaServerExe)) { return $false }
+    if (-not (Test-Path -LiteralPath $LlamaServerExe)) {
+        $script:LlamaRuntimeCheckError = "llama-server.exe missing: $LlamaServerExe"
+        return $false
+    }
     if (-not (Test-Path -LiteralPath $LauncherDir)) {
         [void](New-Item -ItemType Directory -Path $LauncherDir -Force)
     }
 
     $stdoutPath = Join-Path $LauncherDir "llama-runtime-check.stdout"
     $stderrPath = Join-Path $LauncherDir "llama-runtime-check.stderr"
+    $script:LlamaRuntimeCheckError = ""
     Remove-Item -LiteralPath $stdoutPath, $stderrPath -Force -ErrorAction SilentlyContinue
 
     try {
         $process = Start-Process -FilePath $LlamaServerExe -ArgumentList @("--version") `
             -WorkingDirectory $LlamaDir -NoNewWindow -Wait -PassThru `
             -RedirectStandardOutput $stdoutPath -RedirectStandardError $stderrPath
-        if ($process.ExitCode -ne 0) { return $false }
-
         $output = @()
         if (Test-Path -LiteralPath $stdoutPath) { $output += @(Get-Content -LiteralPath $stdoutPath) }
         if (Test-Path -LiteralPath $stderrPath) { $output += @(Get-Content -LiteralPath $stderrPath) }
-        $text = ($output -join "`n").Trim()
-        return (-not [string]::IsNullOrWhiteSpace($text))
+        $resultText = ($output -join "`n").Trim()
+        if ($process.ExitCode -ne 0) {
+            $script:LlamaRuntimeCheckError = "llama-server.exe --version exited with code $($process.ExitCode). Output: $resultText"
+            return $false
+        }
+        if ([string]::IsNullOrWhiteSpace($resultText)) {
+            $script:LlamaRuntimeCheckError = "llama-server.exe --version exited successfully but produced no output."
+            return $false
+        }
+        return $true
     }
     catch {
+        $script:LlamaRuntimeCheckError = "llama-server.exe could not be started: $($_.Exception.Message)"
         return $false
     }
-    finally {
-        Remove-Item -LiteralPath $stdoutPath, $stderrPath -Force -ErrorAction SilentlyContinue
+    # Keep stdout/stderr files for diagnosis instead of deleting them.
+}
+
+function Test-NvidiaGpu {
+    try {
+        $adapters = @(Get-CimInstance -ClassName Win32_VideoController -ErrorAction Stop)
+        return (@($adapters | Where-Object { $_.Name -match "NVIDIA" }).Count -gt 0)
+    }
+    catch {
+        # A detection failure must never force CUDA on a CPU-only laptop.
+        return $false
     }
 }
 
-function Test-LlamaRuntime {
-    if (-not (Test-LlamaServerExecutable)) { return $false }
-    if (-not (Test-Path -LiteralPath $LlamaRuntimeMarker)) { return $false }
-
+function Get-LlamaRuntimeBackend {
+    if (-not (Test-Path -LiteralPath $LlamaRuntimeMarker)) { return "" }
     try {
         $marker = (Get-Content -Raw -LiteralPath $LlamaRuntimeMarker).Trim()
-        return ($marker -eq $LlamaBuild)
+        if ($marker -match '^(b[0-9]+)\|(cuda|vulkan|cpu)$') {
+            $build = $Matches[1]
+            $backend = $Matches[2]
+            $allowed = @($LlamaPreferredBuild) + @($LlamaFallbackBuilds)
+            if ($allowed -contains $build) {
+                $script:LlamaBuild = $build
+                return $backend
+            }
+        }
+        if ($marker -eq $LlamaPreferredBuild) { $script:LlamaBuild = $LlamaPreferredBuild; return "cuda" }
+    }
+    catch {}
+    return ""
+}
+
+function Test-LlamaRuntime {
+    $backend = Get-LlamaRuntimeBackend
+    if ([string]::IsNullOrWhiteSpace($backend)) { return $false }
+    if ($backend -eq "cuda" -and -not (Test-NvidiaGpu)) { return $false }
+    if (-not (Test-LlamaServerExecutable)) { return $false }
+    $script:LlamaBackend = $backend
+    return $true
+}
+
+function Get-LlamaReleaseAssetSha256 {
+    param([string]$AssetName)
+    # GitHub's release API publishes an asset digest. When the API is accessible,
+    # use it to verify the CPU build just like the pinned CUDA build.
+    try {
+        $apiUrl = "https://api.github.com/repos/ggml-org/llama.cpp/releases/tags/$LlamaBuild"
+        $headers = @{ "User-Agent" = "JIN-Core-Launcher"; "Accept" = "application/vnd.github+json" }
+        $release = Invoke-RestMethod -Uri $apiUrl -Headers $headers -TimeoutSec 20 -ErrorAction Stop
+        $asset = @($release.assets | Where-Object { $_.name -eq $AssetName } | Select-Object -First 1)
+        if ($asset.Count -gt 0 -and [string]$asset[0].digest -match '^sha256:([a-fA-F0-9]{64})$') {
+            return $Matches[1].ToLowerInvariant()
+        }
     }
     catch {
-        return $false
+        Write-BootLine "LLAMA" "GitHub digest API unavailable; using official release URL" "WORK"
     }
+    return ""
 }
 
 function Copy-DirectoryContents {
@@ -1142,105 +1202,121 @@ function Download-VerifiedArchive {
 }
 
 function Ensure-LlamaRuntime {
-    if (Test-LlamaRuntime) {
-        return [pscustomobject]@{
-            Server = $LlamaServerExe
-            Build = $LlamaBuild
-            State = "CACHED"
-        }
-    }
-
     if ((Get-WindowsArchitecture) -ne "AMD64") {
         Fail-WithMessage "Embedded llama.cpp bootstrap currently supports Windows x64 only."
     }
-
+    $hasNvidia = Test-NvidiaGpu
+    if (Test-LlamaRuntime) {
+        Write-BootLine "LLAMA" "cached llama.cpp $script:LlamaBuild backend: $script:LlamaBackend" "OK"
+        return [pscustomobject]@{ Server = $LlamaServerExe; Build = $script:LlamaBuild; State = "CACHED" }
+    }
     $script:RuntimeMessage = "PREPARING EMBEDDED LLAMA RUNTIME"
-    Write-BootLine "LLAMA" "preparing embedded runtime" "WORK"
-
     if (-not (Test-Path -LiteralPath $LauncherDir)) {
         [void](New-Item -ItemType Directory -Path $LauncherDir -Force)
     }
-
-    $baseUrl = "https://github.com/ggml-org/llama.cpp/releases/download/$LlamaBuild"
-    $mainUrl = "$baseUrl/$LlamaMainAsset"
-    $cudaUrl = "$baseUrl/$LlamaCudaAsset"
     $mainArchive = Join-Path $LauncherDir "llama-runtime.zip"
     $cudaArchive = Join-Path $LauncherDir "llama-cudart.zip"
     $mainExtract = Join-Path $LauncherDir "llama-runtime-extract"
     $cudaExtract = Join-Path $LauncherDir "llama-cudart-extract"
-
-    try {
-        foreach ($path in @($mainArchive, $cudaArchive)) {
-            if (Test-Path -LiteralPath $path) {
-                Remove-Item -LiteralPath $path -Force
+    $attemptErrors = New-Object 'System.Collections.Generic.List[string]'
+    # Old Windows laptops: prefer CPU immediately; do not download CUDA or Vulkan.
+    $builds = if ($hasNvidia) { @($LlamaPreferredBuild) } else { @($LlamaPreferredBuild) + @($LlamaFallbackBuilds) }
+    $backends = if ($hasNvidia) { @("cuda", "cpu") } else { @("cpu") }
+    foreach ($build in $builds) {
+        $script:LlamaBuild = $build
+        $baseUrl = "https://github.com/ggml-org/llama.cpp/releases/download/$build"
+        foreach ($backend in $backends) {
+            $key = "$build|$backend"
+            $failedMarker = Join-Path $LauncherDir ("llama-failed-" + $build + "-" + $backend + ".txt")
+            # Failure cache is valid only for the exact Windows build and launcher runtime.
+            # Legacy failure markers (from earlier JIN launchers) have no fingerprint and
+            # must be retried. In particular, a Windows feature update invalidates them.
+            $osFingerprint = [string]([Environment]::OSVersion.Version)
+            $failureFingerprint = "JIN_LLAMA_FAILURE_V2|$osFingerprint|$key"
+            if (Test-Path -LiteralPath $failedMarker) {
+                $previousFailure = ""
+                try { $previousFailure = [string](Get-Content -LiteralPath $failedMarker -TotalCount 1 -ErrorAction Stop) } catch {}
+                if ($previousFailure -eq $failureFingerprint) {
+                    Write-BootLine "LLAMA" "skipping already tested $key on Windows $osFingerprint" "WORK"
+                    $attemptErrors.Add("$key previously crashed on Windows $osFingerprint; delete $failedMarker to force retry")
+                    continue
+                }
+                Remove-Item -LiteralPath $failedMarker -Force -ErrorAction SilentlyContinue
+                Write-BootLine "LLAMA" "retrying $key after Windows/runtime environment change" "WORK"
+            }
+            Write-BootLine "LLAMA" "trying llama.cpp $key" "WORK"
+            try {
+                foreach ($path in @($mainArchive, $cudaArchive)) { Remove-Item -LiteralPath $path -Force -ErrorAction SilentlyContinue }
+                foreach ($path in @($mainExtract, $cudaExtract)) { Remove-Item -LiteralPath $path -Recurse -Force -ErrorAction SilentlyContinue }
+                $oldProtocol = [Net.ServicePointManager]::SecurityProtocol
+                try {
+                    [Net.ServicePointManager]::SecurityProtocol = $oldProtocol -bor [Net.SecurityProtocolType]::Tls12
+                    if ($backend -eq "cuda") {
+                        Download-VerifiedArchive -Url "$baseUrl/$LlamaMainAsset" -Destination $mainArchive -ExpectedSha256 $LlamaMainSha256 -DisplayName "llama.cpp $build CUDA"
+                        Download-VerifiedArchive -Url "$baseUrl/$LlamaCudaAsset" -Destination $cudaArchive -ExpectedSha256 $LlamaCudaSha256 -DisplayName "CUDA runtime DLLs"
+                    }
+                    else {
+                        $assetName = "llama-$build-bin-win-cpu-x64.zip"
+                        $expectedHash = Get-LlamaReleaseAssetSha256 -AssetName $assetName
+                        if ([string]::IsNullOrWhiteSpace($expectedHash)) {
+                            Download-FileWithProgress -Url "$baseUrl/$assetName" -Destination $mainArchive -DisplayName "llama.cpp $key"
+                            $actualHash = (Get-FileHash -LiteralPath $mainArchive -Algorithm SHA256).Hash.ToLowerInvariant()
+                            Write-BootLine "LLAMA" "$key SHA256 $actualHash" "WORK"
+                        }
+                        else {
+                            Download-VerifiedArchive -Url "$baseUrl/$assetName" -Destination $mainArchive -ExpectedSha256 $expectedHash -DisplayName "llama.cpp $key"
+                        }
+                    }
+                }
+                finally { [Net.ServicePointManager]::SecurityProtocol = $oldProtocol }
+                Expand-Archive -LiteralPath $mainArchive -DestinationPath $mainExtract -Force
+                $server = Get-ChildItem -LiteralPath $mainExtract -Filter "llama-server.exe" -File -Recurse | Select-Object -First 1
+                if ($null -eq $server) { throw "llama-server.exe missing from $key archive" }
+                if ($backend -eq "cuda") {
+                    Expand-Archive -LiteralPath $cudaArchive -DestinationPath $cudaExtract -Force
+                    $cudaDll = Get-ChildItem -LiteralPath $cudaExtract -Filter "*.dll" -File -Recurse | Select-Object -First 1
+                    if ($null -eq $cudaDll) { throw "CUDA DLLs missing" }
+                }
+                if (Test-Path -LiteralPath $LlamaDir) { Remove-Item -LiteralPath $LlamaDir -Recurse -Force }
+                [void](New-Item -ItemType Directory -Path $LlamaDir -Force)
+                Copy-DirectoryContents -Source $server.Directory.FullName -Destination $LlamaDir
+                if ($backend -eq "cuda") { Copy-DirectoryContents -Source $cudaDll.Directory.FullName -Destination $LlamaDir }
+                if (-not (Test-LlamaServerExecutable)) {
+                    # Save relevant Windows crash event (if readable) for follow-up debugging.
+                    try {
+                        $events = @(Get-WinEvent -FilterHashtable @{LogName='Application'; Id=1000; StartTime=(Get-Date).AddMinutes(-3)} -MaxEvents 8 -ErrorAction Stop |
+                            Where-Object { $_.Message -match 'llama-server.exe' } | Select-Object -First 2)
+                        if ($events.Count -gt 0) {
+                            $events | Format-List TimeCreated,Message | Out-String | Set-Content -LiteralPath (Join-Path $LauncherDir "llama-crash-event.txt")
+                        }
+                    } catch {}
+                    throw $script:LlamaRuntimeCheckError
+                }
+                Set-Content -LiteralPath $LlamaRuntimeMarker -Value $key -Encoding ASCII
+                $script:LlamaBackend = $backend
+                Write-BootLine "LLAMA" "llama.cpp $key ready" "OK"
+                return [pscustomobject]@{ Server = $LlamaServerExe; Build = $build; State = "INSTALLED" }
+            }
+            catch {
+                $reason = $_.Exception.Message
+                $attemptErrors.Add("${key}: $reason")
+                # Mark only executable crashes, not download/network failures, as persistent.
+                if ($reason -match 'llama-server.exe --version exited with code|llama-server.exe could not be started') {
+                    Set-Content -LiteralPath $failedMarker -Value @($failureFingerprint, $reason) -Encoding UTF8
+                }
+                Write-BootLine "LLAMA" "$key failed; checking next fallback" "WORK"
+            }
+            finally {
+                foreach ($path in @($mainArchive, $cudaArchive)) { Remove-Item -LiteralPath $path -Force -ErrorAction SilentlyContinue }
+                foreach ($path in @($mainExtract, $cudaExtract)) { Remove-Item -LiteralPath $path -Recurse -Force -ErrorAction SilentlyContinue }
             }
         }
-        foreach ($path in @($mainExtract, $cudaExtract)) {
-            if (Test-Path -LiteralPath $path) {
-                Remove-Item -LiteralPath $path -Recurse -Force
-            }
-        }
-
-        $oldProtocol = [Net.ServicePointManager]::SecurityProtocol
-        try {
-            [Net.ServicePointManager]::SecurityProtocol = $oldProtocol -bor [Net.SecurityProtocolType]::Tls12
-            Download-VerifiedArchive -Url $mainUrl -Destination $mainArchive -ExpectedSha256 $LlamaMainSha256 -DisplayName "llama.cpp $LlamaBuild CUDA $LlamaCudaVersion"
-            Download-VerifiedArchive -Url $cudaUrl -Destination $cudaArchive -ExpectedSha256 $LlamaCudaSha256 -DisplayName "CUDA $LlamaCudaVersion runtime DLLs"
-        }
-        finally {
-            [Net.ServicePointManager]::SecurityProtocol = $oldProtocol
-        }
-
-        Expand-Archive -LiteralPath $mainArchive -DestinationPath $mainExtract -Force
-        Expand-Archive -LiteralPath $cudaArchive -DestinationPath $cudaExtract -Force
-
-        $downloadedServer = Get-ChildItem -LiteralPath $mainExtract -Filter "llama-server.exe" -File -Recurse | Select-Object -First 1
-        if ($null -eq $downloadedServer) {
-            throw "llama-server.exe was not found in the llama.cpp archive."
-        }
-
-        $cudaDll = Get-ChildItem -LiteralPath $cudaExtract -Filter "*.dll" -File -Recurse | Select-Object -First 1
-        if ($null -eq $cudaDll) {
-            throw "CUDA runtime DLLs were not found in the llama.cpp CUDA archive."
-        }
-
-        if (Test-Path -LiteralPath $LlamaDir) {
-            Remove-Item -LiteralPath $LlamaDir -Recurse -Force
-        }
-        [void](New-Item -ItemType Directory -Path $LlamaDir -Force)
-
-        Copy-DirectoryContents -Source $downloadedServer.Directory.FullName -Destination $LlamaDir
-        Copy-DirectoryContents -Source $cudaDll.Directory.FullName -Destination $LlamaDir
-
-        Set-Content -LiteralPath $LlamaRuntimeMarker -Value $LlamaBuild -Encoding ASCII
-        if (-not (Test-LlamaServerExecutable)) {
-            throw "Downloaded llama-server.exe failed to start."
-        }
     }
-    catch {
-        if (Test-Path -LiteralPath $LlamaDir) {
-            Remove-Item -LiteralPath $LlamaDir -Recurse -Force -ErrorAction SilentlyContinue
-        }
-        Fail-WithMessage ("Unable to prepare the embedded llama.cpp runtime.`r`n" + $_.Exception.Message)
-    }
-    finally {
-        foreach ($path in @($mainArchive, $cudaArchive)) {
-            if (Test-Path -LiteralPath $path) {
-                Remove-Item -LiteralPath $path -Force -ErrorAction SilentlyContinue
-            }
-        }
-        foreach ($path in @($mainExtract, $cudaExtract)) {
-            if (Test-Path -LiteralPath $path) {
-                Remove-Item -LiteralPath $path -Recurse -Force -ErrorAction SilentlyContinue
-            }
-        }
-    }
-
-    return [pscustomobject]@{
-        Server = $LlamaServerExe
-        Build = $LlamaBuild
-        State = "INSTALLED"
-    }
+    $detailsPath = Join-Path $LauncherDir "llama-attempts.log"
+    $attemptErrors | Set-Content -LiteralPath $detailsPath -Encoding UTF8
+    Fail-WithMessage ("Could not start a compatible llama.cpp binary on this Windows installation.`r`n" +
+        "Tried: " + ($builds -join ', ') + ".`r`nFull errors: $detailsPath`r`n" +
+        "Windows build: $([Environment]::OSVersion.Version). See llama-crash-event.txt and llama-attempts.log for the actual fault; do not reinstall Windows based on this message.")
 }
 
 function Format-DownloadBytes {
@@ -1701,6 +1777,10 @@ function Start-EmbeddedBrain {
 
         Remove-Item -LiteralPath $LlamaStdOutPath, $LlamaStdErrPath -Force -ErrorAction SilentlyContinue
 
+        # AMD integrated GPUs share RAM and can be slower or run out of memory with large offloads.
+        # Use Vulkan binary only to work around broken CPU distributions; still run model on CPU.
+        $gpuLayers = if ($script:LlamaBackend -eq "cuda") { "999" } else { "0" }
+        Write-BootLine "BRAIN" "using llama.cpp $script:LlamaBackend backend" "WORK"
         $brainArgs = @(
             "--model", ('"{0}"' -f $DefaultEmbeddedModelPath),
             "--mmproj", ('"{0}"' -f $DefaultEmbeddedMmprojPath),
@@ -1708,7 +1788,7 @@ function Start-EmbeddedBrain {
             "--host", $EmbeddedBrainHost,
             "--port", [string]$EmbeddedBrainPort,
             "--ctx-size", [string]$script:EmbeddedBrainContext,
-            "--n-gpu-layers", "999"
+            "--n-gpu-layers", $gpuLayers
         )
 
         $startParams = @{
@@ -2298,7 +2378,7 @@ function Open-ContextPicker {
 
     $desired = [int]$model.LoadedContext
     if ($desired -le 0) {
-        $desired = [Math]::Min(16384, $maxContext)
+        $desired = [Math]::Min(8192, $maxContext)
     }
 
     $script:ContextMode = $true

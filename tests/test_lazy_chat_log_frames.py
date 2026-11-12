@@ -88,7 +88,7 @@ class LazyChatLogTests(unittest.TestCase):
             self.assertFalse(path.parent.exists())
         self.assertEqual(list(self.root.iterdir()), [])
 
-    def test_first_real_record_flushes_bootstrap_in_both_modes(self):
+    def test_only_real_user_record_flushes_bootstrap_in_both_modes(self):
         for anonymous in (False, True):
             for kind in ("user", "jin", "reasoning", "action"):
                 with self.subTest(anonymous=anonymous, kind=kind):
@@ -103,6 +103,11 @@ class LazyChatLogTests(unittest.TestCase):
                                                           payload={"action": "JIN_COLOR", "color": "#123456"})
                     else:
                         chat_log.append_chat_log_entry(context, role=kind, text="real message")
+                    if kind != "user":
+                        self.assertFalse(path.parent.exists())
+                        self.assertFalse(path.is_file())
+                        self.assertTrue(context.runtime_chat_pending_snapshots)
+                        chat_log.append_chat_log_entry(context, role="user", text="real user turn")
                     self.assertTrue((path.parent / "reasoning").is_dir())
                     self.assertEqual(path.with_name("111629.bootstrap.txt").read_text().strip(),
                                      "inherited context")

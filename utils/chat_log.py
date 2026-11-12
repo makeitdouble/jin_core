@@ -504,10 +504,10 @@ def _chat_archive_deleted(context, path: Path) -> bool:
 
 
 def _defer_bootstrap_archive(context, path: Path) -> bool:
-    # D049: startup output is page-local until a real USER makes this session
-    # saveable. Keep its original rows/reasoning in RAM for scenario 2.
-    if (getattr(context, "runtime_session_restore_priming", False)
-            and not path.is_file()):
+    # Technical startup events must not create a durable conversation.
+    # Until the first real USER message, keep them pending regardless of
+    # whether archived-session restore priming has already completed.
+    if not path.is_file():
         context.runtime_chat_bootstrap_deferred = True
     return bool(getattr(context, "runtime_chat_bootstrap_deferred", False))
 

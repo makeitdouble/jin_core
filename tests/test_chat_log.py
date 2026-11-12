@@ -8,6 +8,7 @@ from types import SimpleNamespace
 from config_loader import config
 from utils.chat_log import (
     append_chat_log_entry,
+    append_chat_runtime_event,
     build_chat_log_entry,
     extract_active_memory_ids,
     get_chat_bootstrap_context_path,
@@ -42,6 +43,32 @@ class ChatLogTests(unittest.TestCase):
             )
         else:
             config.ENABLE_RUNTIME_LOGS = self.original_runtime_logs
+
+    def test_pre_user_runtime_events_wait_for_first_real_message(self):
+        # Regression: speculative director/blank JIN sessions must not create
+        # an archived conversation from technical bootstrap events alone.
+        context = SimpleNamespace(
+            session_id="fresh-director-room",
+            runtime_turn_counter=0,
+            runtime_current_turn_id="",
+            runtime_session_restore_priming=False,
+        )
+        now = datetime(2026, 11, 12, 10, 15, tzinfo=timezone.utc)
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            for i in range(3):
+                self.assertIsNone(append_chat_runtime_event(
+                    context, event="runtime_tool_result",
+                    payload={"sequence": i}, now=now, root=root,
+                ))
+            archive = get_chat_log_path(context, now=now, root=root)
+            self.assertFalse(archive.exists())
+            self.assertFalse(archive.parent.exists())
+            append_chat_log_entry(context, role="user", text="hello",
+                                  now=now, root=root)
+            rows = [json.loads(x) for x in archive.read_text(encoding="utf-8").splitlines()]
+            self.assertEqual([row.get("event", row.get("role")) for row in rows],
+                             ["runtime_tool_result"] * 3 + ["user"])
 
     def test_extract_active_memory_ids_prefers_explicit_ids(self):
 
@@ -708,6 +735,13 @@ class ChatLogTests(unittest.TestCase):
                 context,
                 system_prompt="system context",
                 user_prompt="user payload",
+                now=now,
+                root=root,
+            )
+            append_chat_log_entry(
+                context,
+                role="user",
+                text="Please solve this",
                 now=now,
                 root=root,
             )
