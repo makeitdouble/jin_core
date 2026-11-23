@@ -25,7 +25,7 @@ Current high-signal state:
 - FRAME is the canonical name for live runtime memory across documentation, implementation modules, state fields, events, the pending journal, UI identifiers, and tests.
 - direct value editing is live for the latest FRAME, Active conditions/value, and L-T fact values; keys/IDs remain read-only, drafts are page-local until acknowledged, and Active/L-T edits surface `updated_at`.
 - the L-T panel defaults to active facts, can toggle `show all` to reveal report-absorbed facts in normal sort order, and keeps report-linked fact IDs clickable.
-- L-T recall now tracks `mention_count`/`last_mentioned_at`: facts untouched for 24 hours are compacted to 100-character sentence previews in Brain context until JIN references them again.
+- L-T tracks `mention_count` and `last_mentioned_at`. Brain context receives the full normalized value of each included fact.
 - pinned outgoing files appear as composer attachment chips; click previews, hold detaches from context without deleting the persistent file.
 - Brain recent-message context is adjacent to `<FRAME_MEMORY_N>` and keeps the newest five pairs in full, with newline/XML normalization but no per-message character crop;
 - ordinary Brain turns include the previous successful reasoning block with explicit middle-crop semantics, while follow-ups keep their dedicated reasoning context;
@@ -379,11 +379,11 @@ Ordinary L-T rows display a 50-character value preview. When a fact is bubbled b
 
 The default L-T panel view excludes facts absorbed by Delayed reports unless they are currently context-loaded. Clicking the L-T count toggles `show all` / `show active`; the all view uses the same normal numeric fact sorting rather than appending hidden rows at the bottom. A fact linked to a Delayed report renders its number as the existing report-link control and opens that report modal. Anchor facts remain visible rather than being classified as absorbed.
 
-### Recall / mention decay
+### Context rendering and mention tracking
 
 Canonical L-T facts carry `mention_count` and `last_mentioned_at`. One valid fact reference from JIN reasoning or visible output increments the canonical fact at most once per turn. The timestamp is persisted and exposed in hover metadata. A background log backfill repairs historical mention dates without overwriting a newer live mention.
 
-Brain context uses the full fact value while its last mention/update/create timestamp is newer than 24 hours. Once stale, each sentence is compacted to at most 100 characters. Referencing the fact refreshes `last_mentioned_at`, so subsequent turns can receive the full value again.
+Brain context uses the full normalized value of each included fact. The age suffix still comes from the update or creation timestamp. The context-window budget selects whole facts.
 
 ### Scheduling
 

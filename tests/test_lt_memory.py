@@ -3216,7 +3216,7 @@ class LTMemoryTests(unittest.IsolatedAsyncioTestCase):
             context_block,
         )
 
-    def test_stale_lt_context_truncates_each_long_sentence_but_keeps_store_full(self):
+    def test_stale_lt_context_keeps_all_sentences_and_lifecycle_age(self):
         now = datetime(
             2026,
             8,
@@ -3227,11 +3227,11 @@ class LTMemoryTests(unittest.IsolatedAsyncioTestCase):
         ).timestamp()
         first_sentence = "A" * 130 + "."
         second_sentence = "B" * 125 + "!"
-        full_value = f"{first_sentence} {second_sentence} Short sentence."
+        stored_value = f"{first_sentence}\n{second_sentence}  Short sentence."
         fact = {
             "id": "F9",
             "key": "project.long_fact",
-            "value": full_value,
+            "value": stored_value,
             "last_mentioned_at": "2026-08-29T12:00:00Z",
             "created_at": "2026-08-20T12:00:00Z",
             "updated_at": "2026-08-20T12:00:00Z",
@@ -3242,11 +3242,14 @@ class LTMemoryTests(unittest.IsolatedAsyncioTestCase):
             now=now,
         )
 
-        self.assertIn("A" * 100 + "...", context_block)
-        self.assertIn("B" * 100 + "...", context_block)
-        self.assertIn("Short sentence.", context_block)
-        self.assertNotIn("A" * 101, context_block)
-        self.assertEqual(fact["value"], full_value)
+        self.assertEqual(
+            context_block,
+            "<LONG_TERM_MEMORY>\n"
+            f"project.long_fact: {first_sentence} {second_sentence} Short sentence. "
+            "[ id: F9 ] ( 11d ago )\n"
+            "</LONG_TERM_MEMORY>",
+        )
+        self.assertEqual(fact["value"], stored_value)
 
     def test_recently_mentioned_lt_context_uses_full_fact_but_lifecycle_age(self):
         now = datetime(
@@ -3581,19 +3584,21 @@ class LTMemoryTests(unittest.IsolatedAsyncioTestCase):
             ["F1", "F2"],
         )
 
-    def test_delayed_report_anchor_stays_visible_with_report_suffix(self):
+    def test_stale_delayed_report_anchor_keeps_full_value_and_report_suffix(self):
         context = RuntimeContext(
             websocket=None,
             emitter=None,
             logger=None,
             clients={},
         )
+        anchor_value = "A" * 130 + " <anchor> & details. " + "B" * 125 + "!"
         context.runtime_long_term_memory_store = normalize_lt_store({
             "facts": [
                 {
                     "id": "F1",
-                    "key": "user.name",
-                    "value": "Sergey",
+                    "key": "project.anchor",
+                    "value": anchor_value,
+                    "last_mentioned_at": "2020-01-01T00:00:00Z",
                 },
                 {
                     "id": "F2",
@@ -3615,9 +3620,14 @@ class LTMemoryTests(unittest.IsolatedAsyncioTestCase):
         )
 
         self.assertIn(
-            "user.name: Sergey [ id: F1 ] "
+            f"project.anchor: {'A' * 130} &lt;anchor&gt; &amp; details. "
+            f"{'B' * 125}! [ id: F1 ] "
             "[ delayed_memory_id: abc123 ]",
             context_block,
+        )
+        self.assertEqual(
+            context.runtime_long_term_memory_store["facts"][0]["value"],
+            anchor_value,
         )
         self.assertNotIn("social.friend", context_block)
         self.assertEqual(
