@@ -55,13 +55,10 @@ LT_JIN_NOTE_ACTIONS = {
     "merge",
     "create",
 }
-LT_FACT_FULL_RECALL_SECONDS = 24 * 60 * 60
-LT_STALE_SENTENCE_PREVIEW_CHARS = 100
 LT_FACT_REASONING_REFERENCE_RE = re.compile(
     r"(?<![A-Za-z0-9_])F([1-9]\d*)(?![A-Za-z0-9_])",
     re.IGNORECASE,
 )
-LT_SENTENCE_SPLIT_RE = re.compile(r"(?<=[.!?…])\s+")
 
 # L-T merge retrieval is intentionally key-only. These are structural
 # namespace tokens, not topic words; letting them dominate similarity would
@@ -3664,8 +3661,6 @@ def format_lt_fact_context_age_suffix(
         return ""
 
     # The age shown to JIN describes the fact lifecycle, not recall activity.
-    # last_mentioned_at is intentionally reserved for recall decay/preview
-    # freshness and must not make an old fact look newly updated.
     return (
         format_context_message_age_suffix(
             fact.get(
@@ -3698,87 +3693,6 @@ def collect_lt_reasoning_fact_ids(reasoning: str) -> list[str]:
         result.append(fact_id)
 
     return result
-
-
-def get_lt_fact_last_mentioned_timestamp(fact: dict) -> float:
-    if not isinstance(fact, dict):
-        return 0.0
-
-    for key in (
-        "last_mentioned_at",
-        "updated_at",
-        "created_at",
-    ):
-        timestamp = lt_timestamp_sort_value(
-            fact.get(key)
-        )
-        if timestamp > 0:
-            return timestamp
-
-    return 0.0
-
-
-def lt_fact_needs_context_preview(
-    fact: dict,
-    *,
-    now: float | None = None,
-) -> bool:
-    timestamp = get_lt_fact_last_mentioned_timestamp(fact)
-    if timestamp <= 0:
-        return False
-
-    current_time = (
-        datetime.now(timezone.utc).timestamp()
-        if now is None
-        else float(now)
-    )
-    return (
-        max(0.0, current_time - timestamp)
-        >= LT_FACT_FULL_RECALL_SECONDS
-    )
-
-
-def truncate_lt_sentence_for_context(
-    sentence: str,
-    *,
-    max_chars: int = LT_STALE_SENTENCE_PREVIEW_CHARS,
-) -> str:
-    text = normalize_lt_text(sentence)
-    if not text or len(text) <= max_chars:
-        return text
-
-    preview = text[:max_chars].rstrip()
-    if not preview:
-        return "..."
-
-    return preview.rstrip(" .,!?:;…") + "..."
-
-
-def format_lt_fact_context_value(
-    fact: dict,
-    *,
-    now: float | None = None,
-) -> str:
-    value = normalize_lt_text(
-        fact.get("value")
-        if isinstance(fact, dict)
-        else ""
-    )
-    if not value or not lt_fact_needs_context_preview(fact, now=now):
-        return value
-
-    sentences = [
-        sentence
-        for sentence in LT_SENTENCE_SPLIT_RE.split(value)
-        if normalize_lt_text(sentence)
-    ]
-    if not sentences:
-        sentences = [value]
-
-    return " ".join(
-        truncate_lt_sentence_for_context(sentence)
-        for sentence in sentences
-    )
 
 
 def format_lt_merge_detail_fact(fact: dict) -> str:
@@ -3887,10 +3801,7 @@ def format_long_term_memory_context(
 
     for fact in facts:
         key = normalize_lt_text(fact.get("key"))
-        context_value = format_lt_fact_context_value(
-            fact,
-            now=now,
-        )
+        context_value = normalize_lt_text(fact.get("value"))
         line = (
             f"{key}: {context_value}"
             if key and context_value

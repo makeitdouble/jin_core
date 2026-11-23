@@ -591,17 +591,17 @@ Drafts remain page-local until the server acknowledges the checkmark. Requests c
 
 ---
 
-## D042 — L-T recall decays by last real mention
+## D042 — L-T tracks real mentions and renders full fact values
 
 **Status:** Accepted / implemented
 
 Canonical L-T facts retain `mention_count` and `last_mentioned_at`. A valid `F<number>` reference in JIN reasoning or visible output increments a canonical fact at most once per turn and persists the new mention timestamp. Historical-log backfill may repair older mention dates but must never rewind a newer live mention.
 
-For Brain context, a fact remains fully expanded until 24 hours have elapsed since its latest mention/update/create fallback. After that boundary, each sentence is previewed at a maximum of 100 characters. A later JIN reference refreshes the mention timestamp so subsequent prompts can receive the full value again.
+Brain context renders the full normalized value of every included L-T fact regardless of its last mention. The context-window budget can reduce the number of included facts.
 
-**Why:** old facts remain available without permanently spending full-context cost, while actually reused facts regain detail automatically.
+**Why:** Brain needs the complete evidence in each fact it receives.
 
-**Rejected alternatives:** deleting old facts for context pressure; decaying canonical stored values; using render-time age without persisted mentions; model-generated importance scores.
+**Rejected alternatives:** shortening fact text after 24 hours, deleting old facts for context pressure, decaying canonical stored values, using render-time age without persisted mentions, and model-generated importance scores.
 
 ---
 

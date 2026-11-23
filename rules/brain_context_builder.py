@@ -98,6 +98,8 @@ LOADED_DELAYED_MEMORY_CONTEXT_FIELDS = (
     "attachments_ids",
 )
 
+_RESTORE_LT_RECENT_FACT_SECONDS = 24 * 60 * 60
+
 PREVIOUS_REASONING_EDGE_PERCENT = 25
 PREVIOUS_REASONING_LOOP_EDGE_PERCENT = 15
 PREVIOUS_REASONING_MIN_CROP_CHARS = 1000
@@ -870,10 +872,7 @@ def build_long_term_memory_context(
         build_runtime_lt_memory_context,
         get_runtime_lt_active_facts,
     )
-    from runtime.LT_memory_utils import (
-        LT_FACT_FULL_RECALL_SECONDS,
-        lt_timestamp_sort_value,
-    )
+    from runtime.LT_memory_utils import lt_timestamp_sort_value
 
     restore_fact_ids = None
     if getattr(
@@ -913,7 +912,7 @@ def build_long_term_memory_context(
             )
             if (
                 lifecycle_timestamp > 0
-                and now - lifecycle_timestamp <= LT_FACT_FULL_RECALL_SECONDS
+                and now - lifecycle_timestamp <= _RESTORE_LT_RECENT_FACT_SECONDS
             ):
                 restore_fact_ids.append(fact_id)
                 seen_restore_fact_ids.add(fact_id)

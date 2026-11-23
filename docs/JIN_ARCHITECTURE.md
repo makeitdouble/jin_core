@@ -491,9 +491,9 @@ L-T owns durable facts. The current L-T path includes:
 - delete/restore reconciliation;
 - server/browser store synchronization;
 - persistent mention tracking (`mention_count`, `last_mentioned_at`) and historical-log backfill;
-- recall decay: after 24 hours without a mention, Brain context uses sentence previews capped at 100 characters per sentence until JIN references the fact again.
+- full normalized values for all L-T facts included in Brain context.
 
-A valid `F<number>` reference in JIN reasoning or visible output counts once per turn for that canonical fact, updates `last_mentioned_at`, increments `mention_count`, persists the store, and makes the next prompt eligible for the full fact value again. Historical mention backfill may repair older dates but never rewinds a newer live mention.
+A valid `F<number>` reference in JIN reasoning or visible output counts once per turn for that canonical fact, updates `last_mentioned_at`, increments `mention_count`, and persists the store. Historical mention backfill may repair older dates but never rewinds a newer live mention.
 
 In the current single-server-event-loop deployment, L-T commits are synchronous:
 read/reconcile the latest file state, apply the change, then persist without an
