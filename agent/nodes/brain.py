@@ -531,40 +531,15 @@ def consume_action_failure_followup_context(
 
     context.runtime_followup_action_failure_pending = False
 
-    from utils.context.runtime_action_result_text import format_action_failure_summary
     from xml.sax.saxutils import escape
-    pending_ids = set(getattr(context, "runtime_failure_followup_tool_ids", []) or [])
+    notices = getattr(context, "runtime_failure_followup_notices", [])
+    context.runtime_failure_followup_notices = []
     context.runtime_failure_followup_tool_ids = []
-    entries = list(
-        getattr(
-            context,
-            "runtime_failure_followup_entries",
-            [],
-        )
-        or []
-    )
     context.runtime_failure_followup_entries = []
-    if not entries:
-        entries = [
-            entry
-            for entry in getattr(
-                context,
-                "runtime_tool_results",
-                [],
-            )
-            or []
-            if entry.get("tool_id") in pending_ids
-        ]
-    from utils.actions.malformed_action_utils import build_malformed_notification
-    malformed = [entry for entry in entries
-                 if entry.get("result", {}).get("action") == "malformed_action"]
-    notifications = "\n\n".join(build_malformed_notification(entry) for entry in malformed)
-    entries = [entry for entry in entries if entry not in malformed]
-    if not entries and notifications:
+    notifications = "\n\n".join(text for action, text in notices if action == "malformed_action")
+    details = "\n\n".join(text for action, text in notices if action != "malformed_action" and text)
+    if notifications and not details:
         return notifications
-    summaries = [format_action_failure_summary(entry) for entry in entries
-                 if not pending_ids or entry.get("tool_id") in pending_ids]
-    details = "\n\n".join(summary for summary in summaries if summary)
     return (
         (notifications + "\n\n" if notifications else "")
         + "<ACTION_FAILURE_FOLLOWUP>\n"
@@ -2558,8 +2533,8 @@ class BrainNode(BaseNode):
 
         def malformed_followup_pending():
             return any(
-                entry.get("result", {}).get("action") == "malformed_action"
-                for entry in getattr(context, "runtime_failure_followup_entries", [])
+                action == "malformed_action"
+                for action, _ in getattr(context, "runtime_failure_followup_notices", [])
             )
 
         while (

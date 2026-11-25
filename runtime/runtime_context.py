@@ -88,6 +88,7 @@ class RuntimeContext:
     runtime_followup_action_failure_pending: bool = False
     runtime_failure_followup_tool_ids: list[str] = field(default_factory=list)
     runtime_failure_followup_entries: list[dict] = field(default_factory=list)
+    runtime_failure_followup_notices: list[tuple[str, str]] = field(default_factory=list)
 
     runtime_asset_results: list[dict] = field(
         default_factory=list

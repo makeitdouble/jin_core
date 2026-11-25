@@ -83,10 +83,13 @@ def test_failure_followup_survives_targeted_tool_result_cleanup():
     tool_id = ctx.runtime_tool_results[-1]['tool_id']
     assert clean_runtime_tool_result(ctx, tool_id)
     assert ctx.runtime_tool_results == []
+    assert ctx.runtime_failure_followup_tool_ids == []
+    assert ctx.runtime_failure_followup_entries == []
 
     text = consume_action_failure_followup_context(ctx)
     assert 'no project folder attached by user' in text
     assert PATH in text
+    assert consume_action_failure_followup_context(ctx) == ''
 
 
 def test_removed_request_flow_is_stripped_from_legacy_prompt():
