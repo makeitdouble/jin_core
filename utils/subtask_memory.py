@@ -109,9 +109,6 @@ def strip_records_and_results(context, removed, child_id="", known_ids=()):
         return result.get("id") in ids or bool(collect_active_memory_slot_ids(result.get("record", "")) & ids)
 
     remove_runtime_tool_results(context, matches)
-    context.runtime_failure_followup_entries = [
-        entry for entry in getattr(context, "runtime_failure_followup_entries", []) if not matches(entry)
-    ]
     context.runtime_active_memory_records_dirty = True
 
 

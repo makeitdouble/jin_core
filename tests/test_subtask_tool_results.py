@@ -74,18 +74,25 @@ def test_child_cannot_clean_inherited_parent_results_and_empty_clear_is_local():
 
 
 def test_interrupt_removes_all_child_results_including_failures():
+    from agent.nodes.brain import consume_action_failure_followup_context
+
     c = instance_context()
     with patch('utils.chat_log.append_chat_runtime_event'):
-        record_runtime_tool_result(c, 'search', 'parent')
+        record_runtime_tool_result(c, 'runtime_action', {'ok': False, 'detail': 'parent failure'})
         mark_child_started(c)
-        record_runtime_tool_result(c, 'files', {'ok': False, 'detail': 'bad'})
-        record_runtime_tool_result(c, 'search', 'child')
-    c.runtime_jin_instance_group['tasks'][0]['status'] = 'running'
+        assert consume_action_failure_followup_context(c) == ''
+        record_runtime_tool_result(c, 'runtime_action', {'ok': False, 'detail': 'child failure'})
+        assert clean_runtime_tool_result(c, 'SUB_T2')
+        assert not clean_runtime_tool_result(c, 'T1')
+        assert 'child failure' in consume_action_failure_followup_context(c)
+        record_runtime_tool_result(c, 'runtime_action', {'ok': False, 'detail': 'interrupted child'})
     with patch('runtime.memory_profile.refresh_profile'), patch('runtime.memory_profile.commit_active'):
         interrupt_instance_group(c, 'cancel')
     assert [e['tool_id'] for e in c.runtime_tool_results] == ['T1']
-    assert c.runtime_failure_followup_tool_ids == []
-    assert c.runtime_failure_followup_entries == []
+    notice = consume_action_failure_followup_context(c)
+    assert 'parent failure' in notice
+    assert 'interrupted child' not in notice
+    assert consume_action_failure_followup_context(c) == ''
 
 
 def test_orphan_cleanup_and_bootstrap_exclude_sub_t_even_without_owner():

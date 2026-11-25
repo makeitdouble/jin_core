@@ -379,7 +379,10 @@ class JinInstanceBrainFlowTests(unittest.IsolatedAsyncioTestCase):
                     interrupt_instance_group(context, "stopped_by_user")
                     return "", "stopped"
                 if malformed:
-                    context.runtime_failure_followup_entries = [{"result": {"action": "malformed_action"}}]
+                    record_runtime_tool_result(context, "runtime_action", {
+                        "ok": False, "action": "malformed_action",
+                        "malformed_action": "FINISH_SUBTASK", "payload": "bad syntax",
+                    })
                     return "", "bad syntax"
                 if count == 1:
                     if recovery:
@@ -727,7 +730,7 @@ class EphemeralSubtaskMemoryTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn('transitioned', denied[0]['result']['detail'])
         self.assertTrue(c.runtime_followup_action_failure_pending)
         self.assertTrue(c.runtime_action_failure_followup_messages)
-        for stored in (c.runtime_tool_results, c.runtime_failure_followup_entries,
+        for stored in (c.runtime_tool_results, c.runtime_failure_followup_notices,
                        c.runtime_action_events, build_runtime_session_checkpoint(c),
                        build_tool_results_context(c)):
             self.assertNotIn(secret, json.dumps(stored))

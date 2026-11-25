@@ -236,31 +236,28 @@ def _failed_tool_result_requires_followup(
     )
 
 
-def _queue_failed_tool_result_followup(
-    context,
-    kind: str,
-    result,
-) -> None:
-
-    if not _failed_tool_result_requires_followup(
-        kind,
-        result,
-    ):
+def _queue_failed_tool_result_followup(context, entry) -> None:
+    if not _failed_tool_result_requires_followup(entry["kind"], entry["result"]):
         return
 
-    setattr(
-        context,
-        "runtime_followup_action_failure_pending",
-        True,
-    )
+    from utils.actions.malformed_action_utils import build_malformed_notification
+    from utils.context.runtime_action_result_text import format_action_failure_summary
+
+    # Delivery to Brain survives cleanup of the referenced tool result.
+    action = entry["result"].get("action", "")
+    notice = (build_malformed_notification(entry) if action == "malformed_action"
+              else format_action_failure_summary(entry))
+    context.runtime_failure_followup_notices = [
+        *getattr(context, "runtime_failure_followup_notices", []), (action, notice),
+    ]
+    context.runtime_followup_action_failure_pending = True
 
 
 def begin_runtime_tool_results_turn(
     context,
 ) -> None:
 
-    context.runtime_failure_followup_tool_ids = []
-    context.runtime_failure_followup_entries = []
+    context.runtime_failure_followup_notices = []
     setattr(
         context,
         "runtime_tool_results_turn_count",
@@ -358,23 +355,7 @@ def record_runtime_tool_result(
     tool_results.append(
         entry
     )
-    _queue_failed_tool_result_followup(context, entry["kind"], result)
-    if _failed_tool_result_requires_followup(entry["kind"], result):
-        pending = list(getattr(context, "runtime_failure_followup_tool_ids", []) or [])
-        pending.append(entry["tool_id"])
-        context.runtime_failure_followup_tool_ids = pending
-        pending_entries = list(
-            getattr(
-                context,
-                "runtime_failure_followup_entries",
-                [],
-            )
-            or []
-        )
-        pending_entries.append(
-            deepcopy(entry)
-        )
-        context.runtime_failure_followup_entries = pending_entries
+    _queue_failed_tool_result_followup(context, entry)
     created_ats.append(
         (
             time.time()
@@ -441,15 +422,6 @@ def remove_runtime_tool_results(context, predicate) -> None:
             if entry.get("kind") == kind and getattr(context, prefix + "_result", None) == value:
                 setattr(context, prefix + "_result", "")
                 setattr(context, prefix + "_result_id", "")
-    removed_ids = {entry.get("tool_id") for entry in removed if isinstance(entry, dict)}
-    context.runtime_failure_followup_tool_ids = [
-        tool_id for tool_id in (getattr(context, "runtime_failure_followup_tool_ids", []) or [])
-        if tool_id not in removed_ids
-    ]
-    context.runtime_failure_followup_entries = [
-        entry for entry in (getattr(context, "runtime_failure_followup_entries", []) or [])
-        if not (isinstance(entry, dict) and entry.get("tool_id") in removed_ids)
-    ]
 
 
 def clear_runtime_tool_results_before_current_turn(

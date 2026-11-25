@@ -162,7 +162,7 @@ class HeartbeatActionTests(unittest.IsolatedAsyncioTestCase):
                 with patch("utils.chat_log.append_chat_runtime_event"):
                     await apply_runtime_action_calls(c, (RuntimeActionCall(name="SET_HEARTBEAT_TICK_SPEED", payload=payload),))
                 self.assertEqual(c.runtime_action_events[-1]["status"], "completed" if valid else "failed")
-                self.assertEqual(bool(getattr(c, "runtime_failure_followup_entries", [])), not valid)
+                self.assertEqual(bool(getattr(c, "runtime_failure_followup_notices", [])), not valid)
                 self.assertEqual(c.heartbeat_tick_speed, json.loads(payload)["seconds"] if valid else 600)
 
     def test_stream_splits_literals_repetition_and_flush(self):

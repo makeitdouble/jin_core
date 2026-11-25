@@ -459,8 +459,7 @@ INSTANCE_TOOL_DEFAULTS = {
 
 
 INSTANCE_REASONING_DEFAULTS = {
-    "runtime_failure_followup_entries": [],
-    "runtime_failure_followup_tool_ids": [],
+    "runtime_failure_followup_notices": [],
     "runtime_followup_action_failure_pending": False,
     "runtime_action_failure_followup_messages": [],
     "runtime_previous_reasoning_content": "",

@@ -175,7 +175,7 @@ class ReflectionTests(unittest.IsolatedAsyncioTestCase):
         self.c.runtime_anonymous_mode = True
         self.assertIn("<JIN INTUITION BLOCK>", build_brain_context(self.c))
         self.assertNotIn("<RUN_SELF_REFLECTION>", build_brain_context(self.c, initial_heartbeat=True))
-        self.assertFalse(self.c.runtime_failure_followup_entries)
+        self.assertFalse(self.c.runtime_failure_followup_notices)
         self.assertIn("no clear event", build_tool_results_context(self.c))
 
     async def test_create_update_failure_and_distinct_behavior(self):
@@ -294,7 +294,7 @@ class ReflectionTests(unittest.IsolatedAsyncioTestCase):
             {**self.event, "success": "false"}]):
             await self.dispatch(bad, turn=f"bad_{index}")
             self.assertFalse(store.STORE_PATH.exists())
-            self.assertFalse(self.c.runtime_failure_followup_entries)
+            self.assertFalse(self.c.runtime_failure_followup_notices)
             self.assertEqual(self.c.runtime_action_events[-1]["status"], "failed")
         self.c.clients["service"].ask.side_effect = RuntimeError("offline")
         await self.dispatch(turn="offline")
@@ -317,7 +317,7 @@ class ReflectionTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(store.STORE_PATH.exists())
         self.assertFalse(store.ANALYSIS_LOCK.locked())
         self.assertEqual(self.c.runtime_action_events[-1]["result"]["error"], "cancelled")
-        self.assertFalse(self.c.runtime_failure_followup_entries)
+        self.assertFalse(self.c.runtime_failure_followup_notices)
 
     async def test_handler_guards_and_atomic_write_failure(self):
         self.c.runtime_followup_tick_active = True
@@ -327,7 +327,7 @@ class ReflectionTests(unittest.IsolatedAsyncioTestCase):
         with patch.object(store, "atomic_write_json", side_effect=OSError("disk full")):
             await self.dispatch(self.event, turn="next")
         self.assertFalse(store.STORE_PATH.exists())
-        self.assertFalse(self.c.runtime_failure_followup_entries)
+        self.assertFalse(self.c.runtime_failure_followup_notices)
 
     async def test_stop_flag_at_response_boundary_does_not_commit(self):
         async def stopped(**_):
@@ -337,7 +337,7 @@ class ReflectionTests(unittest.IsolatedAsyncioTestCase):
         with self.assertRaises(asyncio.CancelledError):
             await self.dispatch()
         self.assertFalse(store.STORE_PATH.exists())
-        self.assertFalse(self.c.runtime_failure_followup_entries)
+        self.assertFalse(self.c.runtime_failure_followup_notices)
 
     async def test_restart_rejects_recount_and_keeps_frozen_indexes(self):
         await self.dispatch(self.event)
@@ -480,7 +480,7 @@ class ReflectionTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(self.c.clients["service"].ask.await_count, 1)
         self.assertIn("completed", str(self.c.runtime_session_action_history))
         self.assertIn("Я проверил результат", str(self.c.runtime_session_action_history))
-        self.assertFalse(self.c.runtime_failure_followup_entries)
+        self.assertFalse(self.c.runtime_failure_followup_notices)
 
     def test_stream_boundaries_and_literals(self):
         marker = "<RUN_SELF_REFLECTION>"
