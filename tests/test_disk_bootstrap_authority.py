@@ -96,6 +96,48 @@ class DiskBootstrapAuthorityTests(unittest.TestCase):
         self.assertEqual(context.runtime_memory, 'live FRAME')
         self.assertEqual(context.runtime_tool_results[0]['result'], 'live result')
 
+    def test_latest_lt_result_survives_disk_replay_and_bootstrap(self):
+        from utils.actions.result_reuse import find_reusable_result
+        from utils.actions import RuntimeActionCall
+        from utils.actions.update_lt_facts_actions import _record_update_lt_tool_result
+        from utils.tool_results import begin_runtime_tool_results_turn
+
+        context = self.context()
+        self.user(context)
+        record_runtime_tool_result(context, 'search', 'keep', created_at=100)
+        for index, message in enumerate(('first', 'second', 'second'), start=1):
+            action_id = f'lt_{index}'
+            context.runtime_action_events.append({
+                'id': action_id, 'name': 'update_lt_facts', 'payload': message,
+            })
+            _record_update_lt_tool_result(
+                context, action_id=action_id, note={'message': message, 'fact_ids': [f'F{index}']},
+                result={'status': 'completed'},
+            )
+            expected = ['T1', f'T{index + 1}']
+            self.assertEqual([item['tool_id'] for item in context.runtime_tool_results], expected)
+            self.assertEqual(context.runtime_tool_results_turn_count, 2 if index == 1 else 1)
+            self.assertEqual(context.runtime_tool_result_created_ats[0], 100)
+            self.assertIsNone(find_reusable_result(context, RuntimeActionCall(
+                name='UPDATE_LT_FACTS', payload=message)))
+            restored = self.context('restored')
+            self.assertTrue(apply_session_bootstrap(restored, self.resolve(), resolved_from_disk=True))
+            self.assertEqual([item['tool_id'] for item in restored.runtime_tool_results], expected)
+            self.assertEqual(restored.runtime_tool_result_created_ats, context.runtime_tool_result_created_ats)
+            if index == 1:
+                begin_runtime_tool_results_turn(context)
+                # A pre-fix checkpoint can contain both ID-less and absorbed rows.
+                checkpoint = [
+                    {'kind': 'lt', 'result': 'legacy'},
+                    {'kind': 'lt', 'result': {}, 'absorbed_by': 'T2'},
+                    *self.resolve()['tool_results'],
+                ]
+                chat_log.append_chat_runtime_event(context, event='session_checkpoint', payload={
+                    'tool_results': checkpoint, 'tool_result_sequence': 2})
+                self.assertEqual([item['tool_id'] for item in self.resolve()['tool_results']], expected)
+        record_runtime_tool_result(restored, 'search', 'after restore')
+        self.assertEqual(restored.runtime_tool_results[-1]['tool_id'], 'T5')
+
     def test_tools_checkpoint_cleanup_late_result_round_trip(self):
         context = self.context()
         self.user(context)

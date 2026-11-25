@@ -387,6 +387,10 @@ def record_runtime_tool_result(
         "runtime_tool_results_turn_count",
         turn_count + 1,
     )
+    if entry["kind"] == TOOL_RESULT_KIND_LT:
+        remove_runtime_tool_results(
+            context, lambda previous: previous is not entry and previous.get("kind") == TOOL_RESULT_KIND_LT
+        )
     from utils.chat_log import append_chat_runtime_event
     append_chat_runtime_event(
         context, event="runtime_tool_result",

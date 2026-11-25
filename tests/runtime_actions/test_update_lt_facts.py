@@ -304,6 +304,8 @@ class RuntimeUpdateLTFactsTests(unittest.IsolatedAsyncioTestCase):
             clients={},
         )
         context.runtime_foreground_turn_running = True
+        previous = {"kind": "lt", "result": "previous completed update"}
+        context.runtime_tool_results.append(previous)
         note_started = asyncio.Event()
         release_note = asyncio.Event()
 
@@ -380,6 +382,7 @@ class RuntimeUpdateLTFactsTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(len(context.runtime_lt_explicit_note_queue), 1)
             await asyncio.gather(lt_task, return_exceptions=True)
 
+            self.assertEqual(context.runtime_tool_results, [previous])
             note_started.clear()
             release_note.set()
             next_frame_release = asyncio.Event()
@@ -393,6 +396,7 @@ class RuntimeUpdateLTFactsTests(unittest.IsolatedAsyncioTestCase):
             next_frame_release.set()
             await asyncio.wait_for(note_started.wait(), timeout=0.2)
             await retry_task
+            self.assertEqual([row.get("tool_id") for row in context.runtime_tool_results], ["T1"])
             self.assertEqual(context.runtime_lt_explicit_note_queue, [])
 
 
@@ -484,6 +488,7 @@ class RuntimeUpdateLTFactsTests(unittest.IsolatedAsyncioTestCase):
             await asyncio.wait_for(second_started.wait(), timeout=0.2)
             await retry_task
 
+        self.assertEqual([row.get("tool_id") for row in context.runtime_tool_results], ["T2"])
         self.assertEqual(seen, ["first", "second"])
         self.assertEqual(context.runtime_lt_explicit_note_queue, [])
 
