@@ -2221,7 +2221,7 @@ def empty_lt_store(*, now: str | None = None) -> dict:
 def normalize_lt_store(value, *, now: str | None = None) -> dict:
     current_time = now or utc_now_iso()
     if not isinstance(value, dict):
-        return empty_lt_store(now=current_time)
+        return empty_lt_store()
 
     value, _id_map = migrate_lt_store_ids(value, now=current_time)
 
@@ -2292,7 +2292,7 @@ def normalize_lt_store(value, *, now: str | None = None) -> dict:
     return {
         "version": LT_STORE_VERSION,
         "revision": revision,
-        "updated_at": normalize_lt_text(value.get("updated_at")) or current_time,
+        "updated_at": normalize_lt_text(value.get("updated_at")),
         "deduplication_pending": bool(value.get("deduplication_pending", False)),
         "facts": facts,
         "pending_facts": pending_facts,
