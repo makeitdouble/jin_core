@@ -6,6 +6,7 @@ from xml.sax.saxutils import escape
 from utils.brain_client_utils import (
     indent_xml,
 )
+from utils.tokens import estimate_tokens
 from utils.session_actions_history import (
     PAYLOAD_DISTINCT_SESSION_ACTIONS,
     format_session_action_display_parts,
@@ -530,14 +531,38 @@ def build_session_actions_history_context(
             or ""
         ).strip()
     }
+
+    def render_window(start: int) -> str:
+        return _render_action_history(
+            history_items[start:],
+            first_index=start + 1,
+            current_sequence=current_sequence,
+            sequence_turn_ids=sequence_turn_ids,
+            now=now,
+        )
+
+    if current_sequence:
+        return render_window(0)
+
+    block = ""
+    for start in range(len(history_items) - 1, -1, -1):
+        candidate = render_window(start)
+        if estimate_tokens(candidate) > 1024:
+            break
+        block = candidate
+    return block
+
+
+def _render_action_history(
+    history_items, *, first_index, current_sequence, sequence_turn_ids, now,
+):
     lines = []
-    action_index = 0
     open_sequence_turn_id = ""
     previous_actions_section_open = False
     current_actions_section_open = False
     last_jin_message_signature = None
 
-    for item in history_items:
+    for action_index, item in enumerate(history_items, first_index):
         runtime_turn_id = item[
             "runtime_turn_id"
         ]
@@ -592,8 +617,6 @@ def build_session_actions_history_context(
             )
             text = f"{text}{age_suffix}"
 
-        action_index += 1
-
         if (current_sequence or item_is_sequence) and not item.get("plain_sequence"):
             jin_message_content = _format_jin_message_content(
                 item.get(
@@ -629,7 +652,7 @@ def build_session_actions_history_context(
 
     # Keep these two projections distinct: a marker-triggered follow-up sees
     # ONLY its sequence, numbered from 1. After the final marker-free answer,
-    # ordinary prompts use the full session with global numbering and paired
+    # ordinary prompts use the session window with global numbering and paired
     # sequence delimiters. Removing this switch makes old actions look like
     # steps of the current task. Both views use the same canonical history.
     tag_name = (
