@@ -246,12 +246,6 @@ def _queue_failed_tool_result_followup(context, entry) -> None:
     context.runtime_failure_followup_notices = [
         *getattr(context, "runtime_failure_followup_notices", []), (action, notice),
     ]
-    context.runtime_failure_followup_tool_ids = [
-        *getattr(context, "runtime_failure_followup_tool_ids", []), entry["tool_id"],
-    ]
-    context.runtime_failure_followup_entries = [
-        *getattr(context, "runtime_failure_followup_entries", []), entry,
-    ]
     context.runtime_followup_action_failure_pending = True
 
 
@@ -259,8 +253,6 @@ def begin_runtime_tool_results_turn(
     context,
 ) -> None:
 
-    context.runtime_failure_followup_tool_ids = []
-    context.runtime_failure_followup_entries = []
     context.runtime_failure_followup_notices = []
     setattr(
         context,
@@ -418,15 +410,6 @@ def remove_runtime_tool_results(context, predicate) -> None:
             if entry.get("kind") == kind and getattr(context, prefix + "_result", None) == value:
                 setattr(context, prefix + "_result", "")
                 setattr(context, prefix + "_result_id", "")
-    removed_ids = {entry["tool_id"] for entry in removed if isinstance(entry, dict) and entry.get("tool_id")}
-    context.runtime_failure_followup_tool_ids = [
-        tool_id for tool_id in (getattr(context, "runtime_failure_followup_tool_ids", []) or [])
-        if tool_id not in removed_ids
-    ]
-    context.runtime_failure_followup_entries = [
-        entry for entry in (getattr(context, "runtime_failure_followup_entries", []) or [])
-        if not (isinstance(entry, dict) and entry.get("tool_id") in removed_ids)
-    ]
 
 
 def clear_runtime_tool_results_before_current_turn(

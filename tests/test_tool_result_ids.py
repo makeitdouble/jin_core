@@ -230,7 +230,7 @@ def test_repeated_same_payload_history_uses_latest_action_occurrence_id_only():
     assert 'T9' not in ctx.runtime_session_action_history[-1]['text']
     assert 'T10' not in ctx.runtime_session_action_history[-1]['text']
 
-def test_batch_cleanup_across_turns_keeps_timestamps_and_only_surviving_failures():
+def test_batch_cleanup_across_turns_preserves_timestamps_and_tool_ids():
     from utils.tool_results import begin_runtime_tool_results_turn, clean_runtime_tool_results_by_ids
 
     ctx = RuntimeContext(None, None, None, {})
@@ -245,15 +245,12 @@ def test_batch_cleanup_across_turns_keeps_timestamps_and_only_surviving_failures
     assert not clean_runtime_tool_results_by_ids(ctx, ['T1', 'T99'])
     assert ctx.runtime_tool_results_generation == 0
     assert ctx.runtime_tool_result_created_ats == [10, 20, 30, 40]
-    assert ctx.runtime_failure_followup_tool_ids == ['T3', 'T4']
 
     assert clean_runtime_tool_results_by_ids(ctx, ['T3', 'T1', 'T3'])
     assert [entry['tool_id'] for entry in ctx.runtime_tool_results] == ['T2', 'T4']
     assert ctx.runtime_tool_result_created_ats == [20, 40]
     assert ctx.runtime_tool_results_turn_count == 1
     assert ctx.runtime_tool_results_generation == 1
-    assert ctx.runtime_failure_followup_tool_ids == ['T4']
-    assert [entry['tool_id'] for entry in ctx.runtime_failure_followup_entries] == ['T4']
 
     restored = RuntimeContext(None, None, None, {})
     apply_bootstrap_tool_results(restored, build_runtime_session_checkpoint(ctx))

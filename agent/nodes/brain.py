@@ -534,8 +534,6 @@ def consume_action_failure_followup_context(
     from xml.sax.saxutils import escape
     notices = getattr(context, "runtime_failure_followup_notices", [])
     context.runtime_failure_followup_notices = []
-    context.runtime_failure_followup_tool_ids = []
-    context.runtime_failure_followup_entries = []
     notifications = "\n\n".join(text for action, text in notices if action == "malformed_action")
     details = "\n\n".join(text for action, text in notices if action != "malformed_action" and text)
     if notifications and not details:

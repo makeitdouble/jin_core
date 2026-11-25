@@ -83,13 +83,33 @@ def test_failure_followup_survives_targeted_tool_result_cleanup():
     tool_id = ctx.runtime_tool_results[-1]['tool_id']
     assert clean_runtime_tool_result(ctx, tool_id)
     assert ctx.runtime_tool_results == []
-    assert ctx.runtime_failure_followup_tool_ids == []
-    assert ctx.runtime_failure_followup_entries == []
 
     text = consume_action_failure_followup_context(ctx)
     assert 'no project folder attached by user' in text
     assert PATH in text
+    assert ctx.runtime_failure_followup_notices == []
+    assert not ctx.runtime_followup_action_failure_pending
     assert consume_action_failure_followup_context(ctx) == ''
+
+
+def test_multiple_failures_survive_cleanup_once_and_new_turn_discards_pending_notice():
+    ctx = SimpleNamespace()
+    begin_runtime_tool_results_turn(ctx)
+    for detail in ('first failure', 'second failure'):
+        record_runtime_tool_result(ctx, 'runtime_action', {'ok': False, 'detail': detail})
+        assert clean_runtime_tool_result(ctx, ctx.runtime_tool_results[-1]['tool_id'])
+
+    text = consume_action_failure_followup_context(ctx)
+    assert text.count('first failure') == text.count('second failure') == 1
+    assert text.index('first failure') < text.index('second failure')
+    assert consume_action_failure_followup_context(ctx) == ''
+
+    record_runtime_tool_result(ctx, 'runtime_action', {'ok': False, 'detail': 'previous turn'})
+    begin_runtime_tool_results_turn(ctx)
+    record_runtime_tool_result(ctx, 'runtime_action', {'ok': False, 'detail': 'current turn'})
+    text = consume_action_failure_followup_context(ctx)
+    assert 'current turn' in text
+    assert 'previous turn' not in text
 
 
 def test_removed_request_flow_is_stripped_from_legacy_prompt():
