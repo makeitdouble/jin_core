@@ -44,26 +44,30 @@ class ChatLogTests(unittest.TestCase):
         else:
             config.ENABLE_RUNTIME_LOGS = self.original_runtime_logs
 
-    def test_stopped_bootstrap_tool_results_do_not_create_archive(self):
+    def test_pre_user_runtime_events_wait_for_first_real_message(self):
+        # Regression: speculative director/blank JIN sessions must not create
+        # an archived conversation from technical bootstrap events alone.
         context = SimpleNamespace(
-            session_id="stopped-bootstrap",
+            session_id="fresh-director-room",
             runtime_turn_counter=0,
             runtime_current_turn_id="",
+            runtime_session_restore_priming=False,
         )
-        now = datetime(2026, 10, 24, 14, 31, tzinfo=timezone.utc)
-        with tempfile.TemporaryDirectory() as temp_dir:
-            root = Path(temp_dir)
-            for index in range(3):
+        now = datetime(2026, 11, 12, 10, 15, tzinfo=timezone.utc)
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            for i in range(3):
                 self.assertIsNone(append_chat_runtime_event(
                     context, event="runtime_tool_result",
-                    payload={"index": index}, now=now, root=root,
+                    payload={"sequence": i}, now=now, root=root,
                 ))
-            path = get_chat_log_path(context, now=now, root=root)
-            self.assertFalse(path.parent.exists())
-            # A real USER message commits the deferred events and conversation.
-            append_chat_log_entry(context, role="user", text="hello", now=now, root=root)
-            entries = [json.loads(row) for row in path.read_text(encoding="utf-8").splitlines()]
-            self.assertEqual([row.get("event", row.get("role")) for row in entries],
+            archive = get_chat_log_path(context, now=now, root=root)
+            self.assertFalse(archive.exists())
+            self.assertFalse(archive.parent.exists())
+            append_chat_log_entry(context, role="user", text="hello",
+                                  now=now, root=root)
+            rows = [json.loads(x) for x in archive.read_text(encoding="utf-8").splitlines()]
+            self.assertEqual([row.get("event", row.get("role")) for row in rows],
                              ["runtime_tool_result"] * 3 + ["user"])
 
     def test_extract_active_memory_ids_prefers_explicit_ids(self):

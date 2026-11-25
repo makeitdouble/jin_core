@@ -404,8 +404,7 @@ def remove_runtime_tool_results(context, predicate) -> None:
     context.runtime_tool_results_turn_count = kept_current
     context.runtime_tool_results_generation = int(getattr(context, "runtime_tool_results_generation", 0) or 0) + 1
 
-    # Legacy mirrors must not reintroduce removed child outputs; don't discard
-    # a mirror if an identical parent result still owns the same value.
+    # A mirror stays valid while an identical result remains in the registry.
     kept_values = [entry.get("result") for entry in kept if isinstance(entry, dict)]
     for entry in removed:
         if not isinstance(entry, dict):
@@ -659,37 +658,32 @@ def _tool_id_is_owned_by_current_instance(context, entry) -> bool:
 
 
 def clean_runtime_tool_result(context, tool_id: str) -> bool:
-    """Only remove results owned by the current parent/child instance."""
-    entries = get_runtime_tool_results(context)
-    target = next((entry for entry in entries
-                   if isinstance(entry, dict) and entry.get("tool_id") == tool_id), None)
-    if target is None or not _tool_id_is_owned_by_current_instance(context, target):
+    """Remove one exact tool ID owned by the current instance."""
+    if not isinstance(tool_id, str) or not re.fullmatch(r"(?:SUB_)?T[1-9][0-9]*", tool_id):
         return False
-    remove_runtime_tool_results(context, lambda entry: entry is target)
-    return True
+    return clean_runtime_tool_results_by_ids(context, (tool_id,))
 
 
 def clean_runtime_tool_results_by_ids(context, tool_ids) -> bool:
     """Atomically remove one or more modern results by exact tool_id."""
-    normalized_ids = tuple(dict.fromkeys(
+    normalized_ids = {
         str(tool_id or "").strip()
         for tool_id in tool_ids
-    ))
+    }
     if not normalized_ids or any(
         not re.fullmatch(r"(?:SUB_)?T[1-9][0-9]*", tool_id)
         for tool_id in normalized_ids
     ):
         return False
 
-    existing_ids = {
-        str(entry.get("tool_id") or "")
-        for entry in get_runtime_tool_results(context)
-        if isinstance(entry, dict) and _tool_id_is_owned_by_current_instance(context, entry)
-    }
-    if any(tool_id not in existing_ids for tool_id in normalized_ids):
+    targets = [
+        entry for entry in get_runtime_tool_results(context)
+        if isinstance(entry, dict) and entry.get("tool_id") in normalized_ids
+        and _tool_id_is_owned_by_current_instance(context, entry)
+    ]
+    if normalized_ids != {entry["tool_id"] for entry in targets}:
         return False
 
-    return all(
-        clean_runtime_tool_result(context, tool_id)
-        for tool_id in normalized_ids
-    )
+    target_objects = {id(entry) for entry in targets}
+    remove_runtime_tool_results(context, lambda entry: id(entry) in target_objects)
+    return True
