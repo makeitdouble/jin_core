@@ -229,3 +229,64 @@ def test_repeated_same_payload_history_uses_latest_action_occurrence_id_only():
     assert '[ tool_id: T11 ]' in ctx.runtime_session_action_history[-1]['text']
     assert 'T9' not in ctx.runtime_session_action_history[-1]['text']
     assert 'T10' not in ctx.runtime_session_action_history[-1]['text']
+
+def test_batch_cleanup_across_turns_keeps_timestamps_and_only_surviving_failures():
+    from utils.tool_results import begin_runtime_tool_results_turn, clean_runtime_tool_results_by_ids
+
+    ctx = RuntimeContext(None, None, None, {})
+    failure = {'ok': False, 'detail': 'same failure'}
+    with patch('utils.chat_log.append_chat_runtime_event'):
+        record_runtime_tool_result(ctx, 'search', 'previous', created_at=10)
+        record_runtime_tool_result(ctx, 'asset', 'keep previous', created_at=20)
+        begin_runtime_tool_results_turn(ctx)
+        record_runtime_tool_result(ctx, 'files', failure, created_at=30)
+        record_runtime_tool_result(ctx, 'files', failure, created_at=40)
+
+    assert not clean_runtime_tool_results_by_ids(ctx, ['T1', 'T99'])
+    assert ctx.runtime_tool_results_generation == 0
+    assert ctx.runtime_tool_result_created_ats == [10, 20, 30, 40]
+    assert ctx.runtime_failure_followup_tool_ids == ['T3', 'T4']
+
+    assert clean_runtime_tool_results_by_ids(ctx, ['T3', 'T1', 'T3'])
+    assert [entry['tool_id'] for entry in ctx.runtime_tool_results] == ['T2', 'T4']
+    assert ctx.runtime_tool_result_created_ats == [20, 40]
+    assert ctx.runtime_tool_results_turn_count == 1
+    assert ctx.runtime_tool_results_generation == 1
+    assert ctx.runtime_failure_followup_tool_ids == ['T4']
+    assert [entry['tool_id'] for entry in ctx.runtime_failure_followup_entries] == ['T4']
+
+    restored = RuntimeContext(None, None, None, {})
+    apply_bootstrap_tool_results(restored, build_runtime_session_checkpoint(ctx))
+    assert restored.runtime_tool_result_created_ats == [20, 40]
+    assert [entry['tool_id'] for entry in restored.runtime_tool_results] == ['T2', 'T4']
+    with patch('utils.chat_log.append_chat_runtime_event'):
+        record_runtime_tool_result(restored, 'search', 'next')
+    assert restored.runtime_tool_results[-1]['tool_id'] == 'T5'
+
+
+def test_cleanup_preserves_equal_legacy_mirrors_until_last_result_is_removed():
+    from utils.tool_results import RUNTIME_TOOL_RESULT_LIST_ATTRIBUTES
+
+    ctx = RuntimeContext(None, None, None, {})
+    with patch('utils.chat_log.append_chat_runtime_event'):
+        for kind in ('search', 'deep_search'):
+            prefix = 'runtime_' + kind
+            setattr(ctx, prefix + '_result', kind)
+            setattr(ctx, prefix + '_result_id', 'call')
+            for _ in range(2):
+                record_runtime_tool_result(ctx, kind, kind)
+            first, last = ctx.runtime_tool_results
+            for attr in RUNTIME_TOOL_RESULT_LIST_ATTRIBUTES:
+                setattr(ctx, attr, [kind, 'unrelated'])
+
+            assert clean_runtime_tool_result(ctx, first['tool_id'])
+            assert getattr(ctx, prefix + '_result') == kind
+            assert getattr(ctx, prefix + '_result_id') == 'call'
+            for attr in RUNTIME_TOOL_RESULT_LIST_ATTRIBUTES:
+                assert getattr(ctx, attr) == [kind, 'unrelated']
+
+            assert clean_runtime_tool_result(ctx, last['tool_id'])
+            assert getattr(ctx, prefix + '_result') == ''
+            assert getattr(ctx, prefix + '_result_id') == ''
+            for attr in RUNTIME_TOOL_RESULT_LIST_ATTRIBUTES:
+                assert getattr(ctx, attr) == ['unrelated']

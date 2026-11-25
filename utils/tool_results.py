@@ -388,61 +388,56 @@ def record_runtime_tool_result(
     return True
 
 
-def remove_runtime_tool_results(
-    context,
-    predicate,
-) -> None:
-
-    tool_results = get_runtime_tool_results(
-        context
-    )
-    created_ats = getattr(
-        context,
-        RUNTIME_TOOL_RESULT_CREATED_AT_ATTRIBUTE,
-        None,
-    )
-    turn_count = int(getattr(context, "runtime_tool_results_turn_count", 0) or 0)
-    current_start = len(tool_results) - turn_count
-    removed_current = 0
-    next_tool_results = []
-    next_created_ats = []
-
-    for index, entry in enumerate(
-        tool_results
-    ):
-        if predicate(
-            entry
-        ):
+def remove_runtime_tool_results(context, predicate) -> None:
+    """Remove recorded results and keep their metadata/projections aligned."""
+    tool_results = get_runtime_tool_results(context)
+    created_ats = align_runtime_tool_result_created_ats(context)
+    current_count = min(max(int(getattr(context, "runtime_tool_results_turn_count", 0) or 0), 0), len(tool_results))
+    current_start = len(tool_results) - current_count
+    removed, kept = [], []
+    kept_ats = []
+    kept_current = 0
+    for index, entry in enumerate(tool_results):
+        if predicate(entry):
+            removed.append(entry)
+        else:
+            kept.append(entry)
+            kept_ats.append(created_ats[index])
             if index >= current_start:
-                removed_current += 1
-            continue
-
-        next_tool_results.append(
-            entry
-        )
-        if (
-            isinstance(
-                created_ats,
-                list,
-            )
-            and index < len(
-                created_ats
-            )
-        ):
-            next_created_ats.append(
-                created_ats[index]
-            )
-
-    if len(next_tool_results) == len(tool_results):
+                kept_current += 1
+    if not removed:
         return
-    context.runtime_tool_results_turn_count = max(0, turn_count - removed_current)
+    tool_results[:] = kept
+    created_ats[:] = kept_ats
+    context.runtime_tool_results_turn_count = kept_current
     context.runtime_tool_results_generation = int(getattr(context, "runtime_tool_results_generation", 0) or 0) + 1
-    tool_results[:] = next_tool_results
-    if isinstance(
-        created_ats,
-        list,
-    ):
-        created_ats[:] = next_created_ats
+
+    # A mirror stays valid while an identical result remains in the registry.
+    kept_values = [entry.get("result") for entry in kept if isinstance(entry, dict)]
+    for entry in removed:
+        if not isinstance(entry, dict):
+            continue
+        value = entry.get("result")
+        if value in kept_values:
+            continue
+        for attr in RUNTIME_TOOL_RESULT_LIST_ATTRIBUTES:
+            values = getattr(context, attr, None)
+            if isinstance(values, list):
+                values[:] = [item for item in values if item != value]
+        for kind, prefix in ((TOOL_RESULT_KIND_SEARCH, "runtime_search"),
+                             (TOOL_RESULT_KIND_DEEP_SEARCH, "runtime_deep_search")):
+            if entry.get("kind") == kind and getattr(context, prefix + "_result", None) == value:
+                setattr(context, prefix + "_result", "")
+                setattr(context, prefix + "_result_id", "")
+    removed_ids = {entry["tool_id"] for entry in removed if isinstance(entry, dict) and entry.get("tool_id")}
+    context.runtime_failure_followup_tool_ids = [
+        tool_id for tool_id in (getattr(context, "runtime_failure_followup_tool_ids", []) or [])
+        if tool_id not in removed_ids
+    ]
+    context.runtime_failure_followup_entries = [
+        entry for entry in (getattr(context, "runtime_failure_followup_entries", []) or [])
+        if not (isinstance(entry, dict) and entry.get("tool_id") in removed_ids)
+    ]
 
 
 def clear_runtime_tool_results_before_current_turn(
@@ -649,31 +644,15 @@ def clean_runtime_tool_result(context, tool_id: str) -> bool:
     """Remove exactly one modern result; legacy entries never match."""
     if not re.fullmatch(r"T[1-9][0-9]*", tool_id):
         return False
-    entries = get_runtime_tool_results(context)
-    target = next((entry for entry in entries if entry.get("tool_id") == tool_id), None)
-    if target is None:
-        return False
-    # Legacy mirrors must not resurrect the removed result when the list empties.
-    kind, result = target.get("kind"), target.get("result")
-    for attr in RUNTIME_TOOL_RESULT_LIST_ATTRIBUTES:
-        values = getattr(context, attr, None)
-        if isinstance(values, list):
-            values[:] = [value for value in values if value != result]
-    for result_kind, prefix in ((TOOL_RESULT_KIND_SEARCH, "runtime_search"),
-                                (TOOL_RESULT_KIND_DEEP_SEARCH, "runtime_deep_search")):
-        if kind == result_kind and getattr(context, prefix + "_result", None) == result:
-            setattr(context, prefix + "_result", "")
-            setattr(context, prefix + "_result_id", "")
-    remove_runtime_tool_results(context, lambda entry: entry is target)
-    return True
+    return clean_runtime_tool_results_by_ids(context, (tool_id,))
 
 
 def clean_runtime_tool_results_by_ids(context, tool_ids) -> bool:
     """Atomically remove one or more modern results by exact tool_id."""
-    normalized_ids = tuple(dict.fromkeys(
+    normalized_ids = {
         str(tool_id or "").strip()
         for tool_id in tool_ids
-    ))
+    }
     if not normalized_ids or any(
         not re.fullmatch(r"T[1-9][0-9]*", tool_id)
         for tool_id in normalized_ids
@@ -685,10 +664,8 @@ def clean_runtime_tool_results_by_ids(context, tool_ids) -> bool:
         for entry in get_runtime_tool_results(context)
         if entry.get("tool_id")
     }
-    if any(tool_id not in existing_ids for tool_id in normalized_ids):
+    if not normalized_ids.issubset(existing_ids):
         return False
 
-    return all(
-        clean_runtime_tool_result(context, tool_id)
-        for tool_id in normalized_ids
-    )
+    remove_runtime_tool_results(context, lambda entry: entry.get("tool_id") in normalized_ids)
+    return True
