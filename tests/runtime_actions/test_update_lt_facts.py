@@ -720,6 +720,75 @@ class RuntimeUpdateLTFactsTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(entry.get("_lt_frame_gate_bound"))
         self.assertIsNone(context.runtime_lt_active_attempt)
 
+    async def test_disk_store_snapshot_across_jin_note_service_call(self):
+        from pathlib import Path
+        from tempfile import TemporaryDirectory
+        from unittest.mock import patch
+        from runtime import LT_memory
+        from runtime.LT_memory_utils import clone_lt_store
+        from utils.long_term_facts_file_store import persist_long_term_facts_store
+
+        before_service = "2026-11-24T22:33:25Z"
+        after_service = "2026-11-24T22:33:29Z"
+        response = json.dumps({
+            "action": "create",
+            "replacement_facts": [],
+            "new_facts": [{"key": "desk_item", "value": "Red button", "category": "observation"}],
+        })
+
+        for concurrent_write in (False, True):
+            with self.subTest(concurrent_write=concurrent_write), TemporaryDirectory() as directory:
+                clock = before_service
+                snapshots = []
+                facts_root = Path(directory) / "facts"
+
+                class Service(FakeServiceClient):
+                    async def ask(self, **kwargs):
+                        nonlocal clock
+                        clock = after_service
+                        if concurrent_write:
+                            persist_long_term_facts_store({
+                                "facts": [{
+                                    "id": "F1", "key": "concurrent_fact", "value": "Written during SERVICE",
+                                    "category": "observation", "created_at": clock, "updated_at": clock,
+                                    "last_mentioned_at": clock,
+                                }],
+                            }, root=facts_root)
+                        return await super().ask(**kwargs)
+
+                def capture_snapshot(store):
+                    snapshot = clone_lt_store(store)
+                    snapshots.append(snapshot)
+                    return snapshot
+
+                service = Service(response)
+                context = RuntimeContext(None, FakeEmitter(), FakeLogger(), {"service": service})
+                context.memory_profile_enabled = True
+                context.memory_profile_root = directory
+
+                with patch("runtime.LT_memory_utils.utc_now_iso", side_effect=lambda: clock), patch.object(
+                    LT_memory, "clone_lt_store", side_effect=capture_snapshot,
+                ):
+                    result = await LT_memory.run_lt_jin_note(
+                        context=context,
+                        note={"fact_ids": [], "message": "Create: A red button is on the desk."},
+                    )
+
+                before, after = snapshots[:2]
+                self.assertEqual(len(service.calls), 1)
+                self.assertEqual(before["facts"], [])
+                self.assertEqual(before["updated_at"], "")
+                self.assertEqual(after["updated_at"], "")
+                keys = [fact["key"] for fact in context.runtime_long_term_memory_store["facts"]]
+                if concurrent_write:
+                    self.assertNotEqual(before, after)
+                    self.assertEqual(result["reason"], "store_changed_during_jin_note")
+                    self.assertEqual(keys, ["concurrent_fact"])
+                else:
+                    self.assertEqual(before, after)
+                    self.assertEqual(result["status"], "completed")
+                    self.assertEqual(keys, ["desk_item"])
+
     async def test_runtime_action_can_create_lt_without_selected_facts(self):
         emitter = FakeEmitter()
         logger = FakeLogger()
